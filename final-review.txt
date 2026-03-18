@@ -1,0 +1,22 @@
+Final Dashboard Review - Polished Version:
+
+1. Status Bar: Sticky at top, all 4 modules with green dots, brand "ATS" with blue square icon, time showing IST.
+2. Header: "Trading Command Center" title, live clock 15:25:00, "MARKET OPEN" badge in green (top right).
+3. Left Column: Control Panel with Trading Mode toggle (Paper Trading), Risk Parameters (SL 15%, TP 30%, Qty 50), Market Hours, Broker info.
+4. Center Column - NIFTY 50 Card:
+   - BULLISH bias with green trend icon
+   - AI: GO (78%) badge in green
+   - Rationale text
+   - Call OI 8.9M (green), Put OI 7.2M (red), PCR 0.81 (cyan)
+   - NEW: OI Balance Bar (green/red gradient showing call vs put proportion)
+   - NEW: Left edge glow in green (bullish indicator)
+   - Support: 23200, 23100, 23000 with OI values
+   - Resistance: 23500, 23600, 23700 with OI values
+   - Active Strikes: CE 23300 (+23K Long Buildup), CE 23400 (-15K Long Unwinding), PE 23200 (+45K Short Buildup)
+5. Center Column - CRUDE OIL Card:
+   - BEARISH with red trend icon
+   - AI: NO GO (45%) in red
+   - OI Bar, Support/Resistance, Active Strikes all visible
+   - Left edge glow in red (bearish indicator)
+6. Right Column: Live Signals Feed with 8 signals, color-coded, with instrument names, strike prices, time stamps, and descriptions.
+7. Overall: Dark Terminal Noir theme looks professional and information-dense. Monospace typography (JetBrains Mono) gives authentic terminal feel.

@@ -1,0 +1,7 @@
+Dashboard Preview Notes:
+- The page is rendering and all components are visible
+- Signals feed is showing all 8 signals with correct data
+- The markdown extraction shows the content is rendering correctly
+- Need to verify visual layout via screenshot
+- TypeScript has no errors
+- All components are loading properly
