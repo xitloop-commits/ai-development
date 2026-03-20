@@ -80,6 +80,11 @@ export default function InstrumentCard({ data, bgImage }: InstrumentCardProps) {
             <h3 className="font-display text-lg font-bold tracking-wide text-foreground">
               {data.displayName}
             </h3>
+            {data.lastPrice > 0 && (
+              <span className="text-sm font-bold tabular-nums text-info-cyan mt-0.5">
+                ₹{data.lastPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            )}
             <div className="flex items-center gap-2 mt-0.5">
               <span className="text-[10px] text-muted-foreground tracking-wider">{data.exchange}</span>
               <span className="text-[10px] text-muted-foreground">|</span>

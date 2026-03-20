@@ -4,21 +4,22 @@
  * Left: Control Panel (narrow)
  * Center: Instrument Cards (wide)
  * Right: Signals Feed + Position Tracker (medium)
- * Polished with smooth transitions, responsive breakpoints, and visual refinements.
+ * Now connected to live tRPC endpoints with 3-second polling.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import StatusBar from '@/components/StatusBar';
 import InstrumentCard from '@/components/InstrumentCard';
 import SignalsFeed from '@/components/SignalsFeed';
 import PositionTracker from '@/components/PositionTracker';
 import ControlPanel from '@/components/ControlPanel';
+import { trpc } from '@/lib/trpc';
 import {
-  moduleStatuses,
+  moduleStatuses as mockModules,
   niftyData,
   crudeOilData,
   naturalGasData,
-  recentSignals,
-  openPositions,
+  recentSignals as mockSignals,
+  openPositions as mockPositions,
 } from '@/lib/mockData';
 
 const HERO_BG = 'https://d2xsxph8kpxj0f.cloudfront.net/310519663447231618/hZHDUL7Uaz8bz3VADXMZ3Y/hero-bg-Wp42HMEncnH9AUREvv2DsM.webp';
@@ -26,22 +27,54 @@ const NIFTY_BG = 'https://d2xsxph8kpxj0f.cloudfront.net/310519663447231618/hZHDU
 const CRUDE_BG = 'https://d2xsxph8kpxj0f.cloudfront.net/310519663447231618/hZHDUL7Uaz8bz3VADXMZ3Y/crude-card-bg-9ALVSYhrmD5LJG7UAqvQuP.webp';
 const NATGAS_BG = 'https://d2xsxph8kpxj0f.cloudfront.net/310519663447231618/hZHDUL7Uaz8bz3VADXMZ3Y/natgas-card-bg-9652MS4YtP9ssiQqHZSrhd.webp';
 
+const POLL_INTERVAL = 3000; // 3 seconds
+
+const bgMap: Record<string, string> = {
+  NIFTY_50: NIFTY_BG,
+  CRUDEOIL: CRUDE_BG,
+  NATURALGAS: NATGAS_BG,
+};
+
 export default function Dashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isMarketOpen, setIsMarketOpen] = useState(false);
+
+  // tRPC queries with polling
+  const modulesQuery = trpc.trading.moduleStatuses.useQuery(undefined, {
+    refetchInterval: POLL_INTERVAL,
+  });
+  const instrumentsQuery = trpc.trading.instruments.useQuery(undefined, {
+    refetchInterval: POLL_INTERVAL,
+  });
+  const signalsQuery = trpc.trading.signals.useQuery({ limit: 50 }, {
+    refetchInterval: POLL_INTERVAL,
+  });
+  const positionsQuery = trpc.trading.positions.useQuery(undefined, {
+    refetchInterval: POLL_INTERVAL,
+  });
+
+  // Use live data if available, fall back to mock data
+  const modules = modulesQuery.data ?? mockModules;
+  const instruments = instrumentsQuery.data ?? [niftyData, crudeOilData, naturalGasData];
+  const signals = signalsQuery.data ?? mockSignals;
+  const positions = positionsQuery.data ?? mockPositions;
+
+  // Determine if we have live data
+  const hasLiveData = useMemo(() => {
+    return modulesQuery.data !== undefined && instrumentsQuery.data !== undefined;
+  }, [modulesQuery.data, instrumentsQuery.data]);
 
   useEffect(() => {
     const timer = setInterval(() => {
       const now = new Date();
       setCurrentTime(now);
-      // Check if NSE market is open (9:15 AM - 3:30 PM IST, Mon-Fri)
       const hours = now.getHours();
       const minutes = now.getMinutes();
       const day = now.getDay();
       const timeInMinutes = hours * 60 + minutes;
       const isWeekday = day >= 1 && day <= 5;
-      const isNSEOpen = timeInMinutes >= 555 && timeInMinutes <= 930; // 9:15 to 15:30
-      const isMCXOpen = timeInMinutes >= 540 && timeInMinutes <= 1410; // 9:00 to 23:30
+      const isNSEOpen = timeInMinutes >= 555 && timeInMinutes <= 930;
+      const isMCXOpen = timeInMinutes >= 540 && timeInMinutes <= 1410;
       setIsMarketOpen(isWeekday && (isNSEOpen || isMCXOpen));
     }, 1000);
     return () => clearInterval(timer);
@@ -61,7 +94,7 @@ export default function Dashboard() {
       {/* Content */}
       <div className="relative z-[2]">
         {/* Status Bar */}
-        <StatusBar modules={moduleStatuses} />
+        <StatusBar modules={modules} />
 
         {/* Main Content */}
         <div className="container py-4">
@@ -91,6 +124,15 @@ export default function Dashboard() {
                   <div className={`h-1.5 w-1.5 rounded-full ${isMarketOpen ? 'bg-bullish animate-pulse-glow' : 'bg-destructive'}`} />
                   {isMarketOpen ? 'MARKET OPEN' : 'MARKET CLOSED'}
                 </div>
+                {/* Live data indicator */}
+                <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider ${
+                  hasLiveData
+                    ? 'bg-info-cyan/10 text-info-cyan border border-info-cyan/20'
+                    : 'bg-warning-amber/10 text-warning-amber border border-warning-amber/20'
+                }`}>
+                  <div className={`h-1.5 w-1.5 rounded-full ${hasLiveData ? 'bg-info-cyan animate-pulse-glow' : 'bg-warning-amber'}`} />
+                  {hasLiveData ? 'LIVE DATA' : 'DEMO MODE'}
+                </div>
               </div>
             </div>
           </div>
@@ -106,17 +148,21 @@ export default function Dashboard() {
 
             {/* Center Column: Instrument Cards + Positions */}
             <div className="space-y-4">
-              <InstrumentCard data={niftyData} bgImage={NIFTY_BG} />
-              <InstrumentCard data={crudeOilData} bgImage={CRUDE_BG} />
-              <InstrumentCard data={naturalGasData} bgImage={NATGAS_BG} />
+              {instruments.map((inst) => (
+                <InstrumentCard
+                  key={inst.name}
+                  data={inst}
+                  bgImage={bgMap[inst.name]}
+                />
+              ))}
 
               {/* Position Tracker below instruments */}
-              <PositionTracker positions={openPositions} />
+              <PositionTracker positions={positions} />
             </div>
 
             {/* Right Column: Signals Feed */}
             <div className="h-[calc(100vh-160px)] sticky top-4">
-              <SignalsFeed signals={recentSignals} />
+              <SignalsFeed signals={signals} />
             </div>
           </div>
 
@@ -133,7 +179,7 @@ export default function Dashboard() {
               ATS v1.0 | Dhan Broker Integration | Powered by AI Decision Engine
             </span>
             <span className="text-[9px] text-muted-foreground tracking-wider">
-              Data refreshes every 5 seconds during market hours
+              {hasLiveData ? 'Connected to live Python backend' : 'Showing demo data — connect Python modules to see live data'} | Polling every 3s
             </span>
           </div>
         </div>

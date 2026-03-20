@@ -1,31 +1,42 @@
 /*
  * Terminal Noir — ControlPanel Component
  * Sidebar panel with trading mode toggle, risk parameters, and system controls.
+ * Now connected to tRPC for live trading mode control.
  */
 import { useState } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { Power, ShieldAlert, Target, BarChart3, Clock } from 'lucide-react';
-import type { TradingMode } from '@/lib/types';
+import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
 
 export default function ControlPanel() {
-  const [tradingMode, setTradingMode] = useState<TradingMode>('PAPER');
   const [stopLoss, setStopLoss] = useState(15);
   const [targetProfit, setTargetProfit] = useState(30);
   const [quantity, setQuantity] = useState(50);
 
+  // Read trading mode from server
+  const modeQuery = trpc.trading.tradingMode.useQuery(undefined, {
+    refetchInterval: 5000,
+  });
+  const setModeMutation = trpc.trading.setTradingMode.useMutation({
+    onSuccess: (data) => {
+      modeQuery.refetch();
+      if (data.mode === 'LIVE') {
+        toast.warning('Live Trading Activated', {
+          description: 'Real orders will be placed on Dhan. Monitor closely.',
+        });
+      } else {
+        toast.info('Paper Trading Mode', {
+          description: 'Orders will be simulated. No real trades.',
+        });
+      }
+    },
+  });
+
+  const tradingMode = modeQuery.data?.mode ?? 'PAPER';
+
   const handleModeToggle = (checked: boolean) => {
-    if (checked) {
-      toast.warning('Live Trading Activated', {
-        description: 'Real orders will be placed on Dhan. Monitor closely.',
-      });
-      setTradingMode('LIVE');
-    } else {
-      toast.info('Paper Trading Mode', {
-        description: 'Orders will be simulated. No real trades.',
-      });
-      setTradingMode('PAPER');
-    }
+    setModeMutation.mutate({ mode: checked ? 'LIVE' : 'PAPER' });
   };
 
   return (
@@ -49,6 +60,7 @@ export default function ControlPanel() {
             <Switch
               checked={tradingMode === 'LIVE'}
               onCheckedChange={handleModeToggle}
+              disabled={setModeMutation.isPending}
             />
           </div>
           <div className={`text-center py-1.5 rounded text-[11px] font-bold tracking-widest ${

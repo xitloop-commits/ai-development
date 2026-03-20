@@ -1,0 +1,23 @@
+# Project TODO
+
+- [x] Basic Terminal Noir dashboard layout
+- [x] StatusBar with 4 module heartbeats
+- [x] InstrumentCard components (Nifty 50, Crude Oil, Natural Gas)
+- [x] Live Signals Feed component
+- [x] Position Tracker component
+- [x] Control Panel with trading mode toggle
+- [x] OI bar visualization and polish
+- [x] Upgrade to full-stack project with backend server and database
+- [x] Create tRPC API endpoints to serve live trading data
+- [x] Create REST API data ingestion endpoints for Python modules to push data
+- [x] Create in-memory trading store for real-time data
+- [x] Update frontend InstrumentCard to fetch real-time data via tRPC
+- [x] Update frontend SignalsFeed to fetch real-time signals via tRPC
+- [x] Update frontend PositionTracker to fetch real-time positions via tRPC
+- [x] Update frontend StatusBar to show real module health status
+- [x] Update frontend ControlPanel to control trading mode via API
+- [x] Add 3-second polling for real-time data refresh
+- [x] Write vitest tests for trading store (18 tests passing)
+- [x] Test full data pipeline: REST push -> Store -> tRPC -> React
+- [x] Create Python data pusher script for bridging Python modules to dashboard
+- [ ] Save checkpoint and deliver integrated dashboard
