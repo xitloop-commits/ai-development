@@ -14,6 +14,8 @@ import {
   updateModuleHeartbeat,
   setTradingMode,
   getTradingMode,
+  getActiveInstruments,
+  setActiveInstruments,
 } from './tradingStore';
 
 export function registerTradingRoutes(app: Express): void {
@@ -115,6 +117,28 @@ export function registerTradingRoutes(app: Express): void {
 
   app.get('/api/trading/mode', (_req: Request, res: Response) => {
     res.json({ mode: getTradingMode() });
+  });
+
+  // --- Active Instruments Control ---
+  // GET: Python modules poll this to know which instruments to process
+  app.get('/api/trading/active-instruments', (_req: Request, res: Response) => {
+    res.json({ instruments: getActiveInstruments() });
+  });
+
+  // POST: Dashboard frontend sets which instruments are active
+  app.post('/api/trading/active-instruments', (req: Request, res: Response) => {
+    try {
+      const { instruments } = req.body;
+      if (!Array.isArray(instruments)) {
+        res.status(400).json({ error: 'instruments must be an array of instrument keys' });
+        return;
+      }
+      setActiveInstruments(instruments);
+      res.json({ success: true, instruments: getActiveInstruments() });
+    } catch (err: any) {
+      console.error('[Trading API] Error setting active instruments:', err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Health check

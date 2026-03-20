@@ -10,6 +10,8 @@ import {
   getPositions,
   getTradingMode,
   setTradingMode,
+  getActiveInstruments,
+  setActiveInstruments,
 } from "./tradingStore";
 
 export const appRouter = router({
@@ -59,6 +61,19 @@ export const appRouter = router({
       .mutation(({ input }) => {
         setTradingMode(input.mode);
         return { success: true, mode: input.mode };
+      }),
+
+    // Get active instruments list
+    activeInstruments: publicProcedure.query(() => {
+      return { instruments: getActiveInstruments() };
+    }),
+
+    // Set active instruments (syncs frontend filter to backend for Python modules)
+    setActiveInstruments: publicProcedure
+      .input(z.object({ instruments: z.array(z.string()) }))
+      .mutation(({ input }) => {
+        setActiveInstruments(input.instruments);
+        return { success: true, instruments: getActiveInstruments() };
       }),
   }),
 });

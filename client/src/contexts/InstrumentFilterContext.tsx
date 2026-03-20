@@ -1,6 +1,7 @@
 /**
  * InstrumentFilterContext — Manages which instruments are visible on the dashboard.
- * Persists user preferences in localStorage.
+ * Persists user preferences in localStorage AND syncs to the backend so
+ * Python modules can poll the active instruments list and skip disabled ones.
  */
 import {
   createContext,
@@ -8,8 +9,10 @@ import {
   useState,
   useCallback,
   useEffect,
+  useRef,
   type ReactNode,
 } from 'react';
+import { trpc } from '@/lib/trpc';
 
 const STORAGE_KEY = 'ats_instrument_filter';
 
@@ -35,6 +38,8 @@ interface InstrumentFilterContextValue {
   isEnabled: (key: InstrumentKey) => boolean;
   /** Number of enabled instruments */
   enabledCount: number;
+  /** Whether the backend sync is in progress */
+  isSyncing: boolean;
 }
 
 const InstrumentFilterContext = createContext<InstrumentFilterContextValue | null>(null);
@@ -69,10 +74,37 @@ export function InstrumentFilterProvider({ children }: { children: ReactNode }) 
     loadEnabledInstruments,
   );
 
-  // Persist whenever the set changes
+  // tRPC mutation to sync active instruments to the backend
+  const syncMutation = trpc.trading.setActiveInstruments.useMutation();
+  const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounced sync to backend — waits 500ms after last change to avoid rapid-fire
+  const syncToBackend = useCallback(
+    (instruments: Set<InstrumentKey>) => {
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+      }
+      syncTimeoutRef.current = setTimeout(() => {
+        syncMutation.mutate({ instruments: Array.from(instruments) });
+      }, 500);
+    },
+    [syncMutation],
+  );
+
+  // Persist locally and sync to backend whenever the set changes
   useEffect(() => {
     saveEnabledInstruments(enabledInstruments);
-  }, [enabledInstruments]);
+    syncToBackend(enabledInstruments);
+  }, [enabledInstruments]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // On mount, also sync current state to backend (in case server restarted)
+  const hasSyncedOnMount = useRef(false);
+  useEffect(() => {
+    if (!hasSyncedOnMount.current) {
+      hasSyncedOnMount.current = true;
+      syncMutation.mutate({ instruments: Array.from(enabledInstruments) });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleInstrument = useCallback((key: InstrumentKey) => {
     setEnabledInstruments((prev) => {
@@ -112,6 +144,7 @@ export function InstrumentFilterProvider({ children }: { children: ReactNode }) 
         disableAll,
         isEnabled,
         enabledCount: enabledInstruments.size,
+        isSyncing: syncMutation.isPending,
       }}
     >
       {children}

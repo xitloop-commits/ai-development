@@ -28,7 +28,16 @@
 - [x] AlertHistory collapsible panel (last 20 alerts with timestamps)
 - [x] Integrate alert system into Dashboard page
 - [x] Write vitest tests for alert utilities (13 tests passing)
-- [ ] Save checkpoint for Browser Push Notifications & Sound Alerts
+- [x] Save checkpoint for Browser Push Notifications & Sound Alerts
 - [x] Instrument filter context (include/exclude instruments with localStorage persistence)
 - [x] Instrument filter toggle UI in Control Panel
 - [x] Dashboard filters instrument cards, signals, and positions based on active instruments
+- [x] Server-side active instruments store with GET/SET REST + tRPC endpoints
+- [x] Sync frontend instrument filter toggles to backend via tRPC mutation
+- [x] Update dhan_option_chain_fetcher.py to poll active instruments and skip disabled
+- [x] Update option_chain_analyzer.py to poll active instruments and skip disabled
+- [x] Update ai_decision_engine.py to poll active instruments and skip disabled
+- [x] Update execution_module.py to poll active instruments and skip disabled
+- [x] Update dashboard_data_pusher.py to respect active instruments
+- [x] Write vitest tests for active instruments endpoints (13 tests passing)
+- [ ] Save checkpoint for Option B Full Pipeline Control

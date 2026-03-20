@@ -38,6 +38,12 @@ const positions: Position[] = [];
 // Trading mode
 let tradingMode: TradingMode = 'PAPER';
 
+// Active instruments — controls which instruments the Python pipeline processes
+// Default: all instruments enabled
+const ALL_INSTRUMENT_KEYS = ['NIFTY_50', 'CRUDEOIL', 'NATURALGAS'] as const;
+export type InstrumentKey = typeof ALL_INSTRUMENT_KEYS[number];
+let activeInstruments: Set<string> = new Set(ALL_INSTRUMENT_KEYS);
+
 // Module heartbeats
 const moduleHeartbeats: Record<string, { lastSeen: number; message: string }> = {
   FETCHER: { lastSeen: 0, message: 'Waiting for data...' },
@@ -138,6 +144,27 @@ export function setTradingMode(mode: TradingMode): void {
 
 export function getTradingMode(): TradingMode {
   return tradingMode;
+}
+
+// --- Active Instruments Management ---
+
+export function getActiveInstruments(): string[] {
+  return Array.from(activeInstruments);
+}
+
+export function setActiveInstruments(instruments: string[]): void {
+  // Validate: only allow known instrument keys, and keep at least one active
+  const valid = instruments.filter(k => (ALL_INSTRUMENT_KEYS as readonly string[]).includes(k));
+  if (valid.length === 0) {
+    // Fallback: keep all active if empty list provided
+    activeInstruments = new Set(ALL_INSTRUMENT_KEYS);
+  } else {
+    activeInstruments = new Set(valid);
+  }
+}
+
+export function isInstrumentActive(instrument: string): boolean {
+  return activeInstruments.has(instrument);
 }
 
 // --- Data Read Functions (called by tRPC procedures) ---

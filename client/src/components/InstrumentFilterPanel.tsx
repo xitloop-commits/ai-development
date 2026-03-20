@@ -8,7 +8,7 @@ import {
   ALL_INSTRUMENTS,
   type InstrumentKey,
 } from '@/contexts/InstrumentFilterContext';
-import { Eye, EyeOff, LayoutGrid } from 'lucide-react';
+import { Eye, EyeOff, LayoutGrid, Loader2, CloudOff } from 'lucide-react';
 
 const INSTRUMENT_ICONS: Record<InstrumentKey, string> = {
   NIFTY_50: '📊',
@@ -17,7 +17,7 @@ const INSTRUMENT_ICONS: Record<InstrumentKey, string> = {
 };
 
 export default function InstrumentFilterPanel() {
-  const { enabledInstruments, toggleInstrument, enableAll, enabledCount } =
+  const { enabledInstruments, toggleInstrument, enableAll, enabledCount, isSyncing } =
     useInstrumentFilter();
 
   const allEnabled = enabledCount === ALL_INSTRUMENTS.length;
@@ -92,11 +92,21 @@ export default function InstrumentFilterPanel() {
         })}
       </div>
 
-      {/* Active count */}
-      <div className="text-center">
+      {/* Active count + sync status */}
+      <div className="text-center space-y-1">
         <span className="text-[9px] text-muted-foreground tabular-nums">
           {enabledCount} of {ALL_INSTRUMENTS.length} instruments active
         </span>
+        <div className="flex items-center justify-center gap-1">
+          {isSyncing ? (
+            <>
+              <Loader2 className="h-2.5 w-2.5 text-info-cyan animate-spin" />
+              <span className="text-[8px] text-info-cyan">Syncing to pipeline...</span>
+            </>
+          ) : (
+            <span className="text-[8px] text-muted-foreground">Pipeline synced</span>
+          )}
+        </div>
       </div>
     </div>
   );
