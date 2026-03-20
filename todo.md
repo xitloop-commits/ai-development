@@ -20,4 +20,15 @@
 - [x] Write vitest tests for trading store (18 tests passing)
 - [x] Test full data pipeline: REST push -> Store -> tRPC -> React
 - [x] Create Python data pusher script for bridging Python modules to dashboard
-- [ ] Save checkpoint and deliver integrated dashboard
+- [x] Save checkpoint and deliver integrated dashboard
+- [x] Sound engine using Web Audio API (programmatic alert tones)
+- [x] NotificationProvider React context (permission state, settings, alert queue)
+- [x] useAlertMonitor hook (detect new signals, position changes, module status)
+- [x] AlertSettingsPanel UI in Control Panel (toggles, volume, DND mode)
+- [x] AlertHistory collapsible panel (last 20 alerts with timestamps)
+- [x] Integrate alert system into Dashboard page
+- [x] Write vitest tests for alert utilities (13 tests passing)
+- [ ] Save checkpoint for Browser Push Notifications & Sound Alerts
+- [x] Instrument filter context (include/exclude instruments with localStorage persistence)
+- [x] Instrument filter toggle UI in Control Panel
+- [x] Dashboard filters instrument cards, signals, and positions based on active instruments

@@ -3,8 +3,9 @@
  * Main layout: Top status bar, then a 3-column grid.
  * Left: Control Panel (narrow)
  * Center: Instrument Cards (wide)
- * Right: Signals Feed + Position Tracker (medium)
- * Now connected to live tRPC endpoints with 3-second polling.
+ * Right: Signals Feed + Alert History (medium)
+ * Connected to live tRPC endpoints with 3-second polling.
+ * Integrates alert monitoring and instrument filtering.
  */
 import { useState, useEffect, useMemo } from 'react';
 import StatusBar from '@/components/StatusBar';
@@ -12,7 +13,12 @@ import InstrumentCard from '@/components/InstrumentCard';
 import SignalsFeed from '@/components/SignalsFeed';
 import PositionTracker from '@/components/PositionTracker';
 import ControlPanel from '@/components/ControlPanel';
+import AlertHistory from '@/components/AlertHistory';
 import { trpc } from '@/lib/trpc';
+import { useAlertMonitor } from '@/hooks/useAlertMonitor';
+import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
+import { useAlerts } from '@/contexts/AlertContext';
+import { Bell } from 'lucide-react';
 import {
   moduleStatuses as mockModules,
   niftyData,
@@ -39,6 +45,12 @@ export default function Dashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isMarketOpen, setIsMarketOpen] = useState(false);
 
+  // Instrument filter
+  const { isEnabled } = useInstrumentFilter();
+
+  // Alert context for unread badge
+  const { unreadCount, settings: alertSettings } = useAlerts();
+
   // tRPC queries with polling
   const modulesQuery = trpc.trading.moduleStatuses.useQuery(undefined, {
     refetchInterval: POLL_INTERVAL,
@@ -55,14 +67,60 @@ export default function Dashboard() {
 
   // Use live data if available, fall back to mock data
   const modules = modulesQuery.data ?? mockModules;
-  const instruments = instrumentsQuery.data ?? [niftyData, crudeOilData, naturalGasData];
-  const signals = signalsQuery.data ?? mockSignals;
-  const positions = positionsQuery.data ?? mockPositions;
+  const allInstruments = instrumentsQuery.data ?? [niftyData, crudeOilData, naturalGasData];
+  const allSignals = signalsQuery.data ?? mockSignals;
+  const allPositions = positionsQuery.data ?? mockPositions;
+
+  // Filter instruments based on user selection
+  const instruments = useMemo(() => {
+    return allInstruments.filter((inst) => isEnabled(inst.name as any));
+  }, [allInstruments, isEnabled]);
+
+  // Filter signals to only show enabled instruments
+  const signals = useMemo(() => {
+    return allSignals.filter((sig) => {
+      // Map signal instrument names to keys
+      const keyMap: Record<string, string> = {
+        'NIFTY 50': 'NIFTY_50',
+        'NIFTY_50': 'NIFTY_50',
+        'CRUDE OIL': 'CRUDEOIL',
+        'CRUDEOIL': 'CRUDEOIL',
+        'NATURAL GAS': 'NATURALGAS',
+        'NATURALGAS': 'NATURALGAS',
+      };
+      const key = keyMap[sig.instrument] || sig.instrument;
+      return isEnabled(key as any);
+    });
+  }, [allSignals, isEnabled]);
+
+  // Filter positions to only show enabled instruments
+  const positions = useMemo(() => {
+    return allPositions.filter((pos) => {
+      const keyMap: Record<string, string> = {
+        'NIFTY 50': 'NIFTY_50',
+        'NIFTY_50': 'NIFTY_50',
+        'CRUDE OIL': 'CRUDEOIL',
+        'CRUDEOIL': 'CRUDEOIL',
+        'NATURAL GAS': 'NATURALGAS',
+        'NATURALGAS': 'NATURALGAS',
+      };
+      const key = keyMap[pos.instrument] || pos.instrument;
+      return isEnabled(key as any);
+    });
+  }, [allPositions, isEnabled]);
 
   // Determine if we have live data
   const hasLiveData = useMemo(() => {
     return modulesQuery.data !== undefined && instrumentsQuery.data !== undefined;
   }, [modulesQuery.data, instrumentsQuery.data]);
+
+  // Alert monitoring — watches for changes in live data
+  useAlertMonitor({
+    instruments: instrumentsQuery.data,
+    modules: modulesQuery.data,
+    signals: signalsQuery.data,
+    positions: positionsQuery.data,
+  });
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -133,12 +191,24 @@ export default function Dashboard() {
                   <div className={`h-1.5 w-1.5 rounded-full ${hasLiveData ? 'bg-info-cyan animate-pulse-glow' : 'bg-warning-amber'}`} />
                   {hasLiveData ? 'LIVE DATA' : 'DEMO MODE'}
                 </div>
+                {/* Alert indicator */}
+                {!alertSettings.dndMode && unreadCount > 0 && (
+                  <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider bg-destructive/10 text-destructive border border-destructive/20 animate-pulse-glow">
+                    <Bell className="h-3 w-3" />
+                    {unreadCount}
+                  </div>
+                )}
+                {alertSettings.dndMode && (
+                  <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider bg-warning-amber/10 text-warning-amber border border-warning-amber/20">
+                    DND
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
           {/* 3-Column Grid Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr_320px] gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr_320px] gap-4">
             {/* Left Column: Control Panel */}
             <div className="hidden lg:block">
               <div className="sticky top-4">
@@ -148,21 +218,32 @@ export default function Dashboard() {
 
             {/* Center Column: Instrument Cards + Positions */}
             <div className="space-y-4">
-              {instruments.map((inst) => (
-                <InstrumentCard
-                  key={inst.name}
-                  data={inst}
-                  bgImage={bgMap[inst.name]}
-                />
-              ))}
+              {instruments.length === 0 ? (
+                <div className="border border-border rounded-md bg-card p-8 text-center">
+                  <p className="text-[11px] text-muted-foreground">
+                    No instruments selected. Enable instruments in the Control Panel.
+                  </p>
+                </div>
+              ) : (
+                instruments.map((inst) => (
+                  <InstrumentCard
+                    key={inst.name}
+                    data={inst}
+                    bgImage={bgMap[inst.name]}
+                  />
+                ))
+              )}
 
               {/* Position Tracker below instruments */}
               <PositionTracker positions={positions} />
             </div>
 
-            {/* Right Column: Signals Feed */}
-            <div className="h-[calc(100vh-160px)] sticky top-4">
-              <SignalsFeed signals={signals} />
+            {/* Right Column: Signals Feed + Alert History */}
+            <div className="space-y-4">
+              <div className="h-[calc(100vh-280px)] sticky top-4">
+                <SignalsFeed signals={signals} />
+              </div>
+              <AlertHistory />
             </div>
           </div>
 
@@ -176,7 +257,7 @@ export default function Dashboard() {
         <div className="border-t border-border mt-8">
           <div className="container py-3 flex flex-col sm:flex-row items-center justify-between gap-1">
             <span className="text-[9px] text-muted-foreground tracking-wider uppercase">
-              ATS v1.0 | Dhan Broker Integration | Powered by AI Decision Engine
+              ATS v1.1 | Dhan Broker Integration | Powered by AI Decision Engine
             </span>
             <span className="text-[9px] text-muted-foreground tracking-wider">
               {hasLiveData ? 'Connected to live Python backend' : 'Showing demo data — connect Python modules to see live data'} | Polling every 3s

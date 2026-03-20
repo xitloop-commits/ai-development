@@ -1,13 +1,16 @@
 /*
  * Terminal Noir — ControlPanel Component
- * Sidebar panel with trading mode toggle, risk parameters, and system controls.
- * Now connected to tRPC for live trading mode control.
+ * Sidebar panel with trading mode toggle, risk parameters, system controls,
+ * instrument filter, and alert settings.
+ * Connected to tRPC for live trading mode control.
  */
 import { useState } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { Power, ShieldAlert, Target, BarChart3, Clock } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
+import AlertSettingsPanel from './AlertSettingsPanel';
+import InstrumentFilterPanel from './InstrumentFilterPanel';
 
 export default function ControlPanel() {
   const [stopLoss, setStopLoss] = useState(15);
@@ -47,7 +50,7 @@ export default function ControlPanel() {
         </span>
       </div>
 
-      <div className="p-3 space-y-4">
+      <div className="p-3 space-y-4 overflow-y-auto max-h-[calc(100vh-200px)]">
         {/* Trading Mode Toggle */}
         <div className="bg-secondary/30 rounded p-3">
           <div className="flex items-center justify-between mb-2">
@@ -72,8 +75,13 @@ export default function ControlPanel() {
           </div>
         </div>
 
+        {/* Instrument Filter */}
+        <div className="border-t border-border pt-3">
+          <InstrumentFilterPanel />
+        </div>
+
         {/* Risk Parameters */}
-        <div className="space-y-3">
+        <div className="space-y-3 border-t border-border pt-3">
           <div className="text-[9px] font-bold text-warning-amber tracking-wider uppercase flex items-center gap-1">
             <ShieldAlert className="h-3 w-3" />
             Risk Parameters
@@ -130,8 +138,13 @@ export default function ControlPanel() {
           </div>
         </div>
 
+        {/* Alert Settings */}
+        <div className="border-t border-border pt-3">
+          <AlertSettingsPanel />
+        </div>
+
         {/* Market Hours */}
-        <div className="bg-secondary/30 rounded p-3">
+        <div className="bg-secondary/30 rounded p-3 border-t border-border">
           <div className="flex items-center gap-1.5 mb-2">
             <Clock className="h-3 w-3 text-info-cyan" />
             <span className="text-[9px] font-bold text-info-cyan tracking-wider uppercase">Market Hours</span>

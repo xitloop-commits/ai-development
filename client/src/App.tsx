@@ -4,7 +4,10 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { AlertProvider } from "./contexts/AlertContext";
+import { InstrumentFilterProvider } from "./contexts/InstrumentFilterContext";
 import Dashboard from "./pages/Dashboard";
+
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
@@ -20,20 +23,24 @@ function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
-        <TooltipProvider>
-          <Toaster
-            theme="dark"
-            toastOptions={{
-              style: {
-                background: 'oklch(0.15 0.01 250)',
-                border: '1px solid oklch(0.25 0.01 250)',
-                color: 'oklch(0.82 0.01 250)',
-                fontFamily: "'JetBrains Mono', monospace",
-              },
-            }}
-          />
-          <Router />
-        </TooltipProvider>
+        <AlertProvider>
+          <InstrumentFilterProvider>
+            <TooltipProvider>
+              <Toaster
+                theme="dark"
+                toastOptions={{
+                  style: {
+                    background: 'oklch(0.15 0.01 250)',
+                    border: '1px solid oklch(0.25 0.01 250)',
+                    color: 'oklch(0.82 0.01 250)',
+                    fontFamily: "'JetBrains Mono', monospace",
+                  },
+                }}
+              />
+              <Router />
+            </TooltipProvider>
+          </InstrumentFilterProvider>
+        </AlertProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );
