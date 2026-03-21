@@ -10,4 +10,10 @@ export type {
   InstrumentData,
   Position,
   TradingMode,
+  WallAnalysis,
+  IVAssessment,
+  ThetaAssessment,
+  TradeSetup,
+  RiskFlag,
+  ScoringFactor,
 } from '../../../shared/tradingTypes';

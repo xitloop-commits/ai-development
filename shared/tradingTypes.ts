@@ -67,6 +67,17 @@ export interface InstrumentData {
   totalPutOI: number;
   pcrRatio: number;
   strikesFound: number;
+
+  // Enhanced fields from v2 AI engine
+  tradeDirection?: 'GO_CALL' | 'GO_PUT' | 'WAIT';
+  atmStrike?: number;
+  supportAnalysis?: WallAnalysis;
+  resistanceAnalysis?: WallAnalysis;
+  ivAssessment?: IVAssessment;
+  thetaAssessment?: ThetaAssessment;
+  tradeSetup?: TradeSetup | null;
+  riskFlags?: RiskFlag[];
+  scoringFactors?: Record<string, ScoringFactor>;
 }
 
 export interface Position {
@@ -147,6 +158,64 @@ export interface RawAnalyzerOutput {
   smart_money_signals: string[];
 }
 
+/** Wall strength analysis for a support or resistance level */
+export interface WallAnalysis {
+  level: number;
+  strength: number; // 0-100
+  oi: number;
+  oi_change: number;
+  oi_change_pct: number;
+  volume: number;
+  iv: number;
+  prediction: 'BREAKOUT' | 'BREAKDOWN' | 'BOUNCE' | 'UNCERTAIN';
+  probability: number; // 0-100
+  evidence: string[];
+}
+
+/** IV assessment */
+export interface IVAssessment {
+  atm_iv: number;
+  assessment: 'CHEAP' | 'FAIR' | 'EXPENSIVE' | 'UNKNOWN';
+  detail: string;
+}
+
+/** Theta assessment */
+export interface ThetaAssessment {
+  theta_per_day: number;
+  days_to_expiry: number | null;
+  warning: string | null;
+}
+
+/** Trade setup with entry, target, SL */
+export interface TradeSetup {
+  direction: 'GO_CALL' | 'GO_PUT';
+  strike: number;
+  option_type: 'CE' | 'PE';
+  entry_price: number;
+  target_price: number;
+  target_pct: number;
+  stop_loss: number;
+  sl_pct: number;
+  risk_reward: number;
+  target_label: string;
+  delta: number;
+  resistance_level: number;
+  support_level: number;
+}
+
+/** Risk flag */
+export interface RiskFlag {
+  type: 'warning' | 'danger';
+  text: string;
+}
+
+/** Scoring factor detail */
+export interface ScoringFactor {
+  score: number; // -1 to +1
+  weight: number; // 0 to 1
+  detail: string;
+}
+
 /** Shape of the AI decision output JSON */
 export interface RawAIDecision {
   instrument: string;
@@ -167,6 +236,19 @@ export interface RawAIDecision {
   news_summary: string;
   target_strike: number | null;
   target_expiry_date: string | null;
+
+  // Enhanced fields from v2 AI engine
+  trade_direction?: 'GO_CALL' | 'GO_PUT' | 'WAIT';
+  atm_strike?: number;
+  ltp?: number;
+  support_analysis?: WallAnalysis;
+  resistance_analysis?: WallAnalysis;
+  iv_assessment?: IVAssessment;
+  theta_assessment?: ThetaAssessment;
+  pcr_ratio?: number;
+  trade_setup?: TradeSetup | null;
+  risk_flags?: RiskFlag[];
+  scoring_factors?: Record<string, ScoringFactor>;
 }
 
 /** Payload shape for the data push API */

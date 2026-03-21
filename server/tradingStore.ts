@@ -342,6 +342,17 @@ export function getInstrumentData(): InstrumentData[] {
       totalPutOI,
       pcrRatio,
       strikesFound,
+
+      // Enhanced fields from v2 AI engine (pass through if available)
+      tradeDirection: ai?.trade_direction,
+      atmStrike: ai?.atm_strike,
+      supportAnalysis: ai?.support_analysis,
+      resistanceAnalysis: ai?.resistance_analysis,
+      ivAssessment: ai?.iv_assessment,
+      thetaAssessment: ai?.theta_assessment,
+      tradeSetup: ai?.trade_setup,
+      riskFlags: ai?.risk_flags,
+      scoringFactors: ai?.scoring_factors,
     });
   }
 

@@ -40,4 +40,17 @@
 - [x] Update execution_module.py to poll active instruments and skip disabled
 - [x] Update dashboard_data_pusher.py to respect active instruments
 - [x] Write vitest tests for active instruments endpoints (13 tests passing)
-- [ ] Save checkpoint for Option B Full Pipeline Control
+- [x] Save checkpoint for Option B Full Pipeline Control
+- [x] Fix: Fetcher ignores active instruments filter (was missing DASHBOARD_URL env var)
+- [x] Fix: CRUDEOIL security_id 472789 expired — now auto-resolved from scrip master
+- [x] Update Dhan access token in all Python modules
+- [x] Auto-detect CRUDEOIL/NATURALGAS security_ids from Dhan scrip master CSV at startup
+- [x] Fix: UI instrument filter toggle not syncing — trailing space in DASHBOARD_URL env var, added .strip() to all modules
+- [x] Enhanced AI engine: weighted scoring (OI momentum, wall strength, IV, PCR trend, theta risk)
+- [x] Enhanced AI engine: breakout vs bounce prediction at support/resistance levels
+- [x] Enhanced AI engine: auto-calculate ATM strike, target prices, stop loss, risk:reward
+- [x] Enhanced AI engine: trade setup with rationale and risk flags
+- [x] Server-side: update shared types and data processing for enhanced AI fields
+- [x] Enhance existing instrument cards with trade signal, wall strength, breakout/bounce, trade setup
+- [x] Write vitest tests for enhanced AI decision data (11 tests passing)
+- [ ] Save checkpoint for enhanced instrument cards + AI engine
