@@ -79,4 +79,10 @@
 - [x] Update shared types and server store for S/R level data
 - [x] Redesign InstrumentCard with unified layout: trade signal + S/R line + compact OI
 - [x] Write vitest tests for merged card data (9 tests passing)
-- [ ] Save checkpoint for merged S/R + InstrumentCard
+- [x] Save checkpoint for merged S/R + InstrumentCard
+- [x] Add BANKNIFTY to server instrument configs (tradingStore.ts)
+- [x] Add BANKNIFTY to active instruments list (tradingStore.ts)
+- [x] Add BANKNIFTY mock data (mockData.ts)
+- [x] Update Python modules: fetcher, analyzer, AI engine, data pusher for BANKNIFTY
+- [x] Update vitest tests for BANKNIFTY (64 tests passing)
+- [x] Save checkpoint for BANKNIFTY instrument addition

@@ -275,11 +275,12 @@ describe('tradingStore', () => {
   });
 
   describe('Instrument Data', () => {
-    it('returns data for all 3 instruments', () => {
+    it('returns data for all 4 instruments', () => {
       const instruments = getInstrumentData();
-      expect(instruments).toHaveLength(3);
+      expect(instruments).toHaveLength(4);
       const names = instruments.map(i => i.name);
       expect(names).toContain('NIFTY_50');
+      expect(names).toContain('BANKNIFTY');
       expect(names).toContain('CRUDEOIL');
       expect(names).toContain('NATURALGAS');
     });

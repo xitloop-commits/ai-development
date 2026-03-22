@@ -13,14 +13,15 @@ import {
 describe('Active Instruments Management', () => {
   beforeEach(() => {
     // Reset to all instruments active before each test
-    setActiveInstruments(['NIFTY_50', 'CRUDEOIL', 'NATURALGAS']);
+    setActiveInstruments(['NIFTY_50', 'BANKNIFTY', 'CRUDEOIL', 'NATURALGAS']);
   });
 
   describe('getActiveInstruments', () => {
-    it('should return all 3 instruments by default', () => {
+    it('should return all 4 instruments by default', () => {
       const active = getActiveInstruments();
-      expect(active).toHaveLength(3);
+      expect(active).toHaveLength(4);
       expect(active).toContain('NIFTY_50');
+      expect(active).toContain('BANKNIFTY');
       expect(active).toContain('CRUDEOIL');
       expect(active).toContain('NATURALGAS');
     });
@@ -62,8 +63,9 @@ describe('Active Instruments Management', () => {
     it('should fallback to all instruments when given an empty array', () => {
       setActiveInstruments([]);
       const active = getActiveInstruments();
-      expect(active).toHaveLength(3);
+      expect(active).toHaveLength(4);
       expect(active).toContain('NIFTY_50');
+      expect(active).toContain('BANKNIFTY');
       expect(active).toContain('CRUDEOIL');
       expect(active).toContain('NATURALGAS');
     });
@@ -71,7 +73,7 @@ describe('Active Instruments Management', () => {
     it('should fallback to all instruments when all keys are invalid', () => {
       setActiveInstruments(['INVALID_1', 'INVALID_2']);
       const active = getActiveInstruments();
-      expect(active).toHaveLength(3);
+      expect(active).toHaveLength(4);
     });
 
     it('should deduplicate instrument keys', () => {
@@ -94,7 +96,7 @@ describe('Active Instruments Management', () => {
     });
 
     it('should return false for unknown instrument keys', () => {
-      expect(isInstrumentActive('BANKNIFTY')).toBe(false);
+      expect(isInstrumentActive('SENSEX')).toBe(false);
     });
 
     it('should reflect changes after setActiveInstruments', () => {
@@ -108,17 +110,19 @@ describe('Active Instruments Management', () => {
   describe('Integration: toggle flow', () => {
     it('should simulate a user disabling then re-enabling an instrument', () => {
       // Start: all active
-      expect(getActiveInstruments()).toHaveLength(3);
+      expect(getActiveInstruments()).toHaveLength(4);
 
-      // User disables NATURALGAS
+      // User disables NATURALGAS and BANKNIFTY
       setActiveInstruments(['NIFTY_50', 'CRUDEOIL']);
       expect(isInstrumentActive('NATURALGAS')).toBe(false);
+      expect(isInstrumentActive('BANKNIFTY')).toBe(false);
       expect(getActiveInstruments()).toHaveLength(2);
 
-      // User re-enables NATURALGAS
-      setActiveInstruments(['NIFTY_50', 'CRUDEOIL', 'NATURALGAS']);
+      // User re-enables all
+      setActiveInstruments(['NIFTY_50', 'BANKNIFTY', 'CRUDEOIL', 'NATURALGAS']);
       expect(isInstrumentActive('NATURALGAS')).toBe(true);
-      expect(getActiveInstruments()).toHaveLength(3);
+      expect(isInstrumentActive('BANKNIFTY')).toBe(true);
+      expect(getActiveInstruments()).toHaveLength(4);
     });
   });
 });

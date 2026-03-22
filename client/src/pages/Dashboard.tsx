@@ -22,6 +22,7 @@ import { Bell, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } 
 import {
   moduleStatuses as mockModules,
   niftyData,
+  bankNiftyData,
   crudeOilData,
   naturalGasData,
   recentSignals as mockSignals,
@@ -40,6 +41,7 @@ const RIGHT_COLLAPSED_KEY = 'dashboard-right-collapsed';
 
 const bgMap: Record<string, string> = {
   NIFTY_50: NIFTY_BG,
+  BANKNIFTY: NIFTY_BG,
   CRUDEOIL: CRUDE_BG,
   NATURALGAS: NATGAS_BG,
 };
@@ -94,7 +96,7 @@ export default function Dashboard() {
 
   // Use live data if available, fall back to mock data
   const modules = modulesQuery.data ?? mockModules;
-  const allInstruments = instrumentsQuery.data ?? [niftyData, crudeOilData, naturalGasData];
+  const allInstruments = instrumentsQuery.data ?? [niftyData, bankNiftyData, crudeOilData, naturalGasData];
   const allSignals = signalsQuery.data ?? mockSignals;
   const allPositions = positionsQuery.data ?? mockPositions;
 
@@ -109,6 +111,8 @@ export default function Dashboard() {
       const keyMap: Record<string, string> = {
         'NIFTY 50': 'NIFTY_50',
         'NIFTY_50': 'NIFTY_50',
+        'BANK NIFTY': 'BANKNIFTY',
+        'BANKNIFTY': 'BANKNIFTY',
         'CRUDE OIL': 'CRUDEOIL',
         'CRUDEOIL': 'CRUDEOIL',
         'NATURAL GAS': 'NATURALGAS',
@@ -125,6 +129,8 @@ export default function Dashboard() {
       const keyMap: Record<string, string> = {
         'NIFTY 50': 'NIFTY_50',
         'NIFTY_50': 'NIFTY_50',
+        'BANK NIFTY': 'BANKNIFTY',
+        'BANKNIFTY': 'BANKNIFTY',
         'CRUDE OIL': 'CRUDEOIL',
         'CRUDEOIL': 'CRUDEOIL',
         'NATURAL GAS': 'NATURALGAS',
@@ -196,7 +202,7 @@ export default function Dashboard() {
                 Trading Command Center
               </h1>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Real-time option chain analysis for NIFTY 50, CRUDE OIL, and NATURAL GAS
+                Real-time option chain analysis for NIFTY 50, BANK NIFTY, CRUDE OIL, and NATURAL GAS
               </p>
             </div>
             <div className="sm:text-right flex sm:flex-col items-center sm:items-end gap-2 sm:gap-0">

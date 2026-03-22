@@ -41,7 +41,7 @@ let tradingMode: TradingMode = 'PAPER';
 
 // Active instruments — controls which instruments the Python pipeline processes
 // Default: all instruments enabled
-const ALL_INSTRUMENT_KEYS = ['NIFTY_50', 'CRUDEOIL', 'NATURALGAS'] as const;
+const ALL_INSTRUMENT_KEYS = ['NIFTY_50', 'BANKNIFTY', 'CRUDEOIL', 'NATURALGAS'] as const;
 export type InstrumentKey = typeof ALL_INSTRUMENT_KEYS[number];
 let activeInstruments: Set<string> = new Set(ALL_INSTRUMENT_KEYS);
 
@@ -225,6 +225,7 @@ function getModuleHealth(lastSeen: number, now: number, threshold: number): 'act
 export function getInstrumentData(): InstrumentData[] {
   const instrumentConfigs: Record<string, { displayName: string; exchange: string }> = {
     'NIFTY_50': { displayName: 'NIFTY 50', exchange: 'NSE' },
+    'BANKNIFTY': { displayName: 'BANK NIFTY', exchange: 'NSE' },
     'CRUDEOIL': { displayName: 'CRUDE OIL', exchange: 'MCX' },
     'NATURALGAS': { displayName: 'NATURAL GAS', exchange: 'MCX' },
   };

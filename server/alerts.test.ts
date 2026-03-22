@@ -274,12 +274,13 @@ describe('Alert-triggering scenarios via trading store', () => {
   });
 
   describe('Instrument data for filtering', () => {
-    it('should return all 3 instruments in getInstrumentData', () => {
+    it('should return all 4 instruments in getInstrumentData', () => {
       const instruments = getInstrumentData();
-      expect(instruments.length).toBe(3);
+      expect(instruments.length).toBe(4);
 
       const names = instruments.map((i) => i.name);
       expect(names).toContain('NIFTY_50');
+      expect(names).toContain('BANKNIFTY');
       expect(names).toContain('CRUDEOIL');
       expect(names).toContain('NATURALGAS');
     });

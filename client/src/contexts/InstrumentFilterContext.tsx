@@ -19,6 +19,7 @@ const STORAGE_KEY = 'ats_instrument_filter';
 /** All available instruments in the system */
 export const ALL_INSTRUMENTS = [
   { key: 'NIFTY_50', displayName: 'NIFTY 50', exchange: 'NSE' },
+  { key: 'BANKNIFTY', displayName: 'BANK NIFTY', exchange: 'NSE' },
   { key: 'CRUDEOIL', displayName: 'CRUDE OIL', exchange: 'MCX' },
   { key: 'NATURALGAS', displayName: 'NATURAL GAS', exchange: 'MCX' },
 ] as const;
