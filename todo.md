@@ -69,4 +69,7 @@
 - [x] Fix: Paper positions tracked in-memory with real-time SL/TP monitoring
 - [x] Push paper trade entries/exits to dashboard via REST API
 - [x] Dashboard server: already accepts position data via existing REST endpoint
-- [ ] Save checkpoint for execution module fix
+- [x] Save checkpoint for execution module fix
+- [x] Left sidebar: collapse/expand toggle (shrink to icons-only, expand to full width)
+- [x] Right sidebar (Signals Feed): collapse/expand toggle
+- [ ] Save checkpoint for sidebar collapse/expand feature
