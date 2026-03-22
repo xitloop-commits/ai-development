@@ -14,6 +14,7 @@ import SignalsFeed from '@/components/SignalsFeed';
 import PositionTracker from '@/components/PositionTracker';
 import ControlPanel from '@/components/ControlPanel';
 import AlertHistory from '@/components/AlertHistory';
+import MarketHolidays from '@/components/MarketHolidays';
 import { trpc } from '@/lib/trpc';
 import { useAlertMonitor } from '@/hooks/useAlertMonitor';
 import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
@@ -307,6 +308,9 @@ export default function Dashboard() {
 
               {/* Position Tracker below instruments */}
               <PositionTracker positions={positions} />
+
+              {/* Market Holidays */}
+              <MarketHolidays />
             </div>
 
             {/* Right Column: Signals Feed + Alert History (collapsible) */}
@@ -374,6 +378,7 @@ export default function Dashboard() {
               ))
             )}
             <PositionTracker positions={positions} />
+            <MarketHolidays />
             <SignalsFeed signals={signals} />
             <AlertHistory />
             <ControlPanel />

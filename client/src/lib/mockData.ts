@@ -93,9 +93,26 @@ export const niftyData: InstrumentData = {
     oi_momentum: { score: 0.6, weight: 0.25, detail: 'Bullish signals: 4, Bearish signals: 1' },
     iv_level: { score: 0.2, weight: 0.15, detail: 'ATM IV 12.5% is near average — fair pricing' },
     pcr_trend: { score: -0.3, weight: 0.10, detail: 'PCR: 0.81 (Bearish)' },
-    news_sentiment: { score: 0.3, weight: 0.10, detail: 'Bullish (Mild)' },
+    news_sentiment: { score: 0.3, weight: 0.10, detail: 'Bullish (Moderate, 62% conf, 18 articles)' },
     theta_risk: { score: -0.5, weight: 0.10, detail: 'HIGH RISK: 2 days to expiry' },
   },
+  newsDetail: {
+    sentiment: 'Bullish',
+    strength: 'Moderate',
+    confidence: 62,
+    total_articles: 18,
+    bull_score: 14.2,
+    bear_score: 5.8,
+    net_score: 8.4,
+    queries_used: 4,
+    event_flags: [],
+    top_articles: [
+      { title: 'Nifty 50 surges past 24,500 on strong FII buying', source: 'ET Markets', score: 4.2 },
+      { title: 'RBI holds rates steady, signals accommodative stance', source: 'Mint', score: 3.6 },
+      { title: 'Reliance Q4 results beat estimates, stock rallies 3%', source: 'NDTV Profit', score: 2.8 },
+    ],
+  },
+  newsEventFlags: [],
 };
 
 export const crudeOilData: InstrumentData = {
@@ -132,6 +149,23 @@ export const crudeOilData: InstrumentData = {
   totalPutOI: 2800000,
   pcrRatio: 0.88,
   strikesFound: 208,
+  newsDetail: {
+    sentiment: 'Bearish',
+    strength: 'Strong',
+    confidence: 78,
+    total_articles: 24,
+    bull_score: 6.0,
+    bear_score: 18.5,
+    net_score: -12.5,
+    queries_used: 5,
+    event_flags: ['EIA Crude Oil Inventory Report (Tomorrow)'],
+    top_articles: [
+      { title: 'OPEC+ signals production increase amid demand concerns', source: 'Reuters', score: -4.5 },
+      { title: 'US crude inventories build for 3rd straight week', source: 'Bloomberg', score: -3.8 },
+      { title: 'China PMI data shows manufacturing contraction', source: 'CNBC', score: -2.2 },
+    ],
+  },
+  newsEventFlags: ['EIA Crude Oil Inventory Report (Tomorrow)'],
 };
 
 export const bankNiftyData: InstrumentData = {
@@ -194,9 +228,25 @@ export const bankNiftyData: InstrumentData = {
     oi_momentum: { score: -0.4, weight: 0.25, detail: 'Bearish signals: 3, Bullish signals: 1' },
     iv_level: { score: 0.1, weight: 0.15, detail: 'ATM IV 15.8% is near average' },
     pcr_trend: { score: -0.4, weight: 0.10, detail: 'PCR: 0.78 (Bearish)' },
-    news_sentiment: { score: -0.3, weight: 0.10, detail: 'Bearish (Mild) — RBI uncertainty' },
+    news_sentiment: { score: -0.3, weight: 0.10, detail: 'Bearish (Mild, 45% conf, 12 articles)' },
     theta_risk: { score: -0.2, weight: 0.10, detail: 'Moderate: 3 days to expiry' },
   },
+  newsDetail: {
+    sentiment: 'Bearish',
+    strength: 'Mild',
+    confidence: 45,
+    total_articles: 12,
+    bull_score: 4.5,
+    bear_score: 8.2,
+    net_score: -3.7,
+    queries_used: 4,
+    event_flags: ['RBI MPC Meeting (In 3 days)'],
+    top_articles: [
+      { title: 'Banking stocks fall as RBI signals tighter liquidity', source: 'ET Markets', score: -3.2 },
+      { title: 'HDFC Bank NPA concerns weigh on Bank Nifty', source: 'Mint', score: -2.1 },
+    ],
+  },
+  newsEventFlags: ['RBI MPC Meeting (In 3 days)'],
 };
 
 export const naturalGasData: InstrumentData = {
@@ -233,6 +283,22 @@ export const naturalGasData: InstrumentData = {
   totalPutOI: 720000,
   pcrRatio: 0.81,
   strikesFound: 87,
+  newsDetail: {
+    sentiment: 'Neutral',
+    strength: 'Weak',
+    confidence: 35,
+    total_articles: 8,
+    bull_score: 3.2,
+    bear_score: 3.8,
+    net_score: -0.6,
+    queries_used: 4,
+    event_flags: ['EIA Natural Gas Storage Report (Thursday)'],
+    top_articles: [
+      { title: 'US natural gas prices flat ahead of storage report', source: 'Reuters', score: -0.5 },
+      { title: 'Mild weather outlook caps natural gas upside', source: 'Bloomberg', score: -1.2 },
+    ],
+  },
+  newsEventFlags: ['EIA Natural Gas Storage Report (Thursday)'],
 };
 
 export const recentSignals: Signal[] = [

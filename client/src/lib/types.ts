@@ -17,4 +17,8 @@ export type {
   RiskFlag,
   ScoringFactor,
   SRLevel,
+  NewsDetail,
+  NewsArticle,
+  MarketHoliday,
+  MarketEvent,
 } from '../../../shared/tradingTypes';

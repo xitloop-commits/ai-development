@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { InstrumentData, TradeSetup, RiskFlag, ScoringFactor } from '@/lib/types';
 import SRStrengthLine from './SRStrengthLine';
+import NewsSentimentBadge from './NewsSentimentBadge';
 
 const biasConfig = {
   BULLISH: { color: 'text-bullish', glow: 'glow-green', border: 'border-bullish/30', icon: TrendingUp, label: 'BULLISH' },
@@ -341,6 +342,14 @@ export default function InstrumentCard({ data, bgImage }: InstrumentCardProps) {
 
         {/* IV & Theta Row */}
         <IVThetaRow data={data} />
+
+        {/* Enhanced News Sentiment */}
+        {data.newsDetail && (
+          <NewsSentimentBadge
+            newsDetail={data.newsDetail}
+            eventFlags={data.newsEventFlags}
+          />
+        )}
 
         {/* Risk Flags */}
         {data.riskFlags && data.riskFlags.length > 0 && (

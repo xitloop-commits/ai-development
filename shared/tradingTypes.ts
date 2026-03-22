@@ -68,6 +68,10 @@ export interface InstrumentData {
   pcrRatio: number;
   strikesFound: number;
 
+  // Enhanced news sentiment
+  newsDetail?: NewsDetail | null;
+  newsEventFlags?: string[];
+
   // Enhanced fields from v2 AI engine
   srLevels?: SRLevel[];    // S/R Strength Line data (S5..ATM..R5)
   tradeDirection?: 'GO_CALL' | 'GO_PUT' | 'WAIT';
@@ -116,6 +120,45 @@ export interface SRLevel {
   prediction?: 'BOUNCE' | 'BREAKOUT' | 'BREAKDOWN' | 'UNCERTAIN';
   predictionProbability?: number; // 0-100
   barStatus: 'strengthening' | 'weakening' | 'stable' | 'atm';
+}
+
+/** Enhanced news sentiment detail */
+export interface NewsArticle {
+  title: string;
+  source: string;
+  score: number; // net sentiment score
+}
+
+export interface NewsDetail {
+  sentiment: string;
+  strength: string;
+  confidence: number;
+  total_articles: number;
+  bull_score: number;
+  bear_score: number;
+  net_score: number;
+  queries_used: number;
+  event_flags: string[];
+  top_articles: NewsArticle[];
+}
+
+/** Market holiday for NSE or MCX */
+export interface MarketHoliday {
+  date: string;          // ISO date string YYYY-MM-DD
+  day: string;           // e.g. 'Monday'
+  description: string;   // e.g. 'Republic Day'
+  exchange: 'NSE' | 'MCX' | 'BOTH';
+  type: 'trading' | 'settlement' | 'both';
+  morningSession?: 'open' | 'closed';  // MCX only
+  eveningSession?: 'open' | 'closed';  // MCX only
+  special?: string;      // e.g. 'Muhurat Trading'
+}
+
+/** Upcoming market event */
+export interface MarketEvent {
+  label: string;
+  date: string;  // 'Today', 'Tomorrow', 'In 2 days', or ISO date
+  category: string;
 }
 
 /** Shape of the raw option chain JSON from the Dhan API (fetcher output) */
@@ -256,6 +299,9 @@ export interface RawAIDecision {
   news_summary: string;
   target_strike: number | null;
   target_expiry_date: string | null;
+
+  // Enhanced news sentiment
+  news_detail?: NewsDetail;
 
   // Enhanced fields from v2 AI engine
   sr_levels?: SRLevel[];   // S/R Strength Line data (S5..ATM..R5)

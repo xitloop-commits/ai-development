@@ -86,3 +86,16 @@
 - [x] Update Python modules: fetcher, analyzer, AI engine, data pusher for BANKNIFTY
 - [x] Update vitest tests for BANKNIFTY (64 tests passing)
 - [x] Save checkpoint for BANKNIFTY instrument addition
+- [x] Enhanced news: multi-query targeted fetching per instrument
+- [x] Enhanced news: improved sentiment scoring with weighted keywords and context phrases
+- [x] Enhanced news: event calendar awareness (RBI policy, OPEC, EIA inventory, US Fed, expiry days)
+- [x] Enhanced news: instrument-specific sentiment keywords
+- [x] Enhanced news: richer news_sentiment output (article scores, source, event flags)
+- [x] Update shared types and server store for enhanced news sentiment data
+- [x] Update frontend InstrumentCard to show enhanced news sentiment details
+- [x] Market holidays: add NSE trading + settlement holidays for 2026
+- [x] Market holidays: add MCX trading + settlement holidays for 2026
+- [x] Market holidays: server endpoint to serve upcoming holidays
+- [x] Market holidays: frontend component showing upcoming NSE/MCX holidays
+- [x] Run vitest tests for enhanced news and holidays (77 tests passing)
+- [x] Save checkpoint for enhanced news sentiment + market holidays

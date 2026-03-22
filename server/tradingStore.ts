@@ -356,6 +356,8 @@ export function getInstrumentData(): InstrumentData[] {
       tradeSetup: ai?.trade_setup,
       riskFlags: ai?.risk_flags,
       scoringFactors: ai?.scoring_factors,
+      newsDetail: ai?.news_detail || null,
+      newsEventFlags: ai?.news_detail?.event_flags || [],
     });
   }
 

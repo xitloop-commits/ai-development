@@ -13,6 +13,11 @@ import {
   getActiveInstruments,
   setActiveInstruments,
 } from "./tradingStore";
+import {
+  getUpcomingHolidays,
+  isTodayHoliday,
+  getAllHolidays,
+} from "./holidays";
 
 export const appRouter = router({
   system: systemRouter,
@@ -75,6 +80,40 @@ export const appRouter = router({
         setActiveInstruments(input.instruments);
         return { success: true, instruments: getActiveInstruments() };
       }),
+  }),
+
+  // Market holidays endpoints
+  holidays: router({
+    // Get upcoming holidays for a given exchange
+    upcoming: publicProcedure
+      .input(
+        z.object({
+          exchange: z.enum(['NSE', 'MCX', 'ALL']).optional(),
+          daysAhead: z.number().min(1).max(365).optional(),
+        }).optional()
+      )
+      .query(({ input }) => {
+        return getUpcomingHolidays(
+          input?.exchange ?? 'ALL',
+          input?.daysAhead ?? 60
+        );
+      }),
+
+    // Check if today is a holiday
+    todayStatus: publicProcedure
+      .input(
+        z.object({
+          exchange: z.enum(['NSE', 'MCX']),
+        })
+      )
+      .query(({ input }) => {
+        return isTodayHoliday(input.exchange);
+      }),
+
+    // Get all holidays for calendar view
+    all: publicProcedure.query(() => {
+      return getAllHolidays();
+    }),
   }),
 });
 
