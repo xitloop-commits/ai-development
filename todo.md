@@ -53,4 +53,20 @@
 - [x] Server-side: update shared types and data processing for enhanced AI fields
 - [x] Enhance existing instrument cards with trade signal, wall strength, breakout/bounce, trade setup
 - [x] Write vitest tests for enhanced AI decision data (11 tests passing)
-- [ ] Save checkpoint for enhanced instrument cards + AI engine
+- [x] Save checkpoint for enhanced instrument cards + AI engine
+- [ ] Python analyzer: capture opening OI snapshot at 9:15 AM for intraday S/R tracking
+- [ ] Python analyzer: compute intraday OI change, wall strength, activity labels at each S/R level
+- [ ] Python AI engine: output S/R activity labels (Buyers/Sellers Entering/Exiting)
+- [ ] Shared types: add S/R intraday data types (SRLevel, SRData, activity labels)
+- [ ] Server store: process and pass through S/R intraday data
+- [ ] SRStrengthLine UI component (horizontal bar chart with intraday tracking)
+- [ ] PreEntryChecklist interactive overlay (step-by-step GO/NO-GO walkthrough)
+- [ ] Integrate S/R line and checklist into instrument cards
+- [ ] Write vitest tests for S/R data and checklist logic
+- [ ] Save checkpoint for S/R Strength Line + Pre-Entry Checklist
+- [x] Fix: Execution module reads both old and new AI format
+- [x] Fix: Paper trades use real option chain prices from fetcher data
+- [x] Fix: Paper positions tracked in-memory with real-time SL/TP monitoring
+- [x] Push paper trade entries/exits to dashboard via REST API
+- [x] Dashboard server: already accepts position data via existing REST endpoint
+- [ ] Save checkpoint for execution module fix
