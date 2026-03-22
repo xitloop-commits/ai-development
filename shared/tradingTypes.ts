@@ -69,6 +69,7 @@ export interface InstrumentData {
   strikesFound: number;
 
   // Enhanced fields from v2 AI engine
+  srLevels?: SRLevel[];    // S/R Strength Line data (S5..ATM..R5)
   tradeDirection?: 'GO_CALL' | 'GO_PUT' | 'WAIT';
   atmStrike?: number;
   supportAnalysis?: WallAnalysis;
@@ -97,6 +98,25 @@ export interface Position {
 }
 
 export type TradingMode = 'LIVE' | 'PAPER';
+
+/** S/R Level detail for the horizontal strength line visualization */
+export interface SRLevel {
+  strike: number;
+  label: string;           // 'S5','S4','S3','S2','S1','ATM','R1','R2','R3','R4','R5'
+  type: 'support' | 'atm' | 'resistance';
+  oi: number;              // Current OI (put OI for support, call OI for resistance)
+  openOI: number;          // OI at market open (9:15 AM snapshot)
+  oiChangePct: number;     // Intraday % change since open
+  oiChangeAbs: number;     // Absolute OI change since open
+  strength: number;        // 0-100 wall strength
+  activityLabel: string;   // Layman label: 'Buyers Entering', 'Sellers Exiting', etc.
+  technicalLabel: string;  // Technical label: 'Long Buildup', 'Short Covering', etc.
+  trend: 'strong_up' | 'up' | 'flat' | 'down' | 'strong_down';
+  trendArrow: string;      // '▲▲' | '▲' | '─' | '▼' | '▼▼'
+  prediction?: 'BOUNCE' | 'BREAKOUT' | 'BREAKDOWN' | 'UNCERTAIN';
+  predictionProbability?: number; // 0-100
+  barStatus: 'strengthening' | 'weakening' | 'stable' | 'atm';
+}
 
 /** Shape of the raw option chain JSON from the Dhan API (fetcher output) */
 export interface RawOptionChainData {
@@ -238,6 +258,7 @@ export interface RawAIDecision {
   target_expiry_date: string | null;
 
   // Enhanced fields from v2 AI engine
+  sr_levels?: SRLevel[];   // S/R Strength Line data (S5..ATM..R5)
   trade_direction?: 'GO_CALL' | 'GO_PUT' | 'WAIT';
   atm_strike?: number;
   ltp?: number;

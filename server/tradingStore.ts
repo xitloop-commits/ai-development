@@ -14,6 +14,7 @@ import type {
   SupportResistance,
   ActiveStrike,
   TradingMode,
+  SRLevel,
 } from '../shared/tradingTypes';
 
 interface InstrumentStore {
@@ -344,6 +345,7 @@ export function getInstrumentData(): InstrumentData[] {
       strikesFound,
 
       // Enhanced fields from v2 AI engine (pass through if available)
+      srLevels: ai?.sr_levels || buildSRLevelsFromStore(store, ai),
       tradeDirection: ai?.trade_direction,
       atmStrike: ai?.atm_strike,
       supportAnalysis: ai?.support_analysis,
@@ -452,6 +454,237 @@ function parseSignalText(instrument: string, text: string, timestamp: string): S
     description: text,
     severity,
   };
+}
+
+/**
+ * Build S/R levels from the option chain + analyzer data when the AI engine
+ * hasn't provided pre-computed sr_levels (fallback for legacy AI output).
+ * Constructs up to 11 levels: S5..S1, ATM, R1..R5.
+ */
+function buildSRLevelsFromStore(
+  store: InstrumentStore,
+  ai: RawAIDecision | null,
+): SRLevel[] | undefined {
+  const oc = store.optionChain;
+  const analyzer = store.analyzerOutput;
+  if (!oc || !oc.oc || !analyzer) return undefined;
+
+  const ltp = oc.last_price || analyzer.last_price || 0;
+  if (ltp === 0) return undefined;
+
+  const supportStrikes = (analyzer.support_levels || []).sort((a, b) => a - b);
+  const resistanceStrikes = (analyzer.resistance_levels || []).sort((a, b) => a - b);
+  const atmStrike = ai?.atm_strike || 0;
+
+  const levels: SRLevel[] = [];
+
+  // Build support levels (S5 = farthest, S1 = closest to ATM)
+  const supReversed = [...supportStrikes].reverse(); // closest first
+  for (let i = 0; i < Math.min(5, supReversed.length); i++) {
+    const strike = supReversed[i]!;
+    const label = `S${i + 1}`;
+    const peData = findStrikeData(oc, strike, 'pe');
+    const currentOI = peData?.oi || 0;
+    const prevOI = peData?.previous_oi || 0;
+    const oiChange = currentOI - prevOI;
+    const oiChangePct = prevOI > 0 ? ((oiChange / prevOI) * 100) : 0;
+
+    const { activityLabel, technicalLabel, trend, trendArrow, barStatus } =
+      classifyActivity(oiChange, oiChangePct, ltp, oc.last_price || 0, 'support');
+
+    levels.push({
+      strike,
+      label,
+      type: 'support',
+      oi: currentOI,
+      openOI: prevOI, // best approximation without opening snapshot
+      oiChangePct: Math.round(oiChangePct * 10) / 10,
+      oiChangeAbs: oiChange,
+      strength: computeQuickStrength(currentOI, oiChange, oc, 'pe'),
+      activityLabel,
+      technicalLabel,
+      trend,
+      trendArrow,
+      barStatus,
+    });
+  }
+
+  // Reverse so S5 is first (farthest from ATM)
+  levels.reverse();
+
+  // ATM level
+  if (atmStrike > 0) {
+    levels.push({
+      strike: atmStrike,
+      label: 'ATM',
+      type: 'atm',
+      oi: 0,
+      openOI: 0,
+      oiChangePct: 0,
+      oiChangeAbs: 0,
+      strength: 0,
+      activityLabel: 'Current Price',
+      technicalLabel: 'LTP',
+      trend: 'flat',
+      trendArrow: '●',
+      barStatus: 'atm',
+    });
+  }
+
+  // Build resistance levels (R1 = closest, R5 = farthest)
+  for (let i = 0; i < Math.min(5, resistanceStrikes.length); i++) {
+    const strike = resistanceStrikes[i]!;
+    const label = `R${i + 1}`;
+    const ceData = findStrikeData(oc, strike, 'ce');
+    const currentOI = ceData?.oi || 0;
+    const prevOI = ceData?.previous_oi || 0;
+    const oiChange = currentOI - prevOI;
+    const oiChangePct = prevOI > 0 ? ((oiChange / prevOI) * 100) : 0;
+
+    const { activityLabel, technicalLabel, trend, trendArrow, barStatus } =
+      classifyActivity(oiChange, oiChangePct, ltp, oc.last_price || 0, 'resistance');
+
+    levels.push({
+      strike,
+      label,
+      type: 'resistance',
+      oi: currentOI,
+      openOI: prevOI,
+      oiChangePct: Math.round(oiChangePct * 10) / 10,
+      oiChangeAbs: oiChange,
+      strength: computeQuickStrength(currentOI, oiChange, oc, 'ce'),
+      activityLabel,
+      technicalLabel,
+      trend,
+      trendArrow,
+      barStatus,
+    });
+  }
+
+  return levels.length > 0 ? levels : undefined;
+}
+
+function findStrikeData(
+  oc: RawOptionChainData,
+  strike: number,
+  type: 'ce' | 'pe',
+): { oi: number; previous_oi: number; volume: number; implied_volatility: number } | null {
+  const strikeStr = String(strike);
+  let data = oc.oc[strikeStr];
+  if (!data) {
+    // Try float key matching
+    for (const key of Object.keys(oc.oc)) {
+      try {
+        if (Math.abs(parseFloat(key) - strike) < 0.01) {
+          data = oc.oc[key];
+          break;
+        }
+      } catch { continue; }
+    }
+  }
+  if (!data) return null;
+  const side = type === 'ce' ? data.ce : data.pe;
+  if (!side) return null;
+  return {
+    oi: side.oi || 0,
+    previous_oi: side.previous_oi || 0,
+    volume: side.volume || 0,
+    implied_volatility: side.implied_volatility || 0,
+  };
+}
+
+function classifyActivity(
+  oiChange: number,
+  oiChangePct: number,
+  _ltp: number,
+  _currentPrice: number,
+  wallType: 'support' | 'resistance',
+): {
+  activityLabel: string;
+  technicalLabel: string;
+  trend: SRLevel['trend'];
+  trendArrow: string;
+  barStatus: SRLevel['barStatus'];
+} {
+  const absPct = Math.abs(oiChangePct);
+
+  if (oiChange > 0) {
+    // OI increasing
+    if (wallType === 'support') {
+      // Put OI increasing at support = sellers entering (short buildup) = wall strengthening
+      return {
+        activityLabel: 'Sellers Entering',
+        technicalLabel: 'Short Buildup',
+        trend: absPct > 10 ? 'strong_up' : 'up',
+        trendArrow: absPct > 10 ? '▲▲' : '▲',
+        barStatus: 'strengthening',
+      };
+    } else {
+      // Call OI increasing at resistance = sellers entering (call writing) = wall strengthening
+      return {
+        activityLabel: 'Sellers Entering',
+        technicalLabel: 'Call Writing',
+        trend: absPct > 10 ? 'strong_up' : 'up',
+        trendArrow: absPct > 10 ? '▲▲' : '▲',
+        barStatus: 'strengthening',
+      };
+    }
+  } else if (oiChange < 0) {
+    // OI decreasing
+    if (wallType === 'support') {
+      // Put OI decreasing at support = sellers exiting (short covering) = wall weakening
+      return {
+        activityLabel: 'Sellers Exiting',
+        technicalLabel: 'Short Covering',
+        trend: absPct > 10 ? 'strong_down' : 'down',
+        trendArrow: absPct > 10 ? '▼▼' : '▼',
+        barStatus: 'weakening',
+      };
+    } else {
+      // Call OI decreasing at resistance = sellers exiting (short covering) = wall weakening
+      return {
+        activityLabel: 'Sellers Exiting',
+        technicalLabel: 'Short Covering',
+        trend: absPct > 10 ? 'strong_down' : 'down',
+        trendArrow: absPct > 10 ? '▼▼' : '▼',
+        barStatus: 'weakening',
+      };
+    }
+  } else {
+    return {
+      activityLabel: 'Holding Steady',
+      technicalLabel: 'No Change',
+      trend: 'flat',
+      trendArrow: '─',
+      barStatus: 'stable',
+    };
+  }
+}
+
+function computeQuickStrength(
+  currentOI: number,
+  oiChange: number,
+  oc: RawOptionChainData,
+  type: 'ce' | 'pe',
+): number {
+  // Compare this strike's OI to the average OI of all strikes of the same type
+  const allOI: number[] = [];
+  for (const v of Object.values(oc.oc)) {
+    const side = type === 'ce' ? v.ce : v.pe;
+    if (side && side.oi > 0) allOI.push(side.oi);
+  }
+  const avgOI = allOI.length > 0 ? allOI.reduce((a, b) => a + b, 0) / allOI.length : 1;
+
+  let strength = 50;
+  const ratio = currentOI / Math.max(avgOI, 1);
+  if (ratio > 3) strength += 25;
+  else if (ratio > 1.5) strength += 15;
+  else if (ratio < 0.5) strength -= 15;
+
+  if (oiChange > 0) strength += 15;
+  else if (oiChange < 0) strength -= 20;
+
+  return Math.max(0, Math.min(100, strength));
 }
 
 function createEmptyInstrument(name: string, displayName: string, exchange: string): InstrumentData {

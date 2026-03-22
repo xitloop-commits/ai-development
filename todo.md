@@ -57,12 +57,12 @@
 - [ ] Python analyzer: capture opening OI snapshot at 9:15 AM for intraday S/R tracking
 - [ ] Python analyzer: compute intraday OI change, wall strength, activity labels at each S/R level
 - [ ] Python AI engine: output S/R activity labels (Buyers/Sellers Entering/Exiting)
-- [ ] Shared types: add S/R intraday data types (SRLevel, SRData, activity labels)
-- [ ] Server store: process and pass through S/R intraday data
-- [ ] SRStrengthLine UI component (horizontal bar chart with intraday tracking)
+- [x] Shared types: add S/R intraday data types (SRLevel, SRData, activity labels)
+- [x] Server store: process and pass through S/R intraday data
+- [x] SRStrengthLine UI component (horizontal bar chart with intraday tracking)
 - [ ] PreEntryChecklist interactive overlay (step-by-step GO/NO-GO walkthrough)
-- [ ] Integrate S/R line and checklist into instrument cards
-- [ ] Write vitest tests for S/R data and checklist logic
+- [x] Integrate S/R line into instrument cards (merged, removed duplicated sections)
+- [x] Write vitest tests for S/R data (9 tests passing)
 - [ ] Save checkpoint for S/R Strength Line + Pre-Entry Checklist
 - [x] Fix: Execution module reads both old and new AI format
 - [x] Fix: Paper trades use real option chain prices from fetcher data
@@ -72,4 +72,11 @@
 - [x] Save checkpoint for execution module fix
 - [x] Left sidebar: collapse/expand toggle (shrink to icons-only, expand to full width)
 - [x] Right sidebar (Signals Feed): collapse/expand toggle
-- [ ] Save checkpoint for sidebar collapse/expand feature
+- [x] Save checkpoint for sidebar collapse/expand feature
+- [x] Audit InstrumentCard for data overlap with S/R line design
+- [x] Merge S/R Strength Line into InstrumentCard (remove duplicated visualizations)
+- [ ] Update Python analyzer to output S/R intraday data (opening OI snapshot, wall strength, activity labels)
+- [x] Update shared types and server store for S/R level data
+- [x] Redesign InstrumentCard with unified layout: trade signal + S/R line + compact OI
+- [x] Write vitest tests for merged card data (9 tests passing)
+- [ ] Save checkpoint for merged S/R + InstrumentCard

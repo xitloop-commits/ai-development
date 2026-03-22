@@ -1,16 +1,18 @@
 /*
- * Terminal Noir — InstrumentCard Component (v2)
- * Enhanced with: Trade Direction signal, Wall Strength meters,
- * Breakout/Bounce prediction, Trade Setup (entry/target/SL),
- * IV & Theta assessment, Risk Flags, and Scoring Factors.
+ * Terminal Noir — InstrumentCard Component (v3)
+ * Merged layout: S/R Strength Line replaces Wall Strength meters,
+ * S/R list, Active Strikes, and OI summary sections.
+ * Keeps: Header, Trade Direction, AI Rationale, Trade Setup,
+ * IV/Theta, Risk Flags, Scoring Factors.
  */
 import { useState } from 'react';
 import {
-  TrendingUp, TrendingDown, Minus, Shield, Target, Brain,
-  ChevronDown, ChevronUp, AlertTriangle, Zap, Crosshair,
+  TrendingUp, TrendingDown, Minus, Brain,
+  ChevronDown, ChevronUp, AlertTriangle, Crosshair,
   Activity, BarChart3, Clock,
 } from 'lucide-react';
-import type { InstrumentData, WallAnalysis, TradeSetup, RiskFlag, ScoringFactor } from '@/lib/types';
+import type { InstrumentData, TradeSetup, RiskFlag, ScoringFactor } from '@/lib/types';
+import SRStrengthLine from './SRStrengthLine';
 
 const biasConfig = {
   BULLISH: { color: 'text-bullish', glow: 'glow-green', border: 'border-bullish/30', icon: TrendingUp, label: 'BULLISH' },
@@ -46,69 +48,19 @@ function formatPrice(value: number): string {
   return value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function OIBar({ callOI, putOI }: { callOI: number; putOI: number }) {
-  const total = callOI + putOI;
-  const callPercent = total > 0 ? (callOI / total) * 100 : 50;
+/* Compact OI Summary — single row with PCR */
+function OISummaryRow({ data }: { data: InstrumentData }) {
+  const total = data.totalCallOI + data.totalPutOI;
+  const callPct = total > 0 ? (data.totalCallOI / total) * 100 : 50;
   return (
-    <div className="w-full h-1.5 rounded-full bg-secondary/50 overflow-hidden flex">
-      <div className="h-full bg-bullish/60 transition-all duration-500" style={{ width: `${callPercent}%` }} />
-      <div className="h-full bg-destructive/60 transition-all duration-500" style={{ width: `${100 - callPercent}%` }} />
-    </div>
-  );
-}
-
-/* Wall Strength Meter — horizontal bar 0-100 with color gradient */
-function WallStrengthMeter({ analysis, type }: { analysis: WallAnalysis; type: 'support' | 'resistance' }) {
-  const strength = analysis.strength;
-  const prediction = analysis.prediction;
-  const probability = analysis.probability;
-
-  // Color based on strength
-  const barColor = strength > 65 ? 'bg-bullish' : strength > 35 ? 'bg-warning-amber' : 'bg-destructive';
-  const textColor = strength > 65 ? 'text-bullish' : strength > 35 ? 'text-warning-amber' : 'text-destructive';
-
-  // Prediction badge
-  const predConfig: Record<string, { color: string; label: string }> = {
-    BREAKOUT: { color: 'text-bullish', label: 'BREAKOUT' },
-    BREAKDOWN: { color: 'text-destructive', label: 'BREAKDOWN' },
-    BOUNCE: { color: 'text-info-cyan', label: 'BOUNCE' },
-    UNCERTAIN: { color: 'text-muted-foreground', label: 'UNCERTAIN' },
-  };
-  const pred = predConfig[prediction] || predConfig['UNCERTAIN']!;
-
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          {type === 'support' ? (
-            <Shield className="h-3 w-3 text-bullish" />
-          ) : (
-            <Target className="h-3 w-3 text-destructive" />
-          )}
-          <span className="text-[9px] font-bold tracking-wider uppercase text-muted-foreground">
-            {type === 'support' ? 'Support' : 'Resistance'}: {analysis.level}
-          </span>
-        </div>
-        <span className={`text-[9px] font-bold tracking-wider ${textColor}`}>
-          {strength}/100
-        </span>
+    <div className="flex items-center gap-2">
+      <span className="text-[9px] text-bullish tabular-nums font-bold">{formatOI(data.totalCallOI)}</span>
+      <div className="flex-1 h-1.5 rounded-full bg-secondary/50 overflow-hidden flex">
+        <div className="h-full bg-bullish/60 transition-all duration-500" style={{ width: `${callPct}%` }} />
+        <div className="h-full bg-destructive/60 transition-all duration-500" style={{ width: `${100 - callPct}%` }} />
       </div>
-      {/* Strength bar */}
-      <div className="w-full h-1 rounded-full bg-secondary/50 overflow-hidden">
-        <div
-          className={`h-full ${barColor} transition-all duration-700`}
-          style={{ width: `${strength}%` }}
-        />
-      </div>
-      {/* Prediction + OI change */}
-      <div className="flex items-center justify-between">
-        <span className={`text-[9px] font-bold tracking-wider ${pred.color}`}>
-          {pred.label} ({probability}%)
-        </span>
-        <span className={`text-[9px] tabular-nums ${analysis.oi_change >= 0 ? 'text-bullish' : 'text-destructive'}`}>
-          OI: {analysis.oi_change >= 0 ? '+' : ''}{formatOI(analysis.oi_change)}
-        </span>
-      </div>
+      <span className="text-[9px] text-destructive tabular-nums font-bold">{formatOI(data.totalPutOI)}</span>
+      <span className="text-[9px] text-info-cyan tabular-nums font-bold ml-1">PCR {data.pcrRatio.toFixed(2)}</span>
     </div>
   );
 }
@@ -218,7 +170,7 @@ function ScoringFactorsSection({ factors }: { factors: Record<string, ScoringFac
         <div className="mt-1.5 space-y-1">
           {sorted.map(([name, factor]) => {
             const contribution = factor.score * factor.weight;
-            const barWidth = Math.abs(contribution) * 100 * 3; // Scale for visibility
+            const barWidth = Math.min(100, Math.abs(contribution) * 100 * 3);
             const isPositive = contribution > 0;
             return (
               <div key={name} className="space-y-0.5">
@@ -233,7 +185,7 @@ function ScoringFactorsSection({ factors }: { factors: Record<string, ScoringFac
                 <div className="w-full h-0.5 rounded-full bg-secondary/30 overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${isPositive ? 'bg-bullish/60' : 'bg-destructive/60'}`}
-                    style={{ width: `${Math.min(barWidth, 100)}%` }}
+                    style={{ width: `${barWidth}%` }}
                   />
                 </div>
                 <div className="text-[7px] text-muted-foreground/60 leading-tight">{factor.detail}</div>
@@ -377,17 +329,15 @@ export default function InstrumentCard({ data, bgImage }: InstrumentCardProps) {
           <TradeSetupSection setup={data.tradeSetup} />
         )}
 
-        {/* Wall Strength Meters */}
-        {(data.supportAnalysis || data.resistanceAnalysis) && (
-          <div className="space-y-2">
-            {data.supportAnalysis && data.supportAnalysis.level > 0 && (
-              <WallStrengthMeter analysis={data.supportAnalysis} type="support" />
-            )}
-            {data.resistanceAnalysis && data.resistanceAnalysis.level > 0 && (
-              <WallStrengthMeter analysis={data.resistanceAnalysis} type="resistance" />
-            )}
+        {/* ═══ S/R STRENGTH LINE (replaces Wall Strength + S/R list + Active Strikes) ═══ */}
+        {data.srLevels && data.srLevels.length > 0 && (
+          <div className="rounded border border-white/5 bg-secondary/20 p-2.5">
+            <SRStrengthLine levels={data.srLevels} />
           </div>
         )}
+
+        {/* Compact OI Summary (replaces the 3-box grid) */}
+        <OISummaryRow data={data} />
 
         {/* IV & Theta Row */}
         <IVThetaRow data={data} />
@@ -396,88 +346,6 @@ export default function InstrumentCard({ data, bgImage }: InstrumentCardProps) {
         {data.riskFlags && data.riskFlags.length > 0 && (
           <RiskFlagsSection flags={data.riskFlags} />
         )}
-
-        {/* OI Summary Row with Bar */}
-        <div>
-          <div className="grid grid-cols-3 gap-3 mb-2">
-            <div className="bg-secondary/50 rounded px-2.5 py-1.5">
-              <div className="text-[9px] text-muted-foreground tracking-wider uppercase mb-0.5">Call OI</div>
-              <div className="text-sm font-bold tabular-nums text-bullish">{formatOI(data.totalCallOI)}</div>
-            </div>
-            <div className="bg-secondary/50 rounded px-2.5 py-1.5">
-              <div className="text-[9px] text-muted-foreground tracking-wider uppercase mb-0.5">Put OI</div>
-              <div className="text-sm font-bold tabular-nums text-destructive">{formatOI(data.totalPutOI)}</div>
-            </div>
-            <div className="bg-secondary/50 rounded px-2.5 py-1.5">
-              <div className="text-[9px] text-muted-foreground tracking-wider uppercase mb-0.5">PCR</div>
-              <div className="text-sm font-bold tabular-nums text-info-cyan">{data.pcrRatio.toFixed(2)}</div>
-            </div>
-          </div>
-          <div className="px-0.5">
-            <OIBar callOI={data.totalCallOI} putOI={data.totalPutOI} />
-            <div className="flex justify-between mt-0.5">
-              <span className="text-[8px] text-bullish/60 tracking-wider">CALLS</span>
-              <span className="text-[8px] text-destructive/60 tracking-wider">PUTS</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Support & Resistance (compact) */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <div className="flex items-center gap-1 mb-1">
-              <Shield className="h-3 w-3 text-bullish" />
-              <span className="text-[9px] font-bold text-bullish tracking-wider uppercase">Support</span>
-            </div>
-            <div className="space-y-0.5">
-              {data.supportLevels.slice(0, 3).map((level) => (
-                <div key={level.strike} className="flex items-center justify-between hover:bg-secondary/20 rounded px-1 -mx-1 transition-colors">
-                  <span className="text-[11px] tabular-nums text-foreground font-medium">{level.strike}</span>
-                  <span className="text-[10px] tabular-nums text-muted-foreground">{formatOI(level.putOI)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="flex items-center gap-1 mb-1">
-              <Target className="h-3 w-3 text-destructive" />
-              <span className="text-[9px] font-bold text-destructive tracking-wider uppercase">Resistance</span>
-            </div>
-            <div className="space-y-0.5">
-              {data.resistanceLevels.slice(0, 3).map((level) => (
-                <div key={level.strike} className="flex items-center justify-between hover:bg-secondary/20 rounded px-1 -mx-1 transition-colors">
-                  <span className="text-[11px] tabular-nums text-foreground font-medium">{level.strike}</span>
-                  <span className="text-[10px] tabular-nums text-muted-foreground">{formatOI(level.callOI)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Active Strikes */}
-        <div>
-          <div className="text-[9px] font-bold text-info-cyan tracking-wider uppercase mb-1.5">Active Strikes</div>
-          <div className="space-y-1">
-            {data.activeStrikes.slice(0, 3).map((strike, i) => (
-              <div key={i} className="flex items-center justify-between bg-secondary/30 hover:bg-secondary/50 rounded px-2 py-1 transition-colors">
-                <div className="flex items-center gap-2">
-                  <span className={`text-[10px] font-bold px-1 rounded ${
-                    strike.type === 'call' ? 'text-bullish bg-bullish/10' : 'text-destructive bg-destructive/10'
-                  }`}>
-                    {strike.type === 'call' ? 'CE' : 'PE'}
-                  </span>
-                  <span className="text-[11px] tabular-nums text-foreground">{strike.strike}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className={`text-[10px] tabular-nums font-medium ${strike.oiChange >= 0 ? 'text-bullish' : 'text-destructive'}`}>
-                    {strike.oiChange >= 0 ? '+' : ''}{formatOI(strike.oiChange)}
-                  </span>
-                  <span className="text-[9px] text-warning-amber tracking-wider font-medium">{strike.signal}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
 
         {/* Scoring Factors (collapsible) */}
         {data.scoringFactors && (

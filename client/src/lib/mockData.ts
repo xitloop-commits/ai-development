@@ -1,4 +1,4 @@
-import type { ModuleStatus, InstrumentData, Signal, Position } from './types';
+import type { ModuleStatus, InstrumentData, Signal, Position, SRLevel } from './types';
 
 export const moduleStatuses: ModuleStatus[] = [
   {
@@ -67,6 +67,35 @@ export const niftyData: InstrumentData = {
   totalPutOI: 7200000,
   pcrRatio: 0.81,
   strikesFound: 264,
+  srLevels: [
+    { strike: 22800, label: 'S5', type: 'support', oi: 430000, openOI: 420000, oiChangePct: 2.4, oiChangeAbs: 10000, strength: 35, activityLabel: 'Holding Steady', technicalLabel: 'No Change', trend: 'flat', trendArrow: '─', barStatus: 'stable' },
+    { strike: 22900, label: 'S4', type: 'support', oi: 560000, openOI: 590000, oiChangePct: -5.1, oiChangeAbs: -30000, strength: 25, activityLabel: 'Sellers Exiting', technicalLabel: 'Short Covering', trend: 'down', trendArrow: '▼', barStatus: 'weakening' },
+    { strike: 23000, label: 'S3', type: 'support', oi: 1200000, openOI: 1070000, oiChangePct: 12.1, oiChangeAbs: 130000, strength: 65, activityLabel: 'Sellers Entering', technicalLabel: 'Short Buildup', trend: 'up', trendArrow: '▲', barStatus: 'strengthening' },
+    { strike: 23100, label: 'S2', type: 'support', oi: 890000, openOI: 750000, oiChangePct: 18.7, oiChangeAbs: 140000, strength: 85, activityLabel: 'Sellers Entering', technicalLabel: 'Short Buildup', trend: 'strong_up', trendArrow: '▲▲', prediction: 'BOUNCE', predictionProbability: 72, barStatus: 'strengthening' },
+    { strike: 23200, label: 'S1', type: 'support', oi: 450000, openOI: 474000, oiChangePct: -5.1, oiChangeAbs: -24000, strength: 20, activityLabel: 'Sellers Exiting', technicalLabel: 'Short Covering', trend: 'down', trendArrow: '▼', barStatus: 'weakening' },
+    { strike: 23350, label: 'ATM', type: 'atm', oi: 0, openOI: 0, oiChangePct: 0, oiChangeAbs: 0, strength: 0, activityLabel: 'Current Price', technicalLabel: 'LTP', trend: 'flat', trendArrow: '●', barStatus: 'atm' },
+    { strike: 23500, label: 'R1', type: 'resistance', oi: 670000, openOI: 728000, oiChangePct: -8.0, oiChangeAbs: -58000, strength: 30, activityLabel: 'Sellers Exiting', technicalLabel: 'Short Covering', trend: 'down', trendArrow: '▼', barStatus: 'weakening' },
+    { strike: 23600, label: 'R2', type: 'resistance', oi: 1100000, openOI: 1250000, oiChangePct: -12.0, oiChangeAbs: -150000, strength: 15, activityLabel: 'Sellers Exiting', technicalLabel: 'Short Covering', trend: 'strong_down', trendArrow: '▼▼', prediction: 'BREAKOUT', predictionProbability: 65, barStatus: 'weakening' },
+    { strike: 23700, label: 'R3', type: 'resistance', oi: 850000, openOI: 739000, oiChangePct: 15.0, oiChangeAbs: 111000, strength: 70, activityLabel: 'Sellers Entering', technicalLabel: 'Call Writing', trend: 'up', trendArrow: '▲', barStatus: 'strengthening' },
+    { strike: 23800, label: 'R4', type: 'resistance', oi: 500000, openOI: 485000, oiChangePct: 3.1, oiChangeAbs: 15000, strength: 35, activityLabel: 'Holding Steady', technicalLabel: 'No Change', trend: 'flat', trendArrow: '─', barStatus: 'stable' },
+    { strike: 24000, label: 'R5', type: 'resistance', oi: 300000, openOI: 306000, oiChangePct: -2.0, oiChangeAbs: -6000, strength: 20, activityLabel: 'Buyers Exiting', technicalLabel: 'Long Unwinding', trend: 'flat', trendArrow: '─', barStatus: 'weakening' },
+  ],
+  atmStrike: 23350,
+  tradeDirection: 'GO_CALL',
+  supportAnalysis: { level: 23100, strength: 85, oi: 890000, oi_change: 140000, oi_change_pct: 18.7, volume: 156000, iv: 12.5, prediction: 'BOUNCE', probability: 72, evidence: ['Very high Put OI — 2.3x average', 'Put OI increasing +140,000 (support building)'] },
+  resistanceAnalysis: { level: 23600, strength: 15, oi: 1100000, oi_change: -150000, oi_change_pct: -12.0, volume: 234000, iv: 14.2, prediction: 'BREAKOUT', probability: 65, evidence: ['Call OI decreasing -150,000 (wall crumbling)'] },
+  tradeSetup: { direction: 'GO_CALL', strike: 23350, option_type: 'CE', entry_price: 145.50, target_price: 189.15, target_pct: 30.0, stop_loss: 123.68, sl_pct: 15.0, risk_reward: 2.0, target_label: 'Breakout target beyond 23600', delta: 0.52, resistance_level: 23600, support_level: 23100 },
+  ivAssessment: { atm_iv: 12.5, assessment: 'FAIR', detail: 'ATM IV 12.5% is near average — fair pricing' },
+  thetaAssessment: { theta_per_day: 3.2, days_to_expiry: 2, warning: 'HIGH RISK: 2 days to expiry — theta accelerating fast' },
+  riskFlags: [{ type: 'danger', text: 'HIGH RISK: 2 days to expiry — theta accelerating fast' }],
+  scoringFactors: {
+    oi_support_resistance: { score: 0.9, weight: 0.30, detail: 'Support: 85/100 (BOUNCE), Resistance: 15/100 (BREAKOUT)' },
+    oi_momentum: { score: 0.6, weight: 0.25, detail: 'Bullish signals: 4, Bearish signals: 1' },
+    iv_level: { score: 0.2, weight: 0.15, detail: 'ATM IV 12.5% is near average — fair pricing' },
+    pcr_trend: { score: -0.3, weight: 0.10, detail: 'PCR: 0.81 (Bearish)' },
+    news_sentiment: { score: 0.3, weight: 0.10, detail: 'Bullish (Mild)' },
+    theta_risk: { score: -0.5, weight: 0.10, detail: 'HIGH RISK: 2 days to expiry' },
+  },
 };
 
 export const crudeOilData: InstrumentData = {

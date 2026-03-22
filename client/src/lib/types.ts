@@ -16,4 +16,5 @@ export type {
   TradeSetup,
   RiskFlag,
   ScoringFactor,
+  SRLevel,
 } from '../../../shared/tradingTypes';
