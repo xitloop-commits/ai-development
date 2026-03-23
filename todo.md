@@ -119,3 +119,14 @@
 - [x] Trade Journal: linked from Dashboard header and App.tsx route
 - [x] Write vitest tests for trade journal (22 tests, 99 total passing)
 - [x] Save checkpoint for Pre-Entry Checklist + Opening OI Snapshot + Trade Journal
+- [x] AI Engine: Add Gift Nifty pre-market direction query and keywords
+- [x] AI Engine: Add India VIX fear/volatility query and keywords
+- [x] AI Engine: Add US market overnight moves (S&P 500, Nasdaq, Wall Street) query
+- [x] AI Engine: Add India CPI/WPI inflation and PMI data query and keywords
+- [x] AI Engine: Add US banking contagion query for BANKNIFTY
+- [x] AI Engine: Add US Dollar Index (DXY) query for CRUDEOIL
+- [x] AI Engine: Add European gas TTF benchmark query for NATURALGAS
+- [x] AI Engine: Add Russia/sanctions supply disruption query for CRUDEOIL
+- [x] AI Engine: Add India VIX event calendar entries (weekly expiry, CPI, PMI, rig count)
+- [x] Dashboard: Updated mock data with Gift Nifty, VIX, DXY, TTF, US banking articles
+- [x] Run tests and save checkpoint for enhanced news coverage (99 tests passing)
