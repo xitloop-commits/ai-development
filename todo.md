@@ -99,3 +99,23 @@
 - [x] Market holidays: frontend component showing upcoming NSE/MCX holidays
 - [x] Run vitest tests for enhanced news and holidays (77 tests passing)
 - [x] Save checkpoint for enhanced news sentiment + market holidays
+- [x] Feature 1: Pre-Entry Checklist — interactive step-by-step risk assessment overlay
+- [x] Pre-Entry Checklist: 8 automated checks (S/R alignment, IV, theta, news, R:R, PCR, OI momentum, confidence)
+- [x] Pre-Entry Checklist: manual override toggles for each check
+- [x] Pre-Entry Checklist: overall readiness score (GO/CAUTION/NO-GO)
+- [x] Pre-Entry Checklist: integrated into InstrumentCard with trigger button
+- [x] Feature 2: Opening OI Snapshot — Python analyzer captures 9:15 AM OI for true intraday tracking
+- [x] Opening OI Snapshot: compute_intraday_oi_analysis function with wall strength and activity labels
+- [x] Opening OI Snapshot: sr_intraday_levels output with change_from_open and activity classification
+- [x] Opening OI Snapshot: shared types (SRIntradayLevel) and server store mapping
+- [x] Feature 4: Trade Journal / P&L Tracker — full CRUD with database persistence
+- [x] Trade Journal: database schema (trade_journal table with 24 columns)
+- [x] Trade Journal: server query helpers (create, update, close, list, stats)
+- [x] Trade Journal: tRPC endpoints (create, close, update, list, stats) with auth
+- [x] Trade Journal: P&L auto-calculation on trade close (supports buy and sell types)
+- [x] Trade Journal: stats engine (win rate, avg R:R, max drawdown, total P&L)
+- [x] Trade Journal: frontend page with new trade form, close trade form, trade list, stats grid
+- [x] Trade Journal: filters (status, instrument) and expandable trade details
+- [x] Trade Journal: linked from Dashboard header and App.tsx route
+- [x] Write vitest tests for trade journal (22 tests, 99 total passing)
+- [x] Save checkpoint for Pre-Entry Checklist + Opening OI Snapshot + Trade Journal

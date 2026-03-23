@@ -358,6 +358,13 @@ export function getInstrumentData(): InstrumentData[] {
       scoringFactors: ai?.scoring_factors,
       newsDetail: ai?.news_detail || null,
       newsEventFlags: ai?.news_detail?.event_flags || [],
+
+      // Opening OI snapshot data from analyzer
+      openingSnapshot: analyzer?.opening_snapshot ? {
+        capturedAt: analyzer.opening_snapshot.captured_at,
+        openingLtp: analyzer.opening_snapshot.opening_ltp,
+      } : null,
+      srIntradayLevels: analyzer?.sr_intraday_levels || [],
     });
   }
 

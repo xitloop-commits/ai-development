@@ -21,4 +21,5 @@ export type {
   NewsArticle,
   MarketHoliday,
   MarketEvent,
+  SRIntradayLevel,
 } from '../../../shared/tradingTypes';

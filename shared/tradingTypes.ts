@@ -72,6 +72,13 @@ export interface InstrumentData {
   newsDetail?: NewsDetail | null;
   newsEventFlags?: string[];
 
+  // Opening OI snapshot
+  openingSnapshot?: {
+    capturedAt: string;
+    openingLtp: number;
+  } | null;
+  srIntradayLevels?: SRIntradayLevel[];
+
   // Enhanced fields from v2 AI engine
   srLevels?: SRLevel[];    // S/R Strength Line data (S5..ATM..R5)
   tradeDirection?: 'GO_CALL' | 'GO_PUT' | 'WAIT';
@@ -200,6 +207,25 @@ export interface RawOptionChainData {
   }>;
 }
 
+/** S/R Intraday Level from the opening OI snapshot analysis */
+export interface SRIntradayLevel {
+  strike: number;
+  type: 'support' | 'atm' | 'resistance';
+  call_oi: number;
+  put_oi: number;
+  opening_call_oi: number;
+  opening_put_oi: number;
+  call_oi_intraday_change: number;
+  put_oi_intraday_change: number;
+  call_change_pct: number;
+  put_change_pct: number;
+  call_activity: string;
+  put_activity: string;
+  relevant_oi: number;
+  wall_strength: number;
+  is_atm: boolean;
+}
+
 /** Shape of the analyzer output JSON */
 export interface RawAnalyzerOutput {
   instrument: string;
@@ -219,6 +245,13 @@ export interface RawAnalyzerOutput {
   real_time_signals: string[];
   exit_signals: string[];
   smart_money_signals: string[];
+
+  // Opening OI snapshot data
+  opening_snapshot?: {
+    captured_at: string;
+    opening_ltp: number;
+  } | null;
+  sr_intraday_levels?: SRIntradayLevel[];
 }
 
 /** Wall strength analysis for a support or resistance level */

@@ -9,11 +9,12 @@ import { useState } from 'react';
 import {
   TrendingUp, TrendingDown, Minus, Brain,
   ChevronDown, ChevronUp, AlertTriangle, Crosshair,
-  Activity, BarChart3, Clock,
+  Activity, BarChart3, Clock, Shield,
 } from 'lucide-react';
 import type { InstrumentData, TradeSetup, RiskFlag, ScoringFactor } from '@/lib/types';
 import SRStrengthLine from './SRStrengthLine';
 import NewsSentimentBadge from './NewsSentimentBadge';
+import PreEntryChecklist from './PreEntryChecklist';
 
 const biasConfig = {
   BULLISH: { color: 'text-bullish', glow: 'glow-green', border: 'border-bullish/30', icon: TrendingUp, label: 'BULLISH' },
@@ -238,6 +239,7 @@ function IVThetaRow({ data }: { data: InstrumentData }) {
 
 
 export default function InstrumentCard({ data, bgImage }: InstrumentCardProps) {
+  const [showChecklist, setShowChecklist] = useState(false);
   const bias = biasConfig[data.marketBias];
   const BiasIcon = bias.icon;
 
@@ -327,7 +329,29 @@ export default function InstrumentCard({ data, bgImage }: InstrumentCardProps) {
 
         {/* Trade Setup (if direction is GO_CALL or GO_PUT) */}
         {data.tradeSetup && (
-          <TradeSetupSection setup={data.tradeSetup} />
+          <div className="space-y-2">
+            <TradeSetupSection setup={data.tradeSetup} />
+            {/* Pre-Entry Checklist trigger */}
+            <button
+              onClick={() => setShowChecklist(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-info-cyan/30 bg-info-cyan/5 text-info-cyan text-[10px] font-bold tracking-wider hover:bg-info-cyan/10 transition-colors w-full justify-center"
+            >
+              <Shield className="h-3 w-3" />
+              PRE-ENTRY CHECKLIST
+            </button>
+          </div>
+        )}
+
+        {/* Pre-Entry Checklist Overlay */}
+        {showChecklist && (
+          <PreEntryChecklist
+            data={data}
+            onClose={() => setShowChecklist(false)}
+            onConfirm={() => {
+              setShowChecklist(false);
+              // Future: trigger trade execution
+            }}
+          />
         )}
 
         {/* ═══ S/R STRENGTH LINE (replaces Wall Strength + S/R list + Active Strikes) ═══ */}

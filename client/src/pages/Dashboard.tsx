@@ -19,7 +19,8 @@ import { trpc } from '@/lib/trpc';
 import { useAlertMonitor } from '@/hooks/useAlertMonitor';
 import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
 import { useAlerts } from '@/contexts/AlertContext';
-import { Bell, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { Bell, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, BookOpen } from 'lucide-react';
+import { Link } from 'wouter';
 import {
   moduleStatuses as mockModules,
   niftyData,
@@ -207,8 +208,14 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="sm:text-right flex sm:flex-col items-center sm:items-end gap-2 sm:gap-0">
-              <div className="text-lg font-bold tabular-nums text-foreground font-display">
-                {currentTime.toLocaleTimeString('en-IN', { hour12: false })}
+              <div className="flex items-center gap-3">
+                <Link href="/journal" className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-info-cyan/30 bg-info-cyan/5 text-info-cyan text-[9px] font-bold tracking-wider hover:bg-info-cyan/10 transition-colors">
+                  <BookOpen className="h-3 w-3" />
+                  JOURNAL
+                </Link>
+                <div className="text-lg font-bold tabular-nums text-foreground font-display">
+                  {currentTime.toLocaleTimeString('en-IN', { hour12: false })}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <div className="text-[10px] text-muted-foreground tracking-wider">

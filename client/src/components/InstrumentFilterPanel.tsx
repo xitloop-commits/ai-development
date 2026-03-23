@@ -12,6 +12,7 @@ import { Eye, EyeOff, LayoutGrid, Loader2, CloudOff } from 'lucide-react';
 
 const INSTRUMENT_ICONS: Record<InstrumentKey, string> = {
   NIFTY_50: '📊',
+  BANKNIFTY: '🏦',
   CRUDEOIL: '🛢️',
   NATURALGAS: '🔥',
 };

@@ -1,7 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import {
   getModuleStatuses,
@@ -18,6 +18,13 @@ import {
   isTodayHoliday,
   getAllHolidays,
 } from "./holidays";
+import {
+  createTrade,
+  updateTrade,
+  closeTrade,
+  getUserTrades,
+  getTradeStats,
+} from "./db";
 
 export const appRouter = router({
   system: systemRouter,
@@ -79,6 +86,94 @@ export const appRouter = router({
       .mutation(({ input }) => {
         setActiveInstruments(input.instruments);
         return { success: true, instruments: getActiveInstruments() };
+      }),
+  }),
+
+  // Trade Journal endpoints (requires auth)
+  journal: router({
+    // Create a new trade entry
+    create: protectedProcedure
+      .input(z.object({
+        instrument: z.string(),
+        tradeType: z.enum(['CALL_BUY', 'PUT_BUY', 'CALL_SELL', 'PUT_SELL']),
+        strike: z.number(),
+        entryPrice: z.number(),
+        quantity: z.number().min(1).default(1),
+        stopLoss: z.number().optional(),
+        target: z.number().optional(),
+        mode: z.enum(['LIVE', 'PAPER']).default('PAPER'),
+        rationale: z.string().optional(),
+        tags: z.string().optional(),
+        aiDecision: z.string().optional(),
+        aiConfidence: z.number().optional(),
+        checklistScore: z.number().optional(),
+        entryTime: z.number(), // UTC ms
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const id = await createTrade({
+          userId: ctx.user.id,
+          ...input,
+          stopLoss: input.stopLoss ?? null,
+          target: input.target ?? null,
+          rationale: input.rationale ?? null,
+          tags: input.tags ?? null,
+          aiDecision: input.aiDecision ?? null,
+          aiConfidence: input.aiConfidence ?? null,
+          checklistScore: input.checklistScore ?? null,
+        });
+        return { success: true, id };
+      }),
+
+    // Close a trade
+    close: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        exitPrice: z.number(),
+        exitTime: z.number(),
+        exitReason: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await closeTrade(input.id, ctx.user.id, input.exitPrice, input.exitTime, input.exitReason);
+        return { success: true };
+      }),
+
+    // Update a trade (rationale, tags, etc.)
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        rationale: z.string().optional(),
+        exitReason: z.string().optional(),
+        tags: z.string().optional(),
+        stopLoss: z.number().optional(),
+        target: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...updates } = input;
+        await updateTrade(id, ctx.user.id, updates);
+        return { success: true };
+      }),
+
+    // List trades with filters
+    list: protectedProcedure
+      .input(z.object({
+        status: z.enum(['OPEN', 'CLOSED', 'CANCELLED']).optional(),
+        instrument: z.string().optional(),
+        startTime: z.number().optional(),
+        endTime: z.number().optional(),
+        limit: z.number().min(1).max(500).optional(),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        return getUserTrades(ctx.user.id, input ?? undefined);
+      }),
+
+    // Get P&L stats
+    stats: protectedProcedure
+      .input(z.object({
+        startTime: z.number().optional(),
+        endTime: z.number().optional(),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        return getTradeStats(ctx.user.id, input?.startTime, input?.endTime);
       }),
   }),
 
