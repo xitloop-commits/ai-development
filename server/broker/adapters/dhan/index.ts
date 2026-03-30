@@ -56,6 +56,17 @@ import type {
 
 import { getBrokerConfig, updateBrokerConnection } from "../../brokerConfig";
 
+import {
+  downloadScripMaster,
+  lookupSecurityId as scripLookup,
+  getExpiryDates as scripExpiryDates,
+  resolveMCXFutcom,
+  getScripMasterStatus,
+  getRecordsByExchange,
+  needsRefresh as scripNeedsRefresh,
+  type LookupResult,
+} from "./scripMaster";
+
 // ─── DhanAdapter ───────────────────────────────────────────────
 
 export class DhanAdapter implements BrokerAdapter {
@@ -441,10 +452,24 @@ export class DhanAdapter implements BrokerAdapter {
 
   // ── Market Data ───────────────────────────────────────────────
 
-  async getScripMaster(_exchange: string): Promise<Instrument[]> {
-    // Scrip master is a large CSV download — will be implemented in Step 0.5
-    console.log("[DhanAdapter] getScripMaster: Will be implemented in Step 0.5");
-    return [];
+  async getScripMaster(exchange: string): Promise<Instrument[]> {
+    // Ensure scrip master is loaded
+    await this._ensureScripMasterLoaded();
+
+    const records = getRecordsByExchange(exchange);
+
+    return records.map((r) => ({
+      securityId: r.securityId,
+      tradingSymbol: r.tradingSymbol,
+      underlying: r.underlyingSymbol,
+      exchange: r.exchange,
+      segment: r.segment,
+      optionType: r.optionType !== "XX" ? r.optionType : undefined,
+      strike: r.strikePrice > 0 ? r.strikePrice : undefined,
+      expiry: r.expiryDate || undefined,
+      lotSize: r.lotSize,
+      tickSize: r.tickSize,
+    }));
   }
 
   async getExpiryList(underlying: string): Promise<string[]> {
@@ -689,16 +714,92 @@ export class DhanAdapter implements BrokerAdapter {
 
   /**
    * Resolve the Dhan securityId from order params.
-   * For now, uses the instrument string directly.
-   * Will be enhanced with scrip master lookup in Step 0.5.
+   * First checks if it's already a numeric securityId, then tries scrip master lookup.
    */
   private _resolveSecurityId(params: OrderParams): string {
     // If instrument looks like a securityId (numeric), use it directly
     if (/^\d+$/.test(params.instrument)) {
       return params.instrument;
     }
-    // Otherwise, return as-is (will be resolved via scrip master later)
+
+    // Try scrip master lookup
+    const result = scripLookup({
+      symbol: params.instrument,
+      expiry: params.expiry,
+      strike: params.strike,
+      optionType: params.optionType,
+      exchange: params.exchange,
+    });
+
+    if (result) {
+      return result.securityId;
+    }
+
+    // Fallback: return as-is
+    console.warn(
+      `[DhanAdapter] Could not resolve securityId for ${params.instrument}. Using as-is.`
+    );
     return params.instrument;
+  }
+
+  /**
+   * Ensure scrip master is loaded and not stale.
+   */
+  private async _ensureScripMasterLoaded(): Promise<void> {
+    if (scripNeedsRefresh(12)) {
+      try {
+        await downloadScripMaster();
+      } catch (err) {
+        console.error("[DhanAdapter] Scrip master download failed:", err);
+      }
+    }
+  }
+
+  /**
+   * Get scrip master status (for REST/tRPC endpoints).
+   */
+  getScripMasterStatus() {
+    return getScripMasterStatus();
+  }
+
+  /**
+   * Force refresh scrip master.
+   */
+  async refreshScripMaster() {
+    await downloadScripMaster();
+    return getScripMasterStatus();
+  }
+
+  /**
+   * Lookup a security ID from the scrip master.
+   */
+  lookupSecurity(params: {
+    symbol: string;
+    expiry?: string;
+    strike?: number;
+    optionType?: string;
+    exchange?: string;
+    instrumentName?: string;
+  }): LookupResult | null {
+    return scripLookup(params);
+  }
+
+  /**
+   * Get expiry dates from the scrip master cache.
+   */
+  getScripExpiryDates(
+    symbol: string,
+    exchange?: string,
+    instrumentName?: string
+  ): string[] {
+    return scripExpiryDates(symbol, exchange, instrumentName);
+  }
+
+  /**
+   * Resolve nearest-month MCX FUTCOM.
+   */
+  resolveMCXFutcom(symbol: string): LookupResult | null {
+    return resolveMCXFutcom(symbol);
   }
 
   /**

@@ -327,6 +327,192 @@ export function registerBrokerRoutes(app: Express): void {
     }
   });
 
+  // ── Scrip Master ────────────────────────────────────────────
+
+  /** GET /api/broker/scrip-master/status — Scrip master cache status */
+  app.get("/api/broker/scrip-master/status", async (_req: Request, res: Response) => {
+    try {
+      const broker = requireBrokerREST(res);
+      if (!broker) return;
+
+      // Check if the adapter has scrip master methods (Dhan-specific)
+      if (typeof (broker as any).getScripMasterStatus === "function") {
+        const status = (broker as any).getScripMasterStatus();
+        res.json({ success: true, data: status });
+      } else {
+        res.json({
+          success: true,
+          data: {
+            isLoaded: false,
+            recordCount: 0,
+            message: "Scrip master not supported by this adapter",
+          },
+        });
+      }
+    } catch (err: any) {
+      console.error("[Broker REST] Error getting scrip master status:", err);
+      sendError(res, 500, err.message);
+    }
+  });
+
+  /** POST /api/broker/scrip-master/refresh — Force re-download scrip master */
+  app.post("/api/broker/scrip-master/refresh", async (_req: Request, res: Response) => {
+    try {
+      const broker = requireBrokerREST(res);
+      if (!broker) return;
+
+      if (typeof (broker as any).refreshScripMaster === "function") {
+        const status = await (broker as any).refreshScripMaster();
+        res.json({ success: true, data: status });
+      } else {
+        sendError(res, 501, "Scrip master refresh not supported by this adapter");
+      }
+    } catch (err: any) {
+      console.error("[Broker REST] Error refreshing scrip master:", err);
+      sendError(res, 500, err.message);
+    }
+  });
+
+  /** GET /api/broker/scrip-master/lookup — Lookup security ID */
+  app.get("/api/broker/scrip-master/lookup", async (req: Request, res: Response) => {
+    try {
+      const broker = requireBrokerREST(res);
+      if (!broker) return;
+
+      const { symbol, expiry, strike, optionType, exchange, instrumentName } = req.query;
+
+      if (!symbol) {
+        sendError(res, 400, "Missing required query param: symbol");
+        return;
+      }
+
+      if (typeof (broker as any).lookupSecurity === "function") {
+        const result = (broker as any).lookupSecurity({
+          symbol: symbol as string,
+          expiry: expiry as string | undefined,
+          strike: strike ? parseFloat(strike as string) : undefined,
+          optionType: optionType as string | undefined,
+          exchange: exchange as string | undefined,
+          instrumentName: instrumentName as string | undefined,
+        });
+
+        if (result) {
+          res.json({ success: true, data: result });
+        } else {
+          sendError(res, 404, `No match found for symbol=${symbol}`);
+        }
+      } else {
+        sendError(res, 501, "Security lookup not supported by this adapter");
+      }
+    } catch (err: any) {
+      console.error("[Broker REST] Error looking up security:", err);
+      sendError(res, 500, err.message);
+    }
+  });
+
+  /** GET /api/broker/scrip-master/expiry-list — Get expiry dates from cache */
+  app.get("/api/broker/scrip-master/expiry-list", async (req: Request, res: Response) => {
+    try {
+      const broker = requireBrokerREST(res);
+      if (!broker) return;
+
+      const { symbol, exchange, instrumentName } = req.query;
+
+      if (!symbol) {
+        sendError(res, 400, "Missing required query param: symbol");
+        return;
+      }
+
+      if (typeof (broker as any).getScripExpiryDates === "function") {
+        const dates = (broker as any).getScripExpiryDates(
+          symbol as string,
+          exchange as string | undefined,
+          instrumentName as string | undefined
+        );
+        res.json({ success: true, data: dates });
+      } else {
+        sendError(res, 501, "Expiry list from cache not supported by this adapter");
+      }
+    } catch (err: any) {
+      console.error("[Broker REST] Error getting expiry list:", err);
+      sendError(res, 500, err.message);
+    }
+  });
+
+  /** GET /api/broker/scrip-master/mcx-futcom — Resolve nearest-month MCX FUTCOM */
+  app.get("/api/broker/scrip-master/mcx-futcom", async (req: Request, res: Response) => {
+    try {
+      const broker = requireBrokerREST(res);
+      if (!broker) return;
+
+      const { symbol } = req.query;
+
+      if (!symbol) {
+        sendError(res, 400, "Missing required query param: symbol");
+        return;
+      }
+
+      if (typeof (broker as any).resolveMCXFutcom === "function") {
+        const result = (broker as any).resolveMCXFutcom(symbol as string);
+        if (result) {
+          res.json({ success: true, data: result });
+        } else {
+          sendError(res, 404, `No FUTCOM found for ${symbol}`);
+        }
+      } else {
+        sendError(res, 501, "MCX FUTCOM resolution not supported by this adapter");
+      }
+    } catch (err: any) {
+      console.error("[Broker REST] Error resolving MCX FUTCOM:", err);
+      sendError(res, 500, err.message);
+    }
+  });
+
+  // ── Option Chain (via Dhan API) ────────────────────────────
+
+  /** GET /api/broker/option-chain/expiry-list — Get expiry list from Dhan API */
+  app.get("/api/broker/option-chain/expiry-list", async (req: Request, res: Response) => {
+    try {
+      const broker = requireBrokerREST(res);
+      if (!broker) return;
+
+      const { underlying } = req.query;
+      if (!underlying) {
+        sendError(res, 400, "Missing required query param: underlying");
+        return;
+      }
+
+      const dates = await broker.getExpiryList(underlying as string);
+      res.json({ success: true, data: dates });
+    } catch (err: any) {
+      console.error("[Broker REST] Error getting expiry list:", err);
+      sendError(res, 500, err.message);
+    }
+  });
+
+  /** GET /api/broker/option-chain — Get option chain from Dhan API */
+  app.get("/api/broker/option-chain", async (req: Request, res: Response) => {
+    try {
+      const broker = requireBrokerREST(res);
+      if (!broker) return;
+
+      const { underlying, expiry } = req.query;
+      if (!underlying || !expiry) {
+        sendError(res, 400, "Missing required query params: underlying, expiry");
+        return;
+      }
+
+      const chain = await broker.getOptionChain(
+        underlying as string,
+        expiry as string
+      );
+      res.json({ success: true, data: chain });
+    } catch (err: any) {
+      console.error("[Broker REST] Error getting option chain:", err);
+      sendError(res, 500, err.message);
+    }
+  });
+
   // ── Trade Book ──────────────────────────────────────────────
 
   /** GET /api/broker/trades — Trade book */

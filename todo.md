@@ -378,11 +378,12 @@
 - [x] Vitest: token expiry calc, 401 detection, update flow, connect/disconnect, kill switch (20 tests passing)
 
 ### Step 0.5: Dhan Adapter — Scrip Master + Option Chain
-- [ ] Download and cache scrip master CSV from Dhan
-- [ ] Security ID lookup (instrument, expiry, strike, type)
-- [ ] MCX nearest-month FUTCOM auto-resolution
-- [ ] getExpiryList and getOptionChain via Dhan API
-- [ ] Vitest: CSV parsing, lookup logic, MCX resolution
+- [x] Download and cache scrip master CSV from Dhan (16-col compact format, auto-refresh every 12h)
+- [x] Security ID lookup (symbol + expiry + strike + optionType, case-insensitive)
+- [x] MCX nearest-month FUTCOM auto-resolution
+- [x] getExpiryList and getOptionChain via Dhan API + scrip master cache expiry list
+- [x] REST endpoints: /api/broker/scrip-master/status, /refresh, /lookup, /expiry-list, /mcx-futcom, /option-chain/*
+- [x] Vitest: 31 tests (lookup, expiry dates, MCX FUTCOM, status, records by exchange/symbol, reset)
 
 ### Step 0.6: Dhan Adapter — Orders + Positions + Funds
 - [ ] placeOrder (LIMIT at configurable % below LTP)
