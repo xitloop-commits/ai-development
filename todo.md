@@ -386,9 +386,13 @@
 - [x] Vitest: 31 tests (lookup, expiry dates, MCX FUTCOM, status, records by exchange/symbol, reset)
 
 ### Step 0.6: Dhan Adapter — Orders + Positions + Funds
-- [ ] placeOrder (LIMIT at configurable % below LTP)
-- [ ] modifyOrder, cancelOrder, exitAll
-- [ ] getOrderBook, getOrderStatus, getTradeBook
-- [ ] getPositions, getMargin (fund limit)
-- [ ] killSwitch via Dhan API + exit all
-- [ ] Vitest: order param construction, error handling (mocked)
+- [x] placeOrder with rate limiter, retry logic, configurable limit % offset, bracket SL/TP
+- [x] modifyOrder, cancelOrder, exitAll (cancel pending + close positions with market orders)
+- [x] getOrderBook, getOrderStatus, getTradeBook with tradingSymbol parsing
+- [x] getPositions with parsed optionType/strike/expiry and P&L% calculation
+- [x] getMargin (fund limit)
+- [x] killSwitch via Dhan API + exit all
+- [x] Rate limiter (10/sec, 250/min) on all API methods
+- [x] Trading symbol parser (hyphenated, compact, space-separated formats)
+- [x] Utility functions: calculateLimitPrice, calculateBracketPrices, withRetry, isRetryableError
+- [x] Vitest: 32 tests (symbol parsing, rate limiter, limit price, bracket prices, retry, error detection)

@@ -67,6 +67,15 @@ import {
   type LookupResult,
 } from "./scripMaster";
 
+import {
+  parseTradingSymbol,
+  RateLimiter,
+  withRetry,
+  isRetryableError,
+  calculateLimitPrice,
+  calculateBracketPrices,
+} from "./utils";
+
 // ─── DhanAdapter ───────────────────────────────────────────────
 
 export class DhanAdapter implements BrokerAdapter {
@@ -80,6 +89,9 @@ export class DhanAdapter implements BrokerAdapter {
 
   // Order update callback (for real-time order updates)
   private orderUpdateCb: OrderUpdateCallback | null = null;
+
+  // Rate limiter for Dhan API calls
+  private rateLimiter = new RateLimiter(10, 250);
 
   // ── Auth ──────────────────────────────────────────────────────
 
@@ -134,6 +146,22 @@ export class DhanAdapter implements BrokerAdapter {
     this._ensureToken();
     this._ensureNotKilled();
 
+    // Load broker settings for configurable defaults
+    const config = await getBrokerConfig(this.brokerId);
+    const settings = config?.settings;
+
+    // Resolve security ID from scrip master
+    const securityId = this._resolveSecurityId(params);
+
+    // Calculate limit price with offset if order type is LIMIT and price is 0 (auto-calculate)
+    let price = params.price;
+    if (params.orderType === "LIMIT" && price === 0 && settings) {
+      // Price of 0 means "use LTP with offset" — caller should provide actual LTP as price
+      // For now, keep price as-is; the frontend will calculate using LTP
+      console.warn("[DhanAdapter] LIMIT order with price=0. Frontend should provide LTP-based price.");
+    }
+
+    // Build the Dhan order request
     const body: DhanOrderRequest = {
       dhanClientId: this.clientId,
       transactionType: params.transactionType,
@@ -141,29 +169,44 @@ export class DhanAdapter implements BrokerAdapter {
       productType: DHAN_PRODUCT_TYPES[params.productType] ?? params.productType,
       orderType: DHAN_ORDER_TYPES[params.orderType] ?? params.orderType,
       validity: "DAY",
-      securityId: this._resolveSecurityId(params),
+      securityId,
       quantity: params.quantity,
-      price: params.price,
+      price,
     };
 
+    // Trigger price for SL orders
     if (params.triggerPrice) {
       body.triggerPrice = params.triggerPrice;
     }
+
+    // Bracket order: SL and TP values
     if (params.stopLoss) {
       body.boStopLossValue = params.stopLoss;
     }
     if (params.target) {
       body.boProfitValue = params.target;
     }
+
+    // Correlation ID for tracking
     if (params.tag) {
       body.correlationId = params.tag;
     }
 
-    const result = await dhanRequest<DhanOrderResponse>(
-      "POST",
-      DHAN_ENDPOINTS.PLACE_ORDER,
-      this.accessToken,
-      body as unknown as Record<string, unknown>
+    // Rate limit + retry
+    await this.rateLimiter.acquire();
+
+    const result = await withRetry(
+      () => dhanRequest<DhanOrderResponse>(
+        "POST",
+        DHAN_ENDPOINTS.PLACE_ORDER,
+        this.accessToken,
+        body as unknown as Record<string, unknown>
+      ),
+      {
+        maxRetries: 2,
+        delayMs: 500,
+        shouldRetry: isRetryableError,
+      }
     );
 
     if (result.isAuthError) {
@@ -177,6 +220,9 @@ export class DhanAdapter implements BrokerAdapter {
       );
     }
 
+    // Update last API call timestamp
+    await updateBrokerConnection(this.brokerId, { lastApiCall: Date.now() });
+
     return {
       orderId: result.data.orderId,
       status: (DHAN_ORDER_STATUS_MAP[result.data.orderStatus] ?? "PENDING") as OrderResult["status"],
@@ -187,6 +233,7 @@ export class DhanAdapter implements BrokerAdapter {
 
   async modifyOrder(orderId: string, params: ModifyParams): Promise<OrderResult> {
     this._ensureToken();
+    await this.rateLimiter.acquire();
 
     const body: Record<string, unknown> = {
       dhanClientId: this.clientId,
@@ -228,6 +275,7 @@ export class DhanAdapter implements BrokerAdapter {
 
   async cancelOrder(orderId: string): Promise<OrderResult> {
     this._ensureToken();
+    await this.rateLimiter.acquire();
 
     const result = await dhanRequest<DhanOrderResponse>(
       "DELETE",
@@ -313,6 +361,7 @@ export class DhanAdapter implements BrokerAdapter {
 
   async getOrderBook(): Promise<Order[]> {
     this._ensureToken();
+    await this.rateLimiter.acquire();
 
     const result = await dhanRequest<DhanOrderBookEntry[]>(
       "GET",
@@ -334,6 +383,7 @@ export class DhanAdapter implements BrokerAdapter {
 
   async getOrderStatus(orderId: string): Promise<Order> {
     this._ensureToken();
+    await this.rateLimiter.acquire();
 
     const result = await dhanRequest<DhanOrderBookEntry>(
       "GET",
@@ -355,6 +405,7 @@ export class DhanAdapter implements BrokerAdapter {
 
   async getTradeBook(): Promise<Trade[]> {
     this._ensureToken();
+    await this.rateLimiter.acquire();
 
     const result = await dhanRequest<DhanTradeBookEntry[]>(
       "GET",
@@ -371,25 +422,29 @@ export class DhanAdapter implements BrokerAdapter {
       return [];
     }
 
-    return result.data.map((entry, i) => ({
-      tradeId: `${entry.orderId}-${i}`,
-      orderId: entry.orderId,
-      instrument: entry.tradingSymbol,
-      exchange: entry.exchangeSegment as Order["exchange"],
-      transactionType: entry.transactionType as Order["transactionType"],
-      optionType: "CE" as const, // Will be resolved from tradingSymbol in future
-      strike: 0,
-      expiry: "",
-      quantity: entry.tradedQuantity,
-      price: entry.tradedPrice,
-      timestamp: entry.createTime ? new Date(entry.createTime).getTime() : Date.now(),
-    }));
+    return result.data.map((entry, i) => {
+      const parsed = parseTradingSymbol(entry.tradingSymbol ?? "");
+      return {
+        tradeId: `${entry.orderId}-${i}`,
+        orderId: entry.orderId,
+        instrument: entry.tradingSymbol,
+        exchange: entry.exchangeSegment as Order["exchange"],
+        transactionType: entry.transactionType as Order["transactionType"],
+        optionType: parsed?.optionType ?? ("CE" as const),
+        strike: parsed?.strike ?? 0,
+        expiry: parsed?.expiry ?? "",
+        quantity: entry.tradedQuantity,
+        price: entry.tradedPrice,
+        timestamp: entry.createTime ? new Date(entry.createTime).getTime() : Date.now(),
+      };
+    });
   }
 
   // ── Positions & Funds ─────────────────────────────────────────
 
   async getPositions(): Promise<Position[]> {
     this._ensureToken();
+    await this.rateLimiter.acquire();
 
     const result = await dhanRequest<DhanPositionEntry[]>(
       "GET",
@@ -406,27 +461,35 @@ export class DhanAdapter implements BrokerAdapter {
       return [];
     }
 
-    return result.data.map((entry) => ({
-      positionId: `${entry.securityId}-${entry.productType}`,
-      instrument: entry.tradingSymbol,
-      exchange: entry.exchangeSegment as Position["exchange"],
-      transactionType: (entry.netQty >= 0 ? "BUY" : "SELL") as Position["transactionType"],
-      optionType: "CE" as const, // Will be resolved from tradingSymbol
-      strike: 0,
-      expiry: "",
-      quantity: entry.netQty,
-      averagePrice: entry.netQty >= 0 ? entry.buyAvg : entry.sellAvg,
-      ltp: 0, // Will be updated via WebSocket
-      pnl: entry.realizedProfit + entry.unrealizedProfit,
-      pnlPercent: 0,
-      status: entry.netQty === 0 ? "CLOSED" as const : "OPEN" as const,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }));
+    return result.data.map((entry) => {
+      const parsed = parseTradingSymbol(entry.tradingSymbol ?? "");
+      const avgPrice = entry.netQty >= 0 ? entry.buyAvg : entry.sellAvg;
+      const totalPnl = entry.realizedProfit + entry.unrealizedProfit;
+      const pnlPercent = avgPrice > 0 ? (totalPnl / (avgPrice * Math.abs(entry.netQty || 1))) * 100 : 0;
+
+      return {
+        positionId: `${entry.securityId}-${entry.productType}`,
+        instrument: entry.tradingSymbol,
+        exchange: entry.exchangeSegment as Position["exchange"],
+        transactionType: (entry.netQty >= 0 ? "BUY" : "SELL") as Position["transactionType"],
+        optionType: parsed?.optionType ?? ("CE" as const),
+        strike: parsed?.strike ?? 0,
+        expiry: parsed?.expiry ?? "",
+        quantity: entry.netQty,
+        averagePrice: avgPrice,
+        ltp: 0, // Will be updated via WebSocket
+        pnl: totalPnl,
+        pnlPercent: Math.round(pnlPercent * 100) / 100,
+        status: entry.netQty === 0 ? "CLOSED" as const : "OPEN" as const,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+    });
   }
 
   async getMargin(): Promise<MarginInfo> {
     this._ensureToken();
+    await this.rateLimiter.acquire();
 
     const result = await dhanRequest<DhanFundLimitResponse>(
       "GET",
@@ -804,16 +867,19 @@ export class DhanAdapter implements BrokerAdapter {
 
   /**
    * Map a Dhan order book entry to our internal Order type.
+   * Parses tradingSymbol to extract optionType, strike, and expiry.
    */
   private _mapDhanOrder(entry: DhanOrderBookEntry): Order {
+    const parsed = parseTradingSymbol(entry.tradingSymbol ?? "");
+
     return {
       orderId: entry.orderId,
       instrument: entry.tradingSymbol ?? entry.securityId,
       exchange: entry.exchangeSegment as Order["exchange"],
       transactionType: entry.transactionType as Order["transactionType"],
-      optionType: "CE" as const, // Will be resolved from tradingSymbol
-      strike: 0,
-      expiry: "",
+      optionType: parsed?.optionType ?? ("CE" as const),
+      strike: parsed?.strike ?? 0,
+      expiry: parsed?.expiry ?? "",
       quantity: entry.quantity,
       filledQuantity: entry.filledQty ?? 0,
       price: entry.price,
