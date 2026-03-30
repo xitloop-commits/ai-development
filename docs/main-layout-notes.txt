@@ -1,0 +1,30 @@
+CURRENT MAIN PAGE LAYOUT
+========================
+
+TOP BAR (StatusBar.tsx - sticky):
+- Brand: ATS logo + "Automatic Trading System"
+- Module heartbeats: FETCHER, ANALYZER, AI ENGINE, EXECUTOR (with status dots)
+- Time: HH:MM:SS IST
+
+PAGE HEADER (in Dashboard.tsx):
+- Title: "Trading Command Center"
+- Subtitle: "Real-time option chain analysis..."
+- Right side: JOURNAL link, clock, date, MARKET OPEN/CLOSED badge, LIVE DATA/DEMO MODE badge, Alert badge, DND badge
+
+3-COLUMN GRID:
+- Left sidebar (collapsible): Control Panel
+- Center: Instrument Cards → Position Tracker → Market Holidays
+- Right sidebar (collapsible): Signals Feed → Alert History
+
+FOOTER (in Dashboard.tsx):
+- Left: "ATS v1.1 | Dhan Broker Integration | Powered by AI Decision Engine"
+- Right: Connection status + polling interval
+
+MISSING FROM IMPLEMENTATION PLAN:
+- Top bar redesign (StatusBar)
+- Page header changes
+- Footer redesign with indicators (Dhan API status, WebSocket status, etc.)
+- Overall layout restructuring
+- Navigation between pages (Position Tracker as separate page vs embedded)
+- Settings page navigation
+- Discipline Dashboard navigation

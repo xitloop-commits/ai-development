@@ -1,0 +1,1349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Instrument Card — Terminal Noir Mockup</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --card-bg: #12121a;
+    --border: #1e1e2e;
+    --text: #e2e2e8;
+    --muted: #6b6b80;
+    --green: #22c55e;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --cyan: #22d3ee;
+    --violet: #a78bfa;
+    --blue: #3b82f6;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    padding: 24px;
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: flex-start;
+  }
+
+  .card-selector {
+    width: 100%;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .card-selector button {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 16px;
+    margin: 0 4px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    transition: all 0.2s;
+  }
+  .card-selector button.active {
+    color: var(--cyan);
+    border-color: var(--cyan);
+    background: rgba(34,211,238,0.08);
+  }
+  .card-selector button:hover { border-color: var(--muted); }
+
+  .instrument-card {
+    width: 420px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+    transition: all 0.3s;
+  }
+  .instrument-card:hover { border-color: rgba(255,255,255,0.15); }
+
+  /* Left edge glow */
+  .glow-edge {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+  }
+  .glow-green { background: var(--green); box-shadow: 0 0 8px rgba(34,197,94,0.4); }
+  .glow-red { background: var(--red); box-shadow: 0 0 8px rgba(239,68,68,0.4); }
+  .glow-amber { background: var(--amber); box-shadow: 0 0 8px rgba(245,158,11,0.4); }
+  .glow-cyan { background: var(--cyan); box-shadow: 0 0 8px rgba(34,211,238,0.4); }
+
+  .card-body {
+    padding: 16px 16px 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* Section numbers for reference */
+  .section-label {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: var(--cyan);
+    background: rgba(34,211,238,0.1);
+    border: 1px solid rgba(34,211,238,0.2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-bottom: 4px;
+    opacity: 0.7;
+  }
+
+  /* 1. HEADER */
+  .header { display: flex; justify-content: space-between; align-items: flex-start; }
+  .header-left {}
+  .instrument-name {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .price-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+  }
+  .last-price {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--cyan);
+  }
+  .atm-label {
+    font-size: 9px;
+    color: var(--muted);
+  }
+  .meta-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 3px;
+  }
+  .meta-item {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+  .meta-sep { font-size: 10px; color: var(--muted); }
+
+  .bias-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .bias-icon { font-size: 14px; }
+
+  /* 2. TRADE DIRECTION */
+  .direction-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    border: 1px solid;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .direction-badge .confidence {
+    font-size: 10px;
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  /* 3. AI RATIONALE */
+  .rationale {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* 4. TRADE SETUP */
+  .trade-setup {
+    border-radius: 4px;
+    border: 1px solid;
+    padding: 10px;
+  }
+  .setup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .setup-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .setup-strike {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid;
+  }
+  .setup-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .setup-item label {
+    font-size: 8px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    display: block;
+  }
+  .setup-item .value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .setup-item .pct { font-size: 8px; margin-left: 2px; }
+  .setup-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+  }
+  .setup-footer .target-label { font-size: 9px; color: var(--muted); }
+  .setup-footer .rr-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .setup-footer .rr-label { font-size: 9px; color: var(--muted); }
+  .setup-footer .rr-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .checklist-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 6px 12px;
+    border-radius: 4px;
+    border: 1px solid rgba(34,211,238,0.3);
+    background: rgba(34,211,238,0.05);
+    color: var(--cyan);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 8px;
+  }
+  .checklist-btn:hover { background: rgba(34,211,238,0.1); }
+
+  /* 5. S/R STRENGTH LINE */
+  .sr-container {
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.05);
+    background: rgba(255,255,255,0.02);
+    padding: 10px;
+  }
+  .sr-zone-labels {
+    display: flex;
+    justify-content: space-between;
+    padding: 0 4px;
+    margin-bottom: 4px;
+  }
+  .sr-zone-labels span {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .sr-chart {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 0;
+    position: relative;
+  }
+  .sr-axis {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    bottom: 68px;
+    background: linear-gradient(to right, rgba(34,211,238,0.2), rgba(51,65,85,0.6), rgba(245,158,11,0.6), rgba(51,65,85,0.6), rgba(167,139,250,0.2));
+  }
+  .sr-bar-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 0;
+    position: relative;
+  }
+  .sr-oi-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: #64748b;
+    margin-bottom: 2px;
+  }
+  .sr-change {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7px;
+    font-weight: 700;
+    padding: 1px 3px;
+    border-radius: 2px;
+    margin-bottom: 2px;
+  }
+  .sr-change.up { color: #34d399; background: rgba(52,211,153,0.15); }
+  .sr-change.down { color: #f87171; background: rgba(248,113,113,0.15); }
+  .sr-change.flat { color: #94a3b8; background: rgba(148,163,184,0.15); }
+
+  .sr-activity {
+    text-align: center;
+    margin-bottom: 2px;
+    height: 22px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+  }
+  .sr-activity-main {
+    font-size: 7px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sr-activity-tech {
+    font-size: 6px;
+    color: #475569;
+  }
+
+  .sr-bar-area {
+    width: 100%;
+    height: 64px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .sr-bar {
+    width: 60%;
+    max-width: 28px;
+    border-radius: 2px 2px 0 0;
+    transition: all 0.5s;
+  }
+  .bar-strengthening { background: linear-gradient(to top, #047857, #22c55e); box-shadow: 0 0 8px rgba(16,185,129,0.3); }
+  .bar-weakening { background: linear-gradient(to top, #991b1b, #ef4444); box-shadow: 0 0 8px rgba(239,68,68,0.2); }
+  .bar-stable { background: linear-gradient(to top, #1e3a5f, #3b82f6); }
+  .bar-atm { background: linear-gradient(to top, #92400e, #f59e0b); box-shadow: 0 0 12px rgba(245,158,11,0.4); }
+
+  .sr-trend {
+    font-size: 9px;
+    margin-top: 2px;
+  }
+  .trend-up { color: #34d399; }
+  .trend-down { color: #f87171; }
+  .trend-flat { color: #475569; }
+
+  .sr-prediction {
+    font-size: 6px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 2px;
+    margin-top: 2px;
+    white-space: nowrap;
+    border: 1px solid;
+  }
+  .pred-bounce { color: #34d399; background: rgba(52,211,153,0.2); border-color: rgba(52,211,153,0.3); }
+  .pred-breakout { color: #fbbf24; background: rgba(251,191,36,0.2); border-color: rgba(251,191,36,0.3); }
+  .pred-spacer { height: 14px; margin-top: 2px; }
+
+  .sr-tick {
+    margin-top: 2px;
+    width: 2px;
+    height: 8px;
+    background: #334155;
+  }
+  .sr-tick.atm-tick {
+    width: 3px;
+    height: 12px;
+    background: var(--amber);
+  }
+  .sr-strike {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: #cbd5e1;
+    margin-top: 2px;
+  }
+  .sr-strike.atm-strike {
+    color: var(--amber);
+    font-weight: 700;
+    font-size: 9px;
+  }
+  .sr-level-label {
+    font-size: 8px;
+    font-weight: 700;
+  }
+  .label-support { color: var(--cyan); }
+  .label-resistance { color: var(--violet); }
+  .label-atm { color: var(--amber); }
+
+  .sr-legend {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    margin-top: 4px;
+  }
+  .sr-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .sr-legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+  }
+  .sr-legend-text { font-size: 7px; color: #475569; }
+
+  /* 6. OI SUMMARY */
+  .oi-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .oi-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+  }
+  .oi-bar-container {
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.05);
+    overflow: hidden;
+    display: flex;
+  }
+  .oi-bar-call { height: 100%; background: rgba(34,197,94,0.6); }
+  .oi-bar-put { height: 100%; background: rgba(239,68,68,0.6); }
+  .pcr-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--cyan);
+    margin-left: 4px;
+  }
+
+  /* 7. IV & THETA */
+  .iv-theta-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .iv-theta-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .iv-theta-item .icon { font-size: 12px; color: var(--muted); }
+  .iv-theta-item .label { font-size: 9px; color: var(--muted); }
+  .iv-theta-item .val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+  }
+
+  /* 8. NEWS SENTIMENT */
+  .news-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    cursor: pointer;
+  }
+  .news-row .icon { font-size: 12px; color: var(--muted); }
+  .news-row .label { font-size: 9px; color: var(--muted); }
+  .news-row .sentiment-val { font-size: 9px; font-weight: 700; }
+  .news-row .strength-val { font-size: 8px; color: var(--muted); }
+  .confidence-bar {
+    width: 48px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.05);
+    overflow: hidden;
+  }
+  .confidence-fill { height: 100%; border-radius: 2px; }
+  .news-row .conf-pct {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: var(--muted);
+  }
+  .news-row .articles {
+    font-size: 8px;
+    color: var(--muted);
+  }
+  .event-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 7px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: rgba(245,158,11,0.1);
+    color: var(--amber);
+    border: 1px solid rgba(245,158,11,0.2);
+    font-weight: 700;
+  }
+  .news-expanded {
+    margin-left: 16px;
+    margin-top: 4px;
+    display: none;
+  }
+  .news-expanded.show { display: block; }
+  .bull-bear-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .bull-bear-bar .score {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    font-weight: 700;
+  }
+  .bull-bear-track {
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.03);
+    overflow: hidden;
+    display: flex;
+  }
+  .net-score { font-family: 'JetBrains Mono', monospace; font-size: 8px; color: var(--muted); }
+  .headlines-title {
+    font-size: 7px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 3px;
+  }
+  .headline-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-bottom: 2px;
+  }
+  .headline-score {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7px;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .headline-text {
+    font-size: 8px;
+    color: var(--muted);
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .headline-source {
+    font-size: 7px;
+    color: rgba(107,107,128,0.5);
+    flex-shrink: 0;
+  }
+
+  /* 9. RISK FLAGS */
+  .risk-flag {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 9px;
+    line-height: 1.4;
+    border: 1px solid;
+  }
+  .risk-flag .icon { flex-shrink: 0; margin-top: 1px; }
+  .risk-warning {
+    background: rgba(245,158,11,0.1);
+    color: var(--amber);
+    border-color: rgba(245,158,11,0.2);
+  }
+  .risk-danger {
+    background: rgba(239,68,68,0.1);
+    color: var(--red);
+    border-color: rgba(239,68,68,0.2);
+  }
+
+  /* 10. SCORING FACTORS */
+  .scoring-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    color: var(--muted);
+    cursor: pointer;
+    background: none;
+    border: none;
+    font-family: 'Space Grotesk', sans-serif;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .scoring-toggle:hover { color: var(--text); }
+  .scoring-factors { display: none; margin-top: 6px; }
+  .scoring-factors.show { display: block; }
+  .factor-row { margin-bottom: 4px; }
+  .factor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .factor-name {
+    font-size: 8px;
+    color: var(--muted);
+    text-transform: capitalize;
+  }
+  .factor-score {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    font-weight: 700;
+  }
+  .factor-bar-track {
+    width: 100%;
+    height: 2px;
+    border-radius: 1px;
+    background: rgba(255,255,255,0.03);
+    overflow: hidden;
+    margin: 2px 0;
+  }
+  .factor-bar-fill {
+    height: 100%;
+    border-radius: 1px;
+    transition: all 0.5s;
+  }
+  .factor-detail {
+    font-size: 7px;
+    color: rgba(107,107,128,0.6);
+    line-height: 1.3;
+  }
+
+  /* Utility */
+  .text-green { color: var(--green); }
+  .text-red { color: var(--red); }
+  .text-amber { color: var(--amber); }
+  .text-cyan { color: var(--cyan); }
+  .text-violet { color: var(--violet); }
+  .text-muted { color: var(--muted); }
+  .bg-green-10 { background: rgba(34,197,94,0.1); }
+  .bg-red-10 { background: rgba(239,68,68,0.1); }
+  .bg-amber-10 { background: rgba(245,158,11,0.1); }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+</style>
+</head>
+<body>
+
+<div class="card-selector">
+  <button class="active" onclick="showCard('bullish')">NIFTY 50 (Bullish)</button>
+  <button onclick="showCard('bearish')">CRUDE OIL (Bearish)</button>
+  <button onclick="showCard('neutral')">BANK NIFTY (Neutral)</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- CARD 1: NIFTY 50 — BULLISH / GO CALL              -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div id="card-bullish" class="instrument-card">
+  <div class="glow-edge glow-green"></div>
+  <div class="card-body">
+
+    <!-- 1. HEADER -->
+    <div class="header">
+      <div class="header-left">
+        <div class="instrument-name">NIFTY 50</div>
+        <div class="price-row">
+          <span class="last-price">₹24,287.50</span>
+          <span class="atm-label">ATM: 24,300</span>
+        </div>
+        <div class="meta-row">
+          <span class="meta-item">NSE</span>
+          <span class="meta-sep">|</span>
+          <span class="meta-item">EXP: 03 Apr 2026</span>
+          <span class="meta-sep">|</span>
+          <span class="meta-item">22 strikes</span>
+        </div>
+      </div>
+      <div class="bias-badge text-green">
+        <span class="bias-icon">↗</span>
+        BULLISH
+      </div>
+    </div>
+
+    <!-- 2. TRADE DIRECTION -->
+    <div>
+      <div class="direction-badge" style="color:var(--green); border-color:rgba(34,197,94,0.4); background:rgba(34,197,94,0.08);">
+        <span>↗</span>
+        GO CALL
+        <span class="confidence">(78% confidence)</span>
+      </div>
+    </div>
+
+    <!-- 3. AI RATIONALE -->
+    <p class="rationale">Strong put OI buildup at 24,200 support with buyers entering. Resistance at 24,400 showing signs of weakening. PCR trending bullish at 1.12. Gift Nifty indicates positive opening.</p>
+
+    <!-- 4. TRADE SETUP -->
+    <div class="trade-setup" style="border-color:rgba(34,197,94,0.2); background:rgba(34,197,94,0.05);">
+      <div class="setup-header">
+        <div class="setup-title text-green">
+          <span>⊕</span> TRADE SETUP
+        </div>
+        <span class="setup-strike" style="color:var(--green); background:rgba(34,197,94,0.1); border-color:rgba(34,197,94,0.3);">CE 24300</span>
+      </div>
+      <div class="setup-grid">
+        <div class="setup-item">
+          <label>ENTRY</label>
+          <div class="value" style="color:var(--text);">₹142.00</div>
+        </div>
+        <div class="setup-item">
+          <label>TARGET</label>
+          <div class="value text-green">₹178.50<span class="pct">(+25.7%)</span></div>
+        </div>
+        <div class="setup-item">
+          <label>STOP LOSS</label>
+          <div class="value text-red">₹120.00<span class="pct">(-15.5%)</span></div>
+        </div>
+      </div>
+      <div class="setup-footer">
+        <span class="target-label">Target: R1 24,400 breakout</span>
+        <div class="rr-group">
+          <span class="rr-label">R:R</span>
+          <span class="rr-value text-green">1:1.7</span>
+          <span class="rr-label">Delta</span>
+          <span class="rr-value text-cyan">0.52</span>
+        </div>
+      </div>
+    </div>
+    <button class="checklist-btn">🛡 PRE-ENTRY CHECKLIST</button>
+
+    <!-- 5. S/R STRENGTH LINE -->
+    <div class="sr-container">
+      <div class="sr-zone-labels">
+        <span style="color:rgba(34,211,238,0.7);">◄ Support (Put OI)</span>
+        <span style="color:rgba(167,139,250,0.7);">Resistance (Call OI) ►</span>
+      </div>
+      <div class="sr-chart">
+        <div class="sr-axis"></div>
+
+        <!-- S5: 24,000 -->
+        <div class="sr-bar-col">
+          <div class="sr-oi-val">45K</div>
+          <div class="sr-change up">+8.2%</div>
+          <div class="sr-activity">
+            <div class="sr-activity-main" style="color:#34d399;">Buyers Entering</div>
+            <div class="sr-activity-tech">(Long Buildup)</div>
+          </div>
+          <div class="sr-bar-area"><div class="sr-bar bar-strengthening" style="height:38px;"></div></div>
+          <div class="sr-trend trend-up">▲</div>
+          <div class="pred-spacer"></div>
+          <div class="sr-tick"></div>
+          <div class="sr-strike">24,000</div>
+          <div class="sr-level-label label-support">S5</div>
+        </div>
+
+        <!-- S4: 24,050 -->
+        <div class="sr-bar-col">
+          <div class="sr-oi-val">52K</div>
+          <div class="sr-change up">+5.1%</div>
+          <div class="sr-activity">
+            <div class="sr-activity-main" style="color:#34d399;">Buyers Entering</div>
+            <div class="sr-activity-tech">(Long Buildup)</div>
+          </div>
+          <div class="sr-bar-area"><div class="sr-bar bar-strengthening" style="height:44px;"></div></div>
+          <div class="sr-trend trend-up">▲</div>
+          <div class="pred-spacer"></div>
+          <div class="sr-tick"></div>
+          <div class="sr-strike">24,050</div>
+          <div class="sr-level-label label-support">S4</div>
+        </div>
+
+        <!-- S3: 24,100 -->
+        <div class="sr-bar-col">
+          <div class="sr-oi-val">68K</div>
+          <div class="sr-change up">+12.3%</div>
+          <div class="sr-activity">
+            <div class="sr-activity-main" style="color:#34d399;">Sellers Entering</div>
+            <div class="sr-activity-tech">(Short Buildup)</div>
+          </div>
+          <div class="sr-bar-area"><div class="sr-bar bar-strengthening" style="height:56px;"></div></div>
+          <div class="sr-trend trend-up">▲▲</div>
+          <div class="sr-prediction pred-bounce">BOUNCE 72%</div>
+          <div class="sr-tick"></div>
+          <div class="sr-strike">24,100</div>
+          <div class="sr-level-label label-support">S3</div>
+        </div>
+
+        <!-- S2: 24,150 -->
+        <div class="sr-bar-col">
+          <div class="sr-oi-val">41K</div>
+          <div class="sr-change flat">-0.8%</div>
+          <div class="sr-activity">
+            <div class="sr-activity-main" style="color:#94a3b8;">Stable</div>
+            <div class="sr-activity-tech">(No Change)</div>
+          </div>
+          <div class="sr-bar-area"><div class="sr-bar bar-stable" style="height:34px;"></div></div>
+          <div class="sr-trend trend-flat">─</div>
+          <div class="pred-spacer"></div>
+          <div class="sr-tick"></div>
+          <div class="sr-strike">24,150</div>
+          <div class="sr-level-label label-support">S2</div>
+        </div>
+
+        <!-- S1: 24,200 -->
+        <div class="sr-bar-col">
+          <div class="sr-oi-val">85K</div>
+          <div class="sr-change up">+18.5%</div>
+          <div class="sr-activity">
+            <div class="sr-activity-main" style="color:#34d399;">Buyers Entering</div>
+            <div class="sr-activity-tech">(Long Buildup)</div>
+          </div>
+          <div class="sr-bar-area"><div class="sr-bar bar-strengthening" style="height:60px;"></div></div>
+          <div class="sr-trend trend-up">▲▲</div>
+          <div class="sr-prediction pred-bounce">BOUNCE 85%</div>
+          <div class="sr-tick"></div>
+          <div class="sr-strike">24,200</div>
+          <div class="sr-level-label label-support">S1</div>
+        </div>
+
+        <!-- ATM: 24,300 -->
+        <div class="sr-bar-col">
+          <div class="sr-oi-val" style="color:var(--amber); font-weight:700;">LTP</div>
+          <div class="sr-change flat" style="visibility:hidden;">—</div>
+          <div class="sr-activity" style="height:22px;"></div>
+          <div class="sr-bar-area"><div class="sr-bar bar-atm" style="height:32px;"></div></div>
+          <div class="sr-trend" style="margin-top:2px;">
+            <div style="width:8px; height:8px; border-radius:50%; background:var(--amber); margin:0 auto; box-shadow:0 0 6px rgba(245,158,11,0.6);"></div>
+          </div>
+          <div class="pred-spacer"></div>
+          <div class="sr-tick atm-tick"></div>
+          <div class="sr-strike atm-strike">24,300</div>
+          <div class="sr-level-label label-atm">● ATM</div>
+        </div>
+
+        <!-- R1: 24,400 -->
+        <div class="sr-bar-col">
+          <div class="sr-oi-val">72K</div>
+          <div class="sr-change down">-6.2%</div>
+          <div class="sr-activity">
+            <div class="sr-activity-main" style="color:#f87171;">Sellers Exiting</div>
+            <div class="sr-activity-tech">(Short Covering)</div>
+          </div>
+          <div class="sr-bar-area"><div class="sr-bar bar-weakening" style="height:52px;"></div></div>
+          <div class="sr-trend trend-down">▼</div>
+          <div class="sr-prediction pred-breakout">BREAKOUT 68%</div>
+          <div class="sr-tick"></div>
+          <div class="sr-strike">24,400</div>
+          <div class="sr-level-label label-resistance">R1</div>
+        </div>
+
+        <!-- R2: 24,500 -->
+        <div class="sr-bar-col">
+          <div class="sr-oi-val">58K</div>
+          <div class="sr-change down">-3.1%</div>
+          <div class="sr-activity">
+            <div class="sr-activity-main" style="color:#f87171;">Sellers Exiting</div>
+            <div class="sr-activity-tech">(Short Covering)</div>
+          </div>
+          <div class="sr-bar-area"><div class="sr-bar bar-weakening" style="height:46px;"></div></div>
+          <div class="sr-trend trend-down">▼</div>
+          <div class="pred-spacer"></div>
+          <div class="sr-tick"></div>
+          <div class="sr-strike">24,500</div>
+          <div class="sr-level-label label-resistance">R2</div>
+        </div>
+
+        <!-- R3: 24,600 -->
+        <div class="sr-bar-col">
+          <div class="sr-oi-val">91K</div>
+          <div class="sr-change up">+4.7%</div>
+          <div class="sr-activity">
+            <div class="sr-activity-main" style="color:#34d399;">Sellers Entering</div>
+            <div class="sr-activity-tech">(Call Writing)</div>
+          </div>
+          <div class="sr-bar-area"><div class="sr-bar bar-strengthening" style="height:60px;"></div></div>
+          <div class="sr-trend trend-up">▲</div>
+          <div class="sr-prediction pred-bounce">BOUNCE 76%</div>
+          <div class="sr-tick"></div>
+          <div class="sr-strike">24,600</div>
+          <div class="sr-level-label label-resistance">R3</div>
+        </div>
+
+        <!-- R4: 24,700 -->
+        <div class="sr-bar-col">
+          <div class="sr-oi-val">38K</div>
+          <div class="sr-change flat">+1.2%</div>
+          <div class="sr-activity">
+            <div class="sr-activity-main" style="color:#94a3b8;">Stable</div>
+            <div class="sr-activity-tech">(No Change)</div>
+          </div>
+          <div class="sr-bar-area"><div class="sr-bar bar-stable" style="height:30px;"></div></div>
+          <div class="sr-trend trend-flat">─</div>
+          <div class="pred-spacer"></div>
+          <div class="sr-tick"></div>
+          <div class="sr-strike">24,700</div>
+          <div class="sr-level-label label-resistance">R4</div>
+        </div>
+
+        <!-- R5: 24,800 -->
+        <div class="sr-bar-col">
+          <div class="sr-oi-val">25K</div>
+          <div class="sr-change down">-2.4%</div>
+          <div class="sr-activity">
+            <div class="sr-activity-main" style="color:#f87171;">Buyers Exiting</div>
+            <div class="sr-activity-tech">(Long Unwinding)</div>
+          </div>
+          <div class="sr-bar-area"><div class="sr-bar bar-weakening" style="height:20px;"></div></div>
+          <div class="sr-trend trend-down">▼</div>
+          <div class="pred-spacer"></div>
+          <div class="sr-tick"></div>
+          <div class="sr-strike">24,800</div>
+          <div class="sr-level-label label-resistance">R5</div>
+        </div>
+      </div>
+
+      <div class="sr-legend">
+        <div class="sr-legend-item"><div class="sr-legend-dot" style="background:var(--green);"></div><span class="sr-legend-text">Strengthening</span></div>
+        <div class="sr-legend-item"><div class="sr-legend-dot" style="background:var(--red);"></div><span class="sr-legend-text">Weakening</span></div>
+        <div class="sr-legend-item"><div class="sr-legend-dot" style="background:var(--blue);"></div><span class="sr-legend-text">Stable</span></div>
+        <div class="sr-legend-item"><div class="sr-legend-dot" style="background:var(--amber);"></div><span class="sr-legend-text">ATM</span></div>
+      </div>
+    </div>
+
+    <!-- 6. OI SUMMARY -->
+    <div class="oi-summary">
+      <span class="oi-val text-green">1.2M</span>
+      <div class="oi-bar-container">
+        <div class="oi-bar-call" style="width:45%;"></div>
+        <div class="oi-bar-put" style="width:55%;"></div>
+      </div>
+      <span class="oi-val text-red">1.5M</span>
+      <span class="pcr-val">PCR 1.12</span>
+    </div>
+
+    <!-- 7. IV & THETA -->
+    <div class="iv-theta-row">
+      <div class="iv-theta-item">
+        <span class="icon">📊</span>
+        <span class="label">IV:</span>
+        <span class="val text-green">14.2% (CHEAP)</span>
+      </div>
+      <div class="iv-theta-item">
+        <span class="icon">⏱</span>
+        <span class="label">DTE:</span>
+        <span class="val" style="color:var(--text);">4d</span>
+        <span class="val text-red" style="font-size:9px;">(-₹8.50/day)</span>
+      </div>
+    </div>
+
+    <!-- 8. NEWS SENTIMENT -->
+    <div>
+      <div class="news-row" onclick="toggleNews(this)">
+        <span class="icon">📰</span>
+        <span class="label">News:</span>
+        <span class="sentiment-val text-green">↗</span>
+        <span class="sentiment-val text-green">Bullish</span>
+        <span class="strength-val">(Strong)</span>
+        <div class="confidence-bar">
+          <div class="confidence-fill" style="width:72%; background:rgba(34,197,94,0.6);"></div>
+        </div>
+        <span class="conf-pct mono">72%</span>
+        <span class="articles">8 articles</span>
+        <span style="font-size:10px; color:var(--muted);">▾</span>
+      </div>
+      <div style="display:flex; gap:4px; margin-top:4px; flex-wrap:wrap;">
+        <span class="event-flag">⚡ Weekly Expiry Thu</span>
+        <span class="event-flag">⚡ Gift Nifty +0.4%</span>
+      </div>
+      <div class="news-expanded" id="news-detail-1">
+        <div class="bull-bear-bar">
+          <span class="score text-green">Bull: 12</span>
+          <div class="bull-bear-track">
+            <div style="width:63%; height:100%; background:rgba(34,197,94,0.5);"></div>
+            <div style="width:37%; height:100%; background:rgba(239,68,68,0.5);"></div>
+          </div>
+          <span class="score text-red">Bear: 7</span>
+          <span class="net-score">Net: <span class="text-green">+5</span></span>
+        </div>
+        <div class="headlines-title">Top Headlines (4 queries)</div>
+        <div class="headline-row">
+          <span class="headline-score text-green">+3</span>
+          <span class="headline-text">Gift Nifty signals positive opening, up 0.4% from previous close</span>
+          <span class="headline-source">ET</span>
+        </div>
+        <div class="headline-row">
+          <span class="headline-score text-green">+2</span>
+          <span class="headline-text">FII buying continues for 5th session, net inflows ₹2,400 Cr</span>
+          <span class="headline-source">MC</span>
+        </div>
+        <div class="headline-row">
+          <span class="headline-score text-red">-1</span>
+          <span class="headline-text">India VIX rises 3.2% ahead of weekly expiry, caution advised</span>
+          <span class="headline-source">BS</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 9. RISK FLAGS -->
+    <div style="display:flex; flex-direction:column; gap:4px;">
+      <div class="risk-flag risk-warning">
+        <span class="icon">⚠</span>
+        <span>Weekly expiry tomorrow — elevated theta decay and gamma risk</span>
+      </div>
+      <div class="risk-flag risk-danger">
+        <span class="icon">⚠</span>
+        <span>VIX spike +3.2% — option premiums may be inflated</span>
+      </div>
+    </div>
+
+    <!-- 10. SCORING FACTORS -->
+    <div>
+      <button class="scoring-toggle" onclick="toggleScoring(this)">
+        <span>📊</span> Scoring Factors <span>▾</span>
+      </button>
+      <div class="scoring-factors">
+        <div class="factor-row">
+          <div class="factor-header">
+            <span class="factor-name">OI Momentum (30%)</span>
+            <span class="factor-score text-green">+21.0</span>
+          </div>
+          <div class="factor-bar-track"><div class="factor-bar-fill" style="width:63%; background:rgba(34,197,94,0.6);"></div></div>
+          <div class="factor-detail">Strong put OI buildup at S1 24,200 (+18.5%), call OI weakening at R1</div>
+        </div>
+        <div class="factor-row">
+          <div class="factor-header">
+            <span class="factor-name">Wall Strength (25%)</span>
+            <span class="factor-score text-green">+15.0</span>
+          </div>
+          <div class="factor-bar-track"><div class="factor-bar-fill" style="width:45%; background:rgba(34,197,94,0.6);"></div></div>
+          <div class="factor-detail">S1 support wall at 85K OI, R1 resistance weakening from 78K to 72K</div>
+        </div>
+        <div class="factor-row">
+          <div class="factor-header">
+            <span class="factor-name">IV Assessment (15%)</span>
+            <span class="factor-score text-green">+10.5</span>
+          </div>
+          <div class="factor-bar-track"><div class="factor-bar-fill" style="width:32%; background:rgba(34,197,94,0.6);"></div></div>
+          <div class="factor-detail">ATM IV at 14.2% — below 30-day average, options are cheap</div>
+        </div>
+        <div class="factor-row">
+          <div class="factor-header">
+            <span class="factor-name">PCR Trend (15%)</span>
+            <span class="factor-score text-green">+9.0</span>
+          </div>
+          <div class="factor-bar-track"><div class="factor-bar-fill" style="width:27%; background:rgba(34,197,94,0.6);"></div></div>
+          <div class="factor-detail">PCR at 1.12 and rising — bullish sentiment increasing</div>
+        </div>
+        <div class="factor-row">
+          <div class="factor-header">
+            <span class="factor-name">Theta Risk (15%)</span>
+            <span class="factor-score text-red">-6.0</span>
+          </div>
+          <div class="factor-bar-track"><div class="factor-bar-fill" style="width:18%; background:rgba(239,68,68,0.6);"></div></div>
+          <div class="factor-detail">4 DTE — moderate theta decay at ₹8.50/day</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- CARD 2: CRUDE OIL — BEARISH / GO PUT               -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div id="card-bearish" class="instrument-card" style="display:none;">
+  <div class="glow-edge glow-red"></div>
+  <div class="card-body">
+    <div class="header">
+      <div class="header-left">
+        <div class="instrument-name">CRUDE OIL</div>
+        <div class="price-row">
+          <span class="last-price">₹5,842.00</span>
+          <span class="atm-label">ATM: 5,850</span>
+        </div>
+        <div class="meta-row">
+          <span class="meta-item">MCX</span>
+          <span class="meta-sep">|</span>
+          <span class="meta-item">EXP: 19 Apr 2026</span>
+          <span class="meta-sep">|</span>
+          <span class="meta-item">18 strikes</span>
+        </div>
+      </div>
+      <div class="bias-badge text-red">
+        <span class="bias-icon">↘</span>
+        BEARISH
+      </div>
+    </div>
+
+    <div>
+      <div class="direction-badge" style="color:var(--red); border-color:rgba(239,68,68,0.4); background:rgba(239,68,68,0.08);">
+        <span>↘</span>
+        GO PUT
+        <span class="confidence">(72% confidence)</span>
+      </div>
+    </div>
+
+    <p class="rationale">Heavy call OI writing at 5,900 resistance with sellers entering aggressively. DXY strengthening to 104.8 pressuring crude prices. OPEC+ production increase rumors adding bearish sentiment.</p>
+
+    <div class="trade-setup" style="border-color:rgba(239,68,68,0.2); background:rgba(239,68,68,0.05);">
+      <div class="setup-header">
+        <div class="setup-title text-red"><span>⊕</span> TRADE SETUP</div>
+        <span class="setup-strike" style="color:var(--red); background:rgba(239,68,68,0.1); border-color:rgba(239,68,68,0.3);">PE 5850</span>
+      </div>
+      <div class="setup-grid">
+        <div class="setup-item"><label>ENTRY</label><div class="value">₹95.00</div></div>
+        <div class="setup-item"><label>TARGET</label><div class="value text-green">₹128.00<span class="pct">(+34.7%)</span></div></div>
+        <div class="setup-item"><label>STOP LOSS</label><div class="value text-red">₹78.00<span class="pct">(-17.9%)</span></div></div>
+      </div>
+      <div class="setup-footer">
+        <span class="target-label">Target: S1 5,750 breakdown</span>
+        <div class="rr-group">
+          <span class="rr-label">R:R</span>
+          <span class="rr-value text-green">1:1.9</span>
+          <span class="rr-label">Delta</span>
+          <span class="rr-value text-cyan">-0.48</span>
+        </div>
+      </div>
+    </div>
+    <button class="checklist-btn">🛡 PRE-ENTRY CHECKLIST</button>
+
+    <!-- Simplified S/R for brevity -->
+    <div class="sr-container">
+      <div class="sr-zone-labels">
+        <span style="color:rgba(34,211,238,0.7);">◄ Support (Put OI)</span>
+        <span style="color:rgba(167,139,250,0.7);">Resistance (Call OI) ►</span>
+      </div>
+      <div style="text-align:center; padding:20px 0; color:var(--muted); font-size:10px;">
+        [S/R Strength Line — same structure as NIFTY card with MCX strikes]
+      </div>
+      <div class="sr-legend">
+        <div class="sr-legend-item"><div class="sr-legend-dot" style="background:var(--green);"></div><span class="sr-legend-text">Strengthening</span></div>
+        <div class="sr-legend-item"><div class="sr-legend-dot" style="background:var(--red);"></div><span class="sr-legend-text">Weakening</span></div>
+        <div class="sr-legend-item"><div class="sr-legend-dot" style="background:var(--blue);"></div><span class="sr-legend-text">Stable</span></div>
+        <div class="sr-legend-item"><div class="sr-legend-dot" style="background:var(--amber);"></div><span class="sr-legend-text">ATM</span></div>
+      </div>
+    </div>
+
+    <div class="oi-summary">
+      <span class="oi-val text-green">680K</span>
+      <div class="oi-bar-container">
+        <div class="oi-bar-call" style="width:58%;"></div>
+        <div class="oi-bar-put" style="width:42%;"></div>
+      </div>
+      <span class="oi-val text-red">490K</span>
+      <span class="pcr-val">PCR 0.72</span>
+    </div>
+
+    <div class="iv-theta-row">
+      <div class="iv-theta-item">
+        <span class="icon">📊</span><span class="label">IV:</span>
+        <span class="val text-red">28.5% (EXPENSIVE)</span>
+      </div>
+      <div class="iv-theta-item">
+        <span class="icon">⏱</span><span class="label">DTE:</span>
+        <span class="val text-amber">20d</span>
+        <span class="val text-red" style="font-size:9px;">(-₹3.20/day)</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="news-row">
+        <span class="icon">📰</span><span class="label">News:</span>
+        <span class="sentiment-val text-red">↘</span>
+        <span class="sentiment-val text-red">Bearish</span>
+        <span class="strength-val">(Moderate)</span>
+        <div class="confidence-bar"><div class="confidence-fill" style="width:58%; background:rgba(239,68,68,0.6);"></div></div>
+        <span class="conf-pct mono">58%</span>
+        <span class="articles">6 articles</span>
+      </div>
+      <div style="display:flex; gap:4px; margin-top:4px; flex-wrap:wrap;">
+        <span class="event-flag">⚡ OPEC+ Meeting</span>
+        <span class="event-flag">⚡ DXY 104.8</span>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:4px;">
+      <div class="risk-flag risk-danger">
+        <span class="icon">⚠</span>
+        <span>IV at 28.5% — premiums expensive, consider selling strategies</span>
+      </div>
+      <div class="risk-flag risk-warning">
+        <span class="icon">⚠</span>
+        <span>MCX extended hours — position may carry into night session</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- CARD 3: BANK NIFTY — NEUTRAL / WAIT                -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div id="card-neutral" class="instrument-card" style="display:none;">
+  <div class="glow-edge glow-cyan"></div>
+  <div class="card-body">
+    <div class="header">
+      <div class="header-left">
+        <div class="instrument-name">BANK NIFTY</div>
+        <div class="price-row">
+          <span class="last-price">₹51,425.00</span>
+          <span class="atm-label">ATM: 51,400</span>
+        </div>
+        <div class="meta-row">
+          <span class="meta-item">NSE</span>
+          <span class="meta-sep">|</span>
+          <span class="meta-item">EXP: 02 Apr 2026</span>
+          <span class="meta-sep">|</span>
+          <span class="meta-item">24 strikes</span>
+        </div>
+      </div>
+      <div class="bias-badge text-cyan">
+        <span class="bias-icon">─</span>
+        NEUTRAL
+      </div>
+    </div>
+
+    <div>
+      <div class="direction-badge" style="color:var(--amber); border-color:rgba(245,158,11,0.3); background:rgba(245,158,11,0.05);">
+        <span>─</span>
+        WAIT
+        <span class="confidence">(45% confidence)</span>
+      </div>
+    </div>
+
+    <p class="rationale">Balanced OI at both support and resistance. PCR at 0.98 showing indecision. US banking sector concerns creating uncertainty for BANKNIFTY. Wait for directional clarity.</p>
+
+    <!-- No trade setup for WAIT -->
+
+    <div class="sr-container">
+      <div class="sr-zone-labels">
+        <span style="color:rgba(34,211,238,0.7);">◄ Support (Put OI)</span>
+        <span style="color:rgba(167,139,250,0.7);">Resistance (Call OI) ►</span>
+      </div>
+      <div style="text-align:center; padding:20px 0; color:var(--muted); font-size:10px;">
+        [S/R Strength Line — balanced support and resistance]
+      </div>
+      <div class="sr-legend">
+        <div class="sr-legend-item"><div class="sr-legend-dot" style="background:var(--green);"></div><span class="sr-legend-text">Strengthening</span></div>
+        <div class="sr-legend-item"><div class="sr-legend-dot" style="background:var(--red);"></div><span class="sr-legend-text">Weakening</span></div>
+        <div class="sr-legend-item"><div class="sr-legend-dot" style="background:var(--blue);"></div><span class="sr-legend-text">Stable</span></div>
+        <div class="sr-legend-item"><div class="sr-legend-dot" style="background:var(--amber);"></div><span class="sr-legend-text">ATM</span></div>
+      </div>
+    </div>
+
+    <div class="oi-summary">
+      <span class="oi-val text-green">2.1M</span>
+      <div class="oi-bar-container">
+        <div class="oi-bar-call" style="width:51%;"></div>
+        <div class="oi-bar-put" style="width:49%;"></div>
+      </div>
+      <span class="oi-val text-red">2.0M</span>
+      <span class="pcr-val">PCR 0.98</span>
+    </div>
+
+    <div class="iv-theta-row">
+      <div class="iv-theta-item">
+        <span class="icon">📊</span><span class="label">IV:</span>
+        <span class="val text-cyan">18.1% (FAIR)</span>
+      </div>
+      <div class="iv-theta-item">
+        <span class="icon">⏱</span><span class="label">DTE:</span>
+        <span class="val text-red">3d</span>
+        <span class="val text-red" style="font-size:9px;">(-₹12.40/day)</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="news-row">
+        <span class="icon">📰</span><span class="label">News:</span>
+        <span class="sentiment-val text-cyan">─</span>
+        <span class="sentiment-val text-cyan">Neutral</span>
+        <span class="strength-val">(Weak)</span>
+        <div class="confidence-bar"><div class="confidence-fill" style="width:35%; background:rgba(148,163,184,0.4);"></div></div>
+        <span class="conf-pct mono">35%</span>
+        <span class="articles">5 articles</span>
+      </div>
+      <div style="display:flex; gap:4px; margin-top:4px; flex-wrap:wrap;">
+        <span class="event-flag">⚡ US Banking Stress</span>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:4px;">
+      <div class="risk-flag risk-warning">
+        <span class="icon">⚠</span>
+        <span>3 DTE — high theta decay, avoid buying options unless strong directional move</span>
+      </div>
+      <div class="risk-flag risk-warning">
+        <span class="icon">⚠</span>
+        <span>Low confidence (45%) — insufficient edge for entry</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function showCard(type) {
+  document.querySelectorAll('.instrument-card').forEach(c => c.style.display = 'none');
+  document.querySelectorAll('.card-selector button').forEach(b => b.classList.remove('active'));
+  document.getElementById('card-' + type).style.display = 'block';
+  event.target.classList.add('active');
+}
+
+function toggleNews(el) {
+  const detail = el.closest('.card-body') ? el.parentElement.querySelector('.news-expanded') : null;
+  if (detail) {
+    detail.classList.toggle('show');
+    const arrow = el.querySelector('span:last-child');
+    if (arrow) arrow.textContent = detail.classList.contains('show') ? '▴' : '▾';
+  }
+}
+
+function toggleScoring(btn) {
+  const factors = btn.nextElementSibling;
+  factors.classList.toggle('show');
+  const arrow = btn.querySelector('span:last-child');
+  arrow.textContent = factors.classList.contains('show') ? '▴' : '▾';
+}
+</script>
+
+</body>
+</html>

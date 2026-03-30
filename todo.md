@@ -343,3 +343,7 @@
 - [ ] Layout: Journal already exists — integrate into top-level navigation
 - [ ] Layout: Dashboard page keeps current 3-column grid (instrument cards + signals + controls)
 - [ ] Layout: Page routing in App.tsx — /, /tracker, /discipline, /journal, /settings
+
+## File Organization
+
+- [x] Move all spec files into project directory for cross-task persistence (docs/, mockups/, python_modules/)

@@ -1,0 +1,55 @@
+InstrumentCard Component Structure (current):
+
+1. HEADER
+   - Display name (e.g., NIFTY 50)
+   - Last price (₹ formatted)
+   - ATM strike
+   - Exchange | Expiry | Strikes count
+   - Market bias badge (BULLISH/BEARISH/RANGE_BOUND/NEUTRAL) with icon
+
+2. TRADE DIRECTION BADGE
+   - Enhanced: GO CALL / GO PUT / WAIT with confidence %
+   - Legacy fallback: AI: GO / NO GO / WAIT
+
+3. AI RATIONALE
+   - 2-line text explaining the AI decision
+
+4. TRADE SETUP (if GO_CALL or GO_PUT)
+   - Option type + Strike
+   - Entry / Target (+%) / Stop Loss (-%)
+   - Target label, R:R ratio, Delta
+   - PRE-ENTRY CHECKLIST button
+
+5. S/R STRENGTH LINE (SRStrengthLine component)
+   - Horizontal bar chart: S5..S1 → ATM → R1..R5
+   - Bar height = OI size
+   - Intraday change % badges
+   - Activity labels (Buyers/Sellers Entering/Exiting)
+   - Trend arrows
+   - BOUNCE/BREAKOUT prediction badges
+   - Color: green=strengthening, red=weakening, blue=stable, amber=ATM
+   - Hover tooltips with full details
+   - Legend row
+
+6. OI SUMMARY ROW
+   - Call OI bar vs Put OI bar (proportional)
+   - PCR ratio
+
+7. IV & THETA ROW
+   - IV: atm_iv% (CHEAP/FAIR/EXPENSIVE)
+   - DTE: days to expiry
+   - Theta per day
+
+8. NEWS SENTIMENT (NewsSentimentBadge)
+   - Sentiment + strength + confidence bar + article count
+   - Event flags (expiry, CPI, etc.)
+   - Expandable: bull/bear score bar, top headlines
+
+9. RISK FLAGS
+   - Warning/danger badges with text
+
+10. SCORING FACTORS (collapsible)
+    - Weighted factor bars with contribution scores
+    - Detail text per factor
+
+Visual: Terminal Noir theme, dark card with colored left edge glow based on bias
