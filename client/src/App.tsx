@@ -11,7 +11,7 @@ import Dashboard from "./pages/Dashboard";
 import PositionTracker from "./pages/PositionTracker";
 import Discipline from "./pages/Discipline";
 import TradeJournal from "./pages/TradeJournal";
-import SettingsPage from "./pages/SettingsPage";
+import Settings from "./pages/Settings";
 
 function Router() {
   return (
@@ -21,7 +21,7 @@ function Router() {
         <Route path={"/tracker"} component={PositionTracker} />
         <Route path={"/discipline"} component={Discipline} />
         <Route path={"/journal"} component={TradeJournal} />
-        <Route path={"/settings"} component={SettingsPage} />
+        <Route path={"/settings"} component={Settings} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

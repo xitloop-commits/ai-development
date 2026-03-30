@@ -27,6 +27,7 @@ import {
   getUserTrades,
   getTradeStats,
 } from "./db";
+import { getUserSettings, updateUserSettings } from "./userSettings";
 
 export const appRouter = router({
   system: systemRouter,
@@ -176,6 +177,91 @@ export const appRouter = router({
       }).optional())
       .query(async ({ ctx, input }) => {
         return getTradeStats(ctx.user.id, input?.startTime, input?.endTime);
+      }),
+  }),
+
+  // User Settings (MongoDB)
+  settings: router({
+    // Get user settings (all sections)
+    get: protectedProcedure.query(async ({ ctx }) => {
+      return getUserSettings(ctx.user.id);
+    }),
+
+    // Update time window settings
+    updateTimeWindows: protectedProcedure
+      .input(z.object({
+        nse: z.object({
+          noTradeFirstMinutes: z.number().min(0).max(120).optional(),
+          noTradeLastMinutes: z.number().min(0).max(120).optional(),
+          lunchBreakPause: z.boolean().optional(),
+          lunchBreakStart: z.string().optional(),
+          lunchBreakEnd: z.string().optional(),
+        }).optional(),
+        mcx: z.object({
+          noTradeFirstMinutes: z.number().min(0).max(120).optional(),
+          noTradeLastMinutes: z.number().min(0).max(120).optional(),
+        }).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const updated = await updateUserSettings(ctx.user.id, { timeWindows: input as any });
+        return { success: true, timeWindows: updated.timeWindows };
+      }),
+
+    // Update discipline settings
+    updateDiscipline: protectedProcedure
+      .input(z.object({
+        maxTradesPerDay: z.number().min(1).max(50).optional(),
+        maxLossPerDay: z.number().min(0).optional(),
+        maxLossPerDayPercent: z.number().min(0).max(100).optional(),
+        maxConsecutiveLosses: z.number().min(1).max(20).optional(),
+        cooldownAfterLoss: z.number().min(0).max(120).optional(),
+        mandatoryChecklist: z.boolean().optional(),
+        minChecklistScore: z.number().min(0).max(100).optional(),
+        maxPositionSize: z.number().min(1).max(100).optional(),
+        trailingStopEnabled: z.boolean().optional(),
+        trailingStopPercent: z.number().min(0).max(50).optional(),
+        noRevengeTrading: z.boolean().optional(),
+        requireRationale: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const updated = await updateUserSettings(ctx.user.id, { discipline: input as any });
+        return { success: true, discipline: updated.discipline };
+      }),
+
+    // Update expiry control settings
+    updateExpiryControls: protectedProcedure
+      .input(z.object({
+        rules: z.array(z.object({
+          instrument: z.string(),
+          blockOnExpiryDay: z.boolean().optional(),
+          blockDaysBefore: z.number().min(0).max(10).optional(),
+          reducePositionSize: z.boolean().optional(),
+          reduceSizePercent: z.number().min(10).max(100).optional(),
+          warningBanner: z.boolean().optional(),
+          autoExit: z.boolean().optional(),
+          autoExitMinutes: z.number().min(5).max(120).optional(),
+          noCarryToExpiry: z.boolean().optional(),
+        })),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const updated = await updateUserSettings(ctx.user.id, { expiryControls: input as any });
+        return { success: true, expiryControls: updated.expiryControls };
+      }),
+
+    // Update charge rates
+    updateCharges: protectedProcedure
+      .input(z.object({
+        rates: z.array(z.object({
+          name: z.string(),
+          rate: z.number().min(0),
+          unit: z.string(),
+          description: z.string().optional(),
+          enabled: z.boolean().optional(),
+        })),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const updated = await updateUserSettings(ctx.user.id, { charges: input as any });
+        return { success: true, charges: updated.charges };
       }),
   }),
 

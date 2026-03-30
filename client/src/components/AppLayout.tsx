@@ -338,10 +338,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   // Fallback mock modules for StatusBar
   const defaultModules: ModuleStatus[] = [
-    { name: 'Option Chain Fetcher', shortName: 'FETCHER', status: 'idle', message: 'Waiting for data' },
-    { name: 'Option Chain Analyzer', shortName: 'ANALYZER', status: 'idle', message: 'Waiting for data' },
-    { name: 'AI Decision Engine', shortName: 'AI ENGINE', status: 'idle', message: 'Waiting for data' },
-    { name: 'Execution Module', shortName: 'EXECUTOR', status: 'idle', message: 'Waiting for data' },
+    { name: 'Option Chain Fetcher', shortName: 'FETCHER', status: 'idle', message: 'Waiting for data', lastUpdate: '' },
+    { name: 'Option Chain Analyzer', shortName: 'ANALYZER', status: 'idle', message: 'Waiting for data', lastUpdate: '' },
+    { name: 'AI Decision Engine', shortName: 'AI ENGINE', status: 'idle', message: 'Waiting for data', lastUpdate: '' },
+    { name: 'Execution Module', shortName: 'EXECUTOR', status: 'idle', message: 'Waiting for data', lastUpdate: '' },
   ];
 
   const modules = modulesQuery.data ?? defaultModules;
