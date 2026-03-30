@@ -6,18 +6,26 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AlertProvider } from "./contexts/AlertContext";
 import { InstrumentFilterProvider } from "./contexts/InstrumentFilterContext";
+import AppLayout from "./components/AppLayout";
 import Dashboard from "./pages/Dashboard";
+import PositionTracker from "./pages/PositionTracker";
+import Discipline from "./pages/Discipline";
 import TradeJournal from "./pages/TradeJournal";
+import SettingsPage from "./pages/SettingsPage";
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
   return (
-    <Switch>
-      <Route path={"/"} component={Dashboard} />
-      <Route path={"/journal"} component={TradeJournal} />
-      <Route path={"/404"} component={NotFound} />
-      <Route component={NotFound} />
-    </Switch>
+    <AppLayout>
+      <Switch>
+        <Route path={"/"} component={Dashboard} />
+        <Route path={"/tracker"} component={PositionTracker} />
+        <Route path={"/discipline"} component={Discipline} />
+        <Route path={"/journal"} component={TradeJournal} />
+        <Route path={"/settings"} component={SettingsPage} />
+        <Route path={"/404"} component={NotFound} />
+        <Route component={NotFound} />
+      </Switch>
+    </AppLayout>
   );
 }
 

@@ -1,14 +1,15 @@
 /*
  * Terminal Noir — Dashboard Page
- * Main layout: Top status bar, then a 3-column grid.
+ * Main layout: Page header, then a 3-column grid.
  * Left: Control Panel (collapsible)
  * Center: Instrument Cards (wide)
  * Right: Signals Feed + Alert History (collapsible)
  * Connected to live tRPC endpoints with 3-second polling.
  * Integrates alert monitoring and instrument filtering.
+ *
+ * NOTE: StatusBar, navigation tabs, and footer are now in AppLayout.
  */
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import StatusBar from '@/components/StatusBar';
 import InstrumentCard from '@/components/InstrumentCard';
 import SignalsFeed from '@/components/SignalsFeed';
 import PositionTracker from '@/components/PositionTracker';
@@ -19,8 +20,7 @@ import { trpc } from '@/lib/trpc';
 import { useAlertMonitor } from '@/hooks/useAlertMonitor';
 import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
 import { useAlerts } from '@/contexts/AlertContext';
-import { Bell, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, BookOpen } from 'lucide-react';
-import { Link } from 'wouter';
+import { Bell, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import {
   moduleStatuses as mockModules,
   niftyData,
@@ -143,11 +143,6 @@ export default function Dashboard() {
     });
   }, [allPositions, isEnabled]);
 
-  // Determine if we have live data
-  const hasLiveData = useMemo(() => {
-    return modulesQuery.data !== undefined && instrumentsQuery.data !== undefined;
-  }, [modulesQuery.data, instrumentsQuery.data]);
-
   // Alert monitoring — watches for changes in live data
   useAlertMonitor({
     instruments: instrumentsQuery.data,
@@ -180,21 +175,15 @@ export default function Dashboard() {
   }, [leftCollapsed, rightCollapsed]);
 
   return (
-    <div className="min-h-screen bg-background relative">
+    <div className="relative">
       {/* Hero background - very subtle */}
       <div
-        className="fixed inset-0 opacity-[0.06] bg-cover bg-center pointer-events-none"
+        className="fixed inset-0 opacity-[0.06] bg-cover bg-center pointer-events-none z-0"
         style={{ backgroundImage: `url(${HERO_BG})` }}
       />
 
-      {/* Scanline overlay */}
-      <div className="fixed inset-0 scanline-overlay z-[1]" />
-
       {/* Content */}
       <div className="relative z-[2]">
-        {/* Status Bar */}
-        <StatusBar modules={modules} />
-
         {/* Main Content */}
         <div className="container py-4">
           {/* Page Header */}
@@ -207,50 +196,19 @@ export default function Dashboard() {
                 Real-time option chain analysis for NIFTY 50, BANK NIFTY, CRUDE OIL, and NATURAL GAS
               </p>
             </div>
-            <div className="sm:text-right flex sm:flex-col items-center sm:items-end gap-2 sm:gap-0">
-              <div className="flex items-center gap-3">
-                <Link href="/journal" className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-info-cyan/30 bg-info-cyan/5 text-info-cyan text-[9px] font-bold tracking-wider hover:bg-info-cyan/10 transition-colors">
-                  <BookOpen className="h-3 w-3" />
-                  JOURNAL
-                </Link>
-                <div className="text-lg font-bold tabular-nums text-foreground font-display">
-                  {currentTime.toLocaleTimeString('en-IN', { hour12: false })}
+            <div className="flex items-center gap-2">
+              {/* Alert indicator */}
+              {!alertSettings.dndMode && unreadCount > 0 && (
+                <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider bg-destructive/10 text-destructive border border-destructive/20 animate-pulse-glow">
+                  <Bell className="h-3 w-3" />
+                  {unreadCount}
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="text-[10px] text-muted-foreground tracking-wider">
-                  {currentTime.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })} IST
+              )}
+              {alertSettings.dndMode && (
+                <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider bg-warning-amber/10 text-warning-amber border border-warning-amber/20">
+                  DND
                 </div>
-                <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider ${
-                  isMarketOpen
-                    ? 'bg-bullish/10 text-bullish border border-bullish/20'
-                    : 'bg-destructive/10 text-destructive border border-destructive/20'
-                }`}>
-                  <div className={`h-1.5 w-1.5 rounded-full ${isMarketOpen ? 'bg-bullish animate-pulse-glow' : 'bg-destructive'}`} />
-                  {isMarketOpen ? 'MARKET OPEN' : 'MARKET CLOSED'}
-                </div>
-                {/* Live data indicator */}
-                <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider ${
-                  hasLiveData
-                    ? 'bg-info-cyan/10 text-info-cyan border border-info-cyan/20'
-                    : 'bg-warning-amber/10 text-warning-amber border border-warning-amber/20'
-                }`}>
-                  <div className={`h-1.5 w-1.5 rounded-full ${hasLiveData ? 'bg-info-cyan animate-pulse-glow' : 'bg-warning-amber'}`} />
-                  {hasLiveData ? 'LIVE DATA' : 'DEMO MODE'}
-                </div>
-                {/* Alert indicator */}
-                {!alertSettings.dndMode && unreadCount > 0 && (
-                  <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider bg-destructive/10 text-destructive border border-destructive/20 animate-pulse-glow">
-                    <Bell className="h-3 w-3" />
-                    {unreadCount}
-                  </div>
-                )}
-                {alertSettings.dndMode && (
-                  <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider bg-warning-amber/10 text-warning-amber border border-warning-amber/20">
-                    DND
-                  </div>
-                )}
-              </div>
+              )}
             </div>
           </div>
 
@@ -260,7 +218,7 @@ export default function Dashboard() {
             style={{ gridTemplateColumns: gridTemplate }}
           >
             {/* Left Column: Control Panel (collapsible) */}
-            <div className="sticky top-4 self-start">
+            <div className="sticky top-[110px] self-start">
               {leftCollapsed ? (
                 <div className="flex flex-col items-center gap-3 py-2">
                   <button
@@ -321,7 +279,7 @@ export default function Dashboard() {
             </div>
 
             {/* Right Column: Signals Feed + Alert History (collapsible) */}
-            <div className="sticky top-4 self-start">
+            <div className="sticky top-[110px] self-start">
               {rightCollapsed ? (
                 <div className="flex flex-col items-center gap-3 py-2">
                   <button
@@ -389,18 +347,6 @@ export default function Dashboard() {
             <SignalsFeed signals={signals} />
             <AlertHistory />
             <ControlPanel />
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="border-t border-border mt-8">
-          <div className="container py-3 flex flex-col sm:flex-row items-center justify-between gap-1">
-            <span className="text-[9px] text-muted-foreground tracking-wider uppercase">
-              ATS v1.1 | Dhan Broker Integration | Powered by AI Decision Engine
-            </span>
-            <span className="text-[9px] text-muted-foreground tracking-wider">
-              {hasLiveData ? 'Connected to live Python backend' : 'Showing demo data — connect Python modules to see live data'} | Polling every 3s
-            </span>
           </div>
         </div>
       </div>
