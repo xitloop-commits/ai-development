@@ -351,10 +351,10 @@
 ## Feature 0: Broker Service + Token Management (Merged from Features 0 + 2)
 
 ### Step 0.1: Broker Interface + Types + Service Core
-- [ ] Define BrokerAdapter interface with 16+ methods in server/broker/types.ts
-- [ ] Create BrokerService singleton (getActiveBroker, switchBroker, getBrokerStatus)
-- [ ] Create Mongoose model + CRUD for broker_configs collection
-- [ ] Vitest: config CRUD, service loads adapter, switchBroker works
+- [x] Define BrokerAdapter interface with 16+ methods in server/broker/types.ts
+- [x] Create BrokerService singleton (getActiveBroker, switchBroker, getBrokerStatus)
+- [x] Create Mongoose model + CRUD for broker_configs collection
+- [x] Vitest: config CRUD, service loads adapter, switchBroker works (21 tests passing)
 
 ### Step 0.2: Mock Adapter (Paper Trading)
 - [ ] Implement MockAdapter with in-memory order book and positions
