@@ -19,61 +19,32 @@
 
 ## P0 — Core Infrastructure & Trading
 
-### Feature 0: Broker Service — Abstraction Layer ⭐ HIGHEST PRIORITY
+### Feature 0: Broker Service + Token Management (Merged) ⭐ HIGHEST PRIORITY
 
-**Architecture:** Internal module in backend (`server/broker/`) with clean interface boundary, designed for future extraction to microservice.
+**Merges:** Original Feature 0 (Broker Service) + Feature 2 (Dhan Token Management)
 
-**Unified Interface (contract):**
-- `placeOrder(params)` → orderId, status
-- `exitOrder(orderId)` → status
-- `exitAll()` → results[]
-- `modifyOrder(orderId, params)` → status
-- `placeBracketOrder(params)` → orderId, status (with SL/TP)
-- `getPositions()` → positions[]
-- `getOrderStatus(orderId)` → order details
-- `getOrderHistory(dateRange)` → orders[]
-- `getMargin()` → available, used, total
-- `getScripMaster(exchange)` → instruments[]
-- `validateToken()` → valid/expired
-- `refreshToken(newToken)` → status
-- `subscribeLTP(instruments)` → stream
-- `onOrderUpdate(callback)` → stream
-- `onPositionUpdate(callback)` → stream
-- `disconnect()` → clean shutdown
+**Architecture:** Internal module in backend (`server/broker/`) with adapter pattern. Dhan is the first real adapter, Mock adapter for paper trading. Token management is built into the Dhan adapter.
 
-**Adapters:**
-- Dhan adapter: REST API + WebSocket + scrip master
-- Mock adapter: in-memory paper trading simulation
-- Future stubs: Zerodha, Angel One, Upstox (empty)
+**Full plan:** See `docs/feature-0-broker-service.md` for detailed 6-step breakdown.
 
-**MongoDB:** `broker_configs` collection — per-broker config (credentials, settings, connection status, capabilities). No history tracking.
+**6 Testable Steps:**
+- Step 0.1: Broker Interface + Types + Service Core + MongoDB Config
+- Step 0.2: Mock Adapter (Paper Trading) — no external deps
+- Step 0.3: tRPC + REST Endpoints — full API surface with mock
+- Step 0.4: Dhan Adapter — Auth + Token Management (needs Dhan token)
+- Step 0.5: Dhan Adapter — Scrip Master + Option Chain
+- Step 0.6: Dhan Adapter — Orders + Positions + Funds
 
-**Endpoints:**
-- tRPC endpoints for frontend
-- REST endpoints for Python modules
-- Settings page integration (active broker dropdown, credentials, status)
-
-**Vitest:** adapter interface compliance, mock adapter tests, config CRUD
+**Tests:** ~42 vitest + 27 curl tests across all steps
 
 ---
 
-### Feature 1: MongoDB Setup & Connection
+### Feature 1: MongoDB Setup & Connection ✅ DONE
 
-- Install MongoDB driver (mongoose)
-- Create MongoDB connection module in server
-- Test connection, basic CRUD operations
-- **Vitest:** connection test, read/write test
-
----
-
-### Feature 2: Dhan Access Token Management
-
-- Integrated into Broker Service (Dhan adapter credentials)
-- On app start: check token age from `broker_configs` — if <24h use stored, if ≥24h show blocking popup
-- Mid-day expiry: 401 detection → same popup
-- Python modules call Broker Service instead of Dhan directly
-- Auto-reconnect after token update
-- **Vitest:** token CRUD, expiry logic, 401 handling
+- ✅ Installed mongoose, connection module with retry/health/ping
+- ✅ REST + tRPC health endpoints
+- ✅ 6 vitest tests passing (env, connect, ping, CRUD, health, latency)
+- ✅ Checkpoint: `3b88d85b`
 
 ---
 

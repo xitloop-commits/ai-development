@@ -347,3 +347,47 @@
 ## File Organization
 
 - [x] Move all spec files into project directory for cross-task persistence (docs/, mockups/, python_modules/)
+
+## Feature 0: Broker Service + Token Management (Merged from Features 0 + 2)
+
+### Step 0.1: Broker Interface + Types + Service Core
+- [ ] Define BrokerAdapter interface with 16+ methods in server/broker/types.ts
+- [ ] Create BrokerService singleton (getActiveBroker, switchBroker, getBrokerStatus)
+- [ ] Create Mongoose model + CRUD for broker_configs collection
+- [ ] Vitest: config CRUD, service loads adapter, switchBroker works
+
+### Step 0.2: Mock Adapter (Paper Trading)
+- [ ] Implement MockAdapter with in-memory order book and positions
+- [ ] placeOrder → instant fill, modifyOrder, cancelOrder, exitAll
+- [ ] getPositions with simulated P&L, getMargin with virtual margin
+- [ ] Kill switch blocks new orders + exits all
+- [ ] Vitest: place/modify/cancel/exit orders, positions, kill switch
+
+### Step 0.3: tRPC + REST Endpoints
+- [ ] tRPC procedures: broker.config, broker.status, broker.token, broker.orders, broker.positions, broker.margin, broker.killSwitch
+- [ ] REST endpoints: /api/broker/* for Python modules
+- [ ] Vitest: tRPC caller tests with mock adapter
+- [ ] curl: all REST endpoints return correct responses
+
+### Step 0.4: Dhan Adapter — Auth + Token Management
+- [ ] DhanAdapter skeleton implementing BrokerAdapter
+- [ ] Token validation against Dhan GET /v2/profile
+- [ ] Token expiry detection (updatedAt + expiresIn vs now)
+- [ ] 401 detection sets token status to expired
+- [ ] updateToken saves to MongoDB, validates, updates status
+- [ ] Vitest: token expiry calc, 401 detection, update flow (mocked)
+
+### Step 0.5: Dhan Adapter — Scrip Master + Option Chain
+- [ ] Download and cache scrip master CSV from Dhan
+- [ ] Security ID lookup (instrument, expiry, strike, type)
+- [ ] MCX nearest-month FUTCOM auto-resolution
+- [ ] getExpiryList and getOptionChain via Dhan API
+- [ ] Vitest: CSV parsing, lookup logic, MCX resolution
+
+### Step 0.6: Dhan Adapter — Orders + Positions + Funds
+- [ ] placeOrder (LIMIT at configurable % below LTP)
+- [ ] modifyOrder, cancelOrder, exitAll
+- [ ] getOrderBook, getOrderStatus, getTradeBook
+- [ ] getPositions, getMargin (fund limit)
+- [ ] killSwitch via Dhan API + exit all
+- [ ] Vitest: order param construction, error handling (mocked)
