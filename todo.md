@@ -370,12 +370,12 @@
 - [x] curl: all REST endpoints verified (status, place order, positions, margin, exit-all, kill-switch)
 
 ### Step 0.4: Dhan Adapter — Auth + Token Management
-- [ ] DhanAdapter skeleton implementing BrokerAdapter
-- [ ] Token validation against Dhan GET /v2/profile
-- [ ] Token expiry detection (updatedAt + expiresIn vs now)
-- [ ] 401 detection sets token status to expired
-- [ ] updateToken saves to MongoDB, validates, updates status
-- [ ] Vitest: token expiry calc, 401 detection, update flow (mocked)
+- [x] DhanAdapter skeleton implementing BrokerAdapter (21 methods)
+- [x] Token validation against Dhan GET /v2/fundlimit
+- [x] Token expiry detection (updatedAt + expiresIn vs now, 1h buffer warning)
+- [x] 401 detection sets token status to expired in MongoDB
+- [x] updateToken saves to MongoDB, validates, updates connection status
+- [x] Vitest: token expiry calc, 401 detection, update flow, connect/disconnect, kill switch (20 tests passing)
 
 ### Step 0.5: Dhan Adapter — Scrip Master + Option Chain
 - [ ] Download and cache scrip master CSV from Dhan

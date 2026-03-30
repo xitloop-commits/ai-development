@@ -11,6 +11,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { registerAdapter, initBrokerService } from "../broker";
 import { MockAdapter } from "../broker/adapters/mock";
+import { DhanAdapter } from "../broker/adapters/dhan";
 import { registerBrokerRoutes } from "../broker/brokerRoutes";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -41,7 +42,7 @@ async function startServer() {
     .then(async () => {
       // Register broker adapters and initialize broker service after MongoDB is ready
       registerAdapter("mock", () => new MockAdapter());
-      // Future: registerAdapter("dhan", () => new DhanAdapter());
+      registerAdapter("dhan", () => new DhanAdapter());
       await initBrokerService();
     })
     .catch((err) =>

@@ -1,0 +1,57 @@
+DHAN API v2 — Key Endpoints for DhanAdapter
+=============================================
+
+BASE URL: https://api.dhan.co/v2
+AUTH HEADER: access-token: <JWT>
+CLIENT ID: dhanClientId (required in request bodies)
+
+TOKEN VALIDATION:
+- No dedicated /profile endpoint found
+- Use GET /fundlimit as token validation (lightweight, no body needed)
+- If 401 → token expired/invalid
+- Response includes dhanClientId confirming identity
+
+FUND LIMIT (for token validation + margin):
+  GET /fundlimit
+  Headers: Content-Type: application/json, access-token: JWT
+  Response: { dhanClientId, availabelBalance, sodLimit, collateralAmount, receiveableAmount, utilizedAmount, blockedPayoutAmount, withdrawableBalance }
+
+KILL SWITCH:
+  POST /killswitch?killSwitchStatus=ACTIVATE
+  POST /killswitch?killSwitchStatus=DEACTIVATE
+  GET  /killswitch → { dhanClientId, killSwitchStatus: "ACTIVATE"|"DEACTIVATE" }
+  Note: Must close all positions and cancel pending orders before activating
+
+P&L BASED EXIT:
+  POST   /pnlExit → Configure auto-exit on profit/loss thresholds
+  DELETE /pnlExit → Stop P&L based exit
+  GET    /pnlExit → Get current config
+
+ORDERS:
+  POST   /orders → Place order (body: dhanClientId, correlationId, transactionType, exchangeSegment, productType, orderType, validity, securityId, quantity, price, triggerPrice, boProfitValue, boStopLossValue)
+  PUT    /orders/{order-id} → Modify pending order
+  DELETE /orders/{order-id} → Cancel pending order
+  GET    /orders → Order book
+  GET    /orders/{order-id} → Single order status
+  GET    /trades → Trade book
+  GET    /trades/{order-id} → Trades of an order
+
+ORDER STATUS VALUES: TRANSIT | PENDING | REJECTED | CANCELLED | TRADED | EXPIRED
+
+EXCHANGE SEGMENTS: NSE_EQ | NSE_FNO | BSE_EQ | BSE_FNO | MCX_COMM
+PRODUCT TYPES: CNC | INTRADAY | MARGIN | MTF | CO | BO
+ORDER TYPES: LIMIT | MARKET | STOP_LOSS | STOP_LOSS_MARKET
+TRANSACTION TYPES: BUY | SELL
+VALIDITY: DAY | IOC
+
+RATE LIMITS:
+  Order APIs: 10/sec, 250/min, 1000/hr, 7000/day
+  Data APIs: 5/sec, 100000/day
+  Quote APIs: 1/sec, unlimited
+  Non Trading APIs: 20/sec, unlimited
+  Order modifications: max 25/order
+
+ERROR RESPONSE FORMAT:
+  { errorType: "", errorCode: "", errorMessage: "" }
+
+NOTE: Order Placement/Modification/Cancellation requires Static IP whitelisting
