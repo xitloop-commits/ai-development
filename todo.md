@@ -319,7 +319,7 @@
 - [ ] Broker Service: Dhan adapter — REST API (orders, positions, margin, scrip master, token validation)
 - [ ] Broker Service: Dhan adapter — WebSocket (LTP feed, order updates, position updates)
 - [ ] Broker Service: Dhan adapter — scrip master CSV auto-resolution for security IDs
-- [ ] Broker Service: Mock adapter — in-memory paper trading simulation (for AI Trades PAPER tab)
+- [x] Broker Service: Mock adapter — in-memory paper trading simulation (for AI Trades PAPER tab)
 - [ ] Broker Service: MongoDB collection `broker_configs` — per-broker config document (brokerId, displayName, isActive, isPaperBroker, credentials, settings, connection status, capabilities)
 - [ ] Broker Service: No history tracking for broker configs (simple overwrite)
 - [ ] Broker Service: On app start, read broker_configs, load active adapter (isActive=true) for LIVE, load paper adapter (isPaperBroker=true) for PAPER
@@ -357,11 +357,11 @@
 - [x] Vitest: config CRUD, service loads adapter, switchBroker works (21 tests passing)
 
 ### Step 0.2: Mock Adapter (Paper Trading)
-- [ ] Implement MockAdapter with in-memory order book and positions
-- [ ] placeOrder → instant fill, modifyOrder, cancelOrder, exitAll
-- [ ] getPositions with simulated P&L, getMargin with virtual margin
-- [ ] Kill switch blocks new orders + exits all
-- [ ] Vitest: place/modify/cancel/exit orders, positions, kill switch
+- [x] Implement MockAdapter with in-memory order book and positions
+- [x] placeOrder → instant fill, modifyOrder, cancelOrder, exitAll
+- [x] getPositions with simulated P&L, getMargin with virtual margin (₹5,00,000)
+- [x] Kill switch blocks new orders + exits all
+- [x] Vitest: place/modify/cancel/exit orders, positions, kill switch (34 tests passing)
 
 ### Step 0.3: tRPC + REST Endpoints
 - [ ] tRPC procedures: broker.config, broker.status, broker.token, broker.orders, broker.positions, broker.margin, broker.killSwitch

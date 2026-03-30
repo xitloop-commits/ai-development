@@ -1,0 +1,316 @@
+/**
+ * Mock Adapter — Paper Trading Implementation
+ *
+ * Full BrokerAdapter implementation for paper trading.
+ * Everything runs in-memory — no external dependencies.
+ *
+ * Behavior:
+ * - Orders fill instantly at the requested price
+ * - Positions track P&L (unrealized = 0 without real LTP feed)
+ * - Virtual margin starts at ₹5,00,000 (configurable)
+ * - Kill switch blocks new orders and exits all positions
+ * - Token validation always returns valid
+ * - WebSocket/LTP methods are no-ops
+ */
+
+import type {
+  BrokerAdapter,
+  OrderParams,
+  ModifyParams,
+  OrderResult,
+  Order,
+  Trade,
+  Position,
+  MarginInfo,
+  Instrument,
+  OptionChainData,
+  SubscribeParams,
+  TickCallback,
+  OrderUpdateCallback,
+} from "../../types";
+import { MockOrderBook } from "./mockOrderBook";
+
+// ─── Default Config ─────────────────────────────────────────────
+
+const DEFAULT_INITIAL_MARGIN = 500000; // ₹5,00,000
+
+// ─── MockAdapter Class ──────────────────────────────────────────
+
+export class MockAdapter implements BrokerAdapter {
+  readonly brokerId = "mock";
+  readonly displayName = "Paper Trading";
+
+  private orderBook: MockOrderBook;
+  private connected = false;
+  private killSwitchActive = false;
+
+  constructor(initialMargin: number = DEFAULT_INITIAL_MARGIN) {
+    this.orderBook = new MockOrderBook(initialMargin);
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────
+
+  async validateToken(): Promise<{ valid: boolean; expiresAt?: number }> {
+    // Mock adapter always has a valid token
+    return { valid: true };
+  }
+
+  async updateToken(_token: string, _clientId?: string): Promise<void> {
+    // No-op for mock adapter
+  }
+
+  // ── Orders ────────────────────────────────────────────────────
+
+  async placeOrder(params: OrderParams): Promise<OrderResult> {
+    if (this.killSwitchActive) {
+      return {
+        orderId: "",
+        status: "REJECTED",
+        message: "Kill switch is active. All trading is halted.",
+        timestamp: Date.now(),
+      };
+    }
+
+    return this.orderBook.placeOrder(params);
+  }
+
+  async modifyOrder(
+    orderId: string,
+    params: ModifyParams
+  ): Promise<OrderResult> {
+    if (this.killSwitchActive) {
+      return {
+        orderId,
+        status: "REJECTED",
+        message: "Kill switch is active. Cannot modify orders.",
+        timestamp: Date.now(),
+      };
+    }
+
+    return this.orderBook.modifyOrder(orderId, params);
+  }
+
+  async cancelOrder(orderId: string): Promise<OrderResult> {
+    return this.orderBook.cancelOrder(orderId);
+  }
+
+  async exitAll(): Promise<OrderResult[]> {
+    return this.orderBook.exitAll();
+  }
+
+  async getOrderBook(): Promise<Order[]> {
+    return this.orderBook.getOrderBook();
+  }
+
+  async getOrderStatus(orderId: string): Promise<Order> {
+    const order = this.orderBook.getOrderStatus(orderId);
+    if (!order) {
+      throw new Error(`Order ${orderId} not found`);
+    }
+    return order;
+  }
+
+  async getTradeBook(): Promise<Trade[]> {
+    return this.orderBook.getTradeBook();
+  }
+
+  // ── Positions & Funds ─────────────────────────────────────────
+
+  async getPositions(): Promise<Position[]> {
+    return this.orderBook.getPositions();
+  }
+
+  async getMargin(): Promise<MarginInfo> {
+    return this.orderBook.getMargin();
+  }
+
+  // ── Market Data ───────────────────────────────────────────────
+
+  async getScripMaster(_exchange: string): Promise<Instrument[]> {
+    // Mock adapter returns a small set of sample instruments
+    return [
+      {
+        securityId: "MOCK-NIFTY-26000-CE",
+        tradingSymbol: "NIFTY 03APR 26000 CE",
+        underlying: "NIFTY_50",
+        exchange: "NSE",
+        segment: "NSE_FNO",
+        optionType: "CE",
+        strike: 26000,
+        expiry: "2026-04-03",
+        lotSize: 50,
+        tickSize: 0.05,
+      },
+      {
+        securityId: "MOCK-NIFTY-26000-PE",
+        tradingSymbol: "NIFTY 03APR 26000 PE",
+        underlying: "NIFTY_50",
+        exchange: "NSE",
+        segment: "NSE_FNO",
+        optionType: "PE",
+        strike: 26000,
+        expiry: "2026-04-03",
+        lotSize: 50,
+        tickSize: 0.05,
+      },
+      {
+        securityId: "MOCK-BANKNIFTY-55000-CE",
+        tradingSymbol: "BANKNIFTY 03APR 55000 CE",
+        underlying: "BANK_NIFTY",
+        exchange: "NSE",
+        segment: "NSE_FNO",
+        optionType: "CE",
+        strike: 55000,
+        expiry: "2026-04-03",
+        lotSize: 30,
+        tickSize: 0.05,
+      },
+      {
+        securityId: "MOCK-CRUDEOIL-6000-CE",
+        tradingSymbol: "CRUDEOIL 20APR 6000 CE",
+        underlying: "CRUDE_OIL",
+        exchange: "MCX",
+        segment: "MCX_COMM",
+        optionType: "CE",
+        strike: 6000,
+        expiry: "2026-04-20",
+        lotSize: 100,
+        tickSize: 1,
+      },
+    ];
+  }
+
+  async getExpiryList(_underlying: string): Promise<string[]> {
+    // Mock adapter returns sample expiry dates
+    return ["2026-04-03", "2026-04-10", "2026-04-17", "2026-04-24"];
+  }
+
+  async getOptionChain(
+    underlying: string,
+    expiry: string
+  ): Promise<OptionChainData> {
+    // Mock adapter returns a sample option chain
+    const baseStrike = underlying.includes("NIFTY") ? 26000 : 6000;
+    const step = underlying.includes("NIFTY") ? 100 : 50;
+
+    const rows = [];
+    for (let i = -5; i <= 5; i++) {
+      const strike = baseStrike + i * step;
+      rows.push({
+        strike,
+        callOI: Math.floor(Math.random() * 100000),
+        callOIChange: Math.floor(Math.random() * 10000) - 5000,
+        callLTP: Math.max(0.05, (5 - i) * 20 + Math.random() * 10),
+        callVolume: Math.floor(Math.random() * 50000),
+        callIV: 15 + Math.random() * 10,
+        putOI: Math.floor(Math.random() * 100000),
+        putOIChange: Math.floor(Math.random() * 10000) - 5000,
+        putLTP: Math.max(0.05, (i + 5) * 20 + Math.random() * 10),
+        putVolume: Math.floor(Math.random() * 50000),
+        putIV: 15 + Math.random() * 10,
+      });
+    }
+
+    return {
+      underlying,
+      expiry,
+      spotPrice: baseStrike,
+      rows,
+      timestamp: Date.now(),
+    };
+  }
+
+  // ── Real-time (WebSocket) ─────────────────────────────────────
+
+  subscribeLTP(
+    _instruments: SubscribeParams[],
+    _callback: TickCallback
+  ): void {
+    // No-op in mock adapter — no real-time data
+    console.log("[MockAdapter] subscribeLTP called (no-op in paper mode)");
+  }
+
+  unsubscribeLTP(_instruments: SubscribeParams[]): void {
+    // No-op
+  }
+
+  onOrderUpdate(callback: OrderUpdateCallback): void {
+    this.orderBook.onOrderUpdate(callback);
+  }
+
+  // ── Lifecycle ─────────────────────────────────────────────────
+
+  async connect(): Promise<void> {
+    this.connected = true;
+    console.log("[MockAdapter] Connected (paper trading mode)");
+  }
+
+  async disconnect(): Promise<void> {
+    this.connected = false;
+    console.log("[MockAdapter] Disconnected");
+  }
+
+  // ── Emergency ─────────────────────────────────────────────────
+
+  async killSwitch(
+    action: "ACTIVATE" | "DEACTIVATE"
+  ): Promise<{ status: string; message?: string }> {
+    if (action === "ACTIVATE") {
+      this.killSwitchActive = true;
+
+      // Exit all open positions
+      const exitResults = this.orderBook.exitAll();
+      const exitCount = exitResults.length;
+
+      return {
+        status: "activated",
+        message: `Kill switch activated. ${exitCount} position(s) closed. All new orders blocked.`,
+      };
+    }
+
+    // DEACTIVATE
+    this.killSwitchActive = false;
+    return {
+      status: "deactivated",
+      message: "Kill switch deactivated. Trading resumed.",
+    };
+  }
+
+  // ── Mock-specific Methods ─────────────────────────────────────
+
+  /**
+   * Check if the mock adapter is connected.
+   */
+  isConnected(): boolean {
+    return this.connected;
+  }
+
+  /**
+   * Check if the kill switch is active.
+   */
+  isKillSwitchActive(): boolean {
+    return this.killSwitchActive;
+  }
+
+  /**
+   * Reset the mock adapter state (orders, positions, margin).
+   */
+  reset(initialMargin?: number): void {
+    this.orderBook.reset(initialMargin);
+    this.killSwitchActive = false;
+  }
+
+  /**
+   * Simulate an LTP update for testing P&L calculation.
+   */
+  simulateLTPUpdate(positionId: string, ltp: number): void {
+    this.orderBook.simulateLTPUpdate(positionId, ltp);
+  }
+
+  /**
+   * Get only open positions (convenience method).
+   */
+  async getOpenPositions(): Promise<Position[]> {
+    return this.orderBook.getOpenPositions();
+  }
+}

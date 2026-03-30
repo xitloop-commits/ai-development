@@ -1,0 +1,460 @@
+import { describe, expect, it, beforeEach } from "vitest";
+import { MockAdapter } from "./index";
+import type { OrderParams } from "../../types";
+
+// ─── Test Helpers ───────────────────────────────────────────────
+
+function sampleBuyOrder(overrides?: Partial<OrderParams>): OrderParams {
+  return {
+    instrument: "NIFTY_50",
+    exchange: "NSE_FNO",
+    transactionType: "BUY",
+    optionType: "CE",
+    strike: 26000,
+    expiry: "2026-04-03",
+    quantity: 50,
+    price: 150,
+    orderType: "LIMIT",
+    productType: "INTRADAY",
+    tag: "test-order",
+    ...overrides,
+  };
+}
+
+function sampleSellOrder(overrides?: Partial<OrderParams>): OrderParams {
+  return {
+    instrument: "NIFTY_50",
+    exchange: "NSE_FNO",
+    transactionType: "SELL",
+    optionType: "CE",
+    strike: 26000,
+    expiry: "2026-04-03",
+    quantity: 50,
+    price: 170,
+    orderType: "LIMIT",
+    productType: "INTRADAY",
+    tag: "test-exit",
+    ...overrides,
+  };
+}
+
+// ─── Test Suite ─────────────────────────────────────────────────
+
+describe("MockAdapter", () => {
+  let adapter: MockAdapter;
+
+  beforeEach(() => {
+    adapter = new MockAdapter(500000);
+  });
+
+  // ── Lifecycle ─────────────────────────────────────────────────
+
+  describe("Lifecycle", () => {
+    it("connects and disconnects", async () => {
+      await adapter.connect();
+      expect(adapter.isConnected()).toBe(true);
+
+      await adapter.disconnect();
+      expect(adapter.isConnected()).toBe(false);
+    });
+
+    it("has correct identity", () => {
+      expect(adapter.brokerId).toBe("mock");
+      expect(adapter.displayName).toBe("Paper Trading");
+    });
+  });
+
+  // ── Auth ──────────────────────────────────────────────────────
+
+  describe("Auth", () => {
+    it("validateToken always returns valid", async () => {
+      const result = await adapter.validateToken();
+      expect(result.valid).toBe(true);
+    });
+
+    it("updateToken is a no-op", async () => {
+      // Should not throw
+      await adapter.updateToken("any-token", "any-client");
+    });
+  });
+
+  // ── Place Order ───────────────────────────────────────────────
+
+  describe("Place Order", () => {
+    it("places a BUY order and gets FILLED status", async () => {
+      const result = await adapter.placeOrder(sampleBuyOrder());
+
+      expect(result.status).toBe("FILLED");
+      expect(result.orderId).toMatch(/^MOCK-ORD-/);
+      expect(result.timestamp).toBeGreaterThan(0);
+      expect(result.message).toContain("paper trading");
+    });
+
+    it("order appears in order book after placement", async () => {
+      await adapter.placeOrder(sampleBuyOrder());
+
+      const orders = await adapter.getOrderBook();
+      expect(orders.length).toBe(1);
+      expect(orders[0].instrument).toBe("NIFTY_50");
+      expect(orders[0].status).toBe("FILLED");
+      expect(orders[0].filledQuantity).toBe(50);
+      expect(orders[0].averagePrice).toBe(150);
+    });
+
+    it("trade appears in trade book after placement", async () => {
+      await adapter.placeOrder(sampleBuyOrder());
+
+      const trades = await adapter.getTradeBook();
+      expect(trades.length).toBe(1);
+      expect(trades[0].instrument).toBe("NIFTY_50");
+      expect(trades[0].price).toBe(150);
+      expect(trades[0].quantity).toBe(50);
+    });
+
+    it("position is created after BUY order", async () => {
+      await adapter.placeOrder(sampleBuyOrder());
+
+      const positions = await adapter.getPositions();
+      expect(positions.length).toBe(1);
+      expect(positions[0].instrument).toBe("NIFTY_50");
+      expect(positions[0].transactionType).toBe("BUY");
+      expect(positions[0].quantity).toBe(50);
+      expect(positions[0].averagePrice).toBe(150);
+      expect(positions[0].status).toBe("OPEN");
+    });
+
+    it("places multiple orders for different instruments", async () => {
+      await adapter.placeOrder(sampleBuyOrder());
+      await adapter.placeOrder(
+        sampleBuyOrder({
+          instrument: "BANK_NIFTY",
+          strike: 55000,
+          price: 200,
+          quantity: 30,
+        })
+      );
+
+      const orders = await adapter.getOrderBook();
+      expect(orders.length).toBe(2);
+
+      const positions = await adapter.getPositions();
+      expect(positions.length).toBe(2);
+    });
+
+    it("adds to existing position when buying same instrument", async () => {
+      await adapter.placeOrder(sampleBuyOrder({ price: 100, quantity: 50 }));
+      await adapter.placeOrder(sampleBuyOrder({ price: 200, quantity: 50 }));
+
+      const positions = await adapter.getPositions();
+      expect(positions.length).toBe(1);
+      expect(positions[0].quantity).toBe(100);
+      // Average price: (100*50 + 200*50) / 100 = 150
+      expect(positions[0].averagePrice).toBe(150);
+    });
+  });
+
+  // ── Exit Position ─────────────────────────────────────────────
+
+  describe("Exit Position", () => {
+    it("closes position with opposite SELL order", async () => {
+      // Buy
+      await adapter.placeOrder(sampleBuyOrder({ price: 150 }));
+
+      // Sell (exit)
+      await adapter.placeOrder(sampleSellOrder({ price: 170 }));
+
+      const positions = await adapter.getPositions();
+      // The BUY position should be closed, and a new SELL position created
+      // (since exit creates a new position entry with opposite direction)
+      const closedPositions = positions.filter((p) => p.status === "CLOSED");
+      expect(closedPositions.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("calculates P&L on exit (profit)", async () => {
+      // Buy at 150
+      await adapter.placeOrder(sampleBuyOrder({ price: 150, quantity: 50 }));
+
+      // Sell at 170 (profit of 20 per unit * 50 = 1000)
+      await adapter.placeOrder(sampleSellOrder({ price: 170, quantity: 50 }));
+
+      const positions = await adapter.getPositions();
+      const closedBuy = positions.find(
+        (p) => p.transactionType === "BUY" && p.status === "CLOSED"
+      );
+      expect(closedBuy).toBeDefined();
+      expect(closedBuy!.pnl).toBe(1000); // (170 - 150) * 50
+    });
+
+    it("calculates P&L on exit (loss)", async () => {
+      // Buy at 150
+      await adapter.placeOrder(sampleBuyOrder({ price: 150, quantity: 50 }));
+
+      // Sell at 130 (loss of 20 per unit * 50 = -1000)
+      await adapter.placeOrder(sampleSellOrder({ price: 130, quantity: 50 }));
+
+      const positions = await adapter.getPositions();
+      const closedBuy = positions.find(
+        (p) => p.transactionType === "BUY" && p.status === "CLOSED"
+      );
+      expect(closedBuy).toBeDefined();
+      expect(closedBuy!.pnl).toBe(-1000); // (130 - 150) * 50
+    });
+  });
+
+  // ── Modify & Cancel ───────────────────────────────────────────
+
+  describe("Modify & Cancel", () => {
+    it("rejects modify on filled order (instant fill in paper mode)", async () => {
+      const placed = await adapter.placeOrder(sampleBuyOrder());
+
+      const result = await adapter.modifyOrder(placed.orderId, {
+        price: 160,
+      });
+      expect(result.status).toBe("REJECTED");
+      expect(result.message).toContain("Cannot modify");
+    });
+
+    it("rejects cancel on filled order", async () => {
+      const placed = await adapter.placeOrder(sampleBuyOrder());
+
+      const result = await adapter.cancelOrder(placed.orderId);
+      expect(result.status).toBe("REJECTED");
+      expect(result.message).toContain("Cannot cancel");
+    });
+
+    it("rejects modify on non-existent order", async () => {
+      const result = await adapter.modifyOrder("FAKE-ORDER-ID", {
+        price: 160,
+      });
+      expect(result.status).toBe("REJECTED");
+      expect(result.message).toContain("not found");
+    });
+
+    it("rejects cancel on non-existent order", async () => {
+      const result = await adapter.cancelOrder("FAKE-ORDER-ID");
+      expect(result.status).toBe("REJECTED");
+      expect(result.message).toContain("not found");
+    });
+  });
+
+  // ── Exit All ──────────────────────────────────────────────────
+
+  describe("Exit All", () => {
+    it("closes all open positions", async () => {
+      // Open 3 positions
+      await adapter.placeOrder(sampleBuyOrder({ instrument: "NIFTY_50" }));
+      await adapter.placeOrder(
+        sampleBuyOrder({ instrument: "BANK_NIFTY", strike: 55000 })
+      );
+      await adapter.placeOrder(
+        sampleBuyOrder({ instrument: "CRUDE_OIL", exchange: "MCX_COMM", strike: 6000 })
+      );
+
+      const openBefore = await adapter.getOpenPositions();
+      expect(openBefore.length).toBe(3);
+
+      // Exit all
+      const results = await adapter.exitAll();
+      expect(results.length).toBe(3);
+      results.forEach((r) => expect(r.status).toBe("FILLED"));
+
+      // All positions should be closed
+      const openAfter = await adapter.getOpenPositions();
+      expect(openAfter.length).toBe(0);
+    });
+
+    it("returns empty array when no open positions", async () => {
+      const results = await adapter.exitAll();
+      expect(results).toEqual([]);
+    });
+  });
+
+  // ── Margin ────────────────────────────────────────────────────
+
+  describe("Margin", () => {
+    it("returns initial margin when no orders placed", async () => {
+      const margin = await adapter.getMargin();
+      expect(margin.total).toBe(500000);
+      expect(margin.available).toBe(500000);
+      expect(margin.used).toBe(0);
+    });
+
+    it("reduces available margin after BUY order", async () => {
+      await adapter.placeOrder(sampleBuyOrder({ price: 150, quantity: 50 }));
+
+      const margin = await adapter.getMargin();
+      expect(margin.used).toBe(7500); // 150 * 50
+      expect(margin.available).toBe(492500); // 500000 - 7500
+      expect(margin.total).toBe(500000);
+    });
+
+    it("accumulates margin usage across multiple orders", async () => {
+      await adapter.placeOrder(sampleBuyOrder({ price: 100, quantity: 50 }));
+      await adapter.placeOrder(
+        sampleBuyOrder({
+          instrument: "BANK_NIFTY",
+          strike: 55000,
+          price: 200,
+          quantity: 30,
+        })
+      );
+
+      const margin = await adapter.getMargin();
+      expect(margin.used).toBe(11000); // (100*50) + (200*30)
+      expect(margin.available).toBe(489000);
+    });
+  });
+
+  // ── Kill Switch ───────────────────────────────────────────────
+
+  describe("Kill Switch", () => {
+    it("blocks new orders when activated", async () => {
+      await adapter.killSwitch("ACTIVATE");
+      expect(adapter.isKillSwitchActive()).toBe(true);
+
+      const result = await adapter.placeOrder(sampleBuyOrder());
+      expect(result.status).toBe("REJECTED");
+      expect(result.message).toContain("Kill switch");
+    });
+
+    it("blocks modify when activated", async () => {
+      // Place order first
+      const placed = await adapter.placeOrder(sampleBuyOrder());
+
+      // Activate kill switch
+      await adapter.killSwitch("ACTIVATE");
+
+      const result = await adapter.modifyOrder(placed.orderId, {
+        price: 160,
+      });
+      expect(result.status).toBe("REJECTED");
+      expect(result.message).toContain("Kill switch");
+    });
+
+    it("exits all positions on activation", async () => {
+      // Open positions
+      await adapter.placeOrder(sampleBuyOrder());
+      await adapter.placeOrder(
+        sampleBuyOrder({ instrument: "BANK_NIFTY", strike: 55000 })
+      );
+
+      const openBefore = await adapter.getOpenPositions();
+      expect(openBefore.length).toBe(2);
+
+      // Activate kill switch
+      const result = await adapter.killSwitch("ACTIVATE");
+      expect(result.status).toBe("activated");
+      expect(result.message).toContain("2 position(s) closed");
+
+      const openAfter = await adapter.getOpenPositions();
+      expect(openAfter.length).toBe(0);
+    });
+
+    it("resumes trading after deactivation", async () => {
+      await adapter.killSwitch("ACTIVATE");
+      expect(adapter.isKillSwitchActive()).toBe(true);
+
+      const deactivateResult = await adapter.killSwitch("DEACTIVATE");
+      expect(deactivateResult.status).toBe("deactivated");
+      expect(adapter.isKillSwitchActive()).toBe(false);
+
+      // Should be able to place orders again
+      const orderResult = await adapter.placeOrder(sampleBuyOrder());
+      expect(orderResult.status).toBe("FILLED");
+    });
+  });
+
+  // ── Order Status ──────────────────────────────────────────────
+
+  describe("Order Status", () => {
+    it("returns order details by orderId", async () => {
+      const placed = await adapter.placeOrder(sampleBuyOrder());
+      const order = await adapter.getOrderStatus(placed.orderId);
+
+      expect(order.orderId).toBe(placed.orderId);
+      expect(order.instrument).toBe("NIFTY_50");
+      expect(order.status).toBe("FILLED");
+      expect(order.quantity).toBe(50);
+      expect(order.averagePrice).toBe(150);
+    });
+
+    it("throws for non-existent orderId", async () => {
+      await expect(adapter.getOrderStatus("FAKE-ID")).rejects.toThrow(
+        "not found"
+      );
+    });
+  });
+
+  // ── Market Data (Mock) ────────────────────────────────────────
+
+  describe("Market Data", () => {
+    it("returns sample scrip master", async () => {
+      const instruments = await adapter.getScripMaster("NSE_FNO");
+      expect(instruments.length).toBeGreaterThan(0);
+      expect(instruments[0].securityId).toMatch(/^MOCK-/);
+      expect(instruments[0].lotSize).toBeGreaterThan(0);
+    });
+
+    it("returns sample expiry list", async () => {
+      const expiries = await adapter.getExpiryList("NIFTY_50");
+      expect(expiries.length).toBeGreaterThan(0);
+      expect(expiries[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    it("returns sample option chain", async () => {
+      const chain = await adapter.getOptionChain("NIFTY_50", "2026-04-03");
+      expect(chain.underlying).toBe("NIFTY_50");
+      expect(chain.expiry).toBe("2026-04-03");
+      expect(chain.rows.length).toBeGreaterThan(0);
+      expect(chain.spotPrice).toBeGreaterThan(0);
+
+      const row = chain.rows[0];
+      expect(row).toHaveProperty("strike");
+      expect(row).toHaveProperty("callOI");
+      expect(row).toHaveProperty("putOI");
+      expect(row).toHaveProperty("callLTP");
+      expect(row).toHaveProperty("putLTP");
+    });
+  });
+
+  // ── Order Update Callbacks ────────────────────────────────────
+
+  describe("Order Update Callbacks", () => {
+    it("fires callback on order fill", async () => {
+      const updates: any[] = [];
+      adapter.onOrderUpdate((update) => updates.push(update));
+
+      await adapter.placeOrder(sampleBuyOrder());
+
+      expect(updates.length).toBe(1);
+      expect(updates[0].status).toBe("FILLED");
+      expect(updates[0].filledQuantity).toBe(50);
+    });
+  });
+
+  // ── Reset ─────────────────────────────────────────────────────
+
+  describe("Reset", () => {
+    it("clears all state on reset", async () => {
+      await adapter.placeOrder(sampleBuyOrder());
+      await adapter.killSwitch("ACTIVATE");
+
+      adapter.reset();
+
+      expect(adapter.isKillSwitchActive()).toBe(false);
+      const orders = await adapter.getOrderBook();
+      expect(orders.length).toBe(0);
+      const positions = await adapter.getPositions();
+      expect(positions.length).toBe(0);
+      const margin = await adapter.getMargin();
+      expect(margin.available).toBe(500000);
+    });
+
+    it("accepts custom initial margin on reset", async () => {
+      adapter.reset(1000000);
+      const margin = await adapter.getMargin();
+      expect(margin.total).toBe(1000000);
+      expect(margin.available).toBe(1000000);
+    });
+  });
+});
