@@ -9,6 +9,9 @@ import { connectMongo } from "../mongo";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { registerAdapter, initBrokerService } from "../broker";
+import { MockAdapter } from "../broker/adapters/mock";
+import { registerBrokerRoutes } from "../broker/brokerRoutes";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -34,9 +37,16 @@ async function startServer() {
   const server = createServer(app);
 
   // Connect to MongoDB (non-blocking — server starts even if MongoDB is down)
-  connectMongo().catch((err) =>
-    console.error("[MongoDB] Initial connection failed:", err)
-  );
+  connectMongo()
+    .then(async () => {
+      // Register broker adapters and initialize broker service after MongoDB is ready
+      registerAdapter("mock", () => new MockAdapter());
+      // Future: registerAdapter("dhan", () => new DhanAdapter());
+      await initBrokerService();
+    })
+    .catch((err) =>
+      console.error("[MongoDB] Initial connection failed:", err)
+    );
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -44,6 +54,8 @@ async function startServer() {
   registerOAuthRoutes(app);
   // Trading data push API (receives data from Python modules)
   registerTradingRoutes(app);
+  // Broker Service REST API (for Python modules)
+  registerBrokerRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",

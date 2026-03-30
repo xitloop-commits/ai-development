@@ -57,3 +57,9 @@ export {
   _resetForTesting,
 } from "./brokerService";
 export type { AdapterFactory } from "./brokerService";
+
+// tRPC Router
+export { brokerRouter } from "./brokerRouter";
+
+// REST Routes
+export { registerBrokerRoutes } from "./brokerRoutes";

@@ -326,7 +326,7 @@
 - [ ] Broker Service: Token validation — check credentials.updatedAt + expiresIn, trigger popup if expired
 - [ ] Broker Service: Real-time connection status updates (apiStatus, wsStatus, lastApiCall, lastWsTick, latencyMs)
 - [ ] Broker Service: REST endpoints for Python modules to call (POST /api/broker/place-order, etc.)
-- [ ] Broker Service: tRPC endpoints for frontend (trpc.broker.placeOrder, etc.)
+- [x] Broker Service: tRPC endpoints for frontend (trpc.broker.placeOrder, etc.)
 - [ ] Broker Service: Settings page integration — active broker dropdown, per-broker credentials, connection status display
 - [ ] Broker Service: Frontend and Python modules never call Dhan/broker directly — always through Broker Service
 - [ ] Broker Service: Switching active broker = flip isActive flag in MongoDB + restart adapter
@@ -364,10 +364,10 @@
 - [x] Vitest: place/modify/cancel/exit orders, positions, kill switch (34 tests passing)
 
 ### Step 0.3: tRPC + REST Endpoints
-- [ ] tRPC procedures: broker.config, broker.status, broker.token, broker.orders, broker.positions, broker.margin, broker.killSwitch
-- [ ] REST endpoints: /api/broker/* for Python modules
-- [ ] Vitest: tRPC caller tests with mock adapter
-- [ ] curl: all REST endpoints return correct responses
+- [x] tRPC procedures: broker.config, broker.status, broker.token, broker.orders, broker.positions, broker.margin, broker.killSwitch
+- [x] REST endpoints: /api/broker/* for Python modules (14 endpoints)
+- [x] Vitest: endpoint tests with mock adapter (20 tests passing)
+- [x] curl: all REST endpoints verified (status, place order, positions, margin, exit-all, kill-switch)
 
 ### Step 0.4: Dhan Adapter — Auth + Token Management
 - [ ] DhanAdapter skeleton implementing BrokerAdapter

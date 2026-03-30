@@ -19,6 +19,7 @@ import {
   getAllHolidays,
 } from "./holidays";
 import { getMongoHealth, pingMongo } from "./mongo";
+import { brokerRouter } from "./broker/brokerRouter";
 import {
   createTrade,
   updateTrade,
@@ -177,6 +178,9 @@ export const appRouter = router({
         return getTradeStats(ctx.user.id, input?.startTime, input?.endTime);
       }),
   }),
+
+  // Broker Service (tRPC)
+  broker: brokerRouter,
 
   // MongoDB health check
   mongo: router({
