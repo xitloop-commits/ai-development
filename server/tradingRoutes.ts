@@ -17,6 +17,7 @@ import {
   getActiveInstruments,
   setActiveInstruments,
 } from './tradingStore';
+import { getMongoHealth, pingMongo } from './mongo';
 
 export function registerTradingRoutes(app: Express): void {
   // Push option chain data from the Fetcher module
@@ -144,6 +145,18 @@ export function registerTradingRoutes(app: Express): void {
   // Health check
   app.get('/api/trading/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // MongoDB health check (REST — accessible by Python modules)
+  app.get('/api/health/mongodb', async (_req: Request, res: Response) => {
+    try {
+      const health = getMongoHealth();
+      const latencyMs = await pingMongo();
+      const statusCode = health.status === 'connected' ? 200 : 503;
+      res.status(statusCode).json({ ...health, latencyMs });
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', error: err.message });
+    }
   });
 
   console.log('[Trading API] REST routes registered under /api/trading/*');

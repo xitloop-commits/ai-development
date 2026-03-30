@@ -18,6 +18,7 @@ import {
   isTodayHoliday,
   getAllHolidays,
 } from "./holidays";
+import { getMongoHealth, pingMongo } from "./mongo";
 import {
   createTrade,
   updateTrade,
@@ -175,6 +176,15 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
         return getTradeStats(ctx.user.id, input?.startTime, input?.endTime);
       }),
+  }),
+
+  // MongoDB health check
+  mongo: router({
+    health: publicProcedure.query(async () => {
+      const health = getMongoHealth();
+      const latencyMs = await pingMongo();
+      return { ...health, latencyMs };
+    }),
   }),
 
   // Market holidays endpoints

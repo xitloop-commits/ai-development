@@ -221,7 +221,7 @@
 
 ## General Requirements
 
-- [ ] MongoDB: Set up MongoDB connection for all new data (charges, trades, credentials, position tracker)
+- [x] MongoDB: Set up MongoDB connection for all new data (charges, trades, credentials, position tracker)
 - [ ] MongoDB: Existing MySQL/TiDB stays untouched until user says to migrate
 - [ ] Settings: Configurable order entry offset % (default 1% below LTP)
 - [ ] Settings: SL/TP configuration
