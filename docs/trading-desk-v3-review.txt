@@ -1,0 +1,26 @@
+Trading Desk Mockup v3 - Visual Review Notes
+=============================================
+
+VERIFIED ELEMENTS:
+1. Tabs: "My Trades LIVE" and "AI Trades PAPER" - both visible, LIVE tab active with cyan border
+2. Summary Bar (single row): 7 of 250 days | Trade Cap ₹75,128 | Available ₹38,200 | Profit +₹25,128 | Today's P&L +₹950 / ₹3,756 + Exit All | Charges ₹1,842 | Reserve ₹33,376 | Q1 FY27 ₹4,82,000 | Net/Gross toggle | Net Worth ₹1,08,504
+3. 16-column table header visible: Day, Date, Trade Capital, Target (5%), Proj Capital, Instrument, Type, Strike, Entry, LTP, Qty, P&L, Charges, Actual Capital, Deviation, Rating
+4. Past days (1-6): Green tint, single summary rows, aggregated data, dashes for trade details
+5. Day 2: Shows multiple instrument tags (NIFTY 50 + CRUDE) side by side
+6. Day 3 (Gift): Gold tint, ₹4,134 P&L = exact target, ₹0 deviation, 🎁 rating
+7. Day 5 (Multi-day): Shows "2d" age, ⭐ rating
+8. Today (Day 7): Yellow tint, 6 trade rows + new trade input + summary
+9. Trade statuses visible: ✓ TP (green), ✗ SL (red), ✓ Partial (green), OPEN (yellow pulsing), PENDING (grey pulsing)
+10. TP/SL sub-text visible under LTP for open trades with edit icons (✎)
+11. Exit buttons: Green for profit, Red for loss
+12. New trade input row: Instrument dropdown, B/S toggle, CE/PE toggle, Strike input, Entry input, LTP auto-filled, Capital % selector with hint
+13. Today summary row: DAY 7 TOTAL, (+) button, 475 qty, ₹870 P&L + Exit All, ₹90 charges, ₹1,01,287 actual capital, +₹755 deviation
+14. Future days: Dimmed, projected values, weekend skip (Day 12 = 14-Apr)
+15. Day 250: 🏁 flag, ₹5,58,66,167 trade capital
+16. Starting capital correctly at ₹75,000 (Trading Pool)
+17. Net/Gross toggle present in summary bar
+18. Separators between summary items for visual clarity
+
+ISSUES NOTED:
+- Deviation and Rating columns are cut off on the right side due to 16 columns width, but horizontal scroll handles it
+- All core requirements from brainstorming are represented
