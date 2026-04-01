@@ -1,9 +1,18 @@
 # Feature 4: Settings Page Specification
 
-**Version:** 1.0  
-**Date:** March 30, 2026  
+**Version:** 1.1  
+**Date:** April 2, 2026  
 **Project:** Automatic Trading System (ATS)  
 **Author:** Manus AI
+
+---
+
+## Revision History
+
+| Version | Date | Description |
+|---------|------|-------------|
+| 1.0 | March 30, 2026 | Initial specification |
+| 1.1 | April 2, 2026 | Expanded Discipline section to include all 39 configurable parameters, enable/disable toggles, types, ranges, and defaults from the Discipline Engine spec. |
 
 ---
 
@@ -50,33 +59,63 @@ This section defines the default parameters used when placing new trades, stream
 | **Product Type** | The default product type. | INTRADAY, CNC, MARGIN |
 | **Default Stop Loss** | Defines the default stop-loss distance from the entry price. | 0% to 50% |
 | **Default Target Profit** | Defines the default target profit distance from the entry price. | 0% to 100% |
+| **Trailing Stop** | A toggle to enable automatic trailing stop-loss functionality. | Toggle |
+| **Trailing SL %** | The percentage distance from the peak price at which the trailing stop is maintained. | 0% to 50% |
 
 ### 3.3 Discipline
 
-This section enforces risk management and trading psychology rules, preventing emotional or excessive trading.
+This section enforces risk management and trading psychology rules, preventing emotional or excessive trading. Every discipline rule has an explicit **enabled/disabled toggle**. When disabled, the rule does not block trades and its weight is redistributed in the discipline score.
 
-| Category | Setting | Description |
-|---|---|---|
-| **Trade Limits** | Max Trades / Day | The maximum number of combined trades allowed across all exchanges (NSE and MCX) per day. |
-| | Max Position Size | The maximum capital allocation allowed for a single position, expressed as a percentage of total capital. |
-| **Loss Protection** | Max Loss / Day (₹) | The absolute maximum daily loss limit in rupees. |
-| | Max Loss / Day (%) | The maximum daily loss limit expressed as a percentage of total capital. |
-| | Max Consecutive Losses | The number of consecutive losing trades that will trigger a trading halt. |
-| | Cooldown After Loss | A mandatory waiting period (in minutes) enforced after a losing trade before a new trade can be placed. |
-| | No Revenge Trading | A toggle that completely blocks all further trading for the day once the daily loss limit is reached. |
-| **Pre-Trade Checks** | Mandatory Checklist | A toggle requiring the user to complete a pre-entry checklist before placing a trade. |
-| | Min Checklist Score | The minimum score (0-100) required on the pre-entry checklist to authorize the trade. |
-| | Require Rationale | A toggle requiring the user to input a written rationale for the trade before execution. |
-| **Trailing Stop** | Trailing Stop | A toggle to enable automatic trailing stop-loss functionality. |
-| | Trailing SL % | The percentage distance from the peak price at which the trailing stop is maintained. |
+| Category | Setting | Type | Range / Options | Default | Description |
+|---|---|---|---|---|---|
+| **Circuit Breaker** | Daily loss limit enabled | Toggle | — | ON | Master toggle for daily loss limit. |
+| | Daily loss limit threshold | Number | 1–10% | 3% | Block all trading when daily loss hits this % of capital. |
+| | Max consecutive losses enabled | Toggle | — | ON | Master toggle for consecutive loss cooldown. |
+| | Max consecutive losses count | Number | 2–10 | 3 | Number of back-to-back losses before cooldown. |
+| | Max consecutive losses cooldown | Number | 10–120 min | 30 min | Mandatory cooldown duration after consecutive losses. |
+| **Trade Limits** | Max trades per day enabled | Toggle | — | ON | Master toggle for daily trade count limit. |
+| | Max trades per day limit | Number | 1–20 | 5 | Maximum number of trades allowed per day. |
+| | Max open positions enabled | Toggle | — | ON | Master toggle for concurrent position limit. |
+| | Max open positions limit | Number | 1–10 | 3 | Maximum number of simultaneously open positions. |
+| | Revenge cooldown enabled | Toggle | — | ON | Master toggle for post-loss cooldown. |
+| | Revenge cooldown duration | Select | 10 / 15 / 30 min | 15 min | Mandatory cooldown duration after any SL hit. |
+| | Require loss acknowledgment | Toggle | — | ON | Require typing "I accept the loss" to start cooldown. |
+| **Pre-Trade Gate** | Pre-trade gate enabled | Toggle | — | ON | Master toggle for the pre-trade confirmation checklist. |
+| | Min R:R check enabled | Toggle | — | ON | Sub-toggle to enforce minimum Risk:Reward ratio. |
+| | Min R:R ratio | Number | 1.0–5.0 | 1.5 | Minimum acceptable R:R ratio for trade approval. |
+| | Emotional state check enabled | Toggle | — | ON | Sub-toggle to block trades if state is Revenge/FOMO. |
+| **Position Sizing** | Max position size enabled | Toggle | — | ON | Master toggle for single position size limit. |
+| | Max position size % | Number | 1–50% | 10% | Maximum capital allocation for a single position. |
+| | Max total exposure enabled | Toggle | — | ON | Master toggle for total open exposure limit. |
+| | Max total exposure % | Number | 10–100% | 30% | Maximum combined capital allocation for all open positions. |
+| **Journal & Review** | Journal enforcement enabled | Toggle | — | ON | Master toggle for mandatory trade journaling. |
+| | Max unjournaled trades | Number | 1–10 | 3 | Block new trades if this many past trades are unjournaled. |
+| | Weekly review enabled | Toggle | — | ON | Master toggle for mandatory Monday morning review. |
+| | Discipline score warning threshold | Number | 50–90 | 70 | Show warning if daily discipline score drops below this. |
+| | Red week reduction trigger | Number | 2–5 weeks | 3 weeks | Number of consecutive losing weeks to trigger auto-reduction. |
+| **Streaks** | Winning streak reminder enabled | Toggle | — | ON | Master toggle for overconfidence warnings. |
+| | Winning streak trigger | Number | 3–10 days | 5 days | Number of consecutive winning days to trigger reminder. |
+| | Losing streak auto-reduce enabled | Toggle | — | ON | Master toggle for losing streak position size reduction. |
+| | Losing streak trigger | Number | 2–7 days | 3 days | Number of consecutive losing days to trigger reduction. |
+| | Losing streak reduction | Number | 25–75% | 50% | Percentage by which max position size is reduced. |
 
 ### 3.4 Time Windows
 
-This section defines the specific hours during which trading is permitted, separated by exchange.
+This section defines the specific hours during which trading is permitted, separated by exchange. Every time window rule has an explicit **enabled/disabled toggle**.
 
-For the **NSE (National Stock Exchange)**, users can configure the number of minutes after market open (9:15 AM IST) and before market close (3:30 PM IST) during which trading is blocked. A toggle allows users to suspend trading during a specified lunch period, with time inputs to define the exact start and end times.
-
-For the **MCX (Multi Commodity Exchange)**, users can configure the number of minutes after market open (9:00 AM IST) and before market close (11:30 PM IST) during which trading is blocked.
+| Exchange | Setting | Type | Range | Default | Description |
+|---|---|---|---|---|---|
+| **NSE** | No trading after open enabled | Toggle | — | ON | Master toggle for NSE morning block. |
+| | No trading after open | Number | 5–60 min | 15 min | Minutes after 9:15 AM IST when trading is blocked. |
+| | No trading before close enabled | Toggle | — | ON | Master toggle for NSE evening block. |
+| | No trading before close | Number | 5–60 min | 15 min | Minutes before 3:30 PM IST when trading is blocked. |
+| | Lunch break pause enabled | Toggle | — | OFF | Master toggle for NSE lunch break block. |
+| | Lunch break start | Time | — | 12:30 | Start time for lunch break pause. |
+| | Lunch break end | Time | — | 13:30 | End time for lunch break pause. |
+| **MCX** | No trading after open enabled | Toggle | — | ON | Master toggle for MCX morning block. |
+| | No trading after open | Number | 5–60 min | 15 min | Minutes after 9:00 AM IST when trading is blocked. |
+| | No trading before close enabled | Toggle | — | ON | Master toggle for MCX evening block. |
+| | No trading before close | Number | 5–60 min | 15 min | Minutes before 11:30 PM IST when trading is blocked. |
 
 ### 3.5 Expiry Controls
 
@@ -122,7 +161,7 @@ The `user_settings` collection utilizes a single document per user, identified b
 
 To ensure the system functions correctly even before a user explicitly configures their settings, the backend provides comprehensive default values. When a user's settings are queried for the first time, these defaults are returned and subsequently saved upon the first update.
 
-Key defaults include a maximum of 6 trades per day, a ₹5000 maximum daily loss, and a 15-minute cooldown after a loss for discipline settings. Time windows default to 15-minute no-trade zones at the open and close for both NSE and MCX. Expiry controls default to "No Carry to Expiry" enabled for all instruments, with position size reduction disabled. Charges are pre-populated with standard Indian options trading rates, such as a ₹20 flat brokerage fee and 18% GST.
+Key defaults include a maximum of 5 trades per day, a 3% maximum daily loss, and a 15-minute cooldown after a loss for discipline settings. Time windows default to 15-minute no-trade zones at the open and close for both NSE and MCX. Expiry controls default to "No Carry to Expiry" enabled for all instruments, with position size reduction disabled. Charges are pre-populated with standard Indian options trading rates, such as a ₹20 flat brokerage fee and 18% GST.
 
 ### 4.3 Update Mechanism (Upsert)
 

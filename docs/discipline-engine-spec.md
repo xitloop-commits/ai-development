@@ -664,51 +664,11 @@ The score is recalculated after every trade event (open, close, journal entry) a
 
 ## 12. Settings Schema & Defaults
 
-All discipline settings are exposed in the Settings page under the "Discipline" section. The UI uses a two-column grid of setting groups, each with a header, toggle rows, and sub-setting rows for configurable parameters.
+All discipline settings are exposed in the Settings page under the "Discipline" section. 
 
-### Complete Default Values
+> **Note:** The authoritative UI specification for these settings, including all configurable parameters, types, ranges, and defaults, is maintained in the **Settings Page Specification** (`docs/settings-page-spec-v1.0.md`). 
 
-| Setting | Default | Type | Range |
-|---------|---------|------|-------|
-| Daily loss limit enabled | true | toggle | — |
-| Daily loss limit threshold | 3% | number | 1–10% |
-| Max consecutive losses enabled | true | toggle | — |
-| Max consecutive losses count | 3 | number | 2–10 |
-| Max consecutive losses cooldown | 30 min | number | 10–120 min |
-| Max trades per day enabled | true | toggle | — |
-| Max trades per day limit | 5 | number | 1–20 |
-| Max open positions enabled | true | toggle | — |
-| Max open positions limit | 3 | number | 1–10 |
-| Revenge cooldown enabled | true | toggle | — |
-| Revenge cooldown duration | 15 min | select | 10 / 15 / 30 min |
-| Require loss acknowledgment | true | toggle | — |
-| No trading after open enabled | true | toggle | — |
-| No trading after open (NSE) | 15 min | number | 5–60 min |
-| No trading after open (MCX) | 15 min | number | 5–60 min |
-| No trading before close enabled | true | toggle | — |
-| No trading before close (NSE) | 15 min | number | 5–60 min |
-| No trading before close (MCX) | 15 min | number | 5–60 min |
-| Lunch break pause enabled | false | toggle | — |
-| Lunch break start | 12:30 | time | — |
-| Lunch break end | 13:30 | time | — |
-| Pre-trade gate enabled | true | toggle | — |
-| Min R:R check enabled | true | toggle | — |
-| Min R:R ratio | 1.5 | number | 1.0–5.0 |
-| Emotional state check enabled | true | toggle | — |
-| Max position size enabled | true | toggle | — |
-| Max position size % | 10% | number | 1–50% |
-| Max total exposure enabled | true | toggle | — |
-| Max total exposure % | 30% | number | 10–100% |
-| Journal enforcement enabled | true | toggle | — |
-| Max unjournaled trades | 3 | number | 1–10 |
-| Weekly review enabled | true | toggle | — |
-| Discipline score warning threshold | 70 | number | 50–90 |
-| Red week reduction trigger | 3 weeks | number | 2–5 weeks |
-| Winning streak reminder enabled | true | toggle | — |
-| Winning streak trigger | 5 days | number | 3–10 days |
-| Losing streak auto-reduce enabled | true | toggle | — |
-| Losing streak trigger | 3 days | number | 2–7 days |
-| Losing streak reduction | 50% | number | 25–75% |
+This document (Discipline Engine Spec) focuses purely on the enforcement logic, data models, and behavioral mechanics of the rules.
 
 ---
 
