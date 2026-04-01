@@ -11,6 +11,7 @@
 | Version | Date       | Author    | Changes                                                  |
 | ------- | ---------- | --------- | -------------------------------------------------------- |
 | v1.0    | 2026-04-02 | Manus AI  | Initial specification based on latest Python module source code |
+| v1.1    | 2026-04-02 | Manus AI  | Cross-functionality update: Python module migration to Broker Service reclassified as refactoring task, AI Paper tab confirmed unconstrained (no discipline rules) |
 
 ---
 

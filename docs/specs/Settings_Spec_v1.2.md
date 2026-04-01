@@ -16,15 +16,6 @@
 
 ---
 
-## Legacy Changelog
-
-| Version | Date | Description |
-|---------|------|-------------|
-| 1.0 | March 30, 2026 | Initial specification |
-| 1.1 | April 2, 2026 | Expanded Discipline section to include all 39 configurable parameters, enable/disable toggles, types, ranges, and defaults from the Discipline Engine spec. |
-
----
-
 ## 1. Overview
 
 The Settings Page (Feature 4) provides a centralized, authenticated interface for users to configure their trading environment within the Automatic Trading System. It consolidates broker connections, order execution preferences, risk management rules, time-based trading windows, instrument-specific expiry controls, and dynamic charge rates into a single, cohesive view.

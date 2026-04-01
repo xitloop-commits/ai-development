@@ -10,6 +10,7 @@
 | v1.1 | 31 Mar 2026 | Added **Universal Capital Allocation Rule** — the 75/25 split applies to all incoming capital |
 | v1.2 | 31 Mar 2026 | Added **Project Target** — 250 Day Index cycles from ₹1L, with projected growth milestones |
 | v1.3 | 31 Mar 2026 | Refined multi-instrument common pool logic, position sizing, clawback mechanics, calendar session resets, and instrument-specific trade parameters based on Q&A |
+| v1.4 | 2 Apr 2026 | Cross-functionality update: removed redundant risk/execution sections (now referencing Discipline Engine and Settings specs), clarified percentage-based position sizing |
 
 ---
 

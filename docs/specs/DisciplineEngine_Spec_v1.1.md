@@ -15,7 +15,7 @@
 
 ---
 
-## Table of Contentss
+## Table of Contents
 
 1. [Purpose & Philosophy](#1-purpose--philosophy)
 2. [Architecture Overview](#2-architecture-overview)

@@ -13,7 +13,7 @@
 
 ---
 
-## Overviewew
+## Overview
 
 This specification details the implementation of **Feature 0: Broker Service + Token Management**. This feature establishes the foundational broker abstraction layer and integrates the Dhan API. The original Feature 0 (Broker Service Abstraction) and Feature 2 (Dhan Token Management) have been merged because token management acts as the gatekeeper for the Dhan adapter. Testing any Dhan functionality is impossible without it, and building them together avoids a half-usable intermediate state.
 
