@@ -1,0 +1,83 @@
+flowchart TD
+    classDef userAction fill:#1a1a2e,stroke:#00d4ff,color:#e0e0e0,stroke-width:2px
+    classDef hardBlock fill:#2a0a0a,stroke:#FF3B5C,color:#FF3B5C,stroke-width:2px
+    classDef softWarn fill:#2a2a0a,stroke:#FFB800,color:#FFB800,stroke-width:2px
+    classDef passGate fill:#0a2a0a,stroke:#00FF88,color:#00FF88,stroke-width:2px
+    classDef checkNode fill:#0f1923,stroke:#5a7a9a,color:#c0d0e0,stroke-width:1px
+    classDef engineNode fill:#0f1923,stroke:#00d4ff,color:#00d4ff,stroke-width:2px
+
+    START["👤 User clicks Place Trade"]:::userAction
+
+    START --> WEEKLY{"🔒 Weekly Review<br/>Completed?"}:::checkNode
+    WEEKLY -- "❌ Monday, not reviewed" --> BLOCK_WEEKLY["🚫 HARD BLOCK<br/>Must complete weekly review<br/>before any trading this week"]:::hardBlock
+    WEEKLY -- "✅ Yes / Not Monday" --> CIRCUIT{"⚡ Circuit Breaker<br/>Triggered?"}:::checkNode
+
+    CIRCUIT -- "❌ Daily loss ≥ 3% of capital" --> BLOCK_CIRCUIT["🚫 HARD BLOCK<br/>Daily loss limit reached<br/>Red overlay — no trading until tomorrow"]:::hardBlock
+    CIRCUIT -- "✅ Within limit" --> TRADES{"📊 Max Trades<br/>Per Day?"}:::checkNode
+
+    TRADES -- "❌ 5/5 trades used" --> BLOCK_TRADES["🚫 HARD BLOCK<br/>Trade limit reached<br/>No more trades today"]:::hardBlock
+    TRADES -- "✅ Under limit" --> POSITIONS{"📋 Max Open<br/>Positions?"}:::checkNode
+
+    POSITIONS -- "❌ 3/3 positions open" --> BLOCK_POSITIONS["🚫 HARD BLOCK<br/>Close a position first<br/>before opening a new one"]:::hardBlock
+    POSITIONS -- "✅ Under limit" --> COOLDOWN{"⏱️ Cooldown<br/>Active?"}:::checkNode
+
+    COOLDOWN -- "❌ Revenge cooldown<br/>or consecutive loss cooldown" --> BLOCK_COOLDOWN["🚫 HARD BLOCK<br/>Cooldown timer running<br/>New Trade locked for MM:SS"]:::hardBlock
+    COOLDOWN -- "✅ No cooldown" --> TIMEWIN{"🕐 Time Window<br/>Allowed?"}:::checkNode
+
+    TIMEWIN -- "❌ Market open block<br/>or close block<br/>or lunch pause" --> BLOCK_TIME["🚫 HARD BLOCK<br/>Trading blocked for exchange<br/>Amber banner with countdown"]:::hardBlock
+    TIMEWIN -- "✅ Trading window open" --> JOURNAL{"📓 Journal<br/>Compliance?"}:::checkNode
+
+    JOURNAL -- "❌ ≥ 3 unjournaled trades" --> BLOCK_JOURNAL["🚫 HARD BLOCK<br/>Complete journal entries first<br/>N trades need journaling"]:::hardBlock
+    JOURNAL -- "✅ Under threshold" --> PREGATE
+
+    subgraph PREGATE ["🛡️ PRE-TRADE GATE — Frontend Checklist"]
+        direction TB
+        PG_RR{"R:R Ratio<br/>≥ 1.5?"}:::checkNode
+        PG_SIZE{"Position Size<br/>≤ 10% capital?"}:::checkNode
+        PG_EXPO{"Total Exposure<br/>≤ 30% capital?"}:::checkNode
+        PG_EMO{"Emotional State<br/>Calm/Neutral?"}:::checkNode
+        PG_PLAN["Plan Aligned?<br/>(soft check)"]:::softWarn
+        PG_CHECK["Checklist Done?<br/>(soft check)"]:::softWarn
+        PG_TREND["Trend Aligned?<br/>(soft check)"]:::softWarn
+
+        PG_RR -- "❌ Below minimum" --> BLOCK_RR["🚫 HARD BLOCK<br/>R:R too low"]:::hardBlock
+        PG_SIZE -- "❌ Exceeds limit" --> BLOCK_SIZE["🚫 HARD BLOCK<br/>Position too large"]:::hardBlock
+        PG_EXPO -- "❌ Exceeds limit" --> BLOCK_EXPO["🚫 HARD BLOCK<br/>Exposure too high"]:::hardBlock
+        PG_EMO -- "❌ Revenge / FOMO" --> BLOCK_EMO["🚫 HARD BLOCK<br/>Emotional state unsafe"]:::hardBlock
+    end
+
+    JOURNAL -- " " --> PG_RR
+    PG_RR -- "✅" --> PG_SIZE
+    PG_SIZE -- "✅" --> PG_EXPO
+    PG_EXPO -- "✅" --> PG_EMO
+    PG_EMO -- "✅" --> PG_PLAN
+    PG_PLAN --> PG_CHECK
+    PG_CHECK --> PG_TREND
+
+    PG_TREND --> STREAK{"📈 Streak<br/>Adjustments?"}:::checkNode
+
+    STREAK -- "⚠️ 3+ day losing streak<br/>Auto-reduce position 50%" --> ADJUSTED["⚠️ SOFT WARNING<br/>Limits auto-reduced<br/>Max position: 10% → 5%<br/>Max trades: 5 → 3"]:::softWarn
+    STREAK -- "⚠️ 5+ day winning streak" --> REMIND["⚠️ SOFT WARNING<br/>Overconfidence reminder<br/>Stick to your plan"]:::softWarn
+    STREAK -- "✅ No streak" --> SERVER_VALIDATE
+
+    ADJUSTED --> SERVER_VALIDATE
+    REMIND --> SERVER_VALIDATE
+
+    SERVER_VALIDATE["✅ ALL CHECKS PASSED<br/>Discipline Engine: ALLOW"]:::passGate
+
+    SERVER_VALIDATE --> BROKER["📡 Broker Service<br/>Order placed via adapter"]:::engineNode
+
+    BROKER --> POSTRADE
+
+    subgraph POSTRADE ["📝 POST-TRADE MONITORING"]
+        direction TB
+        PT_PNL["Track realized P&L<br/>Update daily loss counter"]:::checkNode
+        PT_COUNT["Increment trade counter<br/>Update open positions"]:::checkNode
+        PT_CONSEC["Track consecutive<br/>wins/losses"]:::checkNode
+        PT_SCORE["Recalculate<br/>discipline score"]:::checkNode
+        PT_JOURNAL_PROMPT["Prompt journal entry<br/>on trade close"]:::checkNode
+    end
+
+    PT_PNL --> SL_HIT{"SL Hit?"}:::checkNode
+    SL_HIT -- "Yes" --> REVENGE_START["Start revenge cooldown<br/>Require acknowledgment<br/>if enabled"]:::softWarn
+    SL_HIT -- "No" --> CONSEC_RESET["Reset consecutive<br/>loss counter"]:::passGate

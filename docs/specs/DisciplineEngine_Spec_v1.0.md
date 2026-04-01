@@ -666,7 +666,7 @@ The score is recalculated after every trade event (open, close, journal entry) a
 
 All discipline settings are exposed in the Settings page under the "Discipline" section. 
 
-> **Note:** The authoritative UI specification for these settings, including all configurable parameters, types, ranges, and defaults, is maintained in the **Settings Page Specification** (`docs/settings-page-spec-v1.0.md`). 
+> **Note:** The authoritative UI specification for these settings, including all configurable parameters, types, ranges, and defaults, is maintained in the **Settings Page Specification** (`docs/specs/Settings_Spec_v1.1.md`). 
 
 This document (Discipline Engine Spec) focuses purely on the enforcement logic, data models, and behavioral mechanics of the rules.
 
