@@ -27,6 +27,9 @@ import type {
   SubscribeParams,
   TickCallback,
   OrderUpdateCallback,
+  ScripMasterStatusResult,
+  SecurityLookupParams,
+  SecurityLookupResult,
 } from "../../types";
 import { MockOrderBook } from "./mockOrderBook";
 
@@ -218,6 +221,64 @@ export class MockAdapter implements BrokerAdapter {
       rows,
       timestamp: Date.now(),
     };
+  }
+
+  // ── Scrip Master Helpers ──────────────────────────────────────
+
+  getScripMasterStatus(): ScripMasterStatusResult {
+    return {
+      isLoaded: true,
+      recordCount: 4,
+      lastDownload: Date.now(),
+      downloadTimeMs: 0,
+      derivativeCount: 4,
+      exchanges: ["NSE", "MCX"],
+      message: "Mock scrip master (static data)",
+    };
+  }
+
+  async refreshScripMaster(): Promise<ScripMasterStatusResult> {
+    return this.getScripMasterStatus();
+  }
+
+  lookupSecurity(params: SecurityLookupParams): SecurityLookupResult | null {
+    // Simple mock lookup — matches against the static sample instruments
+    const instruments = [
+      { securityId: "MOCK-NIFTY-26000-CE", tradingSymbol: "NIFTY 03APR 26000 CE", customSymbol: "NIFTY 26 APR 26000 CALL", lotSize: 50, exchange: "NSE", instrumentName: "OPTIDX", expiryDate: "2026-04-03", strikePrice: 26000, optionType: "CE" },
+      { securityId: "MOCK-NIFTY-26000-PE", tradingSymbol: "NIFTY 03APR 26000 PE", customSymbol: "NIFTY 26 APR 26000 PUT", lotSize: 50, exchange: "NSE", instrumentName: "OPTIDX", expiryDate: "2026-04-03", strikePrice: 26000, optionType: "PE" },
+      { securityId: "MOCK-BANKNIFTY-55000-CE", tradingSymbol: "BANKNIFTY 03APR 55000 CE", customSymbol: "BANKNIFTY 26 APR 55000 CALL", lotSize: 30, exchange: "NSE", instrumentName: "OPTIDX", expiryDate: "2026-04-03", strikePrice: 55000, optionType: "CE" },
+      { securityId: "MOCK-CRUDEOIL-6000-CE", tradingSymbol: "CRUDEOIL 20APR 6000 CE", customSymbol: "CRUDEOIL 26 APR 6000 CALL", lotSize: 100, exchange: "MCX", instrumentName: "OPTCOM", expiryDate: "2026-04-20", strikePrice: 6000, optionType: "CE" },
+    ];
+
+    return instruments.find((inst) => {
+      const symbolMatch = inst.tradingSymbol.toUpperCase().includes(params.symbol.toUpperCase());
+      const expiryMatch = !params.expiry || inst.expiryDate === params.expiry;
+      const strikeMatch = !params.strike || inst.strikePrice === params.strike;
+      const optionMatch = !params.optionType || inst.optionType === params.optionType;
+      const exchangeMatch = !params.exchange || inst.exchange === params.exchange;
+      return symbolMatch && expiryMatch && strikeMatch && optionMatch && exchangeMatch;
+    }) ?? null;
+  }
+
+  getScripExpiryDates(_symbol: string, _exchange?: string, _instrumentName?: string): string[] {
+    return ["2026-04-03", "2026-04-10", "2026-04-17", "2026-04-24"];
+  }
+
+  resolveMCXFutcom(symbol: string): SecurityLookupResult | null {
+    if (symbol.toUpperCase() === "CRUDEOIL") {
+      return {
+        securityId: "MOCK-CRUDEOIL-FUT",
+        tradingSymbol: "CRUDEOIL 20APR FUT",
+        customSymbol: "CRUDEOIL 26 APR FUTURE",
+        lotSize: 100,
+        exchange: "MCX",
+        instrumentName: "FUTCOM",
+        expiryDate: "2026-04-20",
+        strikePrice: 0,
+        optionType: "XX",
+      };
+    }
+    return null;
   }
 
   // ── Real-time (WebSocket) ─────────────────────────────────────

@@ -335,9 +335,8 @@ export function registerBrokerRoutes(app: Express): void {
       const broker = requireBrokerREST(res);
       if (!broker) return;
 
-      // Check if the adapter has scrip master methods (Dhan-specific)
-      if (typeof (broker as any).getScripMasterStatus === "function") {
-        const status = (broker as any).getScripMasterStatus();
+      if (broker.getScripMasterStatus) {
+        const status = broker.getScripMasterStatus();
         res.json({ success: true, data: status });
       } else {
         res.json({
@@ -361,8 +360,8 @@ export function registerBrokerRoutes(app: Express): void {
       const broker = requireBrokerREST(res);
       if (!broker) return;
 
-      if (typeof (broker as any).refreshScripMaster === "function") {
-        const status = await (broker as any).refreshScripMaster();
+      if (broker.refreshScripMaster) {
+        const status = await broker.refreshScripMaster();
         res.json({ success: true, data: status });
       } else {
         sendError(res, 501, "Scrip master refresh not supported by this adapter");
@@ -386,8 +385,8 @@ export function registerBrokerRoutes(app: Express): void {
         return;
       }
 
-      if (typeof (broker as any).lookupSecurity === "function") {
-        const result = (broker as any).lookupSecurity({
+      if (broker.lookupSecurity) {
+        const result = broker.lookupSecurity({
           symbol: symbol as string,
           expiry: expiry as string | undefined,
           strike: strike ? parseFloat(strike as string) : undefined,
@@ -423,8 +422,8 @@ export function registerBrokerRoutes(app: Express): void {
         return;
       }
 
-      if (typeof (broker as any).getScripExpiryDates === "function") {
-        const dates = (broker as any).getScripExpiryDates(
+      if (broker.getScripExpiryDates) {
+        const dates = broker.getScripExpiryDates(
           symbol as string,
           exchange as string | undefined,
           instrumentName as string | undefined
@@ -452,8 +451,8 @@ export function registerBrokerRoutes(app: Express): void {
         return;
       }
 
-      if (typeof (broker as any).resolveMCXFutcom === "function") {
-        const result = (broker as any).resolveMCXFutcom(symbol as string);
+      if (broker.resolveMCXFutcom) {
+        const result = broker.resolveMCXFutcom(symbol as string);
         if (result) {
           res.json({ success: true, data: result });
         } else {

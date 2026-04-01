@@ -292,6 +292,22 @@ export interface BrokerAdapter {
   /** Get option chain data for an underlying + expiry. */
   getOptionChain(underlying: string, expiry: string): Promise<OptionChainData>;
 
+  // ── Scrip Master Helpers (optional — implemented by adapters with local cache) ──
+  /** Get scrip master cache status. */
+  getScripMasterStatus?(): ScripMasterStatusResult;
+
+  /** Force refresh the scrip master cache. */
+  refreshScripMaster?(): Promise<ScripMasterStatusResult>;
+
+  /** Lookup a single security from the scrip master cache. */
+  lookupSecurity?(params: SecurityLookupParams): SecurityLookupResult | null;
+
+  /** Get expiry dates from the scrip master cache (not Dhan API). */
+  getScripExpiryDates?(symbol: string, exchange?: string, instrumentName?: string): string[];
+
+  /** Resolve nearest-month MCX FUTCOM security ID. */
+  resolveMCXFutcom?(symbol: string): SecurityLookupResult | null;
+
   // ── Real-time (WebSocket) ─────────────────────────────────────
   /** Subscribe to live LTP updates for instruments. */
   subscribeLTP(instruments: SubscribeParams[], callback: TickCallback): void;
@@ -314,6 +330,39 @@ export interface BrokerAdapter {
   killSwitch(
     action: "ACTIVATE" | "DEACTIVATE"
   ): Promise<{ status: string; message?: string }>;
+}
+
+// ─── Scrip Master Helper Types ─────────────────────────────────
+
+export interface ScripMasterStatusResult {
+  isLoaded: boolean;
+  recordCount: number;
+  lastDownload: number; // UTC ms
+  downloadTimeMs: number;
+  derivativeCount?: number;
+  exchanges?: string[];
+  message?: string;
+}
+
+export interface SecurityLookupParams {
+  symbol: string;
+  expiry?: string;
+  strike?: number;
+  optionType?: string;
+  exchange?: string;
+  instrumentName?: string;
+}
+
+export interface SecurityLookupResult {
+  securityId: string;
+  tradingSymbol: string;
+  customSymbol: string;
+  lotSize: number;
+  exchange: string;
+  instrumentName: string;
+  expiryDate: string;
+  strikePrice: number;
+  optionType: string;
 }
 
 // ─── Broker Service Status ──────────────────────────────────────

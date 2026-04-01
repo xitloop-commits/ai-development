@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
 """
-Execution Module v2
+Execution Module v3
 -------------------
-Reads enhanced AI decisions, manages paper/live trades with real option prices,
-monitors SL/TP exits, and pushes position updates to the dashboard.
+Reads enhanced AI decisions, manages paper/live trades via the Broker Service
+REST API, monitors SL/TP exits, and pushes position updates to the dashboard.
+
+All order placement and security lookups now go through the Broker Service
+abstraction layer instead of calling Dhan directly.
+
+Endpoints used:
+  GET  /api/broker/token/status              — Validate auth
+  POST /api/broker/orders                    — Place order
+  GET  /api/broker/positions                 — Get positions
+  GET  /api/broker/scrip-master/lookup       — Lookup security ID
+  POST /api/broker/kill-switch               — Emergency kill switch
+  GET  /api/trading/active-instruments       — Poll dashboard
 
 Supports both the enhanced AI format (trade_direction, trade_setup) and
 legacy format (decision, trade_type) for backward compatibility.
@@ -13,29 +24,29 @@ import json
 import os
 import time
 import sys
-import requests
-import pandas as pd
 from datetime import datetime
 
-# --- Configuration ---
-CLIENT_ID = "1101615161"
-ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzc0MzE4MjEwLCJpYXQiOjE3NzQyMzE4MTAsInRva2VuQ29uc3VtZXJUeXBlIjoiU0VMRiIsIndlYmhvb2tVcmwiOiIiLCJkaGFuQ2xpZW50SWQiOiIxMTAxNjE1MTYxIn0.AQbyCLWX9HC-eLr5WLhpdjIn8a5ADiSox5hpIBalegzTDyzXjp0_zn9iDvhhWkqgH_z-rlWqQLosQlpGppqexg"
+import requests
 
-BASE_URL = "https://api.dhan.co/v2"
-DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+# --- Configuration ---
+
+# Broker Service base URL (same server)
+BROKER_URL = os.environ.get("BROKER_URL", "http://localhost:3000").strip()
 
 # Dashboard URL for active instruments polling and position push
-DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:3000').strip()
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3000").strip()
+
+DATA_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Trading mode: False = paper trading, True = live trading
-LIVE_TRADING = False
+LIVE_TRADING = os.environ.get("LIVE_TRADING", "false").lower() == "true"
 
 # Default quantity per instrument
 DEFAULT_QUANTITIES = {
-    "NIFTY_50": 75,      # 1 lot NIFTY options
-    "BANKNIFTY": 30,     # 1 lot BANKNIFTY options
-    "CRUDEOIL": 100,     # 1 lot CRUDEOIL options
-    "NATURALGAS": 1250,  # 1 lot NATURALGAS options
+    "NIFTY_50": 75,       # 1 lot NIFTY options
+    "BANKNIFTY": 30,      # 1 lot BANKNIFTY options
+    "CRUDEOIL": 100,      # 1 lot CRUDEOIL options
+    "NATURALGAS": 1250,   # 1 lot NATURALGAS options
 }
 
 # Minimum confidence to take a trade
@@ -43,18 +54,6 @@ MIN_CONFIDENCE = 0.40
 
 # Minimum risk:reward ratio
 MIN_RISK_REWARD = 1.0
-
-# Scrip master for looking up option security IDs
-SCRIP_MASTER_PATH = os.path.join(DATA_DIR, "dhan_scrip_master.csv")
-SCRIP_MASTER_DF = None
-
-# Headers for Dhan API
-HEADERS = {
-    "access-token": ACCESS_TOKEN,
-    "client-id": CLIENT_ID,
-    "Content-Type": "application/json",
-    "Accept": "application/json"
-}
 
 # Instrument key mapping (dashboard uses underscores, files use underscores in lowercase)
 INSTRUMENTS = ["NIFTY_50", "BANKNIFTY", "CRUDEOIL", "NATURALGAS"]
@@ -89,10 +88,136 @@ def log(message):
     sys.stdout.flush()
 
 
+# --- Broker Service Helpers ---
+
+def check_broker_auth():
+    """Validate the broker token via the Broker Service REST API."""
+    url = f"{BROKER_URL}/api/broker/token/status"
+    try:
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("success") and data.get("data", {}).get("valid"):
+                return True
+            else:
+                msg = data.get("data", {}).get("message", "Unknown")
+                log(f"Broker token invalid: {msg}")
+                return False
+        elif resp.status_code == 503:
+            log("Broker service not ready (no active adapter).")
+            return False
+        else:
+            log(f"Token status check failed: HTTP {resp.status_code}")
+            return False
+    except requests.exceptions.ConnectionError:
+        log(f"Cannot connect to broker service at {BROKER_URL}.")
+        return False
+    except Exception as e:
+        log(f"Error checking broker auth: {e}")
+        return False
+
+
+def find_option_security_id(instrument, expiry_date, strike_price, option_type):
+    """
+    Find the security_id for an option contract via the Broker Service
+    scrip master lookup endpoint.
+    """
+    sm_symbol = SYMBOL_MAP.get(instrument)
+    if not sm_symbol:
+        return None
+
+    exchange = "NSE" if instrument in ("NIFTY_50", "BANKNIFTY") else "MCX"
+
+    url = f"{BROKER_URL}/api/broker/scrip-master/lookup"
+    params = {
+        "symbol": sm_symbol,
+        "expiry": expiry_date,
+        "strike": strike_price,
+        "optionType": option_type,
+        "exchange": exchange,
+    }
+
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("success") and data.get("data"):
+                security_id = data["data"]["securityId"]
+                log(f"  [LOOKUP] {sm_symbol} {expiry_date} {strike_price} {option_type} -> {security_id}")
+                return str(security_id)
+        elif resp.status_code == 404:
+            log(f"  [LOOKUP] No match: {sm_symbol} {expiry_date} {strike_price} {option_type}")
+        elif resp.status_code == 501:
+            log(f"  [LOOKUP] Scrip master not supported by active adapter")
+        else:
+            log(f"  [LOOKUP] HTTP {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        log(f"  [LOOKUP] Error: {e}")
+    return None
+
+
+def place_broker_order(instrument, transaction_type, security_id, quantity):
+    """
+    Place an order via the Broker Service REST API.
+    Uses the unified /api/broker/orders endpoint.
+    """
+    exchange_segment = EXCHANGE_MAP.get(instrument, "NSE_FNO")
+    ts = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    correlation_id = f"TRD-{instrument[:5]}-{transaction_type[:3]}-{ts}"
+
+    payload = {
+        "instrument": {
+            "securityId": str(security_id),
+            "exchange": exchange_segment,
+            "tradingSymbol": f"{SYMBOL_MAP.get(instrument, instrument)}-{security_id}",
+        },
+        "transactionType": transaction_type,
+        "productType": "INTRADAY",
+        "orderType": "MARKET",
+        "validity": "DAY",
+        "quantity": quantity,
+        "correlationId": correlation_id,
+    }
+
+    url = f"{BROKER_URL}/api/broker/orders"
+    log(f"  Placing {transaction_type} order via Broker Service (Security: {security_id}, Qty: {quantity})...")
+
+    try:
+        resp = requests.post(url, json=payload, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("success") and data.get("data"):
+                order_data = data["data"]
+                order_id = order_data.get("orderId")
+                order_status = order_data.get("status", "UNKNOWN")
+                log(f"  Order Response: orderId={order_id}, status={order_status}")
+                return order_id, order_status
+            else:
+                error = data.get("error", "Unknown error")
+                log(f"  Order rejected: {error}")
+                return None, "REJECTED"
+        elif resp.status_code == 403:
+            log(f"  Order blocked: Kill switch is active.")
+            return None, "BLOCKED"
+        elif resp.status_code == 503:
+            log(f"  Order failed: No active broker adapter.")
+            return None, "NO_BROKER"
+        else:
+            log(f"  Order failed: HTTP {resp.status_code} - {resp.text[:200]}")
+            return None, "FAILED"
+    except Exception as e:
+        log(f"  Order exception: {e}")
+        return None, "FAILED"
+
+
+# --- Dashboard Helpers ---
+
 def get_active_instruments():
     """Polls the dashboard to get the list of active instruments."""
     try:
-        resp = requests.get(f"{DASHBOARD_URL}/api/trading/active-instruments", timeout=3)
+        resp = requests.get(
+            f"{DASHBOARD_URL}/api/trading/active-instruments", timeout=3
+        )
         if resp.status_code == 200:
             data = resp.json()
             return set(data.get("instruments", []))
@@ -104,7 +229,7 @@ def get_active_instruments():
 def load_json(filepath):
     """Load a JSON file safely."""
     try:
-        with open(filepath, 'r') as f:
+        with open(filepath, "r") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return None
@@ -124,8 +249,8 @@ def load_option_chain(instrument):
 
 def get_option_price(oc, strike, option_type):
     """
-    Get the current last_price for a specific strike and option type from option chain data.
-    option_type: 'CE' or 'PE'
+    Get the current last_price for a specific strike and option type
+    from option chain data.
     """
     if not oc or "oc" not in oc:
         return 0
@@ -174,7 +299,7 @@ def push_position_to_dashboard(position_data):
         resp = requests.post(
             f"{DASHBOARD_URL}/api/trading/position",
             json={"position": position_data},
-            timeout=5
+            timeout=5,
         )
         if resp.status_code == 200:
             log(f"  [DASHBOARD] Position pushed: {position_data['id']} ({position_data['status']})")
@@ -193,84 +318,10 @@ def send_heartbeat(message):
         requests.post(
             f"{DASHBOARD_URL}/api/trading/heartbeat",
             json={"module": "EXECUTOR", "message": message},
-            timeout=3
+            timeout=3,
         )
     except Exception:
         pass
-
-
-def load_scrip_master():
-    """Load the scrip master CSV for security ID lookup."""
-    global SCRIP_MASTER_DF
-    if SCRIP_MASTER_DF is None:
-        log(f"Loading scrip master from {SCRIP_MASTER_PATH}...")
-        try:
-            SCRIP_MASTER_DF = pd.read_csv(SCRIP_MASTER_PATH)
-            log(f"Scrip master loaded: {len(SCRIP_MASTER_DF)} records")
-        except Exception as e:
-            log(f"Error loading scrip master: {e}")
-            SCRIP_MASTER_DF = pd.DataFrame()
-    return SCRIP_MASTER_DF
-
-
-def find_option_security_id(instrument, expiry_date, strike_price, option_type):
-    """Find the security_id for an option contract from the scrip master."""
-    scrip_df = load_scrip_master()
-    if scrip_df.empty:
-        return None
-
-    sm_symbol = SYMBOL_MAP.get(instrument)
-    if not sm_symbol:
-        return None
-
-    try:
-        target_expiry_dt = datetime.strptime(expiry_date, "%Y-%m-%d")
-        filtered = scrip_df[
-            (scrip_df["SM_SYMBOL_NAME"] == sm_symbol) &
-            (pd.to_datetime(scrip_df["SEM_EXPIRY_DATE"]).dt.date == target_expiry_dt.date()) &
-            (scrip_df["SEM_STRIKE_PRICE"] == strike_price) &
-            (scrip_df["SEM_OPTION_TYPE"] == option_type)
-        ]
-        if not filtered.empty:
-            return str(filtered.iloc[0]["SEM_SMST_SECURITY_ID"])
-    except Exception as e:
-        log(f"  Error finding security ID: {e}")
-    return None
-
-
-def place_live_order(instrument, trade_type, security_id, quantity):
-    """Place a live order via Dhan API."""
-    exchange_segment = EXCHANGE_MAP.get(instrument, "NSE_FNO")
-    ts = datetime.now().strftime("%Y%m%d%H%M%S%f")
-    correlation_id = f"TRD-{instrument[:5]}-{trade_type[:3]}-{ts}"
-
-    payload = {
-        "dhanClientId": CLIENT_ID,
-        "correlationId": correlation_id,
-        "transactionType": trade_type,
-        "exchangeSegment": exchange_segment,
-        "productType": "INTRADAY",
-        "orderType": "MARKET",
-        "validity": "DAY",
-        "securityId": str(security_id),
-        "quantity": str(quantity),
-    }
-
-    log(f"  Placing LIVE {trade_type} order (Security: {security_id}, Qty: {quantity})...")
-    try:
-        response = requests.post(f"{BASE_URL}/orders", headers=HEADERS, json=payload)
-        if response.status_code == 200:
-            order_data = response.json()
-            order_id = order_data.get("orderId")
-            order_status = order_data.get("orderStatus")
-            log(f"  LIVE Order Response: {order_data}")
-            return order_id, order_status
-        else:
-            log(f"  LIVE Order Failed: {response.status_code} - {response.text}")
-            return None, "FAILED"
-    except Exception as e:
-        log(f"  LIVE Order Exception: {e}")
-        return None, "FAILED"
 
 
 # --- Parse AI Decision (supports both old and new format) ---
@@ -280,8 +331,6 @@ def parse_ai_decision(decision):
     Parse the AI decision and extract trade parameters.
     Supports both enhanced format (trade_direction, trade_setup) and
     legacy format (decision, trade_type).
-    Returns: dict with keys: should_trade, direction, option_type, strike,
-             entry_price, target_price, stop_loss, confidence, risk_reward, rationale
     """
     result = {
         "should_trade": False,
@@ -307,7 +356,9 @@ def parse_ai_decision(decision):
 
     if trade_direction and trade_direction in ("GO_CALL", "GO_PUT") and trade_setup:
         result["direction"] = trade_direction
-        result["option_type"] = trade_setup.get("option_type", "CE" if trade_direction == "GO_CALL" else "PE")
+        result["option_type"] = trade_setup.get(
+            "option_type", "CE" if trade_direction == "GO_CALL" else "PE"
+        )
         result["strike"] = trade_setup.get("strike")
         result["entry_price"] = trade_setup.get("entry_price", 0)
         result["target_price"] = trade_setup.get("target_price", 0)
@@ -394,7 +445,7 @@ def try_entry(instrument, decision, oc):
     pos_id = next_position_id()
     pos_type = "CALL_BUY" if direction == "GO_CALL" else "PUT_BUY"
 
-    log(f"")
+    log("")
     log(f"  ╔══════════════════════════════════════════════════════════╗")
     log(f"  ║  NEW ENTRY: {instrument}")
     log(f"  ║  Direction: {direction} | {option_type} {strike}")
@@ -404,14 +455,16 @@ def try_entry(instrument, decision, oc):
     log(f"  ╚══════════════════════════════════════════════════════════╝")
 
     if LIVE_TRADING:
-        # Find security ID and place live order
+        # Find security ID via Broker Service and place order
         expiry_date = parsed["expiry_date"] or get_expiry_date(oc)
         if expiry_date:
             security_id = find_option_security_id(instrument, expiry_date, strike, option_type)
             if security_id:
-                order_id, order_status = place_live_order(instrument, "BUY", security_id, quantity)
-                if order_status != "TRADED":
-                    log(f"    LIVE order not filled. Status: {order_status}. Skipping position tracking.")
+                order_id, order_status = place_broker_order(
+                    instrument, "BUY", security_id, quantity
+                )
+                if order_status not in ("TRADED", "TRANSIT", "PENDING"):
+                    log(f"    Order not accepted. Status: {order_status}. Skipping position tracking.")
                     return False
             else:
                 log(f"    Could not find security ID for {instrument} {expiry_date} {strike} {option_type}")
@@ -482,7 +535,9 @@ def monitor_positions(option_chains):
             continue
 
         strike = position["strike"]
-        option_type = position.get("option_type", "CE" if position["type"] == "CALL_BUY" else "PE")
+        option_type = position.get(
+            "option_type", "CE" if position["type"] == "CALL_BUY" else "PE"
+        )
 
         # Get current price from live option chain
         current_price = get_option_price(oc, strike, option_type)
@@ -507,7 +562,7 @@ def monitor_positions(option_chains):
         # Check Stop Loss
         if current_price <= sl_price:
             exit_reason = "STOP_LOSS"
-            log(f"")
+            log("")
             log(f"  ╔══════════════════════════════════════════════════════════╗")
             log(f"  ║  STOP LOSS HIT: {instrument}")
             log(f"  ║  {option_type} {strike} | Entry: {entry_price:.2f} → Exit: {current_price:.2f}")
@@ -517,7 +572,7 @@ def monitor_positions(option_chains):
         # Check Target Profit
         elif current_price >= tp_price:
             exit_reason = "TARGET_PROFIT"
-            log(f"")
+            log("")
             log(f"  ╔══════════════════════════════════════════════════════════╗")
             log(f"  ║  TARGET HIT: {instrument}")
             log(f"  ║  {option_type} {strike} | Entry: {entry_price:.2f} → Exit: {current_price:.2f}")
@@ -532,12 +587,16 @@ def monitor_positions(option_chains):
             position["exitReason"] = exit_reason
 
             if LIVE_TRADING:
-                # Place sell order to close
+                # Place sell order via Broker Service to close
                 expiry_date = get_expiry_date(option_chains.get(instrument))
                 if expiry_date:
-                    security_id = find_option_security_id(instrument, expiry_date, strike, option_type)
+                    security_id = find_option_security_id(
+                        instrument, expiry_date, strike, option_type
+                    )
                     if security_id:
-                        place_live_order(instrument, "SELL", security_id, position["quantity"])
+                        place_broker_order(
+                            instrument, "SELL", security_id, position["quantity"]
+                        )
             else:
                 log(f"  *** PAPER TRADE: Simulated exit at {current_price:.2f} ***")
 
@@ -583,7 +642,8 @@ def monitor_positions(option_chains):
 
 def main():
     log("=" * 60)
-    log("Execution Module v2 - Starting")
+    log("Execution Module v3 — Broker Service Mode")
+    log(f"Broker URL: {BROKER_URL}")
     log(f"Dashboard URL: {DASHBOARD_URL}")
     log(f"Trading Mode: {'LIVE' if LIVE_TRADING else 'PAPER'}")
     log(f"Min Confidence: {MIN_CONFIDENCE*100:.0f}%")
@@ -591,7 +651,17 @@ def main():
     log(f"Instruments: {INSTRUMENTS}")
     log("=" * 60)
 
-    load_scrip_master()
+    # Step 1: Wait for broker service to be ready (only needed for live trading)
+    if LIVE_TRADING:
+        log("Waiting for broker service to be ready...")
+        while True:
+            if check_broker_auth():
+                log("Broker service authenticated. Starting execution loop.")
+                break
+            log("Retrying in 10 seconds...")
+            time.sleep(10)
+    else:
+        log("Paper trading mode — broker auth not required.")
 
     cycle = 0
     while True:
@@ -618,16 +688,25 @@ def main():
             oc = option_chains.get(instrument)
 
             if decision:
-                trade_dir = decision.get("trade_direction", decision.get("decision", "WAIT"))
+                trade_dir = decision.get(
+                    "trade_direction", decision.get("decision", "WAIT")
+                )
                 conf = decision.get("confidence_score", 0)
                 log(f"  {instrument}: {trade_dir} ({conf*100:.0f}%)")
 
                 # Try entry if we don't have an open position
-                if instrument not in OPEN_POSITIONS or OPEN_POSITIONS[instrument]["status"] != "OPEN":
+                if (
+                    instrument not in OPEN_POSITIONS
+                    or OPEN_POSITIONS[instrument]["status"] != "OPEN"
+                ):
                     try_entry(instrument, decision, oc)
                 else:
                     pos = OPEN_POSITIONS[instrument]
-                    log(f"    Position open: {pos['type']} {pos['strike']} | Entry: {pos['entryPrice']} | Current: {pos['currentPrice']} | P&L: {pos['pnl']:+.2f} ({pos['pnlPercent']:+.1f}%)")
+                    log(
+                        f"    Position open: {pos['type']} {pos['strike']} | "
+                        f"Entry: {pos['entryPrice']} | Current: {pos['currentPrice']} | "
+                        f"P&L: {pos['pnl']:+.2f} ({pos['pnlPercent']:+.1f}%)"
+                    )
             else:
                 log(f"  {instrument}: No AI decision available")
 
@@ -636,8 +715,11 @@ def main():
 
         # Send heartbeat
         open_count = sum(1 for p in OPEN_POSITIONS.values() if p["status"] == "OPEN")
-        closed_count = sum(1 for p in OPEN_POSITIONS.values() if p["status"] == "CLOSED")
-        send_heartbeat(f"{open_count} open, {closed_count} closed (paper)")
+        closed_count = sum(
+            1 for p in OPEN_POSITIONS.values() if p["status"] == "CLOSED"
+        )
+        mode = "live" if LIVE_TRADING else "paper"
+        send_heartbeat(f"{open_count} open, {closed_count} closed ({mode})")
 
         time.sleep(5)
 
@@ -653,5 +735,8 @@ if __name__ == "__main__":
             status = pos["status"]
             pnl = pos.get("pnl", 0)
             reason = pos.get("exitReason", "N/A")
-            log(f"  {instrument}: {pos['type']} {pos['strike']} | Status: {status} | P&L: {pnl:+.2f} | Exit: {reason}")
+            log(
+                f"  {instrument}: {pos['type']} {pos['strike']} | "
+                f"Status: {status} | P&L: {pnl:+.2f} | Exit: {reason}"
+            )
         sys.exit(0)

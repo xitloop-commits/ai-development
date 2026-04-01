@@ -25,6 +25,9 @@ import type {
   SubscribeParams,
   TickCallback,
   OrderUpdateCallback,
+  ScripMasterStatusResult,
+  SecurityLookupParams,
+  SecurityLookupResult,
 } from "../../types";
 
 import {
@@ -821,30 +824,43 @@ export class DhanAdapter implements BrokerAdapter {
   /**
    * Get scrip master status (for REST/tRPC endpoints).
    */
-  getScripMasterStatus() {
-    return getScripMasterStatus();
+  getScripMasterStatus(): ScripMasterStatusResult {
+    const status = getScripMasterStatus();
+    return {
+      isLoaded: status.isLoaded,
+      recordCount: status.recordCount,
+      lastDownload: status.lastDownload,
+      downloadTimeMs: status.downloadTimeMs,
+      derivativeCount: status.derivativeCount,
+      exchanges: status.exchanges,
+    };
   }
 
   /**
    * Force refresh scrip master.
    */
-  async refreshScripMaster() {
+  async refreshScripMaster(): Promise<ScripMasterStatusResult> {
     await downloadScripMaster();
-    return getScripMasterStatus();
+    return this.getScripMasterStatus();
   }
 
   /**
    * Lookup a security ID from the scrip master.
    */
-  lookupSecurity(params: {
-    symbol: string;
-    expiry?: string;
-    strike?: number;
-    optionType?: string;
-    exchange?: string;
-    instrumentName?: string;
-  }): LookupResult | null {
-    return scripLookup(params);
+  lookupSecurity(params: SecurityLookupParams): SecurityLookupResult | null {
+    const result = scripLookup(params);
+    if (!result) return null;
+    return {
+      securityId: result.securityId,
+      tradingSymbol: result.tradingSymbol,
+      customSymbol: result.customSymbol,
+      lotSize: result.lotSize,
+      exchange: result.exchange,
+      instrumentName: result.instrumentName,
+      expiryDate: result.expiryDate,
+      strikePrice: result.strikePrice,
+      optionType: result.optionType,
+    };
   }
 
   /**
@@ -861,8 +877,20 @@ export class DhanAdapter implements BrokerAdapter {
   /**
    * Resolve nearest-month MCX FUTCOM.
    */
-  resolveMCXFutcom(symbol: string): LookupResult | null {
-    return resolveMCXFutcom(symbol);
+  resolveMCXFutcom(symbol: string): SecurityLookupResult | null {
+    const result = resolveMCXFutcom(symbol);
+    if (!result) return null;
+    return {
+      securityId: result.securityId,
+      tradingSymbol: result.tradingSymbol,
+      customSymbol: result.customSymbol,
+      lotSize: result.lotSize,
+      exchange: result.exchange,
+      instrumentName: result.instrumentName,
+      expiryDate: result.expiryDate,
+      strikePrice: result.strikePrice,
+      optionType: result.optionType,
+    };
   }
 
   /**
