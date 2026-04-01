@@ -3,7 +3,7 @@
 **Version:** 1.0  
 **Date:** March 30, 2026  
 **Project:** Automatic Trading System (Manus Project ID: Qiqjca5Lodf9Jn8ejWVfDH)  
-**Repository:** github.com/xitloop-commits/trading-dashboard-ats (private)
+**Repository:** github.com/xitloop-commits/ai-development (private)
 
 ---
 
@@ -21,7 +21,7 @@
 
 ## 1. System Overview
 
-The Automatic Trading System is a comprehensive trading dashboard and execution platform for Indian derivatives markets. It covers four instruments — **NIFTY 50**, **BANK NIFTY** (NSE), **CRUDE OIL**, and **NATURAL GAS** (MCX) — and provides real-time option chain analysis, AI-driven trade signals, automated and manual trade execution, a 150-day compounding position tracker, a full trading discipline engine, and a trade journal with P&L analytics.
+The Automatic Trading System is a comprehensive trading dashboard and execution platform for Indian derivatives markets. It covers four instruments — **NIFTY 50**, **BANK NIFTY** (NSE), **CRUDE OIL**, and **NATURAL GAS** (MCX) — and provides real-time option chain analysis, AI-driven trade signals, automated and manual trade execution, a 250-day compounding Trading Desk, a full trading discipline engine, and a trade journal with P&L analytics.
 
 The system operates in two parallel modes. The **"My Trades LIVE"** tab is where the user manually executes trades through the Dhan broker, guided by AI signals. The **"AI Trades PAPER"** tab runs fully automated paper trades using the AI decision engine and a mock broker adapter, allowing direct performance comparison between human and AI trading.
 
@@ -139,23 +139,21 @@ Mongoose connection to MongoDB Atlas with retry logic, health checks (ping), and
 
 ## 4. Pending Features
 
-### Feature 3: Main Page Layout & Navigation
+### Feature 3: Main Screen Layout & Navigation
 
-This feature restructures the entire application from a single-page dashboard into a multi-page application with proper routing and navigation.
+This feature implements the single-screen command center shell, replacing the traditional multi-page navigation model.
 
 | Requirement | Detail |
 |-------------|--------|
-| **Navigation tabs** | Five top-level tabs below the StatusBar: Dashboard, Position Tracker, Discipline, Journal, Settings |
-| **StatusBar redesign** | Add Dhan API status, WebSocket status, Discipline status, and Market status indicators alongside existing module heartbeats |
-| **Footer redesign** | Dhan API connected/disconnected + latency, WebSocket streaming/reconnecting/disconnected, last tick timestamp, data mode (LIVE/DEMO), active challenge (Day X/150), discipline score, version |
-| **Page routing** | Routes in App.tsx: `/` (Dashboard), `/tracker` (Position Tracker), `/discipline` (Discipline Dashboard), `/journal` (Journal), `/settings` (Settings) |
-| **Position Tracker** | Separate full-width page (15 columns need full width) |
-| **Discipline Dashboard** | Separate page with charts, score, violations, and trends |
-| **Settings** | Separate page with sidebar navigation (6 sections) |
-| **Journal** | Already built — integrate into top-level navigation |
-| **Dashboard** | Keeps current 3-column grid (instrument cards + signals + controls) |
-
-**Note:** There was a conversation on March 29, 2026 discussing a new dashboard design with gold price in the top bar, footer redesign, and main page layout changes. Those details were not saved to project files and are missing from the current context.
+| **Single-Screen Shell** | Four sticky layers: App Bar, Summary Bar, Trading Desk (center), Footer |
+| **Side Drawers** | Left drawer for Instrument Cards (`Ctrl+[`), Right drawer for Signals & Alerts (`Ctrl+]`) |
+| **Overlays** | Full-screen overlays for Discipline Dashboard (`Ctrl+D`), Journal (`Ctrl+J`), and Settings (`Ctrl+S`), dismissed with `Esc` |
+| **App Bar** | Dhan API status, WebSocket status, Discipline status, Market status, and module heartbeats |
+| **Footer** | Dhan API latency, WebSocket status, last tick, data mode, active challenge, discipline score (with 7-category tooltip), version |
+| **Trading Desk** | Always visible in the center, full width |
+| **Discipline Dashboard** | Read-only monitoring view shown as an overlay |
+| **Settings** | Overlay with sidebar navigation (6 sections) |
+| **Journal** | Overlay for trade journaling |
 
 ---
 
@@ -176,18 +174,18 @@ A comprehensive settings page with sidebar navigation and MongoDB persistence.
 
 ---
 
-### Feature 5: Position Tracker — Core Table (Static)
+### Feature 5: Trading Desk — Core Table
 
-The centerpiece of the system: a 150-day compounding challenge table.
+The centerpiece of the system: a 250-day compounding challenge table.
 
-**Table structure — 15 columns:**
+**Table structure — 16 columns:**
 
 | Column | Description |
 |--------|-------------|
-| Day | Day number (1–150) |
+| Day | Day number (1–250) |
 | Date | Calendar date |
-| Open Capital | Starting capital for the day |
-| Target 5% | Daily target amount (5% of open capital) |
+| Trade Capital | Starting capital for the day |
+| Target 5% | Daily target amount (5% of Trade Capital) |
 | Proj Capital | Projected capital if target hit |
 | Instrument | Color-coded instrument tag (NIFTY/BANKNIFTY/CRUDE/NATGAS) |
 | Type | B CE, B PE (green/long), S CE, S PE (red/short) |
@@ -196,6 +194,7 @@ The centerpiece of the system: a 150-day compounding challenge table.
 | LTP | Last Traded Price (live for open trades, exit price for closed) |
 | Qty | Quantity |
 | P&L | Profit/Loss with inline exit button |
+| Charges | Brokerage, STT, and fees per trade/day |
 | Actual Capital | Realized capital after trades |
 | Deviation | Difference from projected |
 | Rating | Trophy, double trophy, gift, star, flag, or blank |
@@ -224,13 +223,13 @@ The centerpiece of the system: a 150-day compounding challenge table.
 **Additional features:**
 - Auto-scroll to current day on page load (smooth scroll animation)
 - Floating "Jump to Today" button (appears when scrolled away, shows ↑/↓ Today)
-- All position tracker data stored in MongoDB (`challenges` and `trades` collections)
+- All Trading Desk data stored in MongoDB (`challenges` and `trades` collections)
 
 ---
 
-### Feature 6: Position Tracker — Trade Input & Exit
+### Feature 6: Trading Desk — Trade Input & Exit
 
-Interactive trade management within the position tracker table.
+Interactive trade management within the Trading Desk table.
 
 | Requirement | Detail |
 |-------------|--------|
@@ -302,7 +301,7 @@ Indian standard brokerage and regulatory charges with versioned rate tracking.
 
 Apply charges to all P&L displays throughout the system.
 
-- Net P&L displayed everywhere: P&L column in position tracker, summary bar Profit, Today's P&L
+- Net P&L displayed everywhere: P&L column in Trading Desk, summary bar Profit, Today's P&L
 - Hover/tooltip breakdown: Gross P&L → Brokerage → STT → Exchange → GST → SEBI → Stamp → Net P&L
 - Summary bar shows net values with tooltip for gross breakdown
 
@@ -333,7 +332,7 @@ Exchange-specific trading hours and rules.
 
 ### Feature 12: Day Transition & Capital Logic
 
-Day lifecycle management for the 150-day challenge.
+Day lifecycle management for the 250-day challenge.
 
 | Requirement | Detail |
 |-------------|--------|
@@ -343,10 +342,11 @@ Day lifecycle management for the 150-day challenge.
 | **Multi-day support** | If target not met and positions closed, day carries forward to next calendar day |
 | **Realized P&L only** | Only realized P&L counts toward day completion (unrealized excluded) |
 | **Capital model** | Shared capital pool — all trades draw from the same capital, no per-trade locking |
-| **Capital progression** | Open Capital for new day = previous day's Actual Capital (realized only) |
+| **Capital progression** | Trade Capital for new day = previous day's Actual Capital (realized only) |
 | **Gift days** | When excess profit covers multiple 5% targets, subsequent days are auto-completed as "gift" days |
 | **Rating assignment** | Based on day outcome (trophy, double trophy, gift, star, flag) |
-| **TBD** | Overnight positions and unrealized P&L impact on capital — ask user before implementing |
+| **Overnight Positions** | Discouraged but allowed. System alerts 15 min and 5 min before close. If not exited, position carries forward to next day. Day Index stays open. |
+| **Auto-Close** | Configurable in Settings (default OFF). If ON, system auto-exits positions before market close. |
 
 ---
 
@@ -364,7 +364,7 @@ Per-instrument expiry awareness and risk controls.
 **Configurable settings (all per-instrument):**
 - Block trading on expiry day (toggle, default OFF)
 - Block trading N days before expiry (configurable, default 0)
-- Max position size near expiry — reduce max % within N days of expiry (configurable, default 5%)
+- Near-expiry reduction — graduated linear reduction of max position size and max exposure (default: 3-day window for weekly, 7-day for monthly, max 50% reduction at expiry)
 - Expiry day warning banner — amber "Expiry day — High theta decay & volatility" (toggle, default ON)
 - Auto-exit before expiry — auto-close positions N minutes before expiry (configurable, default OFF)
 - No carry to expiry — prevent holding overnight into expiry day (toggle, default ON)
@@ -410,8 +410,8 @@ An inline checklist that appears after clicking the confirm button on a new trad
 **Checks:**
 1. Trend aligned with trade direction?
 2. R:R ratio ≥ configurable minimum (default 1:1.5) — **blocks trade if below**
-3. Position size within max % of capital (default 10%)
-4. Total exposure within max % (default 30%)
+3. Position size within max % of capital (default 40%)
+4. Total exposure within max % (default 80%)
 5. Emotional state selector: Calm / Anxious / Revenge / FOMO — **blocks trade if Revenge or FOMO**
 6. Plan aligned?
 7. Checklist done?
@@ -424,8 +424,8 @@ The entire pre-trade gate can be toggled off in settings for experienced mode.
 
 | Rule | Default | Detail |
 |------|---------|--------|
-| **Max Position Size** | 10% of capital | Reject order if qty × entry > max % of capital. Red warning + blocked confirm. |
-| **Max Total Exposure** | 30% of capital | Block new trades if total open exposure > threshold. Exposure bar turns red. |
+| **Max Position Size** | 40% of capital | Reject order if qty × entry > max % of capital. Red warning + blocked confirm. |
+| **Max Total Exposure** | 80% of capital | Block new trades if total open exposure > threshold. Exposure bar turns red. |
 
 ---
 
@@ -458,7 +458,7 @@ The entire pre-trade gate can be toggled off in settings for experienced mode.
 
 | Shortcut | Action |
 |----------|--------|
-| ↑ / ↓ | Move between rows in position tracker |
+| ↑ / ↓ | Move between rows in Trading Desk |
 | N | Open new trade input |
 | Esc | Cancel current action |
 | Enter | Confirm current action |
@@ -470,7 +470,7 @@ All visual polish from mockups applied.
 
 ### Feature 22: AI Trades PAPER Tab
 
-The second tab in the Position Tracker, running fully automated paper trades.
+The second tab in the Trading Desk, running fully automated paper trades.
 
 - Same table structure and principles as "My Trades LIVE" tab
 - Trades executed automatically by the AI decision engine
@@ -486,16 +486,16 @@ The second tab in the Position Tracker, running fully automated paper trades.
 | Scenario | Behavior |
 |----------|----------|
 | **Dhan API down** | Blocking alert preventing user from trading, status indicator in footer |
-| **Partial fills** | Show partial quantity in the position tracker table |
+| **Partial fills** | Show partial quantity in the Trading Desk table |
 | **Failed exit order** | Alert notification to user with retry option |
 
 ---
 
 ### Feature 24: Historical Data
 
-- View completed past 150-day challenges
-- One active challenge at a time
-- Challenge archive with summary stats (total P&L, win rate, discipline score, duration)
+- View historical daily data for the single 250-day challenge
+- One challenge only — once 250 days are completed, the project is over
+- Challenge summary stats (total P&L, win rate, discipline score, duration)
 
 ---
 
@@ -540,7 +540,7 @@ These decisions are **locked** and should not be revisited without explicit user
 | P&L display | Net (after all charges), gross breakdown on hover tooltip |
 | Responsive design | Desktop only for now |
 | Type column | B (green) = long/buy, S (red) = short/sell |
-| Overnight positions (D1) | TBD — ask user before implementing |
+| Overnight positions (D1) | Discouraged but allowed. Carries forward to next day. |
 | Frontend and Python | Never call Dhan/broker directly — always through Broker Service |
 | Switching broker | Flip `isActive` flag in MongoDB + restart adapter |
 | Future brokers | Ready for Zerodha, Angel One, Upstox adapters (empty stubs) |
@@ -571,7 +571,7 @@ Feature 1 (MongoDB) ✅
   │           └── Feature 14 (Circuit Breaker)
   │                 ├── Feature 15 (Trade Limits)
   │                 └── Feature 17 (Pre-Trade Gate)
-  ├── Feature 5 (Position Tracker Core)
+  ├── Feature 5 (Trading Desk Core)
   │     ├── Feature 6 (Trade Input & Exit) → needs Feature 0, Feature 9
   │     │     └── Feature 7 (Real-Time Data) → needs Feature 0
   │     │           └── Feature 8 (Trade Execution) → needs Feature 0
@@ -605,57 +605,9 @@ Feature 1 (MongoDB) ✅
 
 ### Settings Page — Complete Parameter Reference
 
-All configurable parameters that will appear in the Settings page (Feature 4), organized by section:
+**Note:** The inline parameter list has been removed to maintain a single source of truth. 
 
-**Broker Config:**
-- Active broker selection (dropdown)
-- Per-broker credentials display (masked)
-- Connection status indicators
-- Token update button
-
-**Order Execution:**
-- Order entry offset % (default: 1% below LTP)
-- Default SL % (default: 2%)
-- Default TP % (default: 5%)
-- Order type (LIMIT / MARKET)
-- Product type (INTRADAY / BO)
-
-**Discipline:**
-- Daily loss limit % (default: 3%)
-- Max consecutive losses before cooldown (default: 3)
-- Cooldown duration after consecutive losses (default: 30 min)
-- Max trades per day (default: 5)
-- Max open positions (default: 3)
-- Revenge trade cooldown duration (default: 15 min, options: 10/15/30 min)
-- Require "I accept the loss" acknowledgment (default: ON)
-- Max position size % of capital (default: 10%)
-- Max total exposure % of capital (default: 30%)
-- Pre-trade confirmation gate toggle (default: ON)
-- Minimum R:R ratio for trade approval (default: 1:1.5)
-- Weekly review gate toggle (default: ON)
-- Trade journal enforcement toggle (default: ON)
-- Max unjournaled trades before block (default: 3)
-- Winning streak reminder threshold (default: 5 days)
-- Losing streak auto-reduce threshold (default: 3 days)
-
-**Time Windows:**
-- No trading first N minutes after market open (default: 15 min) — per exchange
-- No trading last N minutes before market close (default: 15 min) — per exchange
-- Lunch break pause toggle (default: OFF) — NSE only
-
-**Expiry Controls (per instrument):**
-- Block trading on expiry day (default: OFF)
-- Block trading N days before expiry (default: 0)
-- Max position size near expiry % (default: 5%)
-- Expiry day warning banner (default: ON)
-- Auto-exit before expiry minutes (default: OFF)
-- No carry to expiry (default: ON)
-
-**Charges:**
-- Charge rate overrides (if needed)
-- View current rates and history
-
-All discipline settings are stored in MongoDB per user, with a history of changes.
+Please refer to **`docs/specs/Settings_Spec_v1.1.md`** for the complete, authoritative list of all 39 configurable parameters, including their types, ranges, defaults, and per-rule toggles.
 
 ---
 
@@ -698,7 +650,7 @@ All discipline settings are stored in MongoDB per user, with a history of change
 
 | File | Description |
 |------|-------------|
-| `mockups/position-tracker-mockup/index.html` | Position Tracker table design with 15 columns, row types, summary bar |
+| `mockups/position-tracker-mockup/index.html` | Trading Desk table design with 16 columns, row types, summary bar |
 | `mockups/discipline-mockup/index.html` | Discipline Engine standalone with 8 tabs |
-| `mockups/position-tracker-discipline-mockup/index.html` | Integrated Position Tracker + all discipline rules (11 scenarios) |
+| `mockups/position-tracker-discipline-mockup/index.html` | Integrated Trading Desk + all discipline rules (11 scenarios) |
 | `mockups/instrument-card-mockup/index.html` | Instrument Card with all 10 sections |

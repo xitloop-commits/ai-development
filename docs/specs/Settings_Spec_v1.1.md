@@ -85,9 +85,9 @@ This section enforces risk management and trading psychology rules, preventing e
 | | Min R:R ratio | Number | 1.0–5.0 | 1.5 | Minimum acceptable R:R ratio for trade approval. |
 | | Emotional state check enabled | Toggle | — | ON | Sub-toggle to block trades if state is Revenge/FOMO. |
 | **Position Sizing** | Max position size enabled | Toggle | — | ON | Master toggle for single position size limit. |
-| | Max position size % | Number | 1–50% | 10% | Maximum capital allocation for a single position. |
+| | Max position size % | Number | 5–50% | 40% | Maximum capital allocation for a single position. |
 | | Max total exposure enabled | Toggle | — | ON | Master toggle for total open exposure limit. |
-| | Max total exposure % | Number | 10–100% | 30% | Maximum combined capital allocation for all open positions. |
+| | Max total exposure % | Number | 20–100% | 80% | Maximum combined capital allocation for all open positions. |
 | **Journal & Review** | Journal enforcement enabled | Toggle | — | ON | Master toggle for mandatory trade journaling. |
 | | Max unjournaled trades | Number | 1–10 | 3 | Block new trades if this many past trades are unjournaled. |
 | | Weekly review enabled | Toggle | — | ON | Master toggle for mandatory Monday morning review. |
@@ -121,16 +121,16 @@ This section defines the specific hours during which trading is permitted, separ
 
 This section provides granular risk management rules specific to the expiry days of different instruments (NIFTY 50, BANK NIFTY, CRUDE OIL, NATURAL GAS).
 
-| Setting | Description |
-|---|---|
-| **Block on Expiry Day** | A toggle to completely prevent trading of the instrument on its expiry day. |
-| **Block Days Before** | The number of days prior to expiry when trading is blocked. |
-| **Reduce Position Size** | A toggle to automatically reduce the maximum allowed position size as expiry approaches. |
-| **Reduce To (%)** | The percentage to which the normal position size is reduced. |
-| **Warning Banner** | A toggle to display a prominent warning banner in the UI when trading near expiry. |
-| **Auto Exit** | A toggle to automatically close open positions before the market closes on expiry day. |
-| **Exit Before (min)** | The number of minutes before market close when the auto-exit is triggered. |
-| **No Carry to Expiry** | A toggle preventing positions from being carried overnight into the expiry day. |
+| Setting | Description | Default (Weekly) | Default (Monthly) |
+|---|---|---|---|
+| **Block on Expiry Day** | A toggle to completely prevent trading of the instrument on its expiry day. | OFF | OFF |
+| **Block Days Before** | The number of days prior to expiry when trading is blocked. | 0 | 0 |
+| **Near-Expiry Window** | The number of days before expiry when graduated linear reduction of exposure limits begins. | 3 days | 7 days |
+| **Max Reduction at Expiry** | The maximum percentage by which exposure limits are reduced on expiry day (scales linearly). | 50% | 50% |
+| **Warning Banner** | A toggle to display a prominent warning banner in the UI when trading near expiry. | ON | ON |
+| **Auto Exit** | A toggle to automatically close open positions before the market closes on expiry day. | OFF | OFF |
+| **Exit Before (min)** | The number of minutes before market close when the auto-exit is triggered. | 30 min | 60 min |
+| **No Carry to Expiry** | A toggle preventing positions from being carried overnight into the expiry day. | ON | ON |
 
 ### 3.6 Charges
 

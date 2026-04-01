@@ -1164,9 +1164,11 @@ The data pushed by the AI Engine pipeline is displayed across several dashboard 
 
 The current file-based data flow will be supplemented (and partially replaced) by a real-time WebSocket feed from Dhan. The WebSocket will provide live tick data (LTP, bid/ask, volume) without the 5-second polling delay. The option chain will still be fetched via REST API for full OI/IV/Greeks data, but price updates will be near-instantaneous.
 
-### 14.2 Feature 21 — Python Module Migration to Broker Service
+### 14.2 Python Module Migration to Broker Service (Refactoring Task)
 
-The Python modules currently call the Dhan API directly with hardcoded credentials. Feature 21 will migrate them to call the Broker Service's REST API instead. The Broker Service (already built in Steps 0.1–0.6) provides:
+*Note: This was previously referred to as Feature 21, but Feature 21 is now officially "Keyboard Navigation" in the Trading Desk. This migration is a mandatory refactoring task under the Broker Service spec.*
+
+The Python modules currently call the Dhan API directly with hardcoded credentials. This refactoring task will migrate them to call the Broker Service's REST API instead. The Broker Service (already built in Steps 0.1–0.6) provides:
 
 - Token management with auto-rotation and validation
 - Rate limiting (10/sec, 250/min)

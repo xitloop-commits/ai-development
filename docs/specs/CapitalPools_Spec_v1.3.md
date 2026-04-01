@@ -153,70 +153,24 @@ This rule applies uniformly to:
 
 ## 6. Trade Execution Engine
 
-### Entry
-
-- Market Order
-- Dhan is the only supported broker for now (system designed to support multiple brokers via adapters in the future).
-- Dhan handles target and stop-loss execution automatically out of the box.
-
-### Trade Parameters (Configurable per Instrument Type)
-
-Trade parameters are configurable in system settings based on the instrument type.
-
-| Parameter | Options (Default) | Equities/Futures (Default) |
-|-----------|-------------------|----------------------------|
-| Trade Target | 30% of entry price | 2% of entry price |
-| Stop Loss | 2% below entry | Configurable |
-| Trailing Jump | ₹5 increments | Configurable |
-
-### Behavior
-
-- Trailing SL updates in specified increments (e.g., ₹5).
-- Fully automated trade management.
+*Note: Trade execution is handled by the Broker Service. See `broker-service-spec-v1.0.md` for architectural details. All trade parameters (order type, offset %, SL %, TP %) are configurable in the Settings page. See `Settings_Spec_v1.1.md` for the complete parameter reference.*
 
 ---
 
 ## 7. Position Sizing
 
-### Available Funds Based Sizing
+### Percentage-Based Sizing
 
-- **No fixed percentage logic.**
-- Position sizing is based on **fund availability** in the common Trading Pool at execution time.
-- The system/user controls how much capital to allocate per trade at the moment of execution.
-- If there are not enough available funds (Total Trading Pool minus capital already deployed in open positions), the trade does not execute.
+- Position sizing is percentage-based. The user selects a percentage of Available Capital (5%–100%) when placing each trade.
+- There is no system-mandated fixed allocation — the user freely chooses per trade.
+- The Discipline Engine enforces configurable ceilings (default: 40% max per position, 80% max total exposure).
+- If there are not enough available funds (Total Trading Pool minus capital already deployed in open positions) for the selected percentage, the trade does not execute.
 
 ---
 
-## 8. Basic Risk Management Engine
+## 8. Risk Management Engine
 
-*Note: Extended and full risk controls are covered separately in the "Disciplined Trade Controller" specification.*
-
-### Calendar Session Resets
-
-Risk controls operate on a **calendar trading session** basis, even though the Day Index cycle spans multiple calendar days.
-
-### Max Daily Loss (Per Calendar Session)
-
-- Configurable (Default = 3% of Trading Capital)
-- **Behavior:** If combined cumulative loss across all instruments ≥ max daily loss:
-    - Stop trading for the current calendar session.
-    - Enter cooldown (Configurable, Default = 15 minutes).
-- **Post-Cooldown:** Trading resumes, but loss tracking continues (no reset) until the next calendar session or next Day Index cycle.
-
-### Max Trades (Per Calendar Session)
-
-- Configurable (Default = 5 trades combined across all instruments)
-- **Behavior:** If trade count ≥ max trades:
-    - Stop trading completely for the current calendar session.
-    - Resume trading on the next market open, still within the same Day Index cycle.
-
-### Stop Conditions
-
-Stop trading for the session when:
-
-1. Day Index Target achieved (e.g., +5%)
-2. Max daily loss reached (per calendar session)
-3. Max trades reached (per calendar session)
+*Note: All risk management and discipline rules (Circuit Breaker, Trade Limits, Cooldowns, Time Windows, Position Sizing, etc.) are handled by the Discipline Engine. See `DisciplineEngine_Spec_v1.0.md` for the authoritative enforcement logic and `Settings_Spec_v1.1.md` for the configurable parameters.*
 
 ---
 
@@ -248,16 +202,11 @@ Stop trading for the session when:
 
 ## 10. Runtime Configurations
 
+*Note: The Settings spec is the master parameter registry. The values below are conceptual defaults for the capital model. See `Settings_Spec_v1.1.md` for the authoritative list of all configurable parameters.*
+
 | Parameter | Default Value | Scope |
 |-----------|---------------|-------|
 | Day Index Target % | 5% | System |
-| Max Session Loss % | 3% | System (Calendar Session) |
-| Max Session Trades | 5 | System (Calendar Session) |
-| Cooldown | 15 minutes | System |
-| Options Trade Target % | 30% | Instrument Type |
-| Equities Trade Target % | 2% | Instrument Type |
-| Stop Loss % | 2% | Instrument Type |
-| Trailing Jump | ₹5 | Instrument Type |
 | Capital Split Ratio | 75% Trading / 25% Reserve | System |
 
 ---

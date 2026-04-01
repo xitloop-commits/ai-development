@@ -44,7 +44,9 @@ The `BrokerAdapter` interface requires implementation of the following methods:
 *   **Emergency:** `killSwitch()`
 
 **MongoDB `broker_configs` Schema:**
-The schema stores the broker's identity, active status, paper trading flag, credentials (including encrypted access token, client ID, update timestamp, expiry, and status), settings (e.g., order entry offset, default stop-loss/take-profit, order type, product type), connection status (API/WS status, latency), and capabilities (e.g., bracket orders, websockets, option chains).
+The schema stores the broker's identity, active status, paper trading flag, credentials (including encrypted access token, client ID, update timestamp, expiry, and status), connection status (API/WS status, latency), and capabilities (e.g., bracket orders, websockets, option chains).
+
+*Note: Order execution settings (order entry offset, default stop-loss/take-profit, order type, product type) have been moved to the global `user_settings` collection. See `Settings_Spec_v1.1.md`.*
 
 **Testable Deliverables:**
 *   Vitest: Mongoose model CRUD operations.

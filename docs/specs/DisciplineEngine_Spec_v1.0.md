@@ -239,11 +239,11 @@ interface DisciplineSettings {
   // Module 5: Position Sizing
   maxPositionSize: {
     enabled: boolean;                // default: true
-    percentOfCapital: number;        // default: 10
+    percentOfCapital: number;        // default: 40
   };
   maxTotalExposure: {
     enabled: boolean;                // default: true
-    percentOfCapital: number;        // default: 30
+    percentOfCapital: number;        // default: 80
   };
 
   // Module 6: Journal
@@ -384,7 +384,7 @@ The daily loss limit is the most critical discipline rule. When the cumulative r
 
 **Behavior when triggered:**
 
-The system sets `circuitBreakerTriggered = true` in the discipline state. This flag is latched — it cannot be unset until the next trading day. A full-screen red overlay appears on the Position Tracker page with the following elements:
+The system sets `circuitBreakerTriggered = true` in the discipline state. This flag is latched — it cannot be unset until the next trading day. A full-screen red overlay appears on the Trading Desk page with the following elements:
 
 - A lock icon and the title "DAILY LOSS LIMIT REACHED"
 - The message "Trading is disabled for today. Your capital is protected."
@@ -419,7 +419,7 @@ A hard limit on the total number of trades that can be placed in a single day (d
 
 **Tracking:** The `tradesToday` counter in `discipline_state` increments by 1 each time a trade is successfully placed (order confirmed by broker). Cancelled or rejected orders do not count.
 
-**UI indicator:** A progress bar in the Position Tracker summary area shows "N trades taken / M max" with color coding: green (0–60%), yellow (60–80%), red (80–100%). When the limit is reached, the bar is fully red with the message "Trade limit reached. No more trades today." and the new trade button is disabled.
+**UI indicator:** A progress bar in the Trading Desk summary area shows "N trades taken / M max" with color coding: green (0–60%), yellow (60–80%), red (80–100%). When the limit is reached, the bar is fully red with the message "Trade limit reached. No more trades today." and the new trade button is disabled.
 
 ### 5.2 Max Open Positions
 
@@ -464,7 +464,7 @@ Blocks trading during the first N minutes after the market opens (default 15 min
 
 The block is applied per exchange. If the user is trading NIFTY (NSE), the block applies from 9:15–9:30 AM. If trading CRUDEOIL (MCX), the block applies from 9:00–9:15 AM. Both blocks can be active simultaneously during the overlap period (9:15–9:30 AM blocks NSE instruments while MCX instruments are already unblocked).
 
-**UI:** An amber banner appears at the top of the Position Tracker: "Market open volatility — Trading blocked for [INSTRUMENT]. Resumes in [MM:SS]." The banner includes a countdown timer.
+**UI:** An amber banner appears at the top of the Trading Desk: "Market open volatility — Trading blocked for [INSTRUMENT]. Resumes in [MM:SS]." The banner includes a countdown timer.
 
 ### 6.2 No Trading Before Market Close
 

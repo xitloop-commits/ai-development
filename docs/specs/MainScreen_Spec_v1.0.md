@@ -47,6 +47,7 @@ The Summary Bar provides an immediate, high-level financial snapshot. It is divi
   - Features a subtle gold coin/texture background.
   - Displays the current spot gold price (24K/g), today's price change, and percentage change (e.g., `₹X,XXX/g +₹XX +X.X%`).
   - Below the price, displays the equivalent gold weight purchasable with today's profit (e.g., `X.XX grams`). If profit is zero or negative, displays `0 grams 😞`.
+  - *Note: Gold price data should be fetched from a free API (e.g., GoldAPI.io or similar Indian gold price source), with a refresh interval and fallback behavior to be determined during implementation.*
 - **Section 4 (Fixed Width, Right): Loss**
   - Displays today's loss amount and percentage in a single line (e.g., `₹X,XXX -X.X%`).
 
@@ -66,7 +67,18 @@ The Footer provides historical context, upcoming events, and total net worth.
   - **Holiday Info:** Displays the next upcoming market holiday (e.g., `In 3 days: Holi`). If no holidays exist in the current month, displays "No holidays this month".
     - *Click Behavior:* Opens a dialog listing all upcoming NSE and MCX holidays and settlement holidays.
   - **Discipline Score:** Displays the current score (e.g., `🛡 95/100`).
-    - *Hover Behavior:* Tooltip displays the detailed breakdown of the discipline score (specifics TBD).
+    - *Hover Behavior:* Tooltip displays the detailed breakdown of the discipline score across all 7 categories:
+      ```
+      Discipline Score: 85/100
+      
+      Circuit Breaker   20/20  ✓  No daily loss limit violations
+      Trade Limits      12/15     Under max trades/day, max positions
+      Cooldowns         15/15  ✓  No revenge trades, respected cooldowns
+      Time Windows      10/10  ✓  Traded within allowed windows
+      Pre-Trade Gate    10/15     Passed all checklist items
+      Journal           10/15     All trades journaled
+      Streaks            8/10     Healthy streak behavior
+      ```
 - **Right Group (Fixed, Stuck Right): Net Worth**
   - Displays the total combined value of the Trading Pool and Reserve Pool, along with the cumulative growth percentage since inception (e.g., `Net Worth ₹X,XX,XXX +X.X% since start`).
   - *Hover Behavior:* Tooltip displays the current exact breakdown between the Trading Pool and Reserve Pool.
@@ -84,7 +96,20 @@ The Footer provides historical context, upcoming events, and total net worth.
 - **Behavior:** Both drawers slide in as overlays on top of the Trading Desk without dimming the background content.
 
 ### 4.2 Overlay Screens
-Secondary system views are no longer accessed via navigation tabs. They are invoked as full-screen or modal overlays using keyboard shortcuts (hotkeys).
-- **Discipline Engine** (Spec TBD)
-- **Trade Journal** (Spec TBD)
-- **System Settings** (Spec TBD)
+Secondary system views are no longer accessed via navigation tabs. They are invoked as full-screen overlays using keyboard shortcuts (hotkeys), and can be dismissed with `Esc`.
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+D` | Open Discipline Dashboard overlay (read-only monitoring view) |
+| `Ctrl+J` | Open Journal overlay |
+| `Ctrl+S` | Open Settings overlay |
+| `Ctrl+[` | Toggle Left Drawer (Instrument Cards) |
+| `Ctrl+]` | Toggle Right Drawer (Signals & Alerts) |
+| `Esc` | Close any open overlay/drawer |
+
+*Note: Discipline enforcement overlays (Circuit Breaker, Cooldown, Pre-Trade Gate, etc.) are system-triggered only and appear automatically when rules are violated during trade placement.*
+
+**References:**
+- **Discipline Engine:** See `DisciplineEngine_Spec_v1.0.md`
+- **Trade Journal:** See Task I in `ats-feature-requirements.md`
+- **System Settings:** See `Settings_Spec_v1.1.md`

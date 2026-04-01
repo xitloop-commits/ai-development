@@ -41,7 +41,7 @@ A single-row sticky bar providing an at-a-glance snapshot of the active tab's st
 - **Today's P&L / Target**: E.g., "+₹950 / ₹5,750" with an adjacent "Exit All" button.
 - **Charges**: Cumulative charges/fees paid across all trades since Day 1.
 - **Reserve**: Current value of the Reserve Pool.
-- **Quarterly Projection**: E.g., "Q2 FY26 ₹18,50,000" (projected capital at the end of the current quarter based on actual pace).
+- **Quarterly Projection**: E.g., "Q2 FY26 ₹18,50,000" (projected capital at the end of the current quarter, calculated using the user's actual average daily compounding rate so far).
 - **Net/Gross Toggle**: Switches all P&L values between net (after charges) and gross.
 - **Net Worth**: Total value of Trading Pool + Reserve Pool.
 
@@ -94,14 +94,15 @@ A 16-column data table tracking the 250-day journey. The table auto-scrolls to t
 
 ### 5.1 Trade Execution and Management
 - **Bracket Orders**: All new trades placed via the Trading Desk are sent as bracket orders. Target and Stop Loss levels are auto-calculated from the entry price based on system settings percentages.
-- **Position Sizing**: Users select a percentage of Available Capital. The system calculates the quantity based on the selected percentage and the entry price.
+- **Position Sizing**: Position sizing is percentage-based. The user selects a percentage of Available Capital (5%–100%) when placing each trade. The system calculates the quantity based on the selected percentage and the entry price. The Discipline Engine enforces configurable ceilings (default: 40% max per position, 80% max total exposure).
 - **Modifications**: Users can click an edit icon next to the TP/SL sub-text on open trades to modify the levels inline.
 - **Exits**: Users can exit individual positions via the inline (×) button or all positions via the "Exit All" button. All exit actions require a confirmation prompt.
 - **External Sync**: Orders placed or modified directly on the broker platform (e.g., Dhan) are synced via WebSocket and reflected instantly in the Trading Desk. Capital % for external trades is back-calculated from margin used.
 
 ### 5.2 Day Completion and Carry Forward
 - **Completion**: A Day Index automatically completes when there are no open positions and the realized P&L meets or exceeds the target percentage. The system then advances to the next Day Index.
-- **Carry Forward**: If the market closes with open positions and the target is not met, the Day Index remains active. It carries over to the next calendar day, becoming a multi-day cycle (⭐ rating). The Date column updates to the new calendar date, and the age counter continues ticking.
+- **Overnight Positions**: Holding positions overnight is discouraged but allowed. The system alerts the user 15 minutes and 5 minutes before market close. Auto-exit is OFF by default (configurable in Settings).
+- **Carry Forward**: If the market closes with open positions (either because the target was not met or positions were held overnight), the Day Index remains active. It carries over to the next calendar day, becoming a multi-day cycle (⭐ rating). The Date column updates to the new calendar date, and the age counter continues ticking.
 
 ### 5.3 Loss Adjustment (Clawback)
 - Losses are absorbed entirely by the Trading Pool.

@@ -46,9 +46,9 @@ The table below maps every setting from the Discipline Engine spec (Section 12) 
 | 24 | Min R:R ratio | 1.5 | "Minimum R:R ratio for trade approval (default: 1:1.5)" | **MATCH** |
 | 25 | Emotional state check **enabled** toggle | true | Not listed | **MISSING** — sub-toggle for emotional state check |
 | 26 | Max position size **enabled** toggle | true | Not listed (only % listed) | **MISSING** — enable/disable toggle |
-| 27 | Max position size % | 10% | "Max position size % of capital (default: 10%)" | **MATCH** |
+| 27 | Max position size % | 40% | "Max position size % of capital (default: 40%)" | **MATCH** |
 | 28 | Max total exposure **enabled** toggle | true | Not listed (only % listed) | **MISSING** — enable/disable toggle |
-| 29 | Max total exposure % | 30% | "Max total exposure % of capital (default: 30%)" | **MATCH** |
+| 29 | Max total exposure % | 80% | "Max total exposure % of capital (default: 80%)" | **MATCH** |
 | 30 | Journal enforcement **enabled** toggle | true | "Trade journal enforcement toggle (default: ON)" | **MATCH** |
 | 31 | Max unjournaled trades | 3 | "Max unjournaled trades before block (default: 3)" | **MATCH** |
 | 32 | Weekly review **enabled** toggle | true | "Weekly review gate toggle (default: ON)" | **MATCH** |

@@ -71,9 +71,9 @@
 
 ---
 
-### Feature 5: Position Tracker — Core Table (Static)
+### Feature 5: Trading Desk — Core Table
 
-- 150-day table with 15 columns
+- 250-day table with 16 columns (including Charges)
 - Past/today/future day rows with visual distinction
 - Gift days, multi-day, rating system
 - Summary bar: Day, Capital, Profit, Today's P&L + Exit All, Target Remaining, Schedule
@@ -84,7 +84,7 @@
 
 ---
 
-### Feature 6: Position Tracker — Trade Input & Exit
+### Feature 6: Trading Desk — Trade Input & Exit
 
 - Inline (+) new trade button, inline input row with [B|S] + [CE|PE] toggles
 - Inline (x) exit, Exit All — calls Broker Service (not Dhan directly)
@@ -271,9 +271,8 @@
 
 ### Feature 24: Historical Data
 
-- View past completed 150-day challenges
-- One active challenge at a time
-- Challenge archive with summary stats
+- View historical data for the single 250-day challenge
+- One challenge only (project is over when 250 days are completed)
 - **Vitest:** historical data retrieval
 
 ---
@@ -299,7 +298,7 @@
 | P&L display | Net (after all charges), gross breakdown on hover tooltip |
 | Responsive | Desktop only for now |
 | Type column | B (green) = long, S (red) = short |
-| D1 (overnight) | TBD — ask user before implementing |
+| D1 (overnight) | Discouraged but allowed. Alert at 15m/5m before close. Auto-exit OFF by default. Carries forward if left open. |
 
 ---
 
