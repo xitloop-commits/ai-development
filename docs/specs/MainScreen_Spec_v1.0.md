@@ -74,8 +74,13 @@ The Footer provides historical context, upcoming events, and total net worth.
 ## 4. Drawer & Overlay Mechanics
 
 ### 4.1 Side Drawers
-- **Left Drawer:** Triggered by the left `[☰]` button in the App Bar. Slides in from the left edge. Content is currently designated for the Control Panel (specifics TBD).
-- **Right Drawer:** Triggered by the right `[☰]` button in the App Bar. Slides in from the right edge. Content is currently designated for Signals and Alerts (specifics TBD).
+- **Left Drawer (Instrument Cards):** Triggered by the left `[☰]` button in the App Bar. Slides in from the left edge.
+  - Contains the detailed analysis cards for the four tracked instruments (NIFTY 50, BANK NIFTY, CRUDE OIL, NATURAL GAS).
+  - Features a tabbed navigation at the top to switch between instruments, displaying only one card at a time.
+  - The card content (Header, Trade Direction, AI Rationale, Trade Setup, S/R Strength Line, OI Summary, IV & Theta, News Sentiment, Risk Flags, Scoring Factors) scrolls vertically within the drawer.
+- **Right Drawer (Signals & Alerts):** Triggered by the right `[☰]` button in the App Bar. Slides in from the right edge.
+  - Contains the real-time **Signals Feed** (chronological scrolling feed of market events, breakouts, AI signals, etc.).
+  - Contains the **Alert History** panel (collapsible list of recent system alerts, order fills, and module notifications).
 - **Behavior:** Both drawers slide in as overlays on top of the Trading Desk without dimming the background content.
 
 ### 4.2 Overlay Screens
