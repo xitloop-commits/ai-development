@@ -1,0 +1,99 @@
+@echo off
+REM ╔══════════════════════════════════════════════════════════════════╗
+REM ║  ATS — Windows Setup Script                                     ║
+REM ║  Run this once after cloning the repository.                    ║
+REM ╚══════════════════════════════════════════════════════════════════╝
+
+echo.
+echo ============================================================
+echo   ATS — Automatic Trading System — Windows Setup
+echo ============================================================
+echo.
+
+REM --- Step 1: Check Node.js ---
+echo [1/6] Checking Node.js...
+node --version >nul 2>&1
+if errorlevel 1 (
+    echo   ERROR: Node.js is not installed or not in PATH.
+    echo   Download from: https://nodejs.org/
+    pause
+    exit /b 1
+)
+for /f "tokens=*" %%v in ('node --version') do echo   Found Node.js %%v
+
+REM --- Step 2: Check Python ---
+echo [2/6] Checking Python...
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo   WARNING: Python is not installed or not in PATH.
+    echo   Python modules will not work without it.
+    echo   Download from: https://www.python.org/downloads/
+) else (
+    for /f "tokens=*" %%v in ('python --version') do echo   Found %%v
+)
+
+REM --- Step 3: Install pnpm (if not installed) ---
+echo [3/6] Checking pnpm...
+pnpm --version >nul 2>&1
+if errorlevel 1 (
+    echo   pnpm not found. Installing via npm...
+    npm install -g pnpm
+    if errorlevel 1 (
+        echo   ERROR: Failed to install pnpm. Try running as Administrator:
+        echo     npm install -g pnpm
+        pause
+        exit /b 1
+    )
+    echo   pnpm installed successfully.
+) else (
+    for /f "tokens=*" %%v in ('pnpm --version') do echo   Found pnpm %%v
+)
+
+REM --- Step 4: Install Node.js dependencies ---
+echo [4/6] Installing Node.js dependencies...
+call pnpm install
+if errorlevel 1 (
+    echo   ERROR: pnpm install failed.
+    echo   Try deleting node_modules and pnpm-lock.yaml, then run again.
+    pause
+    exit /b 1
+)
+echo   Node.js dependencies installed.
+
+REM --- Step 5: Install Python dependencies ---
+echo [5/6] Installing Python dependencies...
+python -m pip install -r python_modules\requirements.txt
+if errorlevel 1 (
+    echo   WARNING: Python dependency install failed.
+    echo   Try: python -m pip install requests python-dotenv
+)
+echo   Python dependencies installed.
+
+REM --- Step 6: Create .env if it doesn't exist ---
+echo [6/6] Checking .env file...
+if not exist .env (
+    copy .env.example .env >nul
+    echo   Created .env from .env.example
+    echo.
+    echo   *** IMPORTANT: Edit .env and fill in your values ***
+    echo   At minimum, set MONGODB_URI to your MongoDB connection string.
+    echo.
+) else (
+    echo   .env already exists. Skipping.
+)
+
+echo.
+echo ============================================================
+echo   Setup Complete!
+echo ============================================================
+echo.
+echo   Next steps:
+echo     1. Edit .env with your MongoDB URI and other settings
+echo     2. Start the server:   pnpm dev
+echo     3. Open browser:       http://localhost:3000
+echo.
+echo   To run Python modules (in a separate terminal):
+echo     cd python_modules
+echo     python dhan_option_chain_fetcher.py
+echo.
+pause
