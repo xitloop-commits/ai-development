@@ -14,6 +14,8 @@ Endpoints used:
   GET  /api/trading/active-instruments          — Poll dashboard for active instruments
 """
 
+import env_loader  # noqa: F401 — load .env from project root
+
 import json
 import time
 import os

@@ -20,6 +20,8 @@ Supports both the enhanced AI format (trade_direction, trade_setup) and
 legacy format (decision, trade_type) for backward compatibility.
 """
 
+import env_loader  # noqa: F401 — load .env from project root
+
 import json
 import os
 import time

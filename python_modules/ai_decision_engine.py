@@ -1,4 +1,6 @@
 
+import env_loader  # noqa: F401 — load .env from project root
+
 import json
 import os
 import time

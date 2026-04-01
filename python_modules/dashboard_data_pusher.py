@@ -19,6 +19,8 @@ Configuration:
   Set DATA_DIR to the directory where your Python modules save JSON files.
 """
 
+import env_loader  # noqa: F401 — load .env from project root
+
 import json
 import os
 import time
