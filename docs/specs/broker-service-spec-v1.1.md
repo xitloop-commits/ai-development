@@ -1,9 +1,19 @@
 # Feature 0: Broker Service + Token Management (Merged)
-
-**Version:** 1.0
+**Version:** 1.1  
+**Date:** April 2, 2026  
 **Author:** Manus AI
 
-## Overview
+---
+
+## Revision History
+| Version | Date | Description |
+|---------|------|-------------|
+| 1.0 | March 28, 2026 | Initial specification |
+| 1.1 | April 2, 2026 | Cross-functionality update: deferred order execution settings to Settings spec |
+
+---
+
+## Overviewew
 
 This specification details the implementation of **Feature 0: Broker Service + Token Management**. This feature establishes the foundational broker abstraction layer and integrates the Dhan API. The original Feature 0 (Broker Service Abstraction) and Feature 2 (Dhan Token Management) have been merged because token management acts as the gatekeeper for the Dhan adapter. Testing any Dhan functionality is impossible without it, and building them together avoids a half-usable intermediate state.
 
@@ -46,7 +56,7 @@ The `BrokerAdapter` interface requires implementation of the following methods:
 **MongoDB `broker_configs` Schema:**
 The schema stores the broker's identity, active status, paper trading flag, credentials (including encrypted access token, client ID, update timestamp, expiry, and status), connection status (API/WS status, latency), and capabilities (e.g., bracket orders, websockets, option chains).
 
-*Note: Order execution settings (order entry offset, default stop-loss/take-profit, order type, product type) have been moved to the global `user_settings` collection. See `Settings_Spec_v1.1.md`.*
+*Note: Order execution settings (order entry offset, default stop-loss/take-profit, order type, product type) have been moved to the global `user_settings` collection. See `Settings_Spec_v1.2.md`.*
 
 **Testable Deliverables:**
 *   Vitest: Mongoose model CRUD operations.

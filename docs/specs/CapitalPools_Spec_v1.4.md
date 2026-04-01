@@ -1,8 +1,8 @@
-# Capital Management & Auto-Execution System — Spec v1.3
+# Capital Management & Auto-Execution System — Spec v1.4
 
 ---
 
-## Changelog
+## Revision History
 
 | Version | Date | Change |
 |---------|------|--------|
@@ -153,7 +153,7 @@ This rule applies uniformly to:
 
 ## 6. Trade Execution Engine
 
-*Note: Trade execution is handled by the Broker Service. See `broker-service-spec-v1.0.md` for architectural details. All trade parameters (order type, offset %, SL %, TP %) are configurable in the Settings page. See `Settings_Spec_v1.1.md` for the complete parameter reference.*
+*Note: Trade execution is handled by the Broker Service. See `broker-service-spec-v1.1.md` for architectural details. All trade parameters (order type, offset %, SL %, TP %) are configurable in the Settings page. See `Settings_Spec_v1.2.md` for the complete parameter reference.*
 
 ---
 
@@ -170,7 +170,7 @@ This rule applies uniformly to:
 
 ## 8. Risk Management Engine
 
-*Note: All risk management and discipline rules (Circuit Breaker, Trade Limits, Cooldowns, Time Windows, Position Sizing, etc.) are handled by the Discipline Engine. See `DisciplineEngine_Spec_v1.0.md` for the authoritative enforcement logic and `Settings_Spec_v1.1.md` for the configurable parameters.*
+*Note: All risk management and discipline rules (Circuit Breaker, Trade Limits, Cooldowns, Time Windows, Position Sizing, etc.) are handled by the Discipline Engine. See `DisciplineEngine_Spec_v1.1.md` for the authoritative enforcement logic and `Settings_Spec_v1.2.md` for the configurable parameters.*
 
 ---
 
@@ -202,7 +202,7 @@ This rule applies uniformly to:
 
 ## 10. Runtime Configurations
 
-*Note: The Settings spec is the master parameter registry. The values below are conceptual defaults for the capital model. See `Settings_Spec_v1.1.md` for the authoritative list of all configurable parameters.*
+*Note: The Settings spec is the master parameter registry. The values below are conceptual defaults for the capital model. See `Settings_Spec_v1.2.md` for the authoritative list of all configurable parameters.*
 
 | Parameter | Default Value | Scope |
 |-----------|---------------|-------|

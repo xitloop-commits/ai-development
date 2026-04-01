@@ -607,7 +607,7 @@ Feature 1 (MongoDB) ✅
 
 **Note:** The inline parameter list has been removed to maintain a single source of truth. 
 
-Please refer to **`docs/specs/Settings_Spec_v1.1.md`** for the complete, authoritative list of all 39 configurable parameters, including their types, ranges, defaults, and per-rule toggles.
+Please refer to **`docs/specs/Settings_Spec_v1.2.md`** for the complete, authoritative list of all 39 configurable parameters, including their types, ranges, defaults, and per-rule toggles.
 
 ---
 

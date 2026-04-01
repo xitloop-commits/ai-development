@@ -1,4 +1,18 @@
-# Trading Desk Specification v1.0
+# Trading Desk Specification
+**Version:** 1.1  
+**Date:** April 2, 2026  
+**Project:** Automatic Trading System (ATS)  
+**Author:** Manus AI
+
+---
+
+## Revision History
+| Version | Date | Description |
+|---------|------|-------------|
+| 1.0 | April 1, 2026 | Initial specification for 250-day compounding table |
+| 1.1 | April 2, 2026 | Cross-functionality update: added Charges column (16 cols total), standardized capital column naming, defined quarterly projection calculation, clarified near-expiry reduction |
+
+---
 
 ## 1. Overview
 The Trading Desk (formerly Position Tracker) is the core trading workspace of the Automatic Trading System. It is designed around a 250-day compounding challenge, tracking the journey from an initial capital base to a projected goal. The Trading Desk provides a unified interface for live trade execution, paper trading simulation, and performance tracking against a fixed compounding plan.

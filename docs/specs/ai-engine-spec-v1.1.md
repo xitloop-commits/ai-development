@@ -1,6 +1,6 @@
 # AI Engine — Technical Specification
 
-**Document:** ai-engine-spec-v1.md
+**Document:** ai-engine-spec-v1.1.md
 **Project:** Automatic Trading System (ATS)
 **Status:** Authoritative Reference
 

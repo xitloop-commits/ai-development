@@ -1,6 +1,6 @@
 # Feature 4: Settings Page Specification
 
-**Version:** 1.1  
+**Version:** 1.2  
 **Date:** April 2, 2026  
 **Project:** Automatic Trading System (ATS)  
 **Author:** Manus AI
@@ -8,6 +8,15 @@
 ---
 
 ## Revision History
+| Version | Date | Description |
+|---------|------|-------------|
+| 1.0 | March 30, 2026 | Initial specification |
+| 1.1 | April 2, 2026 | Expanded Discipline section to include all 39 configurable parameters, enable/disable toggles, types, ranges, and defaults from the Discipline Engine spec. |
+| 1.2 | April 2, 2026 | Cross-functionality update: established as master parameter registry, updated exposure/position defaults (40%/80%), added graduated near-expiry reduction model |
+
+---
+
+## Legacy Changelog
 
 | Version | Date | Description |
 |---------|------|-------------|

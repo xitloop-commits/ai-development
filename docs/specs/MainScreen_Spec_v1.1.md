@@ -1,4 +1,18 @@
-# Main Screen Specification v1.0
+# Main Screen Specification
+**Version:** 1.1  
+**Date:** April 2, 2026  
+**Project:** Automatic Trading System (ATS)  
+**Author:** Manus AI
+
+---
+
+## Revision History
+| Version | Date | Description |
+|---------|------|-------------|
+| 1.0 | April 1, 2026 | Initial specification for single-screen command center |
+| 1.1 | April 2, 2026 | Cross-functionality update: defined overlay hotkeys (Ctrl+D/J/S), linked TBD markers to existing specs, added gold price API source, expanded discipline score tooltip |
+
+---
 
 ## 1. Overview
 The Main Screen is the persistent, single-screen shell of the Automatic Trading System (ATS). It replaces the traditional multi-page navigation model with a unified command center approach. The core trading workspace (Trading Desk) remains permanently visible in the center, surrounded by sticky status and summary bars. All other system views (Discipline, Journal, Settings) are invoked as overlay dialogs via keyboard shortcuts.
@@ -11,7 +25,7 @@ The Main Screen is divided into four vertical layers, with two hidden side drawe
 3. **Trading Desk** (Scrollable Center Content)
 4. **Footer** (Sticky Bottom)
 
-*Note: The Trading Desk content is specified separately in `TradingDesk_Spec_v1.0.md`.*
+*Note: The Trading Desk content is specified separately in `TradingDesk_Spec_v1.1.md`.*
 
 ## 3. Component Specifications
 
@@ -53,7 +67,7 @@ The Summary Bar provides an immediate, high-level financial snapshot. It is divi
 
 ### 3.3 Trading Desk (Center Content)
 The Trading Desk occupies the flexible center area of the screen. It is the primary workspace for the 250-day compounding challenge, featuring dual tabs (LIVE/PAPER), a compounding table, and active trade management.
-*Refer to `TradingDesk_Spec_v1.0.md` for full details.*
+*Refer to `TradingDesk_Spec_v1.1.md` for full details.*
 
 ### 3.4 Footer (Sticky Bottom)
 The Footer provides historical context, upcoming events, and total net worth.
@@ -110,6 +124,6 @@ Secondary system views are no longer accessed via navigation tabs. They are invo
 *Note: Discipline enforcement overlays (Circuit Breaker, Cooldown, Pre-Trade Gate, etc.) are system-triggered only and appear automatically when rules are violated during trade placement.*
 
 **References:**
-- **Discipline Engine:** See `DisciplineEngine_Spec_v1.0.md`
+- **Discipline Engine:** See `DisciplineEngine_Spec_v1.1.md`
 - **Trade Journal:** See Task I in `ats-feature-requirements.md`
-- **System Settings:** See `Settings_Spec_v1.1.md`
+- **System Settings:** See `Settings_Spec_v1.2.md`

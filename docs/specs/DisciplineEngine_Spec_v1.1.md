@@ -1,14 +1,21 @@
 # Discipline Engine — Technical Specification
-
-**Version:** 1.0  
-**Date:** April 1, 2026  
+**Version:** 1.1  
+**Date:** April 2, 2026  
 **Status:** Pending Implementation (Features 14–20)  
-**Dependencies:** Feature 4 (Settings Page), Feature 5 (Position Tracker Core), Feature 11 (Market Hours)  
+**Dependencies:** Feature 4 (Settings Page), Feature 5 (Trading Desk Core), Feature 11 (Market Hours)  
 **Mockup:** `mockups/discipline-mockup/index.html` (8 tabs, full UI reference)
 
 ---
 
-## Table of Contents
+## Revision History
+| Version | Date | Description |
+|---------|------|-------------|
+| 1.0 | April 1, 2026 | Initial specification for 7-module discipline pipeline |
+| 1.1 | April 2, 2026 | Cross-functionality update: updated default exposure/position limits (40%/80%), renamed Position Tracker to Trading Desk, deferred settings schema to Settings spec |
+
+---
+
+## Table of Contentss
 
 1. [Purpose & Philosophy](#1-purpose--philosophy)
 2. [Architecture Overview](#2-architecture-overview)
@@ -666,7 +673,7 @@ The score is recalculated after every trade event (open, close, journal entry) a
 
 All discipline settings are exposed in the Settings page under the "Discipline" section. 
 
-> **Note:** The authoritative UI specification for these settings, including all configurable parameters, types, ranges, and defaults, is maintained in the **Settings Page Specification** (`docs/specs/Settings_Spec_v1.1.md`). 
+> **Note:** The authoritative UI specification for these settings, including all configurable parameters, types, ranges, and defaults, is maintained in the **Settings Page Specification** (`docs/specs/Settings_Spec_v1.2.md`). 
 
 This document (Discipline Engine Spec) focuses purely on the enforcement logic, data models, and behavioral mechanics of the rules.
 
