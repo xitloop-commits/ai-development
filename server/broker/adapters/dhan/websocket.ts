@@ -219,6 +219,9 @@ export class DhanWebSocket extends EventEmitter {
         this._connected = true;
         this.isConnecting = false;
         this.reconnectAttempts = 0;
+        // Disable Nagle for minimal latency on incoming ticks
+        const sock = (this.ws as any)?._socket;
+        if (sock && typeof sock.setNoDelay === "function") sock.setNoDelay(true);
         console.log(`${LOG_PREFIX} Connected successfully`);
         this.config.onConnected();
 

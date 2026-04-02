@@ -1,28 +1,31 @@
 /**
  * Tick WebSocket Server
  *
- * Native WebSocket endpoint that relays tickBus ticks to browser clients
- * with zero serialization overhead.
- *
- * Uses noServer mode so we can handle the HTTP upgrade event manually,
- * preventing Vite HMR from intercepting /ws/ticks connections.
+ * Native WebSocket endpoint that relays tickBus ticks to browser clients.
+ * Optimized for minimal latency:
+ *  - noServer mode to coexist with Vite HMR
+ *  - Nagle disabled (TCP_NODELAY) on each client socket
+ *  - JSON.stringify called once per tick, shared across all clients
+ *  - perMessageDeflate disabled to avoid compression latency
  *
  * Path: /ws/ticks
  */
 
 import { WebSocketServer, WebSocket } from "ws";
-import type { Server } from "http";
-import type { IncomingMessage } from "http";
+import type { Server, IncomingMessage } from "http";
 import type { Duplex } from "stream";
+import type { Socket } from "net";
 import { tickBus } from "./tickBus";
 
 const LOG = "[TickWS]";
 
 export function setupTickWebSocket(server: Server): void {
-  // noServer mode — we handle the upgrade event ourselves
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    perMessageDeflate: false, // no compression overhead
+  });
 
-  // Intercept HTTP upgrade before Vite HMR can grab it
+  // Intercept HTTP upgrade for /ws/ticks only
   server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
     const url = request.url || "";
     if (url.startsWith("/ws/ticks")) {
@@ -30,10 +33,9 @@ export function setupTickWebSocket(server: Server): void {
         wss.emit("connection", ws, request);
       });
     }
-    // If not /ws/ticks, let other handlers (Vite HMR) handle it
   });
 
-  // Relay every tick from tickBus to all connected WS clients
+  // Relay ticks — stringify once, send to all
   const onTick = (tick: unknown) => {
     if (wss.clients.size === 0) return;
     const msg = JSON.stringify(tick);
@@ -46,10 +48,16 @@ export function setupTickWebSocket(server: Server): void {
 
   tickBus.on("tick", onTick);
 
-  wss.on("connection", (ws) => {
+  wss.on("connection", (ws, request) => {
     console.log(`${LOG} Client connected (total: ${wss.clients.size})`);
 
-    // Send all cached ticks on connect so UI has data immediately
+    // Disable Nagle's algorithm for minimal TCP latency
+    const rawSocket = (request.socket || (ws as any)._socket) as Socket;
+    if (rawSocket && typeof rawSocket.setNoDelay === "function") {
+      rawSocket.setNoDelay(true);
+    }
+
+    // Send cached ticks immediately so UI has data on connect
     const cached = tickBus.getAllTicks();
     if (cached.length > 0) {
       ws.send(JSON.stringify({ type: "snapshot", ticks: cached }));
