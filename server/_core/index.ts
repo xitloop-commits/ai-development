@@ -73,15 +73,16 @@ async function startServer() {
       createContext,
     })
   );
-  // Tick WebSocket (native WS for zero-latency LTP streaming)
-  setupTickWebSocket(server);
-
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
   } else {
     serveStatic(app);
   }
+
+  // Tick WebSocket AFTER Vite so we can intercept /ws/ticks upgrades
+  // while letting Vite HMR handle its own WS upgrades
+  setupTickWebSocket(server);
 
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);
