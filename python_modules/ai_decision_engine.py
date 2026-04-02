@@ -29,6 +29,16 @@ STRIKE_STEPS = {
     "NATURALGAS": 5,
 }
 
+# --- v2.4 Trade Quality & No Trade Detection Settings ---
+MIN_CONFIDENCE = float(os.environ.get('MIN_CONFIDENCE', '0.65'))
+NO_TRADE_SIDEWAYS_THRESHOLD = int(os.environ.get('NO_TRADE_SIDEWAYS_THRESHOLD', '3'))
+NO_TRADE_AFTER_TIME = os.environ.get('NO_TRADE_AFTER_TIME', '14:30')  # 2:30 PM IST
+MIN_DTE = int(os.environ.get('MIN_DTE', '2'))  # Minimum days to expiry
+
+# Price history for false breakout/breakdown detection (instrument -> list of {timestamp, ltp})
+PRICE_HISTORY = {}  # populated each cycle
+MAX_PRICE_HISTORY = 60  # ~5 minutes at 5s interval
+
 def get_active_instruments():
     """Polls the dashboard to get the list of active instruments.
     Falls back to all instruments if the dashboard is unreachable."""
@@ -1044,6 +1054,319 @@ def compute_risk_flags(iv_info, theta_info, support_analysis, resistance_analysi
     return flags
 
 
+# --- v2.4 Pre-Trade Filters ---
+
+def detect_sideways_market(oc, analyzer_output, ltp):
+    """Detect sideways/range-bound market conditions.
+    Returns {is_sideways: bool, signals_triggered: int, details: [str]}
+    Sideways if >= NO_TRADE_SIDEWAYS_THRESHOLD signals are true (default 3 of 4).
+    """
+    signals = 0
+    details = []
+
+    # Signal 1: Narrow Range — Day's High-Low < 0.5% of LTP
+    if oc and "oc" in oc:
+        all_highs = []
+        all_lows = []
+        for v in oc["oc"].values():
+            for side in ["ce", "pe"]:
+                data = v.get(side, {})
+                if data.get("high", 0) > 0:
+                    all_highs.append(data["high"])
+                if data.get("low", 0) > 0:
+                    all_lows.append(data["low"])
+    # Use underlying LTP range from analyzer if available
+    day_high = analyzer_output.get("day_high", 0)
+    day_low = analyzer_output.get("day_low", 0)
+    if day_high > 0 and day_low > 0 and ltp > 0:
+        day_range_pct = ((day_high - day_low) / ltp) * 100
+        if day_range_pct < 0.5:
+            signals += 1
+            details.append(f"Narrow range: {day_range_pct:.2f}% (< 0.5%)")
+        else:
+            details.append(f"Range OK: {day_range_pct:.2f}%")
+    else:
+        details.append("Day range data unavailable")
+
+    # Signal 2: Balanced OI — Top CE OI and top PE OI within 15% of each other
+    if oc and "oc" in oc:
+        ce_ois = [(k, v.get("ce", {}).get("oi", 0)) for k, v in oc["oc"].items() if v.get("ce")]
+        pe_ois = [(k, v.get("pe", {}).get("oi", 0)) for k, v in oc["oc"].items() if v.get("pe")]
+        max_ce_oi = max((oi for _, oi in ce_ois), default=0)
+        max_pe_oi = max((oi for _, oi in pe_ois), default=0)
+        if max_ce_oi > 0 and max_pe_oi > 0:
+            oi_diff_pct = abs(max_ce_oi - max_pe_oi) / max(max_ce_oi, max_pe_oi) * 100
+            if oi_diff_pct < 15:
+                signals += 1
+                details.append(f"Balanced OI: CE {max_ce_oi:,} vs PE {max_pe_oi:,} (diff {oi_diff_pct:.1f}%)")
+            else:
+                details.append(f"OI imbalanced: CE {max_ce_oi:,} vs PE {max_pe_oi:,} (diff {oi_diff_pct:.1f}%)")
+        else:
+            details.append("OI data insufficient")
+    else:
+        details.append("No option chain data")
+
+    # Signal 3: Low Volume — Current volume < 0.7x average
+    total_volume = 0
+    strike_count = 0
+    if oc and "oc" in oc:
+        for v in oc["oc"].values():
+            for side in ["ce", "pe"]:
+                vol = v.get(side, {}).get("volume", 0)
+                if vol > 0:
+                    total_volume += vol
+                    strike_count += 1
+    avg_volume_per_strike = total_volume / max(strike_count, 1)
+    # Use a simple heuristic: if total volume is very low relative to OI, market is quiet
+    total_oi = sum(v.get("ce", {}).get("oi", 0) + v.get("pe", {}).get("oi", 0) for v in oc.get("oc", {}).values()) if oc and "oc" in oc else 0
+    if total_oi > 0:
+        vol_to_oi_ratio = total_volume / total_oi
+        if vol_to_oi_ratio < 0.05:  # Volume is less than 5% of OI — very low activity
+            signals += 1
+            details.append(f"Low volume: Vol/OI ratio {vol_to_oi_ratio:.3f} (< 0.05)")
+        else:
+            details.append(f"Volume OK: Vol/OI ratio {vol_to_oi_ratio:.3f}")
+    else:
+        details.append("OI data unavailable for volume check")
+
+    # Signal 4: Neutral PCR — PCR between 0.90 and 1.10
+    total_call_oi = sum(v.get("ce", {}).get("oi", 0) for v in oc.get("oc", {}).values()) if oc and "oc" in oc else 0
+    total_put_oi = sum(v.get("pe", {}).get("oi", 0) for v in oc.get("oc", {}).values()) if oc and "oc" in oc else 0
+    pcr = total_put_oi / total_call_oi if total_call_oi > 0 else 0
+    if 0.90 <= pcr <= 1.10:
+        signals += 1
+        details.append(f"Neutral PCR: {pcr:.2f} (0.90-1.10 range)")
+    else:
+        details.append(f"PCR directional: {pcr:.2f}")
+
+    return {
+        "is_sideways": signals >= NO_TRADE_SIDEWAYS_THRESHOLD,
+        "signals_triggered": signals,
+        "threshold": NO_TRADE_SIDEWAYS_THRESHOLD,
+        "details": details
+    }
+
+
+def detect_trap_market(oc, analyzer_output, direction, support_analysis, resistance_analysis, instrument, ltp):
+    """Detect trap/false-breakout market conditions.
+    Returns {is_trap: bool, trap_type: str|None, details: [str]}
+    If ANY 1 trap signal is true, the trade is rejected.
+    """
+    traps = []
+    details = []
+
+    main_support = support_analysis.get("level", 0)
+    main_resistance = resistance_analysis.get("level", 0)
+
+    # Signal 1: False Breakout — Price broke above resistance but is now back below
+    price_history = PRICE_HISTORY.get(instrument, [])
+    if main_resistance > 0 and ltp > 0 and price_history:
+        recent_high = max((p["ltp"] for p in price_history[-60:]), default=0)  # last ~5 mins
+        if recent_high > main_resistance and ltp < main_resistance:
+            traps.append("FALSE_BREAKOUT")
+            details.append(f"False breakout: Price reached {recent_high} above resistance {main_resistance} but fell back to {ltp}")
+        else:
+            details.append("No false breakout detected")
+    else:
+        details.append("Insufficient data for breakout check")
+
+    # Signal 2: False Breakdown — Price broke below support but is now back above
+    if main_support > 0 and ltp > 0 and price_history:
+        recent_low = min((p["ltp"] for p in price_history[-60:]), default=0)  # last ~5 mins
+        if recent_low < main_support and ltp > main_support:
+            traps.append("FALSE_BREAKDOWN")
+            details.append(f"False breakdown: Price reached {recent_low} below support {main_support} but recovered to {ltp}")
+        else:
+            details.append("No false breakdown detected")
+    else:
+        details.append("Insufficient data for breakdown check")
+
+    # Signal 3: OI Contradiction — Price moving up but CE OI increasing heavily (or vice versa)
+    if oc and "oc" in oc and price_history and len(price_history) >= 2:
+        price_trend = ltp - price_history[-min(12, len(price_history))]["ltp"]  # ~1 min trend
+        # Check ATM CE and PE OI changes
+        atm = find_atm_strike(ltp, instrument)
+        ce_data, pe_data = get_strike_data(oc, atm)
+        ce_oi_change = (ce_data.get("oi", 0) - ce_data.get("previous_oi", 0)) if ce_data else 0
+        pe_oi_change = (pe_data.get("oi", 0) - pe_data.get("previous_oi", 0)) if pe_data else 0
+
+        # Price going up but CE OI increasing heavily = call writers adding (bearish)
+        if price_trend > 0 and ce_oi_change > 0 and abs(ce_oi_change) > abs(pe_oi_change) * 2:
+            traps.append("OI_CONTRADICTION")
+            details.append(f"OI contradiction: Price up {price_trend:.1f} but CE OI +{ce_oi_change:,} >> PE OI {pe_oi_change:+,}")
+        # Price going down but PE OI increasing heavily = put writers adding (bullish)
+        elif price_trend < 0 and pe_oi_change > 0 and abs(pe_oi_change) > abs(ce_oi_change) * 2:
+            traps.append("OI_CONTRADICTION")
+            details.append(f"OI contradiction: Price down {price_trend:.1f} but PE OI +{pe_oi_change:,} >> CE OI {ce_oi_change:+,}")
+        else:
+            details.append("No OI contradiction")
+    else:
+        details.append("Insufficient data for OI contradiction check")
+
+    # Signal 4: Signal-Momentum Divergence — Direction vs OI momentum mismatch
+    entry_signals = analyzer_output.get("entry_signals", []) + analyzer_output.get("real_time_signals", [])
+    bullish_count = sum(1 for s in entry_signals if any(kw in s.lower() for kw in ["bullish", "call buy", "put writing", "put short buildup"]))
+    bearish_count = sum(1 for s in entry_signals if any(kw in s.lower() for kw in ["bearish", "put buy", "call writing", "call short buildup"]))
+    if direction == "GO_CALL" and bearish_count > bullish_count * 2:
+        traps.append("SIGNAL_DIVERGENCE")
+        details.append(f"Signal divergence: GO_CALL but bearish signals ({bearish_count}) >> bullish ({bullish_count})")
+    elif direction == "GO_PUT" and bullish_count > bearish_count * 2:
+        traps.append("SIGNAL_DIVERGENCE")
+        details.append(f"Signal divergence: GO_PUT but bullish signals ({bullish_count}) >> bearish ({bearish_count})")
+    else:
+        details.append("No signal divergence")
+
+    return {
+        "is_trap": len(traps) > 0,
+        "trap_types": traps,
+        "details": details
+    }
+
+
+def check_trade_quality(direction, confidence, support_analysis, resistance_analysis, trap_result, theta_info):
+    """Final quality gate before a trade is approved.
+    Returns {passed: bool, blocked_by: [str], details: [str]}
+    """
+    blocked_by = []
+    details = []
+
+    # Check 1: Minimum confidence
+    if confidence < MIN_CONFIDENCE:
+        blocked_by.append("LOW_CONFIDENCE")
+        details.append(f"Confidence {confidence*100:.0f}% < required {MIN_CONFIDENCE*100:.0f}%")
+    else:
+        details.append(f"Confidence OK: {confidence*100:.0f}%")
+
+    # Check 2: S/R Alignment — trade direction must align with S/R prediction
+    sup_pred = support_analysis.get("prediction", "UNCERTAIN")
+    res_pred = resistance_analysis.get("prediction", "UNCERTAIN")
+    sr_aligned = False
+    if direction == "GO_CALL":
+        # CALL is aligned if support is BOUNCE or resistance is BREAKOUT
+        if sup_pred == "BOUNCE" or res_pred == "BREAKOUT":
+            sr_aligned = True
+            details.append(f"S/R aligned for CALL: Support={sup_pred}, Resistance={res_pred}")
+        else:
+            details.append(f"S/R misaligned for CALL: Support={sup_pred}, Resistance={res_pred}")
+    elif direction == "GO_PUT":
+        # PUT is aligned if resistance is BOUNCE or support is BREAKDOWN
+        if res_pred == "BOUNCE" or sup_pred == "BREAKDOWN":
+            sr_aligned = True
+            details.append(f"S/R aligned for PUT: Support={sup_pred}, Resistance={res_pred}")
+        else:
+            details.append(f"S/R misaligned for PUT: Support={sup_pred}, Resistance={res_pred}")
+    if not sr_aligned and direction in ("GO_CALL", "GO_PUT"):
+        blocked_by.append("SR_MISALIGNED")
+
+    # Check 3: No trap signals
+    if trap_result.get("is_trap"):
+        blocked_by.append("TRAP_DETECTED")
+        details.append(f"Trap detected: {', '.join(trap_result.get('trap_types', []))}")
+    else:
+        details.append("No traps detected")
+
+    # Check 4: Theta/IV Protection — No trades after cutoff time
+    now = datetime.now()
+    cutoff_parts = NO_TRADE_AFTER_TIME.split(":")
+    cutoff_hour, cutoff_min = int(cutoff_parts[0]), int(cutoff_parts[1])
+    if now.hour > cutoff_hour or (now.hour == cutoff_hour and now.minute >= cutoff_min):
+        blocked_by.append("LATE_SESSION")
+        details.append(f"Late session: {now.strftime('%H:%M')} >= {NO_TRADE_AFTER_TIME}")
+    else:
+        details.append(f"Time OK: {now.strftime('%H:%M')}")
+
+    # Check 5: Minimum DTE
+    dte = theta_info.get("days_to_expiry")
+    if dte is not None and dte <= MIN_DTE:
+        blocked_by.append("LOW_DTE")
+        details.append(f"DTE {dte} <= minimum {MIN_DTE}")
+    elif dte is not None:
+        details.append(f"DTE OK: {dte} days")
+
+    return {
+        "passed": len(blocked_by) == 0,
+        "blocked_by": blocked_by,
+        "details": details
+    }
+
+
+def classify_bounce_breakdown(ltp, direction, support_analysis, resistance_analysis):
+    """Classifies the structural setup as Bounce, Breakdown, Breakout, or Trap.
+    Returns {setup_type: str, aligned: bool, required_direction: str, detail: str}
+
+    Setup Types:
+    - BOUNCE_SUPPORT: LTP near support, support is holding (BOUNCE prediction) → GO_CALL
+    - BOUNCE_RESISTANCE: LTP near resistance, resistance is holding (BOUNCE prediction) → GO_PUT
+    - BREAKDOWN_SUPPORT: LTP near support, support is breaking (BREAKDOWN prediction) → GO_PUT
+    - BREAKOUT_RESISTANCE: LTP near resistance, resistance is breaking (BREAKOUT prediction) → GO_CALL
+    - TRAP: False breakout/breakdown detected → REJECT
+    - NEUTRAL: No clear structural setup
+    """
+    sup_level = support_analysis.get("level", 0)
+    res_level = resistance_analysis.get("level", 0)
+    sup_pred = support_analysis.get("prediction", "UNCERTAIN")
+    res_pred = resistance_analysis.get("prediction", "UNCERTAIN")
+    sup_strength = support_analysis.get("strength", 50)
+    res_strength = resistance_analysis.get("strength", 50)
+
+    setup_type = "NEUTRAL"
+    required_direction = None
+    detail = "No clear structural setup identified"
+
+    if sup_level > 0 and res_level > 0 and ltp > 0:
+        total_range = res_level - sup_level
+        if total_range > 0:
+            dist_to_support_pct = (ltp - sup_level) / total_range * 100
+            dist_to_resistance_pct = (res_level - ltp) / total_range * 100
+
+            # Near support (within 30% of range from support)
+            if dist_to_support_pct < 30:
+                if sup_pred == "BOUNCE" and sup_strength >= 50:
+                    setup_type = "BOUNCE_SUPPORT"
+                    required_direction = "GO_CALL"
+                    detail = f"LTP {ltp} near support {sup_level} (strength {sup_strength}/100), support holding → expect bounce up"
+                elif sup_pred == "BREAKDOWN":
+                    setup_type = "BREAKDOWN_SUPPORT"
+                    required_direction = "GO_PUT"
+                    detail = f"LTP {ltp} near support {sup_level} (strength {sup_strength}/100), support breaking → expect breakdown"
+
+            # Near resistance (within 30% of range from resistance)
+            elif dist_to_resistance_pct < 30:
+                if res_pred == "BOUNCE" and res_strength >= 50:
+                    setup_type = "BOUNCE_RESISTANCE"
+                    required_direction = "GO_PUT"
+                    detail = f"LTP {ltp} near resistance {res_level} (strength {res_strength}/100), resistance holding → expect bounce down"
+                elif res_pred == "BREAKOUT":
+                    setup_type = "BREAKOUT_RESISTANCE"
+                    required_direction = "GO_CALL"
+                    detail = f"LTP {ltp} near resistance {res_level} (strength {res_strength}/100), resistance breaking → expect breakout up"
+
+            # In the middle — no strong structural setup
+            else:
+                detail = f"LTP {ltp} in mid-range between support {sup_level} and resistance {res_level}"
+
+    aligned = True
+    if required_direction and direction in ("GO_CALL", "GO_PUT"):
+        aligned = (direction == required_direction)
+
+    return {
+        "setup_type": setup_type,
+        "aligned": aligned,
+        "required_direction": required_direction,
+        "detail": detail
+    }
+
+
+def update_price_history(instrument, ltp):
+    """Track LTP history per instrument for false breakout/breakdown detection."""
+    if instrument not in PRICE_HISTORY:
+        PRICE_HISTORY[instrument] = []
+    PRICE_HISTORY[instrument].append({"timestamp": datetime.now().isoformat(), "ltp": ltp})
+    # Keep only last MAX_PRICE_HISTORY entries
+    if len(PRICE_HISTORY[instrument]) > MAX_PRICE_HISTORY:
+        PRICE_HISTORY[instrument] = PRICE_HISTORY[instrument][-MAX_PRICE_HISTORY:]
+
+
 # --- Main Decision Function ---
 
 def make_enhanced_decision(instrument, analyzer_output, oc, news_sentiment):
@@ -1095,6 +1418,44 @@ def make_enhanced_decision(instrument, analyzer_output, oc, news_sentiment):
             support_analysis, resistance_analysis, iv_info, theta_info
         )
 
+    # --- v2.4 Pre-Trade Filters ---
+    # Update price history for trap detection
+    update_price_history(instrument, ltp)
+
+    # Filter 1: Sideways Market Detection
+    sideways_result = detect_sideways_market(oc, analyzer_output, ltp)
+
+    # Filter 2: Trap Market Detection
+    trap_result = detect_trap_market(oc, analyzer_output, direction, support_analysis, resistance_analysis, instrument, ltp)
+
+    # Filter 3: Bounce/Breakdown Classification
+    bounce_breakdown = classify_bounce_breakdown(ltp, direction, support_analysis, resistance_analysis)
+
+    # Filter 4: Trade Quality Gate
+    quality_result = check_trade_quality(direction, confidence, support_analysis, resistance_analysis, trap_result, theta_info)
+
+    # Apply filters: override direction to WAIT if any filter blocks
+    filter_blocked = False
+    filter_rejection_reasons = []
+    original_direction = direction
+
+    if sideways_result["is_sideways"]:
+        filter_blocked = True
+        filter_rejection_reasons.append(f"SIDEWAYS_MARKET ({sideways_result['signals_triggered']}/{sideways_result['threshold']} signals)")
+
+    if not quality_result["passed"]:
+        filter_blocked = True
+        filter_rejection_reasons.extend(quality_result["blocked_by"])
+
+    if not bounce_breakdown["aligned"] and direction in ("GO_CALL", "GO_PUT"):
+        filter_blocked = True
+        filter_rejection_reasons.append(f"STRUCTURE_MISALIGNED ({bounce_breakdown['setup_type']} requires {bounce_breakdown['required_direction']}, got {direction})")
+
+    if filter_blocked and direction in ("GO_CALL", "GO_PUT"):
+        direction = "WAIT"
+        trade_setup = None  # No trade setup if filtered out
+        print(f"    [FILTER] Trade blocked: {', '.join(filter_rejection_reasons)}")
+
     # Risk flags
     risk_flags = compute_risk_flags(iv_info, theta_info, support_analysis, resistance_analysis, direction)
 
@@ -1106,7 +1467,7 @@ def make_enhanced_decision(instrument, analyzer_output, oc, news_sentiment):
         rationale_parts.append(f"{name.replace('_', ' ').title()}: {direction_word} — {f['detail']}")
     rationale = "; ".join(rationale_parts)
 
-    # Map direction to legacy format
+    # Map direction to legacy format (use filtered direction)
     legacy_decision = "GO" if direction in ("GO_CALL", "GO_PUT") else ("WAIT" if direction == "WAIT" else "NO-GO")
     legacy_trade_type = "CALL_BUY" if direction == "GO_CALL" else ("PUT_BUY" if direction == "GO_PUT" else "NONE")
 
@@ -1140,6 +1501,17 @@ def make_enhanced_decision(instrument, analyzer_output, oc, news_sentiment):
         "trade_setup": trade_setup,
         "risk_flags": risk_flags,
         "scoring_factors": {k: {"score": round(v["score"], 2), "weight": v["weight"], "detail": v["detail"]} for k, v in factors.items()},
+
+        # v2.4 Filter results
+        "filters": {
+            "original_direction": original_direction,
+            "filter_blocked": filter_blocked,
+            "rejection_reasons": filter_rejection_reasons,
+            "sideways_detection": sideways_result,
+            "trap_detection": trap_result,
+            "bounce_breakdown": bounce_breakdown,
+            "quality_gate": quality_result,
+        },
 
         # Enhanced news sentiment data
         "news_detail": {
