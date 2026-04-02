@@ -350,6 +350,9 @@ export class DhanWebSocket extends EventEmitter {
     const exchange = exchangeStr as ExchangeSegment;
     const key = `${exchangeStr}:${securityId}`;
 
+    // DEBUG: Log every binary message received
+    console.log(`${LOG_PREFIX} [DEBUG] Binary msg: code=${header.responseCode} seg=${header.exchangeSegment}(${exchangeStr}) secId=${securityId} len=${data.length}`);
+
     switch (header.responseCode) {
       case DHAN_FEED_RESPONSE.TICKER: {
         const partial = parseTickerPacket(data, securityId, exchange);
@@ -425,6 +428,8 @@ export class DhanWebSocket extends EventEmitter {
     const existing = this.tickCache.get(key) || this.createEmptyTick(key);
     const merged = { ...existing, ...partial, timestamp: Date.now() };
     this.tickCache.set(key, merged);
+    // DEBUG: Log tick emission
+    console.log(`${LOG_PREFIX} [DEBUG] mergeTick: ${key} ltp=${(partial as any).ltp}`);
     this.config.onTick(merged);
   }
 
@@ -564,7 +569,11 @@ export class DhanWebSocket extends EventEmitter {
 
   private sendJSON(msg: unknown): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(msg));
+      const json = JSON.stringify(msg);
+      console.log(`${LOG_PREFIX} [DEBUG] sendJSON: ${json}`);
+      this.ws.send(json);
+    } else {
+      console.warn(`${LOG_PREFIX} [DEBUG] sendJSON SKIPPED (ws not open): ${JSON.stringify(msg)}`);
     }
   }
 }
