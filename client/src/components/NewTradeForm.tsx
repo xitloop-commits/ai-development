@@ -1,9 +1,18 @@
 /**
  * NewTradeForm — Inline trade entry form that slides into the Trading Desk table.
- * Fields: Instrument, B/S, CE/PE, Strike, Entry (auto LTP), Capital %
+ * Fields: Instrument, B/S, CE/PE, Strike, Expiry, Entry (auto LTP), Capital %
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Send, Loader2 } from 'lucide-react';
+import { trpc } from '../lib/trpc';
+
+/** Map UI instrument names to scrip master underlying symbols. */
+const UNDERLYING_MAP: Record<string, string> = {
+  'NIFTY 50': 'NIFTY',
+  'BANK NIFTY': 'BANKNIFTY',
+  'CRUDE OIL': 'CRUDEOIL',
+  'NATURAL GAS': 'NATURALGAS',
+};
 
 interface NewTradeFormProps {
   workspace: 'live' | 'paper';
@@ -13,6 +22,7 @@ interface NewTradeFormProps {
     instrument: string;
     type: 'CALL_BUY' | 'CALL_SELL' | 'PUT_BUY' | 'PUT_SELL' | 'BUY' | 'SELL';
     strike: number | null;
+    expiry: string;
     entryPrice: number;
     capitalPercent: number;
   }) => Promise<void>;
@@ -36,6 +46,23 @@ export default function NewTradeForm({
   const [strike, setStrike] = useState<string>('');
   const [entryPrice, setEntryPrice] = useState<string>('');
   const [capitalPercent, setCapitalPercent] = useState<number>(10);
+  const [expiry, setExpiry] = useState<string>('');
+
+  // Fetch expiry dates for the selected instrument
+  const underlying = UNDERLYING_MAP[instrument] ?? instrument;
+  const expiryQuery = trpc.broker.expiryList.useQuery(
+    { underlying },
+    { enabled: optionType !== 'NONE' }
+  );
+
+  // Auto-select nearest expiry (first in list) when data loads or instrument changes
+  useEffect(() => {
+    if (expiryQuery.data && expiryQuery.data.length > 0) {
+      setExpiry(expiryQuery.data[0]);
+    } else {
+      setExpiry('');
+    }
+  }, [expiryQuery.data, instrument]);
 
   const estimatedMargin = (availableCapital * capitalPercent / 100);
   const estimatedQty = entryPrice ? Math.floor(estimatedMargin / parseFloat(entryPrice)) : 0;
@@ -54,9 +81,20 @@ export default function NewTradeForm({
       instrument,
       type,
       strike: optionType !== 'NONE' && strike ? parseFloat(strike) : null,
+      expiry: optionType !== 'NONE' ? expiry : '',
       entryPrice: parseFloat(entryPrice),
       capitalPercent,
     });
+  };
+
+  /** Format expiry date for display (e.g., "2026-04-03" → "03 Apr") */
+  const formatExpiry = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr + 'T00:00:00');
+      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+    } catch {
+      return dateStr;
+    }
   };
 
   return (
@@ -124,16 +162,35 @@ export default function NewTradeForm({
           ))}
         </div>
       </td>
-      {/* Strike */}
+      {/* Strike + Expiry */}
       <td className="px-2 py-1">
         {optionType !== 'NONE' ? (
-          <input
-            type="number"
-            value={strike}
-            onChange={(e) => setStrike(e.target.value)}
-            placeholder="Strike"
-            className="w-20 bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums text-right focus:border-primary focus:outline-none"
-          />
+          <div className="flex flex-col gap-1">
+            <input
+              type="number"
+              value={strike}
+              onChange={(e) => setStrike(e.target.value)}
+              placeholder="Strike"
+              className="w-20 bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums text-right focus:border-primary focus:outline-none"
+            />
+            <select
+              value={expiry}
+              onChange={(e) => setExpiry(e.target.value)}
+              className="w-20 bg-background border border-border rounded px-1 py-0.5 text-[9px] text-foreground focus:border-primary focus:outline-none"
+            >
+              {expiryQuery.isLoading && (
+                <option value="">Loading...</option>
+              )}
+              {expiryQuery.data?.map((exp) => (
+                <option key={exp} value={exp}>
+                  {formatExpiry(exp)}
+                </option>
+              ))}
+              {!expiryQuery.isLoading && (!expiryQuery.data || expiryQuery.data.length === 0) && (
+                <option value="">No expiries</option>
+              )}
+            </select>
+          </div>
         ) : (
           <span className="text-[10px] text-muted-foreground">—</span>
         )}

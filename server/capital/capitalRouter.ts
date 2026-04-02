@@ -228,6 +228,7 @@ export const capitalRouter = router({
       strike: z.number().nullable().default(null),
       entryPrice: z.number().positive(),
       capitalPercent: z.number().min(5).max(100),
+      expiry: z.string().optional().default(""),  // expiry date (YYYY-MM-DD), empty = nearest
       targetPercent: z.number().optional(),   // TP % from entry
       stopLossPercent: z.number().optional(),  // SL % from entry
     }))
@@ -307,7 +308,7 @@ export const capitalRouter = router({
               transactionType: isBuyTxn ? "BUY" : "SELL",
               optionType: optType,
               strike: input.strike ?? 0,
-              expiry: "",  // resolved by adapter via scrip master
+              expiry: input.expiry || "",  // empty = resolved by adapter via scrip master
               quantity: qty,
               price: input.entryPrice,
               orderType: config.settings.orderType ?? "LIMIT",

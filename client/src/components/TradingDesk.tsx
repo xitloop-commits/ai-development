@@ -215,6 +215,7 @@ export default function TradingDesk() {
     instrument: string;
     type: 'CALL_BUY' | 'CALL_SELL' | 'PUT_BUY' | 'PUT_SELL' | 'BUY' | 'SELL';
     strike: number | null;
+    expiry: string;
     entryPrice: number;
     capitalPercent: number;
   }) => {
@@ -223,6 +224,7 @@ export default function TradingDesk() {
       instrument: trade.instrument,
       type: trade.type,
       strike: trade.strike,
+      expiry: trade.expiry,
       entryPrice: trade.entryPrice,
       capitalPercent: trade.capitalPercent,
     });
