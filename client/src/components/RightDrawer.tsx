@@ -4,6 +4,7 @@
  */
 import SignalsFeed from '@/components/SignalsFeed';
 import CapitalPoolsPanel from '@/components/CapitalPoolsPanel';
+import DisciplinePanel from '@/components/DisciplinePanel';
 import AlertHistory from '@/components/AlertHistory';
 import type { Signal } from '@/lib/types';
 
@@ -20,6 +21,11 @@ export default function RightSidebar({ visible, signals }: RightSidebarProps) {
       {/* Capital Pools */}
       <div className="px-3 pt-3 pb-2 border-b border-border/50">
         <CapitalPoolsPanel />
+      </div>
+
+      {/* Discipline */}
+      <div className="px-3 pt-2 pb-2 border-b border-border/50">
+        <DisciplinePanel />
       </div>
 
       {/* Signals & Alerts Header */}
