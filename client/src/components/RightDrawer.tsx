@@ -3,6 +3,7 @@
  * Visible by default, pushes center content. Fully disappears when hidden.
  */
 import SignalsFeed from '@/components/SignalsFeed';
+import CapitalPoolsPanel from '@/components/CapitalPoolsPanel';
 import AlertHistory from '@/components/AlertHistory';
 import type { Signal } from '@/lib/types';
 
@@ -16,7 +17,12 @@ export default function RightSidebar({ visible, signals }: RightSidebarProps) {
 
   return (
     <aside className="w-[320px] shrink-0 border-l border-border bg-background flex flex-col overflow-hidden">
-      {/* Header */}
+      {/* Capital Pools */}
+      <div className="px-3 pt-3 pb-2 border-b border-border/50">
+        <CapitalPoolsPanel />
+      </div>
+
+      {/* Signals & Alerts Header */}
       <div className="px-4 pt-3 pb-2">
         <h2 className="text-[11px] font-bold tracking-widest uppercase text-muted-foreground">
           Signals & Alerts
