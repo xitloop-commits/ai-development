@@ -193,10 +193,27 @@ function getSnapshot() {
   return storeVersion;
 }
 
-function mergeTick(key: string, partial: Partial<TickData>) {
+function updateTick(key: string, partial: Partial<TickData>) {
   const existing = tickStore.get(key);
   if (existing) {
-    Object.assign(existing, partial);
+    // Direct property writes — no Object.assign, no new object
+    if (partial.ltp !== undefined) existing.ltp = partial.ltp;
+    if (partial.ltt !== undefined) existing.ltt = partial.ltt;
+    if (partial.ltq !== undefined) existing.ltq = partial.ltq;
+    if (partial.atp !== undefined) existing.atp = partial.atp;
+    if (partial.volume !== undefined) existing.volume = partial.volume;
+    if (partial.totalSellQty !== undefined) existing.totalSellQty = partial.totalSellQty;
+    if (partial.totalBuyQty !== undefined) existing.totalBuyQty = partial.totalBuyQty;
+    if (partial.oi !== undefined) existing.oi = partial.oi;
+    if (partial.highOI !== undefined) existing.highOI = partial.highOI;
+    if (partial.lowOI !== undefined) existing.lowOI = partial.lowOI;
+    if (partial.dayOpen !== undefined) existing.dayOpen = partial.dayOpen;
+    if (partial.dayClose !== undefined) existing.dayClose = partial.dayClose;
+    if (partial.dayHigh !== undefined) existing.dayHigh = partial.dayHigh;
+    if (partial.dayLow !== undefined) existing.dayLow = partial.dayLow;
+    if (partial.prevClose !== undefined) existing.prevClose = partial.prevClose;
+    if (partial.prevOI !== undefined) existing.prevOI = partial.prevOI;
+    if (partial.timestamp !== undefined) existing.timestamp = partial.timestamp;
   } else {
     tickStore.set(key, {
       securityId: partial.securityId || "",
@@ -252,7 +269,7 @@ function connectWs() {
       const view = new DataView(event.data);
       const result = parseBinaryPacket(view, event.data.byteLength);
       if (result) {
-        mergeTick(result.key, result.partial);
+        updateTick(result.key, result.partial);
       }
       return;
     }
