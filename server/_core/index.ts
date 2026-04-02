@@ -16,6 +16,7 @@ import { registerBrokerRoutes } from "../broker/brokerRoutes";
 import aiDecisionsRouter from "../aiDecisions";
 import { pnlEngine } from "../capital/pnlEngine";
 import { orderSyncEngine } from "../capital/orderSyncEngine";
+import { setupTickWebSocket } from "../broker/tickWs";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -72,6 +73,9 @@ async function startServer() {
       createContext,
     })
   );
+  // Tick WebSocket (native WS for zero-latency LTP streaming)
+  setupTickWebSocket(server);
+
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
