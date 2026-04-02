@@ -165,7 +165,8 @@ class PnlEngine extends EventEmitter {
         trade.ltp = tick.ltp;
         anyUpdated = true;
 
-        // Check TP/SL triggers
+        // Check TP/SL triggers (paper only — live uses Dhan bracket orders)
+        if (workspace !== "paper") continue;
         const isBuy = trade.type.includes("BUY");
         if (trade.targetPrice !== null) {
           const tpHit = isBuy
