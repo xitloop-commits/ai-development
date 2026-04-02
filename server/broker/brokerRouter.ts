@@ -473,7 +473,8 @@ export const brokerRouter = router({
     }),
 
     /** SSE subscription: streams live ticks to the frontend. */
-    onTick: publicProcedure.subscription(async function* () {
+    onTick: publicProcedure.subscription(async function* (opts) {
+      console.log("[SSE] onTick subscription connected");
       let tickResolve: ((tick: TickData) => void) | null = null;
       const tickQueue: TickData[] = [];
 
@@ -483,7 +484,6 @@ export const brokerRouter = router({
           tickResolve = null;
           resolve(tick);
         } else {
-          // Buffer up to 500 ticks to prevent memory issues
           if (tickQueue.length < 500) {
             tickQueue.push(tick);
           }
@@ -493,13 +493,14 @@ export const brokerRouter = router({
       tickBus.on("tick", handler);
 
       try {
-        while (true) {
+        while (!opts.signal?.aborted) {
           let tick: TickData;
           if (tickQueue.length > 0) {
             tick = tickQueue.shift()!;
           } else {
-            tick = await new Promise<TickData>((resolve) => {
+            tick = await new Promise<TickData>((resolve, reject) => {
               tickResolve = resolve;
+              opts.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
             });
           }
           const id = `${tick.exchange}:${tick.securityId}:${tick.timestamp}`;
@@ -507,6 +508,7 @@ export const brokerRouter = router({
         }
       } finally {
         tickBus.off("tick", handler);
+        console.log("[SSE] onTick subscription disconnected");
       }
     }),
 

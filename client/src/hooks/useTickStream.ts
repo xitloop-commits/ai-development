@@ -100,7 +100,7 @@ export function useTickStream(enabled = true) {
   // Strategy 2: Polling fallback (every 2s)
   const snapshotQuery = trpc.broker.feed.snapshot.useQuery(undefined, {
     enabled,
-    refetchInterval: 2000,
+    refetchInterval: 500,
     refetchIntervalInBackground: true,
     retry: false,
   });
