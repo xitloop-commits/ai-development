@@ -51,7 +51,7 @@ export interface PnlSnapshot {
  * and ticks use the same names as securityId in mock mode.
  * For Dhan, the adapter resolves securityId from scrip master.
  */
-function tickMatchesTrade(tick: TickData, trade: TradeRecord): boolean {
+export function tickMatchesTrade(tick: TickData, trade: TradeRecord): boolean {
   // Direct match: securityId equals instrument name
   if (tick.securityId === trade.instrument) return true;
 
