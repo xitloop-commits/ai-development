@@ -20,6 +20,7 @@ import {
 } from "./holidays";
 import { getMongoHealth, pingMongo } from "./mongo";
 import { brokerRouter } from "./broker/brokerRouter";
+import { capitalRouter } from "./capital/capitalRouter";
 import {
   createTrade,
   updateTrade,
@@ -267,6 +268,9 @@ export const appRouter = router({
 
   // Broker Service (tRPC)
   broker: brokerRouter,
+
+  // Capital Management & Trading Desk
+  capital: capitalRouter,
 
   // MongoDB health check
   mongo: router({

@@ -31,8 +31,8 @@ import SettingsOverlay from '@/components/SettingsOverlay';
 import DisciplineOverlay from '@/components/DisciplineOverlay';
 import JournalOverlay from '@/components/JournalOverlay';
 
-// Center content components (reused from Dashboard)
-import PositionTracker from '@/components/PositionTracker';
+// Center content components
+import TradingDesk from '@/components/TradingDesk';
 import MarketHolidays from '@/components/MarketHolidays';
 
 // Mock data fallbacks
@@ -176,105 +176,76 @@ export default function MainScreen() {
 
       {/* Scrollable Center Content */}
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-6xl mx-auto px-4 py-4 space-y-4">
-          {/* Trading Desk Placeholder — will be expanded in Phase 3 */}
-          <div className="border border-border rounded-md bg-card p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="font-display text-lg font-bold tracking-tight text-foreground">
-                  Trading Desk
-                </h2>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Real-time option chain analysis and trade execution
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setLeftDrawerOpen(true)}
-                  className="px-3 py-1.5 rounded text-[10px] font-bold tracking-wider uppercase border border-border text-muted-foreground hover:bg-accent transition-colors"
-                >
-                  Instruments (Ctrl+[)
-                </button>
-                <button
-                  onClick={() => setRightDrawerOpen(true)}
-                  className="px-3 py-1.5 rounded text-[10px] font-bold tracking-wider uppercase border border-border text-muted-foreground hover:bg-accent transition-colors"
-                >
-                  Signals (Ctrl+])
-                </button>
-              </div>
-            </div>
-
-            {/* Quick instrument summary cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-              {instruments.map((inst) => {
-                const colorMap: Record<string, string> = {
-                  NIFTY_50: 'border-info-cyan/30 text-info-cyan',
-                  BANKNIFTY: 'border-bullish/30 text-bullish',
-                  CRUDEOIL: 'border-warning-amber/30 text-warning-amber',
-                  NATURALGAS: 'border-destructive/30 text-destructive',
-                };
-                const labelMap: Record<string, string> = {
-                  NIFTY_50: 'NIFTY 50',
-                  BANKNIFTY: 'BANK NIFTY',
-                  CRUDEOIL: 'CRUDE OIL',
-                  NATURALGAS: 'NATURAL GAS',
-                };
-                const color = colorMap[inst.name] ?? 'border-border text-foreground';
-                return (
-                  <div
-                    key={inst.name}
-                    className={`border rounded-md p-3 bg-card/50 cursor-pointer hover:bg-accent/50 transition-colors ${color}`}
-                    onClick={() => setLeftDrawerOpen(true)}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] font-bold tracking-wider uppercase">
-                        {labelMap[inst.name] ?? inst.name}
-                      </span>
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold tracking-wider ${
-                        inst.marketBias === 'BULLISH'
-                          ? 'bg-bullish/10 text-bullish'
-                          : inst.marketBias === 'BEARISH'
-                          ? 'bg-destructive/10 text-destructive'
-                          : 'bg-muted text-muted-foreground'
-                      }`}>
-                        {inst.marketBias}
-                      </span>
-                    </div>
-                    <div className="text-sm font-bold tabular-nums text-foreground">
-                      ₹{inst.lastPrice?.toLocaleString('en-IN') ?? '—'}
-                    </div>
-                    <div className="text-[9px] text-muted-foreground mt-0.5">
-                      AI: {inst.aiDecision ?? 'N/A'} | Score: {inst.aiConfidence ?? '—'}%
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Keyboard shortcut hints */}
-            <div className="flex items-center gap-4 pt-3 border-t border-border">
-              <span className="text-[9px] text-muted-foreground tracking-wider">
-                Shortcuts:
-              </span>
-              {[
-                { key: 'Ctrl+[', label: 'Instruments' },
-                { key: 'Ctrl+]', label: 'Signals' },
-                { key: 'Ctrl+S', label: 'Settings' },
-                { key: 'Ctrl+D', label: 'Discipline' },
-                { key: 'Ctrl+J', label: 'Journal' },
-              ].map((shortcut) => (
-                <span key={shortcut.key} className="text-[9px] text-muted-foreground">
-                  <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-[8px] font-mono">
-                    {shortcut.key}
-                  </kbd>{' '}
-                  {shortcut.label}
-                </span>
-              ))}
-            </div>
+        <div className="max-w-[1400px] mx-auto px-3 py-3 space-y-3">
+          {/* Trading Desk — 250-day compounding table */}
+          <div className="border border-border rounded-md bg-card overflow-hidden">
+            <TradingDesk />
           </div>
 
-          {/* Position Tracker */}
-          <PositionTracker positions={positions} />
+          {/* Quick instrument summary cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            {instruments.map((inst) => {
+              const colorMap: Record<string, string> = {
+                NIFTY_50: 'border-info-cyan/30 text-info-cyan',
+                BANKNIFTY: 'border-bullish/30 text-bullish',
+                CRUDEOIL: 'border-warning-amber/30 text-warning-amber',
+                NATURALGAS: 'border-destructive/30 text-destructive',
+              };
+              const labelMap: Record<string, string> = {
+                NIFTY_50: 'NIFTY 50',
+                BANKNIFTY: 'BANK NIFTY',
+                CRUDEOIL: 'CRUDE OIL',
+                NATURALGAS: 'NATURAL GAS',
+              };
+              const color = colorMap[inst.name] ?? 'border-border text-foreground';
+              return (
+                <div
+                  key={inst.name}
+                  className={`border rounded-md p-2.5 bg-card/50 cursor-pointer hover:bg-accent/50 transition-colors ${color}`}
+                  onClick={() => setLeftDrawerOpen(true)}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-bold tracking-wider uppercase">
+                      {labelMap[inst.name] ?? inst.name}
+                    </span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold tracking-wider ${
+                      inst.marketBias === 'BULLISH'
+                        ? 'bg-bullish/10 text-bullish'
+                        : inst.marketBias === 'BEARISH'
+                        ? 'bg-destructive/10 text-destructive'
+                        : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {inst.marketBias}
+                    </span>
+                  </div>
+                  <div className="text-sm font-bold tabular-nums text-foreground">
+                    ₹{inst.lastPrice?.toLocaleString('en-IN') ?? '—'}
+                  </div>
+                  <div className="text-[9px] text-muted-foreground mt-0.5">
+                    AI: {inst.aiDecision ?? 'N/A'} | Score: {inst.aiConfidence ?? '—'}%
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Keyboard shortcut hints */}
+          <div className="flex items-center justify-center gap-4 py-1">
+            {[
+              { key: 'Ctrl+[', label: 'Instruments' },
+              { key: 'Ctrl+]', label: 'Signals' },
+              { key: 'Ctrl+S', label: 'Settings' },
+              { key: 'Ctrl+D', label: 'Discipline' },
+              { key: 'Ctrl+J', label: 'Journal' },
+            ].map((shortcut) => (
+              <span key={shortcut.key} className="text-[9px] text-muted-foreground">
+                <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-[8px] font-mono">
+                  {shortcut.key}
+                </kbd>{' '}
+                {shortcut.label}
+              </span>
+            ))}
+          </div>
 
           {/* Market Holidays */}
           <MarketHolidays />

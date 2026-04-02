@@ -1,0 +1,503 @@
+/**
+ * Capital Router — tRPC endpoints for the Trading Desk and Capital Management.
+ *
+ * Provides:
+ *   - Capital state queries (pools, day index, session)
+ *   - Day record queries (past, current, future projections)
+ *   - Trade placement and exit mutations
+ *   - Capital injection mutation
+ */
+import { z } from "zod";
+import { publicProcedure, router } from "../_core/trpc";
+import {
+  getCapitalState,
+  updateCapitalState,
+  getDayRecords,
+  getDayRecord,
+  upsertDayRecord,
+  deleteDayRecordsFrom,
+} from "./capitalModel";
+import type { Workspace, DayRecord, TradeRecord } from "./capitalModel";
+import {
+  initializeCapital,
+  injectCapital,
+  createDayRecord,
+  checkDayCompletion,
+  completeDayIndex,
+  calculateGiftDays,
+  processClawback,
+  calculateAvailableCapital,
+  calculatePositionSize,
+  projectFutureDays,
+  calculateQuarterlyProjection,
+  checkSessionReset,
+  resetSession,
+  recalculateDayAggregates,
+  TRADING_SPLIT,
+  MAX_DAY_INDEX,
+} from "./capitalEngine";
+import { calculateTradeCharges } from "./chargesEngine";
+import type { ChargeRate } from "./chargesEngine";
+import { getUserSettings } from "../userSettings";
+
+// ─── Helpers ─────────────────────────────────────────────────────
+
+const workspaceSchema = z.enum(["live", "paper"]);
+
+function generateTradeId(): string {
+  return `T${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function getChargeRates(userId: number = 1): Promise<ChargeRate[]> {
+  const settings = await getUserSettings(userId);
+  return settings.charges.rates as ChargeRate[];
+}
+
+/**
+ * Ensure the current day record exists. Creates Day 1 if needed.
+ */
+async function ensureCurrentDay(workspace: Workspace): Promise<DayRecord> {
+  const state = await getCapitalState(workspace);
+
+  // Check session reset
+  if (checkSessionReset(state)) {
+    await updateCapitalState(workspace, resetSession(state));
+  }
+
+  let day = await getDayRecord(workspace, state.currentDayIndex);
+  if (!day) {
+    // Create the first day record
+    const origProj = state.tradingPool * (1 + state.targetPercent / 100);
+    day = createDayRecord(
+      state.currentDayIndex,
+      state.tradingPool,
+      state.targetPercent,
+      origProj,
+      workspace,
+      "ACTIVE"
+    );
+    day = await upsertDayRecord(workspace, day);
+  }
+  return day;
+}
+
+// ─── Router ──────────────────────────────────────────────────────
+
+export const capitalRouter = router({
+  // ─── State Queries ─────────────────────────────────────────────
+
+  /** Get current capital state for a workspace. */
+  state: publicProcedure
+    .input(z.object({ workspace: workspaceSchema }))
+    .query(async ({ input }) => {
+      const state = await getCapitalState(input.workspace);
+      const day = await ensureCurrentDay(input.workspace);
+
+      // Calculate open position margin
+      const openMargin = day.trades
+        .filter((t) => t.status === "OPEN")
+        .reduce((sum, t) => sum + t.entryPrice * t.qty, 0);
+
+      const available = calculateAvailableCapital(state.tradingPool, openMargin);
+      const quarterly = calculateQuarterlyProjection(
+        state.tradingPool,
+        state.reservePool,
+        state.currentDayIndex,
+        Math.floor((Date.now() - state.createdAt) / 86400000)
+      );
+
+      return {
+        ...state,
+        availableCapital: available,
+        openPositionMargin: openMargin,
+        netWorth: Math.round((state.tradingPool + state.reservePool) * 100) / 100,
+        quarterlyProjection: quarterly,
+        todayPnl: day.totalPnl,
+        todayTarget: day.targetAmount,
+      };
+    }),
+
+  /** Inject new capital (75/25 split). */
+  inject: publicProcedure
+    .input(z.object({
+      workspace: workspaceSchema,
+      amount: z.number().positive(),
+    }))
+    .mutation(async ({ input }) => {
+      const state = await getCapitalState(input.workspace);
+      const { tradingPool, reservePool } = injectCapital(state, input.amount);
+      return updateCapitalState(input.workspace, { tradingPool, reservePool });
+    }),
+
+  // ─── Day Record Queries ────────────────────────────────────────
+
+  /** Get completed (past) day records. */
+  pastDays: publicProcedure
+    .input(z.object({
+      workspace: workspaceSchema,
+      limit: z.number().min(1).max(250).default(50),
+    }))
+    .query(async ({ input }) => {
+      const state = await getCapitalState(input.workspace);
+      return getDayRecords(input.workspace, {
+        from: 1,
+        to: state.currentDayIndex - 1,
+        limit: input.limit,
+      });
+    }),
+
+  /** Get the current active day with all trades. */
+  currentDay: publicProcedure
+    .input(z.object({ workspace: workspaceSchema }))
+    .query(async ({ input }) => {
+      return ensureCurrentDay(input.workspace);
+    }),
+
+  /** Get projected future days (computed on-the-fly, not stored). */
+  futureDays: publicProcedure
+    .input(z.object({
+      workspace: workspaceSchema,
+      count: z.number().min(1).max(50).default(20),
+    }))
+    .query(async ({ input }) => {
+      const state = await getCapitalState(input.workspace);
+      const day = await ensureCurrentDay(input.workspace);
+      const startCapital = day.actualCapital > 0 ? day.actualCapital : state.tradingPool;
+      const startDay = state.currentDayIndex + 1;
+
+      return projectFutureDays(
+        startDay,
+        startCapital * TRADING_SPLIT, // only trading pool share compounds
+        state.targetPercent,
+        input.count,
+        input.workspace
+      );
+    }),
+
+  /** Get all days for the table view (past + current + future). */
+  allDays: publicProcedure
+    .input(z.object({
+      workspace: workspaceSchema,
+      futureCount: z.number().min(0).max(50).default(10),
+    }))
+    .query(async ({ input }) => {
+      const state = await getCapitalState(input.workspace);
+      const pastDays = await getDayRecords(input.workspace, {
+        from: 1,
+        to: state.currentDayIndex - 1,
+      });
+      const currentDay = await ensureCurrentDay(input.workspace);
+
+      // Project future days from current actual capital
+      const startCapital = currentDay.actualCapital > 0
+        ? currentDay.actualCapital
+        : state.tradingPool;
+      const futureDays = input.futureCount > 0
+        ? projectFutureDays(
+            state.currentDayIndex + 1,
+            startCapital,
+            state.targetPercent,
+            input.futureCount,
+            input.workspace
+          )
+        : [];
+
+      return {
+        pastDays,
+        currentDay,
+        futureDays,
+        currentDayIndex: state.currentDayIndex,
+      };
+    }),
+
+  // ─── Trade Mutations ───────────────────────────────────────────
+
+  /** Place a new trade. */
+  placeTrade: publicProcedure
+    .input(z.object({
+      workspace: workspaceSchema,
+      instrument: z.string(),
+      type: z.enum(["CALL_BUY", "CALL_SELL", "PUT_BUY", "PUT_SELL", "BUY", "SELL"]),
+      strike: z.number().nullable().default(null),
+      entryPrice: z.number().positive(),
+      capitalPercent: z.number().min(5).max(100),
+      targetPercent: z.number().optional(),   // TP % from entry
+      stopLossPercent: z.number().optional(),  // SL % from entry
+    }))
+    .mutation(async ({ input }) => {
+      const state = await getCapitalState(input.workspace);
+      const day = await ensureCurrentDay(input.workspace);
+
+      // Calculate open margin
+      const openMargin = day.trades
+        .filter((t) => t.status === "OPEN")
+        .reduce((sum, t) => sum + t.entryPrice * t.qty, 0);
+
+      const available = calculateAvailableCapital(state.tradingPool, openMargin);
+      const { qty, margin } = calculatePositionSize(
+        available,
+        input.capitalPercent,
+        input.entryPrice
+      );
+
+      if (qty <= 0) {
+        throw new Error("Insufficient capital for this trade");
+      }
+
+      // Calculate bracket order levels
+      const isBuy = input.type.includes("BUY");
+      const tpPercent = input.targetPercent ?? 5;
+      const slPercent = input.stopLossPercent ?? 2;
+      const targetPrice = isBuy
+        ? Math.round(input.entryPrice * (1 + tpPercent / 100) * 100) / 100
+        : Math.round(input.entryPrice * (1 - tpPercent / 100) * 100) / 100;
+      const stopLossPrice = isBuy
+        ? Math.round(input.entryPrice * (1 - slPercent / 100) * 100) / 100
+        : Math.round(input.entryPrice * (1 + slPercent / 100) * 100) / 100;
+
+      const trade: TradeRecord = {
+        id: generateTradeId(),
+        instrument: input.instrument,
+        type: input.type,
+        strike: input.strike,
+        entryPrice: input.entryPrice,
+        exitPrice: null,
+        ltp: input.entryPrice,
+        qty,
+        capitalPercent: input.capitalPercent,
+        pnl: 0,
+        unrealizedPnl: 0,
+        charges: 0,
+        chargesBreakdown: [],
+        status: "OPEN",
+        targetPrice,
+        stopLossPrice,
+        brokerId: null,
+        openedAt: Date.now(),
+        closedAt: null,
+      };
+
+      day.trades.push(trade);
+      const updated = recalculateDayAggregates(day);
+
+      // Update session counter
+      await updateCapitalState(input.workspace, {
+        sessionTradeCount: state.sessionTradeCount + 1,
+      });
+
+      await upsertDayRecord(input.workspace, updated);
+      return { trade, day: updated };
+    }),
+
+  /** Exit a single trade. */
+  exitTrade: publicProcedure
+    .input(z.object({
+      workspace: workspaceSchema,
+      tradeId: z.string(),
+      exitPrice: z.number().positive(),
+      reason: z.enum(["MANUAL", "TP", "SL", "PARTIAL", "EOD"]).default("MANUAL"),
+    }))
+    .mutation(async ({ input }) => {
+      const state = await getCapitalState(input.workspace);
+      const day = await ensureCurrentDay(input.workspace);
+
+      const trade = day.trades.find((t) => t.id === input.tradeId);
+      if (!trade) throw new Error(`Trade not found: ${input.tradeId}`);
+      if (trade.status !== "OPEN") throw new Error(`Trade already closed: ${input.tradeId}`);
+
+      // Calculate P&L
+      const isBuy = trade.type.includes("BUY");
+      const direction = isBuy ? 1 : -1;
+      const grossPnl = (input.exitPrice - trade.entryPrice) * trade.qty * direction;
+
+      // Calculate charges
+      const chargeRates = await getChargeRates();
+      const charges = calculateTradeCharges(
+        {
+          entryPrice: trade.entryPrice,
+          exitPrice: input.exitPrice,
+          qty: trade.qty,
+          isBuy,
+          exchange: trade.instrument.includes("CRUDE") || trade.instrument.includes("NATURAL") ? "MCX" : "NSE",
+        },
+        chargeRates
+      );
+
+      // Update trade
+      trade.exitPrice = input.exitPrice;
+      trade.pnl = Math.round((grossPnl - charges.total) * 100) / 100;
+      trade.charges = charges.total;
+      trade.chargesBreakdown = charges.breakdown;
+      trade.unrealizedPnl = 0;
+      trade.closedAt = Date.now();
+
+      const statusMap: Record<string, TradeRecord["status"]> = {
+        MANUAL: "CLOSED_MANUAL",
+        TP: "CLOSED_TP",
+        SL: "CLOSED_SL",
+        PARTIAL: "CLOSED_PARTIAL",
+        EOD: "CLOSED_EOD",
+      };
+      trade.status = statusMap[input.reason] ?? "CLOSED_MANUAL";
+
+      // Recalculate day aggregates
+      const updated = recalculateDayAggregates(day);
+      await upsertDayRecord(input.workspace, updated);
+
+      // Update session P&L
+      await updateCapitalState(input.workspace, {
+        sessionPnl: state.sessionPnl + trade.pnl,
+        cumulativePnl: state.cumulativePnl + trade.pnl,
+        cumulativeCharges: state.cumulativeCharges + charges.total,
+      });
+
+      // Check day completion
+      const completion = checkDayCompletion(updated);
+      if (completion.complete) {
+        const result = completeDayIndex(state, updated);
+
+        // Update capital state
+        const newState = await updateCapitalState(input.workspace, {
+          tradingPool: result.tradingPool,
+          reservePool: result.reservePool,
+          currentDayIndex: state.currentDayIndex + 1,
+          profitHistory: [...state.profitHistory, result.profitEntry],
+        });
+
+        // Mark day as completed
+        updated.status = "COMPLETED";
+        updated.rating = result.rating;
+        await upsertDayRecord(input.workspace, updated);
+
+        // Handle gift days if excess profit
+        if (completion.excessProfit > 0) {
+          const gifts = calculateGiftDays(
+            completion.excessProfit,
+            state.currentDayIndex + 1,
+            result.tradingPool,
+            state.targetPercent,
+            (idx) => result.tradingPool * Math.pow(1 + state.targetPercent / 100, idx - state.currentDayIndex),
+            input.workspace
+          );
+
+          for (const giftDay of gifts.giftDays) {
+            await upsertDayRecord(input.workspace, giftDay);
+          }
+
+          if (gifts.giftDays.length > 0) {
+            await updateCapitalState(input.workspace, {
+              currentDayIndex: state.currentDayIndex + 1 + gifts.giftDays.length,
+              tradingPool: gifts.finalTradingPool,
+            });
+          }
+        }
+
+        return { trade, day: updated, dayCompleted: true, giftDays: completion.excessProfit > 0 };
+      }
+
+      // Check for clawback (significant loss)
+      if (updated.totalPnl < 0 && Math.abs(updated.totalPnl) >= updated.targetAmount) {
+        const clawback = processClawback(updated.totalPnl, state);
+
+        await updateCapitalState(input.workspace, {
+          tradingPool: clawback.newTradingPool,
+          currentDayIndex: clawback.newDayIndex,
+          profitHistory: clawback.updatedHistory,
+        });
+
+        // Delete consumed day records
+        if (clawback.consumedDayIndices.length > 0) {
+          for (const idx of clawback.consumedDayIndices) {
+            await deleteDayRecordsFrom(input.workspace, idx);
+          }
+        }
+
+        return { trade, day: updated, dayCompleted: false, clawback: true };
+      }
+
+      return { trade, day: updated, dayCompleted: false };
+    }),
+
+  /** Exit all open trades. */
+  exitAll: publicProcedure
+    .input(z.object({
+      workspace: workspaceSchema,
+      exitPrices: z.record(z.string(), z.number()), // tradeId → exitPrice
+    }))
+    .mutation(async ({ input }) => {
+      const day = await ensureCurrentDay(input.workspace);
+      const openTrades = day.trades.filter((t) => t.status === "OPEN");
+      const results = [];
+
+      for (const trade of openTrades) {
+        const exitPrice = input.exitPrices[trade.id] ?? trade.ltp;
+        // Delegate to exitTrade logic inline
+        const isBuy = trade.type.includes("BUY");
+        const direction = isBuy ? 1 : -1;
+        const grossPnl = (exitPrice - trade.entryPrice) * trade.qty * direction;
+
+        const chargeRates = await getChargeRates();
+        const charges = calculateTradeCharges(
+          {
+            entryPrice: trade.entryPrice,
+            exitPrice,
+            qty: trade.qty,
+            isBuy,
+            exchange: trade.instrument.includes("CRUDE") || trade.instrument.includes("NATURAL") ? "MCX" : "NSE",
+          },
+          chargeRates
+        );
+
+        trade.exitPrice = exitPrice;
+        trade.pnl = Math.round((grossPnl - charges.total) * 100) / 100;
+        trade.charges = charges.total;
+        trade.chargesBreakdown = charges.breakdown;
+        trade.unrealizedPnl = 0;
+        trade.status = "CLOSED_MANUAL";
+        trade.closedAt = Date.now();
+
+        results.push({ tradeId: trade.id, pnl: trade.pnl, charges: charges.total });
+      }
+
+      const updated = recalculateDayAggregates(day);
+      await upsertDayRecord(input.workspace, updated);
+
+      // Update cumulative state
+      const state = await getCapitalState(input.workspace);
+      const totalPnl = results.reduce((sum, r) => sum + r.pnl, 0);
+      const totalCharges = results.reduce((sum, r) => sum + r.charges, 0);
+      await updateCapitalState(input.workspace, {
+        sessionPnl: state.sessionPnl + totalPnl,
+        cumulativePnl: state.cumulativePnl + totalPnl,
+        cumulativeCharges: state.cumulativeCharges + totalCharges,
+      });
+
+      return { results, day: updated };
+    }),
+
+  /** Update LTP for open trades (called by polling). */
+  updateLtp: publicProcedure
+    .input(z.object({
+      workspace: workspaceSchema,
+      prices: z.record(z.string(), z.number()), // tradeId → ltp
+    }))
+    .mutation(async ({ input }) => {
+      const day = await ensureCurrentDay(input.workspace);
+      let changed = false;
+
+      for (const trade of day.trades) {
+        if (trade.status === "OPEN" && input.prices[trade.id] !== undefined) {
+          trade.ltp = input.prices[trade.id];
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        const updated = recalculateDayAggregates(day);
+        await upsertDayRecord(input.workspace, updated);
+        return updated;
+      }
+
+      return day;
+    }),
+});
