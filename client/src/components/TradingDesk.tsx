@@ -10,7 +10,7 @@
  *
  * Data: Wired to tRPC capital.* endpoints with mock fallbacks.
  */
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { trpc } from '@/lib/trpc';
 import {
   Plus,
@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import NewTradeForm from './NewTradeForm';
 import { TradingDeskSkeleton, NoTradesEmpty, NoCapitalEmpty, ErrorState } from './LoadingStates';
+import { useTickStream } from '@/hooks/useTickStream';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -142,15 +143,53 @@ function pnlColor(n: number): string {
   return 'text-muted-foreground';
 }
 
+// ─── Instrument Name Mapping ────────────────────────────────────
+
+/** Map UI instrument names (from NewTradeForm) to resolvedInstruments names */
+const UI_TO_RESOLVED: Record<string, string> = {
+  'NIFTY 50': 'NIFTY_50',
+  'BANK NIFTY': 'BANKNIFTY',
+  'CRUDE OIL': 'CRUDEOIL',
+  'NATURAL GAS': 'NATURALGAS',
+};
+
+export interface ResolvedInstrument {
+  name: string;
+  securityId: string;
+  exchange: string;
+  mode: string;
+}
+
 // ─── Main Component ──────────────────────────────────────────────
 
-export default function TradingDesk() {
+export default function TradingDesk({ resolvedInstruments }: { resolvedInstruments?: ResolvedInstrument[] }) {
   const [workspace, setWorkspace] = useState<Workspace>('live');
   const [showNewTrade, setShowNewTrade] = useState(false);
   const [expandedDay, setExpandedDay] = useState<number | null>(null);
   const [showNet, setShowNet] = useState(true);
 
   const utils = trpc.useUtils();
+  const { getTick } = useTickStream();
+
+  // ─── Instrument → Feed Lookup ──────────────────────────────
+  /** Map from resolved instrument name → {exchange, securityId} */
+  const feedLookup = useMemo(() => {
+    const map = new Map<string, { exchange: string; securityId: string }>();
+    if (resolvedInstruments) {
+      for (const ri of resolvedInstruments) {
+        map.set(ri.name, { exchange: ri.exchange, securityId: ri.securityId });
+      }
+    }
+    return map;
+  }, [resolvedInstruments]);
+
+  /** Get live LTP for a trade's instrument (UI name like "NIFTY 50") */
+  const getLiveLtp = useCallback((uiInstrument: string): number | undefined => {
+    const resolvedName = UI_TO_RESOLVED[uiInstrument] ?? uiInstrument;
+    const feed = feedLookup.get(resolvedName);
+    if (!feed) return undefined;
+    return getTick(feed.exchange, feed.securityId)?.ltp;
+  }, [feedLookup, getTick]);
 
   // ─── tRPC Queries ───────────────────────────────────────────
   const stateQuery = trpc.capital.state.useQuery(
@@ -210,6 +249,31 @@ export default function TradingDesk() {
   const isLive = !!stateQuery.data;
   const isLoading = stateQuery.isLoading && !stateQuery.data;
 
+  // ─── Sync LTP to server (every 2s for capital engine accuracy) ─
+  const updateLtpMutation = trpc.capital.updateLtp.useMutation();
+  const ltpSyncRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (ltpSyncRef.current) clearInterval(ltpSyncRef.current);
+    ltpSyncRef.current = setInterval(() => {
+      const currentDay = allDaysQuery.data?.currentDay;
+      if (!currentDay?.trades) return;
+      const openTrades = currentDay.trades.filter((t: any) => t.status === 'OPEN');
+      if (openTrades.length === 0) return;
+      const prices: Record<string, number> = {};
+      for (const trade of openTrades) {
+        const ltp = getLiveLtp(trade.instrument);
+        if (ltp !== undefined) prices[trade.id] = ltp;
+      }
+      if (Object.keys(prices).length > 0) {
+        updateLtpMutation.mutate({ workspace, prices });
+      }
+    }, 2000);
+    return () => {
+      if (ltpSyncRef.current) clearInterval(ltpSyncRef.current);
+    };
+  }, [workspace, allDaysQuery.data, getLiveLtp]);
+
   // ─── Handlers ───────────────────────────────────────────────
   const handlePlaceTrade = useCallback(async (trade: {
     instrument: string;
@@ -231,10 +295,11 @@ export default function TradingDesk() {
   }, [workspace, placeTradeMutation]);
 
   const handleExitTrade = useCallback(async (tradeId: string) => {
-    // Find the trade to get its LTP for exit price
+    // Find the trade and use live LTP for exit price
     const currentDay = allDaysQuery.data?.currentDay;
     const trade = currentDay?.trades?.find((t: any) => t.id === tradeId);
-    const exitPrice = trade?.ltp ?? trade?.entryPrice ?? 0;
+    const liveLtp = trade ? getLiveLtp(trade.instrument) : undefined;
+    const exitPrice = liveLtp ?? trade?.ltp ?? trade?.entryPrice ?? 0;
 
     if (exitPrice <= 0) return;
 
@@ -244,7 +309,7 @@ export default function TradingDesk() {
       exitPrice,
       reason: 'MANUAL',
     });
-  }, [workspace, allDaysQuery.data, exitTradeMutation]);
+  }, [workspace, allDaysQuery.data, exitTradeMutation, getLiveLtp]);
 
   // ─── Loading State ──────────────────────────────────────────
   if (isLoading) {
@@ -380,6 +445,7 @@ export default function TradingDesk() {
                   onExitTrade={handleExitTrade}
                   showNet={showNet}
                   exitLoading={exitTradeMutation.isPending}
+                  getLiveLtp={getLiveLtp}
                 />
               ))}
               {showNewTrade && (
@@ -438,6 +504,7 @@ function DayRow({
   onExitTrade,
   showNet,
   exitLoading,
+  getLiveLtp,
 }: {
   day: DayRecord;
   isToday: boolean;
@@ -446,6 +513,7 @@ function DayRow({
   onExitTrade: (tradeId: string) => void;
   showNet: boolean;
   exitLoading?: boolean;
+  getLiveLtp: (instrument: string) => number | undefined;
 }) {
   const rowBg = isToday
     ? 'bg-primary/5 border-l-2 border-l-primary'
@@ -558,6 +626,7 @@ function DayRow({
               onExit={() => onExitTrade(trade.id)}
               showNet={showNet}
               exitLoading={exitLoading}
+              getLiveLtp={getLiveLtp}
             />
           ))}
         </>
@@ -573,17 +642,26 @@ function TradeRow({
   onExit,
   showNet,
   exitLoading,
+  getLiveLtp,
 }: {
   trade: TradeRecord;
   onExit: () => void;
   showNet: boolean;
   exitLoading?: boolean;
+  getLiveLtp: (instrument: string) => number | undefined;
 }) {
   const isOpen = trade.status === 'OPEN';
   const isBuy = trade.type.includes('BUY');
-  const pnl = isOpen ? trade.unrealizedPnl : (showNet ? trade.pnl : trade.pnl + trade.charges);
+  // Use live LTP for open trades, fall back to server LTP
+  const liveLtp = isOpen ? getLiveLtp(trade.instrument) : undefined;
+  const displayLtp = liveLtp ?? trade.ltp;
+  // Recalculate unrealized P&L with live LTP
+  const liveUnrealizedPnl = isOpen
+    ? (isBuy ? (displayLtp - trade.entryPrice) : (trade.entryPrice - displayLtp)) * trade.qty
+    : 0;
+  const pnl = isOpen ? liveUnrealizedPnl : (showNet ? trade.pnl : trade.pnl + trade.charges);
   const pnlPercent = trade.entryPrice > 0
-    ? ((isOpen ? trade.unrealizedPnl : trade.pnl) / (trade.entryPrice * trade.qty) * 100)
+    ? ((isOpen ? liveUnrealizedPnl : trade.pnl) / (trade.entryPrice * trade.qty) * 100)
     : 0;
 
   return (
@@ -621,9 +699,16 @@ function TradeRow({
       </td>
       {/* LTP */}
       <td className={`px-2 py-1.5 text-right tabular-nums font-medium ${
-        isOpen ? (trade.ltp >= trade.entryPrice ? 'text-bullish' : 'text-destructive') : 'text-muted-foreground'
+        isOpen ? (displayLtp >= trade.entryPrice ? 'text-bullish' : 'text-destructive') : 'text-muted-foreground'
       }`}>
-        {isOpen ? trade.ltp.toFixed(2) : (trade.exitPrice?.toFixed(2) ?? '—')}
+        {isOpen ? (
+          <>
+            {displayLtp.toFixed(2)}
+            {liveLtp !== undefined && (
+              <span className="ml-0.5 inline-block h-1 w-1 rounded-full bg-bullish animate-pulse" />
+            )}
+          </>
+        ) : (trade.exitPrice?.toFixed(2) ?? '—')}
       </td>
       {/* Qty */}
       <td className="px-2 py-1.5 text-right tabular-nums text-foreground">{trade.qty}</td>

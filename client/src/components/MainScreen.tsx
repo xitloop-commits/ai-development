@@ -260,7 +260,7 @@ export default function MainScreen() {
         {/* Center: Trading Desk — fills remaining space */}
         <main className="flex-1 overflow-y-auto">
           <ErrorBoundary section="Trading Desk">
-            <TradingDesk />
+            <TradingDesk resolvedInstruments={resolvedInstruments} />
           </ErrorBoundary>
         </main>
 
