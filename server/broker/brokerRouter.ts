@@ -3,10 +3,12 @@
  *
  * Exposes the Broker Service to the frontend via tRPC procedures.
  * All order/position/margin calls route through the active adapter.
+ * Feed sub-router provides live tick data via SSE subscriptions.
  */
 
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { tracked } from "@trpc/server";
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import {
   getActiveBroker,
@@ -22,7 +24,8 @@ import {
   updateBrokerSettings,
   updateBrokerCredentials,
 } from "./brokerConfig";
-import type { OrderParams, ModifyParams } from "./types";
+import { tickBus } from "./tickBus";
+import type { OrderParams, ModifyParams, TickData } from "./types";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -78,6 +81,16 @@ const brokerSettingsSchema = z.object({
   defaultTP: z.number().min(0).max(100).optional(),
   orderType: z.enum(["LIMIT", "MARKET", "SL", "SL-M"]).optional(),
   productType: z.enum(["INTRADAY", "CNC", "MARGIN"]).optional(),
+});
+
+const subscribeParamsSchema = z.object({
+  instruments: z.array(
+    z.object({
+      securityId: z.string(),
+      exchange: z.enum(["NSE_FNO", "BSE_FNO", "MCX_COMM"]),
+      mode: z.enum(["ticker", "quote", "full"]).optional(),
+    })
+  ),
 });
 
 // ─── Router ─────────────────────────────────────────────────────
@@ -309,4 +322,142 @@ export const brokerRouter = router({
       const broker = requireBroker();
       return broker.getOptionChain(input.underlying, input.expiry);
     }),
+
+  // ── Feed (Live Market Data) ─────────────────────────────────
+
+  feed: router({
+    /** Subscribe instruments to the broker's WebSocket feed. */
+    subscribe: publicProcedure
+      .input(subscribeParamsSchema)
+      .mutation(({ input }) => {
+        const broker = requireBroker();
+        broker.subscribeLTP(input.instruments, (tick) => {
+          tickBus.emitTick(tick);
+        });
+        return {
+          success: true,
+          count: input.instruments.length,
+          message: `Subscribed ${input.instruments.length} instruments`,
+        };
+      }),
+
+    /** Unsubscribe instruments from the broker's WebSocket feed. */
+    unsubscribe: publicProcedure
+      .input(subscribeParamsSchema)
+      .mutation(({ input }) => {
+        const broker = requireBroker();
+        broker.unsubscribeLTP(input.instruments);
+        return {
+          success: true,
+          count: input.instruments.length,
+          message: `Unsubscribed ${input.instruments.length} instruments`,
+        };
+      }),
+
+    /** Get current subscription state (count, ws status). */
+    state: publicProcedure.query(() => {
+      const broker = requireBroker();
+      const state = broker.getSubscriptionState?.();
+      if (!state) {
+        return {
+          totalSubscriptions: 0,
+          maxSubscriptions: 200,
+          wsConnected: false,
+          instruments: [] as string[],
+        };
+      }
+      return {
+        totalSubscriptions: state.totalSubscriptions,
+        maxSubscriptions: state.maxSubscriptions,
+        wsConnected: state.wsConnected,
+        instruments: Array.from(state.instruments.keys()),
+      };
+    }),
+
+    /** Get all latest cached ticks (snapshot). */
+    snapshot: publicProcedure.query(() => {
+      return tickBus.getAllTicks();
+    }),
+
+    /** SSE subscription: streams live ticks to the frontend. */
+    onTick: publicProcedure.subscription(async function* () {
+      let tickResolve: ((tick: TickData) => void) | null = null;
+      const tickQueue: TickData[] = [];
+
+      const handler = (tick: TickData) => {
+        if (tickResolve) {
+          const resolve = tickResolve;
+          tickResolve = null;
+          resolve(tick);
+        } else {
+          // Buffer up to 500 ticks to prevent memory issues
+          if (tickQueue.length < 500) {
+            tickQueue.push(tick);
+          }
+        }
+      };
+
+      tickBus.on("tick", handler);
+
+      try {
+        while (true) {
+          let tick: TickData;
+          if (tickQueue.length > 0) {
+            tick = tickQueue.shift()!;
+          } else {
+            tick = await new Promise<TickData>((resolve) => {
+              tickResolve = resolve;
+            });
+          }
+          const id = `${tick.exchange}:${tick.securityId}:${tick.timestamp}`;
+          yield tracked(id, tick);
+        }
+      } finally {
+        tickBus.off("tick", handler);
+      }
+    }),
+
+    /** SSE subscription: streams order updates to the frontend. */
+    onOrderUpdate: publicProcedure.subscription(async function* () {
+      type OrderUpdateData = {
+        orderId: string;
+        status: string;
+        filledQuantity: number;
+        averagePrice: number;
+        timestamp: number;
+      };
+
+      let resolve: ((update: OrderUpdateData) => void) | null = null;
+      const queue: OrderUpdateData[] = [];
+
+      const handler = (update: OrderUpdateData) => {
+        if (resolve) {
+          const r = resolve;
+          resolve = null;
+          r(update);
+        } else if (queue.length < 100) {
+          queue.push(update);
+        }
+      };
+
+      tickBus.on("orderUpdate", handler);
+
+      try {
+        while (true) {
+          let update: OrderUpdateData;
+          if (queue.length > 0) {
+            update = queue.shift()!;
+          } else {
+            update = await new Promise<OrderUpdateData>((r) => {
+              resolve = r;
+            });
+          }
+          const id = `${update.orderId}:${update.timestamp}`;
+          yield tracked(id, update);
+        }
+      } finally {
+        tickBus.off("orderUpdate", handler);
+      }
+    }),
+  }),
 });

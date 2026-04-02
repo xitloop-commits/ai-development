@@ -14,6 +14,7 @@ import {
   getBrokerConfig,
   setActiveBroker as setActiveBrokerInDB,
 } from "./brokerConfig";
+import { tickBus } from "./tickBus";
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ export async function initBrokerService(): Promise<void> {
   try {
     activeAdapter = factory();
     await activeAdapter.connect();
+    wireTickBus(activeAdapter);
     console.log(
       `[BrokerService] Active adapter loaded: ${activeAdapter.displayName} (${activeAdapter.brokerId})`
     );
@@ -136,6 +138,7 @@ export async function switchBroker(brokerId: string): Promise<BrokerAdapter> {
   // Create and connect new adapter
   activeAdapter = factory();
   await activeAdapter.connect();
+  wireTickBus(activeAdapter);
   killSwitchActive = false;
 
   console.log(
@@ -231,6 +234,19 @@ export async function getBrokerServiceStatus(): Promise<BrokerServiceStatus> {
     killSwitchActive,
     registeredAdapters: getRegisteredAdapters(),
   };
+}
+
+// ─── Tick Bus Wiring ───────────────────────────────────────────
+
+/**
+ * Wire the adapter's order update callback to the global tick bus.
+ * Tick subscription wiring happens via broker.feed.subscribe tRPC mutation.
+ */
+function wireTickBus(adapter: BrokerAdapter): void {
+  adapter.onOrderUpdate((update) => {
+    tickBus.emitOrderUpdate(update);
+  });
+  console.log(`[BrokerService] TickBus wired for ${adapter.brokerId}`);
 }
 
 // ─── Reset (for testing) ────────────────────────────────────────

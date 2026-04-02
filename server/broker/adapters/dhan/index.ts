@@ -79,6 +79,11 @@ import {
   calculateBracketPrices,
 } from "./utils";
 
+import { DhanWebSocket } from "./websocket";
+import { SubscriptionManager } from "./subscriptionManager";
+import { GreeksPoller } from "./greeksPoller";
+import type { SubscriptionState, TickData, FeedMode } from "../../types";
+
 // ─── DhanAdapter ───────────────────────────────────────────────
 
 export class DhanAdapter implements BrokerAdapter {
@@ -95,6 +100,12 @@ export class DhanAdapter implements BrokerAdapter {
 
   // Rate limiter for Dhan API calls
   private rateLimiter = new RateLimiter(10, 250);
+
+  // WebSocket, Subscription Manager, Greeks Poller
+  private ws: DhanWebSocket | null = null;
+  private subManager: SubscriptionManager | null = null;
+  private greeksPoller: GreeksPoller | null = null;
+  private tickCallback: TickCallback | null = null;
 
   // ── Auth ──────────────────────────────────────────────────────
 
@@ -624,17 +635,124 @@ export class DhanAdapter implements BrokerAdapter {
 
   // ── Real-time (WebSocket) ─────────────────────────────────────
 
-  subscribeLTP(_instruments: SubscribeParams[], _callback: TickCallback): void {
-    console.log("[DhanAdapter] subscribeLTP: Will be implemented in WebSocket step");
+  subscribeLTP(instruments: SubscribeParams[], callback: TickCallback): void {
+    this.tickCallback = callback;
+
+    if (!this.subManager) {
+      console.warn("[DhanAdapter] SubscriptionManager not initialized. Call connect() first.");
+      return;
+    }
+
+    this.subManager.subscribeManual(
+      instruments.map((i) => ({
+        exchange: i.exchange,
+        securityId: i.securityId,
+        mode: i.mode || "full",
+      }))
+    );
   }
 
-  unsubscribeLTP(_instruments: SubscribeParams[]): void {
-    console.log("[DhanAdapter] unsubscribeLTP: Will be implemented in WebSocket step");
+  unsubscribeLTP(instruments: SubscribeParams[]): void {
+    if (!this.subManager) return;
+
+    this.subManager.unsubscribeManual(
+      instruments.map((i) => ({
+        exchange: i.exchange,
+        securityId: i.securityId,
+      }))
+    );
   }
 
   onOrderUpdate(callback: OrderUpdateCallback): void {
     this.orderUpdateCb = callback;
-    console.log("[DhanAdapter] onOrderUpdate: Callback registered (WebSocket step)");
+    console.log("[DhanAdapter] onOrderUpdate: Callback registered");
+  }
+
+  getSubscriptionState(): SubscriptionState {
+    return {
+      totalSubscriptions: this.ws?.subscriptionCount ?? 0,
+      maxSubscriptions: 200,
+      instruments: new Map(),
+      wsConnected: this.ws?.connected ?? false,
+    };
+  }
+
+  async connectFeed(): Promise<void> {
+    if (!this.accessToken || !this.clientId) {
+      console.warn("[DhanAdapter] Cannot connect feed — no credentials.");
+      return;
+    }
+
+    // Initialize WebSocket
+    this.ws = new DhanWebSocket({
+      accessToken: this.accessToken,
+      clientId: this.clientId,
+      onTick: (tick: TickData) => {
+        if (this.tickCallback) this.tickCallback(tick);
+      },
+      onPrevClose: () => {},
+      onDisconnect: (code, reason) => {
+        console.warn(`[DhanAdapter] WS disconnected: ${reason} (${code})`);
+        updateBrokerConnection(this.brokerId, { wsStatus: "disconnected" });
+      },
+      onError: (err) => {
+        console.error(`[DhanAdapter] WS error: ${err.message}`);
+        updateBrokerConnection(this.brokerId, { wsStatus: "error" });
+      },
+      onConnected: () => {
+        updateBrokerConnection(this.brokerId, {
+          wsStatus: "connected",
+          lastWsTick: Date.now(),
+        });
+      },
+    });
+
+    // Initialize Subscription Manager
+    this.subManager = new SubscriptionManager({
+      onSubscribe: (instruments) => {
+        if (this.ws) this.ws.subscribe(instruments);
+      },
+      onUnsubscribe: (instruments) => {
+        if (this.ws) this.ws.unsubscribe(instruments);
+      },
+    });
+
+    // Initialize Greeks Poller
+    this.greeksPoller = new GreeksPoller({
+      accessToken: this.accessToken,
+      clientId: this.clientId,
+      pollIntervalMs: 60_000,
+      onGreeksUpdate: (snapshot) => {
+        console.log(`[DhanAdapter] Greeks update: ${snapshot.underlying} (${snapshot.strikes.length} strikes)`);
+      },
+      onError: (err) => {
+        console.error(`[DhanAdapter] Greeks poll error: ${err.message}`);
+      },
+    });
+
+    // Connect WebSocket
+    try {
+      await this.ws.connect();
+      this.greeksPoller.start();
+      console.log("[DhanAdapter] Feed connected (WS + Greeks poller)");
+    } catch (err) {
+      console.error("[DhanAdapter] Feed connection failed:", err);
+      await updateBrokerConnection(this.brokerId, { wsStatus: "error" });
+    }
+  }
+
+  async disconnectFeed(): Promise<void> {
+    if (this.ws) {
+      await this.ws.disconnect();
+      this.ws = null;
+    }
+    if (this.greeksPoller) {
+      this.greeksPoller.stop();
+      this.greeksPoller = null;
+    }
+    this.subManager = null;
+    await updateBrokerConnection(this.brokerId, { wsStatus: "disconnected" });
+    console.log("[DhanAdapter] Feed disconnected.");
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────
@@ -688,6 +806,9 @@ export class DhanAdapter implements BrokerAdapter {
       console.log(
         `[DhanAdapter] Connected. Client: ${this.clientId}, Balance: ₹${validation.fundData?.availabelBalance ?? "N/A"}`
       );
+
+      // Auto-connect WebSocket feed after successful API auth
+      await this.connectFeed();
     } else {
       console.error(`[DhanAdapter] Token validation failed: ${validation.error}`);
       await handleDhan401(this.brokerId);
@@ -695,11 +816,15 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   async disconnect(): Promise<void> {
+    // Disconnect feed first
+    await this.disconnectFeed();
+
     this.accessToken = "";
     this.clientId = "";
     this.tokenUpdatedAt = 0;
     this.killSwitchActive = false;
     this.orderUpdateCb = null;
+    this.tickCallback = null;
 
     await updateBrokerConnection(this.brokerId, {
       apiStatus: "disconnected",

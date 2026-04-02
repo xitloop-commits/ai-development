@@ -26,7 +26,9 @@ import type {
   OptionChainData,
   SubscribeParams,
   TickCallback,
+  TickData,
   OrderUpdateCallback,
+  SubscriptionState,
   ScripMasterStatusResult,
   SecurityLookupParams,
   SecurityLookupResult,
@@ -46,6 +48,9 @@ export class MockAdapter implements BrokerAdapter {
   private orderBook: MockOrderBook;
   private connected = false;
   private killSwitchActive = false;
+  private tickTimer: ReturnType<typeof setInterval> | null = null;
+  private tickCallback: TickCallback | null = null;
+  private subscribedInstruments = new Map<string, SubscribeParams>();
 
   constructor(initialMargin: number = DEFAULT_INITIAL_MARGIN) {
     this.orderBook = new MockOrderBook(initialMargin);
@@ -283,16 +288,73 @@ export class MockAdapter implements BrokerAdapter {
 
   // ── Real-time (WebSocket) ─────────────────────────────────────
 
-  subscribeLTP(
-    _instruments: SubscribeParams[],
-    _callback: TickCallback
-  ): void {
-    // No-op in mock adapter — no real-time data
-    console.log("[MockAdapter] subscribeLTP called (no-op in paper mode)");
+  subscribeLTP(instruments: SubscribeParams[], callback: TickCallback): void {
+    this.tickCallback = callback;
+    for (const inst of instruments) {
+      this.subscribedInstruments.set(`${inst.exchange}:${inst.securityId}`, inst);
+    }
+    if (!this.tickTimer && this.subscribedInstruments.size > 0) {
+      this.startTickSimulation();
+    }
+    console.log(`[MockAdapter] subscribeLTP: ${instruments.length} instruments`);
   }
 
-  unsubscribeLTP(_instruments: SubscribeParams[]): void {
-    // No-op
+  unsubscribeLTP(instruments: SubscribeParams[]): void {
+    for (const inst of instruments) {
+      this.subscribedInstruments.delete(`${inst.exchange}:${inst.securityId}`);
+    }
+    if (this.subscribedInstruments.size === 0 && this.tickTimer) {
+      clearInterval(this.tickTimer);
+      this.tickTimer = null;
+    }
+  }
+
+  getSubscriptionState(): SubscriptionState {
+    return {
+      totalSubscriptions: this.subscribedInstruments.size,
+      maxSubscriptions: 200,
+      instruments: new Map(),
+      wsConnected: this.connected,
+    };
+  }
+
+  private startTickSimulation(): void {
+    const basePrices = new Map<string, number>();
+    this.tickTimer = setInterval(() => {
+      if (!this.tickCallback) return;
+      for (const [key, inst] of Array.from(this.subscribedInstruments)) {
+        if (!basePrices.has(key)) basePrices.set(key, 100 + Math.random() * 400);
+        const base = basePrices.get(key)!;
+        const jitter = (Math.random() - 0.5) * base * 0.005;
+        const ltp = Math.round((base + jitter) * 100) / 100;
+        basePrices.set(key, ltp);
+        const tick: TickData = {
+          securityId: inst.securityId,
+          exchange: inst.exchange,
+          ltp,
+          ltq: Math.floor(Math.random() * 100) + 1,
+          ltt: Math.floor(Date.now() / 1000),
+          atp: ltp,
+          volume: Math.floor(Math.random() * 100000),
+          totalSellQty: Math.floor(Math.random() * 50000),
+          totalBuyQty: Math.floor(Math.random() * 50000),
+          oi: Math.floor(Math.random() * 500000),
+          highOI: Math.floor(Math.random() * 600000),
+          lowOI: Math.floor(Math.random() * 400000),
+          dayOpen: ltp * 0.99,
+          dayClose: 0,
+          dayHigh: ltp * 1.01,
+          dayLow: ltp * 0.98,
+          prevClose: ltp * 0.995,
+          prevOI: Math.floor(Math.random() * 500000),
+          depth: [],
+          bidPrice: ltp - 0.05,
+          askPrice: ltp + 0.05,
+          timestamp: Date.now(),
+        };
+        this.tickCallback(tick);
+      }
+    }, 2000);
   }
 
   onOrderUpdate(callback: OrderUpdateCallback): void {
@@ -307,6 +369,12 @@ export class MockAdapter implements BrokerAdapter {
   }
 
   async disconnect(): Promise<void> {
+    if (this.tickTimer) {
+      clearInterval(this.tickTimer);
+      this.tickTimer = null;
+    }
+    this.tickCallback = null;
+    this.subscribedInstruments.clear();
     this.connected = false;
     console.log("[MockAdapter] Disconnected");
   }

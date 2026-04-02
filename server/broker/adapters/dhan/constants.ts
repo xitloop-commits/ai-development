@@ -7,6 +7,7 @@
 // ─── Base URLs ─────────────────────────────────────────────────
 
 export const DHAN_API_BASE = "https://api.dhan.co/v2";
+export const DHAN_WS_FEED_URL = "wss://api-feed.dhan.co";
 
 // ─── Endpoints ─────────────────────────────────────────────────
 
@@ -113,3 +114,78 @@ export const DHAN_ERROR_TYPES = {
   RATE_LIMITED: "DH-904",
   ORDER_REJECTED: "DH-905",
 } as const;
+
+// ─── WebSocket Feed Constants ─────────────────────────────────
+
+/** Feed Request Codes (JSON messages sent to server) */
+export const DHAN_FEED_REQUEST = {
+  CONNECT: 11,
+  DISCONNECT: 12,
+  SUBSCRIBE_TICKER: 15,
+  UNSUBSCRIBE_TICKER: 16,
+  SUBSCRIBE_QUOTE: 17,
+  UNSUBSCRIBE_QUOTE: 18,
+  SUBSCRIBE_FULL: 21,
+  UNSUBSCRIBE_FULL: 22,
+  SUBSCRIBE_DEPTH: 23,
+  UNSUBSCRIBE_DEPTH: 25,
+} as const;
+
+/** Feed Response Codes (binary header byte 0) */
+export const DHAN_FEED_RESPONSE = {
+  INDEX: 1,
+  TICKER: 2,
+  QUOTE: 4,
+  OI: 5,
+  PREV_CLOSE: 6,
+  MARKET_STATUS: 7,
+  FULL: 8,
+  DISCONNECT: 50,
+} as const;
+
+/** Exchange Segment numeric codes for WS binary header byte 3 */
+export const DHAN_WS_EXCHANGE_SEGMENT: Record<number, string> = {
+  0: "IDX_I",
+  1: "NSE_EQ",
+  2: "NSE_FNO",
+  3: "NSE_CURRENCY",
+  4: "BSE_EQ",
+  5: "MCX_COMM",
+  7: "BSE_CURRENCY",
+  8: "BSE_FNO",
+};
+
+/** Reverse: exchange segment string → numeric code for subscribe messages */
+export const DHAN_WS_EXCHANGE_SEGMENT_CODE: Record<string, number> = {
+  IDX_I: 0,
+  NSE_EQ: 1,
+  NSE_FNO: 2,
+  NSE_CURRENCY: 3,
+  BSE_EQ: 4,
+  MCX_COMM: 5,
+  BSE_CURRENCY: 7,
+  BSE_FNO: 8,
+};
+
+/** WS Disconnect reason codes */
+export const DHAN_WS_DISCONNECT_CODES: Record<number, string> = {
+  804: "Instruments exceed limit",
+  805: "Too many connections",
+  806: "Data APIs not subscribed",
+  807: "Access token expired",
+  808: "Authentication failed",
+  809: "Access token invalid",
+  810: "Client ID invalid",
+};
+
+/** Max instruments per subscribe message */
+export const DHAN_WS_MAX_INSTRUMENTS_PER_MSG = 100;
+
+/** Max instruments per connection */
+export const DHAN_WS_MAX_INSTRUMENTS_PER_CONN = 5000;
+
+/** Ping interval from server (ms) */
+export const DHAN_WS_PING_INTERVAL_MS = 10_000;
+
+/** Connection timeout (ms) — server disconnects after 40s no pong */
+export const DHAN_WS_TIMEOUT_MS = 40_000;

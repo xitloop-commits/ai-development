@@ -163,20 +163,46 @@ export interface OptionChainData {
 
 // ─── Real-time Types ────────────────────────────────────────────
 
+export type FeedMode = "ticker" | "quote" | "full";
+
 export interface SubscribeParams {
   securityId: string;
   exchange: ExchangeSegment;
+  mode?: FeedMode; // default "full"
+}
+
+export interface MarketDepthLevel {
+  bidQty: number;
+  askQty: number;
+  bidOrders: number;
+  askOrders: number;
+  bidPrice: number;
+  askPrice: number;
 }
 
 export interface TickData {
   securityId: string;
   exchange: ExchangeSegment;
   ltp: number;
+  ltq: number; // last traded quantity
+  ltt: number; // last trade time (epoch seconds)
+  atp: number; // average trade price
   volume: number;
+  totalSellQty: number;
+  totalBuyQty: number;
   oi: number;
-  bidPrice: number;
-  askPrice: number;
-  timestamp: number; // UTC ms
+  highOI: number; // highest OI for the day (NSE_FNO)
+  lowOI: number; // lowest OI for the day (NSE_FNO)
+  dayOpen: number;
+  dayClose: number; // only post-market
+  dayHigh: number;
+  dayLow: number;
+  prevClose: number;
+  prevOI: number;
+  depth: MarketDepthLevel[]; // 5 levels
+  bidPrice: number; // best bid (depth[0].bidPrice shortcut)
+  askPrice: number; // best ask (depth[0].askPrice shortcut)
+  timestamp: number; // UTC ms (local receive time)
 }
 
 export type TickCallback = (data: TickData) => void;
@@ -190,6 +216,22 @@ export interface OrderUpdate {
 }
 
 export type OrderUpdateCallback = (update: OrderUpdate) => void;
+
+// ─── Subscription Manager Types ────────────────────────────────
+
+export interface SubscriptionState {
+  totalSubscriptions: number;
+  maxSubscriptions: number;
+  instruments: Map<string, { exchange: ExchangeSegment; mode: FeedMode }>;
+  wsConnected: boolean;
+}
+
+export interface ATMWindowConfig {
+  strikeWindow: number; // +/- strikes from ATM (default 10)
+  underlying: string; // e.g. "NIFTY", "BANKNIFTY"
+  expiry: string; // ISO date
+  exchange: ExchangeSegment;
+}
 
 // ─── Broker Config (MongoDB document shape) ─────────────────────
 
@@ -309,14 +351,23 @@ export interface BrokerAdapter {
   resolveMCXFutcom?(symbol: string): SecurityLookupResult | null;
 
   // ── Real-time (WebSocket) ─────────────────────────────────────
-  /** Subscribe to live LTP updates for instruments. */
+  /** Subscribe to live tick data for instruments. Mode: ticker (LTP only), quote (OHLCV+OI), full (+ depth). */
   subscribeLTP(instruments: SubscribeParams[], callback: TickCallback): void;
 
-  /** Unsubscribe from LTP updates. */
+  /** Unsubscribe from tick data updates. */
   unsubscribeLTP(instruments: SubscribeParams[]): void;
 
   /** Subscribe to real-time order status updates. */
   onOrderUpdate(callback: OrderUpdateCallback): void;
+
+  /** Get current subscription state (count, instruments, ws status). */
+  getSubscriptionState?(): SubscriptionState;
+
+  /** Connect the WebSocket feed (called automatically by connect(), or manually for reconnect). */
+  connectFeed?(): Promise<void>;
+
+  /** Disconnect the WebSocket feed without disconnecting the adapter. */
+  disconnectFeed?(): Promise<void>;
 
   // ── Lifecycle ─────────────────────────────────────────────────
   /** Initialize the adapter (validate token, connect WebSocket, etc.). */

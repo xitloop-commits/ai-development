@@ -63,3 +63,6 @@ export { brokerRouter } from "./brokerRouter";
 
 // REST Routes
 export { registerBrokerRoutes } from "./brokerRoutes";
+
+// Tick Bus
+export { tickBus } from "./tickBus";
