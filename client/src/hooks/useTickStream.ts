@@ -1,8 +1,9 @@
 /**
  * useTickStream — Live tick data hook
  *
- * Connects to the server's native WebSocket at /ws/ticks for
- * zero-latency LTP streaming. Falls back to tRPC polling if WS fails.
+ * Connects to /ws/ticks which forwards raw Dhan binary packets.
+ * Parses binary on the client side for zero-latency LTP display.
+ * Falls back to tRPC polling if WS fails.
  *
  * Usage:
  *   const { getTick, isConnected } = useTickStream();
@@ -44,6 +45,130 @@ export interface TickData {
   timestamp: number;
 }
 
+// ── Dhan binary constants ──────────────────────────────────────
+const EXCHANGE_SEGMENT: Record<number, string> = {
+  0: "IDX_I",
+  1: "NSE_EQ",
+  2: "NSE_FNO",
+  3: "NSE_CURRENCY",
+  4: "BSE_EQ",
+  5: "MCX_COMM",
+  7: "BSE_CURRENCY",
+  8: "BSE_FNO",
+};
+
+const RESPONSE = {
+  INDEX: 1,
+  TICKER: 2,
+  QUOTE: 4,
+  OI: 5,
+  PREV_CLOSE: 6,
+  FULL: 8,
+};
+
+// ── Binary parser ──────────────────────────────────────────────
+function parseBinaryPacket(buf: DataView, byteLen: number): { key: string; partial: Partial<TickData> } | null {
+  if (byteLen < 8) return null;
+
+  const responseCode = buf.getUint8(0);
+  const exchangeSeg = buf.getUint8(3);
+  const securityId = buf.getInt32(4, true); // little-endian
+
+  const exchange = EXCHANGE_SEGMENT[exchangeSeg] || "UNKNOWN";
+  const secId = String(securityId);
+  const key = `${exchange}:${secId}`;
+
+  switch (responseCode) {
+    case RESPONSE.INDEX:
+    case RESPONSE.TICKER:
+      return {
+        key,
+        partial: {
+          securityId: secId,
+          exchange,
+          ltp: buf.getFloat32(8, true),
+          ltt: buf.getInt32(12, true),
+          timestamp: Date.now(),
+        },
+      };
+
+    case RESPONSE.QUOTE:
+      if (byteLen < 50) return null;
+      return {
+        key,
+        partial: {
+          securityId: secId,
+          exchange,
+          ltp: buf.getFloat32(8, true),
+          ltq: buf.getInt16(12, true),
+          ltt: buf.getInt32(14, true),
+          atp: buf.getFloat32(18, true),
+          volume: buf.getInt32(22, true),
+          totalSellQty: buf.getInt32(26, true),
+          totalBuyQty: buf.getInt32(30, true),
+          dayOpen: buf.getFloat32(34, true),
+          dayClose: buf.getFloat32(38, true),
+          dayHigh: buf.getFloat32(42, true),
+          dayLow: buf.getFloat32(46, true),
+          timestamp: Date.now(),
+        },
+      };
+
+    case RESPONSE.OI:
+      if (byteLen < 12) return null;
+      return {
+        key,
+        partial: {
+          securityId: secId,
+          exchange,
+          oi: buf.getInt32(8, true),
+          timestamp: Date.now(),
+        },
+      };
+
+    case RESPONSE.PREV_CLOSE:
+      if (byteLen < 16) return null;
+      return {
+        key,
+        partial: {
+          securityId: secId,
+          exchange,
+          prevClose: buf.getFloat32(8, true),
+          prevOI: buf.getInt32(12, true),
+          timestamp: Date.now(),
+        },
+      };
+
+    case RESPONSE.FULL:
+      if (byteLen < 62) return null;
+      return {
+        key,
+        partial: {
+          securityId: secId,
+          exchange,
+          ltp: buf.getFloat32(8, true),
+          ltq: buf.getInt16(12, true),
+          ltt: buf.getInt32(14, true),
+          atp: buf.getFloat32(18, true),
+          volume: buf.getInt32(22, true),
+          totalSellQty: buf.getInt32(26, true),
+          totalBuyQty: buf.getInt32(30, true),
+          oi: buf.getInt32(34, true),
+          highOI: buf.getInt32(38, true),
+          lowOI: buf.getInt32(42, true),
+          dayOpen: buf.getFloat32(46, true),
+          dayClose: buf.getFloat32(50, true),
+          dayHigh: buf.getFloat32(54, true),
+          dayLow: buf.getFloat32(58, true),
+          timestamp: Date.now(),
+        },
+      };
+
+    default:
+      return null;
+  }
+}
+
 // ── Global tick store (shared across all hook instances) ─────────
 const tickStore = new Map<string, TickData>();
 const listeners: Array<() => void> = [];
@@ -66,6 +191,27 @@ function subscribe(listener: () => void) {
 
 function getSnapshot() {
   return storeVersion;
+}
+
+function mergeTick(key: string, partial: Partial<TickData>) {
+  const existing = tickStore.get(key);
+  if (existing) {
+    Object.assign(existing, partial);
+  } else {
+    tickStore.set(key, {
+      securityId: partial.securityId || "",
+      exchange: partial.exchange || "",
+      ltp: 0, ltq: 0, ltt: 0, atp: 0, volume: 0,
+      totalSellQty: 0, totalBuyQty: 0,
+      oi: 0, highOI: 0, lowOI: 0,
+      dayOpen: 0, dayClose: 0, dayHigh: 0, dayLow: 0,
+      prevClose: 0, prevOI: 0,
+      depth: [], bidPrice: 0, askPrice: 0,
+      timestamp: Date.now(),
+      ...partial,
+    } as TickData);
+  }
+  notifyListeners();
 }
 
 function ingestTick(tick: TickData) {
@@ -92,6 +238,7 @@ function connectWs() {
   }
 
   const ws = new WebSocket(getWsUrl());
+  ws.binaryType = "arraybuffer"; // receive binary as ArrayBuffer
   wsInstance = ws;
 
   ws.onopen = () => {
@@ -100,9 +247,19 @@ function connectWs() {
   };
 
   ws.onmessage = (event) => {
+    // Binary message — raw Dhan packet
+    if (event.data instanceof ArrayBuffer) {
+      const view = new DataView(event.data);
+      const result = parseBinaryPacket(view, event.data.byteLength);
+      if (result) {
+        mergeTick(result.key, result.partial);
+      }
+      return;
+    }
+
+    // Text message — JSON snapshot on connect
     try {
       const data = JSON.parse(event.data);
-      // Snapshot message (array of cached ticks on connect)
       if (data.type === "snapshot" && Array.isArray(data.ticks)) {
         let changed = false;
         for (const tick of data.ticks) {
@@ -113,12 +270,9 @@ function connectWs() {
           }
         }
         if (changed) notifyListeners();
-        return;
       }
-      // Single tick message
-      ingestTick(data as TickData);
     } catch {
-      // ignore parse errors
+      // ignore
     }
   };
 
@@ -126,13 +280,11 @@ function connectWs() {
     console.log("[TickWS] Disconnected, reconnecting in 1s...");
     wsConnected = false;
     wsInstance = null;
-    // Auto-reconnect
     if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
     wsReconnectTimer = setTimeout(connectWs, 1000);
   };
 
   ws.onerror = () => {
-    // onclose will fire after this
     wsConnected = false;
   };
 }
@@ -143,19 +295,17 @@ function disconnectWs() {
     wsReconnectTimer = null;
   }
   if (wsInstance) {
-    wsInstance.onclose = null; // prevent reconnect
+    wsInstance.onclose = null;
     wsInstance.close();
     wsInstance = null;
   }
   wsConnected = false;
 }
 
-// Track how many hook instances are active
 let hookRefCount = 0;
 
 // ── Hook ────────────────────────────────────────────────────────
 export function useTickStream(enabled = true) {
-  // Manage WS lifecycle based on hook mount/unmount
   useEffect(() => {
     if (!enabled) return;
     hookRefCount++;
@@ -170,7 +320,7 @@ export function useTickStream(enabled = true) {
     };
   }, [enabled]);
 
-  // Polling fallback (only when WS is not connected, every 2s)
+  // Polling fallback (only when WS is not connected)
   const snapshotQuery = trpc.broker.feed.snapshot.useQuery(undefined, {
     enabled: enabled && !wsConnected,
     refetchInterval: 2000,
@@ -195,7 +345,6 @@ export function useTickStream(enabled = true) {
     }
   }, [snapshotQuery.data]);
 
-  // Re-render when store changes
   useSyncExternalStore(subscribe, getSnapshot);
 
   const getTick = useCallback(
@@ -218,7 +367,6 @@ export function useTickStream(enabled = true) {
   };
 }
 
-// Utility: get a single tick without hook (for non-React code)
 export function getTickFromStore(
   exchange: string,
   securityId: string

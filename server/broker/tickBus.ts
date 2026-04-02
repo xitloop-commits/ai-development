@@ -25,6 +25,11 @@ class TickBus extends EventEmitter {
     this.emit("tick", tick);
   }
 
+  /** Emit raw binary data for direct forwarding to browser clients */
+  emitRawBinary(data: Buffer): void {
+    this.emit("rawBinary", data);
+  }
+
   /** Emit an order update */
   emitOrderUpdate(update: OrderUpdate): void {
     this.emit("orderUpdate", update);

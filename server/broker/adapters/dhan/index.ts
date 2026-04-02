@@ -715,11 +715,17 @@ export class DhanAdapter implements BrokerAdapter {
     }
 
     // Initialize WebSocket
+    // Lazy import to avoid circular dependency
+    const { tickBus } = await import("../../tickBus");
+
     this.ws = new DhanWebSocket({
       accessToken: this.accessToken,
       clientId: this.clientId,
       onTick: (tick: TickData) => {
         if (this.tickCallback) this.tickCallback(tick);
+      },
+      onRawMessage: (data: Buffer) => {
+        tickBus.emitRawBinary(data);
       },
       onPrevClose: () => {},
       onDisconnect: (code, reason) => {

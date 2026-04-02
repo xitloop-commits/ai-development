@@ -37,6 +37,7 @@ interface DhanWSConfig {
   accessToken: string;
   clientId: string;
   onTick: (tick: TickData) => void;
+  onRawMessage?: (data: Buffer) => void;
   onPrevClose: (data: {
     securityId: string;
     exchange: ExchangeSegment;
@@ -234,6 +235,7 @@ export class DhanWebSocket extends EventEmitter {
       });
 
       this.ws.on("message", (data: Buffer) => {
+        if (this.config.onRawMessage) this.config.onRawMessage(data);
         this.handleBinaryMessage(data);
       });
 
