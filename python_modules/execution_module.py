@@ -43,6 +43,17 @@ except ImportError:
     WS_FEED_AVAILABLE = False
     print("[WARN] websocket_feed / momentum_engine not available. Real-time features disabled.")
 
+# Phase 4 imports: Session Manager + Feedback Loop
+try:
+    from session_manager import SessionManager
+    from performance_feedback import (
+        FeedbackLoop, log_trade_to_journal, create_trade_record, load_current_params
+    )
+    SESSION_AVAILABLE = True
+except ImportError:
+    SESSION_AVAILABLE = False
+    print("[WARN] session_manager / performance_feedback not available. Session features disabled.")
+
 # --- Configuration ---
 
 # Broker Service base URL (same server)
@@ -142,6 +153,9 @@ _momentum_engine = None
 # Pending entries waiting for timing confirmation
 # {instrument: {decision, oc, signal_time, ...}}
 PENDING_ENTRIES = {}
+
+# Session Manager instance
+_session_manager = None
 
 
 def log(message):
@@ -984,6 +998,21 @@ def execute_full_exit(instrument, position, option_chains, reason):
         "entryTime": position["entryTime"],
     })
 
+    # Phase 4: Log to Trade Journal
+    if SESSION_AVAILABLE:
+        try:
+            trade_record = create_trade_record(instrument, position, reason)
+            log_trade_to_journal(trade_record)
+        except Exception as e:
+            log(f"    [JOURNAL] Failed to log trade: {e}")
+
+    # Phase 4: Record P&L in Session Manager
+    if _session_manager:
+        try:
+            _session_manager.record_trade_pnl(round(total_pnl, 2))
+        except Exception as e:
+            log(f"    [SESSION] Failed to record P&L: {e}")
+
     return True
 
 
@@ -1302,10 +1331,11 @@ def process_pending_entries(option_chains):
 
 
 def main():
-    global _tick_feed, _momentum_engine
+    global _tick_feed, _momentum_engine, _session_manager
+    global MIN_CONFIDENCE, PROFIT_PARTIAL_EXIT_PCT, TRADE_AGE_FORCE_EXIT
 
     log("=" * 60)
-    log("Execution Module v4 — Phase 3 Real-Time Execution")
+    log("Execution Module v5 — Phase 4 Session & Learning")
     log(f"Broker URL: {BROKER_URL}")
     log(f"Dashboard URL: {DASHBOARD_URL}")
     log(f"Trading Mode: {'LIVE' if LIVE_TRADING else 'PAPER'}")
@@ -1346,7 +1376,40 @@ def main():
     else:
         log("Real-time features disabled (websocket_feed/momentum_engine not available).")
 
+    # Step 3: Start Session Manager
+    if SESSION_AVAILABLE:
+        try:
+            _session_manager = SessionManager()
+            _session_manager.start()
+            log("Session Manager started.")
+        except Exception as e:
+            log(f"Failed to start Session Manager: {e}")
+            _session_manager = None
+    else:
+        log("Session Manager not available.")
+
+    # Step 4: Run Feedback Loop (pre-market parameter tuning)
+    if SESSION_AVAILABLE:
+        try:
+            fb = FeedbackLoop()
+            report = fb.run_daily_analysis()
+            if report.get("status") not in ("disabled", "insufficient_data"):
+                # Apply tuned parameters
+                tuned = load_current_params()
+                if "MIN_CONFIDENCE" in tuned:
+                    MIN_CONFIDENCE = tuned["MIN_CONFIDENCE"]
+                if "PROFIT_PARTIAL_EXIT_PCT" in tuned:
+                    PROFIT_PARTIAL_EXIT_PCT = tuned["PROFIT_PARTIAL_EXIT_PCT"]
+                if "TRADE_AGE_FORCE_EXIT" in tuned:
+                    TRADE_AGE_FORCE_EXIT = tuned["TRADE_AGE_FORCE_EXIT"]
+                log(f"Tuned params applied: confidence={MIN_CONFIDENCE}, "
+                    f"partial_exit={PROFIT_PARTIAL_EXIT_PCT}%, "
+                    f"force_exit={TRADE_AGE_FORCE_EXIT}s")
+        except Exception as e:
+            log(f"Feedback Loop error: {e}")
+
     cycle = 0
+    carry_forward_done = False
     while True:
         cycle += 1
         log(f"\n--- Execution Cycle {cycle} at {datetime.now().strftime('%H:%M:%S')} ---")
@@ -1370,6 +1433,32 @@ def main():
         if PENDING_ENTRIES:
             process_pending_entries(option_chains)
 
+        # Phase 4: Check Session Manager — is trading allowed?
+        session_halted = False
+        if _session_manager:
+            session_status = _session_manager.get_session_status()
+            if session_status["trading_halted"]:
+                session_halted = True
+                if cycle % 12 == 1:  # Log every ~60 seconds
+                    log(f"  [SESSION] Trading HALTED: {session_status['halt_reason']}")
+                    log(f"  [SESSION] Daily P&L: {session_status['daily_realized_pnl']:+.2f} ({session_status['daily_pnl_pct']:+.2f}%)")
+
+        # Phase 4: Check Carry Forward timing (15:15 PM)
+        current_time = datetime.now().strftime("%H:%M")
+        if current_time >= "15:15" and not carry_forward_done:
+            if _session_manager:
+                log("  [CARRY_FORWARD] Evaluating open positions at 15:15...")
+                cf_results = _session_manager.evaluate_carry_forward(
+                    OPEN_POSITIONS, _momentum_engine, _tick_feed
+                )
+                for cf in cf_results:
+                    if cf["action"] == "FORCE_CLOSE":
+                        instrument = cf["instrument"]
+                        if instrument in OPEN_POSITIONS and OPEN_POSITIONS[instrument]["status"] == "OPEN":
+                            execute_full_exit(instrument, OPEN_POSITIONS[instrument], option_chains,
+                                            f"CARRY_FORWARD_CLOSE: {cf['reason']}")
+                carry_forward_done = True
+
         # Process each active instrument
         for instrument in INSTRUMENTS:
             if instrument not in active_instruments:
@@ -1392,7 +1481,9 @@ def main():
                     or OPEN_POSITIONS[instrument]["status"] != "OPEN"
                 ):
                     # Check if already pending
-                    if instrument in PENDING_ENTRIES:
+                    if session_halted:
+                        log(f"    [SESSION] Entry blocked — trading halted")
+                    elif instrument in PENDING_ENTRIES:
                         log(f"    Already pending entry for {instrument}")
                     elif trade_dir in ("GO_CALL", "GO_PUT"):
                         # Use Execution Timing Engine if WebSocket is available
