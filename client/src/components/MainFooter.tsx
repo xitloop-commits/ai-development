@@ -1,22 +1,65 @@
 /**
  * MainFooter — Sticky bottom bar for the single-screen command center.
  * Layout: Monthly Growth (left) | Events & Discipline (center) | Net Worth (right)
+ *
+ * Data: Wired to tRPC capital.state and discipline.getDashboard with fallbacks.
  */
 import { useState, useEffect, useMemo } from 'react';
 import { Shield, Calendar } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { trpc } from '@/lib/trpc';
 
-interface MainFooterProps {
-  hasLiveData: boolean;
-}
-
-export default function MainFooter({ hasLiveData }: MainFooterProps) {
+export default function MainFooter() {
   const [time, setTime] = useState(new Date());
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // ─── tRPC Queries ────────────────────────────────────────────
+  const capitalQuery = trpc.capital.state.useQuery(
+    { workspace: 'live' },
+    { refetchInterval: 5000, retry: 1 }
+  );
+
+  const disciplineQuery = trpc.discipline.getDashboard.useQuery(undefined, {
+    refetchInterval: 30000,
+    retry: 1,
+  });
+
+  // ─── Derived Data ────────────────────────────────────────────
+  const hasLiveData = !!capitalQuery.data;
+  const capitalData = capitalQuery.data as any;
+  const disciplineData = disciplineQuery.data as any;
+
+  const tradingPool = capitalData?.tradingPool ?? 0;
+  const reservePool = capitalData?.reservePool ?? 0;
+  const netWorth = capitalData?.netWorth ?? 0;
+  const initialCapital = capitalData?.initialCapital ?? 0;
+  const growthPercent = initialCapital > 0
+    ? (((netWorth - initialCapital) / initialCapital) * 100).toFixed(1)
+    : '0.0';
+
+  const disciplineScore = disciplineData?.score ?? 100;
+  const scoreColor = disciplineScore >= 80 ? 'text-info-cyan' : disciplineScore >= 60 ? 'text-warning-amber' : 'text-loss-red';
+  const breakdown = disciplineData?.breakdown ?? {
+    circuitBreaker: 20,
+    tradeLimits: 15,
+    cooldowns: 15,
+    timeWindows: 10,
+    positionSizing: 15,
+    journal: 10,
+    preTradeGate: 15,
+  };
+
+  const formatCurrency = (n: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0,
+    }).format(n);
+  };
 
   // Market status
   const isMarketOpen = useMemo(() => {
@@ -33,25 +76,23 @@ export default function MainFooter({ hasLiveData }: MainFooterProps) {
   return (
     <div className="sticky bottom-0 z-40 border-t border-border bg-card/90 backdrop-blur-md">
       <div className="flex items-center justify-between px-4 py-2">
-        {/* Left Group: Monthly Growth */}
+        {/* Left Group: Capital Pools */}
         <div className="flex items-center gap-6">
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex flex-col cursor-default">
                 <span className="text-[8px] text-muted-foreground tracking-widest uppercase">
-                  Prev Month
+                  Trading Pool
                 </span>
                 <span className="text-[11px] font-bold tabular-nums text-foreground">
-                  ₹5,00,000{' '}
-                  <span className="text-bullish text-[9px]">+2.5%</span>
+                  {formatCurrency(tradingPool)}
                 </span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="top" className="bg-card border-border text-foreground">
               <div className="text-[10px] space-y-0.5">
-                <div className="font-bold">March 2026 Breakdown</div>
-                <div className="text-muted-foreground">Trading Pool: ₹4,50,000</div>
-                <div className="text-muted-foreground">Reserve Pool: ₹50,000</div>
+                <div className="font-bold">Trading Pool (75%)</div>
+                <div className="text-muted-foreground">Active capital for trades</div>
               </div>
             </TooltipContent>
           </Tooltip>
@@ -60,19 +101,17 @@ export default function MainFooter({ hasLiveData }: MainFooterProps) {
             <TooltipTrigger asChild>
               <div className="flex flex-col cursor-default">
                 <span className="text-[8px] text-muted-foreground tracking-widest uppercase">
-                  Current Month
+                  Reserve Pool
                 </span>
-                <span className="text-[11px] font-bold tabular-nums text-foreground">
-                  ₹5,12,500{' '}
-                  <span className="text-bullish text-[9px]">+1.2%</span>
+                <span className="text-[11px] font-bold tabular-nums text-info-cyan">
+                  {formatCurrency(reservePool)}
                 </span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="top" className="bg-card border-border text-foreground">
               <div className="text-[10px] space-y-0.5">
-                <div className="font-bold">April 2026 Breakdown</div>
-                <div className="text-muted-foreground">Trading Pool: ₹4,60,000</div>
-                <div className="text-muted-foreground">Reserve Pool: ₹52,500</div>
+                <div className="font-bold">Reserve Pool (25%)</div>
+                <div className="text-muted-foreground">Safety buffer — untouched by losses</div>
               </div>
             </TooltipContent>
           </Tooltip>
@@ -102,20 +141,20 @@ export default function MainFooter({ hasLiveData }: MainFooterProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex items-center gap-1.5 cursor-default">
-                <Shield className="h-3 w-3 text-info-cyan" />
-                <span className="text-[9px] text-info-cyan tabular-nums font-bold">100/100</span>
+                <Shield className={`h-3 w-3 ${scoreColor}`} />
+                <span className={`text-[9px] tabular-nums font-bold ${scoreColor}`}>{disciplineScore}/100</span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="top" className="bg-card border-border text-foreground">
               <div className="text-[10px] space-y-1 font-mono">
-                <div className="font-bold text-info-cyan mb-1">Discipline Score: 100/100</div>
-                <div className="text-muted-foreground">Circuit Breaker   20/20  ✓</div>
-                <div className="text-muted-foreground">Trade Limits      15/15  ✓</div>
-                <div className="text-muted-foreground">Cooldowns         15/15  ✓</div>
-                <div className="text-muted-foreground">Time Windows      10/10  ✓</div>
-                <div className="text-muted-foreground">Pre-Trade Gate    15/15  ✓</div>
-                <div className="text-muted-foreground">Journal           15/15  ✓</div>
-                <div className="text-muted-foreground">Streaks           10/10  ✓</div>
+                <div className={`font-bold mb-1 ${scoreColor}`}>Discipline Score: {disciplineScore}/100</div>
+                <div className="text-muted-foreground">Circuit Breaker   {breakdown.circuitBreaker}/20  {breakdown.circuitBreaker >= 18 ? '✓' : '!'}</div>
+                <div className="text-muted-foreground">Trade Limits      {breakdown.tradeLimits}/15  {breakdown.tradeLimits >= 13 ? '✓' : '!'}</div>
+                <div className="text-muted-foreground">Cooldowns         {breakdown.cooldowns}/15  {breakdown.cooldowns >= 13 ? '✓' : '!'}</div>
+                <div className="text-muted-foreground">Time Windows      {breakdown.timeWindows}/10  {breakdown.timeWindows >= 9 ? '✓' : '!'}</div>
+                <div className="text-muted-foreground">Position Sizing   {breakdown.positionSizing}/15  {breakdown.positionSizing >= 13 ? '✓' : '!'}</div>
+                <div className="text-muted-foreground">Journal           {breakdown.journal}/10  {breakdown.journal >= 9 ? '✓' : '!'}</div>
+                <div className="text-muted-foreground">Pre-Trade Gate    {breakdown.preTradeGate}/15  {breakdown.preTradeGate >= 13 ? '✓' : '!'}</div>
               </div>
             </TooltipContent>
           </Tooltip>
@@ -139,16 +178,21 @@ export default function MainFooter({ hasLiveData }: MainFooterProps) {
                 Net Worth
               </span>
               <span className="text-[11px] font-bold tabular-nums text-foreground">
-                ₹5,12,500{' '}
-                <span className="text-bullish text-[9px]">+2.5% since start</span>
+                {formatCurrency(netWorth)}{' '}
+                <span className={`text-[9px] ${Number(growthPercent) >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
+                  {Number(growthPercent) >= 0 ? '+' : ''}{growthPercent}% since start
+                </span>
               </span>
             </div>
           </TooltipTrigger>
           <TooltipContent side="top" className="bg-card border-border text-foreground">
             <div className="text-[10px] space-y-0.5">
               <div className="font-bold">Net Worth Breakdown</div>
-              <div className="text-muted-foreground">Trading Pool: ₹4,60,000</div>
-              <div className="text-muted-foreground">Reserve Pool: ₹52,500</div>
+              <div className="text-muted-foreground">Trading Pool: {formatCurrency(tradingPool)}</div>
+              <div className="text-muted-foreground">Reserve Pool: {formatCurrency(reservePool)}</div>
+              {initialCapital > 0 && (
+                <div className="text-muted-foreground">Initial Capital: {formatCurrency(initialCapital)}</div>
+              )}
             </div>
           </TooltipContent>
         </Tooltip>

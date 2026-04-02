@@ -1,28 +1,32 @@
 /**
  * SummaryBar — Sticky bar below AppBar showing financial snapshot.
  * Sections: Profit | Capital Breakdown | Gold Reference | Loss
- * Data is placeholder for now — will be wired to real data in Phase 3.
+ * Data: Wired to tRPC capital.state with fallback defaults.
  */
+import { trpc } from '@/lib/trpc';
 
-interface SummaryBarProps {
-  todayProfit?: number;
-  todayLoss?: number;
-  capitalTotal?: number;
-  capitalFree?: number;
-  capitalUsed?: number;
-  goldPrice?: number;
-  goldChange?: number;
-}
+export default function SummaryBar() {
+  // ─── tRPC Query ────────────────────────────────────────────
+  const stateQuery = trpc.capital.state.useQuery(
+    { workspace: 'live' },
+    { refetchInterval: 3000, retry: 1 }
+  );
 
-export default function SummaryBar({
-  todayProfit = 0,
-  todayLoss = 0,
-  capitalTotal = 500000,
-  capitalFree = 485000,
-  capitalUsed = 15000,
-  goldPrice = 7250,
-  goldChange = 45,
-}: SummaryBarProps) {
+  // ─── Derived values ────────────────────────────────────────
+  const data = stateQuery.data;
+  const capitalTotal = data?.tradingPool ?? 0;
+  const capitalFree = data?.availableCapital ?? 0;
+  const capitalUsed = capitalTotal - capitalFree;
+  const todayPnl = data?.todayPnl ?? 0;
+  const todayProfit = todayPnl > 0 ? todayPnl : 0;
+  const todayLoss = todayPnl < 0 ? Math.abs(todayPnl) : 0;
+  const reservePool = data?.reservePool ?? 0;
+  const netWorth = data?.netWorth ?? 0;
+
+  // Gold reference (placeholder — will be wired to gold API later)
+  const goldPrice = 7250;
+  const goldChange = 45;
+
   const profitPercent = capitalTotal > 0 ? ((todayProfit / capitalTotal) * 100).toFixed(1) : '0.0';
   const lossPercent = capitalTotal > 0 ? ((todayLoss / capitalTotal) * 100).toFixed(1) : '0.0';
   const freePercent = capitalTotal > 0 ? ((capitalFree / capitalTotal) * 100).toFixed(0) : '0';
@@ -37,6 +41,8 @@ export default function SummaryBar({
       maximumFractionDigits: 0,
     }).format(n);
   };
+
+  const isLive = !!data;
 
   return (
     <div className="sticky top-[49px] z-40 w-full border-b border-border bg-card/80 backdrop-blur-md">
@@ -56,7 +62,7 @@ export default function SummaryBar({
         <div className="flex-1 px-6 py-2 flex items-center justify-around gap-4">
           <div className="flex flex-col items-center">
             <span className="text-[8px] text-muted-foreground tracking-widest uppercase mb-0.5">
-              Capital
+              Trade Capital
             </span>
             <span className="text-sm font-bold tabular-nums text-foreground">
               {formatCurrency(capitalTotal)}
@@ -78,6 +84,22 @@ export default function SummaryBar({
             <span className="text-sm font-bold tabular-nums text-warning-amber">
               {formatCurrency(capitalUsed)}{' '}
               <span className="text-[10px]">{usedPercent}%</span>
+            </span>
+          </div>
+          <div className="flex flex-col items-center">
+            <span className="text-[8px] text-muted-foreground tracking-widest uppercase mb-0.5">
+              Reserve
+            </span>
+            <span className="text-sm font-bold tabular-nums text-info-cyan">
+              {formatCurrency(reservePool)}
+            </span>
+          </div>
+          <div className="flex flex-col items-center">
+            <span className="text-[8px] text-muted-foreground tracking-widest uppercase mb-0.5">
+              Net Worth
+            </span>
+            <span className="text-sm font-bold tabular-nums text-bullish">
+              {formatCurrency(netWorth)}
             </span>
           </div>
         </div>
@@ -109,6 +131,13 @@ export default function SummaryBar({
           </span>
         </div>
       </div>
+
+      {/* Connection indicator */}
+      {!isLive && (
+        <div className="absolute top-0 right-2 text-[7px] text-warning-amber tracking-wider uppercase py-0.5">
+          OFFLINE — Using defaults
+        </div>
+      )}
     </div>
   );
 }

@@ -8,8 +8,11 @@
  *   4. Streak Card — winning/losing streak with day boxes
  *   5. Score Trend — weekly bar chart of discipline scores
  *   6. Correlation — score vs P&L comparison
+ *
+ * Data: Wired to tRPC discipline.* endpoints with mock fallbacks.
  */
-import { useState, useEffect, useMemo } from 'react';
+import { useState } from 'react';
+import { trpc } from '@/lib/trpc';
 import {
   Dialog,
   DialogContent,
@@ -22,8 +25,6 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  TrendingUp,
-  TrendingDown,
   Flame,
   Snowflake,
   Activity,
@@ -31,6 +32,7 @@ import {
   Eye,
   Ban,
   Zap,
+  Loader2,
 } from 'lucide-react';
 
 interface DisciplineOverlayProps {
@@ -38,33 +40,30 @@ interface DisciplineOverlayProps {
   onOpenChange: (open: boolean) => void;
 }
 
-// ─── Mock Data (will be replaced with tRPC queries) ────────────
+// ─── Fallback Mock Data ──────────────────────────────────────────
 
-const MOCK_DASHBOARD = {
-  score: 82,
+const FALLBACK_DASHBOARD = {
+  score: 100,
   breakdown: {
     circuitBreaker: 20,
-    tradeLimits: 12,
+    tradeLimits: 15,
     cooldowns: 15,
     timeWindows: 10,
-    positionSizing: 12,
-    journal: 7,
-    preTradeGate: 6,
+    positionSizing: 15,
+    journal: 10,
+    preTradeGate: 15,
   },
   state: {
-    dailyRealizedPnl: -1200,
-    dailyLossPercent: 1.2,
+    dailyRealizedPnl: 0,
+    dailyLossPercent: 0,
     circuitBreakerTriggered: false,
-    tradesToday: 3,
-    openPositions: 1,
-    consecutiveLosses: 1,
+    tradesToday: 0,
+    openPositions: 0,
+    consecutiveLosses: 0,
     activeCooldown: null as null | { type: string; endsAt: string; acknowledged: boolean },
-    unjournaledTrades: ['trade_1'],
-    violations: [
-      { ruleId: 'pre_trade_gate', ruleName: 'Pre-Trade Gate', severity: 'soft', description: 'Trade not aligned with plan', timestamp: new Date().toISOString(), overridden: true },
-      { ruleId: 'position_near_limit', ruleName: 'Position Sizing', severity: 'soft', description: 'Position at 85% of max limit', timestamp: new Date().toISOString(), overridden: false },
-    ],
-    currentStreak: { type: 'winning' as const, length: 3, startDate: '2026-03-30' },
+    unjournaledTrades: [] as string[],
+    violations: [] as { ruleId: string; ruleName: string; severity: string; description: string; timestamp: string; overridden: boolean }[],
+    currentStreak: { type: 'none' as string, length: 0, startDate: '' },
   },
   settings: {
     dailyLossLimit: { enabled: true, thresholdPercent: 3 },
@@ -74,16 +73,10 @@ const MOCK_DASHBOARD = {
     maxTotalExposure: { enabled: true, percentOfCapital: 80 },
     journalEnforcement: { enabled: true, maxUnjournaled: 3 },
   },
-  scoreHistory: [
-    { date: '2026-03-26', score: 95, dailyPnl: 2400 },
-    { date: '2026-03-27', score: 78, dailyPnl: -800 },
-    { date: '2026-03-28', score: 88, dailyPnl: 1500 },
-    { date: '2026-03-30', score: 92, dailyPnl: 3200 },
-    { date: '2026-03-31', score: 70, dailyPnl: -2100 },
-    { date: '2026-04-01', score: 85, dailyPnl: 1800 },
-    { date: '2026-04-02', score: 82, dailyPnl: -1200 },
-  ],
+  scoreHistory: [] as { date: string; score: number; dailyPnl: number }[],
 };
+
+type DashboardData = typeof FALLBACK_DASHBOARD;
 
 // ─── Score Gauge Component ─────────────────────────────────────
 
@@ -118,21 +111,21 @@ function ScoreGauge({ score }: { score: number }) {
 
 // ─── Score Breakdown Bars ──────────────────────────────────────
 
-function ScoreBreakdown({ breakdown }: { breakdown: typeof MOCK_DASHBOARD.breakdown }) {
+function ScoreBreakdown({ breakdown }: { breakdown: DashboardData['breakdown'] }) {
   const categories = [
-    { key: 'circuitBreaker', label: 'Circuit Breaker', max: 20, icon: Zap },
-    { key: 'tradeLimits', label: 'Trade Limits', max: 15, icon: Ban },
-    { key: 'cooldowns', label: 'Cooldowns', max: 15, icon: Clock },
-    { key: 'timeWindows', label: 'Time Windows', max: 10, icon: Clock },
-    { key: 'positionSizing', label: 'Position Sizing', max: 15, icon: Activity },
-    { key: 'journal', label: 'Journal', max: 10, icon: Eye },
-    { key: 'preTradeGate', label: 'Pre-Trade Gate', max: 15, icon: Shield },
-  ] as const;
+    { key: 'circuitBreaker' as const, label: 'Circuit Breaker', max: 20, icon: Zap },
+    { key: 'tradeLimits' as const, label: 'Trade Limits', max: 15, icon: Ban },
+    { key: 'cooldowns' as const, label: 'Cooldowns', max: 15, icon: Clock },
+    { key: 'timeWindows' as const, label: 'Time Windows', max: 10, icon: Clock },
+    { key: 'positionSizing' as const, label: 'Position Sizing', max: 15, icon: Activity },
+    { key: 'journal' as const, label: 'Journal', max: 10, icon: Eye },
+    { key: 'preTradeGate' as const, label: 'Pre-Trade Gate', max: 15, icon: Shield },
+  ];
 
   return (
     <div className="space-y-2">
       {categories.map(({ key, label, max, icon: Icon }) => {
-        const val = breakdown[key];
+        const val = breakdown[key] ?? 0;
         const pct = (val / max) * 100;
         const color = pct >= 80 ? 'bg-profit-green/80' : pct >= 50 ? 'bg-warning-amber/80' : 'bg-loss-red/80';
         return (
@@ -152,7 +145,7 @@ function ScoreBreakdown({ breakdown }: { breakdown: typeof MOCK_DASHBOARD.breakd
 
 // ─── Status Cards ──────────────────────────────────────────────
 
-function StatusCards({ state, settings }: { state: typeof MOCK_DASHBOARD.state; settings: typeof MOCK_DASHBOARD.settings }) {
+function StatusCards({ state, settings }: { state: DashboardData['state']; settings: DashboardData['settings'] }) {
   const cards = [
     {
       label: 'Daily Loss',
@@ -211,7 +204,7 @@ function StatusCards({ state, settings }: { state: typeof MOCK_DASHBOARD.state; 
 
 // ─── Violations List ───────────────────────────────────────────
 
-function ViolationsList({ violations }: { violations: typeof MOCK_DASHBOARD.state.violations }) {
+function ViolationsList({ violations }: { violations: DashboardData['state']['violations'] }) {
   if (violations.length === 0) {
     return (
       <div className="flex items-center gap-2 text-[10px] text-profit-green/80 py-2">
@@ -243,8 +236,8 @@ function ViolationsList({ violations }: { violations: typeof MOCK_DASHBOARD.stat
 
 // ─── Streak Card ───────────────────────────────────────────────
 
-function StreakCard({ streak }: { streak: typeof MOCK_DASHBOARD.state.currentStreak }) {
-  if ((streak.type as string) === 'none' || streak.length === 0) {
+function StreakCard({ streak }: { streak: DashboardData['state']['currentStreak'] }) {
+  if (streak.type === 'none' || streak.length === 0) {
     return (
       <div className="text-[10px] text-muted-foreground/60 py-2">No active streak</div>
     );
@@ -282,9 +275,12 @@ function StreakCard({ streak }: { streak: typeof MOCK_DASHBOARD.state.currentStr
 
 // ─── Score Trend Chart ─────────────────────────────────────────
 
-function ScoreTrend({ history }: { history: typeof MOCK_DASHBOARD.scoreHistory }) {
+function ScoreTrend({ history }: { history: DashboardData['scoreHistory'] }) {
+  if (history.length === 0) {
+    return <div className="text-[10px] text-muted-foreground/60 py-4 text-center">No score history yet</div>;
+  }
+
   const maxScore = 100;
-  const barWidth = 100 / history.length;
 
   return (
     <div className="h-20">
@@ -313,7 +309,11 @@ function ScoreTrend({ history }: { history: typeof MOCK_DASHBOARD.scoreHistory }
 
 // ─── Correlation Table ─────────────────────────────────────────
 
-function CorrelationTable({ history }: { history: typeof MOCK_DASHBOARD.scoreHistory }) {
+function CorrelationTable({ history }: { history: DashboardData['scoreHistory'] }) {
+  if (history.length === 0) {
+    return <div className="text-[10px] text-muted-foreground/60 py-2 text-center">No data yet</div>;
+  }
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-[9px]">
@@ -346,11 +346,57 @@ function CorrelationTable({ history }: { history: typeof MOCK_DASHBOARD.scoreHis
 
 export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOverlayProps) {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'violations' | 'history'>('dashboard');
-  const data = MOCK_DASHBOARD; // TODO: Replace with tRPC query
+
+  // ─── tRPC Queries ────────────────────────────────────────────
+  const dashboardQuery = trpc.discipline.getDashboard.useQuery(undefined, {
+    enabled: open,
+    refetchInterval: open ? 30000 : false,
+    retry: 1,
+  });
+
+  const scoreHistoryQuery = trpc.discipline.getScoreHistory.useQuery(
+    { days: 14 },
+    {
+      enabled: open && activeTab === 'history',
+      retry: 1,
+    }
+  );
+
+  const acknowledgeLossMutation = trpc.discipline.acknowledgeLoss.useMutation({
+    onSuccess: () => dashboardQuery.refetch(),
+  });
+
+  // ─── Derived Data ────────────────────────────────────────────
+  const isLive = !!dashboardQuery.data;
+  const isLoading = dashboardQuery.isLoading && !dashboardQuery.data;
+
+  // Map tRPC response to component data shape, or use fallback
+  const data: DashboardData = dashboardQuery.data
+    ? {
+        score: (dashboardQuery.data as any).score ?? FALLBACK_DASHBOARD.score,
+        breakdown: (dashboardQuery.data as any).breakdown ?? FALLBACK_DASHBOARD.breakdown,
+        state: {
+          dailyRealizedPnl: (dashboardQuery.data as any).state?.dailyRealizedPnl ?? 0,
+          dailyLossPercent: (dashboardQuery.data as any).state?.dailyLossPercent ?? 0,
+          circuitBreakerTriggered: (dashboardQuery.data as any).state?.circuitBreakerTriggered ?? false,
+          tradesToday: (dashboardQuery.data as any).state?.tradesToday ?? 0,
+          openPositions: (dashboardQuery.data as any).state?.openPositions ?? 0,
+          consecutiveLosses: (dashboardQuery.data as any).state?.consecutiveLosses ?? 0,
+          activeCooldown: (dashboardQuery.data as any).state?.activeCooldown ?? null,
+          unjournaledTrades: (dashboardQuery.data as any).state?.unjournaledTrades ?? [],
+          violations: (dashboardQuery.data as any).state?.violations ?? [],
+          currentStreak: (dashboardQuery.data as any).streak ?? { type: 'none', length: 0, startDate: '' },
+        },
+        settings: (dashboardQuery.data as any).settings ?? FALLBACK_DASHBOARD.settings,
+        scoreHistory: (scoreHistoryQuery.data as any) ?? FALLBACK_DASHBOARD.scoreHistory,
+      }
+    : FALLBACK_DASHBOARD;
+
+  const violationCount = data.state.violations.length;
 
   const tabs = [
     { id: 'dashboard' as const, label: 'Dashboard', icon: Shield },
-    { id: 'violations' as const, label: `Violations (${data.state.violations.length})`, icon: AlertTriangle },
+    { id: 'violations' as const, label: `Violations (${violationCount})`, icon: AlertTriangle },
     { id: 'history' as const, label: 'History', icon: BarChart3 },
   ];
 
@@ -362,8 +408,8 @@ export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOver
           <DialogTitle className="flex items-center gap-2 text-base font-display font-bold tracking-tight">
             <Shield className="h-4 w-4 text-info-cyan" />
             Discipline Engine
-            <span className="text-[9px] text-muted-foreground tracking-widest uppercase ml-2">
-              Ctrl+D to toggle
+            <span className={`text-[9px] tracking-widest uppercase ml-2 ${isLive ? 'text-bullish' : 'text-warning-amber'}`}>
+              {isLive ? 'LIVE' : 'OFFLINE'}
             </span>
             <div className="ml-auto flex items-center gap-1">
               {tabs.map((tab) => {
@@ -389,100 +435,121 @@ export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOver
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {activeTab === 'dashboard' && (
+          {isLoading ? (
+            <div className="flex items-center justify-center h-40">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-[10px] text-muted-foreground">Loading discipline data...</span>
+            </div>
+          ) : (
             <>
-              {/* Score + Breakdown Row */}
-              <div className="flex gap-6">
-                <ScoreGauge score={data.score} />
-                <div className="flex-1">
-                  <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Score Breakdown</h4>
-                  <ScoreBreakdown breakdown={data.breakdown} />
-                </div>
-              </div>
-
-              {/* Status Cards */}
-              <div>
-                <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Today's Status</h4>
-                <StatusCards state={data.state} settings={data.settings} />
-              </div>
-
-              {/* Streak */}
-              <div>
-                <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Streak</h4>
-                <StreakCard streak={data.state.currentStreak} />
-              </div>
-
-              {/* Cooldown Banner */}
-              {data.state.activeCooldown && (
-                <div className="flex items-center gap-3 rounded-md border border-warning-amber/30 bg-warning-amber/5 p-3">
-                  <Clock className="h-5 w-5 text-warning-amber animate-pulse" />
-                  <div>
-                    <div className="text-sm font-bold font-display text-warning-amber">Cooldown Active</div>
-                    <div className="text-[9px] text-muted-foreground">
-                      {data.state.activeCooldown.type === 'revenge' ? 'Revenge trade' : 'Consecutive loss'} cooldown
-                      {!data.state.activeCooldown.acknowledged && ' — Acknowledge your loss to start timer'}
+              {activeTab === 'dashboard' && (
+                <>
+                  {/* Score + Breakdown Row */}
+                  <div className="flex gap-6">
+                    <ScoreGauge score={data.score} />
+                    <div className="flex-1">
+                      <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Score Breakdown</h4>
+                      <ScoreBreakdown breakdown={data.breakdown} />
                     </div>
                   </div>
-                  {!data.state.activeCooldown.acknowledged && (
-                    <button className="ml-auto px-3 py-1.5 rounded bg-warning-amber/20 text-warning-amber text-[10px] font-bold uppercase tracking-wider hover:bg-warning-amber/30 transition-colors">
-                      I Accept the Loss
-                    </button>
+
+                  {/* Status Cards */}
+                  <div>
+                    <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Today's Status</h4>
+                    <StatusCards state={data.state} settings={data.settings} />
+                  </div>
+
+                  {/* Streak */}
+                  <div>
+                    <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Streak</h4>
+                    <StreakCard streak={data.state.currentStreak} />
+                  </div>
+
+                  {/* Cooldown Banner */}
+                  {data.state.activeCooldown && (
+                    <div className="flex items-center gap-3 rounded-md border border-warning-amber/30 bg-warning-amber/5 p-3">
+                      <Clock className="h-5 w-5 text-warning-amber animate-pulse" />
+                      <div>
+                        <div className="text-sm font-bold font-display text-warning-amber">Cooldown Active</div>
+                        <div className="text-[9px] text-muted-foreground">
+                          {data.state.activeCooldown.type === 'revenge' ? 'Revenge trade' : 'Consecutive loss'} cooldown
+                          {!data.state.activeCooldown.acknowledged && ' — Acknowledge your loss to start timer'}
+                        </div>
+                      </div>
+                      {!data.state.activeCooldown.acknowledged && (
+                        <button
+                          onClick={() => acknowledgeLossMutation.mutate()}
+                          disabled={acknowledgeLossMutation.isPending}
+                          className="ml-auto px-3 py-1.5 rounded bg-warning-amber/20 text-warning-amber text-[10px] font-bold uppercase tracking-wider hover:bg-warning-amber/30 disabled:opacity-50 transition-colors"
+                        >
+                          {acknowledgeLossMutation.isPending ? 'Processing...' : 'I Accept the Loss'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {activeTab === 'violations' && (
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Today's Violations</h4>
+                    <ViolationsList violations={data.state.violations} />
+                  </div>
+                  <div className="border-t border-border pt-4">
+                    <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Violation Summary</h4>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="border border-border rounded-md p-3 bg-card text-center">
+                        <div className="text-2xl font-bold font-display text-loss-red">
+                          {data.state.violations.filter((v) => v.severity === 'hard').length}
+                        </div>
+                        <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Hard Blocks</div>
+                      </div>
+                      <div className="border border-border rounded-md p-3 bg-card text-center">
+                        <div className="text-2xl font-bold font-display text-warning-amber">
+                          {data.state.violations.filter((v) => v.severity === 'soft').length}
+                        </div>
+                        <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Soft Warnings</div>
+                      </div>
+                      <div className="border border-border rounded-md p-3 bg-card text-center">
+                        <div className="text-2xl font-bold font-display text-info-cyan">
+                          {data.state.violations.filter((v) => v.overridden).length}
+                        </div>
+                        <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Overridden</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'history' && (
+                <div className="space-y-4">
+                  {scoreHistoryQuery.isLoading ? (
+                    <div className="flex items-center justify-center h-20">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Weekly Score Trend</h4>
+                        <ScoreTrend history={data.scoreHistory} />
+                      </div>
+                      <div>
+                        <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Score vs P&L Correlation</h4>
+                        <CorrelationTable history={data.scoreHistory} />
+                      </div>
+                    </>
                   )}
                 </div>
               )}
             </>
-          )}
-
-          {activeTab === 'violations' && (
-            <div className="space-y-4">
-              <div>
-                <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Today's Violations</h4>
-                <ViolationsList violations={data.state.violations} />
-              </div>
-              <div className="border-t border-border pt-4">
-                <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Violation Summary</h4>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="border border-border rounded-md p-3 bg-card text-center">
-                    <div className="text-2xl font-bold font-display text-loss-red">
-                      {data.state.violations.filter((v) => v.severity === 'hard').length}
-                    </div>
-                    <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Hard Blocks</div>
-                  </div>
-                  <div className="border border-border rounded-md p-3 bg-card text-center">
-                    <div className="text-2xl font-bold font-display text-warning-amber">
-                      {data.state.violations.filter((v) => v.severity === 'soft').length}
-                    </div>
-                    <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Soft Warnings</div>
-                  </div>
-                  <div className="border border-border rounded-md p-3 bg-card text-center">
-                    <div className="text-2xl font-bold font-display text-info-cyan">
-                      {data.state.violations.filter((v) => v.overridden).length}
-                    </div>
-                    <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Overridden</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'history' && (
-            <div className="space-y-4">
-              <div>
-                <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Weekly Score Trend</h4>
-                <ScoreTrend history={data.scoreHistory} />
-              </div>
-              <div>
-                <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Score vs P&L Correlation</h4>
-                <CorrelationTable history={data.scoreHistory} />
-              </div>
-            </div>
           )}
         </div>
 
         {/* Footer */}
         <div className="px-6 py-2.5 border-t border-border flex items-center justify-between text-[9px] text-muted-foreground/60 flex-shrink-0">
           <span>Last updated: {new Date().toLocaleTimeString('en-IN')}</span>
-          <span>Discipline score refreshes every 30s</span>
+          <span>{isLive ? 'Discipline score refreshes every 30s' : 'Showing defaults — connect MongoDB for live data'}</span>
         </div>
       </DialogContent>
     </Dialog>

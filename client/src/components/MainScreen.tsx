@@ -11,6 +11,8 @@
  *   Ctrl+[ → Left drawer (Instruments)
  *   Ctrl+] → Right drawer (Signals)
  *   Esc    → Close any open overlay/drawer
+ *
+ * Data: All components fetch their own data via tRPC with mock fallbacks.
  */
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { trpc } from '@/lib/trpc';
@@ -64,25 +66,6 @@ export default function MainScreen() {
   const [disciplineOpen, setDisciplineOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
 
-  // ─── Discipline State (mock — will be tRPC) ─────────────────────
-  const [circuitBreakerTriggered, setCircuitBreakerTriggered] = useState(false);
-  const [activeCooldown, setActiveCooldown] = useState<{
-    type: 'revenge' | 'consecutive_loss';
-    endsAt: Date;
-    acknowledged: boolean;
-  } | null>(null);
-  const disciplineState = {
-    tradesToday: 3,
-    maxTrades: 5,
-    openPositions: 1,
-    maxPositions: 3,
-    exposurePercent: 35,
-    maxExposurePercent: 80,
-    dailyLoss: -1200,
-    dailyLossPercent: 1.2,
-    lossThreshold: 3,
-  };
-
   // ─── Instrument Filter ─────────────────────────────────────────
   const { isEnabled } = useInstrumentFilter();
 
@@ -100,12 +83,35 @@ export default function MainScreen() {
     refetchInterval: POLL_INTERVAL,
   });
 
+  // Discipline state from tRPC
+  const disciplineQuery = trpc.discipline.getDashboard.useQuery(undefined, {
+    refetchInterval: 10000,
+    retry: 1,
+  });
+
+  const acknowledgeLossMutation = trpc.discipline.acknowledgeLoss.useMutation({
+    onSuccess: () => disciplineQuery.refetch(),
+  });
+
   // ─── Data with Mock Fallbacks ──────────────────────────────────
   const modules = modulesQuery.data ?? mockModules;
   const allInstruments = instrumentsQuery.data ?? [niftyData, bankNiftyData, crudeOilData, naturalGasData];
   const allSignals = signalsQuery.data ?? mockSignals;
   const allPositions = positionsQuery.data ?? mockPositions;
-  const hasLiveData = !!(modulesQuery.data || instrumentsQuery.data);
+
+  // Discipline data with fallbacks
+  const disciplineData = disciplineQuery.data as any;
+  const circuitBreakerTriggered = disciplineData?.state?.circuitBreakerTriggered ?? false;
+  const activeCooldown = disciplineData?.state?.activeCooldown ?? null;
+  const tradesToday = disciplineData?.state?.tradesToday ?? 0;
+  const maxTrades = disciplineData?.settings?.maxTradesPerDay?.limit ?? 5;
+  const openPositions = disciplineData?.state?.openPositions ?? 0;
+  const maxPositions = disciplineData?.settings?.maxOpenPositions?.limit ?? 3;
+  const exposurePercent = disciplineData?.state?.exposurePercent ?? 0;
+  const maxExposurePercent = disciplineData?.settings?.maxTotalExposure?.percentOfCapital ?? 80;
+  const dailyLoss = disciplineData?.state?.dailyRealizedPnl ?? 0;
+  const dailyLossPercent = disciplineData?.state?.dailyLossPercent ?? 0;
+  const lossThreshold = disciplineData?.settings?.dailyLossLimit?.thresholdPercent ?? 3;
 
   // ─── Filtered Data ─────────────────────────────────────────────
   const instruments = useMemo(() => {
@@ -206,23 +212,21 @@ export default function MainScreen() {
           {activeCooldown && (
             <CooldownCard
               type={activeCooldown.type}
-              endsAt={activeCooldown.endsAt}
+              endsAt={new Date(activeCooldown.endsAt)}
               acknowledged={activeCooldown.acknowledged}
-              onAcknowledge={() =>
-                setActiveCooldown((prev) => prev ? { ...prev, acknowledged: true } : null)
-              }
-              onExpired={() => setActiveCooldown(null)}
+              onAcknowledge={() => acknowledgeLossMutation.mutate()}
+              onExpired={() => disciplineQuery.refetch()}
             />
           )}
 
           {/* Trade Limit Bars */}
           <TradeLimitBars
-            tradesToday={disciplineState.tradesToday}
-            maxTrades={disciplineState.maxTrades}
-            openPositions={disciplineState.openPositions}
-            maxPositions={disciplineState.maxPositions}
-            exposurePercent={disciplineState.exposurePercent}
-            maxExposurePercent={disciplineState.maxExposurePercent}
+            tradesToday={tradesToday}
+            maxTrades={maxTrades}
+            openPositions={openPositions}
+            maxPositions={maxPositions}
+            exposurePercent={exposurePercent}
+            maxExposurePercent={maxExposurePercent}
           />
 
           {/* Trading Desk — 250-day compounding table */}
@@ -303,7 +307,7 @@ export default function MainScreen() {
       </main>
 
       {/* Sticky Footer */}
-      <MainFooter hasLiveData={hasLiveData} />
+      <MainFooter />
 
       {/* ─── Drawers ──────────────────────────────────────────────── */}
       <ErrorBoundary section="Instruments Drawer" compact>
@@ -344,9 +348,9 @@ export default function MainScreen() {
       {/* ─── Circuit Breaker Full-Screen Block ────────────────────── */}
       <CircuitBreakerOverlay
         visible={circuitBreakerTriggered}
-        dailyLoss={disciplineState.dailyLoss}
-        dailyLossPercent={disciplineState.dailyLossPercent}
-        threshold={disciplineState.lossThreshold}
+        dailyLoss={dailyLoss}
+        dailyLossPercent={dailyLossPercent}
+        threshold={lossThreshold}
       />
     </div>
   );

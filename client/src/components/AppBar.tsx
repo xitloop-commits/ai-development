@@ -2,6 +2,9 @@
  * AppBar — Sticky top bar for the single-screen command center.
  * Contains: left drawer toggle, brand, module heartbeats,
  * service indicators, discipline score, IST clock, right drawer toggle.
+ *
+ * Data: Broker status from tRPC broker.getStatus, discipline score from
+ * tRPC discipline.getDashboard, module heartbeats from props (polling).
  */
 import { useState, useEffect } from 'react';
 import {
@@ -10,6 +13,7 @@ import {
   Menu,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { trpc } from '@/lib/trpc';
 import type { ModuleStatus } from '@/lib/types';
 
 const MODULE_ICONS: Record<string, React.ElementType> = {
@@ -47,6 +51,27 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
     return () => clearInterval(timer);
   }, []);
 
+  // ─── tRPC Queries ────────────────────────────────────────────
+  const brokerStatusQuery = trpc.broker.status.useQuery(undefined, {
+    refetchInterval: 5000,
+    retry: 1,
+  });
+
+  const disciplineQuery = trpc.discipline.getDashboard.useQuery(undefined, {
+    refetchInterval: 30000,
+    retry: 1,
+  });
+
+  // ─── Derived Data ────────────────────────────────────────────
+  const brokerStatus = brokerStatusQuery.data;
+  const brokerConnected = !!brokerStatus && (brokerStatus as any).connected !== false;
+  const brokerName = (brokerStatus as any)?.activeBroker ?? 'None';
+  const brokerMode = (brokerStatus as any)?.mode ?? 'paper';
+
+  const disciplineScore = (disciplineQuery.data as any)?.score ?? 100;
+  const violationCount = (disciplineQuery.data as any)?.state?.violations?.length ?? 0;
+  const scoreColor = disciplineScore >= 80 ? 'text-info-cyan' : disciplineScore >= 60 ? 'text-warning-amber' : 'text-loss-red';
+
   return (
     <div className="sticky top-0 z-50 w-full border-b border-border bg-card/90 backdrop-blur-md">
       <div className="flex items-center justify-between px-3 py-2">
@@ -69,6 +94,14 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
           </div>
           <span className="hidden xl:inline text-[10px] text-muted-foreground tracking-widest uppercase">
             Automatic Trading System
+          </span>
+          {/* Trading Mode Badge */}
+          <span className={`text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded ${
+            brokerMode === 'live'
+              ? 'bg-loss-red/20 text-loss-red border border-loss-red/30'
+              : 'bg-info-cyan/20 text-info-cyan border border-info-cyan/30'
+          }`}>
+            {brokerMode === 'live' ? 'LIVE' : 'PAPER'}
           </span>
         </div>
 
@@ -102,18 +135,22 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
 
         {/* Right Group: Service Indicators + Time */}
         <div className="flex items-center gap-3 mr-2">
-          {/* Dhan API Status */}
+          {/* Broker API Status */}
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex items-center gap-1 cursor-default">
-                <Globe className="h-3 w-3 text-bullish" />
+                <Globe className={`h-3 w-3 ${brokerConnected ? 'text-bullish' : 'text-muted-foreground'}`} />
                 <span className="hidden lg:inline text-[9px] text-muted-foreground tracking-wider">API</span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="bg-card border-border text-foreground">
               <div className="text-[10px] space-y-0.5">
-                <div className="font-bold text-bullish">Broker API Connected</div>
-                <div className="text-muted-foreground">Latency: 45ms</div>
+                <div className={`font-bold ${brokerConnected ? 'text-bullish' : 'text-muted-foreground'}`}>
+                  {brokerConnected ? `${brokerName} Connected` : 'Broker Disconnected'}
+                </div>
+                <div className="text-muted-foreground">
+                  Mode: {brokerMode === 'live' ? 'LIVE TRADING' : 'Paper Trading'}
+                </div>
               </div>
             </TooltipContent>
           </Tooltip>
@@ -129,7 +166,7 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
             <TooltipContent side="bottom" className="bg-card border-border text-foreground">
               <div className="text-[10px] space-y-0.5">
                 <div className="font-bold text-muted-foreground">WebSocket Disconnected</div>
-                <div className="text-muted-foreground">Not yet implemented</div>
+                <div className="text-muted-foreground">Will be implemented in Option C</div>
               </div>
             </TooltipContent>
           </Tooltip>
@@ -138,14 +175,18 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex items-center gap-1 cursor-default">
-                <Shield className="h-3 w-3 text-info-cyan" />
-                <span className="hidden lg:inline text-[9px] text-info-cyan font-bold tabular-nums">100</span>
+                <Shield className={`h-3 w-3 ${scoreColor}`} />
+                <span className={`hidden lg:inline text-[9px] font-bold tabular-nums ${scoreColor}`}>
+                  {disciplineScore}
+                </span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="bg-card border-border text-foreground">
               <div className="text-[10px] space-y-0.5">
-                <div className="font-bold text-info-cyan">Discipline Score: 100/100</div>
-                <div className="text-muted-foreground">No violations today</div>
+                <div className={`font-bold ${scoreColor}`}>Discipline Score: {disciplineScore}/100</div>
+                <div className="text-muted-foreground">
+                  {violationCount === 0 ? 'No violations today' : `${violationCount} violation${violationCount > 1 ? 's' : ''} today`}
+                </div>
               </div>
             </TooltipContent>
           </Tooltip>

@@ -7,8 +7,11 @@
  *   - Compounding table: 16 columns, 4 row types (Past/Gift/Today/Future)
  *   - Inline new trade form
  *   - Net/Gross toggle
+ *
+ * Data: Wired to tRPC capital.* endpoints with mock fallbacks.
  */
 import { useState, useMemo, useCallback } from 'react';
+import { trpc } from '@/lib/trpc';
 import {
   Plus,
   Trophy,
@@ -17,7 +20,6 @@ import {
   Flag,
   ChevronDown,
   ChevronUp,
-  X,
   TrendingUp,
   TrendingDown,
   DollarSign,
@@ -25,8 +27,10 @@ import {
   Shield,
   BarChart3,
   Wallet,
+  Loader2,
 } from 'lucide-react';
 import NewTradeForm from './NewTradeForm';
+import { TradingDeskSkeleton, NoTradesEmpty, NoCapitalEmpty, ErrorState } from './LoadingStates';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -88,97 +92,21 @@ interface CapitalState {
   quarterlyProjection: { quarterLabel: string; projectedCapital: number };
 }
 
-// ─── Mock Data for UI Development ────────────────────────────────
+// ─── Fallback Mock Data ─────────────────────────────────────────
 
-const MOCK_CAPITAL: CapitalState = {
+const FALLBACK_CAPITAL: CapitalState = {
   tradingPool: 75000,
   reservePool: 25000,
-  currentDayIndex: 4,
+  currentDayIndex: 1,
   targetPercent: 5,
-  availableCapital: 62500,
-  netWorth: 103750,
-  cumulativePnl: 3750,
-  cumulativeCharges: 245.60,
-  todayPnl: 1250,
+  availableCapital: 75000,
+  netWorth: 100000,
+  cumulativePnl: 0,
+  cumulativeCharges: 0,
+  todayPnl: 0,
   todayTarget: 3750,
-  quarterlyProjection: { quarterLabel: 'Q1 FY27', projectedCapital: 285000 },
+  quarterlyProjection: { quarterLabel: 'Q1 FY27', projectedCapital: 0 },
 };
-
-function generateMockDays(): { pastDays: DayRecord[]; currentDay: DayRecord; futureDays: DayRecord[] } {
-  const pastDays: DayRecord[] = [
-    {
-      dayIndex: 1, date: '2026-03-30', tradeCapital: 75000, targetPercent: 5,
-      targetAmount: 3750, projCapital: 78750, originalProjCapital: 78750,
-      actualCapital: 79200, deviation: 450, trades: [], totalPnl: 4200,
-      totalCharges: 82.50, totalQty: 100, instruments: ['NIFTY 50'],
-      status: 'COMPLETED', rating: 'double_trophy',
-    },
-    {
-      dayIndex: 2, date: '2026-03-31', tradeCapital: 78150, targetPercent: 5,
-      targetAmount: 3907.50, projCapital: 82057.50, originalProjCapital: 82687.50,
-      actualCapital: 81900, deviation: -787.50, trades: [], totalPnl: 3750,
-      totalCharges: 78.20, totalQty: 75, instruments: ['BANK NIFTY'],
-      status: 'COMPLETED', rating: 'trophy',
-    },
-    {
-      dayIndex: 3, date: '2026-04-01', tradeCapital: 80962.50, targetPercent: 5,
-      targetAmount: 4048.13, projCapital: 85010.63, originalProjCapital: 86821.88,
-      actualCapital: 85010.63, deviation: -1811.25, trades: [], totalPnl: 4048.13,
-      totalCharges: 85.00, totalQty: 50, instruments: ['NIFTY 50', 'CRUDE OIL'],
-      status: 'COMPLETED', rating: 'trophy',
-    },
-  ];
-
-  const currentDay: DayRecord = {
-    dayIndex: 4, date: '2026-04-02', tradeCapital: 84048.13, targetPercent: 5,
-    targetAmount: 4202.41, projCapital: 88250.54, originalProjCapital: 91162.97,
-    actualCapital: 85298.13, deviation: -5864.84,
-    trades: [
-      {
-        id: 'T1-demo', instrument: 'NIFTY 50', type: 'CALL_BUY', strike: 23500,
-        entryPrice: 185.50, exitPrice: null, ltp: 198.25, qty: 50,
-        capitalPercent: 15, pnl: 0, unrealizedPnl: 637.50, charges: 0,
-        chargesBreakdown: [], status: 'OPEN', targetPrice: 210,
-        stopLossPrice: 175, openedAt: Date.now() - 3600000, closedAt: null,
-      },
-      {
-        id: 'T2-demo', instrument: 'BANK NIFTY', type: 'PUT_SELL', strike: 51000,
-        entryPrice: 120.00, exitPrice: 95.50, ltp: 95.50, qty: 25,
-        capitalPercent: 10, pnl: 530.40, unrealizedPnl: 0, charges: 82.10,
-        chargesBreakdown: [
-          { name: 'Brokerage', amount: 40 },
-          { name: 'STT', amount: 1.49 },
-          { name: 'Exchange', amount: 2.86 },
-          { name: 'GST', amount: 7.71 },
-          { name: 'SEBI', amount: 0.05 },
-          { name: 'Stamp', amount: 0.09 },
-        ],
-        status: 'CLOSED_TP', targetPrice: 96, stopLossPrice: 140,
-        openedAt: Date.now() - 7200000, closedAt: Date.now() - 1800000,
-      },
-    ],
-    totalPnl: 1250, totalCharges: 82.10, totalQty: 75,
-    instruments: ['NIFTY 50', 'BANK NIFTY'], status: 'ACTIVE', rating: 'star',
-  };
-
-  const futureDays: DayRecord[] = [];
-  let pool = 84048.13;
-  for (let i = 5; i <= 12; i++) {
-    const target = Math.round(pool * 5 / 100 * 100) / 100;
-    futureDays.push({
-      dayIndex: i, date: '', tradeCapital: Math.round(pool * 100) / 100,
-      targetPercent: 5, targetAmount: target,
-      projCapital: Math.round((pool + target) * 100) / 100,
-      originalProjCapital: Math.round((pool + target) * 100) / 100,
-      actualCapital: 0, deviation: 0, trades: [], totalPnl: 0,
-      totalCharges: 0, totalQty: 0, instruments: [],
-      status: 'FUTURE', rating: i === 250 ? 'finish' : 'future',
-    });
-    pool = pool + target * 0.75;
-  }
-
-  return { pastDays, currentDay, futureDays };
-}
 
 // ─── Rating Icon ─────────────────────────────────────────────────
 
@@ -221,16 +149,68 @@ export default function TradingDesk() {
   const [showNewTrade, setShowNewTrade] = useState(false);
   const [expandedDay, setExpandedDay] = useState<number | null>(null);
   const [showNet, setShowNet] = useState(true);
-  const [loading, setLoading] = useState(false);
 
-  // TODO: Replace with tRPC queries when backend is wired
-  const capital = MOCK_CAPITAL;
-  const { pastDays, currentDay, futureDays } = useMemo(generateMockDays, []);
+  const utils = trpc.useUtils();
 
-  const allDays = useMemo(() => {
-    return [...pastDays, currentDay, ...futureDays];
-  }, [pastDays, currentDay, futureDays]);
+  // ─── tRPC Queries ───────────────────────────────────────────
+  const stateQuery = trpc.capital.state.useQuery(
+    { workspace },
+    { refetchInterval: 3000, retry: 1 }
+  );
 
+  const allDaysQuery = trpc.capital.allDays.useQuery(
+    { workspace, futureCount: 10 },
+    { refetchInterval: 5000, retry: 1 }
+  );
+
+  // ─── tRPC Mutations ─────────────────────────────────────────
+  const placeTradeMutation = trpc.capital.placeTrade.useMutation({
+    onSuccess: () => {
+      utils.capital.state.invalidate();
+      utils.capital.allDays.invalidate();
+      setShowNewTrade(false);
+    },
+  });
+
+  const exitTradeMutation = trpc.capital.exitTrade.useMutation({
+    onSuccess: () => {
+      utils.capital.state.invalidate();
+      utils.capital.allDays.invalidate();
+    },
+  });
+
+  // ─── Derived Data ───────────────────────────────────────────
+  const capital: CapitalState = useMemo(() => {
+    if (stateQuery.data) {
+      return {
+        tradingPool: stateQuery.data.tradingPool,
+        reservePool: stateQuery.data.reservePool,
+        currentDayIndex: stateQuery.data.currentDayIndex,
+        targetPercent: stateQuery.data.targetPercent,
+        availableCapital: stateQuery.data.availableCapital,
+        netWorth: stateQuery.data.netWorth,
+        cumulativePnl: stateQuery.data.cumulativePnl,
+        cumulativeCharges: stateQuery.data.cumulativeCharges,
+        todayPnl: stateQuery.data.todayPnl,
+        todayTarget: stateQuery.data.todayTarget,
+        quarterlyProjection: stateQuery.data.quarterlyProjection,
+      };
+    }
+    return FALLBACK_CAPITAL;
+  }, [stateQuery.data]);
+
+  const allDays: DayRecord[] = useMemo(() => {
+    if (allDaysQuery.data) {
+      const { pastDays, currentDay, futureDays } = allDaysQuery.data;
+      return [...(pastDays as DayRecord[]), currentDay as DayRecord, ...(futureDays as DayRecord[])];
+    }
+    return [];
+  }, [allDaysQuery.data]);
+
+  const isLive = !!stateQuery.data;
+  const isLoading = stateQuery.isLoading && !stateQuery.data;
+
+  // ─── Handlers ───────────────────────────────────────────────
   const handlePlaceTrade = useCallback(async (trade: {
     instrument: string;
     type: 'CALL_BUY' | 'CALL_SELL' | 'PUT_BUY' | 'PUT_SELL' | 'BUY' | 'SELL';
@@ -238,24 +218,51 @@ export default function TradingDesk() {
     entryPrice: number;
     capitalPercent: number;
   }) => {
-    setLoading(true);
-    try {
-      // TODO: Call tRPC mutation capital.placeTrade
-      console.log('Place trade:', trade);
-      await new Promise((r) => setTimeout(r, 500));
-      setShowNewTrade(false);
-    } finally {
-      setLoading(false);
-    }
-  }, [workspace]);
+    placeTradeMutation.mutate({
+      workspace,
+      instrument: trade.instrument,
+      type: trade.type,
+      strike: trade.strike,
+      entryPrice: trade.entryPrice,
+      capitalPercent: trade.capitalPercent,
+    });
+  }, [workspace, placeTradeMutation]);
 
   const handleExitTrade = useCallback(async (tradeId: string) => {
-    // TODO: Call tRPC mutation capital.exitTrade
-    console.log('Exit trade:', tradeId);
-  }, [workspace]);
+    // Find the trade to get its LTP for exit price
+    const currentDay = allDaysQuery.data?.currentDay;
+    const trade = currentDay?.trades?.find((t: any) => t.id === tradeId);
+    const exitPrice = trade?.ltp ?? trade?.entryPrice ?? 0;
+
+    if (exitPrice <= 0) return;
+
+    exitTradeMutation.mutate({
+      workspace,
+      tradeId,
+      exitPrice,
+      reason: 'MANUAL',
+    });
+  }, [workspace, allDaysQuery.data, exitTradeMutation]);
+
+  // ─── Loading State ──────────────────────────────────────────
+  if (isLoading) {
+    return <TradingDeskSkeleton />;
+  }
+
+  // ─── Error State ────────────────────────────────────────────
+  if (stateQuery.isError && !stateQuery.data) {
+    return (
+      <ErrorState
+        message={`Failed to load capital data: ${stateQuery.error?.message ?? 'Unknown error'}`}
+        onRetry={() => {
+          stateQuery.refetch();
+          allDaysQuery.refetch();
+        }}
+      />
+    );
+  }
 
   // ─── Render ──────────────────────────────────────────────────
-
   return (
     <div className="flex flex-col h-full">
       {/* Tab Bar */}
@@ -279,6 +286,10 @@ export default function TradingDesk() {
               )}
             </button>
           ))}
+          {/* Live data indicator */}
+          <span className={`ml-2 text-[8px] tracking-wider uppercase ${isLive ? 'text-bullish' : 'text-warning-amber'}`}>
+            {isLive ? 'LIVE' : 'OFFLINE'}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -289,10 +300,14 @@ export default function TradingDesk() {
           </button>
           <button
             onClick={() => setShowNewTrade(true)}
-            disabled={showNewTrade}
+            disabled={showNewTrade || placeTradeMutation.isPending}
             className="flex items-center gap-1 px-2 py-1 rounded bg-primary/10 text-primary text-[10px] font-bold hover:bg-primary/20 disabled:opacity-30 transition-colors"
           >
-            <Plus className="h-3 w-3" />
+            {placeTradeMutation.isPending ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Plus className="h-3 w-3" />
+            )}
             NEW TRADE
           </button>
         </div>
@@ -312,57 +327,72 @@ export default function TradingDesk() {
         />
         <SummaryCell icon={<TrendingDown className="h-3 w-3" />} label="Charges" value={fmt(capital.cumulativeCharges)} accent="destructive" />
         <SummaryCell icon={<Shield className="h-3 w-3" />} label="Reserve" value={fmt(capital.reservePool, true)} accent="info-cyan" />
-        <SummaryCell icon={<BarChart3 className="h-3 w-3" />} label={capital.quarterlyProjection.quarterLabel} value={fmt(capital.quarterlyProjection.projectedCapital, true)} />
+        <SummaryCell icon={<BarChart3 className="h-3 w-3" />} label={capital.quarterlyProjection.quarterLabel || 'Projection'} value={fmt(capital.quarterlyProjection.projectedCapital, true)} />
         <SummaryCell icon={<DollarSign className="h-3 w-3" />} label="Net Worth" value={fmt(capital.netWorth, true)} accent="bullish" />
       </div>
 
+      {/* Mutation Error */}
+      {(placeTradeMutation.isError || exitTradeMutation.isError) && (
+        <div className="px-3 py-1.5 bg-destructive/10 border-b border-destructive/20 text-[10px] text-destructive">
+          {placeTradeMutation.error?.message || exitTradeMutation.error?.message}
+        </div>
+      )}
+
       {/* Table */}
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-[10px] border-collapse">
-          <thead className="sticky top-0 z-10">
-            <tr className="bg-secondary/80 backdrop-blur-sm border-b border-border">
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase w-12">Day</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase w-20">Date</th>
-              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Trade Cap.</th>
-              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Target</th>
-              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Proj. Cap.</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase">Instrument</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase">Type</th>
-              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Strike</th>
-              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Entry</th>
-              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">LTP</th>
-              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Qty</th>
-              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">P&L</th>
-              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Charges</th>
-              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Actual Cap.</th>
-              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Dev.</th>
-              <th className="px-2 py-1.5 text-center font-medium text-muted-foreground tracking-wider uppercase w-16">Rating</th>
-            </tr>
-          </thead>
-          <tbody>
-            {allDays.map((day) => (
-              <DayRow
-                key={day.dayIndex}
-                day={day}
-                isToday={day.dayIndex === capital.currentDayIndex}
-                expanded={expandedDay === day.dayIndex}
-                onToggle={() => setExpandedDay(expandedDay === day.dayIndex ? null : day.dayIndex)}
-                onExitTrade={handleExitTrade}
-                showNet={showNet}
-              />
-            ))}
-            {showNewTrade && (
-              <NewTradeForm
-                workspace={workspace}
-                availableCapital={capital.availableCapital}
-                instruments={['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS']}
-                onSubmit={handlePlaceTrade}
-                onCancel={() => setShowNewTrade(false)}
-                loading={loading}
-              />
-            )}
-          </tbody>
-        </table>
+        {allDays.length === 0 && !allDaysQuery.isLoading ? (
+          <NoCapitalEmpty onOpenSettings={() => {
+            // Trigger Ctrl+S programmatically
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }));
+          }} />
+        ) : (
+          <table className="w-full text-[10px] border-collapse">
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-secondary/80 backdrop-blur-sm border-b border-border">
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase w-12">Day</th>
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase w-20">Date</th>
+                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Trade Cap.</th>
+                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Target</th>
+                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Proj. Cap.</th>
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase">Instrument</th>
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase">Type</th>
+                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Strike</th>
+                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Entry</th>
+                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">LTP</th>
+                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Qty</th>
+                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">P&L</th>
+                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Charges</th>
+                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Actual Cap.</th>
+                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Dev.</th>
+                <th className="px-2 py-1.5 text-center font-medium text-muted-foreground tracking-wider uppercase w-16">Rating</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allDays.map((day) => (
+                <DayRow
+                  key={day.dayIndex}
+                  day={day}
+                  isToday={day.dayIndex === capital.currentDayIndex}
+                  expanded={expandedDay === day.dayIndex}
+                  onToggle={() => setExpandedDay(expandedDay === day.dayIndex ? null : day.dayIndex)}
+                  onExitTrade={handleExitTrade}
+                  showNet={showNet}
+                  exitLoading={exitTradeMutation.isPending}
+                />
+              ))}
+              {showNewTrade && (
+                <NewTradeForm
+                  workspace={workspace}
+                  availableCapital={capital.availableCapital}
+                  instruments={['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS']}
+                  onSubmit={handlePlaceTrade}
+                  onCancel={() => setShowNewTrade(false)}
+                  loading={placeTradeMutation.isPending}
+                />
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
@@ -405,6 +435,7 @@ function DayRow({
   onToggle,
   onExitTrade,
   showNet,
+  exitLoading,
 }: {
   day: DayRecord;
   isToday: boolean;
@@ -412,6 +443,7 @@ function DayRow({
   onToggle: () => void;
   onExitTrade: (tradeId: string) => void;
   showNet: boolean;
+  exitLoading?: boolean;
 }) {
   const rowBg = isToday
     ? 'bg-primary/5 border-l-2 border-l-primary'
@@ -422,8 +454,6 @@ function DayRow({
     : 'bg-card/50 opacity-60';
 
   const hasTrades = day.trades.length > 0;
-  const openTrades = day.trades.filter((t) => t.status === 'OPEN');
-  const closedTrades = day.trades.filter((t) => t.status !== 'OPEN');
 
   // Summary instrument display
   const instrumentSummary = day.instruments.length > 0
@@ -525,6 +555,7 @@ function DayRow({
               trade={trade}
               onExit={() => onExitTrade(trade.id)}
               showNet={showNet}
+              exitLoading={exitLoading}
             />
           ))}
         </>
@@ -539,10 +570,12 @@ function TradeRow({
   trade,
   onExit,
   showNet,
+  exitLoading,
 }: {
   trade: TradeRecord;
   onExit: () => void;
   showNet: boolean;
+  exitLoading?: boolean;
 }) {
   const isOpen = trade.status === 'OPEN';
   const isBuy = trade.type.includes('BUY');
@@ -610,10 +643,11 @@ function TradeRow({
         {isOpen ? (
           <button
             onClick={(e) => { e.stopPropagation(); onExit(); }}
-            className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+            disabled={exitLoading}
+            className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-30 transition-colors"
             title="Exit position"
           >
-            EXIT
+            {exitLoading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : 'EXIT'}
           </button>
         ) : (
           <span className="text-[8px] text-muted-foreground uppercase">
