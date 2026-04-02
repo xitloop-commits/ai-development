@@ -13,6 +13,7 @@ import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import {
   getActiveBroker,
   getBrokerServiceStatus,
+  getRegisteredAdaptersMeta,
   switchBroker,
   toggleKillSwitch,
   isKillSwitchActive,
@@ -23,6 +24,7 @@ import {
   upsertBrokerConfig,
   updateBrokerSettings,
   updateBrokerCredentials,
+  setActiveBroker as setActiveBrokerInDB,
 } from "./brokerConfig";
 import { tickBus } from "./tickBus";
 import type { OrderParams, ModifyParams, TickData } from "./types";
@@ -96,6 +98,53 @@ const subscribeParamsSchema = z.object({
 // ─── Router ─────────────────────────────────────────────────────
 
 export const brokerRouter = router({
+  // ── Adapters (always available, even before config exists) ──
+  adapters: router({
+    /** List all registered adapters with metadata. */
+    list: publicProcedure.query(() => {
+      return getRegisteredAdaptersMeta();
+    }),
+  }),
+
+  // ── Setup (create initial broker config) ───────────────────
+  setup: publicProcedure
+    .input(
+      z.object({
+        brokerId: z.string(),
+        accessToken: z.string().optional(),
+        clientId: z.string().optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      // Upsert the broker config
+      await upsertBrokerConfig({
+        brokerId: input.brokerId,
+        displayName:
+          getRegisteredAdaptersMeta().find((m) => m.brokerId === input.brokerId)
+            ?.displayName ?? input.brokerId,
+        isActive: true,
+        isPaperBroker:
+          getRegisteredAdaptersMeta().find((m) => m.brokerId === input.brokerId)
+            ?.isPaperBroker ?? false,
+        credentials: {
+          accessToken: input.accessToken ?? "",
+          clientId: input.clientId ?? "",
+          status: input.accessToken ? "valid" : "unknown",
+          updatedAt: Date.now(),
+          expiresIn: 0,
+        },
+      });
+      // Deactivate all others and set this one active
+      await setActiveBrokerInDB(input.brokerId);
+      // Try to switch to it (connects the adapter)
+      try {
+        await switchBroker(input.brokerId);
+      } catch {
+        // Non-fatal — config is saved, adapter may fail to connect
+      }
+      return { success: true };
+    }),
+
   // ── Config ──────────────────────────────────────────────────
 
   config: router({

@@ -44,8 +44,8 @@ async function startServer() {
   connectMongo()
     .then(async () => {
       // Register broker adapters and initialize broker service after MongoDB is ready
-      registerAdapter("mock", () => new MockAdapter());
-      registerAdapter("dhan", () => new DhanAdapter());
+      registerAdapter("mock", () => new MockAdapter(), { displayName: "Paper Trading", isPaperBroker: true });
+      registerAdapter("dhan", () => new DhanAdapter(), { displayName: "Dhan", isPaperBroker: false });
       await initBrokerService();
       pnlEngine.start();
       orderSyncEngine.start();

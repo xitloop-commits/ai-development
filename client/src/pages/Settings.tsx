@@ -247,12 +247,23 @@ function ResetButton({ onClick }: { onClick: () => void }) {
 export function BrokerConfigSection() {
   const configQuery = trpc.broker.config.get.useQuery();
   const allConfigsQuery = trpc.broker.config.list.useQuery();
+  const adaptersQuery = trpc.broker.adapters.list.useQuery();
   const statusQuery = trpc.broker.status.useQuery();
   const tokenQuery = trpc.broker.token.status.useQuery();
   const switchMutation = trpc.broker.config.switchBroker.useMutation({
     onSuccess: () => {
       toast.success('Broker switched successfully');
       configQuery.refetch();
+      allConfigsQuery.refetch();
+      statusQuery.refetch();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const setupMutation = trpc.broker.setup.useMutation({
+    onSuccess: () => {
+      toast.success('Broker configured and connected');
+      configQuery.refetch();
+      allConfigsQuery.refetch();
       statusQuery.refetch();
     },
     onError: (err) => toast.error(err.message),
@@ -271,8 +282,14 @@ export function BrokerConfigSection() {
 
   const config = configQuery.data;
   const allConfigs = allConfigsQuery.data ?? [];
+  const adapters = adaptersQuery.data ?? [];
   const status = statusQuery.data;
   const token = tokenQuery.data;
+
+  // Use registered adapters for dropdown (always populated), fall back to DB configs
+  const brokerOptions = adapters.length > 0
+    ? adapters.map((a) => ({ value: a.brokerId, label: a.displayName }))
+    : allConfigs.map((c) => ({ value: c.brokerId, label: c.displayName }));
 
   return (
     <div className="space-y-4">
@@ -283,8 +300,16 @@ export function BrokerConfigSection() {
             <FieldLabel hint="Select the broker to use for trading">Active Broker</FieldLabel>
             <SelectInput
               value={status?.activeBrokerId ?? ''}
-              onChange={(v) => switchMutation.mutate({ brokerId: v })}
-              options={allConfigs.map((c) => ({ value: c.brokerId, label: c.displayName }))}
+              onChange={(v) => {
+                // If config exists for this broker, switch; otherwise setup
+                const hasConfig = allConfigs.some((c) => c.brokerId === v);
+                if (hasConfig) {
+                  switchMutation.mutate({ brokerId: v });
+                } else {
+                  setupMutation.mutate({ brokerId: v });
+                }
+              }}
+              options={brokerOptions}
             />
           </div>
           {config && (

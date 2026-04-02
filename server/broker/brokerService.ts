@@ -24,6 +24,14 @@ export type AdapterFactory = () => BrokerAdapter;
 // ─── Singleton State ────────────────────────────────────────────
 
 const adapterFactories = new Map<string, AdapterFactory>();
+
+export interface AdapterMeta {
+  brokerId: string;
+  displayName: string;
+  isPaperBroker: boolean;
+}
+const adapterMeta = new Map<string, AdapterMeta>();
+
 let activeAdapter: BrokerAdapter | null = null;
 let killSwitchActive = false;
 
@@ -35,9 +43,15 @@ let killSwitchActive = false;
  */
 export function registerAdapter(
   brokerId: string,
-  factory: AdapterFactory
+  factory: AdapterFactory,
+  meta?: { displayName?: string; isPaperBroker?: boolean }
 ): void {
   adapterFactories.set(brokerId, factory);
+  adapterMeta.set(brokerId, {
+    brokerId,
+    displayName: meta?.displayName ?? brokerId,
+    isPaperBroker: meta?.isPaperBroker ?? false,
+  });
   console.log(`[BrokerService] Registered adapter: ${brokerId}`);
 }
 
@@ -46,6 +60,10 @@ export function registerAdapter(
  */
 export function getRegisteredAdapters(): string[] {
   return Array.from(adapterFactories.keys());
+}
+
+export function getRegisteredAdaptersMeta(): AdapterMeta[] {
+  return Array.from(adapterMeta.values());
 }
 
 // ─── Active Adapter ─────────────────────────────────────────────

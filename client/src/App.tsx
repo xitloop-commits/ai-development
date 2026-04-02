@@ -6,6 +6,7 @@ import { AlertProvider } from "./contexts/AlertContext";
 import { InstrumentFilterProvider } from "./contexts/InstrumentFilterContext";
 import MainScreen from "./components/MainScreen";
 import { TokenExpiredModal } from "./components/TokenExpiredModal";
+import { SetupBrokerModal } from "./components/SetupBrokerModal";
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
                 }}
               />
               <MainScreen />
+              <SetupBrokerModal />
               <TokenExpiredModal />
             </TooltipProvider>
           </InstrumentFilterProvider>

@@ -48,6 +48,7 @@ export {
 export {
   registerAdapter,
   getRegisteredAdapters,
+  getRegisteredAdaptersMeta,
   getActiveBroker,
   initBrokerService,
   switchBroker,
@@ -56,7 +57,7 @@ export {
   getBrokerServiceStatus,
   _resetForTesting,
 } from "./brokerService";
-export type { AdapterFactory } from "./brokerService";
+export type { AdapterFactory, AdapterMeta } from "./brokerService";
 
 // tRPC Router
 export { brokerRouter } from "./brokerRouter";
