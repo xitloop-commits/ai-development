@@ -15,6 +15,10 @@ Endpoints used:
   GET  /api/broker/scrip-master/lookup       — Lookup security ID
   POST /api/broker/kill-switch               — Emergency kill switch
   GET  /api/trading/active-instruments       — Poll dashboard
+  POST /api/trpc/discipline.validate         — Pre-trade discipline check
+  POST /api/trpc/discipline.onTradePlaced    — Post-entry notification
+  POST /api/trpc/discipline.onTradeClosed    — Post-exit notification
+  POST /api/trpc/capital.state               — Get current capital state
 
 Supports both the enhanced AI format (trade_direction, trade_setup) and
 legacy format (decision, trade_type) for backward compatibility.
@@ -51,11 +55,14 @@ DEFAULT_QUANTITIES = {
     "NATURALGAS": 1250,   # 1 lot NATURALGAS options
 }
 
-# Minimum confidence to take a trade
+# Minimum confidence to take a trade (local fallback; Discipline Engine is primary gate)
 MIN_CONFIDENCE = 0.40
 
-# Minimum risk:reward ratio
+# Minimum risk:reward ratio (local fallback; Discipline Engine is primary gate)
 MIN_RISK_REWARD = 1.0
+
+# Capital workspace for tRPC queries
+CAPITAL_WORKSPACE = os.environ.get("CAPITAL_WORKSPACE", "paper").strip()
 
 # Instrument key mapping (dashboard uses underscores, files use underscores in lowercase)
 INSTRUMENTS = ["NIFTY_50", "BANKNIFTY", "CRUDEOIL", "NATURALGAS"]
@@ -326,6 +333,144 @@ def send_heartbeat(message):
         pass
 
 
+# --- Discipline Engine Helpers ---
+
+def get_capital_state():
+    """
+    Fetch current capital state via tRPC.
+    Returns (currentCapital, currentExposure) or (None, None) on failure.
+    """
+    url = f"{DASHBOARD_URL}/api/trpc/capital.state"
+    try:
+        resp = requests.get(
+            url,
+            params={"input": json.dumps({"json": {"workspace": CAPITAL_WORKSPACE}})},
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            result = data.get("result", {}).get("data", {}).get("json", {})
+            trading_pool = result.get("tradingPool", 0)
+            open_margin = result.get("openPositionMargin", 0)
+            return trading_pool, open_margin
+    except Exception as e:
+        log(f"  [DISCIPLINE] Failed to fetch capital state: {e}")
+    return None, None
+
+
+def check_discipline_engine(instrument, option_type, strike, entry_price, quantity, confidence, risk_reward, stop_loss, target_price):
+    """
+    Call the Discipline Engine pre-trade validation via tRPC.
+    Returns (allowed, blocked_by, warnings) or (True, [], []) if the engine is unreachable
+    (fail-open to avoid blocking trades when the server is down).
+    """
+    current_capital, current_exposure = get_capital_state()
+    if current_capital is None:
+        log("  [DISCIPLINE] Capital state unavailable. Skipping discipline check (fail-open).")
+        return True, [], []
+
+    exchange = "NSE" if instrument in ("NIFTY_50", "BANKNIFTY") else "MCX"
+    estimated_value = entry_price * quantity
+
+    payload = {
+        "json": {
+            "instrument": instrument,
+            "exchange": exchange,
+            "transactionType": "BUY",
+            "optionType": option_type,
+            "strike": float(strike),
+            "entryPrice": float(entry_price),
+            "quantity": int(quantity),
+            "estimatedValue": float(estimated_value),
+            "aiConfidence": float(confidence),
+            "aiRiskReward": float(risk_reward),
+            "emotionalState": "calm",
+            "planAligned": True,
+            "checklistDone": True,
+            "stopLoss": float(stop_loss) if stop_loss else None,
+            "target": float(target_price) if target_price else None,
+            "currentCapital": float(current_capital),
+            "currentExposure": float(current_exposure),
+        }
+    }
+
+    url = f"{DASHBOARD_URL}/api/trpc/discipline.validate"
+    try:
+        resp = requests.post(url, json=payload, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            result = data.get("result", {}).get("data", {}).get("json", {})
+            allowed = result.get("allowed", True)
+            blocked_by = result.get("blockedBy", [])
+            warnings = result.get("warnings", [])
+
+            if not allowed:
+                log(f"  [DISCIPLINE] Trade BLOCKED by: {', '.join(blocked_by)}")
+            if warnings:
+                log(f"  [DISCIPLINE] Warnings: {', '.join(warnings)}")
+
+            return allowed, blocked_by, warnings
+        else:
+            log(f"  [DISCIPLINE] HTTP {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        log(f"  [DISCIPLINE] Validation error: {e}")
+
+    # Fail-open: if discipline engine is unreachable, allow the trade
+    log("  [DISCIPLINE] Engine unreachable. Allowing trade (fail-open).")
+    return True, [], []
+
+
+def notify_trade_placed():
+    """
+    Notify the Discipline Engine that a trade was placed.
+    Increments trade counters and open position count.
+    """
+    url = f"{DASHBOARD_URL}/api/trpc/discipline.onTradePlaced"
+    try:
+        resp = requests.post(url, json={"json": {}}, timeout=5)
+        if resp.status_code == 200:
+            log("  [DISCIPLINE] Trade placed notification sent.")
+        else:
+            log(f"  [DISCIPLINE] onTradePlaced failed: HTTP {resp.status_code}")
+    except Exception as e:
+        log(f"  [DISCIPLINE] onTradePlaced error: {e}")
+
+
+def notify_trade_closed(pnl, trade_id=None):
+    """
+    Notify the Discipline Engine that a trade was closed.
+    Updates P&L, cooldowns, and streak tracking.
+    """
+    current_capital, _ = get_capital_state()
+    if current_capital is None:
+        log("  [DISCIPLINE] Capital state unavailable. Skipping onTradeClosed.")
+        return
+
+    payload = {
+        "json": {
+            "pnl": float(pnl),
+            "openCapital": float(current_capital),
+        }
+    }
+    if trade_id:
+        payload["json"]["tradeId"] = trade_id
+
+    url = f"{DASHBOARD_URL}/api/trpc/discipline.onTradeClosed"
+    try:
+        resp = requests.post(url, json=payload, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            result = data.get("result", {}).get("data", {}).get("json", {})
+            if result.get("cooldownStarted"):
+                log("  [DISCIPLINE] Cooldown started after loss.")
+            if result.get("circuitBreakerTriggered"):
+                log("  [DISCIPLINE] CIRCUIT BREAKER TRIGGERED — no more trades today.")
+        else:
+            log(f"  [DISCIPLINE] onTradeClosed failed: HTTP {resp.status_code}")
+    except Exception as e:
+        log(f"  [DISCIPLINE] onTradeClosed error: {e}")
+
+
 # --- Parse AI Decision (supports both old and new format) ---
 
 def parse_ai_decision(decision):
@@ -444,6 +589,23 @@ def try_entry(instrument, decision, oc):
         stop_loss = entry_price * 0.85  # 15% stop loss
 
     quantity = DEFAULT_QUANTITIES.get(instrument, 50)
+
+    # --- Discipline Engine Pre-Trade Check ---
+    allowed, blocked_by, warnings = check_discipline_engine(
+        instrument=instrument,
+        option_type=option_type,
+        strike=strike,
+        entry_price=entry_price,
+        quantity=quantity,
+        confidence=parsed["confidence"],
+        risk_reward=parsed["risk_reward"],
+        stop_loss=stop_loss,
+        target_price=target_price,
+    )
+    if not allowed:
+        log(f"    Discipline Engine blocked trade for {instrument}: {', '.join(blocked_by)}")
+        return False
+
     pos_id = next_position_id()
     pos_type = "CALL_BUY" if direction == "GO_CALL" else "PUT_BUY"
 
@@ -499,6 +661,9 @@ def try_entry(instrument, decision, oc):
     }
 
     OPEN_POSITIONS[instrument] = position
+
+    # Notify Discipline Engine of new trade
+    notify_trade_placed()
 
     # Push to dashboard
     dashboard_position = {
@@ -601,6 +766,12 @@ def monitor_positions(option_chains):
                         )
             else:
                 log(f"  *** PAPER TRADE: Simulated exit at {current_price:.2f} ***")
+
+            # Notify Discipline Engine of trade closure
+            notify_trade_closed(
+                pnl=round(pnl, 2),
+                trade_id=str(position["id"]),
+            )
 
             # Push closed position to dashboard
             dashboard_position = {

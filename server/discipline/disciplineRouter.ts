@@ -14,6 +14,8 @@
  *   discipline.getScoreHistory — Historical scores for charting
  *   discipline.getStreakStatus — Current streak info
  *   discipline.endOfDay        — Finalize daily score (admin/cron)
+ *   discipline.onTradePlaced   — Post-trade: increment counters
+ *   discipline.onTradeClosed   — Post-trade: update P&L, cooldowns, streaks
  *   discipline.resetDailyState — Reset state for testing
  */
 
@@ -166,6 +168,35 @@ export const disciplineRouter = router({
     .mutation(async ({ input }) => {
       await disciplineEngine.endOfDay(DEFAULT_USER_ID, input.dailyPnl, input.openCapital);
       return { success: true };
+    }),
+
+  /**
+   * Notify that a trade was placed (increments counters).
+   */
+  onTradePlaced: publicProcedure.mutation(async () => {
+    await disciplineEngine.onTradePlaced(DEFAULT_USER_ID);
+    return { success: true };
+  }),
+
+  /**
+   * Notify that a trade was closed (updates P&L, cooldowns, streaks).
+   */
+  onTradeClosed: publicProcedure
+    .input(
+      z.object({
+        pnl: z.number(),
+        openCapital: z.number(),
+        tradeId: z.string().optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const result = await disciplineEngine.onTradeClosed(
+        DEFAULT_USER_ID,
+        input.pnl,
+        input.openCapital,
+        input.tradeId
+      );
+      return { success: true, ...result };
     }),
 
   /**
