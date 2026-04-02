@@ -428,7 +428,7 @@ export const brokerRouter = router({
      * NSE indices use hardcoded IDs (IDX_I:13, IDX_I:25).
      * MCX commodities resolve nearest-month future from scrip master.
      */
-    resolveInstruments: publicProcedure.query(() => {
+    resolveInstruments: publicProcedure.query(async () => {
       const broker = requireBroker();
       const instruments: Array<{
         name: string;
@@ -439,7 +439,14 @@ export const brokerRouter = router({
         { name: "NIFTY_50", securityId: "13", exchange: "IDX_I", mode: "ticker" },
         { name: "BANKNIFTY", securityId: "25", exchange: "IDX_I", mode: "ticker" },
       ];
-
+      // Ensure scrip master is loaded before resolving MCX
+      if (broker.getScripMaster) {
+        try {
+          await broker.getScripMaster("MCX");
+        } catch (e) {
+          console.warn("[resolveInstruments] Failed to load scrip master:", e);
+        }
+      }
       // Resolve MCX commodities from scrip master
       for (const mcx of ["CRUDEOIL", "NATURALGAS"] as const) {
         if (broker.resolveMCXFutcom) {
@@ -449,12 +456,14 @@ export const brokerRouter = router({
               name: mcx,
               securityId: String(result.securityId),
               exchange: "MCX_COMM",
-              mode: "full",
+              mode: "ticker",
             });
+            console.log(`[resolveInstruments] ${mcx} -> MCX_COMM:${result.securityId} (${result.tradingSymbol})`);
+          } else {
+            console.warn(`[resolveInstruments] ${mcx} -> not found in scrip master`);
           }
         }
       }
-
       return instruments;
     }),
 
