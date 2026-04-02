@@ -92,13 +92,16 @@ export default function MainScreen() {
     }
     if (feedSubscribedRef.current) return;
     feedSubscribedRef.current = true;
+    console.log('[Feed] Auto-subscribing instruments:', DEFAULT_FEED_INSTRUMENTS.map(i => `${i.exchange}:${i.securityId}`));
     feedSubscribe(
       DEFAULT_FEED_INSTRUMENTS.map((i) => ({
         securityId: i.securityId,
         exchange: i.exchange,
         mode: i.mode,
       }))
-    ).catch((err) => {
+    ).then(() => {
+      console.log('[Feed] Auto-subscribe success');
+    }).catch((err) => {
       console.warn('[Feed] Auto-subscribe failed:', err);
       feedSubscribedRef.current = false; // Allow retry
     });
