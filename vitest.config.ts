@@ -1,7 +1,10 @@
 import { defineConfig } from "vitest/config";
 import path from "path";
+import { fileURLToPath } from "url";
 
-const templateRoot = path.resolve(import.meta.dirname);
+// Node 18 compat: import.meta.dirname only exists in Node ≥ 21.2
+const __dirname = import.meta.dirname ?? path.dirname(fileURLToPath(import.meta.url));
+const templateRoot = path.resolve(__dirname);
 
 export default defineConfig({
   root: templateRoot,
