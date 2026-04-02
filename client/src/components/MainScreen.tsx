@@ -86,18 +86,32 @@ export default function MainScreen() {
   // Resolve real security IDs from the server (IDX_I for NSE, MCX nearest future)
   const resolvedInstrumentsQuery = trpc.broker.feed.resolveInstruments.useQuery(
     undefined,
-    { enabled: !!activeBrokerId, retry: 3, retryDelay: 2000 }
+    {
+      enabled: !!activeBrokerId,
+      retry: 3,
+      retryDelay: 2000,
+      // Keep polling until all 4 instruments are resolved (MCX needs scrip master)
+      refetchInterval: (query) => {
+        const data = query.state.data;
+        return data && data.length >= 4 ? false : 5000;
+      },
+    }
   );
   const resolvedInstruments = resolvedInstrumentsQuery.data;
 
-  // Auto-subscribe the 4 underlyings when broker connects and instruments are resolved
+  // Auto-subscribe underlyings when broker connects and instruments are resolved
+  // Re-subscribes when instrument count changes (e.g. MCX resolves after initial call)
+  const subscribedCountRef = useRef(0);
   useEffect(() => {
     if (!activeBrokerId || !resolvedInstruments?.length) {
       feedSubscribedRef.current = false;
+      subscribedCountRef.current = 0;
       return;
     }
-    if (feedSubscribedRef.current) return;
+    // Skip if already subscribed with same count
+    if (feedSubscribedRef.current && resolvedInstruments.length === subscribedCountRef.current) return;
     feedSubscribedRef.current = true;
+    subscribedCountRef.current = resolvedInstruments.length;
     console.log('[Feed] Auto-subscribing resolved instruments:', resolvedInstruments.map(i => `${i.exchange}:${i.securityId}`));
     feedSubscribe(
       resolvedInstruments.map((i) => ({
