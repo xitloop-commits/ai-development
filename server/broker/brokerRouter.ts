@@ -436,8 +436,8 @@ export const brokerRouter = router({
         exchange: string;
         mode: string;
       }> = [
-        { name: "NIFTY_50", securityId: "13", exchange: "IDX_I", mode: "full" },
-        { name: "BANKNIFTY", securityId: "25", exchange: "IDX_I", mode: "full" },
+        { name: "NIFTY_50", securityId: "13", exchange: "IDX_I", mode: "ticker" },
+        { name: "BANKNIFTY", securityId: "25", exchange: "IDX_I", mode: "ticker" },
       ];
 
       // Resolve MCX commodities from scrip master
