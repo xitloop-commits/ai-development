@@ -244,7 +244,7 @@ function ResetButton({ onClick }: { onClick: () => void }) {
 
 // ─── Section Components ──────────────────────────────────────────
 
-function BrokerConfigSection() {
+export function BrokerConfigSection() {
   const configQuery = trpc.broker.config.get.useQuery();
   const allConfigsQuery = trpc.broker.config.list.useQuery();
   const statusQuery = trpc.broker.status.useQuery();
@@ -438,7 +438,7 @@ function BrokerConfigSection() {
   );
 }
 
-function OrderExecutionSection() {
+export function OrderExecutionSection() {
   const configQuery = trpc.broker.config.get.useQuery();
   const config = configQuery.data;
 
@@ -592,7 +592,7 @@ function OrderExecutionSection() {
   );
 }
 
-function DisciplineSection() {
+export function DisciplineSection() {
   const settingsQuery = trpc.settings.get.useQuery();
   const [discipline, setDiscipline] = useState(settingsQuery.data?.discipline);
 
@@ -797,7 +797,7 @@ function DisciplineSection() {
   );
 }
 
-function TimeWindowsSection() {
+export function TimeWindowsSection() {
   const settingsQuery = trpc.settings.get.useQuery();
   const [timeWindows, setTimeWindows] = useState(settingsQuery.data?.timeWindows);
 
@@ -947,7 +947,7 @@ function TimeWindowsSection() {
   );
 }
 
-function ExpiryControlsSection() {
+export function ExpiryControlsSection() {
   const settingsQuery = trpc.settings.get.useQuery();
   const [rules, setRules] = useState(settingsQuery.data?.expiryControls?.rules);
 
@@ -1124,7 +1124,7 @@ function ExpiryControlsSection() {
   );
 }
 
-function ChargesSection() {
+export function ChargesSection() {
   const settingsQuery = trpc.settings.get.useQuery();
   const [rates, setRates] = useState(settingsQuery.data?.charges?.rates);
 
