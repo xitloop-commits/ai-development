@@ -6,6 +6,15 @@
 
 ---
 
+## Revision History
+
+| Version | Date       | Author    | Changes                                                  |
+| ------- | ---------- | --------- | -------------------------------------------------------- |
+| v1.0    | 2026-04-02 | Manus AI  | Initial specification based on latest Python module source code |
+| v2.0    | 2026-04-02 | Manus AI  | Split from monolithic spec into standalone module spec. Added v2.4 enhancements: Trade Quality Filter, Bounce/Breakdown Engine, No Trade Detection, Theta/IV Protection. |
+
+---
+
 ## 1. Overview
 
 **File:** `ai_decision_engine.py` (1215 lines)

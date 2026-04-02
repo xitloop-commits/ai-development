@@ -6,6 +6,14 @@
 
 ---
 
+## Revision History
+
+| Version | Date       | Author    | Changes                                                  |
+| ------- | ---------- | --------- | -------------------------------------------------------- |
+| v2.0    | 2026-04-02 | Manus AI  | Initial specification (New module in v2.4 enhancements)  |
+
+---
+
 ## 1. Overview
 
 **File:** `session_manager.py` (New in v2.4)

@@ -6,6 +6,15 @@
 
 ---
 
+## Revision History
+
+| Version | Date       | Author    | Changes                                                  |
+| ------- | ---------- | --------- | -------------------------------------------------------- |
+| v1.0    | 2026-04-02 | Manus AI  | Initial specification based on latest Python module source code |
+| v2.0    | 2026-04-02 | Manus AI  | Split from monolithic spec into standalone module spec. Added v2.4 enhancements: Profit Orchestrator, Execution Timing, Momentum Engine, Adaptive Exit, Trade Age Monitor, Profit Exit, Pyramiding, Risk Manager, Equity Curve Protection. |
+
+---
+
 ## 1. Overview
 
 **File:** `execution_module.py` (658 lines)

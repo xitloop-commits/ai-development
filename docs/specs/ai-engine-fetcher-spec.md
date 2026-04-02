@@ -6,6 +6,16 @@
 
 ---
 
+## Revision History
+
+| Version | Date       | Author    | Changes                                                  |
+| ------- | ---------- | --------- | -------------------------------------------------------- |
+| v1.0    | 2026-04-02 | Manus AI  | Initial specification based on latest Python module source code |
+| v1.2    | 2026-04-02 | Manus AI  | Made spec broker-agnostic: replaced direct Dhan API references with Broker Service abstractions |
+| v2.0    | 2026-04-02 | Manus AI  | Split from monolithic spec into standalone module spec   |
+
+---
+
 ## 1. Overview
 
 **File:** `option_chain_fetcher.py` (241 lines)

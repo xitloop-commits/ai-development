@@ -6,6 +6,15 @@
 
 ---
 
+## Revision History
+
+| Version | Date       | Author    | Changes                                                  |
+| ------- | ---------- | --------- | -------------------------------------------------------- |
+| v1.0    | 2026-04-02 | Manus AI  | Initial specification based on latest Python module source code |
+| v2.0    | 2026-04-02 | Manus AI  | Split from monolithic spec into standalone module spec   |
+
+---
+
 ## 1. Overview
 
 **File:** `dashboard_data_pusher.py` (199 lines)
