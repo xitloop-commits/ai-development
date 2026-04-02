@@ -16,11 +16,11 @@ Python Modules ────► REST Endpoints ──► Broker Service ──►
 | Feature | Current Location | Dhan API Used |
 |---|---|---|
 | Auth (hardcoded token) | Both Python files | Header `access-token` |
-| Profile check | `dhan_option_chain_fetcher.py` | `GET /v2/profile` |
-| Scrip master download | `dhan_option_chain_fetcher.py` | CSV from `images.dhan.co` |
-| MCX security ID resolution | `dhan_option_chain_fetcher.py` | Parsed from scrip master CSV |
-| Option chain expiry list | `dhan_option_chain_fetcher.py` | `POST /v2/optionchain/expirylist` |
-| Option chain data | `dhan_option_chain_fetcher.py` | `POST /v2/optionchain` |
+| Profile check | `option_chain_fetcher.py` | `GET /v2/profile` |
+| Scrip master download | `option_chain_fetcher.py` | CSV from `images.dhan.co` |
+| MCX security ID resolution | `option_chain_fetcher.py` | Parsed from scrip master CSV |
+| Option chain expiry list | `option_chain_fetcher.py` | `POST /v2/optionchain/expirylist` |
+| Option chain data | `option_chain_fetcher.py` | `POST /v2/optionchain` |
 | Place MARKET order | `execution_module.py` | `POST /v2/orders` |
 | Security ID lookup | `execution_module.py` | Local scrip master CSV |
 | SL/TP monitoring | `execution_module.py` | In-memory polling (not Dhan) |
@@ -154,7 +154,7 @@ server/broker/
 ---
 
 ### STEP 4: Option Chain APIs
-**Scope:** Expiry list + option chain data. Replace `dhan_option_chain_fetcher.py` Dhan calls.
+**Scope:** Expiry list + option chain data. Replace `option_chain_fetcher.py` Dhan calls.
 
 **Unified interface:**
 ```typescript

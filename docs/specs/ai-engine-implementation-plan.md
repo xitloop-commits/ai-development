@@ -19,7 +19,7 @@ A critical architectural decision has been made: **The Python modules will NOT d
 Before adding new v2.4 features, the existing v1.0 Python modules must be refactored to be broker-agnostic and to communicate with the new Broker Service.
 
 ### Step 1.1: Broker-Agnostic Fetcher
-- **File:** `dhan_option_chain_fetcher.py` → rename to `option_chain_fetcher.py`
+- **File:** `option_chain_fetcher.py` → rename to `option_chain_fetcher.py`
 - **Action:** Remove all direct Dhan API calls and Dhan authentication logic.
 - **New Flow:** Call `GET /api/broker/option-chain` and `GET /api/broker/expiry-list` on the local Node.js server.
 

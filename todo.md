@@ -34,7 +34,7 @@
 - [x] Dashboard filters instrument cards, signals, and positions based on active instruments
 - [x] Server-side active instruments store with GET/SET REST + tRPC endpoints
 - [x] Sync frontend instrument filter toggles to backend via tRPC mutation
-- [x] Update dhan_option_chain_fetcher.py to poll active instruments and skip disabled
+- [x] Update option_chain_fetcher.py to poll active instruments and skip disabled
 - [x] Update option_chain_analyzer.py to poll active instruments and skip disabled
 - [x] Update ai_decision_engine.py to poll active instruments and skip disabled
 - [x] Update execution_module.py to poll active instruments and skip disabled

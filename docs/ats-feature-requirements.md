@@ -505,7 +505,7 @@ Six standalone Python modules form the data analysis and execution pipeline. The
 
 | Module | File | Purpose |
 |--------|------|---------|
-| **Option Chain Fetcher** | `dhan_option_chain_fetcher.py` | Downloads scrip master CSV, resolves MCX security IDs, fetches option chain data from Dhan API, polls dashboard for active instruments, saves JSON files |
+| **Option Chain Fetcher** | `option_chain_fetcher.py` | Downloads scrip master CSV, resolves MCX security IDs, fetches option chain data from Dhan API, polls dashboard for active instruments, saves JSON files |
 | **Option Chain Analyzer** | `option_chain_analyzer.py` | Analyzes option chain data: OI distribution, PCR, max pain, S/R levels, wall strength, IV analysis. Captures opening OI snapshot at 9:15 AM for intraday tracking. |
 | **AI Decision Engine** | `ai_decision_engine.py` | Weighted scoring across OI momentum, wall strength, IV, PCR trend, theta risk. Breakout vs bounce prediction. Auto-calculates ATM strike, target, SL, R:R. Enhanced news sentiment with multi-query targeted fetching, weighted keyword scoring, event calendar awareness. Outputs trade direction, setup, rationale, and risk flags. |
 | **Execution Module** | `execution_module.py` | Reads AI decisions, manages paper/live trades. Paper trades use real option chain prices. In-memory position tracking with SL/TP monitoring. Pushes position updates to dashboard. Supports both enhanced and legacy AI format. |

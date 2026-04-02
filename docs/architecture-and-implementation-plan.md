@@ -41,7 +41,7 @@ The backend is powered by Express 4 and tRPC 11, serving as the central hub for 
 
 The data analysis and execution pipeline consists of six standalone Python scripts [1].
 
-- **Modules:** The core modules include `dhan_option_chain_fetcher.py`, `option_chain_analyzer.py`, `ai_decision_engine.py`, `execution_module.py`, `dashboard_data_pusher.py`, and `test_analyzer.py` [1].
+- **Modules:** The core modules include `option_chain_fetcher.py`, `option_chain_analyzer.py`, `ai_decision_engine.py`, `execution_module.py`, `dashboard_data_pusher.py`, and `test_analyzer.py` [1].
 - **Integration:** These modules communicate with the Node.js backend primarily via the REST API, pushing data through `dashboard_data_pusher.py` and direct calls from `execution_module.py` [1].
 - **Architectural Gap:** A significant architectural gap exists where Python modules currently communicate directly with the Dhan API using hardcoded credentials [6]. This bypasses the intended Broker Service abstraction layer and violates the target architecture design [1].
 

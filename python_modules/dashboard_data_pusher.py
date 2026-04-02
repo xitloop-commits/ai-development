@@ -6,7 +6,7 @@ This script runs alongside your 4 trading modules and pushes their
 JSON output to the web dashboard via REST API.
 
 It watches for changes in the JSON files produced by:
-  - dhan_option_chain_fetcher.py  -> option_chain_*.json
+  - option_chain_fetcher.py  -> option_chain_*.json
   - option_chain_analyzer.py      -> analyzer_output_*.json
   - ai_decision_engine.py         -> ai_decision_*.json
   - execution_module.py           -> (positions via heartbeat)

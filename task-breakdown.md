@@ -398,7 +398,7 @@ All tasks belong to the same Manus project. Each task is a separate conversation
 **Depends on:** Task 2 (Broker Service REST endpoints)
 **Scope:**
 - Update `execution_module.py` to call Broker Service REST instead of Dhan directly
-- Update `dhan_option_chain_fetcher.py` to call Broker Service for option chain + scrip master
+- Update `option_chain_fetcher.py` to call Broker Service for option chain + scrip master
 - Remove hardcoded Dhan tokens from all Python files
 - All Python modules read credentials from Broker Service
 **Test independently:** Run Python modules, verify they use Broker Service

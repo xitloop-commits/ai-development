@@ -130,7 +130,7 @@ In a **separate** VS Code terminal (`Ctrl + Shift + ~`):
 
 ```cmd
 cd python_modules
-python dhan_option_chain_fetcher.py
+python option_chain_fetcher.py
 ```
 
 The Python modules will automatically load your `.env` file from the project root.
@@ -183,7 +183,7 @@ ai-development/
 ├── python_modules/       ← AI pipeline (Python)
 │   ├── env_loader.py     ← Shared .env loader
 │   ├── requirements.txt  ← Python dependencies
-│   ├── dhan_option_chain_fetcher.py
+│   ├── option_chain_fetcher.py
 │   ├── option_chain_analyzer.py
 │   ├── ai_decision_engine.py
 │   ├── execution_module.py
