@@ -68,7 +68,8 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
   const brokerName = (brokerStatus as any)?.activeBroker ?? 'None';
   const brokerMode = (brokerStatus as any)?.mode ?? 'paper';
 
-  const disciplineScore = (disciplineQuery.data as any)?.score ?? 100;
+  const rawScore = (disciplineQuery.data as any)?.score;
+  const disciplineScore = typeof rawScore === 'object' && rawScore !== null ? rawScore.score ?? 100 : rawScore ?? 100;
   const violationCount = (disciplineQuery.data as any)?.state?.violations?.length ?? 0;
   const scoreColor = disciplineScore >= 80 ? 'text-info-cyan' : disciplineScore >= 60 ? 'text-warning-amber' : 'text-loss-red';
 

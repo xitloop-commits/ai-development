@@ -373,8 +373,12 @@ export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOver
   // Map tRPC response to component data shape, or use fallback
   const data: DashboardData = dashboardQuery.data
     ? {
-        score: (dashboardQuery.data as any).score ?? FALLBACK_DASHBOARD.score,
-        breakdown: (dashboardQuery.data as any).breakdown ?? FALLBACK_DASHBOARD.breakdown,
+        score: typeof (dashboardQuery.data as any).score === 'object'
+          ? (dashboardQuery.data as any).score.score ?? FALLBACK_DASHBOARD.score
+          : (dashboardQuery.data as any).score ?? FALLBACK_DASHBOARD.score,
+        breakdown: typeof (dashboardQuery.data as any).score === 'object'
+          ? (dashboardQuery.data as any).score.breakdown ?? FALLBACK_DASHBOARD.breakdown
+          : (dashboardQuery.data as any).breakdown ?? FALLBACK_DASHBOARD.breakdown,
         state: {
           dailyRealizedPnl: (dashboardQuery.data as any).state?.dailyRealizedPnl ?? 0,
           dailyLossPercent: (dashboardQuery.data as any).state?.dailyLossPercent ?? 0,

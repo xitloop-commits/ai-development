@@ -41,9 +41,10 @@ export default function MainFooter() {
     ? (((netWorth - initialCapital) / initialCapital) * 100).toFixed(1)
     : '0.0';
 
-  const disciplineScore = disciplineData?.score ?? 100;
+  const scoreObj = disciplineData?.score;
+  const disciplineScore = typeof scoreObj === 'object' && scoreObj !== null ? (scoreObj as any).score ?? 100 : scoreObj ?? 100;
   const scoreColor = disciplineScore >= 80 ? 'text-info-cyan' : disciplineScore >= 60 ? 'text-warning-amber' : 'text-loss-red';
-  const breakdown = disciplineData?.breakdown ?? {
+  const breakdown = (typeof disciplineData?.score === 'object' ? (disciplineData.score as any).breakdown : disciplineData?.breakdown) ?? {
     circuitBreaker: 20,
     tradeLimits: 15,
     cooldowns: 15,
