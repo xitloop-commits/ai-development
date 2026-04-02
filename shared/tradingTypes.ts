@@ -90,6 +90,9 @@ export interface InstrumentData {
   tradeSetup?: TradeSetup | null;
   riskFlags?: RiskFlag[];
   scoringFactors?: Record<string, ScoringFactor>;
+
+  // v2.4 Filter results
+  filters?: TradeFilters;
 }
 
 export interface Position {
@@ -312,6 +315,47 @@ export interface ScoringFactor {
   detail: string;
 }
 
+/** Sideways market detection result */
+export interface SidewaysDetection {
+  is_sideways: boolean;
+  signals_triggered: number;
+  threshold: number;
+  details: string[];
+}
+
+/** Trap market detection result */
+export interface TrapDetection {
+  is_trap: boolean;
+  trap_types: string[];  // e.g. 'FALSE_BREAKOUT', 'OI_CONTRADICTION', 'SIGNAL_DIVERGENCE'
+  details: string[];
+}
+
+/** Bounce/Breakdown classification result */
+export interface BounceBreakdown {
+  setup_type: 'BOUNCE_SUPPORT' | 'BOUNCE_RESISTANCE' | 'BREAKDOWN_SUPPORT' | 'BREAKOUT_RESISTANCE' | 'NEUTRAL';
+  aligned: boolean;
+  required_direction: 'GO_CALL' | 'GO_PUT' | null;
+  detail: string;
+}
+
+/** Quality gate result */
+export interface QualityGate {
+  passed: boolean;
+  blocked_by: string[];  // e.g. 'LOW_CONFIDENCE', 'SR_MISALIGNED', 'TRAP_DETECTED', 'LATE_SESSION', 'LOW_DTE'
+  details: string[];
+}
+
+/** Combined filter results from AI Engine v2.4 */
+export interface TradeFilters {
+  original_direction: 'GO_CALL' | 'GO_PUT' | 'WAIT';
+  filter_blocked: boolean;
+  rejection_reasons: string[];
+  sideways_detection: SidewaysDetection;
+  trap_detection: TrapDetection;
+  bounce_breakdown: BounceBreakdown;
+  quality_gate: QualityGate;
+}
+
 /** Shape of the AI decision output JSON */
 export interface RawAIDecision {
   instrument: string;
@@ -349,6 +393,9 @@ export interface RawAIDecision {
   trade_setup?: TradeSetup | null;
   risk_flags?: RiskFlag[];
   scoring_factors?: Record<string, ScoringFactor>;
+
+  // v2.4 Filter results
+  filters?: TradeFilters;
 }
 
 /** Payload shape for the data push API */

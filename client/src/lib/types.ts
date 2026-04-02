@@ -22,4 +22,9 @@ export type {
   MarketHoliday,
   MarketEvent,
   SRIntradayLevel,
+  TradeFilters,
+  SidewaysDetection,
+  TrapDetection,
+  BounceBreakdown,
+  QualityGate,
 } from '../../../shared/tradingTypes';

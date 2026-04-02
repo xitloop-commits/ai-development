@@ -1,17 +1,19 @@
 /*
- * Terminal Noir — InstrumentCard Component (v3)
+ * Terminal Noir — InstrumentCard Component (v4)
  * Merged layout: S/R Strength Line replaces Wall Strength meters,
  * S/R list, Active Strikes, and OI summary sections.
  * Keeps: Header, Trade Direction, AI Rationale, Trade Setup,
  * IV/Theta, Risk Flags, Scoring Factors.
+ * v4: Added Phase 2 Filter Badges (Sideways, Trap, Bounce/Breakdown, Quality Gate).
  */
 import { useState, useMemo } from 'react';
 import {
   TrendingUp, TrendingDown, Minus, Brain,
   ChevronDown, ChevronUp, AlertTriangle, Crosshair,
   Activity, BarChart3, Clock, Shield,
+  ShieldAlert, Ban, Zap, ArrowUpDown,
 } from 'lucide-react';
-import type { InstrumentData, TradeSetup, RiskFlag, ScoringFactor } from '@/lib/types';
+import type { InstrumentData, TradeSetup, RiskFlag, ScoringFactor, TradeFilters } from '@/lib/types';
 import { useTickStream } from '@/hooks/useTickStream';
 // Feed key now passed as props from parent (resolved dynamically from server)
 import SRStrengthLine from './SRStrengthLine';
@@ -206,6 +208,102 @@ function ScoringFactorsSection({ factors }: { factors: Record<string, ScoringFac
   );
 }
 
+/* ═══ Phase 2 Filter Badges ═══ */
+
+const bounceBreakdownConfig: Record<string, { label: string; color: string; icon: typeof TrendingUp }> = {
+  BOUNCE_SUPPORT: { label: 'BOUNCE ↑ SUPPORT', color: 'text-bullish', icon: TrendingUp },
+  BOUNCE_RESISTANCE: { label: 'BOUNCE ↓ RESISTANCE', color: 'text-destructive', icon: TrendingDown },
+  BREAKDOWN_SUPPORT: { label: 'BREAKDOWN ↓ SUPPORT', color: 'text-destructive', icon: TrendingDown },
+  BREAKOUT_RESISTANCE: { label: 'BREAKOUT ↑ RESISTANCE', color: 'text-bullish', icon: TrendingUp },
+  NEUTRAL: { label: 'MID-RANGE', color: 'text-muted-foreground', icon: Minus },
+};
+
+function FilterBadgesSection({ filters }: { filters: TradeFilters }) {
+  const { sideways_detection, trap_detection, bounce_breakdown, quality_gate, filter_blocked, rejection_reasons } = filters;
+
+  const bbCfg = bounceBreakdownConfig[bounce_breakdown.setup_type] || bounceBreakdownConfig['NEUTRAL'];
+  const BBIcon = bbCfg.icon;
+
+  return (
+    <div className="space-y-1.5">
+      {/* Filter status header */}
+      {filter_blocked && (
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-destructive/10 border border-destructive/20">
+          <Ban className="h-3 w-3 text-destructive shrink-0" />
+          <span className="text-[9px] font-bold text-destructive tracking-wider">TRADE BLOCKED</span>
+          <span className="text-[8px] text-destructive/70 truncate">
+            {rejection_reasons.slice(0, 2).join(' · ')}
+          </span>
+        </div>
+      )}
+
+      {/* Badge row */}
+      <div className="flex flex-wrap gap-1.5">
+        {/* Sideways Detection */}
+        <div
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[8px] font-bold tracking-wider ${
+            sideways_detection.is_sideways
+              ? 'bg-warning-amber/10 border-warning-amber/30 text-warning-amber'
+              : 'bg-secondary/30 border-white/5 text-muted-foreground'
+          }`}
+          title={sideways_detection.details.join('\n')}
+        >
+          <ArrowUpDown className="h-2.5 w-2.5" />
+          {sideways_detection.is_sideways
+            ? `SIDEWAYS ${sideways_detection.signals_triggered}/${sideways_detection.threshold}`
+            : 'TRENDING'}
+        </div>
+
+        {/* Trap Detection */}
+        <div
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[8px] font-bold tracking-wider ${
+            trap_detection.is_trap
+              ? 'bg-destructive/10 border-destructive/30 text-destructive'
+              : 'bg-secondary/30 border-white/5 text-muted-foreground'
+          }`}
+          title={trap_detection.details.join('\n')}
+        >
+          <ShieldAlert className="h-2.5 w-2.5" />
+          {trap_detection.is_trap
+            ? `TRAP: ${trap_detection.trap_types.join(', ')}`.slice(0, 30)
+            : 'NO TRAP'}
+        </div>
+
+        {/* Bounce/Breakdown */}
+        <div
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[8px] font-bold tracking-wider ${
+            bounce_breakdown.setup_type !== 'NEUTRAL'
+              ? bounce_breakdown.aligned
+                ? 'bg-bullish/10 border-bullish/30 text-bullish'
+                : 'bg-destructive/10 border-destructive/30 text-destructive'
+              : 'bg-secondary/30 border-white/5 text-muted-foreground'
+          }`}
+          title={bounce_breakdown.detail}
+        >
+          <BBIcon className="h-2.5 w-2.5" />
+          {bbCfg.label}
+          {!bounce_breakdown.aligned && bounce_breakdown.setup_type !== 'NEUTRAL' && (
+            <span className="text-[7px] opacity-70">✗</span>
+          )}
+        </div>
+
+        {/* Quality Gate */}
+        <div
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[8px] font-bold tracking-wider ${
+            quality_gate.passed
+              ? 'bg-bullish/10 border-bullish/30 text-bullish'
+              : 'bg-destructive/10 border-destructive/30 text-destructive'
+          }`}
+          title={quality_gate.details.join('\n')}
+        >
+          <Zap className="h-2.5 w-2.5" />
+          {quality_gate.passed ? 'QUALITY ✓' : `BLOCKED: ${quality_gate.blocked_by.slice(0, 2).join(', ')}`.slice(0, 30)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* IV & Theta compact row */
 function IVThetaRow({ data }: { data: InstrumentData }) {
   const iv = data.ivAssessment;
@@ -341,6 +439,11 @@ export default function InstrumentCard({ data, bgImage, feedExchange, feedSecuri
         <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2">
           {data.aiRationale}
         </p>
+
+        {/* ═══ Phase 2 Filter Badges ═══ */}
+        {data.filters && (
+          <FilterBadgesSection filters={data.filters} />
+        )}
 
         {/* Trade Setup (if direction is GO_CALL or GO_PUT) */}
         {data.tradeSetup && (

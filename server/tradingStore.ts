@@ -356,6 +356,10 @@ export function getInstrumentData(): InstrumentData[] {
       tradeSetup: ai?.trade_setup,
       riskFlags: ai?.risk_flags,
       scoringFactors: ai?.scoring_factors,
+
+      // v2.4 Filter results
+      filters: ai?.filters,
+
       newsDetail: ai?.news_detail || null,
       newsEventFlags: ai?.news_detail?.event_flags || [],
 
