@@ -77,8 +77,19 @@ export default function MainScreen() {
   const { subscribe: feedSubscribe } = useFeedControl();
   const feedSubscribedRef = useRef(false);
 
-  // Auto-subscribe the 4 underlyings on first mount
+  // Watch broker status to trigger auto-subscribe when broker connects
+  const brokerStatusQuery = trpc.broker.status.useQuery(undefined, {
+    refetchInterval: 5_000,
+  });
+  const activeBrokerId = brokerStatusQuery.data?.activeBrokerId;
+
+  // Auto-subscribe the 4 underlyings when broker becomes active
   useEffect(() => {
+    if (!activeBrokerId) {
+      // Reset so we re-subscribe when broker connects
+      feedSubscribedRef.current = false;
+      return;
+    }
     if (feedSubscribedRef.current) return;
     feedSubscribedRef.current = true;
     feedSubscribe(
@@ -87,8 +98,11 @@ export default function MainScreen() {
         exchange: i.exchange,
         mode: i.mode,
       }))
-    ).catch((err) => console.warn('[Feed] Auto-subscribe failed:', err));
-  }, [feedSubscribe]);
+    ).catch((err) => {
+      console.warn('[Feed] Auto-subscribe failed:', err);
+      feedSubscribedRef.current = false; // Allow retry
+    });
+  }, [activeBrokerId, feedSubscribe]);
 
   // ─── tRPC Queries with Polling ─────────────────────────────────
   const modulesQuery = trpc.trading.moduleStatuses.useQuery(undefined, {
