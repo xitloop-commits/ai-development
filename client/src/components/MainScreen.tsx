@@ -34,6 +34,7 @@ import JournalOverlay from '@/components/JournalOverlay';
 // Center content components
 import TradingDesk from '@/components/TradingDesk';
 import MarketHolidays from '@/components/MarketHolidays';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 // Discipline components
 import CircuitBreakerOverlay from '@/components/CircuitBreakerOverlay';
@@ -225,9 +226,11 @@ export default function MainScreen() {
           />
 
           {/* Trading Desk — 250-day compounding table */}
-          <div className="border border-border rounded-md bg-card overflow-hidden">
-            <TradingDesk />
-          </div>
+          <ErrorBoundary section="Trading Desk">
+            <div className="border border-border rounded-md bg-card overflow-hidden">
+              <TradingDesk />
+            </div>
+          </ErrorBoundary>
 
           {/* Quick instrument summary cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
@@ -303,30 +306,40 @@ export default function MainScreen() {
       <MainFooter hasLiveData={hasLiveData} />
 
       {/* ─── Drawers ──────────────────────────────────────────────── */}
+      <ErrorBoundary section="Instruments Drawer" compact>
       <LeftDrawer
         open={leftDrawerOpen}
         onOpenChange={setLeftDrawerOpen}
         instruments={instruments}
       />
+      </ErrorBoundary>
+      <ErrorBoundary section="Signals Drawer" compact>
       <RightDrawer
         open={rightDrawerOpen}
         onOpenChange={setRightDrawerOpen}
         signals={signals}
       />
+      </ErrorBoundary>
 
       {/* ─── Overlays ─────────────────────────────────────────────── */}
-      <SettingsOverlay
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-      />
-      <DisciplineOverlay
-        open={disciplineOpen}
-        onOpenChange={setDisciplineOpen}
-      />
-      <JournalOverlay
-        open={journalOpen}
-        onOpenChange={setJournalOpen}
-      />
+      <ErrorBoundary section="Settings" compact>
+        <SettingsOverlay
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+        />
+      </ErrorBoundary>
+      <ErrorBoundary section="Discipline" compact>
+        <DisciplineOverlay
+          open={disciplineOpen}
+          onOpenChange={setDisciplineOpen}
+        />
+      </ErrorBoundary>
+      <ErrorBoundary section="Journal" compact>
+        <JournalOverlay
+          open={journalOpen}
+          onOpenChange={setJournalOpen}
+        />
+      </ErrorBoundary>
 
       {/* ─── Circuit Breaker Full-Screen Block ────────────────────── */}
       <CircuitBreakerOverlay

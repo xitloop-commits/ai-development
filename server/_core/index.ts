@@ -13,6 +13,7 @@ import { registerAdapter, initBrokerService } from "../broker";
 import { MockAdapter } from "../broker/adapters/mock";
 import { DhanAdapter } from "../broker/adapters/dhan";
 import { registerBrokerRoutes } from "../broker/brokerRoutes";
+import aiDecisionsRouter from "../aiDecisions";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -57,6 +58,8 @@ async function startServer() {
   registerTradingRoutes(app);
   // Broker Service REST API (for Python modules)
   registerBrokerRoutes(app);
+  // AI Decisions REST API (serves AI decision JSON files for frontend)
+  app.use("/api/ai-decisions", aiDecisionsRouter);
   // tRPC API
   app.use(
     "/api/trpc",
