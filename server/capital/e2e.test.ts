@@ -441,10 +441,8 @@ describe("E2E: Full Trading Loop", () => {
       expect(updated2.trades[0].exitPrice).toBe(158);
       expect(updated2.trades[0].pnl).toBe(trade.pnl);
       expect(updated2.trades[0].unrealizedPnl).toBe(0);
-      // recalculateDayAggregates: totalPnl = sum(trade.pnl) - sum(trade.charges)
-      // trade.pnl is already net of charges, so totalPnl = trade.pnl - trade.charges
-      const expectedTotalPnl = Math.round((trade.pnl - trade.charges) * 100) / 100;
-      expect(updated2.totalPnl).toBe(expectedTotalPnl);
+      // totalPnl = trade.pnl for closed trades (already net of charges)
+      expect(updated2.totalPnl).toBe(trade.pnl);
       expect(updated2.totalCharges).toBe(trade.charges);
     });
 

@@ -445,18 +445,24 @@ export function recalculateDayAggregates(day: DayRecord): DayRecord {
     totalQty += Math.abs(trade.qty);
 
     if (trade.status === "OPEN") {
-      // Unrealized P&L
+      // Unrealized P&L (gross — charges deducted at day level)
       const direction = trade.type.includes("BUY") ? 1 : -1;
       trade.unrealizedPnl = round((trade.ltp - trade.entryPrice) * trade.qty * direction);
       totalPnl += trade.unrealizedPnl;
+      totalCharges += trade.charges;
     } else {
-      // Realized P&L (net of charges)
+      // Realized P&L — trade.pnl is already net of charges
       totalPnl += trade.pnl;
+      totalCharges += trade.charges;
     }
-    totalCharges += trade.charges;
   }
 
-  const netPnl = round(totalPnl - totalCharges);
+  // For open trades: totalPnl has gross unrealized, subtract their charges
+  // For closed trades: totalPnl already has net pnl, don't subtract charges again
+  const openCharges = trades
+    .filter((t) => t.status === "OPEN")
+    .reduce((sum, t) => sum + t.charges, 0);
+  const netPnl = round(totalPnl - openCharges);
 
   return {
     ...day,

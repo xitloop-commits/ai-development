@@ -505,7 +505,7 @@ describe("recalculateDayAggregates", () => {
     ];
 
     const result = recalculateDayAggregates(day);
-    expect(result.totalPnl).toBe(round(3500 - 90)); // net of charges
+    expect(result.totalPnl).toBe(3500); // trade.pnl is already net of charges
     expect(result.totalCharges).toBe(90);
     expect(result.totalQty).toBe(75);
     expect(result.instruments).toContain("NIFTY_50");
@@ -532,8 +532,8 @@ describe("recalculateDayAggregates", () => {
 
     const result = recalculateDayAggregates(day);
     // Closed: 2000 realized, Open: (220-200)*25 = 500 unrealized
-    // Total: 2500 - 50 charges = 2450
-    expect(result.totalPnl).toBe(2450);
+    // Closed pnl (2000, already net) + Open unrealized (500) = 2500
+    expect(result.totalPnl).toBe(2500);
     expect(result.totalCharges).toBe(50);
   });
 
@@ -544,8 +544,8 @@ describe("recalculateDayAggregates", () => {
     ];
 
     const result = recalculateDayAggregates(day);
-    expect(result.actualCapital).toBe(round(75000 + 3900)); // tradeCapital + netPnl
-    expect(result.deviation).toBe(round(75000 + 3900 - 75000)); // actualCapital - originalProj
+    expect(result.actualCapital).toBe(round(75000 + 4000)); // tradeCapital + netPnl (pnl already net)
+    expect(result.deviation).toBe(round(75000 + 4000 - 75000)); // actualCapital - originalProj
   });
 });
 
@@ -581,17 +581,17 @@ describe("Full Trade Lifecycle (Pure Logic)", () => {
 
     // 4. Recalculate aggregates
     const updated = recalculateDayAggregates(day1);
-    expect(updated.totalPnl).toBe(round(4000 - 100)); // 3900
+    expect(updated.totalPnl).toBe(4000); // trade.pnl already net of charges
 
     // 5. Check completion
     const completion = checkDayCompletion(updated);
     expect(completion.complete).toBe(true);
-    expect(completion.excessProfit).toBe(round(3900 - 3750)); // 150
+    expect(completion.excessProfit).toBe(round(4000 - 3750)); // 250
 
     // 6. Complete day
     const result = completeDayIndex(state, updated);
-    expect(result.tradingPool).toBe(round(75000 + 3900 * TRADING_SPLIT));
-    expect(result.reservePool).toBe(round(25000 + 3900 * RESERVE_SPLIT));
+    expect(result.tradingPool).toBe(round(75000 + 4000 * TRADING_SPLIT));
+    expect(result.reservePool).toBe(round(25000 + 4000 * RESERVE_SPLIT));
     expect(result.profitEntry.consumed).toBe(false);
   });
 
