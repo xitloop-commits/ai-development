@@ -270,7 +270,8 @@ export class MockAdapter implements BrokerAdapter {
   }
 
   resolveMCXFutcom(symbol: string): SecurityLookupResult | null {
-    if (symbol.toUpperCase() === "CRUDEOIL") {
+    const sym = symbol.toUpperCase();
+    if (sym === "CRUDEOIL") {
       return {
         securityId: "MOCK-CRUDEOIL-FUT",
         tradingSymbol: "CRUDEOIL 20APR FUT",
@@ -279,6 +280,19 @@ export class MockAdapter implements BrokerAdapter {
         exchange: "MCX",
         instrumentName: "FUTCOM",
         expiryDate: "2026-04-20",
+        strikePrice: 0,
+        optionType: "XX",
+      };
+    }
+    if (sym === "NATURALGAS") {
+      return {
+        securityId: "MOCK-NATURALGAS-FUT",
+        tradingSymbol: "NATURALGAS 28APR FUT",
+        customSymbol: "NATURALGAS 26 APR FUTURE",
+        lotSize: 1250,
+        exchange: "MCX",
+        instrumentName: "FUTCOM",
+        expiryDate: "2026-04-28",
         strikePrice: 0,
         optionType: "XX",
       };

@@ -89,7 +89,7 @@ const subscribeParamsSchema = z.object({
   instruments: z.array(
     z.object({
       securityId: z.string(),
-      exchange: z.enum(["NSE_FNO", "BSE_FNO", "MCX_COMM"]),
+      exchange: z.string(), // IDX_I, NSE_EQ, NSE_FNO, BSE_FNO, MCX_COMM
       mode: z.enum(["ticker", "quote", "full"]).optional(),
     })
   ),
@@ -380,7 +380,7 @@ export const brokerRouter = router({
       .input(subscribeParamsSchema)
       .mutation(({ input }) => {
         const broker = requireBroker();
-        broker.subscribeLTP(input.instruments, (tick) => {
+        broker.subscribeLTP(input.instruments as any, (tick) => {
           tickBus.emitTick(tick);
         });
         return {
@@ -395,7 +395,7 @@ export const brokerRouter = router({
       .input(subscribeParamsSchema)
       .mutation(({ input }) => {
         const broker = requireBroker();
-        broker.unsubscribeLTP(input.instruments);
+        broker.unsubscribeLTP(input.instruments as any);
         return {
           success: true,
           count: input.instruments.length,
@@ -421,6 +421,41 @@ export const brokerRouter = router({
         wsConnected: state.wsConnected,
         instruments: Array.from(state.instruments.keys()),
       };
+    }),
+
+    /**
+     * Resolve the correct feed securityIds for the 4 tracked underlyings.
+     * NSE indices use hardcoded IDs (IDX_I:13, IDX_I:25).
+     * MCX commodities resolve nearest-month future from scrip master.
+     */
+    resolveInstruments: publicProcedure.query(() => {
+      const broker = requireBroker();
+      const instruments: Array<{
+        name: string;
+        securityId: string;
+        exchange: string;
+        mode: string;
+      }> = [
+        { name: "NIFTY_50", securityId: "13", exchange: "IDX_I", mode: "full" },
+        { name: "BANKNIFTY", securityId: "25", exchange: "IDX_I", mode: "full" },
+      ];
+
+      // Resolve MCX commodities from scrip master
+      for (const mcx of ["CRUDEOIL", "NATURALGAS"] as const) {
+        if (broker.resolveMCXFutcom) {
+          const result = broker.resolveMCXFutcom(mcx);
+          if (result) {
+            instruments.push({
+              name: mcx,
+              securityId: String(result.securityId),
+              exchange: "MCX_COMM",
+              mode: "full",
+            });
+          }
+        }
+      }
+
+      return instruments;
     }),
 
     /** Get all latest cached ticks (snapshot). */

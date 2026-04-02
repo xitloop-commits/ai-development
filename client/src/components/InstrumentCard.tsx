@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import type { InstrumentData, TradeSetup, RiskFlag, ScoringFactor } from '@/lib/types';
 import { useTickStream } from '@/hooks/useTickStream';
-import { getFeedKey } from '../../../shared/instrumentFeedMap';
+// Feed key now passed as props from parent (resolved dynamically from server)
 import SRStrengthLine from './SRStrengthLine';
 import NewsSentimentBadge from './NewsSentimentBadge';
 import PreEntryChecklist from './PreEntryChecklist';
@@ -40,6 +40,10 @@ const legacyAiConfig = {
 interface InstrumentCardProps {
   data: InstrumentData;
   bgImage?: string;
+  /** Resolved feed exchange (e.g. IDX_I, MCX_COMM) */
+  feedExchange?: string;
+  /** Resolved feed security ID (e.g. 13, 25, 486502) */
+  feedSecurityId?: string;
 }
 
 function formatOI(value: number): string {
@@ -240,17 +244,15 @@ function IVThetaRow({ data }: { data: InstrumentData }) {
 }
 
 
-export default function InstrumentCard({ data, bgImage }: InstrumentCardProps) {
+export default function InstrumentCard({ data, bgImage, feedExchange, feedSecurityId }: InstrumentCardProps) {
   const [showChecklist, setShowChecklist] = useState(false);
 
   // Live tick overlay
   const { getTick } = useTickStream();
-  const feedKey = getFeedKey(data.name);
   const liveTick = useMemo(() => {
-    if (!feedKey) return undefined;
-    const [exchange, securityId] = feedKey.split(':');
-    return getTick(exchange, securityId);
-  }, [feedKey, getTick]);
+    if (!feedExchange || !feedSecurityId) return undefined;
+    return getTick(feedExchange, feedSecurityId);
+  }, [feedExchange, feedSecurityId, getTick]);
   const displayPrice = liveTick?.ltp ?? data.lastPrice;
   const isLive = !!liveTick;
 

@@ -33,13 +33,21 @@ const TAB_COLORS: Record<string, string> = {
   NATURALGAS: 'text-destructive border-destructive',
 };
 
+interface ResolvedFeedInstrument {
+  name: string;
+  securityId: string;
+  exchange: string;
+  mode: string;
+}
+
 interface LeftDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   instruments: InstrumentData[];
+  resolvedInstruments?: ResolvedFeedInstrument[];
 }
 
-export default function LeftDrawer({ open, onOpenChange, instruments }: LeftDrawerProps) {
+export default function LeftDrawer({ open, onOpenChange, instruments, resolvedInstruments }: LeftDrawerProps) {
   const [activeTab, setActiveTab] = useState(0);
 
   const currentInstrument = instruments[activeTab] ?? instruments[0];
@@ -83,6 +91,8 @@ export default function LeftDrawer({ open, onOpenChange, instruments }: LeftDraw
             <InstrumentCard
               data={currentInstrument}
               bgImage={bgMap[currentInstrument.name]}
+              feedExchange={resolvedInstruments?.find(r => r.name === currentInstrument.name)?.exchange}
+              feedSecurityId={resolvedInstruments?.find(r => r.name === currentInstrument.name)?.securityId}
             />
           ) : (
             <div className="flex items-center justify-center h-full">

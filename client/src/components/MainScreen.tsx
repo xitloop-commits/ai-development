@@ -20,7 +20,7 @@ import { useAlertMonitor } from '@/hooks/useAlertMonitor';
 import { useTickStream } from '@/hooks/useTickStream';
 import { useFeedControl } from '@/hooks/useFeedControl';
 import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
-import { DEFAULT_FEED_INSTRUMENTS, getFeedKey } from '../../../shared/instrumentFeedMap';
+// instrumentFeedMap no longer needed — resolved dynamically from server
 
 // Shell components
 import AppBar from '@/components/AppBar';
@@ -83,21 +83,27 @@ export default function MainScreen() {
   });
   const activeBrokerId = brokerStatusQuery.data?.activeBrokerId;
 
-  // Auto-subscribe the 4 underlyings when broker becomes active
+  // Resolve real security IDs from the server (IDX_I for NSE, MCX nearest future)
+  const resolvedInstrumentsQuery = trpc.broker.feed.resolveInstruments.useQuery(
+    undefined,
+    { enabled: !!activeBrokerId, retry: 3, retryDelay: 2000 }
+  );
+  const resolvedInstruments = resolvedInstrumentsQuery.data;
+
+  // Auto-subscribe the 4 underlyings when broker connects and instruments are resolved
   useEffect(() => {
-    if (!activeBrokerId) {
-      // Reset so we re-subscribe when broker connects
+    if (!activeBrokerId || !resolvedInstruments?.length) {
       feedSubscribedRef.current = false;
       return;
     }
     if (feedSubscribedRef.current) return;
     feedSubscribedRef.current = true;
-    console.log('[Feed] Auto-subscribing instruments:', DEFAULT_FEED_INSTRUMENTS.map(i => `${i.exchange}:${i.securityId}`));
+    console.log('[Feed] Auto-subscribing resolved instruments:', resolvedInstruments.map(i => `${i.exchange}:${i.securityId}`));
     feedSubscribe(
-      DEFAULT_FEED_INSTRUMENTS.map((i) => ({
+      resolvedInstruments.map((i) => ({
         securityId: i.securityId,
         exchange: i.exchange,
-        mode: i.mode,
+        mode: i.mode as "ticker" | "quote" | "full",
       }))
     ).then(() => {
       console.log('[Feed] Auto-subscribe success');
@@ -105,7 +111,7 @@ export default function MainScreen() {
       console.warn('[Feed] Auto-subscribe failed:', err);
       feedSubscribedRef.current = false; // Allow retry
     });
-  }, [activeBrokerId, feedSubscribe]);
+  }, [activeBrokerId, resolvedInstruments, feedSubscribe]);
 
   // ─── tRPC Queries with Polling ─────────────────────────────────
   const modulesQuery = trpc.trading.moduleStatuses.useQuery(undefined, {
@@ -312,8 +318,8 @@ export default function MainScreen() {
                   </div>
                   <div className="text-sm font-bold tabular-nums text-foreground">
                     {(() => {
-                      const fk = getFeedKey(inst.name);
-                      const liveLtp = fk ? getTick(fk.split(':')[0], fk.split(':')[1])?.ltp : undefined;
+                      const ri = resolvedInstruments?.find(r => r.name === inst.name);
+                      const liveLtp = ri ? getTick(ri.exchange, ri.securityId)?.ltp : undefined;
                       const price = liveLtp ?? inst.lastPrice;
                       return (
                         <>
@@ -365,6 +371,7 @@ export default function MainScreen() {
         open={leftDrawerOpen}
         onOpenChange={setLeftDrawerOpen}
         instruments={instruments}
+        resolvedInstruments={resolvedInstruments}
       />
       </ErrorBoundary>
       <ErrorBoundary section="Signals Drawer" compact>

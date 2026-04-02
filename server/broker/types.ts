@@ -11,7 +11,7 @@
 export type OrderType = "LIMIT" | "MARKET" | "SL" | "SL-M";
 export type ProductType = "INTRADAY" | "CNC" | "MARGIN";
 export type TransactionType = "BUY" | "SELL";
-export type ExchangeSegment = "NSE_FNO" | "BSE_FNO" | "MCX_COMM";
+export type ExchangeSegment = "IDX_I" | "NSE_EQ" | "NSE_FNO" | "BSE_FNO" | "MCX_COMM";
 export type OptionType = "CE" | "PE" | "FUT";
 
 export type OrderStatus =

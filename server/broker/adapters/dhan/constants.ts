@@ -47,6 +47,7 @@ export const DHAN_ENDPOINTS = {
 
 /** Maps our internal exchange segment to Dhan's enum values */
 export const DHAN_EXCHANGE_SEGMENTS: Record<string, string> = {
+  IDX_I: "IDX_I",
   NSE_EQ: "NSE_EQ",
   NSE_FNO: "NSE_FNO",
   BSE_EQ: "BSE_EQ",

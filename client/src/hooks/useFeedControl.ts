@@ -13,7 +13,7 @@ import { trpc } from "@/lib/trpc";
 
 export interface SubscribeInstrument {
   securityId: string;
-  exchange: "NSE_FNO" | "BSE_FNO" | "MCX_COMM";
+  exchange: string; // IDX_I, NSE_FNO, BSE_FNO, MCX_COMM, etc.
   mode?: "ticker" | "quote" | "full";
 }
 
