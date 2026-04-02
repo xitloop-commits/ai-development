@@ -21,6 +21,7 @@ import {
 import { getMongoHealth, pingMongo } from "./mongo";
 import { brokerRouter } from "./broker/brokerRouter";
 import { capitalRouter } from "./capital/capitalRouter";
+import { disciplineRouter } from "./discipline/disciplineRouter";
 import {
   createTrade,
   updateTrade,
@@ -271,6 +272,9 @@ export const appRouter = router({
 
   // Capital Management & Trading Desk
   capital: capitalRouter,
+
+  // Discipline Engine
+  discipline: disciplineRouter,
 
   // MongoDB health check
   mongo: router({

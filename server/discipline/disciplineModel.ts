@@ -1,0 +1,279 @@
+/**
+ * Discipline Engine — MongoDB Models
+ *
+ * Collections:
+ *   - discipline_settings: Per-user rich discipline configuration (per-rule enabled + params)
+ *   - discipline_state: Intraday state (counters, cooldowns, violations) — one per user per day
+ *   - discipline_daily_scores: End-of-day score snapshots for historical tracking
+ */
+
+import mongoose, { Schema, type Document } from "mongoose";
+import {
+  type DisciplineEngineSettings,
+  type DisciplineState,
+  type DisciplineDailyScore,
+  DEFAULT_DISCIPLINE_ENGINE_SETTINGS,
+  createDefaultState,
+  getISTDateString,
+} from "./types";
+
+// ─── Discipline Settings Schema ────────────────────────────────
+
+const enabledNumberSchema = new Schema(
+  { enabled: { type: Boolean, default: true }, thresholdPercent: Number, maxLosses: Number, cooldownMinutes: Number, limit: Number, nseMinutes: Number, mcxMinutes: Number, durationMinutes: Number, requireAcknowledgment: Boolean, percentOfCapital: Number, maxUnjournaled: Number, disciplineScoreWarning: Number, redWeekReduction: Number, triggerAfterDays: Number, reduceByPercent: Number, ratio: Number, startTime: String, endTime: String, blockStates: [String] },
+  { _id: false, strict: false }
+);
+
+const historyEntrySchema = new Schema(
+  { changedAt: { type: Date, default: Date.now }, field: String, oldValue: Schema.Types.Mixed, newValue: Schema.Types.Mixed },
+  { _id: false }
+);
+
+const disciplineSettingsSchema = new Schema<DisciplineEngineSettings & Document>(
+  {
+    userId: { type: String, required: true, unique: true, index: true },
+    updatedAt: { type: Date, default: Date.now },
+    dailyLossLimit: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.dailyLossLimit }) },
+    maxConsecutiveLosses: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.maxConsecutiveLosses }) },
+    maxTradesPerDay: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.maxTradesPerDay }) },
+    maxOpenPositions: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.maxOpenPositions }) },
+    revengeCooldown: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.revengeCooldown }) },
+    noTradingAfterOpen: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.noTradingAfterOpen }) },
+    noTradingBeforeClose: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.noTradingBeforeClose }) },
+    lunchBreakPause: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.lunchBreakPause }) },
+    preTradeGate: {
+      type: new Schema({
+        enabled: { type: Boolean, default: true },
+        minRiskReward: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.preTradeGate.minRiskReward }) },
+        emotionalStateCheck: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.preTradeGate.emotionalStateCheck }) },
+      }, { _id: false }),
+      default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.preTradeGate }),
+    },
+    maxPositionSize: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.maxPositionSize }) },
+    maxTotalExposure: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.maxTotalExposure }) },
+    journalEnforcement: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.journalEnforcement }) },
+    weeklyReview: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.weeklyReview }) },
+    winningStreakReminder: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.winningStreakReminder }) },
+    losingStreakAutoReduce: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.losingStreakAutoReduce }) },
+    history: { type: [historyEntrySchema], default: [] },
+  },
+  { timestamps: false, collection: "discipline_settings", strict: false }
+);
+
+export const DisciplineSettingsModel = mongoose.model("DisciplineSettings", disciplineSettingsSchema);
+
+// ─── Discipline State Schema ───────────────────────────────────
+
+const cooldownSchema = new Schema(
+  {
+    type: { type: String, enum: ["revenge", "consecutive_loss"] },
+    startedAt: Date,
+    endsAt: Date,
+    acknowledged: { type: Boolean, default: false },
+    triggerTrade: String,
+  },
+  { _id: false }
+);
+
+const violationSchema = new Schema(
+  {
+    ruleId: String,
+    ruleName: String,
+    severity: { type: String, enum: ["hard", "soft"] },
+    description: String,
+    timestamp: { type: Date, default: Date.now },
+    overridden: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const adjustmentSchema = new Schema(
+  {
+    rule: String,
+    description: String,
+    originalValue: Number,
+    adjustedValue: Number,
+    appliedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
+const streakSchema = new Schema(
+  {
+    type: { type: String, enum: ["winning", "losing", "none"], default: "none" },
+    length: { type: Number, default: 0 },
+    startDate: String,
+  },
+  { _id: false }
+);
+
+const disciplineStateSchema = new Schema<DisciplineState & Document>(
+  {
+    userId: { type: String, required: true, index: true },
+    date: { type: String, required: true, index: true },
+    updatedAt: { type: Date, default: Date.now },
+
+    dailyRealizedPnl: { type: Number, default: 0 },
+    dailyLossPercent: { type: Number, default: 0 },
+    circuitBreakerTriggered: { type: Boolean, default: false },
+    circuitBreakerTriggeredAt: Date,
+
+    tradesToday: { type: Number, default: 0 },
+    openPositions: { type: Number, default: 0 },
+    consecutiveLosses: { type: Number, default: 0 },
+
+    activeCooldown: { type: cooldownSchema, default: undefined },
+
+    unjournaledTrades: { type: [String], default: [] },
+
+    currentStreak: { type: streakSchema, default: () => ({ type: "none", length: 0, startDate: getISTDateString() }) },
+
+    activeAdjustments: { type: [adjustmentSchema], default: [] },
+
+    weeklyReviewCompleted: { type: Boolean, default: false },
+    weeklyReviewDueAt: Date,
+
+    violations: { type: [violationSchema], default: [] },
+  },
+  { timestamps: false, collection: "discipline_state" }
+);
+
+// Compound index for efficient lookup
+disciplineStateSchema.index({ userId: 1, date: -1 }, { unique: true });
+
+export const DisciplineStateModel = mongoose.model("DisciplineState", disciplineStateSchema);
+
+// ─── Discipline Daily Score Schema ─────────────────────────────
+
+const scoreBreakdownSchema = new Schema(
+  {
+    circuitBreaker: { type: Number, default: 0 },
+    tradeLimits: { type: Number, default: 0 },
+    cooldowns: { type: Number, default: 0 },
+    timeWindows: { type: Number, default: 0 },
+    positionSizing: { type: Number, default: 0 },
+    journal: { type: Number, default: 0 },
+    preTradeGate: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
+const dailyScoreSchema = new Schema<DisciplineDailyScore & Document>(
+  {
+    userId: { type: String, required: true, index: true },
+    date: { type: String, required: true },
+    score: { type: Number, default: 100 },
+    breakdown: { type: scoreBreakdownSchema, default: () => ({}) },
+    violationCount: { type: Number, default: 0 },
+    tradesToday: { type: Number, default: 0 },
+    dailyPnl: { type: Number, default: 0 },
+    dailyPnlPercent: { type: Number, default: 0 },
+    streakType: { type: String, enum: ["winning", "losing", "none"], default: "none" },
+    streakLength: { type: Number, default: 0 },
+  },
+  { timestamps: false, collection: "discipline_daily_scores" }
+);
+
+dailyScoreSchema.index({ userId: 1, date: -1 }, { unique: true });
+
+export const DisciplineDailyScoreModel = mongoose.model("DisciplineDailyScore", dailyScoreSchema);
+
+// ─── CRUD Helpers ──────────────────────────────────────────────
+
+/** Get or create discipline settings for a user */
+export async function getDisciplineSettings(userId: string): Promise<DisciplineEngineSettings> {
+  let doc = await DisciplineSettingsModel.findOne({ userId }).lean();
+  if (!doc) {
+    doc = await DisciplineSettingsModel.create({ userId, updatedAt: new Date(), history: [] });
+    doc = doc.toObject();
+  }
+  return doc as unknown as DisciplineEngineSettings;
+}
+
+/** Update discipline settings with history logging */
+export async function updateDisciplineSettings(
+  userId: string,
+  updates: Record<string, unknown>
+): Promise<DisciplineEngineSettings> {
+  const current = await getDisciplineSettings(userId);
+  const historyEntries: Array<{ changedAt: Date; field: string; oldValue: unknown; newValue: unknown }> = [];
+
+  const setFields: Record<string, unknown> = { updatedAt: new Date() };
+
+  for (const [key, value] of Object.entries(updates)) {
+    const oldValue = (current as unknown as Record<string, unknown>)[key];
+    setFields[key] = value;
+    historyEntries.push({ changedAt: new Date(), field: key, oldValue, newValue: value });
+  }
+
+  const doc = await DisciplineSettingsModel.findOneAndUpdate(
+    { userId },
+    { $set: setFields, $push: { history: { $each: historyEntries } } },
+    { upsert: true, returnDocument: "after", lean: true }
+  );
+  return doc as unknown as DisciplineEngineSettings;
+}
+
+/** Get or create today's discipline state */
+export async function getDisciplineState(userId: string, date?: string): Promise<DisciplineState> {
+  const d = date ?? getISTDateString();
+  let doc = await DisciplineStateModel.findOne({ userId, date: d }).lean();
+  if (!doc) {
+    // Check if there's a previous day's state to carry over streak
+    const prevDoc = await DisciplineStateModel.findOne({ userId, date: { $lt: d } }).sort({ date: -1 }).lean();
+    const defaultState = createDefaultState(userId, d);
+    if (prevDoc) {
+      defaultState.currentStreak = (prevDoc as unknown as DisciplineState).currentStreak;
+      defaultState.consecutiveLosses = (prevDoc as unknown as DisciplineState).consecutiveLosses;
+    }
+    doc = await DisciplineStateModel.create(defaultState);
+    doc = doc.toObject();
+  }
+  return doc as unknown as DisciplineState;
+}
+
+/** Update discipline state fields */
+export async function updateDisciplineState(
+  userId: string,
+  date: string,
+  updates: Partial<DisciplineState>
+): Promise<DisciplineState> {
+  const setFields: Record<string, unknown> = { updatedAt: new Date() };
+  for (const [key, value] of Object.entries(updates)) {
+    if (key !== "userId" && key !== "date") {
+      setFields[key] = value;
+    }
+  }
+  const doc = await DisciplineStateModel.findOneAndUpdate(
+    { userId, date },
+    { $set: setFields },
+    { returnDocument: "after", lean: true }
+  );
+  return doc as unknown as DisciplineState;
+}
+
+/** Add a violation to today's state */
+export async function addViolation(userId: string, date: string, violation: DisciplineState["violations"][0]): Promise<void> {
+  await DisciplineStateModel.updateOne(
+    { userId, date },
+    { $push: { violations: violation }, $set: { updatedAt: new Date() } }
+  );
+}
+
+/** Save or update daily score */
+export async function saveDailyScore(score: DisciplineDailyScore): Promise<void> {
+  await DisciplineDailyScoreModel.updateOne(
+    { userId: score.userId, date: score.date },
+    { $set: score },
+    { upsert: true }
+  );
+}
+
+/** Get score history for charting */
+export async function getScoreHistory(userId: string, days: number = 30): Promise<DisciplineDailyScore[]> {
+  const docs = await DisciplineDailyScoreModel.find({ userId })
+    .sort({ date: -1 })
+    .limit(days)
+    .lean();
+  return docs as unknown as DisciplineDailyScore[];
+}

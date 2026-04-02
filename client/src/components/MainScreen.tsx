@@ -35,6 +35,11 @@ import JournalOverlay from '@/components/JournalOverlay';
 import TradingDesk from '@/components/TradingDesk';
 import MarketHolidays from '@/components/MarketHolidays';
 
+// Discipline components
+import CircuitBreakerOverlay from '@/components/CircuitBreakerOverlay';
+import CooldownCard from '@/components/CooldownCard';
+import TradeLimitBars from '@/components/TradeLimitBars';
+
 // Mock data fallbacks
 import {
   moduleStatuses as mockModules,
@@ -57,6 +62,25 @@ export default function MainScreen() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [disciplineOpen, setDisciplineOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
+
+  // ─── Discipline State (mock — will be tRPC) ─────────────────────
+  const [circuitBreakerTriggered, setCircuitBreakerTriggered] = useState(false);
+  const [activeCooldown, setActiveCooldown] = useState<{
+    type: 'revenge' | 'consecutive_loss';
+    endsAt: Date;
+    acknowledged: boolean;
+  } | null>(null);
+  const disciplineState = {
+    tradesToday: 3,
+    maxTrades: 5,
+    openPositions: 1,
+    maxPositions: 3,
+    exposurePercent: 35,
+    maxExposurePercent: 80,
+    dailyLoss: -1200,
+    dailyLossPercent: 1.2,
+    lossThreshold: 3,
+  };
 
   // ─── Instrument Filter ─────────────────────────────────────────
   const { isEnabled } = useInstrumentFilter();
@@ -177,6 +201,29 @@ export default function MainScreen() {
       {/* Scrollable Center Content */}
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-[1400px] mx-auto px-3 py-3 space-y-3">
+          {/* Cooldown Card (if active) */}
+          {activeCooldown && (
+            <CooldownCard
+              type={activeCooldown.type}
+              endsAt={activeCooldown.endsAt}
+              acknowledged={activeCooldown.acknowledged}
+              onAcknowledge={() =>
+                setActiveCooldown((prev) => prev ? { ...prev, acknowledged: true } : null)
+              }
+              onExpired={() => setActiveCooldown(null)}
+            />
+          )}
+
+          {/* Trade Limit Bars */}
+          <TradeLimitBars
+            tradesToday={disciplineState.tradesToday}
+            maxTrades={disciplineState.maxTrades}
+            openPositions={disciplineState.openPositions}
+            maxPositions={disciplineState.maxPositions}
+            exposurePercent={disciplineState.exposurePercent}
+            maxExposurePercent={disciplineState.maxExposurePercent}
+          />
+
           {/* Trading Desk — 250-day compounding table */}
           <div className="border border-border rounded-md bg-card overflow-hidden">
             <TradingDesk />
@@ -279,6 +326,14 @@ export default function MainScreen() {
       <JournalOverlay
         open={journalOpen}
         onOpenChange={setJournalOpen}
+      />
+
+      {/* ─── Circuit Breaker Full-Screen Block ────────────────────── */}
+      <CircuitBreakerOverlay
+        visible={circuitBreakerTriggered}
+        dailyLoss={disciplineState.dailyLoss}
+        dailyLossPercent={disciplineState.dailyLossPercent}
+        threshold={disciplineState.lossThreshold}
       />
     </div>
   );
