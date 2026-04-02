@@ -15,7 +15,7 @@ import {
   BarChart3, Target, Filter, Clock, DollarSign,
   Percent, Award, AlertTriangle, ChevronDown, ChevronUp,
   CheckCircle2, XCircle, ListChecks, PieChart, Bot,
-  Calendar, Tag, MessageSquare, ArrowUpRight, ArrowDownRight,
+  Calendar, Tag, MessageSquare, ArrowUpRight, ArrowDownRight, Scale,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import AiPaperTab from './AiPaperTab';
@@ -24,7 +24,7 @@ import AiPaperTab from './AiPaperTab';
 
 const INSTRUMENTS = ['NIFTY_50', 'BANKNIFTY', 'CRUDEOIL', 'NATURALGAS'];
 const TRADE_TYPES = ['CALL_BUY', 'PUT_BUY', 'CALL_SELL', 'PUT_SELL'] as const;
-type Tab = 'trades' | 'analytics' | 'ai-paper';
+type Tab = 'trades' | 'analytics' | 'compare' | 'ai-paper';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -691,6 +691,152 @@ function AnalyticsTab() {
   );
 }
 
+// ─── Performance Comparison Tab ─────────────────────────────
+
+function CompareTab() {
+  const compareQuery = trpc.journal.compare.useQuery(undefined, { retry: false });
+
+  if (compareQuery.isLoading) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="h-16 rounded border border-border bg-secondary/10 animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  if (compareQuery.isError) {
+    return (
+      <div className="text-center py-8 space-y-2">
+        <AlertTriangle className="h-8 w-8 text-warning-amber mx-auto" />
+        <p className="text-[10px] text-muted-foreground">
+          {compareQuery.error?.message?.includes('UNAUTHORIZED')
+            ? 'Login required to view comparison.'
+            : `Failed to load: ${compareQuery.error?.message}`}
+        </p>
+      </div>
+    );
+  }
+
+  const { live, paper } = compareQuery.data ?? { live: null, paper: null };
+
+  if ((!live || live.totalTrades === 0) && (!paper || paper.totalTrades === 0)) {
+    return (
+      <div className="text-center py-8 space-y-2">
+        <Scale className="h-8 w-8 text-muted-foreground/40 mx-auto" />
+        <p className="text-[10px] text-muted-foreground">No closed trades yet. Comparison will appear after trades are completed in both modes.</p>
+      </div>
+    );
+  }
+
+  const rows: Array<{ label: string; liveVal: string; paperVal: string; liveColor?: string; paperColor?: string }> = [
+    {
+      label: 'Total P&L',
+      liveVal: `\u20B9${formatPrice(live?.totalPnl ?? 0)}`,
+      paperVal: `\u20B9${formatPrice(paper?.totalPnl ?? 0)}`,
+      liveColor: (live?.totalPnl ?? 0) >= 0 ? 'text-bullish' : 'text-loss-red',
+      paperColor: (paper?.totalPnl ?? 0) >= 0 ? 'text-bullish' : 'text-loss-red',
+    },
+    {
+      label: 'Win Rate',
+      liveVal: `${(live?.winRate ?? 0).toFixed(1)}%`,
+      paperVal: `${(paper?.winRate ?? 0).toFixed(1)}%`,
+      liveColor: (live?.winRate ?? 0) >= 50 ? 'text-bullish' : 'text-loss-red',
+      paperColor: (paper?.winRate ?? 0) >= 50 ? 'text-bullish' : 'text-loss-red',
+    },
+    {
+      label: 'Total Trades',
+      liveVal: String(live?.totalTrades ?? 0),
+      paperVal: String(paper?.totalTrades ?? 0),
+    },
+    {
+      label: 'Avg R:R',
+      liveVal: (live?.avgRR ?? 0).toFixed(2),
+      paperVal: (paper?.avgRR ?? 0).toFixed(2),
+      liveColor: (live?.avgRR ?? 0) >= 1.5 ? 'text-bullish' : 'text-warning-amber',
+      paperColor: (paper?.avgRR ?? 0) >= 1.5 ? 'text-bullish' : 'text-warning-amber',
+    },
+    {
+      label: 'Max Win',
+      liveVal: `\u20B9${formatPrice(live?.maxWin ?? 0)}`,
+      paperVal: `\u20B9${formatPrice(paper?.maxWin ?? 0)}`,
+      liveColor: 'text-bullish',
+      paperColor: 'text-bullish',
+    },
+    {
+      label: 'Max Drawdown',
+      liveVal: `\u20B9${formatPrice(live?.maxDrawdown ?? 0)}`,
+      paperVal: `\u20B9${formatPrice(paper?.maxDrawdown ?? 0)}`,
+      liveColor: 'text-loss-red',
+      paperColor: 'text-loss-red',
+    },
+    {
+      label: 'Avg Win',
+      liveVal: `\u20B9${formatPrice(live?.avgWin ?? 0)}`,
+      paperVal: `\u20B9${formatPrice(paper?.avgWin ?? 0)}`,
+    },
+    {
+      label: 'Avg Loss',
+      liveVal: `\u20B9${formatPrice(live?.avgLoss ?? 0)}`,
+      paperVal: `\u20B9${formatPrice(paper?.avgLoss ?? 0)}`,
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-2">
+        <Scale className="h-4 w-4 text-info-cyan" />
+        <span className="text-xs font-bold tracking-wider text-foreground">YOU vs AI</span>
+        <span className="text-[9px] text-muted-foreground">Who performs better?</span>
+      </div>
+
+      {/* Comparison Table */}
+      <div className="border border-border rounded-lg overflow-hidden">
+        <div className="grid grid-cols-3 bg-secondary/20 border-b border-border">
+          <div className="px-3 py-2 text-[9px] font-bold tracking-wider text-muted-foreground">METRIC</div>
+          <div className="px-3 py-2 text-[9px] font-bold tracking-wider text-info-cyan text-center">YOU (LIVE)</div>
+          <div className="px-3 py-2 text-[9px] font-bold tracking-wider text-warning-amber text-center">AI (PAPER)</div>
+        </div>
+        {rows.map(({ label, liveVal, paperVal, liveColor, paperColor }) => (
+          <div key={label} className="grid grid-cols-3 border-b border-border/50 last:border-b-0 hover:bg-secondary/10">
+            <div className="px-3 py-2.5 text-[10px] text-muted-foreground">{label}</div>
+            <div className={`px-3 py-2.5 text-[10px] font-mono font-bold text-center ${liveColor ?? 'text-foreground'}`}>
+              {liveVal}
+            </div>
+            <div className={`px-3 py-2.5 text-[10px] font-mono font-bold text-center ${paperColor ?? 'text-foreground'}`}>
+              {paperVal}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Winner Banner */}
+      {(live?.totalTrades ?? 0) > 0 && (paper?.totalTrades ?? 0) > 0 && (
+        <div className={`rounded-lg border p-3 text-center ${
+          (live?.totalPnl ?? 0) > (paper?.totalPnl ?? 0)
+            ? 'bg-info-cyan/5 border-info-cyan/30'
+            : (paper?.totalPnl ?? 0) > (live?.totalPnl ?? 0)
+            ? 'bg-warning-amber/5 border-warning-amber/30'
+            : 'bg-secondary/10 border-border'
+        }`}>
+          <span className="text-[10px] font-bold tracking-wider">
+            {(live?.totalPnl ?? 0) > (paper?.totalPnl ?? 0)
+              ? '\uD83C\uDFC6 YOU are outperforming AI'
+              : (paper?.totalPnl ?? 0) > (live?.totalPnl ?? 0)
+              ? '\uD83E\uDD16 AI is outperforming YOU'
+              : '\uD83E\uDD1D Tied!'}
+          </span>
+          <span className="text-[9px] text-muted-foreground block mt-0.5">
+            P&L difference: \u20B9{formatPrice(Math.abs((live?.totalPnl ?? 0) - (paper?.totalPnl ?? 0)))}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Overlay ────────────────────────────────────────────
 
 export default function JournalOverlay({ open, onOpenChange }: JournalOverlayProps) {
@@ -699,6 +845,7 @@ export default function JournalOverlay({ open, onOpenChange }: JournalOverlayPro
   const tabs: Array<{ id: Tab; label: string; icon: React.ElementType }> = [
     { id: 'trades', label: 'Trades', icon: ListChecks },
     { id: 'analytics', label: 'Analytics', icon: PieChart },
+    { id: 'compare', label: 'You vs AI', icon: Scale },
     { id: 'ai-paper', label: 'AI Paper', icon: Bot },
   ];
 
@@ -736,6 +883,7 @@ export default function JournalOverlay({ open, onOpenChange }: JournalOverlayPro
         <div className="flex-1 overflow-y-auto p-5">
           {tab === 'trades' && <TradesTab />}
           {tab === 'analytics' && <AnalyticsTab />}
+          {tab === 'compare' && <CompareTab />}
           {tab === 'ai-paper' && <AiPaperTab />}
         </div>
       </DialogContent>

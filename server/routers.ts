@@ -163,6 +163,7 @@ export const appRouter = router({
       .input(z.object({
         status: z.enum(['OPEN', 'CLOSED', 'CANCELLED']).optional(),
         instrument: z.string().optional(),
+        mode: z.enum(['LIVE', 'PAPER']).optional(),
         startTime: z.number().optional(),
         endTime: z.number().optional(),
         limit: z.number().min(1).max(500).optional(),
@@ -176,9 +177,24 @@ export const appRouter = router({
       .input(z.object({
         startTime: z.number().optional(),
         endTime: z.number().optional(),
+        mode: z.enum(['LIVE', 'PAPER']).optional(),
       }).optional())
       .query(async ({ ctx, input }) => {
-        return getTradeStats(ctx.user.id, input?.startTime, input?.endTime);
+        return getTradeStats(ctx.user.id, input?.startTime, input?.endTime, input?.mode);
+      }),
+
+    // Compare LIVE vs PAPER performance side-by-side
+    compare: protectedProcedure
+      .input(z.object({
+        startTime: z.number().optional(),
+        endTime: z.number().optional(),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        const [liveStats, paperStats] = await Promise.all([
+          getTradeStats(ctx.user.id, input?.startTime, input?.endTime, 'LIVE'),
+          getTradeStats(ctx.user.id, input?.startTime, input?.endTime, 'PAPER'),
+        ]);
+        return { live: liveStats, paper: paperStats };
       }),
   }),
 

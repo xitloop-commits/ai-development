@@ -135,30 +135,30 @@ export async function closeTrade(id: number, userId: number, exitPrice: number, 
 
 export async function getUserTrades(
   userId: number,
-  filters?: { status?: string; instrument?: string; startTime?: number; endTime?: number; limit?: number }
+  filters?: { status?: string; instrument?: string; mode?: string; startTime?: number; endTime?: number; limit?: number }
 ): Promise<TradeJournalEntry[]> {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
 
   const conditions = [eq(tradeJournal.userId, userId)];
   if (filters?.status) conditions.push(eq(tradeJournal.status, filters.status as any));
-  if (filters?.instrument) conditions.push(eq(tradeJournal.instrument, filters.instrument));
+   if (filters?.instrument) conditions.push(eq(tradeJournal.instrument, filters.instrument));
+  if (filters?.mode) conditions.push(eq(tradeJournal.mode, filters.mode as any));
   if (filters?.startTime) conditions.push(gte(tradeJournal.entryTime, filters.startTime));
   if (filters?.endTime) conditions.push(lte(tradeJournal.entryTime, filters.endTime));
-
   return db.select().from(tradeJournal)
     .where(and(...conditions))
     .orderBy(desc(tradeJournal.entryTime))
     .limit(filters?.limit || 100);
 }
 
-export async function getTradeStats(userId: number, startTime?: number, endTime?: number) {
+export async function getTradeStats(userId: number, startTime?: number, endTime?: number, mode?: string) {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
-
   const conditions = [eq(tradeJournal.userId, userId), eq(tradeJournal.status, 'CLOSED')];
   if (startTime) conditions.push(gte(tradeJournal.entryTime, startTime));
   if (endTime) conditions.push(lte(tradeJournal.entryTime, endTime));
+  if (mode) conditions.push(eq(tradeJournal.mode, mode as any));
 
   const trades = await db.select().from(tradeJournal)
     .where(and(...conditions))

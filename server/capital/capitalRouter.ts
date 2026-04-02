@@ -42,6 +42,10 @@ import { getUserSettings } from "../userSettings";
 import { getActiveBroker } from "../broker/brokerService";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { OrderParams } from "../broker/types";
+import { createTrade as createJournalEntry, closeTrade as closeJournalEntry } from "../db";
+
+/** System user ID for auto-journaled trades (no auth context in capital flow). */
+const SYSTEM_USER_ID = 1;
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -333,6 +337,32 @@ export const capitalRouter = router({
       });
 
       await upsertDayRecord(input.workspace, updated);
+
+      // ── Auto-journal: fire-and-forget ──────────────────────
+      try {
+        const journalMode = input.workspace === "live" ? "LIVE" as const : "PAPER" as const;
+        const journalType = ["CALL_BUY", "PUT_BUY", "CALL_SELL", "PUT_SELL"].includes(input.type)
+          ? input.type as "CALL_BUY" | "PUT_BUY" | "CALL_SELL" | "PUT_SELL"
+          : input.type === "BUY" ? "CALL_BUY" as const : "PUT_SELL" as const;
+        const journalId = await createJournalEntry({
+          userId: SYSTEM_USER_ID,
+          instrument: input.instrument,
+          tradeType: journalType,
+          strike: input.strike ?? 0,
+          entryPrice: input.entryPrice,
+          quantity: qty,
+          stopLoss: stopLossPrice,
+          target: targetPrice,
+          mode: journalMode,
+          entryTime: trade.openedAt,
+          tags: `capital:${trade.id}`,
+        });
+        // Store journal ID on trade for exit sync
+        (trade as any).journalId = journalId;
+      } catch (err) {
+        console.warn("[Capital] Auto-journal entry failed:", err);
+      }
+
       return { trade, day: updated };
     }),
 
@@ -425,6 +455,28 @@ export const capitalRouter = router({
         EOD: "CLOSED_EOD",
       };
       trade.status = statusMap[input.reason] ?? "CLOSED_MANUAL";
+
+      // ── Auto-journal close: fire-and-forget ──────────────────
+      try {
+        const { getUserTrades } = await import("../db");
+        const journalTrades = await getUserTrades(SYSTEM_USER_ID, {
+          status: "OPEN",
+          instrument: trade.instrument,
+          limit: 50,
+        });
+        const match = journalTrades.find((j) => j.tags === `capital:${trade.id}`);
+        if (match) {
+          await closeJournalEntry(
+            match.id,
+            SYSTEM_USER_ID,
+            input.exitPrice,
+            trade.closedAt!,
+            input.reason
+          );
+        }
+      } catch (err) {
+        console.warn("[Capital] Auto-journal close failed:", err);
+      }
 
       // Recalculate day aggregates
       const updated = recalculateDayAggregates(day);
