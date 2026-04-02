@@ -102,14 +102,7 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
           <span className="hidden xl:inline text-[10px] text-muted-foreground tracking-widest uppercase">
             Automatic Trading System
           </span>
-          {/* Trading Mode Badge */}
-          <span className={`text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded ${
-            brokerMode === 'live'
-              ? 'bg-loss-red/20 text-loss-red border border-loss-red/30'
-              : 'bg-info-cyan/20 text-info-cyan border border-info-cyan/30'
-          }`}>
-            {brokerMode === 'live' ? 'LIVE' : 'PAPER'}
-          </span>
+
         </div>
 
         {/* Center Group: Module Heartbeats */}

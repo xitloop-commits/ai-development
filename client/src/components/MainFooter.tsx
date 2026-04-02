@@ -1,21 +1,53 @@
 /**
  * MainFooter — Sticky bottom bar for the single-screen command center.
- * Layout: Monthly Growth (left) | Events & Discipline (center) | Net Worth (right)
+ * Spec v1.2 Section 3.4:
+ *   Left (fixed, stuck left): Previous Month + Current Month fund growth. Hover → pool breakup.
+ *   Center (elastic): Holiday indicator (click → dialog) + Discipline score (hover → 7-category breakup).
+ *   Right (fixed, stuck right): Net Worth + cumulative growth %. Hover → pool breakup with growth %.
  *
- * Data: Wired to tRPC capital.state and discipline.getDashboard with fallbacks.
+ * Implementation Constraint: No MARKET OPEN/CLOSED, no LIVE DATA/DEMO MODE pills.
  */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Shield, Calendar } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { trpc } from '@/lib/trpc';
+import type { MarketHoliday } from '@/lib/types';
 
+// ─── Holiday Helpers ────────────────────────────────────────
+function getDaysUntil(dateStr: string): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(dateStr + 'T00:00:00');
+  return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function getDaysLabel(days: number): string {
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Tomorrow';
+  return `In ${days} days`;
+}
+
+function formatDateShort(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+}
+
+function isHolidayThisMonth(dateStr: string): boolean {
+  const now = new Date();
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+}
+
+// ─── Component ──────────────────────────────────────────────
 export default function MainFooter() {
-  const [time, setTime] = useState(new Date());
-
-  useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const [holidayTab, setHolidayTab] = useState<'ALL' | 'NSE' | 'MCX'>('ALL');
 
   // ─── tRPC Queries ────────────────────────────────────────────
   const capitalQuery = trpc.capital.state.useQuery(
@@ -28,11 +60,18 @@ export default function MainFooter() {
     retry: 1,
   });
 
-  // ─── Derived Data ────────────────────────────────────────────
-  const hasLiveData = !!capitalQuery.data;
-  const capitalData = capitalQuery.data as any;
-  const disciplineData = disciplineQuery.data as any;
+  const holidaysQuery = trpc.holidays.upcoming.useQuery(
+    { exchange: 'ALL', daysAhead: 90 },
+    { refetchInterval: 60000 }
+  );
 
+  const holidaysDialogQuery = trpc.holidays.upcoming.useQuery(
+    { exchange: holidayTab, daysAhead: 365 },
+    { refetchInterval: 60000 }
+  );
+
+  // ─── Capital Data ────────────────────────────────────────────
+  const capitalData = capitalQuery.data as any;
   const tradingPool = capitalData?.tradingPool ?? 0;
   const reservePool = capitalData?.reservePool ?? 0;
   const netWorth = capitalData?.netWorth ?? 0;
@@ -41,6 +80,34 @@ export default function MainFooter() {
     ? (((netWorth - initialCapital) / initialCapital) * 100).toFixed(1)
     : '0.0';
 
+  // Monthly growth (placeholder values — will be wired to actual monthly snapshots)
+  const now = new Date();
+  const prevMonthName = new Date(now.getFullYear(), now.getMonth() - 1).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+  const currMonthName = new Date(now.getFullYear(), now.getMonth()).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+  // TODO: Wire to actual monthly snapshot data from capital engine
+  const prevMonthFund = capitalData?.prevMonthFund ?? netWorth * 0.95;
+  const prevMonthGrowth = capitalData?.prevMonthGrowth ?? 3.6;
+  const currMonthFund = capitalData?.currMonthFund ?? netWorth;
+  const currMonthGrowth = capitalData?.currMonthGrowth ?? 5.8;
+  const prevTradingPool = capitalData?.prevMonthTradingPool ?? tradingPool * 0.95;
+  const prevReservePool = capitalData?.prevMonthReservePool ?? reservePool * 0.95;
+  const prevTradingGrowth = capitalData?.prevMonthTradingGrowth ?? 4.2;
+  const prevReserveGrowth = capitalData?.prevMonthReserveGrowth ?? 2.1;
+  const currTradingPool = tradingPool;
+  const currReservePool = reservePool;
+  const currTradingGrowth = capitalData?.currMonthTradingGrowth ?? 6.1;
+  const currReserveGrowth = capitalData?.currMonthReserveGrowth ?? 4.8;
+
+  // Net Worth pool growth since inception
+  const tradingPoolGrowth = initialCapital > 0
+    ? (((tradingPool - initialCapital * 0.75) / (initialCapital * 0.75)) * 100).toFixed(1)
+    : '0.0';
+  const reservePoolGrowth = initialCapital > 0
+    ? (((reservePool - initialCapital * 0.25) / (initialCapital * 0.25)) * 100).toFixed(1)
+    : '0.0';
+
+  // ─── Discipline Data ────────────────────────────────────────
+  const disciplineData = disciplineQuery.data as any;
   const scoreObj = disciplineData?.score;
   const disciplineScore = typeof scoreObj === 'object' && scoreObj !== null ? (scoreObj as any).score ?? 100 : scoreObj ?? 100;
   const scoreColor = disciplineScore >= 80 ? 'text-info-cyan' : disciplineScore >= 60 ? 'text-warning-amber' : 'text-loss-red';
@@ -54,6 +121,30 @@ export default function MainFooter() {
     preTradeGate: 15,
   };
 
+  // ─── Holiday Data ────────────────────────────────────────────
+  const allHolidays = holidaysQuery.data ?? [];
+  const nextHoliday = allHolidays.find(h => getDaysUntil(h.date) >= 0);
+  const hasHolidayThisMonth = allHolidays.some(h => getDaysUntil(h.date) >= 0 && isHolidayThisMonth(h.date));
+
+  // Deduplicate holidays for dialog
+  const dialogHolidays = useMemo(() => {
+    const holidays = holidaysDialogQuery.data ?? [];
+    if (holidayTab !== 'ALL') return holidays;
+    const seen = new Map<string, MarketHoliday>();
+    for (const h of holidays) {
+      const key = `${h.date}-${h.description}-${h.type}`;
+      if (!seen.has(key)) {
+        seen.set(key, h);
+      } else {
+        const existing = seen.get(key)!;
+        if (existing.exchange !== h.exchange) {
+          seen.set(key, { ...existing, exchange: 'BOTH' as any });
+        }
+      }
+    }
+    return Array.from(seen.values()).sort((a, b) => a.date.localeCompare(b.date));
+  }, [holidaysDialogQuery.data, holidayTab]);
+
   const formatCurrency = (n: number) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
@@ -62,83 +153,186 @@ export default function MainFooter() {
     }).format(n);
   };
 
-  // Market status
-  const isMarketOpen = useMemo(() => {
-    const hours = time.getHours();
-    const minutes = time.getMinutes();
-    const day = time.getDay();
-    const timeInMinutes = hours * 60 + minutes;
-    const isWeekday = day >= 1 && day <= 5;
-    const isNSEOpen = timeInMinutes >= 555 && timeInMinutes <= 930;
-    const isMCXOpen = timeInMinutes >= 540 && timeInMinutes <= 1410;
-    return isWeekday && (isNSEOpen || isMCXOpen);
-  }, [time]);
+  // Holiday indicator text
+  let holidayText = 'No holidays this month';
+  if (nextHoliday && hasHolidayThisMonth) {
+    const days = getDaysUntil(nextHoliday.date);
+    holidayText = `${getDaysLabel(days)}: ${nextHoliday.description}`;
+  } else if (nextHoliday) {
+    const days = getDaysUntil(nextHoliday.date);
+    holidayText = `${getDaysLabel(days)}: ${nextHoliday.description}`;
+  }
 
   return (
     <div className="sticky bottom-0 z-40 border-t border-border bg-card/90 backdrop-blur-md">
-      <div className="flex items-center justify-between px-4 py-2">
-        {/* Left Group: Capital Pools */}
-        <div className="flex items-center gap-6">
+      <div className="flex items-center px-4 py-2">
+        {/* ─── Left Group (Fixed, Stuck Left): Monthly Growth ─── */}
+        <div className="flex items-center gap-6 shrink-0">
+          {/* Previous Month */}
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex flex-col cursor-default">
                 <span className="text-[8px] text-muted-foreground tracking-widest uppercase">
-                  Trading Pool
+                  {prevMonthName}
                 </span>
                 <span className="text-[11px] font-bold tabular-nums text-foreground">
-                  {formatCurrency(tradingPool)}
+                  {formatCurrency(prevMonthFund)}{' '}
+                  <span className={`text-[9px] ${prevMonthGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
+                    {prevMonthGrowth >= 0 ? '+' : ''}{prevMonthGrowth.toFixed(1)}%
+                  </span>
                 </span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="top" className="bg-card border-border text-foreground">
               <div className="text-[10px] space-y-0.5">
-                <div className="font-bold">Trading Pool (75%)</div>
-                <div className="text-muted-foreground">Active capital for trades</div>
+                <div className="font-bold">{prevMonthName} Pool Breakdown</div>
+                <div className="text-muted-foreground">
+                  Trading Pool: {formatCurrency(prevTradingPool)}{' '}
+                  <span className={prevTradingGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>
+                    {prevTradingGrowth >= 0 ? '+' : ''}{prevTradingGrowth.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="text-muted-foreground">
+                  Reserve Pool: {formatCurrency(prevReservePool)}{' '}
+                  <span className={prevReserveGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>
+                    {prevReserveGrowth >= 0 ? '+' : ''}{prevReserveGrowth.toFixed(1)}%
+                  </span>
+                </div>
               </div>
             </TooltipContent>
           </Tooltip>
 
+          {/* Current Month */}
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex flex-col cursor-default">
                 <span className="text-[8px] text-muted-foreground tracking-widest uppercase">
-                  Reserve Pool
+                  {currMonthName}
                 </span>
-                <span className="text-[11px] font-bold tabular-nums text-info-cyan">
-                  {formatCurrency(reservePool)}
+                <span className="text-[11px] font-bold tabular-nums text-foreground">
+                  {formatCurrency(currMonthFund)}{' '}
+                  <span className={`text-[9px] ${currMonthGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
+                    {currMonthGrowth >= 0 ? '+' : ''}{currMonthGrowth.toFixed(1)}%
+                  </span>
                 </span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="top" className="bg-card border-border text-foreground">
               <div className="text-[10px] space-y-0.5">
-                <div className="font-bold">Reserve Pool (25%)</div>
-                <div className="text-muted-foreground">Safety buffer — untouched by losses</div>
+                <div className="font-bold">{currMonthName} Pool Breakdown</div>
+                <div className="text-muted-foreground">
+                  Trading Pool: {formatCurrency(currTradingPool)}{' '}
+                  <span className={currTradingGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>
+                    {currTradingGrowth >= 0 ? '+' : ''}{currTradingGrowth.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="text-muted-foreground">
+                  Reserve Pool: {formatCurrency(currReservePool)}{' '}
+                  <span className={currReserveGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>
+                    {currReserveGrowth >= 0 ? '+' : ''}{currReserveGrowth.toFixed(1)}%
+                  </span>
+                </div>
               </div>
             </TooltipContent>
           </Tooltip>
         </div>
 
-        {/* Center Group: Events & Discipline */}
-        <div className="flex items-center gap-6">
-          {/* Market Status */}
-          <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider ${
-            isMarketOpen
-              ? 'bg-bullish/10 text-bullish border border-bullish/20'
-              : 'bg-destructive/10 text-destructive border border-destructive/20'
-          }`}>
-            <div className={`h-1.5 w-1.5 rounded-full ${isMarketOpen ? 'bg-bullish animate-pulse-glow' : 'bg-destructive'}`} />
-            {isMarketOpen ? 'MARKET OPEN' : 'MARKET CLOSED'}
-          </div>
+        {/* ─── Center Group (Elastic): Holiday + Discipline ─── */}
+        <div className="flex-1 flex items-center justify-center gap-8">
+          {/* Holiday Indicator — click opens dialog */}
+          <Dialog>
+            <DialogTrigger asChild>
+              <button className="flex items-center gap-1.5 cursor-pointer hover:opacity-80 transition-opacity">
+                <Calendar className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[9px] text-muted-foreground tracking-wider hover:text-foreground transition-colors">
+                  {holidayText}
+                </span>
+              </button>
+            </DialogTrigger>
+            <DialogContent className="bg-card border-border text-foreground max-w-lg max-h-[70vh] overflow-hidden flex flex-col">
+              <DialogHeader>
+                <DialogTitle className="text-sm font-bold tracking-wider uppercase flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-info-cyan" />
+                  Market Holidays
+                </DialogTitle>
+              </DialogHeader>
 
-          {/* Holiday Info */}
-          <div className="flex items-center gap-1.5 cursor-default">
-            <Calendar className="h-3 w-3 text-muted-foreground" />
-            <span className="text-[9px] text-muted-foreground tracking-wider">
-              No holidays this week
-            </span>
-          </div>
+              {/* Exchange Tabs */}
+              <div className="flex items-center gap-1 px-1 py-2">
+                {(['ALL', 'NSE', 'MCX'] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setHolidayTab(t)}
+                    className={`text-[9px] px-2 py-1 rounded font-bold tracking-wider transition-colors ${
+                      holidayTab === t
+                        ? 'bg-info-cyan/15 text-info-cyan border border-info-cyan/30'
+                        : 'text-muted-foreground hover:text-foreground border border-transparent'
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
 
-          {/* Discipline Score */}
+              {/* Holiday List */}
+              <div className="flex-1 overflow-y-auto divide-y divide-border/50">
+                {dialogHolidays.length === 0 ? (
+                  <div className="px-3 py-6 text-center">
+                    <span className="text-[10px] text-muted-foreground">No upcoming holidays</span>
+                  </div>
+                ) : (
+                  dialogHolidays.map((h, i) => {
+                    const days = getDaysUntil(h.date);
+                    const isImminent = days <= 3;
+                    return (
+                      <div
+                        key={`${h.date}-${h.description}-${h.exchange}-${i}`}
+                        className={`flex items-center gap-3 px-3 py-2 ${isImminent ? 'bg-warning-amber/5' : ''}`}
+                      >
+                        <div className="w-[52px] shrink-0">
+                          <div className="text-[10px] font-bold tabular-nums text-foreground">
+                            {formatDateShort(h.date)}
+                          </div>
+                          <div className="text-[8px] text-muted-foreground">{h.day?.slice(0, 3)}</div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[10px] leading-tight truncate text-foreground">
+                            {h.description}
+                          </div>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className={`text-[7px] px-1 py-0 rounded border font-bold ${
+                              h.exchange === 'NSE' ? 'bg-info-cyan/10 text-info-cyan border-info-cyan/20' :
+                              h.exchange === 'MCX' ? 'bg-warning-amber/10 text-warning-amber border-warning-amber/20' :
+                              'bg-muted/30 text-muted-foreground border-border'
+                            }`}>
+                              {h.exchange}
+                            </span>
+                            {h.type === 'settlement' && (
+                              <span className="text-[7px] px-1 py-0 rounded border font-bold bg-warning-amber/10 text-warning-amber border-warning-amber/20">
+                                SETTLEMENT
+                              </span>
+                            )}
+                            {h.special && (
+                              <span className="text-[7px] px-1 py-0 rounded border font-bold bg-info-cyan/10 text-info-cyan border-info-cyan/20">
+                                {h.special.toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <span className={`text-[9px] font-bold tabular-nums ${isImminent ? 'text-warning-amber' : 'text-muted-foreground'}`}>
+                            {getDaysLabel(days)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Discipline Score — hover shows 7-category breakup */}
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex items-center gap-1.5 cursor-default">
@@ -159,29 +353,19 @@ export default function MainFooter() {
               </div>
             </TooltipContent>
           </Tooltip>
-
-          {/* Data Mode */}
-          <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider ${
-            hasLiveData
-              ? 'bg-info-cyan/10 text-info-cyan border border-info-cyan/20'
-              : 'bg-warning-amber/10 text-warning-amber border border-warning-amber/20'
-          }`}>
-            <div className={`h-1.5 w-1.5 rounded-full ${hasLiveData ? 'bg-info-cyan animate-pulse-glow' : 'bg-warning-amber'}`} />
-            {hasLiveData ? 'LIVE DATA' : 'DEMO MODE'}
-          </div>
         </div>
 
-        {/* Right Group: Net Worth */}
+        {/* ─── Right Group (Fixed, Stuck Right): Net Worth ─── */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex flex-col items-end cursor-default">
+            <div className="flex flex-col items-end cursor-default shrink-0">
               <span className="text-[8px] text-muted-foreground tracking-widest uppercase">
                 Net Worth
               </span>
               <span className="text-[11px] font-bold tabular-nums text-foreground">
                 {formatCurrency(netWorth)}{' '}
                 <span className={`text-[9px] ${Number(growthPercent) >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
-                  {Number(growthPercent) >= 0 ? '+' : ''}{growthPercent}% since start
+                  {Number(growthPercent) >= 0 ? '+' : ''}{growthPercent}%
                 </span>
               </span>
             </div>
@@ -189,11 +373,18 @@ export default function MainFooter() {
           <TooltipContent side="top" className="bg-card border-border text-foreground">
             <div className="text-[10px] space-y-0.5">
               <div className="font-bold">Net Worth Breakdown</div>
-              <div className="text-muted-foreground">Trading Pool: {formatCurrency(tradingPool)}</div>
-              <div className="text-muted-foreground">Reserve Pool: {formatCurrency(reservePool)}</div>
-              {initialCapital > 0 && (
-                <div className="text-muted-foreground">Initial Capital: {formatCurrency(initialCapital)}</div>
-              )}
+              <div className="text-muted-foreground">
+                Trading Pool: {formatCurrency(tradingPool)}{' '}
+                <span className={Number(tradingPoolGrowth) >= 0 ? 'text-bullish' : 'text-loss-red'}>
+                  {Number(tradingPoolGrowth) >= 0 ? '+' : ''}{tradingPoolGrowth}%
+                </span>
+              </div>
+              <div className="text-muted-foreground">
+                Reserve Pool: {formatCurrency(reservePool)}{' '}
+                <span className={Number(reservePoolGrowth) >= 0 ? 'text-bullish' : 'text-loss-red'}>
+                  {Number(reservePoolGrowth) >= 0 ? '+' : ''}{reservePoolGrowth}%
+                </span>
+              </div>
             </div>
           </TooltipContent>
         </Tooltip>

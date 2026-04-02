@@ -1,6 +1,10 @@
 /**
  * SummaryBar — Sticky bar below AppBar showing financial snapshot.
- * Sections: Profit | Capital Breakdown | Gold Reference | Loss
+ * Spec v1.2 Section 3.2:
+ *   Section 1 (Fixed): Profit — label top-left, value+% single line
+ *   Section 2 (Elastic): Capital | Free | Used — labels top-left/center/right
+ *   Section 3 (Fixed): Gold — no label, subtle gold bg, price/g +₹change +%, grams below
+ *   Section 4 (Fixed): Loss — label top-right, value+% single line
  * Data: Wired to tRPC capital.state with fallback defaults.
  */
 import { trpc } from '@/lib/trpc';
@@ -20,8 +24,6 @@ export default function SummaryBar() {
   const todayPnl = data?.todayPnl ?? 0;
   const todayProfit = todayPnl > 0 ? todayPnl : 0;
   const todayLoss = todayPnl < 0 ? Math.abs(todayPnl) : 0;
-  const reservePool = data?.reservePool ?? 0;
-  const netWorth = data?.netWorth ?? 0;
 
   // Gold reference (placeholder — will be wired to gold API later)
   const goldPrice = 7250;
@@ -47,22 +49,21 @@ export default function SummaryBar() {
   return (
     <div className="sticky top-[49px] z-40 w-full border-b border-border bg-card/80 backdrop-blur-md">
       <div className="flex items-stretch divide-x divide-border">
-        {/* Section 1: Profit */}
-        <div className="flex-none w-[160px] px-4 py-2 flex flex-col items-center justify-center">
-          <span className="text-[8px] text-muted-foreground tracking-widest uppercase mb-0.5">
-            Today's Profit
+        {/* Section 1: Profit — label top-left */}
+        <div className="flex-none w-[160px] px-4 py-2 flex flex-col justify-center relative">
+          <span className="text-[8px] text-muted-foreground tracking-widest uppercase mb-0.5 self-start">
+            Profit
           </span>
-          <span className={`text-sm font-bold tabular-nums ${todayProfit > 0 ? 'text-bullish' : 'text-muted-foreground'}`}>
-            {formatCurrency(todayProfit)}{' '}
-            <span className="text-[10px]">+{profitPercent}%</span>
+          <span className={`text-sm font-bold tabular-nums text-center ${todayProfit > 0 ? 'text-bullish' : 'text-muted-foreground'}`}>
+            {formatCurrency(todayProfit)} +{profitPercent}%
           </span>
         </div>
 
-        {/* Section 2: Capital Breakdown */}
-        <div className="flex-1 px-6 py-2 flex items-center justify-around gap-4">
-          <div className="flex flex-col items-center">
+        {/* Section 2: Capital Breakdown — elastic, labels: Capital top-left, Free top-center, Used top-right */}
+        <div className="flex-1 px-6 py-2 flex items-center justify-between gap-4">
+          <div className="flex flex-col items-start">
             <span className="text-[8px] text-muted-foreground tracking-widest uppercase mb-0.5">
-              Trade Capital
+              Capital
             </span>
             <span className="text-sm font-bold tabular-nums text-foreground">
               {formatCurrency(capitalTotal)}
@@ -73,42 +74,21 @@ export default function SummaryBar() {
               Free
             </span>
             <span className="text-sm font-bold tabular-nums text-bullish">
-              {formatCurrency(capitalFree)}{' '}
-              <span className="text-[10px]">{freePercent}%</span>
+              {formatCurrency(capitalFree)} {freePercent}%
             </span>
           </div>
-          <div className="flex flex-col items-center">
+          <div className="flex flex-col items-end">
             <span className="text-[8px] text-muted-foreground tracking-widest uppercase mb-0.5">
               Used
             </span>
             <span className="text-sm font-bold tabular-nums text-warning-amber">
-              {formatCurrency(capitalUsed)}{' '}
-              <span className="text-[10px]">{usedPercent}%</span>
-            </span>
-          </div>
-          <div className="flex flex-col items-center">
-            <span className="text-[8px] text-muted-foreground tracking-widest uppercase mb-0.5">
-              Reserve
-            </span>
-            <span className="text-sm font-bold tabular-nums text-info-cyan">
-              {formatCurrency(reservePool)}
-            </span>
-          </div>
-          <div className="flex flex-col items-center">
-            <span className="text-[8px] text-muted-foreground tracking-widest uppercase mb-0.5">
-              Net Worth
-            </span>
-            <span className="text-sm font-bold tabular-nums text-bullish">
-              {formatCurrency(netWorth)}
+              {formatCurrency(capitalUsed)} {usedPercent}%
             </span>
           </div>
         </div>
 
-        {/* Section 3: Gold Reference */}
+        {/* Section 3: Gold Reference — no label, subtle gold bg */}
         <div className="flex-none w-[200px] px-4 py-2 flex flex-col items-center justify-center bg-gradient-to-r from-transparent via-warning-amber/5 to-transparent">
-          <span className="text-[8px] text-warning-amber/70 tracking-widest uppercase mb-0.5">
-            Gold 24K/g
-          </span>
           <span className="text-sm font-bold tabular-nums text-warning-amber">
             ₹{goldPrice.toLocaleString('en-IN')}/g{' '}
             <span className={`text-[10px] ${goldChange >= 0 ? 'text-bullish' : 'text-destructive'}`}>
@@ -116,18 +96,17 @@ export default function SummaryBar() {
             </span>
           </span>
           <span className="text-[9px] text-muted-foreground mt-0.5">
-            {todayProfit > 0 ? `≈ ${goldGrams} grams` : '0 grams'}
+            {todayProfit > 0 ? `${goldGrams} grams` : '0 grams 😞'}
           </span>
         </div>
 
-        {/* Section 4: Loss */}
-        <div className="flex-none w-[160px] px-4 py-2 flex flex-col items-center justify-center">
-          <span className="text-[8px] text-muted-foreground tracking-widest uppercase mb-0.5">
-            Today's Loss
+        {/* Section 4: Loss — label top-right */}
+        <div className="flex-none w-[160px] px-4 py-2 flex flex-col justify-center relative">
+          <span className="text-[8px] text-muted-foreground tracking-widest uppercase mb-0.5 self-end">
+            Loss
           </span>
-          <span className={`text-sm font-bold tabular-nums ${todayLoss > 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
-            {formatCurrency(todayLoss)}{' '}
-            <span className="text-[10px]">-{lossPercent}%</span>
+          <span className={`text-sm font-bold tabular-nums text-center ${todayLoss > 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+            {formatCurrency(todayLoss)} -{lossPercent}%
           </span>
         </div>
       </div>
