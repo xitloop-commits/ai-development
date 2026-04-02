@@ -15,6 +15,7 @@ import { DhanAdapter } from "../broker/adapters/dhan";
 import { registerBrokerRoutes } from "../broker/brokerRoutes";
 import aiDecisionsRouter from "../aiDecisions";
 import { pnlEngine } from "../capital/pnlEngine";
+import { orderSyncEngine } from "../capital/orderSyncEngine";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -47,6 +48,7 @@ async function startServer() {
       registerAdapter("dhan", () => new DhanAdapter());
       await initBrokerService();
       pnlEngine.start();
+      orderSyncEngine.start();
     })
     .catch((err) =>
       console.error("[MongoDB] Initial connection failed:", err)

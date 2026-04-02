@@ -82,6 +82,7 @@ import {
 import { DhanWebSocket } from "./websocket";
 import { SubscriptionManager } from "./subscriptionManager";
 import { GreeksPoller } from "./greeksPoller";
+import { DhanOrderUpdateWs } from "./orderUpdateWs";
 import type { SubscriptionState, TickData, FeedMode } from "../../types";
 
 // ─── DhanAdapter ───────────────────────────────────────────────
@@ -97,6 +98,7 @@ export class DhanAdapter implements BrokerAdapter {
 
   // Order update callback (for real-time order updates)
   private orderUpdateCb: OrderUpdateCallback | null = null;
+  private orderUpdateWs: DhanOrderUpdateWs | null = null;
 
   // Rate limiter for Dhan API calls
   private rateLimiter = new RateLimiter(10, 250);
@@ -668,6 +670,35 @@ export class DhanAdapter implements BrokerAdapter {
     console.log("[DhanAdapter] onOrderUpdate: Callback registered");
   }
 
+  private connectOrderUpdateWs(): void {
+    if (!this.clientId || !this.accessToken) return;
+    if (this.orderUpdateWs) {
+      this.orderUpdateWs.disconnect();
+    }
+    this.orderUpdateWs = new DhanOrderUpdateWs(this.clientId, this.accessToken);
+    this.orderUpdateWs.on("orderUpdate", (update: import("./orderUpdateWs").NormalizedOrderUpdate) => {
+      if (!this.orderUpdateCb) return;
+      // Map to generic OrderUpdate for the broker interface
+      const statusMap: Record<string, string> = {
+        TRADED: "FILLED",
+        CANCELLED: "CANCELLED",
+        REJECTED: "REJECTED",
+        PENDING: "PENDING",
+        TRANSIT: "PENDING",
+        EXPIRED: "CANCELLED",
+      };
+      this.orderUpdateCb({
+        orderId: update.orderId,
+        status: (statusMap[update.status] || "PENDING") as import("../../types").OrderStatus,
+        filledQuantity: update.tradedQty,
+        averagePrice: update.avgTradedPrice,
+        timestamp: Date.now(),
+      });
+    });
+    this.orderUpdateWs.connect();
+    console.log("[DhanAdapter] Order update WS connected");
+  }
+
   getSubscriptionState(): SubscriptionState {
     return {
       totalSubscriptions: this.ws?.subscriptionCount ?? 0,
@@ -809,6 +840,9 @@ export class DhanAdapter implements BrokerAdapter {
 
       // Auto-connect WebSocket feed after successful API auth
       await this.connectFeed();
+
+      // Auto-connect order update WebSocket
+      this.connectOrderUpdateWs();
     } else {
       console.error(`[DhanAdapter] Token validation failed: ${validation.error}`);
       await handleDhan401(this.brokerId);
@@ -816,7 +850,12 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   async disconnect(): Promise<void> {
-    // Disconnect feed first
+    // Disconnect order update WS
+    if (this.orderUpdateWs) {
+      this.orderUpdateWs.disconnect();
+      this.orderUpdateWs = null;
+    }
+    // Disconnect feed
     await this.disconnectFeed();
 
     this.accessToken = "";
