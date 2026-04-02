@@ -14,6 +14,7 @@ import { MockAdapter } from "../broker/adapters/mock";
 import { DhanAdapter } from "../broker/adapters/dhan";
 import { registerBrokerRoutes } from "../broker/brokerRoutes";
 import aiDecisionsRouter from "../aiDecisions";
+import { pnlEngine } from "../capital/pnlEngine";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -45,6 +46,7 @@ async function startServer() {
       registerAdapter("mock", () => new MockAdapter());
       registerAdapter("dhan", () => new DhanAdapter());
       await initBrokerService();
+      pnlEngine.start();
     })
     .catch((err) =>
       console.error("[MongoDB] Initial connection failed:", err)

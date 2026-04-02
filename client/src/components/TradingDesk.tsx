@@ -160,7 +160,7 @@ export default function TradingDesk() {
 
   const allDaysQuery = trpc.capital.allDays.useQuery(
     { workspace, futureCount: 10 },
-    { refetchInterval: 5000, retry: 1 }
+    { refetchInterval: 2000, retry: 1 }
   );
 
   // ─── tRPC Mutations ─────────────────────────────────────────
