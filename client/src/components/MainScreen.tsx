@@ -14,10 +14,13 @@
  *
  * Data: All components fetch their own data via tRPC with mock fallbacks.
  */
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { trpc } from '@/lib/trpc';
 import { useAlertMonitor } from '@/hooks/useAlertMonitor';
+import { useTickStream } from '@/hooks/useTickStream';
+import { useFeedControl } from '@/hooks/useFeedControl';
 import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
+import { DEFAULT_FEED_INSTRUMENTS, getFeedKey } from '../../../shared/instrumentFeedMap';
 
 // Shell components
 import AppBar from '@/components/AppBar';
@@ -68,6 +71,24 @@ export default function MainScreen() {
 
   // ─── Instrument Filter ─────────────────────────────────────────
   const { isEnabled } = useInstrumentFilter();
+
+  // ─── Live Feed ─────────────────────────────────────────────────
+  const { getTick, isConnected: feedConnected } = useTickStream();
+  const { subscribe: feedSubscribe } = useFeedControl();
+  const feedSubscribedRef = useRef(false);
+
+  // Auto-subscribe the 4 underlyings on first mount
+  useEffect(() => {
+    if (feedSubscribedRef.current) return;
+    feedSubscribedRef.current = true;
+    feedSubscribe(
+      DEFAULT_FEED_INSTRUMENTS.map((i) => ({
+        securityId: i.securityId,
+        exchange: i.exchange,
+        mode: i.mode,
+      }))
+    ).catch((err) => console.warn('[Feed] Auto-subscribe failed:', err));
+  }, [feedSubscribe]);
 
   // ─── tRPC Queries with Polling ─────────────────────────────────
   const modulesQuery = trpc.trading.moduleStatuses.useQuery(undefined, {
@@ -273,7 +294,19 @@ export default function MainScreen() {
                     </span>
                   </div>
                   <div className="text-sm font-bold tabular-nums text-foreground">
-                    ₹{inst.lastPrice?.toLocaleString('en-IN') ?? '—'}
+                    {(() => {
+                      const fk = getFeedKey(inst.name);
+                      const liveLtp = fk ? getTick(fk.split(':')[0], fk.split(':')[1])?.ltp : undefined;
+                      const price = liveLtp ?? inst.lastPrice;
+                      return (
+                        <>
+                          ₹{price?.toLocaleString('en-IN') ?? '—'}
+                          {liveLtp !== undefined && (
+                            <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                   <div className="text-[9px] text-muted-foreground mt-0.5">
                     AI: {inst.aiDecision ?? 'N/A'} | Score: {inst.aiConfidence ?? '—'}%

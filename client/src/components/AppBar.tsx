@@ -51,9 +51,14 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
     return () => clearInterval(timer);
   }, []);
 
-  // ─── tRPC Queries ────────────────────────────────────────────
+   // ─── tRPC Queries ──────────────────────────────────────────
   const brokerStatusQuery = trpc.broker.status.useQuery(undefined, {
     refetchInterval: 5000,
+    retry: 1,
+  });
+
+  const feedStateQuery = trpc.broker.feed.state.useQuery(undefined, {
+    refetchInterval: 10000,
     retry: 1,
   });
 
@@ -62,8 +67,9 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
     retry: 1,
   });
 
-  // ─── Derived Data ────────────────────────────────────────────
+  // ─── Derived Data ──────────────────────────────────────────
   const brokerStatus = brokerStatusQuery.data;
+  const feedState = feedStateQuery.data;
   const brokerConnected = !!brokerStatus && (brokerStatus as any).connected !== false;
   const brokerName = (brokerStatus as any)?.activeBroker ?? 'None';
   const brokerMode = (brokerStatus as any)?.mode ?? 'paper';
@@ -156,18 +162,25 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
             </TooltipContent>
           </Tooltip>
 
-          {/* WebSocket Status */}
+          {/* Feed Status */}
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex items-center gap-1 cursor-default">
-                <Wifi className="h-3 w-3 text-muted-foreground" />
-                <span className="hidden lg:inline text-[9px] text-muted-foreground tracking-wider">WS</span>
+                <Wifi className={`h-3 w-3 ${feedState?.wsConnected ? 'text-bullish' : 'text-muted-foreground'}`} />
+                {feedState?.wsConnected && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
+                )}
+                <span className="hidden lg:inline text-[9px] text-muted-foreground tracking-wider">FEED</span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="bg-card border-border text-foreground">
               <div className="text-[10px] space-y-0.5">
-                <div className="font-bold text-muted-foreground">WebSocket Disconnected</div>
-                <div className="text-muted-foreground">Will be implemented in Option C</div>
+                <div className={`font-bold ${feedState?.wsConnected ? 'text-bullish' : 'text-muted-foreground'}`}>
+                  {feedState?.wsConnected ? 'Feed Connected' : 'Feed Disconnected'}
+                </div>
+                <div className="text-muted-foreground">
+                  {feedState ? `${feedState.totalSubscriptions} subscriptions` : 'No feed data'}
+                </div>
               </div>
             </TooltipContent>
           </Tooltip>

@@ -5,13 +5,15 @@
  * Keeps: Header, Trade Direction, AI Rationale, Trade Setup,
  * IV/Theta, Risk Flags, Scoring Factors.
  */
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   TrendingUp, TrendingDown, Minus, Brain,
   ChevronDown, ChevronUp, AlertTriangle, Crosshair,
   Activity, BarChart3, Clock, Shield,
 } from 'lucide-react';
 import type { InstrumentData, TradeSetup, RiskFlag, ScoringFactor } from '@/lib/types';
+import { useTickStream } from '@/hooks/useTickStream';
+import { getFeedKey } from '../../../shared/instrumentFeedMap';
 import SRStrengthLine from './SRStrengthLine';
 import NewsSentimentBadge from './NewsSentimentBadge';
 import PreEntryChecklist from './PreEntryChecklist';
@@ -240,6 +242,18 @@ function IVThetaRow({ data }: { data: InstrumentData }) {
 
 export default function InstrumentCard({ data, bgImage }: InstrumentCardProps) {
   const [showChecklist, setShowChecklist] = useState(false);
+
+  // Live tick overlay
+  const { getTick } = useTickStream();
+  const feedKey = getFeedKey(data.name);
+  const liveTick = useMemo(() => {
+    if (!feedKey) return undefined;
+    const [exchange, securityId] = feedKey.split(':');
+    return getTick(exchange, securityId);
+  }, [feedKey, getTick]);
+  const displayPrice = liveTick?.ltp ?? data.lastPrice;
+  const isLive = !!liveTick;
+
   const bias = biasConfig[data.marketBias];
   const BiasIcon = bias.icon;
 
@@ -277,9 +291,10 @@ export default function InstrumentCard({ data, bgImage }: InstrumentCardProps) {
             <h3 className="font-display text-lg font-bold tracking-wide text-foreground">
               {data.displayName}
             </h3>
-            {data.lastPrice > 0 && (
-              <span className="text-sm font-bold tabular-nums text-info-cyan mt-0.5">
-                ₹{formatPrice(data.lastPrice)}
+            {displayPrice > 0 && (
+              <span className={`text-sm font-bold tabular-nums mt-0.5 ${isLive ? 'text-bullish' : 'text-info-cyan'}`}>
+                ₹{formatPrice(displayPrice)}
+                {isLive && <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" title="Live" />}
                 {data.atmStrike ? (
                   <span className="text-[9px] text-muted-foreground ml-2">ATM: {data.atmStrike}</span>
                 ) : null}
