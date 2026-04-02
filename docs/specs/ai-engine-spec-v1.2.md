@@ -1,6 +1,6 @@
 # AI Engine — Technical Specification
 
-**Document:** ai-engine-spec-v1.1.md
+**Document:** ai-engine-spec-v1.2.md
 **Project:** Automatic Trading System (ATS)
 **Status:** Authoritative Reference
 
@@ -12,6 +12,7 @@
 | ------- | ---------- | --------- | -------------------------------------------------------- |
 | v1.0    | 2026-04-02 | Manus AI  | Initial specification based on latest Python module source code |
 | v1.1    | 2026-04-02 | Manus AI  | Cross-functionality update: Python module migration to Broker Service reclassified as refactoring task, AI Paper tab confirmed unconstrained (no discipline rules) |
+| v1.2    | 2026-04-02 | Manus AI  | Made spec broker-agnostic: replaced all direct Dhan API references with Broker Service abstractions. Removed standalone WebSocket spec (now in Broker Service Spec v1.2 Step 0.7). |
 
 ---
 
@@ -39,7 +40,7 @@
 
 ## 1. Overview
 
-The AI Engine is the analytical core of the Automatic Trading System. It is a 5-module Python pipeline that runs as separate long-lived processes alongside the Node.js dashboard. The pipeline ingests real-time option chain data from the Dhan API v2, performs multi-layered analysis (OI structure, market bias, news sentiment, IV assessment, theta risk), produces scored trade signals with complete trade setups, and optionally executes paper or live trades.
+The AI Engine is the analytical core of the Automatic Trading System. It is a 5-module Python pipeline that runs as separate long-lived processes alongside the Node.js dashboard. The pipeline ingests real-time option chain data via the **Broker Service** (see `broker-service-spec-v1.2.md`), performs multi-layered analysis (OI structure, market bias, news sentiment, IV assessment, theta risk), produces scored trade signals with complete trade setups, and optionally executes paper or live trades. The AI Engine is **broker-agnostic** — it never communicates with any broker API directly. All market data retrieval, order placement, and position management is routed through the Broker Service abstraction layer.
 
 The system covers four instruments: **NIFTY 50**, **BANK NIFTY**, **CRUDE OIL**, and **NATURAL GAS** — spanning both NSE (equity index options) and MCX (commodity options) exchanges. Each instrument is analyzed independently in every cycle, producing a self-contained decision JSON with 45+ fields.
 
@@ -53,24 +54,24 @@ The pipeline's primary design principle is **modularity through file-based decou
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────┐
-│                           EXTERNAL DATA SOURCES                                  │
-│  ┌─────────────┐  ┌──────────────────┐  ┌──────────────────────────────────┐    │
-│  │  Dhan API v2 │  │  Dhan Scrip      │  │  NewsData.io API                │    │
-│  │  (Option     │  │  Master CSV      │  │  (News articles + sentiment)    │    │
-│  │   Chain +    │  │  (Security ID    │  │                                  │    │
-│  │   Expiry)    │  │   resolution)    │  │                                  │    │
-│  └──────┬───────┘  └────────┬─────────┘  └──────────────┬───────────────────┘    │
-│         │                   │                            │                        │
-└─────────┼───────────────────┼────────────────────────────┼────────────────────────┘
-          │                   │                            │
-          ▼                   ▼                            │
+│                           EXTERNAL SERVICES                                      │
+│  ┌─────────────────────┐                ┌──────────────────────────────────┐    │
+│  │  Broker Service      │                │  NewsData.io API                │    │
+│  │  (Option Chain,      │                │  (News articles + sentiment)    │    │
+│  │   Expiry List,       │                │                                  │    │
+│  │   Scrip Master,      │                │                                  │    │
+│  │   Orders, Positions) │                │                                  │    │
+│  └──────────┬───────────┘                └──────────────┬───────────────────┘    │
+│             │                                           │                        │
+└─────────────┼───────────────────────────────────────────┼────────────────────────┘
+              │                                           │
+              ▼                                           │
   ┌───────────────────────────────────┐                    │
   │  MODULE 1: Option Chain Fetcher   │                    │
-  │  (dhan_option_chain_fetcher.py)   │                    │
-  │  • Auth verification              │                    │
-  │  • MCX security ID resolution     │                    │
+  │  (option_chain_fetcher.py)        │                    │
+  │  • Broker Service auth check      │                    │
   │  • Expiry list + option chain     │                    │
-  │  • Rate limiting (3s/req, 5s/cyc) │                    │
+  │  • Rate limiting per Broker SLA   │                    │
   └──────────────┬────────────────────┘                    │
                  │                                         │
                  │  option_chain_{instrument}.json          │
@@ -106,7 +107,7 @@ The pipeline's primary design principle is **modularity through file-based decou
   │  • Position push to dashboard     │
   └──────────────┬────────────────────┘
                  │
-                 │  Direct REST API calls
+                 │  Via Broker Service REST API
                  ▼
   ┌───────────────────────────────────┐      ┌─────────────────────────┐
   │  MODULE 5: Dashboard Data Pusher  │─────▶│  Node.js Dashboard      │
@@ -123,10 +124,10 @@ Each module runs as an independent Python process with its own infinite loop. Al
 
 | Module               | Process                                    | Cycle Time                  | Dependencies                              |
 | -------------------- | ------------------------------------------ | --------------------------- | ----------------------------------------- |
-| Option Chain Fetcher | `python3 dhan_option_chain_fetcher.py`     | ~5s + 3s per instrument     | Dhan API v2, Dhan Scrip Master            |
+| Option Chain Fetcher | `python3 option_chain_fetcher.py`          | ~5s + rate limit per broker | Broker Service (Option Chain, Expiry List) |
 | Option Chain Analyzer| `python3 option_chain_analyzer.py`         | 5s                          | Fetcher output files                      |
 | AI Decision Engine   | `python3 ai_decision_engine.py`            | 5s                          | Analyzer output files, NewsData.io API    |
-| Execution Module     | `python3 execution_module.py`              | 5s                          | AI Decision files, Option Chain files, Dhan Scrip Master |
+| Execution Module     | `python3 execution_module.py`              | 5s                          | AI Decision files, Option Chain files, Broker Service (Orders, Positions, Scrip Master) |
 | Data Pusher          | `python3 dashboard_data_pusher.py`         | 3s                          | All output files, Dashboard REST API      |
 
 ### 2.3 Instrument Configuration
@@ -138,24 +139,22 @@ Each module runs as an independent Python process with its own infinite loop. Al
 | CRUDE OIL     | `CRUDEOIL`     | `CRUDEOIL`     | MCX_COMM  | Auto-resolved  | 100      |
 | NATURAL GAS   | `NATURALGAS`   | `NATURALGAS`   | MCX_COMM  | Auto-resolved  | 1250     |
 
-NSE index instruments use fixed security IDs. MCX commodity instruments require automatic resolution at startup: the Fetcher downloads the Dhan scrip master CSV, filters for FUTCOM rows matching the symbol name, and selects the nearest-month contract by expiry date.
+Security ID resolution (including fixed IDs for NSE indices and dynamic nearest-month contract resolution for MCX commodities) is handled entirely by the Broker Service. The AI Engine modules reference instruments by their dashboard key and rely on the Broker Service to resolve the correct security IDs internally.
 
 ---
 
 ## 3. Module 1 — Option Chain Fetcher
 
-**File:** `dhan_option_chain_fetcher.py` (241 lines)
-**Purpose:** Fetch live option chain data from Dhan API v2 and save to local JSON files.
+**File:** `option_chain_fetcher.py` (241 lines)
+**Purpose:** Fetch live option chain data via the Broker Service and save to local JSON files.
 
 ### 3.1 Startup Sequence
 
 The Fetcher performs three steps on startup before entering its main loop:
 
-1. **MCX Security ID Resolution** (`resolve_security_ids()`): Downloads the Dhan scrip master CSV (~200 MB) from `https://images.dhan.co/api-data/api-scrip-master.csv`. For each MCX instrument with `auto_resolve: True`, it filters rows where `SEM_INSTRUMENT_NAME == "FUTCOM"` and `SM_SYMBOL_NAME` matches the target symbol. It collects all future/current expiry dates, sorts ascending, and picks the nearest-month contract's `SEM_SMST_SECURITY_ID`. This ensures the system always uses the active futures contract, even after monthly expiry rollover.
+1. **Authentication Verification**: Calls `GET /api/broker/status` on the Broker Service. If the broker is not connected or the token is expired, the Fetcher aborts immediately. This prevents silent failures where invalid credentials produce empty data.
 
-2. **Authentication Verification** (`test_profile_api()`): Calls `GET /v2/profile` with the configured access token. If this returns anything other than HTTP 200, the Fetcher aborts immediately. This prevents silent failures where expired tokens produce empty data.
-
-3. **Instrument Validation**: Iterates all instruments and warns if any MCX instrument still has `security_id: None` after resolution. Such instruments are skipped in the main loop.
+2. **Instrument Validation**: Verifies that all configured instruments are available via the Broker Service. Instruments that cannot be resolved are skipped in the main loop.
 
 ### 3.2 Main Loop
 
@@ -164,27 +163,20 @@ The main loop runs indefinitely with a 5-second sleep between full cycles. Withi
 1. **Poll Active Instruments**: Calls `GET /api/trading/active-instruments` on the dashboard. The response contains the list of instruments the user has enabled. The Fetcher maps dashboard keys (e.g., `NIFTY_50`) to its internal keys (e.g., `NIFTY 50`) using a hardcoded mapping. If the dashboard is unreachable, all instruments are processed as a fallback.
 
 2. **For Each Active Instrument:**
-   - **Fetch Expiry List**: `POST /v2/optionchain/expirylist` with `UnderlyingScrip` (security ID) and `UnderlyingSeg` (exchange segment). Returns an array of expiry date strings.
+   - **Fetch Expiry List**: Calls `GET /api/broker/expiry-list` on the Broker Service with the instrument identifier. Returns an array of expiry date strings.
    - **Select Current Expiry**: Always uses `expiry_dates[0]` — the nearest expiry.
-   - **Fetch Option Chain**: `POST /v2/optionchain` with the security ID, exchange segment, and selected expiry date. Returns the full option chain with all strikes, CE/PE data, OI, volume, IV, Greeks, and LTP.
+   - **Fetch Option Chain**: Calls `GET /api/broker/option-chain` on the Broker Service with the instrument identifier and selected expiry date. Returns the full option chain with all strikes, CE/PE data, OI, volume, IV, Greeks, and LTP.
    - **Save to Disk**: Writes the raw JSON response to `option_chain_{instrument_key}.json` in the data directory. The filename uses the Fetcher's internal key with spaces replaced by underscores and lowercased (e.g., `option_chain_nifty_50.json`).
 
-3. **Rate Limiting**: A 3-second `time.sleep()` is inserted between each instrument's API call to respect Dhan's rate limits.
+3. **Rate Limiting**: A configurable delay is inserted between each instrument's API call to respect the active broker's rate limits. The Broker Service handles its own internal rate limiting (see `broker-service-spec-v1.2.md`), but the Fetcher adds a courtesy delay to avoid overwhelming the service.
 
-### 3.3 Dhan API Authentication
+### 3.3 Broker Service Communication
 
-All API calls use two headers:
-
-| Header         | Value                              |
-| -------------- | ---------------------------------- |
-| `access-token` | Dhan JWT access token              |
-| `client-id`    | Dhan client ID (numeric string)    |
-
-The token is currently hardcoded in the module. The planned migration (Feature 21) will move token management to the Broker Service's DhanAdapter, which supports token rotation, validation via fund limit check, and 401 auto-detection.
+All market data requests are routed through the Broker Service REST API. The Fetcher does not manage any broker credentials directly. Authentication, token rotation, and error handling are fully delegated to the Broker Service (see `broker-service-spec-v1.2.md`, Steps 0.3 and 0.4).
 
 ### 3.4 Output Schema
 
-The Fetcher writes the raw Dhan API response. The key structure is:
+The Fetcher writes the option chain response from the Broker Service. The key structure is:
 
 ```json
 {
@@ -763,7 +755,7 @@ The rationale string is auto-generated from the top 3 scoring factors (sorted by
 | Mode  | Flag                    | Behavior                                                                  |
 | ----- | ----------------------- | ------------------------------------------------------------------------- |
 | Paper | `LIVE_TRADING = False`  | Simulated entry/exit at real option chain prices. In-memory position tracking. |
-| Live  | `LIVE_TRADING = True`   | Real orders via Dhan API v2. Currently disabled.                          |
+| Live  | `LIVE_TRADING = True`   | Real orders via Broker Service. Currently disabled.                       |
 
 ### 6.2 Decision Parsing
 
@@ -793,7 +785,7 @@ When all validation passes:
 2. **Get Target/SL**: Use the trade setup's values. If zero, apply defaults: target = entry x 1.30 (30%), SL = entry x 0.85 (15%).
 3. **Generate Position ID**: Format `POS-{YYYYMMDDHHMMSS}-{counter}`.
 4. **Paper Mode**: Log the simulated entry.
-5. **Live Mode**: Look up the option's security ID from the scrip master CSV, then call `POST /v2/orders` on the Dhan API with `transactionType: "BUY"`, `productType: "INTRADAY"`, `orderType: "MARKET"`.
+5. **Live Mode**: Call `POST /api/broker/orders` on the Broker Service with the instrument, strike, option type, and quantity. The Broker Service handles security ID resolution and order placement internally.
 6. **Record Position**: Store in `OPEN_POSITIONS[instrument]` with all fields (id, instrument, type, strike, option_type, entry/current/target/SL prices, quantity, P&L, status, timestamps).
 7. **Push to Dashboard**: POST to `/api/trading/position` with the position data.
 
@@ -810,32 +802,25 @@ Every cycle, `monitor_positions` iterates all open positions:
 
 ### 6.6 Live Order Placement
 
-For live trading, orders are placed via `POST /v2/orders` with:
+For live trading, orders are placed via `POST /api/broker/orders` on the Broker Service with:
 
 ```json
 {
-  "dhanClientId": "1101615161",
-  "correlationId": "TRD-NIFTY-BUY-20260402101535123456",
+  "instrument": "NIFTY_50",
+  "strike": 24150,
+  "optionType": "CE",
   "transactionType": "BUY",
-  "exchangeSegment": "NSE_FNO",
   "productType": "INTRADAY",
   "orderType": "MARKET",
-  "validity": "DAY",
-  "securityId": "12345",
-  "quantity": "75"
+  "quantity": 75
 }
 ```
 
-The `correlationId` is generated as `TRD-{instrument[:5]}-{type[:3]}-{timestamp_microseconds}` for traceability.
+The Broker Service resolves the security ID, exchange segment, and broker-specific parameters internally. A `correlationId` is generated as `TRD-{instrument[:5]}-{type[:3]}-{timestamp_microseconds}` for traceability.
 
-### 6.7 Scrip Master Lookup
+### 6.7 Security ID Lookup
 
-The `find_option_security_id` function searches the Dhan scrip master CSV (loaded once via pandas) to find the security ID for a specific option contract. It filters by:
-
-- `SM_SYMBOL_NAME` (e.g., "NIFTY")
-- `SEM_EXPIRY_DATE` (matching the target expiry)
-- `SEM_STRIKE_PRICE` (matching the target strike)
-- `SEM_OPTION_TYPE` (CE or PE)
+Security ID resolution for option contracts is delegated to the Broker Service via `GET /api/broker/scrip-master/lookup`. The Executor provides the instrument symbol, expiry date, strike price, and option type, and the Broker Service returns the resolved security ID. This eliminates the need for the Executor to download or parse broker-specific scrip master files.
 
 ### 6.8 Heartbeat
 
@@ -883,7 +868,7 @@ Connection errors are silently swallowed (the dashboard may be temporarily unrea
 
 | Source Module | Target Module                  | File Pattern                                      | Content                |
 | ------------- | ------------------------------ | ------------------------------------------------- | ---------------------- |
-| Fetcher       | Analyzer, AI Engine, Executor  | `option_chain_{instrument}.json`                  | Raw Dhan option chain  |
+| Fetcher       | Analyzer, AI Engine, Executor  | `option_chain_{instrument}.json`                  | Raw option chain       |
 | Analyzer      | AI Engine                      | `analyzer_output_{instrument}.json`               | 9 analysis outputs     |
 | AI Engine     | Executor                       | `ai_decision_{instrument}.json`                   | Scored decision + trade setup |
 | Analyzer      | Analyzer (self, persistent)    | `opening_snapshots/opening_{instrument}_{date}.json` | Opening OI snapshot |
@@ -920,12 +905,12 @@ In practice, cycles may overlap. The Analyzer may process data from the previous
 
 ## 9. Data Schemas
 
-### 9.1 Option Chain Strike Data (from Dhan API)
+### 9.1 Option Chain Strike Data (from Broker Service)
 
 | Field               | Type    | Description                  |
 | ------------------- | ------- | ---------------------------- |
 | `oi`                | integer | Current open interest        |
-| `previous_oi`       | integer | Previous day's OI (from Dhan)|
+| `previous_oi`       | integer | Previous day's OI            |
 | `volume`            | integer | Today's traded volume        |
 | `last_price`        | float   | Last traded price            |
 | `implied_volatility`| float   | IV percentage                |
@@ -1161,23 +1146,11 @@ The data pushed by the AI Engine pipeline is displayed across several dashboard 
 
 ## 14. Planned Migrations
 
-### 14.1 Feature 7 — Dhan WebSocket Integration
+### 14.1 WebSocket Hybrid Architecture
 
-The current file-based data flow will be supplemented (and partially replaced) by a real-time WebSocket feed from Dhan. The WebSocket will provide live tick data (LTP, bid/ask, volume) without the 5-second polling delay. The option chain will still be fetched via REST API for full OI/IV/Greeks data, but price updates will be near-instantaneous.
+The current file-based data flow will be supplemented (and partially replaced) by a real-time WebSocket feed provided by the Broker Service (see `broker-service-spec-v1.2.md`, Step 0.7). The WebSocket will provide live tick data (LTP, bid/ask, volume, OI) without the 5-second polling delay. The full option chain with Greeks and IV will still be fetched via the Broker Service REST API on a slow cycle (every 60 seconds), but price updates will be near-instantaneous. This is a prerequisite for the AI Engine v2.4 enhancements (Momentum Engine, Trade Age Monitor, Execution Timing Engine).
 
-### 14.2 Python Module Migration to Broker Service (Refactoring Task)
-
-*Note: This was previously referred to as Feature 21, but Feature 21 is now officially "Keyboard Navigation" in the Trading Desk. This migration is a mandatory refactoring task under the Broker Service spec.*
-
-The Python modules currently call the Dhan API directly with hardcoded credentials. This refactoring task will migrate them to call the Broker Service's REST API instead. The Broker Service (already built in Steps 0.1–0.6) provides:
-
-- Token management with auto-rotation and validation
-- Rate limiting (10/sec, 250/min)
-- Retry logic with exponential backoff
-- Adapter pattern (swap Dhan for another broker without changing Python code)
-- Kill switch for emergency trade halt
-
-### 14.3 Feature 22 — AI Paper Tab
+### 14.2 Feature 22 — AI Paper Tab
 
 A dedicated "AI Trades PAPER" tab in the Position Tracker will display all paper trades executed by the Execution Module. This will include a full trade history, aggregate statistics, and performance comparison against the user's manual trades.
 
@@ -1256,7 +1229,7 @@ Extends the Equity dictionary with 9 additional keywords per side:
 
 | File                              | Lines | Module      | Role                                |
 | --------------------------------- | ----- | ----------- | ----------------------------------- |
-| `dhan_option_chain_fetcher.py`    | 241   | Fetcher     | Data acquisition from Dhan API      |
+| `option_chain_fetcher.py`         | 241   | Fetcher     | Data acquisition via Broker Service |
 | `option_chain_analyzer.py`        | 743   | Analyzer    | OI analysis and signal generation   |
 | `ai_decision_engine.py`          | 1215  | AI Engine   | Scoring, trade setup, news sentiment|
 | `execution_module.py`             | 658   | Executor    | Paper/live trade execution          |
@@ -1272,16 +1245,16 @@ Extends the Equity dictionary with 9 additional keywords per side:
 | `analyzer_output_{instrument}.json`                       | Analyzer   | AI Engine                  | Analysis results     |
 | `ai_decision_{instrument}.json`                           | AI Engine  | Executor, Data Pusher      | Trade decision       |
 | `opening_snapshots/opening_{instrument}_{date}.json`      | Analyzer   | Analyzer                   | Opening OI snapshot  |
-| `dhan_scrip_master.csv`                                   | (manual download) | Executor              | Security ID lookup   |
+| *(Security ID lookup delegated to Broker Service)*        | —          | —                          | —                    |
 
 ### B.3 External Dependencies
 
 | Dependency       | Module      | Purpose                    |
 | ---------------- | ----------- | -------------------------- |
 | `requests`       | All         | HTTP client for API calls  |
-| `pandas`         | Executor    | Scrip master CSV parsing   |
+| *(pandas removed)* | —          | Scrip master lookup now via Broker Service |
 | `json`           | All         | JSON serialization         |
-| `csv` / `io`     | Fetcher     | Scrip master CSV parsing   |
+| *(csv/io removed)* | —          | Scrip master parsing now via Broker Service |
 | `math`           | AI Engine   | Mathematical operations    |
 | `datetime` / `time` | All      | Timestamps, sleep, date parsing |
 
