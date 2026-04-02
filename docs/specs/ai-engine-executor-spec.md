@@ -34,44 +34,102 @@ The `parse_ai_decision` function supports both AI decision formats:
 
 ---
 
-## 4. Entry Validation
+## 4. Entry Validation & Timing (v2.4 Enhancements)
 
-A trade is only executed if all conditions are met:
+A trade is only executed if it passes validation and timing checks.
+
+### 4.1 Validation Checks
 
 | Check                                          | Threshold  | Behavior on Failure   |
 | ---------------------------------------------- | ---------- | --------------------- |
-| Confidence >= minimum                          | 40%        | Skip with log message |
-| Risk:Reward >= minimum                         | 1.0        | Skip with log message |
 | Valid strike exists                            | Non-null   | Skip with log message |
 | Entry price > 0                                | Positive   | Skip with log message |
 | No existing open position for instrument       | 1 per instrument | Skip with log message |
+| Daily trade limit not reached                  | < 3 trades/day | Skip with log message |
+
+*(Note: Confidence and R:R checks are now handled upstream by the Trade Quality Filter in the Decision Engine).*
+
+### 4.2 Execution Timing Engine
+
+Even if a trade is approved, entry is delayed until real-time conditions confirm the move. The Executor waits for:
+1. **Breakout/Rejection Candle:** A 1-minute candle closing in the trade's direction.
+2. **Volume Spike:** 1-minute volume > 1.5x the intraday average.
+3. **Momentum Confirmation:** Momentum Score > 50.
+
+If these conditions are not met within 5 minutes of the signal, the signal expires and the trade is aborted.
 
 ---
 
-## 5. Entry Flow
+## 5. Entry Flow & Position Sizing (v2.4 Enhancements)
 
-When all validation passes:
+When all validation and timing checks pass:
 
-1. **Get Entry Price**: Use the trade setup's entry price. If zero, fall back to live option chain `last_price` for the ATM strike.
-2. **Get Target/SL**: Use the trade setup's values. If zero, apply defaults: target = entry x 1.30 (30%), SL = entry x 0.85 (15%).
+### 5.1 Profit Orchestrator (Position Sizing)
+
+Instead of fixed lot sizes, the system calculates quantity dynamically based on account capital and the trade's target percentage.
+
+1. **Required Profit:** `Capital x 5%` (e.g., ₹1,00,000 x 0.05 = ₹5,000)
+2. **Base Quantity:** `Required Profit / (Entry Price x Target %)`
+3. **Equity Curve Protection:** Apply the current Risk Multiplier (0.25x to 1.0x) based on recent win/loss streaks.
+4. **Final Quantity:** `floor(Base Quantity x Risk Multiplier)`, rounded up to minimum 1 lot.
+
+### 5.2 Entry Execution
+
+1. **Get Entry Price**: Use the live option chain `last_price` for the ATM strike.
+2. **Get Target/SL**: Apply the Risk Manager's strict limits: SL = -5%, Target = +10% (or trade setup target if lower).
 3. **Generate Position ID**: Format `POS-{YYYYMMDDHHMMSS}-{counter}`.
 4. **Paper Mode**: Log the simulated entry.
-5. **Live Mode**: Call `POST /api/broker/orders` on the Broker Service with the instrument, strike, option type, and quantity. The Broker Service handles security ID resolution and order placement internally.
-6. **Record Position**: Store in `OPEN_POSITIONS[instrument]` with all fields (id, instrument, type, strike, option_type, entry/current/target/SL prices, quantity, P&L, status, timestamps).
-7. **Push to Dashboard**: POST to `/api/trading/position` with the position data.
+5. **Live Mode**: Call `POST /api/broker/orders` on the Broker Service with the calculated quantity.
+6. **Record Position**: Store in `OPEN_POSITIONS[instrument]`.
+7. **Push to Dashboard**: POST to `/api/trading/position`.
 
 ---
 
-## 6. Position Monitoring
+## 6. Position Management (v2.4 Enhancements)
 
-Every cycle, `monitor_positions` iterates all open positions:
+The Executor continuously monitors open positions using real-time WebSocket data and applies multiple management engines.
 
-1. **Get Current Price**: Read the live option chain and extract `last_price` for the position's strike and option type.
-2. **Update P&L**: `pnl = (current_price - entry_price) x quantity`, `pnl_pct = ((current_price - entry_price) / entry_price) x 100`.
-3. **Check Stop Loss**: If `current_price <= sl_price`, trigger SL exit.
-4. **Check Target Profit**: If `current_price >= tp_price`, trigger TP exit.
-5. **On Exit**: Mark position as CLOSED, record exit time/price/reason. In live mode, place a SELL order. Push closed position to dashboard.
-6. **No Exit**: Push updated position (with current price and P&L) to dashboard.
+### 6.1 Momentum Engine
+
+Calculates a real-time Momentum Score (0-100) using a dual-window approach (Fast: 30s-1m, Slow: 2-3m).
+- **Score > 70:** HOLD / ADD (Pyramiding)
+- **Score 50-70:** HOLD (tighten SL)
+- **Score 30-50:** PARTIAL EXIT
+- **Score < 30:** FULL EXIT
+
+### 6.2 Adaptive Exit Engine
+
+Overrides static targets based on real-time conditions:
+- **Direction Reversal:** If price velocity flips against the trade, trigger FULL EXIT immediately.
+- **Weak Momentum:** If momentum drops below 50 while in profit, trigger PARTIAL EXIT.
+
+### 6.3 Trade Age Monitor
+
+Prevents capital from being stuck in dead trades:
+- **< 2 min:** If no move in direction, EXIT.
+- **3-5 min:** If weak momentum, PARTIAL EXIT.
+- **> 5 min:** If no progress, EXIT.
+- **> 10 min:** FORCE EXIT (configurable via Feedback Loop).
+
+### 6.4 Profit Exit Engine
+
+Manages profit taking dynamically:
+- **+6% Profit:** Trigger PARTIAL EXIT (sell 50% of position).
+- **+10% Profit:** Trigger FULL EXIT (unless Momentum Score > 70, then HOLD beyond target).
+
+### 6.5 Pyramiding Engine
+
+Adds to winning positions to maximize trends:
+- **Condition:** Position is in profit AND Momentum Score > 70.
+- **Action:** Add 50% of original quantity.
+- **Rule:** Never average down on losing positions.
+
+### 6.6 Risk Manager
+
+Enforces strict capital protection:
+- **Hard Stop Loss:** -5% from entry price.
+- **Early Exit:** -2% if momentum weakens early.
+- **Daily Limit:** Max 3 trades per day per instrument.
 
 ---
 

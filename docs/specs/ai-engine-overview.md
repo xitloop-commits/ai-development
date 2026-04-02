@@ -14,6 +14,7 @@
 | v1.1    | 2026-04-02 | Manus AI  | Cross-functionality update: Python module migration to Broker Service reclassified as refactoring task, AI Paper tab confirmed unconstrained (no discipline rules) |
 | v1.2    | 2026-04-02 | Manus AI  | Made spec broker-agnostic: replaced all direct Dhan API references with Broker Service abstractions. Removed standalone WebSocket spec (now in Broker Service Spec v1.2 Step 0.7). |
 | v1.3    | 2026-04-02 | Manus AI  | Split monolithic spec into per-module specs for maintainability. |
+| v2.0    | 2026-04-02 | Manus AI  | Integrated v2.4 enhancements (15 new modules, dual-window momentum, equity curve protection, feedback loop). Added Session Manager and Feedback Loop specs. |
 
 ---
 
@@ -34,7 +35,7 @@
 
 ## 1. Overview
 
-The AI Engine is the analytical core of the Automatic Trading System. It is a 5-module Python pipeline that runs as separate long-lived processes alongside the Node.js dashboard. The pipeline ingests real-time option chain data via the **Broker Service** (see `broker-service-spec-v1.2.md`), performs multi-layered analysis (OI structure, market bias, news sentiment, IV assessment, theta risk), produces scored trade signals with complete trade setups, and optionally executes paper or live trades. The AI Engine is **broker-agnostic** — it never communicates with any broker API directly. All market data retrieval, order placement, and position management is routed through the Broker Service abstraction layer.
+The AI Engine is the analytical core of the Automatic Trading System. It is a 7-module Python pipeline that runs as separate long-lived processes alongside the Node.js dashboard. The pipeline ingests real-time option chain data via the **Broker Service** (see `broker-service-spec-v1.2.md`), performs multi-layered analysis (OI structure, market bias, news sentiment, IV assessment, theta risk), produces scored trade signals with complete trade setups, and optionally executes paper or live trades. The AI Engine is **broker-agnostic** — it never communicates with any broker API directly. All market data retrieval, order placement, and position management is routed through the Broker Service abstraction layer.
 
 The system covers four instruments: **NIFTY 50**, **BANK NIFTY**, **CRUDE OIL**, and **NATURAL GAS** — spanning both NSE (equity index options) and MCX (commodity options) exchanges. Each instrument is analyzed independently in every cycle, producing a self-contained decision JSON with 45+ fields.
 
@@ -96,9 +97,28 @@ The pipeline's primary design principle is **modularity through file-based decou
   ┌───────────────────────────────────┐
   │  MODULE 4: Execution Module       │
   │  (execution_module.py)            │
-  │  • Paper / live trade execution   │
-  │  • Real-time SL/TP monitoring     │
-  │  • Position push to dashboard     │
+  │  • Profit Orchestrator (Sizing)   │
+  │  • Execution Timing Engine        │
+  │  • Momentum Engine (Dual-Window)  │
+  │  • Adaptive/Profit Exit Engines   │
+  │  • Pyramiding & Risk Manager      │
+  └──────────────┬────────────────────┘
+                 │
+                 │  (New v2.4 Modules)
+                 ▼
+  ┌───────────────────────────────────┐
+  │  MODULE 6: Session Manager        │
+  │  (session_manager.py)             │
+  │  • Daily Profit/Loss Caps         │
+  │  • Carry Forward Engine           │
+  └──────────────┬────────────────────┘
+                 │
+                 ▼
+  ┌───────────────────────────────────┐
+  │  MODULE 7: Feedback Loop          │
+  │  (performance_feedback.py)        │
+  │  • Trade Journal Logging          │
+  │  • Daily Parameter Tuning         │
   └──────────────┬────────────────────┘
                  │
                  │  Via Broker Service REST API
@@ -121,7 +141,9 @@ Each module runs as an independent Python process with its own infinite loop. Al
 | Option Chain Fetcher | `python3 option_chain_fetcher.py`          | ~5s + rate limit per broker | Broker Service (Option Chain, Expiry List) |
 | Option Chain Analyzer| `python3 option_chain_analyzer.py`         | 5s                          | Fetcher output files                      |
 | AI Decision Engine   | `python3 ai_decision_engine.py`            | 5s                          | Analyzer output files, NewsData.io API    |
-| Execution Module     | `python3 execution_module.py`              | 5s                          | AI Decision files, Option Chain files, Broker Service (Orders, Positions, Scrip Master) |
+| Execution Module     | `python3 execution_module.py`              | WebSocket tick-driven       | AI Decision files, WebSocket feed, Broker Service |
+| Session Manager      | `python3 session_manager.py`               | Event-driven                | Execution Module, Dashboard REST API      |
+| Feedback Loop        | `python3 performance_feedback.py`          | Once per day (Pre-market)   | Trade Journal, Configuration files        |
 | Data Pusher          | `python3 dashboard_data_pusher.py`         | 3s                          | All output files, Dashboard REST API      |
 
 ### 2.3 Instrument Configuration
@@ -144,8 +166,10 @@ For detailed specifications of each module, refer to the individual module docum
 - **Module 1:** [Option Chain Fetcher Spec](ai-engine-fetcher-spec.md)
 - **Module 2:** [Option Chain Analyzer Spec](ai-engine-analyzer-spec.md)
 - **Module 3:** [AI Decision Engine Spec](ai-engine-decision-spec.md) (Includes News Sentiment, Event Calendar, and Keyword Dictionaries)
-- **Module 4:** [Execution Module Spec](ai-engine-executor-spec.md)
+- **Module 4:** [Execution Module Spec](ai-engine-executor-spec.md) (Includes Momentum Engine, Profit Orchestrator, Exits)
 - **Module 5:** [Dashboard Data Pusher Spec](ai-engine-data-pusher-spec.md)
+- **Module 6:** [Session Manager Spec](ai-engine-session-spec.md) (New in v2.4)
+- **Module 7:** [Performance Feedback Loop Spec](ai-engine-feedback-spec.md) (New in v2.4)
 
 ---
 
@@ -242,9 +266,16 @@ In practice, cycles may overlap. The Analyzer may process data from the previous
 | `POLL_INTERVAL`       | Data Pusher  | 3 seconds                                                | File change polling interval   |
 | `NEWS_CACHE_EXPIRY`   | AI Engine    | 300 seconds (5 min)                                      | News API cache TTL             |
 | `MAX_OI_HISTORY`      | AI Engine    | 6                                                        | OI history cycles for velocity tracking |
-| `MIN_CONFIDENCE`      | Executor     | 0.40 (40%)                                               | Minimum confidence to trade    |
-| `MIN_RISK_REWARD`     | Executor     | 1.0                                                      | Minimum R:R ratio to trade     |
+| `MIN_CONFIDENCE`      | Decision     | 0.65 (65%)                                               | Minimum confidence to trade (Tunable) |
+| `MIN_RISK_REWARD`     | Decision     | 1.0                                                      | Minimum R:R ratio to trade     |
 | `LIVE_TRADING`        | Executor     | `False`                                                  | Paper vs live trading mode     |
+| `EQUITY_CURVE_RESET_DAILY` | Executor | `true`                                                  | Reset risk multiplier daily    |
+| `EQUITY_CURVE_MIN_MULTIPLIER` | Executor | `0.25`                                               | Minimum risk multiplier floor  |
+| `NO_TRADE_SIDEWAYS_THRESHOLD` | Decision | `3`                                                  | Signals needed to skip trade   |
+| `FEEDBACK_ENABLED`    | Feedback     | `false`                                                  | Enable daily parameter tuning  |
+| `FEEDBACK_LOOKBACK_DAYS` | Feedback  | `5`                                                      | Days of history to analyze     |
+| `PROFIT_PARTIAL_EXIT_PCT` | Executor | `6.0` (6%)                                               | Target for partial exit (Tunable) |
+| `TRADE_AGE_FORCE_EXIT` | Executor    | `10` (minutes)                                           | Max time in dead trade (Tunable) |
 
 ### 6.2 Strike Step Sizes
 

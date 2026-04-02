@@ -272,7 +272,53 @@ R:R    = reward / risk (rounded to 1 decimal)
 
 ---
 
-## 8. Risk Flags
+## 8. Pre-Trade Filters (v2.4 Enhancements)
+
+Before a trade setup is finalized and passed to the Execution Module, it must pass three strict filters. If any filter fails, the trade is rejected and the decision reverts to `WAIT`.
+
+### 8.1 Trade Quality Filter
+
+Ensures only high-probability setups are executed.
+
+| Condition | Threshold | Action on Failure |
+| --------- | --------- | ----------------- |
+| Confidence | >= 65% (`MIN_CONFIDENCE`) | Reject trade |
+| S/R Alignment | Trade direction must align with S/R prediction (e.g., GO_CALL requires Support BOUNCE or Resistance BREAKOUT) | Reject trade |
+| Trap Signals | No trap signals detected by No Trade Detection | Reject trade |
+
+### 8.2 Bounce vs Breakdown Engine
+
+Classifies the structural setup of the trade to ensure logical alignment.
+
+| Setup Type | Required Direction | Action if Mismatched |
+| ---------- | ------------------ | -------------------- |
+| Bounce off Support | GO_CALL | Reject |
+| Bounce off Resistance | GO_PUT | Reject |
+| Breakdown below Support | GO_PUT | Reject |
+| Breakout above Resistance | GO_CALL | Reject |
+| Trap / False Breakout | Any | Reject |
+
+### 8.3 No Trade Detection (Sideways / Trap Markets)
+
+Prevents entries in unfavorable market conditions.
+
+**Sideways Market Detection:**
+Evaluates 4 signals. If >= `NO_TRADE_SIDEWAYS_THRESHOLD` (default: 3) are true, the market is sideways and the trade is rejected.
+1. **Narrow Range:** (Day High - Day Low) < 0.5% of LTP
+2. **Balanced OI:** Top CE OI and top PE OI are within 15% of each other
+3. **Low Volume:** Current cumulative volume < 0.7x of average
+4. **Neutral PCR:** PCR ratio between 0.90 and 1.10
+
+**Trap Market Detection:**
+If **any 1** of these signals is true, the trade is rejected immediately.
+1. **False Breakout:** Price broke above resistance within last 5 mins but is now below it
+2. **False Breakdown:** Price broke below support within last 5 mins but is now above it
+3. **OI Contradiction:** Price moving up but CE OI increasing heavily (or vice versa)
+4. **Signal-Momentum Divergence:** AI Engine says GO_CALL but Momentum Score < 30
+
+---
+
+## 9. Risk Flags
 
 The `compute_risk_flags` function generates warning and danger flags for the trade:
 
@@ -280,6 +326,9 @@ The `compute_risk_flags` function generates warning and danger flags for the tra
 | ------------------------------------------ | ------- | --------------------------------------------------------------- |
 | IV assessment is EXPENSIVE                 | warning | "IV is elevated at X% — risk of IV crush even if direction is right" |
 | Theta warning exists                       | danger  | (Theta warning text from assessment)                            |
+| Time > 14:30 (2:30 PM)                     | danger  | "Late session — no new trades allowed"                          |
+| DTE <= 2                                   | danger  | "DTE <= 2 — extreme theta risk, no new trades allowed"          |
+| Delta outside 0.4–0.6                      | warning | "Delta is X — outside preferred 0.4-0.6 range"                  |
 | GO_CALL + resistance strength > 70         | warning | "Strong resistance at X — may cap upside"                       |
 | GO_PUT + support strength > 70             | warning | "Strong support at X — may cap downside"                        |
 | GO_CALL + support strength < 30            | danger  | "Support at X is weak — SL may get hit quickly"                 |
