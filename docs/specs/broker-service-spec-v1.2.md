@@ -1,5 +1,5 @@
 # Feature 0: Broker Service + Token Management (Merged)
-**Version:** 1.1  
+**Version:** 1.2  
 **Date:** April 2, 2026  
 **Author:** Manus AI
 
@@ -10,12 +10,15 @@
 |---------|------|-------------|
 | 1.0 | March 28, 2026 | Initial specification |
 | 1.1 | April 2, 2026 | Cross-functionality update: deferred order execution settings to Settings spec |
+| 1.2 | April 2, 2026 | Added Step 0.7: WebSocket Hybrid Architecture (Live Market Feed) integration |
 
 ---
 
 ## Overview
 
 This specification details the implementation of **Feature 0: Broker Service + Token Management**. This feature establishes the foundational broker abstraction layer and integrates the Dhan API. The original Feature 0 (Broker Service Abstraction) and Feature 2 (Dhan Token Management) have been merged because token management acts as the gatekeeper for the Dhan adapter. Testing any Dhan functionality is impossible without it, and building them together avoids a half-usable intermediate state.
+
+Version 1.2 introduces the **WebSocket Hybrid Architecture**, which replaces the 5-second REST polling model with a real-time tick data feed for execution, while retaining slow-cycle REST polling for strategic option chain data (Greeks/IV).
 
 ## Architecture
 
@@ -31,7 +34,7 @@ The system architecture follows a modular, broker-specific design to facilitate 
 
 ## Deliverables & Implementation Steps
 
-The implementation is divided into 6 testable steps. Each step produces a working, testable checkpoint. No step depends on Dhan credentials until Step 0.4.
+The implementation is divided into 7 testable steps. Each step produces a working, testable checkpoint. No step depends on Dhan credentials until Step 0.4.
 
 ### Step 0.1: Broker Interface + Types + Service Core
 
@@ -162,10 +165,32 @@ This step completes the Dhan adapter by implementing order management and portfo
 *   curl: All order, position, and margin endpoints with the Dhan adapter active.
 *   *Safety Note:* All tests use paper mode or mocked responses to ensure no real orders are placed during testing.
 
+### Step 0.7: Dhan Adapter — WebSocket Hybrid Architecture (Live Market Feed)
+
+This step implements the real-time data feed required by the AI Engine v2.4 enhancements (Momentum Engine, Execution Timing Engine). It replaces the 5-second REST polling model with a hybrid approach.
+
+**Files:**
+*   `server/broker/adapters/dhan/websocket.ts` — Dhan Live Market Feed connection and message parsing.
+*   `server/broker/adapters/dhan/subscriptionManager.ts` — Logic for ATM sliding window and dynamic subscriptions.
+
+**Hybrid Architecture Design:**
+1.  **Real-Time WebSocket (Execution Engine):** Subscribes to the underlying index and a specific window of option strikes. Provides sub-second tick data (LTP, Volume, OI, Bid/Ask, OHLC) using the Full Packet (Code 8) mode.
+2.  **Slow-Cycle REST Poller (Navigation Engine):** Calls `POST /v2/optionchain` every 60 seconds to fetch Greeks (Delta, Theta, Gamma, Vega) and Implied Volatility (IV), which are not available via WebSocket.
+
+**Subscription Rules (The Sliding Window):**
+*   **Base Window:** For each active instrument, subscribe to the **ATM strike +/- 10 strikes** (21 strikes total, both CE and PE = 42 security IDs per instrument).
+*   **Dynamic Rebalancing:** Whenever the underlying LTP crosses a strike boundary, recalculate ATM. Subscribe to new strikes entering the window and unsubscribe from strikes exiting the window.
+*   **Open Positions:** Any strike with an open position remains subscribed regardless of its distance from ATM.
+*   **Active Strikes:** Any strike flagged by the Analyzer (via the 60s REST poll) as having unusual OI buildup is dynamically added to the subscription.
+
+**Testable Deliverables:**
+*   Vitest: ATM recalculation logic, subscription list generation, and delta calculation (subscribe/unsubscribe diffs).
+*   Vitest: WebSocket packet parsing (binary to JSON) for Full Packet (Code 8).
+*   Integration: Verify WebSocket connection to `wss://api-feed.dhan.co` and successful receipt of tick data for subscribed security IDs.
+
 ## Deferred Features
 
 The following items are not included in this feature and are deferred to later stages:
-*   **WebSocket LTP streaming:** Deferred to Feature 7 (Real-Time Data).
 *   **WebSocket order updates:** Deferred to Feature 7.
 *   **Frontend token popup UI:** Deferred to Feature 3 (Navigation & Layout).
 *   **Settings page broker section:** Deferred to Feature 4 (Settings Page).
@@ -175,7 +200,7 @@ The following items are not included in this feature and are deferred to later s
 
 *   **mongoose:** Already installed (Feature 1).
 *   **csv-parse:** Required for scrip master CSV parsing.
-*   **ws:** Reserved for Feature 7 (WebSocket).
+*   **ws:** Required for Dhan Live Market Feed connection.
 
 ## Build Order & Testing Summary
 
@@ -187,5 +212,6 @@ The build order is sequential, ensuring that Steps 0.1 through 0.3 can be built 
 4.  **Step 0.4 (Dhan Auth)** *(Requires Dhan Token)*
 5.  **Step 0.5 (Scrip + Option Chain)** *(Requires Dhan Token)*
 6.  **Step 0.6 (Orders + Positions)** *(Requires Dhan Token, tested in paper mode)*
+7.  **Step 0.7 (WebSocket Hybrid Architecture)** *(Requires Dhan Token & Data API Subscription)*
 
-Total tests planned: ~42 Vitest tests and 27 curl tests.
+Total tests planned: ~48 Vitest tests and 30 curl tests.
