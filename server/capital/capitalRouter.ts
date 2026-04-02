@@ -39,6 +39,9 @@ import {
 import { calculateTradeCharges } from "./chargesEngine";
 import type { ChargeRate } from "./chargesEngine";
 import { getUserSettings } from "../userSettings";
+import { getActiveBroker } from "../broker/brokerService";
+import { getActiveBrokerConfig } from "../broker/brokerConfig";
+import type { OrderParams } from "../broker/types";
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -277,6 +280,50 @@ export const capitalRouter = router({
         closedAt: null,
       };
 
+      // ── Broker order placement (live workspace only) ──────────
+      let brokerOrderId: string | null = null;
+      if (input.workspace === "live") {
+        const broker = getActiveBroker();
+        const config = await getActiveBrokerConfig();
+        if (broker && config && !config.isPaperBroker) {
+          try {
+            const isBuyTxn = input.type.includes("BUY");
+            const optType = input.type.startsWith("CALL")
+              ? "CE" as const
+              : input.type.startsWith("PUT")
+              ? "PE" as const
+              : "FUT" as const;
+            const exchange = (input.instrument.includes("CRUDE") || input.instrument.includes("NATURAL"))
+              ? "MCX_COMM" as const
+              : "NSE_FNO" as const;
+
+            const orderParams: OrderParams = {
+              instrument: input.instrument,
+              exchange,
+              transactionType: isBuyTxn ? "BUY" : "SELL",
+              optionType: optType,
+              strike: input.strike ?? 0,
+              expiry: "",  // resolved by adapter via scrip master
+              quantity: qty,
+              price: input.entryPrice,
+              orderType: config.settings.orderType ?? "LIMIT",
+              productType: config.settings.productType ?? "INTRADAY",
+              stopLoss: stopLossPrice,
+              target: targetPrice,
+              tag: trade.id,
+            };
+
+            const result = await broker.placeOrder(orderParams);
+            brokerOrderId = result.orderId;
+            console.log(`[Capital] Broker order placed: ${result.orderId} (${result.status})`);
+          } catch (err) {
+            console.error("[Capital] Broker order failed:", err);
+            // Trade is still recorded in capital engine even if broker fails
+          }
+        }
+      }
+
+      trade.brokerId = brokerOrderId;
       day.trades.push(trade);
       const updated = recalculateDayAggregates(day);
 
@@ -304,6 +351,45 @@ export const capitalRouter = router({
       const trade = day.trades.find((t) => t.id === input.tradeId);
       if (!trade) throw new Error(`Trade not found: ${input.tradeId}`);
       if (trade.status !== "OPEN") throw new Error(`Trade already closed: ${input.tradeId}`);
+
+      // ── Close broker position (live workspace only) ──────────
+      if (input.workspace === "live" && trade.brokerId) {
+        const broker = getActiveBroker();
+        const config = await getActiveBrokerConfig();
+        if (broker && config && !config.isPaperBroker) {
+          try {
+            const isBuyTxn = trade.type.includes("BUY");
+            const optType = trade.type.startsWith("CALL")
+              ? "CE" as const
+              : trade.type.startsWith("PUT")
+              ? "PE" as const
+              : "FUT" as const;
+            const exchange = (trade.instrument.includes("CRUDE") || trade.instrument.includes("NATURAL"))
+              ? "MCX_COMM" as const
+              : "NSE_FNO" as const;
+
+            // Exit = opposite transaction
+            const exitOrder: OrderParams = {
+              instrument: trade.instrument,
+              exchange,
+              transactionType: isBuyTxn ? "SELL" : "BUY",
+              optionType: optType,
+              strike: trade.strike ?? 0,
+              expiry: "",
+              quantity: trade.qty,
+              price: input.exitPrice,
+              orderType: config.settings.orderType ?? "LIMIT",
+              productType: config.settings.productType ?? "INTRADAY",
+              tag: `EXIT-${trade.id}`,
+            };
+
+            const result = await broker.placeOrder(exitOrder);
+            console.log(`[Capital] Broker exit order placed: ${result.orderId} (${result.status})`);
+          } catch (err) {
+            console.error("[Capital] Broker exit order failed:", err);
+          }
+        }
+      }
 
       // Calculate P&L
       const isBuy = trade.type.includes("BUY");
