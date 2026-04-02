@@ -34,6 +34,15 @@ from datetime import datetime
 
 import requests
 
+# Phase 3 imports: WebSocket feed + Momentum Engine
+try:
+    from websocket_feed import TickFeed, get_feed, start_feed
+    from momentum_engine import MomentumEngine
+    WS_FEED_AVAILABLE = True
+except ImportError:
+    WS_FEED_AVAILABLE = False
+    print("[WARN] websocket_feed / momentum_engine not available. Real-time features disabled.")
+
 # --- Configuration ---
 
 # Broker Service base URL (same server)
@@ -82,12 +91,57 @@ EXCHANGE_MAP = {
     "NATURALGAS": "MCX_COMM",
 }
 
+# --- v2.4 Phase 3 Configuration ---
+
+# Risk Manager: Hard limits
+HARD_STOP_LOSS_PCT = -5.0        # -5% from entry
+EARLY_EXIT_LOSS_PCT = -2.0       # -2% if momentum weak early
+TARGET_PROFIT_PCT = 10.0         # +10% default target
+
+# Profit Exit Engine
+PROFIT_PARTIAL_EXIT_PCT = 6.0    # +6% triggers partial exit
+PROFIT_FULL_EXIT_PCT = 10.0      # +10% triggers full exit (unless momentum > 70)
+PARTIAL_EXIT_FRACTION = 0.5      # Sell 50% on partial exit
+
+# Trade Age Monitor
+TRADE_AGE_NO_MOVE_EXIT = 120     # 2 minutes — exit if no move in direction
+TRADE_AGE_WEAK_PARTIAL = 300     # 3-5 minutes — partial exit if weak momentum
+TRADE_AGE_NO_PROGRESS = 300      # 5 minutes — exit if no progress
+TRADE_AGE_FORCE_EXIT = 600       # 10 minutes — force exit regardless
+
+# Adaptive Exit
+ADAPTIVE_EXIT_MOMENTUM_FLOOR = 30   # Full exit if momentum drops below this
+ADAPTIVE_PARTIAL_MOMENTUM = 50      # Partial exit if momentum below this while in profit
+
+# Pyramiding Engine
+PYRAMID_MOMENTUM_THRESHOLD = 70     # Add only if momentum > 70
+PYRAMID_ADD_FRACTION = 0.5          # Add 50% of original quantity
+PYRAMID_MAX_ADDS = 1                # Maximum number of pyramid additions per position
+
+# Execution Timing Engine
+ENTRY_TIMING_TIMEOUT = 300          # 5 minutes to confirm entry conditions
+ENTRY_VOLUME_SPIKE_RATIO = 1.5      # 1-min volume must be > 1.5x average
+ENTRY_MOMENTUM_THRESHOLD = 50       # Momentum Score must be > 50 to enter
+
+# Profit Orchestrator (Position Sizing)
+DAILY_PROFIT_TARGET_PCT = 5.0       # 5% of capital as daily profit target
+RISK_MULTIPLIER_MIN = 0.25
+RISK_MULTIPLIER_MAX = 1.0
+
 # --- Global State ---
 # Track open positions: {instrument: position_dict}
 OPEN_POSITIONS = {}
 
 # Track position ID counter
 position_id_counter = 0
+
+# WebSocket feed and Momentum Engine instances
+_tick_feed = None
+_momentum_engine = None
+
+# Pending entries waiting for timing confirmation
+# {instrument: {decision, oc, signal_time, ...}}
+PENDING_ENTRIES = {}
 
 
 def log(message):
@@ -686,12 +740,439 @@ def try_entry(instrument, decision, oc):
     return True
 
 
-# --- Position Monitoring ---
+# --- v2.4 Phase 3: Advanced Exit Engines ---
+
+def get_position_age_seconds(position):
+    """Calculate how many seconds a position has been open."""
+    try:
+        entry_time = datetime.strptime(position["entryTime"], "%Y-%m-%d %H:%M:%S")
+        return (datetime.now() - entry_time).total_seconds()
+    except (ValueError, KeyError):
+        return 0
+
+
+def get_momentum_for_position(position):
+    """
+    Get the Momentum Score for an open position's security.
+    Returns the momentum result dict, or None if unavailable.
+    """
+    global _momentum_engine, _tick_feed
+    if not _momentum_engine or not _tick_feed or not _tick_feed.connected:
+        return None
+
+    security_id = position.get("securityId", "")
+    if not security_id:
+        return None
+
+    direction = "CALL" if position["type"] == "CALL_BUY" else "PUT"
+    return _momentum_engine.calculate(security_id, direction)
+
+
+def check_adaptive_exit(position, momentum_result, pnl_pct):
+    """
+    Adaptive Exit Engine: Overrides static targets based on real-time conditions.
+    Returns (exit_type, reason) or (None, None).
+
+    Rules:
+    - If momentum < 30: FULL_EXIT (dying momentum)
+    - If momentum < 50 and in profit: PARTIAL_EXIT (weak momentum while profitable)
+    """
+    if not momentum_result:
+        return None, None
+
+    score = momentum_result["score"]
+
+    if score < ADAPTIVE_EXIT_MOMENTUM_FLOOR:
+        return "FULL_EXIT", f"ADAPTIVE_EXIT: Momentum {score:.0f} < {ADAPTIVE_EXIT_MOMENTUM_FLOOR} (dying)"
+
+    if score < ADAPTIVE_PARTIAL_MOMENTUM and pnl_pct > 0:
+        return "PARTIAL_EXIT", f"ADAPTIVE_EXIT: Momentum {score:.0f} < {ADAPTIVE_PARTIAL_MOMENTUM} while in profit ({pnl_pct:+.1f}%)"
+
+    return None, None
+
+
+def check_trade_age_exit(position, momentum_result, pnl_pct):
+    """
+    Trade Age Monitor: Prevents capital from being stuck in dead trades.
+    Returns (exit_type, reason) or (None, None).
+
+    Rules:
+    - < 2 min: If no move in direction, EXIT
+    - 3-5 min: If weak momentum, PARTIAL_EXIT
+    - > 5 min: If no progress, EXIT
+    - > 10 min: FORCE EXIT regardless
+    """
+    age = get_position_age_seconds(position)
+    momentum_score = momentum_result["score"] if momentum_result else 50
+
+    # Force exit after 10 minutes
+    if age >= TRADE_AGE_FORCE_EXIT:
+        return "FULL_EXIT", f"TRADE_AGE: Force exit after {age/60:.1f} min (limit: {TRADE_AGE_FORCE_EXIT/60:.0f} min)"
+
+    # No progress after 5 minutes
+    if age >= TRADE_AGE_NO_PROGRESS and pnl_pct <= 1.0:
+        return "FULL_EXIT", f"TRADE_AGE: No progress after {age/60:.1f} min (P&L: {pnl_pct:+.1f}%)"
+
+    # Weak momentum at 3-5 minutes
+    if age >= TRADE_AGE_WEAK_PARTIAL and momentum_score < 50:
+        return "PARTIAL_EXIT", f"TRADE_AGE: Weak momentum ({momentum_score:.0f}) at {age/60:.1f} min"
+
+    # No move in direction within 2 minutes
+    if age >= TRADE_AGE_NO_MOVE_EXIT and pnl_pct <= 0:
+        return "FULL_EXIT", f"TRADE_AGE: No move in direction after {age/60:.1f} min (P&L: {pnl_pct:+.1f}%)"
+
+    return None, None
+
+
+def check_profit_exit(position, momentum_result, pnl_pct):
+    """
+    Profit Exit Engine: Manages profit taking dynamically.
+    Returns (exit_type, reason) or (None, None).
+
+    Rules:
+    - +6% profit: PARTIAL_EXIT (sell 50%)
+    - +10% profit: FULL_EXIT (unless Momentum > 70, then HOLD beyond target)
+    """
+    momentum_score = momentum_result["score"] if momentum_result else 50
+
+    # Check if already partially exited
+    already_partial = position.get("partialExitDone", False)
+
+    # +10% profit: full exit unless strong momentum
+    if pnl_pct >= PROFIT_FULL_EXIT_PCT:
+        if momentum_score > PYRAMID_MOMENTUM_THRESHOLD:
+            # Strong momentum — hold beyond target, but tighten SL
+            new_sl = position["entryPrice"] * (1 + PROFIT_PARTIAL_EXIT_PCT / 100)
+            if position["slPrice"] < new_sl:
+                position["slPrice"] = round(new_sl, 2)
+                log(f"    [PROFIT_EXIT] Holding beyond +{PROFIT_FULL_EXIT_PCT}% (momentum {momentum_score:.0f}). SL tightened to {new_sl:.2f}")
+            return None, None
+        return "FULL_EXIT", f"PROFIT_EXIT: +{pnl_pct:.1f}% profit target hit (momentum {momentum_score:.0f} not strong enough to hold)"
+
+    # +6% profit: partial exit (first time only)
+    if pnl_pct >= PROFIT_PARTIAL_EXIT_PCT and not already_partial:
+        return "PARTIAL_EXIT", f"PROFIT_EXIT: +{pnl_pct:.1f}% partial profit target hit"
+
+    return None, None
+
+
+def check_risk_manager_exit(position, momentum_result, pnl_pct):
+    """
+    Risk Manager: Enforces strict capital protection.
+    Returns (exit_type, reason) or (None, None).
+
+    Rules:
+    - Hard SL: -5% from entry
+    - Early exit: -2% if momentum weak early in trade
+    """
+    age = get_position_age_seconds(position)
+    momentum_score = momentum_result["score"] if momentum_result else 50
+
+    # Hard stop loss
+    if pnl_pct <= HARD_STOP_LOSS_PCT:
+        return "FULL_EXIT", f"RISK_MANAGER: Hard SL hit ({pnl_pct:+.1f}% <= {HARD_STOP_LOSS_PCT}%)"
+
+    # Early exit: -2% with weak momentum in first 2 minutes
+    if pnl_pct <= EARLY_EXIT_LOSS_PCT and age < 120 and momentum_score < 50:
+        return "FULL_EXIT", f"RISK_MANAGER: Early exit ({pnl_pct:+.1f}%) with weak momentum ({momentum_score:.0f}) at {age:.0f}s"
+
+    return None, None
+
+
+def execute_partial_exit(instrument, position, option_chains, reason):
+    """
+    Execute a partial exit: sell PARTIAL_EXIT_FRACTION of the position.
+    Updates position quantity in-place.
+    """
+    exit_qty = max(1, int(position["quantity"] * PARTIAL_EXIT_FRACTION))
+    remaining_qty = position["quantity"] - exit_qty
+
+    if remaining_qty <= 0:
+        # If partial would close everything, just do a full exit
+        return execute_full_exit(instrument, position, option_chains, reason)
+
+    current_price = position["currentPrice"]
+    entry_price = position["entryPrice"]
+    pnl_partial = (current_price - entry_price) * exit_qty
+
+    log("")
+    log(f"  ╔══════════════════════════════════════════════════════════╗")
+    log(f"  ║  PARTIAL EXIT: {instrument}")
+    log(f"  ║  Selling {exit_qty} of {position['quantity']} | Remaining: {remaining_qty}")
+    log(f"  ║  Reason: {reason}")
+    log(f"  ║  Partial P&L: {pnl_partial:.2f}")
+    log(f"  ╚══════════════════════════════════════════════════════════╝")
+
+    if LIVE_TRADING:
+        strike = position["strike"]
+        option_type = position.get("option_type", "CE" if position["type"] == "CALL_BUY" else "PE")
+        expiry_date = get_expiry_date(option_chains.get(instrument))
+        if expiry_date:
+            security_id = find_option_security_id(instrument, expiry_date, strike, option_type)
+            if security_id:
+                place_broker_order(instrument, "SELL", security_id, exit_qty)
+    else:
+        log(f"  *** PAPER TRADE: Simulated partial exit of {exit_qty} at {current_price:.2f} ***")
+
+    # Update position
+    position["quantity"] = remaining_qty
+    position["partialExitDone"] = True
+    position["partialExitQty"] = position.get("partialExitQty", 0) + exit_qty
+    position["partialExitPnl"] = position.get("partialExitPnl", 0) + round(pnl_partial, 2)
+
+    return True
+
+
+def execute_full_exit(instrument, position, option_chains, reason):
+    """
+    Execute a full exit: close the entire position.
+    """
+    current_price = position["currentPrice"]
+    entry_price = position["entryPrice"]
+    pnl = (current_price - entry_price) * position["quantity"]
+    pnl_pct = (current_price - entry_price) / entry_price * 100 if entry_price > 0 else 0
+
+    # Include any partial exit P&L
+    total_pnl = pnl + position.get("partialExitPnl", 0)
+
+    log("")
+    log(f"  ╔══════════════════════════════════════════════════════════╗")
+    log(f"  ║  FULL EXIT: {instrument}")
+    log(f"  ║  Reason: {reason}")
+    log(f"  ║  Entry: {entry_price:.2f} → Exit: {current_price:.2f}")
+    log(f"  ║  P&L: {total_pnl:.2f} ({pnl_pct:+.1f}%)")
+    log(f"  ╚══════════════════════════════════════════════════════════╝")
+
+    strike = position["strike"]
+    option_type = position.get("option_type", "CE" if position["type"] == "CALL_BUY" else "PE")
+
+    if LIVE_TRADING:
+        expiry_date = get_expiry_date(option_chains.get(instrument))
+        if expiry_date:
+            security_id = find_option_security_id(instrument, expiry_date, strike, option_type)
+            if security_id:
+                place_broker_order(instrument, "SELL", security_id, position["quantity"])
+    else:
+        log(f"  *** PAPER TRADE: Simulated full exit at {current_price:.2f} ***")
+
+    # Close the position
+    position["status"] = "CLOSED"
+    position["exitTime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    position["exitPrice"] = round(current_price, 2)
+    position["exitReason"] = reason
+
+    # Notify Discipline Engine
+    notify_trade_closed(
+        pnl=round(total_pnl, 2),
+        trade_id=str(position["id"]),
+    )
+
+    # Push to dashboard
+    push_position_to_dashboard({
+        "id": position["id"],
+        "instrument": instrument,
+        "type": position["type"],
+        "strike": strike,
+        "entryPrice": position["entryPrice"],
+        "currentPrice": round(current_price, 2),
+        "quantity": position["quantity"],
+        "pnl": round(total_pnl, 2),
+        "pnlPercent": round(pnl_pct, 1),
+        "slPrice": position["slPrice"],
+        "tpPrice": position["tpPrice"],
+        "status": "CLOSED",
+        "entryTime": position["entryTime"],
+    })
+
+    return True
+
+
+# --- v2.4 Phase 3: Pyramiding Engine ---
+
+def check_pyramiding(instrument, position, momentum_result, pnl_pct, option_chains):
+    """
+    Pyramiding Engine: Adds to winning positions to maximize trends.
+    Conditions:
+    - Position is in profit
+    - Momentum Score > 70
+    - Max pyramid additions not reached
+    - Never average down on losing positions
+    """
+    if pnl_pct <= 0:
+        return  # Never pyramid on losing positions
+
+    if not momentum_result or momentum_result["score"] < PYRAMID_MOMENTUM_THRESHOLD:
+        return
+
+    pyramid_count = position.get("pyramidCount", 0)
+    if pyramid_count >= PYRAMID_MAX_ADDS:
+        return
+
+    original_qty = position.get("originalQuantity", position["quantity"])
+    add_qty = max(1, int(original_qty * PYRAMID_ADD_FRACTION))
+
+    log("")
+    log(f"  ╔══════════════════════════════════════════════════════════╗")
+    log(f"  ║  PYRAMID ADD: {instrument}")
+    log(f"  ║  Adding {add_qty} to existing {position['quantity']}")
+    log(f"  ║  Momentum: {momentum_result['score']:.0f} | P&L: {pnl_pct:+.1f}%")
+    log(f"  ╚══════════════════════════════════════════════════════════╝")
+
+    if LIVE_TRADING:
+        strike = position["strike"]
+        option_type = position.get("option_type", "CE" if position["type"] == "CALL_BUY" else "PE")
+        expiry_date = get_expiry_date(option_chains.get(instrument))
+        if expiry_date:
+            security_id = find_option_security_id(instrument, expiry_date, strike, option_type)
+            if security_id:
+                order_id, order_status = place_broker_order(instrument, "BUY", security_id, add_qty)
+                if order_status not in ("TRADED", "TRANSIT", "PENDING"):
+                    log(f"    Pyramid order not accepted: {order_status}")
+                    return
+    else:
+        log(f"  *** PAPER TRADE: Simulated pyramid add of {add_qty} at {position['currentPrice']:.2f} ***")
+
+    # Update position: recalculate average entry price
+    old_qty = position["quantity"]
+    old_entry = position["entryPrice"]
+    new_avg_entry = (old_entry * old_qty + position["currentPrice"] * add_qty) / (old_qty + add_qty)
+
+    position["quantity"] = old_qty + add_qty
+    position["entryPrice"] = round(new_avg_entry, 2)
+    position["pyramidCount"] = pyramid_count + 1
+    if "originalQuantity" not in position:
+        position["originalQuantity"] = old_qty
+
+    # Recalculate SL/TP based on new entry price
+    position["slPrice"] = round(new_avg_entry * (1 + HARD_STOP_LOSS_PCT / 100), 2)
+    position["tpPrice"] = round(new_avg_entry * (1 + TARGET_PROFIT_PCT / 100), 2)
+
+    log(f"    New avg entry: {new_avg_entry:.2f} | New qty: {position['quantity']} | New SL: {position['slPrice']:.2f}")
+
+
+# --- v2.4 Phase 3: Execution Timing Engine ---
+
+def check_entry_timing(instrument, decision, oc):
+    """
+    Execution Timing Engine: Delays entry until real-time conditions confirm the move.
+    Checks:
+    1. Breakout/Rejection Candle: 1-min candle closing in trade direction
+    2. Volume Spike: 1-min volume > 1.5x intraday average
+    3. Momentum Confirmation: Momentum Score > 50
+
+    Returns True if conditions are met, False if still waiting.
+    """
+    global _momentum_engine, _tick_feed
+
+    if not _tick_feed or not _tick_feed.connected:
+        # If no WebSocket feed, skip timing checks (fail-open)
+        return True
+
+    trade_setup = decision.get("trade_setup", {})
+    security_id = str(trade_setup.get("securityId", ""))
+    if not security_id:
+        # No security ID available for real-time check — allow entry
+        return True
+
+    direction = "CALL" if decision.get("trade_direction") == "GO_CALL" else "PUT"
+    conditions_met = 0
+    conditions_needed = 2  # Need at least 2 of 3 conditions
+
+    # Check 1: Momentum confirmation
+    if _momentum_engine:
+        momentum = _momentum_engine.calculate(security_id, direction)
+        if momentum["score"] >= ENTRY_MOMENTUM_THRESHOLD:
+            conditions_met += 1
+            log(f"    [TIMING] Momentum confirmed: {momentum['score']:.0f} >= {ENTRY_MOMENTUM_THRESHOLD}")
+        else:
+            log(f"    [TIMING] Momentum weak: {momentum['score']:.0f} < {ENTRY_MOMENTUM_THRESHOLD}")
+
+    # Check 2: Volume spike
+    history = _tick_feed.get_tick_history(security_id, 60)  # last 60 seconds
+    if len(history) >= 2:
+        volumes = [h.get("volume", 0) for h in history]
+        vol_deltas = [volumes[i] - volumes[i-1] for i in range(1, len(volumes)) if volumes[i] > volumes[i-1]]
+        if vol_deltas:
+            avg_vol = sum(vol_deltas) / len(vol_deltas)
+            recent_vol = vol_deltas[-1] if vol_deltas else 0
+            if avg_vol > 0 and recent_vol >= avg_vol * ENTRY_VOLUME_SPIKE_RATIO:
+                conditions_met += 1
+                log(f"    [TIMING] Volume spike confirmed: {recent_vol:.0f} >= {avg_vol * ENTRY_VOLUME_SPIKE_RATIO:.0f}")
+            else:
+                log(f"    [TIMING] Volume normal: {recent_vol:.0f} < {avg_vol * ENTRY_VOLUME_SPIKE_RATIO:.0f}")
+
+    # Check 3: Price candle in direction
+    if len(history) >= 2:
+        first_ltp = history[0].get("ltp", 0)
+        last_ltp = history[-1].get("ltp", 0)
+        if first_ltp > 0:
+            price_move = (last_ltp - first_ltp) / first_ltp * 100
+            if direction == "CALL" and price_move > 0.05:
+                conditions_met += 1
+                log(f"    [TIMING] Bullish candle confirmed: +{price_move:.2f}%")
+            elif direction == "PUT" and price_move < -0.05:
+                conditions_met += 1
+                log(f"    [TIMING] Bearish candle confirmed: {price_move:.2f}%")
+            else:
+                log(f"    [TIMING] No directional candle: {price_move:+.2f}%")
+
+    confirmed = conditions_met >= conditions_needed
+    if confirmed:
+        log(f"    [TIMING] Entry confirmed ({conditions_met}/{conditions_needed} conditions met)")
+    else:
+        log(f"    [TIMING] Entry NOT confirmed ({conditions_met}/{conditions_needed} conditions met)")
+
+    return confirmed
+
+
+# --- v2.4 Phase 3: Profit Orchestrator (Position Sizing) ---
+
+def calculate_position_size(instrument, entry_price, target_pct):
+    """
+    Profit Orchestrator: Calculate dynamic position size based on capital and target.
+    1. Required Profit = Capital x 5%
+    2. Base Quantity = Required Profit / (Entry Price x Target %)
+    3. Apply Risk Multiplier from equity curve protection
+    4. Final Quantity = floor(Base x Risk Multiplier), min 1 lot
+    """
+    current_capital, _ = get_capital_state()
+    if current_capital is None or current_capital <= 0:
+        return DEFAULT_QUANTITIES.get(instrument, 50)
+
+    required_profit = current_capital * (DAILY_PROFIT_TARGET_PCT / 100)
+
+    if entry_price <= 0 or target_pct <= 0:
+        return DEFAULT_QUANTITIES.get(instrument, 50)
+
+    base_qty = required_profit / (entry_price * (target_pct / 100))
+
+    # Risk Multiplier: for now use 1.0 (will be adjusted by Feedback Loop in Phase 4)
+    risk_multiplier = 1.0
+    final_qty = max(1, int(base_qty * risk_multiplier))
+
+    # Ensure at least 1 lot
+    min_lot = DEFAULT_QUANTITIES.get(instrument, 1)
+    if final_qty < min_lot:
+        final_qty = min_lot
+
+    log(f"    [SIZING] Capital: {current_capital:.0f} | Required profit: {required_profit:.0f} | "
+        f"Base qty: {base_qty:.1f} | Risk mult: {risk_multiplier} | Final: {final_qty}")
+
+    return final_qty
+
+
+# --- Position Monitoring (Enhanced with Phase 3 Engines) ---
 
 def monitor_positions(option_chains):
     """
-    Check all open positions against current prices.
-    Trigger SL/TP exits when hit.
+    Enhanced position monitoring with Phase 3 exit engines.
+    Priority order:
+    1. Risk Manager (hard SL, early exit)
+    2. Static SL/TP
+    3. Adaptive Exit (momentum-based)
+    4. Trade Age Monitor
+    5. Profit Exit Engine
+    6. Pyramiding check (if no exit triggered)
     """
     for instrument, position in list(OPEN_POSITIONS.items()):
         if position["status"] != "OPEN":
@@ -706,8 +1187,17 @@ def monitor_positions(option_chains):
             "option_type", "CE" if position["type"] == "CALL_BUY" else "PE"
         )
 
-        # Get current price from live option chain
+        # Get current price from live option chain (or WebSocket if available)
         current_price = get_option_price(oc, strike, option_type)
+
+        # Try WebSocket tick for more recent price
+        if _tick_feed and _tick_feed.connected:
+            security_id = position.get("securityId", "")
+            if security_id:
+                ws_tick = _tick_feed.get_tick(security_id)
+                if ws_tick and ws_tick.get("ltp", 0) > 0:
+                    current_price = ws_tick["ltp"]
+
         if current_price <= 0:
             continue
 
@@ -721,79 +1211,50 @@ def monitor_positions(option_chains):
         position["pnl"] = round(pnl, 2)
         position["pnlPercent"] = round(pnl_pct, 1)
 
-        sl_price = position["slPrice"]
-        tp_price = position["tpPrice"]
+        # Get momentum score for this position
+        momentum_result = get_momentum_for_position(position)
 
+        # --- Exit Engine Priority Chain ---
+        exit_type = None
         exit_reason = None
 
-        # Check Stop Loss
-        if current_price <= sl_price:
-            exit_reason = "STOP_LOSS"
-            log("")
-            log(f"  ╔══════════════════════════════════════════════════════════╗")
-            log(f"  ║  STOP LOSS HIT: {instrument}")
-            log(f"  ║  {option_type} {strike} | Entry: {entry_price:.2f} → Exit: {current_price:.2f}")
-            log(f"  ║  P&L: {pnl:.2f} ({pnl_pct:+.1f}%)")
-            log(f"  ╚══════════════════════════════════════════════════════════╝")
+        # 1. Risk Manager (highest priority)
+        exit_type, exit_reason = check_risk_manager_exit(position, momentum_result, pnl_pct)
 
-        # Check Target Profit
-        elif current_price >= tp_price:
-            exit_reason = "TARGET_PROFIT"
-            log("")
-            log(f"  ╔══════════════════════════════════════════════════════════╗")
-            log(f"  ║  TARGET HIT: {instrument}")
-            log(f"  ║  {option_type} {strike} | Entry: {entry_price:.2f} → Exit: {current_price:.2f}")
-            log(f"  ║  P&L: {pnl:.2f} ({pnl_pct:+.1f}%)")
-            log(f"  ╚══════════════════════════════════════════════════════════╝")
+        # 2. Static SL/TP (if Risk Manager didn't trigger)
+        if not exit_type:
+            sl_price = position["slPrice"]
+            tp_price = position["tpPrice"]
+            if current_price <= sl_price:
+                exit_type = "FULL_EXIT"
+                exit_reason = f"STOP_LOSS: {current_price:.2f} <= {sl_price:.2f}"
+            elif current_price >= tp_price:
+                exit_type = "FULL_EXIT"
+                exit_reason = f"TARGET_PROFIT: {current_price:.2f} >= {tp_price:.2f}"
 
-        if exit_reason:
-            # Close the position
-            position["status"] = "CLOSED"
-            position["exitTime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            position["exitPrice"] = round(current_price, 2)
-            position["exitReason"] = exit_reason
+        # 3. Adaptive Exit
+        if not exit_type:
+            exit_type, exit_reason = check_adaptive_exit(position, momentum_result, pnl_pct)
 
-            if LIVE_TRADING:
-                # Place sell order via Broker Service to close
-                expiry_date = get_expiry_date(option_chains.get(instrument))
-                if expiry_date:
-                    security_id = find_option_security_id(
-                        instrument, expiry_date, strike, option_type
-                    )
-                    if security_id:
-                        place_broker_order(
-                            instrument, "SELL", security_id, position["quantity"]
-                        )
-            else:
-                log(f"  *** PAPER TRADE: Simulated exit at {current_price:.2f} ***")
+        # 4. Trade Age Monitor
+        if not exit_type:
+            exit_type, exit_reason = check_trade_age_exit(position, momentum_result, pnl_pct)
 
-            # Notify Discipline Engine of trade closure
-            notify_trade_closed(
-                pnl=round(pnl, 2),
-                trade_id=str(position["id"]),
-            )
+        # 5. Profit Exit Engine
+        if not exit_type:
+            exit_type, exit_reason = check_profit_exit(position, momentum_result, pnl_pct)
 
-            # Push closed position to dashboard
-            dashboard_position = {
-                "id": position["id"],
-                "instrument": instrument,
-                "type": position["type"],
-                "strike": strike,
-                "entryPrice": position["entryPrice"],
-                "currentPrice": round(current_price, 2),
-                "quantity": position["quantity"],
-                "pnl": round(pnl, 2),
-                "pnlPercent": round(pnl_pct, 1),
-                "slPrice": sl_price,
-                "tpPrice": tp_price,
-                "status": "CLOSED",
-                "entryTime": position["entryTime"],
-            }
-            push_position_to_dashboard(dashboard_position)
-
+        # Execute exit if triggered
+        if exit_type == "FULL_EXIT":
+            execute_full_exit(instrument, position, option_chains, exit_reason)
+        elif exit_type == "PARTIAL_EXIT":
+            execute_partial_exit(instrument, position, option_chains, exit_reason)
         else:
-            # Push updated position (with current price) to dashboard every cycle
-            dashboard_position = {
+            # No exit — check pyramiding opportunity
+            check_pyramiding(instrument, position, momentum_result, pnl_pct, option_chains)
+
+            # Push updated position to dashboard
+            push_position_to_dashboard({
                 "id": position["id"],
                 "instrument": instrument,
                 "type": position["type"],
@@ -803,22 +1264,52 @@ def monitor_positions(option_chains):
                 "quantity": position["quantity"],
                 "pnl": round(pnl, 2),
                 "pnlPercent": round(pnl_pct, 1),
-                "slPrice": sl_price,
-                "tpPrice": tp_price,
+                "slPrice": position["slPrice"],
+                "tpPrice": position["tpPrice"],
                 "status": "OPEN",
                 "entryTime": position["entryTime"],
-            }
-            push_position_to_dashboard(dashboard_position)
+                "momentum": momentum_result["score"] if momentum_result else None,
+                "momentumAction": momentum_result["action"] if momentum_result else None,
+            })
 
 
 # --- Main Loop ---
 
+def process_pending_entries(option_chains):
+    """
+    Process pending entries that are waiting for Execution Timing confirmation.
+    Entries expire after ENTRY_TIMING_TIMEOUT seconds.
+    """
+    expired = []
+    for instrument, pending in list(PENDING_ENTRIES.items()):
+        age = time.time() - pending["signal_time"]
+
+        if age > ENTRY_TIMING_TIMEOUT:
+            log(f"    [TIMING] Signal expired for {instrument} after {age:.0f}s")
+            expired.append(instrument)
+            continue
+
+        decision = pending["decision"]
+        oc = option_chains.get(instrument, pending.get("oc"))
+
+        if check_entry_timing(instrument, decision, oc):
+            log(f"    [TIMING] Entry conditions met for {instrument}. Executing...")
+            try_entry(instrument, decision, oc)
+            expired.append(instrument)
+
+    for instrument in expired:
+        PENDING_ENTRIES.pop(instrument, None)
+
+
 def main():
+    global _tick_feed, _momentum_engine
+
     log("=" * 60)
-    log("Execution Module v3 — Broker Service Mode")
+    log("Execution Module v4 — Phase 3 Real-Time Execution")
     log(f"Broker URL: {BROKER_URL}")
     log(f"Dashboard URL: {DASHBOARD_URL}")
     log(f"Trading Mode: {'LIVE' if LIVE_TRADING else 'PAPER'}")
+    log(f"WebSocket Feed: {'Available' if WS_FEED_AVAILABLE else 'Not available'}")
     log(f"Min Confidence: {MIN_CONFIDENCE*100:.0f}%")
     log(f"Min Risk:Reward: 1:{MIN_RISK_REWARD}")
     log(f"Instruments: {INSTRUMENTS}")
@@ -836,10 +1327,34 @@ def main():
     else:
         log("Paper trading mode — broker auth not required.")
 
+    # Step 2: Start WebSocket feed and Momentum Engine
+    if WS_FEED_AVAILABLE:
+        try:
+            _tick_feed = start_feed()
+            _momentum_engine = MomentumEngine(_tick_feed)
+            log("WebSocket feed and Momentum Engine initialized.")
+            # Give feed a moment to connect
+            time.sleep(2)
+            if _tick_feed.connected:
+                log(f"WebSocket connected. {_tick_feed.store.count} instruments in store.")
+            else:
+                log("WebSocket not yet connected. Will retry in background.")
+        except Exception as e:
+            log(f"Failed to start WebSocket feed: {e}. Continuing without real-time data.")
+            _tick_feed = None
+            _momentum_engine = None
+    else:
+        log("Real-time features disabled (websocket_feed/momentum_engine not available).")
+
     cycle = 0
     while True:
         cycle += 1
         log(f"\n--- Execution Cycle {cycle} at {datetime.now().strftime('%H:%M:%S')} ---")
+
+        # Log WebSocket status periodically
+        if _tick_feed and cycle % 10 == 1:
+            status = _tick_feed.get_status()
+            log(f"  [WS] Connected: {status['connected']} | Ticks: {status['tick_count']} | Instruments: {status['subscribed_instruments']}")
 
         active_instruments = get_active_instruments()
         log(f"Active instruments: {list(active_instruments)}")
@@ -850,6 +1365,10 @@ def main():
             oc = load_option_chain(instrument)
             if oc:
                 option_chains[instrument] = oc
+
+        # Process pending entries (Execution Timing Engine)
+        if PENDING_ENTRIES:
+            process_pending_entries(option_chains)
 
         # Process each active instrument
         for instrument in INSTRUMENTS:
@@ -872,13 +1391,36 @@ def main():
                     instrument not in OPEN_POSITIONS
                     or OPEN_POSITIONS[instrument]["status"] != "OPEN"
                 ):
-                    try_entry(instrument, decision, oc)
+                    # Check if already pending
+                    if instrument in PENDING_ENTRIES:
+                        log(f"    Already pending entry for {instrument}")
+                    elif trade_dir in ("GO_CALL", "GO_PUT"):
+                        # Use Execution Timing Engine if WebSocket is available
+                        if _tick_feed and _tick_feed.connected:
+                            if check_entry_timing(instrument, decision, oc):
+                                try_entry(instrument, decision, oc)
+                            else:
+                                # Queue for timing confirmation
+                                PENDING_ENTRIES[instrument] = {
+                                    "decision": decision,
+                                    "oc": oc,
+                                    "signal_time": time.time(),
+                                }
+                                log(f"    [TIMING] Entry queued for {instrument}. Waiting for confirmation...")
+                        else:
+                            # No WebSocket — enter immediately (fail-open)
+                            try_entry(instrument, decision, oc)
                 else:
                     pos = OPEN_POSITIONS[instrument]
+                    momentum_info = ""
+                    if _momentum_engine and pos.get("securityId"):
+                        direction = "CALL" if pos["type"] == "CALL_BUY" else "PUT"
+                        m = _momentum_engine.calculate(pos["securityId"], direction)
+                        momentum_info = f" | Momentum: {m['score']:.0f} ({m['action']})"
                     log(
                         f"    Position open: {pos['type']} {pos['strike']} | "
                         f"Entry: {pos['entryPrice']} | Current: {pos['currentPrice']} | "
-                        f"P&L: {pos['pnl']:+.2f} ({pos['pnlPercent']:+.1f}%)"
+                        f"P&L: {pos['pnl']:+.2f} ({pos['pnlPercent']:+.1f}%){momentum_info}"
                     )
             else:
                 log(f"  {instrument}: No AI decision available")
@@ -891,8 +1433,10 @@ def main():
         closed_count = sum(
             1 for p in OPEN_POSITIONS.values() if p["status"] == "CLOSED"
         )
+        pending_count = len(PENDING_ENTRIES)
         mode = "live" if LIVE_TRADING else "paper"
-        send_heartbeat(f"{open_count} open, {closed_count} closed ({mode})")
+        ws_status = "ws:ok" if (_tick_feed and _tick_feed.connected) else "ws:off"
+        send_heartbeat(f"{open_count} open, {closed_count} closed, {pending_count} pending ({mode}, {ws_status})")
 
         time.sleep(5)
 
@@ -902,6 +1446,13 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         log("Execution Module stopped by user.")
+        # Stop WebSocket feed
+        if _tick_feed:
+            try:
+                from websocket_feed import stop_feed
+                stop_feed()
+            except Exception:
+                pass
         # Print summary
         log("\n=== SESSION SUMMARY ===")
         for instrument, pos in OPEN_POSITIONS.items():
