@@ -247,12 +247,10 @@ function IVThetaRow({ data }: { data: InstrumentData }) {
 export default function InstrumentCard({ data, bgImage, feedExchange, feedSecurityId }: InstrumentCardProps) {
   const [showChecklist, setShowChecklist] = useState(false);
 
-  // Live tick overlay
+  // Live tick overlay — no useMemo: useSyncExternalStore in useTickStream
+  // triggers re-render on every tick, so getTick always returns fresh data
   const { getTick } = useTickStream();
-  const liveTick = useMemo(() => {
-    if (!feedExchange || !feedSecurityId) return undefined;
-    return getTick(feedExchange, feedSecurityId);
-  }, [feedExchange, feedSecurityId, getTick]);
+  const liveTick = (feedExchange && feedSecurityId) ? getTick(feedExchange, feedSecurityId) : undefined;
   const displayPrice = liveTick?.ltp ?? data.lastPrice;
   const isLive = !!liveTick;
 
