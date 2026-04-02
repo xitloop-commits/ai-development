@@ -1,7 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { publicProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import {
   getModuleStatuses,
@@ -97,7 +97,7 @@ export const appRouter = router({
   // Trade Journal endpoints (requires auth)
   journal: router({
     // Create a new trade entry
-    create: protectedProcedure
+    create: publicProcedure
       .input(z.object({
         instrument: z.string(),
         tradeType: z.enum(['CALL_BUY', 'PUT_BUY', 'CALL_SELL', 'PUT_SELL']),
@@ -116,7 +116,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const id = await createTrade({
-          userId: ctx.user.id,
+          userId: 1 /* single-user */,
           ...input,
           stopLoss: input.stopLoss ?? null,
           target: input.target ?? null,
@@ -130,7 +130,7 @@ export const appRouter = router({
       }),
 
     // Close a trade
-    close: protectedProcedure
+    close: publicProcedure
       .input(z.object({
         id: z.number(),
         exitPrice: z.number(),
@@ -138,12 +138,12 @@ export const appRouter = router({
         exitReason: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        await closeTrade(input.id, ctx.user.id, input.exitPrice, input.exitTime, input.exitReason);
+        await closeTrade(input.id, 1 /* single-user */, input.exitPrice, input.exitTime, input.exitReason);
         return { success: true };
       }),
 
     // Update a trade (rationale, tags, etc.)
-    update: protectedProcedure
+    update: publicProcedure
       .input(z.object({
         id: z.number(),
         rationale: z.string().optional(),
@@ -154,12 +154,12 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const { id, ...updates } = input;
-        await updateTrade(id, ctx.user.id, updates);
+        await updateTrade(id, 1 /* single-user */, updates);
         return { success: true };
       }),
 
     // List trades with filters
-    list: protectedProcedure
+    list: publicProcedure
       .input(z.object({
         status: z.enum(['OPEN', 'CLOSED', 'CANCELLED']).optional(),
         instrument: z.string().optional(),
@@ -169,30 +169,30 @@ export const appRouter = router({
         limit: z.number().min(1).max(500).optional(),
       }).optional())
       .query(async ({ ctx, input }) => {
-        return getUserTrades(ctx.user.id, input ?? undefined);
+        return getUserTrades(1 /* single-user */, input ?? undefined);
       }),
 
     // Get P&L stats
-    stats: protectedProcedure
+    stats: publicProcedure
       .input(z.object({
         startTime: z.number().optional(),
         endTime: z.number().optional(),
         mode: z.enum(['LIVE', 'PAPER']).optional(),
       }).optional())
       .query(async ({ ctx, input }) => {
-        return getTradeStats(ctx.user.id, input?.startTime, input?.endTime, input?.mode);
+        return getTradeStats(1 /* single-user */, input?.startTime, input?.endTime, input?.mode);
       }),
 
     // Compare LIVE vs PAPER performance side-by-side
-    compare: protectedProcedure
+    compare: publicProcedure
       .input(z.object({
         startTime: z.number().optional(),
         endTime: z.number().optional(),
       }).optional())
       .query(async ({ ctx, input }) => {
         const [liveStats, paperStats] = await Promise.all([
-          getTradeStats(ctx.user.id, input?.startTime, input?.endTime, 'LIVE'),
-          getTradeStats(ctx.user.id, input?.startTime, input?.endTime, 'PAPER'),
+          getTradeStats(1 /* single-user */, input?.startTime, input?.endTime, 'LIVE'),
+          getTradeStats(1 /* single-user */, input?.startTime, input?.endTime, 'PAPER'),
         ]);
         return { live: liveStats, paper: paperStats };
       }),
@@ -201,12 +201,12 @@ export const appRouter = router({
   // User Settings (MongoDB)
   settings: router({
     // Get user settings (all sections)
-    get: protectedProcedure.query(async ({ ctx }) => {
-      return getUserSettings(ctx.user.id);
+    get: publicProcedure.query(async ({ ctx }) => {
+      return getUserSettings(1 /* single-user */);
     }),
 
     // Update time window settings
-    updateTimeWindows: protectedProcedure
+    updateTimeWindows: publicProcedure
       .input(z.object({
         nse: z.object({
           noTradeFirstMinutes: z.number().min(0).max(120).optional(),
@@ -221,12 +221,12 @@ export const appRouter = router({
         }).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const updated = await updateUserSettings(ctx.user.id, { timeWindows: input as any });
+        const updated = await updateUserSettings(1 /* single-user */, { timeWindows: input as any });
         return { success: true, timeWindows: updated.timeWindows };
       }),
 
     // Update discipline settings
-    updateDiscipline: protectedProcedure
+    updateDiscipline: publicProcedure
       .input(z.object({
         maxTradesPerDay: z.number().min(1).max(50).optional(),
         maxLossPerDay: z.number().min(0).optional(),
@@ -242,12 +242,12 @@ export const appRouter = router({
         requireRationale: z.boolean().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const updated = await updateUserSettings(ctx.user.id, { discipline: input as any });
+        const updated = await updateUserSettings(1 /* single-user */, { discipline: input as any });
         return { success: true, discipline: updated.discipline };
       }),
 
     // Update expiry control settings
-    updateExpiryControls: protectedProcedure
+    updateExpiryControls: publicProcedure
       .input(z.object({
         rules: z.array(z.object({
           instrument: z.string(),
@@ -262,12 +262,12 @@ export const appRouter = router({
         })),
       }))
       .mutation(async ({ ctx, input }) => {
-        const updated = await updateUserSettings(ctx.user.id, { expiryControls: input as any });
+        const updated = await updateUserSettings(1 /* single-user */, { expiryControls: input as any });
         return { success: true, expiryControls: updated.expiryControls };
       }),
 
     // Update charge rates
-    updateCharges: protectedProcedure
+    updateCharges: publicProcedure
       .input(z.object({
         rates: z.array(z.object({
           name: z.string(),
@@ -278,7 +278,7 @@ export const appRouter = router({
         })),
       }))
       .mutation(async ({ ctx, input }) => {
-        const updated = await updateUserSettings(ctx.user.id, { charges: input as any });
+        const updated = await updateUserSettings(1 /* single-user */, { charges: input as any });
         return { success: true, charges: updated.charges };
       }),
   }),

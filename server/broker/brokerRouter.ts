@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { tracked } from "@trpc/server";
-import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
+import { publicProcedure, router } from "../_core/trpc";
 import {
   getActiveBroker,
   getBrokerServiceStatus,
@@ -180,7 +180,7 @@ export const brokerRouter = router({
     }),
 
     /** Update broker settings (SL, TP, order type, etc.). */
-    updateSettings: protectedProcedure
+    updateSettings: publicProcedure
       .input(
         z.object({
           brokerId: z.string(),
@@ -202,7 +202,7 @@ export const brokerRouter = router({
       }),
 
     /** Switch the active broker. */
-    switchBroker: protectedProcedure
+    switchBroker: publicProcedure
       .input(z.object({ brokerId: z.string() }))
       .mutation(async ({ input }) => {
         await switchBroker(input.brokerId);
@@ -235,7 +235,7 @@ export const brokerRouter = router({
     }),
 
     /** Update the access token. */
-    update: protectedProcedure
+    update: publicProcedure
       .input(
         z.object({
           token: z.string().min(1),
@@ -265,7 +265,7 @@ export const brokerRouter = router({
 
   orders: router({
     /** Place a new order. */
-    place: protectedProcedure
+    place: publicProcedure
       .input(orderParamsSchema)
       .mutation(async ({ input }) => {
         checkKillSwitch();
@@ -274,7 +274,7 @@ export const brokerRouter = router({
       }),
 
     /** Modify a pending order. */
-    modify: protectedProcedure
+    modify: publicProcedure
       .input(
         z.object({
           orderId: z.string(),
@@ -288,7 +288,7 @@ export const brokerRouter = router({
       }),
 
     /** Cancel an order. */
-    cancel: protectedProcedure
+    cancel: publicProcedure
       .input(z.object({ orderId: z.string() }))
       .mutation(async ({ input }) => {
         const broker = requireBroker();
@@ -310,7 +310,7 @@ export const brokerRouter = router({
       }),
 
     /** Exit all open positions. */
-    exitAll: protectedProcedure.mutation(async () => {
+    exitAll: publicProcedure.mutation(async () => {
       const broker = requireBroker();
       return broker.exitAll();
     }),
@@ -335,7 +335,7 @@ export const brokerRouter = router({
   // ── Kill Switch ─────────────────────────────────────────────
 
   /** Activate or deactivate the kill switch. */
-  killSwitch: protectedProcedure
+  killSwitch: publicProcedure
     .input(z.object({ action: z.enum(["ACTIVATE", "DEACTIVATE"]) }))
     .mutation(async ({ input }) => {
       return toggleKillSwitch(input.action);
