@@ -1,9 +1,0 @@
-Live Dashboard Preview Notes (2026-03-20):
-
-1. Dashboard is rendering with live data from tRPC endpoints
-2. Signals feed shows real signals from pushed data (NIFTY 50, CRUDE OIL, NATURAL GAS)
-3. The signals include: Long Buildup, Call Writing, Short Buildup, Short Covering, Put Writing, Long Unwinding
-4. Mock data is still showing in the signals feed (from mockData.ts fallback) - this is expected since the live signals from our test push are also present
-5. Need to verify the instrument cards show live data (prices, bias, AI decisions)
-6. Need to scroll down to see instrument cards and position tracker
-7. The "LIVE DATA" indicator should be visible in the header

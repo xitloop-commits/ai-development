@@ -1,9 +1,0 @@
-Settings Page Mockup Observations (from docs/settings-page-mockup.png):
-- Terminal Noir theme, dark background
-- Left sidebar with 6 sections: Broker Config, Order Execution, Discipline, Time Windows, Expiry Controls, Charges
-- Discipline sidebar item shows: "Trade limits, loss limits, checklist rules"
-- Active section highlighted in green/cyan
-- Footer note: "SETTINGS ARE PERSISTED TO MONGODB"
-- Top bar shows: DISCIPLINE 100/100, CHALLENGE DAY 7/150
-- Content area shows cards with grouped settings
-- Currently showing Broker Config section with Active Broker, Credentials, Update Token, Connection Details, Capabilities cards
