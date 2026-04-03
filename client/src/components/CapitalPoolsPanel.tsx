@@ -171,15 +171,17 @@ export default function CapitalPoolsPanel() {
 
   // Projected milestones (3.75% compounding per cycle)
   const milestones = useMemo(() => {
+    const baseTradingPool = initialFunding * 0.75;
+    const baseReservePool = initialFunding * 0.25;
     const rate = 1 + (targetPercent / 100) * 0.75; // effective compounding rate on trading pool
     const reserveRate = targetPercent / 100 * 0.25; // reserve accumulation per cycle
     const points = [1, 25, 50, 75, 100, 125, 150, 175, 200, 225, 250];
     return points.map((day) => {
-      const tp = 75000 * Math.pow(rate, day - 1);
-      const rp = 25000 + 75000 * reserveRate * ((Math.pow(rate, day - 1) - 1) / (rate - 1));
+      const tp = baseTradingPool * Math.pow(rate, day - 1);
+      const rp = baseReservePool + baseTradingPool * reserveRate * ((Math.pow(rate, day - 1) - 1) / (rate - 1));
       return { day, tradingPool: tp, total: tp + rp };
     });
-  }, [targetPercent]);
+  }, [targetPercent, initialFunding]);
 
   const handleInject = () => {
     const amount = parseFloat(injectAmount);

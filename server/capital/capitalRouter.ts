@@ -137,11 +137,13 @@ export const capitalRouter = router({
         .reduce((sum, t) => sum + t.entryPrice * t.qty, 0);
 
       const available = calculateAvailableCapital(state.tradingPool, openMargin);
+      const daysElapsed = Math.floor((Date.now() - state.createdAt) / 86400000);
       const quarterly = calculateQuarterlyProjection(
         state.tradingPool,
         state.reservePool,
         state.currentDayIndex,
-        Math.floor((Date.now() - state.createdAt) / 86400000)
+        daysElapsed,
+        state.initialFunding
       );
 
       return {
@@ -154,7 +156,8 @@ export const capitalRouter = router({
           state.tradingPool,
           state.reservePool,
           state.currentDayIndex,
-          Math.floor((Date.now() - state.createdAt) / 86400000)
+          daysElapsed,
+          state.initialFunding
         ),
         todayPnl: day.totalPnl,
         todayTarget: day.targetAmount,

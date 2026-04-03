@@ -378,7 +378,8 @@ export function calculateQuarterlyProjection(
   currentTradingPool: number,
   currentReservePool: number,
   currentDayIndex: number,
-  daysElapsed: number // calendar days since start
+  daysElapsed: number, // calendar days since start
+  initialFunding: number = DEFAULT_INITIAL_FUNDING
 ): { quarterLabel: string; projectedCapital: number } {
   // Determine current quarter
   const now = new Date();
@@ -394,8 +395,8 @@ export function calculateQuarterlyProjection(
   }
 
   const totalCapital = currentTradingPool + currentReservePool;
-  const initialCapital = DEFAULT_INITIAL_FUNDING;
-  const avgDailyRate = Math.pow(totalCapital / initialCapital, 1 / currentDayIndex) - 1;
+  const baseline = initialFunding > 0 ? initialFunding : DEFAULT_INITIAL_FUNDING;
+  const avgDailyRate = Math.pow(totalCapital / baseline, 1 / currentDayIndex) - 1;
 
   // Days remaining in quarter (approximate)
   const quarterEndMonth = quarter === 1 ? 5 : quarter === 2 ? 8 : quarter === 3 ? 11 : 2;
@@ -417,7 +418,8 @@ export function calculateAllQuarterlyProjections(
   currentTradingPool: number,
   currentReservePool: number,
   currentDayIndex: number,
-  daysElapsed: number
+  daysElapsed: number,
+  initialFunding: number = DEFAULT_INITIAL_FUNDING
 ): Array<{ quarterLabel: string; projectedCapital: number; isCurrent: boolean; isPast: boolean }> {
   const now = new Date();
   const month = now.getMonth();
@@ -430,8 +432,8 @@ export function calculateAllQuarterlyProjections(
   // Calculate average daily compounding rate
   let avgDailyRate = 0;
   if (currentDayIndex > 1 && daysElapsed > 0) {
-    const initialCapital = DEFAULT_INITIAL_FUNDING;
-    avgDailyRate = Math.pow(totalCapital / initialCapital, 1 / currentDayIndex) - 1;
+    const baseline = initialFunding > 0 ? initialFunding : DEFAULT_INITIAL_FUNDING;
+    avgDailyRate = Math.pow(totalCapital / baseline, 1 / currentDayIndex) - 1;
   }
 
   // Quarter end months: Q1=Jun(5), Q2=Sep(8), Q3=Dec(11), Q4=Mar(2)

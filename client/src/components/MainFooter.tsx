@@ -76,9 +76,9 @@ export default function MainFooter() {
   const tradingPool = capitalData?.tradingPool ?? 0;
   const reservePool = capitalData?.reservePool ?? 0;
   const netWorth = capitalData?.netWorth ?? 0;
-  const initialCapital = capitalData?.initialCapital ?? 0;
-  const growthPercent = initialCapital > 0
-    ? (((netWorth - initialCapital) / initialCapital) * 100).toFixed(1)
+  const initialFunding = capitalData?.initialFunding ?? 100000;
+  const growthPercent = initialFunding > 0
+    ? (((netWorth - initialFunding) / initialFunding) * 100).toFixed(1)
     : '0.0';
 
   // Monthly growth — defaults to 0 when no snapshot data available
@@ -99,11 +99,11 @@ export default function MainFooter() {
   const currReserveGrowth = capitalData?.currMonthReserveGrowth ?? 0;
 
   // Net Worth pool growth since inception
-  const tradingPoolGrowth = initialCapital > 0
-    ? (((tradingPool - initialCapital * 0.75) / (initialCapital * 0.75)) * 100).toFixed(1)
+  const tradingPoolGrowth = initialFunding > 0
+    ? (((tradingPool - initialFunding * 0.75) / (initialFunding * 0.75)) * 100).toFixed(1)
     : '0.0';
-  const reservePoolGrowth = initialCapital > 0
-    ? (((reservePool - initialCapital * 0.25) / (initialCapital * 0.25)) * 100).toFixed(1)
+  const reservePoolGrowth = initialFunding > 0
+    ? (((reservePool - initialFunding * 0.25) / (initialFunding * 0.25)) * 100).toFixed(1)
     : '0.0';
 
   // ─── Discipline Data ────────────────────────────────────────
