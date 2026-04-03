@@ -228,11 +228,15 @@ export const capitalRouter = router({
         return updated;
       }
 
-      // Sync both workspaces
-      const [liveResult] = await Promise.all([
-        syncWorkspace('live'),
-        syncWorkspace('paper'),
-      ]);
+      // Sync live workspace (primary — must succeed)
+      const liveResult = await syncWorkspace('live');
+
+      // Sync paper workspace (best-effort — don't let it break the inject)
+      try {
+        await syncWorkspace('paper');
+      } catch (err) {
+        console.warn('[capital.inject] paper workspace sync failed (non-fatal):', err);
+      }
 
       return liveResult;
     }),

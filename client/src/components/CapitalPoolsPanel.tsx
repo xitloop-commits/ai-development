@@ -139,13 +139,20 @@ export default function CapitalPoolsPanel() {
   );
 
   const injectMutation = trpc.capital.inject.useMutation({
-    onSuccess: () => {
-      utils.capital.state.invalidate();
-      utils.capital.currentDay.invalidate();
-      utils.capital.allDays.invalidate();
-      utils.capital.futureDays.invalidate();
+    onSuccess: async () => {
+      // Await all invalidations to ensure fresh data before closing dialog
+      await Promise.all([
+        utils.capital.state.invalidate(),
+        utils.capital.currentDay.invalidate(),
+        utils.capital.allDays.invalidate(),
+        utils.capital.futureDays.invalidate(),
+      ]);
       setInjectAmount('');
       setInjectOpen(false);
+    },
+    onError: (err) => {
+      console.error('[CapitalPoolsPanel] inject failed:', err.message);
+      alert(`Inject failed: ${err.message}`);
     },
   });
 
