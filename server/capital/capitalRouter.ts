@@ -185,7 +185,7 @@ export const capitalRouter = router({
   allDays: publicProcedure
     .input(z.object({
       workspace: workspaceSchema,
-      futureCount: z.number().min(0).max(50).default(10),
+      futureCount: z.number().min(0).max(250).default(250),
     }))
     .query(async ({ input }) => {
       const state = await getCapitalState(input.workspace);

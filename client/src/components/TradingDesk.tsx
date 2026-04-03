@@ -338,7 +338,7 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
   );
 
   const allDaysQuery = trpc.capital.allDays.useQuery(
-    { workspace, futureCount: 10 },
+    { workspace, futureCount: 250 },
     { refetchInterval: 2000, retry: 1 }
   );
 
@@ -599,7 +599,7 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
           </span>
         </div>
         {/* Today P&L / Target + Exit All */}
-        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
+        <div className="px-3 py-1.5 flex flex-col items-center justify-center flex-1">
           <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Today P&L / Target</span>
           <div className="flex items-center gap-1.5">
             <span className="text-[11px] font-bold tabular-nums">
@@ -861,6 +861,7 @@ function TodaySection({
   todayRef: React.RefObject<HTMLTableRowElement | null>;
   workspace: Workspace;
 }) {
+  const [showNewTradeForm, setShowNewTradeForm] = useState(false);
   const trades = day.trades ?? [];
   const openTrades = trades.filter(t => t.status === 'OPEN');
   const totalPnl = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
@@ -885,22 +886,27 @@ function TodaySection({
         );
       })}
 
-      {/* New Trade Input Row — always visible */}
-      <NewTradeForm
-        workspace={workspace}
-        availableCapital={capital.availableCapital}
-        instruments={['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS']}
-        onSubmit={onPlaceTrade}
-        onCancel={() => {}} // No cancel — always visible
-        loading={placeLoading}
-        dayValues={trades.length === 0 ? {
-          dayIndex: day.dayIndex,
-          tradeCapital: day.tradeCapital,
-          targetAmount: day.targetAmount,
-          targetPercent: day.targetPercent,
-          projCapital: day.projCapital,
-        } : undefined}
-      />
+      {/* New Trade Input Row — shown on + button click */}
+      {showNewTradeForm && (
+        <NewTradeForm
+          workspace={workspace}
+          availableCapital={capital.availableCapital}
+          instruments={['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS']}
+          onSubmit={async (trade) => {
+            await onPlaceTrade(trade);
+            setShowNewTradeForm(false);
+          }}
+          onCancel={() => setShowNewTradeForm(false)}
+          loading={placeLoading}
+          dayValues={trades.length === 0 ? {
+            dayIndex: day.dayIndex,
+            tradeCapital: day.tradeCapital,
+            targetAmount: day.targetAmount,
+            targetPercent: day.targetPercent,
+            projCapital: day.projCapital,
+          } : undefined}
+        />
+      )}
 
       {/* Today Summary Row */}
       <tr className="border-b border-warning-amber/30 bg-warning-amber/10 font-bold" ref={trades.length === 0 ? todayRef : undefined}>
@@ -914,16 +920,19 @@ function TodaySection({
         <td className="px-2 py-2" />
         {/* Proj Capital */}
         <td className="px-2 py-2" />
-        {/* Instrument */}
-        <td className="px-2 py-2" />
-        {/* Type */}
-        <td className="px-2 py-2" />
-        {/* Strike */}
-        <td className="px-2 py-2" />
-        {/* Entry */}
-        <td className="px-2 py-2" />
-        {/* LTP */}
-        <td className="px-2 py-2" />
+        {/* Instrument — + NEW TRADE button */}
+        <td className="px-2 py-2" colSpan={5}>
+          <button
+            onClick={() => setShowNewTradeForm(prev => !prev)}
+            className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-wider transition-colors ${
+              showNewTradeForm
+                ? 'bg-warning-amber/20 text-warning-amber'
+                : 'bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25'
+            }`}
+          >
+            {showNewTradeForm ? '− CANCEL' : '+ NEW TRADE'}
+          </button>
+        </td>
         {/* Qty */}
         <td className="px-2 py-2 text-right tabular-nums text-foreground">
           {day.totalQty > 0 ? day.totalQty : '—'}
@@ -1023,7 +1032,9 @@ function TodayTradeRow({
       <td className="px-2 py-1.5">
         {isFirst ? (
           <div className="flex items-center justify-between">
-            <span className="text-foreground tabular-nums">{day.date || '—'}</span>
+            <span className="text-foreground tabular-nums">
+              {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+            </span>
             {day.openedAt && (
               <span className="text-[8px] text-muted-foreground/60 tabular-nums">{formatAge(day.openedAt)}</span>
             )}
