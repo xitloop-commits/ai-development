@@ -83,6 +83,11 @@ const brokerSettingsSchema = z.object({
   defaultTP: z.number().min(0).max(100).optional(),
   orderType: z.enum(["LIMIT", "MARKET", "SL", "SL-M"]).optional(),
   productType: z.enum(["INTRADAY", "CNC", "MARGIN"]).optional(),
+  dailyTargetPercent: z.number().min(1).max(20).optional(),
+  tradeTargetOptions: z.number().min(1).max(100).optional(),
+  tradeTargetOther: z.number().min(0.5).max(50).optional(),
+  trailingStopEnabled: z.boolean().optional(),
+  trailingStopPercent: z.number().min(0.1).max(50).optional(),
 });
 
 const subscribeParamsSchema = z.object({
