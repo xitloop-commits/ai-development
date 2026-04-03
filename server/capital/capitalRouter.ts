@@ -154,6 +154,37 @@ export const capitalRouter = router({
       };
     }),
 
+  /**
+   * Sync daily target % from settings to capital state and current day record.
+   * Called by the frontend after saving dailyTargetPercent in broker config settings.
+   * Updates the current day's targetPercent, targetAmount, and projCapital immediately
+   * (but NOT originalProjCapital — that preserves the ideal compounding path).
+   */
+  syncDailyTarget: publicProcedure
+    .input(z.object({ workspace: workspaceSchema }))
+    .mutation(async ({ input }) => {
+      const targetPercent = await getDailyTargetPercent();
+      const state = await getCapitalState(input.workspace);
+
+      // 1. Update capital state
+      if (state.targetPercent !== targetPercent) {
+        await updateCapitalState(input.workspace, { targetPercent });
+      }
+
+      // 2. Update current day record
+      const day = await getDayRecord(input.workspace, state.currentDayIndex);
+      if (day && day.targetPercent !== targetPercent) {
+        day.targetPercent = targetPercent;
+        day.targetAmount = Math.round(day.tradeCapital * targetPercent / 100 * 100) / 100;
+        day.projCapital = Math.round((day.tradeCapital + day.targetAmount) * 100) / 100;
+        // originalProjCapital is NOT changed — it preserves the ideal compounding path
+        day.deviation = Math.round((day.actualCapital - day.originalProjCapital) * 100) / 100;
+        await upsertDayRecord(input.workspace, day);
+      }
+
+      return { success: true, targetPercent };
+    }),
+
   /** Inject new capital (75/25 split). */
   inject: publicProcedure
     .input(z.object({
