@@ -5,6 +5,7 @@
  * Shows the loss amount, percentage, and a calming message.
  */
 import { AlertOctagon, ShieldOff, Clock } from 'lucide-react';
+import { formatINR } from '@/lib/formatINR';
 
 interface CircuitBreakerOverlayProps {
   visible: boolean;
@@ -49,7 +50,7 @@ export default function CircuitBreakerOverlay({
           <div className="border border-loss-red/20 rounded-md p-3 bg-loss-red/5">
             <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Daily Loss</div>
             <div className="text-2xl font-bold font-display text-loss-red mt-1">
-              ₹{Math.abs(dailyLoss).toLocaleString('en-IN')}
+              {formatINR(Math.abs(dailyLoss))}
             </div>
           </div>
           <div className="border border-loss-red/20 rounded-md p-3 bg-loss-red/5">

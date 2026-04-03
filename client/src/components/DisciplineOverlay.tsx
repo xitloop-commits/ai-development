@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import { trpc } from '@/lib/trpc';
+import { formatINR } from '@/lib/formatINR';
 import {
   Dialog,
   DialogContent,
@@ -149,7 +150,7 @@ function StatusCards({ state, settings }: { state: DashboardData['state']; setti
   const cards = [
     {
       label: 'Daily Loss',
-      value: `₹${Math.abs(state.dailyRealizedPnl).toLocaleString('en-IN')}`,
+      value: formatINR(Math.abs(state.dailyRealizedPnl)),
       sub: `${state.dailyLossPercent.toFixed(1)}% / ${settings.dailyLossLimit.thresholdPercent}%`,
       status: state.circuitBreakerTriggered ? 'danger' : state.dailyLossPercent > settings.dailyLossLimit.thresholdPercent * 0.5 ? 'warning' : 'ok',
       icon: state.circuitBreakerTriggered ? XCircle : AlertTriangle,
@@ -332,7 +333,7 @@ function CorrelationTable({ history }: { history: DashboardData['scoreHistory'] 
                 {day.score}
               </td>
               <td className={`py-1 text-right font-bold ${day.dailyPnl >= 0 ? 'text-profit-green' : 'text-loss-red'}`}>
-                {day.dailyPnl >= 0 ? '+' : ''}₹{day.dailyPnl.toLocaleString('en-IN')}
+                {formatINR(day.dailyPnl, { sign: true })}
               </td>
             </tr>
           ))}

@@ -19,6 +19,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { formatINR } from '@/lib/formatINR';
 import {
   Dialog,
   DialogContent,
@@ -28,11 +29,7 @@ import {
 } from '@/components/ui/dialog';
 
 // ─── Helpers ──────────────────────────────────────────────────
-function fmt(n: number): string {
-  if (Math.abs(n) >= 10_000_000) return `₹${(n / 10_000_000).toFixed(2)}Cr`;
-  if (Math.abs(n) >= 100_000) return `₹${(n / 100_000).toFixed(2)}L`;
-  return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
-}
+const fmt = (n: number) => formatINR(n);
 
 function pct(value: number, total: number): string {
   if (total <= 0) return '0';

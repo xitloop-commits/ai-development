@@ -7,6 +7,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Loader2 } from 'lucide-react';
 import { trpc } from '../lib/trpc';
+import { formatINR } from '@/lib/formatINR';
 
 /** Map UI instrument names to scrip master underlying symbols. */
 const UNDERLYING_MAP: Record<string, string> = {
@@ -48,11 +49,8 @@ interface NewTradeFormProps {
 
 const DEFAULT_INSTRUMENTS = ['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS'];
 
-function fmt(n: number, compact = false): string {
-  if (compact && Math.abs(n) >= 100000) {
-    return `₹${(n / 100000).toFixed(2)}L`;
-  }
-  return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function fmt(n: number, _compact = false): string {
+  return formatINR(n);
 }
 
 export default function NewTradeForm({

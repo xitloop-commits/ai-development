@@ -7,6 +7,7 @@ import {
   AlertTriangle, RefreshCw, Inbox, Settings,
   TrendingUp, Shield, Zap,
 } from 'lucide-react';
+import { formatINR } from '@/lib/formatINR';
 
 // ─── Skeleton Primitives ─────────────────────────────────────
 
@@ -223,12 +224,12 @@ export const toastMessages = {
   tradeLogged: () => ({ title: 'Trade Logged', description: 'Your trade has been recorded in the journal.' }),
   tradeClosed: (pnl: number) => ({
     title: pnl >= 0 ? 'Trade Closed — Profit' : 'Trade Closed — Loss',
-    description: `P&L: ${pnl >= 0 ? '+' : ''}₹${pnl.toFixed(2)}`,
+    description: `P&L: ${formatINR(pnl, { sign: true })}`,
   }),
   settingsSaved: () => ({ title: 'Settings Saved', description: 'Your preferences have been updated.' }),
   capitalInjected: (amount: number) => ({
     title: 'Capital Injected',
-    description: `₹${amount.toLocaleString('en-IN')} added to your capital pool.`,
+    description: `${formatINR(amount)} added to your capital pool.`,
   }),
   circuitBreakerTripped: () => ({
     title: 'Circuit Breaker Tripped',

@@ -14,6 +14,7 @@
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { trpc } from '@/lib/trpc';
+import { formatINR, formatPrice as fmtPrice } from '@/lib/formatINR';
 import {
   TrendingUp,
   TrendingDown,
@@ -138,11 +139,8 @@ function RatingIcon({ rating }: { rating: DayRating }) {
 
 // ─── Currency Formatter ──────────────────────────────────────────
 
-function fmt(n: number, compact = false): string {
-  if (compact && Math.abs(n) >= 100000) {
-    return `₹${(n / 100000).toFixed(2)}L`;
-  }
-  return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function fmt(n: number, _compact = false): string {
+  return formatINR(n);
 }
 
 function pnlColor(n: number): string {

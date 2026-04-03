@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef } from 'react';
 import { useAlerts } from '@/contexts/AlertContext';
+import { formatINR } from '@/lib/formatINR';
 import type { InstrumentData, ModuleStatus, Signal, Position } from '@/lib/types';
 
 interface MonitorData {
@@ -146,7 +147,7 @@ export function useAlertMonitor(data: MonitorData): void {
           );
         } else if (prevPos.status === 'OPEN' && pos.status === 'CLOSED') {
           // Position closed
-          const pnlStr = pos.pnl >= 0 ? `+₹${pos.pnl.toFixed(2)}` : `-₹${Math.abs(pos.pnl).toFixed(2)}`;
+          const pnlStr = formatINR(pos.pnl, { sign: true });
 
           // Determine if it was SL or TP hit
           if (pos.pnl < 0) {

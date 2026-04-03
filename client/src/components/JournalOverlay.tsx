@@ -4,6 +4,7 @@
  */
 import { useState, useMemo } from 'react';
 import { trpc } from '@/lib/trpc';
+import { formatINR, formatPrice as fmtPriceLib } from '@/lib/formatINR';
 import {
   Dialog,
   DialogContent,
@@ -28,8 +29,13 @@ type Tab = 'trades' | 'analytics' | 'compare' | 'ai-paper';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
+/** Per-unit price (entry, exit, SL, TP) — full precision, no shorthand */
 function formatPrice(v: number): string {
   return v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+/** Capital amounts (P&L, totals) — shortened K/L/Cr */
+function fmtAmt(v: number, sign = false): string {
+  return formatINR(v, { sign });
 }
 
 function formatDate(ms: number): string {
@@ -293,7 +299,7 @@ function EquityCurve({ trades }: { trades: Array<{ pnl: number | null; entryTime
       <div className="flex items-center justify-between">
         <span className="text-[8px] text-muted-foreground tracking-wider uppercase">Equity Curve</span>
         <span className={`text-[10px] font-bold tabular-nums ${isPositive ? 'text-bullish' : 'text-destructive'}`}>
-          {isPositive ? '+' : ''}₹{formatPrice(running)}
+          {fmtAmt(running, true)}
         </span>
       </div>
       <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-20 rounded border border-border bg-secondary/10">
@@ -347,7 +353,7 @@ function WinRateByInstrument({ trades }: { trades: Array<{ instrument: string; p
             {winRate.toFixed(0)}%
           </span>
           <span className={`text-[8px] tabular-nums w-16 text-right ${totalPnl >= 0 ? 'text-bullish/70' : 'text-destructive/70'}`}>
-            ₹{formatPrice(totalPnl)}
+            {fmtAmt(totalPnl)}
           </span>
           <span className="text-[8px] text-muted-foreground w-8 text-right">{wins}/{total}</span>
         </div>
@@ -531,7 +537,7 @@ function TradesTab() {
                     {trade.status === 'CLOSED' && trade.pnl !== null ? (
                       <>
                         <div className={`text-[11px] font-bold tabular-nums ${isWin ? 'text-bullish' : 'text-destructive'}`}>
-                          {isWin ? '+' : ''}₹{formatPrice(trade.pnl)}
+                          {fmtAmt(trade.pnl, true)}
                         </div>
                         <div className={`text-[8px] tabular-nums ${isWin ? 'text-bullish/70' : 'text-destructive/70'}`}>
                           {isWin ? '+' : ''}{trade.pnlPercent?.toFixed(1)}%
@@ -668,15 +674,15 @@ function AnalyticsTab() {
     <div className="space-y-4">
       {/* Stats Grid */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-        <StatsCard label="Total P&L" value={`₹${formatPrice(stats.totalPnl)}`} icon={DollarSign}
+        <StatsCard label="Total P&L" value={fmtAmt(stats.totalPnl)} icon={DollarSign}
           color={stats.totalPnl >= 0 ? 'text-bullish' : 'text-destructive'} />
         <StatsCard label="Win Rate" value={stats.winRate} icon={Percent}
           color={stats.winRate >= 50 ? 'text-bullish' : 'text-destructive'} suffix="%" />
         <StatsCard label="Trades" value={stats.totalTrades} icon={BarChart3} color="text-info-cyan" />
         <StatsCard label="Avg R:R" value={stats.avgRR} icon={Target}
           color={stats.avgRR >= 1.5 ? 'text-bullish' : 'text-warning-amber'} />
-        <StatsCard label="Max Win" value={`₹${formatPrice(stats.maxWin)}`} icon={Award} color="text-bullish" />
-        <StatsCard label="Max DD" value={`₹${formatPrice(stats.maxDrawdown)}`} icon={AlertTriangle} color="text-destructive" />
+        <StatsCard label="Max Win" value={fmtAmt(stats.maxWin)} icon={Award} color="text-bullish" />
+        <StatsCard label="Max DD" value={fmtAmt(stats.maxDrawdown)} icon={AlertTriangle} color="text-destructive" />
       </div>
 
       {/* Equity Curve */}
@@ -733,8 +739,8 @@ function CompareTab() {
   const rows: Array<{ label: string; liveVal: string; paperVal: string; liveColor?: string; paperColor?: string }> = [
     {
       label: 'Total P&L',
-      liveVal: `\u20B9${formatPrice(live?.totalPnl ?? 0)}`,
-      paperVal: `\u20B9${formatPrice(paper?.totalPnl ?? 0)}`,
+      liveVal: fmtAmt(live?.totalPnl ?? 0),
+      paperVal: fmtAmt(paper?.totalPnl ?? 0),
       liveColor: (live?.totalPnl ?? 0) >= 0 ? 'text-bullish' : 'text-loss-red',
       paperColor: (paper?.totalPnl ?? 0) >= 0 ? 'text-bullish' : 'text-loss-red',
     },
@@ -759,27 +765,27 @@ function CompareTab() {
     },
     {
       label: 'Max Win',
-      liveVal: `\u20B9${formatPrice(live?.maxWin ?? 0)}`,
-      paperVal: `\u20B9${formatPrice(paper?.maxWin ?? 0)}`,
+      liveVal: fmtAmt(live?.maxWin ?? 0),
+      paperVal: fmtAmt(paper?.maxWin ?? 0),
       liveColor: 'text-bullish',
       paperColor: 'text-bullish',
     },
     {
       label: 'Max Drawdown',
-      liveVal: `\u20B9${formatPrice(live?.maxDrawdown ?? 0)}`,
-      paperVal: `\u20B9${formatPrice(paper?.maxDrawdown ?? 0)}`,
+      liveVal: fmtAmt(live?.maxDrawdown ?? 0),
+      paperVal: fmtAmt(paper?.maxDrawdown ?? 0),
       liveColor: 'text-loss-red',
       paperColor: 'text-loss-red',
     },
     {
       label: 'Avg Win',
-      liveVal: `\u20B9${formatPrice(live?.avgWin ?? 0)}`,
-      paperVal: `\u20B9${formatPrice(paper?.avgWin ?? 0)}`,
+      liveVal: fmtAmt(live?.avgWin ?? 0),
+      paperVal: fmtAmt(paper?.avgWin ?? 0),
     },
     {
       label: 'Avg Loss',
-      liveVal: `\u20B9${formatPrice(live?.avgLoss ?? 0)}`,
-      paperVal: `\u20B9${formatPrice(paper?.avgLoss ?? 0)}`,
+      liveVal: fmtAmt(live?.avgLoss ?? 0),
+      paperVal: fmtAmt(paper?.avgLoss ?? 0),
     },
   ];
 
@@ -829,7 +835,7 @@ function CompareTab() {
               : '\uD83E\uDD1D Tied!'}
           </span>
           <span className="text-[9px] text-muted-foreground block mt-0.5">
-            P&L difference: \u20B9{formatPrice(Math.abs((live?.totalPnl ?? 0) - (paper?.totalPnl ?? 0)))}
+            P&L difference: {fmtAmt(Math.abs((live?.totalPnl ?? 0) - (paper?.totalPnl ?? 0)))}
           </span>
         </div>
       )}

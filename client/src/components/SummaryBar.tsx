@@ -8,6 +8,7 @@
  * Data: Wired to tRPC capital.state with fallback defaults.
  */
 import { trpc } from '@/lib/trpc';
+import { formatINR } from '@/lib/formatINR';
 
 export default function SummaryBar() {
   // ─── tRPC Query ────────────────────────────────────────────
@@ -36,13 +37,7 @@ export default function SummaryBar() {
   const goldGrams = todayProfit > 0 ? (todayProfit / goldPrice).toFixed(2) : '0';
   const goldChangePercent = goldPrice > 0 ? ((goldChange / goldPrice) * 100).toFixed(1) : '0.0';
 
-  const formatCurrency = (n: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0,
-    }).format(n);
-  };
+  const formatCurrency = (n: number) => formatINR(n);
 
   const isLive = !!data;
 

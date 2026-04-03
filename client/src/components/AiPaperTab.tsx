@@ -5,6 +5,7 @@
  */
 import { useState, useEffect, useMemo } from 'react';
 import { trpc } from '@/lib/trpc';
+import { formatINR } from '@/lib/formatINR';
 import {
   Bot, TrendingUp, TrendingDown, Minus, RefreshCw,
   AlertTriangle, ArrowUpRight, ArrowDownRight, Clock,
@@ -268,7 +269,7 @@ function ComparisonRow({ aiDecision, userTrades }: {
       <div className="w-20 text-right">
         {userClosed.length > 0 ? (
           <span className={`text-[9px] font-bold tabular-nums ${userPnl >= 0 ? 'text-bullish' : 'text-destructive'}`}>
-            {userPnl >= 0 ? '+' : ''}₹{formatPrice(userPnl)}
+            {formatINR(userPnl, { sign: true })}
           </span>
         ) : userFollowed ? (
           <span className="text-[8px] text-info-cyan">OPEN</span>

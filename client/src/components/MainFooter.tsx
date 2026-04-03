@@ -18,6 +18,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { trpc } from '@/lib/trpc';
+import { formatINR } from '@/lib/formatINR';
 import type { MarketHoliday } from '@/lib/types';
 
 // ─── Holiday Helpers ────────────────────────────────────────
@@ -144,13 +145,7 @@ export default function MainFooter() {
     return Array.from(seen.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [holidaysDialogQuery.data, holidayTab]);
 
-  const formatCurrency = (n: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0,
-    }).format(n);
-  };
+  const formatCurrency = (n: number) => formatINR(n);
 
   // Holiday indicator text
   let holidayText = 'No holidays this month';
