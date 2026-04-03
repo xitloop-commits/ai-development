@@ -13,7 +13,7 @@
  * Data: Wired to tRPC capital.* endpoints with mock fallbacks.
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { trpc } from '@/lib/trpc';
+import { useCapital } from '@/contexts/CapitalContext';
 import { formatINR, formatPrice as fmtPrice } from '@/lib/formatINR';
 import {
   TrendingUp,
@@ -298,7 +298,16 @@ function InstrumentTag({ name }: { name: string }) {
 // ─── Main Component ──────────────────────────────────────────────
 
 export default function TradingDesk({ resolvedInstruments }: { resolvedInstruments?: ResolvedInstrument[] }) {
-  const [workspace, setWorkspace] = useState<Workspace>('live');
+  const {
+    workspace, setWorkspace,
+    capital, capitalLoading, capitalReady,
+    allDays, currentDay: ctxCurrentDay, allDaysData,
+    placeTrade: ctxPlaceTrade, placeTradePending,
+    exitTrade: ctxExitTrade, exitTradePending,
+    updateLtp: ctxUpdateLtp,
+    refetchAll,
+  } = useCapital();
+
   const [showNet, setShowNet] = useState(true);
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
@@ -306,8 +315,6 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
     message: string;
     onConfirm: () => void;
   }>({ open: false, title: '', message: '', onConfirm: () => {} });
-
-  const utils = trpc.useUtils();
   const { getTick } = useTickStream();
   const todayRef = useRef<HTMLTableRowElement>(null);
 
@@ -329,62 +336,9 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
     return getTick(feed.exchange, feed.securityId)?.ltp;
   }, [feedLookup, getTick]);
 
-  // ─── tRPC Queries ───────────────────────────────────────────
-  const stateQuery = trpc.capital.state.useQuery(
-    { workspace },
-    { refetchInterval: 3000, retry: 1 }
-  );
-
-  const allDaysQuery = trpc.capital.allDays.useQuery(
-    { workspace, futureCount: 250 },
-    { refetchInterval: 2000, retry: 1 }
-  );
-
-  // ─── tRPC Mutations ─────────────────────────────────────────
-  const placeTradeMutation = trpc.capital.placeTrade.useMutation({
-    onSuccess: () => {
-      utils.capital.state.invalidate();
-      utils.capital.allDays.invalidate();
-    },
-  });
-
-  const exitTradeMutation = trpc.capital.exitTrade.useMutation({
-    onSuccess: () => {
-      utils.capital.state.invalidate();
-      utils.capital.allDays.invalidate();
-    },
-  });
-
-  // ─── Derived Data ───────────────────────────────────────────
-  const capital: CapitalState = useMemo(() => {
-    if (stateQuery.data) {
-      return {
-        tradingPool: stateQuery.data.tradingPool,
-        reservePool: stateQuery.data.reservePool,
-        currentDayIndex: stateQuery.data.currentDayIndex,
-        targetPercent: stateQuery.data.targetPercent,
-        availableCapital: stateQuery.data.availableCapital,
-        netWorth: stateQuery.data.netWorth,
-        cumulativePnl: stateQuery.data.cumulativePnl,
-        cumulativeCharges: stateQuery.data.cumulativeCharges,
-        todayPnl: stateQuery.data.todayPnl,
-        todayTarget: stateQuery.data.todayTarget,
-        quarterlyProjection: stateQuery.data.quarterlyProjection,
-      };
-    }
-    return FALLBACK_CAPITAL;
-  }, [stateQuery.data]);
-
-  const allDays: DayRecord[] = useMemo(() => {
-    if (allDaysQuery.data) {
-      const { pastDays, currentDay, futureDays } = allDaysQuery.data;
-      return [...(pastDays as DayRecord[]), currentDay as DayRecord, ...(futureDays as DayRecord[])];
-    }
-    return [];
-  }, [allDaysQuery.data]);
-
-  const isLive = !!stateQuery.data;
-  const isLoading = stateQuery.isLoading && !stateQuery.data;
+  // ─── Data from global CapitalContext (single source of truth) ──
+  const isLive = capitalReady;
+  const isLoading = capitalLoading;
 
   // ─── Auto-scroll to today on load ──────────────────────────
   useEffect(() => {
@@ -394,15 +348,13 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
   }, [allDays.length]);
 
   // ─── Sync LTP to server ────────────────────────────────────
-  const updateLtpMutation = trpc.capital.updateLtp.useMutation();
   const ltpSyncRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (ltpSyncRef.current) clearInterval(ltpSyncRef.current);
     ltpSyncRef.current = setInterval(() => {
-      const currentDay = allDaysQuery.data?.currentDay;
-      if (!currentDay?.trades) return;
-      const openTrades = currentDay.trades.filter((t: any) => t.status === 'OPEN');
+      if (!ctxCurrentDay?.trades) return;
+      const openTrades = ctxCurrentDay.trades.filter((t: any) => t.status === 'OPEN');
       if (openTrades.length === 0) return;
       const prices: Record<string, number> = {};
       for (const trade of openTrades) {
@@ -410,13 +362,13 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
         if (ltp !== undefined) prices[trade.id] = ltp;
       }
       if (Object.keys(prices).length > 0) {
-        updateLtpMutation.mutate({ workspace, prices });
+        ctxUpdateLtp(prices);
       }
     }, 2000);
     return () => {
       if (ltpSyncRef.current) clearInterval(ltpSyncRef.current);
     };
-  }, [workspace, allDaysQuery.data, getLiveLtp]);
+  }, [workspace, ctxCurrentDay, getLiveLtp]);
 
   // ─── Handlers ───────────────────────────────────────────────
   const handlePlaceTrade = useCallback(async (trade: {
@@ -427,8 +379,7 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
     entryPrice: number;
     capitalPercent: number;
   }) => {
-    placeTradeMutation.mutate({
-      workspace,
+    ctxPlaceTrade({
       instrument: trade.instrument,
       type: trade.type,
       strike: trade.strike,
@@ -436,11 +387,10 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
       entryPrice: trade.entryPrice,
       capitalPercent: trade.capitalPercent,
     });
-  }, [workspace, placeTradeMutation]);
+  }, [ctxPlaceTrade]);
 
   const handleExitTrade = useCallback((tradeId: string, instrument: string) => {
-    const currentDay = allDaysQuery.data?.currentDay;
-    const trade = currentDay?.trades?.find((t: any) => t.id === tradeId);
+    const trade = ctxCurrentDay?.trades?.find((t: any) => t.id === tradeId);
     const liveLtp = trade ? getLiveLtp(trade.instrument) : undefined;
     const exitPrice = liveLtp ?? trade?.ltp ?? trade?.entryPrice ?? 0;
     if (exitPrice <= 0) return;
@@ -450,8 +400,7 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
       title: 'Exit Position',
       message: `Close ${instrument} position at market price ₹${exitPrice.toFixed(2)}?`,
       onConfirm: () => {
-        exitTradeMutation.mutate({
-          workspace,
+        ctxExitTrade({
           tradeId,
           exitPrice,
           reason: 'MANUAL',
@@ -459,11 +408,10 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
         setConfirmDialog(prev => ({ ...prev, open: false }));
       },
     });
-  }, [workspace, allDaysQuery.data, exitTradeMutation, getLiveLtp]);
+  }, [ctxCurrentDay, ctxExitTrade, getLiveLtp]);
 
   const handleExitAll = useCallback(() => {
-    const currentDay = allDaysQuery.data?.currentDay;
-    const openTrades = currentDay?.trades?.filter((t: any) => t.status === 'OPEN') ?? [];
+    const openTrades = ctxCurrentDay?.trades?.filter((t: any) => t.status === 'OPEN') ?? [];
     if (openTrades.length === 0) return;
 
     setConfirmDialog({
@@ -475,8 +423,7 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
           const liveLtp = getLiveLtp(trade.instrument);
           const exitPrice = liveLtp ?? trade.ltp ?? trade.entryPrice ?? 0;
           if (exitPrice > 0) {
-            exitTradeMutation.mutate({
-              workspace,
+            ctxExitTrade({
               tradeId: trade.id,
               exitPrice,
               reason: 'MANUAL',
@@ -486,7 +433,7 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
         setConfirmDialog(prev => ({ ...prev, open: false }));
       },
     });
-  }, [workspace, allDaysQuery.data, exitTradeMutation, getLiveLtp]);
+  }, [ctxCurrentDay, ctxExitTrade, getLiveLtp]);
 
   // ─── Loading State ─────────────────────────────────────────
   if (isLoading) {
@@ -494,14 +441,11 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
   }
 
   // ─── Error State ───────────────────────────────────────────
-  if (stateQuery.isError && !stateQuery.data) {
+  if (!capitalReady && !capitalLoading) {
     return (
       <ErrorState
-        message={`Failed to load capital data: ${stateQuery.error?.message ?? 'Unknown error'}`}
-        onRetry={() => {
-          stateQuery.refetch();
-          allDaysQuery.refetch();
-        }}
+        message="Failed to load capital data"
+        onRetry={refetchAll}
       />
     );
   }
@@ -634,15 +578,11 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
       </div>
 
       {/* Mutation Error */}
-      {(placeTradeMutation.isError || exitTradeMutation.isError) && (
-        <div className="px-3 py-1.5 bg-destructive/10 border-b border-destructive/20 text-[10px] text-destructive">
-          {placeTradeMutation.error?.message || exitTradeMutation.error?.message}
-        </div>
-      )}
+      {/* Mutation errors are handled by the global CapitalContext */}
 
       {/* ─── Table ────────────────────────────────────────────── */}
       <div className="flex-1 overflow-auto">
-        {allDays.length === 0 && !allDaysQuery.isLoading ? (
+        {allDays.length === 0 && !capitalLoading ? (
           <NoCapitalEmpty onOpenSettings={() => {
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }));
           }} />
@@ -684,8 +624,8 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
                       onExitTrade={handleExitTrade}
                       onExitAll={handleExitAll}
                       onPlaceTrade={handlePlaceTrade}
-                      exitLoading={exitTradeMutation.isPending}
-                      placeLoading={placeTradeMutation.isPending}
+                      exitLoading={exitTradePending}
+                      placeLoading={placeTradePending}
                       getLiveLtp={getLiveLtp}
                       todayRef={todayRef}
                       workspace={workspace}

@@ -5,7 +5,7 @@
  *   Center (elastic): Holiday indicator (click → dialog) + Discipline score (hover → 7-category breakup).
  *   Right (fixed, stuck right): Net Worth + cumulative growth %. Hover → pool breakup with growth %.
  *
- * Implementation Constraint: No MARKET OPEN/CLOSED, no LIVE DATA/DEMO MODE pills.
+ * Data: Wired to global CapitalContext (single source of truth).
  */
 import { useState, useMemo } from 'react';
 import { Shield, Calendar } from 'lucide-react';
@@ -18,6 +18,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { trpc } from '@/lib/trpc';
+import { useCapital } from '@/contexts/CapitalContext';
 import { formatINR } from '@/lib/formatINR';
 import type { MarketHoliday } from '@/lib/types';
 
@@ -50,12 +51,10 @@ function isHolidayThisMonth(dateStr: string): boolean {
 export default function MainFooter() {
   const [holidayTab, setHolidayTab] = useState<'ALL' | 'NSE' | 'MCX'>('ALL');
 
-  // ─── tRPC Queries ────────────────────────────────────────────
-  const capitalQuery = trpc.capital.state.useQuery(
-    { workspace: 'live' },
-    { refetchInterval: 5000, retry: 1 }
-  );
+  // ─── Global Capital Context (single source of truth) ────────
+  const { capital, stateData } = useCapital();
 
+  // ─── Other tRPC Queries (not capital) ───────────────────────
   const disciplineQuery = trpc.discipline.getDashboard.useQuery(undefined, {
     refetchInterval: 30000,
     retry: 1,
@@ -71,12 +70,12 @@ export default function MainFooter() {
     { refetchInterval: 60000 }
   );
 
-  // ─── Capital Data ────────────────────────────────────────────
-  const capitalData = capitalQuery.data as any;
-  const tradingPool = capitalData?.tradingPool ?? 0;
-  const reservePool = capitalData?.reservePool ?? 0;
-  const netWorth = capitalData?.netWorth ?? 0;
-  const initialFunding = capitalData?.initialFunding ?? 100000;
+  // ─── Capital Data (from global context) ─────────────────────
+  const capitalData = stateData as any;
+  const tradingPool = capital.tradingPool;
+  const reservePool = capital.reservePool;
+  const netWorth = capital.netWorth;
+  const initialFunding = capital.initialFunding;
   const growthPercent = initialFunding > 0
     ? (((netWorth - initialFunding) / initialFunding) * 100).toFixed(1)
     : '0.0';
@@ -147,8 +146,8 @@ export default function MainFooter() {
 
   const formatCurrency = (n: number) => formatINR(n);
 
-  // ─── Quarterly Projections ──────────────────────────────────
-  const allQuarters = (capitalData?.allQuarterlyProjections ?? []) as Array<{
+  // ─── Quarterly Projections (from global context) ────────────
+  const allQuarters = (capital.allQuarterlyProjections ?? []) as Array<{
     quarterLabel: string;
     projectedCapital: number;
     isCurrent: boolean;

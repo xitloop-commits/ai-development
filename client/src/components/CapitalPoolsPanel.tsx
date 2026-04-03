@@ -2,13 +2,12 @@
  * CapitalPoolsPanel — Visual breakdown of Trading Pool vs Reserve Pool
  * with capital injection, reserve transfer, and Day 250 progress.
  *
- * Wired to: capital.state, capital.inject
+ * Wired to: global CapitalContext (single source of truth).
  */
 import { useState, useMemo } from 'react';
 import {
   TrendingUp,
   TrendingDown,
-  ArrowRightLeft,
   Plus,
   Target,
   Wallet,
@@ -18,7 +17,8 @@ import {
   ChevronUp,
   Loader2,
 } from 'lucide-react';
-import { trpc } from '@/lib/trpc';
+// trpc import removed — using global CapitalContext
+import { useCapital } from '@/contexts/CapitalContext';
 import { formatINR } from '@/lib/formatINR';
 import {
   Dialog,
@@ -132,42 +132,23 @@ export default function CapitalPoolsPanel() {
   const [injectAmount, setInjectAmount] = useState('');
   const [injectOpen, setInjectOpen] = useState(false);
 
-  const utils = trpc.useUtils();
-  const stateQuery = trpc.capital.state.useQuery(
-    { workspace: 'live' },
-    { refetchInterval: 3000, retry: 1 }
-  );
+  // ─── Global Capital Context (single source of truth) ────────
+  const { capital, inject: ctxInject, injectPending, refetchAll } = useCapital();
 
-  const injectMutation = trpc.capital.inject.useMutation({
-    onSuccess: async () => {
-      // Await all invalidations to ensure fresh data before closing dialog
-      await Promise.all([
-        utils.capital.state.invalidate(),
-        utils.capital.currentDay.invalidate(),
-        utils.capital.allDays.invalidate(),
-        utils.capital.futureDays.invalidate(),
-      ]);
-      setInjectAmount('');
-      setInjectOpen(false);
-    },
-    onError: (err) => {
-      console.error('[CapitalPoolsPanel] inject failed:', err.message);
-      alert(`Inject failed: ${err.message}`);
-    },
-  });
+  // Inject uses the global context mutation — no local mutation needed
 
-  const data = stateQuery.data as any;
-  const tradingPool = data?.tradingPool ?? 0;
-  const reservePool = data?.reservePool ?? 0;
-  const netWorth = data?.netWorth ?? tradingPool + reservePool;
-  const currentDay = data?.currentDayIndex ?? 1;
-  const targetPercent = data?.targetPercent ?? 5;
-  const todayPnl = data?.todayPnl ?? 0;
-  const todayTarget = data?.todayTarget ?? 0;
-  const cumulativePnl = data?.cumulativePnl ?? 0;
-  const availableCapital = data?.availableCapital ?? 0;
-  const openMargin = data?.openPositionMargin ?? 0;
-  const initialFunding = data?.initialFunding ?? 100000;
+  // ─── Derived values from global context ─────────────────────
+  const tradingPool = capital.tradingPool;
+  const reservePool = capital.reservePool;
+  const netWorth = capital.netWorth;
+  const currentDay = capital.currentDayIndex;
+  const targetPercent = capital.targetPercent;
+  const todayPnl = capital.todayPnl;
+  const todayTarget = capital.todayTarget;
+  const cumulativePnl = capital.cumulativePnl;
+  const availableCapital = capital.availableCapital;
+  const openMargin = capital.openPositionMargin;
+  const initialFunding = capital.initialFunding;
 
   // Day 250 progress
   const dayProgress = (currentDay / 250) * 100;
@@ -176,7 +157,7 @@ export default function CapitalPoolsPanel() {
   // Today's target progress
   const todayProgress = todayTarget > 0 ? Math.min((todayPnl / todayTarget) * 100, 100) : 0;
 
-  // Projected milestones (3.75% compounding per cycle)
+  // Projected milestones (compounding per cycle)
   const milestones = useMemo(() => {
     const baseTradingPool = initialFunding * 0.75;
     const baseReservePool = initialFunding * 0.25;
@@ -193,7 +174,9 @@ export default function CapitalPoolsPanel() {
   const handleInject = () => {
     const amount = parseFloat(injectAmount);
     if (isNaN(amount) || amount <= 0) return;
-    injectMutation.mutate({ workspace: 'live', amount });
+    ctxInject(amount);
+    setInjectAmount('');
+    setInjectOpen(false);
   };
 
   return (
@@ -229,10 +212,10 @@ export default function CapitalPoolsPanel() {
               <div className="flex gap-2">
                 <button
                   onClick={handleInject}
-                  disabled={injectMutation.isPending || !injectAmount}
+                  disabled={injectPending || !injectAmount}
                   className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors"
                 >
-                  {injectMutation.isPending ? (
+                  {injectPending ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
                   ) : (
                     <>

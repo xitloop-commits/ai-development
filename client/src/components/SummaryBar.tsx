@@ -5,24 +5,20 @@
  *   Section 2 (Elastic): Capital | Free | Used — labels top-left/center/right
  *   Section 3 (Fixed): Gold — no label, subtle gold bg, price/g +₹change +%, grams below
  *   Section 4 (Fixed): Loss — label top-right, value+% single line
- * Data: Wired to tRPC capital.state with fallback defaults.
+ * Data: Wired to global CapitalContext (single source of truth).
  */
-import { trpc } from '@/lib/trpc';
+import { useCapital } from '@/contexts/CapitalContext';
 import { formatINR } from '@/lib/formatINR';
 
 export default function SummaryBar() {
-  // ─── tRPC Query ────────────────────────────────────────────
-  const stateQuery = trpc.capital.state.useQuery(
-    { workspace: 'live' },
-    { refetchInterval: 3000, retry: 1 }
-  );
+  // ─── Global Capital Context ───────────────────────────────
+  const { capital, capitalReady } = useCapital();
 
   // ─── Derived values ────────────────────────────────────────
-  const data = stateQuery.data;
-  const capitalTotal = data?.tradingPool ?? 0;
-  const capitalFree = data?.availableCapital ?? 0;
+  const capitalTotal = capital.tradingPool;
+  const capitalFree = capital.availableCapital;
   const capitalUsed = capitalTotal - capitalFree;
-  const todayPnl = data?.todayPnl ?? 0;
+  const todayPnl = capital.todayPnl;
   const todayProfit = todayPnl > 0 ? todayPnl : 0;
   const todayLoss = todayPnl < 0 ? Math.abs(todayPnl) : 0;
 
@@ -38,8 +34,6 @@ export default function SummaryBar() {
   const goldChangePercent = goldPrice > 0 ? ((goldChange / goldPrice) * 100).toFixed(1) : '0.0';
 
   const formatCurrency = (n: number) => formatINR(n);
-
-  const isLive = !!data;
 
   return (
     <div className="sticky top-[49px] z-40 w-full border-b border-border bg-card/80 backdrop-blur-md">
@@ -91,7 +85,7 @@ export default function SummaryBar() {
             </span>
           </span>
           <span className="text-[9px] text-muted-foreground mt-0.5">
-            {todayProfit > 0 ? `${goldGrams} grams` : '0 grams 😞'}
+            {todayProfit > 0 ? `${goldGrams} grams` : '0 grams'}
           </span>
         </div>
 
@@ -107,7 +101,7 @@ export default function SummaryBar() {
       </div>
 
       {/* Connection indicator */}
-      {!isLive && (
+      {!capitalReady && (
         <div className="absolute top-0 right-2 text-[7px] text-warning-amber tracking-wider uppercase py-0.5">
           OFFLINE — Using defaults
         </div>

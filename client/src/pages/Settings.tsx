@@ -12,6 +12,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { getLoginUrl } from '@/const';
 import { trpc } from '@/lib/trpc';
+import { useCapital } from '@/contexts/CapitalContext';
 import { Link } from 'wouter';
 import { toast } from 'sonner';
 import {
@@ -549,25 +550,15 @@ export function OrderExecutionSection() {
     }
   }, [config]);
 
-  const utils = trpc.useUtils();
-
-  const syncTargetMutation = trpc.capital.syncDailyTarget.useMutation({
-    onSuccess: () => {
-      // Invalidate all capital queries so the UI re-fetches with the new target
-      utils.capital.state.invalidate();
-      utils.capital.currentDay.invalidate();
-      utils.capital.allDays.invalidate();
-      utils.capital.futureDays.invalidate();
-    },
-  });
+  const { syncDailyTarget, refetchAll } = useCapital();
 
   const updateMutation = trpc.broker.config.updateSettings.useMutation({
     onSuccess: () => {
       toast.success('Order execution settings saved');
       configQuery.refetch();
       // Immediately sync dailyTargetPercent to capital state + current day record
-      syncTargetMutation.mutate({ workspace: 'live' });
-      syncTargetMutation.mutate({ workspace: 'paper' });
+      syncDailyTarget(settings.dailyTargetPercent);
+      refetchAll();
     },
     onError: (err) => toast.error(err.message),
   });

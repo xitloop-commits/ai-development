@@ -4,6 +4,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AlertProvider } from "./contexts/AlertContext";
 import { InstrumentFilterProvider } from "./contexts/InstrumentFilterContext";
+import { CapitalProvider } from "./contexts/CapitalContext";
 import MainScreen from "./components/MainScreen";
 import { CredentialGate } from "./components/CredentialGate";
 import { SetupBrokerModal } from "./components/SetupBrokerModal";
@@ -28,7 +29,9 @@ function App() {
               />
               <SetupBrokerModal />
               <CredentialGate>
-                <MainScreen />
+                <CapitalProvider>
+                  <MainScreen />
+                </CapitalProvider>
               </CredentialGate>
             </TooltipProvider>
           </InstrumentFilterProvider>
