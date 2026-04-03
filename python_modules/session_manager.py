@@ -47,7 +47,8 @@ import requests
 
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3000").strip()
 CAPITAL_WORKSPACE = os.environ.get("CAPITAL_WORKSPACE", "paper").strip()
-DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+os.makedirs(DATA_DIR, exist_ok=True)
 
 # Daily P&L Caps (as percentage of account capital)
 DAILY_PROFIT_CAP_PCT = 5.0    # +5% → stop trading for the day

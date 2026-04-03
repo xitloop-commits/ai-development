@@ -37,7 +37,8 @@ from copy import deepcopy
 
 # --- Configuration ---
 
-DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+os.makedirs(DATA_DIR, exist_ok=True)
 
 # File paths
 TRADE_JOURNAL_FILE = os.path.join(DATA_DIR, "trade_journal.json")

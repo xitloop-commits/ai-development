@@ -16,7 +16,8 @@ INSTRUMENTS = [
     "NATURALGAS"
 ]
 
-DATA_DIR = os.path.dirname(__file__)
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+os.makedirs(DATA_DIR, exist_ok=True)
 
 # Dashboard URL for active instruments polling
 DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:3000').strip()

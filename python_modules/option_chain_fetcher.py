@@ -33,7 +33,8 @@ BROKER_URL = os.environ.get("BROKER_URL", "http://localhost:3000").strip()
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3000").strip()
 
 # Output directory for option chain JSON files
-DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+os.makedirs(DATA_DIR, exist_ok=True)
 
 # Static instrument config
 # NIFTY 50 and BANKNIFTY use fixed index IDs (resolved by broker service).

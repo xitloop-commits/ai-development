@@ -62,7 +62,8 @@ BROKER_URL = os.environ.get("BROKER_URL", "http://localhost:3000").strip()
 # Dashboard URL for active instruments polling and position push
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3000").strip()
 
-DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+os.makedirs(DATA_DIR, exist_ok=True)
 
 # Trading mode: False = paper trading, True = live trading
 LIVE_TRADING = os.environ.get("LIVE_TRADING", "false").lower() == "true"

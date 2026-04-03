@@ -33,8 +33,8 @@ from datetime import datetime
 DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:3000').strip()
 
 # Directory where the Python modules save their JSON output files
-# This should be the same directory as your trading_system scripts
-DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+os.makedirs(DATA_DIR, exist_ok=True)
 
 # Instruments to monitor
 INSTRUMENTS = ['NIFTY_50', 'BANKNIFTY', 'CRUDEOIL', 'NATURALGAS']
