@@ -1061,7 +1061,8 @@ export class DhanAdapter implements BrokerAdapter {
   /**
    * Resolve nearest-month MCX FUTCOM.
    */
-  resolveMCXFutcom(symbol: string): SecurityLookupResult | null {
+  async resolveMCXFutcom(symbol: string): Promise<SecurityLookupResult | null> {
+    await this._ensureScripMasterLoaded();
     const result = resolveMCXFutcom(symbol);
     if (!result) return null;
     return {

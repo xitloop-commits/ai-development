@@ -452,7 +452,7 @@ export function registerBrokerRoutes(app: Express): void {
       }
 
       if (broker.resolveMCXFutcom) {
-        const result = broker.resolveMCXFutcom(symbol as string);
+        const result = await broker.resolveMCXFutcom(symbol as string);
         if (result) {
           res.json({ success: true, data: result });
         } else {

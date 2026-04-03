@@ -348,7 +348,7 @@ export interface BrokerAdapter {
   getScripExpiryDates?(symbol: string, exchange?: string, instrumentName?: string): string[];
 
   /** Resolve nearest-month MCX FUTCOM security ID. */
-  resolveMCXFutcom?(symbol: string): SecurityLookupResult | null;
+  resolveMCXFutcom?(symbol: string): Promise<SecurityLookupResult | null> | SecurityLookupResult | null;
 
   // ── Real-time (WebSocket) ─────────────────────────────────────
   /** Subscribe to live tick data for instruments. Mode: ticker (LTP only), quote (OHLCV+OI), full (+ depth). */
