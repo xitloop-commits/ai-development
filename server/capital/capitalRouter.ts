@@ -194,7 +194,23 @@ export const capitalRouter = router({
     .mutation(async ({ input }) => {
       const state = await getCapitalState(input.workspace);
       const { tradingPool, reservePool } = injectCapital(state, input.amount);
-      return updateCapitalState(input.workspace, { tradingPool, reservePool });
+      const updatedState = await updateCapitalState(input.workspace, { tradingPool, reservePool });
+
+      // Sync current day record: tradeCapital = new tradingPool, recalculate target & proj
+      const day = await getDayRecord(input.workspace, state.currentDayIndex);
+      if (day) {
+        const targetPercent = await getDailyTargetPercent();
+        day.tradeCapital = tradingPool;
+        day.targetPercent = targetPercent;
+        day.targetAmount = Math.round(tradingPool * targetPercent / 100 * 100) / 100;
+        day.projCapital = Math.round((tradingPool + day.targetAmount) * 100) / 100;
+        // Recalculate actualCapital: tradeCapital + realized P&L
+        day.actualCapital = Math.round((tradingPool + day.totalPnl) * 100) / 100;
+        day.deviation = Math.round((day.actualCapital - day.originalProjCapital) * 100) / 100;
+        await upsertDayRecord(input.workspace, day);
+      }
+
+      return updatedState;
     }),
 
   // ─── Day Record Queries ────────────────────────────────────────
