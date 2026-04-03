@@ -71,7 +71,7 @@ export async function dhanRequest<T>(
   endpoint: string,
   accessToken: string,
   body?: Record<string, unknown>,
-  options?: { timeout?: number }
+  options?: { timeout?: number; clientId?: string }
 ): Promise<DhanApiResponse<T>> {
   const url = endpoint.startsWith("http")
     ? endpoint
@@ -88,6 +88,10 @@ export async function dhanRequest<T>(
       Accept: "application/json",
       "access-token": accessToken,
     };
+
+    if (options?.clientId) {
+      headers["client-id"] = options.clientId;
+    }
 
     const fetchOptions: RequestInit = {
       method,

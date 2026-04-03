@@ -133,7 +133,7 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
           </div>
 
           {/* Main Content */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden p-6">
             {/* Section Header */}
             <div className="mb-5">
               <div className="flex items-center gap-2 mb-1">

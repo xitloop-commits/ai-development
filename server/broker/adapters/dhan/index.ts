@@ -561,7 +561,8 @@ export class DhanAdapter implements BrokerAdapter {
       {
         UnderlyingScrip: underlying,
         UnderlyingSeg: "IDX_I",
-      }
+      },
+      { clientId: this.clientId }
     );
 
     if (result.isAuthError) {
@@ -602,7 +603,8 @@ export class DhanAdapter implements BrokerAdapter {
         UnderlyingScrip: underlying,
         UnderlyingSeg: "IDX_I",
         Expiry: expiry,
-      }
+      },
+      { clientId: this.clientId }
     );
 
     if (result.isAuthError) {
