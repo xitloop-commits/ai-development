@@ -1,7 +1,7 @@
 /**
  * SettingsOverlay — True fullscreen overlay for Settings.
  * Reuses all section components from the Settings page.
- * Triggered by Ctrl+S, dismissed by Esc or close button.
+ * Triggered by F2, dismissed by Esc or close button.
  */
 import { useState, useEffect, useCallback } from 'react';
 import {
@@ -161,7 +161,7 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
               Settings
             </h1>
             <span className="text-[9px] text-muted-foreground tracking-widest uppercase ml-2">
-              Ctrl+S to toggle
+              F2 to toggle
             </span>
           </div>
           <button

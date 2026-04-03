@@ -584,7 +584,7 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
       <div className="flex-1 overflow-auto">
         {allDays.length === 0 && !capitalLoading ? (
           <NoCapitalEmpty onOpenSettings={() => {
-            window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }));
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
           }} />
         ) : (
           <table className="w-full text-[11px] border-collapse">

@@ -14,7 +14,7 @@
  *   - CircuitBreakerOverlay is system-triggered (kept)
  *
  * Keyboard Shortcuts:
- *   Ctrl+S → Settings overlay
+ *   F2 → Settings overlay
  *   Ctrl+D → Discipline overlay
  *   Ctrl+J → Journal overlay
  *   Ctrl+[ → Toggle Left sidebar (Instruments)
@@ -193,13 +193,13 @@ export default function MainScreen() {
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
+    if (e.key === 'F2') {
+      e.preventDefault();
+      setSettingsOpen((prev) => !prev);
+    }
+
     if (e.ctrlKey || e.metaKey) {
       switch (e.key) {
-        case 's':
-        case 'S':
-          e.preventDefault();
-          setSettingsOpen((prev) => !prev);
-          break;
         case 'd':
         case 'D':
           e.preventDefault();
