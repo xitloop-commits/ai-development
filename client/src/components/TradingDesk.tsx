@@ -3,41 +3,31 @@
  *
  * Features:
  *   - Tab bar: My Trades (LIVE) | AI Trades (PAPER)
- *   - Summary bar: Day X/250, Trade Capital, Available, Profit, Today P&L/Target, Charges, Reserve, Quarterly Proj, Net Worth
- *   - Compounding table: 16 columns, 4 row types (Past/Gift/Today/Future)
- *   - Inline new trade form
- *   - Net/Gross toggle
+ *   - Summary bar: Day X/250, Trade Capital, Available, Profit, Today P&L/Target + Exit All,
+ *                  Charges, Reserve, Quarterly Proj, NET/GROSS toggle, Net Worth
+ *   - Compounding table: 16 columns, flat (no expand/collapse)
+ *   - Inline new trade form (always visible for today)
+ *   - Today summary row (DAY N TOTAL)
+ *   - Status badges, TP/SL sub-text, date age, instrument tags, confirmation prompts
  *
  * Data: Wired to tRPC capital.* endpoints with mock fallbacks.
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { trpc } from '@/lib/trpc';
 import {
-  Plus,
-  Trophy,
-  Gift,
-  Star,
-  Flag,
-  ChevronDown,
-  ChevronUp,
   TrendingUp,
   TrendingDown,
-  DollarSign,
-  Target,
-  Shield,
-  BarChart3,
-  Wallet,
   Loader2,
 } from 'lucide-react';
 import NewTradeForm from './NewTradeForm';
-import { TradingDeskSkeleton, NoTradesEmpty, NoCapitalEmpty, ErrorState } from './LoadingStates';
+import { TradingDeskSkeleton, NoCapitalEmpty, ErrorState } from './LoadingStates';
 import { useTickStream } from '@/hooks/useTickStream';
 
 // ─── Types ───────────────────────────────────────────────────────
 
 type Workspace = 'live' | 'paper';
 type DayStatus = 'ACTIVE' | 'COMPLETED' | 'GIFT' | 'FUTURE';
-type DayRating = 'trophy' | 'double_trophy' | 'gift' | 'star' | 'future' | 'finish';
+type DayRating = 'trophy' | 'double_trophy' | 'crown' | 'jackpot' | 'gift' | 'star' | 'future' | 'finish';
 
 interface TradeRecord {
   id: string;
@@ -77,6 +67,7 @@ interface DayRecord {
   instruments: string[];
   status: DayStatus;
   rating: DayRating;
+  openedAt?: number;
 }
 
 interface CapitalState {
@@ -109,22 +100,39 @@ const FALLBACK_CAPITAL: CapitalState = {
   quarterlyProjection: { quarterLabel: 'Q1 FY27', projectedCapital: 0 },
 };
 
+// ─── Instrument Colors ──────────────────────────────────────────
+
+const INSTRUMENT_COLORS: Record<string, { bg: string; text: string }> = {
+  'NIFTY 50': { bg: 'bg-blue-500/15', text: 'text-blue-400' },
+  'BANK NIFTY': { bg: 'bg-purple-500/15', text: 'text-purple-400' },
+  'CRUDE OIL': { bg: 'bg-amber-500/15', text: 'text-amber-400' },
+  'NATURAL GAS': { bg: 'bg-emerald-500/15', text: 'text-emerald-400' },
+};
+
+function getInstrumentStyle(name: string) {
+  return INSTRUMENT_COLORS[name] ?? { bg: 'bg-slate-500/15', text: 'text-slate-400' };
+}
+
 // ─── Rating Icon ─────────────────────────────────────────────────
 
 function RatingIcon({ rating }: { rating: DayRating }) {
   switch (rating) {
+    case 'jackpot':
+      return <span className="text-[11px]" title="≥50% Jackpot">🏆🏆👑💰</span>;
+    case 'crown':
+      return <span className="text-[11px]" title="≥20% Crown">🏆👑</span>;
     case 'double_trophy':
-      return <span className="flex gap-0.5"><Trophy className="h-3 w-3 text-warning-amber" /><Trophy className="h-3 w-3 text-warning-amber" /></span>;
+      return <span className="text-[11px]" title="≥10%">🏆🏆</span>;
     case 'trophy':
-      return <Trophy className="h-3 w-3 text-bullish" />;
-    case 'gift':
-      return <Gift className="h-3 w-3 text-info-cyan" />;
+      return <span className="text-[11px]" title="≥5% Single Day">🏆</span>;
     case 'star':
-      return <Star className="h-3 w-3 text-warning-amber animate-pulse" />;
+      return <span className="text-[11px]" title="≥5% Multi-Day">⭐</span>;
+    case 'gift':
+      return <span className="text-[11px]" title="Auto-completed">🎁</span>;
     case 'finish':
-      return <Flag className="h-3 w-3 text-primary" />;
+      return <span className="text-[11px]" title="Day 250">🏁</span>;
     default:
-      return <span className="text-[10px] text-muted-foreground">—</span>;
+      return <span className="text-[11px] opacity-40">⬜</span>;
   }
 }
 
@@ -143,9 +151,30 @@ function pnlColor(n: number): string {
   return 'text-muted-foreground';
 }
 
+// ─── Age Formatter ───────────────────────────────────────────────
+
+function formatAge(openedAt?: number): string {
+  if (!openedAt) return '';
+  const now = Date.now();
+  const diffMs = now - openedAt;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h`;
+  const diffDays = Math.floor(diffHr / 24);
+  return `${diffDays}d`;
+}
+
+// ─── Deviation Formatter ─────────────────────────────────────────
+
+function formatDeviation(deviation: number, daysAhead?: number): string {
+  const sign = deviation >= 0 ? '+' : '';
+  const daysStr = daysAhead !== undefined ? ` (${daysAhead >= 0 ? '+' : ''}${daysAhead}d)` : '';
+  return `${sign}${fmt(deviation)}${daysStr}`;
+}
+
 // ─── Instrument Name Mapping ────────────────────────────────────
 
-/** Map UI instrument names (from NewTradeForm) to resolvedInstruments names */
 const UI_TO_RESOLVED: Record<string, string> = {
   'NIFTY 50': 'NIFTY_50',
   'BANK NIFTY': 'BANKNIFTY',
@@ -160,19 +189,131 @@ export interface ResolvedInstrument {
   mode: string;
 }
 
+// ─── Confirmation Dialog ─────────────────────────────────────────
+
+function ConfirmDialog({
+  open,
+  title,
+  message,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-card border border-border rounded-lg p-4 max-w-sm w-full mx-4 shadow-xl">
+        <h3 className="text-sm font-bold text-foreground mb-2">{title}</h3>
+        <p className="text-[11px] text-muted-foreground mb-4">{message}</p>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1 rounded text-[10px] font-medium bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-3 py-1 rounded text-[10px] font-bold bg-destructive/20 text-destructive hover:bg-destructive/30 transition-colors"
+          >
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Status Badge ────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string }) {
+  switch (status) {
+    case 'OPEN':
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold bg-warning-amber/20 text-warning-amber">
+          <span className="h-1.5 w-1.5 rounded-full bg-warning-amber animate-pulse" />
+          OPEN
+        </span>
+      );
+    case 'PENDING':
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold bg-muted text-muted-foreground">
+          <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-pulse" />
+          PENDING
+        </span>
+      );
+    case 'CLOSED_TP':
+      return (
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-bullish/20 text-bullish">
+          ✓ TP
+        </span>
+      );
+    case 'CLOSED_SL':
+      return (
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-destructive/20 text-destructive">
+          ✗ SL
+        </span>
+      );
+    case 'CLOSED_PARTIAL':
+      return (
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-bullish/20 text-bullish">
+          ✓ Partial
+        </span>
+      );
+    case 'CANCELLED':
+      return (
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-muted text-muted-foreground">
+          CANCELLED
+        </span>
+      );
+    case 'REJECTED':
+      return (
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-destructive/20 text-destructive">
+          REJECTED
+        </span>
+      );
+    default:
+      return (
+        <span className="text-[8px] text-muted-foreground uppercase">
+          {status.replace('CLOSED_', '')}
+        </span>
+      );
+  }
+}
+
+// ─── Instrument Tag ──────────────────────────────────────────────
+
+function InstrumentTag({ name }: { name: string }) {
+  const style = getInstrumentStyle(name);
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wide ${style.bg} ${style.text}`}>
+      {name}
+    </span>
+  );
+}
+
 // ─── Main Component ──────────────────────────────────────────────
 
 export default function TradingDesk({ resolvedInstruments }: { resolvedInstruments?: ResolvedInstrument[] }) {
   const [workspace, setWorkspace] = useState<Workspace>('live');
-  const [showNewTrade, setShowNewTrade] = useState(false);
-  const [expandedDay, setExpandedDay] = useState<number | null>(null);
   const [showNet, setShowNet] = useState(true);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
   const utils = trpc.useUtils();
   const { getTick } = useTickStream();
+  const todayRef = useRef<HTMLTableRowElement>(null);
 
   // ─── Instrument → Feed Lookup ──────────────────────────────
-  /** Map from resolved instrument name → {exchange, securityId} */
   const feedLookup = useMemo(() => {
     const map = new Map<string, { exchange: string; securityId: string }>();
     if (resolvedInstruments) {
@@ -183,7 +324,6 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
     return map;
   }, [resolvedInstruments]);
 
-  /** Get live LTP for a trade's instrument (UI name like "NIFTY 50") */
   const getLiveLtp = useCallback((uiInstrument: string): number | undefined => {
     const resolvedName = UI_TO_RESOLVED[uiInstrument] ?? uiInstrument;
     const feed = feedLookup.get(resolvedName);
@@ -207,7 +347,6 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
     onSuccess: () => {
       utils.capital.state.invalidate();
       utils.capital.allDays.invalidate();
-      setShowNewTrade(false);
     },
   });
 
@@ -249,7 +388,14 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
   const isLive = !!stateQuery.data;
   const isLoading = stateQuery.isLoading && !stateQuery.data;
 
-  // ─── Sync LTP to server (every 2s for capital engine accuracy) ─
+  // ─── Auto-scroll to today on load ──────────────────────────
+  useEffect(() => {
+    if (todayRef.current) {
+      todayRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [allDays.length]);
+
+  // ─── Sync LTP to server ────────────────────────────────────
   const updateLtpMutation = trpc.capital.updateLtp.useMutation();
   const ltpSyncRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -294,29 +440,62 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
     });
   }, [workspace, placeTradeMutation]);
 
-  const handleExitTrade = useCallback(async (tradeId: string) => {
-    // Find the trade and use live LTP for exit price
+  const handleExitTrade = useCallback((tradeId: string, instrument: string) => {
     const currentDay = allDaysQuery.data?.currentDay;
     const trade = currentDay?.trades?.find((t: any) => t.id === tradeId);
     const liveLtp = trade ? getLiveLtp(trade.instrument) : undefined;
     const exitPrice = liveLtp ?? trade?.ltp ?? trade?.entryPrice ?? 0;
-
     if (exitPrice <= 0) return;
 
-    exitTradeMutation.mutate({
-      workspace,
-      tradeId,
-      exitPrice,
-      reason: 'MANUAL',
+    setConfirmDialog({
+      open: true,
+      title: 'Exit Position',
+      message: `Close ${instrument} position at market price ₹${exitPrice.toFixed(2)}?`,
+      onConfirm: () => {
+        exitTradeMutation.mutate({
+          workspace,
+          tradeId,
+          exitPrice,
+          reason: 'MANUAL',
+        });
+        setConfirmDialog(prev => ({ ...prev, open: false }));
+      },
     });
   }, [workspace, allDaysQuery.data, exitTradeMutation, getLiveLtp]);
 
-  // ─── Loading State ──────────────────────────────────────────
+  const handleExitAll = useCallback(() => {
+    const currentDay = allDaysQuery.data?.currentDay;
+    const openTrades = currentDay?.trades?.filter((t: any) => t.status === 'OPEN') ?? [];
+    if (openTrades.length === 0) return;
+
+    setConfirmDialog({
+      open: true,
+      title: 'Exit All Positions',
+      message: `Close all ${openTrades.length} open position${openTrades.length > 1 ? 's' : ''} at market?`,
+      onConfirm: () => {
+        for (const trade of openTrades) {
+          const liveLtp = getLiveLtp(trade.instrument);
+          const exitPrice = liveLtp ?? trade.ltp ?? trade.entryPrice ?? 0;
+          if (exitPrice > 0) {
+            exitTradeMutation.mutate({
+              workspace,
+              tradeId: trade.id,
+              exitPrice,
+              reason: 'MANUAL',
+            });
+          }
+        }
+        setConfirmDialog(prev => ({ ...prev, open: false }));
+      },
+    });
+  }, [workspace, allDaysQuery.data, exitTradeMutation, getLiveLtp]);
+
+  // ─── Loading State ─────────────────────────────────────────
   if (isLoading) {
     return <TradingDeskSkeleton />;
   }
 
-  // ─── Error State ────────────────────────────────────────────
+  // ─── Error State ───────────────────────────────────────────
   if (stateQuery.isError && !stateQuery.data) {
     return (
       <ErrorState
@@ -329,73 +508,140 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
     );
   }
 
-  // ─── Render ──────────────────────────────────────────────────
+  // ─── Identify today's open trades count ────────────────────
+  const currentDay = allDays.find(d => d.dayIndex === capital.currentDayIndex);
+  const openTradeCount = currentDay?.trades?.filter(t => t.status === 'OPEN').length ?? 0;
+
+  // ─── Render ────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full">
-      {/* Tab Bar */}
+      {/* ─── Tab Bar ──────────────────────────────────────────── */}
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5 bg-card">
         <div className="flex items-center gap-1">
-          {(['live', 'paper'] as const).map((ws) => (
-            <button
-              key={ws}
-              onClick={() => setWorkspace(ws)}
-              className={`px-3 py-1 rounded-t text-[10px] font-bold tracking-wider uppercase transition-colors ${
-                workspace === ws
-                  ? ws === 'live'
-                    ? 'bg-bullish/10 text-bullish border-b-2 border-bullish'
-                    : 'bg-info-cyan/10 text-info-cyan border-b-2 border-info-cyan'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {ws === 'live' ? 'My Trades' : 'AI Trades'}
-              {ws === 'live' && (
-                <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
-              )}
-            </button>
-          ))}
-          {/* Live data indicator */}
-          <span className={`ml-2 text-[8px] tracking-wider uppercase ${isLive ? 'text-bullish' : 'text-warning-amber'}`}>
-            {isLive ? 'LIVE' : 'OFFLINE'}
+          {/* My Trades tab */}
+          <button
+            onClick={() => setWorkspace('live')}
+            className={`px-3 py-1 rounded-t text-[10px] font-bold tracking-wider uppercase transition-colors ${
+              workspace === 'live'
+                ? 'bg-bullish/10 text-bullish border-b-2 border-bullish'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            My Trades
+            <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
+          </button>
+          {/* AI Trades tab */}
+          <button
+            onClick={() => setWorkspace('paper')}
+            className={`px-3 py-1 rounded-t text-[10px] font-bold tracking-wider uppercase transition-colors ${
+              workspace === 'paper'
+                ? 'bg-info-cyan/10 text-info-cyan border-b-2 border-info-cyan'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            AI Trades
+          </button>
+          {/* LIVE / PAPER badge */}
+          <span className={`ml-2 px-2 py-0.5 rounded text-[8px] font-bold tracking-wider uppercase ${
+            workspace === 'live'
+              ? 'bg-bullish/20 text-bullish'
+              : 'bg-warning-amber/20 text-warning-amber'
+          }`}>
+            {workspace === 'live' ? 'LIVE' : 'PAPER'}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        {/* NET/GROSS toggle */}
+        <div className="flex items-center gap-0.5 border border-border rounded overflow-hidden">
           <button
-            onClick={() => setShowNet(!showNet)}
-            className="text-[9px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => setShowNet(true)}
+            className={`px-2 py-0.5 text-[9px] font-bold transition-colors ${
+              showNet ? 'bg-info-cyan/20 text-info-cyan' : 'text-muted-foreground hover:text-foreground'
+            }`}
           >
-            {showNet ? 'NET' : 'GROSS'}
+            NET
           </button>
           <button
-            onClick={() => setShowNewTrade(true)}
-            disabled={showNewTrade || placeTradeMutation.isPending}
-            className="flex items-center gap-1 px-2 py-1 rounded bg-primary/10 text-primary text-[10px] font-bold hover:bg-primary/20 disabled:opacity-30 transition-colors"
+            onClick={() => setShowNet(false)}
+            className={`px-2 py-0.5 text-[9px] font-bold transition-colors ${
+              !showNet ? 'bg-info-cyan/20 text-info-cyan' : 'text-muted-foreground hover:text-foreground'
+            }`}
           >
-            {placeTradeMutation.isPending ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Plus className="h-3 w-3" />
-            )}
-            NEW TRADE
+            GROSS
           </button>
         </div>
       </div>
 
-      {/* Summary Bar */}
-      <div className="grid grid-cols-9 gap-px bg-border border-b border-border">
-        <SummaryCell icon={<Target className="h-3 w-3" />} label="Day" value={`${capital.currentDayIndex} / 250`} />
-        <SummaryCell icon={<DollarSign className="h-3 w-3" />} label="Trade Capital" value={fmt(capital.tradingPool, true)} />
-        <SummaryCell icon={<Wallet className="h-3 w-3" />} label="Available" value={fmt(capital.availableCapital, true)} accent="info-cyan" />
-        <SummaryCell icon={<TrendingUp className="h-3 w-3" />} label="Cum. Profit" value={fmt(capital.cumulativePnl)} accent={capital.cumulativePnl >= 0 ? 'bullish' : 'destructive'} />
-        <SummaryCell
-          icon={<BarChart3 className="h-3 w-3" />}
-          label="Today P&L / Target"
-          value={`${fmt(capital.todayPnl)} / ${fmt(capital.todayTarget)}`}
-          accent={capital.todayPnl >= capital.todayTarget ? 'bullish' : 'warning-amber'}
-        />
-        <SummaryCell icon={<TrendingDown className="h-3 w-3" />} label="Charges" value={fmt(capital.cumulativeCharges)} accent="destructive" />
-        <SummaryCell icon={<Shield className="h-3 w-3" />} label="Reserve" value={fmt(capital.reservePool, true)} accent="info-cyan" />
-        <SummaryCell icon={<BarChart3 className="h-3 w-3" />} label={capital.quarterlyProjection.quarterLabel || 'Projection'} value={fmt(capital.quarterlyProjection.projectedCapital, true)} />
-        <SummaryCell icon={<DollarSign className="h-3 w-3" />} label="Net Worth" value={fmt(capital.netWorth, true)} accent="bullish" />
+      {/* ─── Summary Bar ──────────────────────────────────────── */}
+      <div className="flex items-stretch divide-x divide-border border-b border-border bg-card">
+        {/* Day */}
+        <div className="px-3 py-1.5 flex flex-col items-center justify-center min-w-[80px]">
+          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Day</span>
+          <span className="text-[11px] font-bold tabular-nums">
+            <span className="text-warning-amber">{capital.currentDayIndex}</span>
+            <span className="text-muted-foreground"> / 250</span>
+          </span>
+        </div>
+        {/* Trade Capital */}
+        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
+          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Trade Capital</span>
+          <span className="text-[11px] font-bold tabular-nums text-info-cyan">{fmt(capital.tradingPool, true)}</span>
+        </div>
+        {/* Available */}
+        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
+          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Available</span>
+          <span className="text-[11px] font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
+        </div>
+        {/* Cum. Profit */}
+        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
+          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Cum. Profit</span>
+          <span className={`text-[11px] font-bold tabular-nums ${pnlColor(capital.cumulativePnl)}`}>
+            {capital.cumulativePnl >= 0 ? '+' : ''}{fmt(capital.cumulativePnl)}
+          </span>
+        </div>
+        {/* Today P&L / Target + Exit All */}
+        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
+          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Today P&L / Target</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-bold tabular-nums">
+              <span className={pnlColor(capital.todayPnl)}>{fmt(capital.todayPnl)}</span>
+              <span className="text-muted-foreground"> / </span>
+              <span className="text-warning-amber">{fmt(capital.todayTarget)}</span>
+            </span>
+            {openTradeCount > 0 && (
+              <button
+                onClick={handleExitAll}
+                className="px-1 py-0.5 rounded text-[8px] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
+                title="Exit all open positions"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
+        {/* Charges */}
+        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
+          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Charges</span>
+          <span className="text-[11px] font-bold tabular-nums text-muted-foreground">{fmt(capital.cumulativeCharges)}</span>
+        </div>
+        {/* Reserve */}
+        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
+          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Reserve</span>
+          <span className="text-[11px] font-bold tabular-nums text-warning-amber">{fmt(capital.reservePool, true)}</span>
+        </div>
+        {/* Quarterly Projection */}
+        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
+          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">
+            {capital.quarterlyProjection.quarterLabel || 'Q Proj'}
+          </span>
+          <span className="text-[11px] font-bold tabular-nums text-info-cyan">
+            {fmt(capital.quarterlyProjection.projectedCapital, true)}
+          </span>
+        </div>
+        {/* Net Worth */}
+        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
+          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Net Worth</span>
+          <span className="text-[11px] font-bold tabular-nums text-bullish">{fmt(capital.netWorth, true)}</span>
+        </div>
       </div>
 
       {/* Mutation Error */}
@@ -405,11 +651,10 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
         </div>
       )}
 
-      {/* Table */}
+      {/* ─── Table ────────────────────────────────────────────── */}
       <div className="flex-1 overflow-auto">
         {allDays.length === 0 && !allDaysQuery.isLoading ? (
           <NoCapitalEmpty onOpenSettings={() => {
-            // Trigger Ctrl+S programmatically
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }));
           }} />
         ) : (
@@ -417,7 +662,7 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
             <thead className="sticky top-0 z-10">
               <tr className="bg-secondary/80 backdrop-blur-sm border-b border-border">
                 <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase w-12">Day</th>
-                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase w-20">Date</th>
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase w-24">Date</th>
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Trade Cap.</th>
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Target</th>
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Proj. Cap.</th>
@@ -435,227 +680,314 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
               </tr>
             </thead>
             <tbody>
-              {allDays.map((day) => (
-                <DayRow
-                  key={day.dayIndex}
-                  day={day}
-                  isToday={day.dayIndex === capital.currentDayIndex}
-                  expanded={expandedDay === day.dayIndex}
-                  onToggle={() => setExpandedDay(expandedDay === day.dayIndex ? null : day.dayIndex)}
-                  onExitTrade={handleExitTrade}
-                  showNet={showNet}
-                  exitLoading={exitTradeMutation.isPending}
-                  getLiveLtp={getLiveLtp}
-                />
-              ))}
-              {showNewTrade && (
-                <NewTradeForm
-                  workspace={workspace}
-                  availableCapital={capital.availableCapital}
-                  instruments={['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS']}
-                  onSubmit={handlePlaceTrade}
-                  onCancel={() => setShowNewTrade(false)}
-                  loading={placeTradeMutation.isPending}
-                />
-              )}
+              {allDays.map((day, idx) => {
+                const isToday = day.dayIndex === capital.currentDayIndex;
+                const isDay250 = day.dayIndex === 250;
+
+                if (isToday) {
+                  // ─── TODAY: render individual trade rows ────
+                  return (
+                    <TodaySection
+                      key={day.dayIndex}
+                      day={day}
+                      capital={capital}
+                      showNet={showNet}
+                      onExitTrade={handleExitTrade}
+                      onExitAll={handleExitAll}
+                      onPlaceTrade={handlePlaceTrade}
+                      exitLoading={exitTradeMutation.isPending}
+                      placeLoading={placeTradeMutation.isPending}
+                      getLiveLtp={getLiveLtp}
+                      todayRef={todayRef}
+                      workspace={workspace}
+                    />
+                  );
+                }
+
+                if (day.status === 'FUTURE') {
+                  // ─── FUTURE: projected row ─────────────────
+                  return (
+                    <FutureRow
+                      key={day.dayIndex}
+                      day={day}
+                      isDay250={isDay250}
+                    />
+                  );
+                }
+
+                // ─── PAST / GIFT: single summary row ────────
+                return (
+                  <PastRow
+                    key={day.dayIndex}
+                    day={day}
+                    showNet={showNet}
+                  />
+                );
+              })}
             </tbody>
           </table>
         )}
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
+      />
     </div>
   );
 }
 
-// ─── Summary Cell ────────────────────────────────────────────────
+// ─── Past / Gift Row ────────────────────────────────────────────
 
-function SummaryCell({
-  icon,
-  label,
-  value,
-  accent,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  accent?: string;
-}) {
-  const colorClass = accent
-    ? `text-${accent}`
-    : 'text-foreground';
-
-  return (
-    <div className="bg-card px-2 py-1.5 flex flex-col items-center justify-center">
-      <div className="flex items-center gap-1 text-muted-foreground mb-0.5">
-        {icon}
-        <span className="text-[8px] uppercase tracking-wider">{label}</span>
-      </div>
-      <span className={`text-[11px] font-bold tabular-nums ${colorClass}`}>{value}</span>
-    </div>
-  );
-}
-
-// ─── Day Row ─────────────────────────────────────────────────────
-
-function DayRow({
+function PastRow({
   day,
-  isToday,
-  expanded,
-  onToggle,
-  onExitTrade,
   showNet,
-  exitLoading,
-  getLiveLtp,
 }: {
   day: DayRecord;
-  isToday: boolean;
-  expanded: boolean;
-  onToggle: () => void;
-  onExitTrade: (tradeId: string) => void;
   showNet: boolean;
-  exitLoading?: boolean;
-  getLiveLtp: (instrument: string) => number | undefined;
 }) {
-  const rowBg = isToday
-    ? 'bg-primary/5 border-l-2 border-l-primary'
-    : day.status === 'COMPLETED'
-    ? 'bg-card hover:bg-secondary/30'
-    : day.status === 'GIFT'
-    ? 'bg-info-cyan/5'
-    : 'bg-card/50 opacity-60';
+  const isGift = day.status === 'GIFT';
+  const rowBg = isGift
+    ? 'bg-amber-500/[0.06]'
+    : 'bg-emerald-500/[0.04] hover:bg-emerald-500/[0.08]';
 
-  const hasTrades = day.trades.length > 0;
+  const pnlValue = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
+  const pnlPercent = day.tradeCapital > 0 ? (day.totalPnl / day.tradeCapital * 100).toFixed(1) : '0.0';
 
-  // Summary instrument display
-  const instrumentSummary = day.instruments.length > 0
-    ? day.instruments.join(', ')
-    : '—';
+  return (
+    <tr className={`border-b border-border/50 ${rowBg} transition-colors`}>
+      {/* Day */}
+      <td className="px-2 py-2">
+        <span className="font-bold tabular-nums text-foreground">{day.dayIndex}</span>
+      </td>
+      {/* Date + Age */}
+      <td className="px-2 py-2">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground tabular-nums">{day.date || '—'}</span>
+          {day.openedAt && (
+            <span className="text-[8px] text-muted-foreground/60 tabular-nums">{formatAge(day.openedAt)}</span>
+          )}
+        </div>
+      </td>
+      {/* Trade Capital */}
+      <td className={`px-2 py-2 text-right tabular-nums ${isGift ? 'text-foreground/50' : 'text-foreground'}`}>
+        {fmt(day.tradeCapital, true)}
+      </td>
+      {/* Target */}
+      <td className={`px-2 py-2 text-right tabular-nums ${isGift ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
+        {fmt(day.targetAmount)}
+        <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
+      </td>
+      {/* Proj Capital */}
+      <td className={`px-2 py-2 text-right tabular-nums ${isGift ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
+        {fmt(day.projCapital, true)}
+      </td>
+      {/* Instrument — color-coded tags */}
+      <td className="px-2 py-2">
+        <div className="flex flex-wrap gap-1">
+          {day.instruments.length > 0
+            ? day.instruments.map((inst) => <InstrumentTag key={inst} name={inst} />)
+            : <span className="text-muted-foreground">—</span>
+          }
+        </div>
+      </td>
+      {/* Type */}
+      <td className="px-2 py-2 text-muted-foreground">—</td>
+      {/* Strike */}
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      {/* Entry */}
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      {/* LTP */}
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      {/* Qty */}
+      <td className="px-2 py-2 text-right tabular-nums text-foreground">
+        {day.totalQty > 0 ? day.totalQty : '—'}
+      </td>
+      {/* P&L */}
+      <td className={`px-2 py-2 text-right tabular-nums font-bold ${isGift ? 'text-amber-400/70' : pnlColor(pnlValue)}`}>
+        {pnlValue > 0 ? '▲' : pnlValue < 0 ? '▼' : ''} {fmt(pnlValue)}
+        <span className="text-[8px] ml-0.5">({pnlPercent}%)</span>
+      </td>
+      {/* Charges */}
+      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground/60">
+        {day.totalCharges > 0 ? fmt(day.totalCharges) : '—'}
+      </td>
+      {/* Actual Capital */}
+      <td className="px-2 py-2 text-right tabular-nums font-medium text-bullish">
+        {day.actualCapital > 0 ? fmt(day.actualCapital, true) : '—'}
+      </td>
+      {/* Deviation */}
+      <td className={`px-2 py-2 text-right tabular-nums text-[9px] ${pnlColor(day.deviation)}`}>
+        {day.actualCapital > 0
+          ? formatDeviation(day.deviation)
+          : '—'}
+      </td>
+      {/* Rating */}
+      <td className="px-2 py-2 text-center">
+        <RatingIcon rating={day.rating} />
+      </td>
+    </tr>
+  );
+}
 
-  // Aggregate trade info for the summary row
-  const tradeTypeSummary = hasTrades
-    ? `${day.trades.length} trade${day.trades.length > 1 ? 's' : ''}`
-    : '—';
+// ─── Today Section ──────────────────────────────────────────────
+
+function TodaySection({
+  day,
+  capital,
+  showNet,
+  onExitTrade,
+  onExitAll,
+  onPlaceTrade,
+  exitLoading,
+  placeLoading,
+  getLiveLtp,
+  todayRef,
+  workspace,
+}: {
+  day: DayRecord;
+  capital: CapitalState;
+  showNet: boolean;
+  onExitTrade: (tradeId: string, instrument: string) => void;
+  onExitAll: () => void;
+  onPlaceTrade: (trade: any) => Promise<void>;
+  exitLoading?: boolean;
+  placeLoading?: boolean;
+  getLiveLtp: (instrument: string) => number | undefined;
+  todayRef: React.RefObject<HTMLTableRowElement | null>;
+  workspace: Workspace;
+}) {
+  const trades = day.trades ?? [];
+  const openTrades = trades.filter(t => t.status === 'OPEN');
+  const totalPnl = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
 
   return (
     <>
-      {/* Main Day Row */}
-      <tr
-        className={`border-b border-border/50 ${rowBg} transition-colors cursor-pointer`}
-        onClick={hasTrades ? onToggle : undefined}
-      >
-        {/* Day Index */}
-        <td className="px-2 py-2">
-          <div className="flex items-center gap-1">
-            {hasTrades && (
-              expanded
-                ? <ChevronUp className="h-3 w-3 text-muted-foreground" />
-                : <ChevronDown className="h-3 w-3 text-muted-foreground" />
-            )}
-            <span className={`font-bold tabular-nums ${isToday ? 'text-primary' : 'text-foreground'}`}>
-              {day.dayIndex}
-            </span>
-          </div>
-        </td>
-        {/* Date */}
-        <td className="px-2 py-2 text-muted-foreground tabular-nums">
-          {day.date || '—'}
+      {/* Individual trade rows */}
+      {trades.map((trade, idx) => {
+        const isFirst = idx === 0;
+        return (
+          <TodayTradeRow
+            key={trade.id}
+            trade={trade}
+            day={day}
+            isFirst={isFirst}
+            showNet={showNet}
+            onExit={() => onExitTrade(trade.id, trade.instrument)}
+            exitLoading={exitLoading}
+            getLiveLtp={getLiveLtp}
+            todayRef={isFirst ? todayRef : undefined}
+          />
+        );
+      })}
+
+      {/* New Trade Input Row — always visible */}
+      <NewTradeForm
+        workspace={workspace}
+        availableCapital={capital.availableCapital}
+        instruments={['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS']}
+        onSubmit={onPlaceTrade}
+        onCancel={() => {}} // No cancel — always visible
+        loading={placeLoading}
+        dayValues={trades.length === 0 ? {
+          dayIndex: day.dayIndex,
+          tradeCapital: day.tradeCapital,
+          targetAmount: day.targetAmount,
+          targetPercent: day.targetPercent,
+          projCapital: day.projCapital,
+        } : undefined}
+      />
+
+      {/* Today Summary Row */}
+      <tr className="border-b border-warning-amber/30 bg-warning-amber/10 font-bold" ref={trades.length === 0 ? todayRef : undefined}>
+        {/* Day */}
+        <td className="px-2 py-2 text-warning-amber" colSpan={2}>
+          DAY {day.dayIndex} TOTAL
         </td>
         {/* Trade Capital */}
-        <td className="px-2 py-2 text-right tabular-nums text-foreground">
-          {fmt(day.tradeCapital, true)}
-        </td>
+        <td className="px-2 py-2" />
         {/* Target */}
-        <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
-          {fmt(day.targetAmount)}
-          <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
-        </td>
+        <td className="px-2 py-2" />
         {/* Proj Capital */}
-        <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
-          {fmt(day.projCapital, true)}
-        </td>
+        <td className="px-2 py-2" />
         {/* Instrument */}
-        <td className="px-2 py-2 text-foreground">
-          {instrumentSummary}
-        </td>
+        <td className="px-2 py-2" />
         {/* Type */}
-        <td className="px-2 py-2 text-muted-foreground">
-          {tradeTypeSummary}
-        </td>
+        <td className="px-2 py-2" />
         {/* Strike */}
-        <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">—</td>
+        <td className="px-2 py-2" />
         {/* Entry */}
-        <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">—</td>
+        <td className="px-2 py-2" />
         {/* LTP */}
-        <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">—</td>
+        <td className="px-2 py-2" />
         {/* Qty */}
         <td className="px-2 py-2 text-right tabular-nums text-foreground">
           {day.totalQty > 0 ? day.totalQty : '—'}
         </td>
-        {/* P&L */}
-        <td className={`px-2 py-2 text-right tabular-nums font-bold ${pnlColor(day.totalPnl)}`}>
-          {day.status !== 'FUTURE' ? fmt(showNet ? day.totalPnl : day.totalPnl + day.totalCharges) : '—'}
+        {/* P&L + Exit All */}
+        <td className={`px-2 py-2 text-right tabular-nums ${pnlColor(totalPnl)}`}>
+          <div className="flex items-center justify-end gap-1">
+            <span>{fmt(totalPnl)}</span>
+            {openTrades.length > 0 && (
+              <button
+                onClick={onExitAll}
+                className="px-1 py-0.5 rounded text-[8px] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
+                title="Exit all"
+              >
+                ×
+              </button>
+            )}
+          </div>
         </td>
         {/* Charges */}
-        <td className="px-2 py-2 text-right tabular-nums text-destructive/70">
+        <td className="px-2 py-2 text-right tabular-nums text-muted-foreground/60">
           {day.totalCharges > 0 ? fmt(day.totalCharges) : '—'}
         </td>
         {/* Actual Capital */}
-        <td className={`px-2 py-2 text-right tabular-nums font-medium ${
-          day.status === 'FUTURE' ? 'text-muted-foreground' : 'text-foreground'
-        }`}>
-          {day.actualCapital > 0 ? fmt(day.actualCapital, true) : '—'}
+        <td className="px-2 py-2 text-right tabular-nums text-warning-amber">
+          {day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
         </td>
         {/* Deviation */}
-        <td className={`px-2 py-2 text-right tabular-nums ${pnlColor(day.deviation)}`}>
-          {day.status !== 'FUTURE' && day.actualCapital > 0
-            ? `${day.deviation >= 0 ? '+' : ''}${fmt(day.deviation)}`
-            : '—'}
+        <td className={`px-2 py-2 text-right tabular-nums text-[9px] ${pnlColor(day.deviation)}`}>
+          {formatDeviation(day.deviation)}
         </td>
         {/* Rating */}
-        <td className="px-2 py-2 text-center">
-          <RatingIcon rating={day.rating} />
-        </td>
+        <td className="px-2 py-2" />
       </tr>
-
-      {/* Expanded Trade Rows */}
-      {expanded && hasTrades && (
-        <>
-          {day.trades.map((trade) => (
-            <TradeRow
-              key={trade.id}
-              trade={trade}
-              onExit={() => onExitTrade(trade.id)}
-              showNet={showNet}
-              exitLoading={exitLoading}
-              getLiveLtp={getLiveLtp}
-            />
-          ))}
-        </>
-      )}
     </>
   );
 }
 
-// ─── Trade Row (expanded sub-row) ────────────────────────────────
+// ─── Today Trade Row ────────────────────────────────────────────
 
-function TradeRow({
+function TodayTradeRow({
   trade,
-  onExit,
+  day,
+  isFirst,
   showNet,
+  onExit,
   exitLoading,
   getLiveLtp,
+  todayRef,
 }: {
   trade: TradeRecord;
-  onExit: () => void;
+  day: DayRecord;
+  isFirst: boolean;
   showNet: boolean;
+  onExit: () => void;
   exitLoading?: boolean;
   getLiveLtp: (instrument: string) => number | undefined;
+  todayRef?: React.RefObject<HTMLTableRowElement | null>;
 }) {
   const isOpen = trade.status === 'OPEN';
+  const isPending = trade.status === 'PENDING';
   const isBuy = trade.type.includes('BUY');
-  // Use live LTP for open trades, fall back to server LTP
   const liveLtp = isOpen ? getLiveLtp(trade.instrument) : undefined;
   const displayLtp = liveLtp ?? trade.ltp;
-  // Recalculate unrealized P&L with live LTP
   const liveUnrealizedPnl = isOpen
     ? (isBuy ? (displayLtp - trade.entryPrice) : (trade.entryPrice - displayLtp)) * trade.qty
     : 0;
@@ -664,29 +996,65 @@ function TradeRow({
     ? ((isOpen ? liveUnrealizedPnl : trade.pnl) / (trade.entryPrice * trade.qty) * 100)
     : 0;
 
+  const typeDisplay = trade.type
+    .replace('CALL_BUY', 'B CE')
+    .replace('CALL_SELL', 'S CE')
+    .replace('PUT_BUY', 'B PE')
+    .replace('PUT_SELL', 'S PE');
+
   return (
-    <tr className="border-b border-border/30 bg-secondary/10 hover:bg-secondary/20 transition-colors">
+    <tr
+      ref={todayRef}
+      className={`border-b border-border/30 transition-colors ${
+        isFirst
+          ? 'bg-primary/5 border-l-2 border-l-warning-amber'
+          : 'bg-primary/[0.03] border-l-2 border-l-warning-amber/50'
+      }`}
+    >
       {/* Day */}
-      <td className="px-2 py-1.5 pl-8">
-        <span className="text-[8px] text-muted-foreground">↳</span>
+      <td className="px-2 py-1.5">
+        {isFirst ? (
+          <span className="font-bold tabular-nums text-warning-amber">{day.dayIndex}</span>
+        ) : (
+          <span className="text-muted-foreground/40 tabular-nums">{day.dayIndex}</span>
+        )}
       </td>
-      {/* Date */}
-      <td className="px-2 py-1.5 text-[9px] text-muted-foreground tabular-nums">
-        {new Date(trade.openedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+      {/* Date + Age */}
+      <td className="px-2 py-1.5">
+        {isFirst ? (
+          <div className="flex items-center justify-between">
+            <span className="text-foreground tabular-nums">{day.date || '—'}</span>
+            {day.openedAt && (
+              <span className="text-[8px] text-muted-foreground/60 tabular-nums">{formatAge(day.openedAt)}</span>
+            )}
+          </div>
+        ) : (
+          <span className="text-muted-foreground/40 tabular-nums text-[9px]">
+            {new Date(trade.openedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        )}
       </td>
-      {/* Trade Capital */}
-      <td className="px-2 py-1.5" />
-      {/* Target */}
-      <td className="px-2 py-1.5" />
-      {/* Proj Capital */}
-      <td className="px-2 py-1.5" />
-      {/* Instrument */}
-      <td className="px-2 py-1.5 text-foreground font-medium">{trade.instrument}</td>
+      {/* Trade Capital — dimmed for sub-rows */}
+      <td className={`px-2 py-1.5 text-right tabular-nums ${isFirst ? 'text-foreground' : 'text-foreground/30'}`}>
+        {fmt(day.tradeCapital, true)}
+      </td>
+      {/* Target — dimmed for sub-rows */}
+      <td className={`px-2 py-1.5 text-right tabular-nums ${isFirst ? 'text-muted-foreground' : 'text-muted-foreground/30'}`}>
+        {fmt(day.targetAmount)}
+        <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
+      </td>
+      {/* Proj Capital — dimmed for sub-rows */}
+      <td className={`px-2 py-1.5 text-right tabular-nums ${isFirst ? 'text-muted-foreground' : 'text-muted-foreground/30'}`}>
+        {fmt(day.projCapital, true)}
+      </td>
+      {/* Instrument — color-coded tag */}
+      <td className="px-2 py-1.5">
+        <InstrumentTag name={trade.instrument} />
+      </td>
       {/* Type */}
       <td className="px-2 py-1.5">
-        <span className={`inline-flex items-center gap-0.5 font-bold ${isBuy ? 'text-bullish' : 'text-destructive'}`}>
-          {isBuy ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
-          {trade.type.replace('_', ' ')}
+        <span className={`font-bold ${isBuy ? 'text-bullish' : 'text-destructive'}`}>
+          {typeDisplay}
         </span>
       </td>
       {/* Strike */}
@@ -697,50 +1065,136 @@ function TradeRow({
       <td className="px-2 py-1.5 text-right tabular-nums text-foreground">
         {trade.entryPrice.toFixed(2)}
       </td>
-      {/* LTP */}
-      <td className={`px-2 py-1.5 text-right tabular-nums font-medium ${
-        isOpen ? (displayLtp >= trade.entryPrice ? 'text-bullish' : 'text-destructive') : 'text-muted-foreground'
-      }`}>
-        {isOpen ? (
-          <>
-            {displayLtp.toFixed(2)}
-            {liveLtp !== undefined && (
-              <span className="ml-0.5 inline-block h-1 w-1 rounded-full bg-bullish animate-pulse" />
+      {/* LTP + TP/SL sub-text */}
+      <td className="px-2 py-1.5 text-right">
+        <div className="flex flex-col items-end">
+          <span className={`tabular-nums font-medium ${
+            isOpen
+              ? (displayLtp >= trade.entryPrice ? 'text-bullish' : 'text-destructive')
+              : 'text-muted-foreground'
+          }`}>
+            {isOpen ? (
+              <>
+                {displayLtp.toFixed(2)}
+                {liveLtp !== undefined && (
+                  <span className="ml-0.5 inline-block h-1 w-1 rounded-full bg-bullish animate-pulse" />
+                )}
+              </>
+            ) : (
+              trade.exitPrice?.toFixed(2) ?? '—'
             )}
-          </>
-        ) : (trade.exitPrice?.toFixed(2) ?? '—')}
+          </span>
+          {/* TP/SL sub-text for open trades */}
+          {isOpen && trade.targetPrice && trade.stopLossPrice && (
+            <div className="flex flex-col items-end mt-0.5">
+              <span className="text-[8px] text-bullish/70">
+                TP: {trade.targetPrice.toFixed(2)} <span className="cursor-pointer opacity-50 hover:opacity-100">✎</span>
+              </span>
+              <span className="text-[8px] text-destructive/70">
+                SL: {trade.stopLossPrice.toFixed(2)} <span className="cursor-pointer opacity-50 hover:opacity-100">✎</span>
+              </span>
+            </div>
+          )}
+        </div>
       </td>
       {/* Qty */}
       <td className="px-2 py-1.5 text-right tabular-nums text-foreground">{trade.qty}</td>
-      {/* P&L */}
+      {/* P&L + Exit button for open trades */}
       <td className={`px-2 py-1.5 text-right tabular-nums font-bold ${pnlColor(pnl)}`}>
-        {fmt(pnl)}
-        <span className="text-[8px] ml-0.5">({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%)</span>
+        <div className="flex items-center justify-end gap-1">
+          <span>
+            {fmt(pnl)}
+            <span className="text-[8px] ml-0.5">({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%)</span>
+          </span>
+          {isOpen && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onExit(); }}
+              disabled={exitLoading}
+              className={`px-1 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                pnl >= 0
+                  ? 'bg-bullish/15 text-bullish hover:bg-bullish/25'
+                  : 'bg-destructive/15 text-destructive hover:bg-destructive/25'
+              } disabled:opacity-30`}
+              title="Exit position"
+            >
+              {exitLoading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : '×'}
+            </button>
+          )}
+        </div>
       </td>
       {/* Charges */}
-      <td className="px-2 py-1.5 text-right tabular-nums text-destructive/70">
+      <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground/60">
         {trade.charges > 0 ? fmt(trade.charges) : '—'}
       </td>
       {/* Actual Capital */}
       <td className="px-2 py-1.5" />
       {/* Deviation */}
       <td className="px-2 py-1.5" />
-      {/* Rating / Actions */}
+      {/* Status Badge */}
       <td className="px-2 py-1.5 text-center">
-        {isOpen ? (
-          <button
-            onClick={(e) => { e.stopPropagation(); onExit(); }}
-            disabled={exitLoading}
-            className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-30 transition-colors"
-            title="Exit position"
-          >
-            {exitLoading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : 'EXIT'}
-          </button>
-        ) : (
-          <span className="text-[8px] text-muted-foreground uppercase">
-            {trade.status.replace('CLOSED_', '')}
-          </span>
-        )}
+        <StatusBadge status={trade.status} />
+      </td>
+    </tr>
+  );
+}
+
+// ─── Future Row ─────────────────────────────────────────────────
+
+function FutureRow({
+  day,
+  isDay250,
+}: {
+  day: DayRecord;
+  isDay250: boolean;
+}) {
+  return (
+    <tr className={`border-b border-border/30 bg-card/50 transition-colors ${isDay250 ? 'opacity-80' : 'opacity-[0.45]'}`}>
+      {/* Day */}
+      <td className="px-2 py-2">
+        <span className={`font-bold tabular-nums ${isDay250 ? 'text-info-cyan' : 'text-muted-foreground'}`}>
+          {day.dayIndex}
+        </span>
+      </td>
+      {/* Date */}
+      <td className="px-2 py-2 text-muted-foreground tabular-nums">
+        {day.date || '—'}
+      </td>
+      {/* Trade Capital */}
+      <td className={`px-2 py-2 text-right tabular-nums ${isDay250 ? 'text-info-cyan' : 'text-muted-foreground'}`}>
+        {fmt(day.tradeCapital, true)}
+      </td>
+      {/* Target */}
+      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+        {fmt(day.targetAmount)}
+        <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
+      </td>
+      {/* Proj Capital */}
+      <td className={`px-2 py-2 text-right tabular-nums ${isDay250 ? 'text-info-cyan' : 'text-muted-foreground'}`}>
+        {fmt(day.projCapital, true)}
+      </td>
+      {/* Instrument */}
+      <td className="px-2 py-2 text-muted-foreground">—</td>
+      {/* Type */}
+      <td className="px-2 py-2 text-muted-foreground">—</td>
+      {/* Strike */}
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      {/* Entry */}
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      {/* LTP */}
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      {/* Qty */}
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      {/* P&L */}
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      {/* Charges */}
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      {/* Actual Capital */}
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      {/* Deviation */}
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      {/* Rating */}
+      <td className="px-2 py-2 text-center">
+        <RatingIcon rating={isDay250 ? 'finish' : 'future'} />
       </td>
     </tr>
   );

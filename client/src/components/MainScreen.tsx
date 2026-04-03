@@ -32,7 +32,7 @@ import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
 
 // Shell components
 import AppBar from '@/components/AppBar';
-import SummaryBar from '@/components/SummaryBar';
+// SummaryBar removed — integrated into TradingDesk component per spec v1.2
 import MainFooter from '@/components/MainFooter';
 
 // Sidebars (push layout)
@@ -243,8 +243,7 @@ export default function MainScreen() {
         onToggleRightDrawer={() => setRightSidebarVisible((p) => !p)}
       />
 
-      {/* Summary Bar */}
-      <SummaryBar />
+      {/* Summary Bar — now integrated inside TradingDesk component */}
 
       {/* 3-Column Layout: Left Sidebar | Trading Desk | Right Sidebar */}
       <div className="flex-1 flex overflow-hidden">

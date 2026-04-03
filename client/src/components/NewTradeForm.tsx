@@ -1,9 +1,10 @@
 /**
- * NewTradeForm — Inline trade entry form that slides into the Trading Desk table.
- * Fields: Instrument, B/S, CE/PE, Strike, Expiry, Entry (auto LTP), Capital %
+ * NewTradeForm — Inline trade entry row always visible in the Trading Desk table.
+ * Fields: Instrument, B/S, CE/PE, Strike, Expiry, Entry (auto-fill LTP), Capital % (dropdown 5-25%)
+ * Renders as a <tr> inside the 16-column table.
  */
 import { useState, useEffect } from 'react';
-import { X, Send, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { trpc } from '../lib/trpc';
 
 /** Map UI instrument names to scrip master underlying symbols. */
@@ -13,6 +14,9 @@ const UNDERLYING_MAP: Record<string, string> = {
   'CRUDE OIL': 'CRUDEOIL',
   'NATURAL GAS': 'NATURALGAS',
 };
+
+/** Capital % options — max 25% per spec */
+const CAPITAL_PERCENT_OPTIONS = [5, 10, 15, 20, 25];
 
 interface NewTradeFormProps {
   workspace: 'live' | 'paper';
@@ -28,9 +32,24 @@ interface NewTradeFormProps {
   }) => Promise<void>;
   onCancel: () => void;
   loading?: boolean;
+  /** If provided, shows day values (dimmed) for when this is the only row */
+  dayValues?: {
+    dayIndex: number;
+    tradeCapital: number;
+    targetAmount: number;
+    targetPercent: number;
+    projCapital: number;
+  };
 }
 
-const INSTRUMENTS = ['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS'];
+const DEFAULT_INSTRUMENTS = ['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS'];
+
+function fmt(n: number, compact = false): string {
+  if (compact && Math.abs(n) >= 100000) {
+    return `₹${(n / 100000).toFixed(2)}L`;
+  }
+  return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 export default function NewTradeForm({
   workspace,
@@ -39,8 +58,9 @@ export default function NewTradeForm({
   onSubmit,
   onCancel,
   loading = false,
+  dayValues,
 }: NewTradeFormProps) {
-  const [instrument, setInstrument] = useState(instruments[0] ?? INSTRUMENTS[0]);
+  const [instrument, setInstrument] = useState(instruments[0] ?? DEFAULT_INSTRUMENTS[0]);
   const [direction, setDirection] = useState<'BUY' | 'SELL'>('BUY');
   const [optionType, setOptionType] = useState<'CE' | 'PE' | 'NONE'>('CE');
   const [strike, setStrike] = useState<string>('');
@@ -55,7 +75,7 @@ export default function NewTradeForm({
     { enabled: optionType !== 'NONE' }
   );
 
-  // Auto-select nearest expiry (first in list) when data loads or instrument changes
+  // Auto-select nearest expiry when data loads or instrument changes
   useEffect(() => {
     if (expiryQuery.data && expiryQuery.data.length > 0) {
       setExpiry(expiryQuery.data[0]);
@@ -63,6 +83,9 @@ export default function NewTradeForm({
       setExpiry('');
     }
   }, [expiryQuery.data, instrument]);
+
+  // LTP auto-fill placeholder — will be wired to live feed
+  const autoLtp = entryPrice ? parseFloat(entryPrice) : 0;
 
   const estimatedMargin = (availableCapital * capitalPercent / 100);
   const estimatedQty = entryPrice ? Math.floor(estimatedMargin / parseFloat(entryPrice)) : 0;
@@ -85,6 +108,11 @@ export default function NewTradeForm({
       entryPrice: parseFloat(entryPrice),
       capitalPercent,
     });
+
+    // Reset form after submission
+    setStrike('');
+    setEntryPrice('');
+    setCapitalPercent(10);
   };
 
   /** Format expiry date for display (e.g., "2026-04-03" → "03 Apr") */
@@ -97,38 +125,58 @@ export default function NewTradeForm({
     }
   };
 
+  const inputClass = 'w-full bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums text-right focus:border-primary focus:outline-none';
+  const selectClass = 'w-full bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground focus:border-primary focus:outline-none';
+
   return (
-    <tr className="border-b border-warning-amber/30 bg-warning-amber/5 animate-fade-in-up">
+    <tr className="border-b border-bullish/30 bg-bullish/[0.04] border-l-2 border-l-bullish/60">
       {/* Day */}
       <td className="px-2 py-2">
-        <span className="text-[9px] text-warning-amber font-bold">NEW</span>
+        {dayValues ? (
+          <span className="text-muted-foreground/40 tabular-nums">{dayValues.dayIndex}</span>
+        ) : (
+          <span className="text-[9px] text-bullish font-bold">NEW</span>
+        )}
       </td>
       {/* Date */}
-      <td className="px-2 py-2" />
-      {/* Trade Capital */}
-      <td className="px-2 py-2" />
-      {/* Target */}
-      <td className="px-2 py-2" />
-      {/* Proj Capital */}
-      <td className="px-2 py-2" />
-      {/* Instrument */}
+      <td className="px-2 py-2">
+        <span className="text-[9px] text-bullish/60 italic">new</span>
+      </td>
+      {/* Trade Capital — dimmed */}
+      <td className="px-2 py-2 text-right tabular-nums text-foreground/30">
+        {dayValues ? fmt(dayValues.tradeCapital, true) : '—'}
+      </td>
+      {/* Target — dimmed */}
+      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground/30">
+        {dayValues ? (
+          <>
+            {fmt(dayValues.targetAmount)}
+            <span className="text-[8px] ml-0.5">({dayValues.targetPercent}%)</span>
+          </>
+        ) : '—'}
+      </td>
+      {/* Proj Capital — dimmed */}
+      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground/30">
+        {dayValues ? fmt(dayValues.projCapital, true) : '—'}
+      </td>
+      {/* Instrument — dropdown */}
       <td className="px-2 py-1">
         <select
           value={instrument}
           onChange={(e) => setInstrument(e.target.value)}
-          className="w-full bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground focus:border-primary focus:outline-none"
+          className={selectClass}
         >
-          {(instruments.length > 0 ? instruments : INSTRUMENTS).map((inst) => (
+          {(instruments.length > 0 ? instruments : DEFAULT_INSTRUMENTS).map((inst) => (
             <option key={inst} value={inst}>{inst}</option>
           ))}
         </select>
       </td>
-      {/* Type (B/S + CE/PE) */}
+      {/* Type (B/S + CE/PE toggles) */}
       <td className="px-2 py-1">
-        <div className="flex gap-1">
+        <div className="flex gap-0.5">
           <button
             onClick={() => setDirection('BUY')}
-            className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+            className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
               direction === 'BUY'
                 ? 'bg-bullish/20 text-bullish border border-bullish/40'
                 : 'bg-muted text-muted-foreground border border-transparent'
@@ -138,7 +186,7 @@ export default function NewTradeForm({
           </button>
           <button
             onClick={() => setDirection('SELL')}
-            className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+            className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
               direction === 'SELL'
                 ? 'bg-destructive/20 text-destructive border border-destructive/40'
                 : 'bg-muted text-muted-foreground border border-transparent'
@@ -151,7 +199,7 @@ export default function NewTradeForm({
             <button
               key={opt}
               onClick={() => setOptionType(opt)}
-              className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
                 optionType === opt
                   ? 'bg-primary/20 text-primary border border-primary/40'
                   : 'bg-muted text-muted-foreground border border-transparent'
@@ -171,7 +219,7 @@ export default function NewTradeForm({
               value={strike}
               onChange={(e) => setStrike(e.target.value)}
               placeholder="Strike"
-              className="w-20 bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums text-right focus:border-primary focus:outline-none"
+              className={inputClass + ' w-20'}
             />
             <select
               value={expiry}
@@ -195,7 +243,7 @@ export default function NewTradeForm({
           <span className="text-[10px] text-muted-foreground">—</span>
         )}
       </td>
-      {/* Entry */}
+      {/* Entry — auto-fill with LTP, editable */}
       <td className="px-2 py-1">
         <input
           type="number"
@@ -203,58 +251,67 @@ export default function NewTradeForm({
           onChange={(e) => setEntryPrice(e.target.value)}
           placeholder="Entry ₹"
           step="0.05"
-          className="w-20 bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums text-right focus:border-primary focus:outline-none"
+          className={inputClass + ' w-20'}
         />
       </td>
-      {/* LTP */}
-      <td className="px-2 py-2" />
-      {/* Qty */}
-      <td className="px-2 py-1 text-right">
-        <span className="text-[10px] tabular-nums text-foreground">{estimatedQty}</span>
+      {/* LTP — auto-filled, italic, dimmed */}
+      <td className="px-2 py-2 text-right">
+        <span className="text-[10px] tabular-nums text-muted-foreground/60 italic">
+          {autoLtp > 0 ? autoLtp.toFixed(2) : '—'}
+        </span>
       </td>
-      {/* P&L */}
+      {/* Qty — Capital % dropdown + hint */}
       <td className="px-2 py-1">
-        <div className="flex flex-col items-end">
-          <span className="text-[9px] text-muted-foreground">
-            {capitalPercent}% of ₹{Math.round(availableCapital).toLocaleString('en-IN')}
-          </span>
-          <input
-            type="range"
-            min={5}
-            max={100}
-            step={5}
+        <div className="flex flex-col items-end gap-0.5">
+          <select
             value={capitalPercent}
             onChange={(e) => setCapitalPercent(parseInt(e.target.value))}
-            className="w-20 h-1 accent-primary mt-1"
-          />
+            className="w-16 bg-background border border-border rounded px-1 py-0.5 text-[10px] text-foreground tabular-nums text-right focus:border-primary focus:outline-none"
+          >
+            {CAPITAL_PERCENT_OPTIONS.map((pct) => (
+              <option key={pct} value={pct}>{pct}%</option>
+            ))}
+          </select>
+          <span className="text-[8px] text-info-cyan/70 tabular-nums">
+            {estimatedQty > 0 ? `${estimatedQty} lots` : '—'}
+          </span>
+          <span className="text-[7px] text-muted-foreground/50 tabular-nums">
+            ~{fmt(estimatedMargin)}
+          </span>
         </div>
       </td>
-      {/* Charges */}
-      <td className="px-2 py-2" />
-      {/* Actual Capital */}
-      <td className="px-2 py-2" />
-      {/* Deviation */}
-      <td className="px-2 py-2" />
-      {/* Rating / Actions */}
+      {/* P&L — confirm/cancel buttons */}
       <td className="px-2 py-1">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center justify-end gap-1">
           <button
             onClick={handleSubmit}
             disabled={loading || !entryPrice || parseFloat(entryPrice) <= 0}
-            className="p-1 rounded bg-bullish/20 text-bullish hover:bg-bullish/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="px-1.5 py-1 rounded text-[9px] font-bold bg-bullish/20 text-bullish hover:bg-bullish/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             title="Place trade"
           >
-            {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+            {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : '✓'}
           </button>
           <button
-            onClick={onCancel}
-            className="p-1 rounded bg-destructive/20 text-destructive hover:bg-destructive/30 transition-colors"
-            title="Cancel"
+            onClick={() => {
+              setStrike('');
+              setEntryPrice('');
+              setCapitalPercent(10);
+            }}
+            className="px-1.5 py-1 rounded text-[9px] font-bold bg-destructive/20 text-destructive hover:bg-destructive/30 transition-colors"
+            title="Clear form"
           >
-            <X className="h-3 w-3" />
+            ×
           </button>
         </div>
       </td>
+      {/* Charges */}
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      {/* Actual Capital */}
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      {/* Deviation */}
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      {/* Rating */}
+      <td className="px-2 py-2" />
     </tr>
   );
 }

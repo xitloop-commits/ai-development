@@ -1,0 +1,86 @@
+MOCKUP V3 IMPLEMENTATION REFERENCE
+====================================
+
+TABS:
+- "My Trades" with LIVE badge (green bg/text), "AI Trades" with PAPER badge (yellow bg/text)
+- Active tab: cyan border-bottom + cyan text
+- NET/GROSS toggle is in the SUMMARY BAR (not tabs row)
+
+SUMMARY BAR (single flex row, items separated by vertical dividers):
+1. Day: "7" (yellow) + "of 250 days" (label)
+2. Trade Cap: label + ₹75,128 (cyan)
+3. Available: label + ₹38,200 (cyan)
+4. Profit: label + +₹25,128 (green)
+5. Today's P&L: label + +₹950 (green) / ₹3,756 (yellow) + Exit All × button
+6. Charges: label + ₹1,842 (secondary/dim)
+7. Reserve: label + ₹33,376 (gold)
+8. Q1 FY27: label + ₹4,82,000 (cyan)
+9. NET/GROSS toggle (two-button group, active=cyan bg)
+10. Net Worth: label + ₹1,08,504 (green-bright, bold)
+
+TABLE COLUMNS (16):
+Day | Date | Trade Capital | Target (5%) | Proj Capital | Instrument | Type | Strike | Entry | LTP | Qty | P&L | Charges | Actual Capital | Deviation | Rating
+
+ROW TYPES:
+- Past: row-past class, green tint, flat (no expand)
+- Gift: row-gift class, gold tint, dimmed capital columns (opacity 0.5), gold P&L
+- Today first trade: row-today class, yellow left border, full values
+- Today sub-trades: row-today-sub class, dimmed day/capital values (dim-value class)
+- Future: row-future class, opacity 0.45
+- New trade: row-new-trade class, green left border
+- Today summary: today-header class, yellow bg, "DAY 7 TOTAL"
+
+PAST DAY ROWS:
+- Instrument: color-coded tags (instr-nifty=blue, instr-banknifty=purple, instr-crude=gold, instr-natgas=green)
+- Type/Strike/Entry/LTP: dash (—)
+- Qty: absolute total
+- P&L: green with ▲ arrow + percentage
+- Charges: secondary color, dim
+- Actual Capital: green-bright
+- Deviation: positive=green, negative=red, zero=dim, with days in parentheses
+- Rating: emoji (🏆, 🏆🏆, 🎁, ⭐)
+- Date: date-cell with date-text + date-age right-aligned
+
+TODAY TRADE ROWS:
+- First row: full day/date/capital values in yellow
+- Sub-rows: dim-value class for day/capital columns
+- Status badges:
+  - ✓ TP: status-closed-profit (green bg)
+  - ✗ SL: status-closed-sl (red bg)
+  - ✓ Partial: status-closed-profit (green bg)
+  - OPEN: status-open (yellow bg) with pulse-dot
+  - PENDING: status-pending (grey bg) with pulse-dot-pending
+- Open trades: LTP in yellow bold, TP/SL sub-text below LTP, exit × button inline with P&L
+- Exit button: exit-x-green (profit) or exit-x-red (loss)
+- TP/SL sub-text: tp-text (green, 8px) and sl-text (red, 8px) with edit-icon (✎)
+
+NEW TRADE INPUT ROW:
+- Always visible (no toggle)
+- dim-value for day/capital columns
+- "new" label in date column
+- Instrument: trade-select dropdown
+- Type: side-toggle (B/S) + type-toggle (CE/PE)
+- Strike: trade-input
+- Entry: trade-input
+- LTP: ltp-auto (italic, dim)
+- Qty: cap-pct-select dropdown (5%-100%) + cap-hint-cyan below
+- P&L column: confirm ✓ + cancel × buttons
+- Remaining columns: dash
+
+TODAY SUMMARY ROW:
+- "DAY 7 TOTAL" spanning first 2 columns
+- + button in LTP column (new-trade-plus)
+- Total Qty
+- Total P&L with Exit All × button
+- Charges total
+- Actual Capital in yellow
+- Deviation in green
+- No rating
+
+FUTURE ROWS:
+- opacity 0.45
+- Only Day, Date, Trade Capital, Target, Proj Capital shown
+- All other columns: dash
+- Rating: ⬜ (white square)
+- Day 250: cyan day number, cyan capital values, 🏁 flag
+- Ellipsis row: "238 more days projected..."

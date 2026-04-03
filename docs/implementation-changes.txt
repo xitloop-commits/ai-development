@@ -1,0 +1,34 @@
+TRADING DESK GAP FIXES — IMPLEMENTATION PLAN
+=============================================
+
+FILES TO MODIFY:
+1. TradingDesk.tsx — Major rewrite
+2. NewTradeForm.tsx — Dropdown, always visible, LTP display
+3. MainScreen.tsx — Remove shell-level SummaryBar
+4. capitalModel.ts — Already done (crown, jackpot ratings + PENDING/CANCELLED)
+5. capitalEngine.ts — Already done (5-level rating)
+6. capitalRouter.ts — Already done (cap 25%, TP/SL from settings)
+
+CHANGES FOR TradingDesk.tsx:
+- Remove expand/collapse (no ChevronDown/ChevronUp, no expandedDay state, no onToggle)
+- Remove +NEW TRADE button from tabs row
+- Flat table: past days = 1 summary row, today = multiple trade rows always visible
+- Add today summary row (DAY N TOTAL) with Exit All button
+- Add status badges: OPEN (pulsing yellow), PENDING (grey), TP (green), SL (red), Partial (green)
+- Add TP/SL sub-text with edit icons on open trades (under LTP cell)
+- Add Exit All button in summary bar (Today P&L section)
+- Add confirmation prompts for individual exit and exit all
+- Gift day tint: change from info-cyan to gold/warning-amber
+- Instrument display: color-coded tags instead of plain text
+- Date column: add age indicator (right-aligned, e.g., "4h", "2d")
+- Rating icons: add crown (🏆👑) and jackpot (🏆🏆👑💰)
+- NewTradeForm always visible in today section (no toggle)
+
+CHANGES FOR NewTradeForm.tsx:
+- Capital % dropdown (5,10,15,20,25) instead of slider (5-100)
+- Show LTP in the LTP column (auto-filled)
+- Always visible in today section
+
+CHANGES FOR MainScreen.tsx:
+- Remove <SummaryBar /> import and usage (line 247)
+- The Trading Desk has its own summary bar

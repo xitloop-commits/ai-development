@@ -157,8 +157,10 @@ export function completeDayIndex(
 
   // Rating based on profit % against trade capital
   const profitPercent = (profit / dayRecord.tradeCapital) * 100;
-  let rating: DayRating = "trophy";
-  if (profitPercent >= 10) rating = "double_trophy";
+  let rating: DayRating = "trophy"; // ≥5% single day (Rating 2)
+  if (profitPercent >= 50) rating = "jackpot";       // ≥50% (Rating 5: 🏆🏆👑💰)
+  else if (profitPercent >= 20) rating = "crown";     // ≥20% (Rating 4: 🏆👑)
+  else if (profitPercent >= 10) rating = "double_trophy"; // ≥10% (Rating 3: 🏆🏆)
 
   return {
     tradingPool: round(state.tradingPool + tradingShare),

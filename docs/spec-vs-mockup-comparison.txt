@@ -1,0 +1,87 @@
+Trading Desk Spec v1.0 vs Mockup v3 — Comparison
+===================================================
+
+SPEC SECTION → MOCKUP CHECK
+
+1. OVERVIEW (Sec 1)
+   - 250-day compounding challenge ✅ (mockup shows "250-Day Compounding Challenge" in title, "7 of 250 days")
+
+2. CORE CONCEPTS (Sec 2)
+   2.1 250-Day Challenge ✅ (250 rows, Day 1-250)
+   2.2 Dual Workspaces ✅ (Two tabs: "My Trades LIVE" + "AI Trades PAPER")
+   2.3 Capital Definitions:
+       - Trade Capital ✅ (shown in table + summary bar as "Trade Cap")
+       - Available Capital ✅ (shown in summary bar as "Available ₹38,200")
+       - Actual Capital ✅ (column in table, includes realized+unrealized)
+       - Original Proj Capital (hidden) — N/A in mockup (correct, it's hidden)
+
+3. UI LAYOUT (Sec 3)
+   3.1 Tabs ✅ (My Trades LIVE with green badge, AI Trades PAPER with yellow badge)
+   3.2 Summary Bar:
+       - Current Day ✅ ("7 of 250 days")
+       - Trade Capital ✅ ("Trade Cap ₹75,128")
+       - Available ✅ ("Available ₹38,200")
+       - Profit ✅ ("Profit +₹25,128")
+       - Today's P&L / Target ✅ ("+₹950 / ₹3,756" with Exit All ×)
+       - Charges ✅ ("Charges ₹1,842")
+       - Reserve ✅ ("Reserve ₹33,376")
+       - Quarterly Projection ✅ ("Q1 FY27 ₹4,82,000")
+       - Net/Gross Toggle ✅ (NET/GROSS buttons)
+       - Net Worth ✅ ("Net Worth ₹1,08,504")
+   3.3 Compounding Table:
+       16 columns ✅ All present in header
+
+4. ROW TYPES (Sec 4)
+   4.1 Past Days:
+       - Green tint ✅
+       - Single summary row ✅
+       - Aggregated Qty ✅ (75, 120, 100, 80, 25)
+       - Dashes for Type/Strike/Entry/LTP ✅
+       - Multiple instrument tags ✅ (Day 2: NIFTY 50 + CRUDE)
+       - Rating icons ✅ (🏆, 🏆🏆, ⭐)
+   4.2 Gift Days:
+       - Gold tint ✅ (Day 3)
+       - P&L = exact target ✅ (₹4,134 = 5.0%)
+       - Deviation = ₹0 ✅
+       - 🎁 rating ✅
+       - Dashes for trade details ✅
+   4.3 Today:
+       - Yellow tint + left border ✅
+       - Individual trade rows ✅ (6 trades shown)
+       - OPEN badge with pulsing dot ✅
+       - TP/SL sub-text ✅ (visible under LTP for open trades)
+       - Edit icons (✎) next to TP/SL ✅
+       - Exit (×) buttons ✅ (green for profit, red for loss)
+       - PENDING status ✅ (Trade 6 shows PENDING with grey pulsing dot)
+       - New trade input row ✅
+       - Summary row (DAY 7 TOTAL) ✅
+       - (+) new trade button ✅
+       - Exit All on summary row ✅
+   4.4 Future Days:
+       - Dimmed ✅ (opacity reduced)
+       - Dynamic projections ✅ (recalculated from today's capital)
+       - Weekend skip ✅ (Day 12 = 14-Apr, skipping 12-Apr Sat, 13-Apr Sun)
+       - ⬜ for future ✅
+       - 🏁 for Day 250 ✅
+
+5. CORE MECHANICS (Sec 5)
+   5.1 Trade Execution:
+       - Bracket orders — Spec says TP/SL auto-calculated from settings ✅ (TP/SL shown on open trades)
+       - Capital % selector ✅ (5%-25% dropdown visible, with "~27 lots • ₹3,820" hint)
+       ⚠️ ISSUE: Capital % selector only shows 5%-25%. Spec says 5%-100%. Missing 50% and 100% options.
+       - Entry auto-fill from LTP ✅ (LTP shows "142.35" in input row)
+       - Confirmation prompts — Cannot verify in static mockup (behavioral)
+       - External sync — Cannot verify in static mockup (behavioral)
+   5.2 Day Completion — Behavioral, cannot verify in mockup
+   5.3 Loss Adjustment — Behavioral, cannot verify in mockup
+   5.4 Target % Changes — Behavioral, cannot verify in mockup
+
+6. BROKER INTEGRATION (Sec 6) — Referenced as separate spec, not mockup concern
+
+DISCREPANCIES FOUND:
+1. ⚠️ Capital % selector missing 50% and 100% options (only shows 5%-25%)
+2. ⚠️ Date column for past days: Spec says "age/duration open" right-aligned. Day 3 (gift) shows no age — correct since gift days are auto-completed. But should gift days show any age indicator?
+3. ⚠️ Rating system: Spec mentions ratings 🏆👑 (4, ≥20%) and 🏆🏆👑💰 (5, ≥50%) from brainstorming, but these are NOT in the spec document. The spec only mentions 🏆 and 🏆🏆 as examples. The full rating table from brainstorming is missing from the spec.
+4. ⚠️ Spec says "Trade Capital, Target, Proj Capital for today's sub-rows: first row shows values normally, subsequent rows show dimmed." Mockup shows this correctly with dim-value class.
+5. ⚠️ The spec doesn't explicitly mention the "new" label shown in the new trade input row's Date column. Minor visual detail.
+6. ⚠️ Spec says Actual Capital includes "realized + unrealized" but for today's individual trade rows, mockup shows dashes (—) which is correct since Actual Capital is only meaningful at the day summary level.

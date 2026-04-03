@@ -227,7 +227,7 @@ export const capitalRouter = router({
       type: z.enum(["CALL_BUY", "CALL_SELL", "PUT_BUY", "PUT_SELL", "BUY", "SELL"]),
       strike: z.number().nullable().default(null),
       entryPrice: z.number().positive(),
-      capitalPercent: z.number().min(5).max(100),
+      capitalPercent: z.number().min(5).max(25),
       expiry: z.string().optional().default(""),  // expiry date (YYYY-MM-DD), empty = nearest
       targetPercent: z.number().optional(),   // TP % from entry
       stopLossPercent: z.number().optional(),  // SL % from entry
@@ -252,10 +252,12 @@ export const capitalRouter = router({
         throw new Error("Insufficient capital for this trade");
       }
 
-      // Calculate bracket order levels
+      // Calculate bracket order levels — TP/SL defaults from user settings
       const isBuy = input.type.includes("BUY");
-      const tpPercent = input.targetPercent ?? 5;
-      const slPercent = input.stopLossPercent ?? 2;
+      // TP/SL defaults — UserSettingsDoc doesn't have a 'trading' sub-object yet.
+      // TODO: Add trading.defaultTpPercent / defaultSlPercent to UserSettingsDoc when settings spec is finalized.
+      const tpPercent = input.targetPercent ?? 30;
+      const slPercent = input.stopLossPercent ?? 10;
       const targetPrice = isBuy
         ? Math.round(input.entryPrice * (1 + tpPercent / 100) * 100) / 100
         : Math.round(input.entryPrice * (1 - tpPercent / 100) * 100) / 100;

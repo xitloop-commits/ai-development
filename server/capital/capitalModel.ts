@@ -13,11 +13,11 @@ import mongoose, { Schema } from "mongoose";
 
 export type Workspace = "live" | "paper";
 
-export type TradeStatus = "OPEN" | "CLOSED_TP" | "CLOSED_SL" | "CLOSED_MANUAL" | "CLOSED_PARTIAL" | "CLOSED_EOD";
+export type TradeStatus = "OPEN" | "PENDING" | "CANCELLED" | "CLOSED_TP" | "CLOSED_SL" | "CLOSED_MANUAL" | "CLOSED_PARTIAL" | "CLOSED_EOD";
 
 export type DayStatus = "ACTIVE" | "COMPLETED" | "GIFT" | "FUTURE";
 
-export type DayRating = "trophy" | "double_trophy" | "gift" | "star" | "future" | "finish";
+export type DayRating = "trophy" | "double_trophy" | "crown" | "jackpot" | "gift" | "star" | "future" | "finish";
 
 export interface TradeRecord {
   id: string;

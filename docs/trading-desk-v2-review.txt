@@ -1,0 +1,30 @@
+Trading Desk v2 Mockup Visual Review
+=====================================
+
+Overall: The mockup renders correctly with all required elements.
+
+Verified elements:
+- Tabs: "My Trades LIVE" and "AI Trades PAPER" — both visible, active tab has cyan border
+- Summary Bar: Day 7 of 250, Capital, Profit, Today's P&L with Exit All, Target Remaining, Schedule — all present
+- Past Days (1-6): Green tint, single row per day, aggregated data, dashes for trade detail columns
+- Gift Day (3): Gold tint, P&L shows exact target, Deviation = 0, 🎁 rating
+- Multi-day (5): Star ⭐ rating, age shows "2d"
+- Today (7): Yellow tint with left border, 6 trade rows visible
+  - Trade 1: Closed TP (green badge)
+  - Trade 2: Closed SL (red badge)
+  - Trade 3: Closed Partial (green badge)
+  - Trade 4: OPEN in profit (green exit button, pulsing dot)
+  - Trade 5: OPEN in loss (red exit button, pulsing dot)
+  - Trade 6: SHORT OPEN in profit (green exit button)
+- New Trade Input Row: Green left border, instrument dropdown, B/S toggle, CE/PE toggle, strike/entry inputs, LTP auto-fill, capital % selector with lot/amount hint, confirm/cancel buttons
+- Today Summary Row: DAY 7 TOTAL, + new trade button, summed qty, total P&L with Exit All, actual capital, deviation
+- Future Days (8-12): Dimmed, projected values, ⬜ rating
+- Day 250: 🏁 flag, cyan projected capital
+- Date column: Shows date left-aligned and age right-aligned (4h, 2h, 6h, 2d, 3h, 3h)
+- Capital % selector: Shows 5%, 10%, 15%, 20%, 25%, 50%, 100% options with calculated lots and amount hint
+- Day 12 date: 14-Apr (skipped weekend correctly)
+
+Items to note:
+- Actual Capital and Deviation columns are cut off on the right edge due to 15-column width
+- The table is scrollable horizontally which handles this
+- All row types visually distinct and easily identifiable
