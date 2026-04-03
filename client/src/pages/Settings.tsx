@@ -1,10 +1,10 @@
 /**
- * Settings Page — Feature 4: Settings Foundation
+ * Settings Page — Feature 4: Settings Foundation (Spec v1.2)
  * Terminal Noir themed settings page with sidebar navigation and 6 sections:
  * 1. Broker Config
- * 2. Order Execution
- * 3. Discipline
- * 4. Time Windows
+ * 2. Order Execution (+ daily target, trailing stop)
+ * 3. Discipline (new backend: trpc.discipline.getSettings/updateSettings)
+ * 4. Time Windows (with enabled toggles)
  * 5. Expiry Controls
  * 6. Charges
  */
@@ -55,8 +55,8 @@ interface SectionItem {
 
 const SECTIONS: SectionItem[] = [
   { id: 'broker', label: 'Broker Config', icon: Wallet, description: 'Active broker, credentials, connection status' },
-  { id: 'execution', label: 'Order Execution', icon: Zap, description: 'Entry offset, SL/TP, order & product type' },
-  { id: 'discipline', label: 'Discipline', icon: ShieldCheck, description: 'Trade limits, loss limits, checklist rules' },
+  { id: 'execution', label: 'Order Execution', icon: Zap, description: 'Entry offset, SL/TP, targets, trailing stop' },
+  { id: 'discipline', label: 'Discipline', icon: ShieldCheck, description: 'Circuit breaker, trade limits, pre-trade gate, streaks' },
   { id: 'timeWindows', label: 'Time Windows', icon: Clock, description: 'NSE & MCX trading time restrictions' },
   { id: 'expiry', label: 'Expiry Controls', icon: CalendarClock, description: 'Per-instrument expiry day rules' },
   { id: 'charges', label: 'Charges', icon: Receipt, description: 'Brokerage, STT, GST, and other charge rates' },
@@ -123,6 +123,7 @@ function NumberInput({
   step = 1,
   suffix = '',
   className = '',
+  disabled = false,
 }: {
   value: number;
   onChange: (v: number) => void;
@@ -131,6 +132,7 @@ function NumberInput({
   step?: number;
   suffix?: string;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
     <div className={`flex items-center gap-1.5 ${className}`}>
@@ -148,7 +150,8 @@ function NumberInput({
         min={min}
         max={max}
         step={step}
-        className="w-20 h-8 px-2 text-[11px] bg-background border border-border rounded text-foreground tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
+        disabled={disabled}
+        className="w-20 h-8 px-2 text-[11px] bg-background border border-border rounded text-foreground tabular-nums focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
       />
       {suffix && (
         <span className="text-[10px] text-muted-foreground">{suffix}</span>
@@ -161,16 +164,19 @@ function SelectInput({
   value,
   onChange,
   options,
+  disabled = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   options: { value: string; label: string }[];
+  disabled?: boolean;
 }) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-8 px-2 text-[11px] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+      disabled={disabled}
+      className="h-8 px-2 text-[11px] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {options.map((opt) => (
         <option key={opt.value} value={opt.value}>
@@ -181,13 +187,14 @@ function SelectInput({
   );
 }
 
-function TimeInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function TimeInput({ value, onChange, disabled = false }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
   return (
     <input
       type="time"
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-8 px-2 text-[11px] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+      disabled={disabled}
+      className="h-8 px-2 text-[11px] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
     />
   );
 }
@@ -239,6 +246,35 @@ function ResetButton({ onClick }: { onClick: () => void }) {
       <RotateCcw className="h-3 w-3" />
       RESET
     </button>
+  );
+}
+
+/** Discipline rule row with enabled toggle + configurable value */
+function DisciplineRow({
+  label,
+  hint,
+  enabled,
+  onToggle,
+  children,
+}: {
+  label: string;
+  hint: string;
+  enabled: boolean;
+  onToggle: (v: boolean) => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className={`space-y-2 ${!enabled ? 'opacity-60' : ''}`}>
+      <div className="flex items-center justify-between">
+        <FieldLabel hint={hint}>{label}</FieldLabel>
+        <ToggleSwitch checked={enabled} onChange={onToggle} />
+      </div>
+      {enabled && children && (
+        <div className="pl-4 border-l-2 border-primary/20 space-y-3">
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -302,7 +338,6 @@ export function BrokerConfigSection() {
             <SelectInput
               value={status?.activeBrokerId ?? ''}
               onChange={(v) => {
-                // If config exists for this broker, switch; otherwise setup
                 const hasConfig = allConfigs.some((c) => c.brokerId === v);
                 if (hasConfig) {
                   switchMutation.mutate({ brokerId: v });
@@ -485,17 +520,32 @@ export function OrderExecutionSection() {
     defaultTP: 5.0,
     orderType: 'LIMIT' as string,
     productType: 'INTRADAY' as string,
+    // Daily target
+    dailyTargetPercent: 5,
+    // Per-instrument trade targets
+    tradeTargetOptions: 30,
+    tradeTargetOther: 2,
+    // Trailing stop (moved from Discipline per spec v1.2)
+    trailingStopEnabled: false,
+    trailingStopPercent: 1.5,
   });
 
   useEffect(() => {
     if (config?.settings) {
-      setSettings({
+      setSettings((prev) => ({
+        ...prev,
         orderEntryOffset: config.settings.orderEntryOffset,
         defaultSL: config.settings.defaultSL,
         defaultTP: config.settings.defaultTP,
         orderType: config.settings.orderType,
         productType: config.settings.productType,
-      });
+        // These may not exist yet in broker config, use defaults
+        dailyTargetPercent: (config.settings as any).dailyTargetPercent ?? prev.dailyTargetPercent,
+        tradeTargetOptions: (config.settings as any).tradeTargetOptions ?? prev.tradeTargetOptions,
+        tradeTargetOther: (config.settings as any).tradeTargetOther ?? prev.tradeTargetOther,
+        trailingStopEnabled: (config.settings as any).trailingStopEnabled ?? prev.trailingStopEnabled,
+        trailingStopPercent: (config.settings as any).trailingStopPercent ?? prev.trailingStopPercent,
+      }));
     }
   }, [config]);
 
@@ -517,7 +567,12 @@ export function OrderExecutionSection() {
         defaultTP: settings.defaultTP,
         orderType: settings.orderType as any,
         productType: settings.productType as any,
-      },
+        dailyTargetPercent: settings.dailyTargetPercent,
+        tradeTargetOptions: settings.tradeTargetOptions,
+        tradeTargetOther: settings.tradeTargetOther,
+        trailingStopEnabled: settings.trailingStopEnabled,
+        trailingStopPercent: settings.trailingStopPercent,
+      } as any,
     });
   };
 
@@ -529,6 +584,11 @@ export function OrderExecutionSection() {
         defaultTP: config.settings.defaultTP,
         orderType: config.settings.orderType,
         productType: config.settings.productType,
+        dailyTargetPercent: (config.settings as any).dailyTargetPercent ?? 5,
+        tradeTargetOptions: (config.settings as any).tradeTargetOptions ?? 30,
+        tradeTargetOther: (config.settings as any).tradeTargetOther ?? 2,
+        trailingStopEnabled: (config.settings as any).trailingStopEnabled ?? false,
+        trailingStopPercent: (config.settings as any).trailingStopPercent ?? 1.5,
       });
     }
   };
@@ -543,6 +603,31 @@ export function OrderExecutionSection() {
 
   return (
     <div className="space-y-4">
+      {/* Daily Target */}
+      <SettingsCard title="Daily Target">
+        <div className="space-y-1 mb-3">
+          <span className="text-[10px] text-muted-foreground">
+            Target profit per Day Index cycle on Trading Capital. Used by the capital compounding system.
+          </span>
+        </div>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Target profit % per Day Index cycle (default 5%)">
+              Daily Target
+            </FieldLabel>
+            <NumberInput
+              value={settings.dailyTargetPercent}
+              onChange={(v) => setSettings((s) => ({ ...s, dailyTargetPercent: v }))}
+              min={1}
+              max={20}
+              step={0.5}
+              suffix="%"
+            />
+          </div>
+        </div>
+      </SettingsCard>
+
+      {/* Order Entry */}
       <SettingsCard title="Order Entry">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -590,6 +675,7 @@ export function OrderExecutionSection() {
         </div>
       </SettingsCard>
 
+      {/* Risk Management */}
       <SettingsCard title="Risk Management">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -606,197 +692,35 @@ export function OrderExecutionSection() {
             />
           </div>
           <div className="flex items-center justify-between">
-            <FieldLabel hint="Default target profit percentage from entry price">
-              Default Target Profit
+            <FieldLabel hint="Default per-trade target for Options">
+              Trade Target (Options)
             </FieldLabel>
             <NumberInput
-              value={settings.defaultTP}
-              onChange={(v) => setSettings((s) => ({ ...s, defaultTP: v }))}
-              min={0}
+              value={settings.tradeTargetOptions}
+              onChange={(v) => setSettings((s) => ({ ...s, tradeTargetOptions: v }))}
+              min={5}
               max={100}
-              step={0.5}
-              suffix="%"
-            />
-          </div>
-        </div>
-      </SettingsCard>
-
-      <div className="flex items-center gap-2 justify-end">
-        <ResetButton onClick={handleReset} />
-        <SaveButton onClick={handleSave} loading={updateMutation.isPending} />
-      </div>
-    </div>
-  );
-}
-
-export function DisciplineSection() {
-  const settingsQuery = trpc.settings.get.useQuery();
-  const [discipline, setDiscipline] = useState(settingsQuery.data?.discipline);
-
-  useEffect(() => {
-    if (settingsQuery.data?.discipline) {
-      setDiscipline({ ...settingsQuery.data.discipline });
-    }
-  }, [settingsQuery.data]);
-
-  const updateMutation = trpc.settings.updateDiscipline.useMutation({
-    onSuccess: () => {
-      toast.success('Discipline settings saved');
-      settingsQuery.refetch();
-    },
-    onError: (err) => toast.error(err.message),
-  });
-
-  const handleSave = () => {
-    if (!discipline) return;
-    updateMutation.mutate(discipline);
-  };
-
-  const handleReset = () => {
-    if (settingsQuery.data?.discipline) {
-      setDiscipline({ ...settingsQuery.data.discipline });
-    }
-  };
-
-  if (!discipline) {
-    return (
-      <SettingsCard>
-        <div className="flex items-center gap-2">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-          <span className="text-[11px] text-muted-foreground">Loading discipline settings...</span>
-        </div>
-      </SettingsCard>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <SettingsCard title="Trade Limits">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="Maximum trades per day (combined NSE + MCX)">
-              Max Trades / Day
-            </FieldLabel>
-            <NumberInput
-              value={discipline.maxTradesPerDay}
-              onChange={(v) => setDiscipline((s) => s ? { ...s, maxTradesPerDay: v } : s)}
-              min={1}
-              max={50}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="Maximum position size as % of capital">
-              Max Position Size
-            </FieldLabel>
-            <NumberInput
-              value={discipline.maxPositionSize}
-              onChange={(v) => setDiscipline((s) => s ? { ...s, maxPositionSize: v } : s)}
-              min={1}
-              max={100}
-              suffix="%"
-            />
-          </div>
-        </div>
-      </SettingsCard>
-
-      <SettingsCard title="Loss Protection">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="Daily loss limit in rupees">
-              Max Loss / Day
-            </FieldLabel>
-            <NumberInput
-              value={discipline.maxLossPerDay}
-              onChange={(v) => setDiscipline((s) => s ? { ...s, maxLossPerDay: v } : s)}
-              min={0}
-              suffix="₹"
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="Daily loss limit as % of capital">
-              Max Loss / Day (%)
-            </FieldLabel>
-            <NumberInput
-              value={discipline.maxLossPerDayPercent}
-              onChange={(v) => setDiscipline((s) => s ? { ...s, maxLossPerDayPercent: v } : s)}
-              min={0}
-              max={100}
-              step={0.5}
+              step={1}
               suffix="%"
             />
           </div>
           <div className="flex items-center justify-between">
-            <FieldLabel hint="Stop trading after N consecutive losses">
-              Max Consecutive Losses
+            <FieldLabel hint="Default per-trade target for Equities/Futures">
+              Trade Target (Other)
             </FieldLabel>
             <NumberInput
-              value={discipline.maxConsecutiveLosses}
-              onChange={(v) => setDiscipline((s) => s ? { ...s, maxConsecutiveLosses: v } : s)}
-              min={1}
+              value={settings.tradeTargetOther}
+              onChange={(v) => setSettings((s) => ({ ...s, tradeTargetOther: v }))}
+              min={0.5}
               max={20}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="Cooldown period after a losing trade">
-              Cooldown After Loss
-            </FieldLabel>
-            <NumberInput
-              value={discipline.cooldownAfterLoss}
-              onChange={(v) => setDiscipline((s) => s ? { ...s, cooldownAfterLoss: v } : s)}
-              min={0}
-              max={120}
-              suffix="min"
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="Block all trades after hitting daily loss limit">
-              No Revenge Trading
-            </FieldLabel>
-            <ToggleSwitch
-              checked={discipline.noRevengeTrading}
-              onChange={(v) => setDiscipline((s) => s ? { ...s, noRevengeTrading: v } : s)}
+              step={0.5}
+              suffix="%"
             />
           </div>
         </div>
       </SettingsCard>
 
-      <SettingsCard title="Pre-Trade Checks">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="Require completing the pre-entry checklist">
-              Mandatory Checklist
-            </FieldLabel>
-            <ToggleSwitch
-              checked={discipline.mandatoryChecklist}
-              onChange={(v) => setDiscipline((s) => s ? { ...s, mandatoryChecklist: v } : s)}
-            />
-          </div>
-          {discipline.mandatoryChecklist && (
-            <div className="flex items-center justify-between">
-              <FieldLabel hint="Minimum checklist score required to trade">
-                Min Checklist Score
-              </FieldLabel>
-              <NumberInput
-                value={discipline.minChecklistScore}
-                onChange={(v) => setDiscipline((s) => s ? { ...s, minChecklistScore: v } : s)}
-                min={0}
-                max={100}
-                suffix="/100"
-              />
-            </div>
-          )}
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="Require a written rationale for each trade">
-              Require Rationale
-            </FieldLabel>
-            <ToggleSwitch
-              checked={discipline.requireRationale}
-              onChange={(v) => setDiscipline((s) => s ? { ...s, requireRationale: v } : s)}
-            />
-          </div>
-        </div>
-      </SettingsCard>
-
+      {/* Trailing Stop */}
       <SettingsCard title="Trailing Stop">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -804,19 +728,19 @@ export function DisciplineSection() {
               Trailing Stop
             </FieldLabel>
             <ToggleSwitch
-              checked={discipline.trailingStopEnabled}
-              onChange={(v) => setDiscipline((s) => s ? { ...s, trailingStopEnabled: v } : s)}
+              checked={settings.trailingStopEnabled}
+              onChange={(v) => setSettings((s) => ({ ...s, trailingStopEnabled: v }))}
             />
           </div>
-          {discipline.trailingStopEnabled && (
+          {settings.trailingStopEnabled && (
             <div className="flex items-center justify-between">
-              <FieldLabel hint="Trailing stop loss distance from peak">
-                Trailing SL %
+              <FieldLabel hint="Trailing SL distance from peak price">
+                Trailing SL
               </FieldLabel>
               <NumberInput
-                value={discipline.trailingStopPercent}
-                onChange={(v) => setDiscipline((s) => s ? { ...s, trailingStopPercent: v } : s)}
-                min={0}
+                value={settings.trailingStopPercent}
+                onChange={(v) => setSettings((s) => ({ ...s, trailingStopPercent: v }))}
+                min={0.1}
                 max={50}
                 step={0.1}
                 suffix="%"
@@ -834,17 +758,424 @@ export function DisciplineSection() {
   );
 }
 
-export function TimeWindowsSection() {
-  const settingsQuery = trpc.settings.get.useQuery();
-  const [timeWindows, setTimeWindows] = useState(settingsQuery.data?.timeWindows);
+export function DisciplineSection() {
+  // Use the NEW discipline backend (trpc.discipline.getSettings/updateSettings)
+  const settingsQuery = trpc.discipline.getSettings.useQuery();
+  const [ds, setDs] = useState<any>(null);
 
   useEffect(() => {
-    if (settingsQuery.data?.timeWindows) {
-      setTimeWindows(JSON.parse(JSON.stringify(settingsQuery.data.timeWindows)));
+    if (settingsQuery.data) {
+      setDs(JSON.parse(JSON.stringify(settingsQuery.data)));
     }
   }, [settingsQuery.data]);
 
-  const updateMutation = trpc.settings.updateTimeWindows.useMutation({
+  const updateMutation = trpc.discipline.updateSettings.useMutation({
+    onSuccess: () => {
+      toast.success('Discipline settings saved');
+      settingsQuery.refetch();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const handleSave = () => {
+    if (!ds) return;
+    // Send only the settings fields, not userId/updatedAt/history
+    const { userId, updatedAt, history, _id, __v, ...settingsOnly } = ds;
+    updateMutation.mutate(settingsOnly);
+  };
+
+  const handleReset = () => {
+    if (settingsQuery.data) {
+      setDs(JSON.parse(JSON.stringify(settingsQuery.data)));
+    }
+  };
+
+  if (!ds) {
+    return (
+      <SettingsCard>
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          <span className="text-[11px] text-muted-foreground">Loading discipline settings...</span>
+        </div>
+      </SettingsCard>
+    );
+  }
+
+  // Helper to update nested discipline state
+  const upd = (path: string, value: any) => {
+    setDs((prev: any) => {
+      const next = JSON.parse(JSON.stringify(prev));
+      const parts = path.split('.');
+      let obj = next;
+      for (let i = 0; i < parts.length - 1; i++) {
+        obj = obj[parts[i]];
+      }
+      obj[parts[parts.length - 1]] = value;
+      return next;
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Circuit Breaker */}
+      <SettingsCard title="Circuit Breaker">
+        <div className="space-y-4">
+          <DisciplineRow
+            label="Daily Loss Limit"
+            hint="Stop all trading when daily loss reaches this % of capital"
+            enabled={ds.dailyLossLimit?.enabled ?? true}
+            onToggle={(v) => upd('dailyLossLimit.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="% of opening capital (combined NSE + MCX)">Threshold</FieldLabel>
+              <NumberInput
+                value={ds.dailyLossLimit?.thresholdPercent ?? 3}
+                onChange={(v) => upd('dailyLossLimit.thresholdPercent', v)}
+                min={1}
+                max={20}
+                step={0.5}
+                suffix="%"
+              />
+            </div>
+          </DisciplineRow>
+
+          <DisciplineRow
+            label="Max Consecutive Losses"
+            hint="Force cooldown after N consecutive losing trades"
+            enabled={ds.maxConsecutiveLosses?.enabled ?? true}
+            onToggle={(v) => upd('maxConsecutiveLosses.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="Number of consecutive losses to trigger">Max Losses</FieldLabel>
+              <NumberInput
+                value={ds.maxConsecutiveLosses?.maxLosses ?? 3}
+                onChange={(v) => upd('maxConsecutiveLosses.maxLosses', v)}
+                min={1}
+                max={10}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="Cooldown duration after trigger">Cooldown</FieldLabel>
+              <NumberInput
+                value={ds.maxConsecutiveLosses?.cooldownMinutes ?? 30}
+                onChange={(v) => upd('maxConsecutiveLosses.cooldownMinutes', v)}
+                min={5}
+                max={120}
+                suffix="min"
+              />
+            </div>
+          </DisciplineRow>
+        </div>
+      </SettingsCard>
+
+      {/* Trade Limits */}
+      <SettingsCard title="Trade Limits">
+        <div className="space-y-4">
+          <DisciplineRow
+            label="Max Trades / Day"
+            hint="Hard limit on total trades per day (combined NSE + MCX)"
+            enabled={ds.maxTradesPerDay?.enabled ?? true}
+            onToggle={(v) => upd('maxTradesPerDay.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="Maximum number of trades">Limit</FieldLabel>
+              <NumberInput
+                value={ds.maxTradesPerDay?.limit ?? 5}
+                onChange={(v) => upd('maxTradesPerDay.limit', v)}
+                min={1}
+                max={50}
+              />
+            </div>
+          </DisciplineRow>
+
+          <DisciplineRow
+            label="Max Open Positions"
+            hint="Hard limit on simultaneously open positions"
+            enabled={ds.maxOpenPositions?.enabled ?? true}
+            onToggle={(v) => upd('maxOpenPositions.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="Maximum concurrent positions">Limit</FieldLabel>
+              <NumberInput
+                value={ds.maxOpenPositions?.limit ?? 3}
+                onChange={(v) => upd('maxOpenPositions.limit', v)}
+                min={1}
+                max={20}
+              />
+            </div>
+          </DisciplineRow>
+
+          <DisciplineRow
+            label="Revenge Trade Cooldown"
+            hint="Mandatory cooldown after a stop-loss hit"
+            enabled={ds.revengeCooldown?.enabled ?? true}
+            onToggle={(v) => upd('revengeCooldown.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="Cooldown duration">Duration</FieldLabel>
+              <SelectInput
+                value={String(ds.revengeCooldown?.durationMinutes ?? 15)}
+                onChange={(v) => upd('revengeCooldown.durationMinutes', parseInt(v))}
+                options={[
+                  { value: '10', label: '10 min' },
+                  { value: '15', label: '15 min' },
+                  { value: '30', label: '30 min' },
+                ]}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="Require typing 'I accept the loss' before cooldown starts">
+                Require Acknowledgment
+              </FieldLabel>
+              <ToggleSwitch
+                checked={ds.revengeCooldown?.requireAcknowledgment ?? true}
+                onChange={(v) => upd('revengeCooldown.requireAcknowledgment', v)}
+              />
+            </div>
+          </DisciplineRow>
+        </div>
+      </SettingsCard>
+
+      {/* Pre-Trade Gate */}
+      <SettingsCard title="Pre-Trade Gate">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between mb-2">
+            <FieldLabel hint="Master toggle for all pre-trade checks">Pre-Trade Gate</FieldLabel>
+            <ToggleSwitch
+              checked={ds.preTradeGate?.enabled ?? true}
+              onChange={(v) => upd('preTradeGate.enabled', v)}
+            />
+          </div>
+
+          {ds.preTradeGate?.enabled && (
+            <div className="pl-4 border-l-2 border-primary/20 space-y-4">
+              <DisciplineRow
+                label="Min Risk:Reward"
+                hint="Block trades below this R:R ratio"
+                enabled={ds.preTradeGate?.minRiskReward?.enabled ?? true}
+                onToggle={(v) => upd('preTradeGate.minRiskReward.enabled', v)}
+              >
+                <div className="flex items-center justify-between">
+                  <FieldLabel hint="Minimum R:R ratio (e.g. 1.5 = 1:1.5)">Ratio</FieldLabel>
+                  <NumberInput
+                    value={ds.preTradeGate?.minRiskReward?.ratio ?? 1.5}
+                    onChange={(v) => upd('preTradeGate.minRiskReward.ratio', v)}
+                    min={0.5}
+                    max={10}
+                    step={0.1}
+                    suffix=":1"
+                  />
+                </div>
+              </DisciplineRow>
+
+              <DisciplineRow
+                label="Emotional State Check"
+                hint="Block trades when in dangerous emotional states"
+                enabled={ds.preTradeGate?.emotionalStateCheck?.enabled ?? true}
+                onToggle={(v) => upd('preTradeGate.emotionalStateCheck.enabled', v)}
+              >
+                <div className="space-y-2">
+                  <FieldLabel hint="Select emotional states that block trading">Block States</FieldLabel>
+                  <div className="flex flex-wrap gap-2">
+                    {['revenge', 'fomo', 'greedy', 'anxious'].map((state) => {
+                      const active = (ds.preTradeGate?.emotionalStateCheck?.blockStates ?? []).includes(state);
+                      return (
+                        <button
+                          key={state}
+                          onClick={() => {
+                            const current = ds.preTradeGate?.emotionalStateCheck?.blockStates ?? [];
+                            const next = active
+                              ? current.filter((s: string) => s !== state)
+                              : [...current, state];
+                            upd('preTradeGate.emotionalStateCheck.blockStates', next);
+                          }}
+                          className={`px-2.5 py-1 rounded text-[10px] font-bold tracking-wider uppercase border transition-colors ${
+                            active
+                              ? 'bg-destructive/10 text-destructive border-destructive/30'
+                              : 'bg-muted text-muted-foreground border-border hover:bg-accent'
+                          }`}
+                        >
+                          {state}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </DisciplineRow>
+            </div>
+          )}
+        </div>
+      </SettingsCard>
+
+      {/* Position Sizing */}
+      <SettingsCard title="Position Sizing">
+        <div className="space-y-4">
+          <DisciplineRow
+            label="Max Position Size"
+            hint="Maximum single position as % of capital"
+            enabled={ds.maxPositionSize?.enabled ?? true}
+            onToggle={(v) => upd('maxPositionSize.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="% of capital per position">Max %</FieldLabel>
+              <NumberInput
+                value={ds.maxPositionSize?.percentOfCapital ?? 40}
+                onChange={(v) => upd('maxPositionSize.percentOfCapital', v)}
+                min={5}
+                max={100}
+                step={5}
+                suffix="%"
+              />
+            </div>
+          </DisciplineRow>
+
+          <DisciplineRow
+            label="Max Total Exposure"
+            hint="Maximum total exposure across all open positions"
+            enabled={ds.maxTotalExposure?.enabled ?? true}
+            onToggle={(v) => upd('maxTotalExposure.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="% of capital across all positions">Max %</FieldLabel>
+              <NumberInput
+                value={ds.maxTotalExposure?.percentOfCapital ?? 80}
+                onChange={(v) => upd('maxTotalExposure.percentOfCapital', v)}
+                min={10}
+                max={200}
+                step={5}
+                suffix="%"
+              />
+            </div>
+          </DisciplineRow>
+        </div>
+      </SettingsCard>
+
+      {/* Journal & Review */}
+      <SettingsCard title="Journal & Review">
+        <div className="space-y-4">
+          <DisciplineRow
+            label="Journal Enforcement"
+            hint="Block new trades when too many trades are unjournaled"
+            enabled={ds.journalEnforcement?.enabled ?? true}
+            onToggle={(v) => upd('journalEnforcement.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="Max unjournaled trades before blocking">Max Unjournaled</FieldLabel>
+              <NumberInput
+                value={ds.journalEnforcement?.maxUnjournaled ?? 3}
+                onChange={(v) => upd('journalEnforcement.maxUnjournaled', v)}
+                min={1}
+                max={20}
+              />
+            </div>
+          </DisciplineRow>
+
+          <DisciplineRow
+            label="Weekly Review"
+            hint="Enforce weekly performance review"
+            enabled={ds.weeklyReview?.enabled ?? true}
+            onToggle={(v) => upd('weeklyReview.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="Show warning when discipline score drops below this">Score Warning</FieldLabel>
+              <NumberInput
+                value={ds.weeklyReview?.disciplineScoreWarning ?? 70}
+                onChange={(v) => upd('weeklyReview.disciplineScoreWarning', v)}
+                min={0}
+                max={100}
+                suffix="/100"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="Reduce limits after N consecutive red weeks">Red Week Trigger</FieldLabel>
+              <NumberInput
+                value={ds.weeklyReview?.redWeekReduction ?? 3}
+                onChange={(v) => upd('weeklyReview.redWeekReduction', v)}
+                min={1}
+                max={10}
+                suffix="weeks"
+              />
+            </div>
+          </DisciplineRow>
+        </div>
+      </SettingsCard>
+
+      {/* Streaks */}
+      <SettingsCard title="Streaks">
+        <div className="space-y-4">
+          <DisciplineRow
+            label="Winning Streak Reminder"
+            hint="Show overconfidence reminder after N winning days"
+            enabled={ds.winningStreakReminder?.enabled ?? true}
+            onToggle={(v) => upd('winningStreakReminder.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="Trigger after N consecutive winning days">After Days</FieldLabel>
+              <NumberInput
+                value={ds.winningStreakReminder?.triggerAfterDays ?? 5}
+                onChange={(v) => upd('winningStreakReminder.triggerAfterDays', v)}
+                min={2}
+                max={20}
+                suffix="days"
+              />
+            </div>
+          </DisciplineRow>
+
+          <DisciplineRow
+            label="Losing Streak Auto-Reduce"
+            hint="Automatically reduce trade limits after consecutive losing days"
+            enabled={ds.losingStreakAutoReduce?.enabled ?? true}
+            onToggle={(v) => upd('losingStreakAutoReduce.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="Trigger after N consecutive losing days">After Days</FieldLabel>
+              <NumberInput
+                value={ds.losingStreakAutoReduce?.triggerAfterDays ?? 3}
+                onChange={(v) => upd('losingStreakAutoReduce.triggerAfterDays', v)}
+                min={1}
+                max={10}
+                suffix="days"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="Reduce limits by this percentage">Reduce By</FieldLabel>
+              <NumberInput
+                value={ds.losingStreakAutoReduce?.reduceByPercent ?? 50}
+                onChange={(v) => upd('losingStreakAutoReduce.reduceByPercent', v)}
+                min={10}
+                max={90}
+                step={10}
+                suffix="%"
+              />
+            </div>
+          </DisciplineRow>
+        </div>
+      </SettingsCard>
+
+      <div className="flex items-center gap-2 justify-end">
+        <ResetButton onClick={handleReset} />
+        <SaveButton onClick={handleSave} loading={updateMutation.isPending} />
+      </div>
+    </div>
+  );
+}
+
+export function TimeWindowsSection() {
+  // Use the NEW discipline backend for time windows (they live in discipline_settings now)
+  const settingsQuery = trpc.discipline.getSettings.useQuery();
+  const [tw, setTw] = useState<any>(null);
+
+  useEffect(() => {
+    if (settingsQuery.data) {
+      setTw({
+        noTradingAfterOpen: JSON.parse(JSON.stringify(settingsQuery.data.noTradingAfterOpen)),
+        noTradingBeforeClose: JSON.parse(JSON.stringify(settingsQuery.data.noTradingBeforeClose)),
+        lunchBreakPause: JSON.parse(JSON.stringify(settingsQuery.data.lunchBreakPause)),
+      });
+    }
+  }, [settingsQuery.data]);
+
+  const updateMutation = trpc.discipline.updateSettings.useMutation({
     onSuccess: () => {
       toast.success('Time window settings saved');
       settingsQuery.refetch();
@@ -853,17 +1184,21 @@ export function TimeWindowsSection() {
   });
 
   const handleSave = () => {
-    if (!timeWindows) return;
-    updateMutation.mutate(timeWindows);
+    if (!tw) return;
+    updateMutation.mutate(tw);
   };
 
   const handleReset = () => {
-    if (settingsQuery.data?.timeWindows) {
-      setTimeWindows(JSON.parse(JSON.stringify(settingsQuery.data.timeWindows)));
+    if (settingsQuery.data) {
+      setTw({
+        noTradingAfterOpen: JSON.parse(JSON.stringify(settingsQuery.data.noTradingAfterOpen)),
+        noTradingBeforeClose: JSON.parse(JSON.stringify(settingsQuery.data.noTradingBeforeClose)),
+        lunchBreakPause: JSON.parse(JSON.stringify(settingsQuery.data.lunchBreakPause)),
+      });
     }
   };
 
-  if (!timeWindows) {
+  if (!tw) {
     return (
       <SettingsCard>
         <div className="flex items-center gap-2">
@@ -876,103 +1211,99 @@ export function TimeWindowsSection() {
 
   return (
     <div className="space-y-4">
-      {/* NSE */}
-      <SettingsCard title="NSE (National Stock Exchange)">
-        <div className="space-y-1 mb-3">
-          <span className="text-[10px] text-muted-foreground">Regular session: 9:15 AM – 3:30 PM IST</span>
-        </div>
-        <div className="space-y-4">
+      {/* No Trading After Open */}
+      <SettingsCard title="No Trading After Market Open">
+        <DisciplineRow
+          label="Block After Open"
+          hint="No trading for first N minutes after market open"
+          enabled={tw.noTradingAfterOpen?.enabled ?? true}
+          onToggle={(v) => setTw((p: any) => ({ ...p, noTradingAfterOpen: { ...p.noTradingAfterOpen, enabled: v } }))}
+        >
           <div className="flex items-center justify-between">
-            <FieldLabel hint="No trading for first N minutes after market open">
-              No-Trade First
-            </FieldLabel>
+            <FieldLabel hint="NSE: First N minutes after 9:15 AM">NSE</FieldLabel>
             <NumberInput
-              value={timeWindows.nse.noTradeFirstMinutes}
-              onChange={(v) => setTimeWindows((s) => s ? { ...s, nse: { ...s.nse, noTradeFirstMinutes: v } } : s)}
+              value={tw.noTradingAfterOpen?.nseMinutes ?? 15}
+              onChange={(v) => setTw((p: any) => ({ ...p, noTradingAfterOpen: { ...p.noTradingAfterOpen, nseMinutes: v } }))}
               min={0}
               max={120}
               suffix="min"
             />
           </div>
           <div className="flex items-center justify-between">
-            <FieldLabel hint="No trading for last N minutes before market close">
-              No-Trade Last
-            </FieldLabel>
+            <FieldLabel hint="MCX: First N minutes after 9:00 AM">MCX</FieldLabel>
             <NumberInput
-              value={timeWindows.nse.noTradeLastMinutes}
-              onChange={(v) => setTimeWindows((s) => s ? { ...s, nse: { ...s.nse, noTradeLastMinutes: v } } : s)}
+              value={tw.noTradingAfterOpen?.mcxMinutes ?? 15}
+              onChange={(v) => setTw((p: any) => ({ ...p, noTradingAfterOpen: { ...p.noTradingAfterOpen, mcxMinutes: v } }))}
               min={0}
               max={120}
               suffix="min"
             />
           </div>
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="Pause trading during lunch break">
-              Lunch Break Pause
-            </FieldLabel>
-            <ToggleSwitch
-              checked={timeWindows.nse.lunchBreakPause}
-              onChange={(v) => setTimeWindows((s) => s ? { ...s, nse: { ...s.nse, lunchBreakPause: v } } : s)}
-            />
-          </div>
-          {timeWindows.nse.lunchBreakPause && (
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <FieldLabel>Start</FieldLabel>
-                <TimeInput
-                  value={timeWindows.nse.lunchBreakStart}
-                  onChange={(v) => setTimeWindows((s) => s ? { ...s, nse: { ...s.nse, lunchBreakStart: v } } : s)}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <FieldLabel>End</FieldLabel>
-                <TimeInput
-                  value={timeWindows.nse.lunchBreakEnd}
-                  onChange={(v) => setTimeWindows((s) => s ? { ...s, nse: { ...s.nse, lunchBreakEnd: v } } : s)}
-                />
-              </div>
-            </div>
-          )}
-        </div>
+        </DisciplineRow>
       </SettingsCard>
 
-      {/* MCX */}
-      <SettingsCard title="MCX (Multi Commodity Exchange)">
-        <div className="space-y-1 mb-3">
-          <span className="text-[10px] text-muted-foreground">Regular session: 9:00 AM – 11:30 PM IST</span>
-        </div>
-        <div className="space-y-4">
+      {/* No Trading Before Close */}
+      <SettingsCard title="No Trading Before Market Close">
+        <DisciplineRow
+          label="Block Before Close"
+          hint="No trading for last N minutes before market close"
+          enabled={tw.noTradingBeforeClose?.enabled ?? true}
+          onToggle={(v) => setTw((p: any) => ({ ...p, noTradingBeforeClose: { ...p.noTradingBeforeClose, enabled: v } }))}
+        >
           <div className="flex items-center justify-between">
-            <FieldLabel hint="No trading for first N minutes after market open">
-              No-Trade First
-            </FieldLabel>
+            <FieldLabel hint="NSE: Last N minutes before 3:30 PM">NSE</FieldLabel>
             <NumberInput
-              value={timeWindows.mcx.noTradeFirstMinutes}
-              onChange={(v) => setTimeWindows((s) => s ? { ...s, mcx: { ...s.mcx, noTradeFirstMinutes: v } } : s)}
+              value={tw.noTradingBeforeClose?.nseMinutes ?? 15}
+              onChange={(v) => setTw((p: any) => ({ ...p, noTradingBeforeClose: { ...p.noTradingBeforeClose, nseMinutes: v } }))}
               min={0}
               max={120}
               suffix="min"
             />
           </div>
           <div className="flex items-center justify-between">
-            <FieldLabel hint="No trading for last N minutes before market close">
-              No-Trade Last
-            </FieldLabel>
+            <FieldLabel hint="MCX: Last N minutes before 11:30 PM">MCX</FieldLabel>
             <NumberInput
-              value={timeWindows.mcx.noTradeLastMinutes}
-              onChange={(v) => setTimeWindows((s) => s ? { ...s, mcx: { ...s.mcx, noTradeLastMinutes: v } } : s)}
+              value={tw.noTradingBeforeClose?.mcxMinutes ?? 15}
+              onChange={(v) => setTw((p: any) => ({ ...p, noTradingBeforeClose: { ...p.noTradingBeforeClose, mcxMinutes: v } }))}
               min={0}
               max={120}
               suffix="min"
             />
           </div>
-        </div>
+        </DisciplineRow>
+      </SettingsCard>
+
+      {/* Lunch Break Pause */}
+      <SettingsCard title="Lunch Break Pause">
+        <DisciplineRow
+          label="Lunch Break"
+          hint="Pause trading during lunch break (NSE only)"
+          enabled={tw.lunchBreakPause?.enabled ?? false}
+          onToggle={(v) => setTw((p: any) => ({ ...p, lunchBreakPause: { ...p.lunchBreakPause, enabled: v } }))}
+        >
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <FieldLabel>Start</FieldLabel>
+              <TimeInput
+                value={tw.lunchBreakPause?.startTime ?? '12:30'}
+                onChange={(v) => setTw((p: any) => ({ ...p, lunchBreakPause: { ...p.lunchBreakPause, startTime: v } }))}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <FieldLabel>End</FieldLabel>
+              <TimeInput
+                value={tw.lunchBreakPause?.endTime ?? '13:30'}
+                onChange={(v) => setTw((p: any) => ({ ...p, lunchBreakPause: { ...p.lunchBreakPause, endTime: v } }))}
+              />
+            </div>
+          </div>
+        </DisciplineRow>
       </SettingsCard>
 
       <div className="flex items-center gap-2 p-2 rounded bg-info-cyan/5 border border-info-cyan/20">
         <Info className="h-3.5 w-3.5 text-info-cyan shrink-0" />
         <span className="text-[10px] text-info-cyan">
-          Lunch break pause applies only to NSE. MCX has no scheduled lunch break.
+          Time windows are enforced by the Discipline Engine. Lunch break pause applies only to NSE. MCX has no scheduled lunch break.
         </span>
       </div>
 
