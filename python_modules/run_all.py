@@ -165,7 +165,8 @@ def main():
 
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, shutdown_all)
-    signal.signal(signal.SIGTERM, shutdown_all)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, shutdown_all)
 
     # Launch modules in order
     for filename, desc, is_daemon in MODULES:

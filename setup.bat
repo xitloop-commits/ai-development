@@ -89,11 +89,12 @@ echo ============================================================
 echo.
 echo   Next steps:
 echo     1. Edit .env with your MongoDB URI and other settings
-echo     2. Start the server:   pnpm dev
+echo     2. Start everything:   dev.bat
 echo     3. Open browser:       http://localhost:3000
 echo.
-echo   To run Python modules (in a separate terminal):
-echo     cd python_modules
-echo     python dhan_option_chain_fetcher.py
+echo   Startup options:
+echo     dev.bat              Start Node.js + Python AI pipeline
+echo     dev.bat --node-only  Start Node.js server only
+echo     dev.bat --py-only    Start Python AI pipeline only
 echo.
 pause
