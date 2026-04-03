@@ -402,7 +402,7 @@ export function calculateQuarterlyProjection(
 
   // Days remaining in quarter (approximate)
   const quarterEndMonth = quarter === 1 ? 5 : quarter === 2 ? 8 : quarter === 3 ? 11 : 2;
-  const quarterEndYear = quarter === 4 ? fyYear + 2 : fyYear + 1;
+  const quarterEndYear = quarter === 4 ? fyYear + 1 : fyYear;
   const quarterEnd = new Date(quarterEndYear, quarterEndMonth + 1, 0);
   const daysRemaining = Math.max(0, Math.floor((quarterEnd.getTime() - now.getTime()) / 86400000));
   const tradingDaysRemaining = Math.floor(daysRemaining * 5 / 7); // rough weekday estimate
@@ -450,7 +450,7 @@ export function calculateAllQuarterlyProjections(
 
   for (let q = 1; q <= 4; q++) {
     const endMonth = quarterEndMonths[q - 1];
-    const endYear = q === 4 ? fyYear + 2 : fyYear + 1;
+    const endYear = q === 4 ? fyYear + 1 : fyYear;
     const quarterEnd = new Date(endYear, endMonth + 1, 0);
     const label = `Q${q} FY${(fyYear + 1).toString().slice(-2)}`;
     const isCurrent = q === currentQuarter;
