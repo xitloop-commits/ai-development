@@ -26,26 +26,41 @@ for /f "tokens=*" %%v in ('node --version') do echo   Found Node.js %%v
 REM --- Step 2: Check Python ---
 echo [2/6] Checking Python...
 set PYTHON_CMD=
-where py >nul 2>&1 && set PYTHON_CMD=py
-if "!PYTHON_CMD!"=="" (
-    where python3 >nul 2>&1 && set PYTHON_CMD=python3
-)
-if "!PYTHON_CMD!"=="" (
-    where python >nul 2>&1 && set PYTHON_CMD=python
-)
-REM Verify it's real (not the Microsoft Store stub)
-if not "!PYTHON_CMD!"=="" (
-    !PYTHON_CMD! --version >nul 2>&1
-    if errorlevel 1 (
-        set PYTHON_CMD=
+
+REM Try the known-good Windows Launcher path first
+if exist "C:\Windows\py.exe" (
+    "C:\Windows\py.exe" --version >nul 2>&1
+    if !errorlevel! equ 0 (
+        set "PYTHON_CMD=C:\Windows\py.exe"
+        goto :setup_py_found
     )
 )
+REM Try py, python3, python on PATH (skip MS Store stubs)
+call :setup_try_py py
+if not "!PYTHON_CMD!"=="" goto :setup_py_found
+call :setup_try_py python3
+if not "!PYTHON_CMD!"=="" goto :setup_py_found
+call :setup_try_py python
+if not "!PYTHON_CMD!"=="" goto :setup_py_found
+:setup_py_found
+goto :setup_after_py
+
+:setup_try_py
+set "_C=%~1"
+where "!_C!" >nul 2>&1
+if errorlevel 1 goto :eof
+"!_C!" --version >nul 2>&1
+if errorlevel 1 goto :eof
+set "PYTHON_CMD=!_C!"
+goto :eof
+
+:setup_after_py
 if "!PYTHON_CMD!"=="" (
     echo   WARNING: Python is not installed or not in PATH.
     echo   Python AI modules will not work without it.
     echo   Download from: https://www.python.org/downloads/
 ) else (
-    for /f "tokens=*" %%v in ('!PYTHON_CMD! --version') do echo   Found %%v [command: !PYTHON_CMD!]
+    for /f "tokens=*" %%v in ('"!PYTHON_CMD!" --version') do echo   Found %%v [command: !PYTHON_CMD!]
 )
 
 REM --- Step 3: Install pnpm (if not installed) ---

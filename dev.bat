@@ -34,23 +34,48 @@ if not exist .env (
 )
 
 REM --- Detect Python ---
-REM Try: py (Windows Launcher) > python3 > python
+REM The Microsoft Store installs stub .exe files for py/python/python3
+REM in WindowsApps that print "Python was not found" and exit with code 9009.
+REM We must test each candidate with --version to find a real interpreter.
+REM Priority: C:\Windows\py.exe (real launcher) > py > python3 > python
 set PYTHON_CMD=
-where py >nul 2>&1 && set PYTHON_CMD=py
-if "%PYTHON_CMD%"=="" (
-    where python3 >nul 2>&1 && set PYTHON_CMD=python3
-)
-if "%PYTHON_CMD%"=="" (
-    where python >nul 2>&1 && set PYTHON_CMD=python
-)
 
-REM --- Verify detected Python is real (not the Microsoft Store stub) ---
-if not "%PYTHON_CMD%"=="" (
-    %PYTHON_CMD% --version >nul 2>&1
-    if errorlevel 1 (
-        set PYTHON_CMD=
+REM Try the known-good Windows Launcher path first
+if exist "C:\Windows\py.exe" (
+    "C:\Windows\py.exe" --version >nul 2>&1
+    if !errorlevel! equ 0 (
+        set "PYTHON_CMD=C:\Windows\py.exe"
+        goto :python_found
     )
 )
+
+REM Try py on PATH
+call :try_python py
+if not "!PYTHON_CMD!"=="" goto :python_found
+
+REM Try python3 on PATH
+call :try_python python3
+if not "!PYTHON_CMD!"=="" goto :python_found
+
+REM Try python on PATH
+call :try_python python
+if not "!PYTHON_CMD!"=="" goto :python_found
+
+:python_found
+goto :after_python_detect
+
+:try_python
+REM Usage: call :try_python <command>
+REM Sets PYTHON_CMD if the command runs --version successfully
+set "_CANDIDATE=%~1"
+where "!_CANDIDATE!" >nul 2>&1
+if errorlevel 1 goto :eof
+"!_CANDIDATE!" --version >nul 2>&1
+if errorlevel 1 goto :eof
+set "PYTHON_CMD=!_CANDIDATE!"
+goto :eof
+
+:after_python_detect
 
 REM --- Banner ---
 echo.
