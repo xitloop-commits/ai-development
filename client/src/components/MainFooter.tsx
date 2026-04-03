@@ -80,23 +80,22 @@ export default function MainFooter() {
     ? (((netWorth - initialCapital) / initialCapital) * 100).toFixed(1)
     : '0.0';
 
-  // Monthly growth (placeholder values — will be wired to actual monthly snapshots)
+  // Monthly growth — defaults to 0 when no snapshot data available
   const now = new Date();
   const prevMonthName = new Date(now.getFullYear(), now.getMonth() - 1).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
   const currMonthName = new Date(now.getFullYear(), now.getMonth()).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
-  // TODO: Wire to actual monthly snapshot data from capital engine
-  const prevMonthFund = capitalData?.prevMonthFund ?? netWorth * 0.95;
-  const prevMonthGrowth = capitalData?.prevMonthGrowth ?? 3.6;
+  const prevMonthFund = capitalData?.prevMonthFund ?? 0;
+  const prevMonthGrowth = capitalData?.prevMonthGrowth ?? 0;
   const currMonthFund = capitalData?.currMonthFund ?? netWorth;
-  const currMonthGrowth = capitalData?.currMonthGrowth ?? 5.8;
-  const prevTradingPool = capitalData?.prevMonthTradingPool ?? tradingPool * 0.95;
-  const prevReservePool = capitalData?.prevMonthReservePool ?? reservePool * 0.95;
-  const prevTradingGrowth = capitalData?.prevMonthTradingGrowth ?? 4.2;
-  const prevReserveGrowth = capitalData?.prevMonthReserveGrowth ?? 2.1;
+  const currMonthGrowth = capitalData?.currMonthGrowth ?? 0;
+  const prevTradingPool = capitalData?.prevMonthTradingPool ?? 0;
+  const prevReservePool = capitalData?.prevMonthReservePool ?? 0;
+  const prevTradingGrowth = capitalData?.prevMonthTradingGrowth ?? 0;
+  const prevReserveGrowth = capitalData?.prevMonthReserveGrowth ?? 0;
   const currTradingPool = tradingPool;
   const currReservePool = reservePool;
-  const currTradingGrowth = capitalData?.currMonthTradingGrowth ?? 6.1;
-  const currReserveGrowth = capitalData?.currMonthReserveGrowth ?? 4.8;
+  const currTradingGrowth = capitalData?.currMonthTradingGrowth ?? 0;
+  const currReserveGrowth = capitalData?.currMonthReserveGrowth ?? 0;
 
   // Net Worth pool growth since inception
   const tradingPoolGrowth = initialCapital > 0
