@@ -1,12 +1,14 @@
 @echo off
-REM ╔══════════════════════════════════════════════════════════════════╗
-REM ║  ATS — Windows Setup Script                                     ║
-REM ║  Run this once after cloning the repository.                    ║
-REM ╚══════════════════════════════════════════════════════════════════╝
+REM ================================================================
+REM   ATS -- Windows Setup Script
+REM   Run this once after cloning the repository.
+REM ================================================================
+
+setlocal EnableDelayedExpansion
 
 echo.
 echo ============================================================
-echo   ATS — Automatic Trading System — Windows Setup
+echo   ATS -- Automatic Trading System -- Windows Setup
 echo ============================================================
 echo.
 
@@ -23,13 +25,27 @@ for /f "tokens=*" %%v in ('node --version') do echo   Found Node.js %%v
 
 REM --- Step 2: Check Python ---
 echo [2/6] Checking Python...
-python --version >nul 2>&1
-if errorlevel 1 (
+set PYTHON_CMD=
+where py >nul 2>&1 && set PYTHON_CMD=py
+if "!PYTHON_CMD!"=="" (
+    where python3 >nul 2>&1 && set PYTHON_CMD=python3
+)
+if "!PYTHON_CMD!"=="" (
+    where python >nul 2>&1 && set PYTHON_CMD=python
+)
+REM Verify it's real (not the Microsoft Store stub)
+if not "!PYTHON_CMD!"=="" (
+    !PYTHON_CMD! --version >nul 2>&1
+    if errorlevel 1 (
+        set PYTHON_CMD=
+    )
+)
+if "!PYTHON_CMD!"=="" (
     echo   WARNING: Python is not installed or not in PATH.
-    echo   Python modules will not work without it.
+    echo   Python AI modules will not work without it.
     echo   Download from: https://www.python.org/downloads/
 ) else (
-    for /f "tokens=*" %%v in ('python --version') do echo   Found %%v
+    for /f "tokens=*" %%v in ('!PYTHON_CMD! --version') do echo   Found %%v [command: !PYTHON_CMD!]
 )
 
 REM --- Step 3: Install pnpm (if not installed) ---
@@ -62,12 +78,16 @@ echo   Node.js dependencies installed.
 
 REM --- Step 5: Install Python dependencies ---
 echo [5/6] Installing Python dependencies...
-python -m pip install -r python_modules\requirements.txt
-if errorlevel 1 (
-    echo   WARNING: Python dependency install failed.
-    echo   Try: python -m pip install requests python-dotenv
+if not "!PYTHON_CMD!"=="" (
+    !PYTHON_CMD! -m pip install -r python_modules\requirements.txt
+    if errorlevel 1 (
+        echo   WARNING: Python dependency install failed.
+        echo   Try: !PYTHON_CMD! -m pip install requests python-dotenv websocket-client
+    )
+    echo   Python dependencies installed.
+) else (
+    echo   SKIPPED: Python not found. Install Python first.
 )
-echo   Python dependencies installed.
 
 REM --- Step 6: Create .env if it doesn't exist ---
 echo [6/6] Checking .env file...

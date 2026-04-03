@@ -1,16 +1,16 @@
 @echo off
-REM ╔══════════════════════════════════════════════════════════════════╗
-REM ║  ATS — Start Development Server (Windows)                       ║
-REM ║                                                                  ║
-REM ║  Starts both the Node.js server and the Python AI pipeline.     ║
-REM ║                                                                  ║
-REM ║  Usage:                                                          ║
-REM ║    dev.bat              — Node.js + Python AI pipeline           ║
-REM ║    dev.bat --node-only  — Node.js server only (no Python)        ║
-REM ║    dev.bat --py-only    — Python AI pipeline only                ║
-REM ║                                                                  ║
-REM ║  Press Ctrl+C to stop all processes.                             ║
-REM ╚══════════════════════════════════════════════════════════════════╝
+REM ================================================================
+REM   ATS -- Start Development Server (Windows)
+REM
+REM   Starts both the Node.js server and the Python AI pipeline.
+REM
+REM   Usage:
+REM     dev.bat              -- Node.js + Python AI pipeline
+REM     dev.bat --node-only  -- Node.js server only (no Python)
+REM     dev.bat --py-only    -- Python AI pipeline only
+REM
+REM   Press Ctrl+C to stop all processes.
+REM ================================================================
 
 setlocal EnableDelayedExpansion
 
@@ -25,7 +25,7 @@ shift
 goto parse_args
 :done_args
 
-REM ─── Check .env ───────────────────────────────────────────────
+REM --- Check .env ---
 if not exist .env (
     echo   ERROR: .env file not found.
     echo   Run setup.bat first, or copy .env.example to .env
@@ -33,19 +33,33 @@ if not exist .env (
     exit /b 1
 )
 
-REM ─── Detect Python ────────────────────────────────────────────
+REM --- Detect Python ---
+REM Try: py (Windows Launcher) > python3 > python
 set PYTHON_CMD=
-where python >nul 2>&1 && set PYTHON_CMD=python
-where python3 >nul 2>&1 && set PYTHON_CMD=python3
+where py >nul 2>&1 && set PYTHON_CMD=py
+if "%PYTHON_CMD%"=="" (
+    where python3 >nul 2>&1 && set PYTHON_CMD=python3
+)
+if "%PYTHON_CMD%"=="" (
+    where python >nul 2>&1 && set PYTHON_CMD=python
+)
 
-REM ─── Banner ───────────────────────────────────────────────────
+REM --- Verify detected Python is real (not the Microsoft Store stub) ---
+if not "%PYTHON_CMD%"=="" (
+    %PYTHON_CMD% --version >nul 2>&1
+    if errorlevel 1 (
+        set PYTHON_CMD=
+    )
+)
+
+REM --- Banner ---
 echo.
-echo   ══════════════════════════════════════════
-echo     ATS — Automatic Trading System
-echo   ══════════════════════════════════════════
+echo   ==========================================
+echo     ATS -- Automatic Trading System
+echo   ==========================================
 echo.
 
-REM ─── Start Node.js server ─────────────────────────────────────
+REM --- Start Node.js server ---
 if "%PY_ONLY%"=="false" (
     echo   [1] Starting Node.js server...
     if "%NODE_ONLY%"=="true" (
@@ -77,14 +91,14 @@ if "%PY_ONLY%"=="false" (
     )
 )
 
-REM ─── Start Python AI pipeline ─────────────────────────────────
+REM --- Start Python AI pipeline ---
 if "%NODE_ONLY%"=="false" (
     if "%PYTHON_CMD%"=="" (
-        echo   [!] Python not found — AI pipeline will not start.
-        echo       Install Python 3.8+ to enable AI features.
+        echo   [!] Python not found -- AI pipeline will not start.
+        echo       Install Python 3.8+ from https://www.python.org/downloads/
         echo.
     ) else (
-        echo   [2] Starting Python AI pipeline...
+        echo   [2] Starting Python AI pipeline using: %PYTHON_CMD%
         %PYTHON_CMD% python_modules\run_all.py
     )
 ) else (
