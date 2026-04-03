@@ -152,6 +152,7 @@ export default function MainFooter() {
     quarterLabel: string;
     projectedCapital: number;
     isCurrent: boolean;
+    isPast: boolean;
   }>;
 
   // Holiday indicator text
@@ -175,7 +176,9 @@ export default function MainFooter() {
               className={`px-2.5 py-1 rounded flex flex-col items-center ${
                 q.isCurrent
                   ? 'bg-info-cyan/15 border border-info-cyan/30'
-                  : 'bg-secondary/50'
+                  : q.isPast
+                    ? 'bg-secondary/30 opacity-50'
+                    : 'bg-secondary/50'
               }`}
             >
               <span className={`text-[7px] tracking-widest uppercase font-bold ${
@@ -184,9 +187,9 @@ export default function MainFooter() {
                 {q.quarterLabel}
               </span>
               <span className={`text-[10px] font-bold tabular-nums ${
-                q.isCurrent ? 'text-info-cyan' : 'text-foreground/70'
+                q.isCurrent ? 'text-info-cyan' : q.isPast ? 'text-muted-foreground' : 'text-foreground/70'
               }`}>
-                {formatCurrency(q.projectedCapital)}
+                {q.isPast ? '—' : formatCurrency(q.projectedCapital)}
               </span>
             </div>
           ))}

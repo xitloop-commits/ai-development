@@ -418,7 +418,7 @@ export function calculateAllQuarterlyProjections(
   currentReservePool: number,
   currentDayIndex: number,
   daysElapsed: number
-): Array<{ quarterLabel: string; projectedCapital: number; isCurrent: boolean }> {
+): Array<{ quarterLabel: string; projectedCapital: number; isCurrent: boolean; isPast: boolean }> {
   const now = new Date();
   const month = now.getMonth();
   const year = now.getFullYear();
@@ -436,7 +436,7 @@ export function calculateAllQuarterlyProjections(
 
   // Quarter end months: Q1=Jun(5), Q2=Sep(8), Q3=Dec(11), Q4=Mar(2)
   const quarterEndMonths = [5, 8, 11, 2];
-  const results: Array<{ quarterLabel: string; projectedCapital: number; isCurrent: boolean }> = [];
+  const results: Array<{ quarterLabel: string; projectedCapital: number; isCurrent: boolean; isPast: boolean }> = [];
 
   for (let q = 1; q <= 4; q++) {
     const endMonth = quarterEndMonths[q - 1];
@@ -444,18 +444,20 @@ export function calculateAllQuarterlyProjections(
     const quarterEnd = new Date(endYear, endMonth + 1, 0);
     const label = `Q${q} FY${(fyYear + 1).toString().slice(-2)}`;
     const isCurrent = q === currentQuarter;
+    const isPast = q < currentQuarter;
 
-    // If quarter is in the past, show actual capital at that point (we don't have historical, so show current)
     const daysToEnd = Math.floor((quarterEnd.getTime() - now.getTime()) / 86400000);
-    if (daysToEnd < 0) {
-      // Past quarter — show current capital as baseline (no historical snapshot)
-      results.push({ quarterLabel: label, projectedCapital: round(totalCapital), isCurrent });
+    if (isPast) {
+      // Past quarter — do NOT recalculate from new capital; show 0 as placeholder
+      // (no historical snapshot available; frontend can render as “—”)
+      results.push({ quarterLabel: label, projectedCapital: 0, isCurrent, isPast });
     } else {
-      const tradingDaysToEnd = Math.floor(daysToEnd * 5 / 7);
+      // Current or future quarter — project from current capital
+      const tradingDaysToEnd = Math.max(0, Math.floor(daysToEnd * 5 / 7));
       const projected = avgDailyRate > 0
         ? round(totalCapital * Math.pow(1 + avgDailyRate, tradingDaysToEnd))
         : round(totalCapital);
-      results.push({ quarterLabel: label, projectedCapital: projected, isCurrent });
+      results.push({ quarterLabel: label, projectedCapital: projected, isCurrent, isPast });
     }
   }
 
