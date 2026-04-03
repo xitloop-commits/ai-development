@@ -371,50 +371,73 @@ export function projectFutureDays(
 // ─── Quarterly Projection ────────────────────────────────────────
 
 /**
+ * Simulate the 75/25 compounding table forward for N trading days.
+ * Returns { tradingPool, reservePool } at the end.
+ * Uses the same logic as projectFutureDays: each day 75% of profit
+ * stays in trading pool, 25% goes to reserve.
+ *
+ * When actual history exists (currentDayIndex > 1), derives the effective
+ * daily rate from actual performance instead of using the configured target.
+ */
+function simulateCompounding(
+  tradingPool: number,
+  reservePool: number,
+  tradingDays: number,
+  dailyRate: number
+): { tradingPool: number; reservePool: number } {
+  let tp = tradingPool;
+  let rp = reservePool;
+  for (let i = 0; i < tradingDays; i++) {
+    const profit = tp * dailyRate;
+    tp = tp + profit * TRADING_SPLIT;   // 75% stays
+    rp = rp + profit * RESERVE_SPLIT;   // 25% to reserve
+  }
+  return { tradingPool: round(tp), reservePool: round(rp) };
+}
+
+/**
  * Calculate projected capital at end of current calendar quarter.
- * Uses the user's actual average daily compounding rate.
+ * Uses the same 75/25 compounding logic as the 250-day table.
  * Calendar quarters: Q1=Jan-Mar, Q2=Apr-Jun, Q3=Jul-Sep, Q4=Oct-Dec.
  */
 export function calculateQuarterlyProjection(
   currentTradingPool: number,
   currentReservePool: number,
   currentDayIndex: number,
-  daysElapsed: number, // calendar days since start
+  daysElapsed: number,
   initialFunding: number = DEFAULT_INITIAL_FUNDING,
   targetPercent: number = DEFAULT_TARGET_PERCENT
 ): { quarterLabel: string; projectedCapital: number } {
   const now = new Date();
-  const month = now.getMonth(); // 0-indexed
+  const month = now.getMonth();
   const year = now.getFullYear();
-
-  // Calendar quarter: Q1=Jan-Mar(0-2), Q2=Apr-Jun(3-5), Q3=Jul-Sep(6-8), Q4=Oct-Dec(9-11)
   const quarter = Math.floor(month / 3) + 1;
   const quarterLabel = `Q${quarter} ${year}`;
 
-  const totalCapital = currentTradingPool + currentReservePool;
-
-  // Calculate actual average daily compounding rate from history
-  // If no history yet, fall back to configured target % as daily rate
-  let avgDailyRate = targetPercent / 100;
+  // Derive daily rate: from actual history or configured target
+  let dailyRate = targetPercent / 100;
   if (currentDayIndex > 1 && daysElapsed > 0) {
+    const totalCapital = currentTradingPool + currentReservePool;
     const baseline = initialFunding > 0 ? initialFunding : DEFAULT_INITIAL_FUNDING;
-    avgDailyRate = Math.pow(totalCapital / baseline, 1 / currentDayIndex) - 1;
+    dailyRate = Math.pow(totalCapital / baseline, 1 / currentDayIndex) - 1;
   }
 
-  // Quarter end: last day of the quarter's final month (all in same year)
-  const quarterEndMonth = quarter * 3; // Q1→3(Mar), Q2→6(Jun), Q3→9(Sep), Q4→12(Dec)
-  const quarterEnd = new Date(year, quarterEndMonth, 0); // day 0 = last day of prev month
+  // Trading days remaining in current quarter
+  const quarterEndMonth = quarter * 3;
+  const quarterEnd = new Date(year, quarterEndMonth, 0);
   const daysRemaining = Math.max(0, Math.floor((quarterEnd.getTime() - now.getTime()) / 86400000));
   const tradingDaysRemaining = Math.floor(daysRemaining * 5 / 7);
 
-  const projectedCapital = round(totalCapital * Math.pow(1 + avgDailyRate, tradingDaysRemaining));
+  const result = simulateCompounding(currentTradingPool, currentReservePool, tradingDaysRemaining, dailyRate);
+  const projectedCapital = round(result.tradingPool + result.reservePool);
 
   return { quarterLabel, projectedCapital };
 }
 
 /**
  * Calculate projections for all 4 quarters of the current calendar year.
- * Returns an array of { quarterLabel, projectedCapital, isCurrent, isPast } for Q1–Q4.
+ * Uses the same 75/25 compounding logic as the 250-day table so that
+ * quarterly projections are consistent with the compounding table rows.
  * Calendar quarters: Q1=Jan-Mar, Q2=Apr-Jun, Q3=Jul-Sep, Q4=Oct-Dec.
  */
 export function calculateAllQuarterlyProjections(
@@ -426,29 +449,27 @@ export function calculateAllQuarterlyProjections(
   targetPercent: number = DEFAULT_TARGET_PERCENT
 ): Array<{ quarterLabel: string; projectedCapital: number; isCurrent: boolean; isPast: boolean }> {
   const now = new Date();
-  const month = now.getMonth(); // 0-indexed
+  const month = now.getMonth();
   const year = now.getFullYear();
   const currentQuarter = Math.floor(month / 3) + 1;
 
-  const totalCapital = currentTradingPool + currentReservePool;
-
-  // Calculate average daily compounding rate from actual history
-  // If no history yet, fall back to the configured target % as the daily rate
-  let avgDailyRate = targetPercent / 100;
+  // Derive daily rate: from actual history or configured target
+  let dailyRate = targetPercent / 100;
   if (currentDayIndex > 1 && daysElapsed > 0) {
+    const totalCapital = currentTradingPool + currentReservePool;
     const baseline = initialFunding > 0 ? initialFunding : DEFAULT_INITIAL_FUNDING;
-    avgDailyRate = Math.pow(totalCapital / baseline, 1 / currentDayIndex) - 1;
+    dailyRate = Math.pow(totalCapital / baseline, 1 / currentDayIndex) - 1;
   }
 
-  // Calendar quarter end months (1-indexed): Q1→Mar(3), Q2→Jun(6), Q3→Sep(9), Q4→Dec(12)
   const results: Array<{ quarterLabel: string; projectedCapital: number; isCurrent: boolean; isPast: boolean }> = [];
 
-  // Chain projections: each quarter starts from the previous quarter's projected end
-  let runningCapital = totalCapital;
+  // Chain projections using 75/25 split compounding
+  let runningTP = currentTradingPool;
+  let runningRP = currentReservePool;
 
   for (let q = 1; q <= 4; q++) {
-    const endMonth = q * 3; // Q1→3, Q2→6, Q3→9, Q4→12
-    const quarterEnd = new Date(year, endMonth, 0); // last day of the quarter
+    const endMonth = q * 3;
+    const quarterEnd = new Date(year, endMonth, 0);
     const label = `Q${q} ${year}`;
     const isCurrent = q === currentQuarter;
     const isPast = q < currentQuarter;
@@ -468,13 +489,13 @@ export function calculateAllQuarterlyProjections(
       tradingDays = 63;
     }
 
-    const projected = avgDailyRate > 0
-      ? round(runningCapital * Math.pow(1 + avgDailyRate, tradingDays))
-      : round(runningCapital);
+    const result = simulateCompounding(runningTP, runningRP, tradingDays, dailyRate);
+    const projected = round(result.tradingPool + result.reservePool);
     results.push({ quarterLabel: label, projectedCapital: projected, isCurrent, isPast });
 
-    // Next quarter starts from this quarter's projected end
-    runningCapital = projected;
+    // Next quarter starts from this quarter's projected pools
+    runningTP = result.tradingPool;
+    runningRP = result.reservePool;
   }
 
   return results;
