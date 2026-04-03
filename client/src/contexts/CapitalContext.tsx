@@ -100,6 +100,8 @@ interface CapitalContextValue {
   updateLtp: (prices: Record<string, number>) => void;
   syncDailyTarget: (targetPercent: number) => void;
   syncDailyTargetPending: boolean;
+  resetCapital: (initialFunding: number) => void;
+  resetCapitalPending: boolean;
 
   // Manual refetch
   refetchAll: () => void;
@@ -161,6 +163,15 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   const syncDailyTargetMutation = trpc.capital.syncDailyTarget.useMutation({
     onSuccess: async () => {
       await invalidateAll();
+    },
+  });
+
+  const resetCapitalMutation = trpc.capital.resetCapital.useMutation({
+    onSuccess: async () => {
+      await invalidateAll();
+    },
+    onError: (err) => {
+      console.error('[CapitalContext] resetCapital failed:', err.message);
     },
   });
 
@@ -234,10 +245,18 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   );
 
   const syncDailyTarget = useCallback(
-    (targetPercent: number) => {
-      syncDailyTargetMutation.mutate({ targetPercent });
+    (_targetPercent: number) => {
+      // Server reads targetPercent from broker config; we just trigger the sync
+      syncDailyTargetMutation.mutate({ workspace });
     },
-    [syncDailyTargetMutation]
+    [workspace, syncDailyTargetMutation]
+  );
+
+  const resetCapital = useCallback(
+    (initialFunding: number) => {
+      resetCapitalMutation.mutate({ workspace: 'live', initialFunding });
+    },
+    [resetCapitalMutation]
   );
 
   const refetchAll = useCallback(() => {
@@ -267,6 +286,8 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
         updateLtp,
         syncDailyTarget,
         syncDailyTargetPending: syncDailyTargetMutation.isPending,
+        resetCapital,
+        resetCapitalPending: resetCapitalMutation.isPending,
         refetchAll,
       }}
     >

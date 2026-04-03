@@ -296,6 +296,32 @@ export async function deleteDayRecordsFrom(
   return result.deletedCount;
 }
 
+/**
+ * Delete ALL day records for a workspace (used in capital reset).
+ */
+export async function deleteAllDayRecords(
+  workspace: Workspace
+): Promise<number> {
+  const result = await DayRecordModel.deleteMany({ workspace });
+  return result.deletedCount;
+}
+
+/**
+ * Replace the entire capital state document for a workspace (used in capital reset).
+ */
+export async function replaceCapitalState(
+  workspace: Workspace,
+  state: Omit<CapitalState, 'workspace'>
+): Promise<CapitalState> {
+  const doc = await CapitalStateModel.findOneAndUpdate(
+    { workspace },
+    { $set: { ...state, workspace, updatedAt: Date.now() } },
+    { upsert: true, returnDocument: 'after', lean: true }
+  );
+  if (!doc) throw new Error(`Failed to replace capital state for workspace: ${workspace}`);
+  return docToCapitalState(doc);
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────
 
 function docToCapitalState(doc: Record<string, any>): CapitalState {

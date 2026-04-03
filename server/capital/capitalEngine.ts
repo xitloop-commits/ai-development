@@ -379,7 +379,8 @@ export function calculateQuarterlyProjection(
   currentReservePool: number,
   currentDayIndex: number,
   daysElapsed: number, // calendar days since start
-  initialFunding: number = DEFAULT_INITIAL_FUNDING
+  initialFunding: number = DEFAULT_INITIAL_FUNDING,
+  targetPercent: number = DEFAULT_TARGET_PERCENT
 ): { quarterLabel: string; projectedCapital: number } {
   // Determine current quarter
   const now = new Date();
@@ -389,14 +390,15 @@ export function calculateQuarterlyProjection(
   const quarter = month >= 3 && month <= 5 ? 1 : month >= 6 && month <= 8 ? 2 : month >= 9 && month <= 11 ? 3 : 4;
   const quarterLabel = `Q${quarter} FY${(fyYear + 1).toString().slice(-2)}`;
 
-  // Calculate actual average daily compounding rate
-  if (currentDayIndex <= 1 || daysElapsed <= 0) {
-    return { quarterLabel, projectedCapital: round(currentTradingPool + currentReservePool) };
-  }
-
   const totalCapital = currentTradingPool + currentReservePool;
-  const baseline = initialFunding > 0 ? initialFunding : DEFAULT_INITIAL_FUNDING;
-  const avgDailyRate = Math.pow(totalCapital / baseline, 1 / currentDayIndex) - 1;
+
+  // Calculate actual average daily compounding rate from history
+  // If no history yet, fall back to configured target % as daily rate
+  let avgDailyRate = targetPercent / 100;
+  if (currentDayIndex > 1 && daysElapsed > 0) {
+    const baseline = initialFunding > 0 ? initialFunding : DEFAULT_INITIAL_FUNDING;
+    avgDailyRate = Math.pow(totalCapital / baseline, 1 / currentDayIndex) - 1;
+  }
 
   // Days remaining in quarter (approximate)
   const quarterEndMonth = quarter === 1 ? 5 : quarter === 2 ? 8 : quarter === 3 ? 11 : 2;
@@ -419,7 +421,8 @@ export function calculateAllQuarterlyProjections(
   currentReservePool: number,
   currentDayIndex: number,
   daysElapsed: number,
-  initialFunding: number = DEFAULT_INITIAL_FUNDING
+  initialFunding: number = DEFAULT_INITIAL_FUNDING,
+  targetPercent: number = DEFAULT_TARGET_PERCENT
 ): Array<{ quarterLabel: string; projectedCapital: number; isCurrent: boolean; isPast: boolean }> {
   const now = new Date();
   const month = now.getMonth();
@@ -429,8 +432,9 @@ export function calculateAllQuarterlyProjections(
 
   const totalCapital = currentTradingPool + currentReservePool;
 
-  // Calculate average daily compounding rate
-  let avgDailyRate = 0;
+  // Calculate average daily compounding rate from actual history
+  // If no history yet, fall back to the configured target % as the daily rate
+  let avgDailyRate = targetPercent / 100; // fallback: use target % (e.g., 5% → 0.05)
   if (currentDayIndex > 1 && daysElapsed > 0) {
     const baseline = initialFunding > 0 ? initialFunding : DEFAULT_INITIAL_FUNDING;
     avgDailyRate = Math.pow(totalCapital / baseline, 1 / currentDayIndex) - 1;

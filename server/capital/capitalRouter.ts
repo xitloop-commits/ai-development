@@ -16,6 +16,8 @@ import {
   getDayRecord,
   upsertDayRecord,
   deleteDayRecordsFrom,
+  deleteAllDayRecords,
+  replaceCapitalState,
 } from "./capitalModel";
 import type { Workspace, DayRecord, TradeRecord } from "./capitalModel";
 import {
@@ -143,7 +145,8 @@ export const capitalRouter = router({
         state.reservePool,
         state.currentDayIndex,
         daysElapsed,
-        state.initialFunding
+        state.initialFunding,
+        state.targetPercent
       );
 
       return {
@@ -157,7 +160,8 @@ export const capitalRouter = router({
           state.reservePool,
           state.currentDayIndex,
           daysElapsed,
-          state.initialFunding
+          state.initialFunding,
+          state.targetPercent
         ),
         todayPnl: day.totalPnl,
         todayTarget: day.targetAmount,
@@ -720,6 +724,62 @@ export const capitalRouter = router({
       });
 
       return { results, day: updated };
+    }),
+
+  /** Reset capital to initial state. Destructive: clears all day records and resets pools. */
+  resetCapital: publicProcedure
+    .input(z.object({
+      workspace: workspaceSchema,
+      initialFunding: z.number().positive().default(100000),
+    }))
+    .mutation(async ({ input }) => {
+      const targetPercent = await getDailyTargetPercent();
+      const now = Date.now();
+      const today = new Date().toISOString().slice(0, 10);
+
+      // Helper to reset a single workspace
+      async function resetWorkspace(ws: typeof input.workspace) {
+        // 1. Delete all day records
+        const deleted = await deleteAllDayRecords(ws);
+
+        // 2. Replace capital state with fresh initialization
+        const freshState = {
+          tradingPool: Math.round(input.initialFunding * TRADING_SPLIT * 100) / 100,
+          reservePool: Math.round(input.initialFunding * (1 - TRADING_SPLIT) * 100) / 100,
+          initialFunding: input.initialFunding,
+          currentDayIndex: 1,
+          targetPercent,
+          profitHistory: [] as any[],
+          cumulativePnl: 0,
+          cumulativeCharges: 0,
+          sessionTradeCount: 0,
+          sessionPnl: 0,
+          sessionDate: today,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        const newState = await replaceCapitalState(ws, freshState);
+        return { newState, deletedDayRecords: deleted };
+      }
+
+      // Reset live workspace (primary)
+      const liveResult = await resetWorkspace('live');
+
+      // Reset paper workspace (best-effort)
+      try {
+        await resetWorkspace('paper');
+      } catch (err) {
+        console.warn('[capital.resetCapital] paper workspace reset failed (non-fatal):', err);
+      }
+
+      return {
+        success: true,
+        initialFunding: input.initialFunding,
+        tradingPool: liveResult.newState.tradingPool,
+        reservePool: liveResult.newState.reservePool,
+        deletedDayRecords: liveResult.deletedDayRecords,
+      };
     }),
 
   /** Update LTP for open trades (called by polling). */
