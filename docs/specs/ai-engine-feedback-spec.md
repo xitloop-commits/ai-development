@@ -25,7 +25,7 @@ The Performance Feedback Loop is designed to be transparent, auditable, and safe
 
 ## 2. Trade Journal
 
-Every closed trade is logged to `trade_journal.json` with the following fields:
+Every closed trade is logged to `output/trade_journal.json` (inside the `python_modules/output/` directory) with the following fields:
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
@@ -81,7 +81,7 @@ At the start of each trading day, before market open, the Feedback Loop reads th
 
 ## 6. Adjustment Logging
 
-Every adjustment is logged to `feedback_adjustments.json` for full transparency:
+Every adjustment is logged to `output/feedback_adjustments.json` for full transparency:
 
 ```json
 {
@@ -112,6 +112,12 @@ Every adjustment is logged to `feedback_adjustments.json` for full transparency:
 | :--- | :--- | :--- |
 | `FEEDBACK_ENABLED` | `false` | Disabled by default. Must be explicitly enabled after sufficient trade history exists. |
 | `FEEDBACK_LOOKBACK_DAYS` | `5` | Number of past trading days to analyze |
+
+---
+
+## 8. Testing
+
+The Feedback Loop's core metrics (win rate, average P&L, max drawdown, risk-reward ratio, empty journal handling) are covered by the `TestPerformanceFeedback` class in `python_modules/test_python_modules.py` (5 tests).
 
 ---
 

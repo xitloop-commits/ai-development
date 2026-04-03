@@ -30,7 +30,7 @@ The Analyzer maintains two categories of state:
 
 **In-Memory State** (`previous_option_chain_data`): A dictionary keyed by instrument name, storing the previous cycle's option chain data. This enables cycle-over-cycle comparison for OI change, volume change, and price change calculations. On the first cycle for any instrument, the current data is stored as "previous" and no signals are generated.
 
-**Persistent State** (`opening_oi_snapshots`): The Opening OI Snapshot system captures the first option chain data of each trading day and persists it to disk in the `opening_snapshots/` directory. Files are named `opening_{instrument}_{date}.json`. This survives process restarts and enables intraday OI change tracking relative to market open.
+**Persistent State** (`opening_oi_snapshots`): The Opening OI Snapshot system captures the first option chain data of each trading day and persists it to disk in the `output/opening_snapshots/` directory. Files are named `opening_{instrument}_{date}.json`. This survives process restarts and enables intraday OI change tracking relative to market open.
 
 ---
 
@@ -155,7 +155,7 @@ The Opening OI Snapshot captures the first option chain data of each trading day
 On each cycle, the system checks:
 
 1. **In-memory cache**: If a snapshot for today's date exists in `opening_oi_snapshots`, return it.
-2. **Disk persistence**: If a file `opening_{instrument}_{date}.json` exists in the `opening_snapshots/` directory with today's date, load and cache it.
+2. **Disk persistence**: If a file `opening_{instrument}_{date}.json` exists in the `output/opening_snapshots/` directory with today's date, load and cache it.
 3. **New capture**: If no snapshot exists and the current time is between 9:00 AM and 4:00 PM IST, capture the current data as the opening snapshot, save to disk, and cache in memory.
 
 The snapshot stores the full option chain data, the capture timestamp, the date, and the opening LTP.
@@ -194,7 +194,7 @@ These labels are displayed in the dashboard's S/R Strength Line component.
 
 ## 5. Output Schema
 
-The Analyzer writes `analyzer_output_{instrument}.json` with the following structure:
+The Analyzer writes `output/analyzer_output_{instrument}.json` (inside the `python_modules/output/` directory) with the following structure:
 
 ```json
 {
@@ -226,6 +226,12 @@ The Analyzer writes `analyzer_output_{instrument}.json` with the following struc
   ]
 }
 ```
+
+---
+
+## 6. Testing
+
+The Analyzer's core logic (PCR calculation, support/resistance detection, max pain calculation, OI change/unwinding detection) is covered by the `TestOptionChainAnalyzer` class in `python_modules/test_python_modules.py` (6 tests). The dashboard integration for pushing analyzer output is tested in `server/tradingRoutes.test.ts`.
 
 ---
 

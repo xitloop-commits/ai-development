@@ -45,7 +45,7 @@ The main loop runs indefinitely with a 5-second sleep between full cycles. Withi
    - **Fetch Expiry List**: Calls `GET /api/broker/expiry-list` on the Broker Service with the instrument identifier. Returns an array of expiry date strings.
    - **Select Current Expiry**: Always uses `expiry_dates[0]` — the nearest expiry.
    - **Fetch Option Chain**: Calls `GET /api/broker/option-chain` on the Broker Service with the instrument identifier and selected expiry date. Returns the full option chain with all strikes, CE/PE data, OI, volume, Greeks, and IV.
-   - **Save to Disk**: Writes the response to `option_chain_{instrument}.json`.
+   - **Save to Disk**: Writes the response to `output/option_chain_{instrument}.json` (inside the `python_modules/output/` directory).
 
 3. **Rate Limiting**: A configurable delay is inserted between each instrument's API call to respect the active broker's rate limits. The Broker Service handles its own internal rate limiting (see `broker-service-spec-v1.2.md`), but the Fetcher adds a courtesy delay to avoid overwhelming the service.
 
@@ -89,6 +89,12 @@ The Fetcher writes the option chain response from the Broker Service. The key st
 ```
 
 Strike keys are formatted as `"24000.000000"` (6 decimal places) for all instruments.
+
+---
+
+## 6. Testing
+
+The Fetcher's core logic (row-to-oc conversion, exchange segment mapping, instrument name mapping, expiry selection) is covered by the `TestOptionChainFetcher` class in `python_modules/test_python_modules.py` (7 tests). The Broker Service endpoints used by the Fetcher (token status, expiry list, option chain, MCX FUTCOM resolution) are tested in `server/broker/brokerPythonEndpoints.test.ts` (30 tests).
 
 ---
 

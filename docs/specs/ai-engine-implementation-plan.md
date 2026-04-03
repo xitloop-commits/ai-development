@@ -19,7 +19,7 @@ A critical architectural decision has been made: **The Python modules will NOT d
 Before adding new v2.4 features, the existing v1.0 Python modules must be refactored to be broker-agnostic and to communicate with the new Broker Service.
 
 ### Step 1.1: Broker-Agnostic Fetcher
-- **File:** `option_chain_fetcher.py` → rename to `option_chain_fetcher.py`
+- **File:** `option_chain_fetcher.py`
 - **Action:** Remove all direct Dhan API calls and Dhan authentication logic.
 - **New Flow:** Call `GET /api/broker/option-chain` and `GET /api/broker/expiry-list` on the local Node.js server.
 
@@ -48,7 +48,7 @@ Implement the new analytical filters that run *before* a trade is considered.
 ### Step 2.2: Bounce/Breakdown Engine
 - **File:** `ai_decision_engine.py`
 - **Action:** Classify every `GO_CALL` or `GO_PUT` signal as either a `BOUNCE` (reversing from support/resistance) or a `BREAKOUT` (pushing through support/resistance).
-- **Logic:** Add this classification to the `ai_decision_{instrument}.json` output.
+- **Logic:** Add this classification to the `output/ai_decision_{instrument}.json` output.
 
 ---
 
@@ -95,6 +95,16 @@ These modules run outside the core tick-by-tick loop.
 
 ## 6. Testing & Validation
 
-1. **Unit Tests:** Update `test_analyzer.py` to validate the new Bounce/Breakdown classifications.
+The project now has three comprehensive test suites:
+
+| Test File | Framework | Tests | Coverage |
+| --- | --- | --- | --- |
+| `python_modules/test_python_modules.py` | unittest | 36 | All 7 Python modules: fetcher row conversion, PCR/S-R/max-pain calculations, AI decision scoring, session P&L caps, momentum engine, env loader, performance metrics, data pusher payloads |
+| `server/broker/brokerPythonEndpoints.test.ts` | Vitest | 30 | Broker service methods used by Python modules: token validation, expiry list, option chain parsing, MCX FUTCOM resolution, scrip lookup, order placement, positions, kill switch |
+| `server/tradingRoutes.test.ts` | Vitest | 22 | Trading store functions: active instruments, option chain push, analyzer output, AI decisions, positions, module heartbeats, trading mode, instrument data |
+
+Additional testing areas for v2.4 enhancements:
+
+1. **Bounce/Breakdown Tests:** Validate the new classifications in the AI Decision Engine.
 2. **Integration Tests:** Run the Python pipeline against the Mock Broker Adapter to verify Discipline Engine rejections (e.g., simulate 3 trades, verify 4th is blocked).
 3. **WebSocket Tests:** Feed recorded tick data into the Tick Bus and verify the Momentum Engine calculates scores correctly.

@@ -39,7 +39,7 @@ The AI Engine is the analytical core of the Automatic Trading System. It is a 7-
 
 The system covers four instruments: **NIFTY 50**, **BANK NIFTY**, **CRUDE OIL**, and **NATURAL GAS** — spanning both NSE (equity index options) and MCX (commodity options) exchanges. Each instrument is analyzed independently in every cycle, producing a self-contained decision JSON with 45+ fields.
 
-The pipeline's primary design principle is **modularity through file-based decoupling**. Each module reads input from JSON files written by the upstream module and writes its own output to JSON files for the downstream module. This architecture allows any module to be restarted, replaced, or tested independently without affecting the rest of the pipeline.
+The pipeline's primary design principle is **modularity through file-based decoupling**. Each module reads input from JSON files written by the upstream module and writes its own output to JSON files for the downstream module. All runtime JSON output files are written to the `python_modules/output/` directory (not the module source directory), keeping source code and generated data cleanly separated. This architecture allows any module to be restarted, replaced, or tested independently without affecting the rest of the pipeline.
 
 ---
 
@@ -261,7 +261,7 @@ In practice, cycles may overlap. The Analyzer may process data from the previous
 | Constant              | Module       | Value                                                    | Description                    |
 | --------------------- | ------------ | -------------------------------------------------------- | ------------------------------ |
 | `INSTRUMENTS`         | All          | `["NIFTY_50", "BANKNIFTY", "CRUDEOIL", "NATURALGAS"]`   | Instruments to process         |
-| `DATA_DIR`            | All          | `os.path.dirname(__file__)`                              | Directory for JSON files       |
+| `DATA_DIR`            | All          | `os.path.join(os.path.dirname(__file__), "output")`    | Directory for JSON output files |
 | `DASHBOARD_URL`       | All          | env `DASHBOARD_URL` or `http://localhost:3000`           | Dashboard REST API base URL    |
 | `POLL_INTERVAL`       | Data Pusher  | 3 seconds                                                | File change polling interval   |
 | `NEWS_CACHE_EXPIRY`   | AI Engine    | 300 seconds (5 min)                                      | News API cache TTL             |
@@ -364,9 +364,16 @@ A dedicated "AI Trades PAPER" tab in the Position Tracker will display all paper
 
 ## 9. Testing
 
-### 9.1 Test Analyzer (`test_analyzer.py`)
+### 9.1 Existing Test Suites
 
-A standalone test harness (192 lines) that validates the Analyzer's core functions against real option chain data files. It loads JSON from a configurable directory, uses the current data as both current and previous (static analysis), and prints market bias, S/R levels, and active strikes.
+The project has three comprehensive test suites covering the Python modules, broker service endpoints, and trading store:
+
+| Test File | Framework | Tests | Coverage |
+| --- | --- | --- | --- |
+| `python_modules/test_python_modules.py` | unittest | 36 | All 7 Python modules: fetcher row conversion, PCR/S-R/max-pain calculations, AI decision scoring, session P&L caps, momentum engine, env loader, performance metrics, data pusher payloads |
+| `server/broker/brokerPythonEndpoints.test.ts` | Vitest | 30 | Broker service methods used by Python modules: token validation, expiry list (IDX_I/MCX_COMM), option chain parsing, MCX FUTCOM resolution, scrip lookup, order placement, positions, kill switch |
+| `server/tradingRoutes.test.ts` | Vitest | 22 | Trading store functions: active instruments, option chain push, analyzer output, AI decisions (GO/WAIT/NO_GO), positions, module heartbeats, trading mode, instrument data |
+| `python_modules/test_analyzer.py` | Standalone | — | Legacy test harness that validates Analyzer core functions against real option chain data files |
 
 ### 9.2 Recommended Test Categories
 
@@ -403,16 +410,23 @@ A standalone test harness (192 lines) that validates the Analyzer's core functio
 | `execution_module.py`             | 658   | Executor    | Paper/live trade execution          |
 | `dashboard_data_pusher.py`        | 199   | Data Pusher | File-to-REST bridge                 |
 | `test_analyzer.py`                | 192   | Test        | Standalone analyzer test harness    |
-| **Total**                         | **3248** |          |                                     |
+| `test_python_modules.py`          | 700+  | Test        | Comprehensive unit tests (36 tests) |
+| `session_manager.py`              | 400+  | Session Mgr | Daily P&L caps, carry forward       |
+| `performance_feedback.py`         | 550+  | Feedback    | Trade journal, parameter tuning     |
+| `momentum_engine.py`              | 330+  | Executor    | Dual-window momentum scoring        |
 
 ### B.2 Runtime Data Files
 
 | File Pattern                                              | Written By | Read By                    | Content              |
 | --------------------------------------------------------- | ---------- | -------------------------- | -------------------- |
-| `option_chain_{instrument}.json`                          | Fetcher    | Analyzer, AI Engine, Executor | Raw option chain  |
-| `analyzer_output_{instrument}.json`                       | Analyzer   | AI Engine                  | Analysis results     |
-| `ai_decision_{instrument}.json`                           | AI Engine  | Executor, Data Pusher      | Trade decision       |
-| `opening_snapshots/opening_{instrument}_{date}.json`      | Analyzer   | Analyzer                   | Opening OI snapshot  |
+| `output/option_chain_{instrument}.json`                   | Fetcher    | Analyzer, AI Engine, Executor | Raw option chain  |
+| `output/analyzer_output_{instrument}.json`                | Analyzer   | AI Engine                  | Analysis results     |
+| `output/ai_decision_{instrument}.json`                    | AI Engine  | Executor, Data Pusher      | Trade decision       |
+| `output/opening_snapshots/opening_{instrument}_{date}.json` | Analyzer | Analyzer                   | Opening OI snapshot  |
+| `output/trade_journal.json`                               | Feedback   | Feedback                   | Trade history log    |
+| `output/feedback_adjustments.json`                        | Feedback   | Feedback                   | Parameter adjustment log |
+| `output/tuned_params.json`                                | Feedback   | AI Engine, Executor        | Tuned parameters     |
+| `output/session_state.json`                               | Session Mgr | Session Mgr               | Daily session state  |
 | *(Security ID lookup delegated to Broker Service)*        | —          | —                          | —                    |
 
 ### B.3 External Dependencies

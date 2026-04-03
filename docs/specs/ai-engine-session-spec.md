@@ -63,4 +63,16 @@ A position is ONLY carried forward if **all** of the following conditions are me
 
 ---
 
+## 4. State Persistence
+
+The Session Manager persists its state to `output/session_state.json` (inside the `python_modules/output/` directory). This allows the session state to survive process restarts during the trading day.
+
+---
+
+## 5. Testing
+
+The Session Manager's core logic (daily profit/loss caps, P&L percentage calculation, trade count tracking) is covered by the `TestSessionManager` class in `python_modules/test_python_modules.py` (5 tests).
+
+---
+
 *End of specification.*

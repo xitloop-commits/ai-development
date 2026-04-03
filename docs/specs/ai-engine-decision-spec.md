@@ -28,8 +28,8 @@ The AI Decision Engine is the core decision-making module. It synthesizes techni
 
 The AI Decision Engine consumes three data sources per instrument:
 
-1. **Analyzer Output** (`analyzer_output_{instrument}.json`): Market bias, S/R levels, entry/exit/breakout signals, smart money signals.
-2. **Raw Option Chain** (`option_chain_{instrument}.json`): Live strike data for wall strength analysis, IV assessment, theta assessment, and trade setup pricing.
+1. **Analyzer Output** (`output/analyzer_output_{instrument}.json`): Market bias, S/R levels, entry/exit/breakout signals, smart money signals.
+2. **Raw Option Chain** (`output/option_chain_{instrument}.json`): Live strike data for wall strength analysis, IV assessment, theta assessment, and trade setup pricing.
 3. **News Sentiment** (fetched live from NewsData.io API): Multi-query weighted keyword scoring with event calendar awareness.
 
 ---
@@ -560,6 +560,12 @@ Extends the Equity dictionary with 9 additional keywords per side:
 ### A.4 Natural Gas Keywords (NATURALGAS)
 
 13 bullish + 13 bearish keywords focused on weather, storage, EIA reports, TTF/European gas, and rig counts.
+
+---
+
+## Appendix B — Testing
+
+The AI Decision Engine's scoring and decision logic is covered by the `TestAIDecisionEngine` class in `python_modules/test_python_modules.py`, which validates weighted scoring, direction thresholds, and confidence calculations. The dashboard integration for pushing AI decisions (GO/WAIT/NO_GO) is tested in `server/tradingRoutes.test.ts`.
 
 ---
 

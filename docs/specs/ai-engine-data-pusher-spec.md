@@ -30,9 +30,9 @@ The Data Pusher uses file modification time (mtime) tracking to detect changes. 
 
 | File Pattern                            | Endpoint                       | Payload Key         |
 | --------------------------------------- | ------------------------------ | ------------------- |
-| `option_chain_{instrument}.json`        | `POST /api/trading/option-chain` | `{instrument, data}` |
-| `analyzer_output_{instrument}.json`     | `POST /api/trading/analyzer`   | `{instrument, data}` |
-| `ai_decision_{instrument}.json`         | `POST /api/trading/ai-decision`| `{instrument, data}` |
+| `output/option_chain_{instrument}.json`        | `POST /api/trading/option-chain` | `{instrument, data}` |
+| `output/analyzer_output_{instrument}.json`     | `POST /api/trading/analyzer`   | `{instrument, data}` |
+| `output/ai_decision_{instrument}.json`         | `POST /api/trading/ai-decision`| `{instrument, data}` |
 
 A file is only pushed when its mtime increases beyond the previously recorded value. This prevents redundant pushes when no upstream module has written new data.
 
@@ -54,6 +54,12 @@ The loop runs every 3 seconds (faster than the 5-second module cycles to ensure 
 ## 4. Error Handling
 
 Connection errors are silently swallowed (the dashboard may be temporarily unreachable). Other errors are logged with the endpoint name and error message. The pusher never crashes — it continues retrying on the next cycle.
+
+---
+
+## 5. Testing
+
+The Data Pusher's payload formatting (option chain, analyzer output, heartbeat push formats) is covered by the `TestDashboardDataPusher` class in `python_modules/test_python_modules.py` (3 tests). The dashboard REST endpoints it pushes to are tested in `server/tradingRoutes.test.ts`.
 
 ---
 

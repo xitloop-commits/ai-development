@@ -174,4 +174,10 @@ Every cycle, the Executor sends a heartbeat to `POST /api/trading/heartbeat` wit
 
 ---
 
+## 10. Testing
+
+The Executor's broker communication (order placement, position retrieval, kill switch) is tested via `server/broker/brokerPythonEndpoints.test.ts` (30 tests). The momentum engine's scoring logic (bullish, bearish, flat, score range) is covered by the `TestMomentumEngine` class in `python_modules/test_python_modules.py` (4 tests). The session management logic (P&L caps, trade counting) is covered by the `TestSessionManager` class (5 tests).
+
+---
+
 *End of specification.*

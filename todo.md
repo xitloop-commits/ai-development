@@ -18,6 +18,10 @@
 - [x] Update frontend ControlPanel to control trading mode via API
 - [x] Add 3-second polling for real-time data refresh
 - [x] Write vitest tests for trading store (18 tests passing)
+- [x] Write comprehensive Python module tests (test_python_modules.py — 36 tests covering all 7 modules)
+- [x] Write broker service endpoint tests (brokerPythonEndpoints.test.ts — 30 tests)
+- [x] Write trading routes tests (tradingRoutes.test.ts — 22 tests)
+- [x] Move all Python module output files to python_modules/output/ directory (clean separation of source and generated data)
 - [x] Test full data pipeline: REST push -> Store -> tRPC -> React
 - [x] Create Python data pusher script for bridging Python modules to dashboard
 - [x] Save checkpoint and deliver integrated dashboard
@@ -132,11 +136,8 @@
 - [x] Run tests and save checkpoint for enhanced news coverage (99 tests passing)
 - [x] Bug fix: AI engine crashes on empty analyzer JSON output (JSONDecodeError)
 - [x] Bug fix: load_option_chain also crashes on empty JSON — fixed all unsafe json.load calls in ai_decision_engine.py and option_chain_analyzer.py
-- [ ] Dhan Access Token Management: MongoDB collection (dhan_credentials) to store access_token, client_id, updated_at
-- [ ] Dhan Access Token Management: On app start, check token age — if <24h use stored token, if ≥24h show blocking popup for new token
-- [ ] Dhan Access Token Management: Mid-day expiry detection — if any Dhan API returns 401, show same popup immediately
-- [ ] Dhan Access Token Management: Python modules read token from MongoDB instead of hardcoded values
-- [ ] Dhan Access Token Management: After token update, all modules reconnect (WebSocket + API retry)
+- [x] Dhan Access Token Management: Superseded by Broker Service (Step 0.4) — token validation, expiry detection, and 401 handling are now in the Dhan Adapter
+- [x] Dhan Access Token Management: Python modules no longer manage tokens directly — they call Broker Service REST endpoints which handle authentication internally
 
 ## Position Tracker — 150-Day Compounding Table
 
