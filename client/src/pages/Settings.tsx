@@ -270,12 +270,16 @@ export function BrokerConfigSection() {
   });
 
   const [tokenInput, setTokenInput] = useState('');
+  const [clientIdInput, setClientIdInput] = useState('');
+  const [editingClientId, setEditingClientId] = useState(false);
   const tokenMutation = trpc.broker.token.update.useMutation({
     onSuccess: () => {
       toast.success('Token updated successfully');
       setTokenInput('');
+      setEditingClientId(false);
       tokenQuery.refetch();
       configQuery.refetch();
+      statusQuery.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -344,9 +348,15 @@ export function BrokerConfigSection() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <FieldLabel>Client ID</FieldLabel>
-              <span className="text-[11px] text-foreground tabular-nums">
-                {config.credentials.clientId || '—'}
-              </span>
+              {config.credentials.clientId ? (
+                <span className="text-[11px] text-foreground tabular-nums">
+                  {config.credentials.clientId}
+                </span>
+              ) : (
+                <span className="text-[11px] text-loss-red">
+                  Not set — enter below
+                </span>
+              )}
             </div>
             <div className="flex items-center justify-between">
               <FieldLabel>Access Token</FieldLabel>
@@ -357,8 +367,8 @@ export function BrokerConfigSection() {
             <div className="flex items-center justify-between">
               <FieldLabel>Token Status</FieldLabel>
               <StatusBadge
-                status={config.credentials.status}
-                label={config.credentials.status.toUpperCase()}
+                status={status?.tokenStatus ?? config.credentials.status}
+                label={(status?.tokenStatus ?? config.credentials.status).toUpperCase()}
               />
             </div>
             {config.credentials.updatedAt > 0 && (
@@ -385,26 +395,61 @@ export function BrokerConfigSection() {
                 Paste a new access token from your Dhan dashboard. Tokens expire every 24 hours.
               </span>
             </div>
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                placeholder="Paste new access token..."
-                className="flex-1 h-8 px-3 text-[11px] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-              <button
-                onClick={() => {
-                  if (tokenInput.trim()) {
-                    tokenMutation.mutate({ token: tokenInput.trim() });
-                  }
-                }}
-                disabled={!tokenInput.trim() || tokenMutation.isPending}
-                className="flex items-center gap-1.5 px-3 h-8 rounded text-[10px] font-bold tracking-wider uppercase bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-              >
-                {tokenMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Key className="h-3 w-3" />}
-                UPDATE
-              </button>
+            {/* Client ID — read-only if set, editable if empty */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold tracking-wider uppercase text-muted-foreground">
+                Client ID {!config.credentials.clientId && <span className="text-loss-red">*</span>}
+              </label>
+              {config.credentials.clientId ? (
+                <div className="h-8 px-3 flex items-center text-[11px] bg-muted/30 border border-border rounded text-muted-foreground tabular-nums">
+                  {config.credentials.clientId}
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  value={clientIdInput}
+                  onChange={(e) => setClientIdInput(e.target.value)}
+                  placeholder="Your Dhan client ID (e.g. 1100012345)"
+                  className="w-full h-8 px-3 text-[11px] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary font-mono"
+                />
+              )}
+            </div>
+            {/* Access Token */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold tracking-wider uppercase text-muted-foreground">
+                New Access Token <span className="text-loss-red">*</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="Paste new access token..."
+                  className="flex-1 h-8 px-3 text-[11px] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <button
+                  onClick={() => {
+                    const resolvedClientId = config.credentials.clientId || clientIdInput.trim();
+                    if (!resolvedClientId) {
+                      toast.error('Client ID is required');
+                      return;
+                    }
+                    if (!tokenInput.trim()) {
+                      toast.error('Access token is required');
+                      return;
+                    }
+                    tokenMutation.mutate({
+                      token: tokenInput.trim(),
+                      clientId: resolvedClientId,
+                    });
+                  }}
+                  disabled={!tokenInput.trim() || (!config.credentials.clientId && !clientIdInput.trim()) || tokenMutation.isPending}
+                  className="flex items-center gap-1.5 px-3 h-8 rounded text-[10px] font-bold tracking-wider uppercase bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {tokenMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Key className="h-3 w-3" />}
+                  UPDATE
+                </button>
+              </div>
             </div>
           </div>
         </SettingsCard>
