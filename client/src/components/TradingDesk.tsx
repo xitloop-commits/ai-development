@@ -865,6 +865,7 @@ function TodaySection({
   const trades = day.trades ?? [];
   const openTrades = trades.filter(t => t.status === 'OPEN');
   const totalPnl = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
+  const isLiveWorkspace = workspace === 'live';
 
   return (
     <>
@@ -882,12 +883,13 @@ function TodaySection({
             exitLoading={exitLoading}
             getLiveLtp={getLiveLtp}
             todayRef={isFirst ? todayRef : undefined}
+            isLiveWorkspace={isLiveWorkspace}
           />
         );
       })}
 
-      {/* New Trade Input Row — shown on + button click */}
-      {showNewTradeForm && (
+      {/* New Trade Input Row — only for My Trades (LIVE), shown on + button click */}
+      {isLiveWorkspace && showNewTradeForm && (
         <NewTradeForm
           workspace={workspace}
           availableCapital={capital.availableCapital}
@@ -920,18 +922,22 @@ function TodaySection({
         <td className="px-2 py-2" />
         {/* Proj Capital */}
         <td className="px-2 py-2" />
-        {/* Instrument — + NEW TRADE button */}
+        {/* Instrument — + NEW TRADE button (only for My Trades LIVE) */}
         <td className="px-2 py-2" colSpan={5}>
-          <button
-            onClick={() => setShowNewTradeForm(prev => !prev)}
-            className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-wider transition-colors ${
-              showNewTradeForm
-                ? 'bg-warning-amber/20 text-warning-amber'
-                : 'bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25'
-            }`}
-          >
-            {showNewTradeForm ? '− CANCEL' : '+ NEW TRADE'}
-          </button>
+          {isLiveWorkspace ? (
+            <button
+              onClick={() => setShowNewTradeForm(prev => !prev)}
+              className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-wider transition-colors ${
+                showNewTradeForm
+                  ? 'bg-warning-amber/20 text-warning-amber'
+                  : 'bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25'
+              }`}
+            >
+              {showNewTradeForm ? '− CANCEL' : '+ NEW TRADE'}
+            </button>
+          ) : (
+            <span className="text-[9px] text-muted-foreground/50 italic">AI managed</span>
+          )}
         </td>
         {/* Qty */}
         <td className="px-2 py-2 text-right tabular-nums text-foreground">
@@ -982,6 +988,7 @@ function TodayTradeRow({
   exitLoading,
   getLiveLtp,
   todayRef,
+  isLiveWorkspace,
 }: {
   trade: TradeRecord;
   day: DayRecord;
@@ -991,6 +998,7 @@ function TodayTradeRow({
   exitLoading?: boolean;
   getLiveLtp: (instrument: string) => number | undefined;
   todayRef?: React.RefObject<HTMLTableRowElement | null>;
+  isLiveWorkspace: boolean;
 }) {
   const isOpen = trade.status === 'OPEN';
   const isPending = trade.status === 'PENDING';
@@ -1117,7 +1125,7 @@ function TodayTradeRow({
             {fmt(pnl)}
             <span className="text-[8px] ml-0.5">({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%)</span>
           </span>
-          {isOpen && (
+          {isOpen && isLiveWorkspace && (
             <button
               onClick={(e) => { e.stopPropagation(); onExit(); }}
               disabled={exitLoading}
