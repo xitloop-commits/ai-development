@@ -188,14 +188,15 @@ export class MockAdapter implements BrokerAdapter {
     ];
   }
 
-  async getExpiryList(_underlying: string): Promise<string[]> {
+  async getExpiryList(_underlying: string, _exchangeSegment?: string): Promise<string[]> {
     // Mock adapter returns sample expiry dates
     return ["2026-04-03", "2026-04-10", "2026-04-17", "2026-04-24"];
   }
 
   async getOptionChain(
     underlying: string,
-    expiry: string
+    expiry: string,
+    _exchangeSegment?: string
   ): Promise<OptionChainData> {
     // Mock adapter returns a sample option chain
     const baseStrike = underlying.includes("NIFTY") ? 26000 : 6000;

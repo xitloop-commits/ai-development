@@ -551,7 +551,7 @@ export class DhanAdapter implements BrokerAdapter {
     }));
   }
 
-  async getExpiryList(underlying: string): Promise<string[]> {
+  async getExpiryList(underlying: string, exchangeSegment?: string): Promise<string[]> {
     this._ensureToken();
 
     const result = await dhanRequest<{ data: string[] }>(
@@ -560,7 +560,7 @@ export class DhanAdapter implements BrokerAdapter {
       this.accessToken,
       {
         UnderlyingScrip: underlying,
-        UnderlyingSeg: "IDX_I",
+        UnderlyingSeg: exchangeSegment || "IDX_I",
       },
       { clientId: this.clientId }
     );
@@ -577,9 +577,8 @@ export class DhanAdapter implements BrokerAdapter {
     return result.data.data ?? [];
   }
 
-  async getOptionChain(underlying: string, expiry: string): Promise<OptionChainData> {
+   async getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData> {
     this._ensureToken();
-
     const result = await dhanRequest<{
       data: Array<{
         strike_price: number;
@@ -601,7 +600,7 @@ export class DhanAdapter implements BrokerAdapter {
       this.accessToken,
       {
         UnderlyingScrip: underlying,
-        UnderlyingSeg: "IDX_I",
+        UnderlyingSeg: exchangeSegment || "IDX_I",
         Expiry: expiry,
       },
       { clientId: this.clientId }

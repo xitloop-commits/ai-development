@@ -139,11 +139,14 @@ def resolve_mcx_security_ids():
             log(f"  [ERROR] {inst_key}: Failed to resolve MCX FUTCOM: {e}")
 
 
-def get_expiry_dates(underlying):
+def get_expiry_dates(underlying, exchange_segment=None):
     """Fetch expiry dates via the Broker Service REST API."""
     url = f"{BROKER_URL}/api/broker/option-chain/expiry-list"
     try:
-        resp = requests.get(url, params={"underlying": underlying}, timeout=15)
+        params = {"underlying": underlying}
+        if exchange_segment:
+            params["exchangeSegment"] = exchange_segment
+        resp = requests.get(url, params=params, timeout=15)
         if resp.status_code == 200:
             data = resp.json()
             if data.get("success"):
@@ -156,13 +159,16 @@ def get_expiry_dates(underlying):
         return None
 
 
-def get_option_chain(underlying, expiry):
+def get_option_chain(underlying, expiry, exchange_segment=None):
     """Fetch option chain data via the Broker Service REST API."""
     url = f"{BROKER_URL}/api/broker/option-chain"
     try:
+        params = {"underlying": underlying, "expiry": expiry}
+        if exchange_segment:
+            params["exchangeSegment"] = exchange_segment
         resp = requests.get(
             url,
-            params={"underlying": underlying, "expiry": expiry},
+            params=params,
             timeout=15,
         )
         if resp.status_code == 200:
@@ -259,15 +265,16 @@ def main():
                 continue
 
             underlying = details["underlying"]
+            exchange_segment = details.get("exchange_segment")
 
             # Fetch expiry dates
-            expiry_dates = get_expiry_dates(underlying)
+            expiry_dates = get_expiry_dates(underlying, exchange_segment)
             if expiry_dates:
                 current_expiry = expiry_dates[0]
                 log(f"{instrument} | Current Expiry: {current_expiry}")
 
                 # Fetch option chain
-                option_chain_data = get_option_chain(underlying, current_expiry)
+                option_chain_data = get_option_chain(underlying, current_expiry, exchange_segment)
                 if option_chain_data:
                     # Count strikes if available
                     strikes = option_chain_data.get("oc", option_chain_data.get("strikes", {}))

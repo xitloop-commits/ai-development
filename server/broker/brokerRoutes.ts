@@ -475,13 +475,16 @@ export function registerBrokerRoutes(app: Express): void {
       const broker = requireBrokerREST(res);
       if (!broker) return;
 
-      const { underlying } = req.query;
+      const { underlying, exchangeSegment } = req.query;
       if (!underlying) {
         sendError(res, 400, "Missing required query param: underlying");
         return;
       }
 
-      const dates = await broker.getExpiryList(underlying as string);
+      const dates = await broker.getExpiryList(
+        underlying as string,
+        (exchangeSegment as string) || undefined
+      );
       res.json({ success: true, data: dates });
     } catch (err: any) {
       console.error("[Broker REST] Error getting expiry list:", err);
@@ -495,7 +498,7 @@ export function registerBrokerRoutes(app: Express): void {
       const broker = requireBrokerREST(res);
       if (!broker) return;
 
-      const { underlying, expiry } = req.query;
+      const { underlying, expiry, exchangeSegment } = req.query;
       if (!underlying || !expiry) {
         sendError(res, 400, "Missing required query params: underlying, expiry");
         return;
@@ -503,7 +506,8 @@ export function registerBrokerRoutes(app: Express): void {
 
       const chain = await broker.getOptionChain(
         underlying as string,
-        expiry as string
+        expiry as string,
+        (exchangeSegment as string) || undefined
       );
       res.json({ success: true, data: chain });
     } catch (err: any) {

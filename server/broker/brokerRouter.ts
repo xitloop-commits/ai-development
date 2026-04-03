@@ -354,10 +354,10 @@ export const brokerRouter = router({
 
   /** Get expiry list for an underlying. */
   expiryList: publicProcedure
-    .input(z.object({ underlying: z.string() }))
+    .input(z.object({ underlying: z.string(), exchangeSegment: z.string().optional() }))
     .query(async ({ input }) => {
       const broker = requireBroker();
-      return broker.getExpiryList(input.underlying);
+      return broker.getExpiryList(input.underlying, input.exchangeSegment);
     }),
 
   /** Get option chain data. */
@@ -366,11 +366,12 @@ export const brokerRouter = router({
       z.object({
         underlying: z.string(),
         expiry: z.string(),
+        exchangeSegment: z.string().optional(),
       })
     )
     .query(async ({ input }) => {
       const broker = requireBroker();
-      return broker.getOptionChain(input.underlying, input.expiry);
+      return broker.getOptionChain(input.underlying, input.expiry, input.exchangeSegment);
     }),
 
   // ── Feed (Live Market Data) ─────────────────────────────────

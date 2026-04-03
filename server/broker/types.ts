@@ -329,10 +329,10 @@ export interface BrokerAdapter {
   getScripMaster(exchange: string): Promise<Instrument[]>;
 
   /** Get available expiry dates for an underlying. */
-  getExpiryList(underlying: string): Promise<string[]>;
+  getExpiryList(underlying: string, exchangeSegment?: string): Promise<string[]>;
 
   /** Get option chain data for an underlying + expiry. */
-  getOptionChain(underlying: string, expiry: string): Promise<OptionChainData>;
+  getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData>;
 
   // ── Scrip Master Helpers (optional — implemented by adapters with local cache) ──
   /** Get scrip master cache status. */
