@@ -5,7 +5,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { AlertProvider } from "./contexts/AlertContext";
 import { InstrumentFilterProvider } from "./contexts/InstrumentFilterContext";
 import MainScreen from "./components/MainScreen";
-import { TokenExpiredModal } from "./components/TokenExpiredModal";
+import { CredentialGate } from "./components/CredentialGate";
 import { SetupBrokerModal } from "./components/SetupBrokerModal";
 
 function App() {
@@ -26,9 +26,10 @@ function App() {
                   },
                 }}
               />
-              <MainScreen />
               <SetupBrokerModal />
-              <TokenExpiredModal />
+              <CredentialGate>
+                <MainScreen />
+              </CredentialGate>
             </TooltipProvider>
           </InstrumentFilterProvider>
         </AlertProvider>
