@@ -436,9 +436,13 @@ export function calculateAllQuarterlyProjections(
     avgDailyRate = Math.pow(totalCapital / baseline, 1 / currentDayIndex) - 1;
   }
 
-  // Quarter end months: Q1=Jun(5), Q2=Sep(8), Q3=Dec(11), Q4=Mar(2)
-  const quarterEndMonths = [5, 8, 11, 2];
+  // Quarter start/end months (0-indexed): Q1=Apr-Jun, Q2=Jul-Sep, Q3=Oct-Dec, Q4=Jan-Mar
+  const quarterStartMonths = [3, 6, 9, 0]; // Apr, Jul, Oct, Jan
+  const quarterEndMonths = [5, 8, 11, 2];   // Jun, Sep, Dec, Mar
   const results: Array<{ quarterLabel: string; projectedCapital: number; isCurrent: boolean; isPast: boolean }> = [];
+
+  // Chain projections: each quarter starts from the previous quarter's projected end
+  let runningCapital = totalCapital;
 
   for (let q = 1; q <= 4; q++) {
     const endMonth = quarterEndMonths[q - 1];
@@ -448,19 +452,30 @@ export function calculateAllQuarterlyProjections(
     const isCurrent = q === currentQuarter;
     const isPast = q < currentQuarter;
 
-    const daysToEnd = Math.floor((quarterEnd.getTime() - now.getTime()) / 86400000);
     if (isPast) {
-      // Past quarter — do NOT recalculate from new capital; show 0 as placeholder
-      // (no historical snapshot available; frontend can render as “—”)
+      // Past quarter — no historical snapshot; frontend renders as "—"
       results.push({ quarterLabel: label, projectedCapital: 0, isCurrent, isPast });
-    } else {
-      // Current or future quarter — project from current capital
-      const tradingDaysToEnd = Math.max(0, Math.floor(daysToEnd * 5 / 7));
-      const projected = avgDailyRate > 0
-        ? round(totalCapital * Math.pow(1 + avgDailyRate, tradingDaysToEnd))
-        : round(totalCapital);
-      results.push({ quarterLabel: label, projectedCapital: projected, isCurrent, isPast });
+      continue;
     }
+
+    // For current quarter: project from now to quarter end
+    // For future quarters: project from previous quarter end to this quarter end
+    let tradingDays: number;
+    if (isCurrent) {
+      const daysToEnd = Math.max(0, Math.floor((quarterEnd.getTime() - now.getTime()) / 86400000));
+      tradingDays = Math.floor(daysToEnd * 5 / 7);
+    } else {
+      // Future quarter: ~63 trading days per quarter (3 months × 21 trading days)
+      tradingDays = 63;
+    }
+
+    const projected = avgDailyRate > 0
+      ? round(runningCapital * Math.pow(1 + avgDailyRate, tradingDays))
+      : round(runningCapital);
+    results.push({ quarterLabel: label, projectedCapital: projected, isCurrent, isPast });
+
+    // Next quarter starts from this quarter's projected end
+    runningCapital = projected;
   }
 
   return results;
