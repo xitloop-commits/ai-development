@@ -48,6 +48,11 @@ const settingsSchema = new Schema<BrokerSettings>(
       enum: ["INTRADAY", "CNC", "MARGIN"],
       default: "INTRADAY",
     },
+    dailyTargetPercent: { type: Number, default: 5.0 },
+    tradeTargetOptions: { type: Number, default: 30 },
+    tradeTargetOther: { type: Number, default: 2 },
+    trailingStopEnabled: { type: Boolean, default: false },
+    trailingStopPercent: { type: Number, default: 1.0 },
   },
   { _id: false }
 );
@@ -254,6 +259,11 @@ function docToConfig(doc: Record<string, any>): BrokerConfigDoc {
       defaultTP: doc.settings?.defaultTP ?? 5.0,
       orderType: doc.settings?.orderType ?? "LIMIT",
       productType: doc.settings?.productType ?? "INTRADAY",
+      dailyTargetPercent: doc.settings?.dailyTargetPercent ?? 5.0,
+      tradeTargetOptions: doc.settings?.tradeTargetOptions ?? 30,
+      tradeTargetOther: doc.settings?.tradeTargetOther ?? 2,
+      trailingStopEnabled: doc.settings?.trailingStopEnabled ?? false,
+      trailingStopPercent: doc.settings?.trailingStopPercent ?? 1.0,
     },
     connection: {
       apiStatus: doc.connection?.apiStatus ?? "disconnected",

@@ -249,6 +249,11 @@ export interface BrokerSettings {
   defaultTP: number; // default target profit % (default 5.0)
   orderType: OrderType; // default order type (default "LIMIT")
   productType: ProductType; // default product type (default "INTRADAY")
+  dailyTargetPercent: number; // daily compounding target % (default 5.0)
+  tradeTargetOptions: number; // per-trade target % for options (default 30)
+  tradeTargetOther: number; // per-trade target % for equities/futures (default 2)
+  trailingStopEnabled: boolean; // whether trailing stop is active (default false)
+  trailingStopPercent: number; // trailing stop distance % from peak (default 1.0)
 }
 
 export interface BrokerConnection {

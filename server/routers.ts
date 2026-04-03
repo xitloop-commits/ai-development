@@ -205,7 +205,8 @@ export const appRouter = router({
       return getUserSettings(1 /* single-user */);
     }),
 
-    // Update time window settings
+    // @deprecated — Time Windows are now managed via trpc.discipline.getSettings/updateSettings.
+    // Kept for backward compatibility; will be removed in a future version.
     updateTimeWindows: publicProcedure
       .input(z.object({
         nse: z.object({
@@ -225,7 +226,8 @@ export const appRouter = router({
         return { success: true, timeWindows: updated.timeWindows };
       }),
 
-    // Update discipline settings
+    // @deprecated — Discipline settings are now managed via trpc.discipline.getSettings/updateSettings.
+    // Kept for backward compatibility; will be removed in a future version.
     updateDiscipline: publicProcedure
       .input(z.object({
         maxTradesPerDay: z.number().min(1).max(50).optional(),

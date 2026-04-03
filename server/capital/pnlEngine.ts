@@ -80,6 +80,8 @@ class PnlEngine extends EventEmitter {
   private running = false;
   private updateDebounce: NodeJS.Timeout | null = null;
   private pendingUpdates = new Map<string, TickData>(); // key → latest tick
+  /** Track peak price per trade for trailing stop logic. Key = tradeId */
+  private peakPrices = new Map<string, number>();
 
   constructor() {
     super();
@@ -154,6 +156,11 @@ class PnlEngine extends EventEmitter {
     const openTrades = day.trades.filter((t) => t.status === "OPEN");
     if (openTrades.length === 0) return;
 
+    // Read trailing stop config from broker settings (centralized)
+    const brokerConfig = await getActiveBrokerConfig();
+    const trailingStopEnabled = brokerConfig?.settings?.trailingStopEnabled ?? false;
+    const trailingStopPercent = brokerConfig?.settings?.trailingStopPercent ?? 1.0;
+
     let anyUpdated = false;
     const tradesToExit: Array<{ trade: TradeRecord; reason: "TP" | "SL"; exitPrice: number }> = [];
 
@@ -168,11 +175,37 @@ class PnlEngine extends EventEmitter {
         // Check TP/SL triggers (paper only — live uses Dhan bracket orders)
         if (workspace !== "paper") continue;
         const isBuy = trade.type.includes("BUY");
+
+        // ── Trailing Stop Logic ──────────────────────────────
+        // Track peak price and dynamically trail the stop loss
+        const peakKey = trade.id;
+        const currentPeak = this.peakPrices.get(peakKey) ?? trade.entryPrice;
+        const newPeak = isBuy
+          ? Math.max(currentPeak, tick.ltp)
+          : Math.min(currentPeak, tick.ltp);
+        this.peakPrices.set(peakKey, newPeak);
+
+        // Apply trailing stop if enabled in broker config settings
+        if (trailingStopEnabled && trade.stopLossPrice !== null && newPeak !== currentPeak) {
+          const trailedSL = isBuy
+            ? Math.round(newPeak * (1 - trailingStopPercent / 100) * 100) / 100
+            : Math.round(newPeak * (1 + trailingStopPercent / 100) * 100) / 100;
+          // Only trail in the favorable direction (never widen the stop)
+          const shouldTrail = isBuy
+            ? trailedSL > trade.stopLossPrice
+            : trailedSL < trade.stopLossPrice;
+          if (shouldTrail) {
+            trade.stopLossPrice = trailedSL;
+            anyUpdated = true;
+          }
+        }
+
         if (trade.targetPrice !== null) {
           const tpHit = isBuy
             ? tick.ltp >= trade.targetPrice
             : tick.ltp <= trade.targetPrice;
           if (tpHit) {
+            this.peakPrices.delete(peakKey); // cleanup
             tradesToExit.push({ trade, reason: "TP", exitPrice: tick.ltp });
             continue; // Don't check SL if TP hit
           }
@@ -182,6 +215,7 @@ class PnlEngine extends EventEmitter {
             ? tick.ltp <= trade.stopLossPrice
             : tick.ltp >= trade.stopLossPrice;
           if (slHit) {
+            this.peakPrices.delete(peakKey); // cleanup
             tradesToExit.push({ trade, reason: "SL", exitPrice: tick.ltp });
           }
         }

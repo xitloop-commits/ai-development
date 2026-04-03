@@ -41,7 +41,7 @@ import type { ChargeRate } from "./chargesEngine";
 import { getUserSettings } from "../userSettings";
 import { getActiveBroker } from "../broker/brokerService";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
-import type { OrderParams } from "../broker/types";
+import type { BrokerSettings, OrderParams } from "../broker/types";
 import { createTrade as createJournalEntry, closeTrade as closeJournalEntry } from "../db";
 
 /** System user ID for auto-journaled trades (no auth context in capital flow). */
@@ -61,7 +61,31 @@ async function getChargeRates(userId: number = 1): Promise<ChargeRate[]> {
 }
 
 /**
+ * Read the daily target % from broker config settings.
+ * Falls back to the engine constant (5) if no broker config exists.
+ */
+async function getDailyTargetPercent(): Promise<number> {
+  const config = await getActiveBrokerConfig();
+  return config?.settings?.dailyTargetPercent ?? 5;
+}
+
+/**
+ * Read per-instrument trade target % from broker config settings.
+ * Options default to 30%, other instruments to 2%.
+ */
+async function getTradeTargetPercent(instrument: string): Promise<{ tpPercent: number; slPercent: number }> {
+  const config = await getActiveBrokerConfig();
+  const isOption = /CALL|PUT|CE|PE/i.test(instrument);
+  const tpPercent = isOption
+    ? (config?.settings?.tradeTargetOptions ?? 30)
+    : (config?.settings?.tradeTargetOther ?? 2);
+  const slPercent = config?.settings?.defaultSL ?? 10;
+  return { tpPercent, slPercent };
+}
+
+/**
  * Ensure the current day record exists. Creates Day 1 if needed.
+ * Reads dailyTargetPercent from broker config settings (centralized).
  */
 async function ensureCurrentDay(workspace: Workspace): Promise<DayRecord> {
   const state = await getCapitalState(workspace);
@@ -73,17 +97,23 @@ async function ensureCurrentDay(workspace: Workspace): Promise<DayRecord> {
 
   let day = await getDayRecord(workspace, state.currentDayIndex);
   if (!day) {
-    // Create the first day record
-    const origProj = state.tradingPool * (1 + state.targetPercent / 100);
+    // Read target % from centralized settings
+    const targetPercent = await getDailyTargetPercent();
+    const origProj = state.tradingPool * (1 + targetPercent / 100);
     day = createDayRecord(
       state.currentDayIndex,
       state.tradingPool,
-      state.targetPercent,
+      targetPercent,
       origProj,
       workspace,
       "ACTIVE"
     );
     day = await upsertDayRecord(workspace, day);
+
+    // Sync targetPercent to capital state if it differs
+    if (state.targetPercent !== targetPercent) {
+      await updateCapitalState(workspace, { targetPercent });
+    }
   }
   return day;
 }
@@ -171,11 +201,12 @@ export const capitalRouter = router({
       const day = await ensureCurrentDay(input.workspace);
       const startCapital = day.actualCapital > 0 ? day.actualCapital : state.tradingPool;
       const startDay = state.currentDayIndex + 1;
+      const targetPercent = await getDailyTargetPercent();
 
       return projectFutureDays(
         startDay,
         startCapital * TRADING_SPLIT, // only trading pool share compounds
-        state.targetPercent,
+        targetPercent,
         input.count,
         input.workspace
       );
@@ -199,11 +230,12 @@ export const capitalRouter = router({
       const startCapital = currentDay.actualCapital > 0
         ? currentDay.actualCapital
         : state.tradingPool;
+      const targetPercent = await getDailyTargetPercent();
       const futureDays = input.futureCount > 0
         ? projectFutureDays(
             state.currentDayIndex + 1,
             startCapital,
-            state.targetPercent,
+            targetPercent,
             input.futureCount,
             input.workspace
           )
@@ -252,12 +284,11 @@ export const capitalRouter = router({
         throw new Error("Insufficient capital for this trade");
       }
 
-      // Calculate bracket order levels — TP/SL defaults from user settings
+      // Calculate bracket order levels — TP/SL defaults from broker config settings
       const isBuy = input.type.includes("BUY");
-      // TP/SL defaults — UserSettingsDoc doesn't have a 'trading' sub-object yet.
-      // TODO: Add trading.defaultTpPercent / defaultSlPercent to UserSettingsDoc when settings spec is finalized.
-      const tpPercent = input.targetPercent ?? 30;
-      const slPercent = input.stopLossPercent ?? 10;
+      const tradeDefaults = await getTradeTargetPercent(input.type);
+      const tpPercent = input.targetPercent ?? tradeDefaults.tpPercent;
+      const slPercent = input.stopLossPercent ?? tradeDefaults.slPercent;
       const targetPrice = isBuy
         ? Math.round(input.entryPrice * (1 + tpPercent / 100) * 100) / 100
         : Math.round(input.entryPrice * (1 - tpPercent / 100) * 100) / 100;
