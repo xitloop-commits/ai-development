@@ -38,7 +38,7 @@ MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODULES = [
     ("performance_feedback.py",      "Pre-market parameter tuning",   False),
     ("session_manager.py",           "Session manager (P&L caps)",    True),
-    ("dhan_option_chain_fetcher.py", "Option chain fetcher",          True),
+    ("option_chain_fetcher.py",      "Option chain fetcher",          True),
     ("option_chain_analyzer.py",     "Option chain analyzer",         True),
     ("ai_decision_engine.py",        "AI decision engine",            True),
     ("execution_module.py",          "Trade executor + momentum",     True),
