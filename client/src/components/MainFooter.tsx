@@ -150,6 +150,7 @@ export default function MainFooter() {
   const allQuarters = (capital.allQuarterlyProjections ?? []) as Array<{
     quarterLabel: string;
     projectedCapital: number;
+    deviation: number;
     isCurrent: boolean;
     isPast: boolean;
   }>;
@@ -188,8 +189,15 @@ export default function MainFooter() {
               <span className={`text-[10px] font-bold tabular-nums ${
                 q.isCurrent ? 'text-info-cyan' : q.isPast ? 'text-muted-foreground' : 'text-foreground/70'
               }`}>
-                {q.isPast ? '—' : formatCurrency(q.projectedCapital)}
+                {formatCurrency(q.projectedCapital)}
               </span>
+              {q.isCurrent && q.deviation !== 0 && (
+                <span className={`text-[8px] tabular-nums font-medium ${
+                  q.deviation > 0 ? 'text-profit' : 'text-loss'
+                }`}>
+                  ({q.deviation > 0 ? '+' : ''}{formatCurrency(q.deviation)})
+                </span>
+              )}
             </div>
           ))}
         </div>

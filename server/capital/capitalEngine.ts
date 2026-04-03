@@ -370,35 +370,41 @@ export function projectFutureDays(
 
 // ─── Quarterly Projection ────────────────────────────────────────
 
+/** Quarter boundaries based on day index (not calendar). */
+const QUARTER_DAYS = 63; // ~250/4 rounded
+const QUARTER_BOUNDARIES = [
+  { q: 1, startDay: 1,   endDay: 62 },
+  { q: 2, startDay: 63,  endDay: 125 },
+  { q: 3, startDay: 126, endDay: 188 },
+  { q: 4, startDay: 189, endDay: 250 },
+];
+
 /**
- * Simulate the 75/25 compounding table forward for N trading days.
- * Returns { tradingPool, reservePool } at the end.
- * Uses the same logic as projectFutureDays: each day 75% of profit
- * stays in trading pool, 25% goes to reserve.
- *
- * When actual history exists (currentDayIndex > 1), derives the effective
- * daily rate from actual performance instead of using the configured target.
+ * Compute the planned net worth (TP + RP) at a given day index,
+ * starting from initial funding with the configured target %.
+ * Uses the same 75/25 split compounding as the 250-day table.
  */
-function simulateCompounding(
-  tradingPool: number,
-  reservePool: number,
-  tradingDays: number,
-  dailyRate: number
-): { tradingPool: number; reservePool: number } {
-  let tp = tradingPool;
-  let rp = reservePool;
-  for (let i = 0; i < tradingDays; i++) {
-    const profit = tp * dailyRate;
-    tp = tp + profit * TRADING_SPLIT;   // 75% stays
-    rp = rp + profit * RESERVE_SPLIT;   // 25% to reserve
+function plannedNetWorthAtDay(
+  dayIndex: number,
+  initialFunding: number,
+  targetPercent: number
+): number {
+  const rate = targetPercent / 100;
+  let tp = initialFunding * TRADING_SPLIT;   // 75% to trading pool
+  let rp = initialFunding * RESERVE_SPLIT;   // 25% to reserve pool
+  for (let d = 1; d <= dayIndex; d++) {
+    const profit = tp * rate;
+    tp += profit * TRADING_SPLIT;
+    rp += profit * RESERVE_SPLIT;
   }
-  return { tradingPool: round(tp), reservePool: round(rp) };
+  return round(tp + rp);
 }
 
 /**
- * Calculate projected capital at end of current calendar quarter.
- * Uses the same 75/25 compounding logic as the 250-day table.
- * Calendar quarters: Q1=Jan-Mar, Q2=Apr-Jun, Q3=Jul-Sep, Q4=Oct-Dec.
+ * Calculate projected capital at end of the current day-index quarter.
+ * Quarters are based on trading day index:
+ *   Q1 = Day 1–62, Q2 = Day 63–125, Q3 = Day 126–188, Q4 = Day 189–250.
+ * Returns the planned net worth (TP + RP) at the quarter boundary.
  */
 export function calculateQuarterlyProjection(
   currentTradingPool: number,
@@ -408,37 +414,23 @@ export function calculateQuarterlyProjection(
   initialFunding: number = DEFAULT_INITIAL_FUNDING,
   targetPercent: number = DEFAULT_TARGET_PERCENT
 ): { quarterLabel: string; projectedCapital: number } {
-  const now = new Date();
-  const month = now.getMonth();
-  const year = now.getFullYear();
-  const quarter = Math.floor(month / 3) + 1;
-  const quarterLabel = `Q${quarter} ${year}`;
-
-  // Derive daily rate: from actual history or configured target
-  let dailyRate = targetPercent / 100;
-  if (currentDayIndex > 1 && daysElapsed > 0) {
-    const totalCapital = currentTradingPool + currentReservePool;
-    const baseline = initialFunding > 0 ? initialFunding : DEFAULT_INITIAL_FUNDING;
-    dailyRate = Math.pow(totalCapital / baseline, 1 / currentDayIndex) - 1;
-  }
-
-  // Trading days remaining in current quarter
-  const quarterEndMonth = quarter * 3;
-  const quarterEnd = new Date(year, quarterEndMonth, 0);
-  const daysRemaining = Math.max(0, Math.floor((quarterEnd.getTime() - now.getTime()) / 86400000));
-  const tradingDaysRemaining = Math.floor(daysRemaining * 5 / 7);
-
-  const result = simulateCompounding(currentTradingPool, currentReservePool, tradingDaysRemaining, dailyRate);
-  const projectedCapital = round(result.tradingPool + result.reservePool);
-
+  // Determine which quarter the current day falls in
+  const qb = QUARTER_BOUNDARIES.find(b => currentDayIndex >= b.startDay && currentDayIndex <= b.endDay)
+    ?? QUARTER_BOUNDARIES[0];
+  const quarterLabel = `Q${qb.q}`;
+  const projectedCapital = plannedNetWorthAtDay(qb.endDay, initialFunding, targetPercent);
   return { quarterLabel, projectedCapital };
 }
 
 /**
- * Calculate projections for all 4 quarters of the current calendar year.
- * Uses the same 75/25 compounding logic as the 250-day table so that
- * quarterly projections are consistent with the compounding table rows.
- * Calendar quarters: Q1=Jan-Mar, Q2=Apr-Jun, Q3=Jul-Sep, Q4=Oct-Dec.
+ * Calculate projections for all 4 day-index quarters.
+ * Each quarter shows:
+ *   - plannedCapital: the planned net worth (TP + RP) at the quarter's last day
+ *   - deviation: actual current net worth minus planned net worth at current day
+ *   - isCurrent: whether the current day index falls in this quarter
+ *   - isPast: whether the quarter has already been completed
+ *
+ * Quarters: Q1 = Day 1–62, Q2 = Day 63–125, Q3 = Day 126–188, Q4 = Day 189–250.
  */
 export function calculateAllQuarterlyProjections(
   currentTradingPool: number,
@@ -447,58 +439,31 @@ export function calculateAllQuarterlyProjections(
   daysElapsed: number,
   initialFunding: number = DEFAULT_INITIAL_FUNDING,
   targetPercent: number = DEFAULT_TARGET_PERCENT
-): Array<{ quarterLabel: string; projectedCapital: number; isCurrent: boolean; isPast: boolean }> {
-  const now = new Date();
-  const month = now.getMonth();
-  const year = now.getFullYear();
-  const currentQuarter = Math.floor(month / 3) + 1;
+): Array<{
+  quarterLabel: string;
+  projectedCapital: number;
+  deviation: number;
+  isCurrent: boolean;
+  isPast: boolean;
+}> {
+  const actualNetWorth = currentTradingPool + currentReservePool;
+  // Planned net worth at the current day index (what we should be at right now)
+  const plannedAtCurrentDay = plannedNetWorthAtDay(currentDayIndex, initialFunding, targetPercent);
+  const currentDeviation = round(actualNetWorth - plannedAtCurrentDay);
 
-  // Derive daily rate: from actual history or configured target
-  let dailyRate = targetPercent / 100;
-  if (currentDayIndex > 1 && daysElapsed > 0) {
-    const totalCapital = currentTradingPool + currentReservePool;
-    const baseline = initialFunding > 0 ? initialFunding : DEFAULT_INITIAL_FUNDING;
-    dailyRate = Math.pow(totalCapital / baseline, 1 / currentDayIndex) - 1;
-  }
+  return QUARTER_BOUNDARIES.map(({ q, startDay, endDay }) => {
+    const isCurrent = currentDayIndex >= startDay && currentDayIndex <= endDay;
+    const isPast = currentDayIndex > endDay;
+    const plannedCapital = plannedNetWorthAtDay(endDay, initialFunding, targetPercent);
 
-  const results: Array<{ quarterLabel: string; projectedCapital: number; isCurrent: boolean; isPast: boolean }> = [];
-
-  // Chain projections using 75/25 split compounding
-  let runningTP = currentTradingPool;
-  let runningRP = currentReservePool;
-
-  for (let q = 1; q <= 4; q++) {
-    const endMonth = q * 3;
-    const quarterEnd = new Date(year, endMonth, 0);
-    const label = `Q${q} ${year}`;
-    const isCurrent = q === currentQuarter;
-    const isPast = q < currentQuarter;
-
-    if (isPast) {
-      results.push({ quarterLabel: label, projectedCapital: 0, isCurrent, isPast });
-      continue;
-    }
-
-    // For current quarter: project from now to quarter end
-    // For future quarters: ~63 trading days per quarter
-    let tradingDays: number;
-    if (isCurrent) {
-      const daysToEnd = Math.max(0, Math.floor((quarterEnd.getTime() - now.getTime()) / 86400000));
-      tradingDays = Math.floor(daysToEnd * 5 / 7);
-    } else {
-      tradingDays = 63;
-    }
-
-    const result = simulateCompounding(runningTP, runningRP, tradingDays, dailyRate);
-    const projected = round(result.tradingPool + result.reservePool);
-    results.push({ quarterLabel: label, projectedCapital: projected, isCurrent, isPast });
-
-    // Next quarter starts from this quarter's projected pools
-    runningTP = result.tradingPool;
-    runningRP = result.reservePool;
-  }
-
-  return results;
+    return {
+      quarterLabel: `Q${q}`,
+      projectedCapital: plannedCapital,
+      deviation: isCurrent ? currentDeviation : 0,
+      isCurrent,
+      isPast,
+    };
+  });
 }
 
 // ─── Session Management ──────────────────────────────────────────

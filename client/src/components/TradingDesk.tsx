@@ -98,7 +98,7 @@ const FALLBACK_CAPITAL: CapitalState = {
   cumulativeCharges: 0,
   todayPnl: 0,
   todayTarget: 3750,
-  quarterlyProjection: { quarterLabel: 'Q2 2026', projectedCapital: 0 },
+  quarterlyProjection: { quarterLabel: 'Q1', projectedCapital: 0 },
 };
 
 // ─── Instrument Colors ──────────────────────────────────────────
