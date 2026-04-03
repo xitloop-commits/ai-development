@@ -35,6 +35,7 @@ import {
   XCircle,
   Info,
   Loader2,
+  Landmark,
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -55,7 +56,8 @@ type SettingsSection =
   | 'discipline'
   | 'timeWindows'
   | 'expiry'
-  | 'charges';
+  | 'charges'
+  | 'capital';
 
 interface SectionItem {
   id: SettingsSection;
@@ -71,6 +73,7 @@ const SECTIONS: SectionItem[] = [
   { id: 'timeWindows', label: 'Time Windows', icon: Clock, description: 'NSE & MCX trading time restrictions' },
   { id: 'expiry', label: 'Expiry Controls', icon: CalendarClock, description: 'Per-instrument expiry day rules' },
   { id: 'charges', label: 'Charges', icon: Receipt, description: 'Brokerage, STT, GST, and other charge rates' },
+  { id: 'capital', label: 'Capital Management', icon: Landmark, description: 'Reset initial capital, pool allocation' },
 ];
 
 const INSTRUMENTS = ['NIFTY_50', 'BANKNIFTY', 'CRUDEOIL', 'NATURALGAS'];
@@ -771,14 +774,11 @@ export function OrderExecutionSection() {
         <SaveButton onClick={handleSave} loading={updateMutation.isPending} />
       </div>
 
-      {/* Capital Management — Reset */}
-      <ResetCapitalCard />
     </div>
   );
 }
 
-/** Destructive Reset Capital card with AlertDialog confirmation. */
-function ResetCapitalCard() {
+export function CapitalManagementSection() {
   const { capital, resetCapital, resetCapitalPending, refetchAll } = useCapital();
   const [resetOpen, setResetOpen] = useState(false);
   const [newFunding, setNewFunding] = useState(100000);
@@ -792,6 +792,9 @@ function ResetCapitalCard() {
     return n.toFixed(0);
   };
 
+  // Reset is only allowed when no day cycle has started
+  const hasCycleStarted = capital.currentDayIndex > 1;
+
   const handleReset = () => {
     if (confirmText !== 'RESET') return;
     resetCapital(newFunding);
@@ -802,124 +805,185 @@ function ResetCapitalCard() {
   };
 
   return (
-    <SettingsCard title="Capital Management" className="border-destructive/30">
-      <div className="space-y-3">
-        <div className="space-y-1">
-          <span className="text-[10px] text-muted-foreground">
-            Reset all capital pools, day records, and projections back to Day 1.
-            This is a <span className="text-destructive font-bold">destructive</span> action and cannot be undone.
-          </span>
-        </div>
-
-        {/* Current state summary */}
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div className="bg-background border border-border rounded p-2">
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Current Funding</div>
-            <div className="text-[12px] font-mono text-foreground mt-0.5">{fmt(capital.initialFunding)}</div>
+    <div className="space-y-4">
+      {/* Current Capital Overview */}
+      <SettingsCard title="Current Capital">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-background border border-border rounded p-2.5 text-center">
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Initial Funding</div>
+            <div className="text-[13px] font-mono text-foreground mt-1 font-bold">{fmt(capital.initialFunding)}</div>
           </div>
-          <div className="bg-background border border-border rounded p-2">
+          <div className="bg-background border border-border rounded p-2.5 text-center">
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Trading Pool</div>
+            <div className="text-[13px] font-mono text-primary mt-1 font-bold">{fmt(capital.tradingPool)}</div>
+          </div>
+          <div className="bg-background border border-border rounded p-2.5 text-center">
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Reserve Pool</div>
+            <div className="text-[13px] font-mono text-foreground mt-1 font-bold">{fmt(capital.reservePool)}</div>
+          </div>
+          <div className="bg-background border border-border rounded p-2.5 text-center">
             <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Net Worth</div>
-            <div className="text-[12px] font-mono text-foreground mt-0.5">{fmt(capital.netWorth)}</div>
+            <div className="text-[13px] font-mono text-foreground mt-1 font-bold">{fmt(capital.netWorth)}</div>
           </div>
-          <div className="bg-background border border-border rounded p-2">
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-3">
+          <div className="bg-background border border-border rounded p-2.5 text-center">
             <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Day Index</div>
-            <div className="text-[12px] font-mono text-foreground mt-0.5">{capital.currentDayIndex}</div>
+            <div className="text-[13px] font-mono text-foreground mt-1 font-bold">{capital.currentDayIndex}</div>
+          </div>
+          <div className="bg-background border border-border rounded p-2.5 text-center">
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Cumulative P&L</div>
+            <div className={`text-[13px] font-mono mt-1 font-bold ${capital.cumulativePnl >= 0 ? 'text-bullish' : 'text-bearish'}`}>
+              {capital.cumulativePnl >= 0 ? '+' : ''}{fmt(capital.cumulativePnl)}
+            </div>
+          </div>
+          <div className="bg-background border border-border rounded p-2.5 text-center">
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Total Charges</div>
+            <div className="text-[13px] font-mono text-muted-foreground mt-1 font-bold">{fmt(capital.cumulativeCharges)}</div>
           </div>
         </div>
+      </SettingsCard>
 
-        {/* New initial funding input */}
-        <div className="flex items-center justify-between">
-          <FieldLabel hint="New initial capital amount for the fresh start">
-            New Initial Capital
-          </FieldLabel>
-          <NumberInput
-            value={newFunding}
-            onChange={setNewFunding}
-            min={10000}
-            max={100000000}
-            step={10000}
-            suffix="\u20B9"
-          />
+      {/* Pool Allocation Info */}
+      <SettingsCard title="Pool Allocation">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-muted-foreground">Trading Pool share</span>
+            <span className="text-[11px] font-mono text-foreground font-bold">75%</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-muted-foreground">Reserve Pool share</span>
+            <span className="text-[11px] font-mono text-foreground font-bold">25%</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-muted-foreground">Daily Target</span>
+            <span className="text-[11px] font-mono text-primary font-bold">{capital.targetPercent}%</span>
+          </div>
         </div>
-
-        {/* Preview of what reset will create */}
-        <div className="flex items-center gap-2 text-[9px] text-muted-foreground">
-          <AlertTriangle className="h-3 w-3 text-warning-amber shrink-0" />
-          <span>
-            After reset: Trading Pool = {fmt(newFunding * 0.75)}, Reserve Pool = {fmt(newFunding * 0.25)}, Day Index = 1
+        <div className="mt-3 pt-2 border-t border-border">
+          <span className="text-[9px] text-muted-foreground">
+            New capital injections and profit distributions follow the 75/25 split.
+            Losses are absorbed entirely by the Trading Pool.
           </span>
         </div>
+      </SettingsCard>
 
-        {/* Reset button triggers confirmation dialog */}
-        <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
-          <AlertDialogTrigger asChild>
-            <button
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-bold tracking-wider uppercase border border-destructive/40 text-destructive hover:bg-destructive/10 transition-colors"
-            >
-              <AlertTriangle className="h-3 w-3" />
-              RESET INITIAL CAPITAL
-            </button>
-          </AlertDialogTrigger>
-          <AlertDialogContent className="bg-card border-destructive/30">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="text-destructive flex items-center gap-2 text-sm">
-                <AlertTriangle className="h-4 w-4" />
-                Reset Initial Capital
-              </AlertDialogTitle>
-              <AlertDialogDescription className="text-[11px] text-muted-foreground space-y-2">
-                <p>
-                  This will permanently delete all day records, trade history, profit history,
-                  and reset capital pools to a fresh state with <strong className="text-foreground">{fmt(newFunding)}</strong> initial funding.
-                </p>
-                <p>
-                  Trading Pool will be set to <strong className="text-foreground">{fmt(newFunding * 0.75)}</strong> and
-                  Reserve Pool to <strong className="text-foreground">{fmt(newFunding * 0.25)}</strong>.
-                </p>
-                <p className="text-destructive font-bold">
-                  This action cannot be undone. Both live and paper workspaces will be reset.
-                </p>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-
-            {/* Type RESET to confirm */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold tracking-wider uppercase text-muted-foreground">
-                Type <span className="text-destructive">RESET</span> to confirm
-              </label>
-              <input
-                type="text"
-                value={confirmText}
-                onChange={(e) => setConfirmText(e.target.value)}
-                placeholder="RESET"
-                className="w-full h-8 px-2 text-[11px] bg-background border border-border rounded text-foreground font-mono tracking-widest focus:outline-none focus:ring-1 focus:ring-destructive"
-                autoFocus
-              />
+      {/* Reset Initial Capital */}
+      <SettingsCard title="Reset Initial Capital" className={hasCycleStarted ? 'opacity-60' : 'border-destructive/30'}>
+        <div className="space-y-3">
+          {hasCycleStarted ? (
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/50 border border-border">
+              <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="text-[10px] text-muted-foreground">
+                Reset is only available before any day cycle has started.
+                You are currently on Day {capital.currentDayIndex}.
+              </span>
             </div>
+          ) : (
+            <>
+              <div className="space-y-1">
+                <span className="text-[10px] text-muted-foreground">
+                  Reset all capital pools, day records, and projections back to Day 1.
+                  This is a <span className="text-destructive font-bold">destructive</span> action and cannot be undone.
+                </span>
+              </div>
 
-            <AlertDialogFooter>
-              <AlertDialogCancel
-                onClick={() => setConfirmText('')}
-                className="text-[10px] h-8"
-              >
-                Cancel
-              </AlertDialogCancel>
-              <button
-                onClick={handleReset}
-                disabled={confirmText !== 'RESET' || resetCapitalPending}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded text-[10px] font-bold tracking-wider uppercase bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed h-8"
-              >
-                {resetCapitalPending ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <AlertTriangle className="h-3 w-3" />
-                )}
-                {resetCapitalPending ? 'RESETTING...' : 'CONFIRM RESET'}
-              </button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-    </SettingsCard>
+              {/* New initial funding input */}
+              <div className="flex items-center justify-between">
+                <FieldLabel hint="New initial capital amount for the fresh start">
+                  New Initial Capital
+                </FieldLabel>
+                <NumberInput
+                  value={newFunding}
+                  onChange={setNewFunding}
+                  min={10000}
+                  max={100000000}
+                  step={10000}
+                  suffix="\u20B9"
+                />
+              </div>
+
+              {/* Preview of what reset will create */}
+              <div className="flex items-center gap-2 text-[9px] text-muted-foreground">
+                <AlertTriangle className="h-3 w-3 text-warning-amber shrink-0" />
+                <span>
+                  After reset: Trading Pool = {fmt(newFunding * 0.75)}, Reserve Pool = {fmt(newFunding * 0.25)}, Day Index = 1
+                </span>
+              </div>
+
+              {/* Reset button triggers confirmation dialog */}
+              <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
+                <AlertDialogTrigger asChild>
+                  <button
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-bold tracking-wider uppercase border border-destructive/40 text-destructive hover:bg-destructive/10 transition-colors"
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                    RESET INITIAL CAPITAL
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="bg-card border-destructive/30">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="text-destructive flex items-center gap-2 text-sm">
+                      <AlertTriangle className="h-4 w-4" />
+                      Reset Initial Capital
+                    </AlertDialogTitle>
+                    <AlertDialogDescription className="text-[11px] text-muted-foreground space-y-2">
+                      <p>
+                        This will permanently delete all day records, trade history, profit history,
+                        and reset capital pools to a fresh state with <strong className="text-foreground">{fmt(newFunding)}</strong> initial funding.
+                      </p>
+                      <p>
+                        Trading Pool will be set to <strong className="text-foreground">{fmt(newFunding * 0.75)}</strong> and
+                        Reserve Pool to <strong className="text-foreground">{fmt(newFunding * 0.25)}</strong>.
+                      </p>
+                      <p className="text-destructive font-bold">
+                        This action cannot be undone. Both live and paper workspaces will be reset.
+                      </p>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+
+                  {/* Type RESET to confirm */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold tracking-wider uppercase text-muted-foreground">
+                      Type <span className="text-destructive">RESET</span> to confirm
+                    </label>
+                    <input
+                      type="text"
+                      value={confirmText}
+                      onChange={(e) => setConfirmText(e.target.value)}
+                      placeholder="RESET"
+                      className="w-full h-8 px-2 text-[11px] bg-background border border-border rounded text-foreground font-mono tracking-widest focus:outline-none focus:ring-1 focus:ring-destructive"
+                      autoFocus
+                    />
+                  </div>
+
+                  <AlertDialogFooter>
+                    <AlertDialogCancel
+                      onClick={() => setConfirmText('')}
+                      className="text-[10px] h-8"
+                    >
+                      Cancel
+                    </AlertDialogCancel>
+                    <button
+                      onClick={handleReset}
+                      disabled={confirmText !== 'RESET' || resetCapitalPending}
+                      className="flex items-center gap-1.5 px-4 py-1.5 rounded text-[10px] font-bold tracking-wider uppercase bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed h-8"
+                    >
+                      {resetCapitalPending ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <AlertTriangle className="h-3 w-3" />
+                      )}
+                      {resetCapitalPending ? 'RESETTING...' : 'CONFIRM RESET'}
+                    </button>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
+          )}
+        </div>
+      </SettingsCard>
+    </div>
   );
 }
 
@@ -1826,6 +1890,8 @@ export default function Settings() {
         return <ExpiryControlsSection />;
       case 'charges':
         return <ChargesSection />;
+      case 'capital':
+        return <CapitalManagementSection />;
       default:
         return null;
     }

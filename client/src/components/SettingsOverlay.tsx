@@ -11,6 +11,7 @@ import {
   Clock,
   CalendarClock,
   Receipt,
+  Landmark,
   ChevronRight,
   Settings,
   X,
@@ -22,6 +23,7 @@ import {
   TimeWindowsSection,
   ExpiryControlsSection,
   ChargesSection,
+  CapitalManagementSection,
 } from '@/pages/Settings';
 
 type SettingsSection =
@@ -30,7 +32,8 @@ type SettingsSection =
   | 'discipline'
   | 'timeWindows'
   | 'expiry'
-  | 'charges';
+  | 'charges'
+  | 'capital';
 
 interface SectionItem {
   id: SettingsSection;
@@ -46,6 +49,7 @@ const SECTIONS: SectionItem[] = [
   { id: 'timeWindows', label: 'Time Windows', icon: Clock, description: 'NSE & MCX trading time restrictions' },
   { id: 'expiry', label: 'Expiry Controls', icon: CalendarClock, description: 'Per-instrument expiry day rules' },
   { id: 'charges', label: 'Charges', icon: Receipt, description: 'Brokerage, STT, GST, and other charge rates' },
+  { id: 'capital', label: 'Capital Management', icon: Landmark, description: 'Reset initial capital, pool allocation' },
 ];
 
 interface SettingsOverlayProps {
@@ -120,6 +124,8 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
         return <ExpiryControlsSection />;
       case 'charges':
         return <ChargesSection />;
+      case 'capital':
+        return <CapitalManagementSection />;
       default:
         return null;
     }

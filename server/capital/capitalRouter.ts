@@ -733,6 +733,22 @@ export const capitalRouter = router({
       initialFunding: z.number().positive().default(100000),
     }))
     .mutation(async ({ input }) => {
+      // Guard: only allow reset when no day cycle has started
+      const state = await getCapitalState(input.workspace);
+      const day = await getDayRecord(input.workspace, state.currentDayIndex);
+      const hasCompletedTrades = day?.trades?.some(
+        (t) => t.status !== 'OPEN' && t.status !== 'PENDING' && t.status !== 'CANCELLED'
+      ) ?? false;
+      const hasPastDays = state.currentDayIndex > 1;
+
+      if (hasPastDays || hasCompletedTrades) {
+        throw new Error(
+          'Capital reset is only allowed before any day cycle has started. ' +
+          'Current state: Day ' + state.currentDayIndex +
+          (hasCompletedTrades ? ' with completed trades.' : '.')
+        );
+      }
+
       const targetPercent = await getDailyTargetPercent();
       const now = Date.now();
       const today = new Date().toISOString().slice(0, 10);
