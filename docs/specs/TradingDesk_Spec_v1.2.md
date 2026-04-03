@@ -1,5 +1,5 @@
 # Trading Desk Specification
-**Version:** 1.1  
+**Version:** 1.2  
 **Date:** April 2, 2026  
 **Project:** Automatic Trading System (ATS)  
 **Author:** Manus AI
@@ -115,7 +115,7 @@ A 16-column data table tracking the 250-day journey. The table auto-scrolls to t
 
 ### 5.1 Trade Execution and Management
 - **Bracket Orders**: All new trades placed via the Trading Desk are sent as bracket orders. Target and Stop Loss levels are auto-calculated from the entry price based on system settings percentages.
-- **Position Sizing**: Position sizing is percentage-based. The user selects a percentage of Available Capital (5%–100%) when placing each trade. The system calculates the quantity based on the selected percentage and the entry price. The Discipline Engine enforces configurable ceilings (default: 40% max per position, 80% max total exposure).
+- **Position Sizing**: Position sizing is percentage-based. The user selects a percentage of Available Capital (5%–25%) when placing each trade. The system calculates the quantity based on the selected percentage and the entry price. The Discipline Engine enforces configurable ceilings (default: 40% max per position, 80% max total exposure).
 - **Modifications**: Users can click an edit icon next to the TP/SL sub-text on open trades to modify the levels inline.
 - **Exits**: Users can exit individual positions via the inline (×) button or all positions via the "Exit All" button. All exit actions require a confirmation prompt.
 - **External Sync**: Orders placed or modified directly on the broker platform (e.g., Dhan) are synced via WebSocket and reflected instantly in the Trading Desk. Capital % for external trades is back-calculated from margin used.
