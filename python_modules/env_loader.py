@@ -28,7 +28,7 @@ def _load_env():
 
     try:
         from dotenv import load_dotenv
-        load_dotenv(env_file, override=False)
+        load_dotenv(env_file, override=False, encoding="utf-8")
         print(f"[env_loader] Loaded environment from {env_file}")
     except ImportError:
         # Fallback: manual .env parsing if python-dotenv is not installed
@@ -38,7 +38,7 @@ def _load_env():
 
 def _manual_load(env_file):
     """Simple .env parser as fallback when python-dotenv is not installed."""
-    with open(env_file, "r") as f:
+    with open(env_file, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
             # Skip comments and empty lines
