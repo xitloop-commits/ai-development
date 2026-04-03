@@ -276,10 +276,38 @@ def main():
                 # Fetch option chain
                 option_chain_data = get_option_chain(underlying, current_expiry, exchange_segment)
                 if option_chain_data:
-                    # Count strikes if available
-                    strikes = option_chain_data.get("oc", option_chain_data.get("strikes", {}))
-                    strike_count = len(strikes) if isinstance(strikes, (dict, list)) else 0
+                    # Convert normalized rows to oc format for downstream analyzer
+                    rows = option_chain_data.get("rows", [])
+                    strike_count = len(rows)
                     log(f"{instrument} | Option chain fetched. Strikes: {strike_count}")
+
+                    oc_dict = {}
+                    for row in rows:
+                        strike_key = f"{row['strike']:.6f}"
+                        oc_dict[strike_key] = {
+                            "ce": {
+                                "oi": row.get("callOI", 0),
+                                "previous_oi": row.get("callOI", 0) - row.get("callOIChange", 0),
+                                "last_price": row.get("callLTP", 0),
+                                "volume": row.get("callVolume", 0),
+                                "implied_volatility": row.get("callIV", 0),
+                            },
+                            "pe": {
+                                "oi": row.get("putOI", 0),
+                                "previous_oi": row.get("putOI", 0) - row.get("putOIChange", 0),
+                                "last_price": row.get("putLTP", 0),
+                                "volume": row.get("putVolume", 0),
+                                "implied_volatility": row.get("putIV", 0),
+                            },
+                        }
+
+                    save_data = {
+                        "underlying": option_chain_data.get("underlying", ""),
+                        "expiry": option_chain_data.get("expiry", ""),
+                        "spotPrice": option_chain_data.get("spotPrice", 0),
+                        "oc": oc_dict,
+                        "timestamp": option_chain_data.get("timestamp", 0),
+                    }
 
                     # Save to file for downstream components
                     filename = os.path.join(
@@ -287,7 +315,7 @@ def main():
                         f"option_chain_{instrument.replace(' ', '_').lower()}.json",
                     )
                     with open(filename, "w") as f:
-                        json.dump(option_chain_data, f)
+                        json.dump(save_data, f)
                 else:
                     log(f"{instrument} | Failed to fetch option chain.")
             else:
