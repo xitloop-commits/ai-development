@@ -61,10 +61,14 @@ export function SetupBrokerModal() {
       toast.error("Access token is required for live trading");
       return;
     }
+    if (!isPaper && !clientId.trim()) {
+      toast.error("Client ID is required for live trading");
+      return;
+    }
     setupMutation.mutate({
       brokerId,
       accessToken: isPaper ? undefined : accessToken.trim(),
-      clientId: isPaper ? undefined : clientId.trim() || undefined,
+      clientId: isPaper ? undefined : clientId.trim(),
     });
   };
 
@@ -134,12 +138,12 @@ export function SetupBrokerModal() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">
-                  Client ID
+                  Client ID <span className="text-loss-red">*</span>
                 </label>
                 <Input
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value)}
-                  placeholder="Your Dhan client ID (optional)"
+                  placeholder="Your Dhan client ID (e.g. 1100012345)"
                   className="font-mono text-xs"
                 />
               </div>
