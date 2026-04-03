@@ -573,34 +573,34 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
       <div className="flex items-stretch divide-x divide-border border-b border-border bg-card">
         {/* Day */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center min-w-[80px]">
-          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Day</span>
-          <span className="text-[11px] font-bold tabular-nums">
+          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Day</span>
+          <span className="text-[12px] font-bold tabular-nums">
             <span className="text-warning-amber">{capital.currentDayIndex}</span>
             <span className="text-muted-foreground"> / 250</span>
           </span>
         </div>
         {/* Trade Capital */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Trade Capital</span>
-          <span className="text-[11px] font-bold tabular-nums text-info-cyan">{fmt(capital.tradingPool, true)}</span>
+          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Trade Capital</span>
+          <span className="text-[12px] font-bold tabular-nums text-info-cyan">{fmt(capital.tradingPool, true)}</span>
         </div>
         {/* Available */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Available</span>
-          <span className="text-[11px] font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
+          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Available</span>
+          <span className="text-[12px] font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
         </div>
         {/* Cum. Profit */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Cum. Profit</span>
-          <span className={`text-[11px] font-bold tabular-nums ${pnlColor(capital.cumulativePnl)}`}>
+          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Cum. Profit</span>
+          <span className={`text-[12px] font-bold tabular-nums ${pnlColor(capital.cumulativePnl)}`}>
             {capital.cumulativePnl >= 0 ? '+' : ''}{fmt(capital.cumulativePnl)}
           </span>
         </div>
         {/* Today P&L / Target + Exit All */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center flex-1">
-          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Today P&L / Target</span>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] font-bold tabular-nums">
+<span className="text-[8px] text-muted-foreground tracking-widest uppercase">Today P&L / Target</span>
+          <div className="flex items-center gap-1">
+            <span className="text-[12px] font-bold tabular-nums">
               <span className={pnlColor(capital.todayPnl)}>{fmt(capital.todayPnl)}</span>
               <span className="text-muted-foreground"> / </span>
               <span className="text-warning-amber">{fmt(capital.todayTarget)}</span>
@@ -618,27 +618,27 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
         </div>
         {/* Charges */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Charges</span>
-          <span className="text-[11px] font-bold tabular-nums text-muted-foreground">{fmt(capital.cumulativeCharges)}</span>
+          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Charges</span>
+          <span className="text-[12px] font-bold tabular-nums text-muted-foreground">{fmt(capital.cumulativeCharges)}</span>
         </div>
         {/* Reserve */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Reserve</span>
-          <span className="text-[11px] font-bold tabular-nums text-warning-amber">{fmt(capital.reservePool, true)}</span>
+          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Reserve</span>
+          <span className="text-[12px] font-bold tabular-nums text-warning-amber">{fmt(capital.reservePool, true)}</span>
         </div>
         {/* Quarterly Projection */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">
+          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">
             {capital.quarterlyProjection.quarterLabel || 'Q Proj'}
           </span>
-          <span className="text-[11px] font-bold tabular-nums text-info-cyan">
+          <span className="text-[12px] font-bold tabular-nums text-info-cyan">
             {fmt(capital.quarterlyProjection.projectedCapital, true)}
           </span>
         </div>
         {/* Net Worth */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Net Worth</span>
-          <span className="text-[11px] font-bold tabular-nums text-bullish">{fmt(capital.netWorth, true)}</span>
+          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Net Worth</span>
+          <span className="text-[12px] font-bold tabular-nums text-bullish">{fmt(capital.netWorth, true)}</span>
         </div>
       </div>
 
@@ -656,7 +656,7 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }));
           }} />
         ) : (
-          <table className="w-full text-[10px] border-collapse">
+          <table className="w-full text-[11px] border-collapse">
             <thead className="sticky top-0 z-10">
               <tr className="bg-secondary/80 backdrop-blur-sm border-b border-border">
                 <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase w-12">Day</th>
@@ -1165,50 +1165,50 @@ function FutureRow({
   isDay250: boolean;
 }) {
   return (
-    <tr className={`border-b border-border/30 bg-card/50 transition-colors ${isDay250 ? 'opacity-80' : 'opacity-[0.45]'}`}>
+    <tr className={`border-b border-border/30 bg-card/50 transition-colors ${isDay250 ? 'opacity-90' : 'opacity-[0.6]'}`}>
       {/* Day */}
       <td className="px-2 py-2">
-        <span className={`font-bold tabular-nums ${isDay250 ? 'text-info-cyan' : 'text-muted-foreground'}`}>
+        <span className={`font-bold tabular-nums ${isDay250 ? 'text-info-cyan' : 'text-foreground/70'}`}>
           {day.dayIndex}
         </span>
       </td>
       {/* Date */}
-      <td className="px-2 py-2 text-muted-foreground tabular-nums">
+      <td className="px-2 py-2 text-foreground/50 tabular-nums">
         {day.date || '—'}
       </td>
       {/* Trade Capital */}
-      <td className={`px-2 py-2 text-right tabular-nums ${isDay250 ? 'text-info-cyan' : 'text-muted-foreground'}`}>
+      <td className={`px-2 py-2 text-right tabular-nums ${isDay250 ? 'text-info-cyan' : 'text-foreground/60'}`}>
         {fmt(day.tradeCapital, true)}
       </td>
       {/* Target */}
-      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+      <td className="px-2 py-2 text-right tabular-nums text-foreground/50">
         {fmt(day.targetAmount)}
-        <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
+        <span className="text-[9px] ml-0.5">({day.targetPercent}%)</span>
       </td>
       {/* Proj Capital */}
-      <td className={`px-2 py-2 text-right tabular-nums ${isDay250 ? 'text-info-cyan' : 'text-muted-foreground'}`}>
+      <td className={`px-2 py-2 text-right tabular-nums font-medium ${isDay250 ? 'text-info-cyan' : 'text-foreground/60'}`}>
         {fmt(day.projCapital, true)}
       </td>
       {/* Instrument */}
-      <td className="px-2 py-2 text-muted-foreground">—</td>
+      <td className="px-2 py-2 text-foreground/30">—</td>
       {/* Type */}
-      <td className="px-2 py-2 text-muted-foreground">—</td>
+      <td className="px-2 py-2 text-foreground/30">—</td>
       {/* Strike */}
-      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground/30">—</td>
       {/* Entry */}
-      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground/30">—</td>
       {/* LTP */}
-      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground/30">—</td>
       {/* Qty */}
-      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground/30">—</td>
       {/* P&L */}
-      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground/30">—</td>
       {/* Charges */}
-      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground/30">—</td>
       {/* Actual Capital */}
-      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground/30">—</td>
       {/* Deviation */}
-      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground/30">—</td>
       {/* Rating */}
       <td className="px-2 py-2 text-center">
         <RatingIcon rating={isDay250 ? 'finish' : 'future'} />
