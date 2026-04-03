@@ -559,11 +559,13 @@ export class DhanAdapter implements BrokerAdapter {
       DHAN_ENDPOINTS.EXPIRY_LIST,
       this.accessToken,
       {
-        UnderlyingScrip: underlying,
+        UnderlyingScrip: Number(underlying),
         UnderlyingSeg: exchangeSegment || "IDX_I",
       },
       { clientId: this.clientId }
     );
+
+    console.log(`[DhanAdapter] getExpiryList(${underlying}, ${exchangeSegment}) → status=${result.status}, ok=${result.ok}, data=${JSON.stringify(result.data)?.slice(0, 200)}`);
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
@@ -599,7 +601,7 @@ export class DhanAdapter implements BrokerAdapter {
       DHAN_ENDPOINTS.OPTION_CHAIN,
       this.accessToken,
       {
-        UnderlyingScrip: underlying,
+        UnderlyingScrip: Number(underlying),
         UnderlyingSeg: exchangeSegment || "IDX_I",
         Expiry: expiry,
       },
