@@ -199,25 +199,39 @@ export const capitalRouter = router({
       amount: z.number().positive(),
     }))
     .mutation(async ({ input }) => {
-      const state = await getCapitalState(input.workspace);
-      const { tradingPool, reservePool } = injectCapital(state, input.amount);
-      const updatedState = await updateCapitalState(input.workspace, { tradingPool, reservePool });
+      const targetPercent = await getDailyTargetPercent();
 
-      // Sync current day record: tradeCapital = new tradingPool, recalculate target & proj
-      const day = await getDayRecord(input.workspace, state.currentDayIndex);
-      if (day) {
-        const targetPercent = await getDailyTargetPercent();
-        day.tradeCapital = tradingPool;
-        day.targetPercent = targetPercent;
-        day.targetAmount = Math.round(tradingPool * targetPercent / 100 * 100) / 100;
-        day.projCapital = Math.round((tradingPool + day.targetAmount) * 100) / 100;
-        // Recalculate actualCapital: tradeCapital + realized P&L
-        day.actualCapital = Math.round((tradingPool + day.totalPnl) * 100) / 100;
-        day.deviation = Math.round((day.actualCapital - day.originalProjCapital) * 100) / 100;
-        await upsertDayRecord(input.workspace, day);
+      // Helper to sync a workspace's capital state and day record
+      async function syncWorkspace(ws: typeof input.workspace) {
+        const state = await getCapitalState(ws);
+        const { tradingPool, reservePool } = injectCapital(state, input.amount);
+        const updated = await updateCapitalState(ws, {
+          tradingPool,
+          reservePool,
+          initialFunding: state.initialFunding + input.amount,
+        });
+
+        // Sync current day record
+        const day = await getDayRecord(ws, state.currentDayIndex);
+        if (day) {
+          day.tradeCapital = tradingPool;
+          day.targetPercent = targetPercent;
+          day.targetAmount = Math.round(tradingPool * targetPercent / 100 * 100) / 100;
+          day.projCapital = Math.round((tradingPool + day.targetAmount) * 100) / 100;
+          day.actualCapital = Math.round((tradingPool + day.totalPnl) * 100) / 100;
+          day.deviation = Math.round((day.actualCapital - day.originalProjCapital) * 100) / 100;
+          await upsertDayRecord(ws, day);
+        }
+        return updated;
       }
 
-      return updatedState;
+      // Sync both workspaces
+      const [liveResult] = await Promise.all([
+        syncWorkspace('live'),
+        syncWorkspace('paper'),
+      ]);
+
+      return liveResult;
     }),
 
   // ─── Day Record Queries ────────────────────────────────────────

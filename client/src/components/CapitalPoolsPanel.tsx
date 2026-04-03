@@ -141,7 +141,9 @@ export default function CapitalPoolsPanel() {
   const injectMutation = trpc.capital.inject.useMutation({
     onSuccess: () => {
       utils.capital.state.invalidate();
+      utils.capital.currentDay.invalidate();
       utils.capital.allDays.invalidate();
+      utils.capital.futureDays.invalidate();
       setInjectAmount('');
       setInjectOpen(false);
     },
