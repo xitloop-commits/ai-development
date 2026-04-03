@@ -582,20 +582,28 @@ export class DhanAdapter implements BrokerAdapter {
    async getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData> {
     this._ensureToken();
     const result = await dhanRequest<{
-      data: Array<{
-        strike_price: number;
-        ce_oi: number;
-        ce_oi_change: number;
-        ce_ltp: number;
-        ce_volume: number;
-        ce_iv: number;
-        pe_oi: number;
-        pe_oi_change: number;
-        pe_ltp: number;
-        pe_volume: number;
-        pe_iv: number;
-      }>;
-      spotPrice?: number;
+      data: {
+        last_price: number;
+        oc: Record<string, {
+          ce?: {
+            oi: number;
+            previous_oi: number;
+            last_price: number;
+            volume: number;
+            implied_volatility: number;
+            security_id: number;
+          };
+          pe?: {
+            oi: number;
+            previous_oi: number;
+            last_price: number;
+            volume: number;
+            implied_volatility: number;
+            security_id: number;
+          };
+        }>;
+      };
+      status: string;
     }>(
       "POST",
       DHAN_ENDPOINTS.OPTION_CHAIN,
@@ -617,23 +625,26 @@ export class DhanAdapter implements BrokerAdapter {
       throw new Error("Failed to fetch option chain.");
     }
 
+    const ocData = result.data.data;
+    const rows = Object.entries(ocData.oc ?? {}).map(([strikeStr, strikes]) => ({
+      strike: parseFloat(strikeStr),
+      callOI: strikes.ce?.oi ?? 0,
+      callOIChange: (strikes.ce?.oi ?? 0) - (strikes.ce?.previous_oi ?? 0),
+      callLTP: strikes.ce?.last_price ?? 0,
+      callVolume: strikes.ce?.volume ?? 0,
+      callIV: strikes.ce?.implied_volatility ?? 0,
+      putOI: strikes.pe?.oi ?? 0,
+      putOIChange: (strikes.pe?.oi ?? 0) - (strikes.pe?.previous_oi ?? 0),
+      putLTP: strikes.pe?.last_price ?? 0,
+      putVolume: strikes.pe?.volume ?? 0,
+      putIV: strikes.pe?.implied_volatility ?? 0,
+    })).sort((a, b) => a.strike - b.strike);
+
     return {
       underlying,
       expiry,
-      spotPrice: result.data.spotPrice ?? 0,
-      rows: (result.data.data ?? []).map((row) => ({
-        strike: row.strike_price,
-        callOI: row.ce_oi,
-        callOIChange: row.ce_oi_change,
-        callLTP: row.ce_ltp,
-        callVolume: row.ce_volume,
-        callIV: row.ce_iv,
-        putOI: row.pe_oi,
-        putOIChange: row.pe_oi_change,
-        putLTP: row.pe_ltp,
-        putVolume: row.pe_volume,
-        putIV: row.pe_iv,
-      })),
+      spotPrice: ocData.last_price ?? 0,
+      rows,
       timestamp: Date.now(),
     };
   }
