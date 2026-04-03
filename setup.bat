@@ -27,40 +27,56 @@ REM --- Step 2: Check Python ---
 echo [2/6] Checking Python...
 set PYTHON_CMD=
 
-REM Try the known-good Windows Launcher path first
-if exist "C:\Windows\py.exe" (
-    "C:\Windows\py.exe" --version >nul 2>&1
-    if !errorlevel! equ 0 (
-        set "PYTHON_CMD=C:\Windows\py.exe"
-        goto :setup_py_found
+REM Scan known real Python installation paths (avoids MS Store stubs)
+REM 1. Per-user new-style (pythoncore-3.xx-64)
+for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Python\pythoncore-*" 2^>nul') do (
+    if "!PYTHON_CMD!"=="" (
+        if exist "%LOCALAPPDATA%\Python\%%P\python.exe" (
+            "%LOCALAPPDATA%\Python\%%P\python.exe" --version >nul 2>&1
+            if !errorlevel! equ 0 set "PYTHON_CMD=%LOCALAPPDATA%\Python\%%P\python.exe"
+        )
     )
 )
-REM Try py, python3, python on PATH (skip MS Store stubs)
-call :setup_try_py py
-if not "!PYTHON_CMD!"=="" goto :setup_py_found
-call :setup_try_py python3
-if not "!PYTHON_CMD!"=="" goto :setup_py_found
-call :setup_try_py python
-if not "!PYTHON_CMD!"=="" goto :setup_py_found
-:setup_py_found
-goto :setup_after_py
-
-:setup_try_py
-set "_C=%~1"
-where "!_C!" >nul 2>&1
-if errorlevel 1 goto :eof
-"!_C!" --version >nul 2>&1
-if errorlevel 1 goto :eof
-set "PYTHON_CMD=!_C!"
-goto :eof
-
-:setup_after_py
+REM 2. Per-user standard (Programs\Python\Python3xx)
 if "!PYTHON_CMD!"=="" (
-    echo   WARNING: Python is not installed or not in PATH.
+    for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Programs\Python\Python*" 2^>nul') do (
+        if "!PYTHON_CMD!"=="" (
+            if exist "%LOCALAPPDATA%\Programs\Python\%%P\python.exe" (
+                "%LOCALAPPDATA%\Programs\Python\%%P\python.exe" --version >nul 2>&1
+                if !errorlevel! equ 0 set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\%%P\python.exe"
+            )
+        )
+    )
+)
+REM 3. System-wide (C:\PythonXX or Program Files)
+if "!PYTHON_CMD!"=="" (
+    for /f "delims=" %%P in ('dir /b /o-n "C:\Python*" 2^>nul') do (
+        if "!PYTHON_CMD!"=="" (
+            if exist "C:\%%P\python.exe" (
+                "C:\%%P\python.exe" --version >nul 2>&1
+                if !errorlevel! equ 0 set "PYTHON_CMD=C:\%%P\python.exe"
+            )
+        )
+    )
+)
+if "!PYTHON_CMD!"=="" (
+    for /f "delims=" %%P in ('dir /b /o-n "%ProgramFiles%\Python*" 2^>nul') do (
+        if "!PYTHON_CMD!"=="" (
+            if exist "%ProgramFiles%\%%P\python.exe" (
+                "%ProgramFiles%\%%P\python.exe" --version >nul 2>&1
+                if !errorlevel! equ 0 set "PYTHON_CMD=%ProgramFiles%\%%P\python.exe"
+            )
+        )
+    )
+)
+
+if "!PYTHON_CMD!"=="" (
+    echo   WARNING: Python is not installed or not found.
     echo   Python AI modules will not work without it.
     echo   Download from: https://www.python.org/downloads/
 ) else (
-    for /f "tokens=*" %%v in ('"!PYTHON_CMD!" --version') do echo   Found %%v [command: !PYTHON_CMD!]
+    for /f "tokens=*" %%v in ('"!PYTHON_CMD!" --version') do echo   Found %%v
+    echo   Path: !PYTHON_CMD!
 )
 
 REM --- Step 3: Install pnpm (if not installed) ---

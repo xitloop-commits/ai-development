@@ -34,48 +34,55 @@ if not exist .env (
 )
 
 REM --- Detect Python ---
-REM The Microsoft Store installs stub .exe files for py/python/python3
-REM in WindowsApps that print "Python was not found" and exit with code 9009.
-REM We must test each candidate with --version to find a real interpreter.
-REM Priority: C:\Windows\py.exe (real launcher) > py > python3 > python
+REM The Microsoft Store installs stub py.exe/python.exe in WindowsApps
+REM and even C:\Windows\py.exe that fail inside cmd.exe with error 9009.
+REM We scan known real installation paths directly.
 set PYTHON_CMD=
 
-REM Try the known-good Windows Launcher path first
-if exist "C:\Windows\py.exe" (
-    "C:\Windows\py.exe" --version >nul 2>&1
-    if !errorlevel! equ 0 (
-        set "PYTHON_CMD=C:\Windows\py.exe"
-        goto :python_found
+REM 1. Check common install locations by scanning directories
+REM    Python Launcher installs (per-user, new style)
+for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Python\pythoncore-*" 2^>nul') do (
+    if "!PYTHON_CMD!"=="" (
+        if exist "%LOCALAPPDATA%\Python\%%P\python.exe" (
+            "%LOCALAPPDATA%\Python\%%P\python.exe" --version >nul 2>&1
+            if !errorlevel! equ 0 set "PYTHON_CMD=%LOCALAPPDATA%\Python\%%P\python.exe"
+        )
     )
 )
 
-REM Try py on PATH
-call :try_python py
-if not "!PYTHON_CMD!"=="" goto :python_found
+REM 2. Standard per-user install (e.g. Python311, Python312, Python313, Python314)
+if "!PYTHON_CMD!"=="" (
+    for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Programs\Python\Python*" 2^>nul') do (
+        if "!PYTHON_CMD!"=="" (
+            if exist "%LOCALAPPDATA%\Programs\Python\%%P\python.exe" (
+                "%LOCALAPPDATA%\Programs\Python\%%P\python.exe" --version >nul 2>&1
+                if !errorlevel! equ 0 set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\%%P\python.exe"
+            )
+        )
+    )
+)
 
-REM Try python3 on PATH
-call :try_python python3
-if not "!PYTHON_CMD!"=="" goto :python_found
-
-REM Try python on PATH
-call :try_python python
-if not "!PYTHON_CMD!"=="" goto :python_found
-
-:python_found
-goto :after_python_detect
-
-:try_python
-REM Usage: call :try_python <command>
-REM Sets PYTHON_CMD if the command runs --version successfully
-set "_CANDIDATE=%~1"
-where "!_CANDIDATE!" >nul 2>&1
-if errorlevel 1 goto :eof
-"!_CANDIDATE!" --version >nul 2>&1
-if errorlevel 1 goto :eof
-set "PYTHON_CMD=!_CANDIDATE!"
-goto :eof
-
-:after_python_detect
+REM 3. System-wide install (C:\PythonXX or C:\Program Files\PythonXX)
+if "!PYTHON_CMD!"=="" (
+    for /f "delims=" %%P in ('dir /b /o-n "C:\Python*" 2^>nul') do (
+        if "!PYTHON_CMD!"=="" (
+            if exist "C:\%%P\python.exe" (
+                "C:\%%P\python.exe" --version >nul 2>&1
+                if !errorlevel! equ 0 set "PYTHON_CMD=C:\%%P\python.exe"
+            )
+        )
+    )
+)
+if "!PYTHON_CMD!"=="" (
+    for /f "delims=" %%P in ('dir /b /o-n "%ProgramFiles%\Python*" 2^>nul') do (
+        if "!PYTHON_CMD!"=="" (
+            if exist "%ProgramFiles%\%%P\python.exe" (
+                "%ProgramFiles%\%%P\python.exe" --version >nul 2>&1
+                if !errorlevel! equ 0 set "PYTHON_CMD=%ProgramFiles%\%%P\python.exe"
+            )
+        )
+    )
+)
 
 REM --- Banner ---
 echo.
