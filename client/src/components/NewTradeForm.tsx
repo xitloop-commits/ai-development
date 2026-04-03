@@ -1,9 +1,10 @@
 /**
- * NewTradeForm — Inline trade entry row always visible in the Trading Desk table.
- * Fields: Instrument, B/S, CE/PE, Strike, Expiry, Entry (auto-fill LTP), Capital % (dropdown 5-25%)
- * Renders as a <tr> inside the 16-column table.
+ * NewTradeForm — Inline trade entry row in the Trading Desk table.
+ * Strike: dropdown populated from option chain (+/- strikes from ATM).
+ * Entry: auto-fills with selected strike's LTP, editable for limit orders.
+ * Capital %: dropdown 5–25%.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Loader2 } from 'lucide-react';
 import { trpc } from '../lib/trpc';
 
@@ -14,6 +15,9 @@ const UNDERLYING_MAP: Record<string, string> = {
   'CRUDE OIL': 'CRUDEOIL',
   'NATURAL GAS': 'NATURALGAS',
 };
+
+/** Strike range: +/- N strikes from ATM (per spec: option chain window) */
+const STRIKE_WINDOW = 10;
 
 /** Capital % options — max 25% per spec */
 const CAPITAL_PERCENT_OPTIONS = [5, 10, 15, 20, 25];
@@ -63,7 +67,7 @@ export default function NewTradeForm({
   const [instrument, setInstrument] = useState(instruments[0] ?? DEFAULT_INSTRUMENTS[0]);
   const [direction, setDirection] = useState<'BUY' | 'SELL'>('BUY');
   const [optionType, setOptionType] = useState<'CE' | 'PE' | 'NONE'>('CE');
-  const [strike, setStrike] = useState<string>('');
+  const [selectedStrike, setSelectedStrike] = useState<string>('');
   const [entryPrice, setEntryPrice] = useState<string>('');
   const [capitalPercent, setCapitalPercent] = useState<number>(10);
   const [expiry, setExpiry] = useState<string>('');
@@ -84,8 +88,87 @@ export default function NewTradeForm({
     }
   }, [expiryQuery.data, instrument]);
 
-  // LTP auto-fill placeholder — will be wired to live feed
-  const autoLtp = entryPrice ? parseFloat(entryPrice) : 0;
+  // Fetch option chain for the selected instrument + expiry
+  const optionChainQuery = trpc.broker.optionChain.useQuery(
+    { underlying, expiry },
+    { enabled: optionType !== 'NONE' && !!expiry, refetchInterval: 5000 }
+  );
+
+  // Compute ATM strike and +/- window strikes from option chain
+  const strikeOptions = useMemo(() => {
+    if (!optionChainQuery.data?.rows || optionChainQuery.data.rows.length === 0) {
+      return [];
+    }
+
+    const rows = optionChainQuery.data.rows;
+    const spotPrice = optionChainQuery.data.spotPrice;
+
+    // Sort rows by strike
+    const sorted = [...rows].sort((a, b) => a.strike - b.strike);
+
+    // Find ATM — the strike closest to spot price
+    let atmIndex = 0;
+    let minDist = Infinity;
+    sorted.forEach((row, idx) => {
+      const dist = Math.abs(row.strike - spotPrice);
+      if (dist < minDist) {
+        minDist = dist;
+        atmIndex = idx;
+      }
+    });
+
+    // Get +/- STRIKE_WINDOW strikes from ATM
+    const startIdx = Math.max(0, atmIndex - STRIKE_WINDOW);
+    const endIdx = Math.min(sorted.length - 1, atmIndex + STRIKE_WINDOW);
+    const windowStrikes = sorted.slice(startIdx, endIdx + 1);
+
+    return windowStrikes.map((row) => ({
+      strike: row.strike,
+      callLTP: row.callLTP,
+      putLTP: row.putLTP,
+      isATM: row.strike === sorted[atmIndex].strike,
+      // Label: show distance from ATM
+      distFromATM: Math.round((row.strike - sorted[atmIndex].strike) / (sorted[1]?.strike - sorted[0]?.strike || 1)),
+    }));
+  }, [optionChainQuery.data]);
+
+  // Auto-select ATM strike when option chain loads
+  useEffect(() => {
+    if (strikeOptions.length > 0 && !selectedStrike) {
+      const atm = strikeOptions.find((s) => s.isATM);
+      if (atm) {
+        setSelectedStrike(String(atm.strike));
+      }
+    }
+  }, [strikeOptions, selectedStrike]);
+
+  // Reset strike when instrument or expiry changes
+  useEffect(() => {
+    setSelectedStrike('');
+    setEntryPrice('');
+  }, [instrument, expiry, optionType]);
+
+  // Auto-fill entry price when strike is selected
+  useEffect(() => {
+    if (selectedStrike && strikeOptions.length > 0) {
+      const strikeData = strikeOptions.find((s) => String(s.strike) === selectedStrike);
+      if (strikeData) {
+        const ltp = optionType === 'CE' ? strikeData.callLTP : strikeData.putLTP;
+        if (ltp > 0) {
+          setEntryPrice(ltp.toFixed(2));
+        }
+      }
+    }
+  }, [selectedStrike, optionType, strikeOptions]);
+
+  // For non-option instruments, entry stays manual
+  const currentLtp = useMemo(() => {
+    if (optionType === 'NONE') return 0;
+    if (!selectedStrike || strikeOptions.length === 0) return 0;
+    const strikeData = strikeOptions.find((s) => String(s.strike) === selectedStrike);
+    if (!strikeData) return 0;
+    return optionType === 'CE' ? strikeData.callLTP : strikeData.putLTP;
+  }, [selectedStrike, optionType, strikeOptions]);
 
   const estimatedMargin = (availableCapital * capitalPercent / 100);
   const estimatedQty = entryPrice ? Math.floor(estimatedMargin / parseFloat(entryPrice)) : 0;
@@ -103,14 +186,14 @@ export default function NewTradeForm({
     await onSubmit({
       instrument,
       type,
-      strike: optionType !== 'NONE' && strike ? parseFloat(strike) : null,
+      strike: optionType !== 'NONE' && selectedStrike ? parseFloat(selectedStrike) : null,
       expiry: optionType !== 'NONE' ? expiry : '',
       entryPrice: parseFloat(entryPrice),
       capitalPercent,
     });
 
     // Reset form after submission
-    setStrike('');
+    setSelectedStrike('');
     setEntryPrice('');
     setCapitalPercent(10);
   };
@@ -125,8 +208,8 @@ export default function NewTradeForm({
     }
   };
 
-  const inputClass = 'w-full bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums text-right focus:border-primary focus:outline-none';
   const selectClass = 'w-full bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground focus:border-primary focus:outline-none';
+  const inputClass = 'w-full bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums text-right focus:border-primary focus:outline-none';
 
   return (
     <tr className="border-b border-bullish/30 bg-bullish/[0.04] border-l-2 border-l-bullish/60">
@@ -210,21 +293,40 @@ export default function NewTradeForm({
           ))}
         </div>
       </td>
-      {/* Strike + Expiry */}
+      {/* Strike — dropdown from option chain + Expiry */}
       <td className="px-2 py-1">
         {optionType !== 'NONE' ? (
           <div className="flex flex-col gap-1">
-            <input
-              type="number"
-              value={strike}
-              onChange={(e) => setStrike(e.target.value)}
-              placeholder="Strike"
-              className={inputClass + ' w-20'}
-            />
+            {/* Strike dropdown */}
+            <select
+              value={selectedStrike}
+              onChange={(e) => setSelectedStrike(e.target.value)}
+              className={selectClass + ' w-24'}
+            >
+              <option value="">Select strike</option>
+              {optionChainQuery.isLoading && (
+                <option value="" disabled>Loading...</option>
+              )}
+              {strikeOptions.map((s) => {
+                const ltp = optionType === 'CE' ? s.callLTP : s.putLTP;
+                const label = s.isATM
+                  ? `${s.strike} (ATM) ₹${ltp.toFixed(1)}`
+                  : `${s.strike} (${s.distFromATM > 0 ? '+' : ''}${s.distFromATM}) ₹${ltp.toFixed(1)}`;
+                return (
+                  <option key={s.strike} value={String(s.strike)}>
+                    {label}
+                  </option>
+                );
+              })}
+              {!optionChainQuery.isLoading && strikeOptions.length === 0 && (
+                <option value="" disabled>No strikes</option>
+              )}
+            </select>
+            {/* Expiry dropdown */}
             <select
               value={expiry}
               onChange={(e) => setExpiry(e.target.value)}
-              className="w-20 bg-background border border-border rounded px-1 py-0.5 text-[9px] text-foreground focus:border-primary focus:outline-none"
+              className="w-24 bg-background border border-border rounded px-1 py-0.5 text-[9px] text-foreground focus:border-primary focus:outline-none"
             >
               {expiryQuery.isLoading && (
                 <option value="">Loading...</option>
@@ -243,7 +345,7 @@ export default function NewTradeForm({
           <span className="text-[10px] text-muted-foreground">—</span>
         )}
       </td>
-      {/* Entry — auto-fill with LTP, editable */}
+      {/* Entry — auto-fill with selected strike's LTP, editable */}
       <td className="px-2 py-1">
         <input
           type="number"
@@ -253,11 +355,16 @@ export default function NewTradeForm({
           step="0.05"
           className={inputClass + ' w-20'}
         />
+        {currentLtp > 0 && (
+          <div className="text-[7px] text-muted-foreground/50 text-right mt-0.5">
+            LTP: ₹{currentLtp.toFixed(2)}
+          </div>
+        )}
       </td>
       {/* LTP — auto-filled, italic, dimmed */}
       <td className="px-2 py-2 text-right">
         <span className="text-[10px] tabular-nums text-muted-foreground/60 italic">
-          {autoLtp > 0 ? autoLtp.toFixed(2) : '—'}
+          {currentLtp > 0 ? currentLtp.toFixed(2) : '—'}
         </span>
       </td>
       {/* Qty — Capital % dropdown + hint */}
@@ -292,13 +399,9 @@ export default function NewTradeForm({
             {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : '✓'}
           </button>
           <button
-            onClick={() => {
-              setStrike('');
-              setEntryPrice('');
-              setCapitalPercent(10);
-            }}
+            onClick={onCancel}
             className="px-1.5 py-1 rounded text-[9px] font-bold bg-destructive/20 text-destructive hover:bg-destructive/30 transition-colors"
-            title="Clear form"
+            title="Cancel"
           >
             ×
           </button>
