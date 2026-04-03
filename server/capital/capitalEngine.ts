@@ -409,6 +409,59 @@ export function calculateQuarterlyProjection(
   return { quarterLabel, projectedCapital };
 }
 
+/**
+ * Calculate projections for all 4 quarters of the current financial year.
+ * Returns an array of { quarterLabel, projectedCapital, isCurrent } for Q1–Q4.
+ */
+export function calculateAllQuarterlyProjections(
+  currentTradingPool: number,
+  currentReservePool: number,
+  currentDayIndex: number,
+  daysElapsed: number
+): Array<{ quarterLabel: string; projectedCapital: number; isCurrent: boolean }> {
+  const now = new Date();
+  const month = now.getMonth();
+  const year = now.getFullYear();
+  const fyYear = month >= 3 ? year : year - 1;
+  const currentQuarter = month >= 3 && month <= 5 ? 1 : month >= 6 && month <= 8 ? 2 : month >= 9 && month <= 11 ? 3 : 4;
+
+  const totalCapital = currentTradingPool + currentReservePool;
+
+  // Calculate average daily compounding rate
+  let avgDailyRate = 0;
+  if (currentDayIndex > 1 && daysElapsed > 0) {
+    const initialCapital = DEFAULT_INITIAL_FUNDING;
+    avgDailyRate = Math.pow(totalCapital / initialCapital, 1 / currentDayIndex) - 1;
+  }
+
+  // Quarter end months: Q1=Jun(5), Q2=Sep(8), Q3=Dec(11), Q4=Mar(2)
+  const quarterEndMonths = [5, 8, 11, 2];
+  const results: Array<{ quarterLabel: string; projectedCapital: number; isCurrent: boolean }> = [];
+
+  for (let q = 1; q <= 4; q++) {
+    const endMonth = quarterEndMonths[q - 1];
+    const endYear = q === 4 ? fyYear + 2 : fyYear + 1;
+    const quarterEnd = new Date(endYear, endMonth + 1, 0);
+    const label = `Q${q} FY${(fyYear + 1).toString().slice(-2)}`;
+    const isCurrent = q === currentQuarter;
+
+    // If quarter is in the past, show actual capital at that point (we don't have historical, so show current)
+    const daysToEnd = Math.floor((quarterEnd.getTime() - now.getTime()) / 86400000);
+    if (daysToEnd < 0) {
+      // Past quarter — show current capital as baseline (no historical snapshot)
+      results.push({ quarterLabel: label, projectedCapital: round(totalCapital), isCurrent });
+    } else {
+      const tradingDaysToEnd = Math.floor(daysToEnd * 5 / 7);
+      const projected = avgDailyRate > 0
+        ? round(totalCapital * Math.pow(1 + avgDailyRate, tradingDaysToEnd))
+        : round(totalCapital);
+      results.push({ quarterLabel: label, projectedCapital: projected, isCurrent });
+    }
+  }
+
+  return results;
+}
+
 // ─── Session Management ──────────────────────────────────────────
 
 /**

@@ -147,6 +147,13 @@ export default function MainFooter() {
 
   const formatCurrency = (n: number) => formatINR(n);
 
+  // ─── Quarterly Projections ──────────────────────────────────
+  const allQuarters = (capitalData?.allQuarterlyProjections ?? []) as Array<{
+    quarterLabel: string;
+    projectedCapital: number;
+    isCurrent: boolean;
+  }>;
+
   // Holiday indicator text
   let holidayText = 'No holidays this month';
   if (nextHoliday && hasHolidayThisMonth) {
@@ -160,7 +167,32 @@ export default function MainFooter() {
   return (
     <div className="sticky bottom-0 z-40 border-t border-border bg-card/90 backdrop-blur-md">
       <div className="flex items-center px-4 py-2">
-        {/* ─── Left Group (Fixed, Stuck Left): Monthly Growth ─── */}
+        {/* ─── Quarterly Projections (First Section) ─── */}
+        <div className="flex items-center gap-1 shrink-0 mr-6">
+          {allQuarters.map((q) => (
+            <div
+              key={q.quarterLabel}
+              className={`px-2.5 py-1 rounded flex flex-col items-center ${
+                q.isCurrent
+                  ? 'bg-info-cyan/15 border border-info-cyan/30'
+                  : 'bg-secondary/50'
+              }`}
+            >
+              <span className={`text-[7px] tracking-widest uppercase font-bold ${
+                q.isCurrent ? 'text-info-cyan' : 'text-muted-foreground'
+              }`}>
+                {q.quarterLabel}
+              </span>
+              <span className={`text-[10px] font-bold tabular-nums ${
+                q.isCurrent ? 'text-info-cyan' : 'text-foreground/70'
+              }`}>
+                {formatCurrency(q.projectedCapital)}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* ─── Left Group (Fixed): Monthly Growth ─── */}
         <div className="flex items-center gap-6 shrink-0">
           {/* Previous Month */}
           <Tooltip>

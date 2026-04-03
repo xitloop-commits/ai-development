@@ -626,15 +626,6 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
           <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Reserve</span>
           <span className="text-[12px] font-bold tabular-nums text-warning-amber">{fmt(capital.reservePool, true)}</span>
         </div>
-        {/* Quarterly Projection */}
-        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">
-            {capital.quarterlyProjection.quarterLabel || 'Q Proj'}
-          </span>
-          <span className="text-[12px] font-bold tabular-nums text-info-cyan">
-            {fmt(capital.quarterlyProjection.projectedCapital, true)}
-          </span>
-        </div>
         {/* Net Worth */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
           <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Net Worth</span>

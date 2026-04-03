@@ -30,6 +30,7 @@ import {
   calculatePositionSize,
   projectFutureDays,
   calculateQuarterlyProjection,
+  calculateAllQuarterlyProjections,
   checkSessionReset,
   resetSession,
   recalculateDayAggregates,
@@ -149,6 +150,12 @@ export const capitalRouter = router({
         openPositionMargin: openMargin,
         netWorth: Math.round((state.tradingPool + state.reservePool) * 100) / 100,
         quarterlyProjection: quarterly,
+        allQuarterlyProjections: calculateAllQuarterlyProjections(
+          state.tradingPool,
+          state.reservePool,
+          state.currentDayIndex,
+          Math.floor((Date.now() - state.createdAt) / 86400000)
+        ),
         todayPnl: day.totalPnl,
         todayTarget: day.targetAmount,
       };
