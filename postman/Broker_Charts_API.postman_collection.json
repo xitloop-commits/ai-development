@@ -1,0 +1,515 @@
+{
+  "info": {
+    "_postman_id": "broker-charts-api-collection",
+    "name": "Broker Service — Charts & Market Data",
+    "description": "API collection for testing the Broker Service intraday and historical data endpoints.\n\n**Setup:**\n1. Set the `baseUrl` variable to your server URL (default: `http://localhost:3000`)\n2. Ensure the server is running (`pnpm dev`)\n3. Ensure a broker adapter is active (Dhan or Mock)\n\n**Endpoints:**\n- POST /api/broker/charts/intraday — Intraday OHLCV candles (1/5/15/25/60 min)\n- POST /api/broker/charts/historical — Daily historical OHLCV candles\n- GET /api/broker/status — Broker service status\n- GET /api/broker/token/status — Token validity check",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Status & Health",
+      "item": [
+        {
+          "name": "Broker Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "status"]
+            },
+            "description": "Check the overall broker service status — active adapter, connection state, kill switch status."
+          },
+          "response": []
+        },
+        {
+          "name": "Token Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/token/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "token", "status"]
+            },
+            "description": "Check if the current broker access token is valid."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Charts — Intraday",
+      "item": [
+        {
+          "name": "Intraday — NIFTY 50 Index (5 min)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"13\",\n  \"exchangeSegment\": \"IDX_I\",\n  \"instrument\": \"INDEX\",\n  \"interval\": \"5\",\n  \"fromDate\": \"2026-04-04 09:15:00\",\n  \"toDate\": \"2026-04-04 15:30:00\",\n  \"oi\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/intraday",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "intraday"]
+            },
+            "description": "Get 5-minute intraday candles for NIFTY 50 index.\n\n**Parameters:**\n- `securityId`: \"13\" (NIFTY 50 on Dhan)\n- `exchangeSegment`: \"IDX_I\" (Index segment)\n- `instrument`: \"INDEX\"\n- `interval`: \"5\" (5-minute candles)\n- `fromDate` / `toDate`: Date range in \"YYYY-MM-DD HH:mm:ss\" format\n- `oi`: false (no open interest for index)"
+          },
+          "response": []
+        },
+        {
+          "name": "Intraday — NIFTY 50 Index (1 min)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"13\",\n  \"exchangeSegment\": \"IDX_I\",\n  \"instrument\": \"INDEX\",\n  \"interval\": \"1\",\n  \"fromDate\": \"2026-04-04 09:15:00\",\n  \"toDate\": \"2026-04-04 15:30:00\",\n  \"oi\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/intraday",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "intraday"]
+            },
+            "description": "Get 1-minute intraday candles for NIFTY 50 index."
+          },
+          "response": []
+        },
+        {
+          "name": "Intraday — NIFTY 50 Index (15 min)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"13\",\n  \"exchangeSegment\": \"IDX_I\",\n  \"instrument\": \"INDEX\",\n  \"interval\": \"15\",\n  \"fromDate\": \"2026-04-04 09:15:00\",\n  \"toDate\": \"2026-04-04 15:30:00\",\n  \"oi\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/intraday",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "intraday"]
+            },
+            "description": "Get 15-minute intraday candles for NIFTY 50 index."
+          },
+          "response": []
+        },
+        {
+          "name": "Intraday — NIFTY 50 Index (60 min / Hourly)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"13\",\n  \"exchangeSegment\": \"IDX_I\",\n  \"instrument\": \"INDEX\",\n  \"interval\": \"60\",\n  \"fromDate\": \"2026-04-01 09:15:00\",\n  \"toDate\": \"2026-04-04 15:30:00\",\n  \"oi\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/intraday",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "intraday"]
+            },
+            "description": "Get hourly (60-min) intraday candles for NIFTY 50 index over multiple days."
+          },
+          "response": []
+        },
+        {
+          "name": "Intraday — BANKNIFTY Index (5 min)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"25\",\n  \"exchangeSegment\": \"IDX_I\",\n  \"instrument\": \"INDEX\",\n  \"interval\": \"5\",\n  \"fromDate\": \"2026-04-04 09:15:00\",\n  \"toDate\": \"2026-04-04 15:30:00\",\n  \"oi\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/intraday",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "intraday"]
+            },
+            "description": "Get 5-minute intraday candles for BANKNIFTY index.\n\n- `securityId`: \"25\" (BANKNIFTY on Dhan)"
+          },
+          "response": []
+        },
+        {
+          "name": "Intraday — NSE Equity (5 min)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"1333\",\n  \"exchangeSegment\": \"NSE_EQ\",\n  \"instrument\": \"EQUITY\",\n  \"interval\": \"5\",\n  \"fromDate\": \"2026-04-04 09:15:00\",\n  \"toDate\": \"2026-04-04 15:30:00\",\n  \"oi\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/intraday",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "intraday"]
+            },
+            "description": "Get 5-minute intraday candles for an NSE equity stock.\n\n- `securityId`: \"1333\" (HDFC Bank — replace with your stock's security ID)\n- `exchangeSegment`: \"NSE_EQ\"\n- `instrument`: \"EQUITY\""
+          },
+          "response": []
+        },
+        {
+          "name": "Intraday — NIFTY Future with OI (5 min)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"49081\",\n  \"exchangeSegment\": \"NSE_FNO\",\n  \"instrument\": \"FUTIDX\",\n  \"interval\": \"5\",\n  \"fromDate\": \"2026-04-04 09:15:00\",\n  \"toDate\": \"2026-04-04 15:30:00\",\n  \"oi\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/intraday",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "intraday"]
+            },
+            "description": "Get 5-minute intraday candles for a NIFTY future with open interest.\n\n- `securityId`: Replace with actual FUTIDX security ID from scrip master\n- `instrument`: \"FUTIDX\"\n- `oi`: true — includes `openInterest` array in response"
+          },
+          "response": []
+        },
+        {
+          "name": "Intraday — NIFTY Option (5 min)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"58498\",\n  \"exchangeSegment\": \"NSE_FNO\",\n  \"instrument\": \"OPTIDX\",\n  \"interval\": \"5\",\n  \"fromDate\": \"2026-04-04 09:15:00\",\n  \"toDate\": \"2026-04-04 15:30:00\",\n  \"oi\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/intraday",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "intraday"]
+            },
+            "description": "Get 5-minute intraday candles for a NIFTY option strike with open interest.\n\n- `securityId`: Replace with actual OPTIDX security ID from scrip master\n- `instrument`: \"OPTIDX\"\n- `oi`: true"
+          },
+          "response": []
+        },
+        {
+          "name": "Intraday — MCX Crude Oil Future (5 min)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"335\",\n  \"exchangeSegment\": \"MCX_COMM\",\n  \"instrument\": \"FUTCOM\",\n  \"interval\": \"5\",\n  \"fromDate\": \"2026-04-04 09:00:00\",\n  \"toDate\": \"2026-04-04 23:30:00\",\n  \"oi\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/intraday",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "intraday"]
+            },
+            "description": "Get 5-minute intraday candles for MCX Crude Oil future.\n\n- `securityId`: Replace with actual FUTCOM security ID from scrip master\n- `exchangeSegment`: \"MCX_COMM\"\n- `instrument`: \"FUTCOM\"\n- Note: MCX trading hours are 09:00–23:30 IST"
+          },
+          "response": []
+        },
+        {
+          "name": "Intraday — Validation Error (missing fields)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"13\",\n  \"exchangeSegment\": \"IDX_I\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/intraday",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "intraday"]
+            },
+            "description": "Test validation — should return 400 with missing fields error."
+          },
+          "response": []
+        },
+        {
+          "name": "Intraday — Validation Error (invalid interval)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"13\",\n  \"exchangeSegment\": \"IDX_I\",\n  \"instrument\": \"INDEX\",\n  \"interval\": \"10\",\n  \"fromDate\": \"2026-04-04 09:15:00\",\n  \"toDate\": \"2026-04-04 15:30:00\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/intraday",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "intraday"]
+            },
+            "description": "Test validation — should return 400 because interval \"10\" is invalid. Valid: 1, 5, 15, 25, 60."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Charts — Historical",
+      "item": [
+        {
+          "name": "Historical — NIFTY 50 Index (Daily)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"13\",\n  \"exchangeSegment\": \"IDX_I\",\n  \"instrument\": \"INDEX\",\n  \"fromDate\": \"2026-01-01\",\n  \"toDate\": \"2026-04-05\",\n  \"oi\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/historical",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "historical"]
+            },
+            "description": "Get daily historical candles for NIFTY 50 index.\n\n**Parameters:**\n- `securityId`: \"13\" (NIFTY 50)\n- `exchangeSegment`: \"IDX_I\"\n- `instrument`: \"INDEX\"\n- `fromDate`: Start date (YYYY-MM-DD)\n- `toDate`: End date (YYYY-MM-DD, non-inclusive)\n- `oi`: false"
+          },
+          "response": []
+        },
+        {
+          "name": "Historical — BANKNIFTY Index (Daily)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"25\",\n  \"exchangeSegment\": \"IDX_I\",\n  \"instrument\": \"INDEX\",\n  \"fromDate\": \"2026-01-01\",\n  \"toDate\": \"2026-04-05\",\n  \"oi\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/historical",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "historical"]
+            },
+            "description": "Get daily historical candles for BANKNIFTY index."
+          },
+          "response": []
+        },
+        {
+          "name": "Historical — NSE Equity (Daily)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"1333\",\n  \"exchangeSegment\": \"NSE_EQ\",\n  \"instrument\": \"EQUITY\",\n  \"fromDate\": \"2025-01-01\",\n  \"toDate\": \"2026-04-05\",\n  \"oi\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/historical",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "historical"]
+            },
+            "description": "Get daily historical candles for an NSE equity stock.\n\n- `securityId`: \"1333\" (HDFC Bank — replace with your stock's security ID)\n- Can go back to inception date"
+          },
+          "response": []
+        },
+        {
+          "name": "Historical — NIFTY Future with OI (Near Month)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"49081\",\n  \"exchangeSegment\": \"NSE_FNO\",\n  \"instrument\": \"FUTIDX\",\n  \"fromDate\": \"2026-03-01\",\n  \"toDate\": \"2026-04-05\",\n  \"expiryCode\": 0,\n  \"oi\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/historical",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "historical"]
+            },
+            "description": "Get daily historical candles for NIFTY future with open interest.\n\n- `expiryCode`: 0 = near month, 1 = next month, 2 = far month\n- `oi`: true — includes `openInterest` array"
+          },
+          "response": []
+        },
+        {
+          "name": "Historical — NIFTY Future (Next Month)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"49081\",\n  \"exchangeSegment\": \"NSE_FNO\",\n  \"instrument\": \"FUTIDX\",\n  \"fromDate\": \"2026-03-01\",\n  \"toDate\": \"2026-04-05\",\n  \"expiryCode\": 1,\n  \"oi\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/historical",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "historical"]
+            },
+            "description": "Get daily historical candles for NIFTY next-month future.\n\n- `expiryCode`: 1 = next month"
+          },
+          "response": []
+        },
+        {
+          "name": "Historical — MCX Crude Oil (Daily)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"335\",\n  \"exchangeSegment\": \"MCX_COMM\",\n  \"instrument\": \"FUTCOM\",\n  \"fromDate\": \"2026-01-01\",\n  \"toDate\": \"2026-04-05\",\n  \"expiryCode\": 0,\n  \"oi\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/historical",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "historical"]
+            },
+            "description": "Get daily historical candles for MCX Crude Oil future with OI."
+          },
+          "response": []
+        },
+        {
+          "name": "Historical — Validation Error (missing fields)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"13\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/historical",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "historical"]
+            },
+            "description": "Test validation — should return 400 with missing fields error."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Helpers — Scrip Master Lookup",
+      "item": [
+        {
+          "name": "Lookup Security ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/scrip-master/lookup?symbol=NIFTY&exchange=NSE_FNO&instrumentName=OPTIDX&expiry=2026-04-10&strike=24000&optionType=CE",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "scrip-master", "lookup"],
+              "query": [
+                { "key": "symbol", "value": "NIFTY" },
+                { "key": "exchange", "value": "NSE_FNO" },
+                { "key": "instrumentName", "value": "OPTIDX" },
+                { "key": "expiry", "value": "2026-04-10" },
+                { "key": "strike", "value": "24000" },
+                { "key": "optionType", "value": "CE" }
+              ]
+            },
+            "description": "Look up the Dhan security ID for a specific instrument. Use the returned `securityId` in the chart endpoints.\n\nThis is helpful to find the correct security ID before calling intraday/historical endpoints."
+          },
+          "response": []
+        },
+        {
+          "name": "Scrip Master Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/scrip-master/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "scrip-master", "status"]
+            },
+            "description": "Check if the scrip master is loaded and how many records are cached."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
