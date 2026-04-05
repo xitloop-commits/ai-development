@@ -872,14 +872,14 @@ function PastRow({
   const dateLabel = formatDateAgeLabel(day.date || '—', day.openedAt);
 
   return (
-    <tr className={`border-b border-border/30 ${theme.rowBg} ${theme.rowBgHover} transition-colors`}>
+    <tr className="border-b border-border/30 hover:bg-muted/30 transition-colors">
       {/* Day */}
       <td className="px-2 py-2">
-        <span className={`font-bold tabular-nums ${theme.text}`}>{day.dayIndex}</span>
+        <span className="font-bold tabular-nums text-foreground">{day.dayIndex}</span>
       </td>
       {/* Date + Age */}
       <td className="px-2 py-2">
-        <span className={`block truncate text-[10px] tabular-nums ${theme.text}`}>{dateLabel}</span>
+        <span className="block truncate text-[10px] tabular-nums text-foreground">{dateLabel}</span>
         <div className="hidden items-center justify-between">
           <span className="text-muted-foreground tabular-nums">{day.date || '—'}</span>
           {day.openedAt && (
@@ -888,16 +888,16 @@ function PastRow({
         </div>
       </td>
       {/* Trade Capital */}
-      <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
+      <td className="px-2 py-2 text-right tabular-nums text-foreground/70">
         {fmt(day.tradeCapital, true)}
       </td>
       {/* Target */}
-      <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
+      <td className="px-2 py-2 text-right tabular-nums text-foreground/70">
         {fmt(day.targetAmount)}
         <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
       </td>
       {/* Proj Capital */}
-      <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
+      <td className="px-2 py-2 text-right tabular-nums text-foreground/70">
         {fmt(day.projCapital, true)}
       </td>
       {/* Instrument — color-coded tags */}
@@ -905,14 +905,14 @@ function PastRow({
         <div className="flex max-w-full items-center gap-1 overflow-hidden whitespace-nowrap">
           {day.instruments.length > 0
             ? day.instruments.map((inst) => <InstrumentTag key={inst} name={inst} />)
-            : <span className={theme.textSoft}>—</span>
+            : <span className="text-muted-foreground">—</span>
           }
         </div>
       </td>
       {/* Entry */}
-      <td className={`px-2 py-2 text-right ${theme.textSoft}`}>—</td>
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
       {/* LTP */}
-      <td className={`px-2 py-2 text-right ${theme.textSoft}`}>—</td>
+      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
       {/* Qty */}
       <td className="px-2 py-2 text-right tabular-nums text-foreground">
         {day.totalQty > 0 ? day.totalQty : '—'}
@@ -923,11 +923,11 @@ function PastRow({
         <span className="text-[8px] ml-0.5">({pnlPercent}%)</span>
       </td>
       {/* Charges */}
-      <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
+      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
         {day.totalCharges > 0 ? fmt(day.totalCharges) : '—'}
       </td>
       {/* Actual Capital */}
-      <td className={`px-2 py-2 text-right tabular-nums font-medium ${theme.text}`}>
+      <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground">
         {day.actualCapital > 0 ? fmt(day.actualCapital, true) : '—'}
       </td>
       {/* Deviation */}
@@ -1038,19 +1038,19 @@ function TodaySection({
         <td className="px-2 py-2">
           <span className={`block truncate text-[10px] tabular-nums ${theme.text}`}>{cycleDateLabel}</span>
         </td>
-        <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
+        <td className="px-2 py-2 text-right tabular-nums text-foreground/70">
           {fmt(day.tradeCapital, true)}
         </td>
-        <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
+        <td className="px-2 py-2 text-right tabular-nums text-foreground/70">
           {fmt(day.targetAmount)}
           <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
         </td>
-        <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
+        <td className="px-2 py-2 text-right tabular-nums text-foreground/70">
           {fmt(day.projCapital, true)}
         </td>
         <td className="px-2 py-2" colSpan={3}>
           <div className="flex items-center justify-between gap-3 overflow-hidden">
-            <div className={`min-w-0 truncate text-[9px] ${theme.text}`}>
+            <div className="min-w-0 truncate text-[9px] text-foreground">
               <span>{remainingToTarget > 0 ? `To Target ${fmt(remainingToTarget)}` : `Over Target ${fmt(Math.abs(remainingToTarget))}`}</span>
               <span className="mx-1.5 text-border">|</span>
               <span>Risk@SL {fmt(openRisk)}</span>
@@ -1075,11 +1075,11 @@ function TodaySection({
                 {showNewTradeForm ? '- CANCEL' : '+ NEW TRADE'}
               </button>
             ) : (
-              <span className={`shrink-0 text-[9px] italic ${theme.textSoft}`}>AI managed</span>
+              <span className="shrink-0 text-[9px] italic text-muted-foreground">AI managed</span>
             )}
           </div>
         </td>
-        <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
+        <td className="px-2 py-2 text-right tabular-nums text-foreground/70">
           {day.totalQty > 0 ? day.totalQty : '—'}
         </td>
         <td className={`px-2 py-2 text-right tabular-nums ${pnlColor(totalPnl)}`}>
@@ -1096,10 +1096,10 @@ function TodaySection({
             )}
           </div>
         </td>
-        <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
+        <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
           {day.totalCharges > 0 ? fmt(day.totalCharges) : '—'}
         </td>
-        <td className={`px-2 py-2 text-right tabular-nums ${theme.text}`}>
+        <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground">
           {day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
         </td>
         <td className={`px-2 py-2 text-right tabular-nums text-[9px] ${pnlColor(day.deviation)}`}>
@@ -1243,28 +1243,28 @@ function TodayTradeRow({
       {/* Day */}
       <td className="px-2 py-1.5">
         {isFirst ? (
-          <span className={`font-bold tabular-nums ${theme.text}`}>{day.dayIndex}</span>
+          <span className="font-bold tabular-nums text-foreground">{day.dayIndex}</span>
         ) : (
-          <span className={`tabular-nums ${theme.textSoft}`}>{day.dayIndex}</span>
+          <span className="tabular-nums text-foreground/70">{day.dayIndex}</span>
         )}
       </td>
       {/* Date + Age */}
       <td className="px-2 py-1.5">
-        <span className={`block truncate tabular-nums text-[10px] ${theme.text}`}>
+        <span className="block truncate tabular-nums text-[10px] text-foreground">
           {cycleDateLabel}
         </span>
       </td>
       {/* Trade Capital — dimmed for sub-rows */}
-      <td className={`px-2 py-1.5 text-right tabular-nums ${theme.textSoft}`}>
+      <td className="px-2 py-1.5 text-right tabular-nums text-foreground/70">
         {fmt(day.tradeCapital, true)}
       </td>
       {/* Target — dimmed for sub-rows */}
-      <td className={`px-2 py-1.5 text-right tabular-nums ${theme.textSoft}`}>
+      <td className="px-2 py-1.5 text-right tabular-nums text-foreground/70">
         {fmt(day.targetAmount)}
         <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
       </td>
       {/* Proj Capital — dimmed for sub-rows */}
-      <td className={`px-2 py-1.5 text-right tabular-nums ${theme.textSoft}`}>
+      <td className="px-2 py-1.5 text-right tabular-nums text-foreground/70">
         {fmt(day.projCapital, true)}
       </td>
       {/* Instrument — merged with type info: Instrument | Expiry | Strike | CE/PE | B/S */}
@@ -1274,13 +1274,13 @@ function TodayTradeRow({
           {expiryLabel && (
             <>
               <span className="text-border text-[9px]">|</span>
-              <span className={`text-[9px] tabular-nums ${theme.textSoft}`}>{expiryLabel}</span>
+              <span className="text-[9px] tabular-nums text-foreground/70">{expiryLabel}</span>
             </>
           )}
           {trade.strike !== null && (
             <>
               <span className="text-border text-[9px]">|</span>
-              <span className={`text-[9px] tabular-nums ${theme.textSoft}`}>{trade.strike}</span>
+              <span className="text-[9px] tabular-nums text-foreground/70">{trade.strike}</span>
             </>
           )}
           <span className="text-border text-[9px]">|</span>
@@ -1299,7 +1299,7 @@ function TodayTradeRow({
           <span className={`tabular-nums font-medium ${
             isOpen
               ? (displayLtp >= trade.entryPrice ? 'text-bullish' : 'text-destructive')
-              : theme.textSoft
+              : 'text-foreground/70'
           }`}>
             {isOpen ? (
               <>
@@ -1377,48 +1377,47 @@ function FutureRow({
   isDay250: boolean;
   workspace: Workspace;
 }) {
-  const theme = getWorkspaceThemeMeta(workspace);
   return (
     <tr className={`border-b border-border/20 bg-background/30 transition-colors ${isDay250 ? 'opacity-90' : 'opacity-[0.55]'}`}>
       {/* Day */}
       <td className="px-2 py-2">
-        <span className={`font-bold tabular-nums ${isDay250 ? theme.textSoft : theme.textDim}`}>
+        <span className={`font-bold tabular-nums ${isDay250 ? 'text-foreground/60' : 'text-muted-foreground/60'}`}>
           {day.dayIndex}
         </span>
       </td>
       {/* Date */}
-      <td className={`px-2 py-2 tabular-nums ${isDay250 ? theme.textSoft : theme.textDim}`}>
+      <td className={`px-2 py-2 tabular-nums ${isDay250 ? 'text-foreground/60' : 'text-muted-foreground/60'}`}>
         {day.date || '—'}
       </td>
       {/* Trade Capital */}
-      <td className={`px-2 py-2 text-right tabular-nums ${isDay250 ? theme.textSoft : theme.textDim}`}>
+      <td className={`px-2 py-2 text-right tabular-nums ${isDay250 ? 'text-foreground/60' : 'text-muted-foreground/60'}`}>
         {fmt(day.tradeCapital, true)}
       </td>
       {/* Target */}
-      <td className={`px-2 py-2 text-right tabular-nums ${isDay250 ? theme.textSoft : theme.textDim}`}>
+      <td className={`px-2 py-2 text-right tabular-nums ${isDay250 ? 'text-foreground/60' : 'text-muted-foreground/60'}`}>
         {fmt(day.targetAmount)}
         <span className="text-[9px] ml-0.5">({day.targetPercent}%)</span>
       </td>
       {/* Proj Capital */}
-      <td className={`px-2 py-2 text-right tabular-nums font-medium ${isDay250 ? theme.textSoft : theme.textDim}`}>
+      <td className={`px-2 py-2 text-right tabular-nums font-medium ${isDay250 ? 'text-foreground/60' : 'text-muted-foreground/60'}`}>
         {fmt(day.projCapital, true)}
       </td>
       {/* Instrument */}
-      <td className={`px-2 py-2 ${theme.textDim}`}>—</td>
+      <td className="px-2 py-2 text-muted-foreground/60">—</td>
       {/* Entry */}
-      <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
+      <td className="px-2 py-2 text-right text-muted-foreground/60">—</td>
       {/* LTP */}
-      <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
+      <td className="px-2 py-2 text-right text-muted-foreground/60">—</td>
       {/* Qty */}
-      <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
+      <td className="px-2 py-2 text-right text-muted-foreground/60">—</td>
       {/* P&L */}
-      <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
+      <td className="px-2 py-2 text-right text-muted-foreground/60">—</td>
       {/* Charges */}
-      <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
+      <td className="px-2 py-2 text-right text-muted-foreground/60">—</td>
       {/* Actual Capital */}
-      <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
+      <td className="px-2 py-2 text-right text-muted-foreground/60">—</td>
       {/* Deviation */}
-      <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
+      <td className="px-2 py-2 text-right text-muted-foreground/60">—</td>
       {/* Rating */}
       <td className="px-2 py-2 text-center">
         <RatingIcon rating={isDay250 ? 'finish' : 'future'} />
