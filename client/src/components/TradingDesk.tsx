@@ -772,20 +772,20 @@ export default function TradingDesk({
               <col style={{ width: 76 }} />
             </colgroup>
             <thead className="sticky top-0 z-10">
-              <tr className="bg-background/95 backdrop-blur-md border-b border-border">
-                <th className="px-2.5 py-2 text-left text-[8px] font-bold text-muted-foreground tracking-widest uppercase w-12">Day</th>
-                <th className="px-2.5 py-2 text-left text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Date</th>
-                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Trade Cap.</th>
-                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Target</th>
-                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Proj. Cap.</th>
-                <th className="px-2.5 py-2 text-left text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Instrument</th>
-                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Entry</th>
-                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">LTP</th>
-                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Qty</th>
-                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">P&amp;L</th>
-                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Charges</th>
-                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Actual Cap.</th>
-                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Dev.</th>
+              <tr className="bg-card backdrop-blur-md border-b border-border">
+                <th className="px-2.5 py-2 text-left text-[8px] font-bold text-muted-foreground tracking-widest uppercase w-12 border-r border-border/30">Day</th>
+                <th className="px-2.5 py-2 text-left text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">Date</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">Trade Cap.</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">Target</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">Proj. Cap.</th>
+                <th className="px-2.5 py-2 text-left text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">Instrument</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">Entry</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">LTP</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">Qty</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">P&amp;L</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">Charges</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">Actual Cap.</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">Dev.</th>
                 <th className="px-2.5 py-2 text-center text-[8px] font-bold text-muted-foreground tracking-widest uppercase w-16">Rating</th>
               </tr>
             </thead>
