@@ -744,7 +744,7 @@ export default function TradingDesk({
       {/* Mutation errors are handled by the global CapitalContext */}
 
       {/* ─── Table ────────────────────────────────────────────── */}
-      <div className={`flex-1 overflow-auto scrollbar-thin px-3 pb-3 ${
+      <div className={`flex-1 overflow-auto scrollbar-thin ${
         workspace === 'live' ? 'scrollbar-bullish' :
         workspace === 'paper_manual' ? 'scrollbar-amber' :
         'scrollbar-violet'
@@ -772,7 +772,7 @@ export default function TradingDesk({
               <col style={{ width: 76 }} />
             </colgroup>
             <thead className="sticky top-0 z-10">
-              <tr className="bg-muted backdrop-blur-md border-b-2 border-border">
+              <tr className="bg-[oklch(0.18_0.025_270)] backdrop-blur-md border-b-2 border-border">
                 <th className="px-2.5 py-2 text-left text-[8px] font-bold text-muted-foreground tracking-widest uppercase w-12 border-r border-border/30">Day</th>
                 <th className="px-2.5 py-2 text-left text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">Date</th>
                 <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">Trade Cap.</th>
