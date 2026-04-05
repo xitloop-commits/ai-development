@@ -95,9 +95,9 @@ function getWorkspaceTone(workspace: NewTradeFormProps['workspace']) {
       };
     default:
       return {
-        row: 'border-info-cyan/30 bg-info-cyan/[0.04] border-l-info-cyan/60',
-        text: 'text-info-cyan',
-        textSoft: 'text-info-cyan/80',
+        row: 'border-violet-pulse/30 bg-violet-pulse/[0.04] border-l-violet-pulse/60',
+        text: 'text-violet-pulse',
+        textSoft: 'text-violet-pulse/80',
       };
   }
 }

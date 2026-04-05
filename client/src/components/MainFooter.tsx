@@ -213,7 +213,7 @@ export default function MainFooter() {
   };
 
   return (
-    <div className="sticky bottom-0 z-40 border-t border-border bg-card/90 backdrop-blur-md">
+    <div className="sticky bottom-0 z-40 border-t border-border bg-gradient-footer backdrop-blur-md">
       <div className="flex items-center px-3 py-2 gap-4">
 
         {/* ─── 1. Quarterly Projections ─── */}
@@ -333,7 +333,7 @@ export default function MainFooter() {
                 </div>
                 <div className="h-1 rounded-full bg-secondary/50 overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-primary/60 to-primary transition-all duration-700"
+                    className="h-full rounded-full bg-gradient-cyan-violet transition-all duration-700"
                     style={{ width: `${Math.min(dayProgress, 100)}%` }}
                   />
                 </div>
@@ -527,7 +527,7 @@ export default function MainFooter() {
                   </div>
                   <div className="h-1 rounded-full bg-secondary/50 overflow-hidden">
                     <div
-                      className="h-full rounded-full bg-primary transition-all duration-500"
+                      className="h-full rounded-full bg-gradient-green-cyan transition-all duration-500"
                       style={{ width: `${Math.min(parseFloat(tradingPoolPct), 100)}%` }}
                     />
                   </div>
@@ -544,7 +544,7 @@ export default function MainFooter() {
                   </div>
                   <div className="h-1 rounded-full bg-secondary/50 overflow-hidden">
                     <div
-                      className="h-full rounded-full bg-info-cyan transition-all duration-500"
+                      className="h-full rounded-full bg-gradient-cyan-violet transition-all duration-500"
                       style={{ width: `${Math.min(parseFloat(reservePoolPct), 100)}%` }}
                     />
                   </div>

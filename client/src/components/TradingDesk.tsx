@@ -126,7 +126,7 @@ function getWorkspaceBadgeMeta(workspace: Workspace): { label: string; className
     case 'paper_manual':
       return { label: 'MANUAL PAPER', className: 'bg-warning-amber/20 text-warning-amber' };
     default:
-      return { label: 'AI PAPER', className: 'bg-info-cyan/20 text-info-cyan' };
+      return { label: 'AI PAPER', className: 'bg-violet-pulse/20 text-violet-pulse' };
   }
 }
 
@@ -180,19 +180,19 @@ function getWorkspaceThemeMeta(workspace: Workspace): {
       };
     default:
       return {
-        text: 'text-info-cyan',
-        textSoft: 'text-info-cyan/80',
-        textDim: 'text-info-cyan/60',
-        rowBg: 'bg-info-cyan/[0.04]',
-        rowBgHover: 'hover:bg-info-cyan/[0.08]',
-        todayBg: 'bg-info-cyan/[0.08]',
-        todayAltBg: 'bg-info-cyan/[0.04]',
-        summaryBg: 'bg-info-cyan/10',
-        summaryBorder: 'border-info-cyan/30',
-        borderStrong: 'border-l-info-cyan',
-        borderSoft: 'border-l-info-cyan/50',
-        button: 'bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25',
-        buttonActive: 'bg-info-cyan/20 text-info-cyan',
+        text: 'text-violet-pulse',
+        textSoft: 'text-violet-pulse/80',
+        textDim: 'text-violet-pulse/60',
+        rowBg: 'bg-violet-pulse/[0.04]',
+        rowBgHover: 'hover:bg-violet-pulse/[0.08]',
+        todayBg: 'bg-violet-pulse/[0.08]',
+        todayAltBg: 'bg-violet-pulse/[0.04]',
+        summaryBg: 'bg-violet-pulse/10',
+        summaryBorder: 'border-violet-pulse/30',
+        borderStrong: 'border-l-violet-pulse',
+        borderSoft: 'border-l-violet-pulse/50',
+        button: 'bg-violet-pulse/15 text-violet-pulse hover:bg-violet-pulse/25',
+        buttonActive: 'bg-violet-pulse/20 text-violet-pulse',
       };
   }
 }
@@ -227,8 +227,8 @@ function fmt(n: number, _compact = false): string {
 }
 
 function pnlColor(n: number): string {
-  if (n > 0) return 'text-bullish';
-  if (n < 0) return 'text-destructive';
+  if (n > 0) return 'text-bullish text-glow-green';
+  if (n < 0) return 'text-destructive text-glow-red';
   return 'text-muted-foreground';
 }
 
@@ -644,7 +644,7 @@ export default function TradingDesk({
             onClick={() => setWorkspace('paper')}
             className={`px-3 py-1 rounded-t text-[10px] font-bold tracking-wider uppercase transition-colors ${
               workspace === 'paper'
-                ? 'bg-info-cyan/10 text-info-cyan border-b-2 border-info-cyan'
+                ? 'bg-violet-pulse/10 text-violet-pulse border-b-2 border-violet-pulse'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
@@ -747,7 +747,7 @@ export default function TradingDesk({
       <div className={`flex-1 overflow-auto scrollbar-thin ${
         workspace === 'live' ? 'scrollbar-bullish' :
         workspace === 'paper_manual' ? 'scrollbar-amber' :
-        'scrollbar-cyan'
+        'scrollbar-violet'
       }`}>
         {allDays.length === 0 && !capitalLoading ? (
           <NoCapitalEmpty onOpenSettings={() => {
@@ -1126,7 +1126,7 @@ function TodaySection({
               className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-wider transition-colors ${
                 showNewTradeForm
                   ? 'bg-warning-amber/20 text-warning-amber'
-                  : 'bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25'
+                  : `${theme.button}`
               }`}
             >
               {showNewTradeForm ? '− CANCEL' : '+ NEW TRADE'}
@@ -1238,7 +1238,7 @@ function TodayTradeRow({
         isFirst
           ? `${theme.todayBg} border-l-2 ${theme.borderStrong}`
           : `${theme.todayAltBg} border-l-2 ${theme.borderSoft}`
-      }`}
+      } ${pnl > 0 ? 'bg-bullish/[0.03]' : pnl < 0 ? 'bg-destructive/[0.03]' : ''}`}
     >
       {/* Day */}
       <td className="px-2 py-1.5">
