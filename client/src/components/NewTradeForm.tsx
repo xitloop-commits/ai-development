@@ -323,17 +323,19 @@ export default function NewTradeForm(props: NewTradeFormProps) {
 
       <td className="px-2 py-1">
         <div className="flex min-w-0 flex-col gap-1">
-          <select
-            value={instrument}
-            onChange={(e) => setInstrument(e.target.value)}
-            className={selectClass}
-          >
-            {instrumentOptions.map((inst) => (
-              <option key={inst} value={inst}>{inst}</option>
-            ))}
-          </select>
-
           <div className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap">
+            <select
+              value={instrument}
+              onChange={(e) => setInstrument(e.target.value)}
+              className={`${compactSelectClass} w-[100px]`}
+            >
+              {instrumentOptions.map((inst) => (
+                <option key={inst} value={inst}>{inst}</option>
+              ))}
+            </select>
+
+            <span className="text-border text-[9px]">|</span>
+
             <select
               value={canSelectExpiry ? expiry : ''}
               onChange={(e) => setExpiry(e.target.value)}
@@ -352,6 +354,8 @@ export default function NewTradeForm(props: NewTradeFormProps) {
                 <option value="" disabled>No expiries</option>
               )}
             </select>
+
+            <span className="text-border text-[9px]">|</span>
 
             <select
               value={canSelectStrike ? selectedStrike : ''}
@@ -375,10 +379,31 @@ export default function NewTradeForm(props: NewTradeFormProps) {
               )}
             </select>
 
-            <div className="flex items-center gap-1">
+            <span className="text-border text-[9px]">|</span>
+
+            <div className="flex items-center gap-0.5">
+              {(['CE', 'PE', 'NONE'] as const).map((opt) => (
+                <button
+                  key={opt}
+                  onClick={() => setOptionType(opt)}
+                  className={`px-1 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                    optionType === opt
+                      ? 'border border-primary/40 bg-primary/20 text-primary'
+                      : 'border border-transparent bg-muted text-muted-foreground'
+                  }`}
+                  title={opt === 'NONE' ? 'Direct trade (no option contract)' : undefined}
+                >
+                  {OPTION_TYPE_LABELS[opt]}
+                </button>
+              ))}
+            </div>
+
+            <span className="text-border text-[9px]">|</span>
+
+            <div className="flex items-center gap-0.5">
               <button
                 onClick={() => setDirection('BUY')}
-                className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                className={`px-1 py-0.5 rounded text-[9px] font-bold transition-colors ${
                   direction === 'BUY'
                     ? 'border border-bullish/40 bg-bullish/20 text-bullish'
                     : 'border border-transparent bg-muted text-muted-foreground'
@@ -386,7 +411,6 @@ export default function NewTradeForm(props: NewTradeFormProps) {
               >
                 B
               </button>
-
               <button
                 onClick={() => setDirection('SELL')}
                 className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
@@ -399,25 +423,6 @@ export default function NewTradeForm(props: NewTradeFormProps) {
               </button>
             </div>
           </div>
-        </div>
-      </td>
-
-      <td className="px-2 py-1">
-        <div className="flex items-center gap-1 overflow-hidden whitespace-nowrap">
-          {(['CE', 'PE', 'NONE'] as const).map((opt) => (
-            <button
-              key={opt}
-              onClick={() => setOptionType(opt)}
-              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
-                optionType === opt
-                  ? 'border border-primary/40 bg-primary/20 text-primary'
-                  : 'border border-transparent bg-muted text-muted-foreground'
-              }`}
-              title={opt === 'NONE' ? 'Direct trade (no option contract)' : undefined}
-            >
-              {OPTION_TYPE_LABELS[opt]}
-            </button>
-          ))}
         </div>
       </td>
 
