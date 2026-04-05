@@ -674,6 +674,46 @@
           "response": []
         },
         {
+          "name": "Intraday — NIFTY 50 (5 min) + transform=true (Row Format)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"13\",\n  \"exchangeSegment\": \"IDX_I\",\n  \"instrument\": \"INDEX\",\n  \"interval\": \"5\",\n  \"fromDate\": \"2026-04-04 09:15:00\",\n  \"toDate\": \"2026-04-04 15:30:00\",\n  \"oi\": false,\n  \"transform\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/intraday",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "intraday"]
+            },
+            "description": "Returns row-based ascending candle data when transform=true.\n\nResponse format:\n[{time, open, high, low, close, volume}, ...]\n\nTime format: YYYY-MM-DD HH:mm (IST)\nAccepted values: true, \"true\", \"t\""
+          },
+          "response": []
+        },
+        {
+          "name": "Intraday — Future + OI + transform=true (Row Format)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"49081\",\n  \"exchangeSegment\": \"NSE_FNO\",\n  \"instrument\": \"FUTIDX\",\n  \"interval\": \"5\",\n  \"fromDate\": \"2026-04-04 09:15:00\",\n  \"toDate\": \"2026-04-04 15:30:00\",\n  \"oi\": true,\n  \"transform\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/intraday",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "intraday"]
+            },
+            "description": "Row-based intraday candles with openInterest included.\n\nResponse: [{time, open, high, low, close, volume, openInterest}, ...]"
+          },
+          "response": []
+        },
+        {
           "name": "Intraday — Validation Error (invalid interval)",
           "request": {
             "method": "POST",
@@ -815,6 +855,46 @@
               "path": ["api", "broker", "charts", "historical"]
             },
             "description": "Daily historical candles for MCX Crude Oil future with OI."
+          },
+          "response": []
+        },
+        {
+          "name": "Historical — NIFTY 50 + transform=true (Row Format)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"13\",\n  \"exchangeSegment\": \"IDX_I\",\n  \"instrument\": \"INDEX\",\n  \"fromDate\": \"2026-01-01\",\n  \"toDate\": \"2026-04-05\",\n  \"oi\": false,\n  \"transform\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/historical",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "historical"]
+            },
+            "description": "Returns row-based ascending daily candles when transform=true.\n\nResponse format:\n[{time, open, high, low, close, volume}, ...]\n\nTime format: YYYY-MM-DD\nAccepted values: true, \"true\", \"t\""
+          },
+          "response": []
+        },
+        {
+          "name": "Historical — Future + OI + transform=true (Row Format)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"securityId\": \"49081\",\n  \"exchangeSegment\": \"NSE_FNO\",\n  \"instrument\": \"FUTIDX\",\n  \"fromDate\": \"2026-03-01\",\n  \"toDate\": \"2026-04-05\",\n  \"expiryCode\": 0,\n  \"oi\": true,\n  \"transform\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/broker/charts/historical",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "broker", "charts", "historical"]
+            },
+            "description": "Row-based daily historical candles with openInterest included.\n\nResponse: [{time, open, high, low, close, volume, openInterest}, ...]"
           },
           "response": []
         },

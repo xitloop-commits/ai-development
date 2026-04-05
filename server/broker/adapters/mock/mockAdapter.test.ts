@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { MockAdapter } from "./index";
 import type { OrderParams } from "../../types";
+import { transformCandleData } from "../../types";
 
 // ─── Test Helpers ───────────────────────────────────────────────
 
@@ -557,6 +558,114 @@ describe("MockAdapter", () => {
       for (let i = 1; i < data.timestamp.length; i++) {
         expect(data.timestamp[i]).toBeGreaterThan(data.timestamp[i - 1]);
       }
+    });
+  });
+
+  // ── Transform Candle Data ───────────────────────────────────
+
+  describe("transformCandleData", () => {
+    it("converts intraday columnar data to ascending row-based format", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "5",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+      });
+
+      const rows = transformCandleData(data, "intraday");
+
+      expect(rows.length).toBe(data.timestamp.length);
+      expect(rows[0]).toHaveProperty("time");
+      expect(rows[0]).toHaveProperty("open");
+      expect(rows[0]).toHaveProperty("high");
+      expect(rows[0]).toHaveProperty("low");
+      expect(rows[0]).toHaveProperty("close");
+      expect(rows[0]).toHaveProperty("volume");
+      // Intraday time format: "YYYY-MM-DD HH:mm"
+      expect(rows[0].time).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    });
+
+    it("converts historical columnar data to ascending row-based format", async () => {
+      const data = await adapter.getHistoricalData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        fromDate: "2026-03-01",
+        toDate: "2026-04-01",
+      });
+
+      const rows = transformCandleData(data, "historical");
+
+      expect(rows.length).toBe(data.timestamp.length);
+      // Historical time format: "YYYY-MM-DD"
+      expect(rows[0].time).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    it("rows are sorted ascending by time", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "5",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+      });
+
+      const rows = transformCandleData(data, "intraday");
+
+      for (let i = 1; i < rows.length; i++) {
+        expect(rows[i].time >= rows[i - 1].time).toBe(true);
+      }
+    });
+
+    it("includes openInterest in rows when oi=true", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "49081",
+        exchangeSegment: "NSE_FNO",
+        instrument: "FUTIDX",
+        interval: "5",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+        oi: true,
+      });
+
+      const rows = transformCandleData(data, "intraday");
+
+      expect(rows[0]).toHaveProperty("openInterest");
+      expect(typeof rows[0].openInterest).toBe("number");
+    });
+
+    it("omits openInterest in rows when oi=false", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "5",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+        oi: false,
+      });
+
+      const rows = transformCandleData(data, "intraday");
+
+      expect(rows[0]).not.toHaveProperty("openInterest");
+    });
+
+    it("without transform flag returns original columnar format", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "5",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+      });
+
+      // Original format has arrays
+      expect(Array.isArray(data.open)).toBe(true);
+      expect(Array.isArray(data.timestamp)).toBe(true);
     });
   });
 
