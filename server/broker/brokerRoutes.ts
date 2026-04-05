@@ -553,7 +553,8 @@ export function registerBrokerRoutes(app: Express): void {
       });
 
       if (transform === true || transform === "true" || transform === "t") {
-        res.json({ success: true, data: transformCandleData(data, "intraday") });
+        res.setHeader("Content-Type", "text/csv");
+        res.send(transformCandleData(data, "intraday"));
       } else {
         res.json({ success: true, data });
       }
@@ -591,7 +592,8 @@ export function registerBrokerRoutes(app: Express): void {
       });
 
       if (transform === true || transform === "true" || transform === "t") {
-        res.json({ success: true, data: transformCandleData(data, "historical") });
+        res.setHeader("Content-Type", "text/csv");
+        res.send(transformCandleData(data, "historical"));
       } else {
         res.json({ success: true, data });
       }

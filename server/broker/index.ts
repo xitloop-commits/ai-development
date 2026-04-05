@@ -29,7 +29,6 @@ export type {
   BrokerConnection,
   BrokerCapabilities,
   CandleData,
-  CandleRow,
   IntradayDataParams,
   HistoricalDataParams,
   IntradayInterval,
