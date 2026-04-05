@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -22,6 +23,23 @@ function isTradingDeskMockupRoute() {
 
 function App() {
   const showTradingDeskMockup = isTradingDeskMockupRoute();
+
+  // Enter fullscreen on first user interaction
+  useEffect(() => {
+    const enterFullscreen = () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen?.().catch(() => {});
+      }
+      document.removeEventListener('click', enterFullscreen);
+      document.removeEventListener('keydown', enterFullscreen);
+    };
+    document.addEventListener('click', enterFullscreen, { once: true });
+    document.addEventListener('keydown', enterFullscreen, { once: true });
+    return () => {
+      document.removeEventListener('click', enterFullscreen);
+      document.removeEventListener('keydown', enterFullscreen);
+    };
+  }, []);
 
   return (
     <ErrorBoundary>
