@@ -758,7 +758,6 @@ export default function TradingDesk({
               <col className="w-[88px]" />
               <col className="w-[88px]" />
               <col />
-              <col className="w-[124px]" />
               <col className="w-[72px]" />
               <col className="w-[72px]" />
               <col className="w-[68px]" />
@@ -776,7 +775,6 @@ export default function TradingDesk({
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Target</th>
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Proj. Cap.</th>
                 <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase">Instrument</th>
-                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase">Type</th>
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Entry</th>
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">LTP</th>
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Qty</th>
@@ -907,8 +905,6 @@ function PastRow({
           }
         </div>
       </td>
-      {/* Type */}
-      <td className={`px-2 py-2 ${theme.textSoft}`}>—</td>
       {/* Entry */}
       <td className={`px-2 py-2 text-right ${theme.textSoft}`}>—</td>
       {/* LTP */}
@@ -1048,7 +1044,7 @@ function TodaySection({
         <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
           {fmt(day.projCapital, true)}
         </td>
-        <td className="px-2 py-2" colSpan={4}>
+        <td className="px-2 py-2" colSpan={3}>
           <div className="flex items-center justify-between gap-3 overflow-hidden">
             <div className={`min-w-0 truncate text-[9px] ${theme.text}`}>
               <span>{remainingToTarget > 0 ? `To Target ${fmt(remainingToTarget)}` : `Over Target ${fmt(Math.abs(remainingToTarget))}`}</span>
@@ -1119,7 +1115,7 @@ function TodaySection({
         {/* Proj Capital */}
         <td className="px-2 py-2" />
         {/* Instrument — + NEW TRADE button (manual workspaces only) */}
-        <td className="px-2 py-2" colSpan={4}>
+        <td className="px-2 py-2" colSpan={3}>
           {canManageTrades ? (
             <button
               onClick={() => setShowNewTradeForm(prev => !prev)}
@@ -1267,29 +1263,27 @@ function TodayTradeRow({
       <td className={`px-2 py-1.5 text-right tabular-nums ${theme.textSoft}`}>
         {fmt(day.projCapital, true)}
       </td>
-      {/* Instrument — color-coded tag */}
+      {/* Instrument — merged with type info: Instrument | Expiry | Strike | CE/PE | B/S */}
       <td className="px-2 py-1.5">
-        <div className="flex min-w-0 flex-col items-start gap-0.5 overflow-hidden">
+        <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap">
           <InstrumentTag name={trade.instrument} />
-          <div className={`flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-[9px] tabular-nums ${theme.textSoft}`}>
-            {contractDetails.length > 0 ? (
-              contractDetails.map((detail, index) => (
-                <Fragment key={`${trade.id}-detail-${index}`}>
-                  {index > 0 && <span className="text-border">|</span>}
-                  {detail}
-                </Fragment>
-              ))
-            ) : (
-              <span>—</span>
-            )}
-          </div>
+          {expiryLabel && (
+            <>
+              <span className="text-border text-[9px]">|</span>
+              <span className={`text-[9px] tabular-nums ${theme.textSoft}`}>{expiryLabel}</span>
+            </>
+          )}
+          {trade.strike !== null && (
+            <>
+              <span className="text-border text-[9px]">|</span>
+              <span className={`text-[9px] tabular-nums ${theme.textSoft}`}>{trade.strike}</span>
+            </>
+          )}
+          <span className="text-border text-[9px]">|</span>
+          <span className={`text-[9px] font-bold ${theme.buttonActive} rounded px-1 py-0.5`}>{contractLabel}</span>
+          <span className="text-border text-[9px]">|</span>
+          <span className={`text-[9px] font-semibold ${isBuy ? 'text-bullish' : 'text-destructive'}`}>{directionLabel}</span>
         </div>
-      </td>
-      {/* Type */}
-      <td className="px-2 py-1.5">
-        <span className={`inline-flex min-w-[44px] items-center justify-center rounded px-1.5 py-0.5 text-[9px] font-bold ${theme.buttonActive}`}>
-          {contractLabel}
-        </span>
       </td>
       {/* Entry */}
       <td className="px-2 py-1.5 text-right tabular-nums text-foreground">
@@ -1406,8 +1400,6 @@ function FutureRow({
         {fmt(day.projCapital, true)}
       </td>
       {/* Instrument */}
-      <td className={`px-2 py-2 ${theme.textDim}`}>—</td>
-      {/* Type */}
       <td className={`px-2 py-2 ${theme.textDim}`}>—</td>
       {/* Entry */}
       <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
