@@ -1045,15 +1045,9 @@ function TodaySection({
         <td className="px-2 py-2" colSpan={3}>
           <div className="flex items-center justify-between gap-3 overflow-hidden">
             <div className="min-w-0 truncate text-[9px] text-foreground">
-              <span>{remainingToTarget > 0 ? `To Target ${fmt(remainingToTarget)}` : `Over Target ${fmt(Math.abs(remainingToTarget))}`}</span>
-              <span className="mx-1.5 text-border">|</span>
               <span>Risk@SL {fmt(openRisk)}</span>
               <span className="mx-1.5 text-border">|</span>
               <span>Reward@TP {fmt(openReward)}</span>
-              <span className="mx-1.5 text-border">|</span>
-              <span>Open {openTrades.length}</span>
-              <span className="mx-1.5 text-border">|</span>
-              <span>W/L {wins}/{losses}</span>
             </div>
             {canManageTrades ? (
               <button
