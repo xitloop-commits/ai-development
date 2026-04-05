@@ -379,6 +379,60 @@ export const brokerRouter = router({
       return broker.getOptionChain(input.underlying, input.expiry, input.exchangeSegment);
     }),
 
+  // ── Charts / Historical Data ───────────────────────
+
+  /** Get intraday OHLCV candle data (1/5/15/25/60 min intervals). */
+  intradayData: publicProcedure
+    .input(
+      z.object({
+        securityId: z.string(),
+        exchangeSegment: z.string(),
+        instrument: z.enum(["EQUITY", "INDEX", "FUTIDX", "FUTCOM", "FUTSTK", "OPTIDX", "OPTSTK", "OPTFUT"]),
+        interval: z.enum(["1", "5", "15", "25", "60"]),
+        fromDate: z.string(),
+        toDate: z.string(),
+        oi: z.boolean().optional(),
+      })
+    )
+    .query(async ({ input }) => {
+      const broker = requireBroker();
+      return broker.getIntradayData({
+        securityId: input.securityId,
+        exchangeSegment: input.exchangeSegment,
+        instrument: input.instrument,
+        interval: input.interval,
+        fromDate: input.fromDate,
+        toDate: input.toDate,
+        oi: input.oi ?? false,
+      });
+    }),
+
+  /** Get daily historical OHLCV candle data. */
+  historicalData: publicProcedure
+    .input(
+      z.object({
+        securityId: z.string(),
+        exchangeSegment: z.string(),
+        instrument: z.enum(["EQUITY", "INDEX", "FUTIDX", "FUTCOM", "FUTSTK", "OPTIDX", "OPTSTK", "OPTFUT"]),
+        fromDate: z.string(),
+        toDate: z.string(),
+        expiryCode: z.number().optional(),
+        oi: z.boolean().optional(),
+      })
+    )
+    .query(async ({ input }) => {
+      const broker = requireBroker();
+      return broker.getHistoricalData({
+        securityId: input.securityId,
+        exchangeSegment: input.exchangeSegment,
+        instrument: input.instrument,
+        fromDate: input.fromDate,
+        toDate: input.toDate,
+        expiryCode: input.expiryCode ?? 0,
+        oi: input.oi ?? false,
+      });
+    }),
+
   // ── Feed (Live Market Data) ─────────────────────────────────
 
   feed: router({

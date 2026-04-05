@@ -417,6 +417,149 @@ describe("MockAdapter", () => {
     });
   });
 
+  // ── Charts / Historical Data (Mock) ───────────────────
+
+  describe("Intraday Data", () => {
+    it("returns candle data with correct shape", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "5",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+      });
+
+      expect(data.open.length).toBeGreaterThan(0);
+      expect(data.high.length).toBe(data.open.length);
+      expect(data.low.length).toBe(data.open.length);
+      expect(data.close.length).toBe(data.open.length);
+      expect(data.volume.length).toBe(data.open.length);
+      expect(data.timestamp.length).toBe(data.open.length);
+    });
+
+    it("includes open interest when oi=true", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "15",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+        oi: true,
+      });
+
+      expect(data.openInterest).toBeDefined();
+      expect(data.openInterest!.length).toBe(data.open.length);
+    });
+
+    it("omits open interest when oi is not set", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "1",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+      });
+
+      expect(data.openInterest).toBeUndefined();
+    });
+
+    it("returns valid OHLCV values", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "5",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+      });
+
+      for (let i = 0; i < data.open.length; i++) {
+        expect(data.high[i]).toBeGreaterThanOrEqual(data.low[i]);
+        expect(data.volume[i]).toBeGreaterThan(0);
+        expect(data.timestamp[i]).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  describe("Historical Data", () => {
+    it("returns daily candle data with correct shape", async () => {
+      const data = await adapter.getHistoricalData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        fromDate: "2026-03-01",
+        toDate: "2026-04-01",
+      });
+
+      expect(data.open.length).toBeGreaterThan(0);
+      expect(data.high.length).toBe(data.open.length);
+      expect(data.low.length).toBe(data.open.length);
+      expect(data.close.length).toBe(data.open.length);
+      expect(data.volume.length).toBe(data.open.length);
+      expect(data.timestamp.length).toBe(data.open.length);
+    });
+
+    it("includes open interest when oi=true", async () => {
+      const data = await adapter.getHistoricalData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        fromDate: "2026-03-01",
+        toDate: "2026-04-01",
+        oi: true,
+      });
+
+      expect(data.openInterest).toBeDefined();
+      expect(data.openInterest!.length).toBe(data.open.length);
+    });
+
+    it("supports expiryCode parameter", async () => {
+      const data = await adapter.getHistoricalData({
+        securityId: "13",
+        exchangeSegment: "NSE_FNO",
+        instrument: "FUTIDX",
+        fromDate: "2026-03-01",
+        toDate: "2026-04-01",
+        expiryCode: 1,
+      });
+
+      expect(data.open.length).toBeGreaterThan(0);
+    });
+
+    it("returns valid OHLCV values", async () => {
+      const data = await adapter.getHistoricalData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        fromDate: "2026-03-01",
+        toDate: "2026-04-01",
+      });
+
+      for (let i = 0; i < data.open.length; i++) {
+        expect(data.high[i]).toBeGreaterThanOrEqual(data.low[i]);
+        expect(data.volume[i]).toBeGreaterThan(0);
+        expect(data.timestamp[i]).toBeGreaterThan(0);
+      }
+    });
+
+    it("timestamps are in ascending order", async () => {
+      const data = await adapter.getHistoricalData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        fromDate: "2026-03-01",
+        toDate: "2026-04-01",
+      });
+
+      for (let i = 1; i < data.timestamp.length; i++) {
+        expect(data.timestamp[i]).toBeGreaterThan(data.timestamp[i - 1]);
+      }
+    });
+  });
+
   // ── Order Update Callbacks ────────────────────────────────────
 
   describe("Order Update Callbacks", () => {

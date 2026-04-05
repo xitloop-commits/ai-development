@@ -39,6 +39,10 @@ export const DHAN_ENDPOINTS = {
   EXPIRY_LIST: "/optionchain/expirylist",
   MARKET_QUOTE: "/marketfeed/ltp",
 
+  // Charts / Historical Data
+  CHARTS_HISTORICAL: "/charts/historical",
+  CHARTS_INTRADAY: "/charts/intraday",
+
   // Scrip Master (CSV download — not under /v2)
   SCRIP_MASTER: "https://images.dhan.co/api-data/api-scrip-master.csv",
 } as const;
