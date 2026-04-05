@@ -251,7 +251,7 @@ export default function MainFooter() {
         </div>
 
         {/* Separator */}
-        <div className="w-px h-8 bg-border shrink-0" />
+        <div className="w-px self-stretch bg-border shrink-0" />
 
         {/* ─── 2. Monthly Growth ─── */}
         <div className="flex items-center gap-3 shrink-0">
@@ -319,7 +319,7 @@ export default function MainFooter() {
         </div>
 
         {/* Separator */}
-        <div className="w-px h-8 bg-border shrink-0" />
+        <div className="w-px self-stretch bg-border shrink-0" />
 
         {/* ─── 3. Day 250 Journey ─── */}
         <Tooltip>
@@ -351,7 +351,7 @@ export default function MainFooter() {
         </Tooltip>
 
         {/* Separator */}
-        <div className="w-px h-8 bg-border shrink-0" />
+        <div className="w-px self-stretch bg-border shrink-0" />
 
         {/* ─── 4. Project Milestone ─── */}
         <Tooltip>
@@ -511,7 +511,7 @@ export default function MainFooter() {
         </div>
 
         {/* Separator */}
-        <div className="w-px h-8 bg-border shrink-0" />
+        <div className="w-px self-stretch bg-border shrink-0" />
 
         {/* ─── 7. Capital Pools (horizontal) ─── */}
         <Tooltip>
@@ -627,7 +627,7 @@ export default function MainFooter() {
         </Tooltip>
 
         {/* Separator */}
-        <div className="w-px h-8 bg-border shrink-0" />
+        <div className="w-px self-stretch bg-border shrink-0" />
 
         {/* ─── 8. Net Worth ─── */}
         <Tooltip>
