@@ -31,7 +31,10 @@ function App() {
             <TooltipProvider>
               <Toaster
                 theme="dark"
+                position="top-right"
+                closeButton
                 toastOptions={{
+                  duration: 6000,
                   style: {
                     background: 'oklch(0.15 0.01 250)',
                     border: '1px solid oklch(0.25 0.01 250)',

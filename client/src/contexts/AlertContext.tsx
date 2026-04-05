@@ -24,6 +24,7 @@ import {
   generateAlertId,
 } from '@/lib/alertTypes';
 import { playAlertSound, unlockAudio, type AlertSoundType } from '@/lib/soundEngine';
+import { toast } from 'sonner';
 
 const MAX_ALERT_HISTORY = 50;
 
@@ -204,6 +205,18 @@ export function AlertProvider({ children }: { children: ReactNode }) {
       if (settings.soundEnabled) {
         const soundType = getSoundType(type);
         playAlertSound(soundType, settings.soundVolume / 100);
+      }
+
+      // In-app toast popup (top-right, auto-dismiss with close button)
+      const toastType = alert.priority === 'critical' ? 'error'
+        : alert.priority === 'high' ? 'warning'
+        : 'info';
+      if (toastType === 'error') {
+        toast.error(title, { description: message, duration: 10000 });
+      } else if (toastType === 'warning') {
+        toast.warning(title, { description: message, duration: 8000 });
+      } else {
+        toast.info(title, { description: message, duration: 6000 });
       }
 
       // Browser notification
