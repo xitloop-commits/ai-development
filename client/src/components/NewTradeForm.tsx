@@ -303,9 +303,9 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     return ageLabel ? `${dateLabel} | ${ageLabel}` : dateLabel;
   })();
 
-  const selectClass = 'w-full bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground focus:border-primary focus:outline-none';
-  const compactSelectClass = 'shrink-0 bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground focus:border-primary focus:outline-none disabled:opacity-50';
-  const inputClass = 'w-full bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums text-right focus:border-primary focus:outline-none';
+  const selectClass = `w-full bg-background border border-border rounded px-1.5 py-1 text-[10px] ${tone.text} focus:border-primary focus:outline-none`;
+  const compactSelectClass = `shrink-0 bg-background border border-border rounded px-1.5 py-1 text-[10px] ${tone.text} focus:border-primary focus:outline-none disabled:opacity-50`;
+  const inputClass = `w-full bg-background border border-border rounded px-1.5 py-1 text-[10px] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`;
 
   return (
     <tr className={`border-b border-l-2 ${tone.row}`}>
@@ -464,7 +464,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         <select
           value={capitalPercent}
           onChange={(e) => setCapitalPercent(parseInt(e.target.value, 10))}
-          className="w-full bg-background border border-border rounded px-1 py-1 text-[10px] text-foreground tabular-nums text-right focus:border-primary focus:outline-none"
+          className={`w-full bg-background border border-border rounded px-1 py-1 text-[10px] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`}
           title={estimatedQty > 0 ? `Estimated qty: ${estimatedQty} | Margin: ${fmt(estimatedMargin)}` : 'Select capital percent'}
         >
           {CAPITAL_PERCENT_OPTIONS.map((pct) => (
