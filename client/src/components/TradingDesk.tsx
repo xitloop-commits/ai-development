@@ -155,7 +155,7 @@ function getWorkspaceThemeMeta(workspace: Workspace): {
         rowBgHover: 'hover:bg-bullish/[0.08]',
         todayBg: 'bg-bullish/[0.08]',
         todayAltBg: 'bg-bullish/[0.04]',
-        summaryBg: 'bg-bullish/10',
+        summaryBg: 'bg-bullish/20',
         summaryBorder: 'border-bullish/30',
         borderStrong: 'border-l-bullish',
         borderSoft: 'border-l-bullish/50',
@@ -171,7 +171,7 @@ function getWorkspaceThemeMeta(workspace: Workspace): {
         rowBgHover: 'hover:bg-warning-amber/[0.08]',
         todayBg: 'bg-warning-amber/[0.08]',
         todayAltBg: 'bg-warning-amber/[0.04]',
-        summaryBg: 'bg-warning-amber/10',
+        summaryBg: 'bg-warning-amber/20',
         summaryBorder: 'border-warning-amber/30',
         borderStrong: 'border-l-warning-amber',
         borderSoft: 'border-l-warning-amber/50',
@@ -187,7 +187,7 @@ function getWorkspaceThemeMeta(workspace: Workspace): {
         rowBgHover: 'hover:bg-violet-pulse/[0.08]',
         todayBg: 'bg-violet-pulse/[0.08]',
         todayAltBg: 'bg-violet-pulse/[0.04]',
-        summaryBg: 'bg-violet-pulse/10',
+        summaryBg: 'bg-violet-pulse/20',
         summaryBorder: 'border-violet-pulse/30',
         borderStrong: 'border-l-violet-pulse',
         borderSoft: 'border-l-violet-pulse/50',
@@ -1036,10 +1036,10 @@ function TodaySection({
       )}
 
       {/* Today Summary Row */}
-      <tr className={`border-y font-bold ${theme.summaryBorder} ${theme.summaryBg} bg-muted/20`} ref={trades.length === 0 ? todayRef : undefined}>
-        <td className={`px-2 py-2 ${theme.text}`}>DAY {day.dayIndex}</td>
+      <tr className={`border-y font-bold ${theme.summaryBorder} ${theme.summaryBg}`} ref={trades.length === 0 ? todayRef : undefined}>
+        <td className="px-2 py-2 text-foreground">DAY {day.dayIndex}</td>
         <td className="px-2 py-2">
-          <span className={`block truncate text-[10px] tabular-nums ${theme.text}`}>{cycleDateLabel}</span>
+          <span className="block truncate text-[10px] tabular-nums text-foreground">{cycleDateLabel}</span>
         </td>
         <td className="px-2 py-2 text-right tabular-nums text-foreground/70">
           {fmt(day.tradeCapital, true)}
