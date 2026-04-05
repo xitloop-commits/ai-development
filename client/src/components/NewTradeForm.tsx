@@ -339,7 +339,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
       </td>
 
       <td className="px-2 py-1">
-        <div className="flex items-center gap-1.5 whitespace-nowrap">
+        <div className="flex flex-wrap items-center gap-1">
           {/* Instrument dropdown */}
           <select
             value={instrument}
