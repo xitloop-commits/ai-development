@@ -614,7 +614,7 @@ export default function TradingDesk({
   return (
     <div className="flex flex-col h-full">
       {/* ─── Tab Bar ──────────────────────────────────────────── */}
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5 bg-card">
+      <div className="flex items-center justify-between border-b border-border px-3 py-1.5 bg-card/80 backdrop-blur-sm">
         <div className="flex items-center gap-1">
           {/* My Trades tab */}
           <button
@@ -677,7 +677,7 @@ export default function TradingDesk({
       </div>
 
       {/* ─── Summary Bar ──────────────────────────────────────── */}
-      <div className="flex items-stretch divide-x divide-border border-b border-border bg-card">
+      <div className="flex items-stretch divide-x divide-border border-b border-border bg-card/60 backdrop-blur-sm">
         {/* Day */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center min-w-[80px]">
           <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Day</span>
@@ -744,7 +744,7 @@ export default function TradingDesk({
       {/* Mutation errors are handled by the global CapitalContext */}
 
       {/* ─── Table ────────────────────────────────────────────── */}
-      <div className={`flex-1 overflow-auto scrollbar-thin ${
+      <div className={`flex-1 overflow-auto scrollbar-thin px-3 pb-3 ${
         workspace === 'live' ? 'scrollbar-bullish' :
         workspace === 'paper_manual' ? 'scrollbar-amber' :
         'scrollbar-violet'
@@ -754,7 +754,7 @@ export default function TradingDesk({
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
           }} />
         ) : (
-          <table className="w-full border-collapse text-[11px] [&_td]:align-middle [&_th]:align-middle [&_th]:whitespace-nowrap">
+          <table className="w-full border-collapse text-[11px] [&_td]:align-middle [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30">
             <colgroup>
               <col style={{ width: 44 }} />
               <col style={{ width: 92 }} />
@@ -772,21 +772,21 @@ export default function TradingDesk({
               <col style={{ width: 76 }} />
             </colgroup>
             <thead className="sticky top-0 z-10">
-              <tr className="bg-secondary/80 backdrop-blur-sm border-b border-border">
-                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase w-12">Day</th>
-                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase">Date</th>
-                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Trade Cap.</th>
-                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Target</th>
-                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Proj. Cap.</th>
-                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase">Instrument</th>
-                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Entry</th>
-                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">LTP</th>
-                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Qty</th>
-                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">P&L</th>
-                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Charges</th>
-                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Actual Cap.</th>
-                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Dev.</th>
-                <th className="px-2 py-1.5 text-center font-medium text-muted-foreground tracking-wider uppercase w-16">Rating</th>
+              <tr className="bg-background/95 backdrop-blur-md border-b border-border">
+                <th className="px-2.5 py-2 text-left text-[8px] font-bold text-muted-foreground tracking-widest uppercase w-12">Day</th>
+                <th className="px-2.5 py-2 text-left text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Date</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Trade Cap.</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Target</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Proj. Cap.</th>
+                <th className="px-2.5 py-2 text-left text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Instrument</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Entry</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">LTP</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Qty</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">P&amp;L</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Charges</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Actual Cap.</th>
+                <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase">Dev.</th>
+                <th className="px-2.5 py-2 text-center text-[8px] font-bold text-muted-foreground tracking-widest uppercase w-16">Rating</th>
               </tr>
             </thead>
             <tbody>
@@ -872,7 +872,7 @@ function PastRow({
   const dateLabel = formatDateAgeLabel(day.date || '—', day.openedAt);
 
   return (
-    <tr className={`border-b border-border/50 ${theme.rowBg} ${theme.rowBgHover} transition-colors`}>
+    <tr className={`border-b border-border/30 ${theme.rowBg} ${theme.rowBgHover} transition-colors`}>
       {/* Day */}
       <td className="px-2 py-2">
         <span className={`font-bold tabular-nums ${theme.text}`}>{day.dayIndex}</span>
@@ -1033,7 +1033,7 @@ function TodaySection({
       )}
 
       {/* Today Summary Row */}
-      <tr className={`border-b font-bold ${theme.summaryBorder} ${theme.summaryBg}`} ref={trades.length === 0 ? todayRef : undefined}>
+      <tr className={`border-y font-bold ${theme.summaryBorder} ${theme.summaryBg} bg-muted/20`} ref={trades.length === 0 ? todayRef : undefined}>
         <td className={`px-2 py-2 ${theme.text}`}>DAY {day.dayIndex}</td>
         <td className="px-2 py-2">
           <span className={`block truncate text-[10px] tabular-nums ${theme.text}`}>{cycleDateLabel}</span>
@@ -1107,7 +1107,7 @@ function TodaySection({
         </td>
         <td className="px-2 py-2" />
       </tr>
-      <tr className="hidden border-b border-warning-amber/30 bg-warning-amber/10 font-bold" ref={trades.length === 0 ? todayRef : undefined}>
+      <tr className="hidden border-y border-warning-amber/30 bg-warning-amber/10 bg-muted/20 font-bold" ref={trades.length === 0 ? todayRef : undefined}>
         {/* Day */}
         <td className="px-2 py-2 text-warning-amber" colSpan={2}>
           DAY {day.dayIndex} TOTAL
@@ -1379,7 +1379,7 @@ function FutureRow({
 }) {
   const theme = getWorkspaceThemeMeta(workspace);
   return (
-    <tr className={`border-b border-border/30 bg-card/50 transition-colors ${isDay250 ? 'opacity-90' : 'opacity-[0.6]'}`}>
+    <tr className={`border-b border-border/20 bg-background/30 transition-colors ${isDay250 ? 'opacity-90' : 'opacity-[0.55]'}`}>
       {/* Day */}
       <td className="px-2 py-2">
         <span className={`font-bold tabular-nums ${isDay250 ? theme.textSoft : theme.textDim}`}>
