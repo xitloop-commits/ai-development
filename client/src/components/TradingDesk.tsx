@@ -677,7 +677,7 @@ export default function TradingDesk({
       </div>
 
       {/* ─── Summary Bar ──────────────────────────────────────── */}
-      <div className="flex items-stretch divide-x divide-border border-b border-border bg-card/60 backdrop-blur-sm">
+      <div className="flex items-stretch divide-x divide-border border-b border-border bg-secondary backdrop-blur-sm">
         {/* Day */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center min-w-[80px]">
           <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Day</span>
@@ -772,7 +772,7 @@ export default function TradingDesk({
               <col style={{ width: 76 }} />
             </colgroup>
             <thead className="sticky top-0 z-10">
-              <tr className="bg-card backdrop-blur-md border-b border-border">
+              <tr className="bg-muted backdrop-blur-md border-b-2 border-border">
                 <th className="px-2.5 py-2 text-left text-[8px] font-bold text-muted-foreground tracking-widest uppercase w-12 border-r border-border/30">Day</th>
                 <th className="px-2.5 py-2 text-left text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">Date</th>
                 <th className="px-2.5 py-2 text-right text-[8px] font-bold text-muted-foreground tracking-widest uppercase border-r border-border/30">Trade Cap.</th>
