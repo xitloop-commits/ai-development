@@ -157,7 +157,7 @@ function AiDecisionCard({ data }: { data: AiDecision }) {
                 <div><span className="text-muted-foreground">Entry:</span> <span className="font-bold text-foreground tabular-nums">₹{formatPrice(data.trade_setup.entry_price)}</span></div>
                 <div><span className="text-muted-foreground">SL:</span> <span className="font-bold text-destructive tabular-nums">₹{formatPrice(data.trade_setup.stop_loss)}</span></div>
                 <div><span className="text-muted-foreground">Target:</span> <span className="font-bold text-bullish tabular-nums">₹{formatPrice(data.trade_setup.target)}</span></div>
-                <div><span className="text-muted-foreground">R:R:</span> <span className="font-bold text-info-cyan tabular-nums">{data.trade_setup.risk_reward.toFixed(1)}</span></div>
+                <div><span className="text-muted-foreground">R:R:</span> <span className="font-bold text-violet-pulse tabular-nums">{data.trade_setup.risk_reward.toFixed(1)}</span></div>
               </div>
             </div>
           )}
@@ -272,7 +272,7 @@ function ComparisonRow({ aiDecision, userTrades }: {
             {formatINR(userPnl, { sign: true })}
           </span>
         ) : userFollowed ? (
-          <span className="text-[8px] text-info-cyan">OPEN</span>
+          <span className="text-[8px] text-violet-pulse">OPEN</span>
         ) : (
           <span className="text-[8px] text-muted-foreground">—</span>
         )}
@@ -368,7 +368,7 @@ export default function AiPaperTab() {
         <AlertTriangle className="h-8 w-8 text-warning-amber mx-auto" />
         <p className="text-[10px] text-muted-foreground">{error}</p>
         <button onClick={fetchDecisions}
-          className="text-info-cyan text-[9px] font-bold tracking-wider hover:underline flex items-center gap-1 mx-auto">
+          className="text-violet-pulse text-[9px] font-bold tracking-wider hover:underline flex items-center gap-1 mx-auto">
           <RefreshCw className="h-3 w-3" /> Retry
         </button>
       </div>
@@ -394,7 +394,7 @@ export default function AiPaperTab() {
       {/* Summary Bar */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-secondary/20 border border-border">
-          <Bot className="h-3 w-3 text-info-cyan" />
+          <Bot className="h-3 w-3 text-violet-pulse" />
           <span className="text-[8px] text-muted-foreground">{summary.total} signals</span>
         </div>
         <div className="flex items-center gap-1 px-2 py-1 rounded bg-bullish/5 border border-bullish/20">
