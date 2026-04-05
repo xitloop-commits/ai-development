@@ -655,25 +655,6 @@ export default function TradingDesk({
             {workspaceBadge.label}
           </span>
         </div>
-        {/* NET/GROSS toggle */}
-        <div className="flex items-center gap-0.5 border border-border rounded overflow-hidden">
-          <button
-            onClick={() => setShowNet(true)}
-            className={`px-2 py-0.5 text-[9px] font-bold transition-colors ${
-              showNet ? 'bg-info-cyan/20 text-info-cyan' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            NET
-          </button>
-          <button
-            onClick={() => setShowNet(false)}
-            className={`px-2 py-0.5 text-[9px] font-bold transition-colors ${
-              !showNet ? 'bg-info-cyan/20 text-info-cyan' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            GROSS
-          </button>
-        </div>
       </div>
 
       {/* ─── Summary Bar ──────────────────────────────────────── */}
@@ -721,6 +702,28 @@ export default function TradingDesk({
                 ×
               </button>
             )}
+          </div>
+        </div>
+        {/* NET/GROSS toggle */}
+        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
+          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">P&L Mode</span>
+          <div className="flex items-center gap-0.5 border border-border rounded overflow-hidden">
+            <button
+              onClick={() => setShowNet(true)}
+              className={`px-2 py-0.5 text-[9px] font-bold transition-colors ${
+                showNet ? 'bg-info-cyan/20 text-info-cyan' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              NET
+            </button>
+            <button
+              onClick={() => setShowNet(false)}
+              className={`px-2 py-0.5 text-[9px] font-bold transition-colors ${
+                !showNet ? 'bg-info-cyan/20 text-info-cyan' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              GROSS
+            </button>
           </div>
         </div>
         {/* Charges */}
