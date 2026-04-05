@@ -323,7 +323,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
 
       <td className="px-2 py-1">
         <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap">
+          <div className="flex items-center gap-1 whitespace-nowrap">
             <select
               value={instrument}
               onChange={(e) => setInstrument(e.target.value)}
@@ -400,7 +400,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
 
             <span className="text-border text-[9px]">|</span>
 
-            <div className="flex items-center gap-0.5">
+            <div className="flex shrink-0 items-center gap-0.5">
               <button
                 onClick={() => setDirection('BUY')}
                 className={`px-1 py-0.5 rounded text-[9px] font-bold transition-colors ${
@@ -413,7 +413,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
               </button>
               <button
                 onClick={() => setDirection('SELL')}
-                className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                className={`px-1 py-0.5 rounded text-[9px] font-bold transition-colors ${
                   direction === 'SELL'
                     ? 'border border-destructive/40 bg-destructive/20 text-destructive'
                     : 'border border-transparent bg-muted text-muted-foreground'
