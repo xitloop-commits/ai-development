@@ -1,15 +1,8 @@
-/**
- * NewTradeForm — Inline trade entry row in the Trading Desk table.
- * Strike: dropdown populated from option chain (+/- strikes from ATM).
- * Entry: auto-fills with selected strike's LTP, editable for limit orders.
- * Capital %: dropdown 5–25%.
- */
-import { useState, useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { trpc } from '../lib/trpc';
 import { formatINR } from '@/lib/formatINR';
 
-/** Map UI instrument names to scrip master underlying symbols. */
 const UNDERLYING_MAP: Record<string, string> = {
   'NIFTY 50': 'NIFTY',
   'BANK NIFTY': 'BANKNIFTY',
@@ -17,16 +10,31 @@ const UNDERLYING_MAP: Record<string, string> = {
   'NATURAL GAS': 'NATURALGAS',
 };
 
-/** Strike range: +/- N strikes from ATM (per spec: option chain window) */
-const STRIKE_WINDOW = 10;
+const UI_TO_RESOLVED_MAP: Record<string, string> = {
+  'NIFTY 50': 'NIFTY_50',
+  'BANK NIFTY': 'BANKNIFTY',
+  'CRUDE OIL': 'CRUDEOIL',
+  'NATURAL GAS': 'NATURALGAS',
+};
 
-/** Capital % options — max 25% per spec */
+const STRIKE_WINDOW = 10;
 const CAPITAL_PERCENT_OPTIONS = [5, 10, 15, 20, 25];
 
+const OPTION_TYPE_LABELS: Record<'CE' | 'PE' | 'NONE', string> = {
+  CE: 'CE',
+  PE: 'PE',
+  NONE: 'DIR',
+};
+
 interface NewTradeFormProps {
-  workspace: 'live' | 'paper';
+  workspace: 'live' | 'paper_manual' | 'paper';
   availableCapital: number;
   instruments: string[];
+  resolvedInstruments?: Array<{
+    name: string;
+    securityId: string;
+    exchange: string;
+  }>;
   onSubmit: (trade: {
     instrument: string;
     type: 'CALL_BUY' | 'CALL_SELL' | 'PUT_BUY' | 'PUT_SELL' | 'BUY' | 'SELL';
@@ -37,7 +45,7 @@ interface NewTradeFormProps {
   }) => Promise<void>;
   onCancel: () => void;
   loading?: boolean;
-  /** If provided, shows day values (dimmed) for when this is the only row */
+  dayOpenedAt?: number;
   dayValues?: {
     dayIndex: number;
     tradeCapital: number;
@@ -53,60 +61,138 @@ function fmt(n: number, _compact = false): string {
   return formatINR(n);
 }
 
-export default function NewTradeForm({
-  workspace,
-  availableCapital,
-  instruments,
-  onSubmit,
-  onCancel,
-  loading = false,
-  dayValues,
-}: NewTradeFormProps) {
-  const [instrument, setInstrument] = useState(instruments[0] ?? DEFAULT_INSTRUMENTS[0]);
-  const [direction, setDirection] = useState<'BUY' | 'SELL'>('BUY');
-  const [optionType, setOptionType] = useState<'CE' | 'PE' | 'NONE'>('CE');
-  const [selectedStrike, setSelectedStrike] = useState<string>('');
-  const [entryPrice, setEntryPrice] = useState<string>('');
-  const [capitalPercent, setCapitalPercent] = useState<number>(10);
-  const [expiry, setExpiry] = useState<string>('');
+function formatAge(openedAt?: number) {
+  if (!openedAt) return '';
+  const diffMin = Math.floor((Date.now() - openedAt) / 60000);
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h`;
+  return `${Math.floor(diffHr / 24)}d`;
+}
 
-  // Fetch expiry dates for the selected instrument
-  const underlying = UNDERLYING_MAP[instrument] ?? instrument;
-  const expiryQuery = trpc.broker.expiryList.useQuery(
-    { underlying },
-    { enabled: optionType !== 'NONE' }
+function formatExpiry(dateStr: string) {
+  try {
+    const d = new Date(`${dateStr}T00:00:00`);
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+  } catch {
+    return dateStr;
+  }
+}
+
+function getWorkspaceTone(workspace: NewTradeFormProps['workspace']) {
+  switch (workspace) {
+    case 'live':
+      return {
+        row: 'border-bullish/30 bg-bullish/[0.04] border-l-bullish/60',
+        text: 'text-bullish',
+        textSoft: 'text-bullish/80',
+      };
+    case 'paper_manual':
+      return {
+        row: 'border-warning-amber/30 bg-warning-amber/[0.04] border-l-warning-amber/60',
+        text: 'text-warning-amber',
+        textSoft: 'text-warning-amber/80',
+      };
+    default:
+      return {
+        row: 'border-info-cyan/30 bg-info-cyan/[0.04] border-l-info-cyan/60',
+        text: 'text-info-cyan',
+        textSoft: 'text-info-cyan/80',
+      };
+  }
+}
+
+export default function NewTradeForm(props: NewTradeFormProps) {
+  const {
+    workspace,
+    availableCapital,
+    instruments,
+    resolvedInstruments,
+    onSubmit,
+    onCancel,
+    loading = false,
+    dayOpenedAt,
+    dayValues,
+  } = props;
+
+  const instrumentOptions = useMemo(
+    () => (instruments.length > 0 ? instruments : DEFAULT_INSTRUMENTS),
+    [instruments]
   );
+  const defaultInstrument = instrumentOptions[0] ?? DEFAULT_INSTRUMENTS[0];
 
-  // Auto-select nearest expiry when data loads or instrument changes
+  const [instrument, setInstrument] = useState(defaultInstrument);
+  const [direction, setDirection] = useState<'BUY' | 'SELL' | null>(null);
+  const [optionType, setOptionType] = useState<'CE' | 'PE' | 'NONE' | null>(null);
+  const [selectedStrike, setSelectedStrike] = useState('');
+  const [entryPrice, setEntryPrice] = useState('');
+  const [capitalPercent, setCapitalPercent] = useState(5);
+  const [expiry, setExpiry] = useState('');
+
+  const isOptionTrade = optionType === 'CE' || optionType === 'PE';
+  const canSelectExpiry = optionType !== 'NONE';
+  const canSelectStrike = optionType !== 'NONE' && !!expiry;
+  const tone = getWorkspaceTone(workspace);
+  const brokerConfigQuery = trpc.broker.config.get.useQuery(undefined);
+  const isPaperBroker = brokerConfigQuery.data?.isPaperBroker ?? false;
+  const resolvedName = UI_TO_RESOLVED_MAP[instrument] ?? instrument;
+  const resolvedInstrument = useMemo(
+    () => resolvedInstruments?.find((item) => item.name === resolvedName),
+    [resolvedInstruments, resolvedName]
+  );
+  const requestUnderlying = !isPaperBroker && resolvedInstrument?.securityId
+    ? resolvedInstrument.securityId
+    : (UNDERLYING_MAP[instrument] ?? resolvedName);
+  const requestExchangeSegment = !isPaperBroker && resolvedInstrument?.exchange
+    ? resolvedInstrument.exchange
+    : undefined;
+
   useEffect(() => {
-    if (expiryQuery.data && expiryQuery.data.length > 0) {
-      setExpiry(expiryQuery.data[0]);
-    } else {
-      setExpiry('');
-    }
-  }, [expiryQuery.data, instrument]);
+    if (instrumentOptions.includes(instrument)) return;
+    setInstrument(defaultInstrument);
+  }, [defaultInstrument, instrument, instrumentOptions]);
 
-  // Fetch option chain for the selected instrument + expiry
-  const optionChainQuery = trpc.broker.optionChain.useQuery(
-    { underlying, expiry },
-    { enabled: optionType !== 'NONE' && !!expiry, refetchInterval: 5000 }
+  const expiryQuery = trpc.broker.expiryList.useQuery(
+    { underlying: requestUnderlying, exchangeSegment: requestExchangeSegment },
+    { enabled: canSelectExpiry }
   );
 
-  // Compute ATM strike and +/- window strikes from option chain
-  const strikeOptions = useMemo(() => {
-    if (!optionChainQuery.data?.rows || optionChainQuery.data.rows.length === 0) {
-      return [];
+  const expiryOptions = useMemo(() => {
+    const expiries = expiryQuery.data ?? [];
+    return [...expiries].sort((a, b) => {
+      const aTime = new Date(`${a}T00:00:00`).getTime();
+      const bTime = new Date(`${b}T00:00:00`).getTime();
+      return aTime - bTime;
+    });
+  }, [expiryQuery.data]);
+
+  useEffect(() => {
+    if (!canSelectExpiry || expiryOptions.length === 0) {
+      setExpiry('');
+      return;
     }
 
-    const rows = optionChainQuery.data.rows;
-    const spotPrice = optionChainQuery.data.spotPrice;
+    setExpiry((current) => (
+      current && expiryOptions.includes(current)
+        ? current
+        : expiryOptions[0]
+    ));
+  }, [canSelectExpiry, expiryOptions, instrument]);
 
-    // Sort rows by strike
+  const optionChainQuery = trpc.broker.optionChain.useQuery(
+    { underlying: requestUnderlying, expiry, exchangeSegment: requestExchangeSegment },
+    { enabled: canSelectStrike, refetchInterval: 5000 }
+  );
+
+  const strikeOptions = useMemo(() => {
+    const rows = optionChainQuery.data?.rows ?? [];
+    if (rows.length === 0) return [];
+
     const sorted = [...rows].sort((a, b) => a.strike - b.strike);
+    const spotPrice = optionChainQuery.data?.spotPrice ?? 0;
 
-    // Find ATM — the strike closest to spot price
     let atmIndex = 0;
-    let minDist = Infinity;
+    let minDist = Number.POSITIVE_INFINITY;
     sorted.forEach((row, idx) => {
       const dist = Math.abs(row.strike - spotPrice);
       if (dist < minDist) {
@@ -115,303 +201,279 @@ export default function NewTradeForm({
       }
     });
 
-    // Get +/- STRIKE_WINDOW strikes from ATM
     const startIdx = Math.max(0, atmIndex - STRIKE_WINDOW);
     const endIdx = Math.min(sorted.length - 1, atmIndex + STRIKE_WINDOW);
-    const windowStrikes = sorted.slice(startIdx, endIdx + 1);
+    const visible = sorted.slice(startIdx, endIdx + 1);
 
-    return windowStrikes.map((row) => ({
+    return visible.map((row) => ({
       strike: row.strike,
       callLTP: row.callLTP,
       putLTP: row.putLTP,
       isATM: row.strike === sorted[atmIndex].strike,
-      // Label: show distance from ATM
-      distFromATM: Math.round((row.strike - sorted[atmIndex].strike) / (sorted[1]?.strike - sorted[0]?.strike || 1)),
     }));
   }, [optionChainQuery.data]);
 
-  // Auto-select ATM strike when option chain loads
   useEffect(() => {
-    if (strikeOptions.length > 0 && !selectedStrike) {
-      const atm = strikeOptions.find((s) => s.isATM);
-      if (atm) {
-        setSelectedStrike(String(atm.strike));
-      }
+    if (!isOptionTrade || selectedStrike || strikeOptions.length === 0) return;
+    const atmStrike = strikeOptions.find((strike) => strike.isATM);
+    if (atmStrike) {
+      setSelectedStrike(String(atmStrike.strike));
     }
-  }, [strikeOptions, selectedStrike]);
+  }, [isOptionTrade, selectedStrike, strikeOptions]);
 
-  // Reset strike when instrument or expiry changes
   useEffect(() => {
     setSelectedStrike('');
     setEntryPrice('');
-  }, [instrument, expiry, optionType]);
+  }, [expiry, instrument, optionType]);
 
-  // Auto-fill entry price when strike is selected
   useEffect(() => {
-    if (selectedStrike && strikeOptions.length > 0) {
-      const strikeData = strikeOptions.find((s) => String(s.strike) === selectedStrike);
-      if (strikeData) {
-        const ltp = optionType === 'CE' ? strikeData.callLTP : strikeData.putLTP;
-        if (ltp > 0) {
-          setEntryPrice(ltp.toFixed(2));
-        }
-      }
-    }
-  }, [selectedStrike, optionType, strikeOptions]);
+    if (!isOptionTrade || !selectedStrike) return;
+    const strikeData = strikeOptions.find((item) => String(item.strike) === selectedStrike);
+    if (!strikeData) return;
 
-  // For non-option instruments, entry stays manual
+    const ltp = optionType === 'CE' ? strikeData.callLTP : strikeData.putLTP;
+    if (ltp > 0) {
+      setEntryPrice(ltp.toFixed(2));
+    }
+  }, [isOptionTrade, optionType, selectedStrike, strikeOptions]);
+
   const currentLtp = useMemo(() => {
-    if (optionType === 'NONE') return 0;
-    if (!selectedStrike || strikeOptions.length === 0) return 0;
-    const strikeData = strikeOptions.find((s) => String(s.strike) === selectedStrike);
+    if (!isOptionTrade || !selectedStrike) return 0;
+    const strikeData = strikeOptions.find((item) => String(item.strike) === selectedStrike);
     if (!strikeData) return 0;
     return optionType === 'CE' ? strikeData.callLTP : strikeData.putLTP;
-  }, [selectedStrike, optionType, strikeOptions]);
+  }, [isOptionTrade, optionType, selectedStrike, strikeOptions]);
 
-  const estimatedMargin = (availableCapital * capitalPercent / 100);
+  const estimatedMargin = availableCapital * capitalPercent / 100;
   const estimatedQty = entryPrice ? Math.floor(estimatedMargin / parseFloat(entryPrice)) : 0;
+  const formReady =
+    !!instrument &&
+    !!direction &&
+    !!optionType &&
+    (!isOptionTrade || (!!expiry && !!selectedStrike)) &&
+    !!entryPrice &&
+    parseFloat(entryPrice) > 0;
 
   const handleSubmit = async () => {
-    if (!entryPrice || parseFloat(entryPrice) <= 0) return;
+    if (!formReady || !direction || !optionType) return;
 
-    let type: 'CALL_BUY' | 'CALL_SELL' | 'PUT_BUY' | 'PUT_SELL' | 'BUY' | 'SELL';
-    if (optionType === 'NONE') {
-      type = direction;
-    } else {
-      type = `${optionType === 'CE' ? 'CALL' : 'PUT'}_${direction}` as typeof type;
-    }
+    const type =
+      optionType === 'NONE'
+        ? direction
+        : `${optionType === 'CE' ? 'CALL' : 'PUT'}_${direction}` as
+          'CALL_BUY' | 'CALL_SELL' | 'PUT_BUY' | 'PUT_SELL';
 
     await onSubmit({
       instrument,
       type,
-      strike: optionType !== 'NONE' && selectedStrike ? parseFloat(selectedStrike) : null,
-      expiry: optionType !== 'NONE' ? expiry : '',
+      strike: isOptionTrade && selectedStrike ? parseFloat(selectedStrike) : null,
+      expiry: isOptionTrade ? expiry : '',
       entryPrice: parseFloat(entryPrice),
       capitalPercent,
     });
 
-    // Reset form after submission
     setSelectedStrike('');
     setEntryPrice('');
-    setCapitalPercent(10);
+    setCapitalPercent(5);
+    setDirection(null);
+    setOptionType(null);
+    setExpiry('');
   };
 
-  /** Format expiry date for display (e.g., "2026-04-03" → "03 Apr") */
-  const formatExpiry = (dateStr: string) => {
-    try {
-      const d = new Date(dateStr + 'T00:00:00');
-      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
-    } catch {
-      return dateStr;
-    }
-  };
+  const cycleDateLabel = (() => {
+    const dateLabel = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+    const ageLabel = formatAge(dayOpenedAt);
+    return ageLabel ? `${dateLabel} | ${ageLabel}` : dateLabel;
+  })();
 
   const selectClass = 'w-full bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground focus:border-primary focus:outline-none';
+  const compactSelectClass = 'shrink-0 bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground focus:border-primary focus:outline-none disabled:opacity-50';
   const inputClass = 'w-full bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums text-right focus:border-primary focus:outline-none';
 
   return (
-    <tr className="border-b border-bullish/30 bg-bullish/[0.04] border-l-2 border-l-bullish/60">
-      {/* Day */}
+    <tr className={`border-b border-l-2 ${tone.row}`}>
       <td className="px-2 py-2">
         {dayValues ? (
-          <span className="text-muted-foreground/40 tabular-nums">{dayValues.dayIndex}</span>
+          <span className={`tabular-nums ${tone.textSoft}`}>{dayValues.dayIndex}</span>
         ) : (
-          <span className="text-[9px] text-bullish font-bold">NEW</span>
+          <span className={`text-[9px] font-bold ${tone.text}`}>NEW</span>
         )}
       </td>
-      {/* Date */}
+
       <td className="px-2 py-2">
-        <span className="text-[9px] text-bullish/60 italic">new</span>
+        <span className={`block truncate text-[10px] tabular-nums ${tone.text}`}>{cycleDateLabel}</span>
       </td>
-      {/* Trade Capital — dimmed */}
-      <td className="px-2 py-2 text-right tabular-nums text-foreground/30">
-        {dayValues ? fmt(dayValues.tradeCapital, true) : '—'}
+
+      <td className={`px-2 py-2 text-right tabular-nums ${tone.textSoft}`}>
+        {dayValues ? fmt(dayValues.tradeCapital, true) : '-'}
       </td>
-      {/* Target — dimmed */}
-      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground/30">
+
+      <td className={`px-2 py-2 text-right tabular-nums ${tone.textSoft}`}>
         {dayValues ? (
           <>
             {fmt(dayValues.targetAmount)}
-            <span className="text-[8px] ml-0.5">({dayValues.targetPercent}%)</span>
+            <span className="ml-0.5 text-[8px]">({dayValues.targetPercent}%)</span>
           </>
-        ) : '—'}
+        ) : '-'}
       </td>
-      {/* Proj Capital — dimmed */}
-      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground/30">
-        {dayValues ? fmt(dayValues.projCapital, true) : '—'}
+
+      <td className={`px-2 py-2 text-right tabular-nums ${tone.textSoft}`}>
+        {dayValues ? fmt(dayValues.projCapital, true) : '-'}
       </td>
-      {/* Instrument — dropdown */}
+
       <td className="px-2 py-1">
-        <select
-          value={instrument}
-          onChange={(e) => setInstrument(e.target.value)}
-          className={selectClass}
-        >
-          {(instruments.length > 0 ? instruments : DEFAULT_INSTRUMENTS).map((inst) => (
-            <option key={inst} value={inst}>{inst}</option>
-          ))}
-        </select>
+        <div className="flex min-w-0 flex-col gap-1">
+          <select
+            value={instrument}
+            onChange={(e) => setInstrument(e.target.value)}
+            className={selectClass}
+          >
+            {instrumentOptions.map((inst) => (
+              <option key={inst} value={inst}>{inst}</option>
+            ))}
+          </select>
+
+          <div className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap">
+            <select
+              value={canSelectExpiry ? expiry : ''}
+              onChange={(e) => setExpiry(e.target.value)}
+              disabled={!canSelectExpiry}
+              className={`${compactSelectClass} w-[78px]`}
+            >
+              <option value="">
+                {optionType === 'NONE' ? 'DIR' : expiryQuery.isLoading ? 'Loading...' : 'Expiry'}
+              </option>
+              {canSelectExpiry && expiryOptions.map((exp) => (
+                <option key={exp} value={exp}>
+                  {formatExpiry(exp)}
+                </option>
+              ))}
+              {canSelectExpiry && !expiryQuery.isLoading && expiryOptions.length === 0 && (
+                <option value="" disabled>No expiries</option>
+              )}
+            </select>
+
+            <select
+              value={canSelectStrike ? selectedStrike : ''}
+              onChange={(e) => setSelectedStrike(e.target.value)}
+              disabled={!canSelectStrike}
+              className={`${compactSelectClass} w-[84px]`}
+            >
+              <option value="">
+                {optionType === 'NONE' ? 'DIR' : expiry ? 'Strike' : 'Pick Exp'}
+              </option>
+              {optionChainQuery.isLoading && (
+                <option value="" disabled>Loading...</option>
+              )}
+              {strikeOptions.map((strike) => (
+                <option key={strike.strike} value={String(strike.strike)}>
+                  {strike.strike}
+                </option>
+              ))}
+              {canSelectStrike && !optionChainQuery.isLoading && strikeOptions.length === 0 && (
+                <option value="" disabled>No strikes</option>
+              )}
+            </select>
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setDirection('BUY')}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                  direction === 'BUY'
+                    ? 'border border-bullish/40 bg-bullish/20 text-bullish'
+                    : 'border border-transparent bg-muted text-muted-foreground'
+                }`}
+              >
+                B
+              </button>
+
+              <button
+                onClick={() => setDirection('SELL')}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                  direction === 'SELL'
+                    ? 'border border-destructive/40 bg-destructive/20 text-destructive'
+                    : 'border border-transparent bg-muted text-muted-foreground'
+                }`}
+              >
+                S
+              </button>
+            </div>
+          </div>
+        </div>
       </td>
-      {/* Type (B/S + CE/PE toggles) */}
+
       <td className="px-2 py-1">
-        <div className="flex gap-0.5">
-          <button
-            onClick={() => setDirection('BUY')}
-            className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
-              direction === 'BUY'
-                ? 'bg-bullish/20 text-bullish border border-bullish/40'
-                : 'bg-muted text-muted-foreground border border-transparent'
-            }`}
-          >
-            B
-          </button>
-          <button
-            onClick={() => setDirection('SELL')}
-            className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
-              direction === 'SELL'
-                ? 'bg-destructive/20 text-destructive border border-destructive/40'
-                : 'bg-muted text-muted-foreground border border-transparent'
-            }`}
-          >
-            S
-          </button>
-          <div className="w-px bg-border mx-0.5" />
+        <div className="flex items-center gap-1 overflow-hidden whitespace-nowrap">
           {(['CE', 'PE', 'NONE'] as const).map((opt) => (
             <button
               key={opt}
               onClick={() => setOptionType(opt)}
               className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
                 optionType === opt
-                  ? 'bg-primary/20 text-primary border border-primary/40'
-                  : 'bg-muted text-muted-foreground border border-transparent'
+                  ? 'border border-primary/40 bg-primary/20 text-primary'
+                  : 'border border-transparent bg-muted text-muted-foreground'
               }`}
+              title={opt === 'NONE' ? 'Direct trade (no option contract)' : undefined}
             >
-              {opt === 'NONE' ? '—' : opt}
+              {OPTION_TYPE_LABELS[opt]}
             </button>
           ))}
         </div>
       </td>
-      {/* Strike — dropdown from option chain + Expiry */}
-      <td className="px-2 py-1">
-        {optionType !== 'NONE' ? (
-          <div className="flex flex-col gap-1">
-            {/* Strike dropdown */}
-            <select
-              value={selectedStrike}
-              onChange={(e) => setSelectedStrike(e.target.value)}
-              className={selectClass + ' w-24'}
-            >
-              <option value="">Select strike</option>
-              {optionChainQuery.isLoading && (
-                <option value="" disabled>Loading...</option>
-              )}
-              {strikeOptions.map((s) => {
-                const ltp = optionType === 'CE' ? s.callLTP : s.putLTP;
-                const label = s.isATM
-                  ? `${s.strike} (ATM) ₹${ltp.toFixed(1)}`
-                  : `${s.strike} (${s.distFromATM > 0 ? '+' : ''}${s.distFromATM}) ₹${ltp.toFixed(1)}`;
-                return (
-                  <option key={s.strike} value={String(s.strike)}>
-                    {label}
-                  </option>
-                );
-              })}
-              {!optionChainQuery.isLoading && strikeOptions.length === 0 && (
-                <option value="" disabled>No strikes</option>
-              )}
-            </select>
-            {/* Expiry dropdown */}
-            <select
-              value={expiry}
-              onChange={(e) => setExpiry(e.target.value)}
-              className="w-24 bg-background border border-border rounded px-1 py-0.5 text-[9px] text-foreground focus:border-primary focus:outline-none"
-            >
-              {expiryQuery.isLoading && (
-                <option value="">Loading...</option>
-              )}
-              {expiryQuery.data?.map((exp) => (
-                <option key={exp} value={exp}>
-                  {formatExpiry(exp)}
-                </option>
-              ))}
-              {!expiryQuery.isLoading && (!expiryQuery.data || expiryQuery.data.length === 0) && (
-                <option value="">No expiries</option>
-              )}
-            </select>
-          </div>
-        ) : (
-          <span className="text-[10px] text-muted-foreground">—</span>
-        )}
-      </td>
-      {/* Entry — auto-fill with selected strike's LTP, editable */}
+
       <td className="px-2 py-1">
         <input
           type="number"
           value={entryPrice}
           onChange={(e) => setEntryPrice(e.target.value)}
-          placeholder="Entry ₹"
+          placeholder="Entry"
           step="0.05"
-          className={inputClass + ' w-20'}
+          className={inputClass}
         />
-        {currentLtp > 0 && (
-          <div className="text-[7px] text-muted-foreground/50 text-right mt-0.5">
-            LTP: ₹{currentLtp.toFixed(2)}
-          </div>
-        )}
       </td>
-      {/* LTP — auto-filled, italic, dimmed */}
+
       <td className="px-2 py-2 text-right">
-        <span className="text-[10px] tabular-nums text-muted-foreground/60 italic">
-          {currentLtp > 0 ? currentLtp.toFixed(2) : '—'}
+        <span className="text-[10px] italic tabular-nums text-muted-foreground/60">
+          {currentLtp > 0 ? currentLtp.toFixed(2) : '-'}
         </span>
       </td>
-      {/* Qty — Capital % dropdown + hint */}
+
       <td className="px-2 py-1">
-        <div className="flex flex-col items-end gap-0.5">
-          <select
-            value={capitalPercent}
-            onChange={(e) => setCapitalPercent(parseInt(e.target.value))}
-            className="w-16 bg-background border border-border rounded px-1 py-0.5 text-[10px] text-foreground tabular-nums text-right focus:border-primary focus:outline-none"
-          >
-            {CAPITAL_PERCENT_OPTIONS.map((pct) => (
-              <option key={pct} value={pct}>{pct}%</option>
-            ))}
-          </select>
-          <span className="text-[8px] text-info-cyan/70 tabular-nums">
-            {estimatedQty > 0 ? `${estimatedQty} lots` : '—'}
-          </span>
-          <span className="text-[7px] text-muted-foreground/50 tabular-nums">
-            ~{fmt(estimatedMargin)}
-          </span>
-        </div>
+        <select
+          value={capitalPercent}
+          onChange={(e) => setCapitalPercent(parseInt(e.target.value, 10))}
+          className="w-full bg-background border border-border rounded px-1 py-1 text-[10px] text-foreground tabular-nums text-right focus:border-primary focus:outline-none"
+          title={estimatedQty > 0 ? `Estimated qty: ${estimatedQty} | Margin: ${fmt(estimatedMargin)}` : 'Select capital percent'}
+        >
+          {CAPITAL_PERCENT_OPTIONS.map((pct) => (
+            <option key={pct} value={pct}>{pct}%</option>
+          ))}
+        </select>
       </td>
-      {/* P&L — confirm/cancel buttons */}
+
       <td className="px-2 py-1">
         <div className="flex items-center justify-end gap-1">
           <button
             onClick={handleSubmit}
-            disabled={loading || !entryPrice || parseFloat(entryPrice) <= 0}
-            className="px-1.5 py-1 rounded text-[9px] font-bold bg-bullish/20 text-bullish hover:bg-bullish/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            disabled={loading || !formReady}
+            className="rounded bg-bullish/20 px-1.5 py-1 text-[9px] font-bold text-bullish transition-colors hover:bg-bullish/30 disabled:cursor-not-allowed disabled:opacity-30"
             title="Place trade"
           >
-            {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : '✓'}
+            {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'OK'}
           </button>
           <button
             onClick={onCancel}
-            className="px-1.5 py-1 rounded text-[9px] font-bold bg-destructive/20 text-destructive hover:bg-destructive/30 transition-colors"
+            className="rounded bg-destructive/20 px-1.5 py-1 text-[9px] font-bold text-destructive transition-colors hover:bg-destructive/30"
             title="Cancel"
           >
-            ×
+            X
           </button>
         </div>
       </td>
-      {/* Charges */}
-      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
-      {/* Actual Capital */}
-      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
-      {/* Deviation */}
-      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
-      {/* Rating */}
+
+      <td className="px-2 py-2 text-right text-muted-foreground">-</td>
+      <td className="px-2 py-2 text-right text-muted-foreground">-</td>
+      <td className="px-2 py-2 text-right text-muted-foreground">-</td>
       <td className="px-2 py-2" />
     </tr>
   );

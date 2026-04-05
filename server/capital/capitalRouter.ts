@@ -52,7 +52,8 @@ const SYSTEM_USER_ID = 1;
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-const workspaceSchema = z.enum(["live", "paper"]);
+const workspaceSchema = z.enum(["live", "paper_manual", "paper"]);
+const mirroredWorkspaces: Workspace[] = ["paper_manual", "paper"];
 
 function generateTradeId(): string {
   return `T${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -235,11 +236,13 @@ export const capitalRouter = router({
       // Sync live workspace (primary — must succeed)
       const liveResult = await syncWorkspace('live');
 
-      // Sync paper workspace (best-effort — don't let it break the inject)
-      try {
-        await syncWorkspace('paper');
-      } catch (err) {
-        console.warn('[capital.inject] paper workspace sync failed (non-fatal):', err);
+      // Sync paper workspaces (best-effort — don't let them break the inject)
+      for (const workspace of mirroredWorkspaces) {
+        try {
+          await syncWorkspace(workspace);
+        } catch (err) {
+          console.warn(`[capital.inject] ${workspace} workspace sync failed (non-fatal):`, err);
+        }
       }
 
       return liveResult;
@@ -380,6 +383,7 @@ export const capitalRouter = router({
         instrument: input.instrument,
         type: input.type,
         strike: input.strike,
+        expiry: input.expiry || null,
         entryPrice: input.entryPrice,
         exitPrice: null,
         ltp: input.entryPrice,
@@ -782,11 +786,13 @@ export const capitalRouter = router({
       // Reset live workspace (primary)
       const liveResult = await resetWorkspace('live');
 
-      // Reset paper workspace (best-effort)
-      try {
-        await resetWorkspace('paper');
-      } catch (err) {
-        console.warn('[capital.resetCapital] paper workspace reset failed (non-fatal):', err);
+      // Reset paper workspaces (best-effort)
+      for (const workspace of mirroredWorkspaces) {
+        try {
+          await resetWorkspace(workspace);
+        } catch (err) {
+          console.warn(`[capital.resetCapital] ${workspace} workspace reset failed (non-fatal):`, err);
+        }
       }
 
       return {

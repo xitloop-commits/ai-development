@@ -43,6 +43,8 @@ export interface PnlSnapshot {
   updatedAt: number;
 }
 
+const TICK_WORKSPACES: Workspace[] = ["live", "paper_manual", "paper"];
+
 // ─── Instrument → Trade Mapping ─────────────────────────────────
 
 /**
@@ -128,8 +130,8 @@ class PnlEngine extends EventEmitter {
 
     if (ticks.length === 0) return;
 
-    // Update both workspaces
-    for (const workspace of ["live", "paper"] as Workspace[]) {
+    // Update every capital workspace
+    for (const workspace of TICK_WORKSPACES) {
       try {
         await this.updateWorkspace(workspace, ticks);
       } catch (err) {
@@ -172,7 +174,7 @@ class PnlEngine extends EventEmitter {
         trade.ltp = tick.ltp;
         anyUpdated = true;
 
-        // Check TP/SL triggers (paper only — live uses Dhan bracket orders)
+        // Check TP/SL triggers (AI paper only — live/manual paper are managed explicitly)
         if (workspace !== "paper") continue;
         const isBuy = trade.type.includes("BUY");
 
