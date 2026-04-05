@@ -516,11 +516,11 @@ export default function MainFooter() {
         {/* ─── 7. Capital Pools (horizontal) ─── */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex items-center gap-3 cursor-default shrink-0">
+            <div className="flex items-center gap-5 cursor-default shrink-0">
               {/* Trading Pool mini bar */}
               <div className="flex items-center gap-1.5">
-                <Zap className="h-3 w-3 text-primary shrink-0" />
-                <div className="flex flex-col w-[140px]">
+                <Zap className="h-3.5 w-3.5 text-primary shrink-0" />
+                <div className="flex flex-col w-[170px]">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-muted-foreground tracking-widest uppercase">Trading</span>
                     <span className="text-[12px] font-bold tabular-nums text-foreground">{fmt(tradingPool)}</span>
@@ -534,10 +534,13 @@ export default function MainFooter() {
                 </div>
               </div>
 
+              {/* Divider between pools */}
+              <div className="w-px self-stretch bg-border/50 shrink-0" />
+
               {/* Reserve Pool mini bar */}
               <div className="flex items-center gap-1.5">
-                <Shield className="h-3 w-3 text-info-cyan shrink-0" />
-                <div className="flex flex-col w-[140px]">
+                <Shield className="h-3.5 w-3.5 text-info-cyan shrink-0" />
+                <div className="flex flex-col w-[170px]">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-muted-foreground tracking-widest uppercase">Reserve</span>
                     <span className="text-[12px] font-bold tabular-nums text-foreground">{fmt(reservePool)}</span>
