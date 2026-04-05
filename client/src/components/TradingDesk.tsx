@@ -628,17 +628,6 @@ export default function TradingDesk({
             My Trades
             <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
           </button>
-          {/* Manual Paper tab */}
-          <button
-            onClick={() => setWorkspace('paper_manual')}
-            className={`px-4 py-1.5 rounded-t text-[12px] font-bold tracking-wider uppercase transition-colors ${
-              workspace === 'paper_manual'
-                ? 'bg-warning-amber/10 text-warning-amber border-b-2 border-warning-amber'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Manual Paper
-          </button>
           {/* AI Trades tab */}
           <button
             onClick={() => setWorkspace('paper')}
@@ -649,6 +638,17 @@ export default function TradingDesk({
             }`}
           >
             AI Trades
+          </button>
+          {/* My Paper Trades tab */}
+          <button
+            onClick={() => setWorkspace('paper_manual')}
+            className={`px-4 py-1.5 rounded-t text-[12px] font-bold tracking-wider uppercase transition-colors ${
+              workspace === 'paper_manual'
+                ? 'bg-warning-amber/10 text-warning-amber border-b-2 border-warning-amber'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            My Paper Trades
           </button>
           {/* Workspace badge */}
           <span className={`ml-2 px-2.5 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase ${workspaceBadge.className}`}>
