@@ -24,6 +24,7 @@ export interface TradeRecord {
   instrument: string;
   type: "CALL_BUY" | "CALL_SELL" | "PUT_BUY" | "PUT_SELL" | "BUY" | "SELL";
   strike: number | null;
+  expiry?: string | null;
   entryPrice: number;
   exitPrice: number | null;
   ltp: number;
@@ -105,6 +106,7 @@ const tradeRecordSchema = new Schema(
     instrument: { type: String, required: true },
     type: { type: String, required: true },
     strike: { type: Number, default: null },
+    expiry: { type: String, default: null },
     entryPrice: { type: Number, required: true },
     exitPrice: { type: Number, default: null },
     ltp: { type: Number, default: 0 },
@@ -366,6 +368,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       instrument: t.instrument,
       type: t.type,
       strike: t.strike ?? null,
+      expiry: t.expiry ?? null,
       entryPrice: t.entryPrice,
       exitPrice: t.exitPrice ?? null,
       ltp: t.ltp ?? 0,

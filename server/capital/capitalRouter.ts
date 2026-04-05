@@ -383,6 +383,7 @@ export const capitalRouter = router({
         instrument: input.instrument,
         type: input.type,
         strike: input.strike,
+        expiry: input.expiry || null,
         entryPrice: input.entryPrice,
         exitPrice: null,
         ltp: input.entryPrice,

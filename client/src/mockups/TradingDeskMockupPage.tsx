@@ -14,6 +14,7 @@ type MockTrade = {
   instrument: string;
   type: string;
   strike: number | null;
+  expiry?: string | null;
   entryPrice: number;
   exitPrice: number | null;
   ltp: number;

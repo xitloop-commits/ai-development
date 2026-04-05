@@ -5,14 +5,14 @@
  *   - Tab bar: My Trades (LIVE) | Manual Paper (PAPER) | AI Trades (PAPER)
  *   - Summary bar: Day X/250, Trade Capital, Available, Profit, Today P&L/Target + Exit All,
  *                  Charges, Reserve, Quarterly Proj, NET/GROSS toggle, Net Worth
- *   - Compounding table: 16 columns, flat (no expand/collapse)
+ *   - Compounding table: 15 columns, flat (no expand/collapse)
  *   - Inline new trade form (always visible for today)
  *   - Today summary row (DAY N TOTAL)
  *   - Status badges, TP/SL sub-text, date age, instrument tags, confirmation prompts
  *
  * Data: Wired to tRPC capital.* endpoints with mock fallbacks.
  */
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { Fragment, useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useCapital } from '@/contexts/CapitalContext';
 import { formatINR, formatPrice as fmtPrice } from '@/lib/formatINR';
 import {
@@ -35,6 +35,7 @@ interface TradeRecord {
   instrument: string;
   type: string;
   strike: number | null;
+  expiry?: string | null;
   entryPrice: number;
   exitPrice: number | null;
   ltp: number;
@@ -129,6 +130,73 @@ function getWorkspaceBadgeMeta(workspace: Workspace): { label: string; className
   }
 }
 
+function getWorkspaceThemeMeta(workspace: Workspace): {
+  text: string;
+  textSoft: string;
+  textDim: string;
+  rowBg: string;
+  rowBgHover: string;
+  todayBg: string;
+  todayAltBg: string;
+  summaryBg: string;
+  summaryBorder: string;
+  borderStrong: string;
+  borderSoft: string;
+  button: string;
+  buttonActive: string;
+} {
+  switch (workspace) {
+    case 'live':
+      return {
+        text: 'text-bullish',
+        textSoft: 'text-bullish/80',
+        textDim: 'text-bullish/60',
+        rowBg: 'bg-bullish/[0.04]',
+        rowBgHover: 'hover:bg-bullish/[0.08]',
+        todayBg: 'bg-bullish/[0.08]',
+        todayAltBg: 'bg-bullish/[0.04]',
+        summaryBg: 'bg-bullish/10',
+        summaryBorder: 'border-bullish/30',
+        borderStrong: 'border-l-bullish',
+        borderSoft: 'border-l-bullish/50',
+        button: 'bg-bullish/15 text-bullish hover:bg-bullish/25',
+        buttonActive: 'bg-bullish/20 text-bullish',
+      };
+    case 'paper_manual':
+      return {
+        text: 'text-warning-amber',
+        textSoft: 'text-warning-amber/80',
+        textDim: 'text-warning-amber/60',
+        rowBg: 'bg-warning-amber/[0.04]',
+        rowBgHover: 'hover:bg-warning-amber/[0.08]',
+        todayBg: 'bg-warning-amber/[0.08]',
+        todayAltBg: 'bg-warning-amber/[0.04]',
+        summaryBg: 'bg-warning-amber/10',
+        summaryBorder: 'border-warning-amber/30',
+        borderStrong: 'border-l-warning-amber',
+        borderSoft: 'border-l-warning-amber/50',
+        button: 'bg-warning-amber/15 text-warning-amber hover:bg-warning-amber/25',
+        buttonActive: 'bg-warning-amber/20 text-warning-amber',
+      };
+    default:
+      return {
+        text: 'text-info-cyan',
+        textSoft: 'text-info-cyan/80',
+        textDim: 'text-info-cyan/60',
+        rowBg: 'bg-info-cyan/[0.04]',
+        rowBgHover: 'hover:bg-info-cyan/[0.08]',
+        todayBg: 'bg-info-cyan/[0.08]',
+        todayAltBg: 'bg-info-cyan/[0.04]',
+        summaryBg: 'bg-info-cyan/10',
+        summaryBorder: 'border-info-cyan/30',
+        borderStrong: 'border-l-info-cyan',
+        borderSoft: 'border-l-info-cyan/50',
+        button: 'bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25',
+        buttonActive: 'bg-info-cyan/20 text-info-cyan',
+      };
+  }
+}
+
 // ─── Rating Icon ─────────────────────────────────────────────────
 
 function RatingIcon({ rating }: { rating: DayRating }) {
@@ -182,9 +250,28 @@ function formatCalendarDay(timestamp: number = Date.now()): string {
   return new Date(timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 }
 
+function formatExpiryLabel(expiry?: string | null): string {
+  if (!expiry) return '';
+  const time = new Date(`${expiry}T00:00:00`).getTime();
+  if (Number.isNaN(time)) return expiry;
+  return formatCalendarDay(time);
+}
+
 function formatDateAgeLabel(dateLabel: string, openedAt?: number): string {
   const age = formatAge(openedAt);
   return age ? `${dateLabel} | ${age}` : dateLabel;
+}
+
+function getTradeDirectionLabel(type: string): 'B' | 'S' | '—' {
+  if (type.includes('SELL')) return 'S';
+  if (type.includes('BUY')) return 'B';
+  return '—';
+}
+
+function getTradeContractLabel(type: string): 'CE' | 'PE' | 'DIR' {
+  if (type.startsWith('CALL_')) return 'CE';
+  if (type.startsWith('PUT_')) return 'PE';
+  return 'DIR';
 }
 
 // ─── Deviation Formatter ─────────────────────────────────────────
@@ -350,7 +437,7 @@ function StatusBadge({ status }: { status: string }) {
 function InstrumentTag({ name }: { name: string }) {
   const style = getInstrumentStyle(name);
   return (
-    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wide ${style.bg} ${style.text}`}>
+    <span className={`inline-flex max-w-full items-center truncate px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wide ${style.bg} ${style.text}`}>
       {name}
     </span>
   );
@@ -663,7 +750,7 @@ export default function TradingDesk({
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
           }} />
         ) : (
-          <table className="w-full table-fixed border-collapse text-[11px] [&_td]:align-middle [&_th]:align-middle [&_th]:whitespace-nowrap">
+          <table className="min-w-[1440px] w-full table-fixed border-collapse text-[11px] [&_td]:align-middle [&_th]:align-middle [&_th]:whitespace-nowrap">
             <colgroup>
               <col className="w-11" />
               <col className="w-[92px]" />
@@ -671,8 +758,7 @@ export default function TradingDesk({
               <col className="w-[88px]" />
               <col className="w-[88px]" />
               <col />
-              <col className="w-[180px]" />
-              <col className="w-[80px]" />
+              <col className="w-[124px]" />
               <col className="w-[72px]" />
               <col className="w-[72px]" />
               <col className="w-[68px]" />
@@ -691,7 +777,6 @@ export default function TradingDesk({
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Proj. Cap.</th>
                 <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase">Instrument</th>
                 <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase">Type</th>
-                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Strike</th>
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Entry</th>
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">LTP</th>
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Qty</th>
@@ -723,19 +808,21 @@ export default function TradingDesk({
                       getLiveLtp={getLiveLtp}
                       todayRef={todayRef}
                       workspace={workspace}
+                      resolvedInstruments={resolvedInstruments}
                     />
                   );
                 }
 
                 if (day.status === 'FUTURE') {
                   // ─── FUTURE: projected row ─────────────────
-                  return (
-                    <FutureRow
-                      key={day.dayIndex}
-                      day={day}
-                      isDay250={isDay250}
-                    />
-                  );
+                return (
+                  <FutureRow
+                    key={day.dayIndex}
+                    day={day}
+                    isDay250={isDay250}
+                    workspace={workspace}
+                  />
+                );
                 }
 
                 // ─── PAST / GIFT: single summary row ────────
@@ -744,6 +831,7 @@ export default function TradingDesk({
                     key={day.dayIndex}
                     day={day}
                     showNet={showNet}
+                    workspace={workspace}
                   />
                 );
               })}
@@ -769,27 +857,28 @@ export default function TradingDesk({
 function PastRow({
   day,
   showNet,
+  workspace,
 }: {
   day: DayRecord;
   showNet: boolean;
+  workspace: Workspace;
 }) {
-  const isGift = day.status === 'GIFT';
-  const rowBg = isGift
-    ? 'bg-amber-500/[0.06]'
-    : 'bg-emerald-500/[0.04] hover:bg-emerald-500/[0.08]';
+  const theme = getWorkspaceThemeMeta(workspace);
 
   const pnlValue = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
   const pnlPercent = day.tradeCapital > 0 ? (day.totalPnl / day.tradeCapital * 100).toFixed(1) : '0.0';
+  const dateLabel = formatDateAgeLabel(day.date || '—', day.openedAt);
 
   return (
-    <tr className={`border-b border-border/50 ${rowBg} transition-colors`}>
+    <tr className={`border-b border-border/50 ${theme.rowBg} ${theme.rowBgHover} transition-colors`}>
       {/* Day */}
       <td className="px-2 py-2">
-        <span className="font-bold tabular-nums text-foreground">{day.dayIndex}</span>
+        <span className={`font-bold tabular-nums ${theme.text}`}>{day.dayIndex}</span>
       </td>
       {/* Date + Age */}
       <td className="px-2 py-2">
-        <div className="flex items-center justify-between">
+        <span className={`block truncate text-[10px] tabular-nums ${theme.text}`}>{dateLabel}</span>
+        <div className="hidden items-center justify-between">
           <span className="text-muted-foreground tabular-nums">{day.date || '—'}</span>
           {day.openedAt && (
             <span className="text-[8px] text-muted-foreground/60 tabular-nums">{formatAge(day.openedAt)}</span>
@@ -797,50 +886,48 @@ function PastRow({
         </div>
       </td>
       {/* Trade Capital */}
-      <td className={`px-2 py-2 text-right tabular-nums ${isGift ? 'text-foreground/50' : 'text-foreground'}`}>
+      <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
         {fmt(day.tradeCapital, true)}
       </td>
       {/* Target */}
-      <td className={`px-2 py-2 text-right tabular-nums ${isGift ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
+      <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
         {fmt(day.targetAmount)}
         <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
       </td>
       {/* Proj Capital */}
-      <td className={`px-2 py-2 text-right tabular-nums ${isGift ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
+      <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
         {fmt(day.projCapital, true)}
       </td>
       {/* Instrument — color-coded tags */}
       <td className="px-2 py-2">
-        <div className="flex flex-wrap gap-1">
+        <div className="flex max-w-full items-center gap-1 overflow-hidden whitespace-nowrap">
           {day.instruments.length > 0
             ? day.instruments.map((inst) => <InstrumentTag key={inst} name={inst} />)
-            : <span className="text-muted-foreground">—</span>
+            : <span className={theme.textSoft}>—</span>
           }
         </div>
       </td>
       {/* Type */}
-      <td className="px-2 py-2 text-muted-foreground">—</td>
-      {/* Strike */}
-      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      <td className={`px-2 py-2 ${theme.textSoft}`}>—</td>
       {/* Entry */}
-      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      <td className={`px-2 py-2 text-right ${theme.textSoft}`}>—</td>
       {/* LTP */}
-      <td className="px-2 py-2 text-right text-muted-foreground">—</td>
+      <td className={`px-2 py-2 text-right ${theme.textSoft}`}>—</td>
       {/* Qty */}
       <td className="px-2 py-2 text-right tabular-nums text-foreground">
         {day.totalQty > 0 ? day.totalQty : '—'}
       </td>
       {/* P&L */}
-      <td className={`px-2 py-2 text-right tabular-nums font-bold ${isGift ? 'text-amber-400/70' : pnlColor(pnlValue)}`}>
+      <td className={`px-2 py-2 text-right tabular-nums font-bold ${pnlColor(pnlValue)}`}>
         {pnlValue > 0 ? '▲' : pnlValue < 0 ? '▼' : ''} {fmt(pnlValue)}
         <span className="text-[8px] ml-0.5">({pnlPercent}%)</span>
       </td>
       {/* Charges */}
-      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground/60">
+      <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
         {day.totalCharges > 0 ? fmt(day.totalCharges) : '—'}
       </td>
       {/* Actual Capital */}
-      <td className="px-2 py-2 text-right tabular-nums font-medium text-bullish">
+      <td className={`px-2 py-2 text-right tabular-nums font-medium ${theme.text}`}>
         {day.actualCapital > 0 ? fmt(day.actualCapital, true) : '—'}
       </td>
       {/* Deviation */}
@@ -871,6 +958,7 @@ function TodaySection({
   getLiveLtp,
   todayRef,
   workspace,
+  resolvedInstruments,
 }: {
   day: DayRecord;
   capital: CapitalState;
@@ -883,12 +971,20 @@ function TodaySection({
   getLiveLtp: (instrument: string) => number | undefined;
   todayRef: React.RefObject<HTMLTableRowElement | null>;
   workspace: Workspace;
+  resolvedInstruments?: ResolvedInstrument[];
 }) {
   const [showNewTradeForm, setShowNewTradeForm] = useState(false);
   const trades = day.trades ?? [];
   const openTrades = trades.filter(t => t.status === 'OPEN');
   const totalPnl = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
   const canManageTrades = supportsManualControls(workspace);
+  const cycleDateLabel = formatDateAgeLabel(formatCalendarDay(), day.openedAt);
+  const remainingToTarget = Math.round((day.targetAmount - day.totalPnl) * 100) / 100;
+  const openRisk = Math.round(calculateOpenRisk(openTrades) * 100) / 100;
+  const openReward = Math.round(calculateOpenReward(openTrades) * 100) / 100;
+  const usedCapital = Math.round(calculateOpenMargin(openTrades) * 100) / 100;
+  const { wins, losses } = countTradeOutcomes(trades);
+  const theme = getWorkspaceThemeMeta(workspace);
 
   return (
     <>
@@ -907,6 +1003,7 @@ function TodaySection({
             getLiveLtp={getLiveLtp}
             todayRef={isFirst ? todayRef : undefined}
             canManageTrades={canManageTrades}
+            workspace={workspace}
           />
         );
       })}
@@ -917,12 +1014,14 @@ function TodaySection({
           workspace={workspace}
           availableCapital={capital.availableCapital}
           instruments={['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS']}
+          resolvedInstruments={resolvedInstruments}
           onSubmit={async (trade) => {
             await onPlaceTrade(trade);
             setShowNewTradeForm(false);
           }}
           onCancel={() => setShowNewTradeForm(false)}
           loading={placeLoading}
+          dayOpenedAt={day.openedAt}
           dayValues={trades.length === 0 ? {
             dayIndex: day.dayIndex,
             tradeCapital: day.tradeCapital,
@@ -934,7 +1033,81 @@ function TodaySection({
       )}
 
       {/* Today Summary Row */}
-      <tr className="border-b border-warning-amber/30 bg-warning-amber/10 font-bold" ref={trades.length === 0 ? todayRef : undefined}>
+      <tr className={`border-b font-bold ${theme.summaryBorder} ${theme.summaryBg}`} ref={trades.length === 0 ? todayRef : undefined}>
+        <td className={`px-2 py-2 ${theme.text}`}>DAY {day.dayIndex}</td>
+        <td className="px-2 py-2">
+          <span className={`block truncate text-[10px] tabular-nums ${theme.text}`}>{cycleDateLabel}</span>
+        </td>
+        <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
+          {fmt(day.tradeCapital, true)}
+        </td>
+        <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
+          {fmt(day.targetAmount)}
+          <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
+        </td>
+        <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
+          {fmt(day.projCapital, true)}
+        </td>
+        <td className="px-2 py-2" colSpan={4}>
+          <div className="flex items-center justify-between gap-3 overflow-hidden">
+            <div className={`min-w-0 truncate text-[9px] ${theme.text}`}>
+              <span>{remainingToTarget > 0 ? `To Target ${fmt(remainingToTarget)}` : `Over Target ${fmt(Math.abs(remainingToTarget))}`}</span>
+              <span className="mx-1.5 text-border">|</span>
+              <span>Risk@SL {fmt(openRisk)}</span>
+              <span className="mx-1.5 text-border">|</span>
+              <span>Reward@TP {fmt(openReward)}</span>
+              <span className="mx-1.5 text-border">|</span>
+              <span>Used {fmt(usedCapital, true)} / Avail {fmt(capital.availableCapital, true)}</span>
+              <span className="mx-1.5 text-border">|</span>
+              <span>Open {openTrades.length}</span>
+              <span className="mx-1.5 text-border">|</span>
+              <span>W/L {wins}/{losses}</span>
+            </div>
+            {canManageTrades ? (
+              <button
+                onClick={() => setShowNewTradeForm(prev => !prev)}
+                className={`shrink-0 px-2 py-0.5 rounded text-[9px] font-bold tracking-wider transition-colors ${
+                  showNewTradeForm
+                    ? theme.buttonActive
+                    : theme.button
+                }`}
+              >
+                {showNewTradeForm ? '- CANCEL' : '+ NEW TRADE'}
+              </button>
+            ) : (
+              <span className={`shrink-0 text-[9px] italic ${theme.textSoft}`}>AI managed</span>
+            )}
+          </div>
+        </td>
+        <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
+          {day.totalQty > 0 ? day.totalQty : '—'}
+        </td>
+        <td className={`px-2 py-2 text-right tabular-nums ${pnlColor(totalPnl)}`}>
+          <div className="flex items-center justify-end gap-1">
+            <span>{fmt(totalPnl)}</span>
+            {canManageTrades && openTrades.length > 0 && (
+              <button
+                onClick={onExitAll}
+                className="px-1 py-0.5 rounded text-[8px] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
+                title="Exit all"
+              >
+                x
+              </button>
+            )}
+          </div>
+        </td>
+        <td className={`px-2 py-2 text-right tabular-nums ${theme.textSoft}`}>
+          {day.totalCharges > 0 ? fmt(day.totalCharges) : '—'}
+        </td>
+        <td className={`px-2 py-2 text-right tabular-nums ${theme.text}`}>
+          {day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
+        </td>
+        <td className={`px-2 py-2 text-right tabular-nums text-[9px] ${pnlColor(day.deviation)}`}>
+          {formatDeviation(day.deviation)}
+        </td>
+        <td className="px-2 py-2" />
+      </tr>
+      <tr className="hidden border-b border-warning-amber/30 bg-warning-amber/10 font-bold" ref={trades.length === 0 ? todayRef : undefined}>
         {/* Day */}
         <td className="px-2 py-2 text-warning-amber" colSpan={2}>
           DAY {day.dayIndex} TOTAL
@@ -946,7 +1119,7 @@ function TodaySection({
         {/* Proj Capital */}
         <td className="px-2 py-2" />
         {/* Instrument — + NEW TRADE button (manual workspaces only) */}
-        <td className="px-2 py-2" colSpan={5}>
+        <td className="px-2 py-2" colSpan={4}>
           {canManageTrades ? (
             <button
               onClick={() => setShowNewTradeForm(prev => !prev)}
@@ -1012,6 +1185,7 @@ function TodayTradeRow({
   getLiveLtp,
   todayRef,
   canManageTrades,
+  workspace,
 }: {
   trade: TradeRecord;
   day: DayRecord;
@@ -1022,7 +1196,9 @@ function TodayTradeRow({
   getLiveLtp: (instrument: string) => number | undefined;
   todayRef?: React.RefObject<HTMLTableRowElement | null>;
   canManageTrades: boolean;
+  workspace: Workspace;
 }) {
+  const theme = getWorkspaceThemeMeta(workspace);
   const isOpen = trade.status === 'OPEN';
   const isPending = trade.status === 'PENDING';
   const isBuy = trade.type.includes('BUY');
@@ -1035,73 +1211,85 @@ function TodayTradeRow({
   const pnlPercent = trade.entryPrice > 0
     ? ((isOpen ? liveUnrealizedPnl : trade.pnl) / (trade.entryPrice * trade.qty) * 100)
     : 0;
+  const cycleDateLabel = formatDateAgeLabel(formatCalendarDay(), day.openedAt);
 
-  const typeDisplay = trade.type
-    .replace('CALL_BUY', 'B CE')
-    .replace('CALL_SELL', 'S CE')
-    .replace('PUT_BUY', 'B PE')
-    .replace('PUT_SELL', 'S PE');
+  const directionLabel = getTradeDirectionLabel(trade.type);
+  const contractLabel = getTradeContractLabel(trade.type);
+  const expiryLabel = formatExpiryLabel(trade.expiry);
+  const contractDetails = [
+    expiryLabel ? <span key="expiry" className="shrink-0">{expiryLabel}</span> : null,
+    trade.strike !== null ? <span key="strike" className="shrink-0">{trade.strike}</span> : null,
+    directionLabel !== '—'
+      ? (
+        <span
+          key="direction"
+          className={`shrink-0 font-semibold ${isBuy ? 'text-bullish' : 'text-destructive'}`}
+        >
+          {directionLabel}
+        </span>
+      )
+      : null,
+  ].filter(Boolean);
 
   return (
     <tr
       ref={todayRef}
       className={`border-b border-border/30 transition-colors ${
         isFirst
-          ? 'bg-primary/5 border-l-2 border-l-warning-amber'
-          : 'bg-primary/[0.03] border-l-2 border-l-warning-amber/50'
+          ? `${theme.todayBg} border-l-2 ${theme.borderStrong}`
+          : `${theme.todayAltBg} border-l-2 ${theme.borderSoft}`
       }`}
     >
       {/* Day */}
       <td className="px-2 py-1.5">
         {isFirst ? (
-          <span className="font-bold tabular-nums text-warning-amber">{day.dayIndex}</span>
+          <span className={`font-bold tabular-nums ${theme.text}`}>{day.dayIndex}</span>
         ) : (
-          <span className="text-muted-foreground/40 tabular-nums">{day.dayIndex}</span>
+          <span className={`tabular-nums ${theme.textSoft}`}>{day.dayIndex}</span>
         )}
       </td>
       {/* Date + Age */}
       <td className="px-2 py-1.5">
-        {isFirst ? (
-          <div className="flex items-center justify-between">
-            <span className="text-foreground tabular-nums">
-              {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-            </span>
-            {day.openedAt && (
-              <span className="text-[8px] text-muted-foreground/60 tabular-nums">{formatAge(day.openedAt)}</span>
-            )}
-          </div>
-        ) : (
-          <span className="text-muted-foreground/40 tabular-nums text-[9px]">
-            {new Date(trade.openedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-          </span>
-        )}
+        <span className={`block truncate tabular-nums text-[10px] ${theme.text}`}>
+          {cycleDateLabel}
+        </span>
       </td>
       {/* Trade Capital — dimmed for sub-rows */}
-      <td className={`px-2 py-1.5 text-right tabular-nums ${isFirst ? 'text-foreground' : 'text-foreground/30'}`}>
+      <td className={`px-2 py-1.5 text-right tabular-nums ${theme.textSoft}`}>
         {fmt(day.tradeCapital, true)}
       </td>
       {/* Target — dimmed for sub-rows */}
-      <td className={`px-2 py-1.5 text-right tabular-nums ${isFirst ? 'text-muted-foreground' : 'text-muted-foreground/30'}`}>
+      <td className={`px-2 py-1.5 text-right tabular-nums ${theme.textSoft}`}>
         {fmt(day.targetAmount)}
         <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
       </td>
       {/* Proj Capital — dimmed for sub-rows */}
-      <td className={`px-2 py-1.5 text-right tabular-nums ${isFirst ? 'text-muted-foreground' : 'text-muted-foreground/30'}`}>
+      <td className={`px-2 py-1.5 text-right tabular-nums ${theme.textSoft}`}>
         {fmt(day.projCapital, true)}
       </td>
       {/* Instrument — color-coded tag */}
       <td className="px-2 py-1.5">
-        <InstrumentTag name={trade.instrument} />
+        <div className="flex min-w-0 flex-col items-start gap-0.5 overflow-hidden">
+          <InstrumentTag name={trade.instrument} />
+          <div className={`flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-[9px] tabular-nums ${theme.textSoft}`}>
+            {contractDetails.length > 0 ? (
+              contractDetails.map((detail, index) => (
+                <Fragment key={`${trade.id}-detail-${index}`}>
+                  {index > 0 && <span className="text-border">|</span>}
+                  {detail}
+                </Fragment>
+              ))
+            ) : (
+              <span>—</span>
+            )}
+          </div>
+        </div>
       </td>
       {/* Type */}
       <td className="px-2 py-1.5">
-        <span className={`font-bold ${isBuy ? 'text-bullish' : 'text-destructive'}`}>
-          {typeDisplay}
+        <span className={`inline-flex min-w-[44px] items-center justify-center rounded px-1.5 py-0.5 text-[9px] font-bold ${theme.buttonActive}`}>
+          {contractLabel}
         </span>
-      </td>
-      {/* Strike */}
-      <td className="px-2 py-1.5 text-right tabular-nums text-foreground">
-        {trade.strike ?? '—'}
       </td>
       {/* Entry */}
       <td className="px-2 py-1.5 text-right tabular-nums text-foreground">
@@ -1113,7 +1301,7 @@ function TodayTradeRow({
           <span className={`tabular-nums font-medium ${
             isOpen
               ? (displayLtp >= trade.entryPrice ? 'text-bullish' : 'text-destructive')
-              : 'text-muted-foreground'
+              : theme.textSoft
           }`}>
             {isOpen ? (
               <>
@@ -1165,7 +1353,7 @@ function TodayTradeRow({
         </div>
       </td>
       {/* Charges */}
-      <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground/60">
+      <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
         {trade.charges > 0 ? fmt(trade.charges) : '—'}
       </td>
       {/* Actual Capital */}
@@ -1185,55 +1373,56 @@ function TodayTradeRow({
 function FutureRow({
   day,
   isDay250,
+  workspace,
 }: {
   day: DayRecord;
   isDay250: boolean;
+  workspace: Workspace;
 }) {
+  const theme = getWorkspaceThemeMeta(workspace);
   return (
     <tr className={`border-b border-border/30 bg-card/50 transition-colors ${isDay250 ? 'opacity-90' : 'opacity-[0.6]'}`}>
       {/* Day */}
       <td className="px-2 py-2">
-        <span className={`font-bold tabular-nums ${isDay250 ? 'text-info-cyan' : 'text-foreground/70'}`}>
+        <span className={`font-bold tabular-nums ${isDay250 ? theme.textSoft : theme.textDim}`}>
           {day.dayIndex}
         </span>
       </td>
       {/* Date */}
-      <td className="px-2 py-2 text-foreground/50 tabular-nums">
+      <td className={`px-2 py-2 tabular-nums ${isDay250 ? theme.textSoft : theme.textDim}`}>
         {day.date || '—'}
       </td>
       {/* Trade Capital */}
-      <td className={`px-2 py-2 text-right tabular-nums ${isDay250 ? 'text-info-cyan' : 'text-foreground/60'}`}>
+      <td className={`px-2 py-2 text-right tabular-nums ${isDay250 ? theme.textSoft : theme.textDim}`}>
         {fmt(day.tradeCapital, true)}
       </td>
       {/* Target */}
-      <td className="px-2 py-2 text-right tabular-nums text-foreground/50">
+      <td className={`px-2 py-2 text-right tabular-nums ${isDay250 ? theme.textSoft : theme.textDim}`}>
         {fmt(day.targetAmount)}
         <span className="text-[9px] ml-0.5">({day.targetPercent}%)</span>
       </td>
       {/* Proj Capital */}
-      <td className={`px-2 py-2 text-right tabular-nums font-medium ${isDay250 ? 'text-info-cyan' : 'text-foreground/60'}`}>
+      <td className={`px-2 py-2 text-right tabular-nums font-medium ${isDay250 ? theme.textSoft : theme.textDim}`}>
         {fmt(day.projCapital, true)}
       </td>
       {/* Instrument */}
-      <td className="px-2 py-2 text-foreground/30">—</td>
+      <td className={`px-2 py-2 ${theme.textDim}`}>—</td>
       {/* Type */}
-      <td className="px-2 py-2 text-foreground/30">—</td>
-      {/* Strike */}
-      <td className="px-2 py-2 text-right text-foreground/30">—</td>
+      <td className={`px-2 py-2 ${theme.textDim}`}>—</td>
       {/* Entry */}
-      <td className="px-2 py-2 text-right text-foreground/30">—</td>
+      <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
       {/* LTP */}
-      <td className="px-2 py-2 text-right text-foreground/30">—</td>
+      <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
       {/* Qty */}
-      <td className="px-2 py-2 text-right text-foreground/30">—</td>
+      <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
       {/* P&L */}
-      <td className="px-2 py-2 text-right text-foreground/30">—</td>
+      <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
       {/* Charges */}
-      <td className="px-2 py-2 text-right text-foreground/30">—</td>
+      <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
       {/* Actual Capital */}
-      <td className="px-2 py-2 text-right text-foreground/30">—</td>
+      <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
       {/* Deviation */}
-      <td className="px-2 py-2 text-right text-foreground/30">—</td>
+      <td className={`px-2 py-2 text-right ${theme.textDim}`}>—</td>
       {/* Rating */}
       <td className="px-2 py-2 text-center">
         <RatingIcon rating={isDay250 ? 'finish' : 'future'} />
