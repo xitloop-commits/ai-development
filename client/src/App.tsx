@@ -8,8 +8,21 @@ import { CapitalProvider } from "./contexts/CapitalContext";
 import MainScreen from "./components/MainScreen";
 import { CredentialGate } from "./components/CredentialGate";
 import { SetupBrokerModal } from "./components/SetupBrokerModal";
+import TradingDeskMockupPage from "./mockups/TradingDeskMockupPage";
+
+function isTradingDeskMockupRoute() {
+  if (typeof window === "undefined") return false;
+
+  const params = new URLSearchParams(window.location.search);
+  return (
+    params.get("mockup") === "trading-desk-current" ||
+    window.location.pathname === "/mockups/trading-desk-current"
+  );
+}
 
 function App() {
+  const showTradingDeskMockup = isTradingDeskMockupRoute();
+
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
@@ -27,12 +40,18 @@ function App() {
                   },
                 }}
               />
-              <SetupBrokerModal />
-              <CredentialGate>
-                <CapitalProvider>
-                  <MainScreen />
-                </CapitalProvider>
-              </CredentialGate>
+              {showTradingDeskMockup ? (
+                <TradingDeskMockupPage />
+              ) : (
+                <>
+                  <SetupBrokerModal />
+                  <CredentialGate>
+                    <CapitalProvider>
+                      <MainScreen />
+                    </CapitalProvider>
+                  </CredentialGate>
+                </>
+              )}
             </TooltipProvider>
           </InstrumentFilterProvider>
         </AlertProvider>

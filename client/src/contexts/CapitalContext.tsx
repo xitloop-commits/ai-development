@@ -5,7 +5,7 @@
  * Replaces duplicate trpc.capital.state / trpc.capital.allDays queries
  * in CapitalPoolsPanel, TradingDesk, SummaryBar, and MainFooter.
  *
- * Workspace-aware: provides both 'live' and active workspace data.
+ * Workspace-aware: provides live, manual paper, and AI paper workspace data.
  * The active workspace can be switched via setWorkspace().
  */
 import {
@@ -19,7 +19,8 @@ import {
 import { trpc } from '@/lib/trpc';
 
 // ─── Types ──────────────────────────────────────────────────────
-type Workspace = 'live' | 'paper';
+type Workspace = 'live' | 'paper_manual' | 'paper';
+type DayRating = 'trophy' | 'double_trophy' | 'crown' | 'jackpot' | 'gift' | 'star' | 'future' | 'finish';
 
 export interface CapitalState {
   tradingPool: number;
@@ -50,8 +51,12 @@ export interface DayRecord {
   deviation: number;
   totalPnl: number;
   totalCharges: number;
+  totalQty: number;
+  instruments: string[];
   trades: any[];
-  status: 'ACTIVE' | 'COMPLETED' | 'FUTURE';
+  status: 'ACTIVE' | 'COMPLETED' | 'GIFT' | 'FUTURE';
+  rating: DayRating;
+  openedAt?: number;
 }
 
 const FALLBACK_CAPITAL: CapitalState = {
@@ -71,7 +76,7 @@ const FALLBACK_CAPITAL: CapitalState = {
   allQuarterlyProjections: [],
 };
 
-interface CapitalContextValue {
+export interface CapitalContextValue {
   // Active workspace
   workspace: Workspace;
   setWorkspace: (ws: Workspace) => void;
@@ -108,6 +113,44 @@ interface CapitalContextValue {
 }
 
 const CapitalContext = createContext<CapitalContextValue | null>(null);
+
+function normalizeDayRecord(day: any): DayRecord {
+  const trades = Array.isArray(day?.trades) ? day.trades : [];
+  const instruments = Array.isArray(day?.instruments)
+    ? day.instruments
+    : Array.from(
+        new Set(
+          trades
+            .map((trade: any) => trade?.instrument)
+            .filter((instrument: unknown): instrument is string => typeof instrument === 'string' && instrument.length > 0)
+        )
+      );
+
+  const totalQty =
+    typeof day?.totalQty === 'number'
+      ? day.totalQty
+      : trades.reduce((sum: number, trade: any) => sum + (typeof trade?.qty === 'number' ? trade.qty : 0), 0);
+
+  return {
+    dayIndex: day?.dayIndex ?? 1,
+    date: day?.date ?? '',
+    tradeCapital: day?.tradeCapital ?? 0,
+    targetPercent: day?.targetPercent ?? 5,
+    targetAmount: day?.targetAmount ?? 0,
+    projCapital: day?.projCapital ?? 0,
+    originalProjCapital: day?.originalProjCapital ?? 0,
+    actualCapital: day?.actualCapital ?? 0,
+    deviation: day?.deviation ?? 0,
+    totalPnl: day?.totalPnl ?? 0,
+    totalCharges: day?.totalCharges ?? 0,
+    totalQty,
+    instruments,
+    trades,
+    status: day?.status ?? 'FUTURE',
+    rating: day?.rating ?? 'future',
+    openedAt: typeof day?.openedAt === 'number' ? day.openedAt : undefined,
+  };
+}
 
 // ─── Provider ───────────────────────────────────────────────────
 export function CapitalProvider({ children }: { children: ReactNode }) {
@@ -203,9 +246,9 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
     if (allDaysQuery.data) {
       const { pastDays, currentDay, futureDays } = allDaysQuery.data as any;
       return [
-        ...((pastDays as DayRecord[]) ?? []),
-        ...(currentDay ? [currentDay as DayRecord] : []),
-        ...((futureDays as DayRecord[]) ?? []),
+        ...(((pastDays as any[]) ?? []).map(normalizeDayRecord)),
+        ...(currentDay ? [normalizeDayRecord(currentDay)] : []),
+        ...(((futureDays as any[]) ?? []).map(normalizeDayRecord)),
       ];
     }
     return [];
@@ -303,4 +346,14 @@ export function useCapital(): CapitalContextValue {
     throw new Error('useCapital must be used within a CapitalProvider');
   }
   return ctx;
+}
+
+export function StaticCapitalProvider({
+  value,
+  children,
+}: {
+  value: CapitalContextValue;
+  children: ReactNode;
+}) {
+  return <CapitalContext.Provider value={value}>{children}</CapitalContext.Provider>;
 }

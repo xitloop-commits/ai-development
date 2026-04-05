@@ -457,7 +457,7 @@ export const brokerRouter = router({
       // Resolve MCX commodities from scrip master
       for (const mcx of ["CRUDEOIL", "NATURALGAS"] as const) {
         if (broker.resolveMCXFutcom) {
-          const result = broker.resolveMCXFutcom(mcx);
+          const result = await broker.resolveMCXFutcom(mcx);
           if (result) {
             instruments.push({
               name: mcx,
