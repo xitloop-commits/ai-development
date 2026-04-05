@@ -614,12 +614,12 @@ export default function TradingDesk({
   return (
     <div className="flex flex-col h-full">
       {/* ─── Tab Bar ──────────────────────────────────────────── */}
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5 bg-card/80 backdrop-blur-sm">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2 bg-card/80 backdrop-blur-sm">
         <div className="flex items-center gap-1">
           {/* My Trades tab */}
           <button
             onClick={() => setWorkspace('live')}
-            className={`px-3 py-1 rounded-t text-[10px] font-bold tracking-wider uppercase transition-colors ${
+            className={`px-4 py-1.5 rounded-t text-[12px] font-bold tracking-wider uppercase transition-colors ${
               workspace === 'live'
                 ? 'bg-bullish/10 text-bullish border-b-2 border-bullish'
                 : 'text-muted-foreground hover:text-foreground'
@@ -631,7 +631,7 @@ export default function TradingDesk({
           {/* Manual Paper tab */}
           <button
             onClick={() => setWorkspace('paper_manual')}
-            className={`px-3 py-1 rounded-t text-[10px] font-bold tracking-wider uppercase transition-colors ${
+            className={`px-4 py-1.5 rounded-t text-[12px] font-bold tracking-wider uppercase transition-colors ${
               workspace === 'paper_manual'
                 ? 'bg-warning-amber/10 text-warning-amber border-b-2 border-warning-amber'
                 : 'text-muted-foreground hover:text-foreground'
@@ -642,7 +642,7 @@ export default function TradingDesk({
           {/* AI Trades tab */}
           <button
             onClick={() => setWorkspace('paper')}
-            className={`px-3 py-1 rounded-t text-[10px] font-bold tracking-wider uppercase transition-colors ${
+            className={`px-4 py-1.5 rounded-t text-[12px] font-bold tracking-wider uppercase transition-colors ${
               workspace === 'paper'
                 ? 'bg-violet-pulse/10 text-violet-pulse border-b-2 border-violet-pulse'
                 : 'text-muted-foreground hover:text-foreground'
@@ -651,7 +651,7 @@ export default function TradingDesk({
             AI Trades
           </button>
           {/* Workspace badge */}
-          <span className={`ml-2 px-2 py-0.5 rounded text-[8px] font-bold tracking-wider uppercase ${workspaceBadge.className}`}>
+          <span className={`ml-2 px-2.5 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase ${workspaceBadge.className}`}>
             {workspaceBadge.label}
           </span>
         </div>
