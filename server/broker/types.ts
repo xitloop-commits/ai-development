@@ -205,6 +205,69 @@ export interface CandleData {
   openInterest?: number[]; // present when oi=true
 }
 
+/** Row-based candle format — returned when transform=true */
+export interface CandleRow {
+  time: string;   // "YYYY-MM-DD HH:mm" (intraday) or "YYYY-MM-DD" (historical)
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  openInterest?: number; // present when oi=true
+}
+
+/**
+ * Convert columnar CandleData to row-based CandleRow[] sorted ascending by time.
+ * @param data  Columnar candle data from the adapter
+ * @param mode  "intraday" formats time as "YYYY-MM-DD HH:mm", "historical" as "YYYY-MM-DD"
+ */
+export function transformCandleData(
+  data: CandleData,
+  mode: "intraday" | "historical" = "intraday"
+): CandleRow[] {
+  const rows: CandleRow[] = [];
+
+  for (let i = 0; i < data.timestamp.length; i++) {
+    // Dhan returns epoch seconds; convert to IST (UTC+5:30)
+    const date = new Date(data.timestamp[i] * 1000);
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const ist = new Date(date.getTime() + istOffset);
+
+    const yyyy = ist.getUTCFullYear();
+    const mm = String(ist.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(ist.getUTCDate()).padStart(2, "0");
+
+    let time: string;
+    if (mode === "intraday") {
+      const hh = String(ist.getUTCHours()).padStart(2, "0");
+      const min = String(ist.getUTCMinutes()).padStart(2, "0");
+      time = `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+    } else {
+      time = `${yyyy}-${mm}-${dd}`;
+    }
+
+    const row: CandleRow = {
+      time,
+      open: data.open[i],
+      high: data.high[i],
+      low: data.low[i],
+      close: data.close[i],
+      volume: data.volume[i],
+    };
+
+    if (data.openInterest && data.openInterest[i] !== undefined) {
+      row.openInterest = data.openInterest[i];
+    }
+
+    rows.push(row);
+  }
+
+  // Sort ascending by time
+  rows.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+
+  return rows;
+}
+
 // ─── Real-time Types ────────────────────────────────────────────
 
 export type FeedMode = "ticker" | "quote" | "full";

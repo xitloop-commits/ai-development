@@ -19,6 +19,7 @@ import {
   updateBrokerCredentials,
 } from "./brokerConfig";
 import type { OrderParams, ModifyParams } from "./types";
+import { transformCandleData } from "./types";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -524,7 +525,7 @@ export function registerBrokerRoutes(app: Express): void {
       const broker = requireBrokerREST(res);
       if (!broker) return;
 
-      const { securityId, exchangeSegment, instrument, interval, fromDate, toDate, oi } = req.body;
+      const { securityId, exchangeSegment, instrument, interval, fromDate, toDate, oi, transform } = req.body;
 
       if (!securityId || !exchangeSegment || !instrument || !interval || !fromDate || !toDate) {
         sendError(
@@ -550,7 +551,12 @@ export function registerBrokerRoutes(app: Express): void {
         toDate,
         oi: oi ?? false,
       });
-      res.json({ success: true, data });
+
+      if (transform === true || transform === "true" || transform === "t") {
+        res.json({ success: true, data: transformCandleData(data, "intraday") });
+      } else {
+        res.json({ success: true, data });
+      }
     } catch (err: any) {
       console.error("[Broker REST] Error fetching intraday data:", err);
       sendError(res, 500, err.message);
@@ -563,7 +569,7 @@ export function registerBrokerRoutes(app: Express): void {
       const broker = requireBrokerREST(res);
       if (!broker) return;
 
-      const { securityId, exchangeSegment, instrument, fromDate, toDate, expiryCode, oi } = req.body;
+      const { securityId, exchangeSegment, instrument, fromDate, toDate, expiryCode, oi, transform } = req.body;
 
       if (!securityId || !exchangeSegment || !instrument || !fromDate || !toDate) {
         sendError(
@@ -583,7 +589,12 @@ export function registerBrokerRoutes(app: Express): void {
         expiryCode: expiryCode ?? 0,
         oi: oi ?? false,
       });
-      res.json({ success: true, data });
+
+      if (transform === true || transform === "true" || transform === "t") {
+        res.json({ success: true, data: transformCandleData(data, "historical") });
+      } else {
+        res.json({ success: true, data });
+      }
     } catch (err: any) {
       console.error("[Broker REST] Error fetching historical data:", err);
       sendError(res, 500, err.message);
