@@ -1,5 +1,6 @@
 /**
  * NewTradeForm — Inline trade entry row in the Trading Desk table.
+ * Expiry: nearest expiry auto-selected, editable from the Type column.
  * Strike: dropdown populated from option chain (+/- strikes from ATM).
  * Entry: auto-fills with selected strike's LTP, editable for limit orders.
  * Capital %: dropdown 5–25%.
@@ -23,8 +24,14 @@ const STRIKE_WINDOW = 10;
 /** Capital % options — max 25% per spec */
 const CAPITAL_PERCENT_OPTIONS = [5, 10, 15, 20, 25];
 
+const OPTION_TYPE_LABELS: Record<'CE' | 'PE' | 'NONE', string> = {
+  CE: 'CE',
+  PE: 'PE',
+  NONE: 'DIR',
+};
+
 interface NewTradeFormProps {
-  workspace: 'live' | 'paper';
+  workspace: 'live' | 'paper_manual' | 'paper';
   availableCapital: number;
   instruments: string[];
   onSubmit: (trade: {
@@ -77,14 +84,23 @@ export default function NewTradeForm({
     { enabled: optionType !== 'NONE' }
   );
 
+  const expiryOptions = useMemo(() => {
+    const expiries = expiryQuery.data ?? [];
+    return [...expiries].sort((a, b) => {
+      const aTime = new Date(`${a}T00:00:00`).getTime();
+      const bTime = new Date(`${b}T00:00:00`).getTime();
+      return aTime - bTime;
+    });
+  }, [expiryQuery.data]);
+
   // Auto-select nearest expiry when data loads or instrument changes
   useEffect(() => {
-    if (expiryQuery.data && expiryQuery.data.length > 0) {
-      setExpiry(expiryQuery.data[0]);
+    if (expiryOptions.length > 0) {
+      setExpiry((current) => (current && expiryOptions.includes(current) ? current : expiryOptions[0]));
     } else {
       setExpiry('');
     }
-  }, [expiryQuery.data, instrument]);
+  }, [expiryOptions, instrument]);
 
   // Fetch option chain for the selected instrument + expiry
   const optionChainQuery = trpc.broker.optionChain.useQuery(
@@ -252,93 +268,100 @@ export default function NewTradeForm({
           ))}
         </select>
       </td>
-      {/* Type (B/S + CE/PE toggles) */}
+      {/* Type (Expiry + B/S + contract type toggles) */}
       <td className="px-2 py-1">
-        <div className="flex gap-0.5">
-          <button
-            onClick={() => setDirection('BUY')}
-            className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
-              direction === 'BUY'
-                ? 'bg-bullish/20 text-bullish border border-bullish/40'
-                : 'bg-muted text-muted-foreground border border-transparent'
-            }`}
-          >
-            B
-          </button>
-          <button
-            onClick={() => setDirection('SELL')}
-            className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
-              direction === 'SELL'
-                ? 'bg-destructive/20 text-destructive border border-destructive/40'
-                : 'bg-muted text-muted-foreground border border-transparent'
-            }`}
-          >
-            S
-          </button>
-          <div className="w-px bg-border mx-0.5" />
-          {(['CE', 'PE', 'NONE'] as const).map((opt) => (
+        <div className="flex flex-col gap-1">
+          <div>
+            {optionType !== 'NONE' ? (
+              <select
+                value={expiry}
+                onChange={(e) => setExpiry(e.target.value)}
+                className="w-24 bg-background border border-border rounded px-1 py-0.5 text-[9px] text-foreground focus:border-primary focus:outline-none"
+              >
+                {expiryQuery.isLoading && (
+                  <option value="">Loading...</option>
+                )}
+                {expiryOptions.map((exp) => (
+                  <option key={exp} value={exp}>
+                    {formatExpiry(exp)}
+                  </option>
+                ))}
+                {!expiryQuery.isLoading && expiryOptions.length === 0 && (
+                  <option value="">No expiries</option>
+                )}
+              </select>
+            ) : (
+              <span className="inline-flex h-[24px] items-center text-[9px] text-muted-foreground/60">
+                Direct trade
+              </span>
+            )}
+          </div>
+          <div className="flex gap-0.5">
             <button
-              key={opt}
-              onClick={() => setOptionType(opt)}
+              onClick={() => setDirection('BUY')}
               className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
-                optionType === opt
-                  ? 'bg-primary/20 text-primary border border-primary/40'
+                direction === 'BUY'
+                  ? 'bg-bullish/20 text-bullish border border-bullish/40'
                   : 'bg-muted text-muted-foreground border border-transparent'
               }`}
             >
-              {opt === 'NONE' ? '—' : opt}
+              B
             </button>
-          ))}
+            <button
+              onClick={() => setDirection('SELL')}
+              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                direction === 'SELL'
+                  ? 'bg-destructive/20 text-destructive border border-destructive/40'
+                  : 'bg-muted text-muted-foreground border border-transparent'
+              }`}
+            >
+              S
+            </button>
+            <div className="w-px bg-border mx-0.5" />
+            {(['CE', 'PE', 'NONE'] as const).map((opt) => (
+              <button
+                key={opt}
+                onClick={() => setOptionType(opt)}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                  optionType === opt
+                    ? 'bg-primary/20 text-primary border border-primary/40'
+                    : 'bg-muted text-muted-foreground border border-transparent'
+                }`}
+                title={opt === 'NONE' ? 'Direct trade (no option contract)' : undefined}
+              >
+                {OPTION_TYPE_LABELS[opt]}
+              </button>
+            ))}
+          </div>
         </div>
       </td>
-      {/* Strike — dropdown from option chain + Expiry */}
+      {/* Strike — dropdown from option chain */}
       <td className="px-2 py-1">
         {optionType !== 'NONE' ? (
-          <div className="flex flex-col gap-1">
-            {/* Strike dropdown */}
-            <select
-              value={selectedStrike}
-              onChange={(e) => setSelectedStrike(e.target.value)}
-              className={selectClass + ' w-24'}
-            >
-              <option value="">Select strike</option>
-              {optionChainQuery.isLoading && (
-                <option value="" disabled>Loading...</option>
-              )}
-              {strikeOptions.map((s) => {
-                const ltp = optionType === 'CE' ? s.callLTP : s.putLTP;
-                const label = s.isATM
-                  ? `${s.strike} (ATM) ₹${ltp.toFixed(1)}`
-                  : `${s.strike} (${s.distFromATM > 0 ? '+' : ''}${s.distFromATM}) ₹${ltp.toFixed(1)}`;
-                return (
-                  <option key={s.strike} value={String(s.strike)}>
-                    {label}
-                  </option>
-                );
-              })}
-              {!optionChainQuery.isLoading && strikeOptions.length === 0 && (
-                <option value="" disabled>No strikes</option>
-              )}
-            </select>
-            {/* Expiry dropdown */}
-            <select
-              value={expiry}
-              onChange={(e) => setExpiry(e.target.value)}
-              className="w-24 bg-background border border-border rounded px-1 py-0.5 text-[9px] text-foreground focus:border-primary focus:outline-none"
-            >
-              {expiryQuery.isLoading && (
-                <option value="">Loading...</option>
-              )}
-              {expiryQuery.data?.map((exp) => (
-                <option key={exp} value={exp}>
-                  {formatExpiry(exp)}
+          <select
+            value={selectedStrike}
+            onChange={(e) => setSelectedStrike(e.target.value)}
+            className={selectClass + ' w-24'}
+          >
+            <option value="">Select strike</option>
+            {optionChainQuery.isLoading && (
+              <option value="" disabled>Loading...</option>
+            )}
+            {strikeOptions.map((s) => {
+              const ltp = optionType === 'CE' ? s.callLTP : s.putLTP;
+              const label = s.isATM
+                ? `${s.strike} (ATM) ₹${ltp.toFixed(1)}`
+                : `${s.strike} (${s.distFromATM > 0 ? '+' : ''}${s.distFromATM}) ₹${ltp.toFixed(1)}`;
+              return (
+                <option key={s.strike} value={String(s.strike)}>
+                  {label}
                 </option>
-              ))}
-              {!expiryQuery.isLoading && (!expiryQuery.data || expiryQuery.data.length === 0) && (
-                <option value="">No expiries</option>
-              )}
-            </select>
-          </div>
+              );
+            })}
+            {!optionChainQuery.isLoading && strikeOptions.length === 0 && (
+              <option value="" disabled>No strikes</option>
+            )}
+          </select>
         ) : (
           <span className="text-[10px] text-muted-foreground">—</span>
         )}

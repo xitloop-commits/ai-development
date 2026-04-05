@@ -2,7 +2,7 @@
  * TradingDesk — The central 250-day compounding table with trade management.
  *
  * Features:
- *   - Tab bar: My Trades (LIVE) | AI Trades (PAPER)
+ *   - Tab bar: My Trades (LIVE) | Manual Paper (PAPER) | AI Trades (PAPER)
  *   - Summary bar: Day X/250, Trade Capital, Available, Profit, Today P&L/Target + Exit All,
  *                  Charges, Reserve, Quarterly Proj, NET/GROSS toggle, Net Worth
  *   - Compounding table: 16 columns, flat (no expand/collapse)
@@ -26,7 +26,7 @@ import { useTickStream } from '@/hooks/useTickStream';
 
 // ─── Types ───────────────────────────────────────────────────────
 
-type Workspace = 'live' | 'paper';
+type Workspace = 'live' | 'paper_manual' | 'paper';
 type DayStatus = 'ACTIVE' | 'COMPLETED' | 'GIFT' | 'FUTURE';
 type DayRating = 'trophy' | 'double_trophy' | 'crown' | 'jackpot' | 'gift' | 'star' | 'future' | 'finish';
 
@@ -114,6 +114,21 @@ function getInstrumentStyle(name: string) {
   return INSTRUMENT_COLORS[name] ?? { bg: 'bg-slate-500/15', text: 'text-slate-400' };
 }
 
+function supportsManualControls(workspace: Workspace): boolean {
+  return workspace === 'live' || workspace === 'paper_manual';
+}
+
+function getWorkspaceBadgeMeta(workspace: Workspace): { label: string; className: string } {
+  switch (workspace) {
+    case 'live':
+      return { label: 'LIVE', className: 'bg-bullish/20 text-bullish' };
+    case 'paper_manual':
+      return { label: 'MANUAL PAPER', className: 'bg-warning-amber/20 text-warning-amber' };
+    default:
+      return { label: 'AI PAPER', className: 'bg-info-cyan/20 text-info-cyan' };
+  }
+}
+
 // ─── Rating Icon ─────────────────────────────────────────────────
 
 function RatingIcon({ rating }: { rating: DayRating }) {
@@ -163,12 +178,58 @@ function formatAge(openedAt?: number): string {
   return `${diffDays}d`;
 }
 
+function formatCalendarDay(timestamp: number = Date.now()): string {
+  return new Date(timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+}
+
+function formatDateAgeLabel(dateLabel: string, openedAt?: number): string {
+  const age = formatAge(openedAt);
+  return age ? `${dateLabel} | ${age}` : dateLabel;
+}
+
 // ─── Deviation Formatter ─────────────────────────────────────────
 
 function formatDeviation(deviation: number, daysAhead?: number): string {
   const sign = deviation >= 0 ? '+' : '';
   const daysStr = daysAhead !== undefined ? ` (${daysAhead >= 0 ? '+' : ''}${daysAhead}d)` : '';
   return `${sign}${fmt(deviation)}${daysStr}`;
+}
+
+function calculatePotentialPnl(trade: TradeRecord, price: number): number {
+  const isBuy = trade.type.includes('BUY');
+  return (isBuy ? (price - trade.entryPrice) : (trade.entryPrice - price)) * trade.qty;
+}
+
+function calculateOpenRisk(trades: TradeRecord[]): number {
+  return trades.reduce((sum, trade) => {
+    if (trade.stopLossPrice === null) return sum;
+    return sum + Math.max(0, -calculatePotentialPnl(trade, trade.stopLossPrice));
+  }, 0);
+}
+
+function calculateOpenReward(trades: TradeRecord[]): number {
+  return trades.reduce((sum, trade) => {
+    if (trade.targetPrice === null) return sum;
+    return sum + Math.max(0, calculatePotentialPnl(trade, trade.targetPrice));
+  }, 0);
+}
+
+function calculateOpenMargin(trades: TradeRecord[]): number {
+  return trades.reduce((sum, trade) => {
+    if (trade.status !== 'OPEN') return sum;
+    return sum + (trade.entryPrice * trade.qty);
+  }, 0);
+}
+
+function countTradeOutcomes(trades: TradeRecord[]): { wins: number; losses: number } {
+  return trades.reduce((acc, trade) => {
+    if (trade.status === 'OPEN' || trade.status === 'PENDING' || trade.status === 'CANCELLED') {
+      return acc;
+    }
+    if (trade.pnl > 0) acc.wins += 1;
+    else if (trade.pnl < 0) acc.losses += 1;
+    return acc;
+  }, { wins: 0, losses: 0 });
 }
 
 // ─── Instrument Name Mapping ────────────────────────────────────
@@ -297,7 +358,13 @@ function InstrumentTag({ name }: { name: string }) {
 
 // ─── Main Component ──────────────────────────────────────────────
 
-export default function TradingDesk({ resolvedInstruments }: { resolvedInstruments?: ResolvedInstrument[] }) {
+export default function TradingDesk({
+  resolvedInstruments,
+  liveTicksEnabled = true,
+}: {
+  resolvedInstruments?: ResolvedInstrument[];
+  liveTicksEnabled?: boolean;
+}) {
   const {
     workspace, setWorkspace,
     capital, capitalLoading, capitalReady,
@@ -315,7 +382,7 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
     message: string;
     onConfirm: () => void;
   }>({ open: false, title: '', message: '', onConfirm: () => {} });
-  const { getTick } = useTickStream();
+  const { getTick } = useTickStream(liveTicksEnabled);
   const todayRef = useRef<HTMLTableRowElement>(null);
 
   // ─── Instrument → Feed Lookup ──────────────────────────────
@@ -339,6 +406,8 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
   // ─── Data from global CapitalContext (single source of truth) ──
   const isLive = capitalReady;
   const isLoading = capitalLoading;
+  const canManageTrades = supportsManualControls(workspace);
+  const workspaceBadge = getWorkspaceBadgeMeta(workspace);
 
   // ─── Auto-scroll to today on load ──────────────────────────
   useEffect(() => {
@@ -472,6 +541,17 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
             My Trades
             <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
           </button>
+          {/* Manual Paper tab */}
+          <button
+            onClick={() => setWorkspace('paper_manual')}
+            className={`px-3 py-1 rounded-t text-[10px] font-bold tracking-wider uppercase transition-colors ${
+              workspace === 'paper_manual'
+                ? 'bg-warning-amber/10 text-warning-amber border-b-2 border-warning-amber'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Manual Paper
+          </button>
           {/* AI Trades tab */}
           <button
             onClick={() => setWorkspace('paper')}
@@ -483,13 +563,9 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
           >
             AI Trades
           </button>
-          {/* LIVE / PAPER badge */}
-          <span className={`ml-2 px-2 py-0.5 rounded text-[8px] font-bold tracking-wider uppercase ${
-            workspace === 'live'
-              ? 'bg-bullish/20 text-bullish'
-              : 'bg-warning-amber/20 text-warning-amber'
-          }`}>
-            {workspace === 'live' ? 'LIVE' : 'PAPER'}
+          {/* Workspace badge */}
+          <span className={`ml-2 px-2 py-0.5 rounded text-[8px] font-bold tracking-wider uppercase ${workspaceBadge.className}`}>
+            {workspaceBadge.label}
           </span>
         </div>
         {/* NET/GROSS toggle */}
@@ -549,7 +625,7 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
               <span className="text-muted-foreground"> / </span>
               <span className="text-warning-amber">{fmt(capital.todayTarget)}</span>
             </span>
-            {openTradeCount > 0 && (
+            {canManageTrades && openTradeCount > 0 && (
               <button
                 onClick={handleExitAll}
                 className="px-1 py-0.5 rounded text-[8px] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
@@ -587,11 +663,29 @@ export default function TradingDesk({ resolvedInstruments }: { resolvedInstrumen
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
           }} />
         ) : (
-          <table className="w-full text-[11px] border-collapse">
+          <table className="w-full table-fixed border-collapse text-[11px] [&_td]:align-middle [&_th]:align-middle [&_th]:whitespace-nowrap">
+            <colgroup>
+              <col className="w-11" />
+              <col className="w-[92px]" />
+              <col className="w-[88px]" />
+              <col className="w-[88px]" />
+              <col className="w-[88px]" />
+              <col />
+              <col className="w-[180px]" />
+              <col className="w-[80px]" />
+              <col className="w-[72px]" />
+              <col className="w-[72px]" />
+              <col className="w-[68px]" />
+              <col className="w-[116px]" />
+              <col className="w-[80px]" />
+              <col className="w-[88px]" />
+              <col className="w-[88px]" />
+              <col className="w-[76px]" />
+            </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-secondary/80 backdrop-blur-sm border-b border-border">
                 <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase w-12">Day</th>
-                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase w-24">Date</th>
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground tracking-wider uppercase">Date</th>
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Trade Cap.</th>
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Target</th>
                 <th className="px-2 py-1.5 text-right font-medium text-muted-foreground tracking-wider uppercase">Proj. Cap.</th>
@@ -794,7 +888,7 @@ function TodaySection({
   const trades = day.trades ?? [];
   const openTrades = trades.filter(t => t.status === 'OPEN');
   const totalPnl = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
-  const isLiveWorkspace = workspace === 'live';
+  const canManageTrades = supportsManualControls(workspace);
 
   return (
     <>
@@ -812,13 +906,13 @@ function TodaySection({
             exitLoading={exitLoading}
             getLiveLtp={getLiveLtp}
             todayRef={isFirst ? todayRef : undefined}
-            isLiveWorkspace={isLiveWorkspace}
+            canManageTrades={canManageTrades}
           />
         );
       })}
 
-      {/* New Trade Input Row — only for My Trades (LIVE), shown on + button click */}
-      {isLiveWorkspace && showNewTradeForm && (
+      {/* New Trade Input Row — only for manual workspaces, shown on + button click */}
+      {canManageTrades && showNewTradeForm && (
         <NewTradeForm
           workspace={workspace}
           availableCapital={capital.availableCapital}
@@ -851,9 +945,9 @@ function TodaySection({
         <td className="px-2 py-2" />
         {/* Proj Capital */}
         <td className="px-2 py-2" />
-        {/* Instrument — + NEW TRADE button (only for My Trades LIVE) */}
+        {/* Instrument — + NEW TRADE button (manual workspaces only) */}
         <td className="px-2 py-2" colSpan={5}>
-          {isLiveWorkspace ? (
+          {canManageTrades ? (
             <button
               onClick={() => setShowNewTradeForm(prev => !prev)}
               className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-wider transition-colors ${
@@ -876,7 +970,7 @@ function TodaySection({
         <td className={`px-2 py-2 text-right tabular-nums ${pnlColor(totalPnl)}`}>
           <div className="flex items-center justify-end gap-1">
             <span>{fmt(totalPnl)}</span>
-            {openTrades.length > 0 && (
+            {canManageTrades && openTrades.length > 0 && (
               <button
                 onClick={onExitAll}
                 className="px-1 py-0.5 rounded text-[8px] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
@@ -917,7 +1011,7 @@ function TodayTradeRow({
   exitLoading,
   getLiveLtp,
   todayRef,
-  isLiveWorkspace,
+  canManageTrades,
 }: {
   trade: TradeRecord;
   day: DayRecord;
@@ -927,7 +1021,7 @@ function TodayTradeRow({
   exitLoading?: boolean;
   getLiveLtp: (instrument: string) => number | undefined;
   todayRef?: React.RefObject<HTMLTableRowElement | null>;
-  isLiveWorkspace: boolean;
+  canManageTrades: boolean;
 }) {
   const isOpen = trade.status === 'OPEN';
   const isPending = trade.status === 'PENDING';
@@ -1054,7 +1148,7 @@ function TodayTradeRow({
             {fmt(pnl)}
             <span className="text-[8px] ml-0.5">({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%)</span>
           </span>
-          {isOpen && isLiveWorkspace && (
+          {isOpen && canManageTrades && (
             <button
               onClick={(e) => { e.stopPropagation(); onExit(); }}
               disabled={exitLoading}

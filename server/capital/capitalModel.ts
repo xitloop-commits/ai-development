@@ -5,13 +5,13 @@
  *   - capital_state_{workspace}  → single document with pool balances and metadata
  *   - day_records_{workspace}    → one document per completed/active Day Index
  *
- * Workspaces: "live" (My Trades) and "paper" (AI Trades)
+ * Workspaces: "live" (My Trades), "paper_manual" (Manual Paper), and "paper" (AI Trades)
  */
 import mongoose, { Schema } from "mongoose";
 
 // ─── Types ───────────────────────────────────────────────────────
 
-export type Workspace = "live" | "paper";
+export type Workspace = "live" | "paper_manual" | "paper";
 
 export type TradeStatus = "OPEN" | "PENDING" | "CANCELLED" | "CLOSED_TP" | "CLOSED_SL" | "CLOSED_MANUAL" | "CLOSED_PARTIAL" | "CLOSED_EOD";
 
