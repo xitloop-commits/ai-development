@@ -203,4 +203,55 @@
   .animate-fade-in-up {
     animation: fade-in-up 0.2s ease-out;
   }
+
+  /* ─── Thin scrollbar with workspace colors ─── */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* Live workspace — bullish green */
+  .scrollbar-bullish {
+    scrollbar-color: oklch(0.75 0.18 155 / 0.4) transparent;
+  }
+  .scrollbar-bullish::-webkit-scrollbar-thumb {
+    background: oklch(0.75 0.18 155 / 0.4);
+    border-radius: 3px;
+  }
+  .scrollbar-bullish::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.75 0.18 155 / 0.6);
+  }
+
+  /* Manual Paper workspace — warning amber */
+  .scrollbar-amber {
+    scrollbar-color: oklch(0.8 0.16 80 / 0.4) transparent;
+  }
+  .scrollbar-amber::-webkit-scrollbar-thumb {
+    background: oklch(0.8 0.16 80 / 0.4);
+    border-radius: 3px;
+  }
+  .scrollbar-amber::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.8 0.16 80 / 0.6);
+  }
+
+  /* AI Paper workspace — info cyan */
+  .scrollbar-cyan {
+    scrollbar-color: oklch(0.78 0.15 220 / 0.4) transparent;
+  }
+  .scrollbar-cyan::-webkit-scrollbar-thumb {
+    background: oklch(0.78 0.15 220 / 0.4);
+    border-radius: 3px;
+  }
+  .scrollbar-cyan::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.78 0.15 220 / 0.6);
+  }
 }

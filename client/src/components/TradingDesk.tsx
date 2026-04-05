@@ -744,7 +744,11 @@ export default function TradingDesk({
       {/* Mutation errors are handled by the global CapitalContext */}
 
       {/* ─── Table ────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-auto">
+      <div className={`flex-1 overflow-auto scrollbar-thin ${
+        workspace === 'live' ? 'scrollbar-bullish' :
+        workspace === 'paper_manual' ? 'scrollbar-amber' :
+        'scrollbar-cyan'
+      }`}>
         {allDays.length === 0 && !capitalLoading ? (
           <NoCapitalEmpty onOpenSettings={() => {
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
