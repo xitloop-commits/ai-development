@@ -754,22 +754,22 @@ export default function TradingDesk({
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
           }} />
         ) : (
-          <table className="min-w-[1440px] w-full table-fixed border-collapse text-[11px] [&_td]:align-middle [&_th]:align-middle [&_th]:whitespace-nowrap">
+          <table className="w-full border-collapse text-[11px] [&_td]:align-middle [&_th]:align-middle [&_th]:whitespace-nowrap">
             <colgroup>
-              <col className="w-11" />
-              <col className="w-[92px]" />
-              <col className="w-[88px]" />
-              <col className="w-[88px]" />
-              <col className="w-[88px]" />
+              <col style={{ width: 44 }} />
+              <col style={{ width: 92 }} />
+              <col style={{ width: 88 }} />
+              <col style={{ width: 88 }} />
+              <col style={{ width: 88 }} />
               <col />
-              <col className="w-[72px]" />
-              <col className="w-[72px]" />
-              <col className="w-[68px]" />
-              <col className="w-[116px]" />
-              <col className="w-[80px]" />
-              <col className="w-[88px]" />
-              <col className="w-[88px]" />
-              <col className="w-[76px]" />
+              <col style={{ width: 72 }} />
+              <col style={{ width: 72 }} />
+              <col style={{ width: 68 }} />
+              <col style={{ width: 116 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 88 }} />
+              <col style={{ width: 88 }} />
+              <col style={{ width: 76 }} />
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-secondary/80 backdrop-blur-sm border-b border-border">
