@@ -1037,20 +1037,11 @@ function TodaySection({
 
       {/* Today Summary Row */}
       <tr className={`border-y font-bold ${theme.summaryBorder} ${theme.summaryBg}`} ref={trades.length === 0 ? todayRef : undefined}>
-        <td className="px-2 py-2 text-foreground">DAY {day.dayIndex}</td>
-        <td className="px-2 py-2">
-          <span className="block truncate text-[10px] tabular-nums text-foreground">{cycleDateLabel}</span>
-        </td>
-        <td className="px-2 py-2 text-right tabular-nums text-foreground/70">
-          {fmt(day.tradeCapital, true)}
-        </td>
-        <td className="px-2 py-2 text-right tabular-nums text-foreground/70">
-          {fmt(day.targetAmount)}
-          <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
-        </td>
-        <td className="px-2 py-2 text-right tabular-nums text-foreground/70">
-          {fmt(day.projCapital, true)}
-        </td>
+        <td className="px-2 py-2" />
+        <td className="px-2 py-2" />
+        <td className="px-2 py-2" />
+        <td className="px-2 py-2" />
+        <td className="px-2 py-2" />
         <td className="px-2 py-2" colSpan={3}>
           <div className="flex items-center justify-between gap-3 overflow-hidden">
             <div className="min-w-0 truncate text-[9px] text-foreground">
@@ -1059,8 +1050,6 @@ function TodaySection({
               <span>Risk@SL {fmt(openRisk)}</span>
               <span className="mx-1.5 text-border">|</span>
               <span>Reward@TP {fmt(openReward)}</span>
-              <span className="mx-1.5 text-border">|</span>
-              <span>Used {fmt(usedCapital, true)} / Avail {fmt(capital.availableCapital, true)}</span>
               <span className="mx-1.5 text-border">|</span>
               <span>Open {openTrades.length}</span>
               <span className="mx-1.5 text-border">|</span>
