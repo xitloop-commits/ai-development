@@ -205,27 +205,24 @@ export interface CandleData {
   openInterest?: number[]; // present when oi=true
 }
 
-/** Row-based candle format — returned when transform=true */
-export interface CandleRow {
-  time: string;   // "YYYY-MM-DD HH:mm" (intraday) or "YYYY-MM-DD" (historical)
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-  openInterest?: number; // present when oi=true
-}
-
 /**
- * Convert columnar CandleData to row-based CandleRow[] sorted ascending by time.
+ * Convert columnar CandleData to a CSV string sorted ascending by time.
+ *
+ * Output format:
+ *   time,open,high,low,close,volume[,openInterest]
+ *   2026-04-04 09:15,22100,22150,22080,22130,120000
+ *
  * @param data  Columnar candle data from the adapter
  * @param mode  "intraday" formats time as "YYYY-MM-DD HH:mm", "historical" as "YYYY-MM-DD"
  */
 export function transformCandleData(
   data: CandleData,
   mode: "intraday" | "historical" = "intraday"
-): CandleRow[] {
-  const rows: CandleRow[] = [];
+): string {
+  const hasOI = !!(data.openInterest && data.openInterest.length > 0);
+
+  // Build rows as tuples: [time, open, high, low, close, volume, oi?]
+  const rows: string[][] = [];
 
   for (let i = 0; i < data.timestamp.length; i++) {
     // Dhan returns epoch seconds; convert to IST (UTC+5:30)
@@ -246,26 +243,31 @@ export function transformCandleData(
       time = `${yyyy}-${mm}-${dd}`;
     }
 
-    const row: CandleRow = {
+    const row = [
       time,
-      open: data.open[i],
-      high: data.high[i],
-      low: data.low[i],
-      close: data.close[i],
-      volume: data.volume[i],
-    };
+      String(data.open[i]),
+      String(data.high[i]),
+      String(data.low[i]),
+      String(data.close[i]),
+      String(data.volume[i]),
+    ];
 
-    if (data.openInterest && data.openInterest[i] !== undefined) {
-      row.openInterest = data.openInterest[i];
+    if (hasOI) {
+      row.push(String(data.openInterest![i]));
     }
 
     rows.push(row);
   }
 
   // Sort ascending by time
-  rows.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+  rows.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
 
-  return rows;
+  // Build CSV
+  const header = hasOI
+    ? "time,open,high,low,close,volume,openInterest"
+    : "time,open,high,low,close,volume";
+
+  return header + "\n" + rows.map((r) => r.join(",")).join("\n");
 }
 
 // ─── Real-time Types ────────────────────────────────────────────

@@ -563,8 +563,8 @@ describe("MockAdapter", () => {
 
   // ── Transform Candle Data ───────────────────────────────────
 
-  describe("transformCandleData", () => {
-    it("converts intraday columnar data to ascending row-based format", async () => {
+  describe("transformCandleData (CSV output)", () => {
+    it("returns a CSV string with header row for intraday", async () => {
       const data = await adapter.getIntradayData({
         securityId: "13",
         exchangeSegment: "IDX_I",
@@ -574,20 +574,18 @@ describe("MockAdapter", () => {
         toDate: "2026-04-04 15:30:00",
       });
 
-      const rows = transformCandleData(data, "intraday");
+      const csv = transformCandleData(data, "intraday");
 
-      expect(rows.length).toBe(data.timestamp.length);
-      expect(rows[0]).toHaveProperty("time");
-      expect(rows[0]).toHaveProperty("open");
-      expect(rows[0]).toHaveProperty("high");
-      expect(rows[0]).toHaveProperty("low");
-      expect(rows[0]).toHaveProperty("close");
-      expect(rows[0]).toHaveProperty("volume");
-      // Intraday time format: "YYYY-MM-DD HH:mm"
-      expect(rows[0].time).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+      expect(typeof csv).toBe("string");
+      const lines = csv.split("\n");
+      expect(lines[0]).toBe("time,open,high,low,close,volume");
+      // Data rows = total lines - 1 header
+      expect(lines.length - 1).toBe(data.timestamp.length);
+      // Intraday time format: YYYY-MM-DD HH:mm
+      expect(lines[1].split(",")[0]).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
     });
 
-    it("converts historical columnar data to ascending row-based format", async () => {
+    it("returns a CSV string with header row for historical", async () => {
       const data = await adapter.getHistoricalData({
         securityId: "13",
         exchangeSegment: "IDX_I",
@@ -596,14 +594,15 @@ describe("MockAdapter", () => {
         toDate: "2026-04-01",
       });
 
-      const rows = transformCandleData(data, "historical");
+      const csv = transformCandleData(data, "historical");
+      const lines = csv.split("\n");
 
-      expect(rows.length).toBe(data.timestamp.length);
-      // Historical time format: "YYYY-MM-DD"
-      expect(rows[0].time).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(lines[0]).toBe("time,open,high,low,close,volume");
+      // Historical time format: YYYY-MM-DD
+      expect(lines[1].split(",")[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
 
-    it("rows are sorted ascending by time", async () => {
+    it("CSV rows are sorted ascending by time", async () => {
       const data = await adapter.getIntradayData({
         securityId: "13",
         exchangeSegment: "IDX_I",
@@ -613,14 +612,18 @@ describe("MockAdapter", () => {
         toDate: "2026-04-04 15:30:00",
       });
 
-      const rows = transformCandleData(data, "intraday");
+      const csv = transformCandleData(data, "intraday");
+      const lines = csv.split("\n");
+      const dataLines = lines.slice(1);
 
-      for (let i = 1; i < rows.length; i++) {
-        expect(rows[i].time >= rows[i - 1].time).toBe(true);
+      for (let i = 1; i < dataLines.length; i++) {
+        const prevTime = dataLines[i - 1].split(",")[0];
+        const currTime = dataLines[i].split(",")[0];
+        expect(currTime >= prevTime).toBe(true);
       }
     });
 
-    it("includes openInterest in rows when oi=true", async () => {
+    it("includes openInterest column in header and data when oi=true", async () => {
       const data = await adapter.getIntradayData({
         securityId: "49081",
         exchangeSegment: "NSE_FNO",
@@ -631,13 +634,15 @@ describe("MockAdapter", () => {
         oi: true,
       });
 
-      const rows = transformCandleData(data, "intraday");
+      const csv = transformCandleData(data, "intraday");
+      const lines = csv.split("\n");
 
-      expect(rows[0]).toHaveProperty("openInterest");
-      expect(typeof rows[0].openInterest).toBe("number");
+      expect(lines[0]).toBe("time,open,high,low,close,volume,openInterest");
+      // Data row should have 7 columns
+      expect(lines[1].split(",").length).toBe(7);
     });
 
-    it("omits openInterest in rows when oi=false", async () => {
+    it("omits openInterest column when oi=false", async () => {
       const data = await adapter.getIntradayData({
         securityId: "13",
         exchangeSegment: "IDX_I",
@@ -648,12 +653,15 @@ describe("MockAdapter", () => {
         oi: false,
       });
 
-      const rows = transformCandleData(data, "intraday");
+      const csv = transformCandleData(data, "intraday");
+      const lines = csv.split("\n");
 
-      expect(rows[0]).not.toHaveProperty("openInterest");
+      expect(lines[0]).toBe("time,open,high,low,close,volume");
+      // Data row should have 6 columns
+      expect(lines[1].split(",").length).toBe(6);
     });
 
-    it("without transform flag returns original columnar format", async () => {
+    it("each data row has valid numeric values", async () => {
       const data = await adapter.getIntradayData({
         securityId: "13",
         exchangeSegment: "IDX_I",
@@ -663,9 +671,14 @@ describe("MockAdapter", () => {
         toDate: "2026-04-04 15:30:00",
       });
 
-      // Original format has arrays
-      expect(Array.isArray(data.open)).toBe(true);
-      expect(Array.isArray(data.timestamp)).toBe(true);
+      const csv = transformCandleData(data, "intraday");
+      const lines = csv.split("\n");
+      const firstDataRow = lines[1].split(",");
+
+      // open, high, low, close, volume should all be valid numbers
+      for (let i = 1; i < firstDataRow.length; i++) {
+        expect(Number.isNaN(Number(firstDataRow[i]))).toBe(false);
+      }
     });
   });
 
