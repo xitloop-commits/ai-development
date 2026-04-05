@@ -129,9 +129,12 @@ export default function NewTradeForm(props: NewTradeFormProps) {
   const [capitalPercent, setCapitalPercent] = useState(5);
   const [expiry, setExpiry] = useState('');
 
+  // All current instruments (NIFTY 50, BANK NIFTY, CRUDE OIL, NATURAL GAS) are derivatives.
+  // Equity instruments (if added later) would not appear in UNDERLYING_MAP.
+  const isDerivative = instrument in UNDERLYING_MAP;
   const isOptionTrade = optionType === 'CE' || optionType === 'PE';
-  const canSelectExpiry = optionType !== 'NONE';
-  const canSelectStrike = optionType !== 'NONE' && !!expiry;
+  const canSelectExpiry = isDerivative && optionType !== 'NONE';
+  const canSelectStrike = isDerivative && optionType !== 'NONE' && !!expiry;
   const tone = getWorkspaceTone(workspace);
   const brokerConfigQuery = trpc.broker.config.get.useQuery(undefined);
   const isPaperBroker = brokerConfigQuery.data?.isPaperBroker ?? false;
@@ -151,6 +154,19 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     if (instrumentOptions.includes(instrument)) return;
     setInstrument(defaultInstrument);
   }, [defaultInstrument, instrument, instrumentOptions]);
+
+  // Auto-set optionType when switching between derivative and equity instruments
+  useEffect(() => {
+    if (!isDerivative) {
+      // Equity: no CE/PE selection needed, force to NONE (direct trade)
+      setOptionType('NONE');
+      setExpiry('');
+      setSelectedStrike('');
+    } else if (optionType === 'NONE') {
+      // Switching back to derivative: reset so user picks CE/PE
+      setOptionType(null);
+    }
+  }, [isDerivative]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const expiryQuery = trpc.broker.expiryList.useQuery(
     { underlying: requestUnderlying, exchangeSegment: requestExchangeSegment },
@@ -249,18 +265,19 @@ export default function NewTradeForm(props: NewTradeFormProps) {
   const formReady =
     !!instrument &&
     !!direction &&
-    !!optionType &&
+    (isDerivative ? !!optionType : true) &&
     (!isOptionTrade || (!!expiry && !!selectedStrike)) &&
     !!entryPrice &&
     parseFloat(entryPrice) > 0;
 
   const handleSubmit = async () => {
-    if (!formReady || !direction || !optionType) return;
+    if (!formReady || !direction) return;
 
+    const effectiveOptionType = optionType ?? 'NONE';
     const type =
-      optionType === 'NONE'
+      effectiveOptionType === 'NONE'
         ? direction
-        : `${optionType === 'CE' ? 'CALL' : 'PUT'}_${direction}` as
+        : `${effectiveOptionType === 'CE' ? 'CALL' : 'PUT'}_${direction}` as
           'CALL_BUY' | 'CALL_SELL' | 'PUT_BUY' | 'PUT_SELL';
 
     await onSubmit({
@@ -322,106 +339,106 @@ export default function NewTradeForm(props: NewTradeFormProps) {
       </td>
 
       <td className="px-2 py-1">
-        <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex items-center gap-1 whitespace-nowrap">
-            <select
-              value={instrument}
-              onChange={(e) => setInstrument(e.target.value)}
-              className={`${compactSelectClass} w-[100px]`}
-            >
-              {instrumentOptions.map((inst) => (
-                <option key={inst} value={inst}>{inst}</option>
-              ))}
-            </select>
+        <div className="flex items-center gap-1.5 whitespace-nowrap">
+          {/* Instrument dropdown */}
+          <select
+            value={instrument}
+            onChange={(e) => setInstrument(e.target.value)}
+            className={`${compactSelectClass} w-[100px]`}
+          >
+            {instrumentOptions.map((inst) => (
+              <option key={inst} value={inst}>{inst}</option>
+            ))}
+          </select>
 
-            <span className="text-border text-[9px]">|</span>
-
-            <select
-              value={canSelectExpiry ? expiry : ''}
-              onChange={(e) => setExpiry(e.target.value)}
-              disabled={!canSelectExpiry}
-              className={`${compactSelectClass} w-[78px]`}
-            >
-              <option value="">
-                {optionType === 'NONE' ? 'DIR' : expiryQuery.isLoading ? 'Loading...' : 'Expiry'}
-              </option>
-              {canSelectExpiry && expiryOptions.map((exp) => (
-                <option key={exp} value={exp}>
-                  {formatExpiry(exp)}
-                </option>
-              ))}
-              {canSelectExpiry && !expiryQuery.isLoading && expiryOptions.length === 0 && (
-                <option value="" disabled>No expiries</option>
-              )}
-            </select>
-
-            <span className="text-border text-[9px]">|</span>
-
-            <select
-              value={canSelectStrike ? selectedStrike : ''}
-              onChange={(e) => setSelectedStrike(e.target.value)}
-              disabled={!canSelectStrike}
-              className={`${compactSelectClass} w-[84px]`}
-            >
-              <option value="">
-                {optionType === 'NONE' ? 'DIR' : expiry ? 'Strike' : 'Pick Exp'}
-              </option>
-              {optionChainQuery.isLoading && (
-                <option value="" disabled>Loading...</option>
-              )}
-              {strikeOptions.map((strike) => (
-                <option key={strike.strike} value={String(strike.strike)}>
-                  {strike.strike}
-                </option>
-              ))}
-              {canSelectStrike && !optionChainQuery.isLoading && strikeOptions.length === 0 && (
-                <option value="" disabled>No strikes</option>
-              )}
-            </select>
-
-            <span className="text-border text-[9px]">|</span>
-
-            <div className="flex items-center gap-0.5">
-              {(['CE', 'PE', 'NONE'] as const).map((opt) => (
-                <button
-                  key={opt}
-                  onClick={() => setOptionType(opt)}
-                  className={`px-1 py-0.5 rounded text-[9px] font-bold transition-colors ${
-                    optionType === opt
-                      ? 'border border-primary/40 bg-primary/20 text-primary'
-                      : 'border border-transparent bg-muted text-muted-foreground'
-                  }`}
-                  title={opt === 'NONE' ? 'Direct trade (no option contract)' : undefined}
-                >
-                  {OPTION_TYPE_LABELS[opt]}
-                </button>
-              ))}
-            </div>
-
-            <span className="text-border text-[9px]">|</span>
-
-            <div className="flex shrink-0 items-center gap-0.5">
-              <button
-                onClick={() => setDirection('BUY')}
-                className={`px-1 py-0.5 rounded text-[9px] font-bold transition-colors ${
-                  direction === 'BUY'
-                    ? 'border border-bullish/40 bg-bullish/20 text-bullish'
-                    : 'border border-transparent bg-muted text-muted-foreground'
-                }`}
+          {/* Derivative fields: Expiry | Strike | CE/PE group */}
+          {isDerivative && (
+            <>
+              <span className="text-border text-[9px]">|</span>
+              <select
+                value={expiry}
+                onChange={(e) => setExpiry(e.target.value)}
+                className={`${compactSelectClass} w-[78px]`}
               >
-                B
-              </button>
-              <button
-                onClick={() => setDirection('SELL')}
-                className={`px-1 py-0.5 rounded text-[9px] font-bold transition-colors ${
-                  direction === 'SELL'
-                    ? 'border border-destructive/40 bg-destructive/20 text-destructive'
-                    : 'border border-transparent bg-muted text-muted-foreground'
-                }`}
+                <option value="">
+                  {expiryQuery.isLoading ? 'Loading...' : 'Expiry'}
+                </option>
+                {expiryOptions.map((exp) => (
+                  <option key={exp} value={exp}>
+                    {formatExpiry(exp)}
+                  </option>
+                ))}
+                {!expiryQuery.isLoading && expiryOptions.length === 0 && (
+                  <option value="" disabled>No expiries</option>
+                )}
+              </select>
+
+              <span className="text-border text-[9px]">|</span>
+              <select
+                value={selectedStrike}
+                onChange={(e) => setSelectedStrike(e.target.value)}
+                disabled={!expiry}
+                className={`${compactSelectClass} w-[84px]`}
               >
-                S
-              </button>
-            </div>
+                <option value="">
+                  {expiry ? 'Strike' : 'Pick Exp'}
+                </option>
+                {optionChainQuery.isLoading && (
+                  <option value="" disabled>Loading...</option>
+                )}
+                {strikeOptions.map((strike) => (
+                  <option key={strike.strike} value={String(strike.strike)}>
+                    {strike.strike}
+                  </option>
+                ))}
+                {expiry && !optionChainQuery.isLoading && strikeOptions.length === 0 && (
+                  <option value="" disabled>No strikes</option>
+                )}
+              </select>
+
+              <span className="text-border text-[9px]">|</span>
+              {/* CE / PE group */}
+              <div className="flex shrink-0 items-center gap-1 rounded border border-border/50 px-1 py-0.5">
+                {(['CE', 'PE'] as const).map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => setOptionType(opt)}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                      optionType === opt
+                        ? 'bg-primary/20 text-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          <span className="text-border text-[9px]">|</span>
+          {/* B / S group */}
+          <div className="flex shrink-0 items-center gap-1 rounded border border-border/50 px-1 py-0.5">
+            <button
+              onClick={() => setDirection('BUY')}
+              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                direction === 'BUY'
+                  ? 'bg-bullish/20 text-bullish'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              B
+            </button>
+            <button
+              onClick={() => setDirection('SELL')}
+              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                direction === 'SELL'
+                  ? 'bg-destructive/20 text-destructive'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              S
+            </button>
           </div>
         </div>
       </td>
