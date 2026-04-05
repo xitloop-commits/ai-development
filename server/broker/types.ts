@@ -161,6 +161,50 @@ export interface OptionChainData {
   timestamp: number; // UTC ms
 }
 
+// ─── Candle / Chart Data Types ──────────────────────────────────
+
+export type IntradayInterval = "1" | "5" | "15" | "25" | "60";
+
+export type InstrumentType =
+  | "EQUITY"
+  | "INDEX"
+  | "FUTIDX"
+  | "FUTCOM"
+  | "FUTSTK"
+  | "OPTIDX"
+  | "OPTSTK"
+  | "OPTFUT";
+
+export interface IntradayDataParams {
+  securityId: string;
+  exchangeSegment: string;
+  instrument: InstrumentType;
+  interval: IntradayInterval;
+  fromDate: string; // "YYYY-MM-DD HH:mm:ss"
+  toDate: string;   // "YYYY-MM-DD HH:mm:ss"
+  oi?: boolean;     // include open interest (default false)
+}
+
+export interface HistoricalDataParams {
+  securityId: string;
+  exchangeSegment: string;
+  instrument: InstrumentType;
+  fromDate: string; // "YYYY-MM-DD"
+  toDate: string;   // "YYYY-MM-DD" (non-inclusive)
+  expiryCode?: number; // 0 = near, 1 = next, 2 = far (for derivatives)
+  oi?: boolean;     // include open interest (default false)
+}
+
+export interface CandleData {
+  open: number[];
+  high: number[];
+  low: number[];
+  close: number[];
+  volume: number[];
+  timestamp: number[];     // epoch seconds
+  openInterest?: number[]; // present when oi=true
+}
+
 // ─── Real-time Types ────────────────────────────────────────────
 
 export type FeedMode = "ticker" | "quote" | "full";
@@ -338,6 +382,12 @@ export interface BrokerAdapter {
 
   /** Get option chain data for an underlying + expiry. */
   getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData>;
+
+  /** Get intraday OHLCV candle data (1/5/15/25/60 min intervals, max 90 days per call). */
+  getIntradayData(params: IntradayDataParams): Promise<CandleData>;
+
+  /** Get daily historical OHLCV candle data (available back to inception). */
+  getHistoricalData(params: HistoricalDataParams): Promise<CandleData>;
 
   // ── Scrip Master Helpers (optional — implemented by adapters with local cache) ──
   /** Get scrip master cache status. */

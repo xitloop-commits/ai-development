@@ -155,6 +155,38 @@ export interface DhanOptionChainResponse {
   spotPrice?: number;
 }
 
+// ─── Charts / Historical Data ─────────────────────────────────
+
+export interface DhanHistoricalDataRequest {
+  securityId: string;
+  exchangeSegment: string;
+  instrument: string;
+  expiryCode?: number;
+  oi?: boolean;
+  fromDate: string; // "YYYY-MM-DD"
+  toDate: string;   // "YYYY-MM-DD" (non-inclusive)
+}
+
+export interface DhanIntradayDataRequest {
+  securityId: string;
+  exchangeSegment: string;
+  instrument: string;
+  interval: string; // "1", "5", "15", "25", "60"
+  oi?: boolean;
+  fromDate: string; // "YYYY-MM-DD HH:mm:ss"
+  toDate: string;   // "YYYY-MM-DD HH:mm:ss"
+}
+
+export interface DhanCandleDataResponse {
+  open: number[];
+  high: number[];
+  low: number[];
+  close: number[];
+  volume: number[];
+  timestamp: number[];
+  open_interest?: number[];
+}
+
 // ─── Error Response ────────────────────────────────────────────
 
 export interface DhanErrorResponse {

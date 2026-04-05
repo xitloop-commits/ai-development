@@ -22,6 +22,9 @@ import type {
   MarginInfo,
   Instrument,
   OptionChainData,
+  CandleData,
+  IntradayDataParams,
+  HistoricalDataParams,
   SubscribeParams,
   TickCallback,
   OrderUpdateCallback,
@@ -55,6 +58,9 @@ import type {
   DhanPositionEntry,
   DhanFundLimitResponse,
   DhanKillSwitchResponse,
+  DhanCandleDataResponse,
+  DhanHistoricalDataRequest,
+  DhanIntradayDataRequest,
 } from "./types";
 
 import { getBrokerConfig, updateBrokerConnection } from "../../brokerConfig";
@@ -646,6 +652,111 @@ export class DhanAdapter implements BrokerAdapter {
       spotPrice: ocData.last_price ?? 0,
       rows,
       timestamp: Date.now(),
+    };
+  }
+
+
+  // ── Charts / Historical Data ──────────────────────────────────
+
+  async getIntradayData(params: IntradayDataParams): Promise<CandleData> {
+    this._ensureToken();
+    await this.rateLimiter.acquire();
+
+    const body: DhanIntradayDataRequest = {
+      securityId: params.securityId,
+      exchangeSegment: params.exchangeSegment,
+      instrument: params.instrument,
+      interval: params.interval,
+      oi: params.oi ?? false,
+      fromDate: params.fromDate,
+      toDate: params.toDate,
+    };
+
+    const result = await withRetry(
+      () => dhanRequest<DhanCandleDataResponse>(
+        "POST",
+        DHAN_ENDPOINTS.CHARTS_INTRADAY,
+        this.accessToken,
+        body as unknown as Record<string, unknown>
+      ),
+      {
+        maxRetries: 2,
+        delayMs: 500,
+        shouldRetry: isRetryableError,
+      }
+    );
+
+    if (result.isAuthError) {
+      await handleDhan401(this.brokerId);
+      throw new Error("Token expired. Please update your Dhan access token.");
+    }
+
+    if (!result.ok || !result.data) {
+      throw new Error(
+        result.error?.errorMessage ?? `Intraday data fetch failed (HTTP ${result.status})`
+      );
+    }
+
+    const data = result.data;
+    return {
+      open: data.open ?? [],
+      high: data.high ?? [],
+      low: data.low ?? [],
+      close: data.close ?? [],
+      volume: data.volume ?? [],
+      timestamp: data.timestamp ?? [],
+      ...(params.oi && data.open_interest ? { openInterest: data.open_interest } : {}),
+    };
+  }
+
+  async getHistoricalData(params: HistoricalDataParams): Promise<CandleData> {
+    this._ensureToken();
+    await this.rateLimiter.acquire();
+
+    const body: DhanHistoricalDataRequest = {
+      securityId: params.securityId,
+      exchangeSegment: params.exchangeSegment,
+      instrument: params.instrument,
+      expiryCode: params.expiryCode ?? 0,
+      oi: params.oi ?? false,
+      fromDate: params.fromDate,
+      toDate: params.toDate,
+    };
+
+    const result = await withRetry(
+      () => dhanRequest<DhanCandleDataResponse>(
+        "POST",
+        DHAN_ENDPOINTS.CHARTS_HISTORICAL,
+        this.accessToken,
+        body as unknown as Record<string, unknown>
+      ),
+      {
+        maxRetries: 2,
+        delayMs: 500,
+        shouldRetry: isRetryableError,
+      }
+    );
+
+    if (result.isAuthError) {
+      await handleDhan401(this.brokerId);
+      throw new Error("Token expired. Please update your Dhan access token.");
+    }
+
+    if (!result.ok || !result.data) {
+      throw new Error(
+        result.error?.errorMessage ?? `Historical data fetch failed (HTTP ${result.status})`
+      );
+    }
+
+    const data = result.data;
+    return {
+      open: data.open ?? [],
+      high: data.high ?? [],
+      low: data.low ?? [],
+      close: data.close ?? [],
+      volume: data.volume ?? [],
+      timestamp: data.timestamp ?? [],
+      ...(params.oi && data.open_interest ? { openInterest: data.open_interest } : {}),
     };
   }
 

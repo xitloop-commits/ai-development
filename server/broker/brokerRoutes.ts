@@ -516,6 +516,80 @@ export function registerBrokerRoutes(app: Express): void {
     }
   });
 
+  // ── Charts / Historical Data ─────────────────────────────────
+
+  /** POST /api/broker/charts/intraday — Get intraday OHLCV candle data */
+  app.post("/api/broker/charts/intraday", async (req: Request, res: Response) => {
+    try {
+      const broker = requireBrokerREST(res);
+      if (!broker) return;
+
+      const { securityId, exchangeSegment, instrument, interval, fromDate, toDate, oi } = req.body;
+
+      if (!securityId || !exchangeSegment || !instrument || !interval || !fromDate || !toDate) {
+        sendError(
+          res,
+          400,
+          "Missing required fields: securityId, exchangeSegment, instrument, interval, fromDate, toDate"
+        );
+        return;
+      }
+
+      const validIntervals = ["1", "5", "15", "25", "60"];
+      if (!validIntervals.includes(interval)) {
+        sendError(res, 400, `Invalid interval. Must be one of: ${validIntervals.join(", ")}`);
+        return;
+      }
+
+      const data = await broker.getIntradayData({
+        securityId,
+        exchangeSegment,
+        instrument,
+        interval,
+        fromDate,
+        toDate,
+        oi: oi ?? false,
+      });
+      res.json({ success: true, data });
+    } catch (err: any) {
+      console.error("[Broker REST] Error fetching intraday data:", err);
+      sendError(res, 500, err.message);
+    }
+  });
+
+  /** POST /api/broker/charts/historical — Get daily historical OHLCV candle data */
+  app.post("/api/broker/charts/historical", async (req: Request, res: Response) => {
+    try {
+      const broker = requireBrokerREST(res);
+      if (!broker) return;
+
+      const { securityId, exchangeSegment, instrument, fromDate, toDate, expiryCode, oi } = req.body;
+
+      if (!securityId || !exchangeSegment || !instrument || !fromDate || !toDate) {
+        sendError(
+          res,
+          400,
+          "Missing required fields: securityId, exchangeSegment, instrument, fromDate, toDate"
+        );
+        return;
+      }
+
+      const data = await broker.getHistoricalData({
+        securityId,
+        exchangeSegment,
+        instrument,
+        fromDate,
+        toDate,
+        expiryCode: expiryCode ?? 0,
+        oi: oi ?? false,
+      });
+      res.json({ success: true, data });
+    } catch (err: any) {
+      console.error("[Broker REST] Error fetching historical data:", err);
+      sendError(res, 500, err.message);
+    }
+  });
+
   // ── Trade Book ──────────────────────────────────────────────
 
   /** GET /api/broker/trades — Trade book */
