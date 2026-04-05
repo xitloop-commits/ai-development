@@ -251,7 +251,7 @@ export default function MainFooter() {
         </div>
 
         {/* Separator */}
-        <div className="w-px h-6 bg-border/50 shrink-0" />
+        <div className="w-px h-8 bg-border shrink-0" />
 
         {/* ─── 2. Monthly Growth ─── */}
         <div className="flex items-center gap-3 shrink-0">
@@ -319,7 +319,7 @@ export default function MainFooter() {
         </div>
 
         {/* Separator */}
-        <div className="w-px h-6 bg-border/50 shrink-0" />
+        <div className="w-px h-8 bg-border shrink-0" />
 
         {/* ─── 3. Day 250 Journey ─── */}
         <Tooltip>
@@ -351,7 +351,7 @@ export default function MainFooter() {
         </Tooltip>
 
         {/* Separator */}
-        <div className="w-px h-6 bg-border/50 shrink-0" />
+        <div className="w-px h-8 bg-border shrink-0" />
 
         {/* ─── 4. Project Milestone ─── */}
         <Tooltip>
@@ -511,7 +511,7 @@ export default function MainFooter() {
         </div>
 
         {/* Separator */}
-        <div className="w-px h-6 bg-border/50 shrink-0" />
+        <div className="w-px h-8 bg-border shrink-0" />
 
         {/* ─── 7. Capital Pools (horizontal) ─── */}
         <Tooltip>
@@ -520,12 +520,12 @@ export default function MainFooter() {
               {/* Trading Pool mini bar */}
               <div className="flex items-center gap-1.5">
                 <Zap className="h-3 w-3 text-primary shrink-0" />
-                <div className="flex flex-col w-[90px]">
+                <div className="flex flex-col w-[140px]">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-muted-foreground tracking-widest uppercase">Trading</span>
                     <span className="text-[12px] font-bold tabular-nums text-foreground">{fmt(tradingPool)}</span>
                   </div>
-                  <div className="h-1 rounded-full bg-secondary/50 overflow-hidden">
+                  <div className="h-1.5 rounded-full bg-secondary/50 overflow-hidden">
                     <div
                       className="h-full rounded-full bg-gradient-green-cyan transition-all duration-500"
                       style={{ width: `${Math.min(parseFloat(tradingPoolPct), 100)}%` }}
@@ -537,12 +537,12 @@ export default function MainFooter() {
               {/* Reserve Pool mini bar */}
               <div className="flex items-center gap-1.5">
                 <Shield className="h-3 w-3 text-info-cyan shrink-0" />
-                <div className="flex flex-col w-[90px]">
+                <div className="flex flex-col w-[140px]">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-muted-foreground tracking-widest uppercase">Reserve</span>
                     <span className="text-[12px] font-bold tabular-nums text-foreground">{fmt(reservePool)}</span>
                   </div>
-                  <div className="h-1 rounded-full bg-secondary/50 overflow-hidden">
+                  <div className="h-1.5 rounded-full bg-secondary/50 overflow-hidden">
                     <div
                       className="h-full rounded-full bg-gradient-cyan-violet transition-all duration-500"
                       style={{ width: `${Math.min(parseFloat(reservePoolPct), 100)}%` }}
@@ -627,7 +627,7 @@ export default function MainFooter() {
         </Tooltip>
 
         {/* Separator */}
-        <div className="w-px h-6 bg-border/50 shrink-0" />
+        <div className="w-px h-8 bg-border shrink-0" />
 
         {/* ─── 8. Net Worth ─── */}
         <Tooltip>
