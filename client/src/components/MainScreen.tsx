@@ -67,7 +67,7 @@ const POLL_INTERVAL = 3000;
 export default function MainScreen() {
   // ─── Sidebar State (visible by default) ────────────────────────
   const [leftSidebarVisible, setLeftSidebarVisible] = useState(true);
-  const [rightSidebarVisible, setRightSidebarVisible] = useState(true);
+  const [rightSidebarVisible, setRightSidebarVisible] = useState(false);
 
   // ─── Overlay State ─────────────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false);

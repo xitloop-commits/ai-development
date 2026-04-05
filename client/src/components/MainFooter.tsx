@@ -214,7 +214,7 @@ export default function MainFooter() {
 
   return (
     <div className="sticky bottom-0 z-40 border-t border-border bg-card/90 backdrop-blur-md">
-      <div className="flex items-center px-3 py-1.5 gap-4">
+      <div className="flex items-center px-3 py-2 gap-4">
 
         {/* ─── 1. Quarterly Projections ─── */}
         <div className="flex items-center gap-0.5 shrink-0">
@@ -229,18 +229,18 @@ export default function MainFooter() {
                     : 'bg-secondary/50'
               }`}
             >
-              <span className={`text-[7px] tracking-widest uppercase font-bold ${
+              <span className={`text-[8px] tracking-widest uppercase font-bold ${
                 q.isCurrent ? 'text-info-cyan' : 'text-muted-foreground'
               }`}>
                 {q.quarterLabel}
               </span>
-              <span className={`text-[9px] font-bold tabular-nums ${
+              <span className={`text-[10px] font-bold tabular-nums ${
                 q.isCurrent ? 'text-info-cyan' : q.isPast ? 'text-muted-foreground' : 'text-foreground/70'
               }`}>
                 {fmt(q.projectedCapital)}
               </span>
               {q.isCurrent && q.deviation !== 0 && (
-                <span className={`text-[7px] tabular-nums font-medium ${
+                <span className={`text-[8px] tabular-nums font-medium ${
                   q.deviation > 0 ? 'text-profit' : 'text-loss'
                 }`}>
                   ({q.deviation > 0 ? '+' : ''}{fmt(q.deviation)})
@@ -258,10 +258,10 @@ export default function MainFooter() {
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex flex-col cursor-default">
-                <span className="text-[7px] text-muted-foreground tracking-widest uppercase">{prevMonthName}</span>
-                <span className="text-[9px] font-bold tabular-nums text-foreground">
+                <span className="text-[8px] text-muted-foreground tracking-widest uppercase">{prevMonthName}</span>
+                <span className="text-[11px] font-bold tabular-nums text-foreground">
                   {fmt(prevMonthFund)}{' '}
-                  <span className={`text-[8px] ${prevMonthGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
+                  <span className={`text-[9px] ${prevMonthGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
                     {prevMonthGrowth >= 0 ? '+' : ''}{prevMonthGrowth.toFixed(1)}%
                   </span>
                 </span>
@@ -289,10 +289,10 @@ export default function MainFooter() {
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex flex-col cursor-default">
-                <span className="text-[7px] text-muted-foreground tracking-widest uppercase">{currMonthName}</span>
-                <span className="text-[9px] font-bold tabular-nums text-foreground">
+                <span className="text-[8px] text-muted-foreground tracking-widest uppercase">{currMonthName}</span>
+                <span className="text-[11px] font-bold tabular-nums text-foreground">
                   {fmt(currMonthFund)}{' '}
-                  <span className={`text-[8px] ${currMonthGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
+                  <span className={`text-[9px] ${currMonthGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
                     {currMonthGrowth >= 0 ? '+' : ''}{currMonthGrowth.toFixed(1)}%
                   </span>
                 </span>
@@ -328,8 +328,8 @@ export default function MainFooter() {
               <Target className="h-3 w-3 text-primary shrink-0" />
               <div className="flex flex-col w-[80px]">
                 <div className="flex items-center justify-between">
-                  <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Day 250</span>
-                  <span className="text-[8px] font-bold tabular-nums text-primary">{currentDay}/250</span>
+                  <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Day 250</span>
+                  <span className="text-[10px] font-bold tabular-nums text-primary">{currentDay}/250</span>
                 </div>
                 <div className="h-1 rounded-full bg-secondary/50 overflow-hidden">
                   <div
@@ -358,8 +358,8 @@ export default function MainFooter() {
           <TooltipTrigger asChild>
             <div className="flex items-center gap-2 cursor-default shrink-0">
               <div className="flex flex-col">
-                <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Milestone</span>
-                <span className="text-[9px] font-bold tabular-nums text-foreground">
+                <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Milestone</span>
+                <span className="text-[11px] font-bold tabular-nums text-foreground">
                   {prevMilestone ? `Day ${prevMilestone.day}` : 'Start'} → Day {currentMilestone.day}
                 </span>
               </div>
@@ -403,7 +403,7 @@ export default function MainFooter() {
             <DialogTrigger asChild>
               <button className="flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity">
                 <Calendar className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[8px] text-muted-foreground tracking-wider hover:text-foreground transition-colors">
+                <span className="text-[10px] text-muted-foreground tracking-wider hover:text-foreground transition-colors">
                   {holidayText}
                 </span>
               </button>
@@ -492,7 +492,7 @@ export default function MainFooter() {
             <TooltipTrigger asChild>
               <div className="flex items-center gap-1 cursor-default">
                 <Shield className={`h-3 w-3 ${scoreColor}`} />
-                <span className={`text-[9px] tabular-nums font-bold ${scoreColor}`}>{disciplineScore}/100</span>
+                <span className={`text-[11px] tabular-nums font-bold ${scoreColor}`}>{disciplineScore}/100</span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="top" className="bg-card border-border text-foreground">
@@ -522,8 +522,8 @@ export default function MainFooter() {
                 <Zap className="h-3 w-3 text-primary shrink-0" />
                 <div className="flex flex-col w-[90px]">
                   <div className="flex items-center justify-between">
-                    <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Trading</span>
-                    <span className="text-[8px] font-bold tabular-nums text-foreground">{fmt(tradingPool)}</span>
+                    <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Trading</span>
+                    <span className="text-[10px] font-bold tabular-nums text-foreground">{fmt(tradingPool)}</span>
                   </div>
                   <div className="h-1 rounded-full bg-secondary/50 overflow-hidden">
                     <div
@@ -539,8 +539,8 @@ export default function MainFooter() {
                 <Shield className="h-3 w-3 text-info-cyan shrink-0" />
                 <div className="flex flex-col w-[90px]">
                   <div className="flex items-center justify-between">
-                    <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Reserve</span>
-                    <span className="text-[8px] font-bold tabular-nums text-foreground">{fmt(reservePool)}</span>
+                    <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Reserve</span>
+                    <span className="text-[10px] font-bold tabular-nums text-foreground">{fmt(reservePool)}</span>
                   </div>
                   <div className="h-1 rounded-full bg-secondary/50 overflow-hidden">
                     <div
@@ -633,10 +633,10 @@ export default function MainFooter() {
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex flex-col items-end cursor-default shrink-0">
-              <span className="text-[7px] text-muted-foreground tracking-widest uppercase">Net Worth</span>
-              <span className="text-[10px] font-bold tabular-nums text-foreground">
+              <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Net Worth</span>
+              <span className="text-[12px] font-bold tabular-nums text-foreground">
                 {fmt(netWorth)}{' '}
-                <span className={`text-[8px] ${Number(growthPercent) >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
+                <span className={`text-[10px] ${Number(growthPercent) >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
                   {Number(growthPercent) >= 0 ? '+' : ''}{growthPercent}%
                 </span>
               </span>
