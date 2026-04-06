@@ -28,7 +28,15 @@ export type {
   BrokerSettings,
   BrokerConnection,
   BrokerCapabilities,
+  CandleData,
+  IntradayDataParams,
+  HistoricalDataParams,
+  IntradayInterval,
+  InstrumentType,
 } from "./types";
+
+// Helpers
+export { transformCandleData } from "./types";
 
 // Config CRUD
 export {

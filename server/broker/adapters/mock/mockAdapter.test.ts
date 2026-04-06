@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { MockAdapter } from "./index";
 import type { OrderParams } from "../../types";
+import { transformCandleData } from "../../types";
 
 // ─── Test Helpers ───────────────────────────────────────────────
 
@@ -414,6 +415,270 @@ describe("MockAdapter", () => {
       expect(row).toHaveProperty("putOI");
       expect(row).toHaveProperty("callLTP");
       expect(row).toHaveProperty("putLTP");
+    });
+  });
+
+  // ── Charts / Historical Data (Mock) ───────────────────
+
+  describe("Intraday Data", () => {
+    it("returns candle data with correct shape", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "5",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+      });
+
+      expect(data.open.length).toBeGreaterThan(0);
+      expect(data.high.length).toBe(data.open.length);
+      expect(data.low.length).toBe(data.open.length);
+      expect(data.close.length).toBe(data.open.length);
+      expect(data.volume.length).toBe(data.open.length);
+      expect(data.timestamp.length).toBe(data.open.length);
+    });
+
+    it("includes open interest when oi=true", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "15",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+        oi: true,
+      });
+
+      expect(data.openInterest).toBeDefined();
+      expect(data.openInterest!.length).toBe(data.open.length);
+    });
+
+    it("omits open interest when oi is not set", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "1",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+      });
+
+      expect(data.openInterest).toBeUndefined();
+    });
+
+    it("returns valid OHLCV values", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "5",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+      });
+
+      for (let i = 0; i < data.open.length; i++) {
+        expect(data.high[i]).toBeGreaterThanOrEqual(data.low[i]);
+        expect(data.volume[i]).toBeGreaterThan(0);
+        expect(data.timestamp[i]).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  describe("Historical Data", () => {
+    it("returns daily candle data with correct shape", async () => {
+      const data = await adapter.getHistoricalData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        fromDate: "2026-03-01",
+        toDate: "2026-04-01",
+      });
+
+      expect(data.open.length).toBeGreaterThan(0);
+      expect(data.high.length).toBe(data.open.length);
+      expect(data.low.length).toBe(data.open.length);
+      expect(data.close.length).toBe(data.open.length);
+      expect(data.volume.length).toBe(data.open.length);
+      expect(data.timestamp.length).toBe(data.open.length);
+    });
+
+    it("includes open interest when oi=true", async () => {
+      const data = await adapter.getHistoricalData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        fromDate: "2026-03-01",
+        toDate: "2026-04-01",
+        oi: true,
+      });
+
+      expect(data.openInterest).toBeDefined();
+      expect(data.openInterest!.length).toBe(data.open.length);
+    });
+
+    it("supports expiryCode parameter", async () => {
+      const data = await adapter.getHistoricalData({
+        securityId: "13",
+        exchangeSegment: "NSE_FNO",
+        instrument: "FUTIDX",
+        fromDate: "2026-03-01",
+        toDate: "2026-04-01",
+        expiryCode: 1,
+      });
+
+      expect(data.open.length).toBeGreaterThan(0);
+    });
+
+    it("returns valid OHLCV values", async () => {
+      const data = await adapter.getHistoricalData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        fromDate: "2026-03-01",
+        toDate: "2026-04-01",
+      });
+
+      for (let i = 0; i < data.open.length; i++) {
+        expect(data.high[i]).toBeGreaterThanOrEqual(data.low[i]);
+        expect(data.volume[i]).toBeGreaterThan(0);
+        expect(data.timestamp[i]).toBeGreaterThan(0);
+      }
+    });
+
+    it("timestamps are in ascending order", async () => {
+      const data = await adapter.getHistoricalData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        fromDate: "2026-03-01",
+        toDate: "2026-04-01",
+      });
+
+      for (let i = 1; i < data.timestamp.length; i++) {
+        expect(data.timestamp[i]).toBeGreaterThan(data.timestamp[i - 1]);
+      }
+    });
+  });
+
+  // ── Transform Candle Data ───────────────────────────────────
+
+  describe("transformCandleData (CSV output)", () => {
+    it("returns a CSV string with header row for intraday", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "5",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+      });
+
+      const csv = transformCandleData(data, "intraday");
+
+      expect(typeof csv).toBe("string");
+      const lines = csv.split("\n");
+      expect(lines[0]).toBe("time,open,high,low,close,volume");
+      // Data rows = total lines - 1 header
+      expect(lines.length - 1).toBe(data.timestamp.length);
+      // Intraday time format: YYYY-MM-DD HH:mm
+      expect(lines[1].split(",")[0]).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    });
+
+    it("returns a CSV string with header row for historical", async () => {
+      const data = await adapter.getHistoricalData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        fromDate: "2026-03-01",
+        toDate: "2026-04-01",
+      });
+
+      const csv = transformCandleData(data, "historical");
+      const lines = csv.split("\n");
+
+      expect(lines[0]).toBe("time,open,high,low,close,volume");
+      // Historical time format: YYYY-MM-DD
+      expect(lines[1].split(",")[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    it("CSV rows are sorted ascending by time", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "5",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+      });
+
+      const csv = transformCandleData(data, "intraday");
+      const lines = csv.split("\n");
+      const dataLines = lines.slice(1);
+
+      for (let i = 1; i < dataLines.length; i++) {
+        const prevTime = dataLines[i - 1].split(",")[0];
+        const currTime = dataLines[i].split(",")[0];
+        expect(currTime >= prevTime).toBe(true);
+      }
+    });
+
+    it("includes openInterest column in header and data when oi=true", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "49081",
+        exchangeSegment: "NSE_FNO",
+        instrument: "FUTIDX",
+        interval: "5",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+        oi: true,
+      });
+
+      const csv = transformCandleData(data, "intraday");
+      const lines = csv.split("\n");
+
+      expect(lines[0]).toBe("time,open,high,low,close,volume,openInterest");
+      // Data row should have 7 columns
+      expect(lines[1].split(",").length).toBe(7);
+    });
+
+    it("omits openInterest column when oi=false", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "5",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+        oi: false,
+      });
+
+      const csv = transformCandleData(data, "intraday");
+      const lines = csv.split("\n");
+
+      expect(lines[0]).toBe("time,open,high,low,close,volume");
+      // Data row should have 6 columns
+      expect(lines[1].split(",").length).toBe(6);
+    });
+
+    it("each data row has valid numeric values", async () => {
+      const data = await adapter.getIntradayData({
+        securityId: "13",
+        exchangeSegment: "IDX_I",
+        instrument: "INDEX",
+        interval: "5",
+        fromDate: "2026-04-04 09:15:00",
+        toDate: "2026-04-04 15:30:00",
+      });
+
+      const csv = transformCandleData(data, "intraday");
+      const lines = csv.split("\n");
+      const firstDataRow = lines[1].split(",");
+
+      // open, high, low, close, volume should all be valid numbers
+      for (let i = 1; i < firstDataRow.length; i++) {
+        expect(Number.isNaN(Number(firstDataRow[i]))).toBe(false);
+      }
     });
   });
 

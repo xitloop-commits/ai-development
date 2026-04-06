@@ -164,6 +164,115 @@ export interface OptionChainData {
   timestamp: number; // UTC ms
 }
 
+// ─── Candle / Chart Data Types ──────────────────────────────────
+
+export type IntradayInterval = "1" | "5" | "15" | "25" | "60";
+
+export type InstrumentType =
+  | "EQUITY"
+  | "INDEX"
+  | "FUTIDX"
+  | "FUTCOM"
+  | "FUTSTK"
+  | "OPTIDX"
+  | "OPTSTK"
+  | "OPTFUT";
+
+export interface IntradayDataParams {
+  securityId: string;
+  exchangeSegment: string;
+  instrument: InstrumentType;
+  interval: IntradayInterval;
+  fromDate: string; // "YYYY-MM-DD HH:mm:ss"
+  toDate: string;   // "YYYY-MM-DD HH:mm:ss"
+  oi?: boolean;     // include open interest (default false)
+}
+
+export interface HistoricalDataParams {
+  securityId: string;
+  exchangeSegment: string;
+  instrument: InstrumentType;
+  fromDate: string; // "YYYY-MM-DD"
+  toDate: string;   // "YYYY-MM-DD" (non-inclusive)
+  expiryCode?: number; // 0 = near, 1 = next, 2 = far (for derivatives)
+  oi?: boolean;     // include open interest (default false)
+}
+
+export interface CandleData {
+  open: number[];
+  high: number[];
+  low: number[];
+  close: number[];
+  volume: number[];
+  timestamp: number[];     // epoch seconds
+  openInterest?: number[]; // present when oi=true
+}
+
+/**
+ * Convert columnar CandleData to a CSV string sorted ascending by time.
+ *
+ * Output format:
+ *   time,open,high,low,close,volume[,openInterest]
+ *   2026-04-04 09:15,22100,22150,22080,22130,120000
+ *
+ * @param data  Columnar candle data from the adapter
+ * @param mode  "intraday" formats time as "YYYY-MM-DD HH:mm", "historical" as "YYYY-MM-DD"
+ */
+export function transformCandleData(
+  data: CandleData,
+  mode: "intraday" | "historical" = "intraday"
+): string {
+  const hasOI = !!(data.openInterest && data.openInterest.length > 0);
+
+  // Build rows as tuples: [time, open, high, low, close, volume, oi?]
+  const rows: string[][] = [];
+
+  for (let i = 0; i < data.timestamp.length; i++) {
+    // Dhan returns epoch seconds; convert to IST (UTC+5:30)
+    const date = new Date(data.timestamp[i] * 1000);
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const ist = new Date(date.getTime() + istOffset);
+
+    const yyyy = ist.getUTCFullYear();
+    const mm = String(ist.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(ist.getUTCDate()).padStart(2, "0");
+
+    let time: string;
+    if (mode === "intraday") {
+      const hh = String(ist.getUTCHours()).padStart(2, "0");
+      const min = String(ist.getUTCMinutes()).padStart(2, "0");
+      time = `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+    } else {
+      time = `${yyyy}-${mm}-${dd}`;
+    }
+
+    const row = [
+      time,
+      String(data.open[i]),
+      String(data.high[i]),
+      String(data.low[i]),
+      String(data.close[i]),
+      String(data.volume[i]),
+    ];
+
+    if (hasOI) {
+      row.push(String(data.openInterest![i]));
+    }
+
+    rows.push(row);
+  }
+
+  // Sort ascending by time
+  rows.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+
+  // Build CSV
+  const header = hasOI
+    ? "time,open,high,low,close,volume,openInterest"
+    : "time,open,high,low,close,volume";
+
+  return header + "\n" + rows.map((r) => r.join(",")).join("\n");
+}
+
 // ─── Real-time Types ────────────────────────────────────────────
 
 export type FeedMode = "ticker" | "quote" | "full";
@@ -341,6 +450,12 @@ export interface BrokerAdapter {
 
   /** Get option chain data for an underlying + expiry. */
   getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData>;
+
+  /** Get intraday OHLCV candle data (1/5/15/25/60 min intervals, max 90 days per call). */
+  getIntradayData(params: IntradayDataParams): Promise<CandleData>;
+
+  /** Get daily historical OHLCV candle data (available back to inception). */
+  getHistoricalData(params: HistoricalDataParams): Promise<CandleData>;
 
   // ── Scrip Master Helpers (optional — implemented by adapters with local cache) ──
   /** Get scrip master cache status. */
