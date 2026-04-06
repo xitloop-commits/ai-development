@@ -116,6 +116,12 @@ function createStubAdapter(
         timestamp: Date.now(),
       };
     },
+    async getIntradayData() {
+      return { open: [], high: [], low: [], close: [], volume: [], timestamp: [] };
+    },
+    async getHistoricalData() {
+      return { open: [], high: [], low: [], close: [], volume: [], timestamp: [] };
+    },
     subscribeLTP() {},
     unsubscribeLTP() {},
     onOrderUpdate() {},

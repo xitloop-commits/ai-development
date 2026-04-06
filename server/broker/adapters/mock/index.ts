@@ -24,6 +24,9 @@ import type {
   MarginInfo,
   Instrument,
   OptionChainData,
+  CandleData,
+  IntradayDataParams,
+  HistoricalDataParams,
   SubscribeParams,
   TickCallback,
   TickData,
@@ -240,6 +243,82 @@ export class MockAdapter implements BrokerAdapter {
       rows,
       timestamp: Date.now(),
     };
+  }
+
+  // ── Charts / Historical Data (Mock) ────────────────────────────
+
+  async getIntradayData(params: IntradayDataParams): Promise<CandleData> {
+    // Generate mock intraday candle data
+    const count = 30; // 30 candles
+    const basePrice = 3750;
+    const baseTime = Math.floor(Date.now() / 1000) - count * 60;
+
+    const open: number[] = [];
+    const high: number[] = [];
+    const low: number[] = [];
+    const close: number[] = [];
+    const volume: number[] = [];
+    const timestamp: number[] = [];
+
+    let price = basePrice;
+    for (let i = 0; i < count; i++) {
+      const jitter = (Math.random() - 0.5) * 20;
+      const o = Math.round((price + jitter) * 100) / 100;
+      const h = Math.round((o + Math.random() * 10) * 100) / 100;
+      const l = Math.round((o - Math.random() * 10) * 100) / 100;
+      const c = Math.round((l + Math.random() * (h - l)) * 100) / 100;
+      price = c;
+
+      open.push(o);
+      high.push(h);
+      low.push(l);
+      close.push(c);
+      volume.push(Math.floor(Math.random() * 10000) + 1000);
+      timestamp.push(baseTime + i * 60);
+    }
+
+    const result: CandleData = { open, high, low, close, volume, timestamp };
+    if (params.oi) {
+      result.openInterest = Array(count).fill(0);
+    }
+    return result;
+  }
+
+  async getHistoricalData(params: HistoricalDataParams): Promise<CandleData> {
+    // Generate mock daily historical candle data
+    const count = 20; // 20 trading days
+    const basePrice = 3800;
+    const baseTime = Math.floor(Date.now() / 1000) - count * 86400;
+
+    const open: number[] = [];
+    const high: number[] = [];
+    const low: number[] = [];
+    const close: number[] = [];
+    const volume: number[] = [];
+    const timestamp: number[] = [];
+
+    let price = basePrice;
+    for (let i = 0; i < count; i++) {
+      const jitter = (Math.random() - 0.5) * 100;
+      const o = Math.round((price + jitter) * 100) / 100;
+      const h = Math.round((o + Math.random() * 50) * 100) / 100;
+      const l = Math.round((o - Math.random() * 50) * 100) / 100;
+      const c = Math.round((l + Math.random() * (h - l)) * 100) / 100;
+      price = c;
+
+      open.push(o);
+      high.push(h);
+      low.push(l);
+      close.push(c);
+      volume.push(Math.floor(Math.random() * 5000000) + 500000);
+      timestamp.push(baseTime + i * 86400);
+    }
+
+    const result: CandleData = { open, high, low, close, volume, timestamp };
+    if (params.oi) {
+      result.openInterest = Array(count).fill(0);
+    }
+    return result;
   }
 
   // ── Scrip Master Helpers ──────────────────────────────────────

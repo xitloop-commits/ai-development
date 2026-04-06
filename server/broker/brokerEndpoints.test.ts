@@ -298,6 +298,54 @@ describe("Market Data via Broker", () => {
     expect(chain.expiry).toBe("2026-04-02");
     expect(chain.rows.length).toBeGreaterThan(0);
   });
+
+  it("returns intraday candle data", async () => {
+    const broker = getActiveBroker()!;
+    const data = await broker.getIntradayData({
+      securityId: "13",
+      exchangeSegment: "IDX_I",
+      instrument: "INDEX",
+      interval: "5",
+      fromDate: "2026-04-04 09:15:00",
+      toDate: "2026-04-04 15:30:00",
+    });
+    expect(data.open.length).toBeGreaterThan(0);
+    expect(data.high.length).toBe(data.open.length);
+    expect(data.close.length).toBe(data.open.length);
+    expect(data.volume.length).toBe(data.open.length);
+    expect(data.timestamp.length).toBe(data.open.length);
+  });
+
+  it("returns historical candle data", async () => {
+    const broker = getActiveBroker()!;
+    const data = await broker.getHistoricalData({
+      securityId: "13",
+      exchangeSegment: "IDX_I",
+      instrument: "INDEX",
+      fromDate: "2026-03-01",
+      toDate: "2026-04-01",
+    });
+    expect(data.open.length).toBeGreaterThan(0);
+    expect(data.high.length).toBe(data.open.length);
+    expect(data.close.length).toBe(data.open.length);
+    expect(data.volume.length).toBe(data.open.length);
+    expect(data.timestamp.length).toBe(data.open.length);
+  });
+
+  it("returns intraday data with open interest", async () => {
+    const broker = getActiveBroker()!;
+    const data = await broker.getIntradayData({
+      securityId: "13",
+      exchangeSegment: "NSE_FNO",
+      instrument: "FUTIDX",
+      interval: "15",
+      fromDate: "2026-04-04 09:15:00",
+      toDate: "2026-04-04 15:30:00",
+      oi: true,
+    });
+    expect(data.openInterest).toBeDefined();
+    expect(data.openInterest!.length).toBe(data.open.length);
+  });
 });
 
 // ─── Config CRUD via Endpoints ──────────────────────────────────
