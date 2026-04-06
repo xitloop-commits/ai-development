@@ -146,17 +146,20 @@ export interface OptionChainRow {
   callLTP: number;
   callVolume: number;
   callIV: number;
+  callSecurityId?: string;
   putOI: number;
   putOIChange: number;
   putLTP: number;
   putVolume: number;
   putIV: number;
+  putSecurityId?: string;
 }
 
 export interface OptionChainData {
   underlying: string;
   expiry: string;
   spotPrice: number;
+  lotSize: number;   // lot size for this underlying (from scrip master)
   rows: OptionChainRow[];
   timestamp: number; // UTC ms
 }

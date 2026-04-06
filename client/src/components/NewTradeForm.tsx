@@ -42,6 +42,8 @@ interface NewTradeFormProps {
     expiry: string;
     entryPrice: number;
     capitalPercent: number;
+    lotSize?: number;
+    contractSecurityId?: string | null;
   }) => Promise<void>;
   onCancel: () => void;
   loading?: boolean;
@@ -225,22 +227,24 @@ export default function NewTradeForm(props: NewTradeFormProps) {
       strike: row.strike,
       callLTP: row.callLTP,
       putLTP: row.putLTP,
+      callSecurityId: row.callSecurityId,
+      putSecurityId: row.putSecurityId,
       isATM: row.strike === sorted[atmIndex].strike,
     }));
   }, [optionChainQuery.data]);
 
   useEffect(() => {
-    if (!isOptionTrade || selectedStrike || strikeOptions.length === 0) return;
+    setSelectedStrike('');
+    setEntryPrice('');
+  }, [expiry, instrument]);
+
+  useEffect(() => {
+    if (selectedStrike || strikeOptions.length === 0) return;
     const atmStrike = strikeOptions.find((strike) => strike.isATM);
     if (atmStrike) {
       setSelectedStrike(String(atmStrike.strike));
     }
-  }, [isOptionTrade, selectedStrike, strikeOptions]);
-
-  useEffect(() => {
-    setSelectedStrike('');
-    setEntryPrice('');
-  }, [expiry, instrument, optionType]);
+  }, [selectedStrike, strikeOptions]);
 
   useEffect(() => {
     if (!isOptionTrade || !selectedStrike) return;
@@ -260,8 +264,22 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     return optionType === 'CE' ? strikeData.callLTP : strikeData.putLTP;
   }, [isOptionTrade, optionType, selectedStrike, strikeOptions]);
 
+  const selectedContractSecurityId = useMemo(() => {
+    if (!isOptionTrade || !selectedStrike) return undefined;
+    const strikeData = strikeOptions.find((item) => String(item.strike) === selectedStrike);
+    if (!strikeData) return undefined;
+    return optionType === 'CE' ? strikeData.callSecurityId : strikeData.putSecurityId;
+  }, [isOptionTrade, optionType, selectedStrike, strikeOptions]);
+
+  const lotSize = optionChainQuery.data?.lotSize ?? 1;
   const estimatedMargin = availableCapital * capitalPercent / 100;
-  const estimatedQty = entryPrice ? Math.floor(estimatedMargin / parseFloat(entryPrice)) : 0;
+  const rawQty = entryPrice ? Math.floor(estimatedMargin / parseFloat(entryPrice)) : 0;
+  const estimatedQty = lotSize > 1
+    ? Math.max(lotSize, Math.floor(rawQty / lotSize) * lotSize)
+    : rawQty;
+  const estimatedLots = lotSize > 1 ? Math.floor(estimatedQty / lotSize) : 0;
+  const invested = estimatedQty * parseFloat(entryPrice || '0');
+
   const formReady =
     !!instrument &&
     !!direction &&
@@ -271,13 +289,12 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     parseFloat(entryPrice) > 0;
 
   const handleSubmit = async () => {
-    if (!formReady || !direction) return;
 
     const effectiveOptionType = optionType ?? 'NONE';
     const type =
       effectiveOptionType === 'NONE'
-        ? direction
-        : `${effectiveOptionType === 'CE' ? 'CALL' : 'PUT'}_${direction}` as
+        ? direction!
+        : `${effectiveOptionType === 'CE' ? 'CALL' : 'PUT'}_${direction!}` as
           'CALL_BUY' | 'CALL_SELL' | 'PUT_BUY' | 'PUT_SELL';
 
     await onSubmit({
@@ -287,6 +304,8 @@ export default function NewTradeForm(props: NewTradeFormProps) {
       expiry: isOptionTrade ? expiry : '',
       entryPrice: parseFloat(entryPrice),
       capitalPercent,
+      lotSize: lotSize > 1 ? lotSize : undefined,
+      contractSecurityId: selectedContractSecurityId ?? null,
     });
 
     setSelectedStrike('');
@@ -450,12 +469,12 @@ export default function NewTradeForm(props: NewTradeFormProps) {
           onChange={(e) => setEntryPrice(e.target.value)}
           placeholder="Entry"
           step="0.05"
-          className={inputClass}
+          className={`w-24 bg-background border border-border rounded px-1.5 py-1 text-[10px] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`}
         />
       </td>
 
       <td className="px-2 py-2 text-right">
-        <span className="text-[10px] italic tabular-nums text-muted-foreground/60">
+        <span className={`text-[10px] tabular-nums ${tone.textSoft}`}>
           {currentLtp > 0 ? currentLtp.toFixed(2) : '-'}
         </span>
       </td>
@@ -465,12 +484,20 @@ export default function NewTradeForm(props: NewTradeFormProps) {
           value={capitalPercent}
           onChange={(e) => setCapitalPercent(parseInt(e.target.value, 10))}
           className={`w-full bg-background border border-border rounded px-1 py-1 text-[10px] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`}
-          title={estimatedQty > 0 ? `Estimated qty: ${estimatedQty} | Margin: ${fmt(estimatedMargin)}` : 'Select capital percent'}
+          title={estimatedQty > 0
+            ? (estimatedLots > 0
+              ? `${estimatedLots} lots × ${lotSize} = ${estimatedQty} units | Margin: ${fmt(estimatedMargin)}`
+              : `Qty: ${estimatedQty} | Margin: ${fmt(estimatedMargin)}`)
+            : 'Select capital percent'}
         >
           {CAPITAL_PERCENT_OPTIONS.map((pct) => (
             <option key={pct} value={pct}>{pct}%</option>
           ))}
         </select>
+      </td>
+
+      <td className={`px-2 py-2 text-right tabular-nums ${tone.textSoft}`}>
+        {invested > 0 ? fmt(invested) : '-'}
       </td>
 
       <td className="px-2 py-1">

@@ -85,6 +85,7 @@ let isLoading: boolean = false;
 // Indexes for fast lookup
 let bySymbol: Map<string, ScripRecord[]> = new Map();
 let byExchange: Map<string, ScripRecord[]> = new Map();
+let bySecurityId: Map<string, ScripRecord> = new Map();
 
 // ─── CSV Parsing ───────────────────────────────────────────────
 
@@ -201,6 +202,7 @@ export function parseScripMasterCsv(csvText: string): ScripRecord[] {
 function buildIndexes(records: ScripRecord[]): void {
   bySymbol = new Map();
   byExchange = new Map();
+  bySecurityId = new Map();
 
   for (const rec of records) {
     // Index by underlying symbol (uppercase)
@@ -214,6 +216,11 @@ function buildIndexes(records: ScripRecord[]): void {
     const exch = rec.exchange;
     if (!byExchange.has(exch)) byExchange.set(exch, []);
     byExchange.get(exch)!.push(rec);
+
+    // Index by security ID
+    if (rec.securityId) {
+      bySecurityId.set(rec.securityId, rec);
+    }
   }
 }
 
@@ -471,6 +478,14 @@ export function getRecordsByExchange(exchange: string): ScripRecord[] {
  */
 export function getRecordsBySymbol(symbol: string): ScripRecord[] {
   return bySymbol.get(symbol.toUpperCase()) ?? [];
+}
+
+/**
+ * Get lot size for a specific security ID (option/future).
+ * Returns 1 if not found.
+ */
+export function getLotSizeBySecurityId(securityId: string): number {
+  return bySecurityId.get(securityId)?.lotSize ?? 1;
 }
 
 /**

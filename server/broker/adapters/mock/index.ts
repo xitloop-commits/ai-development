@@ -199,8 +199,18 @@ export class MockAdapter implements BrokerAdapter {
     _exchangeSegment?: string
   ): Promise<OptionChainData> {
     // Mock adapter returns a sample option chain
-    const baseStrike = underlying.includes("NIFTY") ? 26000 : 6000;
-    const step = underlying.includes("NIFTY") ? 100 : 50;
+    const sym = underlying.toUpperCase();
+    const isNifty = sym.includes("NIFTY");
+    const baseStrike = isNifty ? 26000 : 6000;
+    const step = isNifty ? 100 : 50;
+
+    // Static lot sizes matching NSE/MCX exchange norms
+    const MOCK_LOT_SIZES: Record<string, number> = {
+      NIFTY: 25, BANKNIFTY: 15, FINNIFTY: 25, MIDCPNIFTY: 50,
+      SENSEX: 10, BANKEX: 15,
+      CRUDEOIL: 100, NATURALGAS: 1250, GOLD: 1, SILVER: 30,
+    };
+    const lotSize = MOCK_LOT_SIZES[sym] ?? (isNifty ? 25 : 1);
 
     const rows = [];
     for (let i = -5; i <= 5; i++) {
@@ -212,11 +222,13 @@ export class MockAdapter implements BrokerAdapter {
         callLTP: Math.max(0.05, (5 - i) * 20 + Math.random() * 10),
         callVolume: Math.floor(Math.random() * 50000),
         callIV: 15 + Math.random() * 10,
+        callSecurityId: `MOCK-${sym}-${strike}-CE`,
         putOI: Math.floor(Math.random() * 100000),
         putOIChange: Math.floor(Math.random() * 10000) - 5000,
         putLTP: Math.max(0.05, (i + 5) * 20 + Math.random() * 10),
         putVolume: Math.floor(Math.random() * 50000),
         putIV: 15 + Math.random() * 10,
+        putSecurityId: `MOCK-${sym}-${strike}-PE`,
       });
     }
 
@@ -224,6 +236,7 @@ export class MockAdapter implements BrokerAdapter {
       underlying,
       expiry,
       spotPrice: baseStrike,
+      lotSize,
       rows,
       timestamp: Date.now(),
     };

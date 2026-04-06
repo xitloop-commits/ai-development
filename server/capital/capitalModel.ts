@@ -25,10 +25,12 @@ export interface TradeRecord {
   type: "CALL_BUY" | "CALL_SELL" | "PUT_BUY" | "PUT_SELL" | "BUY" | "SELL";
   strike: number | null;
   expiry?: string | null;
+  contractSecurityId?: string | null;
   entryPrice: number;
   exitPrice: number | null;
   ltp: number;
   qty: number;
+  lotSize?: number;               // lot size at time of trade (from scrip master)
   capitalPercent: number;         // % of available capital used
   pnl: number;                    // realized P&L (0 if open)
   unrealizedPnl: number;          // live unrealized P&L
@@ -107,10 +109,12 @@ const tradeRecordSchema = new Schema(
     type: { type: String, required: true },
     strike: { type: Number, default: null },
     expiry: { type: String, default: null },
+    contractSecurityId: { type: String, default: null },
     entryPrice: { type: Number, required: true },
     exitPrice: { type: Number, default: null },
     ltp: { type: Number, default: 0 },
     qty: { type: Number, required: true },
+    lotSize: { type: Number, default: null },
     capitalPercent: { type: Number, default: 0 },
     pnl: { type: Number, default: 0 },
     unrealizedPnl: { type: Number, default: 0 },
@@ -373,6 +377,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       exitPrice: t.exitPrice ?? null,
       ltp: t.ltp ?? 0,
       qty: t.qty,
+      lotSize: t.lotSize ?? undefined,
       capitalPercent: t.capitalPercent ?? 0,
       pnl: t.pnl ?? 0,
       unrealizedPnl: t.unrealizedPnl ?? 0,

@@ -343,6 +343,8 @@ export const capitalRouter = router({
       entryPrice: z.number().positive(),
       capitalPercent: z.number().min(5).max(25),
       expiry: z.string().optional().default(""),  // expiry date (YYYY-MM-DD), empty = nearest
+      contractSecurityId: z.string().optional().nullable(),
+      lotSize: z.number().int().positive().optional(),  // lot size from scrip master
       targetPercent: z.number().optional(),   // TP % from entry
       stopLossPercent: z.number().optional(),  // SL % from entry
     }))
@@ -359,7 +361,8 @@ export const capitalRouter = router({
       const { qty, margin } = calculatePositionSize(
         available,
         input.capitalPercent,
-        input.entryPrice
+        input.entryPrice,
+        input.lotSize ?? 1
       );
 
       if (qty <= 0) {
@@ -384,10 +387,12 @@ export const capitalRouter = router({
         type: input.type,
         strike: input.strike,
         expiry: input.expiry || null,
+        contractSecurityId: input.contractSecurityId ?? null,
         entryPrice: input.entryPrice,
         exitPrice: null,
         ltp: input.entryPrice,
         qty,
+        lotSize: input.lotSize,
         capitalPercent: input.capitalPercent,
         pnl: 0,
         unrealizedPnl: 0,
@@ -828,5 +833,38 @@ export const capitalRouter = router({
       }
 
       return day;
+    }),
+
+  /** Clear all trades and reset a paper workspace to zero. Only allowed for paper workspaces. */
+  clearWorkspace: publicProcedure
+    .input(z.object({
+      workspace: z.enum(['paper_manual', 'paper']),
+      initialFunding: z.number().positive().default(100000),
+    }))
+    .mutation(async ({ input }) => {
+      const targetPercent = await getDailyTargetPercent();
+      const now = Date.now();
+      const today = new Date().toISOString().slice(0, 10);
+
+      const deleted = await deleteAllDayRecords(input.workspace);
+
+      const freshState = {
+        tradingPool: Math.round(input.initialFunding * TRADING_SPLIT * 100) / 100,
+        reservePool: Math.round(input.initialFunding * (1 - TRADING_SPLIT) * 100) / 100,
+        initialFunding: input.initialFunding,
+        currentDayIndex: 1,
+        targetPercent,
+        profitHistory: [] as any[],
+        cumulativePnl: 0,
+        cumulativeCharges: 0,
+        sessionTradeCount: 0,
+        sessionPnl: 0,
+        sessionDate: today,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const newState = await replaceCapitalState(input.workspace, freshState);
+      return { success: true, deletedDayRecords: deleted, newState };
     }),
 });
