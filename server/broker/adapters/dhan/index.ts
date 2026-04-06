@@ -67,6 +67,7 @@ import {
   getScripMasterStatus,
   getRecordsByExchange,
   needsRefresh as scripNeedsRefresh,
+  getLotSizeBySecurityId,
   type LookupResult,
 } from "./scripMaster";
 
@@ -633,17 +634,25 @@ export class DhanAdapter implements BrokerAdapter {
       callLTP: strikes.ce?.last_price ?? 0,
       callVolume: strikes.ce?.volume ?? 0,
       callIV: strikes.ce?.implied_volatility ?? 0,
+      callSecurityId: strikes.ce?.security_id ? String(strikes.ce.security_id) : undefined,
       putOI: strikes.pe?.oi ?? 0,
       putOIChange: (strikes.pe?.oi ?? 0) - (strikes.pe?.previous_oi ?? 0),
       putLTP: strikes.pe?.last_price ?? 0,
       putVolume: strikes.pe?.volume ?? 0,
       putIV: strikes.pe?.implied_volatility ?? 0,
+      putSecurityId: strikes.pe?.security_id ? String(strikes.pe.security_id) : undefined,
     })).sort((a, b) => a.strike - b.strike);
+
+    // Derive lot size from first available security ID in the option chain
+    const firstEntry = Object.values(ocData.oc ?? {})[0];
+    const firstSecId = firstEntry?.ce?.security_id ?? firstEntry?.pe?.security_id;
+    const lotSize = firstSecId ? getLotSizeBySecurityId(String(firstSecId)) : 1;
 
     return {
       underlying,
       expiry,
       spotPrice: ocData.last_price ?? 0,
+      lotSize,
       rows,
       timestamp: Date.now(),
     };
