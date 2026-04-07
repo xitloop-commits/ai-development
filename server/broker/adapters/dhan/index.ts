@@ -593,6 +593,13 @@ export class DhanAdapter implements BrokerAdapter {
 
    async getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData> {
     this._ensureToken();
+
+    const requestBody = {
+      UnderlyingScrip: Number(underlying),
+      UnderlyingSeg: exchangeSegment || "IDX_I",
+      Expiry: expiry,
+    };
+
     const result = await dhanRequest<{
       data: {
         last_price: number;
@@ -620,21 +627,19 @@ export class DhanAdapter implements BrokerAdapter {
       "POST",
       DHAN_ENDPOINTS.OPTION_CHAIN,
       this.accessToken,
-      {
-        UnderlyingScrip: Number(underlying),
-        UnderlyingSeg: exchangeSegment || "IDX_I",
-        Expiry: expiry,
-      },
+      requestBody,
       { clientId: this.clientId }
     );
 
     if (result.isAuthError) {
+      console.warn(`[DhanAdapter] Token expired for underlying=${underlying}`);
       await handleDhan401(this.brokerId);
       throw new Error("Token expired.");
     }
 
     if (!result.ok || !result.data) {
-      throw new Error("Failed to fetch option chain.");
+      console.warn(`[DhanAdapter] Option chain fetch failed: underlying=${underlying}, expiry=${expiry}, error=${result.error?.errorType}`);
+      throw new Error(`Failed to fetch option chain: ${result.error?.errorMessage || "Unknown error"}`);
     }
 
     const ocData = result.data.data;

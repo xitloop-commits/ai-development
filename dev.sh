@@ -32,12 +32,58 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
+# ─── Detect and setup pnpm ────────────────────────────────────
+PNPM_CMD=""
+if command -v pnpm &> /dev/null; then
+    PNPM_CMD="pnpm"
+else
+    echo "  [!] pnpm not found. Installing globally..."
+    npm install -g pnpm 2>/dev/null && PNPM_CMD="pnpm"
+
+    # Fallback to npx if global install failed
+    if [ -z "$PNPM_CMD" ] && command -v npx &> /dev/null; then
+        echo "      Using npx pnpm instead."
+        PNPM_CMD="npx pnpm"
+    fi
+fi
+
+if [ -z "$PNPM_CMD" ]; then
+    echo "  ERROR: pnpm could not be installed and npx is not available."
+    exit 1
+fi
+
+# ─── Install dependencies if needed ───────────────────────────
+if [ ! -d "node_modules" ] || [ $(ls node_modules 2>/dev/null | wc -l) -lt 50 ]; then
+    echo "  [*] Installing dependencies with $PNPM_CMD..."
+    $PNPM_CMD install || { echo "  ERROR: Failed to install dependencies"; exit 1; }
+    echo ""
+fi
+
 # ─── Detect Python ────────────────────────────────────────────
 PYTHON_CMD=""
 if command -v python3 &> /dev/null; then
     PYTHON_CMD="python3"
 elif command -v python &> /dev/null; then
     PYTHON_CMD="python"
+fi
+
+# ─── Setup Python virtual environment ──────────────────────────
+if [ -n "$PYTHON_CMD" ]; then
+    VENV_DIR="python_venv"
+    if [ ! -d "$VENV_DIR" ]; then
+        echo "  [*] Creating Python virtual environment..."
+        $PYTHON_CMD -m venv "$VENV_DIR" || { echo "  ERROR: Failed to create virtual environment"; exit 1; }
+    fi
+
+    # Activate virtual environment
+    source "$VENV_DIR/bin/activate"
+
+    # Install Python dependencies if needed
+    if [ -f "python_modules/requirements.txt" ]; then
+        echo "  [*] Installing Python dependencies..."
+        pip install -q -r python_modules/requirements.txt || { echo "  ERROR: Failed to install Python dependencies"; exit 1; }
+        echo ""
+    fi
 fi
 
 # ─── Cleanup on exit ──────────────────────────────────────────
@@ -64,7 +110,7 @@ echo ""
 # ─── Start Node.js server ─────────────────────────────────────
 if [ "$PY_ONLY" = false ]; then
     echo "  [1] Starting Node.js server..."
-    pnpm dev &
+    $PNPM_CMD dev &
     NODE_PID=$!
     echo "      PID: $NODE_PID"
     echo ""
