@@ -10,6 +10,7 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useMemo,
   type ReactNode,
 } from 'react';
 import { trpc } from '@/lib/trpc';
@@ -75,30 +76,17 @@ export function InstrumentFilterProvider({ children }: { children: ReactNode }) 
   // Load configured instruments from the database
   const { data: instrumentsData } = trpc.instruments.list.useQuery();
   const allInstruments = instrumentsData ?? DEFAULT_INSTRUMENTS;
-  const validKeys = new Set(allInstruments.map((i) => i.key));
+
+  // Memoize validKeys to avoid creating a new Set on every render
+  const validKeys = useMemo(
+    () => new Set(allInstruments.map((i) => i.key)),
+    [instrumentsData]
+  );
 
   // Initialize enabled instruments from localStorage, filtered by valid keys
   const [enabledInstruments, setEnabledInstruments] = useState<Set<InstrumentKey>>(() =>
     loadEnabledInstruments(validKeys),
   );
-
-  // Sync enabled instruments whenever the valid keys change (new instruments added/removed)
-  useEffect(() => {
-    setEnabledInstruments((prev) => {
-      const next = new Set(prev);
-      // Remove any invalid keys
-      for (const k of next) {
-        if (!validKeys.has(k)) {
-          next.delete(k);
-        }
-      }
-      // If all were removed, enable all
-      if (next.size === 0) {
-        return new Set(validKeys);
-      }
-      return next;
-    });
-  }, [validKeys]);
 
   // tRPC mutation to sync active instruments to the backend
   const syncMutation = trpc.trading.setActiveInstruments.useMutation();
