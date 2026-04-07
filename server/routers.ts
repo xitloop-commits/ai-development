@@ -118,22 +118,27 @@ export const appRouter = router({
         })
       )
       .query(({ input }) => {
-        const exchange = input.exchange === "ALL" ? undefined : input.exchange;
-        const results = searchByQuery(input.query, exchange, 20);
-        // Transform to a simpler format for frontend
-        return results.map(r => ({
-          securityId: r.securityId,
-          tradingSymbol: r.tradingSymbol,
-          customSymbol: r.customSymbol,
-          underlyingSymbol: r.underlyingSymbol,
-          exchange: r.exchange,
-          segment: r.segment,
-          instrumentName: r.instrumentName,
-          expiryDate: r.expiryDate,
-          strikePrice: r.strikePrice,
-          optionType: r.optionType,
-          lotSize: r.lotSize,
-        }));
+        try {
+          const exchange = input.exchange === "ALL" ? undefined : input.exchange;
+          const results = searchByQuery(input.query, exchange, 20);
+          // Transform to a simpler format for frontend
+          return results.map(r => ({
+            securityId: r.securityId,
+            tradingSymbol: r.tradingSymbol,
+            customSymbol: r.customSymbol,
+            underlyingSymbol: r.underlyingSymbol,
+            exchange: r.exchange,
+            segment: r.segment,
+            instrumentName: r.instrumentName,
+            expiryDate: r.expiryDate,
+            strikePrice: r.strikePrice,
+            optionType: r.optionType,
+            lotSize: r.lotSize,
+          }));
+        } catch (err: any) {
+          console.error("[Instruments Search] Error:", err);
+          throw new Error(`Search failed: ${err.message}`);
+        }
       }),
 
     // Add a new instrument
