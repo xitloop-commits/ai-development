@@ -638,8 +638,10 @@ export class DhanAdapter implements BrokerAdapter {
     }
 
     if (!result.ok || !result.data) {
-      console.warn(`[DhanAdapter] Option chain fetch failed: underlying=${underlying}, expiry=${expiry}, error=${result.error?.errorType}`);
-      throw new Error(`Failed to fetch option chain: ${result.error?.errorMessage || "Unknown error"}`);
+      const errorMsg = result.error?.errorMessage || result.error?.errorType || "Unknown error";
+      console.warn(`[DhanAdapter] Option chain fetch failed: underlying=${underlying}, expiry=${expiry}, status=${result.status}, error=${errorMsg}`);
+      console.log(`[DhanAdapter] Full error response: ${JSON.stringify(result.error)}`);
+      throw new Error(`Failed to fetch option chain: ${errorMsg}`);
     }
 
     const ocData = result.data.data;
