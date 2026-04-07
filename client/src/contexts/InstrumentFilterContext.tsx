@@ -16,17 +16,19 @@ import { trpc } from '@/lib/trpc';
 
 const STORAGE_KEY = 'ats_instrument_filter';
 
-/** All available instruments in the system */
-export const ALL_INSTRUMENTS = [
+/** Default 4 instruments (fallback while loading from API) */
+const DEFAULT_INSTRUMENTS = [
   { key: 'NIFTY_50', displayName: 'NIFTY 50', exchange: 'NSE' },
   { key: 'BANKNIFTY', displayName: 'BANK NIFTY', exchange: 'NSE' },
   { key: 'CRUDEOIL', displayName: 'CRUDE OIL', exchange: 'MCX' },
   { key: 'NATURALGAS', displayName: 'NATURAL GAS', exchange: 'MCX' },
-] as const;
+];
 
-export type InstrumentKey = (typeof ALL_INSTRUMENTS)[number]['key'];
+export type InstrumentKey = string;
 
 interface InstrumentFilterContextValue {
+  /** All configured instruments from the database */
+  allInstruments: Array<{ key: string; displayName: string; exchange: string }>;
   /** Set of currently enabled instrument keys */
   enabledInstruments: Set<InstrumentKey>;
   /** Toggle a single instrument on/off */
@@ -45,13 +47,12 @@ interface InstrumentFilterContextValue {
 
 const InstrumentFilterContext = createContext<InstrumentFilterContextValue | null>(null);
 
-function loadEnabledInstruments(): Set<InstrumentKey> {
+function loadEnabledInstruments(validKeys: Set<string>): Set<InstrumentKey> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as string[];
-      const validKeys = new Set(ALL_INSTRUMENTS.map((i) => i.key));
-      const filtered = parsed.filter((k) => validKeys.has(k as InstrumentKey)) as InstrumentKey[];
+      const filtered = parsed.filter((k) => validKeys.has(k));
       if (filtered.length > 0) {
         return new Set(filtered);
       }
@@ -59,7 +60,7 @@ function loadEnabledInstruments(): Set<InstrumentKey> {
   } catch {
     // Corrupt data — reset to all enabled
   }
-  return new Set(ALL_INSTRUMENTS.map((i) => i.key));
+  return new Set(Array.from(validKeys));
 }
 
 function saveEnabledInstruments(enabled: Set<InstrumentKey>): void {
@@ -71,9 +72,33 @@ function saveEnabledInstruments(enabled: Set<InstrumentKey>): void {
 }
 
 export function InstrumentFilterProvider({ children }: { children: ReactNode }) {
-  const [enabledInstruments, setEnabledInstruments] = useState<Set<InstrumentKey>>(
-    loadEnabledInstruments,
+  // Load configured instruments from the database
+  const { data: instrumentsData } = trpc.instruments.list.useQuery();
+  const allInstruments = instrumentsData ?? DEFAULT_INSTRUMENTS;
+  const validKeys = new Set(allInstruments.map((i) => i.key));
+
+  // Initialize enabled instruments from localStorage, filtered by valid keys
+  const [enabledInstruments, setEnabledInstruments] = useState<Set<InstrumentKey>>(() =>
+    loadEnabledInstruments(validKeys),
   );
+
+  // Sync enabled instruments whenever the valid keys change (new instruments added/removed)
+  useEffect(() => {
+    setEnabledInstruments((prev) => {
+      const next = new Set(prev);
+      // Remove any invalid keys
+      for (const k of next) {
+        if (!validKeys.has(k)) {
+          next.delete(k);
+        }
+      }
+      // If all were removed, enable all
+      if (next.size === 0) {
+        return new Set(validKeys);
+      }
+      return next;
+    });
+  }, [validKeys]);
 
   // tRPC mutation to sync active instruments to the backend
   const syncMutation = trpc.trading.setActiveInstruments.useMutation();
@@ -101,7 +126,7 @@ export function InstrumentFilterProvider({ children }: { children: ReactNode }) 
   // On mount, also sync current state to backend (in case server restarted)
   const hasSyncedOnMount = useRef(false);
   useEffect(() => {
-    if (!hasSyncedOnMount.current) {
+    if (!hasSyncedOnMount.current && allInstruments.length > 0) {
       hasSyncedOnMount.current = true;
       syncMutation.mutate({ instruments: Array.from(enabledInstruments) });
     }
@@ -123,13 +148,15 @@ export function InstrumentFilterProvider({ children }: { children: ReactNode }) 
   }, []);
 
   const enableAll = useCallback(() => {
-    setEnabledInstruments(new Set(ALL_INSTRUMENTS.map((i) => i.key)));
-  }, []);
+    setEnabledInstruments(new Set(allInstruments.map((i) => i.key)));
+  }, [allInstruments]);
 
   const disableAll = useCallback(() => {
     // Keep at least the first instrument enabled
-    setEnabledInstruments(new Set([ALL_INSTRUMENTS[0].key]));
-  }, []);
+    if (allInstruments.length > 0) {
+      setEnabledInstruments(new Set([allInstruments[0].key]));
+    }
+  }, [allInstruments]);
 
   const isEnabled = useCallback(
     (key: InstrumentKey) => enabledInstruments.has(key),
@@ -139,6 +166,7 @@ export function InstrumentFilterProvider({ children }: { children: ReactNode }) 
   return (
     <InstrumentFilterContext.Provider
       value={{
+        allInstruments,
         enabledInstruments,
         toggleInstrument,
         enableAll,

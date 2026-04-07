@@ -510,6 +510,52 @@ export function needsRefresh(maxAgeHours: number = 24): boolean {
   return ageMs > maxAgeHours * 60 * 60 * 1000;
 }
 
+/**
+ * Search scrip master by query string.
+ * Searches trading symbol, custom symbol, symbol name, and underlying symbol.
+ * Optionally filters by exchange.
+ * Returns up to 20 results.
+ */
+export function searchByQuery(
+  query: string,
+  exchange?: string,
+  limit: number = 20
+): ScripRecord[] {
+  if (!query || query.trim().length === 0) {
+    return [];
+  }
+
+  const q = query.trim().toUpperCase();
+  const results: ScripRecord[] = [];
+
+  for (const rec of scripRecords) {
+    // Skip if exchange filter is provided and doesn't match
+    if (exchange && rec.exchange !== exchange) {
+      continue;
+    }
+
+    // Skip expired records (focus on active instruments)
+    if (rec.expiryFlag && rec.expiryFlag === "E") {
+      continue; // Skip expired
+    }
+
+    // Match on any of these fields
+    if (
+      rec.tradingSymbol.includes(q) ||
+      rec.customSymbol.includes(q) ||
+      rec.symbolName.includes(q) ||
+      rec.underlyingSymbol.includes(q)
+    ) {
+      results.push(rec);
+      if (results.length >= limit) {
+        break;
+      }
+    }
+  }
+
+  return results;
+}
+
 // ─── Testing Helpers ───────────────────────────────────────────
 
 /**

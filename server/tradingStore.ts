@@ -40,10 +40,13 @@ const positions: Position[] = [];
 let tradingMode: TradingMode = 'PAPER';
 
 // Active instruments — controls which instruments the Python pipeline processes
-// Default: all instruments enabled
-const ALL_INSTRUMENT_KEYS = ['NIFTY_50', 'BANKNIFTY', 'CRUDEOIL', 'NATURALGAS'] as const;
-export type InstrumentKey = typeof ALL_INSTRUMENT_KEYS[number];
-let activeInstruments: Set<string> = new Set(ALL_INSTRUMENT_KEYS);
+// Dynamically loaded from database at server startup
+let configuredInstrumentKeys: string[] = [];
+let configuredInstrumentMeta: Map<
+  string,
+  { displayName: string; exchange: string }
+> = new Map();
+let activeInstruments: Set<string> = new Set();
 
 // Module heartbeats
 const moduleHeartbeats: Record<string, { lastSeen: number; message: string }> = {
@@ -149,19 +152,46 @@ export function getTradingMode(): TradingMode {
 
 // --- Active Instruments Management ---
 
+/**
+ * Set the configured instruments from the database.
+ * Called at server startup after loading from the instruments collection.
+ */
+export function setConfiguredInstruments(
+  instruments: Array<{
+    key: string;
+    displayName: string;
+    exchange: string;
+  }>
+): void {
+  configuredInstrumentKeys = instruments.map(i => i.key);
+  configuredInstrumentMeta.clear();
+  for (const inst of instruments) {
+    configuredInstrumentMeta.set(inst.key, {
+      displayName: inst.displayName,
+      exchange: inst.exchange,
+    });
+  }
+  // Initialize active instruments with all configured instruments
+  activeInstruments = new Set(configuredInstrumentKeys);
+}
+
 export function getActiveInstruments(): string[] {
   return Array.from(activeInstruments);
 }
 
 export function setActiveInstruments(instruments: string[]): void {
   // Validate: only allow known instrument keys, and keep at least one active
-  const valid = instruments.filter(k => (ALL_INSTRUMENT_KEYS as readonly string[]).includes(k));
+  const valid = instruments.filter(k => configuredInstrumentKeys.includes(k));
   if (valid.length === 0) {
     // Fallback: keep all active if empty list provided
-    activeInstruments = new Set(ALL_INSTRUMENT_KEYS);
+    activeInstruments = new Set(configuredInstrumentKeys);
   } else {
     activeInstruments = new Set(valid);
   }
+}
+
+export function getConfiguredInstrumentKeys(): string[] {
+  return configuredInstrumentKeys;
 }
 
 export function isInstrumentActive(instrument: string): boolean {
@@ -223,16 +253,13 @@ function getModuleHealth(lastSeen: number, now: number, threshold: number): 'act
 }
 
 export function getInstrumentData(): InstrumentData[] {
-  const instrumentConfigs: Record<string, { displayName: string; exchange: string }> = {
-    'NIFTY_50': { displayName: 'NIFTY 50', exchange: 'NSE' },
-    'BANKNIFTY': { displayName: 'BANK NIFTY', exchange: 'NSE' },
-    'CRUDEOIL': { displayName: 'CRUDE OIL', exchange: 'MCX' },
-    'NATURALGAS': { displayName: 'NATURAL GAS', exchange: 'MCX' },
-  };
-
   const result: InstrumentData[] = [];
 
-  for (const [key, config] of Object.entries(instrumentConfigs)) {
+  for (const key of configuredInstrumentKeys) {
+    const config = configuredInstrumentMeta.get(key);
+    if (!config) {
+      continue;
+    }
     const store = instrumentStores[key];
     if (!store) {
       // Return a placeholder for instruments with no data yet

@@ -12,6 +12,7 @@ import {
   setTradingMode,
   getActiveInstruments,
   setActiveInstruments,
+  setConfiguredInstruments,
 } from "./tradingStore";
 import {
   getUpcomingHolidays,
@@ -30,6 +31,13 @@ import {
   getTradeStats,
 } from "./db";
 import { getUserSettings, updateUserSettings } from "./userSettings";
+import {
+  getAllInstruments,
+  addInstrument,
+  removeInstrument,
+  type InstrumentConfig,
+} from "./instruments";
+import { searchByQuery } from "./broker/adapters/dhan/scripMaster";
 
 export const appRouter = router({
   system: systemRouter,
@@ -91,6 +99,82 @@ export const appRouter = router({
       .mutation(({ input }) => {
         setActiveInstruments(input.instruments);
         return { success: true, instruments: getActiveInstruments() };
+      }),
+  }),
+
+  // Instruments management (configure tradable instruments)
+  instruments: router({
+    // List all configured instruments
+    list: publicProcedure.query(async () => {
+      return await getAllInstruments();
+    }),
+
+    // Search scrip master for adding new instruments
+    search: publicProcedure
+      .input(
+        z.object({
+          query: z.string().min(1).max(100),
+          exchange: z.enum(["NSE", "MCX", "BSE", "ALL"]).optional(),
+        })
+      )
+      .query(({ input }) => {
+        const exchange = input.exchange === "ALL" ? undefined : input.exchange;
+        const results = searchByQuery(input.query, exchange, 20);
+        // Transform to a simpler format for frontend
+        return results.map(r => ({
+          securityId: r.securityId,
+          tradingSymbol: r.tradingSymbol,
+          customSymbol: r.customSymbol,
+          underlyingSymbol: r.underlyingSymbol,
+          exchange: r.exchange,
+          segment: r.segment,
+          instrumentName: r.instrumentName,
+          expiryDate: r.expiryDate,
+          strikePrice: r.strikePrice,
+          optionType: r.optionType,
+          lotSize: r.lotSize,
+        }));
+      }),
+
+    // Add a new instrument
+    add: publicProcedure
+      .input(
+        z.object({
+          key: z.string().regex(/^[A-Z0-9_]+$/),
+          displayName: z.string().min(1).max(100),
+          exchange: z.enum(["NSE", "MCX", "BSE"]),
+          exchangeSegment: z.string().min(1).max(50),
+          underlying: z.string().nullable(),
+          autoResolve: z.boolean(),
+          symbolName: z.string().nullable(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const config: Omit<InstrumentConfig, "isDefault" | "addedAt"> = {
+          key: input.key,
+          displayName: input.displayName,
+          exchange: input.exchange,
+          exchangeSegment: input.exchangeSegment,
+          underlying: input.underlying,
+          autoResolve: input.autoResolve,
+          symbolName: input.symbolName,
+        };
+        const result = await addInstrument(config);
+        // Update in-memory store
+        const instruments = await getAllInstruments();
+        setConfiguredInstruments(instruments);
+        return result;
+      }),
+
+    // Remove a non-default instrument
+    remove: publicProcedure
+      .input(z.object({ key: z.string() }))
+      .mutation(async ({ input }) => {
+        await removeInstrument(input.key);
+        // Update in-memory store
+        const instruments = await getAllInstruments();
+        setConfiguredInstruments(instruments);
+        return { success: true };
       }),
   }),
 
