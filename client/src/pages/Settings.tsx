@@ -1850,7 +1850,7 @@ export function InstrumentsSection() {
     onSuccess: () => {
       toast.success('Instrument added');
       instrumentsQuery.refetch();
-      setSearchQuery('');
+      setSearchText('');
     },
     onError: (err) => toast.error(err.message),
   });
@@ -1863,7 +1863,7 @@ export function InstrumentsSection() {
   });
 
   const [showSearch, setShowSearch] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchText, setSearchText] = useState('');
   const [searchExchange, setSearchExchange] = useState<'ALL' | 'NSE' | 'MCX' | 'BSE'>('ALL');
   const [searchResults, setSearchResults] = useState<Array<any>>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -1871,13 +1871,13 @@ export function InstrumentsSection() {
   const instruments = instrumentsQuery.data || [];
 
   const handleSearch = async () => {
-    if (!searchQuery.trim()) {
+    if (!searchText.trim()) {
       setSearchResults([]);
       return;
     }
     setIsSearching(true);
     try {
-      const result = await fetch(`/api/trpc/instruments.search?query=${encodeURIComponent(searchQuery)}&exchange=${searchExchange}`);
+      const result = await fetch(`/api/trpc/instruments.search?query=${encodeURIComponent(searchText)}&exchange=${searchExchange}`);
       const data = await result.json();
       if (data.result?.data) {
         setSearchResults(data.result.data.slice(0, 10));
@@ -1940,8 +1940,8 @@ export function InstrumentsSection() {
               <input
                 type="text"
                 placeholder="Search symbol (e.g., RELIANCE, NIFTY)..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                 className="flex-1 h-7 px-2 text-[11px] bg-background border border-border rounded text-foreground placeholder-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
