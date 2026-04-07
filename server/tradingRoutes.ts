@@ -18,6 +18,7 @@ import {
   setActiveInstruments,
 } from './tradingStore';
 import { getMongoHealth, pingMongo } from './mongo';
+import { getAllInstruments } from './instruments';
 
 export function registerTradingRoutes(app: Express): void {
   // Push option chain data from the Fetcher module
@@ -138,6 +139,18 @@ export function registerTradingRoutes(app: Express): void {
       res.json({ success: true, instruments: getActiveInstruments() });
     } catch (err: any) {
       console.error('[Trading API] Error setting active instruments:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- Instruments Configuration ---
+  // GET: Python modules fetch all configured instruments (for dynamic INSTRUMENTS dict)
+  app.get('/api/trading/instruments', async (_req: Request, res: Response) => {
+    try {
+      const instruments = await getAllInstruments();
+      res.json({ instruments });
+    } catch (err: any) {
+      console.error('[Trading API] Error fetching instruments:', err);
       res.status(500).json({ error: err.message });
     }
   });

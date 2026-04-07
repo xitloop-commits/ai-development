@@ -57,7 +57,8 @@ type SettingsSection =
   | 'timeWindows'
   | 'expiry'
   | 'charges'
-  | 'capital';
+  | 'capital'
+  | 'instruments';
 
 interface SectionItem {
   id: SettingsSection;
@@ -67,6 +68,7 @@ interface SectionItem {
 }
 
 const SECTIONS: SectionItem[] = [
+  { id: 'instruments', label: 'Instruments', icon: SettingsIcon, description: 'Configure tradable instruments' },
   { id: 'broker', label: 'Broker Config', icon: Wallet, description: 'Active broker, credentials, connection status' },
   { id: 'execution', label: 'Order Execution', icon: Zap, description: 'Entry offset, SL/TP, targets, trailing stop' },
   { id: 'discipline', label: 'Discipline', icon: ShieldCheck, description: 'Circuit breaker, trade limits, pre-trade gate, streaks' },
@@ -75,8 +77,6 @@ const SECTIONS: SectionItem[] = [
   { id: 'charges', label: 'Charges', icon: Receipt, description: 'Brokerage, STT, GST, and other charge rates' },
   { id: 'capital', label: 'Capital Management', icon: Landmark, description: 'Reset initial capital, pool allocation' },
 ];
-
-const INSTRUMENTS = ['NIFTY_50', 'BANKNIFTY', 'CRUDEOIL', 'NATURALGAS'];
 
 // ─── Helper Components ───────────────────────────────────────────
 
@@ -1838,6 +1838,177 @@ export function ChargesSection() {
   );
 }
 
+// ─── Instruments Section ─────────────────────────────────────────
+
+export function InstrumentsSection() {
+  const instrumentsQuery = trpc.instruments.list.useQuery();
+  const searchQuery = trpc.instruments.search.useQuery(
+    { query: '', exchange: 'ALL' },
+    { enabled: false }
+  );
+  const addMutation = trpc.instruments.add.useMutation({
+    onSuccess: () => {
+      toast.success('Instrument added');
+      instrumentsQuery.refetch();
+      setSearchQuery('');
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const removeMutation = trpc.instruments.remove.useMutation({
+    onSuccess: () => {
+      toast.success('Instrument removed');
+      instrumentsQuery.refetch();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchExchange, setSearchExchange] = useState<'ALL' | 'NSE' | 'MCX' | 'BSE'>('ALL');
+  const [searchResults, setSearchResults] = useState<Array<any>>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  const instruments = instrumentsQuery.data || [];
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const result = await fetch(`/api/trpc/instruments.search?query=${encodeURIComponent(searchQuery)}&exchange=${searchExchange}`);
+      const data = await result.json();
+      if (data.result?.data) {
+        setSearchResults(data.result.data.slice(0, 10));
+      }
+    } catch (err) {
+      console.error('Search failed:', err);
+    }
+    setIsSearching(false);
+  };
+
+  return (
+    <div className="grid grid-cols-1 gap-4">
+      <SettingsCard title="Configured Instruments">
+        <div className="space-y-2 mb-4">
+          <div className="text-[10px] text-muted-foreground">
+            {instruments.length} instrument{instruments.length !== 1 ? 's' : ''} configured
+          </div>
+        </div>
+        <div className="space-y-2 max-h-64 overflow-y-auto">
+          {instruments.length === 0 ? (
+            <span className="text-[11px] text-muted-foreground">No instruments configured</span>
+          ) : (
+            instruments.map((inst: any) => (
+              <div key={inst.key} className="flex items-center justify-between gap-3 p-2 rounded border border-border text-[11px]">
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold">{inst.displayName}</div>
+                  <div className="text-[9px] text-muted-foreground">{inst.exchange} • {inst.exchangeSegment}</div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {inst.isDefault && (
+                    <span className="px-2 py-0.5 text-[9px] bg-primary/10 text-primary rounded">default</span>
+                  )}
+                  <button
+                    onClick={() => removeMutation.mutate({ key: inst.key })}
+                    disabled={inst.isDefault || removeMutation.isPending}
+                    className="px-2 py-1 text-[10px] rounded border border-destructive/30 text-destructive hover:bg-destructive/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </SettingsCard>
+
+      {!showSearch && (
+        <button
+          onClick={() => setShowSearch(true)}
+          className="w-full py-2 px-4 text-[11px] font-bold tracking-wider uppercase rounded border border-primary/30 text-primary hover:bg-primary/5 transition-colors"
+        >
+          + Add Instrument
+        </button>
+      )}
+
+      {showSearch && (
+        <SettingsCard title="Search & Add Instrument">
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Search symbol (e.g., RELIANCE, NIFTY)..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                className="flex-1 h-7 px-2 text-[11px] bg-background border border-border rounded text-foreground placeholder-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <select
+                value={searchExchange}
+                onChange={(e) => setSearchExchange(e.target.value as any)}
+                className="h-7 px-2 text-[11px] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option>ALL</option>
+                <option>NSE</option>
+                <option>MCX</option>
+                <option>BSE</option>
+              </select>
+              <button
+                onClick={handleSearch}
+                disabled={isSearching}
+                className="px-3 py-1 text-[11px] font-bold rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {isSearching ? '⟳' : 'Search'}
+              </button>
+            </div>
+
+            {searchResults.length > 0 && (
+              <div className="border border-border rounded p-2 space-y-1 max-h-48 overflow-y-auto">
+                {searchResults.map((result: any, idx: number) => (
+                  <div key={idx} className="flex items-center justify-between gap-2 p-1.5 text-[10px] rounded hover:bg-muted">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-mono">{result.tradingSymbol}</div>
+                      <div className="text-muted-foreground">{result.exchange} • {result.instrumentName}</div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const key = result.underlyingSymbol.replace(/\s+/g, '_').toUpperCase();
+                        const displayName = result.customSymbol || result.tradingSymbol;
+                        addMutation.mutate({
+                          key,
+                          displayName,
+                          exchange: result.exchange as any,
+                          exchangeSegment: result.segment,
+                          underlying: result.securityId,
+                          autoResolve: false,
+                          symbolName: null,
+                        });
+                      }}
+                      disabled={addMutation.isPending}
+                      className="px-2 py-0.5 text-[9px] rounded bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
+                    >
+                      Add
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+              onClick={() => setShowSearch(false)}
+              className="w-full py-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+        </SettingsCard>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Settings Page ──────────────────────────────────────────
 
 export default function Settings() {
@@ -1892,6 +2063,8 @@ export default function Settings() {
         return <ChargesSection />;
       case 'capital':
         return <CapitalManagementSection />;
+      case 'instruments':
+        return <InstrumentsSection />;
       default:
         return null;
     }

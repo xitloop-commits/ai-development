@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Settings,
   X,
+  Settings as SettingsIcon,
 } from 'lucide-react';
 import {
   BrokerConfigSection,
@@ -24,6 +25,7 @@ import {
   ExpiryControlsSection,
   ChargesSection,
   CapitalManagementSection,
+  InstrumentsSection,
 } from '@/pages/Settings';
 
 type SettingsSection =
@@ -33,7 +35,8 @@ type SettingsSection =
   | 'timeWindows'
   | 'expiry'
   | 'charges'
-  | 'capital';
+  | 'capital'
+  | 'instruments';
 
 interface SectionItem {
   id: SettingsSection;
@@ -43,6 +46,7 @@ interface SectionItem {
 }
 
 const SECTIONS: SectionItem[] = [
+  { id: 'instruments', label: 'Instruments', icon: SettingsIcon, description: 'Configure tradable instruments' },
   { id: 'broker', label: 'Broker Config', icon: Wallet, description: 'Active broker, credentials, connection status' },
   { id: 'execution', label: 'Order Execution', icon: Zap, description: 'Entry offset, SL/TP, targets, trailing stop' },
   { id: 'discipline', label: 'Discipline', icon: ShieldCheck, description: 'Circuit breaker, trade limits, pre-trade gate, streaks' },
@@ -126,6 +130,8 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
         return <ChargesSection />;
       case 'capital':
         return <CapitalManagementSection />;
+      case 'instruments':
+        return <InstrumentsSection />;
       default:
         return null;
     }

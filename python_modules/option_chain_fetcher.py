@@ -36,34 +36,9 @@ DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3000").strip()
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# Static instrument config
-# NIFTY 50 and BANKNIFTY use fixed index IDs (resolved by broker service).
-# MCX commodities use the nearest-month futures security_id, resolved at startup
-# via the broker service's scrip master.
-INSTRUMENTS = {
-    "NIFTY 50": {
-        "underlying": "13",
-        "exchange_segment": "IDX_I",
-        "auto_resolve": False,
-    },
-    "BANKNIFTY": {
-        "underlying": "25",
-        "exchange_segment": "IDX_I",
-        "auto_resolve": False,
-    },
-    "CRUDEOIL": {
-        "underlying": None,
-        "exchange_segment": "MCX_COMM",
-        "auto_resolve": True,
-        "symbol_name": "CRUDEOIL",
-    },
-    "NATURALGAS": {
-        "underlying": None,
-        "exchange_segment": "MCX_COMM",
-        "auto_resolve": True,
-        "symbol_name": "NATURALGAS",
-    },
-}
+# Instrument configuration — loaded dynamically from the broker service API
+# This is the single source of truth for all tradable instruments
+INSTRUMENTS = {}
 
 # Polling intervals
 FETCH_INTERVAL = 30      # seconds between full cycles (increased for Dhan rate limiting)
@@ -225,6 +200,61 @@ def get_active_instruments():
     return list(INSTRUMENTS.keys())
 
 
+# --- Instrument Loading ---
+
+def load_instruments_from_api():
+    """
+    Fetch instrument configurations from the broker service API.
+    This replaces the hardcoded INSTRUMENTS dict with dynamic config.
+    """
+    global INSTRUMENTS
+    max_retries = 3
+    retry_delay = 5
+
+    for attempt in range(max_retries):
+        try:
+            url = f"{BROKER_URL}/api/trading/instruments"
+            resp = requests.get(url, timeout=15)
+            resp.raise_for_status()
+
+            data = resp.json()
+            instruments_list = data.get("instruments", [])
+
+            if not instruments_list:
+                log(f"[WARN] No instruments returned from API")
+                if attempt < max_retries - 1:
+                    log(f"Retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    continue
+                return False
+
+            # Build INSTRUMENTS dict using displayName as key (legacy format)
+            for inst in instruments_list:
+                display_key = inst["displayName"]
+                INSTRUMENTS[display_key] = {
+                    "underlying": inst["underlying"],
+                    "exchange_segment": inst["exchangeSegment"],
+                    "auto_resolve": inst["autoResolve"],
+                    "symbol_name": inst.get("symbolName"),
+                }
+
+            log(f"Loaded {len(INSTRUMENTS)} instruments from broker service")
+            return True
+
+        except requests.exceptions.RequestException as e:
+            log(f"[WARN] Failed to load instruments (attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                log(f"Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+        except Exception as e:
+            log(f"[ERROR] Error loading instruments: {e}")
+            if attempt < max_retries - 1:
+                log(f"Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+
+    log(f"[ERROR] Failed to load instruments after {max_retries} attempts")
+    return False
+
 # --- Main Loop ---
 
 def main():
@@ -243,7 +273,13 @@ def main():
         log("Retrying in 10 seconds...")
         time.sleep(10)
 
-    # Step 2: Resolve MCX commodity security IDs via broker service
+    # Step 2: Load instrument configurations from the broker service API
+    log("Loading instrument configurations...")
+    if not load_instruments_from_api():
+        log("[ERROR] Failed to load instruments. Exiting.")
+        return
+
+    # Step 3: Resolve MCX commodity security IDs via broker service
     resolve_mcx_security_ids()
 
     # Verify all instruments have valid underlying IDs
@@ -258,7 +294,7 @@ def main():
         log(f"  {inst_key}: underlying={uid}, exchange_segment={seg}")
     log("")
 
-    # Step 3: Main polling loop
+    # Step 4: Main polling loop
     cycle = 0
     while True:
         cycle += 1

@@ -17,6 +17,8 @@ import aiDecisionsRouter from "../aiDecisions";
 import { pnlEngine } from "../capital/pnlEngine";
 import { orderSyncEngine } from "../capital/orderSyncEngine";
 import { setupTickWebSocket } from "../broker/tickWs";
+import { seedDefaultInstruments, getAllInstruments } from "../instruments";
+import { setConfiguredInstruments } from "../tradingStore";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -44,6 +46,11 @@ async function startServer() {
   // Connect to MongoDB (non-blocking — server starts even if MongoDB is down)
   connectMongo()
     .then(async () => {
+      // Seed default instruments and load configured instruments into memory
+      await seedDefaultInstruments();
+      const instruments = await getAllInstruments();
+      setConfiguredInstruments(instruments);
+
       // Register broker adapters and initialize broker service after MongoDB is ready
       registerAdapter("mock", () => new MockAdapter(), { displayName: "Paper Trading", isPaperBroker: true });
       registerAdapter("dhan", () => new DhanAdapter(), { displayName: "Dhan", isPaperBroker: false });
