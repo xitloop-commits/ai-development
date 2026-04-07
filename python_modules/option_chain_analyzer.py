@@ -427,11 +427,11 @@ def analyze_signals(current_data, previous_data):
             signals.append(f"Put Long Unwinding at {strike_str} (OI Change: {pe_oi_change}, Price Change: {price_change:.2f})")
 
         # Call Writing (Resistance Creation)
-        if ce_oi_change > 0 and abs(strike_price - current_ltp) / current_ltp < 0.005: # Price near strike (0.5% threshold)
+        if ce_oi_change > 0 and current_ltp > 0 and abs(strike_price - current_ltp) / current_ltp < 0.005: # Price near strike (0.5% threshold)
             signals.append(f"Call Writing (Resistance Creation) at {strike_str} (OI Change: {ce_oi_change})")
 
         # Put Writing (Support Creation)
-        if pe_oi_change > 0 and abs(strike_price - current_ltp) / current_ltp < 0.005: # Price near strike (0.5% threshold)
+        if pe_oi_change > 0 and current_ltp > 0 and abs(strike_price - current_ltp) / current_ltp < 0.005: # Price near strike (0.5% threshold)
             signals.append(f"Put Writing (Support Creation) at {strike_str} (OI Change: {pe_oi_change})")
 
     # Trap Situation (Danger Zone)

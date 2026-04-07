@@ -8,7 +8,15 @@
       "Bash(findstr \":3000\\\\|:5173\\\\|:3005\")",
       "Bash(tasklist)",
       "Bash(findstr \"11408\")",
-      "Bash(ls server/*.ts)"
+      "Bash(ls server/*.ts)",
+      "Bash(pnpm --version)",
+      "Bash(python3:*)",
+      "Bash(chmod +x dev.sh)",
+      "Bash(timeout 20 ./dev.sh)",
+      "Bash(./dev.sh)",
+      "Bash(kill %1)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)"
     ]
   }
 }

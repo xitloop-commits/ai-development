@@ -147,16 +147,21 @@ def get_expiry_dates(underlying, exchange_segment=None):
         params = {"underlying": underlying}
         if exchange_segment:
             params["exchangeSegment"] = exchange_segment
+
         resp = requests.get(url, params=params, timeout=15)
+
         if resp.status_code == 200:
             data = resp.json()
             if data.get("success"):
                 return data.get("data", [])
-        log(f"Failed to fetch expiry list for {underlying}. "
-            f"Status: {resp.status_code}, Response: {resp.text[:200]}")
+            else:
+                log(f"[WARN] Expiry API error for {underlying}: {data.get('error', 'Unknown error')}")
+        else:
+            log(f"[WARN] Failed to fetch expiry list for {underlying}. Status: {resp.status_code}")
+
         return None
     except Exception as e:
-        log(f"Exception fetching expiry list for {underlying}: {e}")
+        log(f"[ERROR] Exception fetching expiry list for {underlying}: {e}")
         return None
 
 
@@ -167,20 +172,21 @@ def get_option_chain(underlying, expiry, exchange_segment=None):
         params = {"underlying": underlying, "expiry": expiry}
         if exchange_segment:
             params["exchangeSegment"] = exchange_segment
-        resp = requests.get(
-            url,
-            params=params,
-            timeout=15,
-        )
+
+        resp = requests.get(url, params=params, timeout=15)
+
         if resp.status_code == 200:
             data = resp.json()
             if data.get("success"):
                 return data.get("data")
-        log(f"Failed to fetch option chain for {underlying} on {expiry}. "
-            f"Status: {resp.status_code}, Response: {resp.text[:200]}")
+            else:
+                log(f"[WARN] Option chain API error for {underlying} on {expiry}: {data.get('error', 'Unknown error')}")
+        else:
+            log(f"[WARN] Failed to fetch option chain for {underlying} on {expiry}. Status: {resp.status_code}")
+
         return None
     except Exception as e:
-        log(f"Exception fetching option chain for {underlying}: {e}")
+        log(f"[ERROR] Exception fetching option chain for {underlying}: {e}")
         return None
 
 
