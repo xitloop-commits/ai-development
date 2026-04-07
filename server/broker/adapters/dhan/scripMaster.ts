@@ -534,16 +534,11 @@ export function searchByQuery(
       continue;
     }
 
-    // Skip expired records (focus on active instruments)
-    if (rec.expiryFlag && rec.expiryFlag === "E") {
-      continue; // Skip expired
-    }
-
-    // Match on any of these fields
+    // Match on any of these fields (case-insensitive)
     if (
       rec.tradingSymbol.includes(q) ||
-      rec.customSymbol.includes(q) ||
-      rec.symbolName.includes(q) ||
+      rec.customSymbol.toUpperCase().includes(q) ||
+      rec.symbolName.toUpperCase().includes(q) ||
       rec.underlyingSymbol.includes(q)
     ) {
       results.push(rec);
