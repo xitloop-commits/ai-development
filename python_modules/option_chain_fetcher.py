@@ -66,8 +66,8 @@ INSTRUMENTS = {
 }
 
 # Polling intervals
-FETCH_INTERVAL = 5       # seconds between full cycles
-RATE_LIMIT_DELAY = 3     # seconds between individual instrument fetches
+FETCH_INTERVAL = 30      # seconds between full cycles (increased for Dhan rate limiting)
+RATE_LIMIT_DELAY = 10    # seconds between individual instrument fetches (Dhan is strict)
 
 
 def log(message):
@@ -156,6 +156,8 @@ def get_expiry_dates(underlying, exchange_segment=None):
                 return data.get("data", [])
             else:
                 log(f"[WARN] Expiry API error for {underlying}: {data.get('error', 'Unknown error')}")
+        elif resp.status_code == 429:
+            log(f"[WARN] Rate limited (429) for {underlying}. Increasing delays.")
         else:
             log(f"[WARN] Failed to fetch expiry list for {underlying}. Status: {resp.status_code}")
 
@@ -181,6 +183,8 @@ def get_option_chain(underlying, expiry, exchange_segment=None):
                 return data.get("data")
             else:
                 log(f"[WARN] Option chain API error for {underlying} on {expiry}: {data.get('error', 'Unknown error')}")
+        elif resp.status_code == 429:
+            log(f"[WARN] Rate limited (429) for {underlying}. Dhan API is strict on rate limits.")
         else:
             log(f"[WARN] Failed to fetch option chain for {underlying} on {expiry}. Status: {resp.status_code}")
 
