@@ -343,7 +343,7 @@ export function BrokerConfigSection() {
     : allConfigs.map((c) => ({ value: c.brokerId, label: c.displayName }));
 
   return (
-    <div className="space-y-4">
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
       {/* Active Broker */}
       <SettingsCard title="Active Broker">
         <div className="space-y-3">
@@ -621,7 +621,7 @@ export function OrderExecutionSection() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
       {/* Daily Target */}
       <SettingsCard title="Daily Target">
         <div className="space-y-1 mb-3">
@@ -769,7 +769,7 @@ export function OrderExecutionSection() {
         </div>
       </SettingsCard>
 
-      <div className="flex items-center gap-2 justify-end">
+      <div className="col-span-full flex items-center gap-2 justify-end">
         <ResetButton onClick={handleReset} />
         <SaveButton onClick={handleSave} loading={updateMutation.isPending} />
       </div>
@@ -805,9 +805,9 @@ export function CapitalManagementSection() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
       {/* Current Capital Overview */}
-      <SettingsCard title="Current Capital">
+      <SettingsCard title="Current Capital" className="col-span-full">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-background border border-border rounded p-2.5 text-center">
             <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Initial Funding</div>
@@ -1045,7 +1045,7 @@ export function DisciplineSection() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
       {/* Circuit Breaker */}
       <SettingsCard title="Circuit Breaker">
         <div className="space-y-4">
@@ -1381,7 +1381,7 @@ export function DisciplineSection() {
         </div>
       </SettingsCard>
 
-      <div className="flex items-center gap-2 justify-end">
+      <div className="col-span-full flex items-center gap-2 justify-end">
         <ResetButton onClick={handleReset} />
         <SaveButton onClick={handleSave} loading={updateMutation.isPending} />
       </div>
@@ -1439,7 +1439,7 @@ export function TimeWindowsSection() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
       {/* No Trading After Open */}
       <SettingsCard title="No Trading After Market Open">
         <DisciplineRow
@@ -1529,14 +1529,14 @@ export function TimeWindowsSection() {
         </DisciplineRow>
       </SettingsCard>
 
-      <div className="flex items-center gap-2 p-2 rounded bg-info-cyan/5 border border-info-cyan/20">
+      <div className="col-span-full flex items-center gap-2 p-2 rounded bg-info-cyan/5 border border-info-cyan/20">
         <Info className="h-3.5 w-3.5 text-info-cyan shrink-0" />
         <span className="text-[10px] text-info-cyan">
           Time windows are enforced by the Discipline Engine. Lunch break pause applies only to NSE. MCX has no scheduled lunch break.
         </span>
       </div>
 
-      <div className="flex items-center gap-2 justify-end">
+      <div className="col-span-full flex items-center gap-2 justify-end">
         <ResetButton onClick={handleReset} />
         <SaveButton onClick={handleSave} loading={updateMutation.isPending} />
       </div>
@@ -1599,7 +1599,7 @@ export function ExpiryControlsSection() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
       {rules.map((rule, idx) => (
         <SettingsCard key={rule.instrument}>
           <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
@@ -1713,7 +1713,7 @@ export function ExpiryControlsSection() {
         </SettingsCard>
       ))}
 
-      <div className="flex items-center gap-2 justify-end">
+      <div className="col-span-full flex items-center gap-2 justify-end">
         <ResetButton onClick={handleReset} />
         <SaveButton onClick={handleSave} loading={updateMutation.isPending} />
       </div>
@@ -1770,8 +1770,8 @@ export function ChargesSection() {
   };
 
   return (
-    <div className="space-y-4">
-      <SettingsCard title="Indian Standard Charges (Options)">
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+      <SettingsCard title="Indian Standard Charges (Options)" className="col-span-full">
         <div className="space-y-1 mb-3">
           <span className="text-[10px] text-muted-foreground">
             These rates are used to calculate net P&L after deducting all charges.
@@ -1823,14 +1823,14 @@ export function ChargesSection() {
         </div>
       </SettingsCard>
 
-      <div className="flex items-center gap-2 p-2 rounded bg-info-cyan/5 border border-info-cyan/20">
+      <div className="col-span-full flex items-center gap-2 p-2 rounded bg-info-cyan/5 border border-info-cyan/20">
         <Info className="h-3.5 w-3.5 text-info-cyan shrink-0" />
         <span className="text-[10px] text-info-cyan">
           Charges are applied to all P&L calculations. Rates are based on Indian standard charges for Options trading via Dhan.
         </span>
       </div>
 
-      <div className="flex items-center gap-2 justify-end">
+      <div className="col-span-full flex items-center gap-2 justify-end">
         <ResetButton onClick={handleReset} />
         <SaveButton onClick={handleSave} loading={updateMutation.isPending} />
       </div>
@@ -1946,7 +1946,7 @@ export default function Settings() {
             </div>
 
             {/* Main Content */}
-            <div className="flex-1 min-w-0 max-w-2xl">
+            <div className="flex-1 min-w-0">
               {/* Section Header */}
               <div className="mb-5">
                 <div className="flex items-center gap-2 mb-1">

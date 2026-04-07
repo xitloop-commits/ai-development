@@ -39,6 +39,7 @@ export interface TradeRecord {
   status: TradeStatus;
   targetPrice: number | null;     // bracket order TP
   stopLossPrice: number | null;   // bracket order SL
+  trailingStopEnabled?: boolean;  // per-trade trailing stop override
   brokerId: string | null;        // broker order ID for sync
   openedAt: number;               // UTC ms
   closedAt: number | null;        // UTC ms
@@ -373,6 +374,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       type: t.type,
       strike: t.strike ?? null,
       expiry: t.expiry ?? null,
+      contractSecurityId: t.contractSecurityId ?? null,
       entryPrice: t.entryPrice,
       exitPrice: t.exitPrice ?? null,
       ltp: t.ltp ?? 0,

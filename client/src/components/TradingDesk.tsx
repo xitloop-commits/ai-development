@@ -13,6 +13,7 @@
  * Data: Wired to tRPC capital.* endpoints with mock fallbacks.
  */
 import { Fragment, useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useCapital } from '@/contexts/CapitalContext';
 import { trpc } from '@/lib/trpc';
 import { formatINR, formatPrice as fmtPrice } from '@/lib/formatINR';
@@ -51,6 +52,7 @@ interface TradeRecord {
   status: string;
   targetPrice: number | null;
   stopLossPrice: number | null;
+  trailingStopEnabled?: boolean; // Trade-level trailing stop override
   openedAt: number;
   closedAt: number | null;
 }
@@ -225,8 +227,8 @@ function RatingIcon({ rating }: { rating: DayRating }) {
 
 // ─── Currency Formatter ──────────────────────────────────────────
 
-function fmt(n: number, _compact = false): string {
-  return formatINR(n);
+function fmt(n: number, compact = true): string {
+  return formatINR(Math.ceil(n), { compact, decimals: 0 });
 }
 
 function pnlColor(n: number): string {
@@ -477,6 +479,7 @@ export default function TradingDesk({
   }>({ open: false, title: '', message: '', onConfirm: () => {} });
   const { getTick } = useTickStream(liveTicksEnabled);
   const todayRef = useRef<HTMLTableRowElement>(null);
+  const feedSubscribeMutation = trpc.broker.feed.subscribe.useMutation();
 
   // ─── Instrument → Feed Lookup ──────────────────────────────
   const feedLookup = useMemo(() => {
@@ -520,6 +523,32 @@ export default function TradingDesk({
     return () => cancelAnimationFrame(frame);
   }, [capitalReady, allDays.length, workspace]);
 
+  // ─── Subscribe option security IDs to live feed ────────────
+  const subscribeOptionFeed = useCallback((instrument: string, contractSecurityId: string) => {
+    const exchange = (instrument.includes('CRUDE') || instrument.includes('NATURAL'))
+      ? 'MCX_COMM'
+      : 'NSE_FNO';
+    feedSubscribeMutation.mutate({
+      instruments: [{ exchange, securityId: contractSecurityId, mode: 'full' }],
+    });
+  }, [feedSubscribeMutation]);
+
+  // Re-subscribe open option trades on load (handles page reload)
+  const subscribedOnLoadRef = useRef(false);
+  useEffect(() => {
+    if (!capitalReady || subscribedOnLoadRef.current) return;
+    subscribedOnLoadRef.current = true;
+    const openTrades = ctxCurrentDay?.trades?.filter((t: any) => t.status === 'OPEN' && t.contractSecurityId) ?? [];
+    if (openTrades.length === 0) return;
+    feedSubscribeMutation.mutate({
+      instruments: openTrades.map((t: any) => ({
+        exchange: (t.instrument.includes('CRUDE') || t.instrument.includes('NATURAL')) ? 'MCX_COMM' : 'NSE_FNO',
+        securityId: t.contractSecurityId,
+        mode: 'full',
+      })),
+    });
+  }, [capitalReady, ctxCurrentDay, feedSubscribeMutation]);
+
   // ─── Sync LTP to server ────────────────────────────────────
   const ltpSyncRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -551,8 +580,12 @@ export default function TradingDesk({
     expiry: string;
     entryPrice: number;
     capitalPercent: number;
+    qty: number;
     lotSize?: number;
     contractSecurityId?: string | null;
+    targetPrice?: number | null;
+    stopLossPrice?: number | null;
+    trailingStopEnabled?: boolean;
   }) => {
     ctxPlaceTrade({
       instrument: trade.instrument,
@@ -561,10 +594,18 @@ export default function TradingDesk({
       expiry: trade.expiry,
       entryPrice: trade.entryPrice,
       capitalPercent: trade.capitalPercent,
+      qty: trade.qty,
       lotSize: trade.lotSize,
       contractSecurityId: trade.contractSecurityId,
+      targetPrice: trade.targetPrice,
+      stopLossPrice: trade.stopLossPrice,
+      trailingStopEnabled: trade.trailingStopEnabled,
     });
-  }, [ctxPlaceTrade]);
+    // Subscribe the option's security ID to the live feed so LTP keeps updating after form closes
+    if (trade.contractSecurityId) {
+      subscribeOptionFeed(trade.instrument, trade.contractSecurityId);
+    }
+  }, [ctxPlaceTrade, subscribeOptionFeed]);
 
   const handleExitTrade = useCallback((tradeId: string, instrument: string) => {
     const trade = ctxCurrentDay?.trades?.find((t: any) => t.id === tradeId);
@@ -851,10 +892,10 @@ export default function TradingDesk({
               <col style={{ width: 88 }} />
               <col />
               <col style={{ width: 72 }} />
-              <col style={{ width: 72 }} />
+              <col style={{ width: 160 }} />
               <col style={{ width: 68 }} />
               <col style={{ width: 116 }} />
-              <col style={{ width: 80 }} />
+              <col style={{ width: 100 }} />
               <col style={{ width: 88 }} />
               <col style={{ width: 88 }} />
               <col style={{ width: 76 }} />
@@ -900,6 +941,7 @@ export default function TradingDesk({
                       todayRef={todayRef}
                       workspace={workspace}
                       resolvedInstruments={resolvedInstruments}
+                      allDays={allDays}
                     />
                   );
                 }
@@ -993,28 +1035,28 @@ function PastRow({
       pnlValue > 0 ? 'text-bullish/60' : pnlValue < 0 ? 'text-destructive/60' : 'text-foreground'
     }`}>
       {/* Day */}
-      <td className="px-2 py-2">
+      <td className="px-2 py-2 border-r border-border">
         <span className="font-bold tabular-nums">{day.dayIndex}</span>
       </td>
       {/* Date + Age */}
-      <td className="px-2 py-2">
+      <td className="px-2 py-2 border-r border-border">
         <span className="block truncate text-[10px] tabular-nums">{dateLabel}</span>
       </td>
       {/* Trade Capital */}
-      <td className="px-2 py-2 text-right tabular-nums">
+      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
         {fmt(day.tradeCapital, true)}
       </td>
       {/* Target */}
-      <td className="px-2 py-2 text-right tabular-nums">
+      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
         {fmt(day.targetAmount)}
         <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
       </td>
       {/* Proj Capital */}
-      <td className="px-2 py-2 text-right tabular-nums">
+      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
         {fmt(day.projCapital, true)}
       </td>
       {/* Instrument — color-coded tags */}
-      <td className="px-2 py-2">
+      <td className="px-2 py-2 border-r border-border">
         <div className="flex max-w-full items-center gap-1 overflow-hidden whitespace-nowrap">
           {day.instruments.length > 0
             ? day.instruments.map((inst) => <InstrumentTag key={inst} name={inst} />)
@@ -1023,30 +1065,30 @@ function PastRow({
         </div>
       </td>
       {/* Entry */}
-      <td className="px-2 py-2 text-right">—</td>
+      <td className="px-2 py-2 text-right border-r border-border">—</td>
       {/* LTP */}
-      <td className="px-2 py-2 text-right">—</td>
+      <td className="px-2 py-2 text-right border-r border-border">—</td>
       {/* Qty */}
-      <td className="px-2 py-2 text-right tabular-nums">
+      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
         {day.totalQty > 0 ? day.totalQty : '—'}
       </td>
       {/* Capital */}
-      <td className="px-2 py-2 text-right">—</td>
+      <td className="px-2 py-2 text-right border-r border-border">—</td>
       {/* P&L */}
-      <td className={`px-2 py-2 text-right tabular-nums font-bold ${pnlColor(pnlValue)}`}>
-        {fmt(pnlValue)}
+      <td className={`px-2 py-2 text-right tabular-nums font-bold border-r border-border ${pnlColor(pnlValue)}`}>
+        {fmt(pnlValue, false)}
         <span className="text-[8px] ml-0.5">({pnlPercent}%)</span>
       </td>
       {/* Charges */}
-      <td className="px-2 py-2 text-right tabular-nums">
-        {day.totalCharges > 0 ? fmt(day.totalCharges) : '—'}
+      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
+        {day.totalCharges > 0 ? fmt(day.totalCharges, false) : '—'}
       </td>
       {/* Actual Capital */}
-      <td className="px-2 py-2 text-right tabular-nums font-medium">
+      <td className="px-2 py-2 text-right tabular-nums font-medium border-r border-border">
         {day.actualCapital > 0 ? fmt(day.actualCapital, true) : '—'}
       </td>
       {/* Deviation */}
-      <td className={`px-2 py-2 text-right tabular-nums text-[9px] ${pnlColor(day.deviation)}`}>
+      <td className={`px-2 py-2 text-right tabular-nums text-[9px] border-r border-border ${pnlColor(day.deviation)}`}>
         {day.actualCapital > 0
           ? formatDeviation(day.deviation)
           : '—'}
@@ -1074,6 +1116,7 @@ function TodaySection({
   todayRef,
   workspace,
   resolvedInstruments,
+  allDays,
 }: {
   day: DayRecord;
   capital: CapitalState;
@@ -1087,8 +1130,18 @@ function TodaySection({
   todayRef: React.RefObject<HTMLTableRowElement | null>;
   workspace: Workspace;
   resolvedInstruments?: ResolvedInstrument[];
+  allDays: DayRecord[];
 }) {
   const [showNewTradeForm, setShowNewTradeForm] = useState(false);
+  const updateTradeMutation = trpc.capital.updateTrade.useMutation();
+  const utils = trpc.useUtils();
+  const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
+    updateTradeMutation.mutate(
+      { workspace, tradeId, ...patch },
+      { onSuccess: () => utils.capital.allDays.invalidate() }
+    );
+  }, [updateTradeMutation, workspace, utils]);
+
   const trades = day.trades ?? [];
   const openTrades = trades.filter(t => t.status === 'OPEN');
   const totalPnl = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
@@ -1100,6 +1153,44 @@ function TodaySection({
   const usedCapital = Math.round(calculateOpenMargin(openTrades) * 100) / 100;
   const { wins, losses } = countTradeOutcomes(trades);
   const theme = getWorkspaceThemeMeta(workspace);
+
+  // Find last closed trade for "Repeat Last Order" button
+  const getLastClosedTrade = useCallback(() => {
+    for (let i = allDays.length - 1; i >= 0; i--) {
+      const dayTrades = allDays[i].trades ?? [];
+      for (let j = dayTrades.length - 1; j >= 0; j--) {
+        const trade = dayTrades[j];
+        if (trade.status === 'CLOSED' || trade.status === 'EXITED') {
+          return trade;
+        }
+      }
+    }
+    return null;
+  }, [allDays]);
+
+  const handleRepeatLastOrder = useCallback(() => {
+    const lastTrade = getLastClosedTrade();
+    if (!lastTrade) return;
+
+    // Get current LTP for the instrument
+    const currentLtp = getLiveLtp(lastTrade) ?? lastTrade.ltp ?? lastTrade.entryPrice;
+    if (currentLtp <= 0) return;
+
+    // Repeat the trade with current LTP as entry price
+    onPlaceTrade({
+      instrument: lastTrade.instrument,
+      type: lastTrade.type,
+      strike: lastTrade.strike,
+      expiry: lastTrade.expiry || '',
+      entryPrice: currentLtp,
+      capitalPercent: lastTrade.capitalPercent,
+      qty: lastTrade.qty,
+      lotSize: lastTrade.lotSize,
+      contractSecurityId: lastTrade.contractSecurityId,
+    });
+  }, [getLastClosedTrade, getLiveLtp, onPlaceTrade]);
+
+  const lastClosedTrade = getLastClosedTrade();
 
   return (
     <>
@@ -1115,6 +1206,7 @@ function TodaySection({
             showNet={showNet}
             onExit={() => onExitTrade(trade.id, trade.instrument)}
             exitLoading={exitLoading}
+            onUpdateTpSl={handleUpdateTpSl}
             getLiveLtp={getLiveLtp}
             todayRef={isFirst ? todayRef : undefined}
             canManageTrades={canManageTrades}
@@ -1149,22 +1241,38 @@ function TodaySection({
 
       {/* Today Summary Row */}
       <tr data-day={day.dayIndex} className={`border-y font-bold ${theme.summaryBorder} ${theme.summaryBg}`} ref={trades.length === 0 ? todayRef : undefined}>
-        <td className="px-2 py-2" />
-        <td className="px-2 py-2" />
-        <td className="px-2 py-2" />
-        <td className="px-2 py-2" />
-        <td className="px-2 py-2" />
-        <td className="px-2 py-2" colSpan={3}>
-          <div className="flex items-center justify-between gap-3 overflow-hidden">
-            <div className="min-w-0 truncate text-[9px] text-foreground">
-              <span>Risk@SL {fmt(openRisk)}</span>
-              <span className="mx-1.5 text-border">|</span>
-              <span>Reward@TP {fmt(openReward)}</span>
-            </div>
-            {canManageTrades ? (
+        <td className="px-2 py-2 border-r border-border" />
+        <td className="px-2 py-2 border-r border-border" />
+        <td className="px-2 py-2 border-r border-border" />
+        <td className="px-2 py-2 border-r border-border" />
+        <td className="px-2 py-2 border-r border-border" />
+        <td className="px-2 py-2 border-r border-border">
+          <div className="flex items-center justify-end gap-2">
+            {!canManageTrades && (
+              <span className="text-[9px] italic text-muted-foreground">AI managed</span>
+            )}
+            {canManageTrades && openTrades.length > 0 && (
+              <button
+                onClick={onExitAll}
+                className="shrink-0 px-1 py-0.5 rounded text-[9px] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
+                title="Exit all open positions"
+              >
+                ×
+              </button>
+            )}
+            {canManageTrades && lastClosedTrade && (
+              <button
+                onClick={handleRepeatLastOrder}
+                className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25 transition-colors"
+                title={`Repeat last ${lastClosedTrade.instrument} trade at current LTP`}
+              >
+                ↻
+              </button>
+            )}
+            {canManageTrades && (
               <button
                 onClick={() => setShowNewTradeForm(prev => !prev)}
-                className={`shrink-0 px-2 py-0.5 rounded text-[9px] font-bold tracking-wider transition-colors ${
+                className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-wider transition-colors ${
                   showNewTradeForm
                     ? theme.buttonActive
                     : theme.button
@@ -1172,109 +1280,200 @@ function TodaySection({
               >
                 {showNewTradeForm ? '- CANCEL' : '+ NEW TRADE'}
               </button>
-            ) : (
-              <span className="shrink-0 text-[9px] italic text-muted-foreground">AI managed</span>
             )}
           </div>
         </td>
-        <td className="px-2 py-2 text-right tabular-nums text-foreground">
+        <td className="px-2 py-2 border-r border-border" colSpan={2}>
+          <div className="min-w-0 truncate text-[9px] text-foreground">
+            <span>Risk@SL {fmt(openRisk)}</span>
+            <span className="mx-1.5 text-border">|</span>
+            <span>Reward@TP {fmt(openReward)}</span>
+          </div>
+        </td>
+        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
           {day.totalQty > 0 ? day.totalQty : '—'}
         </td>
-        <td className="px-2 py-2 text-right tabular-nums text-foreground text-[10px]">
-          {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0)) : '—'}
+        <td className="px-2 py-2 text-right tabular-nums text-foreground text-[10px] border-r border-border">
+          {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0), false) : '—'}
         </td>
-        <td className={`px-2 py-2 text-right tabular-nums ${pnlColor(totalPnl)}`}>
-          <div className="flex items-center justify-end gap-1">
-            <span>{fmt(totalPnl)}</span>
-            {canManageTrades && openTrades.length > 0 && (
-              <button
-                onClick={onExitAll}
-                className="px-1 py-0.5 rounded text-[8px] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
-                title="Exit all"
-              >
-                x
-              </button>
-            )}
-          </div>
+        <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
+          {fmt(totalPnl, false)}
         </td>
-        <td className="px-2 py-2 text-right tabular-nums text-foreground">
-          {day.totalCharges > 0 ? fmt(day.totalCharges) : '—'}
+        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+          {day.totalCharges > 0 ? fmt(day.totalCharges, false) : '—'}
         </td>
-        <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground">
+        <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground border-r border-border">
           {day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
         </td>
-        <td className={`px-2 py-2 text-right tabular-nums text-[9px] ${pnlColor(day.deviation)}`}>
+        <td className={`px-2 py-2 text-right tabular-nums text-[9px] border-r border-border ${pnlColor(day.deviation)}`}>
           {formatDeviation(day.deviation)}
         </td>
         <td className="px-2 py-2" />
       </tr>
       <tr className="hidden border-y border-warning-amber/30 bg-warning-amber/10 bg-muted/20 font-bold">
         {/* Day */}
-        <td className="px-2 py-2 text-warning-amber" colSpan={2}>
+        <td className="px-2 py-2 text-warning-amber border-r border-border" colSpan={2}>
           DAY {day.dayIndex} TOTAL
         </td>
         {/* Trade Capital */}
-        <td className="px-2 py-2" />
+        <td className="px-2 py-2 border-r border-border" />
         {/* Target */}
-        <td className="px-2 py-2" />
+        <td className="px-2 py-2 border-r border-border" />
         {/* Proj Capital */}
-        <td className="px-2 py-2" />
+        <td className="px-2 py-2 border-r border-border" />
         {/* Instrument — + NEW TRADE button (manual workspaces only) */}
-        <td className="px-2 py-2" colSpan={3}>
-          {canManageTrades ? (
-            <button
-              onClick={() => setShowNewTradeForm(prev => !prev)}
-              className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-wider transition-colors ${
-                showNewTradeForm
-                  ? 'bg-warning-amber/20 text-warning-amber'
-                  : `${theme.button}`
-              }`}
-            >
-              {showNewTradeForm ? '− CANCEL' : '+ NEW TRADE'}
-            </button>
-          ) : (
-            <span className="text-[9px] text-muted-foreground/50 italic">AI managed</span>
-          )}
-        </td>
-        {/* Qty */}
-        <td className="px-2 py-2 text-right tabular-nums text-foreground">
-          {day.totalQty > 0 ? day.totalQty : '—'}
-        </td>
-        {/* Capital */}
-        <td className="px-2 py-2 text-right tabular-nums text-foreground text-[10px]">
-          {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0)) : '—'}
-        </td>
-        {/* P&L + Exit All */}
-        <td className={`px-2 py-2 text-right tabular-nums ${pnlColor(totalPnl)}`}>
-          <div className="flex items-center justify-end gap-1">
-            <span>{fmt(totalPnl)}</span>
-            {canManageTrades && openTrades.length > 0 && (
+        <td className="px-2 py-2 border-r border-border" colSpan={3}>
+          <div className="flex items-center justify-start gap-2">
+            {canManageTrades && lastClosedTrade && (
               <button
-                onClick={onExitAll}
-                className="px-1 py-0.5 rounded text-[8px] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
-                title="Exit all"
+                onClick={handleRepeatLastOrder}
+                className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25 transition-colors"
+                title={`Repeat last ${lastClosedTrade.instrument} trade at current LTP`}
               >
-                ×
+                ↻
               </button>
+            )}
+            {canManageTrades ? (
+              <button
+                onClick={() => setShowNewTradeForm(prev => !prev)}
+                className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-wider transition-colors ${
+                  showNewTradeForm
+                    ? 'bg-warning-amber/20 text-warning-amber'
+                    : `${theme.button}`
+                }`}
+              >
+                {showNewTradeForm ? '− CANCEL' : '+ NEW TRADE'}
+              </button>
+            ) : (
+              <span className="text-[9px] text-muted-foreground/50 italic">AI managed</span>
             )}
           </div>
         </td>
+        {/* Qty */}
+        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+          {day.totalQty > 0 ? day.totalQty : '—'}
+        </td>
+        {/* Capital */}
+        <td className="px-2 py-2 text-right tabular-nums text-foreground text-[10px] border-r border-border">
+          {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0), false) : '—'}
+        </td>
+        {/* P&L */}
+        <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
+          {fmt(totalPnl, false)}
+        </td>
         {/* Charges */}
-        <td className="px-2 py-2 text-right tabular-nums text-foreground">
-          {day.totalCharges > 0 ? fmt(day.totalCharges) : '—'}
+        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+          {day.totalCharges > 0 ? fmt(day.totalCharges, false) : '—'}
         </td>
         {/* Actual Capital */}
-        <td className="px-2 py-2 text-right tabular-nums text-warning-amber">
+        <td className="px-2 py-2 text-right tabular-nums text-warning-amber border-r border-border">
           {day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
         </td>
         {/* Deviation */}
-        <td className={`px-2 py-2 text-right tabular-nums text-[9px] ${pnlColor(day.deviation)}`}>
+        <td className={`px-2 py-2 text-right tabular-nums text-[9px] border-r border-border ${pnlColor(day.deviation)}`}>
           {formatDeviation(day.deviation)}
         </td>
         {/* Rating */}
         <td className="px-2 py-2" />
       </tr>
     </>
+  );
+}
+
+// ─── TP/SL helpers (stable — defined outside TodayTradeRow to prevent remount flicker) ──
+
+function pctFromPrice(field: 'sl' | 'tp', isBuy: boolean, entryPrice: number, price: number): number {
+  if (!price || !entryPrice) return 0;
+  if (field === 'tp') return isBuy ? (price - entryPrice) / entryPrice * 100 : (entryPrice - price) / entryPrice * 100;
+  return isBuy ? (entryPrice - price) / entryPrice * 100 : (price - entryPrice) / entryPrice * 100;
+}
+
+function TpSlMergedBody({
+  isBuy, entryPrice,
+  slPrice, setSlPrice,
+  tpPrice, setTpPrice,
+  trailingStopEnabled, setTrailingStopEnabled,
+  onCommit, onCancel,
+}: {
+  isBuy: boolean;
+  entryPrice: number;
+  slPrice: string;
+  setSlPrice: (v: string) => void;
+  tpPrice: string;
+  setTpPrice: (v: string) => void;
+  trailingStopEnabled: boolean;
+  setTrailingStopEnabled: (v: boolean) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+}) {
+  const slVal = parseFloat(slPrice);
+  const tpVal = parseFloat(tpPrice);
+  const slPct = slVal > 0 ? pctFromPrice('sl', isBuy, entryPrice, slVal) : null;
+  const tpPct = tpVal > 0 ? pctFromPrice('tp', isBuy, entryPrice, tpVal) : null;
+
+  return (
+    <div className="space-y-2">
+      {/* SL row */}
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-bold text-destructive w-5 shrink-0">SL</span>
+        <input
+          autoFocus
+          type="number"
+          step="0.05"
+          min="0"
+          value={slPrice}
+          onChange={e => setSlPrice(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') onCommit(); if (e.key === 'Escape') onCancel(); }}
+          className="flex-1 min-w-0 px-2 py-1 text-[11px] tabular-nums rounded border border-destructive/40 bg-background text-foreground outline-none focus:border-destructive"
+          placeholder="price"
+        />
+        <span className="text-[9px] text-muted-foreground tabular-nums w-10 text-right shrink-0">
+          {slPct != null && isFinite(slPct) ? `${slPct.toFixed(1)}%` : ''}
+        </span>
+      </div>
+      {/* TP row */}
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-bold text-bullish w-5 shrink-0">TP</span>
+        <input
+          type="number"
+          step="0.05"
+          min="0"
+          value={tpPrice}
+          onChange={e => setTpPrice(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') onCommit(); if (e.key === 'Escape') onCancel(); }}
+          className="flex-1 min-w-0 px-2 py-1 text-[11px] tabular-nums rounded border border-bullish/40 bg-background text-foreground outline-none focus:border-bullish"
+          placeholder="price"
+        />
+        <span className="text-[9px] text-muted-foreground tabular-nums w-10 text-right shrink-0">
+          {tpPct != null && isFinite(tpPct) ? `${tpPct.toFixed(1)}%` : ''}
+        </span>
+      </div>
+      {/* Trailing Stop Toggle */}
+      <div className="flex items-center gap-2 pt-1 border-t border-border/30">
+        <span className="text-[10px] font-bold text-muted-foreground flex-1">Trailing SL</span>
+        <button
+          onClick={() => setTrailingStopEnabled(!trailingStopEnabled)}
+          className={`px-2 py-1 rounded text-[9px] font-bold transition-colors ${
+            trailingStopEnabled
+              ? 'bg-bullish/20 text-bullish'
+              : 'bg-muted/30 text-muted-foreground hover:bg-muted/50'
+          }`}
+        >
+          {trailingStopEnabled ? 'ON' : 'OFF'}
+        </button>
+      </div>
+      {/* Buttons */}
+      <div className="flex gap-1.5 pt-1">
+        <button
+          onClick={onCommit}
+          className="flex-1 py-1 rounded text-[10px] font-bold bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+        >Apply</button>
+        <button
+          onClick={onCancel}
+          className="flex-1 py-1 rounded text-[10px] text-muted-foreground hover:bg-muted/50 transition-colors"
+        >Cancel</button>
+      </div>
+    </div>
   );
 }
 
@@ -1287,6 +1486,7 @@ function TodayTradeRow({
   showNet,
   onExit,
   exitLoading,
+  onUpdateTpSl,
   getLiveLtp,
   todayRef,
   canManageTrades,
@@ -1298,11 +1498,16 @@ function TodayTradeRow({
   showNet: boolean;
   onExit: () => void;
   exitLoading?: boolean;
+  onUpdateTpSl: (tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => void;
   getLiveLtp: (trade: TradeRecord) => number | undefined;
   todayRef?: React.RefObject<HTMLTableRowElement | null>;
   canManageTrades: boolean;
   workspace: Workspace;
 }) {
+  const [editOpen, setEditOpen] = useState(false);
+  const [slPrice, setSlPrice] = useState('');
+  const [tpPrice, setTpPrice] = useState('');
+  const [trailingStopEnabled, setTrailingStopEnabled] = useState(trade.trailingStopEnabled ?? false);
   const theme = getWorkspaceThemeMeta(workspace);
   const isOpen = trade.status === 'OPEN';
   const isPending = trade.status === 'PENDING';
@@ -1346,7 +1551,7 @@ function TodayTradeRow({
       } ${pnl > 0 ? 'text-bullish/60' : pnl < 0 ? 'text-destructive/60' : 'text-foreground'}`}
     >
       {/* Day */}
-      <td className="px-2 py-1.5">
+      <td className="px-2 py-1.5 border-r border-border">
         {isFirst ? (
           <span className="font-bold tabular-nums text-foreground">{day.dayIndex}</span>
         ) : (
@@ -1354,128 +1559,162 @@ function TodayTradeRow({
         )}
       </td>
       {/* Date + Age */}
-      <td className="px-2 py-1.5">
+      <td className="px-2 py-1.5 border-r border-border">
         <span className="block truncate tabular-nums text-[10px]">
           {cycleDateLabel}
         </span>
       </td>
       {/* Trade Capital */}
-      <td className="px-2 py-1.5 text-right tabular-nums">
+      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
         {fmt(day.tradeCapital, true)}
       </td>
       {/* Target */}
-      <td className="px-2 py-1.5 text-right tabular-nums">
+      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
         {fmt(day.targetAmount)}
         <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
       </td>
       {/* Proj Capital */}
-      <td className="px-2 py-1.5 text-right tabular-nums">
+      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
         {fmt(day.projCapital, true)}
       </td>
-      {/* Instrument — merged with type info: Instrument | Expiry | Strike | CE/PE | B/S */}
-      <td className="px-2 py-1.5">
-        <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap">
-          <InstrumentTag name={trade.instrument} />
-          {expiryLabel && (
-            <>
-              <span className="text-border text-[9px]">|</span>
-              <span className="text-[9px] tabular-nums">{expiryLabel}</span>
-            </>
-          )}
-          {trade.strike !== null && (
-            <>
-              <span className="text-border text-[9px]">|</span>
-              <span className="text-[9px] tabular-nums">{trade.strike}</span>
-            </>
-          )}
-          <span className="text-border text-[9px]">|</span>
-          <span className={`text-[9px] font-bold ${theme.buttonActive} rounded px-1 py-0.5`}>{contractLabel}</span>
-          <span className="text-border text-[9px]">|</span>
-          <span className={`text-[9px] font-semibold ${isBuy ? 'text-bullish' : 'text-destructive'}`}>{directionLabel}</span>
+      {/* Instrument — merged with type info: Instrument | Expiry | Strike | CE/PE | B/S | Exit */}
+      <td className="px-2 py-1.5 border-r border-border">
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0">
+            <InstrumentTag name={trade.instrument} />
+            {expiryLabel && (
+              <>
+                <span className="text-border text-[9px]">|</span>
+                <span className="text-[9px] tabular-nums">{expiryLabel}</span>
+              </>
+            )}
+            {trade.strike !== null && (
+              <>
+                <span className="text-border text-[9px]">|</span>
+                <span className="text-[9px] tabular-nums">{trade.strike}</span>
+              </>
+            )}
+            <span className="text-border text-[9px]">|</span>
+            <span className={`text-[9px] font-bold ${theme.buttonActive} rounded px-1 py-0.5`}>{contractLabel}</span>
+            <span className="text-border text-[9px]">|</span>
+            <span className={`text-[9px] font-semibold ${isBuy ? 'text-bullish' : 'text-destructive'}`}>{directionLabel}</span>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {isOpen && (
+              <span className="text-[8px] text-muted-foreground/60 tabular-nums">
+                {formatAge(trade.openedAt)}
+              </span>
+            )}
+            {isOpen && canManageTrades && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onExit(); }}
+                disabled={exitLoading}
+                className="px-1 py-0.5 rounded text-[9px] font-bold transition-colors bg-destructive/15 text-destructive hover:bg-destructive/25 disabled:opacity-30"
+                title="Exit position"
+              >
+                {exitLoading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : '×'}
+              </button>
+            )}
+          </div>
         </div>
       </td>
       {/* Entry */}
-      <td className="px-2 py-1.5 text-right tabular-nums">
+      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
         {trade.entryPrice.toFixed(2)}
       </td>
-      {/* LTP + TP/SL sub-text */}
-      <td className="px-2 py-1.5 text-right">
-        <div className="flex flex-col items-end">
-          <span className={`tabular-nums font-medium ${
-            isOpen
-              ? (displayLtp >= trade.entryPrice ? 'text-bullish' : 'text-destructive')
-              : pnlColor(pnl)
-          }`}>
-            {isOpen ? (
-              <>
-                {displayLtp.toFixed(2)}
-                {liveLtp !== undefined && (
-                  <span className="ml-0.5 inline-block h-1 w-1 rounded-full bg-bullish animate-pulse" />
-                )}
-              </>
-            ) : (
-              trade.exitPrice?.toFixed(2) ?? '—'
-            )}
-          </span>
-          {/* TP/SL sub-text for open trades */}
-          {isOpen && trade.targetPrice && trade.stopLossPrice && (
-            <div className="flex flex-col items-end mt-0.5">
-              <span className="text-[8px] text-bullish/70">
-                TP: {trade.targetPrice.toFixed(2)} <span className="cursor-pointer opacity-50 hover:opacity-100">✎</span>
+      {/* SL | LTP | TP — single line, merged popover */}
+      <td className="px-2 py-1.5 border-r border-border">
+        <Popover open={editOpen} onOpenChange={open => { if (!open) setEditOpen(false); }}>
+          <div className="flex items-center justify-between gap-1 tabular-nums text-[10px] whitespace-nowrap">
+            {/* SL */}
+            <PopoverTrigger asChild>
+              <span
+                className={`font-medium tabular-nums ${isOpen && canManageTrades && trade.stopLossPrice != null ? 'text-destructive cursor-pointer hover:opacity-70' : 'text-muted-foreground/40 cursor-default'}`}
+                onClick={() => {
+                  if (!isOpen || !canManageTrades) return;
+                  setSlPrice(trade.stopLossPrice?.toFixed(2) ?? '');
+                  setTpPrice(trade.targetPrice?.toFixed(2) ?? '');
+                  setTrailingStopEnabled(trade.trailingStopEnabled ?? false);
+                  setEditOpen(true);
+                }}
+              >
+                {isOpen && trade.stopLossPrice != null ? trade.stopLossPrice.toFixed(2) : '—'}
               </span>
-              <span className="text-[8px] text-destructive/70">
-                SL: {trade.stopLossPrice.toFixed(2)} <span className="cursor-pointer opacity-50 hover:opacity-100">✎</span>
-              </span>
-            </div>
-          )}
-        </div>
+            </PopoverTrigger>
+
+            {/* LTP */}
+            <span className={`font-bold ${isOpen ? (displayLtp >= trade.entryPrice ? 'text-bullish' : 'text-destructive') : pnlColor(pnl)}`}>
+              {isOpen ? displayLtp.toFixed(2) : (trade.exitPrice?.toFixed(2) ?? '—')}
+              {isOpen && liveLtp !== undefined && (
+                <span className="ml-0.5 inline-block h-1 w-1 rounded-full bg-bullish animate-pulse" />
+              )}
+            </span>
+
+            {/* TP */}
+            <span
+              className={`font-medium tabular-nums ${isOpen && canManageTrades && trade.targetPrice != null ? 'text-bullish cursor-pointer hover:opacity-70' : 'text-muted-foreground/40 cursor-default'}`}
+              onClick={() => {
+                if (!isOpen || !canManageTrades) return;
+                setSlPrice(trade.stopLossPrice?.toFixed(2) ?? '');
+                setTpPrice(trade.targetPrice?.toFixed(2) ?? '');
+                setEditOpen(true);
+              }}
+            >
+              {isOpen && trade.targetPrice != null ? trade.targetPrice.toFixed(2) : '—'}
+            </span>
+          </div>
+          <PopoverContent className="w-56 p-3" align="center" side="top">
+            <TpSlMergedBody
+              isBuy={isBuy}
+              entryPrice={trade.entryPrice}
+              slPrice={slPrice}
+              setSlPrice={setSlPrice}
+              tpPrice={tpPrice}
+              setTpPrice={setTpPrice}
+              trailingStopEnabled={trailingStopEnabled}
+              setTrailingStopEnabled={setTrailingStopEnabled}
+              onCommit={() => {
+                const sl = parseFloat(slPrice);
+                const tp = parseFloat(tpPrice);
+                const patch: { stopLossPrice?: number; targetPrice?: number; trailingStopEnabled?: boolean } = {};
+                if (sl > 0) patch.stopLossPrice = Math.round(sl * 100) / 100;
+                if (tp > 0) patch.targetPrice = Math.round(tp * 100) / 100;
+                if (trailingStopEnabled !== (trade.trailingStopEnabled ?? false)) patch.trailingStopEnabled = trailingStopEnabled;
+                if (Object.keys(patch).length > 0) onUpdateTpSl(trade.id, patch);
+                setEditOpen(false);
+              }}
+              onCancel={() => setEditOpen(false)}
+            />
+          </PopoverContent>
+        </Popover>
       </td>
       {/* Qty */}
-      <td className="px-2 py-1.5 text-right tabular-nums font-medium">
+      <td className="px-2 py-1.5 text-right tabular-nums font-medium border-r border-border">
         {trade.lotSize && trade.lotSize > 1
-          ? <span title={`${Math.floor(trade.qty / trade.lotSize)} lots × ${trade.lotSize}`}>{trade.qty}</span>
+          ? `${Math.floor(trade.qty / trade.lotSize)}×${trade.lotSize}=${trade.qty}`
           : trade.qty}
-        {trade.lotSize && trade.lotSize > 1 && (
-          <span className="block text-[8px] text-foreground/40 tabular-nums">
-            {Math.floor(trade.qty / trade.lotSize)}L×{trade.lotSize}
-          </span>
-        )}
       </td>
       {/* Capital */}
-      <td className="px-2 py-1.5 text-right tabular-nums text-[10px]">
-        {fmt(trade.entryPrice * trade.qty)}
+      <td className="px-2 py-1.5 text-right tabular-nums text-[10px] border-r border-border">
+        {fmt(trade.entryPrice * trade.qty, false)}
       </td>
       {/* P&L + Exit button for open trades */}
-      <td className={`px-2 py-1.5 text-right tabular-nums font-bold ${pnlColor(pnl)}`}>
-        <div className="flex items-center justify-end gap-1">
-          <span>
-            {fmt(pnl)}
-            <span className="text-[8px] ml-0.5">({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%)</span>
+      <td className={`px-2 py-1.5 text-right tabular-nums font-bold border-r border-border whitespace-nowrap ${pnlColor(pnl)}`}>
+        <div className="flex flex-col items-end">
+          <span>{fmt(pnl, false)}</span>
+          <span className={`text-[8px] font-normal tabular-nums ${pnlColor(pnl)}`}>
+            {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%
           </span>
-          {isOpen && canManageTrades && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onExit(); }}
-              disabled={exitLoading}
-              className={`px-1 py-0.5 rounded text-[9px] font-bold transition-colors ${
-                pnl >= 0
-                  ? 'bg-bullish/15 text-bullish hover:bg-bullish/25'
-                  : 'bg-destructive/15 text-destructive hover:bg-destructive/25'
-              } disabled:opacity-30`}
-              title="Exit position"
-            >
-              {exitLoading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : '×'}
-            </button>
-          )}
         </div>
       </td>
       {/* Charges */}
-      <td className="px-2 py-1.5 text-right tabular-nums">
-        {trade.charges > 0 ? fmt(trade.charges) : '—'}
+      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
+        {trade.charges > 0 ? fmt(trade.charges, false) : '—'}
       </td>
       {/* Actual Capital */}
-      <td className="px-2 py-1.5" />
+      <td className="px-2 py-1.5 border-r border-border" />
       {/* Deviation */}
-      <td className="px-2 py-1.5" />
+      <td className="px-2 py-1.5 border-r border-border" />
       {/* Status Badge */}
       <td className="px-2 py-1.5 text-center">
         <StatusBadge status={trade.status} />
@@ -1502,46 +1741,46 @@ function FutureRow({
       highlighted ? 'bg-warning-amber/20 outline outline-1 outline-warning-amber/60' : 'bg-background/30'
     } ${isDay250 ? 'opacity-90' : 'opacity-[0.55]'}`}>
       {/* Day */}
-      <td className="px-2 py-2">
+      <td className="px-2 py-2 border-r border-border">
         <span className="font-bold tabular-nums text-foreground">
           {day.dayIndex}
         </span>
       </td>
       {/* Date */}
-      <td className="px-2 py-2 tabular-nums text-foreground">
+      <td className="px-2 py-2 tabular-nums text-foreground border-r border-border">
         {day.date || '—'}
       </td>
       {/* Trade Capital */}
-      <td className="px-2 py-2 text-right tabular-nums text-foreground">
+      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
         {fmt(day.tradeCapital, true)}
       </td>
       {/* Target */}
-      <td className="px-2 py-2 text-right tabular-nums text-foreground">
+      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
         {fmt(day.targetAmount)}
         <span className="text-[9px] ml-0.5">({day.targetPercent}%)</span>
       </td>
       {/* Proj Capital */}
-      <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground">
+      <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground border-r border-border">
         {fmt(day.projCapital, true)}
       </td>
       {/* Instrument */}
-      <td className="px-2 py-2 text-foreground">—</td>
+      <td className="px-2 py-2 text-foreground border-r border-border">—</td>
       {/* Entry */}
-      <td className="px-2 py-2 text-right text-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
       {/* LTP */}
-      <td className="px-2 py-2 text-right text-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
       {/* Qty */}
-      <td className="px-2 py-2 text-right text-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
       {/* Capital */}
-      <td className="px-2 py-2 text-right text-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
       {/* P&L */}
-      <td className="px-2 py-2 text-right text-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
       {/* Charges */}
-      <td className="px-2 py-2 text-right text-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
       {/* Actual Capital */}
-      <td className="px-2 py-2 text-right text-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
       {/* Deviation */}
-      <td className="px-2 py-2 text-right text-foreground">—</td>
+      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
       {/* Rating */}
       <td className="px-2 py-2 text-center whitespace-nowrap">
         <RatingIcon rating={isDay250 ? 'finish' : 'future'} />

@@ -341,12 +341,16 @@ export const capitalRouter = router({
       type: z.enum(["CALL_BUY", "CALL_SELL", "PUT_BUY", "PUT_SELL", "BUY", "SELL"]),
       strike: z.number().nullable().default(null),
       entryPrice: z.number().positive(),
-      capitalPercent: z.number().min(5).max(25),
+      capitalPercent: z.number().min(5).max(100),
       expiry: z.string().optional().default(""),  // expiry date (YYYY-MM-DD), empty = nearest
       contractSecurityId: z.string().optional().nullable(),
+      qty: z.number().int().positive().optional(),      // explicit lot count from UI
       lotSize: z.number().int().positive().optional(),  // lot size from scrip master
-      targetPercent: z.number().optional(),   // TP % from entry
-      stopLossPercent: z.number().optional(),  // SL % from entry
+      targetPercent: z.number().optional(),   // TP % from entry (legacy)
+      stopLossPercent: z.number().optional(),  // SL % from entry (legacy)
+      targetPrice: z.number().nullable().optional(),   // TP absolute price (new)
+      stopLossPrice: z.number().nullable().optional(),  // SL absolute price (new)
+      trailingStopEnabled: z.boolean().optional(),  // Enable trailing stop for this trade
     }))
     .mutation(async ({ input }) => {
       const state = await getCapitalState(input.workspace);
@@ -358,28 +362,68 @@ export const capitalRouter = router({
         .reduce((sum, t) => sum + t.entryPrice * t.qty, 0);
 
       const available = calculateAvailableCapital(state.tradingPool, openMargin);
-      const { qty, margin } = calculatePositionSize(
-        available,
-        input.capitalPercent,
-        input.entryPrice,
-        input.lotSize ?? 1
-      );
+      // If the UI provided an explicit lot count, use it directly; otherwise derive from capitalPercent
+      let qty: number;
+      let margin: number;
+      if (input.qty != null && input.qty > 0) {
+        qty = input.qty * (input.lotSize ?? 1);
+        margin = qty * input.entryPrice;
+      } else {
+        ({ qty, margin } = calculatePositionSize(
+          available,
+          input.capitalPercent,
+          input.entryPrice,
+          input.lotSize ?? 1
+        ));
+      }
 
       if (qty <= 0) {
         throw new Error("Insufficient capital for this trade");
       }
 
-      // Calculate bracket order levels — TP/SL defaults from broker config settings
+      // Calculate bracket order levels — TP/SL can be provided as absolute prices or percentages
       const isBuy = input.type.includes("BUY");
       const tradeDefaults = await getTradeTargetPercent(input.type);
-      const tpPercent = input.targetPercent ?? tradeDefaults.tpPercent;
-      const slPercent = input.stopLossPercent ?? tradeDefaults.slPercent;
-      const targetPrice = isBuy
-        ? Math.round(input.entryPrice * (1 + tpPercent / 100) * 100) / 100
-        : Math.round(input.entryPrice * (1 - tpPercent / 100) * 100) / 100;
-      const stopLossPrice = isBuy
-        ? Math.round(input.entryPrice * (1 - slPercent / 100) * 100) / 100
-        : Math.round(input.entryPrice * (1 + slPercent / 100) * 100) / 100;
+      
+      // Use absolute prices if provided, otherwise calculate from percentages, otherwise use defaults
+      let targetPrice: number | null;
+      let stopLossPrice: number | null;
+      
+      // Target Price: user-provided absolute price → user-provided percentage → broker defaults
+      if (input.targetPrice !== undefined) {
+        // User provided absolute price via new SL/TP editor (can be null to disable)
+        targetPrice = input.targetPrice;
+      } else if (input.targetPercent !== undefined) {
+        // Legacy percentage input
+        const tpPercent = input.targetPercent;
+        targetPrice = isBuy
+          ? Math.round(input.entryPrice * (1 + tpPercent / 100) * 100) / 100
+          : Math.round(input.entryPrice * (1 - tpPercent / 100) * 100) / 100;
+      } else {
+        // Use broker defaults
+        const tpPercent = tradeDefaults.tpPercent;
+        targetPrice = isBuy
+          ? Math.round(input.entryPrice * (1 + tpPercent / 100) * 100) / 100
+          : Math.round(input.entryPrice * (1 - tpPercent / 100) * 100) / 100;
+      }
+      
+      // Stop Loss Price: user-provided absolute price → user-provided percentage → broker defaults
+      if (input.stopLossPrice !== undefined) {
+        // User provided absolute price via new SL/TP editor (can be null to disable)
+        stopLossPrice = input.stopLossPrice;
+      } else if (input.stopLossPercent !== undefined) {
+        // Legacy percentage input
+        const slPercent = input.stopLossPercent;
+        stopLossPrice = isBuy
+          ? Math.round(input.entryPrice * (1 - slPercent / 100) * 100) / 100
+          : Math.round(input.entryPrice * (1 + slPercent / 100) * 100) / 100;
+      } else {
+        // Use broker defaults
+        const slPercent = tradeDefaults.slPercent;
+        stopLossPrice = isBuy
+          ? Math.round(input.entryPrice * (1 - slPercent / 100) * 100) / 100
+          : Math.round(input.entryPrice * (1 + slPercent / 100) * 100) / 100;
+      }
 
       const trade: TradeRecord = {
         id: generateTradeId(),
@@ -401,6 +445,7 @@ export const capitalRouter = router({
         status: "OPEN",
         targetPrice,
         stopLossPrice,
+        trailingStopEnabled: input.trailingStopEnabled,
         brokerId: null,
         openedAt: Date.now(),
         closedAt: null,
@@ -486,6 +531,29 @@ export const capitalRouter = router({
       }
 
       return { trade, day: updated };
+    }),
+
+  /** Update TP/SL on an open trade. */
+  updateTrade: publicProcedure
+    .input(z.object({
+      workspace: workspaceSchema,
+      tradeId: z.string(),
+      targetPrice: z.number().positive().optional(),
+      stopLossPrice: z.number().positive().optional(),
+      trailingStopEnabled: z.boolean().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const day = await ensureCurrentDay(input.workspace);
+      const trade = day.trades.find((t) => t.id === input.tradeId);
+      if (!trade) throw new Error(`Trade not found: ${input.tradeId}`);
+      if (trade.status !== "OPEN") throw new Error(`Trade already closed: ${input.tradeId}`);
+
+      if (input.targetPrice !== undefined) trade.targetPrice = input.targetPrice;
+      if (input.stopLossPrice !== undefined) trade.stopLossPrice = input.stopLossPrice;
+      if (input.trailingStopEnabled !== undefined) trade.trailingStopEnabled = input.trailingStopEnabled;
+
+      await upsertDayRecord(input.workspace, day);
+      return { trade };
     }),
 
   /** Exit a single trade. */

@@ -20,7 +20,7 @@ const UI_TO_RESOLVED_MAP: Record<string, string> = {
 };
 
 const STRIKE_WINDOW = 10;
-const CAPITAL_PERCENT_OPTIONS = [5, 10, 15, 20, 25];
+const CAPITAL_PERCENT_OPTIONS = [5, 10, 15, 20, 25, 40, 50, 60, 70, 80, 90, 100];
 
 const OPTION_TYPE_LABELS: Record<'CE' | 'PE' | 'NONE', string> = {
   CE: 'CE',
@@ -44,8 +44,12 @@ interface NewTradeFormProps {
     expiry: string;
     entryPrice: number;
     capitalPercent: number;
+    qty: number;
     lotSize?: number;
     contractSecurityId?: string | null;
+    targetPrice?: number | null;
+    stopLossPrice?: number | null;
+    trailingStopEnabled?: boolean;
   }) => Promise<void>;
   onCancel: () => void;
   loading?: boolean;
@@ -136,6 +140,15 @@ export default function NewTradeForm(props: NewTradeFormProps) {
   const [qtyMode, setQtyMode] = useState<'fixed' | 'percent'>('fixed');
   const [isQtyPopoverOpen, setIsQtyPopoverOpen] = useState(false);
 
+  // SL/TP/TSL state (preserved across trades for the session)
+  const [slEnabled, setSlEnabled] = useState(false);
+  const [slPrice, setSlPrice] = useState('');
+  const [tpEnabled, setTpEnabled] = useState(false);
+  const [tpPrice, setTpPrice] = useState('');
+  const [tslEnabled, setTslEnabled] = useState(false);
+  const [isSLTPPopoverOpen, setIsSLTPPopoverOpen] = useState(false);
+  const [hasUserInteractedWithSLTP, setHasUserInteractedWithSLTP] = useState(false);
+
   // All current instruments (NIFTY 50, BANK NIFTY, CRUDE OIL, NATURAL GAS) are derivatives.
   // Equity instruments (if added later) would not appear in UNDERLYING_MAP.
   const isDerivative = instrument in UNDERLYING_MAP;
@@ -145,6 +158,18 @@ export default function NewTradeForm(props: NewTradeFormProps) {
   const tone = getWorkspaceTone(workspace);
   const brokerConfigQuery = trpc.broker.config.get.useQuery(undefined);
   const isPaperBroker = brokerConfigQuery.data?.isPaperBroker ?? false;
+
+  // Initialize SL/TP/TSL settings from broker config on first load
+  useEffect(() => {
+    if (brokerConfigQuery.data?.settings && !slPrice && !tpPrice) {
+      // Only initialize once when broker config loads
+      const settings = brokerConfigQuery.data.settings;
+      if (settings.trailingStopEnabled) {
+        setTslEnabled(true);
+      }
+    }
+  }, [brokerConfigQuery.data?.settings, slPrice, tpPrice]);
+
   const resolvedName = UI_TO_RESOLVED_MAP[instrument] ?? instrument;
   const resolvedInstrument = useMemo(
     () => resolvedInstruments?.find((item) => item.name === resolvedName),
@@ -344,8 +369,14 @@ export default function NewTradeForm(props: NewTradeFormProps) {
       expiry: isOptionTrade ? expiry : '',
       entryPrice: parseFloat(entryPrice),
       capitalPercent,
+      qty: actualQty,
       lotSize: lotSize > 1 ? lotSize : undefined,
       contractSecurityId: selectedContractSecurityId ?? null,
+      ...(hasUserInteractedWithSLTP && {
+        stopLossPrice: slEnabled && slPrice ? parseFloat(slPrice) : null,
+        targetPrice: tpEnabled && tpPrice ? parseFloat(tpPrice) : null,
+        trailingStopEnabled: tslEnabled,
+      }),
     });
 
     setSelectedStrike('');
@@ -368,7 +399,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
 
   return (
     <tr className={`border-b border-l-2 ${tone.row}`}>
-      <td className="px-2 py-2">
+      <td className="px-2 py-2 border-r border-border">
         {dayValues ? (
           <span className={`tabular-nums ${tone.textSoft}`}>{dayValues.dayIndex}</span>
         ) : (
@@ -376,15 +407,15 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         )}
       </td>
 
-      <td className="px-2 py-2">
+      <td className="px-2 py-2 border-r border-border">
         <span className={`block truncate text-[10px] tabular-nums ${tone.text}`}>{cycleDateLabel}</span>
       </td>
 
-      <td className={`px-2 py-2 text-right tabular-nums ${tone.textSoft}`}>
+      <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${tone.textSoft}`}>
         {dayValues ? fmt(dayValues.tradeCapital, true) : '-'}
       </td>
 
-      <td className={`px-2 py-2 text-right tabular-nums ${tone.textSoft}`}>
+      <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${tone.textSoft}`}>
         {dayValues ? (
           <>
             {fmt(dayValues.targetAmount)}
@@ -393,116 +424,210 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         ) : '-'}
       </td>
 
-      <td className={`px-2 py-2 text-right tabular-nums ${tone.textSoft}`}>
+      <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${tone.textSoft}`}>
         {dayValues ? fmt(dayValues.projCapital, true) : '-'}
       </td>
 
-      <td className="px-2 py-1 min-w-[280px]">
-        <div className="flex flex-wrap items-center gap-1">
-          {/* Instrument dropdown */}
-          <select
-            value={instrument}
-            onChange={(e) => setInstrument(e.target.value)}
-            className={`${compactSelectClass} w-[88px]`}
-          >
-            {instrumentOptions.map((inst) => (
-              <option key={inst} value={inst}>{inst}</option>
-            ))}
-          </select>
-
-          {/* Derivative fields: Expiry | Strike | CE/PE group */}
-          {isDerivative && (
-            <>
-              <span className="text-border text-[9px]">|</span>
-              <select
-                value={expiry}
-                onChange={(e) => setExpiry(e.target.value)}
-                className={`${compactSelectClass} w-[62px]`}
-              >
-                <option value="">
-                  {expiryQuery.isLoading ? 'Loading...' : 'Expiry'}
-                </option>
-                {expiryOptions.map((exp) => (
-                  <option key={exp} value={exp}>
-                    {formatExpiry(exp)}
-                  </option>
-                ))}
-                {!expiryQuery.isLoading && expiryOptions.length === 0 && (
-                  <option value="" disabled>No expiries</option>
-                )}
-              </select>
-
-              <span className="text-border text-[9px]">|</span>
-              <select
-                value={selectedStrike}
-                onChange={(e) => setSelectedStrike(e.target.value)}
-                disabled={!expiry}
-                className={`${compactSelectClass} w-[68px]`}
-              >
-                <option value="">
-                  {expiry ? 'Strike' : 'Pick Exp'}
-                </option>
-                {optionChainQuery.isLoading && (
-                  <option value="" disabled>Loading...</option>
-                )}
-                {strikeOptions.map((strike) => (
-                  <option key={strike.strike} value={String(strike.strike)}>
-                    {strike.strike}
-                  </option>
-                ))}
-                {expiry && !optionChainQuery.isLoading && strikeOptions.length === 0 && (
-                  <option value="" disabled>No strikes</option>
-                )}
-              </select>
-
-              <span className="text-border text-[9px]">|</span>
-              {/* CE / PE group */}
-              <div className="flex shrink-0 items-center gap-1 rounded border border-border/50 px-1 py-0.5">
-                {(['CE', 'PE'] as const).map((opt) => (
-                  <button
-                    key={opt}
-                    onClick={() => setOptionType(opt)}
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
-                      optionType === opt
-                        ? 'bg-primary/20 text-primary'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {opt}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-
-          <span className="text-border text-[9px]">|</span>
-          {/* B / S group */}
-          <div className="flex shrink-0 items-center gap-1 rounded border border-border/50 px-1 py-0.5">
-            <button
-              onClick={() => setDirection('BUY')}
-              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
-                direction === 'BUY'
-                  ? 'bg-bullish/20 text-bullish'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
+      <td className="px-2 py-1 min-w-[280px] border-r border-border">
+        <div className="flex items-center justify-between gap-2">
+          {/* Left section: Instrument and controls */}
+          <div className="flex flex-wrap items-center gap-1">
+            {/* Instrument dropdown */}
+            <select
+              value={instrument}
+              onChange={(e) => setInstrument(e.target.value)}
+              className={`${compactSelectClass} w-[88px]`}
             >
-              B
+              {instrumentOptions.map((inst) => (
+                <option key={inst} value={inst}>{inst}</option>
+              ))}
+            </select>
+
+            {/* Derivative fields: Expiry | Strike | CE/PE group */}
+            {isDerivative && (
+              <>
+                <span className="text-border text-[9px]">|</span>
+                <select
+                  value={expiry}
+                  onChange={(e) => setExpiry(e.target.value)}
+                  className={`${compactSelectClass} w-[62px]`}
+                >
+                  <option value="">
+                    {expiryQuery.isLoading ? 'Loading...' : 'Expiry'}
+                  </option>
+                  {expiryOptions.map((exp) => (
+                    <option key={exp} value={exp}>
+                      {formatExpiry(exp)}
+                    </option>
+                  ))}
+                  {!expiryQuery.isLoading && expiryOptions.length === 0 && (
+                    <option value="" disabled>No expiries</option>
+                  )}
+                </select>
+
+                <span className="text-border text-[9px]">|</span>
+                <select
+                  value={selectedStrike}
+                  onChange={(e) => setSelectedStrike(e.target.value)}
+                  disabled={!expiry}
+                  className={`${compactSelectClass} w-[68px]`}
+                >
+                  <option value="">
+                    {expiry ? 'Strike' : 'Pick Exp'}
+                  </option>
+                  {optionChainQuery.isLoading && (
+                    <option value="" disabled>Loading...</option>
+                  )}
+                  {strikeOptions.map((strike) => (
+                    <option key={strike.strike} value={String(strike.strike)}>
+                      {strike.strike}
+                    </option>
+                  ))}
+                  {expiry && !optionChainQuery.isLoading && strikeOptions.length === 0 && (
+                    <option value="" disabled>No strikes</option>
+                  )}
+                </select>
+
+                <span className="text-border text-[9px]">|</span>
+                {/* CE / PE group */}
+                <div className="flex shrink-0 items-center gap-1 rounded border border-border/50 px-1 py-0.5">
+                  {(['CE', 'PE'] as const).map((opt) => (
+                    <button
+                      key={opt}
+                      onClick={() => setOptionType(opt)}
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                        optionType === opt
+                          ? 'bg-primary/20 text-primary'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <span className="text-border text-[9px]">|</span>
+            {/* B / S group */}
+            <div className="flex shrink-0 items-center gap-1 rounded border border-border/50 px-1 py-0.5">
+              <button
+                onClick={() => setDirection('BUY')}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                  direction === 'BUY'
+                    ? 'bg-bullish/20 text-bullish'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                B
+              </button>
+              <button
+                onClick={() => setDirection('SELL')}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                  direction === 'SELL'
+                    ? 'bg-destructive/20 text-destructive'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                S
+              </button>
+            </div>
+          </div>
+
+          {/* Right section: SL/TP editor and OK / X buttons */}
+          <div className="flex shrink-0 items-center gap-1">
+            <Popover 
+              open={isSLTPPopoverOpen} 
+              onOpenChange={(open) => {
+                setIsSLTPPopoverOpen(open);
+                if (open) setHasUserInteractedWithSLTP(true);
+              }}
+            >
+              <PopoverTrigger asChild>
+                <button
+                  className="rounded bg-info-cyan/20 px-1.5 py-1 text-[9px] font-bold text-info-cyan transition-colors hover:bg-info-cyan/30"
+                  title="Edit SL/TP/TSL"
+                >
+                  ⚙
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-52 p-3" align="end">
+                <div className="space-y-2">
+                  <div className="text-sm font-bold">SL / TP / TSL</div>
+
+                  {/* SL */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSlEnabled(!slEnabled)}
+                      className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors ${slEnabled ? 'bg-destructive/20 text-destructive' : 'bg-muted/30 text-muted-foreground'}`}
+                    >
+                      {slEnabled ? 'ON' : 'OFF'}
+                    </button>
+                    <span className="text-[9px] text-destructive font-bold w-5">SL</span>
+                    <input
+                      type="number"
+                      step="0.05"
+                      value={slPrice}
+                      onChange={(e) => setSlPrice(e.target.value)}
+                      placeholder="price"
+                      className="flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border border-destructive/40 bg-background outline-none focus:border-destructive"
+                      disabled={!slEnabled}
+                    />
+                  </div>
+
+                  {/* TP */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setTpEnabled(!tpEnabled)}
+                      className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors ${tpEnabled ? 'bg-bullish/20 text-bullish' : 'bg-muted/30 text-muted-foreground'}`}
+                    >
+                      {tpEnabled ? 'ON' : 'OFF'}
+                    </button>
+                    <span className="text-[9px] text-bullish font-bold w-5">TP</span>
+                    <input
+                      type="number"
+                      step="0.05"
+                      value={tpPrice}
+                      onChange={(e) => setTpPrice(e.target.value)}
+                      placeholder="price"
+                      className="flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border border-bullish/40 bg-background outline-none focus:border-bullish"
+                      disabled={!tpEnabled}
+                    />
+                  </div>
+
+                  {/* TSL */}
+                  <div className="flex items-center gap-2 pt-1 border-t border-border/30">
+                    <button
+                      onClick={() => setTslEnabled(!tslEnabled)}
+                      className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors ${tslEnabled ? 'bg-info-cyan/20 text-info-cyan' : 'bg-muted/30 text-muted-foreground'}`}
+                    >
+                      {tslEnabled ? 'ON' : 'OFF'}
+                    </button>
+                    <span className="text-[9px] text-info-cyan font-bold flex-1">TSL</span>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+            <button
+              onClick={handleSubmit}
+              disabled={loading || !formReady}
+              className="rounded bg-bullish/20 px-1.5 py-1 text-[9px] font-bold text-bullish transition-colors hover:bg-bullish/30 disabled:cursor-not-allowed disabled:opacity-30"
+              title="Place trade"
+            >
+              {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'OK'}
             </button>
             <button
-              onClick={() => setDirection('SELL')}
-              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
-                direction === 'SELL'
-                  ? 'bg-destructive/20 text-destructive'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
+              onClick={onCancel}
+              className="rounded bg-destructive/20 px-1.5 py-1 text-[9px] font-bold text-destructive transition-colors hover:bg-destructive/30"
+              title="Cancel"
             >
-              S
+              X
             </button>
           </div>
         </div>
       </td>
 
-      <td className="px-2 py-1">
+      <td className="px-2 py-1 border-r border-border">
         <input
           type="number"
           value={entryPrice}
@@ -513,13 +638,13 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         />
       </td>
 
-      <td className="px-2 py-2 text-right">
+      <td className="px-2 py-2 text-right border-r border-border">
         <span className={`text-[10px] tabular-nums ${tone.textSoft}`}>
           {currentLtp > 0 ? currentLtp.toFixed(2) : '-'}
         </span>
       </td>
 
-      <td className="px-2 py-1">
+      <td className="px-2 py-1 border-r border-border">
         <Popover open={isQtyPopoverOpen} onOpenChange={setIsQtyPopoverOpen}>
           <PopoverTrigger asChild>
             <button
@@ -575,7 +700,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
               <div className="space-y-2">
                 <div className="text-xs font-medium text-muted-foreground">% of Capital</div>
                 <div className="flex gap-1 flex-wrap">
-                  {[5, 10, 30].map((value) => (
+                  {CAPITAL_PERCENT_OPTIONS.map((value) => (
                     <button
                       key={value}
                       onClick={() => {
@@ -599,43 +724,17 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         </Popover>
       </td>
 
-      <td className={`px-2 py-2 text-right tabular-nums ${tone.textSoft}`}>
+      <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${tone.textSoft}`}>
         {invested > 0 ? fmt(invested) : '-'}
       </td>
 
-      <td className={`px-2 py-2 text-right tabular-nums ${tone.textSoft}`}>
+      <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${tone.textSoft}`}>
         {estimatedCharges > 0 ? fmt(estimatedCharges) : '-'}
       </td>
 
-      <td className="px-2 py-2" /> {/* P&L - empty for new trade */}
-      <td className="px-2 py-2" /> {/* Actual Cap. - empty for new trade */}
-      <td className="px-2 py-2" /> {/* Dev. - empty for new trade */}
+      <td className="px-2 py-2 border-r border-border" /> {/* Actual Cap. - empty for new trade */}
+      <td className="px-2 py-2 border-r border-border" /> {/* Dev. - empty for new trade */}
       <td className="px-2 py-2 text-center" /> {/* Rating - empty for new trade */}
-
-      <td className="px-2 py-1">
-        <div className="flex items-center justify-end gap-1">
-          <button
-            onClick={handleSubmit}
-            disabled={loading || !formReady}
-            className="rounded bg-bullish/20 px-1.5 py-1 text-[9px] font-bold text-bullish transition-colors hover:bg-bullish/30 disabled:cursor-not-allowed disabled:opacity-30"
-            title="Place trade"
-          >
-            {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'OK'}
-          </button>
-          <button
-            onClick={onCancel}
-            className="rounded bg-destructive/20 px-1.5 py-1 text-[9px] font-bold text-destructive transition-colors hover:bg-destructive/30"
-            title="Cancel"
-          >
-            X
-          </button>
-        </div>
-      </td>
-
-      <td className="px-2 py-2 text-right text-muted-foreground">-</td>
-      <td className="px-2 py-2 text-right text-muted-foreground">-</td>
-      <td className="px-2 py-2 text-right text-muted-foreground">-</td>
-      <td className="px-2 py-2" />
     </tr>
   );
 }
