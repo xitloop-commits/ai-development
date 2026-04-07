@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ChevronUp, ChevronDown } from 'lucide-react';
 import { trpc } from '../lib/trpc';
 import { formatINR } from '@/lib/formatINR';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { estimateSingleLegCharges, type ChargeRate, DEFAULT_CHARGES } from '@shared/chargesEngine';
 
 const UNDERLYING_MAP: Record<string, string> = {
   'NIFTY 50': 'NIFTY',
@@ -130,6 +132,9 @@ export default function NewTradeForm(props: NewTradeFormProps) {
   const [entryPrice, setEntryPrice] = useState('');
   const [capitalPercent, setCapitalPercent] = useState(5);
   const [expiry, setExpiry] = useState('');
+  const [qty, setQty] = useState(1);
+  const [qtyMode, setQtyMode] = useState<'fixed' | 'percent'>('fixed');
+  const [isQtyPopoverOpen, setIsQtyPopoverOpen] = useState(false);
 
   // All current instruments (NIFTY 50, BANK NIFTY, CRUDE OIL, NATURAL GAS) are derivatives.
   // Equity instruments (if added later) would not appear in UNDERLYING_MAP.
@@ -257,6 +262,13 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     }
   }, [isOptionTrade, optionType, selectedStrike, strikeOptions]);
 
+  // Reset qty when switching to percent mode or when instrument/entry price changes
+  useEffect(() => {
+    if (qtyMode === 'percent') {
+      // Keep current percentage, but it will recalculate qty automatically via useMemo
+    }
+  }, [qtyMode, instrument, entryPrice, availableCapital]);
+
   const currentLtp = useMemo(() => {
     if (!isOptionTrade || !selectedStrike) return 0;
     const strikeData = strikeOptions.find((item) => String(item.strike) === selectedStrike);
@@ -271,14 +283,42 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     return optionType === 'CE' ? strikeData.callSecurityId : strikeData.putSecurityId;
   }, [isOptionTrade, optionType, selectedStrike, strikeOptions]);
 
-  const lotSize = optionChainQuery.data?.lotSize ?? 1;
-  const estimatedMargin = availableCapital * capitalPercent / 100;
-  const rawQty = entryPrice ? Math.floor(estimatedMargin / parseFloat(entryPrice)) : 0;
-  const estimatedQty = lotSize > 1
-    ? Math.max(lotSize, Math.floor(rawQty / lotSize) * lotSize)
-    : rawQty;
-  const estimatedLots = lotSize > 1 ? Math.floor(estimatedQty / lotSize) : 0;
-  const invested = estimatedQty * parseFloat(entryPrice || '0');
+  const underlyingSymbol = UNDERLYING_MAP[instrument] ?? instrument;
+  const lotSizeQuery = trpc.broker.getLotSize.useQuery(
+    { symbol: underlyingSymbol },
+    { enabled: isDerivative, staleTime: Infinity }
+  );
+  const lotSize = optionChainQuery.data?.lotSize ?? lotSizeQuery.data ?? 1;
+
+  // actualQty is always in LOTS (qty=1 means 1 lot).
+  // totalUnits = actualQty * lotSize is what gets traded.
+  const actualQty = useMemo(() => {
+    if (qtyMode === 'percent') {
+      const entryPriceNum = parseFloat(entryPrice || '0');
+      if (entryPriceNum <= 0) return 0;
+      const rawUnits = Math.floor((availableCapital * qty / 100) / entryPriceNum);
+      return lotSize > 1 ? Math.max(1, Math.floor(rawUnits / lotSize)) : rawUnits;
+    }
+    return Math.max(1, qty);
+  }, [qtyMode, qty, availableCapital, entryPrice, lotSize]);
+
+  const totalUnits = actualQty * Math.max(lotSize, 1);
+  const estimatedLots = lotSize > 1 ? actualQty : 0;
+  const invested = totalUnits * parseFloat(entryPrice || '0');
+
+  // Calculate estimated charges for entry leg
+  const estimatedCharges = useMemo(() => {
+    const entryPriceNum = parseFloat(entryPrice || '0');
+    if (entryPriceNum <= 0 || totalUnits <= 0) return 0;
+
+    const result = estimateSingleLegCharges(
+      entryPriceNum,
+      totalUnits,
+      direction === 'BUY',
+      DEFAULT_CHARGES as ChargeRate[]
+    );
+    return result.total;
+  }, [entryPrice, totalUnits, direction]);
 
   const formReady =
     !!instrument &&
@@ -357,13 +397,13 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         {dayValues ? fmt(dayValues.projCapital, true) : '-'}
       </td>
 
-      <td className="px-2 py-1">
-        <div className="flex items-center gap-1 whitespace-nowrap">
+      <td className="px-2 py-1 min-w-[280px]">
+        <div className="flex flex-wrap items-center gap-1">
           {/* Instrument dropdown */}
           <select
             value={instrument}
             onChange={(e) => setInstrument(e.target.value)}
-            className={`${compactSelectClass} w-[100px]`}
+            className={`${compactSelectClass} w-[88px]`}
           >
             {instrumentOptions.map((inst) => (
               <option key={inst} value={inst}>{inst}</option>
@@ -377,7 +417,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
               <select
                 value={expiry}
                 onChange={(e) => setExpiry(e.target.value)}
-                className={`${compactSelectClass} w-[78px]`}
+                className={`${compactSelectClass} w-[62px]`}
               >
                 <option value="">
                   {expiryQuery.isLoading ? 'Loading...' : 'Expiry'}
@@ -397,7 +437,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
                 value={selectedStrike}
                 onChange={(e) => setSelectedStrike(e.target.value)}
                 disabled={!expiry}
-                className={`${compactSelectClass} w-[84px]`}
+                className={`${compactSelectClass} w-[68px]`}
               >
                 <option value="">
                   {expiry ? 'Strike' : 'Pick Exp'}
@@ -480,25 +520,97 @@ export default function NewTradeForm(props: NewTradeFormProps) {
       </td>
 
       <td className="px-2 py-1">
-        <select
-          value={capitalPercent}
-          onChange={(e) => setCapitalPercent(parseInt(e.target.value, 10))}
-          className={`w-full bg-background border border-border rounded px-1 py-1 text-[10px] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`}
-          title={estimatedQty > 0
-            ? (estimatedLots > 0
-              ? `${estimatedLots} lots × ${lotSize} = ${estimatedQty} units | Margin: ${fmt(estimatedMargin)}`
-              : `Qty: ${estimatedQty} | Margin: ${fmt(estimatedMargin)}`)
-            : 'Select capital percent'}
-        >
-          {CAPITAL_PERCENT_OPTIONS.map((pct) => (
-            <option key={pct} value={pct}>{pct}%</option>
-          ))}
-        </select>
+        <Popover open={isQtyPopoverOpen} onOpenChange={setIsQtyPopoverOpen}>
+          <PopoverTrigger asChild>
+            <button
+              className={`w-full px-2 py-1 text-[10px] tabular-nums text-right rounded border transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer ${tone.textSoft} border-border`}
+              title="Click to adjust quantity"
+            >
+              {actualQty > 0
+                ? (lotSize > 1 ? `${actualQty}×${lotSize}=${totalUnits}` : `${totalUnits}`)
+                : qtyMode === 'percent' ? `${qty}%` : '-'}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-64 p-3" align="start">
+            <div className="space-y-3">
+              <div className="text-sm font-medium">Quantity Settings</div>
+
+              {/* Fixed Qty Section */}
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-muted-foreground">Fixed Quantity</div>
+                <div className="flex gap-1 flex-wrap">
+                  {[1, 5, 10, 15, 20, 50].map((value) => (
+                    <button
+                      key={value}
+                      onClick={() => {
+                        setQty(value);
+                        setQtyMode('fixed');
+                        setIsQtyPopoverOpen(false);
+                      }}
+                      className="px-2 py-1 text-xs rounded border hover:bg-accent hover:text-accent-foreground transition-colors"
+                    >
+                      {value}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setQty(Math.max(1, qty - 1))}
+                    className="p-1 rounded border hover:bg-accent hover:text-accent-foreground transition-colors"
+                    disabled={qty <= 1}
+                  >
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                  <span className="text-sm font-mono min-w-[3rem] text-center">{qty}</span>
+                  <button
+                    onClick={() => setQty(qty + 1)}
+                    className="p-1 rounded border hover:bg-accent hover:text-accent-foreground transition-colors"
+                  >
+                    <ChevronUp className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Percentage Section */}
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-muted-foreground">% of Capital</div>
+                <div className="flex gap-1 flex-wrap">
+                  {[5, 10, 30].map((value) => (
+                    <button
+                      key={value}
+                      onClick={() => {
+                        setQty(value);
+                        setQtyMode('percent');
+                        setIsQtyPopoverOpen(false);
+                      }}
+                      className="px-2 py-1 text-xs rounded border hover:bg-accent hover:text-accent-foreground transition-colors"
+                    >
+                      {value}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="text-xs text-muted-foreground">
+                Mode: {qtyMode === 'fixed' ? 'Fixed' : 'Percentage'} | {lotSize > 1 ? `Lots: ${estimatedLots} | ` : ''}Capital: {fmt(invested)}
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
       </td>
 
       <td className={`px-2 py-2 text-right tabular-nums ${tone.textSoft}`}>
         {invested > 0 ? fmt(invested) : '-'}
       </td>
+
+      <td className={`px-2 py-2 text-right tabular-nums ${tone.textSoft}`}>
+        {estimatedCharges > 0 ? fmt(estimatedCharges) : '-'}
+      </td>
+
+      <td className="px-2 py-2" /> {/* P&L - empty for new trade */}
+      <td className="px-2 py-2" /> {/* Actual Cap. - empty for new trade */}
+      <td className="px-2 py-2" /> {/* Dev. - empty for new trade */}
+      <td className="px-2 py-2 text-center" /> {/* Rating - empty for new trade */}
 
       <td className="px-2 py-1">
         <div className="flex items-center justify-end gap-1">

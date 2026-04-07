@@ -358,6 +358,14 @@ export const brokerRouter = router({
       return broker.getScripMaster(input.exchange);
     }),
 
+  /** Get lot size for an underlying symbol (e.g., NIFTY, BANKNIFTY, CRUDEOIL). */
+  getLotSize: publicProcedure
+    .input(z.object({ symbol: z.string() }))
+    .query(async ({ input }) => {
+      const broker = requireBroker();
+      return broker.getLotSize(input.symbol);
+    }),
+
   /** Get expiry list for an underlying. */
   expiryList: publicProcedure
     .input(z.object({ underlying: z.string(), exchangeSegment: z.string().optional() }))

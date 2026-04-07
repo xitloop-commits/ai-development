@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \":3000\\\\|:5173\\\\|:3005\")",
+      "Bash(tasklist)",
+      "Bash(findstr \"11408\")",
+      "Bash(ls server/*.ts)"
     ]
   }
 }

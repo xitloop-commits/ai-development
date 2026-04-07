@@ -159,11 +159,11 @@ function parseCsvLine(line: string): ScripRecord | null {
 function deriveUnderlyingSymbol(
   tradingSymbol: string,
   symbolName: string,
-  instrumentName: string
+  _instrumentName: string
 ): string {
-  // If symbolName is populated, use it
+  // If symbolName is populated, use it (strip spaces so "CRUDE OIL" → "CRUDEOIL")
   if (symbolName && symbolName.length > 0) {
-    return symbolName.toUpperCase();
+    return symbolName.toUpperCase().replace(/\s+/g, "");
   }
 
   // Parse from tradingSymbol: "NIFTY-May2026-30700-CE" → "NIFTY"
@@ -205,8 +205,8 @@ function buildIndexes(records: ScripRecord[]): void {
   bySecurityId = new Map();
 
   for (const rec of records) {
-    // Index by underlying symbol (uppercase)
-    const sym = rec.underlyingSymbol;
+    // Index by underlying symbol (uppercase, no spaces — "CRUDE OIL" → "CRUDEOIL")
+    const sym = rec.underlyingSymbol.replace(/\s+/g, "");
     if (sym) {
       if (!bySymbol.has(sym)) bySymbol.set(sym, []);
       bySymbol.get(sym)!.push(rec);
@@ -280,7 +280,7 @@ export async function downloadScripMaster(): Promise<number> {
  * @returns LookupResult or null if not found
  */
 export function lookupSecurityId(params: LookupParams): LookupResult | null {
-  const symbol = params.symbol.toUpperCase();
+  const symbol = params.symbol.toUpperCase().replace(/\s+/g, "");
   const candidates = bySymbol.get(symbol);
 
   if (!candidates || candidates.length === 0) {
@@ -362,7 +362,7 @@ export function getExpiryDates(
   exchange?: string,
   instrumentName?: string
 ): string[] {
-  const sym = symbol.toUpperCase();
+  const sym = symbol.toUpperCase().replace(/\s+/g, "");
   const candidates = bySymbol.get(sym);
 
   if (!candidates || candidates.length === 0) {
@@ -398,7 +398,7 @@ export function getExpiryDates(
  * @returns LookupResult for the nearest non-expired FUTCOM, or null
  */
 export function resolveMCXFutcom(symbol: string): LookupResult | null {
-  const sym = symbol.toUpperCase();
+  const sym = symbol.toUpperCase().replace(/\s+/g, "");
   const candidates = bySymbol.get(sym);
 
   if (!candidates || candidates.length === 0) {
@@ -477,7 +477,7 @@ export function getRecordsByExchange(exchange: string): ScripRecord[] {
  * Get all records for a specific symbol.
  */
 export function getRecordsBySymbol(symbol: string): ScripRecord[] {
-  return bySymbol.get(symbol.toUpperCase()) ?? [];
+  return bySymbol.get(symbol.toUpperCase().replace(/\s+/g, "")) ?? [];
 }
 
 /**
@@ -486,6 +486,19 @@ export function getRecordsBySymbol(symbol: string): ScripRecord[] {
  */
 export function getLotSizeBySecurityId(securityId: string): number {
   return bySecurityId.get(securityId)?.lotSize ?? 1;
+}
+
+/**
+ * Get lot size for an underlying symbol (e.g., NIFTY, BANKNIFTY, CRUDEOIL).
+ * Uses the first matching record from the scrip master.
+ * Returns 1 if not found.
+ */
+export function getLotSizeBySymbol(symbol: string): number {
+  const candidates = bySymbol.get(symbol.toUpperCase().replace(/\s+/g, ""));
+  if (!candidates || candidates.length === 0) return 1;
+  // Prefer a futures record (has authoritative lot size); fall back to first record
+  const futureRec = candidates.find(r => r.instrumentName.startsWith("FUT"));
+  return (futureRec ?? candidates[0]).lotSize;
 }
 
 /**

@@ -106,12 +106,19 @@ if "%PY_ONLY%"=="false" (
         set READY=false
         for /L %%i in (1,1,30) do (
             if "!READY!"=="false" (
+                REM Try both port 3000 and 3005 since server may use alternative port
                 curl -s http://localhost:3000/api/trading/heartbeat >nul 2>&1
                 if !errorlevel! equ 0 (
-                    echo       Node.js server ready.
+                    echo       Node.js server ready on port 3000.
                     set READY=true
                 ) else (
-                    timeout /t 1 /nobreak >nul
+                    curl -s http://localhost:3005/api/trading/heartbeat >nul 2>&1
+                    if !errorlevel! equ 0 (
+                        echo       Node.js server ready on port 3005.
+                        set READY=true
+                    ) else (
+                        timeout /t 1 /nobreak >nul
+                    )
                 )
             )
         )

@@ -74,6 +74,7 @@ import {
   getRecordsByExchange,
   needsRefresh as scripNeedsRefresh,
   getLotSizeBySecurityId,
+  getLotSizeBySymbol,
   type LookupResult,
 } from "./scripMaster";
 
@@ -556,6 +557,10 @@ export class DhanAdapter implements BrokerAdapter {
       lotSize: r.lotSize,
       tickSize: r.tickSize,
     }));
+  }
+
+  async getLotSize(symbol: string): Promise<number> {
+    return getLotSizeBySymbol(symbol);
   }
 
   async getExpiryList(underlying: string, exchangeSegment?: string): Promise<string[]> {
