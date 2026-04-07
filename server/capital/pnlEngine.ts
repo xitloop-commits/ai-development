@@ -54,16 +54,22 @@ const TICK_WORKSPACES: Workspace[] = ["live", "paper_manual", "paper"];
  * For Dhan, the adapter resolves securityId from scrip master.
  */
 export function tickMatchesTrade(tick: TickData, trade: TradeRecord): boolean {
+  // Option trades with a specific contract: ONLY match via contractSecurityId.
+  // This prevents underlying-price ticks from being applied to option trades where
+  // TP/SL prices are expressed in option-premium terms (CE and PE behave identically
+  // in premium space — both profit when premium rises for BUY, falls for SELL).
+  if (trade.contractSecurityId) {
+    return tick.securityId === trade.contractSecurityId;
+  }
+
   // Direct match: securityId equals instrument name
   if (tick.securityId === trade.instrument) return true;
 
-  // Match by brokerId tag (we tag orders with trade.id)
-  // The tick securityId might be the option contract securityId
-  // For now, match by instrument name mapping
+  // Underlying instrument name aliases (futures / non-option trades)
   const nameMap: Record<string, string[]> = {
-    NIFTY_50: ["NIFTY_50", "NIFTY 50", "NIFTY"],
-    BANKNIFTY: ["BANKNIFTY", "BANK NIFTY", "BANK_NIFTY"],
-    CRUDEOIL: ["CRUDEOIL", "CRUDE OIL", "CRUDE_OIL"],
+    NIFTY_50:   ["NIFTY_50", "NIFTY 50", "NIFTY"],
+    BANKNIFTY:  ["BANKNIFTY", "BANK NIFTY", "BANK_NIFTY"],
+    CRUDEOIL:   ["CRUDEOIL", "CRUDE OIL", "CRUDE_OIL"],
     NATURALGAS: ["NATURALGAS", "NATURAL GAS", "NATURAL_GAS"],
   };
 
@@ -174,8 +180,8 @@ class PnlEngine extends EventEmitter {
         trade.ltp = tick.ltp;
         anyUpdated = true;
 
-        // Check TP/SL triggers (AI paper only — live/manual paper are managed explicitly)
-        if (workspace !== "paper") continue;
+        // Check TP/SL triggers for all paper workspaces; live is managed by broker bracket orders
+        if (workspace === "live") continue;
         const isBuy = trade.type.includes("BUY");
 
         // ── Trailing Stop Logic ──────────────────────────────
@@ -187,8 +193,9 @@ class PnlEngine extends EventEmitter {
           : Math.min(currentPeak, tick.ltp);
         this.peakPrices.set(peakKey, newPeak);
 
-        // Apply trailing stop if enabled in broker config settings
-        if (trailingStopEnabled && trade.stopLossPrice !== null && newPeak !== currentPeak) {
+        // Apply trailing stop if enabled: check trade-level override first, then broker config
+        const trailingStopActiveForTrade = trade.trailingStopEnabled !== undefined ? trade.trailingStopEnabled : trailingStopEnabled;
+        if (trailingStopActiveForTrade && trade.stopLossPrice !== null && newPeak !== currentPeak) {
           const trailedSL = isBuy
             ? Math.round(newPeak * (1 - trailingStopPercent / 100) * 100) / 100
             : Math.round(newPeak * (1 + trailingStopPercent / 100) * 100) / 100;
