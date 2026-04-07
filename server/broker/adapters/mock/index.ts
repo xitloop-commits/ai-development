@@ -196,6 +196,15 @@ export class MockAdapter implements BrokerAdapter {
     return ["2026-04-03", "2026-04-10", "2026-04-17", "2026-04-24"];
   }
 
+  async getLotSize(symbol: string): Promise<number> {
+    const MOCK_LOT_SIZES: Record<string, number> = {
+      NIFTY: 25, BANKNIFTY: 15, FINNIFTY: 25, MIDCPNIFTY: 50,
+      SENSEX: 10, BANKEX: 15,
+      CRUDEOIL: 100, NATURALGAS: 1250, GOLD: 1, SILVER: 30,
+    };
+    return MOCK_LOT_SIZES[symbol.toUpperCase()] ?? 1;
+  }
+
   async getOptionChain(
     underlying: string,
     expiry: string,

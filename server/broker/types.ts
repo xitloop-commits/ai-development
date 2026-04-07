@@ -448,6 +448,9 @@ export interface BrokerAdapter {
   /** Get available expiry dates for an underlying. */
   getExpiryList(underlying: string, exchangeSegment?: string): Promise<string[]>;
 
+  /** Get lot size for an underlying symbol (e.g., NIFTY, BANKNIFTY, CRUDEOIL). */
+  getLotSize(symbol: string): Promise<number>;
+
   /** Get option chain data for an underlying + expiry. */
   getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData>;
 

@@ -887,7 +887,7 @@ export default function TradingDesk({
                   // ─── TODAY: render individual trade rows ────
                   return (
                     <TodaySection
-                      key={day.dayIndex}
+                      key={`${workspace}-${day.dayIndex}`}
                       day={day}
                       capital={capital}
                       showNet={showNet}
