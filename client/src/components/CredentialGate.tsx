@@ -26,6 +26,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { trpc } from "../lib/trpc";
 import { toast } from "sonner";
+import { ClipboardPaste } from "lucide-react";
 
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
@@ -36,6 +37,7 @@ interface CredentialGateProps {
 export function CredentialGate({ children }: CredentialGateProps) {
   const [token, setToken] = useState("");
   const [clientId, setClientId] = useState("");
+  const [dismissed, setDismissed] = useState(false);
 
   const statusQuery = trpc.broker.status.useQuery(undefined, {
     refetchInterval: 30_000,
@@ -107,7 +109,7 @@ export function CredentialGate({ children }: CredentialGateProps) {
 
   // ── Determine what to show ─────────────────────────────────────
   // If loading or no broker or paper mode, pass through
-  if (isLoading || noBroker || isPaper || !gateBlocked) {
+  if (isLoading || noBroker || isPaper || !gateBlocked || dismissed) {
     return <>{children}</>;
   }
 
@@ -133,11 +135,10 @@ export function CredentialGate({ children }: CredentialGateProps) {
       {/* Render a dark backdrop instead of the app */}
       <div className="fixed inset-0 bg-background z-40" />
 
-      <Dialog open={true} onOpenChange={() => {}}>
+      <Dialog open={true} onOpenChange={(v) => !v && setDismissed(true)}>
         <DialogContent
           className="sm:max-w-md z-50"
           onPointerDownOutside={(e) => e.preventDefault()}
-          onEscapeKeyDown={(e) => e.preventDefault()}
         >
           <DialogHeader>
             <DialogTitle className="text-warning-amber">{title}</DialogTitle>
@@ -190,13 +191,30 @@ export function CredentialGate({ children }: CredentialGateProps) {
               <label className="text-xs font-medium text-muted-foreground">
                 Access Token <span className="text-loss-red">*</span>
               </label>
-              <Input
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="Paste your access token..."
-                className="font-mono text-sm"
-                autoFocus={!needsClientId}
-              />
+              <div className="relative flex items-center">
+                <Input
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder="Paste your access token..."
+                  className="font-mono text-sm pr-9"
+                  autoFocus={!needsClientId}
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const text = await navigator.clipboard.readText();
+                      setToken(text.trim());
+                    } catch {
+                      toast.error("Clipboard access denied");
+                    }
+                  }}
+                  className="absolute right-2 text-muted-foreground hover:text-foreground transition-colors"
+                  title="Paste from clipboard"
+                >
+                  <ClipboardPaste className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
 

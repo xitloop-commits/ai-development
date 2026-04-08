@@ -1629,7 +1629,7 @@ function TodayTradeRow({
             {/* SL */}
             <PopoverTrigger asChild>
               <span
-                className={`font-medium tabular-nums ${isOpen && canManageTrades && trade.stopLossPrice != null ? 'text-destructive cursor-pointer hover:opacity-70' : 'text-muted-foreground/40 cursor-default'}`}
+                className={`font-medium tabular-nums ${isOpen && canManageTrades && trade.stopLossPrice != null ? (trade.trailingStopEnabled ? 'text-warning-amber cursor-pointer hover:opacity-70' : 'text-destructive cursor-pointer hover:opacity-70') : 'text-muted-foreground/40 cursor-default'}`}
                 onClick={() => {
                   if (!isOpen || !canManageTrades) return;
                   setSlPrice(trade.stopLossPrice?.toFixed(2) ?? '');
@@ -1638,7 +1638,7 @@ function TodayTradeRow({
                   setEditOpen(true);
                 }}
               >
-                {isOpen && trade.stopLossPrice != null ? trade.stopLossPrice.toFixed(2) : '—'}
+                {isOpen && trade.stopLossPrice != null ? `${trade.trailingStopEnabled ? '~' : ''}${trade.stopLossPrice.toFixed(2)}` : '—'}
               </span>
             </PopoverTrigger>
 
