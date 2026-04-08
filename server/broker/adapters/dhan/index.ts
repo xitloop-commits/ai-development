@@ -1125,10 +1125,10 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   /**
-   * Ensure scrip master is loaded and not stale.
+   * Ensure scrip master is loaded and not stale (max age: 24 hours).
    */
   private async _ensureScripMasterLoaded(): Promise<void> {
-    if (scripNeedsRefresh(12)) {
+    if (scripNeedsRefresh(24)) {
       try {
         await downloadScripMaster();
       } catch (err) {

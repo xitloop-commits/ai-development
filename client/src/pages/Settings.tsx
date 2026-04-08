@@ -1842,31 +1842,16 @@ export function ChargesSection() {
 
 export function InstrumentsSection() {
   const instrumentsQuery = trpc.instruments.list.useQuery();
-  const searchQuery = trpc.instruments.search.useQuery(
-    { query: '', exchange: 'ALL' },
-    { enabled: false }
-  );
-  const addMutation = trpc.instruments.add.useMutation({
-    onSuccess: () => {
-      toast.success('Instrument added');
-      instrumentsQuery.refetch();
-      setSearchText('');
-    },
-    onError: (err) => toast.error(err.message),
-  });
-  const removeMutation = trpc.instruments.remove.useMutation({
-    onSuccess: () => {
-      toast.success('Instrument removed');
-      instrumentsQuery.refetch();
-    },
-    onError: (err) => toast.error(err.message),
-  });
 
   const [showSearch, setShowSearch] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [searchExchange, setSearchExchange] = useState<'ALL' | 'NSE' | 'MCX' | 'BSE'>('ALL');
   const [searchResults, setSearchResults] = useState<Array<any>>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [hotKeyAssignMode, setHotKeyAssignMode] = useState<string | null>(null);
+  const [isAssigningHotkey, setIsAssigningHotkey] = useState(false);
 
   const instruments = instrumentsQuery.data || [];
 
@@ -1877,15 +1862,109 @@ export function InstrumentsSection() {
     }
     setIsSearching(true);
     try {
-      const result = await fetch(`/api/trpc/instruments.search?query=${encodeURIComponent(searchText)}&exchange=${searchExchange}`);
-      const data = await result.json();
-      if (data.result?.data) {
-        setSearchResults(data.result.data.slice(0, 10));
+      const params = new URLSearchParams();
+      params.set('query', searchText);
+      if (searchExchange !== 'ALL') {
+        params.set('exchange', searchExchange);
       }
-    } catch (err) {
+      const response = await fetch(`/api/trading/search-instruments?${params}`);
+      const data = await response.json();
+      if (data.results) {
+        setSearchResults(data.results.slice(0, 10));
+      } else if (data.error) {
+        toast.error(data.error || 'Search failed');
+      }
+    } catch (err: any) {
       console.error('Search failed:', err);
+      toast.error('Search failed');
     }
     setIsSearching(false);
+  };
+
+  const handleAddInstrument = async (result: any) => {
+    setIsAdding(true);
+    try {
+      const response = await fetch('/api/trading/instruments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: result.securityId,
+          displayName: result.customSymbol || result.tradingSymbol,
+          exchange: result.exchange,
+          exchangeSegment: result.segment,
+          underlying: result.securityId,
+          autoResolve: false,
+          symbolName: result.symbolName || null,
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        toast.success('Instrument added');
+        setSearchText('');
+        setSearchResults([]);
+        instrumentsQuery.refetch();
+      } else {
+        toast.error(data.error || 'Failed to add instrument');
+      }
+    } catch (err: any) {
+      console.error('Add failed:', err);
+      toast.error('Failed to add instrument');
+    }
+    setIsAdding(false);
+  };
+
+  const handleRemoveInstrument = async (key: string) => {
+    setIsRemoving(true);
+    try {
+      const response = await fetch(`/api/trading/instruments/${key}`, {
+        method: 'DELETE',
+      });
+      const data = await response.json();
+      if (data.success) {
+        toast.success('Instrument removed');
+        instrumentsQuery.refetch();
+      } else {
+        toast.error(data.error || 'Failed to remove instrument');
+      }
+    } catch (err: any) {
+      console.error('Remove failed:', err);
+      toast.error('Failed to remove instrument');
+    }
+    setIsRemoving(false);
+  };
+
+  const handleHotKeyPress = async (e: React.KeyboardEvent, instrumentKey: string) => {
+    e.preventDefault();
+    const key = e.key.toLowerCase();
+
+    // Ignore modifier keys and special keys
+    if (['shift', 'control', 'alt', 'meta', 'enter', 'escape'].includes(key)) {
+      if (key === 'escape') {
+        setHotKeyAssignMode(null);
+      }
+      return;
+    }
+
+    setIsAssigningHotkey(true);
+    try {
+      const response = await fetch(`/api/trading/instruments/${instrumentKey}/hotkey`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hotkey: key }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        toast.success(`Hotkey "${key.toUpperCase()}" assigned`);
+        setHotKeyAssignMode(null);
+        instrumentsQuery.refetch();
+      } else {
+        toast.error(data.error || 'Failed to assign hotkey');
+      }
+    } catch (err: any) {
+      console.error('Hotkey assignment failed:', err);
+      toast.error('Failed to assign hotkey');
+    }
+    setIsAssigningHotkey(false);
   };
 
   return (
@@ -1910,9 +1989,34 @@ export function InstrumentsSection() {
                   {inst.isDefault && (
                     <span className="px-2 py-0.5 text-[9px] bg-primary/10 text-primary rounded">default</span>
                   )}
+                  {hotKeyAssignMode === inst.key ? (
+                    <input
+                      autoFocus
+                      onKeyDown={(e) => handleHotKeyPress(e, inst.key)}
+                      onBlur={() => setHotKeyAssignMode(null)}
+                      placeholder="Press key..."
+                      className="w-12 px-1 py-0.5 text-[10px] text-center bg-background border border-primary rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  ) : (
+                    <>
+                      {inst.hotkey && (
+                        <span className="px-2 py-0.5 text-[10px] bg-accent/20 text-accent-foreground rounded font-mono font-bold">
+                          {inst.hotkey.toUpperCase()}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => setHotKeyAssignMode(inst.key)}
+                        disabled={isAssigningHotkey}
+                        className="px-2 py-1 text-[10px] rounded border border-primary/30 text-primary hover:bg-primary/5 disabled:opacity-50"
+                        title="Assign hotkey"
+                      >
+                        {inst.hotkey ? 'Change' : 'Set'} Key
+                      </button>
+                    </>
+                  )}
                   <button
-                    onClick={() => removeMutation.mutate({ key: inst.key })}
-                    disabled={inst.isDefault || removeMutation.isPending}
+                    onClick={() => handleRemoveInstrument(inst.key)}
+                    disabled={inst.isDefault || isRemoving}
                     className="px-2 py-1 text-[10px] rounded border border-destructive/30 text-destructive hover:bg-destructive/5 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Remove
@@ -1973,20 +2077,8 @@ export function InstrumentsSection() {
                       <div className="text-muted-foreground">{result.exchange} • {result.instrumentName}</div>
                     </div>
                     <button
-                      onClick={() => {
-                        const key = result.underlyingSymbol.replace(/\s+/g, '_').toUpperCase();
-                        const displayName = result.customSymbol || result.tradingSymbol;
-                        addMutation.mutate({
-                          key,
-                          displayName,
-                          exchange: result.exchange as any,
-                          exchangeSegment: result.segment,
-                          underlying: result.securityId,
-                          autoResolve: false,
-                          symbolName: null,
-                        });
-                      }}
-                      disabled={addMutation.isPending}
+                      onClick={() => handleAddInstrument(result)}
+                      disabled={isAdding}
                       className="px-2 py-0.5 text-[9px] rounded bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
                     >
                       Add
