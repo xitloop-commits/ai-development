@@ -53,6 +53,7 @@ export interface InstrumentData {
   name: string;
   displayName: string;
   exchange: string;
+  hotkey?: string | null;
   expiry: string;
   lastPrice: number;
   marketBias: 'BULLISH' | 'BEARISH' | 'RANGE_BOUND' | 'NEUTRAL';

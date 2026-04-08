@@ -17,6 +17,7 @@ export interface InstrumentConfig {
   symbolName: string | null; // for scrip master lookup when autoResolve is true
   isDefault: boolean;       // true = cannot be deleted from UI
   addedAt: number;          // UTC ms timestamp
+  hotkey: string | null;    // keyboard hotkey (e.g., '1', '2', 'q', 'w') — null if not assigned
 }
 
 const instrumentConfigSchema = new Schema<InstrumentConfig>(
@@ -30,8 +31,9 @@ const instrumentConfigSchema = new Schema<InstrumentConfig>(
     symbolName: { type: String, default: null },
     isDefault: { type: Boolean, default: false },
     addedAt: { type: Number, default: () => Date.now() },
+    hotkey: { type: String, default: null, index: true },
   },
-  { collection: "instruments", _id: false }
+  { collection: "instruments" }
 );
 
 export const InstrumentModel =
@@ -51,6 +53,7 @@ export const DEFAULT_INSTRUMENTS: InstrumentConfig[] = [
     symbolName: null,
     isDefault: true,
     addedAt: 0,
+    hotkey: "1",
   },
   {
     key: "BANKNIFTY",
@@ -62,6 +65,7 @@ export const DEFAULT_INSTRUMENTS: InstrumentConfig[] = [
     symbolName: null,
     isDefault: true,
     addedAt: 0,
+    hotkey: "2",
   },
   {
     key: "CRUDEOIL",
@@ -73,6 +77,7 @@ export const DEFAULT_INSTRUMENTS: InstrumentConfig[] = [
     symbolName: "CRUDEOIL",
     isDefault: true,
     addedAt: 0,
+    hotkey: "3",
   },
   {
     key: "NATURALGAS",
@@ -84,6 +89,7 @@ export const DEFAULT_INSTRUMENTS: InstrumentConfig[] = [
     symbolName: "NATURALGAS",
     isDefault: true,
     addedAt: 0,
+    hotkey: "4",
   },
 ];
 
@@ -118,8 +124,9 @@ export async function addInstrument(
     addedAt: Date.now(),
   };
 
-  const result = await InstrumentModel.create(newInstrument);
-  return result.toObject();
+  await InstrumentModel.create(newInstrument);
+  // Return the created instrument
+  return newInstrument;
 }
 
 /**
@@ -136,6 +143,38 @@ export async function removeInstrument(key: string): Promise<void> {
   }
 
   await InstrumentModel.deleteOne({ key });
+}
+
+/**
+ * Assign a hotkey to an instrument.
+ * If the hotkey is already assigned to another instrument, swap them.
+ */
+export async function assignHotkey(instrumentKey: string, hotkey: string | null): Promise<void> {
+  const instrument = await getInstrumentByKey(instrumentKey);
+  if (!instrument) {
+    throw new Error(`Instrument ${instrumentKey} not found`);
+  }
+
+  // If removing the hotkey, just update
+  if (!hotkey) {
+    await InstrumentModel.updateOne({ key: instrumentKey }, { $set: { hotkey: null } });
+    return;
+  }
+
+  // Check if this hotkey is already assigned to another instrument
+  const existingInstrument = await InstrumentModel.findOne({ hotkey, key: { $ne: instrumentKey } });
+
+  if (existingInstrument) {
+    // Swap the hotkeys
+    const oldHotkey = instrument.hotkey || null;
+    await Promise.all([
+      InstrumentModel.updateOne({ key: instrumentKey }, { $set: { hotkey } }),
+      InstrumentModel.updateOne({ key: existingInstrument.key }, { $set: { hotkey: oldHotkey } }),
+    ]);
+  } else {
+    // Just assign the hotkey
+    await InstrumentModel.updateOne({ key: instrumentKey }, { $set: { hotkey } });
+  }
 }
 
 /**

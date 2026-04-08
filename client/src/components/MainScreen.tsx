@@ -29,6 +29,7 @@ import { useAlertMonitor } from '@/hooks/useAlertMonitor';
 import { useTickStream } from '@/hooks/useTickStream';
 import { useFeedControl } from '@/hooks/useFeedControl';
 import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
+import { useHotkeyListener, type HotkeyAction } from '@/hooks/useHotkeyListener';
 
 // Shell components
 import AppBar from '@/components/AppBar';
@@ -50,6 +51,9 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 
 // Discipline — system-triggered overlay only
 import CircuitBreakerOverlay from '@/components/CircuitBreakerOverlay';
+
+// Quick Order Popup (hotkey-triggered)
+import { QuickOrderPopup, type QuickOrderData } from '@/components/QuickOrderPopup';
 
 // Mock data fallbacks
 import {
@@ -73,6 +77,11 @@ export default function MainScreen() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [disciplineOpen, setDisciplineOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
+
+  // ─── Quick Order Popup State (hotkey-triggered) ─────────────────
+  const [quickOrderOpen, setQuickOrderOpen] = useState(false);
+  const [quickOrderInstrument, setQuickOrderInstrument] = useState<{ key: string; name: string } | null>(null);
+  const [quickOrderLoading, setQuickOrderLoading] = useState(false);
 
   // ─── Instrument Filter ─────────────────────────────────────────
   const { isEnabled } = useInstrumentFilter();
@@ -133,7 +142,12 @@ export default function MainScreen() {
   const modulesQuery = trpc.trading.moduleStatuses.useQuery(undefined, {
     refetchInterval: POLL_INTERVAL,
   });
-  const instrumentsQuery = trpc.trading.instruments.useQuery(undefined, {
+  // Configured instruments (for hotkey map)
+  const configuredInstrumentsQuery = trpc.instruments.list.useQuery(undefined, {
+    refetchInterval: POLL_INTERVAL,
+  });
+  // Full instrument analysis data (for left sidebar)
+  const instrumentAnalysisQuery = trpc.trading.instruments.useQuery(undefined, {
     refetchInterval: POLL_INTERVAL,
   });
   const signalsQuery = trpc.trading.signals.useQuery({ limit: 50 }, {
@@ -141,6 +155,18 @@ export default function MainScreen() {
   });
   const positionsQuery = trpc.trading.positions.useQuery(undefined, {
     refetchInterval: POLL_INTERVAL,
+  });
+
+  // ─── tRPC Mutations ────────────────────────────────────────────
+  const createTradeMutation = trpc.journal.create.useMutation({
+    onSuccess: () => {
+      setQuickOrderOpen(false);
+      setQuickOrderLoading(false);
+    },
+    onError: (err: any) => {
+      console.error('Failed to create trade:', err);
+      setQuickOrderLoading(false);
+    },
   });
 
   // Discipline state from tRPC
@@ -151,7 +177,15 @@ export default function MainScreen() {
 
   // ─── Data with Mock Fallbacks ──────────────────────────────────
   const modules = modulesQuery.data ?? mockModules;
-  const allInstruments = instrumentsQuery.data ?? [niftyData, bankNiftyData, crudeOilData, naturalGasData];
+  // Configured instruments with hotkeys (for hotkey map)
+  const configuredInstruments = configuredInstrumentsQuery.data ?? [
+    { key: 'NIFTY_50', displayName: 'NIFTY 50', exchange: 'NSE', hotkey: '1' },
+    { key: 'BANKNIFTY', displayName: 'BANK NIFTY', exchange: 'NSE', hotkey: '2' },
+    { key: 'CRUDEOIL', displayName: 'CRUDE OIL', exchange: 'MCX', hotkey: '3' },
+    { key: 'NATURALGAS', displayName: 'NATURAL GAS', exchange: 'MCX', hotkey: '4' },
+  ];
+  // Full instrument analysis data (for left sidebar display)
+  const allInstruments = instrumentAnalysisQuery.data ?? [niftyData, bankNiftyData, crudeOilData, naturalGasData];
   const allSignals = signalsQuery.data ?? mockSignals;
   const allPositions = positionsQuery.data ?? mockPositions;
 
@@ -164,8 +198,11 @@ export default function MainScreen() {
 
   // ─── Filtered Data ─────────────────────────────────────────────
   const instruments = useMemo(() => {
-    return allInstruments.filter((inst) => isEnabled(inst.name as any));
-  }, [allInstruments, isEnabled]);
+    return allInstruments.filter((inst) => {
+      const key = configuredInstruments.find(c => c.displayName === inst.displayName)?.key;
+      return key && isEnabled(key as any);
+    });
+  }, [allInstruments, configuredInstruments, isEnabled]);
 
   const signals = useMemo(() => {
     return allSignals.filter((sig) => {
@@ -182,7 +219,7 @@ export default function MainScreen() {
 
   // ─── Alert Monitoring ──────────────────────────────────────────
   useAlertMonitor({
-    instruments: instrumentsQuery.data,
+    instruments: instrumentAnalysisQuery.data,
     modules: modulesQuery.data,
     signals: signalsQuery.data,
     positions: positionsQuery.data,
@@ -232,6 +269,45 @@ export default function MainScreen() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
+
+  // ─── Hotkey Listener for Quick Order ───────────────────────────
+  const hotkeyMap = useMemo(() => {
+    const map: Record<string, HotkeyAction> = {};
+    if (configuredInstruments) {
+      configuredInstruments.forEach((inst: any) => {
+        if (inst.hotkey && isEnabled(inst.key)) {
+          map[inst.hotkey.toLowerCase()] = {
+            instrumentKey: inst.key,
+            instrumentName: inst.displayName,
+            hotkey: inst.hotkey,
+          };
+        }
+      });
+    }
+    return map;
+  }, [configuredInstruments, isEnabled]);
+
+  const handleHotkeyPress = useCallback((action: HotkeyAction) => {
+    setQuickOrderInstrument({ key: action.instrumentKey, name: action.instrumentName });
+    setQuickOrderOpen(true);
+  }, []);
+
+  useHotkeyListener(hotkeyMap, handleHotkeyPress);
+
+  const handleQuickOrderSubmit = (data: QuickOrderData) => {
+    setQuickOrderLoading(true);
+    createTradeMutation.mutate({
+      instrument: data.instrument,
+      tradeType: data.tradeType,
+      strike: data.strike,
+      entryPrice: data.entryPrice,
+      quantity: data.quantity,
+      stopLoss: data.stopLoss,
+      target: data.target,
+      entryTime: Date.now(),
+      mode: 'PAPER',
+    });
+  };
 
   // ─── Render ────────────────────────────────────────────────────
   return (
@@ -302,6 +378,18 @@ export default function MainScreen() {
         dailyLossPercent={dailyLossPercent}
         threshold={lossThreshold}
       />
+
+      {/* ─── Quick Order Popup (hotkey-triggered) ──────────────────── */}
+      {quickOrderInstrument && (
+        <QuickOrderPopup
+          isOpen={quickOrderOpen}
+          instrumentKey={quickOrderInstrument.key}
+          instrumentName={quickOrderInstrument.name}
+          onClose={() => setQuickOrderOpen(false)}
+          onSubmit={handleQuickOrderSubmit}
+          isLoading={quickOrderLoading}
+        />
+      )}
     </div>
   );
 }

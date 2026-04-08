@@ -18,7 +18,9 @@ import {
   setActiveInstruments,
 } from './tradingStore';
 import { getMongoHealth, pingMongo } from './mongo';
-import { getAllInstruments } from './instruments';
+import { getAllInstruments, addInstrument, removeInstrument, assignHotkey, type InstrumentConfig } from './instruments';
+import { searchByQuery, downloadScripMaster, needsRefresh } from './broker/adapters/dhan/scripMaster';
+import { setConfiguredInstruments } from './tradingStore';
 
 export function registerTradingRoutes(app: Express): void {
   // Push option chain data from the Fetcher module
@@ -152,6 +154,117 @@ export function registerTradingRoutes(app: Express): void {
     } catch (err: any) {
       console.error('[Trading API] Error fetching instruments:', err);
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- Scrip Master Search ---
+  // GET: Search Dhan scrip master for instruments
+  app.get('/api/trading/search-instruments', async (req: Request, res: Response) => {
+    try {
+      const { query, exchange } = req.query;
+      if (!query || typeof query !== 'string') {
+        res.status(400).json({ error: 'Missing query parameter' });
+        return;
+      }
+
+      // Ensure scrip master is loaded
+      if (needsRefresh(24)) {
+        try {
+          console.log('[Scrip Master] Downloading for search request...');
+          await downloadScripMaster();
+        } catch (err: any) {
+          console.warn('[Scrip Master] Download failed:', err.message);
+          // Continue with cached data
+        }
+      }
+
+      const exchangeFilter = (exchange && exchange !== 'ALL') ? (exchange as string) : undefined;
+      const results = searchByQuery(query, exchangeFilter, 20);
+      res.json({ results });
+    } catch (err: any) {
+      console.error('[Trading API] Error searching instruments:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST: Add a new instrument
+  app.post('/api/trading/instruments', async (req: Request, res: Response) => {
+    try {
+      const { key, displayName, exchange, exchangeSegment, underlying, autoResolve, symbolName } = req.body;
+
+      // Validation
+      if (!key || !displayName || !exchange || !exchangeSegment) {
+        res.status(400).json({ error: 'Missing required fields: key, displayName, exchange, exchangeSegment' });
+        return;
+      }
+
+      const config: Omit<InstrumentConfig, "isDefault" | "addedAt"> = {
+        key,
+        displayName,
+        exchange,
+        exchangeSegment,
+        underlying: underlying || null,
+        autoResolve: autoResolve === true,
+        symbolName: symbolName || null,
+      };
+
+      const result = await addInstrument(config);
+
+      // Update in-memory store
+      const instruments = await getAllInstruments();
+      setConfiguredInstruments(instruments);
+
+      res.json({ success: true, instrument: result });
+    } catch (err: any) {
+      console.error('[Trading API] Error adding instrument:', err);
+      res.status(400).json({ error: err.message || 'Failed to add instrument' });
+    }
+  });
+
+  // DELETE: Remove an instrument
+  app.delete('/api/trading/instruments/:key', async (req: Request, res: Response) => {
+    try {
+      const { key } = req.params;
+
+      if (!key) {
+        res.status(400).json({ error: 'Missing key parameter' });
+        return;
+      }
+
+      await removeInstrument(key);
+
+      // Update in-memory store
+      const instruments = await getAllInstruments();
+      setConfiguredInstruments(instruments);
+
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[Trading API] Error removing instrument:', err);
+      res.status(400).json({ error: err.message || 'Failed to remove instrument' });
+    }
+  });
+
+  // PATCH: Assign hotkey to an instrument (with swap support)
+  app.patch('/api/trading/instruments/:key/hotkey', async (req: Request, res: Response) => {
+    try {
+      const { key } = req.params;
+      const { hotkey } = req.body;
+
+      if (!key) {
+        res.status(400).json({ error: 'Missing key parameter' });
+        return;
+      }
+
+      await assignHotkey(key, hotkey || null);
+
+      // Update in-memory store
+      const instruments = await getAllInstruments();
+      setConfiguredInstruments(instruments);
+
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[Trading API] Error assigning hotkey:', err);
+      res.status(400).json({ error: err.message || 'Failed to assign hotkey' });
     }
   });
 
