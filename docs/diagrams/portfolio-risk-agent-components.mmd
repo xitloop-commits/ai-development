@@ -1,0 +1,56 @@
+flowchart TB
+  subgraph PortfolioAgent["Portfolio Agent"]
+    PA_State["state-manager\nPortfolio state store"]
+    PA_Position["position-manager\nOpen position tracking"]
+    PA_Capital["capital-manager\nAvailable capital / margin"]
+    PA_Exposure["exposure-manager\nExposure / concentration"]
+    PA_Perf["performance-engine\nP&L, drawdown, streaks"]
+    PA_API["api-layer\nQuery / mutation APIs"]
+    PA_Integration["integration-layer\nTrade, market, broker events"]
+  end
+
+  subgraph RiskAgent["Risk Control Agent"]
+    RA_Risk["risk-engine\nTrade validation + scoring"]
+    RA_Size["position-manager\nPosition sizing"]
+    RA_Exit["exit-manager\nSL/TSL/exit orchestration"]
+    RA_Capital["capital-monitor\nLoss limits + protection"]
+    RA_Market["market-conditions\nVolatility/liquidity/time filters"]
+    RA_API["api-layer\nDecision API / signals"]
+    RA_Comm["communication\nInter-agent messaging"]
+  end
+
+  ML["ML / Strategy Agent"]
+  MD["Market Data Agent"]
+  EX["Execution Engine"]
+  CP["Capital Module / Pools"]
+
+  ML -->|trade proposal| RA_Risk
+  ML -->|trade request / direction| PA_API
+  MD -->|volatility / liquidity / time| RA_Market
+  MD -->|price updates / valuations| PA_Integration
+  CP -->|capital pool state| PA_Capital
+  CP -->|margin / limit data| RA_Capital
+
+  PA_State --> PA_Exposure
+  PA_Position --> PA_Perf
+  PA_Capital --> PA_Perf
+  PA_Exposure --> PA_API
+  PA_Perf --> PA_API
+
+  RA_Risk --> RA_Size
+  RA_Risk --> RA_Exit
+  RA_Market --> RA_Risk
+  RA_Capital --> RA_Risk
+  RA_Comm --> RA_API
+  RA_API --> EX
+  PA_API --> EX
+
+  PA_API -->|portfolio snapshot| RA_Risk
+  RA_API -->|risk signals| ML
+  PA_API -->|portfolio health| ML
+
+  classDef agent fill:#f8f4d6,stroke:#b38f00,stroke-width:2px;
+  classDef service fill:#e7f4ff,stroke:#2c6fb6,stroke-width:2px;
+  classDef external fill:#e8f7e7,stroke:#2b8f3a,stroke-width:2px;
+  class PortfolioAgent,RiskAgent agent;
+  class ML,MD,EX,CP external;
