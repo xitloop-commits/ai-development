@@ -53,6 +53,7 @@ const settingsSchema = new Schema<BrokerSettings>(
     tradeTargetOther: { type: Number, default: 2 },
     trailingStopEnabled: { type: Boolean, default: false },
     trailingStopPercent: { type: Number, default: 1.0 },
+    defaultQty: { type: Number, default: 1 },
   },
   { _id: false }
 );
@@ -264,6 +265,7 @@ function docToConfig(doc: Record<string, any>): BrokerConfigDoc {
       tradeTargetOther: doc.settings?.tradeTargetOther ?? 2,
       trailingStopEnabled: doc.settings?.trailingStopEnabled ?? false,
       trailingStopPercent: doc.settings?.trailingStopPercent ?? 1.0,
+      defaultQty: doc.settings?.defaultQty ?? 1,
     },
     connection: {
       apiStatus: doc.connection?.apiStatus ?? "disconnected",

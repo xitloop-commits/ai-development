@@ -542,6 +542,8 @@ export function OrderExecutionSection() {
     // Trailing stop (moved from Discipline per spec v1.2)
     trailingStopEnabled: false,
     trailingStopPercent: 1.5,
+    // Default quantity for quick order
+    defaultQty: 1,
   });
 
   useEffect(() => {
@@ -559,6 +561,7 @@ export function OrderExecutionSection() {
         tradeTargetOther: (config.settings as any).tradeTargetOther ?? prev.tradeTargetOther,
         trailingStopEnabled: (config.settings as any).trailingStopEnabled ?? prev.trailingStopEnabled,
         trailingStopPercent: (config.settings as any).trailingStopPercent ?? prev.trailingStopPercent,
+        defaultQty: (config.settings as any).defaultQty ?? prev.defaultQty,
       }));
     }
   }, [config]);
@@ -591,6 +594,7 @@ export function OrderExecutionSection() {
         tradeTargetOther: settings.tradeTargetOther,
         trailingStopEnabled: settings.trailingStopEnabled,
         trailingStopPercent: settings.trailingStopPercent,
+        defaultQty: settings.defaultQty,
       } as any,
     });
   };
@@ -608,6 +612,7 @@ export function OrderExecutionSection() {
         tradeTargetOther: (config.settings as any).tradeTargetOther ?? 2,
         trailingStopEnabled: (config.settings as any).trailingStopEnabled ?? false,
         trailingStopPercent: (config.settings as any).trailingStopPercent ?? 1.5,
+        defaultQty: (config.settings as any).defaultQty ?? 1,
       });
     }
   };
@@ -689,6 +694,18 @@ export function OrderExecutionSection() {
                 { value: 'CNC', label: 'CNC' },
                 { value: 'MARGIN', label: 'MARGIN' },
               ]}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Default quantity in lots for quick order popup">
+              Default Qty (lots)
+            </FieldLabel>
+            <NumberInput
+              value={settings.defaultQty}
+              onChange={(v) => setSettings((s) => ({ ...s, defaultQty: v }))}
+              min={1}
+              max={100}
+              step={1}
             />
           </div>
         </div>

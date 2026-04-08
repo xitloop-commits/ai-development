@@ -15,6 +15,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { trpc } from "../lib/trpc";
 import { toast } from "sonner";
+import { ClipboardPaste } from "lucide-react";
 
 export function SetupBrokerModal() {
   const [open, setOpen] = useState(false);
@@ -28,6 +29,7 @@ export function SetupBrokerModal() {
   });
 
   const adaptersQuery = trpc.broker.adapters.list.useQuery();
+  const configQuery = trpc.broker.config.get.useQuery();
 
   const setupMutation = trpc.broker.setup.useMutation({
     onSuccess: () => {
@@ -52,6 +54,14 @@ export function SetupBrokerModal() {
     }
   }, [statusQuery.data]);
 
+  // Pre-fill clientId from existing config
+  useEffect(() => {
+    const savedClientId = configQuery.data?.credentials?.clientId;
+    if (savedClientId && !clientId) {
+      setClientId(savedClientId);
+    }
+  }, [configQuery.data]);
+
   const adapters = adaptersQuery.data ?? [];
   const selectedAdapter = adapters.find((a) => a.brokerId === brokerId);
   const isPaper = selectedAdapter?.isPaperBroker ?? false;
@@ -73,8 +83,8 @@ export function SetupBrokerModal() {
   };
 
   return (
-    <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Setup Broker</DialogTitle>
           <DialogDescription>
@@ -118,12 +128,29 @@ export function SetupBrokerModal() {
                 <label className="text-xs font-medium text-muted-foreground">
                   Access Token <span className="text-loss-red">*</span>
                 </label>
-                <Input
-                  value={accessToken}
-                  onChange={(e) => setAccessToken(e.target.value)}
-                  placeholder="Paste your Dhan access token..."
-                  className="font-mono text-xs"
-                />
+                <div className="relative flex items-center">
+                  <Input
+                    value={accessToken}
+                    onChange={(e) => setAccessToken(e.target.value)}
+                    placeholder="Paste your Dhan access token..."
+                    className="font-mono text-xs pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const text = await navigator.clipboard.readText();
+                        setAccessToken(text.trim());
+                      } catch {
+                        toast.error("Clipboard access denied");
+                      }
+                    }}
+                    className="absolute right-2 text-muted-foreground hover:text-foreground transition-colors"
+                    title="Paste from clipboard"
+                  >
+                    <ClipboardPaste className="w-4 h-4" />
+                  </button>
+                </div>
                 <p className="text-[10px] text-muted-foreground">
                   Get your token from{" "}
                   <a

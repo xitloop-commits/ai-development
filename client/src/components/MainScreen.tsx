@@ -25,10 +25,12 @@
  */
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { trpc } from '@/lib/trpc';
+import { toast } from 'sonner';
 import { useAlertMonitor } from '@/hooks/useAlertMonitor';
 import { useTickStream } from '@/hooks/useTickStream';
 import { useFeedControl } from '@/hooks/useFeedControl';
 import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
+import { useCapital } from '@/contexts/CapitalContext';
 import { useHotkeyListener, type HotkeyAction } from '@/hooks/useHotkeyListener';
 
 // Shell components
@@ -82,6 +84,9 @@ export default function MainScreen() {
   const [quickOrderOpen, setQuickOrderOpen] = useState(false);
   const [quickOrderInstrument, setQuickOrderInstrument] = useState<{ key: string; name: string } | null>(null);
   const [quickOrderLoading, setQuickOrderLoading] = useState(false);
+
+  // ─── Active workspace (follows TradingDesk tab selection) ──────
+  const { workspace: activeWorkspace } = useCapital();
 
   // ─── Instrument Filter ─────────────────────────────────────────
   const { isEnabled } = useInstrumentFilter();
@@ -158,13 +163,22 @@ export default function MainScreen() {
   });
 
   // ─── tRPC Mutations ────────────────────────────────────────────
-  const createTradeMutation = trpc.journal.create.useMutation({
-    onSuccess: () => {
+  const utils = trpc.useUtils();
+
+  const placeTradeM = trpc.capital.placeTrade.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.capital.allDays.invalidate(),
+        utils.capital.currentDay.invalidate(),
+        utils.capital.state.invalidate(),
+        utils.capital.futureDays.invalidate(),
+      ]);
+      toast.success('Order placed');
       setQuickOrderOpen(false);
       setQuickOrderLoading(false);
     },
     onError: (err: any) => {
-      console.error('Failed to create trade:', err);
+      toast.error(`Order failed: ${err.message}`);
       setQuickOrderLoading(false);
     },
   });
@@ -288,24 +302,35 @@ export default function MainScreen() {
   }, [configuredInstruments, isEnabled]);
 
   const handleHotkeyPress = useCallback((action: HotkeyAction) => {
+    if (activeWorkspace === 'paper') {
+      toast.error('Manual orders are not allowed in AI Trades workspace');
+      return;
+    }
     setQuickOrderInstrument({ key: action.instrumentKey, name: action.instrumentName });
     setQuickOrderOpen(true);
-  }, []);
+  }, [activeWorkspace]);
 
   useHotkeyListener(hotkeyMap, handleHotkeyPress);
 
   const handleQuickOrderSubmit = (data: QuickOrderData) => {
+    if (activeWorkspace === 'paper') {
+      toast.error('Manual orders are not allowed in AI Trades workspace');
+      return;
+    }
     setQuickOrderLoading(true);
-    createTradeMutation.mutate({
-      instrument: data.instrument,
-      tradeType: data.tradeType,
-      strike: data.strike,
+    placeTradeM.mutate({
+      workspace: activeWorkspace,
+      instrument: data.instrumentName ?? data.instrument,
+      type: data.tradeType,
+      strike: data.strike || null,
       entryPrice: data.entryPrice,
-      quantity: data.quantity,
-      stopLoss: data.stopLoss,
-      target: data.target,
-      entryTime: Date.now(),
-      mode: 'PAPER',
+      capitalPercent: 5, // unused when qty is explicit
+      qty: data.quantity,
+      lotSize: data.lotSize,
+      stopLossPrice: data.stopLoss,   // undefined = let server use defaults; null = explicitly disabled
+      targetPrice: data.target,       // same
+      trailingStopEnabled: data.tslEnabled ?? false,
+      contractSecurityId: data.contractSecurityId ?? null,
     });
   };
 
@@ -385,9 +410,10 @@ export default function MainScreen() {
           isOpen={quickOrderOpen}
           instrumentKey={quickOrderInstrument.key}
           instrumentName={quickOrderInstrument.name}
+          resolvedInstruments={resolvedInstruments}
           onClose={() => setQuickOrderOpen(false)}
           onSubmit={handleQuickOrderSubmit}
-          isLoading={quickOrderLoading}
+          isLoading={quickOrderLoading || placeTradeM.isPending}
         />
       )}
     </div>

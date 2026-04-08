@@ -89,6 +89,7 @@ const brokerSettingsSchema = z.object({
   tradeTargetOther: z.number().min(0.5).max(50).optional(),
   trailingStopEnabled: z.boolean().optional(),
   trailingStopPercent: z.number().min(0.1).max(50).optional(),
+  defaultQty: z.number().min(1).max(100).optional(),
 });
 
 const subscribeParamsSchema = z.object({

@@ -484,11 +484,26 @@ export const capitalRouter = router({
               tag: trade.id,
             };
 
+            console.log(`[Capital] Placing broker order:`, JSON.stringify({
+              instrument: orderParams.instrument,
+              exchange: orderParams.exchange,
+              transactionType: orderParams.transactionType,
+              optionType: orderParams.optionType,
+              strike: orderParams.strike,
+              expiry: orderParams.expiry,
+              quantity: orderParams.quantity,
+              price: orderParams.price,
+              orderType: orderParams.orderType,
+              productType: orderParams.productType,
+              stopLoss: orderParams.stopLoss,
+              target: orderParams.target,
+              tag: orderParams.tag,
+            }));
             const result = await broker.placeOrder(orderParams);
             brokerOrderId = result.orderId;
-            console.log(`[Capital] Broker order placed: ${result.orderId} (${result.status})`);
-          } catch (err) {
-            console.error("[Capital] Broker order failed:", err);
+            console.log(`[Capital] Broker order placed: orderId=${result.orderId} status=${result.status} raw=`, JSON.stringify(result));
+          } catch (err: any) {
+            console.error("[Capital] Broker order failed:", err?.message ?? err, err?.response?.data ?? '');
             // Trade is still recorded in capital engine even if broker fails
           }
         }
