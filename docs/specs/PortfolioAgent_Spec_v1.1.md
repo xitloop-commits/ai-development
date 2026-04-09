@@ -1,6 +1,6 @@
-# Portfolio Agent Spec v1.0
+# Portfolio Agent Spec v1.1
 
-**Document:** PortfolioAgent_Spec_v1.0.md
+**Document:** PortfolioAgent_Spec_v1.1.md
 **Project:** Automatic Trading System (ATS)
 **Status:** Implementation
 
@@ -12,6 +12,7 @@
 | --- | --- | --- | --- |
 | v1.0 | 2026-04-08 | AI Team | Initial specification for a unified, centralized Portfolio Agent that manages portfolio state, capital, exposure, drawdown, and portfolio-level risk signals. |
 | v1.0.1 | 2026-04-09 | Architecture Team | **ENHANCEMENT:** Added trade outcome recording (Section 5.2), daily P&L metrics, exit_triggered_by field for tracking who initiated trade exits. Integration with Discipline Engine capital protection, RCA exit signals, and AI Decision Engine. |
+| v1.1 | 2026-04-09 | AI Team | **UPDATED:** Replaced 5-second polling model with push-only integration — Portfolio Agent calls discipline.recordTradeOutcome after every trade close. Defined full response contract for GET /api/portfolio/daily-pnl (7 fields). Clarified endpoint is for on-demand reads only, not cap monitoring. |
 
 ---
 
@@ -323,11 +324,35 @@ Payload shape should include:
 
 ### 10.1 Discipline Engine Integration
 
-The Portfolio Agent provides daily P&L data to Discipline Engine for capital protection monitoring:
+The Portfolio Agent pushes P&L data to Discipline Engine after every trade close. There is no polling.
 
-- `GET /api/portfolio/daily-pnl` — Returns `dailyRealizedPnl` and `dailyRealizedPnlPercent`
-- Called by Discipline Engine every 5 seconds to check if daily profit/loss caps are reached
-- Used for carry forward evaluation at 15:15 IST (profit >= 15%?)
+**Push mechanism (primary):**
+
+After every trade closes, Portfolio Agent calls:
+```
+POST /api/discipline/recordTradeOutcome
+```
+This is the trigger for Discipline Engine to run cap checks. No periodic polling exists.
+
+**Reference endpoint (available on demand):**
+
+```
+GET /api/portfolio/daily-pnl
+
+Response:
+{
+  workspace: "live" | "paper" | "paper_manual",
+  date: string,                       // "2026-04-09" IST
+  openingCapital: number,             // Capital at start of day (denominator for % calc)
+  dailyRealizedPnl: number,           // Absolute P&L from closed trades today
+  dailyRealizedPnlPercent: number,    // (dailyRealizedPnl / openingCapital) × 100
+  dailyUnrealizedPnl: number,         // MTM of currently open positions
+  openPositionCount: number,          // Number of currently open positions
+  lastUpdatedAt: Date                 // Timestamp of last P&L update
+}
+```
+
+This endpoint is available for the carry forward evaluation at 15:15 IST and for any on-demand reads (e.g. dashboard, testing). It is not used for cap monitoring.
 
 ### 10.2 RCA Integration
 
