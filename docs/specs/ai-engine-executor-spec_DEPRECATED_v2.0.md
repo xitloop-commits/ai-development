@@ -1,8 +1,34 @@
-# AI Engine — Module 4: Execution Module
+# ⚠️ DEPRECATED: AI Engine — Module 4: Execution Module
 
-**Document:** ai-engine-executor-spec.md
-**Project:** Automatic Trading System (ATS)
-**Status:** Authoritative Reference
+**Document:** ai-engine-executor-spec.md  
+**Project:** Automatic Trading System (ATS)  
+**Status:** ❌ DEPRECATED v2.0 (2026-04-09)
+
+---
+
+## DEPRECATION NOTICE
+
+**This specification has been deprecated as of April 9, 2026.**
+
+The responsibilities in this module (`execution_module.py`) have been refactored into the unified execution architecture:
+
+| Responsibility | Moved To | New Reference |
+|---|---|---|
+| Trade setup parsing | DecisionEngine_Spec_v3.0 | Merged into decision logic |
+| Entry validation | RiskControlAgent_Spec_v2.0 | Trade approval flow |
+| Broker order placement | TradeExecutorAgent_Spec_v1.2 | Single execution point |
+| Position monitoring | RiskControlAgent_Spec_v2.0 | Real-time risk management |
+| Exit decisions | RiskControlAgent_Spec_v2.0 | Adaptive risk management |
+| P&L tracking | PortfolioAgent_Spec_v1.0 | Centralized state |
+| Discipline checks | DisciplineEngine_Spec_v1.2 | Policy enforcement |
+
+**Timeline:**
+- **v2.0 (deprecated now):** This module's logic is split across new services
+- **Week 2:** All functionality tested in new architecture
+- **Week 3:** `execution_module.py` deleted from codebase
+- **Week 4:** Specification file removed from docs/specs
+
+**Do not use this module.** Refer to the new unified architecture specifications instead.
 
 ---
 
