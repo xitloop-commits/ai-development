@@ -1,9 +1,9 @@
-# Trade Executor Agent Specification v1.2
+# Trade Executor Agent Specification v1.3
 
-**Document:** TradeExecutorAgent_Spec_v1.2.md
+**Document:** TradeExecutorAgent_Spec_v1.3.md
 **Project:** Automatic Trading System (ATS)
 **Status:** Specification (Ready for Implementation)
-**Version:** 1.2
+**Version:** 1.3
 **Date:** 2026-04-09
 
 ---
@@ -15,6 +15,7 @@
 | v1.0 | 2026-04-08 | AI Team | Initial specification for unified, event-driven execution |
 | v1.1 | 2026-04-08 | AI Team | Clarified broker service usage, exclusive trade execution, settings centralization |
 | v1.2 | 2026-04-09 | AI Team | Added modifyOrder & exitTrade APIs, broker event handling, paper vs live differences, RCA integration, execution flow diagrams |
+| v1.3 | 2026-04-09 | AI Team | **UPDATED:** Added DISCIPLINE_EXIT handling specification to Section 4.3 — highest-priority market-order exit, portfolio recording with exitTriggeredBy: "DISCIPLINE", retry-once on broker failure, partial exit support for user-driven Reduce Exposure and Exit by Instrument actions |
 
 ---
 
@@ -148,6 +149,22 @@ POST /api/executor/exitTrade
   "timestamp": "2026-04-09T10:15:35Z"
 }
 ```
+
+**`DISCIPLINE_EXIT` handling (special case):**
+
+When RCA forwards a Discipline Engine signal with `reason: "DISCIPLINE_EXIT"`, TEA applies the following rules:
+
+| Rule | Behavior |
+|---|---|
+| **Priority** | Highest — no delay, no queuing behind other orders |
+| **Order type** | Always MARKET order, regardless of exitType in request |
+| **Scope** | If RCA sends `exit_all: true`, TEA exits every open position in sequence |
+| **No validation** | TEA does not question or defer a DISCIPLINE_EXIT — it is non-negotiable |
+| **Portfolio recording** | TEA calls `portfolio.recordTradeClosed()` with `exitTriggeredBy: "DISCIPLINE"` and `exitReason: "DISCIPLINE_EXIT"` for each position |
+| **On broker failure** | TEA retries once immediately. If retry fails, TEA escalates back to RCA with failure status. TEA does NOT silently drop the exit. |
+| **Partial exit** | If RCA sends `request_type: "PARTIAL_EXIT"` (from user's Reduce Exposure or Exit by Instrument action), TEA exits only the specified positions or quantities |
+
+---
 
 ### 4.4 Broker WebSocket Events
 

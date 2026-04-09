@@ -1,9 +1,9 @@
 # Discipline Engine — Technical Specification
-**Version:** 1.2  
+**Version:** 1.3  
 **Date:** April 9, 2026  
 **Status:** Implementation Phase (Modules 1–8)  
-**Dependencies:** RiskControlAgent_Spec_v2.0, TradeExecutorAgent_Spec_v1.2, PortfolioAgent_Spec_v1.0  
-**Previous Version:** v1.1 (April 2, 2026)
+**Dependencies:** RiskControlAgent_Spec_v2.0, TradeExecutorAgent_Spec_v1.3, PortfolioAgent_Spec_v1.1  
+**Previous Version:** v1.2 (April 9, 2026)
 
 ---
 
@@ -13,6 +13,7 @@
 | 1.0 | April 1, 2026 | Initial specification for 7-module discipline pipeline |
 | 1.1 | April 2, 2026 | Cross-functionality update: updated default exposure/position limits (40%/80%), renamed Position Tracker to Trading Desk, deferred settings schema to Settings spec |
 | 1.2 | April 9, 2026 | **NEW:** Added Module 8 (Capital Protection & Session Management) — daily profit/loss caps, carry forward engine, session halt flag, exit signaling to RCA, deprecation of Session Manager module |
+| 1.3 | April 9, 2026 | **UPDATED:** Resolved conflicts with PDF v2.0 — state model split (config to discipline_settings, runtime to discipline_state), added Section 11.5 Semi-Auto Intervention Flow (grace period, user actions, PARTIAL_EXIT signals), removed 5-second polling in favour of Portfolio Agent push, added `graceDeadline`/`userResponded`/`userAction`/`userActionDetail` state fields, added `discipline.submitUserAction` API endpoint |
 
 ---
 
@@ -111,24 +112,32 @@ interface DisciplineState {
   violations: Array<{ ... }>;
 
   // ===== Module 8: NEW FIELDS =====
-  // Daily Profit/Loss Caps
+  // Daily Profit/Loss Caps — runtime state only (config lives in discipline_settings)
   dailyProfitCap: {
-    enabled: boolean;               // default: true
-    thresholdPercent: number;       // default: 5
-    triggered: boolean;             // Latched when +5% hit
+    triggered: boolean;             // Latched when +5% hit (or configured threshold)
     triggeredAt?: Date;
   };
   dailyLossCap: {
-    enabled: boolean;               // default: true
-    thresholdPercent: number;       // default: 2
-    triggered: boolean;             // Latched when -2% hit
+    triggered: boolean;             // Latched when -2% hit (or configured threshold)
     triggeredAt?: Date;
   };
 
   // Session Halt State
-  sessionHalted: boolean;           // True when caps triggered
-  sessionHaltReason?: string;       // "profit_cap" | "loss_cap" | "carry_forward"
+  sessionHalted: boolean;           // True when caps or carry forward triggered
+  sessionHaltReason?: "profit_cap" | "loss_cap" | "carry_forward";
   sessionHaltedAt?: Date;
+
+  // Semi-Auto Intervention Flow (Section 11.6)
+  graceDeadline?: Date;             // When grace timer expires (set on breach)
+  userResponded: boolean;           // Whether user acted before timeout
+  userAction?: "EXIT_ALL" | "EXIT_INSTRUMENT" | "REDUCE_EXPOSURE" | "HOLD" | "TIMEOUT_EXIT";
+  userActionDetail?: {              // Populated for EXIT_INSTRUMENT and REDUCE_EXPOSURE
+    instruments?: string[];         // For EXIT_INSTRUMENT
+    reductions?: Array<{            // For REDUCE_EXPOSURE
+      positionId: string;
+      reduceByPercent: number;
+    }>;
+  };
 
   // Carry Forward Engine
   carryForwardEvaluation?: {
@@ -164,6 +173,27 @@ interface DisciplineState {
     rcaResponseTime?: number;       // ms to receive response
   }>;
 }
+```
+
+**Collection: `discipline_settings`** (additions for Module 8)
+
+```typescript
+// Added to existing DisciplineEngineSettings interface
+capitalProtection: {
+  dailyProfitCap: {
+    enabled: boolean;               // default: true
+    thresholdPercent: number;       // default: 5  (range: 1–20)
+  };
+  dailyLossCap: {
+    enabled: boolean;               // default: true
+    thresholdPercent: number;       // default: 2  (range: 0.5–5)
+  };
+  gracePeriodSeconds: number;       // default: 30 (range: 10–300)
+  carryForward: {
+    enabled: boolean;               // default: true
+    evaluationTime: string;         // default: "15:15" IST (HH:MM)
+  };
+};
 ```
 
 **Collection: `discipline_daily_scores`** (additions for Module 8)
@@ -289,20 +319,12 @@ After N consecutive losing trades (default 3), a forced cooldown activates.
 
 **Behavior when triggered:**
 
-1. The system sets `dailyProfitCap.triggered = true` in discipline state (latched until next day).
-2. The system immediately sends a "MUST_EXIT" signal to RCA:
-   ```
-   POST /api/discipline/requestExit
-   {
-     "signal_type": "profit_cap",
-     "reason": "Daily profit cap reached: +5%",
-     "exit_all": true,
-     "block_new_entries": true
-   }
-   ```
-3. RCA receives this signal and honors it — exits all open positions.
-4. The session is flagged as "halted" to prevent new entries.
-5. A full-screen notification appears: "🎉 DAILY PROFIT TARGET REACHED: +5% profit locked. Trading halted for the day. Plan your return tomorrow."
+1. The system sets `dailyProfitCap.triggered = true` and `sessionHalted = true` in discipline state (latched until next day).
+2. New trade entries are blocked immediately.
+3. A full-screen intervention panel appears (see Section 11.6 — Semi-Auto Intervention Flow).
+4. Grace timer starts (`graceDeadline = now + gracePeriodSeconds`).
+5. User responds within grace period OR timer expires → appropriate signal sent to RCA.
+6. Notification: "🎉 DAILY PROFIT TARGET REACHED: +5% profit locked. Trading halted for the day."
 
 **UI Display:** Green-tinted overlay (unlike the red loss limit) with congratulatory messaging. Shows:
 - Today's Profit (absolute amount)
@@ -324,20 +346,12 @@ After N consecutive losing trades (default 3), a forced cooldown activates.
 
 Same as profit cap, but with different messaging:
 
-1. Sets `dailyLossCap.triggered = true` (latched until next day).
-2. Sends "MUST_EXIT" signal to RCA:
-   ```
-   POST /api/discipline/requestExit
-   {
-     "signal_type": "loss_cap",
-     "reason": "Daily loss cap reached: -2%",
-     "exit_all": true,
-     "block_new_entries": true
-   }
-   ```
-3. RCA exits all positions.
-4. Session halted to prevent new entries.
-5. Red overlay notification: "🛑 DAILY LOSS LIMIT REACHED: -2%. Capital protected. Stand aside. Resume tomorrow."
+1. Sets `dailyLossCap.triggered = true` and `sessionHalted = true` (latched until next day).
+2. New trade entries are blocked immediately.
+3. A full-screen intervention panel appears (see Section 11.6 — Semi-Auto Intervention Flow).
+4. Grace timer starts (`graceDeadline = now + gracePeriodSeconds`).
+5. User responds within grace period OR timer expires → appropriate signal sent to RCA.
+6. Notification: "🛑 DAILY LOSS LIMIT REACHED: -2%. Capital protected. Stand aside. Resume tomorrow."
 
 **Scope:** Combined across NSE and MCX.
 
@@ -428,7 +442,92 @@ failedConditions: [
 **Special case — No open positions:**
 If there are no open positions at 15:15, evaluation is skipped (nothing to carry forward). No signal sent.
 
-### 11.5 Daily P&L Tracking
+### 11.5 Semi-Auto Intervention Flow
+
+When a daily profit cap or loss cap is triggered, the system does NOT immediately send a MUST_EXIT to RCA. Instead it opens a grace period during which the user can choose how to respond. The grace timer and state are owned entirely by the Discipline Engine.
+
+**Flow:**
+
+```
+Breach detected (profit cap OR loss cap)
+  │
+  ├─ Block all new trade entries immediately
+  ├─ Set sessionHalted = true, graceDeadline = now + gracePeriodSeconds
+  ├─ Show full-screen Intervention Panel to user
+  │
+  ├─ User responds before graceDeadline:
+  │     EXIT_ALL           → cancel timer → send MUST_EXIT to RCA (exit_all: true)
+  │     EXIT_INSTRUMENT    → cancel timer → send PARTIAL_EXIT to RCA (instruments: [...])
+  │     REDUCE_EXPOSURE    → cancel timer → send PARTIAL_EXIT to RCA (reductions: [...])
+  │     HOLD               → cancel timer → no signal to RCA, positions stay open
+  │
+  └─ graceDeadline expires (no response):
+        → auto send MUST_EXIT to RCA (exit_all: true, trigger: "grace_timeout")
+        → set userAction = "TIMEOUT_EXIT"
+```
+
+**Intervention Panel — UI content:**
+
+The panel shows all currently open positions ranked by exposure, with the following actions available:
+
+| Action | Description |
+|---|---|
+| **Exit All** | Close every open position immediately via RCA |
+| **Exit by Instrument** | Select one or more specific instruments to close |
+| **Reduce Exposure** | Per position: enter % reduction (e.g. 50% of NIFTY_50 qty). System calculates qty = `Math.floor(openQty × reductionPercent / 100)` |
+| **Hold — Manage Manually** | No automated exit. User commits to managing positions themselves. |
+
+**Signal contracts to RCA per action:**
+
+```typescript
+// EXIT_ALL or TIMEOUT_EXIT
+POST /api/risk-control/discipline-request
+{
+  request_type: "EXIT_ALL",
+  signal_type: "profit_cap" | "loss_cap",
+  reason: string,
+  trigger: "user_action" | "grace_timeout",
+  is_mandatory: true
+}
+
+// EXIT_INSTRUMENT
+POST /api/risk-control/discipline-request
+{
+  request_type: "PARTIAL_EXIT",
+  signal_type: "profit_cap" | "loss_cap",
+  instruments: string[],           // e.g. ["NIFTY_50"]
+  trigger: "user_action",
+  is_mandatory: true
+}
+
+// REDUCE_EXPOSURE
+POST /api/risk-control/discipline-request
+{
+  request_type: "PARTIAL_EXIT",
+  signal_type: "profit_cap" | "loss_cap",
+  reductions: Array<{ positionId: string; reduceByPercent: number; quantity: number }>,
+  trigger: "user_action",
+  is_mandatory: true
+}
+```
+
+**State updates per action:**
+
+| Action | `userResponded` | `userAction` | Signal to RCA |
+|---|---|---|---|
+| Exit All | true | EXIT_ALL | MUST_EXIT |
+| Exit by Instrument | true | EXIT_INSTRUMENT | PARTIAL_EXIT |
+| Reduce Exposure | true | REDUCE_EXPOSURE | PARTIAL_EXIT |
+| Hold | true | HOLD | None |
+| Timeout | true | TIMEOUT_EXIT | MUST_EXIT |
+
+All paths result in `sessionHalted = true` and no new entries for the rest of the day.
+
+**Grace period ownership:** The Discipline Engine sets and monitors `graceDeadline`. On expiry it fires the MUST_EXIT signal without any external trigger.
+
+---
+
+### 11.6 Daily P&L Tracking
 
 The Discipline Engine receives P&L updates from Portfolio Agent whenever a trade closes.
 
@@ -515,9 +614,10 @@ Note: If caps are triggered, the violation appears in the `violations` log as a 
 | `discipline.completeWeeklyReview` | mutation | Mark weekly review completed |
 | `discipline.getWeeklyReviewData` | query | Get last week's stats |
 | `discipline.getDailyScore` | query | Get today's discipline score |
-| **`discipline.getSessionStatus`** | query | **NEW:** Get session halt status, carry forward evaluation |
+| **`discipline.getSessionStatus`** | query | **NEW:** Get session halt status, grace deadline, carry forward evaluation |
 | **`discipline.evaluateCarryForward`** | mutation | **NEW:** Manually trigger carry forward evaluation (for testing) |
-| **`discipline.recordTradeOutcome`** | mutation | **NEW:** Receive trade outcome from Portfolio Agent for P&L tracking |
+| **`discipline.recordTradeOutcome`** | mutation | **NEW:** Receive trade outcome from Portfolio Agent for P&L tracking and cap checks |
+| **`discipline.submitUserAction`** | mutation | **NEW:** Submit user intervention action (EXIT_ALL / EXIT_INSTRUMENT / REDUCE_EXPOSURE / HOLD) during grace period |
 
 ### REST/gRPC Endpoints (Inter-service communication)
 
@@ -591,41 +691,62 @@ Signal Precedence (highest to lowest):
 ### Communication Protocol
 
 **Discipline → RCA (one-way signal):**
-```
-When cap/carry-forward triggers:
-  POST /api/risk-control/discipline-request
-  {
-    "request_type": "EXIT_ALL" | "BLOCK_ENTRY",
-    "reason": "Daily profit cap reached: +5%",
-    "rule": "profit_cap",
-    "issued_at": timestamp,
-    "is_mandatory": true
-  }
+
+```typescript
+// Full exit (EXIT_ALL or TIMEOUT_EXIT or carry forward)
+POST /api/risk-control/discipline-request
+{
+  request_type: "EXIT_ALL",
+  signal_type: "profit_cap" | "loss_cap" | "carry_forward" | "circuit_breaker",
+  reason: string,
+  trigger: "user_action" | "grace_timeout" | "scheduled",
+  is_mandatory: true,
+  issued_at: Date
+}
+
+// Partial exit (EXIT_INSTRUMENT or REDUCE_EXPOSURE user actions)
+POST /api/risk-control/discipline-request
+{
+  request_type: "PARTIAL_EXIT",
+  signal_type: "profit_cap" | "loss_cap",
+  instruments?: string[],
+  reductions?: Array<{ positionId: string; reduceByPercent: number; quantity: number }>,
+  trigger: "user_action",
+  is_mandatory: true,
+  issued_at: Date
+}
 ```
 
 **RCA response (implicit):**
-- RCA receives signal
-- RCA immediately exits all open positions
-- RCA may emit events back to Discipline (for logging)
+- RCA receives signal and honors it with highest priority
+- For EXIT_ALL: exits all open positions via TEA, market order, no delay
+- For PARTIAL_EXIT: exits specified instruments or reduces specified quantities
+- RCA may emit acknowledgment events back to Discipline (for logging)
 - No blocking wait — Discipline continues monitoring
 
-### Real-time Monitoring Loop
+### Real-time Monitoring (Push-Based)
 
 ```
-Every 5 seconds (configurable):
-  1. Portfolio Agent provides updated dailyRealizedPnl
-  2. Discipline Engine checks:
-     - Is profit cap reached?
-     - Is loss cap reached?
-  3. If triggered: send EXIT signal to RCA
-  4. Log signal in exitSignalsSent array
+On every trade close (Portfolio Agent pushes to Discipline):
+  POST /api/discipline/recordTradeOutcome
+  1. Discipline updates dailyRealizedPnl
+  2. Checks:
+     - Is profit cap reached?  (dailyRealizedPnlPercent >= profitCapThreshold)
+     - Is loss cap reached?    (dailyRealizedPnlPercent <= -lossCapThreshold)
+  3. If triggered and not already triggered today:
+     - Set sessionHalted = true, block new entries
+     - Start grace timer (Section 11.6)
+  4. Log event in dailyRealizedPnlHistory
 
-At 15:15 IST:
-  1. Discipline Engine evaluates carry forward
-  2. If any condition fails: send EXIT signal to RCA
-  3. RCA exits by 15:30 IST
-  4. Log evaluation result
+At 15:15 IST (scheduled):
+  1. Discipline Engine evaluates carry forward conditions
+  2. Queries Portfolio Agent for dailyRealizedPnl, open positions, DTE
+  3. If any condition fails: send EXIT signal to RCA
+  4. RCA exits by 15:30 IST
+  5. Log evaluation result in carryForwardEvaluation
 ```
+
+**Note:** No polling. Portfolio Agent is the push source for all P&L updates.
 
 ---
 

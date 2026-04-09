@@ -1,7 +1,7 @@
 # Feature 4: Settings Page Specification
 
-**Version:** 1.2  
-**Date:** April 2, 2026  
+**Version:** 1.3  
+**Date:** April 9, 2026  
 **Project:** Automatic Trading System (ATS)  
 **Author:** Manus AI
 
@@ -13,6 +13,7 @@
 | 1.0 | March 30, 2026 | Initial specification |
 | 1.1 | April 2, 2026 | Expanded Discipline section to include all 39 configurable parameters, enable/disable toggles, types, ranges, and defaults from the Discipline Engine spec. |
 | 1.2 | April 2, 2026 | Cross-functionality update: established as master parameter registry, updated exposure/position defaults (40%/80%), added graduated near-expiry reduction model |
+| 1.3 | April 9, 2026 | **UPDATED:** Added Capital Protection section (Module 8) to Section 3.3 Discipline table — daily loss cap (2%), daily profit cap (5%), grace period duration (30s), carry forward evaluation toggle and time. Added clarifying note distinguishing Circuit Breaker (Module 1, 3%) from Loss Cap (Module 8, 2%). |
 
 ---
 
@@ -98,6 +99,15 @@ This section enforces risk management and trading psychology rules, preventing e
 | | Losing streak auto-reduce enabled | Toggle | — | ON | Master toggle for losing streak position size reduction. |
 | | Losing streak trigger | Number | 2–7 days | 3 days | Number of consecutive losing days to trigger reduction. |
 | | Losing streak reduction | Number | 25–75% | 50% | Percentage by which max position size is reduced. |
+| **Capital Protection** | Daily loss cap enabled | Toggle | — | ON | Master toggle for session-level loss cap (Module 8). Stricter than Circuit Breaker — triggers session halt and RCA exit. |
+| | Daily loss cap threshold | Number | 0.5–5% | **2%** | Halt session + signal RCA to exit all positions when daily loss hits this %. Fires before Circuit Breaker (3%). |
+| | Daily profit cap enabled | Toggle | — | ON | Master toggle for daily profit cap. |
+| | Daily profit cap threshold | Number | 1–20% | **5%** | Halt session + signal RCA to exit all positions when daily profit hits this %. |
+| | Grace period duration | Number | 10–300 sec | **30 sec** | Time given to user to choose action (Exit All / Exit by Instrument / Reduce Exposure / Hold) before automatic EXIT_ALL is sent to RCA. |
+| | Carry forward evaluation enabled | Toggle | — | ON | Master toggle for 15:15 IST carry forward evaluation. |
+| | Carry forward evaluation time | Time | — | **15:15** | IST time when carry forward conditions are evaluated daily. |
+
+> **Note:** The Circuit Breaker (Module 1, default 3%) and Daily Loss Cap (Module 8, default 2%) are two separate independent rules. The loss cap is stricter and fires first, triggering a session halt and RCA exit. The circuit breaker only blocks new trade entries without exiting existing positions. Both are independently configurable.
 
 ### 3.4 Time Windows
 

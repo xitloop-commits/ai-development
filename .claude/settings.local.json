@@ -16,7 +16,12 @@
       "Bash(./dev.sh)",
       "Bash(kill %1)",
       "Bash(git add:*)",
-      "Bash(git commit -m ':*)"
+      "Bash(git commit -m ':*)",
+      "Bash(mv DisciplineEngine_Spec_v1.2.md DisciplineEngine_Spec_v1.3.md)",
+      "Bash(mv Settings_Spec_v1.2.md Settings_Spec_v1.3.md)",
+      "Bash(mv TradeExecutorAgent_Spec_v1.2.md TradeExecutorAgent_Spec_v1.3.md)",
+      "Bash(mv PortfolioAgent_Spec_v1.0.md PortfolioAgent_Spec_v1.1.md)",
+      "Bash(ls *.md)"
     ]
   }
 }
