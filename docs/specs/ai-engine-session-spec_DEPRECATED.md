@@ -1,8 +1,33 @@
-# AI Engine — Module 6: Session Manager (v2.4)
+# ⚠️ DEPRECATED: AI Engine — Module 6: Session Manager
 
-**Document:** ai-engine-session-spec.md
-**Project:** Automatic Trading System (ATS)
-**Status:** Authoritative Reference
+**Document:** ai-engine-session-spec.md  
+**Project:** Automatic Trading System (ATS)  
+**Status:** ❌ DEPRECATED (2026-04-09)
+
+---
+
+## DEPRECATION NOTICE
+
+**This specification has been deprecated as of April 9, 2026.**
+
+All Session Manager responsibilities have been moved to **DisciplineEngine_Spec_v1.2.md (Module 8)**.
+
+| Responsibility | Moved To | New Reference |
+|---|---|---|
+| Daily profit cap (+5%) | Discipline Engine Module 8 | Capital Protection |
+| Daily loss cap (-2%) | Discipline Engine Module 8 | Capital Protection |
+| Carry forward evaluation (15:15) | Discipline Engine Module 8 | Carry Forward Engine |
+| Session halt flag | Discipline Engine Module 8 | Session Halt Flag |
+| Exit signaling | Discipline Engine → RCA | Exit Signaling API |
+| P&L tracking | Portfolio Agent | Daily P&L metrics |
+
+**Timeline:**
+- **Now (deprecated):** Discipline Engine Module 8 implements all functionality
+- **Week 2:** RCA integration tested and working
+- **Week 3:** `session_manager.py` deleted from codebase
+- **Week 4:** Specification file removed from docs/specs
+
+**Do not use this module.** Refer to **DisciplineEngine_Spec_v1.2.md (Module 8)** instead.
 
 ---
 

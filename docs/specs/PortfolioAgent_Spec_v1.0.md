@@ -2,7 +2,7 @@
 
 **Document:** PortfolioAgent_Spec_v1.0.md
 **Project:** Automatic Trading System (ATS)
-**Status:** Draft
+**Status:** Implementation
 
 ---
 
@@ -11,6 +11,7 @@
 | Version | Date | Author | Summary |
 | --- | --- | --- | --- |
 | v1.0 | 2026-04-08 | AI Team | Initial specification for a unified, centralized Portfolio Agent that manages portfolio state, capital, exposure, drawdown, and portfolio-level risk signals. |
+| v1.0.1 | 2026-04-09 | Architecture Team | **ENHANCEMENT:** Added trade outcome recording (Section 5.2), daily P&L metrics, exit_triggered_by field for tracking who initiated trade exits. Integration with Discipline Engine capital protection, RCA exit signals, and AI Decision Engine. |
 
 ---
 
@@ -81,8 +82,58 @@ The Portfolio Agent will:
 - `winLossStreak`
 - `openPositionCount`
 - `positionConcentration`
+- **`dailyRealizedPnl` ✨** — Cumulative realized P&L from today's closed trades (absolute value, e.g., +5000 or -2500)
+- **`dailyRealizedPnlPercent` ✨** — Daily realized P&L as percentage of opening capital (e.g., +3.7%, -1.9%)
 
-### 5.2 Portfolio Risk Signals
+### 5.2 Trade Outcome Recording ✨
+
+When a trade closes, the Portfolio Agent records the outcome including P&L, duration, and who triggered the exit. This data is used by Discipline Engine to track daily P&L and by RCA to validate exit decisions.
+
+**Endpoint:** `POST /api/portfolio/recordTradeClosed`
+
+**Request Body:**
+```typescript
+interface TradeClosedRequest {
+  tradeId: string;                // Unique trade identifier
+  instrument: string;             // "NIFTY_50_CE_24500" etc
+  side: "LONG" | "SHORT";
+  entryPrice: number;
+  exitPrice: number;
+  quantity: number;
+  entryTime: Date;
+  exitTime: Date;
+  
+  // P&L Details
+  realizedPnl: number;            // Absolute P&L (e.g., +5000 or -2500)
+  realizedPnlPercent: number;     // As % of entry capital for this trade
+  
+  // Exit Information
+  exitReason: string;             // "SL" | "TP" | "RCA_EXIT" | "AI_EXIT" | "DISCIPLINE_EXIT" | "MANUAL"
+  exitTriggeredBy: "RCA" | "BROKER" | "DISCIPLINE" | "AI" | "USER";  // ✨ KEY FIELD
+  
+  // Trade Duration & Context
+  duration: number;               // In seconds
+  pnlCategory: "win" | "loss" | "breakeven";
+  
+  // Additional Context
+  signalSource?: string;          // If AI-triggered or RCA-triggered, source of signal
+  timestamp: Date;                // When trade closed
+}
+```
+
+**Response:**
+```typescript
+interface TradeClosedResponse {
+  success: boolean;
+  tradeId: string;
+  dailyPnlUpdated: number;        // Updated daily realized P&L
+  dailyPnlPercentUpdated: number; // Updated daily P&L %
+  positionsRemaining: number;     // Count of still-open positions
+  timestamp: Date;
+}
+```
+
+### 5.3 Portfolio Risk Signals
 
 - `maxExposureBreached`
 - `drawdownThresholdHit`
@@ -90,7 +141,7 @@ The Portfolio Agent will:
 - `positionConcentrationAlert`
 - `portfolioHealthScore`
 
-### 5.3 Historical Metrics
+### 5.4 Historical Metrics
 
 - `realizedPnlHistory`
 - `maxDrawdownHistory`
@@ -150,7 +201,7 @@ Suggested persistence model:
 
 - `portfolio.recordTradePlaced(trade)`
 - `portfolio.recordTradeUpdated(trade)`
-- `portfolio.recordTradeClosed(trade)`
+- **`portfolio.recordTradeClosed(trade)` ✨** — Record trade outcome with P&L, exit reason, and who triggered the exit (RCA | BROKER | DISCIPLINE | AI)
 - `portfolio.recordTradeRejected(trade, reason)`
 
 #### Signal APIs
@@ -254,22 +305,70 @@ Payload shape should include:
 - `realizedPnl`
 - `openedAt`
 - `closedAt`
+- **`exitTriggeredBy` ✨** — Who initiated the exit: "RCA" (real-time monitoring), "BROKER" (SL/TP auto-exit), "DISCIPLINE" (capital caps), "AI" (decision engine), or "USER" (manual)
+- **`exitReason` ✨** — Why the position was closed: "SL", "TP", "RCA_EXIT", "DISCIPLINE_EXIT", "AI_EXIT", "MANUAL"
 
 ### Performance Metrics
 
-- `dailyPnl`
+- **`dailyRealizedPnl` ✨** — Cumulative realized P&L for today (sum of all closed trades today)
+- **`dailyRealizedPnlPercent` ✨** — Daily realized P&L as percentage of opening capital
 - `cumulativePnl`
 - `maxDrawdown`
 - `winRate`
 - `averageRr`
 - `tradeCount`
+- **`dailyTradeOutcomes` ✨** — Array of closed trades for today with exit reasons and who triggered each exit
 
-## 10. Versioning
+## 10. Integration with Other Agents ✨
+
+### 10.1 Discipline Engine Integration
+
+The Portfolio Agent provides daily P&L data to Discipline Engine for capital protection monitoring:
+
+- `GET /api/portfolio/daily-pnl` — Returns `dailyRealizedPnl` and `dailyRealizedPnlPercent`
+- Called by Discipline Engine every 5 seconds to check if daily profit/loss caps are reached
+- Used for carry forward evaluation at 15:15 IST (profit >= 15%?)
+
+### 10.2 RCA Integration
+
+The Portfolio Agent records when RCA exits a position:
+
+- Trade outcome recorded with `exitTriggeredBy: "RCA"`
+- RCA provides `exit_reason: "RCA_EXIT"` when exiting due to momentum, volatility, or age
+- Portfolio Agent updates `dailyRealizedPnl` and triggers Discipline Engine cap checks
+
+### 10.3 AI Decision Engine Integration
+
+The Portfolio Agent records when AI signals trigger an exit:
+
+- Trade outcome recorded with `exitTriggeredBy: "AI"`
+- RCA validates AI signal and executes exit via TradeExecutorAgent
+- Exit reason: "AI_EXIT"
+
+### 10.4 Broker Integration
+
+The Portfolio Agent records when broker auto-exits (SL/TP hits) on live trades:
+
+- Trade outcome recorded with `exitTriggeredBy: "BROKER"`
+- Broker sends order fill/closure event to TradeExecutorAgent
+- TradeExecutorAgent notifies Portfolio Agent: exit reason "SL" or "TP"
+
+### 10.5 Data Ownership
+
+**Important:** Only TradeExecutorAgent writes to Portfolio Agent's trade state.
+
+- TradeExecutorAgent calls `portfolio.recordTradePlaced()` when order enters market
+- TradeExecutorAgent calls `portfolio.recordTradeClosed()` when order exits market
+- Other agents (RCA, Discipline, AI) read Portfolio data but do NOT write directly
+- All exit decisions flow through TradeExecutorAgent to maintain authoritative audit trail
+
+## 11. Versioning
 
 This spec is versioned as `v1.0`. Future updates must be recorded in the Change History table.
 
-## 11. Notes
+## 12. Notes
 
 - The Portfolio Agent is intended to become the authoritative portfolio state engine for the ATS.
 - It should reduce duplicate state held in Python modules and server memory stores.
 - Inputs from trade execution, market valuation, and capital updates must be kept consistent and fresh.
+- **v1.0.1 (2026-04-09):** Enhanced for new unified execution architecture. Trade outcome recording now includes `exitTriggeredBy` field to track whether exit came from RCA, Broker, Discipline Engine, or AI Decision Engine. Daily P&L metrics now feed capital protection monitoring in Discipline Engine.
