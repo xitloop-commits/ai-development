@@ -1,0 +1,18 @@
+flowchart TD
+    C1(["Chain Snapshot arrives"]) --> C2["Compute vol_diff per strike\ncall_vol_diff = volume_now - volume_prev\nput_vol_diff = volume_now - volume_prev"]
+
+    C2 --> C3["Compute PCR\npcr_global = sum(put_oi) / sum(call_oi)\npcr_atm = sum(put_oi ATM±3) / sum(call_oi ATM±3)"]
+
+    C3 --> C4["Sum OI totals\noi_total_call = sum(call_oi all strikes)\noi_total_put = sum(put_oi all strikes)"]
+
+    C4 --> C5["Aggregate ΔOI\noi_change_call = sum(call_delta_oi all strikes)\noi_change_put = sum(put_delta_oi all strikes)\noi_change_call_atm = sum(call_delta_oi ATM±3)\noi_change_put_atm = sum(put_delta_oi ATM±3)"]
+
+    C5 --> C6["Compute oi_imbalance_atm\n(put_oi - call_oi) / (put_oi + call_oi)\nfor ATM ±3 zone · null if both = 0"]
+
+    C6 --> C7["Select active strikes\ntop 3 by (call_vol_diff + put_vol_diff)\ntop 3 by abs(call_delta_oi) + abs(put_delta_oi)\ndedup → max 6 strikes"]
+
+    C7 --> C8["Normalise strength across full chain\nstrength_volume = min-max(vol_diff)\nstrength_oi = min-max(abs delta_oi)\nstrength = 0.5 × vol + 0.5 × oi"]
+
+    C8 --> C9["Update chain_cache\nstore snapshot as prev for next diff"]
+
+    C9 --> C10(["Cache ready — tick handler reads from here"])

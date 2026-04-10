@@ -1,0 +1,20 @@
+flowchart TD
+    T1(["Tick arrives"]) --> T2{"Underlying\nor Option?"}
+
+    T2 -->|"Underlying"| T3["Append ltp + timestamp\nto 20-tick circular buffer"]
+    T2 -->|"Option"| T4["Append ltp to 5-tick buffer\nfor strike × CE/PE"]
+
+    T3 --> T5["Compute underlying features\nspread · return_5 · return_20\nmomentum · velocity\ntick_up / down / flat · imbalance"]
+    T4 --> T6["Compute option tick features\nspread · bid_ask_imbalance\npremium_momentum"]
+
+    T5 --> T7["Detect ATM\nround(ltp ÷ strike_step) × strike_step"]
+    T6 --> T7
+
+    T7 --> T8{"ATM\nchanged?"}
+
+    T8 -->|"Yes"| T9["Refresh ATM-zone fields in chain_cache\nusing current stored snapshot\npcr_atm · oi_change_atm · oi_imbalance_atm\nactive_strikes · strength"]
+    T8 -->|"No"| T10["Read chain_cache"]
+    T9 --> T10
+
+    T10 --> T11["Assemble flat vector — 180 cols\ndata_quality_flag · is_market_open\ntime_since_chain_sec"]
+    T11 --> T12(["Emit output row"])
