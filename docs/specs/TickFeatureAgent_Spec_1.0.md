@@ -296,16 +296,19 @@ ATM window = ATM - 3×strike_step  to  ATM + 3×strike_step  (7 strikes total)
 ### 8.4 Option Tick Features (ATM ±3 feature window, per strike)
 
 > **Subscription vs feature window:** All chain strikes are subscribed and maintain live 5-tick buffers. Only the 7 strikes in the ATM ±3 feature window are included in this output group. Active strikes outside ATM ±3 have their tick features in Section 8.6.
+>
+> **`tick_age_sec` not tracked for ATM window strikes.** Use `tick_available` to detect unticked strikes and `time_since_chain_sec` for feed latency. ATM window strikes are the most liquid in the chain — staleness is better monitored at the feed level.
 
 | Property | Source | Calculation |
 |----------|--------|-------------|
-| `ltp` | Option tick | Last traded price |
+| `tick_available` | System | `1` if this specific CE or PE instrument has received ≥1 tick since session open or last rollover; `0` if never ticked. Resets on expiry rollover. |
+| `ltp` | Option tick | Last traded price; `NaN` if `tick_available = 0` |
 | `bid` | Option tick | Best bid |
 | `ask` | Option tick | Best ask |
 | `spread` | Option tick | `ask - bid` |
 | `volume` | Option tick | Direct |
-| `bid_ask_imbalance` | Option tick | `(bid_size - ask_size) / (bid_size + ask_size)` — `null` if `bid_size + ask_size = 0` |
-| `premium_momentum` | Option tick history | `current_ltp - ltp_5_ticks_ago` (null for first 4 ticks) |
+| `bid_ask_imbalance` | Option tick | `(bid_size - ask_size) / (bid_size + ask_size)` — `NaN` if `bid_size + ask_size = 0` |
+| `premium_momentum` | Option tick history | `current_ltp - ltp_5_ticks_ago`; `NaN` if strike buffer < 5 ticks OR time span between oldest and newest tick exceeds `momentum_staleness_threshold_sec` |
 
 ### 8.5 Option Chain Features
 
@@ -355,7 +358,6 @@ Since the full chain is subscribed, every active strike has a live 5-tick buffer
 | `call.volume` | Option tick | Call per-tick traded quantity |
 | `call.bid_ask_imbalance` | Computed | `(bid_size - ask_size) / (bid_size + ask_size)` — `null` if denominator = 0 |
 | `call.premium_momentum` | Tick history | `call.ltp_now - call.ltp_5_ticks_ago` — `NaN` if strike buffer has < 5 ticks OR time span between oldest and newest tick in buffer exceeds `momentum_staleness_threshold_sec` (Instrument Profile) |
-| `call.tick_age_sec` | System | Seconds since last tick received for this strike (call side); `NaN` if `tick_available = 0` |
 | `put.ltp` | Option tick | Put last traded price |
 | `put.bid` | Option tick | Put best bid |
 | `put.ask` | Option tick | Put best ask |
@@ -363,8 +365,8 @@ Since the full chain is subscribed, every active strike has a live 5-tick buffer
 | `put.volume` | Option tick | Put per-tick traded quantity |
 | `put.bid_ask_imbalance` | Computed | `(bid_size - ask_size) / (bid_size + ask_size)` — `null` if denominator = 0 |
 | `put.premium_momentum` | Tick history | `put.ltp_now - put.ltp_5_ticks_ago` — `NaN` if strike buffer has < 5 ticks OR time span exceeds `momentum_staleness_threshold_sec` |
-| `put.tick_age_sec` | System | Seconds since last tick received for this strike (put side); `NaN` if `tick_available = 0` |
 | `tick_available` | System | `1` if strike has received ≥1 tick since session open or last expiry rollover; `0` if not yet ticked. Resets to `0` on expiry rollover. |
+| `tick_age_sec` | System | Seconds since the most recent tick received for this strike (either side); `NaN` if `tick_available = 0`. Single value per strike — not split by call/put. |
 
 **Normalization:** Min-max computed **per snapshot**, cross-sectional across **all strikes in the current snapshot** (including zero-activity strikes). If `max == min` (includes all-zero case), set all to `0.5`.
 
@@ -419,7 +421,7 @@ On expiry rollover, both flags reset to `0` — same progression as session star
 | No chain at startup | Output `null` for all chain features; set `data_quality_flag = 0`, `chain_available = false` |
 | First chain snapshot | No `vol_prev` exists → `vol_diff = 0` for all strikes; active strike volume ranking unreliable; `data_quality_flag = 0` |
 | Quality flag | Set `data_quality_flag = 0` when: `chain_available = false`, `vol_diff_available = false` (first snapshot), any buffer not full, or `time_since_chain_sec > 30` |
-| Missing ATM strikes | `option_tick_features` always contains exactly 7 entries (one per `atm_window_strikes`). If a strike has never ticked, its entry is present with all tick fields = `null` and `tick_available = 0`. `atm_window_strikes` lists all 7 computed prices regardless of chain existence. |
+| Missing ATM strikes | `option_tick_features` always contains exactly 14 entries (7 `atm_window_strikes` × CE + PE). If a strike has never ticked, its entry is present with all tick fields = `null` and `tick_available = 0`. `atm_window_strikes` lists all 7 computed prices regardless of chain existence. |
 | PCR / OI imbalance | `pcr_global`, `pcr_atm` → `null` if `sum(call_oi) = 0`; `oi_imbalance_atm` → `null` if both OI totals are 0 |
 | Velocity unit | `time_diff` in seconds with 1-second floor; skip update on zero/negative delta (duplicate or out-of-order tick) |
 | `time_since_chain_sec` as staleness indicator | When `time_since_chain_sec > 30`, chain features are stale. Model uses this column to learn staleness sensitivity. No separate stale column needed. |
@@ -793,12 +795,20 @@ Each tick produces one JSON object.
   },
 
   "option_tick_features": {
-    "21700_CE": { "ltp": 45.0, "bid": 44.5, "ask": 45.5, "spread": 1.0, "volume": 12, "bid_ask_imbalance": 0.05, "premium_momentum": -0.2 },
-    "21700_PE": { "ltp": 310.0, "bid": 309.5, "ask": 310.5, "spread": 1.0, "volume": 8, "bid_ask_imbalance": -0.03, "premium_momentum": 0.4 },
-    "21850_CE": { "ltp": 112.5, "bid": 112.0, "ask": 113.0, "spread": 1.0, "volume": 45, "bid_ask_imbalance": 0.15, "premium_momentum": -0.5 },
-    "21850_PE": { "ltp": 98.0, "bid": 97.5, "ask": 98.5, "spread": 1.0, "volume": 30, "bid_ask_imbalance": -0.08, "premium_momentum": 0.8 },
-    "22000_CE": { "ltp": 38.0, "bid": 37.5, "ask": 38.5, "spread": 1.0, "volume": 22, "bid_ask_imbalance": 0.10, "premium_momentum": -0.3 },
-    "22000_PE": { "ltp": 285.0, "bid": 284.5, "ask": 285.5, "spread": 1.0, "volume": 18, "bid_ask_imbalance": -0.06, "premium_momentum": 0.5 }
+    "21700_CE": { "tick_available": 1, "ltp": 45.0,  "bid": 44.5,  "ask": 45.5,  "spread": 1.0, "volume": 12, "bid_ask_imbalance":  0.05, "premium_momentum": -0.2  },
+    "21700_PE": { "tick_available": 1, "ltp": 310.0, "bid": 309.5, "ask": 310.5, "spread": 1.0, "volume": 8,  "bid_ask_imbalance": -0.03, "premium_momentum":  0.4  },
+    "21750_CE": { "tick_available": 0, "ltp": null,  "bid": null,  "ask": null,  "spread": null, "volume": null, "bid_ask_imbalance": null, "premium_momentum": null },
+    "21750_PE": { "tick_available": 0, "ltp": null,  "bid": null,  "ask": null,  "spread": null, "volume": null, "bid_ask_imbalance": null, "premium_momentum": null },
+    "21800_CE": { "tick_available": 0, "ltp": null,  "bid": null,  "ask": null,  "spread": null, "volume": null, "bid_ask_imbalance": null, "premium_momentum": null },
+    "21800_PE": { "tick_available": 0, "ltp": null,  "bid": null,  "ask": null,  "spread": null, "volume": null, "bid_ask_imbalance": null, "premium_momentum": null },
+    "21850_CE": { "tick_available": 1, "ltp": 112.5, "bid": 112.0, "ask": 113.0, "spread": 1.0, "volume": 45, "bid_ask_imbalance":  0.15, "premium_momentum": -0.5  },
+    "21850_PE": { "tick_available": 1, "ltp": 98.0,  "bid": 97.5,  "ask": 98.5,  "spread": 1.0, "volume": 30, "bid_ask_imbalance": -0.08, "premium_momentum":  0.8  },
+    "21900_CE": { "tick_available": 0, "ltp": null,  "bid": null,  "ask": null,  "spread": null, "volume": null, "bid_ask_imbalance": null, "premium_momentum": null },
+    "21900_PE": { "tick_available": 0, "ltp": null,  "bid": null,  "ask": null,  "spread": null, "volume": null, "bid_ask_imbalance": null, "premium_momentum": null },
+    "21950_CE": { "tick_available": 0, "ltp": null,  "bid": null,  "ask": null,  "spread": null, "volume": null, "bid_ask_imbalance": null, "premium_momentum": null },
+    "21950_PE": { "tick_available": 0, "ltp": null,  "bid": null,  "ask": null,  "spread": null, "volume": null, "bid_ask_imbalance": null, "premium_momentum": null },
+    "22000_CE": { "tick_available": 1, "ltp": 38.0,  "bid": 37.5,  "ask": 38.5,  "spread": 1.0, "volume": 22, "bid_ask_imbalance":  0.10, "premium_momentum": -0.3  },
+    "22000_PE": { "tick_available": 1, "ltp": 285.0, "bid": 284.5, "ask": 285.5, "spread": 1.0, "volume": 18, "bid_ask_imbalance": -0.06, "premium_momentum":  0.5  }
   },
 
   "option_chain_features": {
@@ -818,6 +828,7 @@ Each tick produces one JSON object.
       "strike": 21800,
       "distance_from_spot": -50.5,
       "tick_available": 1,
+      "tick_age_sec": 0.4,
       "call": {
         "level_type": "resistance",
         "strength_volume": 0.71,
@@ -849,6 +860,7 @@ Each tick produces one JSON object.
       "strike": 22000,
       "distance_from_spot": 149.5,
       "tick_available": 1,
+      "tick_age_sec": 1.2,
       "call": {
         "level_type": "resistance",
         "strength_volume": 0.68,
@@ -917,7 +929,7 @@ Each tick JSON is flattened into a single ordered row for ML model consumption.
 | `atm_window_strikes` | Omitted — redundant (encoded implicitly by `opt_m3` → `opt_p3` columns) |
 | Active strike slot unfilled | All fields for that slot = `NaN` |
 
-#### Complete Feature Vector — All 276 Columns
+#### Complete Feature Vector — All 290 Columns
 
 > **Category key:** `feature` = fed to ML model · `filter` = used to filter rows before training, not fed to model · `identifier` = stored for traceability only, not fed to model
 
@@ -942,283 +954,297 @@ Each tick JSON is flattened into a single ordered row for ML model consumption.
 | 14 | Tick | `spot_price` | float | feature | Futures LTP used as spot proxy for ATM calculation |
 | 15 | Computed | `atm_strike` | float | feature | Nearest ATM strike: round(spot / strike_step) × strike_step |
 | 16 | Computed | `strike_step` | float | feature | Auto-detected minimum interval between strikes in chain |
-| **— Option Tick — ATM-3 (14) —** ||||||
-| 17 | Option Tick | `opt_m3_ce_ltp` | float | feature | Call LTP at ATM-3 strike |
-| 18 | Option Tick | `opt_m3_ce_bid` | float | feature | Call best bid at ATM-3 |
-| 19 | Option Tick | `opt_m3_ce_ask` | float | feature | Call best ask at ATM-3 |
-| 20 | Computed | `opt_m3_ce_spread` | float | feature | Call bid-ask spread at ATM-3 |
-| 21 | Option Tick | `opt_m3_ce_volume` | int | feature | Call per-tick traded quantity at ATM-3 |
-| 22 | Computed | `opt_m3_ce_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM-3 call |
-| 23 | Computed | `opt_m3_ce_premium_momentum` | float | feature | Call LTP change over last 5 ticks at ATM-3 |
-| 24 | Option Tick | `opt_m3_pe_ltp` | float | feature | Put LTP at ATM-3 strike |
-| 25 | Option Tick | `opt_m3_pe_bid` | float | feature | Put best bid at ATM-3 |
-| 26 | Option Tick | `opt_m3_pe_ask` | float | feature | Put best ask at ATM-3 |
-| 27 | Computed | `opt_m3_pe_spread` | float | feature | Put bid-ask spread at ATM-3 |
-| 28 | Option Tick | `opt_m3_pe_volume` | int | feature | Put per-tick traded quantity at ATM-3 |
-| 29 | Computed | `opt_m3_pe_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM-3 put |
-| 30 | Computed | `opt_m3_pe_premium_momentum` | float | feature | Put LTP change over last 5 ticks at ATM-3 |
-| **— Option Tick — ATM-2 (14) —** ||||||
-| 31 | Option Tick | `opt_m2_ce_ltp` | float | feature | Call LTP at ATM-2 strike |
-| 32 | Option Tick | `opt_m2_ce_bid` | float | feature | Call best bid at ATM-2 |
-| 33 | Option Tick | `opt_m2_ce_ask` | float | feature | Call best ask at ATM-2 |
-| 34 | Computed | `opt_m2_ce_spread` | float | feature | Call bid-ask spread at ATM-2 |
-| 35 | Option Tick | `opt_m2_ce_volume` | int | feature | Call per-tick traded quantity at ATM-2 |
-| 36 | Computed | `opt_m2_ce_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM-2 call |
-| 37 | Computed | `opt_m2_ce_premium_momentum` | float | feature | Call LTP change over last 5 ticks at ATM-2 |
-| 38 | Option Tick | `opt_m2_pe_ltp` | float | feature | Put LTP at ATM-2 strike |
-| 39 | Option Tick | `opt_m2_pe_bid` | float | feature | Put best bid at ATM-2 |
-| 40 | Option Tick | `opt_m2_pe_ask` | float | feature | Put best ask at ATM-2 |
-| 41 | Computed | `opt_m2_pe_spread` | float | feature | Put bid-ask spread at ATM-2 |
-| 42 | Option Tick | `opt_m2_pe_volume` | int | feature | Put per-tick traded quantity at ATM-2 |
-| 43 | Computed | `opt_m2_pe_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM-2 put |
-| 44 | Computed | `opt_m2_pe_premium_momentum` | float | feature | Put LTP change over last 5 ticks at ATM-2 |
-| **— Option Tick — ATM-1 (14) —** ||||||
-| 45 | Option Tick | `opt_m1_ce_ltp` | float | feature | Call LTP at ATM-1 strike |
-| 46 | Option Tick | `opt_m1_ce_bid` | float | feature | Call best bid at ATM-1 |
-| 47 | Option Tick | `opt_m1_ce_ask` | float | feature | Call best ask at ATM-1 |
-| 48 | Computed | `opt_m1_ce_spread` | float | feature | Call bid-ask spread at ATM-1 |
-| 49 | Option Tick | `opt_m1_ce_volume` | int | feature | Call per-tick traded quantity at ATM-1 |
-| 50 | Computed | `opt_m1_ce_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM-1 call |
-| 51 | Computed | `opt_m1_ce_premium_momentum` | float | feature | Call LTP change over last 5 ticks at ATM-1 |
-| 52 | Option Tick | `opt_m1_pe_ltp` | float | feature | Put LTP at ATM-1 strike |
-| 53 | Option Tick | `opt_m1_pe_bid` | float | feature | Put best bid at ATM-1 |
-| 54 | Option Tick | `opt_m1_pe_ask` | float | feature | Put best ask at ATM-1 |
-| 55 | Computed | `opt_m1_pe_spread` | float | feature | Put bid-ask spread at ATM-1 |
-| 56 | Option Tick | `opt_m1_pe_volume` | int | feature | Put per-tick traded quantity at ATM-1 |
-| 57 | Computed | `opt_m1_pe_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM-1 put |
-| 58 | Computed | `opt_m1_pe_premium_momentum` | float | feature | Put LTP change over last 5 ticks at ATM-1 |
-| **— Option Tick — ATM (14) —** ||||||
-| 59 | Option Tick | `opt_0_ce_ltp` | float | feature | Call LTP at ATM strike |
-| 60 | Option Tick | `opt_0_ce_bid` | float | feature | Call best bid at ATM |
-| 61 | Option Tick | `opt_0_ce_ask` | float | feature | Call best ask at ATM |
-| 62 | Computed | `opt_0_ce_spread` | float | feature | Call bid-ask spread at ATM |
-| 63 | Option Tick | `opt_0_ce_volume` | int | feature | Call per-tick traded quantity at ATM |
-| 64 | Computed | `opt_0_ce_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM call |
-| 65 | Computed | `opt_0_ce_premium_momentum` | float | feature | Call LTP change over last 5 ticks at ATM |
-| 66 | Option Tick | `opt_0_pe_ltp` | float | feature | Put LTP at ATM strike |
-| 67 | Option Tick | `opt_0_pe_bid` | float | feature | Put best bid at ATM |
-| 68 | Option Tick | `opt_0_pe_ask` | float | feature | Put best ask at ATM |
-| 69 | Computed | `opt_0_pe_spread` | float | feature | Put bid-ask spread at ATM |
-| 70 | Option Tick | `opt_0_pe_volume` | int | feature | Put per-tick traded quantity at ATM |
-| 71 | Computed | `opt_0_pe_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM put |
-| 72 | Computed | `opt_0_pe_premium_momentum` | float | feature | Put LTP change over last 5 ticks at ATM |
-| **— Option Tick — ATM+1 (14) —** ||||||
-| 73 | Option Tick | `opt_p1_ce_ltp` | float | feature | Call LTP at ATM+1 strike |
-| 74 | Option Tick | `opt_p1_ce_bid` | float | feature | Call best bid at ATM+1 |
-| 75 | Option Tick | `opt_p1_ce_ask` | float | feature | Call best ask at ATM+1 |
-| 76 | Computed | `opt_p1_ce_spread` | float | feature | Call bid-ask spread at ATM+1 |
-| 77 | Option Tick | `opt_p1_ce_volume` | int | feature | Call per-tick traded quantity at ATM+1 |
-| 78 | Computed | `opt_p1_ce_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM+1 call |
-| 79 | Computed | `opt_p1_ce_premium_momentum` | float | feature | Call LTP change over last 5 ticks at ATM+1 |
-| 80 | Option Tick | `opt_p1_pe_ltp` | float | feature | Put LTP at ATM+1 strike |
-| 81 | Option Tick | `opt_p1_pe_bid` | float | feature | Put best bid at ATM+1 |
-| 82 | Option Tick | `opt_p1_pe_ask` | float | feature | Put best ask at ATM+1 |
-| 83 | Computed | `opt_p1_pe_spread` | float | feature | Put bid-ask spread at ATM+1 |
-| 84 | Option Tick | `opt_p1_pe_volume` | int | feature | Put per-tick traded quantity at ATM+1 |
-| 85 | Computed | `opt_p1_pe_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM+1 put |
-| 86 | Computed | `opt_p1_pe_premium_momentum` | float | feature | Put LTP change over last 5 ticks at ATM+1 |
-| **— Option Tick — ATM+2 (14) —** ||||||
-| 87 | Option Tick | `opt_p2_ce_ltp` | float | feature | Call LTP at ATM+2 strike |
-| 88 | Option Tick | `opt_p2_ce_bid` | float | feature | Call best bid at ATM+2 |
-| 89 | Option Tick | `opt_p2_ce_ask` | float | feature | Call best ask at ATM+2 |
-| 90 | Computed | `opt_p2_ce_spread` | float | feature | Call bid-ask spread at ATM+2 |
-| 91 | Option Tick | `opt_p2_ce_volume` | int | feature | Call per-tick traded quantity at ATM+2 |
-| 92 | Computed | `opt_p2_ce_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM+2 call |
-| 93 | Computed | `opt_p2_ce_premium_momentum` | float | feature | Call LTP change over last 5 ticks at ATM+2 |
-| 94 | Option Tick | `opt_p2_pe_ltp` | float | feature | Put LTP at ATM+2 strike |
-| 95 | Option Tick | `opt_p2_pe_bid` | float | feature | Put best bid at ATM+2 |
-| 96 | Option Tick | `opt_p2_pe_ask` | float | feature | Put best ask at ATM+2 |
-| 97 | Computed | `opt_p2_pe_spread` | float | feature | Put bid-ask spread at ATM+2 |
-| 98 | Option Tick | `opt_p2_pe_volume` | int | feature | Put per-tick traded quantity at ATM+2 |
-| 99 | Computed | `opt_p2_pe_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM+2 put |
-| 100 | Computed | `opt_p2_pe_premium_momentum` | float | feature | Put LTP change over last 5 ticks at ATM+2 |
-| **— Option Tick — ATM+3 (14) —** ||||||
-| 101 | Option Tick | `opt_p3_ce_ltp` | float | feature | Call LTP at ATM+3 strike |
-| 102 | Option Tick | `opt_p3_ce_bid` | float | feature | Call best bid at ATM+3 |
-| 103 | Option Tick | `opt_p3_ce_ask` | float | feature | Call best ask at ATM+3 |
-| 104 | Computed | `opt_p3_ce_spread` | float | feature | Call bid-ask spread at ATM+3 |
-| 105 | Option Tick | `opt_p3_ce_volume` | int | feature | Call per-tick traded quantity at ATM+3 |
-| 106 | Computed | `opt_p3_ce_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM+3 call |
-| 107 | Computed | `opt_p3_ce_premium_momentum` | float | feature | Call LTP change over last 5 ticks at ATM+3 |
-| 108 | Option Tick | `opt_p3_pe_ltp` | float | feature | Put LTP at ATM+3 strike |
-| 109 | Option Tick | `opt_p3_pe_bid` | float | feature | Put best bid at ATM+3 |
-| 110 | Option Tick | `opt_p3_pe_ask` | float | feature | Put best ask at ATM+3 |
-| 111 | Computed | `opt_p3_pe_spread` | float | feature | Put bid-ask spread at ATM+3 |
-| 112 | Option Tick | `opt_p3_pe_volume` | int | feature | Put per-tick traded quantity at ATM+3 |
-| 113 | Computed | `opt_p3_pe_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM+3 put |
-| 114 | Computed | `opt_p3_pe_premium_momentum` | float | feature | Put LTP change over last 5 ticks at ATM+3 |
+| **— Option Tick — ATM-3 (16) —** ||||||
+| 17 | System | `opt_m3_ce_tick_available` | int (0/1) | feature | 1 if ATM-3 call has received ≥1 tick this session; 0 if never ticked |
+| 18 | Option Tick | `opt_m3_ce_ltp` | float | feature | Call LTP at ATM-3 strike |
+| 19 | Option Tick | `opt_m3_ce_bid` | float | feature | Call best bid at ATM-3 |
+| 20 | Option Tick | `opt_m3_ce_ask` | float | feature | Call best ask at ATM-3 |
+| 21 | Computed | `opt_m3_ce_spread` | float | feature | Call bid-ask spread at ATM-3 |
+| 22 | Option Tick | `opt_m3_ce_volume` | int | feature | Call per-tick traded quantity at ATM-3 |
+| 23 | Computed | `opt_m3_ce_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM-3 call |
+| 24 | Computed | `opt_m3_ce_premium_momentum` | float | feature | Call LTP change over last 5 ticks at ATM-3; NaN if buffer < 5 or span > threshold |
+| 25 | System | `opt_m3_pe_tick_available` | int (0/1) | feature | 1 if ATM-3 put has received ≥1 tick this session; 0 if never ticked |
+| 26 | Option Tick | `opt_m3_pe_ltp` | float | feature | Put LTP at ATM-3 strike |
+| 27 | Option Tick | `opt_m3_pe_bid` | float | feature | Put best bid at ATM-3 |
+| 28 | Option Tick | `opt_m3_pe_ask` | float | feature | Put best ask at ATM-3 |
+| 29 | Computed | `opt_m3_pe_spread` | float | feature | Put bid-ask spread at ATM-3 |
+| 30 | Option Tick | `opt_m3_pe_volume` | int | feature | Put per-tick traded quantity at ATM-3 |
+| 31 | Computed | `opt_m3_pe_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM-3 put |
+| 32 | Computed | `opt_m3_pe_premium_momentum` | float | feature | Put LTP change over last 5 ticks at ATM-3; NaN if buffer < 5 or span > threshold |
+| **— Option Tick — ATM-2 (16) —** ||||||
+| 33 | System | `opt_m2_ce_tick_available` | int (0/1) | feature | 1 if ATM-2 call has received ≥1 tick this session; 0 if never ticked |
+| 34 | Option Tick | `opt_m2_ce_ltp` | float | feature | Call LTP at ATM-2 strike |
+| 35 | Option Tick | `opt_m2_ce_bid` | float | feature | Call best bid at ATM-2 |
+| 36 | Option Tick | `opt_m2_ce_ask` | float | feature | Call best ask at ATM-2 |
+| 37 | Computed | `opt_m2_ce_spread` | float | feature | Call bid-ask spread at ATM-2 |
+| 38 | Option Tick | `opt_m2_ce_volume` | int | feature | Call per-tick traded quantity at ATM-2 |
+| 39 | Computed | `opt_m2_ce_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM-2 call |
+| 40 | Computed | `opt_m2_ce_premium_momentum` | float | feature | Call LTP change over last 5 ticks at ATM-2; NaN if buffer < 5 or span > threshold |
+| 41 | System | `opt_m2_pe_tick_available` | int (0/1) | feature | 1 if ATM-2 put has received ≥1 tick this session; 0 if never ticked |
+| 42 | Option Tick | `opt_m2_pe_ltp` | float | feature | Put LTP at ATM-2 strike |
+| 43 | Option Tick | `opt_m2_pe_bid` | float | feature | Put best bid at ATM-2 |
+| 44 | Option Tick | `opt_m2_pe_ask` | float | feature | Put best ask at ATM-2 |
+| 45 | Computed | `opt_m2_pe_spread` | float | feature | Put bid-ask spread at ATM-2 |
+| 46 | Option Tick | `opt_m2_pe_volume` | int | feature | Put per-tick traded quantity at ATM-2 |
+| 47 | Computed | `opt_m2_pe_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM-2 put |
+| 48 | Computed | `opt_m2_pe_premium_momentum` | float | feature | Put LTP change over last 5 ticks at ATM-2; NaN if buffer < 5 or span > threshold |
+| **— Option Tick — ATM-1 (16) —** ||||||
+| 49 | System | `opt_m1_ce_tick_available` | int (0/1) | feature | 1 if ATM-1 call has received ≥1 tick this session; 0 if never ticked |
+| 50 | Option Tick | `opt_m1_ce_ltp` | float | feature | Call LTP at ATM-1 strike |
+| 51 | Option Tick | `opt_m1_ce_bid` | float | feature | Call best bid at ATM-1 |
+| 52 | Option Tick | `opt_m1_ce_ask` | float | feature | Call best ask at ATM-1 |
+| 53 | Computed | `opt_m1_ce_spread` | float | feature | Call bid-ask spread at ATM-1 |
+| 54 | Option Tick | `opt_m1_ce_volume` | int | feature | Call per-tick traded quantity at ATM-1 |
+| 55 | Computed | `opt_m1_ce_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM-1 call |
+| 56 | Computed | `opt_m1_ce_premium_momentum` | float | feature | Call LTP change over last 5 ticks at ATM-1; NaN if buffer < 5 or span > threshold |
+| 57 | System | `opt_m1_pe_tick_available` | int (0/1) | feature | 1 if ATM-1 put has received ≥1 tick this session; 0 if never ticked |
+| 58 | Option Tick | `opt_m1_pe_ltp` | float | feature | Put LTP at ATM-1 strike |
+| 59 | Option Tick | `opt_m1_pe_bid` | float | feature | Put best bid at ATM-1 |
+| 60 | Option Tick | `opt_m1_pe_ask` | float | feature | Put best ask at ATM-1 |
+| 61 | Computed | `opt_m1_pe_spread` | float | feature | Put bid-ask spread at ATM-1 |
+| 62 | Option Tick | `opt_m1_pe_volume` | int | feature | Put per-tick traded quantity at ATM-1 |
+| 63 | Computed | `opt_m1_pe_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM-1 put |
+| 64 | Computed | `opt_m1_pe_premium_momentum` | float | feature | Put LTP change over last 5 ticks at ATM-1; NaN if buffer < 5 or span > threshold |
+| **— Option Tick — ATM (16) —** ||||||
+| 65 | System | `opt_0_ce_tick_available` | int (0/1) | feature | 1 if ATM call has received ≥1 tick this session; 0 if never ticked |
+| 66 | Option Tick | `opt_0_ce_ltp` | float | feature | Call LTP at ATM strike |
+| 67 | Option Tick | `opt_0_ce_bid` | float | feature | Call best bid at ATM |
+| 68 | Option Tick | `opt_0_ce_ask` | float | feature | Call best ask at ATM |
+| 69 | Computed | `opt_0_ce_spread` | float | feature | Call bid-ask spread at ATM |
+| 70 | Option Tick | `opt_0_ce_volume` | int | feature | Call per-tick traded quantity at ATM |
+| 71 | Computed | `opt_0_ce_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM call |
+| 72 | Computed | `opt_0_ce_premium_momentum` | float | feature | Call LTP change over last 5 ticks at ATM; NaN if buffer < 5 or span > threshold |
+| 73 | System | `opt_0_pe_tick_available` | int (0/1) | feature | 1 if ATM put has received ≥1 tick this session; 0 if never ticked |
+| 74 | Option Tick | `opt_0_pe_ltp` | float | feature | Put LTP at ATM strike |
+| 75 | Option Tick | `opt_0_pe_bid` | float | feature | Put best bid at ATM |
+| 76 | Option Tick | `opt_0_pe_ask` | float | feature | Put best ask at ATM |
+| 77 | Computed | `opt_0_pe_spread` | float | feature | Put bid-ask spread at ATM |
+| 78 | Option Tick | `opt_0_pe_volume` | int | feature | Put per-tick traded quantity at ATM |
+| 79 | Computed | `opt_0_pe_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM put |
+| 80 | Computed | `opt_0_pe_premium_momentum` | float | feature | Put LTP change over last 5 ticks at ATM; NaN if buffer < 5 or span > threshold |
+| **— Option Tick — ATM+1 (16) —** ||||||
+| 81 | System | `opt_p1_ce_tick_available` | int (0/1) | feature | 1 if ATM+1 call has received ≥1 tick this session; 0 if never ticked |
+| 82 | Option Tick | `opt_p1_ce_ltp` | float | feature | Call LTP at ATM+1 strike |
+| 83 | Option Tick | `opt_p1_ce_bid` | float | feature | Call best bid at ATM+1 |
+| 84 | Option Tick | `opt_p1_ce_ask` | float | feature | Call best ask at ATM+1 |
+| 85 | Computed | `opt_p1_ce_spread` | float | feature | Call bid-ask spread at ATM+1 |
+| 86 | Option Tick | `opt_p1_ce_volume` | int | feature | Call per-tick traded quantity at ATM+1 |
+| 87 | Computed | `opt_p1_ce_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM+1 call |
+| 88 | Computed | `opt_p1_ce_premium_momentum` | float | feature | Call LTP change over last 5 ticks at ATM+1; NaN if buffer < 5 or span > threshold |
+| 89 | System | `opt_p1_pe_tick_available` | int (0/1) | feature | 1 if ATM+1 put has received ≥1 tick this session; 0 if never ticked |
+| 90 | Option Tick | `opt_p1_pe_ltp` | float | feature | Put LTP at ATM+1 strike |
+| 91 | Option Tick | `opt_p1_pe_bid` | float | feature | Put best bid at ATM+1 |
+| 92 | Option Tick | `opt_p1_pe_ask` | float | feature | Put best ask at ATM+1 |
+| 93 | Computed | `opt_p1_pe_spread` | float | feature | Put bid-ask spread at ATM+1 |
+| 94 | Option Tick | `opt_p1_pe_volume` | int | feature | Put per-tick traded quantity at ATM+1 |
+| 95 | Computed | `opt_p1_pe_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM+1 put |
+| 96 | Computed | `opt_p1_pe_premium_momentum` | float | feature | Put LTP change over last 5 ticks at ATM+1; NaN if buffer < 5 or span > threshold |
+| **— Option Tick — ATM+2 (16) —** ||||||
+| 97 | System | `opt_p2_ce_tick_available` | int (0/1) | feature | 1 if ATM+2 call has received ≥1 tick this session; 0 if never ticked |
+| 98 | Option Tick | `opt_p2_ce_ltp` | float | feature | Call LTP at ATM+2 strike |
+| 99 | Option Tick | `opt_p2_ce_bid` | float | feature | Call best bid at ATM+2 |
+| 100 | Option Tick | `opt_p2_ce_ask` | float | feature | Call best ask at ATM+2 |
+| 101 | Computed | `opt_p2_ce_spread` | float | feature | Call bid-ask spread at ATM+2 |
+| 102 | Option Tick | `opt_p2_ce_volume` | int | feature | Call per-tick traded quantity at ATM+2 |
+| 103 | Computed | `opt_p2_ce_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM+2 call |
+| 104 | Computed | `opt_p2_ce_premium_momentum` | float | feature | Call LTP change over last 5 ticks at ATM+2; NaN if buffer < 5 or span > threshold |
+| 105 | System | `opt_p2_pe_tick_available` | int (0/1) | feature | 1 if ATM+2 put has received ≥1 tick this session; 0 if never ticked |
+| 106 | Option Tick | `opt_p2_pe_ltp` | float | feature | Put LTP at ATM+2 strike |
+| 107 | Option Tick | `opt_p2_pe_bid` | float | feature | Put best bid at ATM+2 |
+| 108 | Option Tick | `opt_p2_pe_ask` | float | feature | Put best ask at ATM+2 |
+| 109 | Computed | `opt_p2_pe_spread` | float | feature | Put bid-ask spread at ATM+2 |
+| 110 | Option Tick | `opt_p2_pe_volume` | int | feature | Put per-tick traded quantity at ATM+2 |
+| 111 | Computed | `opt_p2_pe_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM+2 put |
+| 112 | Computed | `opt_p2_pe_premium_momentum` | float | feature | Put LTP change over last 5 ticks at ATM+2; NaN if buffer < 5 or span > threshold |
+| **— Option Tick — ATM+3 (16) —** ||||||
+| 113 | System | `opt_p3_ce_tick_available` | int (0/1) | feature | 1 if ATM+3 call has received ≥1 tick this session; 0 if never ticked |
+| 114 | Option Tick | `opt_p3_ce_ltp` | float | feature | Call LTP at ATM+3 strike |
+| 115 | Option Tick | `opt_p3_ce_bid` | float | feature | Call best bid at ATM+3 |
+| 116 | Option Tick | `opt_p3_ce_ask` | float | feature | Call best ask at ATM+3 |
+| 117 | Computed | `opt_p3_ce_spread` | float | feature | Call bid-ask spread at ATM+3 |
+| 118 | Option Tick | `opt_p3_ce_volume` | int | feature | Call per-tick traded quantity at ATM+3 |
+| 119 | Computed | `opt_p3_ce_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM+3 call |
+| 120 | Computed | `opt_p3_ce_premium_momentum` | float | feature | Call LTP change over last 5 ticks at ATM+3; NaN if buffer < 5 or span > threshold |
+| 121 | System | `opt_p3_pe_tick_available` | int (0/1) | feature | 1 if ATM+3 put has received ≥1 tick this session; 0 if never ticked |
+| 122 | Option Tick | `opt_p3_pe_ltp` | float | feature | Put LTP at ATM+3 strike |
+| 123 | Option Tick | `opt_p3_pe_bid` | float | feature | Put best bid at ATM+3 |
+| 124 | Option Tick | `opt_p3_pe_ask` | float | feature | Put best ask at ATM+3 |
+| 125 | Computed | `opt_p3_pe_spread` | float | feature | Put bid-ask spread at ATM+3 |
+| 126 | Option Tick | `opt_p3_pe_volume` | int | feature | Put per-tick traded quantity at ATM+3 |
+| 127 | Computed | `opt_p3_pe_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size) at ATM+3 put |
+| 128 | Computed | `opt_p3_pe_premium_momentum` | float | feature | Put LTP change over last 5 ticks at ATM+3; NaN if buffer < 5 or span > threshold |
 | **— Option Chain (9) —** ||||||
-| 115 | Chain | `chain_pcr_global` | float | feature | Put/Call OI ratio across all strikes; null if total call OI = 0 |
-| 116 | Chain | `chain_pcr_atm` | float | feature | Put/Call OI ratio for ATM ±3 zone; null if zone call OI = 0 |
-| 117 | Chain | `chain_oi_total_call` | int | feature | Sum of call OI across all strikes |
-| 118 | Chain | `chain_oi_total_put` | int | feature | Sum of put OI across all strikes |
-| 119 | Computed | `chain_oi_change_call` | int | feature | Global intraday call ΔOI — sum(call_delta_oi) all strikes |
-| 120 | Computed | `chain_oi_change_put` | int | feature | Global intraday put ΔOI — sum(put_delta_oi) all strikes |
-| 121 | Computed | `chain_oi_change_call_atm` | int | feature | Call ΔOI for ATM ±3 zone only |
-| 122 | Computed | `chain_oi_change_put_atm` | int | feature | Put ΔOI for ATM ±3 zone only |
-| 123 | Computed | `chain_oi_imbalance_atm` | float | feature | (put_oi − call_oi) / (put_oi + call_oi) for ATM zone; null if both 0 |
+| 129 | Chain | `chain_pcr_global` | float | feature | Put/Call OI ratio across all strikes; null if total call OI = 0 |
+| 130 | Chain | `chain_pcr_atm` | float | feature | Put/Call OI ratio for ATM ±3 zone; null if zone call OI = 0 |
+| 131 | Chain | `chain_oi_total_call` | int | feature | Sum of call OI across all strikes |
+| 132 | Chain | `chain_oi_total_put` | int | feature | Sum of put OI across all strikes |
+| 133 | Computed | `chain_oi_change_call` | int | feature | Global intraday call ΔOI — sum(call_delta_oi) all strikes |
+| 134 | Computed | `chain_oi_change_put` | int | feature | Global intraday put ΔOI — sum(put_delta_oi) all strikes |
+| 135 | Computed | `chain_oi_change_call_atm` | int | feature | Call ΔOI for ATM ±3 zone only |
+| 136 | Computed | `chain_oi_change_put_atm` | int | feature | Put ΔOI for ATM ±3 zone only |
+| 137 | Computed | `chain_oi_imbalance_atm` | float | feature | (put_oi − call_oi) / (put_oi + call_oi) for ATM zone; null if both 0 |
 | **— Active Strikes — Slot 0 (24) —** ||||||
-| 124 | Computed | `active_0_strike` | float | feature | Strike price of strongest active level (slot 0) |
-| 125 | Computed | `active_0_distance_from_spot` | float | feature | strike − spot_price (slot 0) |
-| 126 | System | `active_0_tick_available` | int (0/1) | feature | 1 if strike has received ≥1 tick since session open or last rollover |
-| 127 | Computed | `active_0_call_strength_volume` | float | feature | Min-max normalised call vol diff (slot 0) |
-| 128 | Computed | `active_0_call_strength_oi` | float | feature | Min-max normalised abs(call ΔOI) (slot 0) |
-| 129 | Computed | `active_0_call_strength` | float | feature | 0.5×strength_volume + 0.5×strength_oi, call side (slot 0) |
-| 130 | Option Tick | `active_0_call_ltp` | float | feature | Call last traded price (slot 0); NaN if tick_available=0 |
-| 131 | Option Tick | `active_0_call_bid` | float | feature | Call best bid (slot 0) |
-| 132 | Option Tick | `active_0_call_ask` | float | feature | Call best ask (slot 0) |
-| 133 | Computed | `active_0_call_spread` | float | feature | Call ask − bid (slot 0) |
-| 134 | Option Tick | `active_0_call_volume` | int | feature | Call per-tick traded quantity (slot 0) |
-| 135 | Computed | `active_0_call_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size), call (slot 0) |
-| 136 | Computed | `active_0_call_premium_momentum` | float | feature | Call LTP change over last 5 ticks (slot 0); NaN if buffer < 5 or span > threshold |
-| 137 | Computed | `active_0_put_strength_volume` | float | feature | Min-max normalised put vol diff (slot 0) |
-| 138 | Computed | `active_0_put_strength_oi` | float | feature | Min-max normalised abs(put ΔOI) (slot 0) |
-| 139 | Computed | `active_0_put_strength` | float | feature | 0.5×strength_volume + 0.5×strength_oi, put side (slot 0) |
-| 140 | Option Tick | `active_0_put_ltp` | float | feature | Put last traded price (slot 0) |
-| 141 | Option Tick | `active_0_put_bid` | float | feature | Put best bid (slot 0) |
-| 142 | Option Tick | `active_0_put_ask` | float | feature | Put best ask (slot 0) |
-| 143 | Computed | `active_0_put_spread` | float | feature | Put ask − bid (slot 0) |
-| 144 | Option Tick | `active_0_put_volume` | int | feature | Put per-tick traded quantity (slot 0) |
-| 145 | Computed | `active_0_put_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size), put (slot 0) |
-| 146 | Computed | `active_0_put_premium_momentum` | float | feature | Put LTP change over last 5 ticks (slot 0); NaN if buffer < 5 or span > threshold |
-| 147 | System | `active_0_tick_age_sec` | float | feature | Seconds since last tick received for this strike; NaN if tick_available=0 |
+| 138 | Computed | `active_0_strike` | float | feature | Strike price of strongest active level (slot 0) |
+| 139 | Computed | `active_0_distance_from_spot` | float | feature | strike − spot_price (slot 0) |
+| 140 | System | `active_0_tick_available` | int (0/1) | feature | 1 if strike has received ≥1 tick since session open or last rollover |
+| 141 | Computed | `active_0_call_strength_volume` | float | feature | Min-max normalised call vol diff (slot 0) |
+| 142 | Computed | `active_0_call_strength_oi` | float | feature | Min-max normalised abs(call ΔOI) (slot 0) |
+| 143 | Computed | `active_0_call_strength` | float | feature | 0.5×strength_volume + 0.5×strength_oi, call side (slot 0) |
+| 144 | Option Tick | `active_0_call_ltp` | float | feature | Call last traded price (slot 0); NaN if tick_available=0 |
+| 145 | Option Tick | `active_0_call_bid` | float | feature | Call best bid (slot 0) |
+| 146 | Option Tick | `active_0_call_ask` | float | feature | Call best ask (slot 0) |
+| 147 | Computed | `active_0_call_spread` | float | feature | Call ask − bid (slot 0) |
+| 148 | Option Tick | `active_0_call_volume` | int | feature | Call per-tick traded quantity (slot 0) |
+| 149 | Computed | `active_0_call_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size), call (slot 0) |
+| 150 | Computed | `active_0_call_premium_momentum` | float | feature | Call LTP change over last 5 ticks (slot 0); NaN if buffer < 5 or span > threshold |
+| 151 | Computed | `active_0_put_strength_volume` | float | feature | Min-max normalised put vol diff (slot 0) |
+| 152 | Computed | `active_0_put_strength_oi` | float | feature | Min-max normalised abs(put ΔOI) (slot 0) |
+| 153 | Computed | `active_0_put_strength` | float | feature | 0.5×strength_volume + 0.5×strength_oi, put side (slot 0) |
+| 154 | Option Tick | `active_0_put_ltp` | float | feature | Put last traded price (slot 0) |
+| 155 | Option Tick | `active_0_put_bid` | float | feature | Put best bid (slot 0) |
+| 156 | Option Tick | `active_0_put_ask` | float | feature | Put best ask (slot 0) |
+| 157 | Computed | `active_0_put_spread` | float | feature | Put ask − bid (slot 0) |
+| 158 | Option Tick | `active_0_put_volume` | int | feature | Put per-tick traded quantity (slot 0) |
+| 159 | Computed | `active_0_put_bid_ask_imbalance` | float | feature | (bid_size − ask_size) / (bid_size + ask_size), put (slot 0) |
+| 160 | Computed | `active_0_put_premium_momentum` | float | feature | Put LTP change over last 5 ticks (slot 0); NaN if buffer < 5 or span > threshold |
+| 161 | System | `active_0_tick_age_sec` | float | feature | Seconds since last tick received for this strike; NaN if tick_available=0 |
 | **— Active Strikes — Slot 1 (24) —** ||||||
-| 148 | Computed | `active_1_strike` | float | feature | Strike price (slot 1) |
-| 149 | Computed | `active_1_distance_from_spot` | float | feature | strike − spot_price (slot 1) |
-| 150 | System | `active_1_tick_available` | int (0/1) | feature | 1 if strike has received ≥1 tick since session open or last rollover (slot 1) |
-| 151 | Computed | `active_1_call_strength_volume` | float | feature | Min-max normalised call vol diff (slot 1) |
-| 152 | Computed | `active_1_call_strength_oi` | float | feature | Min-max normalised abs(call ΔOI) (slot 1) |
-| 153 | Computed | `active_1_call_strength` | float | feature | Combined call strength (slot 1) |
-| 154 | Option Tick | `active_1_call_ltp` | float | feature | Call LTP (slot 1) |
-| 155 | Option Tick | `active_1_call_bid` | float | feature | Call best bid (slot 1) |
-| 156 | Option Tick | `active_1_call_ask` | float | feature | Call best ask (slot 1) |
-| 157 | Computed | `active_1_call_spread` | float | feature | Call ask − bid (slot 1) |
-| 158 | Option Tick | `active_1_call_volume` | int | feature | Call per-tick volume (slot 1) |
-| 159 | Computed | `active_1_call_bid_ask_imbalance` | float | feature | Call bid-ask imbalance (slot 1) |
-| 160 | Computed | `active_1_call_premium_momentum` | float | feature | Call 5-tick LTP change (slot 1); NaN if buffer < 5 or span > threshold |
-| 161 | Computed | `active_1_put_strength_volume` | float | feature | Min-max normalised put vol diff (slot 1) |
-| 162 | Computed | `active_1_put_strength_oi` | float | feature | Min-max normalised abs(put ΔOI) (slot 1) |
-| 163 | Computed | `active_1_put_strength` | float | feature | Combined put strength (slot 1) |
-| 164 | Option Tick | `active_1_put_ltp` | float | feature | Put LTP (slot 1) |
-| 165 | Option Tick | `active_1_put_bid` | float | feature | Put best bid (slot 1) |
-| 166 | Option Tick | `active_1_put_ask` | float | feature | Put best ask (slot 1) |
-| 167 | Computed | `active_1_put_spread` | float | feature | Put ask − bid (slot 1) |
-| 168 | Option Tick | `active_1_put_volume` | int | feature | Put per-tick volume (slot 1) |
-| 169 | Computed | `active_1_put_bid_ask_imbalance` | float | feature | Put bid-ask imbalance (slot 1) |
-| 170 | Computed | `active_1_put_premium_momentum` | float | feature | Put 5-tick LTP change (slot 1); NaN if buffer < 5 or span > threshold |
-| 171 | System | `active_1_tick_age_sec` | float | feature | Seconds since last tick received for this strike; NaN if tick_available=0 |
+| 162 | Computed | `active_1_strike` | float | feature | Strike price (slot 1) |
+| 163 | Computed | `active_1_distance_from_spot` | float | feature | strike − spot_price (slot 1) |
+| 164 | System | `active_1_tick_available` | int (0/1) | feature | 1 if strike has received ≥1 tick since session open or last rollover (slot 1) |
+| 165 | Computed | `active_1_call_strength_volume` | float | feature | Min-max normalised call vol diff (slot 1) |
+| 166 | Computed | `active_1_call_strength_oi` | float | feature | Min-max normalised abs(call ΔOI) (slot 1) |
+| 167 | Computed | `active_1_call_strength` | float | feature | Combined call strength (slot 1) |
+| 168 | Option Tick | `active_1_call_ltp` | float | feature | Call LTP (slot 1) |
+| 169 | Option Tick | `active_1_call_bid` | float | feature | Call best bid (slot 1) |
+| 170 | Option Tick | `active_1_call_ask` | float | feature | Call best ask (slot 1) |
+| 171 | Computed | `active_1_call_spread` | float | feature | Call ask − bid (slot 1) |
+| 172 | Option Tick | `active_1_call_volume` | int | feature | Call per-tick volume (slot 1) |
+| 173 | Computed | `active_1_call_bid_ask_imbalance` | float | feature | Call bid-ask imbalance (slot 1) |
+| 174 | Computed | `active_1_call_premium_momentum` | float | feature | Call 5-tick LTP change (slot 1); NaN if buffer < 5 or span > threshold |
+| 175 | Computed | `active_1_put_strength_volume` | float | feature | Min-max normalised put vol diff (slot 1) |
+| 176 | Computed | `active_1_put_strength_oi` | float | feature | Min-max normalised abs(put ΔOI) (slot 1) |
+| 177 | Computed | `active_1_put_strength` | float | feature | Combined put strength (slot 1) |
+| 178 | Option Tick | `active_1_put_ltp` | float | feature | Put LTP (slot 1) |
+| 179 | Option Tick | `active_1_put_bid` | float | feature | Put best bid (slot 1) |
+| 180 | Option Tick | `active_1_put_ask` | float | feature | Put best ask (slot 1) |
+| 181 | Computed | `active_1_put_spread` | float | feature | Put ask − bid (slot 1) |
+| 182 | Option Tick | `active_1_put_volume` | int | feature | Put per-tick volume (slot 1) |
+| 183 | Computed | `active_1_put_bid_ask_imbalance` | float | feature | Put bid-ask imbalance (slot 1) |
+| 184 | Computed | `active_1_put_premium_momentum` | float | feature | Put 5-tick LTP change (slot 1); NaN if buffer < 5 or span > threshold |
+| 185 | System | `active_1_tick_age_sec` | float | feature | Seconds since last tick received for this strike; NaN if tick_available=0 |
 | **— Active Strikes — Slot 2 (24) —** ||||||
-| 172 | Computed | `active_2_strike` | float | feature | Strike price (slot 2) |
-| 173 | Computed | `active_2_distance_from_spot` | float | feature | strike − spot_price (slot 2) |
-| 174 | System | `active_2_tick_available` | int (0/1) | feature | 1 if strike has received ≥1 tick since session open or last rollover (slot 2) |
-| 175 | Computed | `active_2_call_strength_volume` | float | feature | Min-max normalised call vol diff (slot 2) |
-| 176 | Computed | `active_2_call_strength_oi` | float | feature | Min-max normalised abs(call ΔOI) (slot 2) |
-| 177 | Computed | `active_2_call_strength` | float | feature | Combined call strength (slot 2) |
-| 178 | Option Tick | `active_2_call_ltp` | float | feature | Call LTP (slot 2) |
-| 179 | Option Tick | `active_2_call_bid` | float | feature | Call best bid (slot 2) |
-| 180 | Option Tick | `active_2_call_ask` | float | feature | Call best ask (slot 2) |
-| 181 | Computed | `active_2_call_spread` | float | feature | Call ask − bid (slot 2) |
-| 182 | Option Tick | `active_2_call_volume` | int | feature | Call per-tick volume (slot 2) |
-| 183 | Computed | `active_2_call_bid_ask_imbalance` | float | feature | Call bid-ask imbalance (slot 2) |
-| 184 | Computed | `active_2_call_premium_momentum` | float | feature | Call 5-tick LTP change (slot 2); NaN if buffer < 5 or span > threshold |
-| 185 | Computed | `active_2_put_strength_volume` | float | feature | Min-max normalised put vol diff (slot 2) |
-| 186 | Computed | `active_2_put_strength_oi` | float | feature | Min-max normalised abs(put ΔOI) (slot 2) |
-| 187 | Computed | `active_2_put_strength` | float | feature | Combined put strength (slot 2) |
-| 188 | Option Tick | `active_2_put_ltp` | float | feature | Put LTP (slot 2) |
-| 189 | Option Tick | `active_2_put_bid` | float | feature | Put best bid (slot 2) |
-| 190 | Option Tick | `active_2_put_ask` | float | feature | Put best ask (slot 2) |
-| 191 | Computed | `active_2_put_spread` | float | feature | Put ask − bid (slot 2) |
-| 192 | Option Tick | `active_2_put_volume` | int | feature | Put per-tick volume (slot 2) |
-| 193 | Computed | `active_2_put_bid_ask_imbalance` | float | feature | Put bid-ask imbalance (slot 2) |
-| 194 | Computed | `active_2_put_premium_momentum` | float | feature | Put 5-tick LTP change (slot 2); NaN if buffer < 5 or span > threshold |
-| 195 | System | `active_2_tick_age_sec` | float | feature | Seconds since last tick received for this strike; NaN if tick_available=0 |
+| 186 | Computed | `active_2_strike` | float | feature | Strike price (slot 2) |
+| 187 | Computed | `active_2_distance_from_spot` | float | feature | strike − spot_price (slot 2) |
+| 188 | System | `active_2_tick_available` | int (0/1) | feature | 1 if strike has received ≥1 tick since session open or last rollover (slot 2) |
+| 189 | Computed | `active_2_call_strength_volume` | float | feature | Min-max normalised call vol diff (slot 2) |
+| 190 | Computed | `active_2_call_strength_oi` | float | feature | Min-max normalised abs(call ΔOI) (slot 2) |
+| 191 | Computed | `active_2_call_strength` | float | feature | Combined call strength (slot 2) |
+| 192 | Option Tick | `active_2_call_ltp` | float | feature | Call LTP (slot 2) |
+| 193 | Option Tick | `active_2_call_bid` | float | feature | Call best bid (slot 2) |
+| 194 | Option Tick | `active_2_call_ask` | float | feature | Call best ask (slot 2) |
+| 195 | Computed | `active_2_call_spread` | float | feature | Call ask − bid (slot 2) |
+| 196 | Option Tick | `active_2_call_volume` | int | feature | Call per-tick volume (slot 2) |
+| 197 | Computed | `active_2_call_bid_ask_imbalance` | float | feature | Call bid-ask imbalance (slot 2) |
+| 198 | Computed | `active_2_call_premium_momentum` | float | feature | Call 5-tick LTP change (slot 2); NaN if buffer < 5 or span > threshold |
+| 199 | Computed | `active_2_put_strength_volume` | float | feature | Min-max normalised put vol diff (slot 2) |
+| 200 | Computed | `active_2_put_strength_oi` | float | feature | Min-max normalised abs(put ΔOI) (slot 2) |
+| 201 | Computed | `active_2_put_strength` | float | feature | Combined put strength (slot 2) |
+| 202 | Option Tick | `active_2_put_ltp` | float | feature | Put LTP (slot 2) |
+| 203 | Option Tick | `active_2_put_bid` | float | feature | Put best bid (slot 2) |
+| 204 | Option Tick | `active_2_put_ask` | float | feature | Put best ask (slot 2) |
+| 205 | Computed | `active_2_put_spread` | float | feature | Put ask − bid (slot 2) |
+| 206 | Option Tick | `active_2_put_volume` | int | feature | Put per-tick volume (slot 2) |
+| 207 | Computed | `active_2_put_bid_ask_imbalance` | float | feature | Put bid-ask imbalance (slot 2) |
+| 208 | Computed | `active_2_put_premium_momentum` | float | feature | Put 5-tick LTP change (slot 2); NaN if buffer < 5 or span > threshold |
+| 209 | System | `active_2_tick_age_sec` | float | feature | Seconds since last tick received for this strike; NaN if tick_available=0 |
 | **— Active Strikes — Slot 3 (24) —** ||||||
-| 196 | Computed | `active_3_strike` | float | feature | Strike price (slot 3) |
-| 197 | Computed | `active_3_distance_from_spot` | float | feature | strike − spot_price (slot 3) |
-| 198 | System | `active_3_tick_available` | int (0/1) | feature | 1 if strike has received ≥1 tick since session open or last rollover (slot 3) |
-| 199 | Computed | `active_3_call_strength_volume` | float | feature | Min-max normalised call vol diff (slot 3) |
-| 200 | Computed | `active_3_call_strength_oi` | float | feature | Min-max normalised abs(call ΔOI) (slot 3) |
-| 201 | Computed | `active_3_call_strength` | float | feature | Combined call strength (slot 3) |
-| 202 | Option Tick | `active_3_call_ltp` | float | feature | Call LTP (slot 3) |
-| 203 | Option Tick | `active_3_call_bid` | float | feature | Call best bid (slot 3) |
-| 204 | Option Tick | `active_3_call_ask` | float | feature | Call best ask (slot 3) |
-| 205 | Computed | `active_3_call_spread` | float | feature | Call ask − bid (slot 3) |
-| 206 | Option Tick | `active_3_call_volume` | int | feature | Call per-tick volume (slot 3) |
-| 207 | Computed | `active_3_call_bid_ask_imbalance` | float | feature | Call bid-ask imbalance (slot 3) |
-| 208 | Computed | `active_3_call_premium_momentum` | float | feature | Call 5-tick LTP change (slot 3); NaN if buffer < 5 or span > threshold |
-| 209 | Computed | `active_3_put_strength_volume` | float | feature | Min-max normalised put vol diff (slot 3) |
-| 210 | Computed | `active_3_put_strength_oi` | float | feature | Min-max normalised abs(put ΔOI) (slot 3) |
-| 211 | Computed | `active_3_put_strength` | float | feature | Combined put strength (slot 3) |
-| 212 | Option Tick | `active_3_put_ltp` | float | feature | Put LTP (slot 3) |
-| 213 | Option Tick | `active_3_put_bid` | float | feature | Put best bid (slot 3) |
-| 214 | Option Tick | `active_3_put_ask` | float | feature | Put best ask (slot 3) |
-| 215 | Computed | `active_3_put_spread` | float | feature | Put ask − bid (slot 3) |
-| 216 | Option Tick | `active_3_put_volume` | int | feature | Put per-tick volume (slot 3) |
-| 217 | Computed | `active_3_put_bid_ask_imbalance` | float | feature | Put bid-ask imbalance (slot 3) |
-| 218 | Computed | `active_3_put_premium_momentum` | float | feature | Put 5-tick LTP change (slot 3); NaN if buffer < 5 or span > threshold |
-| 219 | System | `active_3_tick_age_sec` | float | feature | Seconds since last tick received for this strike; NaN if tick_available=0 |
+| 210 | Computed | `active_3_strike` | float | feature | Strike price (slot 3) |
+| 211 | Computed | `active_3_distance_from_spot` | float | feature | strike − spot_price (slot 3) |
+| 212 | System | `active_3_tick_available` | int (0/1) | feature | 1 if strike has received ≥1 tick since session open or last rollover (slot 3) |
+| 213 | Computed | `active_3_call_strength_volume` | float | feature | Min-max normalised call vol diff (slot 3) |
+| 214 | Computed | `active_3_call_strength_oi` | float | feature | Min-max normalised abs(call ΔOI) (slot 3) |
+| 215 | Computed | `active_3_call_strength` | float | feature | Combined call strength (slot 3) |
+| 216 | Option Tick | `active_3_call_ltp` | float | feature | Call LTP (slot 3) |
+| 217 | Option Tick | `active_3_call_bid` | float | feature | Call best bid (slot 3) |
+| 218 | Option Tick | `active_3_call_ask` | float | feature | Call best ask (slot 3) |
+| 219 | Computed | `active_3_call_spread` | float | feature | Call ask − bid (slot 3) |
+| 220 | Option Tick | `active_3_call_volume` | int | feature | Call per-tick volume (slot 3) |
+| 221 | Computed | `active_3_call_bid_ask_imbalance` | float | feature | Call bid-ask imbalance (slot 3) |
+| 222 | Computed | `active_3_call_premium_momentum` | float | feature | Call 5-tick LTP change (slot 3); NaN if buffer < 5 or span > threshold |
+| 223 | Computed | `active_3_put_strength_volume` | float | feature | Min-max normalised put vol diff (slot 3) |
+| 224 | Computed | `active_3_put_strength_oi` | float | feature | Min-max normalised abs(put ΔOI) (slot 3) |
+| 225 | Computed | `active_3_put_strength` | float | feature | Combined put strength (slot 3) |
+| 226 | Option Tick | `active_3_put_ltp` | float | feature | Put LTP (slot 3) |
+| 227 | Option Tick | `active_3_put_bid` | float | feature | Put best bid (slot 3) |
+| 228 | Option Tick | `active_3_put_ask` | float | feature | Put best ask (slot 3) |
+| 229 | Computed | `active_3_put_spread` | float | feature | Put ask − bid (slot 3) |
+| 230 | Option Tick | `active_3_put_volume` | int | feature | Put per-tick volume (slot 3) |
+| 231 | Computed | `active_3_put_bid_ask_imbalance` | float | feature | Put bid-ask imbalance (slot 3) |
+| 232 | Computed | `active_3_put_premium_momentum` | float | feature | Put 5-tick LTP change (slot 3); NaN if buffer < 5 or span > threshold |
+| 233 | System | `active_3_tick_age_sec` | float | feature | Seconds since last tick received for this strike; NaN if tick_available=0 |
 | **— Active Strikes — Slot 4 (24) —** ||||||
-| 220 | Computed | `active_4_strike` | float | feature | Strike price (slot 4) |
-| 221 | Computed | `active_4_distance_from_spot` | float | feature | strike − spot_price (slot 4) |
-| 222 | System | `active_4_tick_available` | int (0/1) | feature | 1 if strike has received ≥1 tick since session open or last rollover (slot 4) |
-| 223 | Computed | `active_4_call_strength_volume` | float | feature | Min-max normalised call vol diff (slot 4) |
-| 224 | Computed | `active_4_call_strength_oi` | float | feature | Min-max normalised abs(call ΔOI) (slot 4) |
-| 225 | Computed | `active_4_call_strength` | float | feature | Combined call strength (slot 4) |
-| 226 | Option Tick | `active_4_call_ltp` | float | feature | Call LTP (slot 4) |
-| 227 | Option Tick | `active_4_call_bid` | float | feature | Call best bid (slot 4) |
-| 228 | Option Tick | `active_4_call_ask` | float | feature | Call best ask (slot 4) |
-| 229 | Computed | `active_4_call_spread` | float | feature | Call ask − bid (slot 4) |
-| 230 | Option Tick | `active_4_call_volume` | int | feature | Call per-tick volume (slot 4) |
-| 231 | Computed | `active_4_call_bid_ask_imbalance` | float | feature | Call bid-ask imbalance (slot 4) |
-| 232 | Computed | `active_4_call_premium_momentum` | float | feature | Call 5-tick LTP change (slot 4); NaN if buffer < 5 or span > threshold |
-| 233 | Computed | `active_4_put_strength_volume` | float | feature | Min-max normalised put vol diff (slot 4) |
-| 234 | Computed | `active_4_put_strength_oi` | float | feature | Min-max normalised abs(put ΔOI) (slot 4) |
-| 235 | Computed | `active_4_put_strength` | float | feature | Combined put strength (slot 4) |
-| 236 | Option Tick | `active_4_put_ltp` | float | feature | Put LTP (slot 4) |
-| 237 | Option Tick | `active_4_put_bid` | float | feature | Put best bid (slot 4) |
-| 238 | Option Tick | `active_4_put_ask` | float | feature | Put best ask (slot 4) |
-| 239 | Computed | `active_4_put_spread` | float | feature | Put ask − bid (slot 4) |
-| 240 | Option Tick | `active_4_put_volume` | int | feature | Put per-tick volume (slot 4) |
-| 241 | Computed | `active_4_put_bid_ask_imbalance` | float | feature | Put bid-ask imbalance (slot 4) |
-| 242 | Computed | `active_4_put_premium_momentum` | float | feature | Put 5-tick LTP change (slot 4); NaN if buffer < 5 or span > threshold |
-| 243 | System | `active_4_tick_age_sec` | float | feature | Seconds since last tick received for this strike; NaN if tick_available=0 |
+| 234 | Computed | `active_4_strike` | float | feature | Strike price (slot 4) |
+| 235 | Computed | `active_4_distance_from_spot` | float | feature | strike − spot_price (slot 4) |
+| 236 | System | `active_4_tick_available` | int (0/1) | feature | 1 if strike has received ≥1 tick since session open or last rollover (slot 4) |
+| 237 | Computed | `active_4_call_strength_volume` | float | feature | Min-max normalised call vol diff (slot 4) |
+| 238 | Computed | `active_4_call_strength_oi` | float | feature | Min-max normalised abs(call ΔOI) (slot 4) |
+| 239 | Computed | `active_4_call_strength` | float | feature | Combined call strength (slot 4) |
+| 240 | Option Tick | `active_4_call_ltp` | float | feature | Call LTP (slot 4) |
+| 241 | Option Tick | `active_4_call_bid` | float | feature | Call best bid (slot 4) |
+| 242 | Option Tick | `active_4_call_ask` | float | feature | Call best ask (slot 4) |
+| 243 | Computed | `active_4_call_spread` | float | feature | Call ask − bid (slot 4) |
+| 244 | Option Tick | `active_4_call_volume` | int | feature | Call per-tick volume (slot 4) |
+| 245 | Computed | `active_4_call_bid_ask_imbalance` | float | feature | Call bid-ask imbalance (slot 4) |
+| 246 | Computed | `active_4_call_premium_momentum` | float | feature | Call 5-tick LTP change (slot 4); NaN if buffer < 5 or span > threshold |
+| 247 | Computed | `active_4_put_strength_volume` | float | feature | Min-max normalised put vol diff (slot 4) |
+| 248 | Computed | `active_4_put_strength_oi` | float | feature | Min-max normalised abs(put ΔOI) (slot 4) |
+| 249 | Computed | `active_4_put_strength` | float | feature | Combined put strength (slot 4) |
+| 250 | Option Tick | `active_4_put_ltp` | float | feature | Put LTP (slot 4) |
+| 251 | Option Tick | `active_4_put_bid` | float | feature | Put best bid (slot 4) |
+| 252 | Option Tick | `active_4_put_ask` | float | feature | Put best ask (slot 4) |
+| 253 | Computed | `active_4_put_spread` | float | feature | Put ask − bid (slot 4) |
+| 254 | Option Tick | `active_4_put_volume` | int | feature | Put per-tick volume (slot 4) |
+| 255 | Computed | `active_4_put_bid_ask_imbalance` | float | feature | Put bid-ask imbalance (slot 4) |
+| 256 | Computed | `active_4_put_premium_momentum` | float | feature | Put 5-tick LTP change (slot 4); NaN if buffer < 5 or span > threshold |
+| 257 | System | `active_4_tick_age_sec` | float | feature | Seconds since last tick received for this strike; NaN if tick_available=0 |
 | **— Active Strikes — Slot 5 (24) —** ||||||
-| 244 | Computed | `active_5_strike` | float | feature | Strike price (slot 5) |
-| 245 | Computed | `active_5_distance_from_spot` | float | feature | strike − spot_price (slot 5) |
-| 246 | System | `active_5_tick_available` | int (0/1) | feature | 1 if strike has received ≥1 tick since session open or last rollover (slot 5) |
-| 247 | Computed | `active_5_call_strength_volume` | float | feature | Min-max normalised call vol diff (slot 5) |
-| 248 | Computed | `active_5_call_strength_oi` | float | feature | Min-max normalised abs(call ΔOI) (slot 5) |
-| 249 | Computed | `active_5_call_strength` | float | feature | Combined call strength (slot 5) |
-| 250 | Option Tick | `active_5_call_ltp` | float | feature | Call LTP (slot 5) |
-| 251 | Option Tick | `active_5_call_bid` | float | feature | Call best bid (slot 5) |
-| 252 | Option Tick | `active_5_call_ask` | float | feature | Call best ask (slot 5) |
-| 253 | Computed | `active_5_call_spread` | float | feature | Call ask − bid (slot 5) |
-| 254 | Option Tick | `active_5_call_volume` | int | feature | Call per-tick volume (slot 5) |
-| 255 | Computed | `active_5_call_bid_ask_imbalance` | float | feature | Call bid-ask imbalance (slot 5) |
-| 256 | Computed | `active_5_call_premium_momentum` | float | feature | Call 5-tick LTP change (slot 5); NaN if buffer < 5 or span > threshold |
-| 257 | Computed | `active_5_put_strength_volume` | float | feature | Min-max normalised put vol diff (slot 5) |
-| 258 | Computed | `active_5_put_strength_oi` | float | feature | Min-max normalised abs(put ΔOI) (slot 5) |
-| 259 | Computed | `active_5_put_strength` | float | feature | Combined put strength (slot 5) |
-| 260 | Option Tick | `active_5_put_ltp` | float | feature | Put LTP (slot 5) |
-| 261 | Option Tick | `active_5_put_bid` | float | feature | Put best bid (slot 5) |
-| 262 | Option Tick | `active_5_put_ask` | float | feature | Put best ask (slot 5) |
-| 263 | Computed | `active_5_put_spread` | float | feature | Put ask − bid (slot 5) |
-| 264 | Option Tick | `active_5_put_volume` | int | feature | Put per-tick volume (slot 5) |
-| 265 | Computed | `active_5_put_bid_ask_imbalance` | float | feature | Put bid-ask imbalance (slot 5) |
-| 266 | Computed | `active_5_put_premium_momentum` | float | feature | Put 5-tick LTP change (slot 5); NaN if buffer < 5 or span > threshold |
-| 267 | System | `active_5_tick_age_sec` | float | feature | Seconds since last tick received for this strike; NaN if tick_available=0 |
+| 258 | Computed | `active_5_strike` | float | feature | Strike price (slot 5) |
+| 259 | Computed | `active_5_distance_from_spot` | float | feature | strike − spot_price (slot 5) |
+| 260 | System | `active_5_tick_available` | int (0/1) | feature | 1 if strike has received ≥1 tick since session open or last rollover (slot 5) |
+| 261 | Computed | `active_5_call_strength_volume` | float | feature | Min-max normalised call vol diff (slot 5) |
+| 262 | Computed | `active_5_call_strength_oi` | float | feature | Min-max normalised abs(call ΔOI) (slot 5) |
+| 263 | Computed | `active_5_call_strength` | float | feature | Combined call strength (slot 5) |
+| 264 | Option Tick | `active_5_call_ltp` | float | feature | Call LTP (slot 5) |
+| 265 | Option Tick | `active_5_call_bid` | float | feature | Call best bid (slot 5) |
+| 266 | Option Tick | `active_5_call_ask` | float | feature | Call best ask (slot 5) |
+| 267 | Computed | `active_5_call_spread` | float | feature | Call ask − bid (slot 5) |
+| 268 | Option Tick | `active_5_call_volume` | int | feature | Call per-tick volume (slot 5) |
+| 269 | Computed | `active_5_call_bid_ask_imbalance` | float | feature | Call bid-ask imbalance (slot 5) |
+| 270 | Computed | `active_5_call_premium_momentum` | float | feature | Call 5-tick LTP change (slot 5); NaN if buffer < 5 or span > threshold |
+| 271 | Computed | `active_5_put_strength_volume` | float | feature | Min-max normalised put vol diff (slot 5) |
+| 272 | Computed | `active_5_put_strength_oi` | float | feature | Min-max normalised abs(put ΔOI) (slot 5) |
+| 273 | Computed | `active_5_put_strength` | float | feature | Combined put strength (slot 5) |
+| 274 | Option Tick | `active_5_put_ltp` | float | feature | Put LTP (slot 5) |
+| 275 | Option Tick | `active_5_put_bid` | float | feature | Put best bid (slot 5) |
+| 276 | Option Tick | `active_5_put_ask` | float | feature | Put best ask (slot 5) |
+| 277 | Computed | `active_5_put_spread` | float | feature | Put ask − bid (slot 5) |
+| 278 | Option Tick | `active_5_put_volume` | int | feature | Put per-tick volume (slot 5) |
+| 279 | Computed | `active_5_put_bid_ask_imbalance` | float | feature | Put bid-ask imbalance (slot 5) |
+| 280 | Computed | `active_5_put_premium_momentum` | float | feature | Put 5-tick LTP change (slot 5); NaN if buffer < 5 or span > threshold |
+| 281 | System | `active_5_tick_age_sec` | float | feature | Seconds since last tick received for this strike; NaN if tick_available=0 |
 | **— Metadata (9) —** ||||||
-| 268 | Profile | `exchange` | string | identifier | Exchange name: `NSE` / `MCX` |
-| 269 | Profile | `instrument` | string | identifier | Instrument name: `NIFTY` / `CRUDEOIL` / `NATURALGAS` |
-| 270 | Profile | `underlying_symbol` | string | identifier | Active futures contract symbol e.g. `NIFTY25MAYFUT` |
-| 271 | Profile | `underlying_security_id` | string | identifier | Broker-assigned security ID for underlying futures |
-| 272 | Chain | `chain_timestamp` | datetime | identifier | Timestamp of latest option chain snapshot; null if no snapshot yet |
-| 273 | Computed | `time_since_chain_sec` | float | feature | tick_time − chain_timestamp in seconds; null if no snapshot yet. Use as staleness signal — chain features are stale when > 30. |
-| 274 | System | `chain_available` | int (0/1) | feature | 1 after first snapshot received, 0 before; resets to 0 on expiry rollover |
-| 275 | System | `data_quality_flag` | int (0/1) | filter | Filter rows where = 0 before training; do not feed to model |
-| 276 | System | `is_market_open` | int (0/1) | filter | Filter rows where = 0 before training; do not feed to model |
+| 282 | Profile | `exchange` | string | identifier | Exchange name: `NSE` / `MCX` |
+| 283 | Profile | `instrument` | string | identifier | Instrument name: `NIFTY` / `CRUDEOIL` / `NATURALGAS` |
+| 284 | Profile | `underlying_symbol` | string | identifier | Active futures contract symbol e.g. `NIFTY25MAYFUT` |
+| 285 | Profile | `underlying_security_id` | string | identifier | Broker-assigned security ID for underlying futures |
+| 286 | Chain | `chain_timestamp` | datetime | identifier | Timestamp of latest option chain snapshot; null if no snapshot yet |
+| 287 | Computed | `time_since_chain_sec` | float | feature | tick_time − chain_timestamp in seconds; null if no snapshot yet. Use as staleness signal — chain features are stale when > 30. |
+| 288 | System | `chain_available` | int (0/1) | feature | 1 after first snapshot received, 0 before; resets to 0 on expiry rollover |
+| 289 | System | `data_quality_flag` | int (0/1) | filter | Filter rows where = 0 before training; do not feed to model |
+| 290 | System | `is_market_open` | int (0/1) | filter | Filter rows where = 0 before training; do not feed to model |
 
-**Total: 276 columns — 262 feature + 4 identifier + 2 filter (see category key above)**
+**Total: 290 columns — 276 feature + 4 identifier + 2 filter (estimated effective ML inputs: ~272 after excluding identifiers and filters)**
 
 ---
 
