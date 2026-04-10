@@ -38,7 +38,12 @@
       "Bash(rm -f *.png tfa_low_level.svg tfa_low_level.mmd)",
       "Bash(ls -lh tfa_*)",
       "Bash(grep -E \"^\\\\| [0-9]+ \\\\| .*\\\\| \\\\`opt_\" c:/Users/Admin/ai-development/ai-development/docs/specs/TickFeatureAgent_Spec_1.0.md)",
-      "Bash(grep -E \"^\\\\| [0-9]+ \\\\| .*\\\\| \\\\`opt_m3\" c:/Users/Admin/ai-development/ai-development/docs/specs/TickFeatureAgent_Spec_1.0.md)"
+      "Bash(grep -E \"^\\\\| [0-9]+ \\\\| .*\\\\| \\\\`opt_m3\" c:/Users/Admin/ai-development/ai-development/docs/specs/TickFeatureAgent_Spec_1.0.md)",
+      "Bash(grep -n \"Alert Summary\\\\|alert.*catalog\\\\|Alert Catalog\\\\|^| \\\\`.*\\\\` |\" \"c:/Users/Admin/ai-development/ai-development/docs/specs/TickFeatureAgent_Spec_1.0.md\")",
+      "Bash(grep -n \"^| \\\\`.*vol_diff\\\\`\" /c/Users/Admin/ai-development/ai-development/docs/specs/TickFeatureAgent_Spec_1.0.md)",
+      "Bash(grep -n \"^| [0-9]\\\\+ |\" \"c:\\\\\\\\Users\\\\\\\\Admin\\\\\\\\ai-development\\\\\\\\ai-development\\\\\\\\docs\\\\\\\\specs\\\\\\\\TickFeatureAgent_Spec_1.0.md\")",
+      "Bash(grep -c \"^| [0-9]\\\\+ |\" \"c:\\\\\\\\Users\\\\\\\\Admin\\\\\\\\ai-development\\\\\\\\ai-development\\\\\\\\docs\\\\\\\\specs\\\\\\\\TickFeatureAgent_Spec_1.0.md\")",
+      "Bash(grep \"^| [0-9]\\\\+ |\" \"c:\\\\\\\\Users\\\\\\\\Admin\\\\\\\\ai-development\\\\\\\\ai-development\\\\\\\\docs\\\\\\\\specs\\\\\\\\TickFeatureAgent_Spec_1.0.md\")"
     ]
   }
 }
