@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1680" viewBox="0 0 2400 1680" role="img" aria-labelledby="title desc">
+  <title id="title">AI Tick To Model Sequence Diagram</title>
+  <desc id="desc">Final v1 sequence diagram showing live underlying ticks plus full option-chain snapshots flowing through one generic processor and into the selected family model.</desc>
+  <defs>
+    <style>
+      .bg { fill: #08131c; }
+      .panel { fill: #0d1822; stroke: #21374a; stroke-width: 2; }
+      .title { fill: #e8f3fa; font: 700 36px 'JetBrains Mono', Consolas, monospace; }
+      .subtitle { fill: #9cb3c4; font: 500 17px 'JetBrains Mono', Consolas, monospace; }
+      .box-external { fill: #112519; stroke: #44c57a; stroke-width: 3; rx: 18; ry: 18; }
+      .box-shared { fill: #132230; stroke: #4f85a6; stroke-width: 3; rx: 18; ry: 18; }
+      .box-config { fill: #111f2d; stroke: #8f7cf5; stroke-width: 3; rx: 18; ry: 18; }
+      .box-core { fill: #152634; stroke: #72c5e8; stroke-width: 3; rx: 18; ry: 18; }
+      .box-model { fill: #241f14; stroke: #d8a94b; stroke-width: 3; rx: 18; ry: 18; }
+      .box-note { fill: #1b1624; stroke: #c98af8; stroke-width: 3; rx: 18; ry: 18; }
+      .actor { fill: #e8f3fa; font: 700 18px 'JetBrains Mono', Consolas, monospace; text-anchor: middle; }
+      .small { fill: #9cb3c4; font: 500 12px 'JetBrains Mono', Consolas, monospace; text-anchor: middle; }
+      .step { fill: #dbeaf4; font: 600 14px 'JetBrains Mono', Consolas, monospace; }
+      .lifeline { stroke: #355267; stroke-width: 2; stroke-dasharray: 8 8; }
+      .call { stroke: #7fd6f4; stroke-width: 4; fill: none; marker-end: url(#arrowhead); }
+      .config { stroke: #8f7cf5; stroke-width: 3; fill: none; stroke-dasharray: 10 8; marker-end: url(#arrowheadConfig); }
+      .model { stroke: #d8a94b; stroke-width: 4; fill: none; marker-end: url(#arrowheadModel); }
+      .activation { fill: #153042; stroke: #5d8fad; stroke-width: 2; rx: 8; ry: 8; }
+    </style>
+    <marker id="arrowhead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <polygon points="0 0, 12 6, 0 12" fill="#7fd6f4" />
+    </marker>
+    <marker id="arrowheadConfig" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#8f7cf5" />
+    </marker>
+    <marker id="arrowheadModel" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <polygon points="0 0, 12 6, 0 12" fill="#d8a94b" />
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="2400" height="1680" />
+  <rect class="panel" x="30" y="30" width="2340" height="1620" rx="28" ry="28" />
+
+  <text class="title" x="70" y="94">AI Tick To Model Sequence</text>
+  <text class="subtitle" x="70" y="126">Final v1 with pre-resolved config, live underlying ticks, full option-chain snapshots, internal ATM +/- 10 strike selection, and direct handoff to the chosen family model.</text>
+
+  <rect class="box-note" x="70" y="160" width="980" height="92" rx="18" ry="18" />
+  <text class="actor" x="560" y="194">Startup Step</text>
+  <text class="small" x="560" y="218">Config loader reads one config file and builds effective config per instrument.</text>
+  <text class="small" x="560" y="238">Merge order is global defaults -&gt; family defaults -&gt; instrument overrides.</text>
+
+  <!-- Actors -->
+  <rect class="box-config" x="50" y="300" width="210" height="82" rx="18" ry="18" />
+  <text class="actor" x="155" y="334">EffectiveConfig</text>
+  <text class="small" x="155" y="357">resolved configs</text>
+
+  <rect class="box-external" x="310" y="300" width="210" height="82" rx="18" ry="18" />
+  <text class="actor" x="415" y="334">UnderlyingFeed</text>
+  <text class="small" x="415" y="357">live tick source</text>
+
+  <rect class="box-external" x="570" y="300" width="230" height="82" rx="18" ry="18" />
+  <text class="actor" x="685" y="334">OptionChainFeed</text>
+  <text class="small" x="685" y="357">full chain snapshot</text>
+
+  <rect class="box-shared" x="850" y="300" width="220" height="82" rx="18" ry="18" />
+  <text class="actor" x="960" y="334">TickNormalizer</text>
+  <text class="small" x="960" y="357">TickEvent</text>
+
+  <rect class="box-shared" x="1120" y="300" width="250" height="82" rx="18" ry="18" />
+  <text class="actor" x="1245" y="334">OptionChainNormalizer</text>
+  <text class="small" x="1245" y="357">full option snapshot</text>
+
+  <rect class="box-core" x="1420" y="300" width="250" height="82" rx="18" ry="18" />
+  <text class="actor" x="1545" y="334">InstrumentProcessor</text>
+  <text class="small" x="1545" y="357">generic per symbol</text>
+
+  <rect class="box-model" x="1720" y="300" width="190" height="82" rx="18" ry="18" />
+  <text class="actor" x="1815" y="334">IndexModel</text>
+  <text class="small" x="1815" y="357">Nifty, BankNifty</text>
+
+  <rect class="box-model" x="1960" y="300" width="190" height="82" rx="18" ry="18" />
+  <text class="actor" x="2055" y="334">CommodityModel</text>
+  <text class="small" x="2055" y="357">Crude, NatGas</text>
+
+  <rect class="box-model" x="2200" y="300" width="150" height="82" rx="18" ry="18" />
+  <text class="actor" x="2275" y="334">EquityModel</text>
+  <text class="small" x="2275" y="357">Equities</text>
+
+  <!-- Lifelines -->
+  <line class="lifeline" x1="155" y1="382" x2="155" y2="1530" />
+  <line class="lifeline" x1="415" y1="382" x2="415" y2="1530" />
+  <line class="lifeline" x1="685" y1="382" x2="685" y2="1530" />
+  <line class="lifeline" x1="960" y1="382" x2="960" y2="1530" />
+  <line class="lifeline" x1="1245" y1="382" x2="1245" y2="1530" />
+  <line class="lifeline" x1="1545" y1="382" x2="1545" y2="1530" />
+  <line class="lifeline" x1="1815" y1="382" x2="1815" y2="1530" />
+  <line class="lifeline" x1="2055" y1="382" x2="2055" y2="1530" />
+  <line class="lifeline" x1="2275" y1="382" x2="2275" y2="1530" />
+
+  <!-- Activations -->
+  <rect class="activation" x="951" y="455" width="18" height="90" rx="8" ry="8" />
+  <rect class="activation" x="1236" y="555" width="18" height="100" rx="8" ry="8" />
+  <rect class="activation" x="1466" y="650" width="18" height="650" rx="8" ry="8" />
+  <rect class="activation" x="146" y="710" width="18" height="80" rx="8" ry="8" />
+  <rect class="activation" x="1806" y="1320" width="18" height="70" rx="8" ry="8" />
+  <rect class="activation" x="2046" y="1320" width="18" height="70" rx="8" ry="8" />
+  <rect class="activation" x="2266" y="1320" width="18" height="70" rx="8" ry="8" />
+
+  <!-- Live calls -->
+  <path class="call" d="M415 475 L951 475" />
+  <text class="step" x="470" y="462">1. raw underlying tick -&gt; normalize into TickEvent</text>
+
+  <path class="call" d="M685 575 L1236 575" />
+  <text class="step" x="740" y="562">2. full option chain snapshot -&gt; normalize into option snapshot</text>
+
+  <path class="call" d="M960 650 L1466 650" />
+  <path class="call" d="M1245 675 L1466 675" />
+  <text class="step" x="1020" y="637">3. processor receives both underlying and option updates</text>
+
+  <path class="config" d="M1545 730 L164 730" />
+  <text class="step" x="500" y="718">4. lookup effective config for instrument_id</text>
+
+  <path class="config" d="M155 790 L1466 790" />
+  <text class="step" x="500" y="780">5. family, model_key, bar_interval, warmup_bars, stale_after_sec, strike_window=10</text>
+
+  <text class="step" x="1320" y="860">6. update underlying state and bars</text>
+  <text class="step" x="1320" y="900">7. store full option chain snapshot</text>
+  <text class="step" x="1320" y="940">8. determine ATM from spot price</text>
+  <text class="step" x="1320" y="980">9. derive ATM +/- 10 strikes internally from rows[]</text>
+  <text class="step" x="1320" y="1020">10. when decision bar closes and warmup is complete</text>
+  <text class="step" x="1320" y="1060">11. compute price features: RSI, EMA, VWAP, candle, bracket, volume</text>
+  <text class="step" x="1320" y="1100">12. compute options features: OI change, PCR, call/put buildup</text>
+  <text class="step" x="1320" y="1140">13. run basic checks for stale data, missing values, spread</text>
+  <text class="step" x="1320" y="1180">14. build prediction payload with model_key and all features</text>
+
+  <path class="model" d="M1545 1340 L1815 1340" />
+  <path class="model" d="M1545 1360 L2055 1360" />
+  <path class="model" d="M1545 1380 L2275 1380" />
+  <text class="step" x="1600" y="1327">15. handoff payload to selected family model</text>
+
+  <rect class="box-note" x="1330" y="1450" width="930" height="120" rx="18" ry="18" />
+  <text class="actor" x="1795" y="1484">Key Boundary</text>
+  <text class="small" x="1795" y="1510">Broker service returns the full normalized chain. The AI system slices ATM +/- 10 strikes internally.</text>
+  <text class="small" x="1795" y="1532">There are still no separate family tick pipelines; one processor handles every symbol.</text>
+
+  <rect class="box-note" x="70" y="1370" width="980" height="140" rx="18" ry="18" />
+  <text class="actor" x="560" y="1405">Minimal v1 Scope</text>
+  <text class="small" x="560" y="1430">No replay store, no metrics, no separate router or request-builder modules.</text>
+  <text class="small" x="560" y="1452">Options are now a first-class input alongside underlying ticks.</text>
+</svg>

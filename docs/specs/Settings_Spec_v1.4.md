@@ -1,7 +1,7 @@
 # Feature 4: Settings Page Specification
 
-**Version:** 1.2  
-**Date:** April 2, 2026  
+**Version:** 1.4  
+**Date:** April 11, 2026  
 **Project:** Automatic Trading System (ATS)  
 **Author:** Manus AI
 
@@ -13,6 +13,8 @@
 | 1.0 | March 30, 2026 | Initial specification |
 | 1.1 | April 2, 2026 | Expanded Discipline section to include all 39 configurable parameters, enable/disable toggles, types, ranges, and defaults from the Discipline Engine spec. |
 | 1.2 | April 2, 2026 | Cross-functionality update: established as master parameter registry, updated exposure/position defaults (40%/80%), added graduated near-expiry reduction model |
+| 1.3 | April 9, 2026 | Added Capital Protection section (Module 8) to Section 3.3 Discipline table. |
+| 1.4 | April 11, 2026 | Added §3.7 Trading Mode — workspace mode fields (`aiTradesMode`, `myTradesMode`, `testingMode`) and kill switch state per workspace. Added to schema (§4.1), defaults (§4.2), and tRPC endpoints (§5.1). Referenced from `BrokerServiceAgent_Spec_v1.6.md`. |
 
 ---
 
@@ -98,6 +100,15 @@ This section enforces risk management and trading psychology rules, preventing e
 | | Losing streak auto-reduce enabled | Toggle | — | ON | Master toggle for losing streak position size reduction. |
 | | Losing streak trigger | Number | 2–7 days | 3 days | Number of consecutive losing days to trigger reduction. |
 | | Losing streak reduction | Number | 25–75% | 50% | Percentage by which max position size is reduced. |
+| **Capital Protection** | Daily loss cap enabled | Toggle | — | ON | Master toggle for session-level loss cap (Module 8). Stricter than Circuit Breaker — triggers session halt and RCA exit. |
+| | Daily loss cap threshold | Number | 0.5–5% | **2%** | Halt session + signal RCA to exit all positions when daily loss hits this %. Fires before Circuit Breaker (3%). |
+| | Daily profit cap enabled | Toggle | — | ON | Master toggle for daily profit cap. |
+| | Daily profit cap threshold | Number | 1–20% | **5%** | Halt session + signal RCA to exit all positions when daily profit hits this %. |
+| | Grace period duration | Number | 10–300 sec | **30 sec** | Time given to user to choose action (Exit All / Exit by Instrument / Reduce Exposure / Hold) before automatic EXIT_ALL is sent to RCA. |
+| | Carry forward evaluation enabled | Toggle | — | ON | Master toggle for 15:15 IST carry forward evaluation. |
+| | Carry forward evaluation time | Time | — | **15:15** | IST time when carry forward conditions are evaluated daily. |
+
+> **Note:** The Circuit Breaker (Module 1, default 3%) and Daily Loss Cap (Module 8, default 2%) are two separate independent rules. The loss cap is stricter and fires first, triggering a session halt and RCA exit. The circuit breaker only blocks new trade entries without exiting existing positions. Both are independently configurable.
 
 ### 3.4 Time Windows
 
@@ -132,6 +143,21 @@ This section provides granular risk management rules specific to the expiry days
 | **Exit Before (min)** | The number of minutes before market close when the auto-exit is triggered. | 30 min | 60 min |
 | **No Carry to Expiry** | A toggle preventing positions from being carried overnight into the expiry day. | ON | ON |
 
+### 3.7 Trading Mode
+
+This section controls which execution channel each workspace uses and the kill switch state per workspace. These settings directly drive the Broker Service Agent (BSA) channel routing. See `BrokerServiceAgent_Spec_v1.6.md` §1 for the full channel architecture.
+
+| Workspace | Setting | Type | Options | Default | Description |
+|---|---|---|---|---|---|
+| **AI Trades** | AI Trades mode | Select | `live`, `paper` | `paper` | Controls whether the AI model trades on the real Dhan account (`ai-live` channel) or simulated MockAdapter (`ai-paper` channel). Switched from Settings page only — no on-screen toggle in the AI Trades workspace. |
+| **My Trades** | My Trades mode | Select | `live`, `paper` | `paper` | Controls the active mode for the My Trades workspace toggle. Both Live and Paper tabs are always visible; this field persists the user's last selected tab. |
+| **Testing** | Testing mode | Select | `live`, `sandbox` | `sandbox` | Controls whether the Testing workspace uses real Dhan (`testing-live`) or Dhan Sandbox (`testing-sandbox`). |
+| **AI Trades** | AI kill switch | Toggle | — | OFF | Blocks new orders on the `ai-live` channel. Cancel and exit orders always bypass this switch. |
+| **My Trades** | My kill switch | Toggle | — | OFF | Blocks new orders on the `my-live` channel. Cancel and exit orders always bypass this switch. |
+| **Testing** | Testing kill switch | Toggle | — | OFF | Blocks new orders on the `testing-live` channel. Cancel and exit orders always bypass this switch. |
+
+> **Kill switches are independent.** Activating the AI kill switch does not affect My Trades or Testing, and vice versa. Kill switches only apply to live channels — paper and sandbox channels are never blocked.
+
 ### 3.6 Charges
 
 This section allows users to configure the various fees and taxes applied to trades, ensuring accurate net Profit and Loss (P&L) calculations.
@@ -155,13 +181,25 @@ The `user_settings` collection utilizes a single document per user, identified b
 | `discipline` | Object | Nested object containing all discipline and risk management thresholds. |
 | `expiryControls` | Object | Nested object containing an array of `rules` for each instrument. |
 | `charges` | Object | Nested object containing an array of `rates` for various fees and taxes. |
+| `tradingMode` | Object | Nested object containing workspace mode fields and kill switch states (see below). |
 | `updatedAt` | Number | UTC timestamp (in milliseconds) of the last modification. |
+
+**`tradingMode` object fields:**
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `aiTradesMode` | String (`"live"` \| `"paper"`) | `"paper"` | Active mode for AI Trades workspace. |
+| `myTradesMode` | String (`"live"` \| `"paper"`) | `"paper"` | Active mode for My Trades workspace. |
+| `testingMode` | String (`"live"` \| `"sandbox"`) | `"sandbox"` | Active mode for Testing workspace. |
+| `aiKillSwitch` | Boolean | `false` | Kill switch state for `ai-live` channel. |
+| `myKillSwitch` | Boolean | `false` | Kill switch state for `my-live` channel. |
+| `testingKillSwitch` | Boolean | `false` | Kill switch state for `testing-live` channel. |
 
 ### 4.2 Default Values
 
 To ensure the system functions correctly even before a user explicitly configures their settings, the backend provides comprehensive default values. When a user's settings are queried for the first time, these defaults are returned and subsequently saved upon the first update.
 
-Key defaults include a maximum of 5 trades per day, a 3% maximum daily loss, and a 15-minute cooldown after a loss for discipline settings. Time windows default to 15-minute no-trade zones at the open and close for both NSE and MCX. Expiry controls default to "No Carry to Expiry" enabled for all instruments, with position size reduction disabled. Charges are pre-populated with standard Indian options trading rates, such as a ₹20 flat brokerage fee and 18% GST.
+Key defaults include a maximum of 5 trades per day, a 3% maximum daily loss, and a 15-minute cooldown after a loss for discipline settings. Time windows default to 15-minute no-trade zones at the open and close for both NSE and MCX. Expiry controls default to "No Carry to Expiry" enabled for all instruments, with position size reduction disabled. Charges are pre-populated with standard Indian options trading rates, such as a ₹20 flat brokerage fee and 18% GST. Trading mode defaults to `paper` for AI Trades and My Trades, `sandbox` for Testing, with all kill switches OFF.
 
 ### 4.3 Update Mechanism (Upsert)
 
@@ -182,6 +220,7 @@ The Settings Page communicates with the backend via tRPC procedures defined in `
 | `updateDiscipline` | Mutation | Accepts a partial `discipline` object and updates the corresponding fields. |
 | `updateExpiryControls` | Mutation | Accepts an array of `rules` and replaces the existing expiry controls array. |
 | `updateCharges` | Mutation | Accepts an array of `rates` and replaces the existing charges array. |
+| `updateTradingMode` | Mutation | Accepts a partial `tradingMode` object and updates the corresponding fields. Used by AI Trades Settings toggle, My Trades on-screen toggle, Testing on-screen toggle, and all three kill switch controls. |
 
 ### 5.2 Broker Router (`trpc.broker.*`)
 
