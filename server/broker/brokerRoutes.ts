@@ -8,20 +8,34 @@
 import type { Express, Request, Response } from "express";
 import {
   getActiveBroker,
+  getAdapter,
   getBrokerServiceStatus,
   toggleKillSwitch,
-  isKillSwitchActive,
+  toggleWorkspaceKillSwitch,
+  isChannelKillSwitchActive,
+  type Channel,
+  type Workspace,
 } from "./brokerService";
 import {
   getActiveBrokerConfig,
   getAllBrokerConfigs,
+  getBrokerConfig,
   upsertBrokerConfig,
   updateBrokerCredentials,
 } from "./brokerConfig";
 import type { OrderParams, ModifyParams } from "./types";
 import { transformCandleData } from "./types";
+import { createLogger } from "./logger";
+
+const log = createLogger("REST");
 
 // ─── Helpers ────────────────────────────────────────────────────
+
+const VALID_CHANNELS = new Set<Channel>([
+  "ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "testing-sandbox",
+]);
+
+const VALID_WORKSPACES = new Set<Workspace>(["ai", "my", "testing"]);
 
 function sendError(res: Response, status: number, message: string) {
   res.status(status).json({ success: false, error: message });
@@ -36,6 +50,19 @@ function requireBrokerREST(res: Response) {
   return broker;
 }
 
+function requireChannelAdapter(channel: string, res: Response) {
+  if (!VALID_CHANNELS.has(channel as Channel)) {
+    sendError(res, 400, `Invalid channel "${channel}". Valid: ${Array.from(VALID_CHANNELS).join(", ")}`);
+    return null;
+  }
+  try {
+    return getAdapter(channel as Channel);
+  } catch (err: any) {
+    sendError(res, 503, err.message ?? `Adapter for channel "${channel}" not available.`);
+    return null;
+  }
+}
+
 // ─── Route Registration ─────────────────────────────────────────
 
 export function registerBrokerRoutes(app: Express): void {
@@ -47,7 +74,7 @@ export function registerBrokerRoutes(app: Express): void {
       const status = await getBrokerServiceStatus();
       res.json({ success: true, data: status });
     } catch (err: any) {
-      console.error("[Broker REST] Error getting status:", err);
+      log.error("Error getting status:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -76,7 +103,7 @@ export function registerBrokerRoutes(app: Express): void {
         },
       });
     } catch (err: any) {
-      console.error("[Broker REST] Error getting config:", err);
+      log.error("Error getting config:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -98,7 +125,7 @@ export function registerBrokerRoutes(app: Express): void {
         })),
       });
     } catch (err: any) {
-      console.error("[Broker REST] Error getting configs:", err);
+      log.error("Error getting configs:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -114,7 +141,7 @@ export function registerBrokerRoutes(app: Express): void {
       const result = await upsertBrokerConfig(config);
       res.json({ success: true, data: result });
     } catch (err: any) {
-      console.error("[Broker REST] Error upserting config:", err);
+      log.error("Error upserting config:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -139,7 +166,7 @@ export function registerBrokerRoutes(app: Express): void {
         },
       });
     } catch (err: any) {
-      console.error("[Broker REST] Error checking token:", err);
+      log.error("Error checking token:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -171,159 +198,147 @@ export function registerBrokerRoutes(app: Express): void {
 
       res.json({ success: true, message: "Token updated" });
     } catch (err: any) {
-      console.error("[Broker REST] Error updating token:", err);
+      log.error("Error updating token:", err);
       sendError(res, 500, err.message);
     }
   });
 
-  // ── Orders ──────────────────────────────────────────────────
+  // ── Channel-scoped Orders / Positions / Margin / Exit-all ───
 
-  /** POST /api/broker/orders — Place order */
-  app.post("/api/broker/orders", async (req: Request, res: Response) => {
+  /** POST /api/broker/:channel/orders — Place order (kill switch checked) */
+  app.post("/api/broker/:channel/orders", async (req: Request, res: Response) => {
     try {
-      if (isKillSwitchActive()) {
-        sendError(res, 403, "Kill switch is active. All trading is halted.");
+      const channel = req.params.channel as Channel;
+      const broker = requireChannelAdapter(channel, res);
+      if (!broker) return;
+
+      if (isChannelKillSwitchActive(channel)) {
+        sendError(res, 403, `KILL_SWITCH_ACTIVE: Trading halted for channel "${channel}".`);
         return;
       }
 
-      const broker = requireBrokerREST(res);
-      if (!broker) return;
-
       const params = req.body as OrderParams;
       if (!params.instrument || !params.transactionType || !params.quantity) {
-        sendError(
-          res,
-          400,
-          "Missing required fields: instrument, transactionType, quantity"
-        );
+        sendError(res, 400, "Missing required fields: instrument, transactionType, quantity");
         return;
       }
 
       const result = await broker.placeOrder(params);
       res.json({ success: true, data: result });
     } catch (err: any) {
-      console.error("[Broker REST] Error placing order:", err);
+      log.error("Error placing order:", err);
       sendError(res, 500, err.message);
     }
   });
 
-  /** PUT /api/broker/orders/:id — Modify order */
-  app.put("/api/broker/orders/:id", async (req: Request, res: Response) => {
+  /** PUT /api/broker/:channel/orders/:id — Modify order (kill switch checked) */
+  app.put("/api/broker/:channel/orders/:id", async (req: Request, res: Response) => {
     try {
-      if (isKillSwitchActive()) {
-        sendError(res, 403, "Kill switch is active. All trading is halted.");
+      const channel = req.params.channel as Channel;
+      const broker = requireChannelAdapter(channel, res);
+      if (!broker) return;
+
+      if (isChannelKillSwitchActive(channel)) {
+        sendError(res, 403, `KILL_SWITCH_ACTIVE: Trading halted for channel "${channel}".`);
         return;
       }
 
-      const broker = requireBrokerREST(res);
-      if (!broker) return;
-
-      const orderId = req.params.id;
-      const params = req.body as ModifyParams;
-      const result = await broker.modifyOrder(orderId, params);
+      const result = await broker.modifyOrder(req.params.id, req.body as ModifyParams);
       res.json({ success: true, data: result });
     } catch (err: any) {
-      console.error("[Broker REST] Error modifying order:", err);
+      log.error("Error modifying order:", err);
       sendError(res, 500, err.message);
     }
   });
 
-  /** DELETE /api/broker/orders/:id — Cancel order */
-  app.delete("/api/broker/orders/:id", async (req: Request, res: Response) => {
+  /** DELETE /api/broker/:channel/orders/:id — Cancel order (bypasses kill switch) */
+  app.delete("/api/broker/:channel/orders/:id", async (req: Request, res: Response) => {
     try {
-      const broker = requireBrokerREST(res);
+      const broker = requireChannelAdapter(req.params.channel, res);
       if (!broker) return;
-
-      const orderId = req.params.id;
-      const result = await broker.cancelOrder(orderId);
+      const result = await broker.cancelOrder(req.params.id);
       res.json({ success: true, data: result });
     } catch (err: any) {
-      console.error("[Broker REST] Error cancelling order:", err);
+      log.error("Error cancelling order:", err);
       sendError(res, 500, err.message);
     }
   });
 
-  /** GET /api/broker/orders — Order book */
-  app.get("/api/broker/orders", async (_req: Request, res: Response) => {
+  /** GET /api/broker/:channel/orders — Order book for channel */
+  app.get("/api/broker/:channel/orders", async (req: Request, res: Response) => {
     try {
-      const broker = requireBrokerREST(res);
+      const broker = requireChannelAdapter(req.params.channel, res);
       if (!broker) return;
-
       const orders = await broker.getOrderBook();
       res.json({ success: true, data: orders });
     } catch (err: any) {
-      console.error("[Broker REST] Error getting orders:", err);
+      log.error("Error getting orders:", err);
       sendError(res, 500, err.message);
     }
   });
 
-  // ── Positions ───────────────────────────────────────────────
-
-  /** GET /api/broker/positions — Current positions */
-  app.get("/api/broker/positions", async (_req: Request, res: Response) => {
+  /** GET /api/broker/:channel/positions — Positions for channel */
+  app.get("/api/broker/:channel/positions", async (req: Request, res: Response) => {
     try {
-      const broker = requireBrokerREST(res);
+      const broker = requireChannelAdapter(req.params.channel, res);
       if (!broker) return;
-
       const positions = await broker.getPositions();
       res.json({ success: true, data: positions });
     } catch (err: any) {
-      console.error("[Broker REST] Error getting positions:", err);
+      log.error("Error getting positions:", err);
       sendError(res, 500, err.message);
     }
   });
 
-  // ── Margin ──────────────────────────────────────────────────
-
-  /** GET /api/broker/margin — Margin/fund info */
-  app.get("/api/broker/margin", async (_req: Request, res: Response) => {
+  /** GET /api/broker/:channel/margin — Margin/fund info for channel */
+  app.get("/api/broker/:channel/margin", async (req: Request, res: Response) => {
     try {
-      const broker = requireBrokerREST(res);
+      const broker = requireChannelAdapter(req.params.channel, res);
       if (!broker) return;
-
       const margin = await broker.getMargin();
       res.json({ success: true, data: margin });
     } catch (err: any) {
-      console.error("[Broker REST] Error getting margin:", err);
+      log.error("Error getting margin:", err);
       sendError(res, 500, err.message);
     }
   });
 
-  // ── Exit All ────────────────────────────────────────────────
-
-  /** POST /api/broker/exit-all — Exit all positions */
-  app.post("/api/broker/exit-all", async (_req: Request, res: Response) => {
+  /** POST /api/broker/:channel/exit-all — Exit all positions (bypasses kill switch) */
+  app.post("/api/broker/:channel/exit-all", async (req: Request, res: Response) => {
     try {
-      const broker = requireBrokerREST(res);
+      const broker = requireChannelAdapter(req.params.channel, res);
       if (!broker) return;
-
       const result = await broker.exitAll();
       res.json({ success: true, data: result });
     } catch (err: any) {
-      console.error("[Broker REST] Error exiting all:", err);
+      log.error("Error exiting all:", err);
       sendError(res, 500, err.message);
     }
   });
 
   // ── Kill Switch ─────────────────────────────────────────────
 
-  /** POST /api/broker/kill-switch — Activate/deactivate kill switch */
+  /**
+   * POST /api/broker/kill-switch
+   * Body: { workspace: "ai" | "my" | "testing", action: "ACTIVATE" | "DEACTIVATE" }
+   */
   app.post("/api/broker/kill-switch", async (req: Request, res: Response) => {
     try {
-      const { action } = req.body;
+      const { workspace, action } = req.body;
+
+      if (!workspace || !VALID_WORKSPACES.has(workspace as Workspace)) {
+        sendError(res, 400, `Missing or invalid workspace. Must be: ${Array.from(VALID_WORKSPACES).join(", ")}`);
+        return;
+      }
       if (!action || !["ACTIVATE", "DEACTIVATE"].includes(action)) {
-        sendError(
-          res,
-          400,
-          'Missing or invalid action. Must be "ACTIVATE" or "DEACTIVATE".'
-        );
+        sendError(res, 400, 'Missing or invalid action. Must be "ACTIVATE" or "DEACTIVATE".');
         return;
       }
 
-      const result = await toggleKillSwitch(action);
+      const result = await toggleWorkspaceKillSwitch(workspace as Workspace, action);
       res.json({ success: true, data: result });
     } catch (err: any) {
-      console.error("[Broker REST] Error toggling kill switch:", err);
+      log.error("Error toggling kill switch:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -350,7 +365,7 @@ export function registerBrokerRoutes(app: Express): void {
         });
       }
     } catch (err: any) {
-      console.error("[Broker REST] Error getting scrip master status:", err);
+      log.error("Error getting scrip master status:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -368,7 +383,7 @@ export function registerBrokerRoutes(app: Express): void {
         sendError(res, 501, "Scrip master refresh not supported by this adapter");
       }
     } catch (err: any) {
-      console.error("[Broker REST] Error refreshing scrip master:", err);
+      log.error("Error refreshing scrip master:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -405,7 +420,7 @@ export function registerBrokerRoutes(app: Express): void {
         sendError(res, 501, "Security lookup not supported by this adapter");
       }
     } catch (err: any) {
-      console.error("[Broker REST] Error looking up security:", err);
+      log.error("Error looking up security:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -434,7 +449,7 @@ export function registerBrokerRoutes(app: Express): void {
         sendError(res, 501, "Expiry list from cache not supported by this adapter");
       }
     } catch (err: any) {
-      console.error("[Broker REST] Error getting expiry list:", err);
+      log.error("Error getting expiry list:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -463,7 +478,7 @@ export function registerBrokerRoutes(app: Express): void {
         sendError(res, 501, "MCX FUTCOM resolution not supported by this adapter");
       }
     } catch (err: any) {
-      console.error("[Broker REST] Error resolving MCX FUTCOM:", err);
+      log.error("Error resolving MCX FUTCOM:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -488,7 +503,7 @@ export function registerBrokerRoutes(app: Express): void {
       );
       res.json({ success: true, data: dates });
     } catch (err: any) {
-      console.error("[Broker REST] Error getting expiry list:", err);
+      log.error("Error getting expiry list:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -512,7 +527,7 @@ export function registerBrokerRoutes(app: Express): void {
       );
       res.json({ success: true, data: chain });
     } catch (err: any) {
-      console.error("[Broker REST] Error getting option chain:", err);
+      log.error("Error getting option chain:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -559,7 +574,7 @@ export function registerBrokerRoutes(app: Express): void {
         res.json({ success: true, data });
       }
     } catch (err: any) {
-      console.error("[Broker REST] Error fetching intraday data:", err);
+      log.error("Error fetching intraday data:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -598,7 +613,7 @@ export function registerBrokerRoutes(app: Express): void {
         res.json({ success: true, data });
       }
     } catch (err: any) {
-      console.error("[Broker REST] Error fetching historical data:", err);
+      log.error("Error fetching historical data:", err);
       sendError(res, 500, err.message);
     }
   });
@@ -614,7 +629,125 @@ export function registerBrokerRoutes(app: Express): void {
       const trades = await broker.getTradeBook();
       res.json({ success: true, data: trades });
     } catch (err: any) {
-      console.error("[Broker REST] Error getting trades:", err);
+      log.error("Error getting trades:", err);
+      sendError(res, 500, err.message);
+    }
+  });
+
+  // ── Token (unmasked, for TFA internal use only) ─────────────
+
+  /**
+   * GET /api/broker/token
+   * Returns unmasked Dhan credentials so TFA can open its own direct
+   * Dhan WebSocket connection at startup. For internal Python consumers only.
+   */
+  app.get("/api/broker/token", async (_req: Request, res: Response) => {
+    try {
+      const config = await getBrokerConfig("dhan");
+      if (!config) {
+        sendError(res, 404, "Dhan broker config not found");
+        return;
+      }
+      res.json({
+        success: true,
+        data: {
+          accessToken: config.credentials.accessToken,
+          clientId: config.credentials.clientId,
+          status: config.credentials.status,
+        },
+      });
+    } catch (err: any) {
+      log.error("Error getting token:", err);
+      sendError(res, 500, err.message);
+    }
+  });
+
+  // ── Feed Subscribe / Unsubscribe / State ────────────────────
+
+  /**
+   * POST /api/broker/feed/subscribe
+   * Allows Python consumers to subscribe security IDs to BSA's Dhan WS feed.
+   * Body: { instruments: [{ securityId, exchange }], mode?: "ltp"|"quote"|"full" }
+   */
+  app.post("/api/broker/feed/subscribe", async (req: Request, res: Response) => {
+    try {
+      const broker = requireBrokerREST(res);
+      if (!broker) return;
+
+      const { instruments, mode } = req.body;
+      if (!Array.isArray(instruments) || instruments.length === 0) {
+        sendError(res, 400, "Missing or empty instruments array");
+        return;
+      }
+
+      const feedMode = mode ?? "full";
+      broker.subscribeLTP(
+        instruments.map((i: any) => ({ ...i, mode: feedMode })),
+        () => {} // tick forwarding handled by tickBus inside the adapter
+      );
+
+      const state = broker.getSubscriptionState?.();
+      res.json({
+        success: true,
+        subscribed: instruments.length,
+        total: state?.totalSubscriptions ?? instruments.length,
+      });
+    } catch (err: any) {
+      log.error("Error subscribing feed:", err);
+      sendError(res, 500, err.message);
+    }
+  });
+
+  /**
+   * POST /api/broker/feed/unsubscribe
+   * Body: { instruments: [{ securityId, exchange }] }
+   */
+  app.post("/api/broker/feed/unsubscribe", async (req: Request, res: Response) => {
+    try {
+      const broker = requireBrokerREST(res);
+      if (!broker) return;
+
+      const { instruments } = req.body;
+      if (!Array.isArray(instruments) || instruments.length === 0) {
+        sendError(res, 400, "Missing or empty instruments array");
+        return;
+      }
+
+      broker.unsubscribeLTP(instruments);
+
+      const state = broker.getSubscriptionState?.();
+      res.json({
+        success: true,
+        unsubscribed: instruments.length,
+        total: state?.totalSubscriptions ?? 0,
+      });
+    } catch (err: any) {
+      log.error("Error unsubscribing feed:", err);
+      sendError(res, 500, err.message);
+    }
+  });
+
+  /**
+   * GET /api/broker/feed/state
+   * Returns current subscription registry and WebSocket connection status.
+   */
+  app.get("/api/broker/feed/state", async (_req: Request, res: Response) => {
+    try {
+      const broker = requireBrokerREST(res);
+      if (!broker) return;
+
+      const state = broker.getSubscriptionState?.();
+      res.json({
+        success: true,
+        data: {
+          wsConnected: state?.wsConnected ?? false,
+          totalSubscriptions: state?.totalSubscriptions ?? 0,
+          maxSubscriptions: state?.maxSubscriptions ?? 5000,
+          instruments: state ? Array.from(state.instruments.keys()) : [],
+        },
+      });
+    } catch (err: any) {
+      log.error("Error getting feed state:", err);
       sendError(res, 500, err.message);
     }
   });

@@ -63,7 +63,7 @@ import type {
   DhanIntradayDataRequest,
 } from "./types";
 
-import { getBrokerConfig, updateBrokerConnection } from "../../brokerConfig";
+import { getBrokerConfig, updateBrokerConnection, updateBrokerCredentials } from "../../brokerConfig";
 
 import {
   downloadScripMaster,
@@ -89,15 +89,18 @@ import {
 
 import { DhanWebSocket } from "./websocket";
 import { SubscriptionManager } from "./subscriptionManager";
-import { GreeksPoller } from "./greeksPoller";
 import { DhanOrderUpdateWs } from "./orderUpdateWs";
 import type { SubscriptionState, TickData, FeedMode } from "../../types";
+import { createLogger } from "../../logger";
+
+const log = createLogger("Dhan");
 
 // ─── DhanAdapter ───────────────────────────────────────────────
 
 export class DhanAdapter implements BrokerAdapter {
-  readonly brokerId = "dhan";
-  readonly displayName = "Dhan";
+  readonly brokerId: string;
+  readonly displayName: string;
+  private sandboxMode: boolean;
 
   private accessToken: string = "";
   private clientId: string = "";
@@ -111,11 +114,16 @@ export class DhanAdapter implements BrokerAdapter {
   // Rate limiter for Dhan API calls
   private rateLimiter = new RateLimiter(10, 250);
 
-  // WebSocket, Subscription Manager, Greeks Poller
+  // WebSocket and Subscription Manager
   private ws: DhanWebSocket | null = null;
   private subManager: SubscriptionManager | null = null;
-  private greeksPoller: GreeksPoller | null = null;
   private tickCallback: TickCallback | null = null;
+
+  constructor(brokerId = "dhan", sandboxMode = false) {
+    this.brokerId = brokerId;
+    this.sandboxMode = sandboxMode;
+    this.displayName = sandboxMode ? "Dhan Sandbox" : "Dhan";
+  }
 
   // ── Auth ──────────────────────────────────────────────────────
 
@@ -158,7 +166,7 @@ export class DhanAdapter implements BrokerAdapter {
       this.accessToken = token;
       this.clientId = result.clientId ?? clientId ?? this.clientId;
       this.tokenUpdatedAt = Date.now();
-      console.log(`[DhanAdapter] Token updated successfully. Client: ${this.clientId}`);
+      log.info(`Token updated. Client: ${this.clientId}`);
     } else {
       throw new Error(result.message);
     }
@@ -182,7 +190,7 @@ export class DhanAdapter implements BrokerAdapter {
     if (params.orderType === "LIMIT" && price === 0 && settings) {
       // Price of 0 means "use LTP with offset" — caller should provide actual LTP as price
       // For now, keep price as-is; the frontend will calculate using LTP
-      console.warn("[DhanAdapter] LIMIT order with price=0. Frontend should provide LTP-based price.");
+      log.warn("LIMIT order with price=0. Frontend should provide LTP-based price.");
     }
 
     // Build the Dhan order request
@@ -577,7 +585,7 @@ export class DhanAdapter implements BrokerAdapter {
       { clientId: this.clientId }
     );
 
-    console.log(`[DhanAdapter] getExpiryList(${underlying}, ${exchangeSegment}) → status=${result.status}, ok=${result.ok}, data=${JSON.stringify(result.data)?.slice(0, 200)}`);
+    log.debug(`getExpiryList(${underlying}, ${exchangeSegment}) → status=${result.status}, ok=${result.ok}, data=${JSON.stringify(result.data)?.slice(0, 200)}`);
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
@@ -632,15 +640,15 @@ export class DhanAdapter implements BrokerAdapter {
     );
 
     if (result.isAuthError) {
-      console.warn(`[DhanAdapter] Token expired for underlying=${underlying}`);
+      log.warn(`Token expired for underlying=${underlying}`);
       await handleDhan401(this.brokerId);
       throw new Error("Token expired.");
     }
 
     if (!result.ok || !result.data) {
       const errorMsg = result.error?.errorMessage || result.error?.errorType || "Unknown error";
-      console.warn(`[DhanAdapter] Option chain fetch failed: underlying=${underlying}, expiry=${expiry}, status=${result.status}, error=${errorMsg}`);
-      console.log(`[DhanAdapter] Full error response: ${JSON.stringify(result.error)}`);
+      log.warn(`Option chain fetch failed: underlying=${underlying}, expiry=${expiry}, status=${result.status}, error=${errorMsg}`);
+      log.debug(`Full error response: ${JSON.stringify(result.error)}`);
       throw new Error(`Failed to fetch option chain: ${errorMsg}`);
     }
 
@@ -787,7 +795,7 @@ export class DhanAdapter implements BrokerAdapter {
     this.tickCallback = callback;
 
     if (!this.subManager) {
-      console.warn("[DhanAdapter] SubscriptionManager not initialized. Call connect() first.");
+      log.warn("SubscriptionManager not initialized. Call connect() first.");
       return;
     }
 
@@ -813,7 +821,7 @@ export class DhanAdapter implements BrokerAdapter {
 
   onOrderUpdate(callback: OrderUpdateCallback): void {
     this.orderUpdateCb = callback;
-    console.log("[DhanAdapter] onOrderUpdate: Callback registered");
+    log.info("onOrderUpdate: Callback registered");
   }
 
   private connectOrderUpdateWs(): void {
@@ -842,7 +850,7 @@ export class DhanAdapter implements BrokerAdapter {
       });
     });
     this.orderUpdateWs.connect();
-    console.log("[DhanAdapter] Order update WS connected");
+    log.info("Order update WS connected");
   }
 
   getSubscriptionState(): SubscriptionState {
@@ -856,7 +864,7 @@ export class DhanAdapter implements BrokerAdapter {
 
   async connectFeed(): Promise<void> {
     if (!this.accessToken || !this.clientId) {
-      console.warn("[DhanAdapter] Cannot connect feed — no credentials.");
+      log.warn("Cannot connect feed — no credentials.");
       return;
     }
 
@@ -875,11 +883,11 @@ export class DhanAdapter implements BrokerAdapter {
       },
       onPrevClose: () => {},
       onDisconnect: (code, reason) => {
-        console.warn(`[DhanAdapter] WS disconnected: ${reason} (${code})`);
+        log.warn(`WS disconnected: ${reason} (${code})`);
         updateBrokerConnection(this.brokerId, { wsStatus: "disconnected" });
       },
       onError: (err) => {
-        console.error(`[DhanAdapter] WS error: ${err.message}`);
+        log.error(`WS error: ${err.message}`);
         updateBrokerConnection(this.brokerId, { wsStatus: "error" });
       },
       onConnected: () => {
@@ -900,26 +908,12 @@ export class DhanAdapter implements BrokerAdapter {
       },
     });
 
-    // Initialize Greeks Poller
-    this.greeksPoller = new GreeksPoller({
-      accessToken: this.accessToken,
-      clientId: this.clientId,
-      pollIntervalMs: 60_000,
-      onGreeksUpdate: (snapshot) => {
-        console.log(`[DhanAdapter] Greeks update: ${snapshot.underlying} (${snapshot.strikes.length} strikes)`);
-      },
-      onError: (err) => {
-        console.error(`[DhanAdapter] Greeks poll error: ${err.message}`);
-      },
-    });
-
     // Connect WebSocket
     try {
       await this.ws.connect();
-      this.greeksPoller.start();
-      console.log("[DhanAdapter] Feed connected (WS + Greeks poller)");
+      log.info("Feed connected (WS)");
     } catch (err) {
-      console.error("[DhanAdapter] Feed connection failed:", err);
+      log.error("Feed connection failed:", err);
       await updateBrokerConnection(this.brokerId, { wsStatus: "error" });
     }
   }
@@ -929,13 +923,9 @@ export class DhanAdapter implements BrokerAdapter {
       await this.ws.disconnect();
       this.ws = null;
     }
-    if (this.greeksPoller) {
-      this.greeksPoller.stop();
-      this.greeksPoller = null;
-    }
     this.subManager = null;
     await updateBrokerConnection(this.brokerId, { wsStatus: "disconnected" });
-    console.log("[DhanAdapter] Feed disconnected.");
+    log.info("Feed disconnected.");
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────
@@ -945,7 +935,7 @@ export class DhanAdapter implements BrokerAdapter {
     const config = await getBrokerConfig(this.brokerId);
 
     if (!config) {
-      console.warn("[DhanAdapter] No config found in MongoDB. Waiting for token setup.");
+      log.warn("No config found in MongoDB. Waiting for token setup.");
       return;
     }
 
@@ -954,7 +944,7 @@ export class DhanAdapter implements BrokerAdapter {
     this.tokenUpdatedAt = config.credentials.updatedAt;
 
     if (!this.accessToken) {
-      console.warn("[DhanAdapter] No access token configured. Waiting for token setup.");
+      log.warn("No access token configured. Waiting for token setup.");
       await updateBrokerConnection(this.brokerId, {
         apiStatus: "disconnected",
       });
@@ -965,16 +955,14 @@ export class DhanAdapter implements BrokerAdapter {
     const expiry = calculateTokenExpiry(this.tokenUpdatedAt);
 
     if (expiry.isExpired) {
-      console.warn("[DhanAdapter] Token has expired. Please update your access token.");
+      log.warn("Token has expired. Please update your access token.");
       await handleDhan401(this.brokerId);
       return;
     }
 
     if (expiry.isExpiringSoon) {
       const remainingMin = Math.round(expiry.remainingMs / 60000);
-      console.warn(
-        `[DhanAdapter] Token expires in ${remainingMin} minutes. Consider updating.`
-      );
+      log.warn(`Token expires in ${remainingMin} minutes. Consider updating.`);
     }
 
     // Validate token against Dhan API
@@ -982,21 +970,27 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (validation.valid) {
       this.clientId = validation.clientId ?? this.clientId;
+
+      // Persist clientId to MongoDB so CredentialGate doesn't treat it as missing
+      await updateBrokerCredentials(this.brokerId, {
+        clientId: this.clientId,
+      });
+
       await updateBrokerConnection(this.brokerId, {
         apiStatus: "connected",
         lastApiCall: Date.now(),
       });
-      console.log(
-        `[DhanAdapter] Connected. Client: ${this.clientId}, Balance: ₹${validation.fundData?.availabelBalance ?? "N/A"}`
-      );
+      log.info(`Connected. Client: ${this.clientId}, Balance: ₹${validation.fundData?.availabelBalance ?? "N/A"}`);
 
-      // Auto-connect WebSocket feed after successful API auth
-      await this.connectFeed();
-
-      // Auto-connect order update WebSocket
-      this.connectOrderUpdateWs();
+      // Sandbox mode: token validation only — no WebSocket feed
+      if (!this.sandboxMode) {
+        await this.connectFeed();
+        this.connectOrderUpdateWs();
+      } else {
+        log.info(`[${this.brokerId}] Sandbox mode — skipping WebSocket connections.`);
+      }
     } else {
-      console.error(`[DhanAdapter] Token validation failed: ${validation.error}`);
+      log.error(`Token validation failed: ${validation.error}`);
       await handleDhan401(this.brokerId);
     }
   }
@@ -1022,7 +1016,7 @@ export class DhanAdapter implements BrokerAdapter {
       wsStatus: "disconnected",
     });
 
-    console.log("[DhanAdapter] Disconnected.");
+    log.info("Disconnected.");
   }
 
   // ── Emergency ─────────────────────────────────────────────────
@@ -1037,7 +1031,7 @@ export class DhanAdapter implements BrokerAdapter {
       try {
         await this.exitAll();
       } catch (err) {
-        console.error("[DhanAdapter] exitAll during kill switch failed:", err);
+        log.error("exitAll during kill switch failed:", err);
       }
 
       // Then activate Dhan's kill switch
@@ -1118,9 +1112,7 @@ export class DhanAdapter implements BrokerAdapter {
     }
 
     // Fallback: return as-is
-    console.warn(
-      `[DhanAdapter] Could not resolve securityId for ${params.instrument}. Using as-is.`
-    );
+    log.warn(`Could not resolve securityId for ${params.instrument}. Using as-is.`);
     return params.instrument;
   }
 
@@ -1132,7 +1124,7 @@ export class DhanAdapter implements BrokerAdapter {
       try {
         await downloadScripMaster();
       } catch (err) {
-        console.error("[DhanAdapter] Scrip master download failed:", err);
+        log.error("Scrip master download failed:", err);
       }
     }
   }

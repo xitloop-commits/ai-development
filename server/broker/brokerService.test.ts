@@ -16,10 +16,14 @@ import {
   registerAdapter,
   getRegisteredAdapters,
   getActiveBroker,
+  getAdapter,
   initBrokerService,
   switchBroker,
   toggleKillSwitch,
+  toggleWorkspaceKillSwitch,
   isKillSwitchActive,
+  isChannelKillSwitchActive,
+  getKillSwitchState,
   getBrokerServiceStatus,
   _resetForTesting,
 } from "./brokerService";
@@ -156,9 +160,12 @@ beforeAll(async () => {
 }, 15000);
 
 afterAll(async () => {
-  // Clean up test data
+  // Clean up test data (including seeded BSA configs)
   await BrokerConfigModel.deleteMany({
-    brokerId: { $in: ["test_dhan", "test_mock", "test_broker_a", "test_broker_b"] },
+    brokerId: {
+      $in: ["test_dhan", "test_mock", "test_broker_a", "test_broker_b",
+            "dhan", "dhan-sandbox", "mock-ai", "mock-my"],
+    },
   });
   await mongoose.disconnect();
 }, 10000);
@@ -344,23 +351,29 @@ describe("Broker Config CRUD", () => {
   }, 10000);
 });
 
-// ─── Test Suite 2: Broker Service ───────────────────────────────
+// ─── Test Suite 2: Broker Service (Multi-Adapter Architecture) ──
 
 describe("Broker Service", () => {
   beforeEach(async () => {
     _resetForTesting();
     await BrokerConfigModel.deleteMany({
-      brokerId: { $in: ["test_broker_a", "test_broker_b"] },
+      brokerId: { $in: ["dhan", "dhan-sandbox", "mock-ai", "mock-my", "test_broker_a", "test_broker_b"] },
     });
   });
 
-  it("registers adapter factories", () => {
-    registerAdapter("test_broker_a", () =>
-      createStubAdapter("test_broker_a", "Broker A")
-    );
-    registerAdapter("test_broker_b", () =>
-      createStubAdapter("test_broker_b", "Broker B")
-    );
+  // ── Pre-init state ─────────────────────────────────────────────
+
+  it("getActiveBroker returns null before init", () => {
+    expect(getActiveBroker()).toBeNull();
+  });
+
+  it("getAdapter throws before init", () => {
+    expect(() => getAdapter("ai-paper")).toThrow();
+  });
+
+  it("registerAdapter stores adapter factory", () => {
+    registerAdapter("test_broker_a", () => createStubAdapter("test_broker_a", "Broker A"));
+    registerAdapter("test_broker_b", () => createStubAdapter("test_broker_b", "Broker B"));
 
     const registered = getRegisteredAdapters();
     expect(registered).toContain("test_broker_a");
@@ -368,76 +381,104 @@ describe("Broker Service", () => {
     expect(registered.length).toBe(2);
   });
 
-  it("returns null when no adapter is active", () => {
-    const adapter = getActiveBroker();
-    expect(adapter).toBeNull();
-  });
+  // ── initBrokerService ─────────────────────────────────────────
 
-  it("initBrokerService loads active adapter from MongoDB", async () => {
-    // Create config and set active
-    await upsertBrokerConfig({
-      brokerId: "test_broker_a",
-      displayName: "Broker A",
-      isActive: true,
-    });
+  it("after init, getAdapter('ai-paper') returns a MockAdapter (brokerId: mock-ai)", async () => {
+    await initBrokerService();
 
-    registerAdapter("test_broker_a", () =>
-      createStubAdapter("test_broker_a", "Broker A")
-    );
+    const adapter = getAdapter("ai-paper");
+    expect(adapter).not.toBeNull();
+    expect(adapter.brokerId).toBe("mock-ai");
+    expect(adapter.displayName).toBe("Paper (AI Trades)");
+  }, 15000);
 
+  it("after init, getAdapter('my-paper') returns a MockAdapter (brokerId: mock-my)", async () => {
+    await initBrokerService();
+
+    const adapter = getAdapter("my-paper");
+    expect(adapter).not.toBeNull();
+    expect(adapter.brokerId).toBe("mock-my");
+    expect(adapter.displayName).toBe("Paper (My Trades)");
+  }, 15000);
+
+  it("after init, getActiveBroker returns the dhan live adapter", async () => {
     await initBrokerService();
 
     const adapter = getActiveBroker();
     expect(adapter).not.toBeNull();
-    expect(adapter!.brokerId).toBe("test_broker_a");
-    expect(adapter!.displayName).toBe("Broker A");
-  }, 10000);
-
-  it("initBrokerService is idle when no active config exists", async () => {
-    registerAdapter("test_broker_a", () =>
-      createStubAdapter("test_broker_a", "Broker A")
-    );
-
-    await initBrokerService();
-
-    const adapter = getActiveBroker();
-    expect(adapter).toBeNull();
-  }, 10000);
-
-  it("switchBroker changes the active adapter", async () => {
-    // Create configs
-    await upsertBrokerConfig({
-      brokerId: "test_broker_a",
-      displayName: "Broker A",
-      isActive: true,
-    });
-    await upsertBrokerConfig({
-      brokerId: "test_broker_b",
-      displayName: "Broker B",
-      isActive: false,
-    });
-
-    registerAdapter("test_broker_a", () =>
-      createStubAdapter("test_broker_a", "Broker A")
-    );
-    registerAdapter("test_broker_b", () =>
-      createStubAdapter("test_broker_b", "Broker B")
-    );
-
-    // Start with A
-    await initBrokerService();
-    expect(getActiveBroker()!.brokerId).toBe("test_broker_a");
-
-    // Switch to B
-    await switchBroker("test_broker_b");
-    expect(getActiveBroker()!.brokerId).toBe("test_broker_b");
-
-    // Verify MongoDB updated
-    const configB = await getBrokerConfig("test_broker_b");
-    expect(configB!.isActive).toBe(true);
-    const configA = await getBrokerConfig("test_broker_a");
-    expect(configA!.isActive).toBe(false);
+    expect(adapter!.brokerId).toBe("dhan");
   }, 15000);
+
+  // ── Per-workspace kill switch ─────────────────────────────────
+
+  it("toggleWorkspaceKillSwitch activates / deactivates for a single workspace", async () => {
+    await initBrokerService();
+
+    const activateResult = await toggleWorkspaceKillSwitch("ai", "ACTIVATE");
+    expect(activateResult.status).toBe("activated");
+    expect(activateResult.workspace).toBe("ai");
+    expect(activateResult.active).toBe(true);
+    expect(isChannelKillSwitchActive("ai-live")).toBe(true);
+    // Paper channels are never affected
+    expect(isChannelKillSwitchActive("ai-paper")).toBe(false);
+
+    const deactivateResult = await toggleWorkspaceKillSwitch("ai", "DEACTIVATE");
+    expect(deactivateResult.status).toBe("deactivated");
+    expect(isChannelKillSwitchActive("ai-live")).toBe(false);
+  }, 15000);
+
+  it("kill switches are independent per workspace", async () => {
+    await initBrokerService();
+
+    await toggleWorkspaceKillSwitch("ai", "ACTIVATE");
+    await toggleWorkspaceKillSwitch("my", "ACTIVATE");
+
+    const state = getKillSwitchState();
+    expect(state.ai).toBe(true);
+    expect(state.my).toBe(true);
+    expect(state.testing).toBe(false);
+
+    expect(isChannelKillSwitchActive("ai-live")).toBe(true);
+    expect(isChannelKillSwitchActive("my-live")).toBe(true);
+    expect(isChannelKillSwitchActive("testing-live")).toBe(false);
+  }, 15000);
+
+  it("toggleKillSwitch (legacy) activates all workspaces", async () => {
+    await initBrokerService();
+
+    const activateResult = await toggleKillSwitch("ACTIVATE");
+    expect(activateResult.status).toBe("activated");
+    expect(isKillSwitchActive()).toBe(true);
+
+    const state = getKillSwitchState();
+    expect(state.ai).toBe(true);
+    expect(state.my).toBe(true);
+    expect(state.testing).toBe(true);
+
+    const deactivateResult = await toggleKillSwitch("DEACTIVATE");
+    expect(deactivateResult.status).toBe("deactivated");
+    expect(isKillSwitchActive()).toBe(false);
+  }, 15000);
+
+  // ── getBrokerServiceStatus ────────────────────────────────────
+
+  it("getBrokerServiceStatus with no active adapter returns nulls", async () => {
+    const status = await getBrokerServiceStatus();
+    expect(status.activeBrokerId).toBeNull();
+    expect(status.activeBrokerName).toBeNull();
+    expect(status.tokenStatus).toBe("unknown");
+    expect(status.killSwitchActive).toBe(false);
+  }, 10000);
+
+  it("getBrokerServiceStatus after init returns dhan brokerId", async () => {
+    await initBrokerService();
+
+    const status = await getBrokerServiceStatus();
+    expect(status.activeBrokerId).toBe("dhan");
+    expect(status.killSwitchActive).toBe(false);
+  }, 15000);
+
+  // ── switchBroker edge cases ──────────────────────────────────
 
   it("switchBroker throws for unregistered adapter", async () => {
     await expect(switchBroker("unknown_broker")).rejects.toThrow(
@@ -446,61 +487,10 @@ describe("Broker Service", () => {
   }, 10000);
 
   it("switchBroker throws for missing config", async () => {
-    registerAdapter("test_broker_a", () =>
-      createStubAdapter("test_broker_a", "Broker A")
-    );
+    registerAdapter("test_broker_a", () => createStubAdapter("test_broker_a", "Broker A"));
 
     await expect(switchBroker("test_broker_a")).rejects.toThrow(
       /No broker config found/
     );
-  }, 10000);
-
-  it("kill switch activates and deactivates", async () => {
-    await upsertBrokerConfig({
-      brokerId: "test_broker_a",
-      displayName: "Broker A",
-      isActive: true,
-    });
-    registerAdapter("test_broker_a", () =>
-      createStubAdapter("test_broker_a", "Broker A")
-    );
-    await initBrokerService();
-
-    // Activate
-    const activateResult = await toggleKillSwitch("ACTIVATE");
-    expect(activateResult.status).toBe("activated");
-    expect(isKillSwitchActive()).toBe(true);
-
-    // Deactivate
-    const deactivateResult = await toggleKillSwitch("DEACTIVATE");
-    expect(deactivateResult.status).toBe("deactivated");
-    expect(isKillSwitchActive()).toBe(false);
-  }, 10000);
-
-  it("getBrokerServiceStatus returns correct shape", async () => {
-    await upsertBrokerConfig({
-      brokerId: "test_broker_a",
-      displayName: "Broker A",
-      isActive: true,
-    });
-    registerAdapter("test_broker_a", () =>
-      createStubAdapter("test_broker_a", "Broker A")
-    );
-    await initBrokerService();
-
-    const status = await getBrokerServiceStatus();
-    expect(status.activeBrokerId).toBe("test_broker_a");
-    expect(status.activeBrokerName).toBe("Broker A");
-    expect(status.tokenStatus).toBe("valid");
-    expect(status.killSwitchActive).toBe(false);
-    expect(status.registeredAdapters).toContain("test_broker_a");
-  }, 10000);
-
-  it("getBrokerServiceStatus with no active adapter", async () => {
-    const status = await getBrokerServiceStatus();
-    expect(status.activeBrokerId).toBeNull();
-    expect(status.activeBrokerName).toBeNull();
-    expect(status.tokenStatus).toBe("unknown");
-    expect(status.killSwitchActive).toBe(false);
   }, 10000);
 });

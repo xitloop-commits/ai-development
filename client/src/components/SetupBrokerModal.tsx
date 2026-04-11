@@ -21,7 +21,6 @@ export function SetupBrokerModal() {
   const [open, setOpen] = useState(false);
   const [brokerId, setBrokerId] = useState("dhan");
   const [accessToken, setAccessToken] = useState("");
-  const [clientId, setClientId] = useState("");
 
   const statusQuery = trpc.broker.status.useQuery(undefined, {
     refetchInterval: 10_000,
@@ -29,14 +28,12 @@ export function SetupBrokerModal() {
   });
 
   const adaptersQuery = trpc.broker.adapters.list.useQuery();
-  const configQuery = trpc.broker.config.get.useQuery();
 
   const setupMutation = trpc.broker.setup.useMutation({
     onSuccess: () => {
       toast.success("Broker configured successfully!");
       setOpen(false);
       setAccessToken("");
-      setClientId("");
       statusQuery.refetch();
     },
     onError: (err) => {
@@ -54,14 +51,6 @@ export function SetupBrokerModal() {
     }
   }, [statusQuery.data]);
 
-  // Pre-fill clientId from existing config
-  useEffect(() => {
-    const savedClientId = configQuery.data?.credentials?.clientId;
-    if (savedClientId && !clientId) {
-      setClientId(savedClientId);
-    }
-  }, [configQuery.data]);
-
   const adapters = adaptersQuery.data ?? [];
   const selectedAdapter = adapters.find((a) => a.brokerId === brokerId);
   const isPaper = selectedAdapter?.isPaperBroker ?? false;
@@ -71,14 +60,9 @@ export function SetupBrokerModal() {
       toast.error("Access token is required for live trading");
       return;
     }
-    if (!isPaper && !clientId.trim()) {
-      toast.error("Client ID is required for live trading");
-      return;
-    }
     setupMutation.mutate({
       brokerId,
       accessToken: isPaper ? undefined : accessToken.trim(),
-      clientId: isPaper ? undefined : clientId.trim(),
     });
   };
 
@@ -162,17 +146,6 @@ export function SetupBrokerModal() {
                     login.dhan.co
                   </a>
                 </p>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Client ID <span className="text-loss-red">*</span>
-                </label>
-                <Input
-                  value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                  placeholder="Your Dhan client ID (e.g. 1100012345)"
-                  className="font-mono text-xs"
-                />
               </div>
             </>
           )}

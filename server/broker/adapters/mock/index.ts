@@ -13,6 +13,10 @@
  * - WebSocket/LTP methods are no-ops
  */
 
+import { createLogger } from "../../logger";
+
+const log = createLogger("Mock");
+
 import type {
   BrokerAdapter,
   OrderParams,
@@ -45,8 +49,8 @@ const DEFAULT_INITIAL_MARGIN = 500000; // ₹5,00,000
 // ─── MockAdapter Class ──────────────────────────────────────────
 
 export class MockAdapter implements BrokerAdapter {
-  readonly brokerId = "mock";
-  readonly displayName = "Paper Trading";
+  readonly brokerId: string;
+  readonly displayName: string;
 
   private orderBook: MockOrderBook;
   private connected = false;
@@ -55,7 +59,13 @@ export class MockAdapter implements BrokerAdapter {
   private tickCallback: TickCallback | null = null;
   private subscribedInstruments = new Map<string, SubscribeParams>();
 
-  constructor(initialMargin: number = DEFAULT_INITIAL_MARGIN) {
+  constructor(
+    brokerId = "mock",
+    displayName = "Paper Trading",
+    initialMargin: number = DEFAULT_INITIAL_MARGIN
+  ) {
+    this.brokerId = brokerId;
+    this.displayName = displayName;
     this.orderBook = new MockOrderBook(initialMargin);
   }
 
@@ -412,7 +422,7 @@ export class MockAdapter implements BrokerAdapter {
     if (!this.tickTimer && this.subscribedInstruments.size > 0) {
       this.startTickSimulation();
     }
-    console.log(`[MockAdapter] subscribeLTP: ${instruments.length} instruments`);
+    log.info(`subscribeLTP: ${instruments.length} instruments`);
   }
 
   unsubscribeLTP(instruments: SubscribeParams[]): void {
@@ -481,7 +491,7 @@ export class MockAdapter implements BrokerAdapter {
 
   async connect(): Promise<void> {
     this.connected = true;
-    console.log("[MockAdapter] Connected (paper trading mode)");
+    log.info("Connected (paper trading mode)");
   }
 
   async disconnect(): Promise<void> {
@@ -492,7 +502,7 @@ export class MockAdapter implements BrokerAdapter {
     this.tickCallback = null;
     this.subscribedInstruments.clear();
     this.connected = false;
-    console.log("[MockAdapter] Disconnected");
+    log.info("Disconnected");
   }
 
   // ── Emergency ─────────────────────────────────────────────────

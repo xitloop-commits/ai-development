@@ -14,7 +14,8 @@ import type { Duplex } from "stream";
 import type { Socket } from "net";
 import { tickBus } from "./tickBus";
 
-const LOG = "[TickWS]";
+import { createLogger } from "./logger";
+const log = createLogger("TickWS");
 
 export function setupTickWebSocket(server: Server): void {
   const wss = new WebSocketServer({
@@ -45,7 +46,7 @@ export function setupTickWebSocket(server: Server): void {
   tickBus.on("rawBinary", onRawBinary);
 
   wss.on("connection", (ws, request) => {
-    console.log(`${LOG} Client connected (total: ${wss.clients.size})`);
+    log.info(`Client connected (total: ${wss.clients.size})`);
 
     // Disable Nagle for minimal TCP latency
     const rawSocket = (request.socket || (ws as any)._socket) as Socket;
@@ -60,13 +61,13 @@ export function setupTickWebSocket(server: Server): void {
     }
 
     ws.on("close", () => {
-      console.log(`${LOG} Client disconnected (total: ${wss.clients.size})`);
+      log.info(`Client disconnected (total: ${wss.clients.size})`);
     });
 
     ws.on("error", (err) => {
-      console.warn(`${LOG} Client error:`, err.message);
+      log.warn(`Client error: ${err.message}`);
     });
   });
 
-  console.log(`${LOG} Tick WebSocket ready on /ws/ticks`);
+  log.info("Tick WebSocket ready on /ws/ticks");
 }

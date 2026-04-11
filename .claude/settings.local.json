@@ -43,7 +43,8 @@
       "Bash(grep -n \"^| \\\\`.*vol_diff\\\\`\" /c/Users/Admin/ai-development/ai-development/docs/specs/TickFeatureAgent_Spec_1.0.md)",
       "Bash(grep -n \"^| [0-9]\\\\+ |\" \"c:\\\\\\\\Users\\\\\\\\Admin\\\\\\\\ai-development\\\\\\\\ai-development\\\\\\\\docs\\\\\\\\specs\\\\\\\\TickFeatureAgent_Spec_1.0.md\")",
       "Bash(grep -c \"^| [0-9]\\\\+ |\" \"c:\\\\\\\\Users\\\\\\\\Admin\\\\\\\\ai-development\\\\\\\\ai-development\\\\\\\\docs\\\\\\\\specs\\\\\\\\TickFeatureAgent_Spec_1.0.md\")",
-      "Bash(grep \"^| [0-9]\\\\+ |\" \"c:\\\\\\\\Users\\\\\\\\Admin\\\\\\\\ai-development\\\\\\\\ai-development\\\\\\\\docs\\\\\\\\specs\\\\\\\\TickFeatureAgent_Spec_1.0.md\")"
+      "Bash(grep \"^| [0-9]\\\\+ |\" \"c:\\\\\\\\Users\\\\\\\\Admin\\\\\\\\ai-development\\\\\\\\ai-development\\\\\\\\docs\\\\\\\\specs\\\\\\\\TickFeatureAgent_Spec_1.0.md\")",
+      "Bash(node -e ':*)"
     ]
   }
 }
