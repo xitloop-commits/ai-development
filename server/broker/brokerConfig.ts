@@ -95,6 +95,7 @@ const brokerConfigSchema = new Schema<BrokerConfigDoc & Document>(
     displayName: { type: String, required: true },
     isActive: { type: Boolean, default: false },
     isPaperBroker: { type: Boolean, default: false },
+    sandboxMode: { type: Boolean, default: false },
     credentials: { type: credentialsSchema, default: () => ({}) },
     settings: { type: settingsSchema, default: () => ({}) },
     connection: { type: connectionSchema, default: () => ({}) },
@@ -246,7 +247,8 @@ function docToConfig(doc: Record<string, any>): BrokerConfigDoc {
     brokerId: doc.brokerId,
     displayName: doc.displayName,
     isActive: doc.isActive,
-    isPaperBroker: doc.isPaperBroker,
+    isPaperBroker: doc.isPaperBroker ?? false,
+    sandboxMode: doc.sandboxMode ?? false,
     credentials: {
       accessToken: doc.credentials?.accessToken ?? "",
       clientId: doc.credentials?.clientId ?? "",

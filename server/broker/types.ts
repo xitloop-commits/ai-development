@@ -338,13 +338,6 @@ export interface SubscriptionState {
   wsConnected: boolean;
 }
 
-export interface ATMWindowConfig {
-  strikeWindow: number; // +/- strikes from ATM (default 10)
-  underlying: string; // e.g. "NIFTY", "BANKNIFTY"
-  expiry: string; // ISO date
-  exchange: ExchangeSegment;
-}
-
 // ─── Broker Config (MongoDB document shape) ─────────────────────
 
 export interface BrokerCredentials {
@@ -391,6 +384,7 @@ export interface BrokerConfigDoc {
   displayName: string;
   isActive: boolean;
   isPaperBroker: boolean;
+  sandboxMode: boolean;
   credentials: BrokerCredentials;
   settings: BrokerSettings;
   connection: BrokerConnection;

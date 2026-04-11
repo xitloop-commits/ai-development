@@ -13,6 +13,9 @@
 import WebSocket from "ws";
 import { EventEmitter } from "events";
 
+import { createLogger } from "../../logger";
+const log = createLogger("DhanOrderWS");
+
 const ORDER_UPDATE_URL = "wss://api-order-update.dhan.co";
 const RECONNECT_DELAY_MS = 5000;
 const HEARTBEAT_INTERVAL_MS = 30000;
@@ -101,11 +104,11 @@ export class DhanOrderUpdateWs extends EventEmitter {
       this.ws.close();
     }
 
-    console.log("[DhanOrderWS] Connecting to", ORDER_UPDATE_URL);
+    log.info(`Connecting to ${ORDER_UPDATE_URL}`);
     this.ws = new WebSocket(ORDER_UPDATE_URL);
 
     this.ws.on("open", () => {
-      console.log("[DhanOrderWS] Connected, sending auth...");
+      log.info("Connected, sending auth...");
       this.sendAuth();
       this.startHeartbeat();
     });
@@ -118,18 +121,18 @@ export class DhanOrderUpdateWs extends EventEmitter {
           this.emit("orderUpdate", normalized);
         }
       } catch (err) {
-        console.error("[DhanOrderWS] Parse error:", err);
+        log.error("Parse error:", err);
       }
     });
 
     this.ws.on("close", (code, reason) => {
-      console.log(`[DhanOrderWS] Closed: ${code} ${reason}`);
+      log.info(`Closed: ${code} ${reason}`);
       this.stopHeartbeat();
       if (this.shouldReconnect) this.scheduleReconnect();
     });
 
     this.ws.on("error", (err) => {
-      console.error("[DhanOrderWS] Error:", err.message);
+      log.error(`Error: ${err.message}`);
     });
   }
 
@@ -142,7 +145,7 @@ export class DhanOrderUpdateWs extends EventEmitter {
       this.ws.close();
       this.ws = null;
     }
-    console.log("[DhanOrderWS] Disconnected");
+    log.info("Disconnected");
   }
 
   updateCredentials(clientId: string, accessToken: string): void {
@@ -167,7 +170,7 @@ export class DhanOrderUpdateWs extends EventEmitter {
       UserType: "SELF",
     };
     this.ws.send(JSON.stringify(authMsg));
-    console.log("[DhanOrderWS] Auth sent");
+    log.info("Auth sent");
   }
 
   private normalize(raw: DhanOrderUpdateRaw): NormalizedOrderUpdate {
@@ -202,7 +205,7 @@ export class DhanOrderUpdateWs extends EventEmitter {
   private scheduleReconnect(): void {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => {
-      console.log("[DhanOrderWS] Reconnecting...");
+      log.info("Reconnecting...");
       this.connect();
     }, RECONNECT_DELAY_MS);
   }

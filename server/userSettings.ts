@@ -67,12 +67,22 @@ export interface ChargesSettings {
   rates: ChargeRate[];
 }
 
+export interface TradingModeSettings {
+  aiTradesMode: "live" | "paper";     // AI Trades workspace mode (Settings-only)
+  myTradesMode: "live" | "paper";     // My Trades workspace mode (on-screen toggle, persisted)
+  testingMode: "live" | "sandbox";    // Testing workspace mode (on-screen toggle, persisted)
+  aiKillSwitch: boolean;              // Kill switch for ai-live channel
+  myKillSwitch: boolean;              // Kill switch for my-live channel
+  testingKillSwitch: boolean;         // Kill switch for testing-live channel
+}
+
 export interface UserSettingsDoc {
   userId: number;
   timeWindows: TimeWindowSettings;
   discipline: DisciplineSettings;
   expiryControls: ExpiryControlSettings;
   charges: ChargesSettings;
+  tradingMode: TradingModeSettings;
   updatedAt: number;               // UTC ms
 }
 
@@ -153,6 +163,15 @@ export const DEFAULT_EXPIRY_RULES: ExpiryInstrumentRule[] = [
     noCarryToExpiry: true,
   },
 ];
+
+export const DEFAULT_TRADING_MODE: TradingModeSettings = {
+  aiTradesMode: "paper",
+  myTradesMode: "paper",
+  testingMode: "sandbox",
+  aiKillSwitch: false,
+  myKillSwitch: false,
+  testingKillSwitch: false,
+};
 
 export const DEFAULT_CHARGES: ChargeRate[] = [
   { name: "Brokerage", rate: 20, unit: "flat_per_order", description: "₹20/order flat (Dhan)", enabled: true },
@@ -236,6 +255,18 @@ const chargeRateSchema = new Schema(
   { _id: false }
 );
 
+const tradingModeSchema = new Schema(
+  {
+    aiTradesMode: { type: String, enum: ["live", "paper"], default: "paper" },
+    myTradesMode: { type: String, enum: ["live", "paper"], default: "paper" },
+    testingMode: { type: String, enum: ["live", "sandbox"], default: "sandbox" },
+    aiKillSwitch: { type: Boolean, default: false },
+    myKillSwitch: { type: Boolean, default: false },
+    testingKillSwitch: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
 const userSettingsSchema = new Schema<UserSettingsDoc & Document>(
   {
     userId: { type: Number, required: true, unique: true, index: true },
@@ -247,6 +278,7 @@ const userSettingsSchema = new Schema<UserSettingsDoc & Document>(
     charges: {
       rates: { type: [chargeRateSchema], default: () => [...DEFAULT_CHARGES] },
     },
+    tradingMode: { type: tradingModeSchema, default: () => ({ ...DEFAULT_TRADING_MODE }) },
     updatedAt: { type: Number, default: () => Date.now() },
   },
   {
@@ -273,6 +305,7 @@ export async function getUserSettings(userId: number): Promise<UserSettingsDoc> 
     discipline: { ...DEFAULT_DISCIPLINE },
     expiryControls: { rules: [...DEFAULT_EXPIRY_RULES] },
     charges: { rates: [...DEFAULT_CHARGES] },
+    tradingMode: { ...DEFAULT_TRADING_MODE },
     updatedAt: Date.now(),
   };
 }
@@ -282,7 +315,9 @@ export async function getUserSettings(userId: number): Promise<UserSettingsDoc> 
  */
 export async function updateUserSettings(
   userId: number,
-  updates: Partial<Pick<UserSettingsDoc, "timeWindows" | "discipline" | "expiryControls" | "charges">>
+  updates: Partial<Pick<UserSettingsDoc, "timeWindows" | "discipline" | "expiryControls" | "charges">> & {
+    tradingMode?: Partial<TradingModeSettings>;
+  }
 ): Promise<UserSettingsDoc> {
   const setFields: Record<string, unknown> = { updatedAt: Date.now() };
 
@@ -311,6 +346,12 @@ export async function updateUserSettings(
 
   if (updates.charges) {
     setFields["charges.rates"] = updates.charges.rates;
+  }
+
+  if (updates.tradingMode) {
+    for (const [key, value] of Object.entries(updates.tradingMode)) {
+      setFields[`tradingMode.${key}`] = value;
+    }
   }
 
   const doc = await UserSettingsModel.findOneAndUpdate(
@@ -375,6 +416,14 @@ function docToSettings(doc: Record<string, any>): UserSettingsDoc {
         description: c.description ?? "",
         enabled: c.enabled ?? true,
       })),
+    },
+    tradingMode: {
+      aiTradesMode: doc.tradingMode?.aiTradesMode ?? "paper",
+      myTradesMode: doc.tradingMode?.myTradesMode ?? "paper",
+      testingMode: doc.tradingMode?.testingMode ?? "sandbox",
+      aiKillSwitch: doc.tradingMode?.aiKillSwitch ?? false,
+      myKillSwitch: doc.tradingMode?.myKillSwitch ?? false,
+      testingKillSwitch: doc.tradingMode?.testingKillSwitch ?? false,
     },
     updatedAt: doc.updatedAt ?? Date.now(),
   };

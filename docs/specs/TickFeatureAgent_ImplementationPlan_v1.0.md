@@ -27,8 +27,8 @@ python_modules/
     ├── state_machine.py           # TRADING / FEED_STALE / WARMING_UP / CHAIN_STALE transitions
     ├── chain_cache.py             # Snapshot-derived feature cache (refreshed every ~5s)
     ├── feed/
-    │   ├── underlying_feed.py     # WebSocket — underlying futures tick stream
-    │   ├── option_feed.py         # WebSocket — full option chain tick stream
+    │   ├── dhan_feed.py           # Single WebSocket direct to Dhan — underlying + all options on one connection
+    │   ├── binary_parser.py       # Stateless binary packet parsers (Ticker/Quote/OI/PrevClose/Full)
     │   └── chain_poller.py        # REST poll every 5s, clock-skew check, rollover detection
     ├── buffers/
     │   ├── tick_buffer.py         # CircularBuffer (fixed-size deque) — 50-tick underlying
@@ -78,17 +78,71 @@ python_modules/
 Add to `python_modules/requirements.txt`:
 
 ```
-requests>=2.28.0          # already present — chain REST polling
+requests>=2.28.0          # already present — credentials fetch + chain REST polling
 python-dotenv>=1.0.0      # already present
-websocket-client>=1.6.0   # already present — tick feeds
+websockets>=12.0          # asyncio-native WS client — replaces websocket-client for direct Dhan connection
 pytz>=2023.3              # IST timezone handling
+orjson>=3.9.0             # fast JSON serialization for NDJSON output
 ```
+
+> **`websockets` vs `websocket-client`:** The existing `websocket_feed.py` uses `websocket-client` (blocking, thread-based). TFA uses `websockets` (asyncio-native) for the direct Dhan connection — fits the single event loop model and avoids threading complexity. The `websocket-client` package can be removed from TFA's requirements if it's not used elsewhere.
+
+> **No broker env vars needed.** `DHAN_ACCESS_TOKEN` and `DHAN_CLIENT_ID` are already stored in MongoDB via the Settings page. TFA fetches them at startup from the Node.js internal credentials endpoint (see Phase 0 below).
 
 No new heavy dependencies. All feature math uses the Python standard library (`statistics`, `collections.deque`, `math`).
 
 ---
 
 ## 4. Implementation Phases
+
+---
+
+### Phase 0 — Node.js Internal Credentials Endpoint (est. 0.5 day)
+
+**Goal:** Expose full broker credentials to TFA over localhost — single source of truth, no env vars.
+
+#### 0.1 New route in `server/broker/brokerRoutes.ts`
+
+```
+GET /api/internal/broker/credentials
+```
+
+- **Localhost-only guard:** reject with `403` if `req.ip` is not `127.0.0.1` / `::1` / `::ffff:127.0.0.1`. Never reachable from outside the machine.
+- Returns full `accessToken` and `clientId` — **not masked** (unlike `GET /api/broker/config` which shows `***last4`).
+- Returns `status` (`valid` / `expired` / `unknown`) and `expiresIn` so TFA can warn if token is stale before attempting Dhan connection.
+- Returns `404` if no active broker is configured.
+
+**Response schema:**
+```json
+{
+  "accessToken": "eyJhbGci...",
+  "clientId": "1234567",
+  "status": "valid",
+  "expiresIn": 86400000
+}
+```
+
+#### 0.2 How TFA uses it
+
+TFA calls this endpoint **twice**:
+
+1. **At startup** — before connecting to Dhan WS. FATAL halt if `status != "valid"` with message: `"Dhan token is {status} — refresh it in Settings page"`.
+2. **On every reconnect** — re-fetches fresh credentials before re-dialing Dhan. Handles the case where the token was refreshed in Settings while TFA was running and then lost connection.
+
+```python
+async def fetch_credentials(base_url="http://localhost:3000") -> dict:
+    resp = requests.get(f"{base_url}/api/internal/broker/credentials", timeout=5)
+    if resp.status_code == 404:
+        log.error("NO_ACTIVE_BROKER", msg="No active broker configured in Settings")
+    if resp.status_code != 200:
+        log.error("CREDENTIALS_FETCH_FAILED", msg=f"HTTP {resp.status_code}")
+    creds = resp.json()
+    if creds["status"] != "valid":
+        log.error("BROKER_TOKEN_INVALID", msg=f"Token status={creds['status']} — refresh in Settings page")
+    return creds
+```
+
+**Test:** `test_instrument_profile.py` extended — mock the credentials endpoint, assert FATAL on `status=expired`, assert FATAL on 404.
 
 ---
 
@@ -138,29 +192,100 @@ No new heavy dependencies. All feature math uses the Python standard library (`s
 
 ### Phase 3 — Feed Connectivity (est. 2–3 days)
 
-**Goal:** Reliable WebSocket feeds and REST chain polling with reconnect.
+**Goal:** Direct low-latency connection to Dhan WebSocket — no Node.js hop.
 
-#### 3.1 `feed/underlying_feed.py`
-- `asyncio`-compatible WebSocket client to broker underlying tick stream.
-- Validates incoming tick `security_id` against `underlying_security_id` from profile → emit `UNDERLYING_SYMBOL_MISMATCH` WARN + set `data_quality_flag = 0` on mismatch.
-- On each tick: update `tick_buffer`, record `last_underlying_tick_time`.
-- On disconnect: transition state machine → `FEED_STALE`.
-- Reconnect with exponential backoff (cap at 30s).
+**Architecture decision:** TFA connects directly to `wss://api-feed.dhan.co` rather than routing through the Node.js broker service. Eliminating the Node.js hop removes one serialization/deserialization cycle and the loopback socket round-trip per tick — meaningful at 500+ ticks/sec.
 
-#### 3.2 `feed/option_feed.py`
-- Single WebSocket multiplexing all subscribed strikes × CE+PE.
-- Dispatch ticks to `OptionBufferStore` by `(strike, option_type)`.
-- Grace window enforcement: discard ticks matching `grace_window_old_ids` (set by rollover handler, released after 5s wall-clock timer).
-- Track `last_option_tick_time[strike]` for per-strike timeout monitoring.
+```
+BEFORE (existing Python modules):  Dhan → Node.js (parse) → tickBus → /ws/ticks → Python (parse again)
+AFTER  (TFA):                       Dhan → Python (parse once) → feature engine
+```
+
+**Credentials:** Fetched at startup from the Node.js internal endpoint `GET /api/internal/broker/credentials` (Phase 0). No env vars — Settings page is the single source of truth. Re-fetched on every reconnect so a token refresh in Settings takes effect automatically.
+
+#### 3.1 `feed/binary_parser.py`
+
+Stateless pure functions — port of `server/broker/adapters/dhan/websocket.ts` parsing logic into Python using `struct`. No state, no side effects — easily unit-testable with raw bytes.
+
+```python
+def parse_header(buf) -> Header          # bytes 0–7: response_code, msg_len, exchange_seg, security_id
+def parse_ticker_packet(buf) -> dict     # code 2 — ltp, ltt only
+def parse_quote_packet(buf) -> dict      # code 4 — ltp, ltq, ltt, atp, volume, totalBuyQty, totalSellQty, OHLC
+def parse_oi_packet(buf) -> dict         # code 5 — oi only
+def parse_prev_close_packet(buf) -> dict # code 6 — prevClose, prevOI
+def parse_full_packet(buf) -> dict       # code 8 — all fields + 5-level depth
+def parse_depth_levels(buf, offset) -> list  # 5 × {bidQty, askQty, bidOrders, askOrders, bidPrice, askPrice}
+```
+
+**Binary layout (Little Endian, from Dhan spec + confirmed in `websocket.ts`):**
+
+| Packet | Code | Key fields extracted by TFA |
+|--------|------|-----------------------------|
+| Ticker | 2 | `ltp` (f32@8), `ltt` (i32@12) |
+| Quote | 4 | `ltp`, `ltq`, `ltt`, `atp`, `volume`, `totalBuyQty`, `totalSellQty`, OHLC |
+| OI | 5 | `oi` (i32@8) |
+| PrevClose | 6 | `prevClose` (f32@8), `prevOI` (i32@12) |
+| Full | 8 | All of Quote + `oi`, `highOI`, `lowOI`, OHLC + 5-level depth @offset 62 |
+
+**TFA subscribes all instruments in Full mode (code 21)** — required for `bid`, `ask`, `bid_size`, `ask_size` which only arrive in the Full packet's depth levels.
+
+#### 3.2 `feed/dhan_feed.py`
+
+Single `asyncio` WebSocket connection to Dhan handling both underlying and all option instruments.
+
+**Connection URL:**
+```
+wss://api-feed.dhan.co?version=2&token={DHAN_ACCESS_TOKEN}&clientId={DHAN_CLIENT_ID}&authType=2
+```
+
+**On connect:**
+1. Send subscribe Full (RequestCode 21) for underlying security ID.
+2. Send subscribe Full (RequestCode 21) for all option strikes × CE+PE — batched at max 100 instruments per message (Dhan limit).
+3. Set TCP no-delay (`sock.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)`) to disable Nagle's algorithm — same as Node.js implementation.
+4. Notify state machine: both feeds connected.
+
+**On each binary message:**
+1. Read header → `response_code`, `exchange_segment`, `security_id`.
+2. Dispatch to appropriate parser in `binary_parser.py`.
+3. Merge partial fields into per-instrument tick cache (mirrors `mergeTick` in `DhanWebSocket`).
+4. Route completed tick:
+   - If `security_id == underlying_security_id` → call `on_underlying_tick(tick)`
+   - Else → call `on_option_tick(tick)` after resolving `(strike, option_type)` from `securityId → strike/opt_type` lookup
+
+**Security ID → strike/option_type lookup:**
+Built at startup from the scrip master (fetched via Node.js broker REST `GET /api/broker/scrip-master/lookup` or from the chain snapshot). Stored as a plain dict `{security_id: (strike, option_type)}` — O(1) per tick lookup.
+
+**On disconnect:**
+- Transition state machine → `FEED_STALE`.
+- Reconnect with exponential backoff: 1s → 2s → 4s → … capped at 30s (max 10 attempts, matching Node.js implementation).
+- On reconnect: re-subscribe all instruments (same batch logic).
+
+**Subscription management (mid-session):**
+- `subscribe(security_ids, mode="full")` — sends RequestCode 21, batched ≤100.
+- `unsubscribe(security_ids)` — sends RequestCode 22, batched ≤100.
+- On expiry rollover: `unsubscribe(old_ids)` then `subscribe(new_ids)`.
+
+**`bid` / `ask` / `bid_size` / `ask_size` mapping:**
+```python
+tick["bid"]      = depth[0]["bidPrice"]
+tick["ask"]      = depth[0]["askPrice"]
+tick["bid_size"] = depth[0]["bidQty"]
+tick["ask_size"] = depth[0]["askQty"]
+```
+
+**`volume` vs `ltq`:**
+- `volume` from feed = cumulative daily volume — NOT per-tick quantity.
+- `ltq` (last traded quantity) = per-tick quantity → this is what TFA spec calls `volume`.
+- TFA uses `ltq` as its `volume` field. The cumulative `volume` field is ignored for per-tick feature computation.
 
 #### 3.3 `feed/chain_poller.py`
-- `asyncio.sleep(5)` loop; fetch chain snapshot via REST.
+- `asyncio.sleep(5)` loop; fetch chain snapshot via Node.js broker REST (`GET /api/broker/option-chain`) — REST polling stays through Node.js (no direct Dhan REST needed; latency on 5s polling is irrelevant).
 - **Clock skew handling:** if `chain_timestamp > tick_time` by ≤2s → accept; >2s → reject + emit `CLOCK_SKEW_DETECTED` + use previous snapshot.
 - **Rollover detection:** `floor(snapshot_time to second)` ≥ 14:30:00 IST AND `snapshot.expiry_date == today` AND `not rolled_over_flag` → trigger `on_expiry_rollover()`. Guard ensures fires once per session.
-- On new strikes detected in snapshot diff: subscribe new strikes, init empty buffers, emit `NEW_STRIKES_DETECTED`.
+- On new strikes detected in snapshot diff: `dhan_feed.subscribe(new_ids)`, init empty buffers, emit `NEW_STRIKES_DETECTED`.
 - Expose current validated snapshot to `chain_cache.py`.
 
-**Test:** mock WebSocket + mock REST server in `test_integration.py`.
+**Test:** `test_integration.py` — feed raw binary bytes (captured from Dhan or synthetically constructed) into `binary_parser.py` functions; assert parsed field values. Mock WebSocket for reconnect logic.
 
 ---
 
@@ -175,14 +300,14 @@ States: `TRADING` | `FEED_STALE` | `WARMING_UP` | `CHAIN_STALE`
 | Trigger | Transition |
 |---------|-----------|
 | Underlying feed disconnect / tick timeout | `TRADING/WARMING_UP/CHAIN_STALE` → `FEED_STALE`, `trading_allowed = False` |
-| Both feeds healthy after `FEED_STALE` | → `WARMING_UP`, start `warm_up_timer` (from profile `warm_up_duration_sec`) |
+| Dhan WS reconnected + first tick received after `FEED_STALE` | → `WARMING_UP`, start `warm_up_timer` (from profile `warm_up_duration_sec`) |
 | `warm_up_timer` expires | `WARMING_UP` → `TRADING`, `trading_allowed = True` |
 | Chain snapshot missing > 30s | `TRADING` → `CHAIN_STALE`, `trading_allowed = False` |
 | Chain snapshot received | `CHAIN_STALE` → `TRADING` (if feeds healthy), `trading_allowed = True` |
 | Expiry rollover | Any → `FEED_STALE`, abort warm-up timer |
 
 - `chain_stale` is set/cleared independently of underlying feed state.
-- Both feeds must be healthy (not just one) for `WARMING_UP` transition (dual-feed rule from spec §1.2).
+- Single Dhan WS connection carries both underlying and option ticks — `FEED_STALE` on disconnect covers both. `WARMING_UP` starts on reconnect + first tick confirmed received.
 - `trading_allowed` and `data_quality_flag` tracked independently.
 
 **Test:** `test_state_machine.py` — all transitions, dual-feed recovery rule, rollover abort.
@@ -575,11 +700,12 @@ All implemented in `main.py`:
 | Order | Phase | Deliverable | Depends On |
 |-------|-------|-------------|------------|
 | 1 | Phase 11b | Logging module (`tfa_logger.py`) | — (no deps — built first, used by all) |
-| 2 | Phase 1 | Startup validation + skeleton | Phase 11b |
+| 2 | Phase 0 | Node.js internal credentials endpoint | — (Node.js side, independent) |
+| 3 | Phase 1 | Startup validation + skeleton | Phase 11b, Phase 0 |
 | 3 | Phase 2 | Circular buffers | Phase 1 |
 | 4 | Phase 4 | State machine | Phase 1 |
 | 5 | Phase 5 | Session management | Phase 2, 4 |
-| 6 | Phase 3 | Feed connectivity | Phase 2, 4, 5 |
+| 7 | Phase 3 | Feed connectivity (direct Dhan WS) | Phase 0, 2, 4, 5 |
 | 7 | Phase 6 | ATM + active strikes | Phase 2, 3 |
 | 8 | Phase 8 | Chain cache | Phase 3, 6 |
 | 9 | Phase 7 | Feature computation (all groups) | Phase 2, 6, 8 |

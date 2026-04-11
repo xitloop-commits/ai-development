@@ -6,6 +6,9 @@
  * 3. Retry wrapper for network errors
  */
 
+import { createLogger } from "../../logger";
+const log = createLogger("Dhan");
+
 // ─── Trading Symbol Parser ────────────────────────────────────
 
 export interface ParsedSymbol {
@@ -231,9 +234,7 @@ export async function withRetry<T>(
 
       // Exponential backoff
       const backoff = delayMs * Math.pow(2, attempt);
-      console.warn(
-        `[DhanRetry] Attempt ${attempt + 1}/${maxRetries + 1} failed. Retrying in ${backoff}ms...`
-      );
+      log.warn(`Attempt ${attempt + 1}/${maxRetries + 1} failed. Retrying in ${backoff}ms...`);
       await delay(backoff);
     }
   }

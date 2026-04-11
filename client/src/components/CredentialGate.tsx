@@ -1,19 +1,12 @@
 /**
  * CredentialGate — hard startup gate.
  *
- * On every app launch checks:
- *   1. Client ID is not empty
- *   2. Access token is < 24 hours old
+ * Blocks the app only when the access token has expired (tokens last 24 hours).
+ * Client ID is resolved automatically from Dhan's API — never asked from the user.
  *
- * If either check fails, blocks the entire app with a non-dismissable
- * dialog until the user provides valid credentials.
- *
- * Client ID is permanent (entered once, never changes).
- * Access token must be refreshed daily.
- *
- * Renders children only when both checks pass.
+ * Renders children only when the token is valid.
  */
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -36,8 +29,6 @@ interface CredentialGateProps {
 
 export function CredentialGate({ children }: CredentialGateProps) {
   const [token, setToken] = useState("");
-  const [clientId, setClientId] = useState("");
-  const [dismissed, setDismissed] = useState(false);
 
   const statusQuery = trpc.broker.status.useQuery(undefined, {
     refetchInterval: 30_000,
@@ -50,9 +41,8 @@ export function CredentialGate({ children }: CredentialGateProps) {
 
   const tokenMutation = trpc.broker.token.update.useMutation({
     onSuccess: () => {
-      toast.success("Credentials updated successfully");
+      toast.success("Token updated successfully");
       setToken("");
-      setClientId("");
       statusQuery.refetch();
       configQuery.refetch();
     },
@@ -70,72 +60,44 @@ export function CredentialGate({ children }: CredentialGateProps) {
   const noBroker = !status?.activeBrokerId;
   const isPaper = config?.isPaperBroker ?? false;
 
-  // Check conditions (only for live brokers)
+  // Only block on token expiry — client ID is resolved automatically by the server
   const savedClientId = config?.credentials?.clientId ?? "";
   const tokenUpdatedAt = config?.credentials?.updatedAt ?? 0;
   const tokenAge = tokenUpdatedAt > 0 ? Date.now() - tokenUpdatedAt : Infinity;
 
-  const clientIdMissing = !isPaper && !noBroker && !savedClientId && configQuery.isFetched;
   const tokenExpired = !isPaper && !noBroker && (
     tokenAge >= TWENTY_FOUR_HOURS ||
     status?.tokenStatus === "expired"
   );
 
-  const gateBlocked = clientIdMissing || tokenExpired;
-
-  // Pre-fill client ID from saved config
-  useEffect(() => {
-    if (savedClientId) {
-      setClientId(savedClientId);
-    }
-  }, [savedClientId]);
+  const gateBlocked = tokenExpired;
 
   // ── Submit handler ─────────────────────────────────────────────
   const handleSubmit = () => {
-    const resolvedClientId = savedClientId || clientId.trim();
-    if (!resolvedClientId) {
-      toast.error("Client ID is required");
-      return;
-    }
     if (!token.trim()) {
       toast.error("Access token is required");
       return;
     }
     tokenMutation.mutate({
       token: token.trim(),
-      clientId: resolvedClientId,
+      clientId: savedClientId,
     });
   };
 
   // ── Determine what to show ─────────────────────────────────────
-  // If loading or no broker or paper mode, pass through
-  if (isLoading || noBroker || isPaper || !gateBlocked || dismissed) {
+  if (isLoading || noBroker || isPaper || !gateBlocked) {
     return <>{children}</>;
   }
 
-  // Dynamic messaging
-  const needsClientId = clientIdMissing;
-  const needsToken = tokenExpired;
-
-  let title = "Credentials Required";
-  let description = "";
-  if (needsClientId && needsToken) {
-    title = "Setup Required";
-    description = "Your Client ID is missing and access token has expired. Enter both to continue.";
-  } else if (needsClientId) {
-    title = "Client ID Required";
-    description = "Your Dhan Client ID is required for API authentication. Enter it below to continue.";
-  } else {
-    title = "Access Token Expired";
-    description = "Your Dhan access token has expired (tokens are valid for 24 hours). Paste a new token to continue.";
-  }
+  const title = "Access Token Expired";
+  const description = "Your Dhan access token has expired (tokens are valid for 24 hours). Paste a new token to continue.";
 
   return (
     <>
       {/* Render a dark backdrop instead of the app */}
       <div className="fixed inset-0 bg-background z-40" />
 
-      <Dialog open={true} onOpenChange={(v) => !v && setDismissed(true)}>
+      <Dialog open={true} onOpenChange={() => {}}>
         <DialogContent
           className="sm:max-w-md z-50"
           onPointerDownOutside={(e) => e.preventDefault()}
@@ -144,49 +106,19 @@ export function CredentialGate({ children }: CredentialGateProps) {
             <DialogTitle className="text-warning-amber">{title}</DialogTitle>
             <DialogDescription>
               {description}{" "}
-              {needsToken && (
-                <>
-                  Get a new token from{" "}
-                  <a
-                    href="https://login.dhan.co"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline text-info-cyan"
-                  >
-                    login.dhan.co
-                  </a>
-                </>
-              )}
+              <a
+                href="https://login.dhan.co"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline text-info-cyan"
+              >
+                login.dhan.co
+              </a>
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
-            {/* Client ID — read-only if saved, editable if missing */}
-            {needsClientId ? (
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Client ID <span className="text-loss-red">*</span>
-                </label>
-                <Input
-                  value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                  placeholder="Your Dhan client ID (e.g. 1100012345)"
-                  className="font-mono text-xs"
-                  autoFocus
-                />
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Client ID
-                </label>
-                <div className="px-3 py-2 rounded-md border bg-muted/30 font-mono text-xs text-muted-foreground">
-                  {savedClientId}
-                </div>
-              </div>
-            )}
-
-            {/* Access Token — always required */}
+            {/* Access Token */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">
                 Access Token <span className="text-loss-red">*</span>
@@ -197,7 +129,7 @@ export function CredentialGate({ children }: CredentialGateProps) {
                   onChange={(e) => setToken(e.target.value)}
                   placeholder="Paste your access token..."
                   className="font-mono text-sm pr-9"
-                  autoFocus={!needsClientId}
+                  autoFocus
                 />
                 <button
                   type="button"
@@ -221,11 +153,7 @@ export function CredentialGate({ children }: CredentialGateProps) {
           <DialogFooter>
             <Button
               onClick={handleSubmit}
-              disabled={
-                (!savedClientId && !clientId.trim()) ||
-                !token.trim() ||
-                tokenMutation.isPending
-              }
+              disabled={!token.trim() || tokenMutation.isPending}
               className="w-full"
             >
               {tokenMutation.isPending ? "Updating..." : "Continue"}
