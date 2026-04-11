@@ -36,6 +36,8 @@ import {
   Info,
   Loader2,
   Landmark,
+  Layers,
+  Power,
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -52,6 +54,7 @@ import {
 
 type SettingsSection =
   | 'broker'
+  | 'tradingMode'
   | 'execution'
   | 'discipline'
   | 'timeWindows'
@@ -70,6 +73,7 @@ interface SectionItem {
 const SECTIONS: SectionItem[] = [
   { id: 'instruments', label: 'Instruments', icon: SettingsIcon, description: 'Configure tradable instruments' },
   { id: 'broker', label: 'Broker Config', icon: Wallet, description: 'Active broker, credentials, connection status' },
+  { id: 'tradingMode', label: 'Trading Mode', icon: Layers, description: 'Workspace modes and per-workspace kill switches' },
   { id: 'execution', label: 'Order Execution', icon: Zap, description: 'Entry offset, SL/TP, targets, trailing stop' },
   { id: 'discipline', label: 'Discipline', icon: ShieldCheck, description: 'Circuit breaker, trade limits, pre-trade gate, streaks' },
   { id: 'timeWindows', label: 'Time Windows', icon: Clock, description: 'NSE & MCX trading time restrictions' },
@@ -380,9 +384,7 @@ export function BrokerConfigSection() {
                   />
                 </>
               )}
-              {status?.killSwitchActive && (
-                <StatusBadge status="error" label="KILL SWITCH ACTIVE" />
-              )}
+              {/* Kill switch state is managed in Trading Mode section */}
             </div>
           )}
         </div>
@@ -1000,6 +1002,224 @@ export function CapitalManagementSection() {
           )}
         </div>
       </SettingsCard>
+    </div>
+  );
+}
+
+// ─── Mode Segmented Button ────────────────────────────────────────
+
+function ModeToggle<T extends string>({
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className={`flex rounded-md border border-border overflow-hidden ${disabled ? 'opacity-50' : ''}`}>
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange(opt.value)}
+          className={`px-3 py-1 text-[10px] font-bold tracking-wider uppercase transition-colors ${
+            value === opt.value
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
+          } ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ─── Trading Mode Section ─────────────────────────────────────────
+
+export function TradingModeSection() {
+  const settingsQuery = trpc.settings.get.useQuery();
+  const updateModeMutation = trpc.settings.updateTradingMode.useMutation({
+    onSuccess: () => {
+      toast.success('Trading mode updated');
+      settingsQuery.refetch();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const killSwitchMutation = trpc.broker.killSwitch.useMutation({
+    onSuccess: () => {
+      settingsQuery.refetch();
+    },
+    onError: (err) => toast.error(`Kill switch error: ${err.message}`),
+  });
+
+  const tm = settingsQuery.data?.tradingMode;
+
+  const handleMode = (field: 'aiTradesMode' | 'myTradesMode' | 'testingMode', value: string) => {
+    updateModeMutation.mutate({ [field]: value } as any);
+  };
+
+  const handleKillSwitch = (workspace: 'ai' | 'my' | 'testing', active: boolean) => {
+    killSwitchMutation.mutate({ workspace, action: active ? 'ACTIVATE' : 'DEACTIVATE' });
+  };
+
+  const isLoading = settingsQuery.isLoading;
+
+  return (
+    <div className="space-y-4">
+      {/* AI Trades Workspace */}
+      <SettingsCard title="AI Trades">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <FieldLabel hint="Switches which channel the AI model uses. Paper is safe for testing.">
+                AI Trades Mode
+              </FieldLabel>
+              <p className="text-[9px] text-muted-foreground mt-1">
+                Live → <span className="text-foreground font-mono">ai-live</span> channel (real Dhan account)
+                &nbsp;·&nbsp;
+                Paper → <span className="text-foreground font-mono">ai-paper</span> channel (MockAdapter)
+              </p>
+            </div>
+            <ModeToggle
+              value={tm?.aiTradesMode ?? 'paper'}
+              options={[{ value: 'paper', label: 'Paper' }, { value: 'live', label: 'Live' }]}
+              onChange={(v) => handleMode('aiTradesMode', v)}
+              disabled={isLoading || updateModeMutation.isPending}
+            />
+          </div>
+
+          <div className="flex items-center justify-between pt-3 border-t border-border">
+            <div>
+              <FieldLabel hint="Blocks new orders on ai-live. Cancel and exit always bypass.">
+                AI Kill Switch
+              </FieldLabel>
+              {tm?.aiKillSwitch && (
+                <span className="text-[9px] text-destructive font-bold tracking-wider">● ACTIVE — ai-live blocked</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {tm?.aiKillSwitch && (
+                <span className="text-[9px] px-2 py-0.5 rounded bg-destructive/10 text-destructive border border-destructive/30 font-bold tracking-wider uppercase">
+                  HALTED
+                </span>
+              )}
+              <ToggleSwitch
+                checked={tm?.aiKillSwitch ?? false}
+                onChange={(v) => handleKillSwitch('ai', v)}
+                disabled={killSwitchMutation.isPending || isLoading}
+              />
+            </div>
+          </div>
+        </div>
+      </SettingsCard>
+
+      {/* My Trades Workspace */}
+      <SettingsCard title="My Trades">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <FieldLabel hint="Persists the active tab selection across page refreshes.">
+                My Trades Mode
+              </FieldLabel>
+              <p className="text-[9px] text-muted-foreground mt-1">
+                Both Live and Paper tabs are always active simultaneously.
+              </p>
+            </div>
+            <ModeToggle
+              value={tm?.myTradesMode ?? 'paper'}
+              options={[{ value: 'paper', label: 'Paper' }, { value: 'live', label: 'Live' }]}
+              onChange={(v) => handleMode('myTradesMode', v)}
+              disabled={isLoading || updateModeMutation.isPending}
+            />
+          </div>
+
+          <div className="flex items-center justify-between pt-3 border-t border-border">
+            <div>
+              <FieldLabel hint="Blocks new orders on my-live. Cancel and exit always bypass.">
+                My Kill Switch
+              </FieldLabel>
+              {tm?.myKillSwitch && (
+                <span className="text-[9px] text-destructive font-bold tracking-wider">● ACTIVE — my-live blocked</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {tm?.myKillSwitch && (
+                <span className="text-[9px] px-2 py-0.5 rounded bg-destructive/10 text-destructive border border-destructive/30 font-bold tracking-wider uppercase">
+                  HALTED
+                </span>
+              )}
+              <ToggleSwitch
+                checked={tm?.myKillSwitch ?? false}
+                onChange={(v) => handleKillSwitch('my', v)}
+                disabled={killSwitchMutation.isPending || isLoading}
+              />
+            </div>
+          </div>
+        </div>
+      </SettingsCard>
+
+      {/* Testing Workspace */}
+      <SettingsCard title="Testing">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <FieldLabel hint="Testing has no capital pool. For code and integration validation only.">
+                Testing Mode
+              </FieldLabel>
+              <p className="text-[9px] text-muted-foreground mt-1">
+                Sandbox → <span className="text-foreground font-mono">testing-sandbox</span> (Dhan DevPortal, fills at ₹100)
+                &nbsp;·&nbsp;
+                Live → <span className="text-foreground font-mono">testing-live</span> (real Dhan, small real money)
+              </p>
+            </div>
+            <ModeToggle
+              value={tm?.testingMode ?? 'sandbox'}
+              options={[{ value: 'sandbox', label: 'Sandbox' }, { value: 'live', label: 'Live' }]}
+              onChange={(v) => handleMode('testingMode', v)}
+              disabled={isLoading || updateModeMutation.isPending}
+            />
+          </div>
+
+          <div className="flex items-center justify-between pt-3 border-t border-border">
+            <div>
+              <FieldLabel hint="Blocks new orders on testing-live only. Sandbox is never affected.">
+                Testing Kill Switch
+              </FieldLabel>
+              {tm?.testingKillSwitch && (
+                <span className="text-[9px] text-destructive font-bold tracking-wider">● ACTIVE — testing-live blocked</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {tm?.testingKillSwitch && (
+                <span className="text-[9px] px-2 py-0.5 rounded bg-destructive/10 text-destructive border border-destructive/30 font-bold tracking-wider uppercase">
+                  HALTED
+                </span>
+              )}
+              <ToggleSwitch
+                checked={tm?.testingKillSwitch ?? false}
+                onChange={(v) => handleKillSwitch('testing', v)}
+                disabled={killSwitchMutation.isPending || isLoading}
+              />
+            </div>
+          </div>
+        </div>
+      </SettingsCard>
+
+      {/* Info note */}
+      <div className="flex items-start gap-2 p-3 rounded-md bg-muted/30 border border-border">
+        <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+        <p className="text-[10px] text-muted-foreground leading-relaxed">
+          Kill switches are <strong className="text-foreground">independent</strong> — activating AI kill switch does not affect My Trades or Testing.
+          Kill switches only block live channels — paper and sandbox channels are never blocked.
+          State persists across server restarts.
+        </p>
+      </div>
     </div>
   );
 }
@@ -2160,6 +2380,8 @@ export default function Settings() {
     switch (activeSection) {
       case 'broker':
         return <BrokerConfigSection />;
+      case 'tradingMode':
+        return <TradingModeSection />;
       case 'execution':
         return <OrderExecutionSection />;
       case 'discipline':

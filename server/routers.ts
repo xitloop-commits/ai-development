@@ -401,6 +401,21 @@ export const appRouter = router({
         const updated = await updateUserSettings(1 /* single-user */, { charges: input as any });
         return { success: true, charges: updated.charges };
       }),
+
+    // Update trading mode — workspace modes and kill switch states
+    updateTradingMode: publicProcedure
+      .input(z.object({
+        aiTradesMode: z.enum(["live", "paper"]).optional(),
+        myTradesMode: z.enum(["live", "paper"]).optional(),
+        testingMode: z.enum(["live", "sandbox"]).optional(),
+        aiKillSwitch: z.boolean().optional(),
+        myKillSwitch: z.boolean().optional(),
+        testingKillSwitch: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const updated = await updateUserSettings(1 /* single-user */, { tradingMode: input as any });
+        return { success: true, tradingMode: updated.tradingMode };
+      }),
   }),
 
   // Broker Service (tRPC)

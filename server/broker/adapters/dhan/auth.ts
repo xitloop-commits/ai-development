@@ -8,6 +8,10 @@
  * 4. Centralized HTTP client with auth headers
  */
 
+import { createLogger } from "../../logger";
+
+const log = createLogger("DhanAuth");
+
 import {
   DHAN_API_BASE,
   DHAN_ENDPOINTS,
@@ -263,7 +267,7 @@ export async function updateDhanToken(
  * Updates the broker config to mark token as expired.
  */
 export async function handleDhan401(brokerId: string): Promise<void> {
-  console.warn(`[DhanAuth] 401 detected for broker "${brokerId}". Marking token as expired.`);
+  log.warn(`401 detected for broker "${brokerId}". Marking token as expired.`);
 
   await updateBrokerCredentials(brokerId, {
     status: "expired",

@@ -29,7 +29,8 @@ import {
   DHAN_WS_DISCONNECT_CODES,
 } from "./constants.js";
 
-const LOG_PREFIX = "[DhanWS]";
+import { createLogger } from "../../logger.js";
+const log = createLogger("DhanWS");
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -205,7 +206,7 @@ export class DhanWebSocket extends EventEmitter {
     return new Promise((resolve, reject) => {
       const url = `${DHAN_WS_FEED_URL}?version=2&token=${this.config.accessToken}&clientId=${this.config.clientId}&authType=2`;
 
-      console.log(`${LOG_PREFIX} Connecting to Dhan Live Market Feed...`);
+      log.info("Connecting to Dhan Live Market Feed...");
 
       this.ws = new WebSocket(url);
 
@@ -223,7 +224,7 @@ export class DhanWebSocket extends EventEmitter {
         // Disable Nagle for minimal latency on incoming ticks
         const sock = (this.ws as any)?._socket;
         if (sock && typeof sock.setNoDelay === "function") sock.setNoDelay(true);
-        console.log(`${LOG_PREFIX} Connected successfully`);
+        log.info("Connected successfully");
         this.config.onConnected();
 
         // Re-subscribe existing instruments after reconnect
@@ -244,7 +245,7 @@ export class DhanWebSocket extends EventEmitter {
         this._connected = false;
         this.isConnecting = false;
         const reasonStr = reason.toString() || `code ${code}`;
-        console.log(`${LOG_PREFIX} Disconnected: ${reasonStr}`);
+        log.info(`Disconnected: ${reasonStr}`);
 
         if (!this.isDisconnecting) {
           this.scheduleReconnect();
@@ -253,7 +254,7 @@ export class DhanWebSocket extends EventEmitter {
 
       this.ws.on("error", (err: Error) => {
         clearTimeout(timeout);
-        console.error(`${LOG_PREFIX} Error:`, err.message);
+        log.error(`Error: ${err.message}`);
         this.config.onError(err);
 
         if (this.isConnecting) {
@@ -288,7 +289,7 @@ export class DhanWebSocket extends EventEmitter {
 
     this._connected = false;
     this.isConnecting = false;
-    console.log(`${LOG_PREFIX} Disconnected gracefully`);
+    log.info("Disconnected gracefully");
   }
 
   subscribe(instruments: SubscriptionEntry[]): void {
@@ -400,7 +401,7 @@ export class DhanWebSocket extends EventEmitter {
         const disconnectCode = data.length >= 10 ? data.readInt16LE(8) : 0;
         const reason =
           DHAN_WS_DISCONNECT_CODES[disconnectCode] || `Unknown (${disconnectCode})`;
-        console.warn(`${LOG_PREFIX} Server disconnect: ${reason}`);
+        log.warn(`Server disconnect: ${reason}`);
         this.config.onDisconnect(disconnectCode, reason);
         break;
       }
@@ -416,14 +417,12 @@ export class DhanWebSocket extends EventEmitter {
 
       case DHAN_FEED_RESPONSE.MARKET_STATUS: {
         // Market status packet — log but don't process
-        console.log(`${LOG_PREFIX} Market status update received`);
+        log.info("Market status update received");
         break;
       }
 
       default:
-        console.warn(
-          `${LOG_PREFIX} Unknown response code: ${header.responseCode}`
-        );
+        log.warn(`Unknown response code: ${header.responseCode}`);
     }
   }
 
@@ -496,9 +495,7 @@ export class DhanWebSocket extends EventEmitter {
       }
 
       const actionLabel = action === "subscribe" ? "Subscribed" : "Unsubscribed";
-      console.log(
-        `${LOG_PREFIX} ${actionLabel} ${insts.length} instruments (${mode})`
-      );
+      log.info(`${actionLabel} ${insts.length} instruments (${mode})`);
     }
   }
 
@@ -530,17 +527,13 @@ export class DhanWebSocket extends EventEmitter {
   private resubscribeAll(): void {
     const entries = Array.from(this.subscriptions.values());
     if (entries.length === 0) return;
-    console.log(
-      `${LOG_PREFIX} Re-subscribing ${entries.length} instruments after reconnect`
-    );
+    log.info(`Re-subscribing ${entries.length} instruments after reconnect`);
     this.sendSubscribeBatched(entries, "subscribe");
   }
 
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error(
-        `${LOG_PREFIX} Max reconnect attempts (${this.maxReconnectAttempts}) reached. Giving up.`
-      );
+      log.error(`Max reconnect attempts (${this.maxReconnectAttempts}) reached. Giving up.`);
       this.config.onError(
         new Error("WebSocket max reconnect attempts exceeded")
       );
@@ -554,15 +547,13 @@ export class DhanWebSocket extends EventEmitter {
     );
     this.reconnectAttempts++;
 
-    console.log(
-      `${LOG_PREFIX} Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
-    );
+    log.info(`Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
     this.reconnectTimer = setTimeout(async () => {
       try {
         await this.connect();
       } catch (err) {
-        console.error(`${LOG_PREFIX} Reconnect failed:`, err);
+        log.error("Reconnect failed:", err);
         this.scheduleReconnect();
       }
     }, delay);

@@ -1,46 +1,231 @@
 /**
- * Broker Service — Singleton
+ * Broker Service — Multi-Adapter Singleton (BSA v1.7)
  *
- * Central orchestrator that:
- * 1. Registers adapter factories (Dhan, Mock, future brokers)
- * 2. Loads the active adapter based on MongoDB broker_configs
- * 3. Routes all calls through the active adapter
- * 4. Provides status and switching capabilities
+ * Manages four named adapter slots, each serving specific trading channels:
+ *   dhanLive    → ai-live, my-live, testing-live  (brokerId: "dhan")
+ *   dhanSandbox → testing-sandbox                 (brokerId: "dhan-sandbox", sandboxMode)
+ *   mockAi      → ai-paper                        (brokerId: "mock-ai")
+ *   mockMy      → my-paper                        (brokerId: "mock-my")
+ *
+ * Kill switches are per-workspace and independent (ai / my / testing).
+ * Kill switch state is persisted to user_settings and loaded at startup.
  */
 
 import type { BrokerAdapter, BrokerServiceStatus } from "./types";
 import {
-  getActiveBrokerConfig,
   getBrokerConfig,
+  getActiveBrokerConfig,
+  getAllBrokerConfigs,
+  upsertBrokerConfig,
   setActiveBroker as setActiveBrokerInDB,
 } from "./brokerConfig";
 import { tickBus } from "./tickBus";
+import { getUserSettings, updateUserSettings } from "../userSettings";
+import { DhanAdapter } from "./adapters/dhan/index";
+import { MockAdapter } from "./adapters/mock/index";
+import { createLogger } from "./logger";
+
+const log = createLogger("Service");
 
 // ─── Types ──────────────────────────────────────────────────────
 
-/** Factory function that creates an adapter instance. */
+/** Factory function that creates an adapter instance (kept for backward compat). */
 export type AdapterFactory = () => BrokerAdapter;
-
-// ─── Singleton State ────────────────────────────────────────────
-
-const adapterFactories = new Map<string, AdapterFactory>();
 
 export interface AdapterMeta {
   brokerId: string;
   displayName: string;
   isPaperBroker: boolean;
 }
+
+// ─── Channel → Adapter mapping ──────────────────────────────────
+
+export type Channel =
+  | "ai-live"
+  | "ai-paper"
+  | "my-live"
+  | "my-paper"
+  | "testing-live"
+  | "testing-sandbox";
+
+export type Workspace = "ai" | "my" | "testing";
+
+// ─── Singleton State ────────────────────────────────────────────
+
+interface BSAAdapters {
+  dhanLive: DhanAdapter | null;       // ai-live, my-live, testing-live
+  dhanSandbox: DhanAdapter | null;    // testing-sandbox
+  mockAi: MockAdapter | null;         // ai-paper
+  mockMy: MockAdapter | null;         // my-paper
+}
+
+const adapters: BSAAdapters = {
+  dhanLive: null,
+  dhanSandbox: null,
+  mockAi: null,
+  mockMy: null,
+};
+
+interface KillSwitchState {
+  ai: boolean;
+  my: boolean;
+  testing: boolean;
+}
+
+const killSwitch: KillSwitchState = {
+  ai: false,
+  my: false,
+  testing: false,
+};
+
+// ─── Legacy registry (kept for backward compat with setup flow) ──
+
+const adapterFactories = new Map<string, AdapterFactory>();
 const adapterMeta = new Map<string, AdapterMeta>();
 
-let activeAdapter: BrokerAdapter | null = null;
-let killSwitchActive = false;
-
-// ─── Registration ───────────────────────────────────────────────
+// ─── Seed Documents ─────────────────────────────────────────────
 
 /**
- * Register an adapter factory. Call this at startup for each broker.
- * Does NOT instantiate the adapter — just stores the factory.
+ * Ensure the 4 required broker_configs documents exist in MongoDB.
+ * Uses upsert — will NOT overwrite existing tokens or settings.
  */
+async function seedBrokerConfigs(): Promise<void> {
+  const seeds = [
+    { brokerId: "dhan",         displayName: "Dhan Live",         isPaperBroker: false, sandboxMode: false },
+    { brokerId: "dhan-sandbox", displayName: "Dhan Sandbox",      isPaperBroker: false, sandboxMode: true  },
+    { brokerId: "mock-ai",      displayName: "Paper (AI Trades)", isPaperBroker: true,  sandboxMode: false },
+    { brokerId: "mock-my",      displayName: "Paper (My Trades)", isPaperBroker: true,  sandboxMode: false },
+  ];
+
+  for (const seed of seeds) {
+    const existing = await getBrokerConfig(seed.brokerId);
+    if (!existing) {
+      await upsertBrokerConfig({
+        brokerId: seed.brokerId,
+        displayName: seed.displayName,
+        isPaperBroker: seed.isPaperBroker,
+        sandboxMode: seed.sandboxMode,
+        isActive: seed.brokerId === "dhan", // mark dhan as the default active broker
+      });
+      log.info(`Seeded broker config: ${seed.brokerId}`);
+    }
+  }
+}
+
+// ─── Channel Routing ────────────────────────────────────────────
+
+/**
+ * Resolve a channel string to the correct adapter instance.
+ */
+export function getAdapter(channel: Channel): BrokerAdapter {
+  switch (channel) {
+    case "ai-live":
+    case "my-live":
+    case "testing-live":
+      if (!adapters.dhanLive) throw new Error("DhanAdapter (live) not initialised");
+      return adapters.dhanLive;
+    case "testing-sandbox":
+      if (!adapters.dhanSandbox) throw new Error("DhanAdapter (sandbox) not initialised");
+      return adapters.dhanSandbox;
+    case "ai-paper":
+      if (!adapters.mockAi) throw new Error("MockAdapter (mock-ai) not initialised");
+      return adapters.mockAi;
+    case "my-paper":
+      if (!adapters.mockMy) throw new Error("MockAdapter (mock-my) not initialised");
+      return adapters.mockMy;
+    default:
+      throw new Error(`Unknown channel: ${channel}`);
+  }
+}
+
+// ─── Kill Switch ─────────────────────────────────────────────────
+
+/**
+ * Check if the kill switch is active for a given channel.
+ * Paper and sandbox channels are never affected.
+ */
+export function isChannelKillSwitchActive(channel: Channel): boolean {
+  switch (channel) {
+    case "ai-live":     return killSwitch.ai;
+    case "my-live":     return killSwitch.my;
+    case "testing-live": return killSwitch.testing;
+    default:            return false; // paper / sandbox never blocked
+  }
+}
+
+/**
+ * Activate or deactivate the kill switch for a specific workspace.
+ * State is persisted to user_settings.
+ */
+export async function toggleWorkspaceKillSwitch(
+  workspace: Workspace,
+  action: "ACTIVATE" | "DEACTIVATE"
+): Promise<{ status: string; workspace: Workspace; active: boolean }> {
+  const active = action === "ACTIVATE";
+  killSwitch[workspace] = active;
+
+  // Persist to user_settings
+  await updateUserSettings(1 /* single-user */, {
+    tradingMode: {
+      aiKillSwitch: killSwitch.ai,
+      myKillSwitch: killSwitch.my,
+      testingKillSwitch: killSwitch.testing,
+    },
+  });
+
+  // If activating, call killSwitch on the live channel adapter
+  if (active) {
+    const channelMap: Record<Workspace, "ai-live" | "my-live" | "testing-live"> = {
+      ai: "ai-live",
+      my: "my-live",
+      testing: "testing-live",
+    };
+    try {
+      const adapter = getAdapter(channelMap[workspace]);
+      await adapter.killSwitch("ACTIVATE");
+    } catch (err) {
+      log.warn(`Kill switch activate error for ${workspace}:`, err);
+    }
+  }
+
+  log.info(`Kill switch ${action} — workspace: ${workspace}`);
+  return { status: active ? "activated" : "deactivated", workspace, active };
+}
+
+export function getKillSwitchState(): KillSwitchState {
+  return { ...killSwitch };
+}
+
+// ─── Legacy single-adapter helpers (used by brokerRouter + brokerRoutes) ───
+
+/**
+ * Get the currently active adapter (dhanLive by default).
+ * Kept for backward compatibility — prefer getAdapter(channel) in new code.
+ */
+export function getActiveBroker(): BrokerAdapter | null {
+  return adapters.dhanLive;
+}
+
+/** @deprecated use toggleWorkspaceKillSwitch */
+export async function toggleKillSwitch(
+  action: "ACTIVATE" | "DEACTIVATE"
+): Promise<{ status: string; message?: string }> {
+  await toggleWorkspaceKillSwitch("ai", action);
+  await toggleWorkspaceKillSwitch("my", action);
+  await toggleWorkspaceKillSwitch("testing", action);
+  return {
+    status: action === "ACTIVATE" ? "activated" : "deactivated",
+    message: `All kill switches ${action === "ACTIVATE" ? "activated" : "deactivated"}.`,
+  };
+}
+
+/** @deprecated use isChannelKillSwitchActive(channel) */
+export function isKillSwitchActive(): boolean {
+  return killSwitch.ai || killSwitch.my || killSwitch.testing;
+}
+
+// ─── Registration (legacy, kept for setup flow) ─────────────────
+
 export function registerAdapter(
   brokerId: string,
   factory: AdapterFactory,
@@ -52,12 +237,9 @@ export function registerAdapter(
     displayName: meta?.displayName ?? brokerId,
     isPaperBroker: meta?.isPaperBroker ?? false,
   });
-  console.log(`[BrokerService] Registered adapter: ${brokerId}`);
+  log.info(`Registered adapter: ${brokerId}`);
 }
 
-/**
- * Get list of all registered adapter IDs.
- */
 export function getRegisteredAdapters(): string[] {
   return Array.from(adapterFactories.keys());
 }
@@ -66,176 +248,110 @@ export function getRegisteredAdaptersMeta(): AdapterMeta[] {
   return Array.from(adapterMeta.values());
 }
 
-// ─── Active Adapter ─────────────────────────────────────────────
+// ─── Initialization ──────────────────────────────────────────────
 
 /**
- * Get the currently active adapter.
- * Returns null if no adapter is loaded.
- */
-export function getActiveBroker(): BrokerAdapter | null {
-  return activeAdapter;
-}
-
-/**
- * Initialize the broker service by loading the active adapter from MongoDB.
- * Call this once at server startup (after MongoDB is connected).
+ * Initialize the BSA: seed configs, instantiate 4 adapters, load kill switch state.
+ * Call once at server startup after MongoDB is connected.
  */
 export async function initBrokerService(): Promise<void> {
-  const config = await getActiveBrokerConfig();
+  log.info("Initialising...");
 
-  if (!config) {
-    console.log(
-      "[BrokerService] No active broker config found. Service idle."
-    );
-    return;
-  }
+  // 1. Seed the 4 required broker_configs documents
+  await seedBrokerConfigs();
 
-  const factory = adapterFactories.get(config.brokerId);
-  if (!factory) {
-    console.warn(
-      `[BrokerService] No adapter registered for brokerId="${config.brokerId}". Service idle.`
-    );
-    return;
-  }
-
+  // 2. Load kill switch state from user_settings
   try {
-    activeAdapter = factory();
-    await activeAdapter.connect();
-    wireTickBus(activeAdapter);
-    console.log(
-      `[BrokerService] Active adapter loaded: ${activeAdapter.displayName} (${activeAdapter.brokerId})`
-    );
+    const settings = await getUserSettings(1 /* single-user */);
+    killSwitch.ai      = settings.tradingMode.aiKillSwitch;
+    killSwitch.my      = settings.tradingMode.myKillSwitch;
+    killSwitch.testing = settings.tradingMode.testingKillSwitch;
+    log.info(`Kill switches loaded — ai:${killSwitch.ai} my:${killSwitch.my} testing:${killSwitch.testing}`);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      `[BrokerService] Failed to connect adapter "${config.brokerId}": ${message}`
-    );
-    // Keep the adapter reference so we can retry later
+    log.warn("Could not load kill switch state, defaulting to OFF:", err);
   }
+
+  // 3. Instantiate DhanAdapter (live) → connect (opens WS + order update WS)
+  try {
+    adapters.dhanLive = new DhanAdapter("dhan", false);
+    await adapters.dhanLive.connect();
+    wireTickBus(adapters.dhanLive);
+    log.info("DhanAdapter (live) connected");
+  } catch (err) {
+    log.error("DhanAdapter (live) failed to connect:", err);
+  }
+
+  // 4. Instantiate DhanAdapter (sandbox) → token validation only, no WS
+  try {
+    adapters.dhanSandbox = new DhanAdapter("dhan-sandbox", true);
+    await adapters.dhanSandbox.connect();
+    log.info("DhanAdapter (sandbox) connected");
+  } catch (err) {
+    log.warn("DhanAdapter (sandbox) failed to connect:", err);
+  }
+
+  // 5. Instantiate MockAdapter (mock-ai) → no-op connect
+  try {
+    adapters.mockAi = new MockAdapter("mock-ai", "Paper (AI Trades)");
+    await adapters.mockAi.connect();
+    log.info("MockAdapter (mock-ai) ready");
+  } catch (err) {
+    log.warn("MockAdapter (mock-ai) failed:", err);
+  }
+
+  // 6. Instantiate MockAdapter (mock-my) → no-op connect
+  try {
+    adapters.mockMy = new MockAdapter("mock-my", "Paper (My Trades)");
+    await adapters.mockMy.connect();
+    log.info("MockAdapter (mock-my) ready");
+  } catch (err) {
+    log.warn("MockAdapter (mock-my) failed:", err);
+  }
+
+  log.info("All adapters initialised.");
 }
 
-/**
- * Switch the active broker. Disconnects the current adapter and loads the new one.
- * Also updates MongoDB to mark the new broker as active.
- */
+// ─── Broker Switching (legacy, kept for setup flow) ─────────────
+
 export async function switchBroker(brokerId: string): Promise<BrokerAdapter> {
-  // Validate the adapter is registered
   const factory = adapterFactories.get(brokerId);
   if (!factory) {
     throw new Error(
       `No adapter registered for brokerId="${brokerId}". Registered: [${getRegisteredAdapters().join(", ")}]`
     );
   }
-
-  // Validate the broker config exists in MongoDB
   const config = await getBrokerConfig(brokerId);
   if (!config) {
-    throw new Error(
-      `No broker config found in MongoDB for brokerId="${brokerId}". Create one first.`
-    );
+    throw new Error(`No broker config found for brokerId="${brokerId}".`);
   }
-
-  // Disconnect current adapter
-  if (activeAdapter) {
-    try {
-      await activeAdapter.disconnect();
-      console.log(
-        `[BrokerService] Disconnected: ${activeAdapter.displayName}`
-      );
-    } catch (err) {
-      console.warn(
-        `[BrokerService] Error disconnecting ${activeAdapter.brokerId}:`,
-        err
-      );
-    }
+  if (adapters.dhanLive) {
+    try { await adapters.dhanLive.disconnect(); } catch {}
   }
-
-  // Update MongoDB
   await setActiveBrokerInDB(brokerId);
-
-  // Create and connect new adapter
-  activeAdapter = factory();
-  await activeAdapter.connect();
-  wireTickBus(activeAdapter);
-  killSwitchActive = false;
-
-  console.log(
-    `[BrokerService] Switched to: ${activeAdapter.displayName} (${activeAdapter.brokerId})`
-  );
-
-  return activeAdapter;
+  adapters.dhanLive = new DhanAdapter(brokerId, false);
+  await adapters.dhanLive.connect();
+  wireTickBus(adapters.dhanLive);
+  killSwitch.ai = false;
+  killSwitch.my = false;
+  killSwitch.testing = false;
+  return adapters.dhanLive;
 }
 
-// ─── Kill Switch ────────────────────────────────────────────────
+// ─── Status ──────────────────────────────────────────────────────
 
-/**
- * Activate or deactivate the kill switch.
- * When active: all new order calls are blocked, exitAll is triggered.
- */
-export async function toggleKillSwitch(
-  action: "ACTIVATE" | "DEACTIVATE"
-): Promise<{ status: string; message?: string }> {
-  if (action === "ACTIVATE") {
-    killSwitchActive = true;
-
-    if (activeAdapter) {
-      try {
-        const result = await activeAdapter.killSwitch("ACTIVATE");
-        return {
-          status: "activated",
-          message: result.message ?? "Kill switch activated. All trading halted.",
-        };
-      } catch (err) {
-        return {
-          status: "activated_with_errors",
-          message: `Kill switch activated but adapter reported: ${err instanceof Error ? err.message : String(err)}`,
-        };
-      }
-    }
-
-    return { status: "activated", message: "Kill switch activated (no active adapter)." };
-  }
-
-  // DEACTIVATE
-  killSwitchActive = false;
-
-  if (activeAdapter) {
-    try {
-      await activeAdapter.killSwitch("DEACTIVATE");
-    } catch {
-      // ignore deactivation errors
-    }
-  }
-
-  return { status: "deactivated", message: "Kill switch deactivated. Trading resumed." };
-}
-
-/**
- * Check if the kill switch is currently active.
- */
-export function isKillSwitchActive(): boolean {
-  return killSwitchActive;
-}
-
-// ─── Status ─────────────────────────────────────────────────────
-
-/**
- * Get the overall broker service status.
- */
 export async function getBrokerServiceStatus(): Promise<BrokerServiceStatus> {
   let tokenStatus: BrokerServiceStatus["tokenStatus"] = "unknown";
   let apiStatus: BrokerServiceStatus["apiStatus"] = "disconnected";
   let wsStatus: BrokerServiceStatus["wsStatus"] = "disconnected";
 
-  if (activeAdapter) {
+  const broker = adapters.dhanLive;
+  if (broker) {
     try {
-      const tokenResult = await activeAdapter.validateToken();
+      const tokenResult = await broker.validateToken();
       tokenStatus = tokenResult.valid ? "valid" : "expired";
     } catch {
       tokenStatus = "unknown";
     }
-
-    // Read connection status from config if available
     const config = await getActiveBrokerConfig();
     if (config) {
       apiStatus = config.connection.apiStatus;
@@ -244,36 +360,35 @@ export async function getBrokerServiceStatus(): Promise<BrokerServiceStatus> {
   }
 
   return {
-    activeBrokerId: activeAdapter?.brokerId ?? null,
-    activeBrokerName: activeAdapter?.displayName ?? null,
+    activeBrokerId: broker?.brokerId ?? null,
+    activeBrokerName: broker?.displayName ?? null,
     tokenStatus,
     apiStatus,
     wsStatus,
-    killSwitchActive,
+    killSwitchActive: killSwitch.ai || killSwitch.my || killSwitch.testing,
     registeredAdapters: getRegisteredAdapters(),
   };
 }
 
-// ─── Tick Bus Wiring ───────────────────────────────────────────
+// ─── Tick Bus Wiring ─────────────────────────────────────────────
 
-/**
- * Wire the adapter's order update callback to the global tick bus.
- * Tick subscription wiring happens via broker.feed.subscribe tRPC mutation.
- */
 function wireTickBus(adapter: BrokerAdapter): void {
   adapter.onOrderUpdate((update) => {
     tickBus.emitOrderUpdate(update);
   });
-  console.log(`[BrokerService] TickBus wired for ${adapter.brokerId}`);
+  log.info(`TickBus wired for ${adapter.brokerId}`);
 }
 
-// ─── Reset (for testing) ────────────────────────────────────────
+// ─── Reset (for testing) ─────────────────────────────────────────
 
-/**
- * Reset the broker service state. Used in tests only.
- */
 export function _resetForTesting(): void {
-  activeAdapter = null;
-  killSwitchActive = false;
+  adapters.dhanLive = null;
+  adapters.dhanSandbox = null;
+  adapters.mockAi = null;
+  adapters.mockMy = null;
+  killSwitch.ai = false;
+  killSwitch.my = false;
+  killSwitch.testing = false;
   adapterFactories.clear();
+  adapterMeta.clear();
 }

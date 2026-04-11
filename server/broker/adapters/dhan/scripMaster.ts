@@ -18,6 +18,8 @@
  */
 
 import { DHAN_ENDPOINTS } from "./constants";
+import { createLogger } from "../../logger";
+const log = createLogger("ScripMaster");
 
 const DHAN_SCRIP_MASTER_URL = DHAN_ENDPOINTS.SCRIP_MASTER;
 
@@ -232,7 +234,7 @@ function buildIndexes(records: ScripRecord[]): void {
  */
 export async function downloadScripMaster(): Promise<number> {
   if (isLoading) {
-    console.log("[ScripMaster] Download already in progress, skipping.");
+    log.info("Download already in progress, skipping.");
     return scripRecords.length;
   }
 
@@ -240,7 +242,7 @@ export async function downloadScripMaster(): Promise<number> {
   const startTime = Date.now();
 
   try {
-    console.log("[ScripMaster] Downloading from", DHAN_SCRIP_MASTER_URL);
+    log.info(`Downloading from ${DHAN_SCRIP_MASTER_URL}`);
 
     const response = await fetch(DHAN_SCRIP_MASTER_URL);
 
@@ -257,14 +259,11 @@ export async function downloadScripMaster(): Promise<number> {
     lastDownload = Date.now();
     downloadTimeMs = Date.now() - startTime;
 
-    console.log(
-      `[ScripMaster] Loaded ${records.length} records in ${downloadTimeMs}ms. ` +
-      `Exchanges: ${Array.from(byExchange.keys()).join(", ")}`
-    );
+    log.info(`Loaded ${records.length} records in ${downloadTimeMs}ms. Exchanges: ${Array.from(byExchange.keys()).join(", ")}`);
 
     return records.length;
   } catch (err) {
-    console.error("[ScripMaster] Download failed:", err);
+    log.error("Download failed:", err);
     throw err;
   } finally {
     isLoading = false;

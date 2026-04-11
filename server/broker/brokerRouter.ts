@@ -12,11 +12,17 @@ import { tracked } from "@trpc/server";
 import { publicProcedure, router } from "../_core/trpc";
 import {
   getActiveBroker,
+  getAdapter,
   getBrokerServiceStatus,
   getRegisteredAdaptersMeta,
   switchBroker,
   toggleKillSwitch,
+  toggleWorkspaceKillSwitch,
+  getKillSwitchState,
+  isChannelKillSwitchActive,
   isKillSwitchActive,
+  type Channel,
+  type Workspace,
 } from "./brokerService";
 import {
   getActiveBrokerConfig,
@@ -28,6 +34,9 @@ import {
 } from "./brokerConfig";
 import { tickBus } from "./tickBus";
 import type { OrderParams, ModifyParams, TickData } from "./types";
+import { createLogger } from "./logger";
+
+const log = createLogger("Router");
 import { transformCandleData } from "./types";
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -43,11 +52,31 @@ function requireBroker() {
   return broker;
 }
 
+function requireChannelAdapter(channel: Channel) {
+  try {
+    return getAdapter(channel);
+  } catch (err: any) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: err.message ?? `Adapter for channel "${channel}" not available.`,
+    });
+  }
+}
+
 function checkKillSwitch() {
   if (isKillSwitchActive()) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Kill switch is active. All trading is halted.",
+    });
+  }
+}
+
+function checkChannelKillSwitch(channel: Channel) {
+  if (isChannelKillSwitchActive(channel)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `Kill switch is active for channel "${channel}". Trading halted.`,
     });
   }
 }
@@ -91,6 +120,12 @@ const brokerSettingsSchema = z.object({
   trailingStopPercent: z.number().min(0.1).max(50).optional(),
   defaultQty: z.number().min(1).max(100).optional(),
 });
+
+const channelSchema = z.enum([
+  "ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "testing-sandbox",
+]);
+
+const workspaceSchema = z.enum(["ai", "my", "testing"]);
 
 const subscribeParamsSchema = z.object({
   instruments: z.array(
@@ -272,82 +307,100 @@ export const brokerRouter = router({
   // ── Orders ──────────────────────────────────────────────────
 
   orders: router({
-    /** Place a new order. */
+    /** Place a new order. Requires channel input. */
     place: publicProcedure
-      .input(orderParamsSchema)
+      .input(orderParamsSchema.extend({ channel: channelSchema }))
       .mutation(async ({ input }) => {
-        checkKillSwitch();
-        const broker = requireBroker();
-        return broker.placeOrder(input as OrderParams);
+        const { channel, ...params } = input;
+        checkChannelKillSwitch(channel);
+        const broker = requireChannelAdapter(channel);
+        return broker.placeOrder(params as OrderParams);
       }),
 
-    /** Modify a pending order. */
+    /** Modify a pending order. Requires channel input. */
     modify: publicProcedure
       .input(
         z.object({
+          channel: channelSchema,
           orderId: z.string(),
           params: modifyParamsSchema,
         })
       )
       .mutation(async ({ input }) => {
-        checkKillSwitch();
-        const broker = requireBroker();
+        checkChannelKillSwitch(input.channel);
+        const broker = requireChannelAdapter(input.channel);
         return broker.modifyOrder(input.orderId, input.params as ModifyParams);
       }),
 
-    /** Cancel an order. */
+    /** Cancel an order. Bypasses kill switch. Requires channel input. */
     cancel: publicProcedure
-      .input(z.object({ orderId: z.string() }))
+      .input(z.object({ channel: channelSchema, orderId: z.string() }))
       .mutation(async ({ input }) => {
-        const broker = requireBroker();
+        const broker = requireChannelAdapter(input.channel);
         return broker.cancelOrder(input.orderId);
       }),
 
-    /** Get the order book. */
-    list: publicProcedure.query(async () => {
-      const broker = requireBroker();
-      return broker.getOrderBook();
-    }),
+    /** Get the order book for a channel. */
+    list: publicProcedure
+      .input(z.object({ channel: channelSchema }))
+      .query(async ({ input }) => {
+        const broker = requireChannelAdapter(input.channel);
+        return broker.getOrderBook();
+      }),
 
     /** Get a specific order status. */
     get: publicProcedure
-      .input(z.object({ orderId: z.string() }))
+      .input(z.object({ channel: channelSchema, orderId: z.string() }))
       .query(async ({ input }) => {
-        const broker = requireBroker();
+        const broker = requireChannelAdapter(input.channel);
         return broker.getOrderStatus(input.orderId);
       }),
 
-    /** Exit all open positions. */
-    exitAll: publicProcedure.mutation(async () => {
-      const broker = requireBroker();
-      return broker.exitAll();
-    }),
+    /** Exit all open positions. Bypasses kill switch. Requires channel input. */
+    exitAll: publicProcedure
+      .input(z.object({ channel: channelSchema }))
+      .mutation(async ({ input }) => {
+        const broker = requireChannelAdapter(input.channel);
+        return broker.exitAll();
+      }),
   }),
 
   // ── Positions ───────────────────────────────────────────────
 
-  /** Get current positions. */
-  positions: publicProcedure.query(async () => {
-    const broker = requireBroker();
-    return broker.getPositions();
-  }),
+  /** Get current positions for a channel. */
+  positions: publicProcedure
+    .input(z.object({ channel: channelSchema }))
+    .query(async ({ input }) => {
+      const broker = requireChannelAdapter(input.channel);
+      return broker.getPositions();
+    }),
 
   // ── Margin ──────────────────────────────────────────────────
 
-  /** Get margin/fund information. */
-  margin: publicProcedure.query(async () => {
-    const broker = requireBroker();
-    return broker.getMargin();
-  }),
+  /** Get margin/fund information for a channel. */
+  margin: publicProcedure
+    .input(z.object({ channel: channelSchema }))
+    .query(async ({ input }) => {
+      const broker = requireChannelAdapter(input.channel);
+      return broker.getMargin();
+    }),
 
   // ── Kill Switch ─────────────────────────────────────────────
 
-  /** Activate or deactivate the kill switch. */
+  /** Activate or deactivate kill switch for a workspace. */
   killSwitch: publicProcedure
-    .input(z.object({ action: z.enum(["ACTIVATE", "DEACTIVATE"]) }))
+    .input(z.object({
+      workspace: workspaceSchema,
+      action: z.enum(["ACTIVATE", "DEACTIVATE"]),
+    }))
     .mutation(async ({ input }) => {
-      return toggleKillSwitch(input.action);
+      return toggleWorkspaceKillSwitch(input.workspace, input.action);
     }),
+
+  /** Get current kill switch state for all workspaces. */
+  killSwitchState: publicProcedure.query(() => {
+    return getKillSwitchState();
+  }),
 
   // ── Market Data ─────────────────────────────────────────────
 
@@ -525,7 +578,7 @@ export const brokerRouter = router({
         try {
           await broker.getScripMaster("MCX");
         } catch (e) {
-          console.warn("[resolveInstruments] Failed to load scrip master:", e);
+          log.warn("Failed to load scrip master:", e);
         }
       }
       // Resolve MCX commodities from scrip master
@@ -539,9 +592,9 @@ export const brokerRouter = router({
               exchange: "MCX_COMM",
               mode: "ticker",
             });
-            console.log(`[resolveInstruments] ${mcx} -> MCX_COMM:${result.securityId} (${result.tradingSymbol})`);
+            log.info(`${mcx} -> MCX_COMM:${result.securityId} (${result.tradingSymbol})`);
           } else {
-            console.warn(`[resolveInstruments] ${mcx} -> not found in scrip master`);
+            log.warn(`${mcx} -> not found in scrip master`);
           }
         }
       }
@@ -555,7 +608,7 @@ export const brokerRouter = router({
 
     /** SSE subscription: streams live ticks to the frontend. */
     onTick: publicProcedure.subscription(async function* (opts) {
-      console.log("[SSE] onTick subscription connected");
+      log.info("SSE onTick subscription connected");
       let tickResolve: ((tick: TickData) => void) | null = null;
       const tickQueue: TickData[] = [];
 
@@ -589,7 +642,7 @@ export const brokerRouter = router({
         }
       } finally {
         tickBus.off("tick", handler);
-        console.log("[SSE] onTick subscription disconnected");
+        log.info("SSE onTick subscription disconnected");
       }
     }),
 

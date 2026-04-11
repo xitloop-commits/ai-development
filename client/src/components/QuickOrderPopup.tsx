@@ -86,7 +86,7 @@ export function QuickOrderPopup({
     ? resolvedInstrument.exchange
     : undefined;
 
-  const marginQuery = trpc.broker.margin.useQuery(undefined, {
+  const marginQuery = trpc.broker.margin.useQuery({ channel: "ai-live" as const }, {
     enabled: isOpen,
     refetchInterval: 15_000,
   });

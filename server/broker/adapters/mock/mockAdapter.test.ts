@@ -45,7 +45,7 @@ describe("MockAdapter", () => {
   let adapter: MockAdapter;
 
   beforeEach(() => {
-    adapter = new MockAdapter(500000);
+    adapter = new MockAdapter("mock", "Paper Trading", 500000);
   });
 
   // ── Lifecycle ─────────────────────────────────────────────────
