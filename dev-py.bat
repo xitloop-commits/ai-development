@@ -1,20 +1,67 @@
 @echo off
 REM ================================================================
-REM   ATS -- Start Python AI Pipeline only (Windows)
+REM   ATS -- TickFeatureAgent (TFA) launcher (Windows)
 REM
-REM   Starts the Python AI pipeline (run_all.py).
-REM   Usage:  dev-py.bat
+REM   Usage:
+REM     dev-py.bat nifty50
+REM     dev-py.bat banknifty
+REM     dev-py.bat crudeoil
+REM     dev-py.bat naturalgas
+REM
+REM     dev-py.bat nifty50 --mode replay --date 2026-04-10
+REM
 REM   Press Ctrl+C to stop.
 REM ================================================================
 
 setlocal EnableDelayedExpansion
 
-REM --- Check .env ---
-if not exist .env (
-    echo   ERROR: .env file not found.
-    echo   Run setup.bat first, or copy .env.example to .env
+REM --- Instrument argument ---
+set INSTRUMENT=%~1
+if "%INSTRUMENT%"=="" (
+    echo.
+    echo   Usage:  dev-py.bat ^<instrument^> [options]
+    echo.
+    echo   Instruments:
+    echo     nifty50      NSE NIFTY 50 futures + options
+    echo     banknifty    NSE Bank Nifty futures + options
+    echo     crudeoil     MCX Crude Oil futures + options
+    echo     naturalgas   MCX Natural Gas futures + options
+    echo.
+    echo   Options passed through to TFA:
+    echo     --mode live              ^(default^)
+    echo     --mode replay --date YYYY-MM-DD
+    echo     --log-level DEBUG
+    echo.
+    echo   Examples:
+    echo     dev-py.bat nifty50
+    echo     dev-py.bat crudeoil --mode replay --date 2026-04-10
+    echo.
     pause
     exit /b 1
+)
+
+REM --- Validate instrument name ---
+set PROFILE_PATH=
+if /i "%INSTRUMENT%"=="nifty50"    set "PROFILE_PATH=config\instrument_profiles\nifty50_profile.json"
+if /i "%INSTRUMENT%"=="banknifty"  set "PROFILE_PATH=config\instrument_profiles\banknifty_profile.json"
+if /i "%INSTRUMENT%"=="crudeoil"   set "PROFILE_PATH=config\instrument_profiles\crudeoil_profile.json"
+if /i "%INSTRUMENT%"=="naturalgas" set "PROFILE_PATH=config\instrument_profiles\naturalgas_profile.json"
+
+if "%PROFILE_PATH%"=="" (
+    echo.
+    echo   ERROR: Unknown instrument "%INSTRUMENT%"
+    echo   Valid values: nifty50, banknifty, crudeoil, naturalgas
+    echo.
+    exit /b 1
+)
+
+REM --- Collect any extra args after the instrument name ---
+set EXTRA_ARGS=
+:args_loop
+shift
+if not "%~1"=="" (
+    set "EXTRA_ARGS=!EXTRA_ARGS! %~1"
+    goto args_loop
 )
 
 REM --- Detect Python ---
@@ -68,18 +115,16 @@ if "!PYTHON_CMD!"=="" (
 )
 
 if "!PYTHON_CMD!"=="" (
+    echo.
     echo   ERROR: Python not found.
-    echo   Install Python 3.8+ from https://www.python.org/downloads/
+    echo   Install Python 3.11+ from https://www.python.org/downloads/
     pause
     exit /b 1
 )
 
-echo.
-echo   ==========================================
-echo     ATS -- Python AI Pipeline
-echo   ==========================================
-echo.
-echo   Using Python: %PYTHON_CMD%
-echo.
+REM --- Set UTF-8 output so Unicode symbols render correctly ---
+set PYTHONIOENCODING=utf-8
+chcp 65001 >nul 2>&1
 
-%PYTHON_CMD% python_modules\run_all.py
+REM --- Run TFA ---
+%PYTHON_CMD% python_modules\tick_feature_agent\main.py --instrument-profile %PROFILE_PATH% %EXTRA_ARGS%

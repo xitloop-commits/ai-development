@@ -1,17 +1,24 @@
 # TickFeatureAgent (TFA) — Implementation Plan
-**Version:** 1.0  
-**Spec Reference:** TickFeatureAgent_Spec_1.0.md (v1.8)  
+**Version:** 1.1  
+**Spec Reference:** TickFeatureAgent_Spec_1.0.md (v1.9)  
 **Status:** Draft
 
 ---
 
 ## 1. Overview
 
-TFA is a **long-running stateful Python daemon** that consumes real-time tick feeds (underlying futures + full option chain) and emits one 370-column NDJSON feature row per incoming tick. It runs independently of the existing AI Engine python modules and is consumed by the ML model and Decision Engine.
+TFA is a **long-running stateful Python daemon** that consumes real-time tick feeds (underlying futures + full option chain), records raw input data to disk, and emits one 370-column NDJSON feature row per incoming tick.
+
+**Process model:** one isolated TFA process per instrument. Four processes run in parallel — nifty50, banknifty, crudeoil, naturalgas. Each process manages its own Dhan WS connection, session gate, buffers, recording files, and feature output independently.
+
+**Two operating modes:**
+- `--mode live` (default): connects to Dhan WS, computes features, records raw ticks + chain snapshots to `data/raw/{date}/`
+- `--mode replay --date YYYY-MM-DD`: reads recorded NDJSON.gz files, runs full feature pipeline, writes Parquet to `data/features/{date}/`
 
 **Language / Runtime:** Python 3.11+  
 **Concurrency model:** Single event loop (`asyncio`) — one coroutine per feed + one chain poller timer  
-**Output:** NDJSON to file + Unix/TCP socket (§9.1 of spec)  
+**Output (live):** NDJSON to file + Unix/TCP socket (§9.1 of spec) + raw NDJSON.gz to `data/raw/`  
+**Output (replay):** Parquet to `data/features/{date}/{instrument}_features.parquet`  
 **Location:** `python_modules/tick_feature_agent/`
 
 ---
@@ -54,6 +61,18 @@ python_modules/
     ├── output/
     │   ├── emitter.py             # Flat 370-column vector assembly + NDJSON emit (file + socket)
     │   └── alerts.py              # Alert catalog: WARN/CRITICAL emit + DA handshake
+    ├── recorder/                  # §15 Raw Data Recording — writes input data to disk alongside feature computation
+    │   ├── writer.py              # Thread-safe NdjsonGzWriter — gzip.open("at") append, one lock per writer
+    │   ├── session_recorder.py    # Date folder creation, NDJSON.gz rollover, session open/close lifecycle
+    │   ├── metadata_writer.py     # Writes data/raw/{date}/metadata.json — expiry + underlying_symbol per instrument
+    │   └── dashboard_writer.py    # Overwrites python_modules/output/option_chain_{inst}.json on each chain poll
+    ├── replay/                    # §16 Replay Mode — feeds recorded NDJSON.gz through TFA pipeline
+    │   ├── replay_runner.py       # CLI entry for replay mode — date range, resume, multi-instrument
+    │   ├── stream_merger.py       # Chronological interleave of 3 NDJSON.gz streams by recv_ts
+    │   ├── replay_adapter.py      # Bypasses dhan_feed.py + chain_poller.py, injects recorded events
+    │   └── checkpoint.py          # data/checkpoints/replay_progress.json — read/write per-instrument progress
+    ├── validation/                # §17 Feature Quality Validation
+    │   └── feature_validator.py   # 3-layer validation on Parquet output — structural/null/statistical
     ├── logging/
     │   └── tfa_logger.py          # Structured log module — ERROR/WARN/INFO levels, rotating file + stderr
     └── tests/
@@ -68,6 +87,9 @@ python_modules/
         ├── test_targets.py
         ├── test_ofi_vol.py
         ├── test_logging.py
+        ├── test_recorder.py       # NDJSON.gz write, date rollover, expiry rollover, restart append
+        ├── test_replay.py         # Stream merge, checkpoint resume, multi-day, timestamp ordering
+        ├── test_validator.py      # All 3 validation layers, drift detection
         └── test_integration.py
 ```
 
@@ -83,6 +105,7 @@ python-dotenv>=1.0.0      # already present
 websockets>=12.0          # asyncio-native WS client — replaces websocket-client for direct Dhan connection
 pytz>=2023.3              # IST timezone handling
 orjson>=3.9.0             # fast JSON serialization for NDJSON output
+pyarrow>=14.0.0           # Parquet write for replay mode output (data/features/)
 ```
 
 > **`websockets` vs `websocket-client`:** The existing `websocket_feed.py` uses `websocket-client` (blocking, thread-based). TFA uses `websockets` (asyncio-native) for the direct Dhan connection — fits the single event loop model and avoids threading complexity. The `websocket-client` package can be removed from TFA's requirements if it's not used elsewhere.
@@ -97,20 +120,22 @@ No new heavy dependencies. All feature math uses the Python standard library (`s
 
 ---
 
-### Phase 0 — Node.js Internal Credentials Endpoint (est. 0.5 day)
+### Phase 0 — Node.js Credentials Endpoint ✅ DONE
 
 **Goal:** Expose full broker credentials to TFA over localhost — single source of truth, no env vars.
 
-#### 0.1 New route in `server/broker/brokerRoutes.ts`
+#### 0.1 Route in `server/broker/brokerRoutes.ts` — **already implemented**
 
 ```
-GET /api/internal/broker/credentials
+GET /api/broker/token
 ```
 
-- **Localhost-only guard:** reject with `403` if `req.ip` is not `127.0.0.1` / `::1` / `::ffff:127.0.0.1`. Never reachable from outside the machine.
-- Returns full `accessToken` and `clientId` — **not masked** (unlike `GET /api/broker/config` which shows `***last4`).
-- Returns `status` (`valid` / `expired` / `unknown`) and `expiresIn` so TFA can warn if token is stale before attempting Dhan connection.
-- Returns `404` if no active broker is configured.
+- **Localhost-only guard:** rejects with `403` if `req.ip` is not `127.0.0.1` / `::1` / `::ffff:127.0.0.1`. ✅
+- Returns full `accessToken` and `clientId` — not masked. ✅
+- Returns `status` and `expiresIn` (computed from `credentials.updatedAt + credentials.expiresIn - Date.now()`). ✅
+- Returns `404` if no active broker is configured. ✅
+
+No implementation work needed — skip directly to Phase 1.
 
 **Response schema:**
 ```json
@@ -131,7 +156,7 @@ TFA calls this endpoint **twice**:
 
 ```python
 async def fetch_credentials(base_url="http://localhost:3000") -> dict:
-    resp = requests.get(f"{base_url}/api/internal/broker/credentials", timeout=5)
+    resp = requests.get(f"{base_url}/api/broker/token", timeout=5)
     if resp.status_code == 404:
         log.error("NO_ACTIVE_BROKER", msg="No active broker configured in Settings")
     if resp.status_code != 200:
@@ -158,14 +183,22 @@ async def fetch_credentials(base_url="http://localhost:3000") -> dict:
   - `target_windows_sec` non-empty, ≤4 elements, each in [5, 300], no duplicates
   - `regime_trend_volatility_min > regime_range_volatility_max` and `regime_trend_imbalance_min > regime_range_imbalance_max`
 - Expose a frozen `InstrumentProfile` dataclass — read-only at runtime.
+- Add `for_replay_date(base, meta) -> InstrumentProfile` classmethod: returns `dataclasses.replace(base, underlying_symbol=meta["underlying_symbol"], underlying_security_id=meta["underlying_security_id"])`. Used by replay adapter to apply correct contract per replay day without touching session hours or thresholds.
 
 #### 1.2 `main.py`
 - Parse CLI args (`--instrument-profile`, `--output-file`, `--output-socket`).
 - Run startup checklist (spec §0.5): broker connect, chain fetch, strike_step detection, subscription.
 - Retry chain fetch up to 12× (5s interval) before FATAL halt.
+- **Security ID verification (startup):** After the first successful chain REST response, extract `underlyingSecurityId` from the Dhan API payload and compare it against `profile.underlying_security_id`. If they differ → FATAL halt with message:
+  ```
+  SECURITY_ID_MISMATCH — profile says {profile.underlying_security_id},
+  Dhan chain API returned {api_security_id} for {profile.underlying_symbol}.
+  Update underlying_security_id in the instrument profile JSON.
+  ```
+  This catches stale security IDs (contract rollover, manual profile edits) before any WS subscription is made.
 - Start `asyncio` event loop with three coroutines: underlying feed, option feed, chain poller.
 
-**Test:** `test_instrument_profile.py` — cover all 20 validation rules, each FATAL condition, and the regime consistency check.
+**Test:** `test_instrument_profile.py` — cover all 20 validation rules, each FATAL condition, regime consistency check, and SECURITY_ID_MISMATCH FATAL on profile vs API mismatch.
 
 ---
 
@@ -201,7 +234,7 @@ BEFORE (existing Python modules):  Dhan → Node.js (parse) → tickBus → /ws/
 AFTER  (TFA):                       Dhan → Python (parse once) → feature engine
 ```
 
-**Credentials:** Fetched at startup from the Node.js internal endpoint `GET /api/internal/broker/credentials` (Phase 0). No env vars — Settings page is the single source of truth. Re-fetched on every reconnect so a token refresh in Settings takes effect automatically.
+**Credentials:** Fetched at startup from the Node.js internal endpoint `GET /api/broker/token` (Phase 0). No env vars — Settings page is the single source of truth. Re-fetched on every reconnect so a token refresh in Settings takes effect automatically.
 
 #### 3.1 `feed/binary_parser.py`
 
@@ -505,7 +538,8 @@ Alert catalog (from spec §1.4, §0.5):
 
 | Alert | Severity | Trigger |
 |-------|----------|---------|
-| `UNDERLYING_SYMBOL_MISMATCH` | WARN | `security_id` mismatch on tick |
+| `SECURITY_ID_MISMATCH` | FATAL | Profile `underlying_security_id` ≠ `underlyingSecurityId` returned by Dhan chain API at startup |
+| `UNDERLYING_SYMBOL_MISMATCH` | WARN | `security_id` mismatch on an individual tick mid-session |
 | `INSTRUMENT_PROFILE_MISMATCH` | WARN | Symbol/hours mismatch mid-session |
 | `NEW_STRIKES_DETECTED` | INFO | New strikes in chain snapshot diff |
 | `EXPIRY_ROLLOVER` | INFO | 14:30 rollover triggered |
@@ -661,22 +695,36 @@ Every tick is timed from the moment it is dequeued from the WebSocket receive bu
 
 All implemented in `main.py`:
 
+**Live mode (`--mode live`):**
 ```
-[ ] Broker API connected and authenticated
-[ ] Instrument profile loaded and all 20 fields validated (FATAL on failure)
+[ ] Single instrument profile loaded (--instrument-profile) — all 20 fields validated (FATAL)
 [ ] session_end > session_start validated (FATAL)
 [ ] target_windows_sec validated (FATAL)
 [ ] regime threshold consistency validated (FATAL)
+[ ] Broker API credentials fetched from GET /api/broker/token (FATAL if invalid)
 [ ] Underlying futures contract (underlying_symbol) resolvable in broker feed (FATAL)
-[ ] Option chain endpoint accessible and returning all required fields
+[ ] Option chain endpoint accessible — call_delta_oi + call_oi_from_open + put_delta_oi + put_oi_from_open confirmed in response
 [ ] bid_size / ask_size confirmed available in option tick feed
-[ ] call_delta_oi / put_delta_oi confirmed in chain snapshot response
 [ ] bid / ask confirmed in underlying tick feed (required for OFI)
 [ ] volume field per tick confirmed in option tick feed (required for OFI)
 [ ] Full current expiry chain fetched (retry ×12 / 60s before FATAL)
 [ ] strike_step detected (FATAL if <2 strikes or step=0)
-[ ] All strikes × CE+PE subscribed (log count)
+[ ] All strikes × CE+PE subscribed on Dhan WS (log count)
 [ ] System clock IST (UTC+5:30) confirmed
+[ ] data/raw/ directory exists and is writable (create if absent, FATAL if not writable)
+[ ] If today's date folder exists → append mode (log: "Resuming recording for {date}")
+[ ] metadata.json written for today's date
+```
+
+**Replay mode (`--mode replay`):**
+```
+[ ] Single instrument profile loaded — all 20 fields validated (FATAL)
+[ ] --date or --date-from/--date-to provided (FATAL if missing)
+[ ] data/raw/{date}/{instrument}_*.ndjson.gz files exist for requested dates (WARN if any missing)
+[ ] data/features/ directory exists and is writable (create if absent)
+[ ] metadata.json exists for each replay date — load correct underlying_symbol + expiry per day
+[ ] Checkpoint file read from data/checkpoints/replay_progress.json (create if absent)
+[ ] pyarrow import confirmed (FATAL if missing — install pyarrow>=14.0.0)
 ```
 
 ---
@@ -692,6 +740,10 @@ All implemented in `main.py`:
 | Full chain subscription at startup | Eliminates subscription churn on ATM shifts and ensures all strike buffers are warm. ATM shift is purely a pointer change. |
 | Python `float('nan')` → JSON `null` | JSON spec does not support NaN/Infinity. ML consumers handle `null` correctly. Use custom serializer to map NaN → null. |
 | `data_quality_flag` independent of `trading_allowed` | Consumers must check both independently — a row can have high-quality features but `trading_allowed = 0` (during warm-up after feed recovery). |
+| One process per instrument | Complete isolation — crash in nifty50 process does not affect banknifty. Each process has independent Dhan WS connection, buffers, and recording files. 4 processes + 1 BSA = 5 Dhan connections (at Dhan's limit). Stagger startup by 5s per process. |
+| Raw data recorded alongside feature computation | Enables bug recovery, feature re-experimentation, and model retraining without live market access. Raw NDJSON.gz written in `asyncio` coroutine — non-blocking, does not delay feature pipeline. |
+| Replay outputs Parquet via pyarrow | Parquet is the native ML training format. In replay mode, emitter accumulates rows per session and writes Parquet at session close. In live mode, emitter writes NDJSON+socket (unchanged). |
+| `call_delta_oi` = 5s delta, `call_oi_from_open` = day cumulative | Both stored in chain snapshot records. `call_delta_oi` drives per-snapshot activity signals (`call_vol_diff`). `call_oi_from_open` provides day-level positioning context from Dhan API. |
 
 ---
 
@@ -718,10 +770,133 @@ All implemented in `main.py`:
 
 ---
 
-## 8. Out of Scope (per spec §3)
+### Phase 13 — Raw Data Recording (est. 2 days)
 
-- Model training
+**Goal:** Write all input data (underlying ticks, option ticks, chain snapshots) to NDJSON.gz alongside live feature computation. Spec §15.
+
+#### 13.1 `recorder/writer.py`
+- `NdjsonGzWriter` class: `write(record: dict)`, `roll(new_path)`, `close()`
+- `gzip.open(path, "at", encoding="utf-8")` — text append mode
+- One `threading.Lock` per writer instance (tick listener runs in asyncio, chain poller on timer — both write)
+- On write failure: log ERROR, skip record, continue — do not halt TFA
+
+#### 13.2 `recorder/session_recorder.py`
+- One `SessionRecorder` per TFA process (single instrument)
+- `on_session_open(date_ist)`: create `data/raw/{date}/` folder, open 3 writers (underlying_ticks, option_ticks, chain_snapshots)
+- `on_session_close()`: flush + close all 3 writers, log final counts
+- `on_expiry_rollover()`: update SecurityMap reference, log rollover
+- `restart_append`: on startup, if today's date folder exists → open writers in append mode
+
+#### 13.3 `recorder/metadata_writer.py`
+- Write `data/raw/{date}/metadata.json` at session open
+- Overwrite on expiry rollover (14:30 IST on expiry day)
+- Fields: date, instrument name, underlying_symbol, underlying_security_id, expiry
+
+#### 13.4 `recorder/dashboard_writer.py`
+- On each chain poll: overwrite `python_modules/output/option_chain_{instrument}.json`
+- Keeps web UI option chain display updated — same format as old `option_chain_fetcher.py`
+- Non-blocking: write in background, failure logged but not fatal
+
+**Record formats:** per spec §15.4 — underlying tick, option tick, chain snapshot with `call_delta_oi` + `call_oi_from_open`.
+
+**Test:** `test_recorder.py` — NDJSON.gz write correctness, date rollover, restart append behaviour, concurrent write safety, metadata.json content.
+
+---
+
+### Phase 14 — Replay Mode (est. 3 days)
+
+**Goal:** Feed recorded NDJSON.gz data through TFA's full feature pipeline to produce Parquet training files. Spec §16.
+
+#### 14.1 `replay/stream_merger.py`
+- Read 3 NDJSON.gz streams for a given date + instrument
+- Chronological merge by `recv_ts` (heap merge across all 3 streams)
+- Yields events in order: `{"type": "underlying_tick"|"option_tick"|"chain_snapshot", "data": {...}}`
+- Skip empty/missing files with WARN log
+
+#### 14.2 `replay/replay_adapter.py`
+- Bypasses `dhan_feed.py` WebSocket and `chain_poller.py` REST calls entirely
+- Routes merged events into TFA's existing handlers:
+  - `underlying_tick` → underlying tick handler (same as live)
+  - `option_tick` → option tick handler (same as live)
+  - `chain_snapshot` → `chain_cache.py` inject directly (bypasses REST poll)
+- At the start of each replay date: reads `data/raw/{date}/metadata.json` → calls `InstrumentProfile.for_replay_date(base, meta)` to create a date-specific profile with correct `underlying_symbol` + `underlying_security_id` for that contract month
+- If `metadata.json` missing: log WARN, use base profile (UNDERLYING_SYMBOL_MISMATCH alerts expected for that date)
+- All other profile fields (session hours, regime thresholds, timeouts) unchanged across all replay dates
+
+#### 14.3 `replay/checkpoint.py`
+- Read/write `data/checkpoints/replay_progress.json`
+- Per-instrument: `last_completed_date`, `sessions_completed`
+- `mark_complete(instrument, date)` — called after Parquet file flushed and closed
+- `get_resume_date(instrument)` → first date after `last_completed_date`
+
+#### 14.4 `replay/replay_runner.py`
+- CLI: `--mode replay --instrument nifty50 --date-from 2026-04-01 --date-to 2026-04-30 [--resume]`
+- Iterates dates in range, skips completed dates (if `--resume`), skips dates with zero tick records
+- Calls `stream_merger` → `replay_adapter` → TFA pipeline for each date
+- Parquet output: `data/features/{date}/{instrument}_features.parquet` (written by emitter in replay mode)
+
+#### 14.5 `output/emitter.py` — Parquet output (replay mode addition)
+- Detect `--mode replay` at init
+- In replay mode: accumulate 370-column rows in list during session, write Parquet at `session_close` via `pyarrow.Table.from_pylist()` + `pyarrow.parquet.write_table()`
+- In live mode: unchanged — NDJSON + socket output
+- Schema: all 370 columns + `recv_ts` as index. Numeric columns as `float32`, integer columns as `int32`, string columns as `string`
+
+**Test:** `test_replay.py` — stream merge ordering, checkpoint resume, multi-day, Parquet schema validation (370 columns, correct types), metadata.json override of instrument profile.
+
+---
+
+### Phase 15 — Feature Quality Validation (est. 1 day)
+
+**Goal:** Standalone validator that runs on replay Parquet output and reports data quality. Spec §17.
+
+#### 15.1 `validation/feature_validator.py`
+
+CLI: `python -m tick_feature_agent.validation.feature_validator --instrument nifty50 --date 2026-04-14`
+
+Three validation layers:
+1. **Structural** (hard fail): column count = 370, no extra/missing columns, correct dtypes, row count > 0, `recv_ts` strictly increasing, no duplicate rows
+2. **Null rate** (per feature group warm-up windows): PASS < 2%, WARN 2–10%, FAIL > 10% outside warm-up
+3. **Statistical sanity** (value range checks): `bid_ask_imbalance` ∈ [-1,1], `pcr_global` ∈ [0,15], `regime` distribution, `direction_30s` balance
+
+Output: `data/validation/{date}/{instrument}_validation.json` — verdict (PASS/WARN/FAIL), per-layer results, daily stats.
+
+Drift tracking: after 5+ days, compare `daily_stats` against rolling mean. WARN if mean shift > 2σ, FAIL if > 4σ.
+
+**Test:** `test_validator.py` — all 3 layers, edge cases (empty Parquet, all-null column, wrong column count), drift detection.
+
+---
+
+## 8. Implementation Order & Priority
+
+| Order | Phase | Deliverable | Depends On |
+|-------|-------|-------------|------------|
+| 1 | Phase 0 | ~~Node.js credentials endpoint~~ ✅ Already done | — |
+| 2 | Phase 11b | Logging module (`tfa_logger.py`) | — |
+| 3 | Phase 1 | Startup validation + skeleton (live + replay modes) | Phase 11b, Phase 0 |
+| 4 | Phase 2 | Circular buffers | Phase 1 |
+| 5 | Phase 4 | State machine | Phase 1 |
+| 6 | Phase 5 | Session management | Phase 2, 4 |
+| 7 | Phase 3 | Feed connectivity (direct Dhan WS) | Phase 0, 2, 4, 5 |
+| 7 | Phase 6 | ATM + active strikes | Phase 2, 3 |
+| 8 | Phase 8 | Chain cache | Phase 3, 6 |
+| 9 | Phase 7 | Feature computation (all groups) | Phase 2, 6, 8 |
+| 10 | Phase 9 | Flat vector + NDJSON output | Phase 7 |
+| 11 | Phase 13 | Raw data recording (recorder/) | Phase 3, 5, 9 |
+| 12 | Phase 10 | Target variables | Phase 9 |
+| 13 | Phase 11 | Alert system | Phase 3, 5 |
+| 14 | Phase 14 | Replay mode (replay/) + Parquet output | Phase 13 |
+| 15 | Phase 15 | Feature quality validation | Phase 14 |
+| 16 | Phase 12 | Full test suite + integration | All |
+
+**MVP milestone:** Phases 1–9 + 13 = live feature stream with raw data recording. Start collecting training data immediately.
+
+**Training milestone:** Phases 14–15 = replay recorded data → Parquet → feature validator. Ready to feed Model Training Agent.
+
+---
+
+## 9. Out of Scope (per spec §3)
+
+- Model training (separate Model Training Agent — reads from `data/features/`)
 - Trade execution
 - Risk management
-- Level 2 depth (§12.1 — future development item)
-- Broker subscription limit sliding-window strategy (only if `max_subscription_count` is set in profile — handle as a follow-up)
+- Level 2 depth (§12.1 — pending broker API support)

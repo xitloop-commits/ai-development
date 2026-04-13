@@ -90,6 +90,7 @@ import {
 import { DhanWebSocket } from "./websocket";
 import { SubscriptionManager } from "./subscriptionManager";
 import { DhanOrderUpdateWs } from "./orderUpdateWs";
+import { generateDhanToken } from "./tokenManager";
 import type { SubscriptionState, TickData, FeedMode } from "../../types";
 import { createLogger } from "../../logger";
 
@@ -123,6 +124,25 @@ export class DhanAdapter implements BrokerAdapter {
     this.brokerId = brokerId;
     this.sandboxMode = sandboxMode;
     this.displayName = sandboxMode ? "Dhan Sandbox" : "Dhan";
+  }
+
+  // ── Token Auto-Refresh ────────────────────────────────────────
+
+  /**
+   * Generate a fresh token via TOTP and apply it in-memory + MongoDB.
+   * Returns true on success, false on any failure.
+   */
+  private async _tryAutoRefresh(): Promise<boolean> {
+    try {
+      log.info("Auto-refreshing Dhan token via TOTP...");
+      const newToken = await generateDhanToken(this.brokerId);
+      await this.updateToken(newToken);
+      log.info("Token auto-refreshed successfully.");
+      return true;
+    } catch (err: any) {
+      log.error(`Token auto-refresh failed: ${err.message}`);
+      return false;
+    }
   }
 
   // ── Auth ──────────────────────────────────────────────────────
@@ -243,6 +263,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
+      await this._tryAutoRefresh();
       throw new Error("Token expired. Please update your Dhan access token.");
     }
 
@@ -288,6 +309,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
+      await this._tryAutoRefresh();
       throw new Error("Token expired. Please update your Dhan access token.");
     }
 
@@ -317,6 +339,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
+      await this._tryAutoRefresh();
       throw new Error("Token expired. Please update your Dhan access token.");
     }
 
@@ -403,6 +426,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
+      await this._tryAutoRefresh();
       throw new Error("Token expired.");
     }
 
@@ -425,6 +449,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
+      await this._tryAutoRefresh();
       throw new Error("Token expired.");
     }
 
@@ -447,6 +472,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
+      await this._tryAutoRefresh();
       throw new Error("Token expired.");
     }
 
@@ -486,6 +512,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
+      await this._tryAutoRefresh();
       throw new Error("Token expired.");
     }
 
@@ -531,6 +558,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
+      await this._tryAutoRefresh();
       throw new Error("Token expired.");
     }
 
@@ -589,6 +617,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
+      await this._tryAutoRefresh();
       throw new Error("Token expired.");
     }
 
@@ -642,6 +671,7 @@ export class DhanAdapter implements BrokerAdapter {
     if (result.isAuthError) {
       log.warn(`Token expired for underlying=${underlying}`);
       await handleDhan401(this.brokerId);
+      await this._tryAutoRefresh();
       throw new Error("Token expired.");
     }
 
@@ -717,6 +747,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
+      await this._tryAutoRefresh();
       throw new Error("Token expired. Please update your Dhan access token.");
     }
 
@@ -768,6 +799,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
+      await this._tryAutoRefresh();
       throw new Error("Token expired. Please update your Dhan access token.");
     }
 
@@ -951,47 +983,59 @@ export class DhanAdapter implements BrokerAdapter {
       return;
     }
 
-    // Check token expiry
+    // Auto-refresh if expired or expiring soon
     const expiry = calculateTokenExpiry(this.tokenUpdatedAt);
 
-    if (expiry.isExpired) {
-      log.warn("Token has expired. Please update your access token.");
-      await handleDhan401(this.brokerId);
-      return;
-    }
-
-    if (expiry.isExpiringSoon) {
-      const remainingMin = Math.round(expiry.remainingMs / 60000);
-      log.warn(`Token expires in ${remainingMin} minutes. Consider updating.`);
+    if (expiry.isExpired || expiry.isExpiringSoon) {
+      const label = expiry.isExpired
+        ? "expired"
+        : `expiring in ${Math.round(expiry.remainingMs / 60000)} min`;
+      log.warn(`Token ${label} — auto-refreshing...`);
+      const refreshed = await this._tryAutoRefresh();
+      if (!refreshed && expiry.isExpired) {
+        log.error("Auto-refresh failed. BSA will start without a valid token.");
+        return;
+      }
     }
 
     // Validate token against Dhan API
-    const validation = await validateDhanToken(this.accessToken);
+    let validation = await validateDhanToken(this.accessToken);
 
-    if (validation.valid) {
-      this.clientId = validation.clientId ?? this.clientId;
-
-      // Persist clientId to MongoDB so CredentialGate doesn't treat it as missing
-      await updateBrokerCredentials(this.brokerId, {
-        clientId: this.clientId,
-      });
-
-      await updateBrokerConnection(this.brokerId, {
-        apiStatus: "connected",
-        lastApiCall: Date.now(),
-      });
-      log.info(`Connected. Client: ${this.clientId}, Balance: ₹${validation.fundData?.availabelBalance ?? "N/A"}`);
-
-      // Sandbox mode: token validation only — no WebSocket feed
-      if (!this.sandboxMode) {
-        await this.connectFeed();
-        this.connectOrderUpdateWs();
-      } else {
-        log.info(`[${this.brokerId}] Sandbox mode — skipping WebSocket connections.`);
+    if (!validation.valid) {
+      log.warn(`Token validation failed (${validation.error}) — auto-refreshing...`);
+      const refreshed = await this._tryAutoRefresh();
+      if (!refreshed) {
+        log.error("Auto-refresh failed. BSA will start without a valid token.");
+        await handleDhan401(this.brokerId);
+        return;
       }
+      validation = await validateDhanToken(this.accessToken);
+      if (!validation.valid) {
+        log.error(`Token invalid after refresh: ${validation.error}`);
+        await handleDhan401(this.brokerId);
+        return;
+      }
+    }
+
+    this.clientId = validation.clientId ?? this.clientId;
+
+    // Persist clientId to MongoDB so CredentialGate doesn't treat it as missing
+    await updateBrokerCredentials(this.brokerId, {
+      clientId: this.clientId,
+    });
+
+    await updateBrokerConnection(this.brokerId, {
+      apiStatus: "connected",
+      lastApiCall: Date.now(),
+    });
+    log.info(`Connected. Client: ${this.clientId}, Balance: ₹${validation.fundData?.availabelBalance ?? "N/A"}`);
+
+    // Sandbox mode: token validation only — no WebSocket feed
+    if (!this.sandboxMode) {
+      await this.connectFeed();
+      this.connectOrderUpdateWs();
     } else {
-      log.error(`Token validation failed: ${validation.error}`);
-      await handleDhan401(this.brokerId);
+      log.info(`[${this.brokerId}] Sandbox mode — skipping WebSocket connections.`);
     }
   }
 

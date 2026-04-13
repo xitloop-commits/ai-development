@@ -1,7 +1,12 @@
-# AI Decision Engine — Technical Specification
+# ⚠️ DEPRECATED — AI Decision Engine — Technical Specification
+
+> **DEPRECATED (2026-04-13):** This spec is superseded by the ML model-based pipeline.
+> The ML model (trained by Model Training Agent on TFA features) sends signals directly to RCA.
+> There is no separate Decision Engine. See `TickFeatureAgent_Spec_1.0.md` §9.2 for the ML input pipeline.
+
 **Version:** 3.0  
 **Date:** April 9, 2026  
-**Status:** Implementation Ready  
+**Status:** ~~Implementation Ready~~ **DEPRECATED**  
 **Type:** Python module (ai_decision_engine.py)  
 **Dependencies:** Analyzer (technical analysis), News Sentiment Engine, RiskControlAgent_Spec_v2.0, DisciplineEngine_Spec_v1.2
 

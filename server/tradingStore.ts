@@ -6,7 +6,6 @@
 import type {
   RawOptionChainData,
   RawAnalyzerOutput,
-  RawAIDecision,
   InstrumentData,
   Signal,
   Position,
@@ -20,10 +19,8 @@ import type {
 interface InstrumentStore {
   optionChain: RawOptionChainData | null;
   analyzerOutput: RawAnalyzerOutput | null;
-  aiDecision: RawAIDecision | null;
   lastOptionChainUpdate: number;
   lastAnalyzerUpdate: number;
-  lastAIDecisionUpdate: number;
 }
 
 // In-memory store keyed by instrument name
@@ -52,7 +49,6 @@ let activeInstruments: Set<string> = new Set();
 const moduleHeartbeats: Record<string, { lastSeen: number; message: string }> = {
   FETCHER: { lastSeen: 0, message: 'Waiting for data...' },
   ANALYZER: { lastSeen: 0, message: 'Waiting for data...' },
-  'AI ENGINE': { lastSeen: 0, message: 'Waiting for data...' },
   EXECUTOR: { lastSeen: 0, message: 'Waiting for data...' },
 };
 
@@ -64,10 +60,8 @@ function getOrCreateStore(instrument: string): InstrumentStore {
     instrumentStores[instrument] = {
       optionChain: null,
       analyzerOutput: null,
-      aiDecision: null,
       lastOptionChainUpdate: 0,
       lastAnalyzerUpdate: 0,
-      lastAIDecisionUpdate: 0,
     };
   }
   return instrumentStores[instrument]!;
@@ -111,16 +105,6 @@ export function pushAnalyzerOutput(instrument: string, data: RawAnalyzerOutput):
       }
     }
   }
-}
-
-export function pushAIDecision(instrument: string, data: RawAIDecision): void {
-  const store = getOrCreateStore(instrument);
-  store.aiDecision = data;
-  store.lastAIDecisionUpdate = Date.now();
-  moduleHeartbeats['AI ENGINE'] = {
-    lastSeen: Date.now(),
-    message: `${instrument}: ${data.decision} (${(data.confidence_score * 100).toFixed(0)}%)`,
-  };
 }
 
 export function pushPosition(position: Position): void {
@@ -224,15 +208,6 @@ export function getModuleStatuses(): ModuleStatus[] {
       message: moduleHeartbeats['ANALYZER']!.message,
     },
     {
-      name: 'AI Decision Engine',
-      shortName: 'AI ENGINE',
-      status: getModuleHealth(moduleHeartbeats['AI ENGINE']!.lastSeen, now, STALE_THRESHOLD),
-      lastUpdate: moduleHeartbeats['AI ENGINE']!.lastSeen > 0
-        ? new Date(moduleHeartbeats['AI ENGINE']!.lastSeen).toISOString()
-        : '',
-      message: moduleHeartbeats['AI ENGINE']!.message,
-    },
-    {
       name: 'Execution Module',
       shortName: 'EXECUTOR',
       status: getModuleHealth(moduleHeartbeats['EXECUTOR']!.lastSeen, now, STALE_THRESHOLD),
@@ -269,7 +244,6 @@ export function getInstrumentData(): InstrumentData[] {
 
     const oc = store.optionChain;
     const analyzer = store.analyzerOutput;
-    const ai = store.aiDecision;
 
     // Calculate OI totals from raw option chain
     let totalCallOI = 0;
@@ -337,19 +311,6 @@ export function getInstrumentData(): InstrumentData[] {
       else if (bias.includes('RANGE') || bias.includes('BOUND')) marketBias = 'RANGE_BOUND';
     }
 
-    // Map AI decision
-    let aiDecision: InstrumentData['aiDecision'] = 'WAIT';
-    let aiConfidence = 0;
-    let aiRationale = 'Waiting for AI analysis...';
-    if (ai) {
-      const dec = ai.decision?.toUpperCase() || '';
-      if (dec === 'GO') aiDecision = 'GO';
-      else if (dec === 'NO_GO' || dec === 'NO GO') aiDecision = 'NO_GO';
-      else aiDecision = 'WAIT';
-      aiConfidence = ai.confidence_score || 0;
-      aiRationale = ai.rationale || 'No rationale provided.';
-    }
-
     // Get instrument-specific signals
     const instrumentSignals = signalsLog.filter(s => s.instrument === key).slice(0, 20);
 
@@ -360,9 +321,9 @@ export function getInstrumentData(): InstrumentData[] {
       expiry: analyzer?.timestamp ? new Date(analyzer.timestamp).toLocaleDateString('en-IN') : 'N/A',
       lastPrice: oc?.last_price || analyzer?.last_price || 0,
       marketBias,
-      aiDecision,
-      aiConfidence,
-      aiRationale,
+      aiDecision: 'WAIT' as const,
+      aiConfidence: 0,
+      aiRationale: 'ML model not yet available.',
       supportLevels,
       resistanceLevels,
       activeStrikes,
@@ -372,23 +333,9 @@ export function getInstrumentData(): InstrumentData[] {
       pcrRatio,
       strikesFound,
 
-      // Enhanced fields from v2 AI engine (pass through if available)
-      srLevels: ai?.sr_levels || buildSRLevelsFromStore(store, ai),
-      tradeDirection: ai?.trade_direction,
-      atmStrike: ai?.atm_strike,
-      supportAnalysis: ai?.support_analysis,
-      resistanceAnalysis: ai?.resistance_analysis,
-      ivAssessment: ai?.iv_assessment,
-      thetaAssessment: ai?.theta_assessment,
-      tradeSetup: ai?.trade_setup,
-      riskFlags: ai?.risk_flags,
-      scoringFactors: ai?.scoring_factors,
-
-      // v2.4 Filter results
-      filters: ai?.filters,
-
-      newsDetail: ai?.news_detail || null,
-      newsEventFlags: ai?.news_detail?.event_flags || [],
+      srLevels: buildSRLevelsFromStore(store),
+      newsDetail: null,
+      newsEventFlags: [],
 
       // Opening OI snapshot data from analyzer
       openingSnapshot: analyzer?.opening_snapshot ? {
@@ -504,7 +451,6 @@ function parseSignalText(instrument: string, text: string, timestamp: string): S
  */
 function buildSRLevelsFromStore(
   store: InstrumentStore,
-  ai: RawAIDecision | null,
 ): SRLevel[] | undefined {
   const oc = store.optionChain;
   const analyzer = store.analyzerOutput;
@@ -515,7 +461,7 @@ function buildSRLevelsFromStore(
 
   const supportStrikes = (analyzer.support_levels || []).sort((a, b) => a - b);
   const resistanceStrikes = (analyzer.resistance_levels || []).sort((a, b) => a - b);
-  const atmStrike = ai?.atm_strike || 0;
+  const atmStrike = 0;
 
   const levels: SRLevel[] = [];
 
@@ -738,7 +684,7 @@ function createEmptyInstrument(name: string, displayName: string, exchange: stri
     marketBias: 'NEUTRAL',
     aiDecision: 'WAIT',
     aiConfidence: 0,
-    aiRationale: 'Waiting for data from Python modules...',
+    aiRationale: 'ML model not yet available.',
     supportLevels: [],
     resistanceLevels: [],
     activeStrikes: [],

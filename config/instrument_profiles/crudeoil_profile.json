@@ -1,0 +1,22 @@
+{
+  "exchange": "MCX",
+  "instrument_name": "CRUDEOIL",
+  "underlying_symbol": "CRUDEOIL25MAYFUT",
+  "underlying_security_id": "486502",
+  "session_start": "09:00",
+  "session_end": "23:30",
+  "underlying_tick_timeout_sec": 30,
+  "option_tick_timeout_sec": 120,
+  "momentum_staleness_threshold_sec": 120,
+  "warm_up_duration_sec": 20,
+  "regime_trend_volatility_min": 0.6,
+  "regime_trend_imbalance_min": 0.4,
+  "regime_trend_momentum_min": 0.5,
+  "regime_trend_activity_min": 0.3,
+  "regime_range_volatility_max": 0.5,
+  "regime_range_imbalance_max": 0.3,
+  "regime_range_activity_min": 0.3,
+  "regime_dead_activity_max": 0.15,
+  "regime_dead_vol_drought_max": 0.02,
+  "target_windows_sec": [30, 60]
+}

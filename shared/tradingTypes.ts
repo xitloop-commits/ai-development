@@ -80,8 +80,10 @@ export interface InstrumentData {
   } | null;
   srIntradayLevels?: SRIntradayLevel[];
 
-  // Enhanced fields from v2 AI engine
-  srLevels?: SRLevel[];    // S/R Strength Line data (S5..ATM..R5)
+  // S/R Strength Line data (S5..ATM..R5) — built from option chain + analyzer
+  srLevels?: SRLevel[];
+
+  // Reserved for ML model output — populated once Model Training Agent + inference are built
   tradeDirection?: 'GO_CALL' | 'GO_PUT' | 'WAIT';
   atmStrike?: number;
   supportAnalysis?: WallAnalysis;
@@ -91,8 +93,6 @@ export interface InstrumentData {
   tradeSetup?: TradeSetup | null;
   riskFlags?: RiskFlag[];
   scoringFactors?: Record<string, ScoringFactor>;
-
-  // v2.4 Filter results
   filters?: TradeFilters;
 }
 
@@ -357,52 +357,9 @@ export interface TradeFilters {
   quality_gate: QualityGate;
 }
 
-/** Shape of the AI decision output JSON */
-export interface RawAIDecision {
-  instrument: string;
-  timestamp: string;
-  decision: string;
-  trade_type: string;
-  confidence_score: number;
-  rationale: string;
-  market_bias_oc: string;
-  market_bias_news: string;
-  active_strikes: {
-    call: number[];
-    put: number[];
-  };
-  main_support: number;
-  main_resistance: number;
-  entry_signal_details: string | null;
-  news_summary: string;
-  target_strike: number | null;
-  target_expiry_date: string | null;
-
-  // Enhanced news sentiment
-  news_detail?: NewsDetail;
-
-  // Enhanced fields from v2 AI engine
-  sr_levels?: SRLevel[];   // S/R Strength Line data (S5..ATM..R5)
-  trade_direction?: 'GO_CALL' | 'GO_PUT' | 'WAIT';
-  atm_strike?: number;
-  ltp?: number;
-  support_analysis?: WallAnalysis;
-  resistance_analysis?: WallAnalysis;
-  iv_assessment?: IVAssessment;
-  theta_assessment?: ThetaAssessment;
-  pcr_ratio?: number;
-  trade_setup?: TradeSetup | null;
-  risk_flags?: RiskFlag[];
-  scoring_factors?: Record<string, ScoringFactor>;
-
-  // v2.4 Filter results
-  filters?: TradeFilters;
-}
-
 /** Payload shape for the data push API */
 export interface TradingDataPayload {
   instrument: string;
   optionChain?: RawOptionChainData;
   analyzerOutput?: RawAnalyzerOutput;
-  aiDecision?: RawAIDecision;
 }

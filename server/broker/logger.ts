@@ -3,9 +3,13 @@
  *
  * Provides a consistent log format across all BSA modules:
  *
- *   2026-04-11 10:15:23.456 [INFO ] [BSA:Service    ] All adapters initialised.
- *   2026-04-11 10:15:23.457 [WARN ] [BSA:Dhan       ] No access token configured.
- *   2026-04-11 10:15:23.458 [ERROR] [BSA:DhanWS     ] Connection refused
+ *   2026-04-11 10:15:23.456 [INFO ] [BSA:Service] All adapters initialised.
+ *   2026-04-11 10:15:23.457 [WARN ] [BSA:Dhan] No access token configured.
+ *   2026-04-11 10:15:23.458 [ERROR] [BSA:DhanWS] Connection refused
+ *
+ * Each module's entire log line is tinted with a unique color.
+ * The level indicator always uses its own conventional color:
+ *   DEBUG → dim gray   INFO → green   WARN → yellow   ERROR → red
  *
  * Usage:
  *   import { createLogger } from "../logger";
@@ -44,21 +48,47 @@ export interface Logger {
 
 const USE_COLOR = process.stdout?.isTTY === true;
 
-const C = {
-  DEBUG: "\x1b[90m",   // dim gray
-  INFO:  "\x1b[32m",   // green
-  WARN:  "\x1b[33m",   // yellow
-  ERROR: "\x1b[31m",   // red
-  BOLD:  "\x1b[1m",
-  RESET: "\x1b[0m",
+/** Level indicator colors — always consistent regardless of module. */
+const LEVEL_COLOR: Record<Level, string> = {
+  DEBUG: "\x1b[90m",  // dim gray
+  INFO:  "\x1b[32m",  // green
+  WARN:  "\x1b[33m",  // yellow
+  ERROR: "\x1b[31m",  // red
 };
 
-function color(level: Level, s: string): string {
-  return USE_COLOR ? `${C[level]}${s}${C.RESET}` : s;
-}
+const BOLD  = "\x1b[1m";
+const RESET = "\x1b[0m";
 
-function bold(s: string): string {
-  return USE_COLOR ? `${C.BOLD}${s}${C.RESET}` : s;
+/**
+ * Unique line-tint color per module.
+ * Every character of the log line (except the level indicator) appears in this color.
+ * Modules not listed here fall back to the color pool below.
+ */
+const MODULE_COLORS: Record<string, string> = {
+  Service:     "\x1b[36m",         // cyan
+  Config:      "\x1b[35m",         // magenta
+  REST:        "\x1b[34m",         // blue
+  Router:      "\x1b[94m",         // bright blue
+  Dhan:        "\x1b[96m",         // bright cyan
+  DhanAuth:    "\x1b[95m",         // bright magenta
+  DhanWS:      "\x1b[93m",         // bright yellow
+  DhanOrderWS: "\x1b[91m",         // bright red
+  ScripMaster: "\x1b[92m",         // bright green
+  SubManager:  "\x1b[97m",         // bright white
+  Mock:        "\x1b[37m",         // light gray
+  TickWS:      "\x1b[38;5;208m",   // orange
+};
+
+/** Fallback color pool for dynamically-named modules. */
+const COLOR_POOL = Object.values(MODULE_COLORS);
+const _dynamicColorMap = new Map<string, string>();
+
+function getModuleColor(module: string): string {
+  if (MODULE_COLORS[module]) return MODULE_COLORS[module];
+  if (!_dynamicColorMap.has(module)) {
+    _dynamicColorMap.set(module, COLOR_POOL[_dynamicColorMap.size % COLOR_POOL.length]);
+  }
+  return _dynamicColorMap.get(module)!;
 }
 
 // ─── Timestamp ─────────────────────────────────────────────────
@@ -76,11 +106,21 @@ function ts(): string {
  * @param module - Short module name, e.g. "Dhan", "DhanWS", "Service"
  */
 export function createLogger(module: string): Logger {
-  // Pad level to 5 chars so columns align: "DEBUG", "INFO ", "WARN ", "ERROR"
   function emit(level: Level, msg: string, args: unknown[]): void {
-    const lvl  = color(level, level.padEnd(5));
-    const tag  = bold(`BSA:${module}`);
-    const line = `${ts()} [${lvl}] [${tag}] ${msg}`;
+    let line: string;
+
+    if (USE_COLOR) {
+      const mc  = getModuleColor(module);
+      const lc  = LEVEL_COLOR[level];
+      // Level indicator: level color → reset → back to module color
+      const lvl = `${lc}${level.padEnd(5)}${RESET}${mc}`;
+      // Module tag: bold → reset → back to module color
+      const tag = `${BOLD}BSA:${module}${RESET}${mc}`;
+      // Full line in module color; level indicator temporarily overrides it
+      line = `${mc}${ts()} [${lvl}] [${tag}] ${msg}${RESET}`;
+    } else {
+      line = `${ts()} [${level.padEnd(5)}] [BSA:${module}] ${msg}`;
+    }
 
     const fn = level === "ERROR"
       ? console.error
@@ -88,11 +128,7 @@ export function createLogger(module: string): Logger {
         ? console.warn
         : console.log;
 
-    if (args.length > 0) {
-      fn(line, ...args);
-    } else {
-      fn(line);
-    }
+    args.length > 0 ? fn(line, ...args) : fn(line);
   }
 
   return {

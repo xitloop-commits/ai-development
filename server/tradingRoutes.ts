@@ -9,7 +9,6 @@ import type { Express, Request, Response } from 'express';
 import {
   pushOptionChain,
   pushAnalyzerOutput,
-  pushAIDecision,
   pushPosition,
   updateModuleHeartbeat,
   setTradingMode,
@@ -51,22 +50,6 @@ export function registerTradingRoutes(app: Express): void {
       res.json({ success: true, message: `Analyzer output updated for ${instrument}` });
     } catch (err: any) {
       console.error('[Trading API] Error pushing analyzer output:', err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // Push AI decision from the AI Decision Engine
-  app.post('/api/trading/ai-decision', (req: Request, res: Response) => {
-    try {
-      const { instrument, data } = req.body;
-      if (!instrument || !data) {
-        res.status(400).json({ error: 'Missing instrument or data' });
-        return;
-      }
-      pushAIDecision(instrument, data);
-      res.json({ success: true, message: `AI decision updated for ${instrument}` });
-    } catch (err: any) {
-      console.error('[Trading API] Error pushing AI decision:', err);
       res.status(500).json({ error: err.message });
     }
   });

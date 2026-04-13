@@ -16,6 +16,7 @@
 | 1.5 | Column table expanded 320 → 322 (added `upside_percentile_30s` col 308, `avg_decay_per_strike_30s` col 309); `ltp_prev` defined as option tick buffer[-2]; `call_put_strength_diff` normalization formula explicit (divide by active_strike_count); `momentum_persistence_ticks` sign rule and first-tick edge case; `direction_30s_magnitude` zero-spot guard; `total_premium_decay_atm` ltp_prev source clarified (tick buffer, not snapshot); PERFORMANCE_DEGRADED latency defined as wall-clock; startup checklist expanded to all 20 profile fields |
 | 1.7 | Column table expanded 336 → 369 (+33 new columns): OFI (trade direction + ofi_5/20/50), Realized Volatility (vol_5/20), Micro Aggregation (10-tick and 50-tick underlying aggregates, premium_momentum_10 per ATM ±3 strike × CE/PE), Multi-Horizon ratios (momentum/vol/ofi horizon comparison). Underlying buffer extended 20 → 50 ticks; option buffer extended 5 → 10 ticks. New sections 8.18–8.21 added. Warm-up table extended with 10-tick and 50-tick gates. Section 12 Future Development updated: OFI, Realized Vol, Multi-Horizon, and Micro Aggregation items removed (now implemented as §8.18–8.21); Regime Detection item removed (already existed as §8.10); Level 2 Depth remains the sole pending future item (§12.1). |
 | 1.8 | Column table expanded 369 → 370 (+1): added `underlying_realized_vol_50` (col 20) for symmetry with realized_vol_5 and realized_vol_20. Underlying Extended group grows from 19 → 20 columns. All per-column indices from 20 onward incremented by 1. §8.19, §8.15 computation order, §8.16 null rules, and §9 JSON example updated. Stale "5-tick buffer" terminology fixed throughout spec; §8.17/§8.17.1 reordered to correct section sequence (now before §8.18). §9.2 ML Model Input Layer added: 7-step pipeline from 370-column TFA output to ~80–120 model features — row filtering, category drops, redundancy reduction, strike tier selection, active strike handling, variance pruning, importance pruning. Feature config file schema defined. |
+| 1.9 | Added §15 Raw Data Recording, §16 Replay Mode, §17 Feature Quality Validation. TFA now records all input data (underlying ticks, option ticks, chain snapshots) to disk alongside live feature computation. Recorded data is replayable through TFA for model retraining and retesting without live market access. DataRecorder_Spec_v1.0.md infused into TFA spec — DataRecorder as a separate module is superseded. |
 | 1.6 | Column table expanded 322 → 336: added 5 missing per-window target columns (`risk_reward_ratio_30s/60s`, `avg_decay_per_strike_60s`, `direction_60s`, `direction_60s_magnitude`) and 9 compression/time-to-move signals renumbered; `breakout_readiness_extended` algorithm defined; `stale_reason="BOTH"` upgrade logic added to state machine pseudocode; `trading_allowed` and `stale_reason` explicit initialization added to pseudocode; Instrument Profile startup validation edge cases (empty/duplicate `target_windows_sec`, `session_start==session_end`, missing contract); `CORRUPT_CHAIN_DATA` extended to cover zero-strike and <7-strike snapshots; option tick timeout clarified as data-quality only (not `trading_state` transition); `spread_tightening_atm` `chain_available` semantics clarified as session-level; `vol_session_median` independence from chain confirmed; ATM shift per-strike buffer retention explicit; `active_strikes` tiebreaker scope per-set before union; `strike_step` computed once on first snapshot |
 
 ---
@@ -56,10 +57,34 @@
 | Requirement | Detail |
 |-------------|--------|
 | Broker API credentials | API key + access token for WebSocket and REST |
-| WebSocket connection | Real-time tick subscriptions (underlying + options) |
+| WebSocket connection | Real-time tick subscriptions (underlying + options) — **direct to Dhan**, one connection per TFA process |
 | REST / HTTP connection | Option chain polling every 5 seconds |
 | Timezone | IST (UTC+5:30) — all timestamps and session logic |
 | Clock synchronization | System clock must be accurate for `chain_timestamp <= tick_time` |
+
+**Process model: one TFA process per instrument.**
+
+Four isolated processes run in parallel — one for each of nifty50, banknifty, crudeoil, naturalgas. Each process:
+- Opens its own direct Dhan WebSocket connection (`wss://api-feed.dhan.co`)
+- Subscribes only to its own instrument's security IDs (~500 per instrument)
+- Manages its own session gate, buffers, recording files, and feature output independently
+- Crashes or restarts without affecting the other three instruments
+
+**Dhan connection budget:**
+
+| Process | Connections |
+|---------|------------|
+| BSA (web UI via `/ws/ticks`) | 1 |
+| TFA — nifty50 | 1 |
+| TFA — banknifty | 1 |
+| TFA — crudeoil | 1 |
+| TFA — naturalgas | 1 |
+| **Total** | **5 (Dhan limit: 5)** |
+
+**Connection safety rules:**
+- Stagger TFA process starts by 5 seconds each (nifty50 → banknifty → crudeoil → naturalgas) to avoid simultaneous connection bursts
+- On disconnect code 805 ("Too many connections"): log ERROR, wait 30s before reconnect attempt (give other connections time to stabilise)
+- BSA is always started before TFA processes
 
 ### 0.4.1 Session Architecture
 
@@ -107,7 +132,7 @@ Loaded once at startup. Parametrizes all exchange-specific and instrument-specif
   "exchange": "NSE",
   "instrument_name": "NIFTY",
   "underlying_symbol": "NIFTY25MAYFUT",
-  "underlying_security_id": "26000",
+  "underlying_security_id": "13",
   "session_start": "09:15",
   "session_end": "15:30",
   "underlying_tick_timeout_sec": 5,
@@ -127,16 +152,78 @@ Loaded once at startup. Parametrizes all exchange-specific and instrument-specif
 }
 ```
 
+**All four instrument profiles (one file per instrument):**
+
+```json
+// nifty50_profile.json
+{
+  "exchange": "NSE", "instrument_name": "NIFTY",
+  "underlying_symbol": "NIFTY25MAYFUT", "underlying_security_id": "13",
+  "session_start": "09:15", "session_end": "15:30",
+  "underlying_tick_timeout_sec": 5, "option_tick_timeout_sec": 30,
+  "momentum_staleness_threshold_sec": 60, "warm_up_duration_sec": 15,
+  "regime_trend_volatility_min": 0.6, "regime_trend_imbalance_min": 0.4,
+  "regime_trend_momentum_min": 0.5, "regime_trend_activity_min": 0.3,
+  "regime_range_volatility_max": 0.5, "regime_range_imbalance_max": 0.3,
+  "regime_range_activity_min": 0.3, "regime_dead_activity_max": 0.15,
+  "regime_dead_vol_drought_max": 0.02, "target_windows_sec": [30, 60]
+}
+
+// banknifty_profile.json
+{
+  "exchange": "NSE", "instrument_name": "BANKNIFTY",
+  "underlying_symbol": "BANKNIFTY25MAYFUT", "underlying_security_id": "25",
+  "session_start": "09:15", "session_end": "15:30",
+  "underlying_tick_timeout_sec": 5, "option_tick_timeout_sec": 30,
+  "momentum_staleness_threshold_sec": 60, "warm_up_duration_sec": 15,
+  "regime_trend_volatility_min": 0.6, "regime_trend_imbalance_min": 0.4,
+  "regime_trend_momentum_min": 0.5, "regime_trend_activity_min": 0.3,
+  "regime_range_volatility_max": 0.5, "regime_range_imbalance_max": 0.3,
+  "regime_range_activity_min": 0.3, "regime_dead_activity_max": 0.15,
+  "regime_dead_vol_drought_max": 0.02, "target_windows_sec": [30, 60]
+}
+
+// crudeoil_profile.json
+{
+  "exchange": "MCX", "instrument_name": "CRUDEOIL",
+  "underlying_symbol": "CRUDEOIL25MAYFUT", "underlying_security_id": "486502",
+  "session_start": "09:00", "session_end": "23:30",
+  "underlying_tick_timeout_sec": 30, "option_tick_timeout_sec": 120,
+  "momentum_staleness_threshold_sec": 120, "warm_up_duration_sec": 20,
+  "regime_trend_volatility_min": 0.6, "regime_trend_imbalance_min": 0.4,
+  "regime_trend_momentum_min": 0.5, "regime_trend_activity_min": 0.3,
+  "regime_range_volatility_max": 0.5, "regime_range_imbalance_max": 0.3,
+  "regime_range_activity_min": 0.3, "regime_dead_activity_max": 0.15,
+  "regime_dead_vol_drought_max": 0.02, "target_windows_sec": [30, 60]
+}
+
+// naturalgas_profile.json
+{
+  "exchange": "MCX", "instrument_name": "NATURALGAS",
+  "underlying_symbol": "NATURALGAS25MAYFUT", "underlying_security_id": "487465",
+  "session_start": "09:00", "session_end": "23:30",
+  "underlying_tick_timeout_sec": 30, "option_tick_timeout_sec": 120,
+  "momentum_staleness_threshold_sec": 120, "warm_up_duration_sec": 30,
+  "regime_trend_volatility_min": 0.6, "regime_trend_imbalance_min": 0.4,
+  "regime_trend_momentum_min": 0.5, "regime_trend_activity_min": 0.3,
+  "regime_range_volatility_max": 0.5, "regime_range_imbalance_max": 0.3,
+  "regime_range_activity_min": 0.3, "regime_dead_activity_max": 0.15,
+  "regime_dead_vol_drought_max": 0.02, "target_windows_sec": [30, 60]
+}
+```
+
+Profile files live at `{project_root}/config/instrument_profiles/`. One file per instrument. Updated when the futures contract rolls over (monthly for NSE, varies for MCX).
+
 All fields are **required**. Unknown fields are ignored. Validation errors (missing field, wrong type, invalid time format) cause startup halt with descriptive error message. The file is not re-read during the session — restart required for any changes.
 
 | Parameter | Type | Description | Example (NIFTY) | Example (CRUDEOIL) | Example (NATURALGAS) |
 |-----------|------|-------------|-----------------|---------------------|----------------------|
-| `exchange` | string | Exchange name | `NSE` | `MCX` | `MCX` |
-| `instrument_name` | string | Instrument identifier | `NIFTY` | `CRUDEOIL` | `NATURALGAS` |
-| `underlying_symbol` | string | Active futures contract symbol | `NIFTY25MAYFUT` | `CRUDEOIL25MAYFUT` | `NATURALGAS25MAYFUT` |
-| `underlying_security_id` | string | Broker-assigned security ID for underlying | `26000` | `234230` | `234235` |
-| `session_start` | string | Market open time (IST, HH:MM) | `09:15` | `09:00` | `09:00` |
-| `session_end` | string | Market close time (IST, HH:MM) | `15:30` | `23:30` | `23:30` |
+| `exchange` | string | Exchange name | `NSE` | `NSE` | `MCX` | `MCX` |
+| `instrument_name` | string | Instrument identifier | `NIFTY` | `BANKNIFTY` | `CRUDEOIL` | `NATURALGAS` |
+| `underlying_symbol` | string | Active futures contract symbol | `NIFTY25MAYFUT` | `BANKNIFTY25MAYFUT` | `CRUDEOIL25MAYFUT` | `NATURALGAS25MAYFUT` |
+| `underlying_security_id` | string | Broker-assigned security ID for underlying | `13` | `25` | `486502` | `487465` |
+| `session_start` | string | Market open time (IST, HH:MM) | `09:15` | `09:15` | `09:00` | `09:00` |
+| `session_end` | string | Market close time (IST, HH:MM) | `15:30` | `15:30` | `23:30` | `23:30` |
 | `underlying_tick_timeout_sec` | int | Max gap in underlying ticks before quality flag fires | `5` | `30` | `30` |
 | `option_tick_timeout_sec` | int | **Per-strike timeout:** if ANY one of the 14 ATM ±3 (7 strikes × CE+PE) instruments has not received a tick within this many seconds of current wall-clock time, set `data_quality_flag = 0` and emit `WARN` log. Deep OTM strikes outside ATM ±3 window are not monitored. | `30` | `120` | `120` |
 | `momentum_staleness_threshold_sec` | int | Max time span of 5-tick buffer for valid `premium_momentum` | `60` | `120` | `120` |
@@ -175,7 +262,7 @@ Build a real-time data processing system that:
 - Short-term trading analysis
 - Machine learning model input
 
-**Target instruments:** NIFTY 50 options (NSE), Crude Oil options (MCX), Natural Gas options (MCX)
+**Target instruments:** NIFTY 50 options (NSE), BankNifty options (NSE), Crude Oil options (MCX), Natural Gas options (MCX)
 
 ---
 
@@ -299,8 +386,10 @@ Must include **all strikes** for the current expiry.
 | `put_oi` | Put open interest |
 | `call_volume` | Cumulative daily call volume (use snapshot diff for activity signal) |
 | `put_volume` | Cumulative daily put volume (use snapshot diff for activity signal) |
-| `call_delta_oi` | Change in call OI per strike from **start of day** (intraday ΔOI, provided by NSE feed) |
-| `put_delta_oi` | Change in put OI per strike from **start of day** (intraday ΔOI, provided by NSE feed) |
+| `call_delta_oi` | Change in call OI per strike since the **previous 5s snapshot** — per-snapshot activity signal used by TFA for `call_vol_diff` computation |
+| `put_delta_oi` | Change in put OI per strike since the **previous 5s snapshot** |
+| `call_oi_from_open` | Cumulative change in call OI from **session open** (intraday ΔOI from 09:15/09:00) — day-level positioning signal |
+| `put_oi_from_open` | Cumulative change in put OI from **session open** |
 
 ---
 
@@ -2754,3 +2843,470 @@ sequenceDiagram
 | Operator gets clear notification | Outage event logged with start time, duration, resume time |
 | trading_state in feature stream is accurate | `trading_allowed` flag matches `outage_pause_active` state |
 | No trades executed during warm-up | Trading log shows zero trades during [warm_up_start, warm_up_end] window |
+
+---
+
+## 15. Raw Data Recording
+
+TFA records all input data to disk alongside live feature computation. This enables:
+- **Model retraining** — replay recorded data through TFA to regenerate features after bug fixes or feature changes
+- **TFA retesting** — validate updated TFA logic against historical raw data without live market access
+- **Bug recovery** — if TFA has a computation error, raw data allows recomputation; feature rows alone are unrecoverable
+- **Feature experimentation** — try new feature formulas on recorded data before deploying live
+
+### 15.1 Operating Modes
+
+TFA has two mutually exclusive operating modes, set at startup via `--mode` CLI argument:
+
+| Mode | CLI flag | What it does |
+|------|----------|-------------|
+| **Live + Record** | `--mode live` (default) | Connects to Dhan live, computes features, AND writes raw data to disk |
+| **Replay** | `--mode replay --date YYYY-MM-DD` | Reads recorded NDJSON.gz files, feeds through TFA feature pipeline — no live connection, no new recording |
+
+### 15.2 What Gets Recorded
+
+Three streams per instrument per session:
+
+| Stream | File | Content | Trigger |
+|--------|------|---------|---------|
+| Underlying ticks | `{instrument}_underlying_ticks.ndjson.gz` | One record per WebSocket tick for the underlying futures | Every tick from `dhan_feed.py` |
+| Option ticks | `{instrument}_option_ticks.ndjson.gz` | One record per WebSocket tick for any strike × CE/PE | Every tick from `dhan_feed.py` |
+| Chain snapshots | `{instrument}_chain_snapshots.ndjson.gz` | Full chain — all strikes per poll | Every 5s poll from `chain_poller.py` |
+
+### 15.3 Storage Layout
+
+All paths relative to **project root** (`ai-development/`):
+
+```
+{project_root}/data/
+├── raw/
+│   └── {YYYY-MM-DD}/                    ← IST date folder
+│       ├── metadata.json                ← expiry + underlying_symbol per instrument
+│       ├── nifty50_underlying_ticks.ndjson.gz
+│       ├── nifty50_option_ticks.ndjson.gz
+│       ├── nifty50_chain_snapshots.ndjson.gz
+│       ├── banknifty_underlying_ticks.ndjson.gz
+│       ├── banknifty_option_ticks.ndjson.gz
+│       ├── banknifty_chain_snapshots.ndjson.gz
+│       ├── crudeoil_underlying_ticks.ndjson.gz
+│       ├── crudeoil_option_ticks.ndjson.gz
+│       ├── crudeoil_chain_snapshots.ndjson.gz
+│       ├── naturalgas_underlying_ticks.ndjson.gz
+│       ├── naturalgas_option_ticks.ndjson.gz
+│       └── naturalgas_chain_snapshots.ndjson.gz
+├── features/                            ← TFA replay output (Parquet)
+│   └── {YYYY-MM-DD}/
+│       └── {instrument}_features.parquet
+├── checkpoints/                         ← Replay progress
+│   └── replay_progress.json
+└── validation/                          ← Feature quality reports
+    └── {YYYY-MM-DD}/
+        └── {instrument}_validation.json
+```
+
+**Root path:** configured via `DATA_DIR` env var. Default: `{project_root}/data/raw`.
+
+**Restart behaviour:** on startup, if today's date folder exists, recorder appends to existing files. No data lost on mid-session restart.
+
+**Market holidays:** recorder has no built-in holiday calendar. On holidays, do not start TFA in live mode. Empty/near-empty files from accidental holiday runs are skipped by Replay mode (zero tick records detected).
+
+### 15.4 Record Formats
+
+All records include `recv_ts` — IST wall-clock time when TFA received the event, ISO8601 with `+05:30` offset. Millisecond precision.
+
+#### 15.4.1 Underlying Tick
+
+One record per WebSocket tick for the underlying futures instrument.
+
+```json
+{
+  "recv_ts": "2026-04-14T09:15:01.234+05:30",
+  "security_id": "13",
+  "ltp": 23105.0,
+  "bid": 23104.5,
+  "ask": 23105.5,
+  "bid_qty": 120,
+  "ask_qty": 85,
+  "volume": 3,
+  "cumulative_volume": 1245300,
+  "oi": 0,
+  "ltt": 1744342501
+}
+```
+
+`volume` = per-tick traded quantity (`ltq` from Dhan binary — quantity of this specific trade event).
+`cumulative_volume` = cumulative daily volume from Dhan binary (accumulates all day).
+
+#### 15.4.2 Option Tick
+
+One record per WebSocket tick for any option strike × CE/PE across all 4 instruments.
+
+```json
+{
+  "recv_ts": "2026-04-14T09:15:01.310+05:30",
+  "security_id": "100123",
+  "expiry": "2026-04-17",
+  "strike": 23100,
+  "opt_type": "CE",
+  "ltp": 85.5,
+  "bid": 85.0,
+  "ask": 86.0,
+  "bid_qty": 50,
+  "ask_qty": 40,
+  "volume": 2,
+  "cumulative_volume": 48200,
+  "oi": 12000,
+  "ltt": 1744342501
+}
+```
+
+`expiry` = active expiry for this strike at time of recording (from SecurityMap). Required to distinguish pre/post rollover ticks within the same session file.
+
+#### 15.4.3 Chain Snapshot
+
+One record per 5-second poll. Contains full chain — all strikes.
+
+```json
+{
+  "recv_ts": "2026-04-14T09:15:05.001+05:30",
+  "expiry": "2026-04-17",
+  "spot": 23105.0,
+  "strikes": [
+    {
+      "strike": 23100,
+      "call_oi": 45000,
+      "put_oi": 38000,
+      "call_volume": 1200,
+      "put_volume": 980,
+      "call_delta_oi": 200,
+      "put_delta_oi": -150,
+      "call_oi_from_open": 12000,
+      "put_oi_from_open": -8000,
+      "call_ltp": 85.5,
+      "put_ltp": 78.0,
+      "call_security_id": "100123",
+      "put_security_id": "100124"
+    }
+  ]
+}
+```
+
+| Field | Source | Meaning |
+|-------|--------|---------|
+| `call_delta_oi` | Computed by TFA: `call_oi − call_oi_prev_snapshot` | OI change since last 5s poll — per-snapshot activity signal for `call_vol_diff` |
+| `put_delta_oi` | Computed by TFA: `put_oi − put_oi_prev_snapshot` | OI change since last 5s poll |
+| `call_oi_from_open` | Provided by Dhan chain API directly | Cumulative OI change from session open — day-level positioning signal |
+| `put_oi_from_open` | Provided by Dhan chain API directly | Cumulative OI change from session open |
+
+**First snapshot of the session:** `call_delta_oi` and `put_delta_oi` = 0 (no previous snapshot to diff against). `call_oi_from_open` and `put_oi_from_open` reflect actual intraday build-up as reported by Dhan.
+
+### 15.5 Session Recording Lifecycle
+
+Recording is session-bounded — one date folder per IST calendar day.
+
+**On session open (daily):**
+1. Create `data/raw/{date}/` folder
+2. Open new NDJSON.gz writers for all 3 streams
+3. Write `metadata.json` with current expiry + underlying_symbol for all 4 instruments
+
+**On expiry rollover (14:30 IST on expiry day):**
+1. Re-fetch option chain — new expiry is now live
+2. Update SecurityMap with new strike → security ID mappings
+3. Subscribe new security IDs, unsubscribe expired IDs
+4. Overwrite `metadata.json` with updated expiry
+5. Log: `{instrument} expiry rollover — old: {old_expiry} → new: {new_expiry}`
+
+**On session close:**
+1. Flush and close all writers
+2. Log final counts: underlying ticks, option ticks, chain snapshots written
+
+**Pre/post session ticks:** not recorded. Dropped silently outside session hours.
+
+### 15.6 Metadata File
+
+Written once per day at session open, overwritten on expiry rollover.
+
+```
+data/raw/{date}/metadata.json
+```
+
+```json
+{
+  "date": "2026-04-14",
+  "instruments": {
+    "nifty50":    { "underlying_symbol": "NIFTY25MAYFUT",     "underlying_security_id": "13",     "expiry": "2026-04-17" },
+    "banknifty":  { "underlying_symbol": "BANKNIFTY25MAYFUT", "underlying_security_id": "25",     "expiry": "2026-04-17" },
+    "crudeoil":   { "underlying_symbol": "CRUDEOIL25MAYFUT",  "underlying_security_id": "486502", "expiry": "2026-04-16" },
+    "naturalgas": { "underlying_symbol": "NATURALGAS25MAYFUT","underlying_security_id": "487465", "expiry": "2026-04-23" }
+  }
+}
+```
+
+The Replay mode reads `metadata.json` to construct the correct Instrument Profile for each replay day, ensuring `underlying_symbol` and `expiry` are correct for the data being replayed.
+
+### 15.7 Writer Design
+
+One `NdjsonGzWriter` per stream (3 streams × 4 instruments = 12 writers active during session).
+
+```python
+class NdjsonGzWriter:
+    def write(self, record: dict) -> None  # thread-safe, appends one JSON line + \n
+    def roll(self, new_path: str) -> None  # close current, open new file (date rollover)
+    def close(self) -> None               # flush + close
+```
+
+Write mode: `gzip.open(path, "at", encoding="utf-8")` — text append. One JSON line per write. One lock per writer instance for thread safety.
+
+### 15.8 Dashboard Integration
+
+On each chain poll, the recorder also overwrites `python_modules/output/option_chain_{instrument}.json` — the same format consumed by `dashboard_data_pusher.py`. This keeps the live UI option chain display updated without a separate poller.
+
+### 15.9 Recording Configuration
+
+| Env Variable | Default | Description |
+|-------------|---------|-------------|
+| `DATA_DIR` | `{project_root}/data/raw` | Root directory for recorded data |
+| `TFA_RECORD` | `1` | Set to `0` to disable recording (live mode without disk writes) |
+| `TFA_DUMP_FIRST_PACKET` | `0` | Set to `1` to hex-dump first binary packet — for offset verification at new deployment |
+
+### 15.10 Recording Log Events
+
+| Event | Level | Message |
+|-------|-------|---------|
+| Session open | INFO | `{instrument} recording started → data/raw/{date}/` |
+| Session close | INFO | `{instrument} session closed — {N} underlying, {N} option, {N} snapshot records` |
+| Expiry rollover | INFO | `{instrument} expiry rollover {old} → {new}, {N} new IDs subscribed` |
+| Writer error | ERROR | `Failed to write record: {error} — recording paused for {instrument}` |
+
+---
+
+## 16. Replay Mode
+
+Replay mode feeds recorded NDJSON.gz data back through TFA's full feature pipeline without a live market connection. Used for:
+- **Model retraining** — generate feature Parquet files from 1+ months of recorded data
+- **TFA retesting** — validate TFA logic changes against historical data
+- **Feature re-experimentation** — run modified feature code on previously recorded sessions
+
+### 16.1 How Replay Works
+
+```
+data/raw/{date}/
+  {instrument}_underlying_ticks.ndjson.gz  ─┐
+  {instrument}_option_ticks.ndjson.gz      ─┼→ chronological merge by recv_ts → TFA pipeline → features.parquet
+  {instrument}_chain_snapshots.ndjson.gz   ─┘
+```
+
+1. Read all 3 NDJSON.gz streams for the target date + instrument
+2. Merge events in `recv_ts` order (chronological interleave)
+3. Feed each event into TFA's existing processing pipeline:
+   - Underlying tick → `dhan_feed.py` handler (bypassed via replay adapter)
+   - Option tick → option tick handler
+   - Chain snapshot → `chain_cache.py` (snapshot injected directly)
+4. TFA computes features exactly as in live mode — same buffers, same session gate, same state machine
+5. Output 370-column rows to `data/features/{date}/{instrument}_features.parquet`
+
+**No live connections are made in replay mode.** `dhan_feed.py` WebSocket and `chain_poller.py` REST calls are bypassed entirely.
+
+**Instrument Profile override per replay day:** The base profile (`--instrument-profile`) holds session hours, regime thresholds, and timeout values — these never change. But `underlying_symbol` and `underlying_security_id` change monthly with contract rollover. At the start of each replay date, `replay_adapter.py` reads that day's `metadata.json` and creates a date-specific profile override:
+
+```python
+@classmethod
+def for_replay_date(cls, base: "InstrumentProfile", meta: dict) -> "InstrumentProfile":
+    """Return a copy of base profile with underlying fields from that day's metadata.json."""
+    return dataclasses.replace(
+        base,
+        underlying_symbol=meta["underlying_symbol"],
+        underlying_security_id=meta["underlying_security_id"],
+    )
+```
+
+If `metadata.json` is missing for a date: log WARN `"metadata.json missing for {date} — using base profile, UNDERLYING_SYMBOL_MISMATCH alerts expected"` and proceed. All other profile fields (session hours, thresholds) remain from the base profile throughout all replay dates.
+
+### 16.2 Timestamp in Replay
+
+`recv_ts` from recorded files is used as the tick `timestamp` passed to TFA. This is correct because:
+- `recv_ts` has millisecond precision (vs `ltt` which is epoch seconds only — too coarse)
+- `recv_ts` is consistent and in-order within a session
+- Multiple ticks per second are correctly ordered by `recv_ts`
+
+`ltt` (Dhan's last trade time) is preserved in records for reference but not used as the replay timestamp.
+
+### 16.3 Resumable Replay (Checkpoint)
+
+Replay can be stopped and resumed without reprocessing completed sessions.
+
+**Checkpoint file:** `data/checkpoints/replay_progress.json`
+
+```json
+{
+  "nifty50":    { "last_completed_date": "2026-04-11", "sessions_completed": 10 },
+  "banknifty":  { "last_completed_date": "2026-04-11", "sessions_completed": 10 },
+  "crudeoil":   { "last_completed_date": "2026-04-10", "sessions_completed": 9  },
+  "naturalgas": { "last_completed_date": "2026-04-10", "sessions_completed": 9  }
+}
+```
+
+**Checkpoint granularity = full session (calendar day).** Rationale: TFA resets all in-memory state at `session_start` (buffers, medians, streak counters). Replaying a partial session leaves TFA with incomplete warm-up buffers, producing incorrect features. The only safe resume point is the beginning of a session.
+
+**On resume:** read checkpoint → skip all dates ≤ `last_completed_date` → start from next date. Each instrument progresses independently (MCX and NSE sessions finish at different wall-clock times).
+
+**Checkpoint written:** after each session's feature Parquet file is fully flushed and closed.
+
+### 16.4 Multi-Day Replay
+
+```
+python -m tick_feature_agent.main \
+  --mode replay \
+  --instrument nifty50 \
+  --date-from 2026-04-01 \
+  --date-to 2026-04-30 \
+  --resume   # skip already-completed dates per checkpoint
+```
+
+Dates with zero tick records (holidays, missed recording days) are skipped with a log warning.
+
+### 16.5 Replay Output
+
+```
+data/features/
+└── {YYYY-MM-DD}/
+    ├── nifty50_features.parquet
+    ├── banknifty_features.parquet
+    ├── crudeoil_features.parquet
+    └── naturalgas_features.parquet
+```
+
+Each Parquet file contains all 370 feature columns + `recv_ts` as the index. Schema is identical to live TFA output.
+
+---
+
+## 17. Feature Quality Validation
+
+Before any replay output is added to the ML training set, it must pass a three-layer validation. Run `feature_validator.py` on each day's Parquet file after replay completes.
+
+### 17.1 Pipeline Position
+
+```
+TFA Live (1 day recorded)
+        ↓
+TFA Replay → data/features/{date}/{instrument}_features.parquet
+        ↓
+feature_validator.py
+        ↓
+data/validation/{date}/{instrument}_validation.json
+        ↓
+PASS → add to training set
+FAIL → investigate TFA bug, do not use this day's data
+```
+
+### 17.2 Layer 1 — Structural Checks
+
+Hard failures — if any fail, the file is rejected entirely.
+
+| Check | Rule | Failure means |
+|-------|------|---------------|
+| Column count | Exactly 370 columns every row | Schema mismatch or TFA bug |
+| No extra/missing columns | Column names match §9.1 exactly | TFA changed output schema |
+| Data types | Numeric columns are float/int, not string | Serialization bug |
+| Row count | > 0 rows | Replay produced no output |
+| Timestamp ordering | `recv_ts` strictly increasing | Out-of-order replay |
+| No duplicate rows | No two rows with identical `recv_ts` + `security_id` | Replay fed same tick twice |
+
+### 17.3 Layer 2 — Null/NaN Rate Checks
+
+| Feature group | Null expected (warm-up) | Non-null from |
+|---------------|------------------------|---------------|
+| 5-tick features | Rows 1–4 | Row 5 |
+| 10-tick features | Rows 1–9 | Row 10 |
+| 20-tick features | Rows 1–19 | Row 20 |
+| 50-tick features | Rows 1–49 | Row 50 |
+| `vol_session_median` | Rows 1–99 | Row 100 (frozen) |
+| Chain features (`pcr_global`, `oi_*`) | Before first snapshot | After `chain_available=1` |
+| Target variables (`direction_30s`) | Last 30s of session | Mid-session only |
+
+**Null rate thresholds (outside warm-up window):**
+
+| Null rate | Verdict |
+|-----------|---------|
+| < 2% | PASS |
+| 2–10% | WARN — investigate |
+| > 10% | FAIL — TFA bug or data gap |
+
+### 17.4 Layer 3 — Statistical Sanity Checks
+
+| Feature | Expected range | FAIL if |
+|---------|---------------|---------|
+| `bid_ask_imbalance` (any strike) | [-1.0, 1.0] | Always NaN → bid/ask not parsed |
+| `pcr_global` | [0.0, 15.0] | Always exactly 1.0 → OI not updating |
+| `regime` | TREND/RANGE/DEAD/NEUTRAL | Always same value → threshold misconfiguration |
+| `data_quality_flag` | 0 or 1 | flag=0 > 60% of rows |
+| `underlying_trade_direction` | -1, 0, 1 | Always 0 → bid/ask gap not fixed |
+| `direction_30s` target | -1, 0, 1 | Always same value → target leakage |
+| `return_5ticks` | [-0.05, 0.05] typical | > 5% rows outside |
+| `breakout_readiness` | [0.0, 1.0] | Outside [0, 1] |
+| `call_put_strength_diff` | [-1.0, 1.0] | Outside [-1, 1] |
+
+### 17.5 Cross-Feature Consistency Checks
+
+| Check | Rule |
+|-------|------|
+| ATM alignment | `atm_strike` == `round(ltp / strike_step) * strike_step` within ±1 step |
+| Active strike count | `active_strike_count` in [0, 6] always |
+| Warm-up flag | `breakout_readiness = 0.0` for all rows where tick index < 50 |
+| Quality vs chain | if `chain_available = 0` then all chain-derived features must be null |
+
+### 17.6 Validation Output
+
+```
+data/validation/
+└── {YYYY-MM-DD}/
+    ├── nifty50_validation.json
+    ├── banknifty_validation.json
+    ├── crudeoil_validation.json
+    └── naturalgas_validation.json
+```
+
+```json
+{
+  "instrument": "nifty50",
+  "date": "2026-04-14",
+  "verdict": "PASS",
+  "total_rows": 284710,
+  "layers": {
+    "structural":  { "verdict": "PASS" },
+    "null_rates":  { "verdict": "WARN", "checks": { "regime": "WARN — 3.2% null post warm-up" } },
+    "statistical": { "verdict": "PASS" }
+  },
+  "daily_stats": {
+    "return_5ticks": { "mean": 0.0001, "std": 0.0008, "null_pct": 0.0 },
+    "pcr_global":    { "mean": 1.24,   "std": 0.18,   "null_pct": 0.1 }
+  }
+}
+```
+
+**Verdict rules:**
+- `PASS` — all Layer 1 pass, no Layer 2/3 FAILs
+- `WARN` — at least one WARN (usable, investigate)
+- `FAIL` — any Layer 1 failure OR any Layer 2/3 FAIL → do not use for training
+
+### 17.7 Daily Drift Tracking
+
+After 5+ days of data, compare each day's `daily_stats` against rolling mean of previous days:
+
+| Metric | WARN | FAIL |
+|--------|------|------|
+| Mean shift per feature | > 2σ from rolling mean | > 4σ |
+| Null rate increase | > 5 percentage points | > 15 percentage points |
+
+Sudden shifts indicate a TFA bug introduced mid-recording or a genuine market regime change worth investigating before training.
+
+### 17.8 Priority Inspection Order
+
+When WARN or FAIL is reported:
+1. `underlying_trade_direction` always 0 → bid/ask parser not applied
+2. Column count ≠ 370 → TFA schema bug
+3. Null rate > 10% outside warm-up → TFA feature computation bug
+4. `regime` always NEUTRAL → regime threshold misconfiguration in Instrument Profile
+5. `direction_30s` always same value → target variable leakage
+6. `data_quality_flag = 0` > 60% → chain snapshots not arriving
+7. `atm_strike` deviating from spot → ATM detection bug

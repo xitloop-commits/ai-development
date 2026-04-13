@@ -1,6 +1,0 @@
-# Ignore all generated output files
-*.json
-
-# But keep the directory structure
-!.gitkeep
-!.gitignore

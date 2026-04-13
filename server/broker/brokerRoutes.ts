@@ -639,21 +639,44 @@ export function registerBrokerRoutes(app: Express): void {
   /**
    * GET /api/broker/token
    * Returns unmasked Dhan credentials so TFA can open its own direct
-   * Dhan WebSocket connection at startup. For internal Python consumers only.
+   * Dhan WebSocket connection at startup. Localhost-only — rejects all
+   * external requests with 403.
    */
-  app.get("/api/broker/token", async (_req: Request, res: Response) => {
+  app.get("/api/broker/token", async (req: Request, res: Response) => {
+    // Localhost-only guard — never expose raw token externally
+    const ip = req.ip ?? "";
+    const isLocal =
+      ip === "127.0.0.1" ||
+      ip === "::1" ||
+      ip === "::ffff:127.0.0.1";
+    if (!isLocal) {
+      res.status(403).json({ success: false, error: "Forbidden" });
+      return;
+    }
+
     try {
       const config = await getBrokerConfig("dhan");
       if (!config) {
         sendError(res, 404, "Dhan broker config not found");
         return;
       }
+
+      const { accessToken, clientId, status, updatedAt, expiresIn } =
+        config.credentials;
+
+      // Compute remaining ms until token expiry
+      const tokenExpiresIn =
+        updatedAt && expiresIn
+          ? Math.max(0, updatedAt + expiresIn - Date.now())
+          : null;
+
       res.json({
         success: true,
         data: {
-          accessToken: config.credentials.accessToken,
-          clientId: config.credentials.clientId,
-          status: config.credentials.status,
+          accessToken,
+          clientId,
+          status,
+          expiresIn: tokenExpiresIn,
         },
       });
     } catch (err: any) {

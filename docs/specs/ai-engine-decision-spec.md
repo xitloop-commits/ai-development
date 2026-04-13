@@ -1,8 +1,11 @@
-# AI Engine — Module 3: AI Decision Engine
+# ⚠️ DEPRECATED — AI Engine — Module 3: AI Decision Engine
+
+> **DEPRECATED (2026-04-13):** Superseded by ML model pipeline. ML model sends signals directly to RCA.
+> See `TickFeatureAgent_Spec_1.0.md` for the replacement architecture.
 
 **Document:** ai-engine-decision-spec.md
 **Project:** Automatic Trading System (ATS)
-**Status:** Authoritative Reference
+**Status:** ~~Authoritative Reference~~ **DEPRECATED**
 
 ---
 
