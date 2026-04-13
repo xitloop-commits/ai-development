@@ -1,4 +1,6 @@
-# AI Engine — Technical Specification Overview
+# ⚠️ DEPRECATED — AI Engine — Technical Specification Overview
+
+> **DEPRECATED (2026-04-13):** The entire old AI engine pipeline (Modules 1–7) is superseded by the new ML-based pipeline: TFA → Record → Model Training Agent → ML Model → RCA → TEA → BSA. All individual module specs in this folder are deprecated. See `TickFeatureAgent_Spec_1.0.md` for the current architecture.
 
 **Document:** ai-engine-overview.md
 **Project:** Automatic Trading System (ATS)

@@ -1,4 +1,6 @@
-# AI Engine — Module 2: Option Chain Analyzer
+# ⚠️ DEPRECATED — AI Engine — Module 2: Option Chain Analyzer
+
+> **DEPRECATED (2026-04-13):** The old Python option chain analyzer (`option_chain_analyzer.py`) is in `python_modules/deprecated/`. Replaced by TFA which computes all option chain features (OI, PCR, active strikes, chain cache) in real-time as part of the feature pipeline.
 
 **Document:** ai-engine-analyzer-spec.md
 **Project:** Automatic Trading System (ATS)

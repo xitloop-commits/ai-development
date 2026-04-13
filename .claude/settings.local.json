@@ -44,7 +44,14 @@
       "Bash(grep -n \"^| [0-9]\\\\+ |\" \"c:\\\\\\\\Users\\\\\\\\Admin\\\\\\\\ai-development\\\\\\\\ai-development\\\\\\\\docs\\\\\\\\specs\\\\\\\\TickFeatureAgent_Spec_1.0.md\")",
       "Bash(grep -c \"^| [0-9]\\\\+ |\" \"c:\\\\\\\\Users\\\\\\\\Admin\\\\\\\\ai-development\\\\\\\\ai-development\\\\\\\\docs\\\\\\\\specs\\\\\\\\TickFeatureAgent_Spec_1.0.md\")",
       "Bash(grep \"^| [0-9]\\\\+ |\" \"c:\\\\\\\\Users\\\\\\\\Admin\\\\\\\\ai-development\\\\\\\\ai-development\\\\\\\\docs\\\\\\\\specs\\\\\\\\TickFeatureAgent_Spec_1.0.md\")",
-      "Bash(node -e ':*)"
+      "Bash(node -e ':*)",
+      "Bash(pip install:*)",
+      "Bash(py -m pip install pyarrow --quiet)",
+      "Bash(py -c ':*)",
+      "Bash(py -m pytest \"python_modules/tick_feature_agent/tests/test_replay_adapter.py\" -v)",
+      "Bash(py python_modules/tick_feature_agent/main.py --instrument-profile config/instrument_profiles/nifty50_profile.json --mode replay --date 2026-04-14)",
+      "Bash(py python_modules/tick_feature_agent/main.py --help)",
+      "Bash(py -m pytest \"python_modules/tick_feature_agent/tests/test_tick_processor.py\" -v)"
     ]
   }
 }

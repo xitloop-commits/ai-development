@@ -1,4 +1,6 @@
-# AI Engine v2.4 Implementation Plan
+# ⚠️ DEPRECATED — AI Engine v2.4 Implementation Plan
+
+> **DEPRECATED (2026-04-13):** This implementation plan was for the old rule-based AI engine pipeline. The entire pipeline is superseded by TFA + ML model. See `TickFeatureAgent_ImplementationPlan_v1.0.md` for the current implementation plan.
 
 **Document:** ai-engine-implementation-plan.md
 **Project:** Automatic Trading System (ATS)

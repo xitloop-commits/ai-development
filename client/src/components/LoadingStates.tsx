@@ -146,8 +146,8 @@ export function NoAiDecisionsEmpty() {
   return (
     <EmptyState
       icon={Bot}
-      title="AI Engine Not Running"
-      description="No AI decisions available. Start the AI Decision Engine to generate trading signals."
+      title="ML Model Not Available"
+      description="ML model inference pipeline is not yet built. Signals will appear here once the model training pipeline is complete."
       iconColor="text-info-cyan/40"
     />
   );

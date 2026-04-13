@@ -1,4 +1,6 @@
-# AI Engine — Module 7: Performance Feedback Loop (v2.4)
+# ⚠️ DEPRECATED — AI Engine — Module 7: Performance Feedback Loop (v2.4)
+
+> **DEPRECATED (2026-04-13):** The old Python feedback loop (`performance_feedback.py`) is in `python_modules/deprecated/`. Trade outcome feedback will be handled by Portfolio Agent → Discipline Engine in the new architecture. A future Feedback Agent (TypeScript) is planned per `ARCHITECTURE_REFACTOR_PLAN.md`.
 
 **Document:** ai-engine-feedback-spec.md
 **Project:** Automatic Trading System (ATS)

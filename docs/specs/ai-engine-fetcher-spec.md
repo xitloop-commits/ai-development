@@ -1,4 +1,6 @@
-# AI Engine — Module 1: Option Chain Fetcher
+# ⚠️ DEPRECATED — AI Engine — Module 1: Option Chain Fetcher
+
+> **DEPRECATED (2026-04-13):** The old Python option chain fetcher (`option_chain_fetcher.py`) is in `python_modules/deprecated/`. Replaced by TFA (`tick_feature_agent/feed/chain_poller.py`) which handles chain polling as part of the live feature pipeline.
 
 **Document:** ai-engine-fetcher-spec.md
 **Project:** Automatic Trading System (ATS)

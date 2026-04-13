@@ -1,4 +1,6 @@
-# AI Engine — Module 5: Dashboard Data Pusher
+# ⚠️ DEPRECATED — AI Engine — Module 5: Dashboard Data Pusher
+
+> **DEPRECATED (2026-04-13):** The old Python data pusher pattern (pushing JSON to the Node server via REST) is superseded. TFA emits NDJSON directly to its consumers. The `dashboard_data_pusher.py` still exists but its role will be replaced by TFA's output emitter (`tick_feature_agent/output/emitter.py`).
 
 **Document:** ai-engine-data-pusher-spec.md
 **Project:** Automatic Trading System (ATS)

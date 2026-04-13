@@ -1,7 +1,7 @@
 /**
  * useAlertMonitor — Monitors tRPC polling data for alert-worthy changes.
  * Compares previous and current state to detect:
- * - New GO signals from AI Decision Engine
+ * - New GO signals from ML model (when available)
  * - Module health degradation (active → error)
  * - New signals in the signals feed
  * - Position changes (new opens, closes, SL/TP hits)
@@ -60,22 +60,9 @@ export function useAlertMonitor(data: MonitorData): void {
       return;
     }
 
-    // --- Check for AI Decision changes (GO signals) ---
+    // --- Track instrument state for future ML model GO signals ---
     if (data.instruments) {
       for (const inst of data.instruments) {
-        const prev = prevInstruments.current.get(inst.name);
-
-        // New GO signal detected
-        if (inst.aiDecision === 'GO' && prev?.aiDecision !== 'GO') {
-          dispatchAlert(
-            'go_signal',
-            `${inst.displayName} — GO SIGNAL`,
-            `AI Decision: GO with ${(inst.aiConfidence * 100).toFixed(0)}% confidence. ${inst.aiRationale}`,
-            inst.name,
-          );
-        }
-
-        // Update previous state
         prevInstruments.current.set(inst.name, inst);
       }
     }
