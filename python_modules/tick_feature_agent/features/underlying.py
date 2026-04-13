@@ -110,8 +110,9 @@ def compute_underlying_features(buffer: CircularBuffer) -> dict:
             out[f"tick_down_count_{w}"] = float(down)
             out[f"tick_flat_count_{w}"] = float(flat)
             # Flat ticks excluded from denominator per spec §8.2
+            # All-flat window → perfectly neutral imbalance = 0.0 (not NaN)
             out[f"tick_imbalance_{w}"]  = (
-                (up - down) / (up + down) if (up + down) > 0 else _NAN
+                (up - down) / (up + down) if (up + down) > 0 else 0.0
             )
         else:
             out[f"tick_up_count_{w}"]   = _NAN

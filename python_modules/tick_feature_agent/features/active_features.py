@@ -370,7 +370,7 @@ def compute_active_features(
         out[prefix + "tick_age_sec"]          = tick_age
 
     # ── §8.7 cross-feature aggregates ─────────────────────────────────────────
-    out["call_put_strength_diff"] = call_strength_sum - put_strength_sum
+    out["call_put_strength_diff"] = max(-1.0, min(1.0, call_strength_sum - put_strength_sum))
 
     if cache.vol_diff_available:
         cdv = cache.call_vol_diff_atm

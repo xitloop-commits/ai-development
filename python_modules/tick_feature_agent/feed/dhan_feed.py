@@ -44,8 +44,10 @@ _MAX_RECONNECT_ATTEMPTS = 10
 _CONNECT_TIMEOUT_SEC = 15.0
 
 # Exchange segment strings by profile exchange
+# Underlying futures (NSE_FNO / MCX_COMM) send FULL binary packets over the
+# WebSocket feed. IDX_I (index) instruments do not emit tick data via the feed.
 _UNDERLYING_EXCHANGE_SEG: dict[str, str] = {
-    "NSE": "IDX_I",
+    "NSE": "NSE_FNO",
     "MCX": "MCX_COMM",
 }
 _OPTION_EXCHANGE_SEG: dict[str, str] = {
@@ -304,18 +306,19 @@ class DhanFeed:
         merged = {**existing, **payload}
         self._tick_cache[cache_key] = merged
 
-        # Only route on Full packets — they have all fields including depth
-        if header.response_code != ResponseCode.FULL:
-            return
-
         merged["security_id"] = sec_id
         merged["exchange_segment"] = exch_seg
 
         if sec_id == self._underlying_security_id:
+            # INDEX (code 1) and TICKER (code 2) packets carry ltp — route all
+            # types for the underlying so IDX_I instruments are not filtered out.
             cb = self._on_underlying_tick(merged)
             if asyncio.iscoroutine(cb):
                 await cb
         elif sec_id in self._sec_id_map:
+            # Options: require FULL packets (bid/ask depth needed for features)
+            if header.response_code != ResponseCode.FULL:
+                return
             strike, opt_type = self._sec_id_map[sec_id]
             cb = self._on_option_tick(strike, opt_type, merged)
             if asyncio.iscoroutine(cb):

@@ -501,9 +501,14 @@ _STRING_COLUMNS = frozenset({
 })
 
 
+_FLOAT64_COLUMNS = frozenset({"timestamp"})   # needs full epoch precision
+
+
 def _parquet_type(col: str):
     """Return the pyarrow type for a given column name."""
     import pyarrow as pa
+    if col in _FLOAT64_COLUMNS:
+        return pa.float64()
     if col in _STRING_COLUMNS:
         return pa.large_string()
     if col in _INT_COLUMNS or col.endswith("_count"):

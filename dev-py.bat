@@ -126,5 +126,8 @@ REM --- Set UTF-8 output so Unicode symbols render correctly ---
 set PYTHONIOENCODING=utf-8
 chcp 65001 >nul 2>&1
 
+REM --- Derive output file from instrument name ---
+set "OUTPUT_FILE=data\features\%INSTRUMENT%_live.ndjson"
+
 REM --- Run TFA ---
-%PYTHON_CMD% python_modules\tick_feature_agent\main.py --instrument-profile %PROFILE_PATH% %EXTRA_ARGS%
+%PYTHON_CMD% python_modules\tick_feature_agent\main.py --instrument-profile %PROFILE_PATH% --output-file %OUTPUT_FILE% %EXTRA_ARGS%

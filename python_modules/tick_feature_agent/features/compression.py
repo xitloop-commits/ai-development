@@ -125,7 +125,10 @@ class CompressionState:
             self._std_history.append(rolling_std)
             if self._tick_count >= _FREEZE_TICK:
                 if self._std_history:
-                    self._vol_session_median = statistics.median(self._std_history)
+                    self._vol_session_median = max(
+                        statistics.median(self._std_history),
+                        0.01,   # floor: 1 price-unit cent — prevents zero-division in flat markets
+                    )
                 self._median_frozen = True
 
         # ── volatility_compression = rolling_std / vol_session_median ─────────

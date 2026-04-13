@@ -42,16 +42,25 @@ def write_metadata(
     folder = Path(date_folder)
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / "metadata.json"
+
+    # Merge with existing metadata so multiple TFA processes don't overwrite each other
+    existing: dict[str, Any] = {}
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    merged_instruments = dict(existing.get("instruments", {}))
+    for k, v in instruments.items():
+        merged_instruments[k] = {
+            "underlying_symbol":      v["underlying_symbol"],
+            "underlying_security_id": v["underlying_security_id"],
+            "expiry":                 v["expiry"],
+        }
+
     metadata: dict[str, Any] = {
         "date": date,
-        "instruments": {
-            k: {
-                "underlying_symbol":     v["underlying_symbol"],
-                "underlying_security_id": v["underlying_security_id"],
-                "expiry":                v["expiry"],
-            }
-            for k, v in instruments.items()
-        },
+        "instruments": merged_instruments,
     }
     path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     return path

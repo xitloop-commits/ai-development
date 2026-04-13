@@ -112,6 +112,66 @@ def _fetch_credentials(base_url: str) -> dict | None:
     return body.get("data", {})
 
 
+def _resolve_ws_security_id(base_url: str, profile) -> str:
+    """
+    Resolve the WebSocket security ID for the underlying futures contract.
+
+    For NSE instruments (NIFTY, BANKNIFTY etc.):
+      - Queries scrip master for the nearest FUTIDX expiry
+      - Returns its security ID (e.g. "66691" for NIFTY-Apr2026-FUT)
+    For MCX instruments:
+      - Returns profile.underlying_security_id directly (already the futures ID)
+    Falls back to profile.underlying_security_id on any error.
+    """
+    try:
+        import requests as _req
+    except ImportError:
+        return profile.underlying_security_id
+
+    if profile.exchange == "MCX":
+        return profile.underlying_security_id
+
+    # NSE: resolve near-month FUTIDX security ID from scrip master
+    instrument_name_param = "FUTIDX"
+    symbol = profile.instrument_name  # e.g. "NIFTY", "BANKNIFTY"
+    try:
+        # Step 1: get expiry list
+        r = _req.get(
+            f"{base_url}/api/broker/scrip-master/expiry-list",
+            params={"symbol": symbol, "instrumentName": instrument_name_param},
+            timeout=5,
+        )
+        if r.status_code != 200:
+            return profile.underlying_security_id
+        expiries = r.json().get("data", [])
+        if not expiries:
+            return profile.underlying_security_id
+
+        from datetime import date as _date
+        today = _date.today().isoformat()
+        future = sorted(e for e in expiries if e >= today)
+        if not future:
+            return profile.underlying_security_id
+        nearest_expiry = future[0]
+
+        # Step 2: lookup security ID for that expiry
+        r2 = _req.get(
+            f"{base_url}/api/broker/scrip-master/lookup",
+            params={"symbol": symbol, "instrumentName": instrument_name_param,
+                    "expiry": nearest_expiry},
+            timeout=5,
+        )
+        if r2.status_code != 200:
+            return profile.underlying_security_id
+        body = r2.json()
+        if not body.get("success"):
+            return profile.underlying_security_id
+        sec_id = body["data"].get("securityId", "")
+        return str(sec_id) if sec_id else profile.underlying_security_id
+    except Exception:
+        return profile.underlying_security_id
+
+
 def _mask(value: str) -> str:
     if not value or len(value) <= 6:
         return "***"
@@ -259,8 +319,15 @@ async def _run_live(profile, args, log) -> None:
     processor.on_chain_snapshot(first_snapshot)
 
     # ── DhanFeed WebSocket ────────────────────────────────────────────────────
-    exchange_seg_map = {"NSE": "IDX_I", "MCX": "MCX_COMM"}
-    opt_seg_map      = {"NSE": "NSE_FNO", "MCX": "MCX_COMM"}
+    # Resolve the near-month futures security ID for WebSocket subscription.
+    # NSE profiles store the index ID (e.g. 13) for the REST chain API;
+    # the WebSocket needs the tradeable futures contract ID instead.
+    ws_security_id = _resolve_ws_security_id(args.broker_url, profile)
+    log.info("WS_SECURITY_ID_RESOLVED",
+             msg=f"WebSocket underlying security ID: {ws_security_id}",
+             ws_security_id=ws_security_id,
+             profile_security_id=profile.underlying_security_id)
+    _step(TICK, "WS security ID resolved", ws_security_id)
 
     def _on_underlying_tick(data: dict) -> None:
         session_mgr.on_tick()   # fires session_start edge trigger
@@ -270,6 +337,7 @@ async def _run_live(profile, args, log) -> None:
         access_token=str(access_token),
         client_id=str(client_id),
         exchange=profile.exchange,
+        underlying_security_id=ws_security_id,
         on_underlying_tick=_on_underlying_tick,
         on_option_tick=processor.on_option_tick,
         on_connected=lambda: log.info("FEED_CONNECTED", msg="WebSocket connected"),
@@ -280,10 +348,7 @@ async def _run_live(profile, args, log) -> None:
     )
 
     # Subscribe underlying futures
-    feed.subscribe_underlying(
-        security_id=profile.underlying_security_id,
-        exchange=exchange_seg_map.get(profile.exchange, "IDX_I"),
-    )
+    feed.subscribe_underlying()
 
     # Subscribe all options from first snapshot
     feed.subscribe_options(first_snapshot.sec_id_map)
@@ -313,6 +378,8 @@ async def _run_live(profile, args, log) -> None:
     except asyncio.CancelledError:
         pass
     finally:
+        processor.on_session_close()   # flush pending target rows
+        recorder.on_session_close()    # flush + close gzip writers properly
         emitter.close()
         log.info("TFA_STOPPED", msg="TFA stopped cleanly")
 

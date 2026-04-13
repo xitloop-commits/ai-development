@@ -242,7 +242,7 @@ class ChainPoller:
                 lambda: _requests.get(
                     f"{self._broker_url}/api/broker/option-chain/expiry-list",
                     params={
-                        "underlying": self._profile.underlying_symbol,
+                        "underlying": self._profile.underlying_security_id,
                         "exchangeSegment": self._exch_seg,
                     },
                     timeout=10,
@@ -279,7 +279,7 @@ class ChainPoller:
                 lambda: _requests.get(
                     f"{self._broker_url}/api/broker/option-chain",
                     params={
-                        "underlying": self._profile.underlying_symbol,
+                        "underlying": self._profile.underlying_security_id,
                         "expiry": self._active_expiry,
                         "exchangeSegment": self._exch_seg,
                     },

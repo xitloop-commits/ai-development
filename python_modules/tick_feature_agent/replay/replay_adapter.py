@@ -67,7 +67,19 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 # ── Timestamp helpers ─────────────────────────────────────────────────────────
 
 def _parse_ts(ts_str: str) -> float:
-    """Parse ISO timestamp string (any timezone) to Unix epoch seconds."""
+    """
+    Parse a timestamp to Unix epoch seconds.
+
+    Accepts:
+      - Unix epoch float/int (as string or number): "1776074186.97", 1776074186.97
+      - ISO 8601 string: "2026-04-14T09:15:05.123+05:30"
+    """
+    if isinstance(ts_str, (int, float)):
+        return float(ts_str)
+    try:
+        return float(ts_str)   # Unix epoch as string
+    except (ValueError, TypeError):
+        pass
     try:
         dt = datetime.fromisoformat(ts_str)
         return dt.timestamp()

@@ -116,11 +116,35 @@ def _null_rate(col_values: list) -> float:
     return n_null / len(col_values)
 
 
+def _filter_post_warmup(
+    columns: dict[str, list],
+) -> dict[str, list]:
+    """
+    Return a filtered copy of columns containing only non-WARMING_UP rows.
+    Features like regime, zone_activity_score, etc. are legitimately null
+    during warm-up and should not be penalised in null-rate checks.
+    """
+    ts_col = columns.get("trading_state", [])
+    if not ts_col:
+        return columns
+    indices = [i for i, s in enumerate(ts_col) if s != "WARMING_UP"]
+    return {
+        col: [vals[i] for i in indices]
+        for col, vals in columns.items()
+    }
+
+
 def _layer2_null_rates(
     columns: dict[str, list],
     n_rows: int,
 ) -> dict[str, Any]:
-    """Return layer 2 result dict."""
+    """Return layer 2 result dict. Null rates are measured post warm-up only."""
+    if n_rows == 0:
+        return {"verdict": "PASS", "checks": {}}
+
+    # Exclude WARMING_UP rows — those rows legitimately have NaN for many features
+    columns = _filter_post_warmup(columns)
+    n_rows = len(next(iter(columns.values()))) if columns else 0
     if n_rows == 0:
         return {"verdict": "PASS", "checks": {}}
 
