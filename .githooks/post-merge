@@ -1,0 +1,5 @@
+#!/bin/sh
+# After git pull / git merge, load the latest memory into Claude's local path
+# so the next Claude Code session picks up changes from other machines.
+
+node scripts/sync-memory.mjs pull

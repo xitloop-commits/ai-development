@@ -2,8 +2,8 @@
 name: SEA Brainstorm — Trade Signal Output Design
 description: SEA output redesign from GO_CALL/GO_PUT/WAIT to LONG_CE/LONG_PE/SHORT_CE/SHORT_PE with SL and TP. Feature-to-prediction mapping. Ready to continue implementation plan update.
 type: project
+originSessionId: 76596a3c-288e-48bc-b661-77b101f6c7b0
 ---
-
 ## Where we left off
 
 SEA's output design was upgraded. User confirmed the final output needed from SEA is:

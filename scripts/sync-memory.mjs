@@ -24,9 +24,8 @@ function claudeMemoryPath() {
   // e.g. C:/Users/Admin/ai-development/ai-development
   // → c--Users-Admin-ai-development-ai-development
   const slug = repoAbs
-    .replace(/^([A-Za-z]):/, (_, d) => d.toLowerCase()) // drive letter lowercase
-    .replace(/\//g, "-")                                  // slashes → dashes
-    .replace(/^-/, "");                                   // strip leading dash
+    .replace(/^([A-Za-z]):/, (_, d) => d.toLowerCase() + "-") // "C:" → "c-"
+    .replace(/\//g, "-");                                       // slashes → dashes
   return path.join(os.homedir(), ".claude", "projects", slug, "memory");
 }
 

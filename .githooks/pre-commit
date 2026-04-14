@@ -1,0 +1,6 @@
+#!/bin/sh
+# Sync Claude memory → docs/memory/ before every commit
+# so the latest brainstorm notes are always captured in git.
+
+node scripts/sync-memory.mjs push
+git add docs/memory/

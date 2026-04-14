@@ -124,4 +124,4 @@ Test model brains will be deleted and replaced once fully qualified data is avai
 ## Open Items (model spec v0.1)
 - E: Model promotion threshold (what AUC/RMSE is good enough?)
 - F: Strike selection (ATM? ATM-1? best RR across ATM±1?)
-- G: Signal Engine Agent (SEA) socket connection to TFA — RESOLVED: Unix Domain Socket
+- G: Signal Engine Agent (SEA) socket connection to TFA
