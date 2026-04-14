@@ -63,6 +63,9 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // Simple health check — used by start-all.bat to wait until server is ready
+  app.get("/health", (_req, res) => res.json({ ok: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   // Trading data push API (receives data from Python modules)

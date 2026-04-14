@@ -2,11 +2,16 @@
 REM ================================================================
 REM   ATS -- Start all 4 TFA instruments in separate windows
 REM
-REM   Launches:
+REM   Pre-flight (this window, blocking):
+REM     1. Start the ATS web server in a new window
+REM     2. Wait for server to be ready (~10s)
+REM     3. Check / refresh Dhan access token (TOTP)
+REM
+REM   Then launches TFA instruments with 5s stagger:
 REM     crudeoil    (window 1)
-REM     naturalgas  (window 2, +5s stagger)
-REM     nifty50     (window 3, +10s stagger)
-REM     banknifty   (window 4, +15s stagger)
+REM     naturalgas  (window 2, +5s)
+REM     nifty50     (window 3, +10s)
+REM     banknifty   (window 4, +15s)
 REM
 REM   Each instrument runs in its own cmd window so logs and
 REM   Ctrl+C are independent.
@@ -81,6 +86,52 @@ set PYTHONIOENCODING=utf-8
 
 REM --- Get the repo root (directory of this bat file) ---
 set "ROOT=%~dp0"
+
+echo.
+echo ============================================================
+echo   ATS -- Pre-flight checks
+echo ============================================================
+echo.
+
+REM ── Step 1: Start the web server and wait until it responds ──
+echo [PRE-FLIGHT 1/2] Starting ATS web server...
+start "ATS-Server" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call dev-web.bat"
+
+REM --- Resolve port (.env PORT or default 3000) ---
+set SERVER_PORT=3000
+for /f "tokens=2 delims==" %%V in ('findstr /i "^PORT=" "%ROOT%.env" 2^>nul') do set "SERVER_PORT=%%V"
+
+REM --- Poll /health until server responds (max 60s, 2s intervals) ---
+echo   Waiting for server on http://localhost:!SERVER_PORT!/health ...
+set /a HEALTH_ATTEMPTS=0
+:health_poll
+set /a HEALTH_ATTEMPTS+=1
+if !HEALTH_ATTEMPTS! gtr 30 (
+    echo.
+    echo   ERROR: Server did not become ready within 60s.
+    echo   Check the ATS-Server window for errors.
+    echo.
+    pause
+    exit /b 1
+)
+curl -s -o nul -w "%%{http_code}" http://localhost:!SERVER_PORT!/health 2>nul | findstr /x "200" >nul 2>&1
+if !errorlevel! neq 0 (
+    timeout /t 2 /nobreak >nul
+    goto health_poll
+)
+echo   Server is ready ^(attempt !HEALTH_ATTEMPTS!^).
+
+REM ── Step 2: Check / refresh Dhan access token ────────────────
+echo [PRE-FLIGHT 2/2] Checking Dhan access token...
+call "%ROOT%scripts\run-dhan-refresh.bat"
+if !errorlevel! neq 0 (
+    echo.
+    echo   ERROR: Token refresh failed. TFA instruments NOT started.
+    echo   Fix the token issue and re-run start-all.bat
+    echo.
+    pause
+    exit /b 1
+)
 
 echo.
 echo ============================================================

@@ -69,7 +69,14 @@
       "Bash(/c/Users/Admin/AppData/Local/Python/pythoncore-3.14-64/python.exe -m tick_feature_agent.replay.replay_runner --instrument-profile python_modules/tick_feature_agent/instruments/crudeoil.json --instrument crudeoil --date-from 2026-04-13 --date-to 2026-04-13)",
       "Bash(/c/Users/Admin/AppData/Local/Python/pythoncore-3.14-64/python.exe -m tick_feature_agent.replay.replay_runner --instrument-profile python_modules/tick_feature_agent/instruments/crudeoil.json --instrument crudeoil --date-from 2026-04-13 --date-to 2026-04-13 --log-level DEBUG)",
       "Bash(/c/Users/Admin/AppData/Local/Python/pythoncore-3.14-64/python.exe -c 'from tick_feature_agent.replay import replay_runner; print\\('\\\\''ok'\\\\''\\)')",
-      "Bash(/c/Users/Admin/AppData/Local/Python/pythoncore-3.14-64/python.exe -c ':*)"
+      "Bash(/c/Users/Admin/AppData/Local/Python/pythoncore-3.14-64/python.exe -c ':*)",
+      "Bash(schtasks /query /fo LIST /v)",
+      "Bash(schtasks /query /fo CSV /v)",
+      "Bash(schtasks /query /fo LIST)",
+      "Bash(schtasks /query)",
+      "Bash(cmd.exe /c \"schtasks /query /fo LIST /v 2>&1\")",
+      "Bash(powershell.exe -Command 'Get-ScheduledTask | Where-Object { $_.TaskName -match '\\\\''dhan|ats|token|trading|tfa|refresh'\\\\'' } | Select-Object TaskName, TaskPath | Format-List')",
+      "Bash(powershell.exe -Command \"Get-ScheduledTask -TaskName 'DhanTokenRefresh' | Get-ScheduledTaskInfo | Format-List; \\(Get-ScheduledTask -TaskName 'DhanTokenRefresh'\\).Triggers | Format-List; \\(Get-ScheduledTask -TaskName 'DhanTokenRefresh'\\).Actions | Format-List\")"
     ]
   }
 }
