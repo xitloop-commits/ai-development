@@ -13,7 +13,8 @@ $shortcuts = @(
     [pscustomobject]@{ Name='nifty50';     Bat='start-tfa.bat'; Inst=' nifty50';   Icon="$icons\tfa_nifty50.ico,0"    },
     [pscustomobject]@{ Name='banknifty';   Bat='start-tfa.bat'; Inst=' banknifty'; Icon="$icons\tfa_banknifty.ico,0"  },
     [pscustomobject]@{ Name='crudeoil';    Bat='start-tfa.bat'; Inst=' crudeoil';  Icon="$icons\tfa_crudeoil.ico,0"   },
-    [pscustomobject]@{ Name='naturalgas';  Bat='start-tfa.bat'; Inst=' naturalgas';Icon="$icons\tfa_naturalgas.ico,0" }
+    [pscustomobject]@{ Name='naturalgas';  Bat='start-tfa.bat'; Inst=' naturalgas';Icon="$icons\tfa_naturalgas.ico,0" },
+    [pscustomobject]@{ Name='TFA Bot';     Bat='start-bot.bat'; Inst='';           Icon="$icons\tfa_bot.ico,0"        }
 )
 
 foreach ($s in $shortcuts) {
