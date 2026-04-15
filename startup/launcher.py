@@ -130,6 +130,18 @@ def act_rep_crudeoil():   _launch_new_window("Replay: crudeoil",   "start-replay
 def act_rep_natgas():     _launch_new_window("Replay: naturalgas", "start-replay.bat naturalgas")
 def act_bot():            _launch_new_window("TFA Bot",            "start-bot.bat")
 
+# --- Signal engine (SEA) ---
+def act_sea_nifty():      _launch_new_window("SEA: nifty50",       "start-sea.bat nifty50")
+def act_sea_banknifty():  _launch_new_window("SEA: banknifty",     "start-sea.bat banknifty")
+def act_sea_crudeoil():   _launch_new_window("SEA: crudeoil",      "start-sea.bat crudeoil")
+def act_sea_natgas():     _launch_new_window("SEA: naturalgas",    "start-sea.bat naturalgas")
+
+# --- Signal dashboards ---
+def act_watch_nifty():    _launch_new_window("Signals: nifty50",    "watch-signals.bat nifty50")
+def act_watch_banknifty():_launch_new_window("Signals: banknifty",  "watch-signals.bat banknifty")
+def act_watch_crudeoil(): _launch_new_window("Signals: crudeoil",   "watch-signals.bat crudeoil")
+def act_watch_natgas():   _launch_new_window("Signals: naturalgas", "watch-signals.bat naturalgas")
+
 
 def act_refresh_token():
     print()
@@ -218,6 +230,15 @@ def main():
         ("Replay  banknifty",                             act_rep_banknifty),
         ("Replay  crudeoil",                              act_rep_crudeoil),
         ("Replay  naturalgas",                            act_rep_natgas),
+        ("── Signals  (SEA live inference) ────────────────", None),
+        ("Start SEA  nifty50",                            act_sea_nifty),
+        ("Start SEA  banknifty",                          act_sea_banknifty),
+        ("Start SEA  crudeoil",                           act_sea_crudeoil),
+        ("Start SEA  naturalgas",                         act_sea_natgas),
+        ("Watch signals  nifty50",                        act_watch_nifty),
+        ("Watch signals  banknifty",                      act_watch_banknifty),
+        ("Watch signals  crudeoil",                       act_watch_crudeoil),
+        ("Watch signals  naturalgas",                     act_watch_natgas),
         ("── Tools ─────────────────────────────────────────", None),
         ("Refresh Dhan token (TOTP)",                     act_refresh_token),
         ("Update Dhan credentials (info)",                act_update_creds),

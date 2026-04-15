@@ -112,3 +112,6 @@ __pycache__/
 
 # Data folder
 data/
+
+# Trained model artifacts (regeneratable from data/features via MTA)
+models/
