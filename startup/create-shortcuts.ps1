@@ -8,6 +8,7 @@ $blank = Join-Path $desktop '.lnk'
 if (Test-Path $blank) { Remove-Item $blank -Force }
 
 $shortcuts = @(
+    [pscustomobject]@{ Name='ATS';         Bat='start.bat';     Inst='';           Icon="$icons\launcher.ico,0"        },
     [pscustomobject]@{ Name='Start All';   Bat='start-all.bat'; Inst='';           Icon="$icons\start_all.ico,0"       },
     [pscustomobject]@{ Name='API Server';  Bat='start-api.bat'; Inst='';           Icon="$icons\api_server.ico,0"      },
     [pscustomobject]@{ Name='nifty50';     Bat='start-tfa.bat'; Inst=' nifty50';   Icon="$icons\tfa_nifty50.ico,0"    },

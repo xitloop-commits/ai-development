@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from datetime import date as _date, timedelta
 from pathlib import Path
 
@@ -90,19 +91,37 @@ def run_one_date(
     profile = base_profile.__class__.for_replay_date(base_profile, instrument_meta)
 
     # ── Run replay adapter ────────────────────────────────────────────────────
+    print(f"  [{date_str}] processing {instrument} ...", flush=True)
     adapter = ReplayAdapter(profile, date_str, logger=logger)
 
     event_count = 0
+    t_start = time.monotonic()
+    t_last  = t_start
     try:
         for event in merge_streams(date_folder, instrument, logger=logger):
             adapter.process_event(event)
             event_count += 1
+            # Heartbeat every 50k events or 5 seconds — whichever first
+            if event_count % 50_000 == 0:
+                now = time.monotonic()
+                rate = event_count / max(now - t_start, 0.001)
+                sys.stdout.write(
+                    f"\r  [{date_str}] {event_count:>10,} events  "
+                    f"({rate:>8,.0f}/s)"
+                )
+                sys.stdout.flush()
+                t_last = now
     except Exception as exc:
         if logger:
             logger.error("REPLAY_STREAM_ERROR",
                          msg=f"Stream error on {date_str}: {exc}",
                          instrument=instrument, date=date_str)
         return "fail"
+
+    # Final progress line, then newline before next phase
+    elapsed = time.monotonic() - t_start
+    print(f"\r  [{date_str}] {event_count:>10,} events  "
+          f"in {elapsed:.1f}s. Writing Parquet...", flush=True)
 
     adapter.flush_all()
 

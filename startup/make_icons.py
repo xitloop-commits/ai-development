@@ -17,7 +17,7 @@ os.makedirs(ICONS_DIR, exist_ok=True)
 
 # ── Step 1: Download SVGs ──────────────────────────────────────────────────
 FA_BASE = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/svgs/solid/"
-SVG_NAMES = ["rocket", "server", "chart-line", "building-columns", "oil-can", "fire", "paper-plane"]
+SVG_NAMES = ["rocket", "server", "chart-line", "building-columns", "oil-can", "fire", "paper-plane", "compass"]
 
 for name in SVG_NAMES:
     path = os.path.join(ICONS_DIR, f"{name}.svg")
@@ -48,6 +48,7 @@ ICONS = [
     ("tfa_crudeoil.ico",   (185,  30,  30), "oil-can",          "CRUDE"  ),
     ("tfa_naturalgas.ico", (  0, 145, 135), "fire",             "GAS"    ),
     ("tfa_bot.ico",        ( 35,  55, 200), "paper-plane",      "BOT"    ),
+    ("launcher.ico",       (210, 145,  10), "compass",          "ATS"    ),
 ]
 
 SIZES = [256, 48, 32, 16]   # largest first — Pillow needs this for ICO

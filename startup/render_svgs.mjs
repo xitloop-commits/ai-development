@@ -14,7 +14,7 @@ mkdirSync(outDir, { recursive: true });
 const SIZES = [16, 32, 48, 256];
 
 const SVGS = [
-  'rocket', 'server', 'chart-line', 'building-columns', 'oil-can', 'fire', 'paper-plane'
+  'rocket', 'server', 'chart-line', 'building-columns', 'oil-can', 'fire', 'paper-plane', 'compass'
 ];
 
 for (const name of SVGS) {
