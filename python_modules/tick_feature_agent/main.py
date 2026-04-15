@@ -506,6 +506,10 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     def _on_session_close_h():
         _h["session_open"] = False
         _orig_session_close()
+        # Market closed — schedule a clean exit after a short flush delay
+        print(f"\n  {YELLOW('◼  Market session closed.')}  Stopping in 5s…\n", flush=True)
+        log.info("SESSION_AUTO_STOP", msg="Market session closed — TFA will stop in 5s")
+        asyncio.ensure_future(_auto_stop())
 
     # Rebuild session_mgr with wrapped callbacks (replace in-place)
     session_mgr._on_session_start = _on_session_open_h
@@ -737,6 +741,11 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
                 elif ch2.lower() == "c":    # C → continue
                     _kb["menu"] = False
                     break                   # back to outer loop
+
+    async def _auto_stop():
+        """Wait briefly for final flushes then cancel all tasks cleanly."""
+        await asyncio.sleep(5)
+        raise asyncio.CancelledError
 
     # ── Run ───────────────────────────────────────────────────────────────────
     print()
