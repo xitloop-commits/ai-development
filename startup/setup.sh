@@ -4,11 +4,14 @@
 # ║  Run this once after cloning the repository.                    ║
 # ║                                                                  ║
 # ║  Usage:                                                          ║
-# ║    chmod +x setup.sh                                             ║
-# ║    ./setup.sh                                                    ║
+# ║    chmod +x startup/setup.sh                                     ║
+# ║    ./startup/setup.sh                                            ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
 set -e
+
+# ─── Go to project root (one level up from this script) ───────
+cd "$(dirname "$0")/.."
 
 echo ""
 echo "============================================================"
@@ -101,11 +104,7 @@ echo "============================================================"
 echo ""
 echo "  Next steps:"
 echo "    1. Edit .env with your MongoDB URI and other settings"
-echo "    2. Start everything:   ./dev.sh"
-echo "    3. Open browser:       http://localhost:3000"
-echo ""
-echo "  Startup options:"
-echo "    ./dev.sh              Start Node.js + Python AI pipeline"
-echo "    ./dev.sh --node-only  Start Node.js server only"
-echo "    ./dev.sh --py-only    Start Python AI pipeline only"
+echo "    2. Start API server:   ./startup/start-api.sh"
+echo "    3. Start all TFAs:     ./startup/start-all.sh (coming soon)"
+echo "    4. Open browser:       http://localhost:3000"
 echo ""

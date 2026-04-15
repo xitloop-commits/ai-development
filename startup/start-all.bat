@@ -17,11 +17,15 @@ REM   Each instrument runs in its own cmd window so logs and
 REM   Ctrl+C are independent.
 REM
 REM   Usage:
-REM     start-all.bat
-REM     start-all.bat --log-level DEBUG
+REM     startup\start-all.bat
+REM     startup\start-all.bat --log-level DEBUG
 REM ================================================================
 
 setlocal EnableDelayedExpansion
+
+REM --- Go to project root ---
+set "ROOT=%~dp0..\"
+cd /d "%ROOT%"
 
 REM --- Collect any extra args (e.g. --log-level DEBUG) ---
 set EXTRA_ARGS=
@@ -32,7 +36,7 @@ if not "%~1"=="" (
     goto args_loop
 )
 
-REM --- Detect Python (same logic as dev-py.bat) ---
+REM --- Detect Python ---
 set PYTHON_CMD=
 
 for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Python\pythoncore-*" 2^>nul') do (
@@ -84,9 +88,6 @@ if "!PYTHON_CMD!"=="" (
 
 set PYTHONIOENCODING=utf-8
 
-REM --- Get the repo root (directory of this bat file) ---
-set "ROOT=%~dp0"
-
 echo.
 echo ============================================================
 echo   ATS -- Pre-flight checks
@@ -95,7 +96,7 @@ echo.
 
 REM ── Step 1: Start the web server and wait until it responds ──
 echo [PRE-FLIGHT 1/2] Starting ATS web server...
-start "ATS-Server" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call dev-web.bat"
+start "ATS-Server" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-api.bat"
 
 REM --- Resolve port (.env PORT or default 3000) ---
 set SERVER_PORT=3000
@@ -127,7 +128,7 @@ call "%ROOT%scripts\run-dhan-refresh.bat"
 if !errorlevel! neq 0 (
     echo.
     echo   ERROR: Token refresh failed. TFA instruments NOT started.
-    echo   Fix the token issue and re-run start-all.bat
+    echo   Fix the token issue and re-run startup\start-all.bat
     echo.
     pause
     exit /b 1

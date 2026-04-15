@@ -3,23 +3,27 @@ REM ================================================================
 REM   ATS -- TickFeatureAgent (TFA) launcher (Windows)
 REM
 REM   Usage:
-REM     dev-py.bat nifty50
-REM     dev-py.bat banknifty
-REM     dev-py.bat crudeoil
-REM     dev-py.bat naturalgas
+REM     startup\start-tfa.bat nifty50
+REM     startup\start-tfa.bat banknifty
+REM     startup\start-tfa.bat crudeoil
+REM     startup\start-tfa.bat naturalgas
 REM
-REM     dev-py.bat nifty50 --mode replay --date 2026-04-10
+REM     startup\start-tfa.bat nifty50 --mode replay --date 2026-04-10
 REM
 REM   Press Ctrl+C to stop.
 REM ================================================================
 
 setlocal EnableDelayedExpansion
 
+REM --- Go to project root ---
+set "ROOT=%~dp0..\"
+cd /d "%ROOT%"
+
 REM --- Instrument argument ---
 set INSTRUMENT=%~1
 if "%INSTRUMENT%"=="" (
     echo.
-    echo   Usage:  dev-py.bat ^<instrument^> [options]
+    echo   Usage:  startup\start-tfa.bat ^<instrument^> [options]
     echo.
     echo   Instruments:
     echo     nifty50      NSE NIFTY 50 futures + options
@@ -27,20 +31,16 @@ if "%INSTRUMENT%"=="" (
     echo     crudeoil     MCX Crude Oil futures + options
     echo     naturalgas   MCX Natural Gas futures + options
     echo.
-    echo   Options passed through to TFA:
+    echo   Options:
     echo     --mode live              ^(default^)
     echo     --mode replay --date YYYY-MM-DD
     echo     --log-level DEBUG
-    echo.
-    echo   Examples:
-    echo     dev-py.bat nifty50
-    echo     dev-py.bat crudeoil --mode replay --date 2026-04-10
     echo.
     pause
     exit /b 1
 )
 
-REM --- Validate instrument name ---
+REM --- Validate instrument ---
 set PROFILE_PATH=
 if /i "%INSTRUMENT%"=="nifty50"    set "PROFILE_PATH=config\instrument_profiles\nifty50_profile.json"
 if /i "%INSTRUMENT%"=="banknifty"  set "PROFILE_PATH=config\instrument_profiles\banknifty_profile.json"
@@ -55,7 +55,7 @@ if "%PROFILE_PATH%"=="" (
     exit /b 1
 )
 
-REM --- Collect any extra args after the instrument name ---
+REM --- Collect extra args ---
 set EXTRA_ARGS=
 :args_loop
 shift
@@ -65,12 +65,7 @@ if not "%~1"=="" (
 )
 
 REM --- Detect Python ---
-REM The Microsoft Store installs stub py.exe/python.exe in WindowsApps
-REM and even C:\Windows\py.exe that fail inside cmd.exe with error 9009.
-REM We scan known real installation paths directly.
 set PYTHON_CMD=
-
-REM 1. Python Launcher installs (per-user, new style)
 for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Python\pythoncore-*" 2^>nul') do (
     if "!PYTHON_CMD!"=="" (
         if exist "%LOCALAPPDATA%\Python\%%P\python.exe" (
@@ -79,8 +74,6 @@ for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Python\pythoncore-*" 2^>nu
         )
     )
 )
-
-REM 2. Standard per-user install (Python311, Python312, Python313, Python314)
 if "!PYTHON_CMD!"=="" (
     for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Programs\Python\Python*" 2^>nul') do (
         if "!PYTHON_CMD!"=="" (
@@ -91,8 +84,6 @@ if "!PYTHON_CMD!"=="" (
         )
     )
 )
-
-REM 3. System-wide install (C:\PythonXX or C:\Program Files\PythonXX)
 if "!PYTHON_CMD!"=="" (
     for /f "delims=" %%P in ('dir /b /o-n "C:\Python*" 2^>nul') do (
         if "!PYTHON_CMD!"=="" (
@@ -122,12 +113,9 @@ if "!PYTHON_CMD!"=="" (
     exit /b 1
 )
 
-REM --- Set UTF-8 output so Unicode symbols render correctly ---
 set PYTHONIOENCODING=utf-8
 chcp 65001 >nul 2>&1
 
-REM --- Derive output file from instrument name ---
 set "OUTPUT_FILE=data\features\%INSTRUMENT%_live.ndjson"
 
-REM --- Run TFA ---
 %PYTHON_CMD% python_modules\tick_feature_agent\main.py --instrument-profile %PROFILE_PATH% --output-file %OUTPUT_FILE% %EXTRA_ARGS%

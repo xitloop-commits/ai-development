@@ -3,24 +3,27 @@
 # ║  ATS — TickFeatureAgent (TFA) launcher (macOS / Linux)          ║
 # ║                                                                  ║
 # ║  Usage:                                                          ║
-# ║    ./dev-py.sh nifty50                                           ║
-# ║    ./dev-py.sh banknifty                                         ║
-# ║    ./dev-py.sh crudeoil                                          ║
-# ║    ./dev-py.sh naturalgas                                        ║
+# ║    ./startup/start-tfa.sh nifty50                                ║
+# ║    ./startup/start-tfa.sh banknifty                              ║
+# ║    ./startup/start-tfa.sh crudeoil                               ║
+# ║    ./startup/start-tfa.sh naturalgas                             ║
 # ║                                                                  ║
-# ║    ./dev-py.sh nifty50 --mode replay --date 2026-04-10           ║
+# ║    ./startup/start-tfa.sh nifty50 --mode replay --date 2026-04-10║
 # ║                                                                  ║
 # ║  Press Ctrl+C to stop.                                           ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
 set -e
 
+# ─── Go to project root (one level up from this script) ───────
+cd "$(dirname "$0")/.."
+
 # ─── Instrument argument ──────────────────────────────────────────
 INSTRUMENT="${1:-}"
 
 if [ -z "$INSTRUMENT" ]; then
     echo ""
-    echo "  Usage:  ./dev-py.sh <instrument> [options]"
+    echo "  Usage:  ./startup/start-tfa.sh <instrument> [options]"
     echo ""
     echo "  Instruments:"
     echo "    nifty50      NSE NIFTY 50 futures + options"
@@ -28,14 +31,10 @@ if [ -z "$INSTRUMENT" ]; then
     echo "    crudeoil     MCX Crude Oil futures + options"
     echo "    naturalgas   MCX Natural Gas futures + options"
     echo ""
-    echo "  Options passed through to TFA:"
+    echo "  Options:"
     echo "    --mode live              (default)"
     echo "    --mode replay --date YYYY-MM-DD"
     echo "    --log-level DEBUG"
-    echo ""
-    echo "  Examples:"
-    echo "    ./dev-py.sh nifty50"
-    echo "    ./dev-py.sh crudeoil --mode replay --date 2026-04-10"
     echo ""
     exit 1
 fi
@@ -69,7 +68,7 @@ done
 
 if [ -z "$PYTHON_CMD" ]; then
     echo "  ERROR: Python not found."
-    echo "  Install Python 3.11+ to run TFA."
+    echo "  Install Python 3.11+ from https://www.python.org/downloads/"
     exit 1
 fi
 
@@ -89,6 +88,9 @@ if [ -f "python_modules/requirements.txt" ]; then
 fi
 
 # ─── Run TFA ──────────────────────────────────────────────────────
+OUTPUT_FILE="data/features/${INSTRUMENT}_live.ndjson"
+
 exec python python_modules/tick_feature_agent/main.py \
     --instrument-profile "$PROFILE_PATH" \
+    --output-file "$OUTPUT_FILE" \
     "$@"

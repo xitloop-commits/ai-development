@@ -53,6 +53,12 @@ class InstrumentProfile:
     # Lookahead windows for target variable computation (seconds)
     target_windows_sec: tuple[int, ...]
 
+    # Optional override: WebSocket subscription security ID.
+    # NSE profiles use underlying_security_id for the REST chain API (index ID,
+    # e.g. "13" for NIFTY, "25" for BANKNIFTY). The WebSocket needs the tradeable
+    # futures contract ID. Set this to bypass dynamic scrip-master resolution.
+    ws_security_id: str | None = None
+
     # ── Helpers ──────────────────────────────────────────────────────────────
 
     def session_start_time(self) -> dtime:
@@ -222,6 +228,10 @@ def load_profile(path: str | Path) -> InstrumentProfile:
     if len(target_windows_raw) != len(set(target_windows_raw)):
         raise ProfileValidationError(f"'target_windows_sec' must not contain duplicates: {target_windows_raw}")
 
+    # Optional ws_security_id override (no validation required — just store as-is)
+    ws_security_id_raw = data.get("ws_security_id")
+    ws_security_id = str(ws_security_id_raw).strip() if ws_security_id_raw is not None else None
+
     return InstrumentProfile(
         exchange=exchange,
         instrument_name=instrument_name,
@@ -243,4 +253,5 @@ def load_profile(path: str | Path) -> InstrumentProfile:
         regime_dead_activity_max=float(regime_dead_activity_max),
         regime_dead_vol_drought_max=float(regime_dead_vol_drought_max),
         target_windows_sec=tuple(target_windows_raw),
+        ws_security_id=ws_security_id,
     )

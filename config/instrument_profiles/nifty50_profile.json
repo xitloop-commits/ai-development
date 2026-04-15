@@ -1,7 +1,7 @@
 {
   "exchange": "NSE",
   "instrument_name": "NIFTY",
-  "underlying_symbol": "NIFTY25MAYFUT",
+  "underlying_symbol": "NIFTY25APRFUT",
   "underlying_security_id": "13",
   "session_start": "09:15",
   "session_end": "15:30",

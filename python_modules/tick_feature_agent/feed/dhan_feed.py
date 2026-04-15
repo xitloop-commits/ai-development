@@ -232,8 +232,8 @@ class DhanFeed:
             async with ws_client.connect(
                 url,
                 open_timeout=_CONNECT_TIMEOUT_SEC,
-                ping_interval=30,
-                ping_timeout=10,
+                ping_interval=None,   # Dhan uses its own binary protocol; WS-level pings
+                                      # get no pong → ConnectionClosedError every ~40s
             ) as ws:
                 self._ws = ws
                 self._connected = True

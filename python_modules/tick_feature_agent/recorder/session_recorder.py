@@ -233,6 +233,14 @@ class SessionRecorder:
         if self._chain_writer.write(record):
             self._chain_count += 1
 
+    def flush(self) -> None:
+        """Flush all open writers to disk (call periodically during live recording)."""
+        for writer in (
+            self._underlying_writer, self._option_writer, self._chain_writer
+        ):
+            if writer is not None:
+                writer.flush()
+
     # ── Stats ─────────────────────────────────────────────────────────────────
 
     @property

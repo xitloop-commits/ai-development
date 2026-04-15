@@ -2,9 +2,14 @@
 REM ================================================================
 REM   ATS -- Windows Setup Script
 REM   Run this once after cloning the repository.
+REM   Usage:  startup\setup.bat
 REM ================================================================
 
 setlocal EnableDelayedExpansion
+
+REM --- Go to project root ---
+set "ROOT=%~dp0..\"
+cd /d "%ROOT%"
 
 echo.
 echo ============================================================
@@ -27,8 +32,6 @@ REM --- Step 2: Check Python ---
 echo [2/6] Checking Python...
 set PYTHON_CMD=
 
-REM Scan known real Python installation paths (avoids MS Store stubs)
-REM 1. Per-user new-style (pythoncore-3.xx-64)
 for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Python\pythoncore-*" 2^>nul') do (
     if "!PYTHON_CMD!"=="" (
         if exist "%LOCALAPPDATA%\Python\%%P\python.exe" (
@@ -37,7 +40,6 @@ for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Python\pythoncore-*" 2^>nu
         )
     )
 )
-REM 2. Per-user standard (Programs\Python\Python3xx)
 if "!PYTHON_CMD!"=="" (
     for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Programs\Python\Python*" 2^>nul') do (
         if "!PYTHON_CMD!"=="" (
@@ -48,7 +50,6 @@ if "!PYTHON_CMD!"=="" (
         )
     )
 )
-REM 3. System-wide (C:\PythonXX or Program Files)
 if "!PYTHON_CMD!"=="" (
     for /f "delims=" %%P in ('dir /b /o-n "C:\Python*" 2^>nul') do (
         if "!PYTHON_CMD!"=="" (
@@ -140,12 +141,8 @@ echo ============================================================
 echo.
 echo   Next steps:
 echo     1. Edit .env with your MongoDB URI and other settings
-echo     2. Start everything:   dev.bat
-echo     3. Open browser:       http://localhost:3000
-echo.
-echo   Startup options:
-echo     dev.bat              Start Node.js + Python AI pipeline
-echo     dev.bat --node-only  Start Node.js server only
-echo     dev.bat --py-only    Start Python AI pipeline only
+echo     2. Start API server:   startup\start-api.bat
+echo     3. Start all TFAs:     startup\start-all.bat
+echo     4. Open browser:       http://localhost:3000
 echo.
 pause

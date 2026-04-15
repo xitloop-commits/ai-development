@@ -25,8 +25,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -47,7 +49,21 @@ from tick_feature_agent.instrument_profile import load_profile, ProfileValidatio
 from tick_feature_agent.log.tfa_logger import setup_logging, get_logger, shutdown_logging
 
 # ── ANSI colour helpers ───────────────────────────────────────────────────────
-_NO_COLOUR = os.environ.get("NO_COLOR") or not sys.stdout.isatty()
+# On Windows, explicitly enable VT (ANSI) processing so cursor-movement codes
+# work in cmd.exe / PowerShell even when isatty() reports False.
+if sys.platform == "win32":
+    try:
+        import ctypes as _ctypes
+        _k32 = _ctypes.windll.kernel32
+        _STDOUT_HANDLE = _k32.GetStdHandle(-11)
+        _mode = _ctypes.c_ulong()
+        _k32.GetConsoleMode(_STDOUT_HANDLE, _ctypes.byref(_mode))
+        _k32.SetConsoleMode(_STDOUT_HANDLE, _mode.value | 0x0004)  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+    except Exception:
+        pass
+
+_NO_COLOUR = bool(os.environ.get("NO_COLOR"))
+_NO_CURSOR = not sys.stdout.isatty()                   # piped/redirected — no in-place refresh
 
 def _c(code: str, text: str) -> str:
     return text if _NO_COLOUR else f"\033[{code}m{text}\033[0m"
@@ -112,64 +128,113 @@ def _fetch_credentials(base_url: str) -> dict | None:
     return body.get("data", {})
 
 
-def _resolve_ws_security_id(base_url: str, profile) -> str:
+def _ensure_scrip_master(base_url: str, log) -> bool:
     """
-    Resolve the WebSocket security ID for the underlying futures contract.
-
-    For NSE instruments (NIFTY, BANKNIFTY etc.):
-      - Queries scrip master for the nearest FUTIDX expiry
-      - Returns its security ID (e.g. "66691" for NIFTY-Apr2026-FUT)
-    For MCX instruments:
-      - Returns profile.underlying_security_id directly (already the futures ID)
-    Falls back to profile.underlying_security_id on any error.
+    Ensure scrip master is loaded in BSA. Triggers a refresh if not loaded.
+    Returns True if loaded after the call, False on any error.
     """
     try:
         import requests as _req
-    except ImportError:
-        return profile.underlying_security_id
+        r = _req.get(f"{base_url}/api/broker/scrip-master/status", timeout=5)
+        if r.status_code == 200 and r.json().get("data", {}).get("isLoaded"):
+            return True
+        # Not loaded — trigger a full refresh (BSA fetches ~250k scrips from Dhan)
+        log.info("SCRIP_MASTER_REFRESH", msg="Scrip master not loaded — triggering refresh")
+        r2 = _req.post(f"{base_url}/api/broker/scrip-master/refresh", timeout=60)
+        if r2.status_code == 200:
+            log.info("SCRIP_MASTER_REFRESH_OK", msg="Scrip master refresh complete")
+            return True
+        log.warn("SCRIP_MASTER_REFRESH_FAIL",
+                 msg=f"Scrip master refresh failed: http_{r2.status_code}")
+        return False
+    except Exception as exc:
+        log.warn("SCRIP_MASTER_REFRESH_FAIL", msg=f"Scrip master check error: {exc}")
+        return False
 
-    if profile.exchange == "MCX":
-        return profile.underlying_security_id
 
-    # NSE: resolve near-month FUTIDX security ID from scrip master
-    instrument_name_param = "FUTIDX"
-    symbol = profile.instrument_name  # e.g. "NIFTY", "BANKNIFTY"
+def _resolve_near_month_contract(base_url: str, profile) -> tuple[str, str]:
+    """
+    Resolve (ws_security_id, underlying_symbol) for the near-month futures contract.
+
+    NSE instruments (NIFTY, BANKNIFTY):
+      - Queries scrip master for nearest FUTIDX expiry
+      - Returns (futures_security_id, e.g. "66691") and symbol (e.g. "NIFTY25APRFUT")
+    MCX instruments (CRUDEOIL, NATURALGAS):
+      - Queries scrip master for nearest FUTCOM expiry
+      - Same structure, different instrument type
+
+    Falls back to (profile.ws_security_id or profile.underlying_security_id,
+                   profile.underlying_symbol) on any error.
+    """
+    fallback_id  = profile.ws_security_id or profile.underlying_security_id
+    fallback_sym = profile.underlying_symbol
+    instrument_type = "FUTCOM" if profile.exchange == "MCX" else "FUTIDX"
+    symbol = profile.instrument_name  # "NIFTY", "BANKNIFTY", "CRUDEOIL", ...
+
     try:
-        # Step 1: get expiry list
+        import requests as _req
+        from datetime import date as _date
+
         r = _req.get(
             f"{base_url}/api/broker/scrip-master/expiry-list",
-            params={"symbol": symbol, "instrumentName": instrument_name_param},
+            params={"symbol": symbol, "instrumentName": instrument_type},
             timeout=5,
         )
         if r.status_code != 200:
-            return profile.underlying_security_id
-        expiries = r.json().get("data", [])
-        if not expiries:
-            return profile.underlying_security_id
+            return fallback_id, fallback_sym
 
-        from datetime import date as _date
+        expiries = r.json().get("data", [])
         today = _date.today().isoformat()
         future = sorted(e for e in expiries if e >= today)
         if not future:
-            return profile.underlying_security_id
-        nearest_expiry = future[0]
+            return fallback_id, fallback_sym
 
-        # Step 2: lookup security ID for that expiry
         r2 = _req.get(
             f"{base_url}/api/broker/scrip-master/lookup",
-            params={"symbol": symbol, "instrumentName": instrument_name_param,
-                    "expiry": nearest_expiry},
+            params={"symbol": symbol, "instrumentName": instrument_type,
+                    "expiry": future[0]},
             timeout=5,
         )
         if r2.status_code != 200:
-            return profile.underlying_security_id
+            return fallback_id, fallback_sym
+
         body = r2.json()
         if not body.get("success"):
-            return profile.underlying_security_id
-        sec_id = body["data"].get("securityId", "")
-        return str(sec_id) if sec_id else profile.underlying_security_id
+            return fallback_id, fallback_sym
+
+        data  = body.get("data", {})
+        sec_id = str(data.get("securityId", "")).strip()
+        symbol_str = str(data.get("tradingSymbol", "")).strip()
+        if not sec_id:
+            return fallback_id, fallback_sym
+
+        return sec_id, symbol_str or fallback_sym
     except Exception:
-        return profile.underlying_security_id
+        return fallback_id, fallback_sym
+
+
+def _fetch_holiday_status(base_url: str, exchange: str) -> dict:
+    """
+    Fetch today's holiday status for NSE or MCX via tRPC.
+    Returns dict with keys: isHoliday (bool), holiday (MarketHoliday | None).
+    Returns {} on any error.
+    """
+    try:
+        import requests as _req
+        input_param = json.dumps({"json": {"exchange": exchange}})
+        r = _req.get(
+            f"{base_url}/api/trpc/holidays.todayStatus",
+            params={"input": input_param},
+            timeout=5,
+        )
+        if r.status_code != 200:
+            return {}
+        body = r.json()
+        # tRPC v10: {"result": {"data": {"json": {...}}}}
+        result = body.get("result", {}).get("data", {})
+        return result.get("json", result)
+    except Exception:
+        return {}
 
 
 def _mask(value: str) -> str:
@@ -224,6 +289,19 @@ async def _run_live(profile, args, log) -> None:
     log.info("CREDENTIALS_OK", msg="Broker credentials fetched",
              client_id_masked=_mask(str(client_id)))
 
+    # ── Scrip master + near-month contract resolution ─────────────────────────
+    print(f"  {PEND}  Resolving near-month contract …")
+    _ensure_scrip_master(args.broker_url, log)
+    ws_security_id, underlying_symbol = _resolve_near_month_contract(args.broker_url, profile)
+    log.info("CONTRACT_RESOLVED",
+             msg=f"Near-month contract: {underlying_symbol}  id={ws_security_id}",
+             ws_security_id=ws_security_id, underlying_symbol=underlying_symbol)
+    _step(TICK, "Near-month contract", f"{underlying_symbol}  (id={ws_security_id})")
+
+    # ── Holiday status (fetch both exchanges up-front) ────────────────────────
+    _holiday_nse = _fetch_holiday_status(args.broker_url, "NSE")
+    _holiday_mcx = _fetch_holiday_status(args.broker_url, "MCX")
+
     # ── Instantiate pipeline components ───────────────────────────────────────
     tick_buf   = CircularBuffer(maxlen=50)
     opt_store  = OptionBufferStore()
@@ -236,7 +314,7 @@ async def _run_live(profile, args, log) -> None:
     recorder   = SessionRecorder(
         instrument=profile.instrument_name.lower(),
         data_root=args.data_root,
-        underlying_symbol=profile.underlying_symbol,
+        underlying_symbol=underlying_symbol,       # resolved, not profile default
         underlying_security_id=profile.underlying_security_id,
         expiry="",   # set after chain_poller.startup()
         logger=log,
@@ -270,7 +348,7 @@ async def _run_live(profile, args, log) -> None:
         if poller.active_expiry:
             recorder.on_expiry_rollover(
                 new_expiry=poller.active_expiry,
-                new_underlying_symbol=profile.underlying_symbol,
+                new_underlying_symbol=underlying_symbol,   # resolved symbol
             )
         log.info("EXPIRY_ROLLOVER", msg=f"Rolled to {poller.active_expiry}")
 
@@ -318,20 +396,56 @@ async def _run_live(profile, args, log) -> None:
     # Load the first snapshot into cache now (chain poller will keep updating)
     processor.on_chain_snapshot(first_snapshot)
 
-    # ── DhanFeed WebSocket ────────────────────────────────────────────────────
-    # Resolve the near-month futures security ID for WebSocket subscription.
-    # NSE profiles store the index ID (e.g. 13) for the REST chain API;
-    # the WebSocket needs the tradeable futures contract ID instead.
-    ws_security_id = _resolve_ws_security_id(args.broker_url, profile)
-    log.info("WS_SECURITY_ID_RESOLVED",
-             msg=f"WebSocket underlying security ID: {ws_security_id}",
-             ws_security_id=ws_security_id,
-             profile_security_id=profile.underlying_security_id)
-    _step(TICK, "WS security ID resolved", ws_security_id)
+    # ── Health tracking state ─────────────────────────────────────────────────
+    _h: dict = {
+        "feed_ok": False,
+        "session_open": False,
+        "session_ts": None,
+        "u_ticks": 0,
+        "o_ticks": 0,
+        "chain_snaps": 0,        # incremented AFTER startup snapshot
+        "last_u_ts": None,
+        "last_chain_ts": None,
+        "u_ticks_prev": 0,
+        "u_rate": 0.0,
+        "holiday_nse": _holiday_nse,   # pre-fetched at startup
+        "holiday_mcx": _holiday_mcx,
+    }
+    _HEALTH_INTERVAL = 3.0
+    _health_nlines: list[int] = [0]   # mutable cell for closure
 
     def _on_underlying_tick(data: dict) -> None:
+        _h["u_ticks"] += 1
+        _h["last_u_ts"] = time.monotonic()
+        _h["feed_ok"] = True
         session_mgr.on_tick()   # fires session_start edge trigger
         processor.on_underlying_tick(data)
+
+    def _on_option_tick(strike: int, opt_type: str, data: dict) -> None:
+        _h["o_ticks"] += 1
+        processor.on_option_tick(strike, opt_type, data)
+
+    def _on_chain_snapshot(snap) -> None:
+        _h["chain_snaps"] += 1
+        _h["last_chain_ts"] = time.monotonic()
+        processor.on_chain_snapshot(snap)
+
+    # Wrap session open/close to update health
+    _orig_session_open  = _on_session_open   # noqa: F821 — defined above
+    _orig_session_close = _on_session_close  # noqa: F821 — defined above
+
+    def _on_session_open_h():
+        _h["session_open"] = True
+        _h["session_ts"] = time.monotonic()
+        _orig_session_open()
+
+    def _on_session_close_h():
+        _h["session_open"] = False
+        _orig_session_close()
+
+    # Rebuild session_mgr with wrapped callbacks (replace in-place)
+    session_mgr._on_session_start = _on_session_open_h
+    session_mgr._on_session_end   = _on_session_close_h
 
     feed = DhanFeed(
         access_token=str(access_token),
@@ -339,9 +453,13 @@ async def _run_live(profile, args, log) -> None:
         exchange=profile.exchange,
         underlying_security_id=ws_security_id,
         on_underlying_tick=_on_underlying_tick,
-        on_option_tick=processor.on_option_tick,
-        on_connected=lambda: log.info("FEED_CONNECTED", msg="WebSocket connected"),
+        on_option_tick=_on_option_tick,
+        on_connected=lambda: (
+            _h.__setitem__("feed_ok", True),
+            log.info("FEED_CONNECTED", msg="WebSocket connected"),
+        ),
         on_disconnected=lambda: (
+            _h.__setitem__("feed_ok", False),
             sm.on_feed_disconnect(),
             log.warn("FEED_DISCONNECTED", msg="WebSocket disconnected"),
         ),
@@ -350,12 +468,16 @@ async def _run_live(profile, args, log) -> None:
     # Subscribe underlying futures
     feed.subscribe_underlying()
 
-    # Subscribe all options from first snapshot
+    # Subscribe all options from first snapshot — use wrapped chain snapshot callback
+    # for the poller's subsequent snapshots
     feed.subscribe_options(first_snapshot.sec_id_map)
 
     _step(TICK, "WebSocket subscribed",
-          f"underlying={profile.underlying_security_id}  "
+          f"underlying={ws_security_id}  "
           f"options={len(first_snapshot.sec_id_map)}")
+
+    # Rewire poller to use wrapped snapshot callback
+    poller._on_snapshot = _on_chain_snapshot
 
     # ── Periodic tasks ────────────────────────────────────────────────────────
     async def _stale_checker():
@@ -363,6 +485,115 @@ async def _run_live(profile, args, log) -> None:
         while True:
             await asyncio.sleep(2)
             processor.check_feed_stale()
+
+    async def _recorder_flusher():
+        """Flush gzip writers to disk every 10 seconds so file sizes grow live."""
+        while True:
+            await asyncio.sleep(10)
+            recorder.flush()
+
+    def _render_health() -> list[str]:
+        """Build health display lines (no trailing newline on each)."""
+        now = time.monotonic()
+        ts  = datetime.now(_IST).strftime("%H:%M:%S")
+
+        # Feed
+        if _h["feed_ok"]:
+            if _h["last_u_ts"] is not None:
+                age = now - _h["last_u_ts"]
+                if age < 5:
+                    feed_s = GREEN("● OK") + f"  (tick {age:.1f}s ago)"
+                elif age < 30:
+                    feed_s = YELLOW("● SLOW") + f"  ({age:.0f}s ago)"
+                else:
+                    feed_s = RED("● STALE") + f"  ({age:.0f}s ago)"
+            else:
+                feed_s = YELLOW("● CONNECTED") + "  (no ticks yet)"
+        else:
+            feed_s = RED("✗ DISCONNECTED")
+
+        # Session
+        if _h["session_open"]:
+            if _h["session_ts"] is not None:
+                secs = int(now - _h["session_ts"])
+                elapsed = f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}:{secs % 60:02d}"
+            else:
+                elapsed = ""
+            sess_s = GREEN("● OPEN") + f"  {elapsed}"
+        else:
+            sess_s = YELLOW("○ WAITING")
+
+        # Ticks
+        rate_s = f"  ({_h['u_rate']:.1f}/s)" if _h["u_rate"] > 0.05 else ""
+
+        # Chain
+        if _h["last_chain_ts"] is not None:
+            cage = now - _h["last_chain_ts"]
+            chain_s = f"{_h['chain_snaps']} snaps  (last {cage:.0f}s ago)"
+        else:
+            chain_s = f"{_h['chain_snaps']} snaps"
+
+        # Holiday status lines — one per exchange if holiday today
+        holiday_lines: list[str] = []
+        for exch, key in (("NSE", "holiday_nse"), ("MCX", "holiday_mcx")):
+            hdata = _h.get(key, {})
+            if hdata.get("isHoliday"):
+                hol   = hdata.get("holiday") or {}
+                name  = hol.get("description", "Holiday")
+                # For MCX show session detail if available
+                m_ses = hol.get("morningSession", "")
+                e_ses = hol.get("eveningSession", "")
+                if m_ses or e_ses:
+                    ses_detail = f"  (morning {m_ses} · evening {e_ses})"
+                else:
+                    ses_detail = ""
+                holiday_lines.append(
+                    f"  {RED('⚑')} {exch} holiday : {YELLOW(name)}{DIM(ses_detail)}"
+                )
+
+        W = 56
+        lines = [
+            f"  {DIM('─' * W)}",
+            f"  {DIM('Health')}  {BOLD(ts)}",
+            f"  Feed    : {feed_s}",
+            f"  Session : {sess_s}",
+            f"  Ticks   : {_h['u_ticks']:>9,} underlying{rate_s}",
+            f"  Options : {_h['o_ticks']:>9,} ticks",
+            f"  Chain   : {chain_s}",
+        ]
+        lines.extend(holiday_lines)
+        lines.append(f"  {DIM('─' * W)}")
+        return lines
+
+    async def _health_display():
+        """Refresh the health block in-place every 3 seconds."""
+        # Initial print — just paint the block for the first time
+        lines = _render_health()
+        for ln in lines:
+            print(ln)
+        _health_nlines[0] = len(lines)
+
+        while True:
+            await asyncio.sleep(_HEALTH_INTERVAL)
+
+            # Compute tick rate over the last interval
+            delta = _h["u_ticks"] - _h["u_ticks_prev"]
+            _h["u_rate"] = delta / _HEALTH_INTERVAL
+            _h["u_ticks_prev"] = _h["u_ticks"]
+
+            lines = _render_health()
+            if not _NO_CURSOR and _health_nlines[0] > 0:
+                # Move cursor to start of previous block and overwrite line-by-line
+                sys.stdout.write(f"\033[{_health_nlines[0]}F")
+                for ln in lines:
+                    sys.stdout.write(f"\033[2K{ln}\n")
+            else:
+                # No cursor movement — print separator so repeated blocks are readable
+                print()
+                for ln in lines:
+                    print(ln)
+            sys.stdout.flush()
+            _health_nlines[0] = len(lines)
 
     # ── Run ───────────────────────────────────────────────────────────────────
     print()
@@ -374,6 +605,8 @@ async def _run_live(profile, args, log) -> None:
             feed.run(),
             poller.run(),
             _stale_checker(),
+            _recorder_flusher(),
+            _health_display(),
         )
     except asyncio.CancelledError:
         pass
@@ -518,16 +751,45 @@ def main() -> None:
              mode=args.mode)
 
     # ── Dispatch ──────────────────────────────────────────────────────────────
+    # Use a flag set by signal handler so Ctrl+C is reliably detected on all
+    # Python/Windows versions regardless of how asyncio handles SIGINT internally.
+    import signal as _signal
+    _interrupted = [False]
+
+    def _sigint(signum, frame):
+        _interrupted[0] = True
+        # Raise into the running event loop so asyncio.run() returns cleanly
+        raise KeyboardInterrupt
+
+    _prev_handler = _signal.signal(_signal.SIGINT, _sigint)
     try:
         if args.mode == "live":
             asyncio.run(_run_live(profile, args, log))
         else:
             _run_replay(profile, args, log)
     except KeyboardInterrupt:
-        print(f"\n  {YELLOW('Interrupted')}  — stopping TFA.\n")
-        log.info("TFA_INTERRUPTED", msg="KeyboardInterrupt — stopped")
+        _interrupted[0] = True
     finally:
+        _signal.signal(_signal.SIGINT, _prev_handler)   # restore default
         shutdown_logging()
+
+    # ── Restart prompt (live mode only) ───────────────────────────────────────
+    if args.mode == "live" and _interrupted[0]:
+        print(f"\n\n  {YELLOW('○ Stopped')}", flush=True)
+        print(f"  Press {BOLD('Enter')} to restart  ·  {BOLD('Ctrl+C')} to exit: ",
+              end="", flush=True)
+        # Restore default SIGINT so second Ctrl+C exits immediately
+        _signal.signal(_signal.SIGINT, _signal.SIG_DFL)
+        try:
+            line = sys.stdin.readline()
+            if line.strip() == "" and line != "":
+                # Empty line = just Enter pressed → restart
+                print(f"  {GREEN('↺ Restarting...')}\n", flush=True)
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+            else:
+                print(f"\n  Exiting.\n")
+        except KeyboardInterrupt:
+            print(f"\n  Exiting.\n")
 
 
 if __name__ == "__main__":

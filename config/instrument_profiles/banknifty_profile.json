@@ -1,7 +1,7 @@
 {
   "exchange": "NSE",
   "instrument_name": "BANKNIFTY",
-  "underlying_symbol": "BANKNIFTY25MAYFUT",
+  "underlying_symbol": "BANKNIFTY25APRFUT",
   "underlying_security_id": "25",
   "session_start": "09:15",
   "session_end": "15:30",
