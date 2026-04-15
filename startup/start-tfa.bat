@@ -118,4 +118,10 @@ chcp 65001 >nul 2>&1
 
 set "OUTPUT_FILE=data\features\%INSTRUMENT%_live.ndjson"
 
+REM --- Run TFA; exit code 75 means "restart requested" ---
+:run_loop
 %PYTHON_CMD% python_modules\tick_feature_agent\main.py --instrument-profile %PROFILE_PATH% --output-file %OUTPUT_FILE% %EXTRA_ARGS%
+if !errorlevel! == 75 (
+    echo.
+    goto run_loop
+)

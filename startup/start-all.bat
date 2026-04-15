@@ -144,26 +144,26 @@ echo.
 
 REM ── 1. crudeoil ──────────────────────────────────────────────
 echo [1/4] Starting crudeoil...
-start "TFA: crudeoil" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && set PYTHONIOENCODING=utf-8 && "!PYTHON_CMD!" python_modules\tick_feature_agent\main.py --instrument-profile config\instrument_profiles\crudeoil_profile.json --output-file data\features\crudeoil_live.ndjson !EXTRA_ARGS!"
+start "TFA: crudeoil" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-tfa.bat crudeoil !EXTRA_ARGS!"
 
 REM --- 5s stagger ---
 timeout /t 5 /nobreak >nul
 
 REM ── 2. naturalgas ────────────────────────────────────────────
 echo [2/4] Starting naturalgas...
-start "TFA: naturalgas" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && set PYTHONIOENCODING=utf-8 && "!PYTHON_CMD!" python_modules\tick_feature_agent\main.py --instrument-profile config\instrument_profiles\naturalgas_profile.json --output-file data\features\naturalgas_live.ndjson !EXTRA_ARGS!"
+start "TFA: naturalgas" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-tfa.bat naturalgas !EXTRA_ARGS!"
 
 timeout /t 5 /nobreak >nul
 
 REM ── 3. nifty50 ───────────────────────────────────────────────
 echo [3/4] Starting nifty50...
-start "TFA: nifty50" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && set PYTHONIOENCODING=utf-8 && "!PYTHON_CMD!" python_modules\tick_feature_agent\main.py --instrument-profile config\instrument_profiles\nifty50_profile.json --output-file data\features\nifty50_live.ndjson !EXTRA_ARGS!"
+start "TFA: nifty50" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-tfa.bat nifty50 !EXTRA_ARGS!"
 
 timeout /t 5 /nobreak >nul
 
 REM ── 4. banknifty ─────────────────────────────────────────────
 echo [4/4] Starting banknifty...
-start "TFA: banknifty" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && set PYTHONIOENCODING=utf-8 && "!PYTHON_CMD!" python_modules\tick_feature_agent\main.py --instrument-profile config\instrument_profiles\banknifty_profile.json --output-file data\features\banknifty_live.ndjson !EXTRA_ARGS!"
+start "TFA: banknifty" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-tfa.bat banknifty !EXTRA_ARGS!"
 
 echo.
 echo ============================================================

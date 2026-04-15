@@ -82,7 +82,12 @@ class _StderrFormatter(logging.Formatter):
     """Human-readable single-line format for terminal output."""
 
     def format(self, record: logging.LogRecord) -> str:
-        data: dict = record.args if isinstance(record.args, dict) else {}
+        # QueueHandler.prepare() sets record.args = None before queuing (for
+        # pickling safety), so we must parse the JSON from the message string.
+        try:
+            data: dict = json.loads(record.getMessage())
+        except Exception:
+            data = {}
         ts = data.get("ts", "")
         time_part = ts[11:19] if len(ts) >= 19 else ts  # HH:MM:SS
         level = data.get("level", record.levelname)

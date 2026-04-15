@@ -32,11 +32,16 @@ class NdjsonGzWriter:
         writer.close()
     """
 
+    # Auto-flush to disk every N writes so file size grows visibly without
+    # waiting for the periodic recorder.flush() call.
+    _AUTO_FLUSH_EVERY = 50
+
     def __init__(self, path: str | Path, logger: Any = None) -> None:
         self._path = Path(path)
         self._lock = threading.Lock()
         self._logger = logger
         self._fh = self._open(self._path)
+        self._write_count = 0
 
     def _open(self, path: Path):
         """Open gzip file in text-append mode; create parent dirs if needed."""
@@ -55,6 +60,9 @@ class NdjsonGzWriter:
             try:
                 line = json.dumps(record, default=str) + "\n"
                 self._fh.write(line)
+                self._write_count += 1
+                if self._write_count % self._AUTO_FLUSH_EVERY == 0:
+                    self._flush_locked()
                 return True
             except Exception as exc:
                 if self._logger:
@@ -65,14 +73,26 @@ class NdjsonGzWriter:
                     )
                 return False
 
+    def _flush_locked(self) -> None:
+        """Flush all the way to disk. Must be called with self._lock held."""
+        if self._fh is None:
+            return
+        try:
+            self._fh.flush()                          # TextIOWrapper → GzipFile (Z_SYNC_FLUSH)
+            # Propagate through GzipFile → BufferedWriter → OS file
+            buf = getattr(self._fh, "buffer", None)
+            if buf is not None:
+                buf.flush()
+                fobj = getattr(buf, "fileobj", None)
+                if fobj is not None:
+                    fobj.flush()
+        except Exception:
+            pass
+
     def flush(self) -> None:
-        """Flush the underlying gzip buffer.  No-op if already closed."""
+        """Flush the underlying gzip buffer all the way to disk. No-op if closed."""
         with self._lock:
-            if self._fh is not None:
-                try:
-                    self._fh.flush()
-                except Exception:
-                    pass
+            self._flush_locked()
 
     def roll(self, new_path: str | Path) -> None:
         """

@@ -284,5 +284,9 @@ function docToConfig(doc: Record<string, any>): BrokerConfigDoc {
       gtt: doc.capabilities?.gtt ?? false,
       amo: doc.capabilities?.amo ?? false,
     },
+    // auth sub-doc (clientId, pin, totpSecret) — not in the schema but stored
+    // directly in MongoDB by dhan-update-credentials.mjs; pass through as-is
+    // so tokenManager can read it without going to raw MongoDB
+    auth: doc.auth ?? {},
   };
 }

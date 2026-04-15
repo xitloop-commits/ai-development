@@ -40,7 +40,6 @@ from tick_feature_agent.log.tfa_logger import get_logger
 
 _DHAN_WS_URL = "wss://api-feed.dhan.co"
 _MAX_INSTRUMENTS_PER_MSG = 100
-_MAX_RECONNECT_ATTEMPTS = 10
 _CONNECT_TIMEOUT_SEC = 15.0
 
 # Exchange segment strings by profile exchange
@@ -88,10 +87,14 @@ class DhanFeed:
         on_connected: Callable[[], None] | None = None,
         on_disconnected: Callable[[], None] | None = None,
         on_disconnect_code: Callable[[int, str], None] | None = None,
+        credential_fetcher: Callable[[], dict | None] | None = None,
+        on_reconnecting: Callable[[float, int], None] | None = None,
         instrument_name: str = "",
     ) -> None:
         self._token = access_token
         self._client_id = client_id
+        self._credential_fetcher = credential_fetcher
+        self._on_reconnecting = on_reconnecting
         self._exchange = exchange
         self._underlying_security_id = str(underlying_security_id)
         self._on_underlying_tick = on_underlying_tick
@@ -120,6 +123,7 @@ class DhanFeed:
         self._connected = False
         self._running = False
         self._reconnect_attempts = 0
+        self._last_was_429 = False
         self._stop_event = asyncio.Event()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -181,7 +185,7 @@ class DhanFeed:
         """
         self._running = True
         self._stop_event.clear()
-        while self._running and self._reconnect_attempts <= _MAX_RECONNECT_ATTEMPTS:
+        while self._running:
             try:
                 await self._connect_and_receive()
             except asyncio.CancelledError:
@@ -193,22 +197,19 @@ class DhanFeed:
                 break
 
             delay = self._backoff_delay()
+            retry_at = time.time() + delay
             self._log.info(
                 "FEED_RECONNECTING",
                 msg=f"Reconnecting in {delay:.1f}s "
-                    f"(attempt {self._reconnect_attempts}/{_MAX_RECONNECT_ATTEMPTS})",
+                    f"(attempt {self._reconnect_attempts})",
             )
+            if self._on_reconnecting:
+                self._on_reconnecting(retry_at, self._reconnect_attempts)
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
                 break  # stop() was called during backoff
             except asyncio.TimeoutError:
                 pass
-
-        if self._reconnect_attempts > _MAX_RECONNECT_ATTEMPTS:
-            self._log.error(
-                "FEED_MAX_RECONNECT",
-                msg=f"Max reconnect attempts ({_MAX_RECONNECT_ATTEMPTS}) reached — halting",
-            )
 
     async def stop(self) -> None:
         """Gracefully stop the feed."""
@@ -223,17 +224,34 @@ class DhanFeed:
     # ── Internal connection ────────────────────────────────────────────────────
 
     async def _connect_and_receive(self) -> None:
+        # Refresh credentials before each attempt — picks up token rotations
+        if self._credential_fetcher and self._reconnect_attempts > 0:
+            try:
+                fresh = self._credential_fetcher()
+                if fresh and "_error" not in fresh:
+                    new_token     = fresh.get("accessToken") or fresh.get("access_token", "")
+                    new_client_id = fresh.get("clientId")    or fresh.get("client_id",    "")
+                    if new_token and new_client_id:
+                        self._token     = new_token
+                        self._client_id = new_client_id
+                        self._log.info("CREDS_REFRESHED", msg="Credentials refreshed for reconnect")
+            except Exception as exc:
+                self._log.warn("CREDS_REFRESH_FAILED", msg=f"Could not refresh credentials: {exc}")
+
         url = (
             f"{_DHAN_WS_URL}"
             f"?version=2&token={self._token}&clientId={self._client_id}&authType=2"
         )
 
         try:
+            self._last_was_429 = False
             async with ws_client.connect(
                 url,
                 open_timeout=_CONNECT_TIMEOUT_SEC,
-                ping_interval=None,   # Dhan uses its own binary protocol; WS-level pings
-                                      # get no pong → ConnectionClosedError every ~40s
+                ping_interval=None,    # Don't send WS pings — Dhan doesn't pong them
+                ping_timeout=None,     # Disable client-side ping timeout entirely
+                                       # Dhan sends its own pings every 10s; websockets
+                                       # auto-responds with pongs to keep connection alive
             ) as ws:
                 self._ws = ws
                 self._connected = True
@@ -265,10 +283,16 @@ class DhanFeed:
                     # text messages are not expected but silently ignored
 
         except (websockets.exceptions.ConnectionClosedError,
-                websockets.exceptions.ConnectionClosedOK) as exc:
+                websockets.exceptions.ConnectionClosedOK):
             pass
         except (OSError, websockets.exceptions.WebSocketException) as exc:
-            self._log.warn("FEED_CONNECT_FAILED", msg=str(exc))
+            msg = str(exc)
+            if "429" in msg:
+                self._last_was_429 = True
+                self._log.warn("FEED_RATE_LIMITED",
+                               msg="Dhan rate-limited connection (HTTP 429) — backing off 60s")
+            else:
+                self._log.warn("FEED_CONNECT_FAILED", msg=msg)
         finally:
             self._ws = None
             self._connected = False
@@ -293,6 +317,9 @@ class DhanFeed:
             code = payload.get("disconnect_code", 0)
             reason = payload.get("reason", "")
             self._log.warn("SERVER_DISCONNECT", msg=f"Server disconnected: {reason}", code=code)
+            # Always print to terminal so it is visible regardless of log level
+            print(f"\n  \033[31m✗ DHAN DISCONNECT\033[0m  code={code}  reason={reason}\n",
+                  flush=True)
             if self._on_disconnect_code:
                 self._on_disconnect_code(code, reason)
             return
@@ -354,5 +381,10 @@ class DhanFeed:
                 self._log.warn("SUBSCRIBE_SEND_FAILED", msg=str(exc))
 
     def _backoff_delay(self) -> float:
-        """Exponential backoff capped at 30s — mirrors Node.js implementation."""
+        """
+        Exponential backoff capped at 30s normally.
+        60s flat when last failure was HTTP 429 (Dhan rate limit).
+        """
+        if self._last_was_429:
+            return 60.0
         return min(1.0 * (2 ** (self._reconnect_attempts - 1)), 30.0)

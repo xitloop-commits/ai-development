@@ -243,6 +243,53 @@ def _mask(value: str) -> str:
     return value[:3] + "·" * 4 + value[-3:]
 
 
+def _wait_for_server(base_url: str, log, timeout_sec: int = 120) -> None:
+    """
+    Poll <base_url>/health until it returns HTTP 200.
+    Prints a waiting message and retries every 2 seconds.
+    Exits with a fatal error if the server is not ready within timeout_sec.
+    """
+    try:
+        import requests as _req
+    except ImportError:
+        return   # requests not available — skip check, fail later at credential fetch
+
+    health_url = f"{base_url}/health"
+    deadline = time.monotonic() + timeout_sec
+
+    # First: check if already up (no message if instant)
+    try:
+        r = _req.get(health_url, timeout=2)
+        if r.status_code == 200:
+            return
+    except Exception:
+        pass
+
+    # Server not yet up — show waiting message
+    print(f"\n  {YELLOW('◌')}  Waiting for API server at {health_url} …", flush=True)
+    attempt = 0
+    while time.monotonic() < deadline:
+        time.sleep(2)
+        attempt += 1
+        try:
+            r = _req.get(health_url, timeout=2)
+            if r.status_code == 200:
+                _step(TICK, "API server ready", f"(after {attempt * 2}s)")
+                log.info("SERVER_READY", msg=f"API server responded at {health_url}")
+                return
+        except Exception:
+            pass
+        if attempt % 5 == 0:
+            remaining = int(deadline - time.monotonic())
+            print(f"  {YELLOW('◌')}  Still waiting … ({remaining}s left)", flush=True)
+
+    _fatal(
+        f"API server did not become ready within {timeout_sec}s.\n"
+        f"       Start the server first:  startup\\start-api.bat\n"
+        f"       Expected:  {health_url}"
+    )
+
+
 # ── Session boundary helper ───────────────────────────────────────────────────
 
 def _session_boundary_sec(date_str: str, hhmm: str) -> float:
@@ -258,7 +305,7 @@ def _session_boundary_sec(date_str: str, hhmm: str) -> float:
 # LIVE MODE
 # ══════════════════════════════════════════════════════════════════════════════
 
-async def _run_live(profile, args, log) -> None:
+async def _run_live(profile, args, log, _kb: dict) -> None:
     """
     Full live pipeline:
       DhanFeed (WS) + ChainPoller (REST) → TickProcessor → Emitter + SessionRecorder
@@ -274,12 +321,25 @@ async def _run_live(profile, args, log) -> None:
     from tick_feature_agent.feed.dhan_feed import DhanFeed
     from tick_feature_agent.feed.chain_poller import ChainPoller
 
-    # ── Fetch credentials ─────────────────────────────────────────────────────
-    creds = _fetch_credentials(args.broker_url)
-    if not creds or "_error" in creds:
-        err = (creds or {}).get("_error", "unknown")
-        _fatal(f"Cannot fetch broker credentials: {err}\n"
-               f"       Is the Node.js server running at {args.broker_url}?")
+    # ── Wait for API server ───────────────────────────────────────────────────
+    _wait_for_server(args.broker_url, log)
+
+    # ── Fetch credentials (retry for up to 30s — server may lag after /health) ──
+    creds = None
+    _cred_deadline = time.monotonic() + 30
+    _cred_attempt  = 0
+    while True:
+        creds = _fetch_credentials(args.broker_url)
+        if creds and "_error" not in creds:
+            break
+        _cred_attempt += 1
+        if time.monotonic() >= _cred_deadline:
+            err = (creds or {}).get("_error", "unknown")
+            _fatal(f"Cannot fetch broker credentials after retries: {err}\n"
+                   f"       Is the Node.js server running at {args.broker_url}?")
+        if _cred_attempt == 1:
+            print(f"  {YELLOW('◌')}  Waiting for broker credentials …", flush=True)
+        time.sleep(2)
 
     access_token = creds.get("accessToken") or creds.get("access_token", "")
     client_id    = creds.get("clientId")    or creds.get("client_id",    "")
@@ -410,6 +470,10 @@ async def _run_live(profile, args, log) -> None:
         "u_rate": 0.0,
         "holiday_nse": _holiday_nse,   # pre-fetched at startup
         "holiday_mcx": _holiday_mcx,
+        "disconnect_code": None,
+        "disconnect_reason": None,
+        "retry_at": None,
+        "retry_attempt": 0,
     }
     _HEALTH_INTERVAL = 3.0
     _health_nlines: list[int] = [0]   # mutable cell for closure
@@ -456,6 +520,10 @@ async def _run_live(profile, args, log) -> None:
         on_option_tick=_on_option_tick,
         on_connected=lambda: (
             _h.__setitem__("feed_ok", True),
+            _h.__setitem__("disconnect_code", None),
+            _h.__setitem__("disconnect_reason", None),
+            _h.__setitem__("retry_at", None),
+            _h.__setitem__("retry_attempt", 0),
             log.info("FEED_CONNECTED", msg="WebSocket connected"),
         ),
         on_disconnected=lambda: (
@@ -463,6 +531,16 @@ async def _run_live(profile, args, log) -> None:
             sm.on_feed_disconnect(),
             log.warn("FEED_DISCONNECTED", msg="WebSocket disconnected"),
         ),
+        on_disconnect_code=lambda code, reason: (
+            _h.__setitem__("disconnect_code", code),
+            _h.__setitem__("disconnect_reason", reason),
+            log.error("DHAN_DISCONNECT", msg=f"Dhan server disconnect: {reason}", code=code),
+        ),
+        on_reconnecting=lambda retry_at, attempt: (
+            _h.__setitem__("retry_at", retry_at),
+            _h.__setitem__("retry_attempt", attempt),
+        ),
+        credential_fetcher=lambda: _fetch_credentials(args.broker_url),
     )
 
     # Subscribe underlying futures
@@ -487,9 +565,9 @@ async def _run_live(profile, args, log) -> None:
             processor.check_feed_stale()
 
     async def _recorder_flusher():
-        """Flush gzip writers to disk every 10 seconds so file sizes grow live."""
+        """Flush gzip writers to disk every 3 seconds so file sizes grow visibly."""
         while True:
-            await asyncio.sleep(10)
+            await asyncio.sleep(3)
             recorder.flush()
 
     def _render_health() -> list[str]:
@@ -510,7 +588,13 @@ async def _run_live(profile, args, log) -> None:
             else:
                 feed_s = YELLOW("● CONNECTED") + "  (no ticks yet)"
         else:
-            feed_s = RED("✗ DISCONNECTED")
+            if _h.get("retry_at"):
+                secs_left = max(0.0, _h["retry_at"] - time.time())
+                feed_s = (RED("✗ DISCONNECTED") +
+                          f"  retry in {secs_left:.0f}s"
+                          f"  (attempt {_h['retry_attempt']})")
+            else:
+                feed_s = RED("✗ DISCONNECTED")
 
         # Session
         if _h["session_open"]:
@@ -562,7 +646,24 @@ async def _run_live(profile, args, log) -> None:
             f"  Chain   : {chain_s}",
         ]
         lines.extend(holiday_lines)
+
+        # Dhan disconnect reason — shown until next successful connect
+        if not _h["feed_ok"] and _h.get("disconnect_reason"):
+            lines.append(
+                f"  {RED('✗ Dhan:')}  code={_h['disconnect_code']}  "
+                f"{RED(_h['disconnect_reason'])}"
+            )
+
         lines.append(f"  {DIM('─' * W)}")
+
+        # Esc menu overlay
+        if _kb.get("menu"):
+            lines.append(f"  {YELLOW('⏸  Paused')}  —  choose an action:")
+            lines.append(f"  {BOLD('Enter')} Restart   "
+                         f"{BOLD('Esc')} Exit   "
+                         f"{BOLD('C')} Continue")
+            lines.append(f"  {DIM('─' * W)}")
+
         return lines
 
     async def _health_display():
@@ -595,9 +696,51 @@ async def _run_live(profile, args, log) -> None:
             sys.stdout.flush()
             _health_nlines[0] = len(lines)
 
+    # ── Keyboard handler (Esc menu) ───────────────────────────────────────────
+    async def _keyboard_handler():
+        """
+        Windows-only: watch for Esc key to show the pause menu while TFA runs.
+        Non-Windows: no-op (use Ctrl+C to stop).
+        """
+        if sys.platform != "win32":
+            return
+        import msvcrt as _msvcrt
+        while True:
+            await asyncio.sleep(0.05)
+            if not _msvcrt.kbhit():
+                continue
+            ch = _msvcrt.getwch()
+            if ch != "\x1b":          # ignore non-Esc keys
+                continue
+            # \x1b could be an ANSI escape sequence from terminal output.
+            # A real Esc keypress is a lone \x1b — drain any following chars.
+            await asyncio.sleep(0.02)
+            while _msvcrt.kbhit():
+                _msvcrt.getwch()
+            if _msvcrt.kbhit():       # still more chars → ANSI sequence, ignore
+                continue
+            # Confirmed lone Esc — show menu, TFA keeps running
+            _kb["menu"] = True
+            while True:
+                await asyncio.sleep(0.05)
+                if not _msvcrt.kbhit():
+                    continue
+                ch2 = _msvcrt.getwch()
+                if ch2 == "\x1b":           # Esc → exit
+                    _kb["menu"] = False
+                    _kb["action"] = "exit"
+                    raise asyncio.CancelledError
+                elif ch2 in ("\r", "\n"):   # Enter → restart
+                    _kb["menu"] = False
+                    _kb["action"] = "restart"
+                    raise asyncio.CancelledError
+                elif ch2.lower() == "c":    # C → continue
+                    _kb["menu"] = False
+                    break                   # back to outer loop
+
     # ── Run ───────────────────────────────────────────────────────────────────
     print()
-    print(f"  {GREEN('● RUNNING')}  Press Ctrl+C to stop.")
+    print(f"  {GREEN('● RUNNING')}  Press {BOLD('Esc')} for options.")
     print()
 
     try:
@@ -607,6 +750,7 @@ async def _run_live(profile, args, log) -> None:
             _stale_checker(),
             _recorder_flusher(),
             _health_display(),
+            _keyboard_handler(),
         )
     except asyncio.CancelledError:
         pass
@@ -754,42 +898,28 @@ def main() -> None:
     # Use a flag set by signal handler so Ctrl+C is reliably detected on all
     # Python/Windows versions regardless of how asyncio handles SIGINT internally.
     import signal as _signal
-    _interrupted = [False]
+    _kb: dict = {"action": None, "menu": False}
 
     def _sigint(signum, frame):
-        _interrupted[0] = True
-        # Raise into the running event loop so asyncio.run() returns cleanly
+        # Ctrl+C fallback — hard stop, no menu
         raise KeyboardInterrupt
 
     _prev_handler = _signal.signal(_signal.SIGINT, _sigint)
     try:
         if args.mode == "live":
-            asyncio.run(_run_live(profile, args, log))
+            asyncio.run(_run_live(profile, args, log, _kb))
         else:
             _run_replay(profile, args, log)
     except KeyboardInterrupt:
-        _interrupted[0] = True
+        pass
     finally:
-        _signal.signal(_signal.SIGINT, _prev_handler)   # restore default
+        _signal.signal(_signal.SIGINT, _prev_handler)
         shutdown_logging()
 
-    # ── Restart prompt (live mode only) ───────────────────────────────────────
-    if args.mode == "live" and _interrupted[0]:
-        print(f"\n\n  {YELLOW('○ Stopped')}", flush=True)
-        print(f"  Press {BOLD('Enter')} to restart  ·  {BOLD('Ctrl+C')} to exit: ",
-              end="", flush=True)
-        # Restore default SIGINT so second Ctrl+C exits immediately
-        _signal.signal(_signal.SIGINT, _signal.SIG_DFL)
-        try:
-            line = sys.stdin.readline()
-            if line.strip() == "" and line != "":
-                # Empty line = just Enter pressed → restart
-                print(f"  {GREEN('↺ Restarting...')}\n", flush=True)
-                os.execv(sys.executable, [sys.executable] + sys.argv)
-            else:
-                print(f"\n  Exiting.\n")
-        except KeyboardInterrupt:
-            print(f"\n  Exiting.\n")
+    # ── Post-run action ───────────────────────────────────────────────────────
+    if args.mode == "live" and _kb.get("action") == "restart":
+        print(f"\n  {GREEN('↺ Restarting...')}\n", flush=True)
+        sys.exit(75)    # bat loop picks this up and re-launches
 
 
 if __name__ == "__main__":
