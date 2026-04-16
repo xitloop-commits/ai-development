@@ -62,11 +62,11 @@ function ModuleRow({
     <div className="flex items-center justify-between py-1">
       <div className="flex items-center gap-1.5">
         <Icon className={`h-3 w-3 ${color}`} />
-        <span className="text-[9px] font-medium text-foreground/80">{label}</span>
+        <span className="text-[0.5625rem] font-medium text-foreground/80">{label}</span>
       </div>
       <div className="flex items-center gap-1">
         {detail && (
-          <span className="text-[8px] text-muted-foreground tabular-nums">{detail}</span>
+          <span className="text-[0.5rem] text-muted-foreground tabular-nums">{detail}</span>
         )}
         {passed ? (
           <CheckCircle2 className="h-3 w-3 text-bullish" />
@@ -91,7 +91,7 @@ function ScoreCategoryBar({
   const pct = max > 0 ? (score / max) * 100 : 0;
   return (
     <div className="flex items-center gap-2">
-      <span className="text-[8px] text-muted-foreground w-16 shrink-0 truncate">{label}</span>
+      <span className="text-[0.5rem] text-muted-foreground w-16 shrink-0 truncate">{label}</span>
       <div className="flex-1 h-1 rounded-full bg-secondary/50 overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-300 ${
@@ -100,7 +100,7 @@ function ScoreCategoryBar({
           style={{ width: `${Math.min(pct, 100)}%` }}
         />
       </div>
-      <span className="text-[8px] tabular-nums text-muted-foreground w-8 text-right">
+      <span className="text-[0.5rem] tabular-nums text-muted-foreground w-8 text-right">
         {score}/{max}
       </span>
     </div>
@@ -120,10 +120,10 @@ export default function DisciplinePanel() {
   if (!data) {
     return (
       <div className="space-y-2">
-        <h3 className="text-[11px] font-bold tracking-widest uppercase text-muted-foreground">
+        <h3 className="text-[0.6875rem] font-bold tracking-widest uppercase text-muted-foreground">
           Discipline
         </h3>
-        <div className="text-[9px] text-muted-foreground">Loading...</div>
+        <div className="text-[0.5625rem] text-muted-foreground">Loading...</div>
       </div>
     );
   }
@@ -155,18 +155,18 @@ export default function DisciplinePanel() {
     <div className="space-y-2.5">
       {/* Header + Score */}
       <div className="flex items-center justify-between">
-        <h3 className="text-[11px] font-bold tracking-widest uppercase text-muted-foreground">
+        <h3 className="text-[0.6875rem] font-bold tracking-widest uppercase text-muted-foreground">
           Discipline
         </h3>
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex items-center gap-1.5 cursor-help">
               <Shield className={`h-3.5 w-3.5 ${scoreColor(s)}`} />
-              <span className={`text-[13px] font-black tabular-nums ${scoreColor(s)}`}>{s}</span>
-              <span className={`text-[8px] font-bold ${scoreColor(s)}`}>{scoreLabel(s)}</span>
+              <span className={`text-[0.8125rem] font-black tabular-nums ${scoreColor(s)}`}>{s}</span>
+              <span className={`text-[0.5rem] font-bold ${scoreColor(s)}`}>{scoreLabel(s)}</span>
             </div>
           </TooltipTrigger>
-          <TooltipContent side="left" className="text-[9px]">
+          <TooltipContent side="left" className="text-[0.5625rem]">
             Discipline Score: {s}/100 — {scoreLabel(s)}
           </TooltipContent>
         </Tooltip>
@@ -236,7 +236,7 @@ export default function DisciplinePanel() {
           ) : (
             <TrendingDown className="h-3 w-3 text-destructive" />
           )}
-          <span className={`text-[9px] font-bold ${
+          <span className={`text-[0.5625rem] font-bold ${
             streakType === 'winning' ? 'text-bullish' : 'text-destructive'
           }`}>
             {streakLength} {streakType === 'winning' ? 'Win' : 'Loss'} Streak
@@ -248,7 +248,7 @@ export default function DisciplinePanel() {
       {cbTriggered && (
         <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-destructive/10 border border-destructive/20">
           <Ban className="h-3 w-3 text-destructive shrink-0" />
-          <span className="text-[9px] font-bold text-destructive">
+          <span className="text-[0.5625rem] font-bold text-destructive">
             Circuit Breaker Active — Trading Blocked
           </span>
         </div>
@@ -258,7 +258,7 @@ export default function DisciplinePanel() {
       {cooldownActive && cooldownRemaining > 0 && (
         <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-warning-amber/10 border border-warning-amber/20">
           <Clock className="h-3 w-3 text-warning-amber shrink-0" />
-          <span className="text-[9px] font-bold text-warning-amber">
+          <span className="text-[0.5625rem] font-bold text-warning-amber">
             Cooldown: {Math.ceil(cooldownRemaining / 60)}min remaining ({cooldownType})
           </span>
         </div>
@@ -267,7 +267,7 @@ export default function DisciplinePanel() {
       {/* Score Breakdown Toggle */}
       <button
         onClick={() => setShowBreakdown(!showBreakdown)}
-        className="flex items-center gap-1 text-[9px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center gap-1 text-[0.5625rem] font-semibold text-muted-foreground hover:text-foreground transition-colors"
       >
         {showBreakdown ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
         Score Breakdown

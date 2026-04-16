@@ -572,7 +572,7 @@ export default function TradingDeskMockupPage() {
         <div className="mx-auto max-w-[1800px]">
           <div className="mb-4 flex items-end justify-between gap-4">
             <div>
-              <p className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground">Generated Mockup</p>
+              <p className="text-[0.625rem] uppercase tracking-[0.3em] text-muted-foreground">Generated Mockup</p>
               <h1 className="font-mono text-2xl font-bold text-foreground">Trading Desk Current Component</h1>
             </div>
             <p className="max-w-xl text-right text-sm text-muted-foreground">

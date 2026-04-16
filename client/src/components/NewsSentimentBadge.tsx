@@ -47,19 +47,19 @@ export default function NewsSentimentBadge({ newsDetail, eventFlags }: NewsSenti
           className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
         >
           <Newspaper className="h-3 w-3 text-muted-foreground" />
-          <span className="text-[9px] text-muted-foreground">News:</span>
+          <span className="text-[0.5625rem] text-muted-foreground">News:</span>
           <SentIcon className={`h-3 w-3 ${cfg.color}`} />
-          <span className={`text-[9px] font-bold ${cfg.color}`}>
+          <span className={`text-[0.5625rem] font-bold ${cfg.color}`}>
             {newsDetail.sentiment}
           </span>
-          <span className="text-[8px] text-muted-foreground">
+          <span className="text-[0.5rem] text-muted-foreground">
             ({newsDetail.strength})
           </span>
           <ConfidenceBar confidence={newsDetail.confidence} />
-          <span className="text-[8px] text-muted-foreground tabular-nums">
+          <span className="text-[0.5rem] text-muted-foreground tabular-nums">
             {newsDetail.confidence}%
           </span>
-          <span className="text-[8px] text-muted-foreground">
+          <span className="text-[0.5rem] text-muted-foreground">
             {newsDetail.total_articles} articles
           </span>
           {expanded ? <ChevronUp className="h-3 w-3 text-muted-foreground" /> : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
@@ -71,7 +71,7 @@ export default function NewsSentimentBadge({ newsDetail, eventFlags }: NewsSenti
             {eventFlags.slice(0, 2).map((flag, i) => (
               <span
                 key={i}
-                className="inline-flex items-center gap-0.5 text-[7px] px-1.5 py-0.5 rounded bg-warning-amber/10 text-warning-amber border border-warning-amber/20 font-bold"
+                className="inline-flex items-center gap-0.5 text-[0.4375rem] px-1.5 py-0.5 rounded bg-warning-amber/10 text-warning-amber border border-warning-amber/20 font-bold"
               >
                 <Zap className="h-2.5 w-2.5" />
                 {flag}
@@ -86,7 +86,7 @@ export default function NewsSentimentBadge({ newsDetail, eventFlags }: NewsSenti
         <div className="ml-4 space-y-1.5 animate-fade-in-up">
           {/* Bull/Bear score bar */}
           <div className="flex items-center gap-2">
-            <span className="text-[8px] text-bullish tabular-nums font-bold">
+            <span className="text-[0.5rem] text-bullish tabular-nums font-bold">
               Bull: {newsDetail.bull_score}
             </span>
             <div className="flex-1 h-1 rounded-full bg-secondary/30 overflow-hidden flex">
@@ -101,10 +101,10 @@ export default function NewsSentimentBadge({ newsDetail, eventFlags }: NewsSenti
                 );
               })()}
             </div>
-            <span className="text-[8px] text-destructive tabular-nums font-bold">
+            <span className="text-[0.5rem] text-destructive tabular-nums font-bold">
               Bear: {newsDetail.bear_score}
             </span>
-            <span className="text-[8px] text-muted-foreground tabular-nums">
+            <span className="text-[0.5rem] text-muted-foreground tabular-nums">
               Net: <span className={newsDetail.net_score > 0 ? 'text-bullish' : newsDetail.net_score < 0 ? 'text-destructive' : 'text-muted-foreground'}>
                 {newsDetail.net_score > 0 ? '+' : ''}{newsDetail.net_score}
               </span>
@@ -114,20 +114,20 @@ export default function NewsSentimentBadge({ newsDetail, eventFlags }: NewsSenti
           {/* Top articles */}
           {newsDetail.top_articles && newsDetail.top_articles.length > 0 && (
             <div className="space-y-0.5">
-              <span className="text-[7px] text-muted-foreground tracking-wider uppercase font-bold">
+              <span className="text-[0.4375rem] text-muted-foreground tracking-wider uppercase font-bold">
                 Top Headlines ({newsDetail.queries_used} queries)
               </span>
               {newsDetail.top_articles.slice(0, 3).map((article, i) => (
                 <div key={i} className="flex items-start gap-1.5">
-                  <span className={`text-[7px] font-bold tabular-nums shrink-0 mt-0.5 ${
+                  <span className={`text-[0.4375rem] font-bold tabular-nums shrink-0 mt-0.5 ${
                     article.score > 0 ? 'text-bullish' : article.score < 0 ? 'text-destructive' : 'text-muted-foreground'
                   }`}>
                     {article.score > 0 ? '+' : ''}{article.score}
                   </span>
-                  <span className="text-[8px] text-muted-foreground leading-tight line-clamp-1">
+                  <span className="text-[0.5rem] text-muted-foreground leading-tight line-clamp-1">
                     {article.title}
                   </span>
-                  <span className="text-[7px] text-muted-foreground/50 shrink-0">
+                  <span className="text-[0.4375rem] text-muted-foreground/50 shrink-0">
                     {article.source}
                   </span>
                 </div>

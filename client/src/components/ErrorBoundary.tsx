@@ -40,7 +40,7 @@ class ErrorBoundary extends Component<Props, State> {
         return (
           <div className="flex items-center gap-2 px-2 py-1.5 rounded bg-destructive/5 border border-destructive/20">
             <AlertTriangle className="h-3 w-3 text-destructive shrink-0" />
-            <span className="text-[9px] text-destructive/80 truncate">
+            <span className="text-[0.5625rem] text-destructive/80 truncate">
               {this.props.section || 'Component'} error
             </span>
             <button onClick={this.handleReset} className="shrink-0 text-destructive hover:text-destructive/80">

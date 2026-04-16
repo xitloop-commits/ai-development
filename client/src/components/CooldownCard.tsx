@@ -63,14 +63,14 @@ export default function CooldownCard({
           <AlertTriangle className={`h-5 w-5 ${textColor}`} />
           <div>
             <div className={`text-sm font-bold font-display ${textColor}`}>{title}</div>
-            <div className="text-[9px] text-muted-foreground">
+            <div className="text-[0.5625rem] text-muted-foreground">
               Acknowledge your loss before the cooldown timer starts
             </div>
           </div>
         </div>
 
         <div className="space-y-2">
-          <label className="text-[9px] text-muted-foreground block">
+          <label className="text-[0.5625rem] text-muted-foreground block">
             Type "{requiredText}" to acknowledge:
           </label>
           <input
@@ -83,7 +83,7 @@ export default function CooldownCard({
           <button
             onClick={onAcknowledge}
             disabled={!isValid}
-            className={`w-full py-2 rounded text-[10px] font-bold uppercase tracking-wider transition-colors ${
+            className={`w-full py-2 rounded text-[0.625rem] font-bold uppercase tracking-wider transition-colors ${
               isValid
                 ? 'bg-warning-amber/20 text-warning-amber hover:bg-warning-amber/30 border border-warning-amber/30'
                 : 'bg-border text-muted-foreground/40 cursor-not-allowed'
@@ -125,7 +125,7 @@ export default function CooldownCard({
           <text x="35" y="32" textAnchor="middle" className="fill-foreground font-display text-sm font-bold">
             {minutes}:{seconds.toString().padStart(2, '0')}
           </text>
-          <text x="35" y="44" textAnchor="middle" className="fill-muted-foreground text-[7px] uppercase">
+          <text x="35" y="44" textAnchor="middle" className="fill-muted-foreground text-[0.4375rem] uppercase">
             remaining
           </text>
         </svg>
@@ -136,7 +136,7 @@ export default function CooldownCard({
             <Clock className={`h-4 w-4 ${textColor}`} />
             <span className={`text-sm font-bold font-display ${textColor}`}>{title}</span>
           </div>
-          <p className="text-[9px] text-muted-foreground mt-1 leading-relaxed">
+          <p className="text-[0.5625rem] text-muted-foreground mt-1 leading-relaxed">
             {isRevenge
               ? 'Take a deep breath. Review your trade. The market will still be there when the timer ends.'
               : 'Multiple consecutive losses detected. This extended cooldown protects your capital from emotional decisions.'}

@@ -64,13 +64,13 @@ function OISummaryRow({ data }: { data: InstrumentData }) {
   const callPct = total > 0 ? (data.totalCallOI / total) * 100 : 50;
   return (
     <div className="flex items-center gap-2">
-      <span className="text-[9px] text-bullish tabular-nums font-bold">{formatOI(data.totalCallOI)}</span>
+      <span className="text-[0.5625rem] text-bullish tabular-nums font-bold">{formatOI(data.totalCallOI)}</span>
       <div className="flex-1 h-1.5 rounded-full bg-secondary/50 overflow-hidden flex">
         <div className="h-full bg-bullish/60 transition-all duration-500" style={{ width: `${callPct}%` }} />
         <div className="h-full bg-destructive/60 transition-all duration-500" style={{ width: `${100 - callPct}%` }} />
       </div>
-      <span className="text-[9px] text-destructive tabular-nums font-bold">{formatOI(data.totalPutOI)}</span>
-      <span className="text-[9px] text-info-cyan tabular-nums font-bold ml-1">PCR {data.pcrRatio.toFixed(2)}</span>
+      <span className="text-[0.5625rem] text-destructive tabular-nums font-bold">{formatOI(data.totalPutOI)}</span>
+      <span className="text-[0.5625rem] text-info-cyan tabular-nums font-bold ml-1">PCR {data.pcrRatio.toFixed(2)}</span>
     </div>
   );
 }
@@ -86,47 +86,47 @@ function TradeSetupSection({ setup }: { setup: TradeSetup }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Crosshair className={`h-3 w-3 ${accentColor}`} />
-          <span className={`text-[10px] font-bold tracking-wider ${accentColor}`}>
+          <span className={`text-[0.625rem] font-bold tracking-wider ${accentColor}`}>
             TRADE SETUP
           </span>
         </div>
-        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${accentBg} ${accentColor} border ${isCall ? 'border-bullish/30' : 'border-destructive/30'}`}>
+        <span className={`text-[0.5625rem] font-bold px-1.5 py-0.5 rounded ${accentBg} ${accentColor} border ${isCall ? 'border-bullish/30' : 'border-destructive/30'}`}>
           {setup.option_type} {setup.strike}
         </span>
       </div>
 
       <div className="grid grid-cols-3 gap-2">
         <div>
-          <div className="text-[8px] text-muted-foreground tracking-wider uppercase">Entry</div>
-          <div className="text-[11px] font-bold tabular-nums text-foreground">₹{formatPrice(setup.entry_price)}</div>
+          <div className="text-[0.5rem] text-muted-foreground tracking-wider uppercase">Entry</div>
+          <div className="text-[0.6875rem] font-bold tabular-nums text-foreground">₹{formatPrice(setup.entry_price)}</div>
         </div>
         <div>
-          <div className="text-[8px] text-muted-foreground tracking-wider uppercase">Target</div>
-          <div className="text-[11px] font-bold tabular-nums text-bullish">
+          <div className="text-[0.5rem] text-muted-foreground tracking-wider uppercase">Target</div>
+          <div className="text-[0.6875rem] font-bold tabular-nums text-bullish">
             ₹{formatPrice(setup.target_price)}
-            <span className="text-[8px] ml-0.5">(+{setup.target_pct}%)</span>
+            <span className="text-[0.5rem] ml-0.5">(+{setup.target_pct}%)</span>
           </div>
         </div>
         <div>
-          <div className="text-[8px] text-muted-foreground tracking-wider uppercase">Stop Loss</div>
-          <div className="text-[11px] font-bold tabular-nums text-destructive">
+          <div className="text-[0.5rem] text-muted-foreground tracking-wider uppercase">Stop Loss</div>
+          <div className="text-[0.6875rem] font-bold tabular-nums text-destructive">
             ₹{formatPrice(setup.stop_loss)}
-            <span className="text-[8px] ml-0.5">(-{setup.sl_pct}%)</span>
+            <span className="text-[0.5rem] ml-0.5">(-{setup.sl_pct}%)</span>
           </div>
         </div>
       </div>
 
       <div className="flex items-center justify-between pt-1 border-t border-white/5">
-        <span className="text-[9px] text-muted-foreground">{setup.target_label}</span>
+        <span className="text-[0.5625rem] text-muted-foreground">{setup.target_label}</span>
         <div className="flex items-center gap-2">
-          <span className="text-[9px] text-muted-foreground">R:R</span>
-          <span className={`text-[10px] font-bold tabular-nums ${setup.risk_reward >= 2 ? 'text-bullish' : setup.risk_reward >= 1 ? 'text-warning-amber' : 'text-destructive'}`}>
+          <span className="text-[0.5625rem] text-muted-foreground">R:R</span>
+          <span className={`text-[0.625rem] font-bold tabular-nums ${setup.risk_reward >= 2 ? 'text-bullish' : setup.risk_reward >= 1 ? 'text-warning-amber' : 'text-destructive'}`}>
             1:{setup.risk_reward}
           </span>
           {setup.delta > 0 && (
             <>
-              <span className="text-[9px] text-muted-foreground">Delta</span>
-              <span className="text-[10px] font-bold tabular-nums text-info-cyan">{setup.delta}</span>
+              <span className="text-[0.5625rem] text-muted-foreground">Delta</span>
+              <span className="text-[0.625rem] font-bold tabular-nums text-info-cyan">{setup.delta}</span>
             </>
           )}
         </div>
@@ -143,7 +143,7 @@ function RiskFlagsSection({ flags }: { flags: RiskFlag[] }) {
       {flags.map((flag, i) => (
         <div
           key={i}
-          className={`flex items-start gap-1.5 px-2 py-1 rounded text-[9px] leading-tight ${
+          className={`flex items-start gap-1.5 px-2 py-1 rounded text-[0.5625rem] leading-tight ${
             flag.type === 'danger'
               ? 'bg-destructive/10 text-destructive border border-destructive/20'
               : 'bg-warning-amber/10 text-warning-amber border border-warning-amber/20'
@@ -170,7 +170,7 @@ function ScoringFactorsSection({ factors }: { factors: Record<string, ScoringFac
     <div>
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center gap-1 text-[0.5625rem] text-muted-foreground hover:text-foreground transition-colors"
       >
         <BarChart3 className="h-3 w-3" />
         <span className="tracking-wider uppercase font-bold">Scoring Factors</span>
@@ -185,10 +185,10 @@ function ScoringFactorsSection({ factors }: { factors: Record<string, ScoringFac
             return (
               <div key={name} className="space-y-0.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[8px] text-muted-foreground capitalize">
+                  <span className="text-[0.5rem] text-muted-foreground capitalize">
                     {name.replace(/_/g, ' ')} ({(factor.weight * 100).toFixed(0)}%)
                   </span>
-                  <span className={`text-[8px] font-bold tabular-nums ${isPositive ? 'text-bullish' : contribution < 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                  <span className={`text-[0.5rem] font-bold tabular-nums ${isPositive ? 'text-bullish' : contribution < 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
                     {contribution > 0 ? '+' : ''}{(contribution * 100).toFixed(1)}
                   </span>
                 </div>
@@ -198,7 +198,7 @@ function ScoringFactorsSection({ factors }: { factors: Record<string, ScoringFac
                     style={{ width: `${barWidth}%` }}
                   />
                 </div>
-                <div className="text-[7px] text-muted-foreground/60 leading-tight">{factor.detail}</div>
+                <div className="text-[0.4375rem] text-muted-foreground/60 leading-tight">{factor.detail}</div>
               </div>
             );
           })}
@@ -230,8 +230,8 @@ function FilterBadgesSection({ filters }: { filters: TradeFilters }) {
       {filter_blocked && (
         <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-destructive/10 border border-destructive/20">
           <Ban className="h-3 w-3 text-destructive shrink-0" />
-          <span className="text-[9px] font-bold text-destructive tracking-wider">TRADE BLOCKED</span>
-          <span className="text-[8px] text-destructive/70 truncate">
+          <span className="text-[0.5625rem] font-bold text-destructive tracking-wider">TRADE BLOCKED</span>
+          <span className="text-[0.5rem] text-destructive/70 truncate">
             {rejection_reasons.slice(0, 2).join(' · ')}
           </span>
         </div>
@@ -241,7 +241,7 @@ function FilterBadgesSection({ filters }: { filters: TradeFilters }) {
       <div className="flex flex-wrap gap-1.5">
         {/* Sideways Detection */}
         <div
-          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[8px] font-bold tracking-wider ${
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[0.5rem] font-bold tracking-wider ${
             sideways_detection.is_sideways
               ? 'bg-warning-amber/10 border-warning-amber/30 text-warning-amber'
               : 'bg-secondary/30 border-white/5 text-muted-foreground'
@@ -256,7 +256,7 @@ function FilterBadgesSection({ filters }: { filters: TradeFilters }) {
 
         {/* Trap Detection */}
         <div
-          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[8px] font-bold tracking-wider ${
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[0.5rem] font-bold tracking-wider ${
             trap_detection.is_trap
               ? 'bg-destructive/10 border-destructive/30 text-destructive'
               : 'bg-secondary/30 border-white/5 text-muted-foreground'
@@ -271,7 +271,7 @@ function FilterBadgesSection({ filters }: { filters: TradeFilters }) {
 
         {/* Bounce/Breakdown */}
         <div
-          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[8px] font-bold tracking-wider ${
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[0.5rem] font-bold tracking-wider ${
             bounce_breakdown.setup_type !== 'NEUTRAL'
               ? bounce_breakdown.aligned
                 ? 'bg-bullish/10 border-bullish/30 text-bullish'
@@ -283,13 +283,13 @@ function FilterBadgesSection({ filters }: { filters: TradeFilters }) {
           <BBIcon className="h-2.5 w-2.5" />
           {bbCfg.label}
           {!bounce_breakdown.aligned && bounce_breakdown.setup_type !== 'NEUTRAL' && (
-            <span className="text-[7px] opacity-70">✗</span>
+            <span className="text-[0.4375rem] opacity-70">✗</span>
           )}
         </div>
 
         {/* Quality Gate */}
         <div
-          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[8px] font-bold tracking-wider ${
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[0.5rem] font-bold tracking-wider ${
             quality_gate.passed
               ? 'bg-bullish/10 border-bullish/30 text-bullish'
               : 'bg-destructive/10 border-destructive/30 text-destructive'
@@ -317,8 +317,8 @@ function IVThetaRow({ data }: { data: InstrumentData }) {
       {iv && iv.assessment !== 'UNKNOWN' && (
         <div className="flex items-center gap-1">
           <Activity className="h-3 w-3 text-muted-foreground" />
-          <span className="text-[9px] text-muted-foreground">IV:</span>
-          <span className={`text-[9px] font-bold ${ivColor}`}>
+          <span className="text-[0.5625rem] text-muted-foreground">IV:</span>
+          <span className={`text-[0.5625rem] font-bold ${ivColor}`}>
             {iv.atm_iv}% ({iv.assessment})
           </span>
         </div>
@@ -326,12 +326,12 @@ function IVThetaRow({ data }: { data: InstrumentData }) {
       {theta && theta.days_to_expiry !== null && (
         <div className="flex items-center gap-1">
           <Clock className="h-3 w-3 text-muted-foreground" />
-          <span className="text-[9px] text-muted-foreground">DTE:</span>
-          <span className={`text-[9px] font-bold ${theta.days_to_expiry! <= 2 ? 'text-destructive' : theta.days_to_expiry! <= 4 ? 'text-warning-amber' : 'text-foreground'}`}>
+          <span className="text-[0.5625rem] text-muted-foreground">DTE:</span>
+          <span className={`text-[0.5625rem] font-bold ${theta.days_to_expiry! <= 2 ? 'text-destructive' : theta.days_to_expiry! <= 4 ? 'text-warning-amber' : 'text-foreground'}`}>
             {theta.days_to_expiry}d
           </span>
           {theta.theta_per_day > 0 && (
-            <span className="text-[9px] text-destructive tabular-nums">
+            <span className="text-[0.5625rem] text-destructive tabular-nums">
               (-₹{theta.theta_per_day}/day)
             </span>
           )}
@@ -394,16 +394,16 @@ export default function InstrumentCard({ data, bgImage, feedExchange, feedSecuri
                 ₹{formatPrice(displayPrice)}
                 {isLive && <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" title="Live" />}
                 {data.atmStrike ? (
-                  <span className="text-[9px] text-muted-foreground ml-2">ATM: {data.atmStrike}</span>
+                  <span className="text-[0.5625rem] text-muted-foreground ml-2">ATM: {data.atmStrike}</span>
                 ) : null}
               </span>
             )}
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[10px] text-muted-foreground tracking-wider">{data.exchange}</span>
-              <span className="text-[10px] text-muted-foreground">|</span>
-              <span className="text-[10px] text-muted-foreground tracking-wider">EXP: {data.expiry}</span>
-              <span className="text-[10px] text-muted-foreground">|</span>
-              <span className="text-[10px] text-muted-foreground tracking-wider">{data.strikesFound} strikes</span>
+              <span className="text-[0.625rem] text-muted-foreground tracking-wider">{data.exchange}</span>
+              <span className="text-[0.625rem] text-muted-foreground">|</span>
+              <span className="text-[0.625rem] text-muted-foreground tracking-wider">EXP: {data.expiry}</span>
+              <span className="text-[0.625rem] text-muted-foreground">|</span>
+              <span className="text-[0.625rem] text-muted-foreground tracking-wider">{data.strikesFound} strikes</span>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -419,24 +419,24 @@ export default function InstrumentCard({ data, bgImage, feedExchange, feedSecuri
             <span className={`text-xs font-bold tracking-wider ${dirCfg.color}`}>
               {dirCfg.label}
             </span>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-[0.625rem] text-muted-foreground">
               ({(data.aiConfidence * 100).toFixed(0)}% confidence)
             </span>
           </div>
         ) : (
           <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded border ${legacyAi.border} ${legacyAi.bg}`}>
             <Brain className={`h-3 w-3 ${legacyAi.color}`} />
-            <span className={`text-[10px] font-bold tracking-wider ${legacyAi.color}`}>
+            <span className={`text-[0.625rem] font-bold tracking-wider ${legacyAi.color}`}>
               AI: {legacyAi.label}
             </span>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-[0.625rem] text-muted-foreground">
               ({(data.aiConfidence * 100).toFixed(0)}%)
             </span>
           </div>
         )}
 
         {/* AI Rationale */}
-        <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2">
+        <p className="text-[0.6875rem] text-muted-foreground leading-relaxed line-clamp-2">
           {data.aiRationale}
         </p>
 
@@ -452,7 +452,7 @@ export default function InstrumentCard({ data, bgImage, feedExchange, feedSecuri
             {/* Pre-Entry Checklist trigger */}
             <button
               onClick={() => setShowChecklist(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-info-cyan/30 bg-info-cyan/5 text-info-cyan text-[10px] font-bold tracking-wider hover:bg-info-cyan/10 transition-colors w-full justify-center"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-info-cyan/30 bg-info-cyan/5 text-info-cyan text-[0.625rem] font-bold tracking-wider hover:bg-info-cyan/10 transition-colors w-full justify-center"
             >
               <Shield className="h-3 w-3" />
               PRE-ENTRY CHECKLIST

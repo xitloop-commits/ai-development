@@ -39,14 +39,14 @@ function LimitBar({
   return (
     <div className="flex items-center gap-2">
       <Icon className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-      <span className="text-[9px] text-muted-foreground w-16 truncate">{label}</span>
+      <span className="text-[0.5625rem] text-muted-foreground w-16 truncate">{label}</span>
       <div className="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-500 ${color}`}
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className={`text-[9px] font-bold w-16 text-right ${textColor}`}>
+      <span className={`text-[0.5625rem] font-bold w-16 text-right ${textColor}`}>
         {current}{unit} / {max}{unit}
       </span>
     </div>

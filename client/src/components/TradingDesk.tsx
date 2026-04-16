@@ -207,21 +207,21 @@ function getWorkspaceThemeMeta(workspace: Workspace): {
 function RatingIcon({ rating }: { rating: DayRating }) {
   switch (rating) {
     case 'jackpot':
-      return <span className="text-[11px]" title="≥50% Jackpot">🏆🏆👑💰</span>;
+      return <span className="text-[0.6875rem]" title="≥50% Jackpot">🏆🏆👑💰</span>;
     case 'crown':
-      return <span className="text-[11px]" title="≥20% Crown">🏆👑</span>;
+      return <span className="text-[0.6875rem]" title="≥20% Crown">🏆👑</span>;
     case 'double_trophy':
-      return <span className="text-[11px]" title="≥10%">🏆🏆</span>;
+      return <span className="text-[0.6875rem]" title="≥10%">🏆🏆</span>;
     case 'trophy':
-      return <span className="text-[11px]" title="≥5% Single Day">🏆</span>;
+      return <span className="text-[0.6875rem]" title="≥5% Single Day">🏆</span>;
     case 'star':
-      return <span className="text-[11px]" title="≥5% Multi-Day">⭐</span>;
+      return <span className="text-[0.6875rem]" title="≥5% Multi-Day">⭐</span>;
     case 'gift':
-      return <span className="text-[11px]" title="Auto-completed">🎁</span>;
+      return <span className="text-[0.6875rem]" title="Auto-completed">🎁</span>;
     case 'finish':
-      return <span className="text-[11px]" title="Day 250">🏁</span>;
+      return <span className="text-[0.6875rem]" title="Day 250">🏁</span>;
     default:
-      return <span className="text-[11px] opacity-40">⬜</span>;
+      return <span className="text-[0.6875rem] opacity-40">⬜</span>;
   }
 }
 
@@ -360,17 +360,17 @@ function ConfirmDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-card border border-border rounded-lg p-4 max-w-sm w-full mx-4 shadow-xl">
         <h3 className="text-sm font-bold text-foreground mb-2">{title}</h3>
-        <p className="text-[11px] text-muted-foreground mb-4">{message}</p>
+        <p className="text-[0.6875rem] text-muted-foreground mb-4">{message}</p>
         <div className="flex justify-end gap-2">
           <button
             onClick={onCancel}
-            className="px-3 py-1 rounded text-[10px] font-medium bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+            className="px-3 py-1 rounded text-[0.625rem] font-medium bg-secondary text-muted-foreground hover:text-foreground transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
-            className="px-3 py-1 rounded text-[10px] font-bold bg-destructive/20 text-destructive hover:bg-destructive/30 transition-colors"
+            className="px-3 py-1 rounded text-[0.625rem] font-bold bg-destructive/20 text-destructive hover:bg-destructive/30 transition-colors"
           >
             Confirm
           </button>
@@ -386,51 +386,51 @@ function StatusBadge({ status }: { status: string }) {
   switch (status) {
     case 'OPEN':
       return (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold bg-warning-amber/20 text-warning-amber">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.5rem] font-bold bg-warning-amber/20 text-warning-amber">
           <span className="h-1.5 w-1.5 rounded-full bg-warning-amber animate-pulse" />
           OPEN
         </span>
       );
     case 'PENDING':
       return (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold bg-muted text-muted-foreground">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.5rem] font-bold bg-muted text-muted-foreground">
           <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-pulse" />
           PENDING
         </span>
       );
     case 'CLOSED_TP':
       return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-bullish/20 text-bullish">
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[0.5rem] font-bold bg-bullish/20 text-bullish">
           ✓ TP
         </span>
       );
     case 'CLOSED_SL':
       return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-destructive/20 text-destructive">
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[0.5rem] font-bold bg-destructive/20 text-destructive">
           ✗ SL
         </span>
       );
     case 'CLOSED_PARTIAL':
       return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-bullish/20 text-bullish">
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[0.5rem] font-bold bg-bullish/20 text-bullish">
           ✓ Partial
         </span>
       );
     case 'CANCELLED':
       return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-muted text-muted-foreground">
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[0.5rem] font-bold bg-muted text-muted-foreground">
           CANCELLED
         </span>
       );
     case 'REJECTED':
       return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-destructive/20 text-destructive">
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[0.5rem] font-bold bg-destructive/20 text-destructive">
           REJECTED
         </span>
       );
     default:
       return (
-        <span className="text-[8px] text-muted-foreground uppercase">
+        <span className="text-[0.5rem] text-muted-foreground uppercase">
           {status.replace('CLOSED_', '')}
         </span>
       );
@@ -442,7 +442,7 @@ function StatusBadge({ status }: { status: string }) {
 function InstrumentTag({ name }: { name: string }) {
   const style = getInstrumentStyle(name);
   return (
-    <span className={`inline-flex max-w-full items-center truncate px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wide ${style.bg} ${style.text}`}>
+    <span className={`inline-flex max-w-full items-center truncate px-1.5 py-0.5 rounded text-[0.5rem] font-bold tracking-wide ${style.bg} ${style.text}`}>
       {name}
     </span>
   );
@@ -710,7 +710,7 @@ export default function TradingDesk({
         <div className="flex items-center">
           <button
             onClick={() => setWorkspace('paper')}
-            className={`px-4 py-1.5 rounded text-[12px] font-bold tracking-wider uppercase transition-colors ${
+            className={`px-4 py-1.5 rounded text-xs font-bold tracking-wider uppercase transition-colors ${
               workspace === 'paper'
                 ? 'bg-violet-pulse/10 text-violet-pulse'
                 : 'text-muted-foreground hover:text-foreground'
@@ -724,7 +724,7 @@ export default function TradingDesk({
         <div className="flex items-center justify-center">
           <button
             onClick={() => setWorkspace('live')}
-            className={`px-4 py-1.5 rounded text-[12px] font-bold tracking-wider uppercase transition-colors ${
+            className={`px-4 py-1.5 rounded text-xs font-bold tracking-wider uppercase transition-colors ${
               workspace === 'live'
                 ? 'bg-bullish/10 text-bullish'
                 : 'text-muted-foreground hover:text-foreground'
@@ -743,7 +743,7 @@ export default function TradingDesk({
               <div className="flex items-center rounded border border-border overflow-hidden">
                 <button
                   onClick={() => setTestingMode('live')}
-                  className={`px-2 py-0.5 text-[9px] font-bold transition-colors ${
+                  className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
                     testingMode === 'live' ? 'bg-bullish/20 text-bullish' : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
@@ -751,7 +751,7 @@ export default function TradingDesk({
                 </button>
                 <button
                   onClick={() => setTestingMode('paper')}
-                  className={`px-2 py-0.5 text-[9px] font-bold transition-colors ${
+                  className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
                     testingMode === 'paper' ? 'bg-warning-amber/20 text-warning-amber' : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
@@ -762,7 +762,7 @@ export default function TradingDesk({
               <button
                 onClick={handleClearTesting}
                 disabled={clearWorkspaceMutation.isPending}
-                className="px-2 py-0.5 rounded text-[9px] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
+                className="px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
                 title="Clear all testing trades and reset to zero"
               >
                 {clearWorkspaceMutation.isPending ? '...' : 'CLEAR ALL'}
@@ -771,7 +771,7 @@ export default function TradingDesk({
           )}
           <button
             onClick={() => setWorkspace('paper_manual')}
-            className={`px-4 py-1.5 rounded text-[12px] font-bold tracking-wider uppercase transition-colors ${
+            className={`px-4 py-1.5 rounded text-xs font-bold tracking-wider uppercase transition-colors ${
               workspace === 'paper_manual'
                 ? 'bg-warning-amber/10 text-warning-amber'
                 : 'text-muted-foreground hover:text-foreground'
@@ -786,34 +786,34 @@ export default function TradingDesk({
       <div className="flex items-stretch divide-x divide-border border-b border-border bg-secondary backdrop-blur-sm">
         {/* Day */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center min-w-[80px]">
-          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Day</span>
-          <span className="text-[12px] font-bold tabular-nums">
+          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Day</span>
+          <span className="text-xs font-bold tabular-nums">
             <span className="text-warning-amber">{capital.currentDayIndex}</span>
             <span className="text-muted-foreground"> / 250</span>
           </span>
         </div>
         {/* Trade Capital */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Trade Capital</span>
-          <span className="text-[12px] font-bold tabular-nums text-info-cyan">{fmt(capital.tradingPool, true)}</span>
+          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Trade Capital</span>
+          <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.tradingPool, true)}</span>
         </div>
         {/* Available */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Available</span>
-          <span className="text-[12px] font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
+          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Available</span>
+          <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
         </div>
         {/* Cum. Profit */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Cum. Profit</span>
-          <span className={`text-[12px] font-bold tabular-nums ${pnlColor(capital.cumulativePnl)}`}>
+          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Cum. Profit</span>
+          <span className={`text-xs font-bold tabular-nums ${pnlColor(capital.cumulativePnl)}`}>
             {capital.cumulativePnl >= 0 ? '+' : ''}{fmt(capital.cumulativePnl)}
           </span>
         </div>
         {/* Today P&L / Target + Exit All */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center flex-1">
-<span className="text-[8px] text-muted-foreground tracking-widest uppercase">Today P&L / Target</span>
+<span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Today P&L / Target</span>
           <div className="flex items-center gap-1">
-            <span className="text-[12px] font-bold tabular-nums">
+            <span className="text-xs font-bold tabular-nums">
               <span className={pnlColor(capital.todayPnl)}>{fmt(capital.todayPnl)}</span>
               <span className="text-muted-foreground"> / </span>
               <span className="text-warning-amber">{fmt(capital.todayTarget)}</span>
@@ -821,7 +821,7 @@ export default function TradingDesk({
             {canManageTrades && openTradeCount > 0 && (
               <button
                 onClick={handleExitAll}
-                className="px-1 py-0.5 rounded text-[8px] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
+                className="px-1 py-0.5 rounded text-[0.5rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
                 title="Exit all open positions"
               >
                 ×
@@ -831,11 +831,11 @@ export default function TradingDesk({
         </div>
         {/* NET/GROSS toggle */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">P&L Mode</span>
+          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">P&L Mode</span>
           <div className="flex items-center gap-0.5 border border-border rounded overflow-hidden">
             <button
               onClick={() => setShowNet(true)}
-              className={`px-2 py-0.5 text-[9px] font-bold transition-colors ${
+              className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
                 showNet ? 'bg-info-cyan/20 text-info-cyan' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -843,7 +843,7 @@ export default function TradingDesk({
             </button>
             <button
               onClick={() => setShowNet(false)}
-              className={`px-2 py-0.5 text-[9px] font-bold transition-colors ${
+              className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
                 !showNet ? 'bg-info-cyan/20 text-info-cyan' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -853,18 +853,18 @@ export default function TradingDesk({
         </div>
         {/* Charges */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Charges</span>
-          <span className="text-[12px] font-bold tabular-nums text-muted-foreground">{fmt(capital.cumulativeCharges)}</span>
+          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Charges</span>
+          <span className="text-xs font-bold tabular-nums text-muted-foreground">{fmt(capital.cumulativeCharges)}</span>
         </div>
         {/* Reserve */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Reserve</span>
-          <span className="text-[12px] font-bold tabular-nums text-warning-amber">{fmt(capital.reservePool, true)}</span>
+          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Reserve</span>
+          <span className="text-xs font-bold tabular-nums text-warning-amber">{fmt(capital.reservePool, true)}</span>
         </div>
         {/* Net Worth */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[8px] text-muted-foreground tracking-widest uppercase">Net Worth</span>
-          <span className="text-[12px] font-bold tabular-nums text-bullish">{fmt(capital.netWorth, true)}</span>
+          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Net Worth</span>
+          <span className="text-xs font-bold tabular-nums text-bullish">{fmt(capital.netWorth, true)}</span>
         </div>
       </div>
 
@@ -883,7 +883,7 @@ export default function TradingDesk({
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
           }} />
         ) : (
-          <table className="w-full border-collapse text-[12px] [&_td]:align-middle [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30">
+          <table className="w-full border-collapse text-xs [&_td]:align-middle [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30">
             <colgroup>
               <col style={{ width: 44 }} />
               <col style={{ width: 92 }} />
@@ -902,21 +902,21 @@ export default function TradingDesk({
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-[oklch(0.18_0.025_270)] backdrop-blur-md border-b-2 border-border">
-                <th className="px-2.5 py-2 text-left text-[9px] font-bold text-foreground/70 tracking-widest uppercase w-12 border-r border-border/30">Day</th>
-                <th className="px-2.5 py-2 text-left text-[9px] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Date</th>
-                <th className="px-2.5 py-2 text-right text-[9px] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Trade Cap.</th>
-                <th className="px-2.5 py-2 text-right text-[9px] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Target</th>
-                <th className="px-2.5 py-2 text-right text-[9px] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Proj. Cap.</th>
-                <th className="px-2.5 py-2 text-left text-[9px] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Instrument</th>
-                <th className="px-2.5 py-2 text-right text-[9px] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Entry</th>
-                <th className="px-2.5 py-2 text-right text-[9px] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">LTP</th>
-                <th className="px-2.5 py-2 text-right text-[9px] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Qty</th>
-                <th className="px-2.5 py-2 text-right text-[9px] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Capital</th>
-                <th className="px-2.5 py-2 text-right text-[9px] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">P&amp;L</th>
-                <th className="px-2.5 py-2 text-right text-[9px] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Charges</th>
-                <th className="px-2.5 py-2 text-right text-[9px] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Actual Cap.</th>
-                <th className="px-2.5 py-2 text-right text-[9px] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Dev.</th>
-                <th className="px-2.5 py-2 text-center text-[9px] font-bold text-foreground/70 tracking-widest uppercase w-16">Rating</th>
+                <th className="px-2.5 py-2 text-left text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase w-12 border-r border-border/30">Day</th>
+                <th className="px-2.5 py-2 text-left text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Date</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Trade Cap.</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Target</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Proj. Cap.</th>
+                <th className="px-2.5 py-2 text-left text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Instrument</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Entry</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">LTP</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Qty</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Capital</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">P&amp;L</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Charges</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Actual Cap.</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Dev.</th>
+                <th className="px-2.5 py-2 text-center text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase w-16">Rating</th>
               </tr>
             </thead>
             <tbody>
@@ -980,7 +980,7 @@ export default function TradingDesk({
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex flex-row gap-1 z-20">
           <button
             onClick={() => scrollToDay(capital.currentDayIndex)}
-            className="px-2 py-0.5 rounded text-[9px] font-bold bg-card/90 border border-border/60 text-info-cyan hover:bg-info-cyan/20 hover:border-info-cyan/50 transition-colors backdrop-blur-sm"
+            className="px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-card/90 border border-border/60 text-info-cyan hover:bg-info-cyan/20 hover:border-info-cyan/50 transition-colors backdrop-blur-sm"
           >
             Today
           </button>
@@ -988,7 +988,7 @@ export default function TradingDesk({
             <button
               key={d}
               onClick={() => scrollToDay(d)}
-              className="px-2 py-0.5 rounded text-[9px] font-bold tabular-nums bg-card/90 border border-border/60 text-muted-foreground hover:bg-warning-amber/20 hover:text-warning-amber hover:border-warning-amber/50 transition-colors backdrop-blur-sm"
+              className="px-2 py-0.5 rounded text-[0.5625rem] font-bold tabular-nums bg-card/90 border border-border/60 text-muted-foreground hover:bg-warning-amber/20 hover:text-warning-amber hover:border-warning-amber/50 transition-colors backdrop-blur-sm"
             >
               {d}
             </button>
@@ -1040,7 +1040,7 @@ function PastRow({
       </td>
       {/* Date + Age */}
       <td className="px-2 py-2 border-r border-border">
-        <span className="block truncate text-[10px] tabular-nums">{dateLabel}</span>
+        <span className="block truncate text-[0.625rem] tabular-nums">{dateLabel}</span>
       </td>
       {/* Trade Capital */}
       <td className="px-2 py-2 text-right tabular-nums border-r border-border">
@@ -1049,7 +1049,7 @@ function PastRow({
       {/* Target */}
       <td className="px-2 py-2 text-right tabular-nums border-r border-border">
         {fmt(day.targetAmount)}
-        <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
+        <span className="text-[0.5rem] ml-0.5">({day.targetPercent}%)</span>
       </td>
       {/* Proj Capital */}
       <td className="px-2 py-2 text-right tabular-nums border-r border-border">
@@ -1077,7 +1077,7 @@ function PastRow({
       {/* P&L */}
       <td className={`px-2 py-2 text-right tabular-nums font-bold border-r border-border ${pnlColor(pnlValue)}`}>
         {fmt(pnlValue, false)}
-        <span className="text-[8px] ml-0.5">({pnlPercent}%)</span>
+        <span className="text-[0.5rem] ml-0.5">({pnlPercent}%)</span>
       </td>
       {/* Charges */}
       <td className="px-2 py-2 text-right tabular-nums border-r border-border">
@@ -1088,7 +1088,7 @@ function PastRow({
         {day.actualCapital > 0 ? fmt(day.actualCapital, true) : '—'}
       </td>
       {/* Deviation */}
-      <td className={`px-2 py-2 text-right tabular-nums text-[9px] border-r border-border ${pnlColor(day.deviation)}`}>
+      <td className={`px-2 py-2 text-right tabular-nums text-[0.5625rem] border-r border-border ${pnlColor(day.deviation)}`}>
         {day.actualCapital > 0
           ? formatDeviation(day.deviation)
           : '—'}
@@ -1249,12 +1249,12 @@ function TodaySection({
         <td className="px-2 py-2 border-r border-border">
           <div className="flex items-center justify-end gap-2">
             {!canManageTrades && (
-              <span className="text-[9px] italic text-muted-foreground">AI managed</span>
+              <span className="text-[0.5625rem] italic text-muted-foreground">AI managed</span>
             )}
             {canManageTrades && openTrades.length > 0 && (
               <button
                 onClick={onExitAll}
-                className="shrink-0 px-1 py-0.5 rounded text-[9px] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
+                className="shrink-0 px-1 py-0.5 rounded text-[0.5625rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
                 title="Exit all open positions"
               >
                 ×
@@ -1263,7 +1263,7 @@ function TodaySection({
             {canManageTrades && lastClosedTrade && (
               <button
                 onClick={handleRepeatLastOrder}
-                className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25 transition-colors"
+                className="px-1.5 py-0.5 rounded text-[0.5625rem] font-bold bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25 transition-colors"
                 title={`Repeat last ${lastClosedTrade.instrument} trade at current LTP`}
               >
                 ↻
@@ -1272,7 +1272,7 @@ function TodaySection({
             {canManageTrades && (
               <button
                 onClick={() => setShowNewTradeForm(prev => !prev)}
-                className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-wider transition-colors ${
+                className={`px-2 py-0.5 rounded text-[0.5625rem] font-bold tracking-wider transition-colors ${
                   showNewTradeForm
                     ? theme.buttonActive
                     : theme.button
@@ -1284,7 +1284,7 @@ function TodaySection({
           </div>
         </td>
         <td className="px-2 py-2 border-r border-border" colSpan={2}>
-          <div className="min-w-0 truncate text-[9px] text-foreground">
+          <div className="min-w-0 truncate text-[0.5625rem] text-foreground">
             <span>Risk@SL {fmt(openRisk)}</span>
             <span className="mx-1.5 text-border">|</span>
             <span>Reward@TP {fmt(openReward)}</span>
@@ -1293,7 +1293,7 @@ function TodaySection({
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
           {day.totalQty > 0 ? day.totalQty : '—'}
         </td>
-        <td className="px-2 py-2 text-right tabular-nums text-foreground text-[10px] border-r border-border">
+        <td className="px-2 py-2 text-right tabular-nums text-foreground text-[0.625rem] border-r border-border">
           {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0), false) : '—'}
         </td>
         <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
@@ -1305,7 +1305,7 @@ function TodaySection({
         <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground border-r border-border">
           {day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
         </td>
-        <td className={`px-2 py-2 text-right tabular-nums text-[9px] border-r border-border ${pnlColor(day.deviation)}`}>
+        <td className={`px-2 py-2 text-right tabular-nums text-[0.5625rem] border-r border-border ${pnlColor(day.deviation)}`}>
           {formatDeviation(day.deviation)}
         </td>
         <td className="px-2 py-2" />
@@ -1327,7 +1327,7 @@ function TodaySection({
             {canManageTrades && lastClosedTrade && (
               <button
                 onClick={handleRepeatLastOrder}
-                className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25 transition-colors"
+                className="px-1.5 py-0.5 rounded text-[0.5625rem] font-bold bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25 transition-colors"
                 title={`Repeat last ${lastClosedTrade.instrument} trade at current LTP`}
               >
                 ↻
@@ -1336,7 +1336,7 @@ function TodaySection({
             {canManageTrades ? (
               <button
                 onClick={() => setShowNewTradeForm(prev => !prev)}
-                className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-wider transition-colors ${
+                className={`px-2 py-0.5 rounded text-[0.5625rem] font-bold tracking-wider transition-colors ${
                   showNewTradeForm
                     ? 'bg-warning-amber/20 text-warning-amber'
                     : `${theme.button}`
@@ -1345,7 +1345,7 @@ function TodaySection({
                 {showNewTradeForm ? '− CANCEL' : '+ NEW TRADE'}
               </button>
             ) : (
-              <span className="text-[9px] text-muted-foreground/50 italic">AI managed</span>
+              <span className="text-[0.5625rem] text-muted-foreground/50 italic">AI managed</span>
             )}
           </div>
         </td>
@@ -1354,7 +1354,7 @@ function TodaySection({
           {day.totalQty > 0 ? day.totalQty : '—'}
         </td>
         {/* Capital */}
-        <td className="px-2 py-2 text-right tabular-nums text-foreground text-[10px] border-r border-border">
+        <td className="px-2 py-2 text-right tabular-nums text-foreground text-[0.625rem] border-r border-border">
           {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0), false) : '—'}
         </td>
         {/* P&L */}
@@ -1370,7 +1370,7 @@ function TodaySection({
           {day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
         </td>
         {/* Deviation */}
-        <td className={`px-2 py-2 text-right tabular-nums text-[9px] border-r border-border ${pnlColor(day.deviation)}`}>
+        <td className={`px-2 py-2 text-right tabular-nums text-[0.5625rem] border-r border-border ${pnlColor(day.deviation)}`}>
           {formatDeviation(day.deviation)}
         </td>
         {/* Rating */}
@@ -1415,7 +1415,7 @@ function TpSlMergedBody({
     <div className="space-y-2">
       {/* SL row */}
       <div className="flex items-center gap-2">
-        <span className="text-[10px] font-bold text-destructive w-5 shrink-0">SL</span>
+        <span className="text-[0.625rem] font-bold text-destructive w-5 shrink-0">SL</span>
         <input
           autoFocus
           type="number"
@@ -1424,16 +1424,16 @@ function TpSlMergedBody({
           value={slPrice}
           onChange={e => setSlPrice(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') onCommit(); if (e.key === 'Escape') onCancel(); }}
-          className="flex-1 min-w-0 px-2 py-1 text-[11px] tabular-nums rounded border border-destructive/40 bg-background text-foreground outline-none focus:border-destructive"
+          className="flex-1 min-w-0 px-2 py-1 text-[0.6875rem] tabular-nums rounded border border-destructive/40 bg-background text-foreground outline-none focus:border-destructive"
           placeholder="price"
         />
-        <span className="text-[9px] text-muted-foreground tabular-nums w-10 text-right shrink-0">
+        <span className="text-[0.5625rem] text-muted-foreground tabular-nums w-10 text-right shrink-0">
           {slPct != null && isFinite(slPct) ? `${slPct.toFixed(1)}%` : ''}
         </span>
       </div>
       {/* TP row */}
       <div className="flex items-center gap-2">
-        <span className="text-[10px] font-bold text-bullish w-5 shrink-0">TP</span>
+        <span className="text-[0.625rem] font-bold text-bullish w-5 shrink-0">TP</span>
         <input
           type="number"
           step="0.05"
@@ -1441,19 +1441,19 @@ function TpSlMergedBody({
           value={tpPrice}
           onChange={e => setTpPrice(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') onCommit(); if (e.key === 'Escape') onCancel(); }}
-          className="flex-1 min-w-0 px-2 py-1 text-[11px] tabular-nums rounded border border-bullish/40 bg-background text-foreground outline-none focus:border-bullish"
+          className="flex-1 min-w-0 px-2 py-1 text-[0.6875rem] tabular-nums rounded border border-bullish/40 bg-background text-foreground outline-none focus:border-bullish"
           placeholder="price"
         />
-        <span className="text-[9px] text-muted-foreground tabular-nums w-10 text-right shrink-0">
+        <span className="text-[0.5625rem] text-muted-foreground tabular-nums w-10 text-right shrink-0">
           {tpPct != null && isFinite(tpPct) ? `${tpPct.toFixed(1)}%` : ''}
         </span>
       </div>
       {/* Trailing Stop Toggle */}
       <div className="flex items-center gap-2 pt-1 border-t border-border/30">
-        <span className="text-[10px] font-bold text-muted-foreground flex-1">Trailing SL</span>
+        <span className="text-[0.625rem] font-bold text-muted-foreground flex-1">Trailing SL</span>
         <button
           onClick={() => setTrailingStopEnabled(!trailingStopEnabled)}
-          className={`px-2 py-1 rounded text-[9px] font-bold transition-colors ${
+          className={`px-2 py-1 rounded text-[0.5625rem] font-bold transition-colors ${
             trailingStopEnabled
               ? 'bg-bullish/20 text-bullish'
               : 'bg-muted/30 text-muted-foreground hover:bg-muted/50'
@@ -1466,11 +1466,11 @@ function TpSlMergedBody({
       <div className="flex gap-1.5 pt-1">
         <button
           onClick={onCommit}
-          className="flex-1 py-1 rounded text-[10px] font-bold bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+          className="flex-1 py-1 rounded text-[0.625rem] font-bold bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
         >Apply</button>
         <button
           onClick={onCancel}
-          className="flex-1 py-1 rounded text-[10px] text-muted-foreground hover:bg-muted/50 transition-colors"
+          className="flex-1 py-1 rounded text-[0.625rem] text-muted-foreground hover:bg-muted/50 transition-colors"
         >Cancel</button>
       </div>
     </div>
@@ -1560,7 +1560,7 @@ function TodayTradeRow({
       </td>
       {/* Date + Age */}
       <td className="px-2 py-1.5 border-r border-border">
-        <span className="block truncate tabular-nums text-[10px]">
+        <span className="block truncate tabular-nums text-[0.625rem]">
           {cycleDateLabel}
         </span>
       </td>
@@ -1571,7 +1571,7 @@ function TodayTradeRow({
       {/* Target */}
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
         {fmt(day.targetAmount)}
-        <span className="text-[8px] ml-0.5">({day.targetPercent}%)</span>
+        <span className="text-[0.5rem] ml-0.5">({day.targetPercent}%)</span>
       </td>
       {/* Proj Capital */}
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
@@ -1584,24 +1584,24 @@ function TodayTradeRow({
             <InstrumentTag name={trade.instrument} />
             {expiryLabel && (
               <>
-                <span className="text-border text-[9px]">|</span>
-                <span className="text-[9px] tabular-nums">{expiryLabel}</span>
+                <span className="text-border text-[0.5625rem]">|</span>
+                <span className="text-[0.5625rem] tabular-nums">{expiryLabel}</span>
               </>
             )}
             {trade.strike !== null && (
               <>
-                <span className="text-border text-[9px]">|</span>
-                <span className="text-[9px] tabular-nums">{trade.strike}</span>
+                <span className="text-border text-[0.5625rem]">|</span>
+                <span className="text-[0.5625rem] tabular-nums">{trade.strike}</span>
               </>
             )}
-            <span className="text-border text-[9px]">|</span>
-            <span className={`text-[9px] font-bold ${theme.buttonActive} rounded px-1 py-0.5`}>{contractLabel}</span>
-            <span className="text-border text-[9px]">|</span>
-            <span className={`text-[9px] font-semibold ${isBuy ? 'text-bullish' : 'text-destructive'}`}>{directionLabel}</span>
+            <span className="text-border text-[0.5625rem]">|</span>
+            <span className={`text-[0.5625rem] font-bold ${theme.buttonActive} rounded px-1 py-0.5`}>{contractLabel}</span>
+            <span className="text-border text-[0.5625rem]">|</span>
+            <span className={`text-[0.5625rem] font-semibold ${isBuy ? 'text-bullish' : 'text-destructive'}`}>{directionLabel}</span>
           </div>
           <div className="flex items-center gap-1 shrink-0">
             {isOpen && (
-              <span className="text-[8px] text-muted-foreground/60 tabular-nums">
+              <span className="text-[0.5rem] text-muted-foreground/60 tabular-nums">
                 {formatAge(trade.openedAt)}
               </span>
             )}
@@ -1609,7 +1609,7 @@ function TodayTradeRow({
               <button
                 onClick={(e) => { e.stopPropagation(); onExit(); }}
                 disabled={exitLoading}
-                className="px-1 py-0.5 rounded text-[9px] font-bold transition-colors bg-destructive/15 text-destructive hover:bg-destructive/25 disabled:opacity-30"
+                className="px-1 py-0.5 rounded text-[0.5625rem] font-bold transition-colors bg-destructive/15 text-destructive hover:bg-destructive/25 disabled:opacity-30"
                 title="Exit position"
               >
                 {exitLoading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : '×'}
@@ -1625,7 +1625,7 @@ function TodayTradeRow({
       {/* SL | LTP | TP — single line, merged popover */}
       <td className="px-2 py-1.5 border-r border-border">
         <Popover open={editOpen} onOpenChange={open => { if (!open) setEditOpen(false); }}>
-          <div className="flex items-center justify-between gap-1 tabular-nums text-[10px] whitespace-nowrap">
+          <div className="flex items-center justify-between gap-1 tabular-nums text-[0.625rem] whitespace-nowrap">
             {/* SL */}
             <PopoverTrigger asChild>
               <span
@@ -1695,14 +1695,14 @@ function TodayTradeRow({
           : trade.qty}
       </td>
       {/* Capital */}
-      <td className="px-2 py-1.5 text-right tabular-nums text-[10px] border-r border-border">
+      <td className="px-2 py-1.5 text-right tabular-nums text-[0.625rem] border-r border-border">
         {fmt(trade.entryPrice * trade.qty, false)}
       </td>
       {/* P&L + Exit button for open trades */}
       <td className={`px-2 py-1.5 text-right tabular-nums font-bold border-r border-border whitespace-nowrap ${pnlColor(pnl)}`}>
         <div className="flex flex-col items-end">
           <span>{fmt(pnl, false)}</span>
-          <span className={`text-[8px] font-normal tabular-nums ${pnlColor(pnl)}`}>
+          <span className={`text-[0.5rem] font-normal tabular-nums ${pnlColor(pnl)}`}>
             {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%
           </span>
         </div>
@@ -1757,7 +1757,7 @@ function FutureRow({
       {/* Target */}
       <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
         {fmt(day.targetAmount)}
-        <span className="text-[9px] ml-0.5">({day.targetPercent}%)</span>
+        <span className="text-[0.5625rem] ml-0.5">({day.targetPercent}%)</span>
       </td>
       {/* Proj Capital */}
       <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground border-r border-border">

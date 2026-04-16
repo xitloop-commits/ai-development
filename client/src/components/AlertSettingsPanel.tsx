@@ -35,7 +35,7 @@ export default function AlertSettingsPanel() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Bell className="h-3 w-3 text-info-cyan" />
-          <span className="text-[9px] font-bold text-info-cyan tracking-wider uppercase">
+          <span className="text-[0.5625rem] font-bold text-info-cyan tracking-wider uppercase">
             Alerts & Notifications
           </span>
         </div>
@@ -50,7 +50,7 @@ export default function AlertSettingsPanel() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <Moon className={`h-3 w-3 ${isDndActive ? 'text-warning-amber' : 'text-muted-foreground'}`} />
-            <span className="text-[10px] font-bold tracking-wider uppercase text-foreground">
+            <span className="text-[0.625rem] font-bold tracking-wider uppercase text-foreground">
               Do Not Disturb
             </span>
           </div>
@@ -60,7 +60,7 @@ export default function AlertSettingsPanel() {
           />
         </div>
         {isDndActive && (
-          <p className="text-[9px] text-warning-amber mt-1.5">
+          <p className="text-[0.5625rem] text-warning-amber mt-1.5">
             All alerts suppressed
           </p>
         )}
@@ -75,7 +75,7 @@ export default function AlertSettingsPanel() {
             ) : (
               <BellOff className="h-3 w-3 text-muted-foreground" />
             )}
-            <span className="text-[10px] text-foreground">Browser Notifications</span>
+            <span className="text-[0.625rem] text-foreground">Browser Notifications</span>
           </div>
           <Switch
             checked={settings.notificationsEnabled}
@@ -85,13 +85,13 @@ export default function AlertSettingsPanel() {
         {notificationPermission === 'default' && settings.notificationsEnabled && (
           <button
             onClick={requestNotificationPermission}
-            className="w-full mt-1 text-[9px] bg-info-cyan/10 text-info-cyan border border-info-cyan/30 rounded px-2 py-1 hover:bg-info-cyan/20 transition-colors tracking-wider uppercase"
+            className="w-full mt-1 text-[0.5625rem] bg-info-cyan/10 text-info-cyan border border-info-cyan/30 rounded px-2 py-1 hover:bg-info-cyan/20 transition-colors tracking-wider uppercase"
           >
             Grant Permission
           </button>
         )}
         {notificationPermission === 'denied' && (
-          <p className="text-[9px] text-destructive mt-1">
+          <p className="text-[0.5625rem] text-destructive mt-1">
             Blocked — enable in browser settings
           </p>
         )}
@@ -106,7 +106,7 @@ export default function AlertSettingsPanel() {
             ) : (
               <VolumeX className="h-3 w-3 text-muted-foreground" />
             )}
-            <span className="text-[10px] text-foreground">Sound Alerts</span>
+            <span className="text-[0.625rem] text-foreground">Sound Alerts</span>
           </div>
           <Switch
             checked={settings.soundEnabled}
@@ -125,7 +125,7 @@ export default function AlertSettingsPanel() {
               className="w-full h-1 bg-border rounded-full appearance-none cursor-pointer accent-info-cyan"
             />
             <Volume2 className="h-3 w-3 text-muted-foreground shrink-0" />
-            <span className="text-[9px] tabular-nums text-muted-foreground w-7 text-right">
+            <span className="text-[0.5625rem] tabular-nums text-muted-foreground w-7 text-right">
               {settings.soundVolume}%
             </span>
           </div>
@@ -134,7 +134,7 @@ export default function AlertSettingsPanel() {
 
       {/* Alert Type Toggles */}
       <div className="space-y-1.5">
-        <span className="text-[9px] font-bold text-muted-foreground tracking-wider uppercase">
+        <span className="text-[0.5625rem] font-bold text-muted-foreground tracking-wider uppercase">
           Alert Types
         </span>
 
@@ -202,8 +202,8 @@ function AlertToggleRow({
     <div className="flex items-center justify-between py-0.5">
       <div className="flex items-center gap-1.5">
         {icon}
-        <span className="text-[10px] text-foreground">{label}</span>
-        <span className="text-[8px] text-muted-foreground px-1 py-0.5 bg-secondary rounded">
+        <span className="text-[0.625rem] text-foreground">{label}</span>
+        <span className="text-[0.5rem] text-muted-foreground px-1 py-0.5 bg-secondary rounded">
           {sublabel}
         </span>
       </div>

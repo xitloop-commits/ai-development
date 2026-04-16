@@ -226,16 +226,16 @@ export function QuickOrderPopup({
           <div className="flex items-center gap-2.5">
             <span className="text-sm font-bold">{instrumentName}</span>
             {nearestExpiry && (
-              <span className="text-[10px] text-muted-foreground border border-border rounded px-1.5 py-0.5 font-mono">
+              <span className="text-[0.625rem] text-muted-foreground border border-border rounded px-1.5 py-0.5 font-mono">
                 {nearestExpiry}
               </span>
             )}
             {optionChainQuery.isFetching && (
-              <span className="text-[10px] text-muted-foreground animate-pulse">loading…</span>
+              <span className="text-[0.625rem] text-muted-foreground animate-pulse">loading…</span>
             )}
           </div>
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+            <div className="flex items-center gap-3 text-[0.625rem] text-muted-foreground">
               <span>
                 Available:{' '}
                 <span className="text-foreground font-mono">
@@ -260,7 +260,7 @@ export function QuickOrderPopup({
 
           {/* Option type: CE / PE */}
           <div className="space-y-1">
-            <label className="text-[10px] font-medium text-muted-foreground block">Type</label>
+            <label className="text-[0.625rem] font-medium text-muted-foreground block">Type</label>
             <div className="flex rounded border border-border overflow-hidden">
               {(['CE', 'PE'] as OptionType[]).map((t, i) => (
                 <button
@@ -277,7 +277,7 @@ export function QuickOrderPopup({
 
           {/* Direction: BUY / SELL */}
           <div className="space-y-1">
-            <label className="text-[10px] font-medium text-transparent block select-none">_</label>
+            <label className="text-[0.625rem] font-medium text-transparent block select-none">_</label>
             <div className="flex rounded border border-border overflow-hidden">
               <button
                 type="button"
@@ -298,7 +298,7 @@ export function QuickOrderPopup({
 
           {/* Strike */}
           <div className="space-y-1 w-24">
-            <label className="text-[10px] font-medium text-muted-foreground block">Strike</label>
+            <label className="text-[0.625rem] font-medium text-muted-foreground block">Strike</label>
             <input
               type="number"
               value={strike || ''}
@@ -311,7 +311,7 @@ export function QuickOrderPopup({
 
           {/* Entry Price */}
           <div className="space-y-1 w-20">
-            <label className="text-[10px] font-medium text-muted-foreground block">Entry</label>
+            <label className="text-[0.625rem] font-medium text-muted-foreground block">Entry</label>
             <input
               type="number"
               step="0.05"
@@ -325,7 +325,7 @@ export function QuickOrderPopup({
 
           {/* Quantity */}
           <div className="space-y-1">
-            <label className="text-[10px] font-medium text-muted-foreground block">Qty</label>
+            <label className="text-[0.625rem] font-medium text-muted-foreground block">Qty</label>
             <div className="flex items-center gap-1">
               {/* ▼ / display / ▲ */}
               <div className="flex items-center border border-border rounded overflow-hidden">
@@ -376,7 +376,7 @@ export function QuickOrderPopup({
                       ))}
                     </div>
                     {lotSize > 1 && (
-                      <p className="text-[10px] text-muted-foreground pt-1 border-t border-border">
+                      <p className="text-[0.625rem] text-muted-foreground pt-1 border-t border-border">
                         {qty} lot{qty > 1 ? 's' : ''} × {lotSize} = <strong>{totalUnits}</strong> units
                       </p>
                     )}
@@ -388,7 +388,7 @@ export function QuickOrderPopup({
 
           {/* Stop Loss */}
           <div className="space-y-1 w-20">
-            <label className="text-[10px] font-medium text-loss-red block">SL</label>
+            <label className="text-[0.625rem] font-medium text-loss-red block">SL</label>
             <input
               type="number"
               step="0.05"
@@ -402,7 +402,7 @@ export function QuickOrderPopup({
 
           {/* Target */}
           <div className="space-y-1 w-20">
-            <label className="text-[10px] font-medium text-profit-green block">Target</label>
+            <label className="text-[0.625rem] font-medium text-profit-green block">Target</label>
             <input
               type="number"
               step="0.05"
@@ -416,7 +416,7 @@ export function QuickOrderPopup({
 
           {/* TSL Toggle */}
           <div className="space-y-1">
-            <label className="text-[10px] font-medium text-muted-foreground block">TSL</label>
+            <label className="text-[0.625rem] font-medium text-muted-foreground block">TSL</label>
             <button
               type="button"
               onClick={() => setTslEnabled(!tslEnabled)}
@@ -432,7 +432,7 @@ export function QuickOrderPopup({
 
           {/* Submit */}
           <div className="space-y-1">
-            <label className="text-[10px] font-medium text-transparent block select-none">_</label>
+            <label className="text-[0.625rem] font-medium text-transparent block select-none">_</label>
             <button
               type="submit"
               disabled={isLoading || entryPrice <= 0}

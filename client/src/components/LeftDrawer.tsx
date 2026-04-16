@@ -56,7 +56,7 @@ export default function LeftSidebar({ visible, instruments, resolvedInstruments 
     <aside className="w-[360px] shrink-0 border-r border-border bg-background flex flex-col overflow-hidden">
       {/* Header */}
       <div className="px-4 pt-3 pb-0">
-        <h2 className="text-[11px] font-bold tracking-widest uppercase text-muted-foreground">
+        <h2 className="text-[0.6875rem] font-bold tracking-widest uppercase text-muted-foreground">
           Instrument Analysis
         </h2>
       </div>
@@ -70,7 +70,7 @@ export default function LeftSidebar({ visible, instruments, resolvedInstruments 
             <button
               key={inst.name}
               onClick={() => setActiveTab(idx)}
-              className={`px-3 py-1.5 rounded-t text-[10px] font-bold tracking-wider uppercase border-b-2 transition-colors ${
+              className={`px-3 py-1.5 rounded-t text-[0.625rem] font-bold tracking-wider uppercase border-b-2 transition-colors ${
                 isActive
                   ? `${colorClass} bg-card`
                   : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-accent'
@@ -93,7 +93,7 @@ export default function LeftSidebar({ visible, instruments, resolvedInstruments 
           />
         ) : (
           <div className="flex items-center justify-center h-full">
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[0.6875rem] text-muted-foreground">
               No instruments available
             </p>
           </div>

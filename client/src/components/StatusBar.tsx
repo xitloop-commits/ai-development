@@ -53,7 +53,7 @@ export default function StatusBar({ modules }: StatusBarProps) {
               ATS
             </span>
           </div>
-          <span className="hidden sm:inline text-[10px] text-muted-foreground tracking-widest uppercase">
+          <span className="hidden sm:inline text-[0.625rem] text-muted-foreground tracking-widest uppercase">
             Automatic Trading System
           </span>
         </div>
@@ -72,7 +72,7 @@ export default function StatusBar({ modules }: StatusBarProps) {
                       />
                     </div>
                     <Icon className={`h-3.5 w-3.5 ${statusColors[mod.status]}`} />
-                    <span className="hidden sm:inline text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                    <span className="hidden sm:inline text-[0.625rem] font-medium tracking-wider text-muted-foreground uppercase">
                       {mod.shortName}
                     </span>
                   </div>
@@ -81,7 +81,7 @@ export default function StatusBar({ modules }: StatusBarProps) {
                   side="bottom"
                   className="bg-card border-border text-foreground"
                 >
-                  <div className="text-[10px] space-y-0.5">
+                  <div className="text-[0.625rem] space-y-0.5">
                     <div className="font-bold">{mod.name}</div>
                     <div className="text-muted-foreground">{mod.message}</div>
                   </div>
@@ -93,7 +93,7 @@ export default function StatusBar({ modules }: StatusBarProps) {
 
         {/* Time */}
         <div className="flex items-center gap-3">
-          <span className="text-[10px] tabular-nums text-muted-foreground">
+          <span className="text-[0.625rem] tabular-nums text-muted-foreground">
             {time.toLocaleTimeString('en-IN', { hour12: false })} IST
           </span>
         </div>

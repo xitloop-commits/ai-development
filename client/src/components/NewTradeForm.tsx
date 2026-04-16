@@ -393,9 +393,9 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     return ageLabel ? `${dateLabel} | ${ageLabel}` : dateLabel;
   })();
 
-  const selectClass = `w-full bg-background border border-border rounded px-1.5 py-1 text-[10px] ${tone.text} focus:border-primary focus:outline-none`;
-  const compactSelectClass = `shrink-0 bg-background border border-border rounded px-1.5 py-1 text-[10px] ${tone.text} focus:border-primary focus:outline-none disabled:opacity-50`;
-  const inputClass = `w-full bg-background border border-border rounded px-1.5 py-1 text-[10px] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`;
+  const selectClass = `w-full bg-background border border-border rounded px-1.5 py-1 text-[0.625rem] ${tone.text} focus:border-primary focus:outline-none`;
+  const compactSelectClass = `shrink-0 bg-background border border-border rounded px-1.5 py-1 text-[0.625rem] ${tone.text} focus:border-primary focus:outline-none disabled:opacity-50`;
+  const inputClass = `w-full bg-background border border-border rounded px-1.5 py-1 text-[0.625rem] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`;
 
   return (
     <tr className={`border-b border-l-2 ${tone.row}`}>
@@ -403,12 +403,12 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         {dayValues ? (
           <span className={`tabular-nums ${tone.textSoft}`}>{dayValues.dayIndex}</span>
         ) : (
-          <span className={`text-[9px] font-bold ${tone.text}`}>NEW</span>
+          <span className={`text-[0.5625rem] font-bold ${tone.text}`}>NEW</span>
         )}
       </td>
 
       <td className="px-2 py-2 border-r border-border">
-        <span className={`block truncate text-[10px] tabular-nums ${tone.text}`}>{cycleDateLabel}</span>
+        <span className={`block truncate text-[0.625rem] tabular-nums ${tone.text}`}>{cycleDateLabel}</span>
       </td>
 
       <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${tone.textSoft}`}>
@@ -419,7 +419,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         {dayValues ? (
           <>
             {fmt(dayValues.targetAmount)}
-            <span className="ml-0.5 text-[8px]">({dayValues.targetPercent}%)</span>
+            <span className="ml-0.5 text-[0.5rem]">({dayValues.targetPercent}%)</span>
           </>
         ) : '-'}
       </td>
@@ -446,7 +446,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
             {/* Derivative fields: Expiry | Strike | CE/PE group */}
             {isDerivative && (
               <>
-                <span className="text-border text-[9px]">|</span>
+                <span className="text-border text-[0.5625rem]">|</span>
                 <select
                   value={expiry}
                   onChange={(e) => setExpiry(e.target.value)}
@@ -465,7 +465,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
                   )}
                 </select>
 
-                <span className="text-border text-[9px]">|</span>
+                <span className="text-border text-[0.5625rem]">|</span>
                 <select
                   value={selectedStrike}
                   onChange={(e) => setSelectedStrike(e.target.value)}
@@ -488,14 +488,14 @@ export default function NewTradeForm(props: NewTradeFormProps) {
                   )}
                 </select>
 
-                <span className="text-border text-[9px]">|</span>
+                <span className="text-border text-[0.5625rem]">|</span>
                 {/* CE / PE group */}
                 <div className="flex shrink-0 items-center gap-1 rounded border border-border/50 px-1 py-0.5">
                   {(['CE', 'PE'] as const).map((opt) => (
                     <button
                       key={opt}
                       onClick={() => setOptionType(opt)}
-                      className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                      className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold transition-colors ${
                         optionType === opt
                           ? 'bg-primary/20 text-primary'
                           : 'text-muted-foreground hover:text-foreground'
@@ -508,12 +508,12 @@ export default function NewTradeForm(props: NewTradeFormProps) {
               </>
             )}
 
-            <span className="text-border text-[9px]">|</span>
+            <span className="text-border text-[0.5625rem]">|</span>
             {/* B / S group */}
             <div className="flex shrink-0 items-center gap-1 rounded border border-border/50 px-1 py-0.5">
               <button
                 onClick={() => setDirection('BUY')}
-                className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold transition-colors ${
                   direction === 'BUY'
                     ? 'bg-bullish/20 text-bullish'
                     : 'text-muted-foreground hover:text-foreground'
@@ -523,7 +523,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
               </button>
               <button
                 onClick={() => setDirection('SELL')}
-                className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+                className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold transition-colors ${
                   direction === 'SELL'
                     ? 'bg-destructive/20 text-destructive'
                     : 'text-muted-foreground hover:text-foreground'
@@ -545,7 +545,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
             >
               <PopoverTrigger asChild>
                 <button
-                  className="rounded bg-info-cyan/20 px-1.5 py-1 text-[9px] font-bold text-info-cyan transition-colors hover:bg-info-cyan/30"
+                  className="rounded bg-info-cyan/20 px-1.5 py-1 text-[0.5625rem] font-bold text-info-cyan transition-colors hover:bg-info-cyan/30"
                   title="Edit SL/TP/TSL"
                 >
                   ⚙
@@ -559,18 +559,18 @@ export default function NewTradeForm(props: NewTradeFormProps) {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setSlEnabled(!slEnabled)}
-                      className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors ${slEnabled ? 'bg-destructive/20 text-destructive' : 'bg-muted/30 text-muted-foreground'}`}
+                      className={`px-2 py-0.5 rounded text-[0.5625rem] font-bold transition-colors ${slEnabled ? 'bg-destructive/20 text-destructive' : 'bg-muted/30 text-muted-foreground'}`}
                     >
                       {slEnabled ? 'ON' : 'OFF'}
                     </button>
-                    <span className="text-[9px] text-destructive font-bold w-5">SL</span>
+                    <span className="text-[0.5625rem] text-destructive font-bold w-5">SL</span>
                     <input
                       type="number"
                       step="0.05"
                       value={slPrice}
                       onChange={(e) => setSlPrice(e.target.value)}
                       placeholder="price"
-                      className="flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border border-destructive/40 bg-background outline-none focus:border-destructive"
+                      className="flex-1 min-w-0 px-1.5 py-1 text-[0.625rem] rounded border border-destructive/40 bg-background outline-none focus:border-destructive"
                       disabled={!slEnabled}
                     />
                   </div>
@@ -579,18 +579,18 @@ export default function NewTradeForm(props: NewTradeFormProps) {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setTpEnabled(!tpEnabled)}
-                      className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors ${tpEnabled ? 'bg-bullish/20 text-bullish' : 'bg-muted/30 text-muted-foreground'}`}
+                      className={`px-2 py-0.5 rounded text-[0.5625rem] font-bold transition-colors ${tpEnabled ? 'bg-bullish/20 text-bullish' : 'bg-muted/30 text-muted-foreground'}`}
                     >
                       {tpEnabled ? 'ON' : 'OFF'}
                     </button>
-                    <span className="text-[9px] text-bullish font-bold w-5">TP</span>
+                    <span className="text-[0.5625rem] text-bullish font-bold w-5">TP</span>
                     <input
                       type="number"
                       step="0.05"
                       value={tpPrice}
                       onChange={(e) => setTpPrice(e.target.value)}
                       placeholder="price"
-                      className="flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border border-bullish/40 bg-background outline-none focus:border-bullish"
+                      className="flex-1 min-w-0 px-1.5 py-1 text-[0.625rem] rounded border border-bullish/40 bg-background outline-none focus:border-bullish"
                       disabled={!tpEnabled}
                     />
                   </div>
@@ -599,11 +599,11 @@ export default function NewTradeForm(props: NewTradeFormProps) {
                   <div className="flex items-center gap-2 pt-1 border-t border-border/30">
                     <button
                       onClick={() => setTslEnabled(!tslEnabled)}
-                      className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors ${tslEnabled ? 'bg-info-cyan/20 text-info-cyan' : 'bg-muted/30 text-muted-foreground'}`}
+                      className={`px-2 py-0.5 rounded text-[0.5625rem] font-bold transition-colors ${tslEnabled ? 'bg-info-cyan/20 text-info-cyan' : 'bg-muted/30 text-muted-foreground'}`}
                     >
                       {tslEnabled ? 'ON' : 'OFF'}
                     </button>
-                    <span className="text-[9px] text-info-cyan font-bold flex-1">TSL</span>
+                    <span className="text-[0.5625rem] text-info-cyan font-bold flex-1">TSL</span>
                   </div>
                 </div>
               </PopoverContent>
@@ -611,14 +611,14 @@ export default function NewTradeForm(props: NewTradeFormProps) {
             <button
               onClick={handleSubmit}
               disabled={loading || !formReady}
-              className="rounded bg-bullish/20 px-1.5 py-1 text-[9px] font-bold text-bullish transition-colors hover:bg-bullish/30 disabled:cursor-not-allowed disabled:opacity-30"
+              className="rounded bg-bullish/20 px-1.5 py-1 text-[0.5625rem] font-bold text-bullish transition-colors hover:bg-bullish/30 disabled:cursor-not-allowed disabled:opacity-30"
               title="Place trade"
             >
               {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'OK'}
             </button>
             <button
               onClick={onCancel}
-              className="rounded bg-destructive/20 px-1.5 py-1 text-[9px] font-bold text-destructive transition-colors hover:bg-destructive/30"
+              className="rounded bg-destructive/20 px-1.5 py-1 text-[0.5625rem] font-bold text-destructive transition-colors hover:bg-destructive/30"
               title="Cancel"
             >
               X
@@ -634,12 +634,12 @@ export default function NewTradeForm(props: NewTradeFormProps) {
           onChange={(e) => setEntryPrice(e.target.value)}
           placeholder="Entry"
           step="0.05"
-          className={`w-24 bg-background border border-border rounded px-1.5 py-1 text-[10px] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`}
+          className={`w-24 bg-background border border-border rounded px-1.5 py-1 text-[0.625rem] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`}
         />
       </td>
 
       <td className="px-2 py-2 text-right border-r border-border">
-        <span className={`text-[10px] tabular-nums ${tone.textSoft}`}>
+        <span className={`text-[0.625rem] tabular-nums ${tone.textSoft}`}>
           {currentLtp > 0 ? currentLtp.toFixed(2) : '-'}
         </span>
       </td>
@@ -648,7 +648,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         <Popover open={isQtyPopoverOpen} onOpenChange={setIsQtyPopoverOpen}>
           <PopoverTrigger asChild>
             <button
-              className={`w-full px-2 py-1 text-[10px] tabular-nums text-right rounded border transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer ${tone.textSoft} border-border`}
+              className={`w-full px-2 py-1 text-[0.625rem] tabular-nums text-right rounded border transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer ${tone.textSoft} border-border`}
               title="Click to adjust quantity"
             >
               {actualQty > 0

@@ -322,3 +322,15 @@
     background: linear-gradient(135deg, oklch(0.68 0.20 20), oklch(0.72 0.20 350));
   }
 }
+
+/* Responsive root font-size
+   Scales the rem unit with viewport width so all text grows on larger monitors
+   without any component-level changes.
+   - 1080p (1920px):  16px   (matches previous fixed size — no change)
+   - 1440p (2560px):  20px   (+25% — visibly larger)
+   - 4K    (3840px):  28px   (+75% — comfortable)
+   - Below 1080p:     clamped to 16px min (laptops unchanged)
+   - Above 4K:        clamped to 28px max                                     */
+html {
+  font-size: clamp(16px, 0.625vw + 4px, 28px);
+}

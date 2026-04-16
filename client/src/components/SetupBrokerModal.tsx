@@ -96,7 +96,7 @@ export function SetupBrokerModal() {
                 >
                   {a.displayName}
                   {a.isPaperBroker && (
-                    <span className="block text-[10px] opacity-60">
+                    <span className="block text-[0.625rem] opacity-60">
                       No credentials needed
                     </span>
                   )}
@@ -135,7 +135,7 @@ export function SetupBrokerModal() {
                     <ClipboardPaste className="w-4 h-4" />
                   </button>
                 </div>
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[0.625rem] text-muted-foreground">
                   Get your token from{" "}
                   <a
                     href="https://login.dhan.co"

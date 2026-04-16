@@ -101,9 +101,9 @@ function ScoreGauge({ score }: { score: number }) {
           style={{ transition: 'stroke-dashoffset 0.8s ease' }}
         />
         <text x="65" y="60" textAnchor="middle" className="fill-foreground font-display text-3xl font-bold">{score}</text>
-        <text x="65" y="78" textAnchor="middle" className="fill-muted-foreground text-[9px] uppercase tracking-widest">Score</text>
+        <text x="65" y="78" textAnchor="middle" className="fill-muted-foreground text-[0.5625rem] uppercase tracking-widest">Score</text>
       </svg>
-      <span className="text-[9px] uppercase tracking-widest" style={{ color }}>
+      <span className="text-[0.5625rem] uppercase tracking-widest" style={{ color }}>
         {score >= 80 ? 'Excellent' : score >= 60 ? 'Needs Work' : 'Critical'}
       </span>
     </div>
@@ -132,11 +132,11 @@ function ScoreBreakdown({ breakdown }: { breakdown: DashboardData['breakdown'] }
         return (
           <div key={key} className="flex items-center gap-2">
             <Icon className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-            <span className="text-[9px] text-muted-foreground w-24 truncate">{label}</span>
+            <span className="text-[0.5625rem] text-muted-foreground w-24 truncate">{label}</span>
             <div className="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
               <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%`, transition: 'width 0.5s ease' }} />
             </div>
-            <span className="text-[9px] text-muted-foreground w-10 text-right">{val}/{max}</span>
+            <span className="text-[0.5625rem] text-muted-foreground w-10 text-right">{val}/{max}</span>
           </div>
         );
       })}
@@ -192,10 +192,10 @@ function StatusCards({ state, settings }: { state: DashboardData['state']; setti
           <div key={card.label} className={`border rounded-md p-2.5 bg-card ${statusColors[card.status].split(' ')[0]}`}>
             <div className="flex items-center gap-1.5 mb-1">
               <Icon className={`h-3 w-3 ${statusColors[card.status].split(' ')[1]}`} />
-              <span className="text-[9px] uppercase tracking-wider text-muted-foreground">{card.label}</span>
+              <span className="text-[0.5625rem] uppercase tracking-wider text-muted-foreground">{card.label}</span>
             </div>
             <div className={`text-sm font-bold font-display ${statusColors[card.status].split(' ')[1]}`}>{card.value}</div>
-            <div className="text-[9px] text-muted-foreground/70 mt-0.5">{card.sub}</div>
+            <div className="text-[0.5625rem] text-muted-foreground/70 mt-0.5">{card.sub}</div>
           </div>
         );
       })}
@@ -208,7 +208,7 @@ function StatusCards({ state, settings }: { state: DashboardData['state']; setti
 function ViolationsList({ violations }: { violations: DashboardData['state']['violations'] }) {
   if (violations.length === 0) {
     return (
-      <div className="flex items-center gap-2 text-[10px] text-profit-green/80 py-2">
+      <div className="flex items-center gap-2 text-[0.625rem] text-profit-green/80 py-2">
         <CheckCircle2 className="h-3.5 w-3.5" />
         No violations today — excellent discipline!
       </div>
@@ -218,15 +218,15 @@ function ViolationsList({ violations }: { violations: DashboardData['state']['vi
   return (
     <div className="space-y-1.5 max-h-32 overflow-y-auto">
       {violations.map((v, i) => (
-        <div key={i} className="flex items-start gap-2 text-[10px]">
+        <div key={i} className="flex items-start gap-2 text-[0.625rem]">
           <span className={`mt-0.5 ${v.severity === 'hard' ? 'text-loss-red' : 'text-warning-amber'}`}>
             {v.severity === 'hard' ? <XCircle className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
           </span>
           <div className="flex-1">
             <span className="text-muted-foreground">{v.description}</span>
-            {v.overridden && <span className="ml-1 text-[8px] text-warning-amber/60">(overridden)</span>}
+            {v.overridden && <span className="ml-1 text-[0.5rem] text-warning-amber/60">(overridden)</span>}
           </div>
-          <span className="text-[8px] text-muted-foreground/50 flex-shrink-0">
+          <span className="text-[0.5rem] text-muted-foreground/50 flex-shrink-0">
             {new Date(v.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>
@@ -240,7 +240,7 @@ function ViolationsList({ violations }: { violations: DashboardData['state']['vi
 function StreakCard({ streak }: { streak: DashboardData['state']['currentStreak'] }) {
   if (streak.type === 'none' || streak.length === 0) {
     return (
-      <div className="text-[10px] text-muted-foreground/60 py-2">No active streak</div>
+      <div className="text-[0.625rem] text-muted-foreground/60 py-2">No active streak</div>
     );
   }
 
@@ -256,7 +256,7 @@ function StreakCard({ streak }: { streak: DashboardData['state']['currentStreak'
         <div className={`text-sm font-bold font-display ${color}`}>
           {streak.length}-Day {isWinning ? 'Winning' : 'Losing'} Streak
         </div>
-        <div className="text-[9px] text-muted-foreground">
+        <div className="text-[0.5625rem] text-muted-foreground">
           Since {streak.startDate}
           {isWinning && streak.length >= 5 && ' — Stay humble, stick to the plan'}
           {!isWinning && streak.length >= 3 && ' — Limits auto-reduced for protection'}
@@ -278,7 +278,7 @@ function StreakCard({ streak }: { streak: DashboardData['state']['currentStreak'
 
 function ScoreTrend({ history }: { history: DashboardData['scoreHistory'] }) {
   if (history.length === 0) {
-    return <div className="text-[10px] text-muted-foreground/60 py-4 text-center">No score history yet</div>;
+    return <div className="text-[0.625rem] text-muted-foreground/60 py-4 text-center">No score history yet</div>;
   }
 
   const maxScore = 100;
@@ -291,7 +291,7 @@ function ScoreTrend({ history }: { history: DashboardData['scoreHistory'] }) {
           const color = day.score >= 80 ? 'bg-profit-green/60' : day.score >= 60 ? 'bg-warning-amber/60' : 'bg-loss-red/60';
           return (
             <div key={i} className="flex-1 flex flex-col items-center gap-0.5" title={`${day.date}: ${day.score}`}>
-              <span className="text-[7px] text-muted-foreground/50">{day.score}</span>
+              <span className="text-[0.4375rem] text-muted-foreground/50">{day.score}</span>
               <div className={`w-full rounded-t ${color}`} style={{ height: `${height}%`, minHeight: '2px', transition: 'height 0.5s ease' }} />
             </div>
           );
@@ -299,7 +299,7 @@ function ScoreTrend({ history }: { history: DashboardData['scoreHistory'] }) {
       </div>
       <div className="flex gap-1 mt-0.5">
         {history.map((day, i) => (
-          <div key={i} className="flex-1 text-center text-[7px] text-muted-foreground/40">
+          <div key={i} className="flex-1 text-center text-[0.4375rem] text-muted-foreground/40">
             {day.date.slice(8)}
           </div>
         ))}
@@ -312,12 +312,12 @@ function ScoreTrend({ history }: { history: DashboardData['scoreHistory'] }) {
 
 function CorrelationTable({ history }: { history: DashboardData['scoreHistory'] }) {
   if (history.length === 0) {
-    return <div className="text-[10px] text-muted-foreground/60 py-2 text-center">No data yet</div>;
+    return <div className="text-[0.625rem] text-muted-foreground/60 py-2 text-center">No data yet</div>;
   }
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-[9px]">
+      <table className="w-full text-[0.5625rem]">
         <thead>
           <tr className="border-b border-border">
             <th className="text-left py-1 text-muted-foreground font-normal">Date</th>
@@ -413,7 +413,7 @@ export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOver
           <DialogTitle className="flex items-center gap-2 text-base font-display font-bold tracking-tight">
             <Shield className="h-4 w-4 text-info-cyan" />
             Discipline Engine
-            <span className={`text-[9px] tracking-widest uppercase ml-2 ${isLive ? 'text-bullish' : 'text-warning-amber'}`}>
+            <span className={`text-[0.5625rem] tracking-widest uppercase ml-2 ${isLive ? 'text-bullish' : 'text-warning-amber'}`}>
               {isLive ? 'LIVE' : 'OFFLINE'}
             </span>
             <div className="ml-auto flex items-center gap-1">
@@ -423,7 +423,7 @@ export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOver
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded text-[9px] uppercase tracking-wider transition-colors ${
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded text-[0.5625rem] uppercase tracking-wider transition-colors ${
                       activeTab === tab.id
                         ? 'bg-info-cyan/10 text-info-cyan'
                         : 'text-muted-foreground hover:text-foreground hover:bg-card'
@@ -443,7 +443,7 @@ export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOver
           {isLoading ? (
             <div className="flex items-center justify-center h-40">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              <span className="ml-2 text-[10px] text-muted-foreground">Loading discipline data...</span>
+              <span className="ml-2 text-[0.625rem] text-muted-foreground">Loading discipline data...</span>
             </div>
           ) : (
             <>
@@ -453,20 +453,20 @@ export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOver
                   <div className="flex gap-6">
                     <ScoreGauge score={data.score} />
                     <div className="flex-1">
-                      <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Score Breakdown</h4>
+                      <h4 className="text-[0.625rem] uppercase tracking-widest text-muted-foreground mb-2">Score Breakdown</h4>
                       <ScoreBreakdown breakdown={data.breakdown} />
                     </div>
                   </div>
 
                   {/* Status Cards */}
                   <div>
-                    <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Today's Status</h4>
+                    <h4 className="text-[0.625rem] uppercase tracking-widest text-muted-foreground mb-2">Today's Status</h4>
                     <StatusCards state={data.state} settings={data.settings} />
                   </div>
 
                   {/* Streak */}
                   <div>
-                    <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Streak</h4>
+                    <h4 className="text-[0.625rem] uppercase tracking-widest text-muted-foreground mb-2">Streak</h4>
                     <StreakCard streak={data.state.currentStreak} />
                   </div>
 
@@ -476,7 +476,7 @@ export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOver
                       <Clock className="h-5 w-5 text-warning-amber animate-pulse" />
                       <div>
                         <div className="text-sm font-bold font-display text-warning-amber">Cooldown Active</div>
-                        <div className="text-[9px] text-muted-foreground">
+                        <div className="text-[0.5625rem] text-muted-foreground">
                           {data.state.activeCooldown.type === 'revenge' ? 'Revenge trade' : 'Consecutive loss'} cooldown
                           {!data.state.activeCooldown.acknowledged && ' — Acknowledge your loss to start timer'}
                         </div>
@@ -485,7 +485,7 @@ export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOver
                         <button
                           onClick={() => acknowledgeLossMutation.mutate()}
                           disabled={acknowledgeLossMutation.isPending}
-                          className="ml-auto px-3 py-1.5 rounded bg-warning-amber/20 text-warning-amber text-[10px] font-bold uppercase tracking-wider hover:bg-warning-amber/30 disabled:opacity-50 transition-colors"
+                          className="ml-auto px-3 py-1.5 rounded bg-warning-amber/20 text-warning-amber text-[0.625rem] font-bold uppercase tracking-wider hover:bg-warning-amber/30 disabled:opacity-50 transition-colors"
                         >
                           {acknowledgeLossMutation.isPending ? 'Processing...' : 'I Accept the Loss'}
                         </button>
@@ -498,29 +498,29 @@ export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOver
               {activeTab === 'violations' && (
                 <div className="space-y-4">
                   <div>
-                    <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Today's Violations</h4>
+                    <h4 className="text-[0.625rem] uppercase tracking-widest text-muted-foreground mb-2">Today's Violations</h4>
                     <ViolationsList violations={data.state.violations} />
                   </div>
                   <div className="border-t border-border pt-4">
-                    <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Violation Summary</h4>
+                    <h4 className="text-[0.625rem] uppercase tracking-widest text-muted-foreground mb-2">Violation Summary</h4>
                     <div className="grid grid-cols-3 gap-3">
                       <div className="border border-border rounded-md p-3 bg-card text-center">
                         <div className="text-2xl font-bold font-display text-loss-red">
                           {data.state.violations.filter((v) => v.severity === 'hard').length}
                         </div>
-                        <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Hard Blocks</div>
+                        <div className="text-[0.5625rem] text-muted-foreground uppercase tracking-wider">Hard Blocks</div>
                       </div>
                       <div className="border border-border rounded-md p-3 bg-card text-center">
                         <div className="text-2xl font-bold font-display text-warning-amber">
                           {data.state.violations.filter((v) => v.severity === 'soft').length}
                         </div>
-                        <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Soft Warnings</div>
+                        <div className="text-[0.5625rem] text-muted-foreground uppercase tracking-wider">Soft Warnings</div>
                       </div>
                       <div className="border border-border rounded-md p-3 bg-card text-center">
                         <div className="text-2xl font-bold font-display text-info-cyan">
                           {data.state.violations.filter((v) => v.overridden).length}
                         </div>
-                        <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Overridden</div>
+                        <div className="text-[0.5625rem] text-muted-foreground uppercase tracking-wider">Overridden</div>
                       </div>
                     </div>
                   </div>
@@ -536,11 +536,11 @@ export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOver
                   ) : (
                     <>
                       <div>
-                        <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Weekly Score Trend</h4>
+                        <h4 className="text-[0.625rem] uppercase tracking-widest text-muted-foreground mb-2">Weekly Score Trend</h4>
                         <ScoreTrend history={data.scoreHistory} />
                       </div>
                       <div>
-                        <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Score vs P&L Correlation</h4>
+                        <h4 className="text-[0.625rem] uppercase tracking-widest text-muted-foreground mb-2">Score vs P&L Correlation</h4>
                         <CorrelationTable history={data.scoreHistory} />
                       </div>
                     </>
@@ -552,7 +552,7 @@ export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOver
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-2.5 border-t border-border flex items-center justify-between text-[9px] text-muted-foreground/60 flex-shrink-0">
+        <div className="px-6 py-2.5 border-t border-border flex items-center justify-between text-[0.5625rem] text-muted-foreground/60 flex-shrink-0">
           <span>Last updated: {new Date().toLocaleTimeString('en-IN')}</span>
           <span>{isLive ? 'Discipline score refreshes every 30s' : 'Showing defaults — connect MongoDB for live data'}</span>
         </div>

@@ -166,7 +166,7 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
             <h1 className="font-display text-base font-bold tracking-tight text-foreground">
               Settings
             </h1>
-            <span className="text-[9px] text-muted-foreground tracking-widest uppercase ml-2">
+            <span className="text-[0.5625rem] text-muted-foreground tracking-widest uppercase ml-2">
               F2 to toggle
             </span>
           </div>
@@ -199,10 +199,10 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
                   >
                     <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-primary' : ''}`} />
                     <div className="flex-1 min-w-0">
-                      <span className={`text-[10px] font-bold tracking-wider uppercase block ${isActive ? 'text-primary' : ''}`}>
+                      <span className={`text-[0.625rem] font-bold tracking-wider uppercase block ${isActive ? 'text-primary' : ''}`}>
                         {section.label}
                       </span>
-                      <span className="text-[8px] text-muted-foreground truncate block mt-0.5">
+                      <span className="text-[0.5rem] text-muted-foreground truncate block mt-0.5">
                         {section.description}
                       </span>
                     </div>
@@ -216,7 +216,7 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
 
             {/* Footer hint */}
             <div className="mt-6 px-3">
-              <span className="text-[9px] text-muted-foreground tracking-wider uppercase">
+              <span className="text-[0.5625rem] text-muted-foreground tracking-wider uppercase">
                 Settings are persisted to MongoDB
               </span>
             </div>
@@ -232,7 +232,7 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
                   {currentSection?.label}
                 </h2>
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[0.6875rem] text-muted-foreground">
                 {currentSection?.description}
               </p>
             </div>

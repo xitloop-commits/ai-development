@@ -73,10 +73,10 @@ export default function SRStrengthLine({ levels }: SRStrengthLineProps) {
     <div className="space-y-1">
       {/* Zone labels */}
       <div className="flex items-center justify-between px-1">
-        <span className="text-[8px] font-bold tracking-widest text-cyan-400/70 uppercase">
+        <span className="text-[0.5rem] font-bold tracking-widest text-cyan-400/70 uppercase">
           ◄ Support (Put OI)
         </span>
-        <span className="text-[8px] font-bold tracking-widest text-violet-400/70 uppercase">
+        <span className="text-[0.5rem] font-bold tracking-widest text-violet-400/70 uppercase">
           Resistance (Call OI) ►
         </span>
       </div>
@@ -105,30 +105,30 @@ export default function SRStrengthLine({ levels }: SRStrengthLineProps) {
               >
                 {/* OI value */}
                 {level.type !== 'atm' && (
-                  <div className="text-[8px] text-slate-400 tabular-nums mb-0.5 truncate">
+                  <div className="text-[0.5rem] text-slate-400 tabular-nums mb-0.5 truncate">
                     {formatOI(level.oi)}
                   </div>
                 )}
                 {level.type === 'atm' && (
-                  <div className="text-[8px] text-amber-400 font-bold mb-0.5">LTP</div>
+                  <div className="text-[0.5rem] text-amber-400 font-bold mb-0.5">LTP</div>
                 )}
 
                 {/* Intraday change badge */}
                 {level.type !== 'atm' ? (
-                  <div className={`text-[7px] font-bold px-1 py-[1px] rounded mb-0.5 tabular-nums ${getChangeColor(level.oiChangePct)}`}>
+                  <div className={`text-[0.4375rem] font-bold px-1 py-[1px] rounded mb-0.5 tabular-nums ${getChangeColor(level.oiChangePct)}`}>
                     {level.oiChangePct > 0 ? '+' : ''}{level.oiChangePct.toFixed(1)}%
                   </div>
                 ) : (
-                  <div className="text-[7px] invisible mb-0.5">—</div>
+                  <div className="text-[0.4375rem] invisible mb-0.5">—</div>
                 )}
 
                 {/* Activity label (layman + technical) */}
                 {level.type !== 'atm' ? (
                   <div className="text-center mb-0.5 leading-tight h-[22px] flex flex-col justify-end">
-                    <div className={`text-[7px] font-bold truncate ${getActivityColor(level.activityLabel)}`}>
+                    <div className={`text-[0.4375rem] font-bold truncate ${getActivityColor(level.activityLabel)}`}>
                       {level.activityLabel}
                     </div>
-                    <div className="text-[6px] text-slate-500 truncate">
+                    <div className="text-[0.375rem] text-slate-500 truncate">
                       ({level.technicalLabel})
                     </div>
                   </div>
@@ -149,7 +149,7 @@ export default function SRStrengthLine({ levels }: SRStrengthLineProps) {
 
                 {/* Trend arrow */}
                 {level.type !== 'atm' ? (
-                  <div className={`text-[9px] mt-0.5 ${getTrendColor(level.trend)}`}>
+                  <div className={`text-[0.5625rem] mt-0.5 ${getTrendColor(level.trend)}`}>
                     {level.trendArrow}
                   </div>
                 ) : (
@@ -160,7 +160,7 @@ export default function SRStrengthLine({ levels }: SRStrengthLineProps) {
 
                 {/* Prediction badge */}
                 {level.prediction && level.prediction !== 'UNCERTAIN' ? (
-                  <div className={`text-[6px] font-bold px-1 py-[1px] rounded mt-0.5 whitespace-nowrap ${
+                  <div className={`text-[0.375rem] font-bold px-1 py-[1px] rounded mt-0.5 whitespace-nowrap ${
                     level.prediction === 'BOUNCE'
                       ? 'text-emerald-400 bg-emerald-500/20 border border-emerald-500/30'
                       : level.prediction === 'BREAKOUT'
@@ -179,33 +179,33 @@ export default function SRStrengthLine({ levels }: SRStrengthLineProps) {
                 }`} />
 
                 {/* Strike label */}
-                <div className={`text-[8px] tabular-nums font-medium mt-0.5 truncate ${
-                  level.type === 'atm' ? 'text-amber-400 font-bold text-[9px]' : 'text-slate-300'
+                <div className={`text-[0.5rem] tabular-nums font-medium mt-0.5 truncate ${
+                  level.type === 'atm' ? 'text-amber-400 font-bold text-[0.5625rem]' : 'text-slate-300'
                 }`}>
                   {level.strike.toLocaleString('en-IN')}
                 </div>
 
                 {/* Level label (S5, S4, ... ATM, R1, R2...) */}
-                <div className={`text-[8px] font-bold ${getLabelColor(level.type)}`}>
+                <div className={`text-[0.5rem] font-bold ${getLabelColor(level.type)}`}>
                   {level.type === 'atm' ? '● ATM' : level.label}
                 </div>
 
                 {/* Hover tooltip */}
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-20 pointer-events-none">
                   <div className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 shadow-lg whitespace-nowrap text-left">
-                    <div className="text-[9px] font-bold text-foreground">{level.label}: {level.strike.toLocaleString('en-IN')}</div>
+                    <div className="text-[0.5625rem] font-bold text-foreground">{level.label}: {level.strike.toLocaleString('en-IN')}</div>
                     {level.type !== 'atm' && (
                       <>
-                        <div className="text-[8px] text-slate-400">OI: {formatOI(level.oi)} (Open: {formatOI(level.openOI)})</div>
-                        <div className={`text-[8px] font-bold ${level.oiChangePct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <div className="text-[0.5rem] text-slate-400">OI: {formatOI(level.oi)} (Open: {formatOI(level.openOI)})</div>
+                        <div className={`text-[0.5rem] font-bold ${level.oiChangePct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                           Change: {level.oiChangePct > 0 ? '+' : ''}{level.oiChangePct.toFixed(1)}% ({level.oiChangeAbs > 0 ? '+' : ''}{formatOI(level.oiChangeAbs)})
                         </div>
-                        <div className={`text-[8px] ${getActivityColor(level.activityLabel)}`}>
+                        <div className={`text-[0.5rem] ${getActivityColor(level.activityLabel)}`}>
                           {level.activityLabel} ({level.technicalLabel})
                         </div>
-                        <div className="text-[8px] text-slate-400">Strength: {level.strength}/100</div>
+                        <div className="text-[0.5rem] text-slate-400">Strength: {level.strength}/100</div>
                         {level.prediction && level.prediction !== 'UNCERTAIN' && (
-                          <div className={`text-[8px] font-bold ${level.prediction === 'BOUNCE' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                          <div className={`text-[0.5rem] font-bold ${level.prediction === 'BOUNCE' ? 'text-emerald-400' : 'text-amber-400'}`}>
                             {level.prediction}: {level.predictionProbability}%
                           </div>
                         )}
@@ -223,19 +223,19 @@ export default function SRStrengthLine({ levels }: SRStrengthLineProps) {
       <div className="flex items-center justify-center gap-3 pt-1 border-t border-white/5">
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-sm bg-emerald-500" />
-          <span className="text-[7px] text-slate-500">Strengthening</span>
+          <span className="text-[0.4375rem] text-slate-500">Strengthening</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-sm bg-red-500" />
-          <span className="text-[7px] text-slate-500">Weakening</span>
+          <span className="text-[0.4375rem] text-slate-500">Weakening</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-sm bg-blue-500" />
-          <span className="text-[7px] text-slate-500">Stable</span>
+          <span className="text-[0.4375rem] text-slate-500">Stable</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-sm bg-amber-500" />
-          <span className="text-[7px] text-slate-500">ATM</span>
+          <span className="text-[0.4375rem] text-slate-500">ATM</span>
         </div>
       </div>
     </div>

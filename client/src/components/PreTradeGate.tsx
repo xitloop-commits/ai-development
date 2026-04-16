@@ -140,15 +140,15 @@ export default function PreTradeGate({
         className="w-full flex items-center gap-2 px-3 py-2 bg-info-cyan/5 hover:bg-info-cyan/10 transition-colors"
       >
         <Shield className="h-3.5 w-3.5 text-info-cyan" />
-        <span className="text-[10px] font-bold uppercase tracking-wider text-info-cyan">
+        <span className="text-[0.625rem] font-bold uppercase tracking-wider text-info-cyan">
           Pre-Trade Gate
         </span>
-        <span className="text-[9px] text-muted-foreground ml-1">
+        <span className="text-[0.5625rem] text-muted-foreground ml-1">
           {passedCount}/{checks.length} checks passed
         </span>
         <div className="ml-auto flex items-center gap-1">
           {!allHardPassed && (
-            <span className="text-[8px] text-loss-red font-bold uppercase">BLOCKED</span>
+            <span className="text-[0.5rem] text-loss-red font-bold uppercase">BLOCKED</span>
           )}
           {expanded ? <ChevronUp className="h-3 w-3 text-muted-foreground" /> : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
         </div>
@@ -169,18 +169,18 @@ export default function PreTradeGate({
                 )}
                 <div className="flex-1">
                   <div className="flex items-center gap-1.5">
-                    <span className={`text-[10px] ${check.passed ? 'text-muted-foreground' : check.type === 'hard' ? 'text-loss-red' : 'text-warning-amber'}`}>
+                    <span className={`text-[0.625rem] ${check.passed ? 'text-muted-foreground' : check.type === 'hard' ? 'text-loss-red' : 'text-warning-amber'}`}>
                       {check.label}
                     </span>
                     {check.type === 'hard' && !check.autoCheck && (
-                      <span className="text-[7px] text-loss-red/60 uppercase">required</span>
+                      <span className="text-[0.4375rem] text-loss-red/60 uppercase">required</span>
                     )}
                     {check.type === 'soft' && (
-                      <span className="text-[7px] text-muted-foreground/40 uppercase">optional</span>
+                      <span className="text-[0.4375rem] text-muted-foreground/40 uppercase">optional</span>
                     )}
                   </div>
                   {check.description && !check.passed && (
-                    <div className="text-[8px] text-muted-foreground/60 mt-0.5">{check.description}</div>
+                    <div className="text-[0.5rem] text-muted-foreground/60 mt-0.5">{check.description}</div>
                   )}
                 </div>
 
@@ -188,7 +188,7 @@ export default function PreTradeGate({
                 {check.id === 'plan' && (
                   <button
                     onClick={() => setPlanAligned(!planAligned)}
-                    className={`text-[8px] px-2 py-0.5 rounded border transition-colors ${
+                    className={`text-[0.5rem] px-2 py-0.5 rounded border transition-colors ${
                       planAligned ? 'bg-profit-green/10 border-profit-green/30 text-profit-green' : 'border-border text-muted-foreground hover:border-muted-foreground'
                     }`}
                   >
@@ -198,7 +198,7 @@ export default function PreTradeGate({
                 {check.id === 'checklist' && (
                   <button
                     onClick={() => setChecklistDone(!checklistDone)}
-                    className={`text-[8px] px-2 py-0.5 rounded border transition-colors ${
+                    className={`text-[0.5rem] px-2 py-0.5 rounded border transition-colors ${
                       checklistDone ? 'bg-profit-green/10 border-profit-green/30 text-profit-green' : 'border-border text-muted-foreground hover:border-muted-foreground'
                     }`}
                   >
@@ -211,7 +211,7 @@ export default function PreTradeGate({
 
           {/* Emotional State Selector */}
           <div>
-            <span className="text-[9px] text-muted-foreground uppercase tracking-wider block mb-1.5">Emotional State</span>
+            <span className="text-[0.5625rem] text-muted-foreground uppercase tracking-wider block mb-1.5">Emotional State</span>
             <div className="flex gap-1 flex-wrap">
               {(['calm', 'neutral', 'anxious', 'fomo', 'revenge', 'greedy'] as EmotionalState[]).map((state) => {
                 const isBlocked = blockedEmotions.includes(state);
@@ -220,7 +220,7 @@ export default function PreTradeGate({
                   <button
                     key={state}
                     onClick={() => setEmotionalState(state)}
-                    className={`text-[9px] px-2 py-1 rounded border transition-colors capitalize ${
+                    className={`text-[0.5625rem] px-2 py-1 rounded border transition-colors capitalize ${
                       isSelected
                         ? isBlocked
                           ? 'bg-loss-red/10 border-loss-red/40 text-loss-red'
@@ -239,28 +239,28 @@ export default function PreTradeGate({
           {/* Actions */}
           <div className="flex items-center gap-2 pt-1 border-t border-border">
             {!allHardPassed && (
-              <div className="flex-1 text-[9px] text-loss-red">
+              <div className="flex-1 text-[0.5625rem] text-loss-red">
                 {hardFails.length} hard check{hardFails.length > 1 ? 's' : ''} failed — trade blocked
               </div>
             )}
             {allHardPassed && softFails.length > 0 && (
-              <div className="flex-1 text-[9px] text-warning-amber">
+              <div className="flex-1 text-[0.5625rem] text-warning-amber">
                 {softFails.length} warning{softFails.length > 1 ? 's' : ''} — proceed with caution
               </div>
             )}
             {allHardPassed && softFails.length === 0 && (
-              <div className="flex-1 text-[9px] text-profit-green">All checks passed</div>
+              <div className="flex-1 text-[0.5625rem] text-profit-green">All checks passed</div>
             )}
             <button
               onClick={onCancel}
-              className="px-3 py-1.5 rounded border border-border text-[10px] text-muted-foreground hover:bg-card transition-colors"
+              className="px-3 py-1.5 rounded border border-border text-[0.625rem] text-muted-foreground hover:bg-card transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleSubmit}
               disabled={!allHardPassed}
-              className={`px-4 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider transition-colors ${
+              className={`px-4 py-1.5 rounded text-[0.625rem] font-bold uppercase tracking-wider transition-colors ${
                 allHardPassed
                   ? 'bg-profit-green/20 text-profit-green hover:bg-profit-green/30 border border-profit-green/30'
                   : 'bg-border text-muted-foreground/40 cursor-not-allowed'

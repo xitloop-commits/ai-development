@@ -95,7 +95,7 @@ function InlineNewTradeForm({ onClose, onSuccess }: { onClose: () => void; onSuc
   return (
     <div className="border border-info-cyan/20 rounded-md bg-info-cyan/5 p-3 space-y-2.5">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-bold tracking-wider text-info-cyan flex items-center gap-1.5">
+        <span className="text-[0.625rem] font-bold tracking-wider text-info-cyan flex items-center gap-1.5">
           <Plus className="h-3 w-3" /> NEW TRADE
         </span>
         <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
@@ -105,50 +105,50 @@ function InlineNewTradeForm({ onClose, onSuccess }: { onClose: () => void; onSuc
       <form onSubmit={handleSubmit} className="space-y-2">
         <div className="grid grid-cols-4 gap-2">
           <select value={instrument} onChange={e => setInstrument(e.target.value)}
-            className="bg-secondary/50 border border-border rounded px-1.5 py-1 text-[10px] text-foreground">
+            className="bg-secondary/50 border border-border rounded px-1.5 py-1 text-[0.625rem] text-foreground">
             {INSTRUMENTS.map(i => <option key={i} value={i}>{i.replace('_', ' ')}</option>)}
           </select>
           <select value={tradeType} onChange={e => setTradeType(e.target.value as any)}
-            className="bg-secondary/50 border border-border rounded px-1.5 py-1 text-[10px] text-foreground">
+            className="bg-secondary/50 border border-border rounded px-1.5 py-1 text-[0.625rem] text-foreground">
             {TRADE_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
           </select>
           <input type="number" step="any" value={strike} onChange={e => setStrike(e.target.value)}
-            className="bg-secondary/50 border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums"
+            className="bg-secondary/50 border border-border rounded px-1.5 py-1 text-[0.625rem] text-foreground tabular-nums"
             placeholder="Strike" required />
           <input type="number" step="any" value={entryPrice} onChange={e => setEntryPrice(e.target.value)}
-            className="bg-secondary/50 border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums"
+            className="bg-secondary/50 border border-border rounded px-1.5 py-1 text-[0.625rem] text-foreground tabular-nums"
             placeholder="Entry ₹" required />
         </div>
         <div className="grid grid-cols-4 gap-2">
           <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)}
-            className="bg-secondary/50 border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums"
+            className="bg-secondary/50 border border-border rounded px-1.5 py-1 text-[0.625rem] text-foreground tabular-nums"
             placeholder="Qty" min="1" />
           <input type="number" step="any" value={stopLoss} onChange={e => setStopLoss(e.target.value)}
-            className="bg-secondary/50 border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums"
+            className="bg-secondary/50 border border-border rounded px-1.5 py-1 text-[0.625rem] text-foreground tabular-nums"
             placeholder="SL ₹" />
           <input type="number" step="any" value={target} onChange={e => setTarget(e.target.value)}
-            className="bg-secondary/50 border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums"
+            className="bg-secondary/50 border border-border rounded px-1.5 py-1 text-[0.625rem] text-foreground tabular-nums"
             placeholder="Target ₹" />
           <div className="flex gap-1">
             <button type="button" onClick={() => setMode('PAPER')}
-              className={`flex-1 px-1 py-1 rounded text-[8px] font-bold tracking-wider border ${mode === 'PAPER' ? 'bg-warning-amber/15 border-warning-amber/40 text-warning-amber' : 'bg-secondary/30 border-border text-muted-foreground'}`}>
+              className={`flex-1 px-1 py-1 rounded text-[0.5rem] font-bold tracking-wider border ${mode === 'PAPER' ? 'bg-warning-amber/15 border-warning-amber/40 text-warning-amber' : 'bg-secondary/30 border-border text-muted-foreground'}`}>
               PAPER
             </button>
             <button type="button" onClick={() => setMode('LIVE')}
-              className={`flex-1 px-1 py-1 rounded text-[8px] font-bold tracking-wider border ${mode === 'LIVE' ? 'bg-bullish/15 border-bullish/40 text-bullish' : 'bg-secondary/30 border-border text-muted-foreground'}`}>
+              className={`flex-1 px-1 py-1 rounded text-[0.5rem] font-bold tracking-wider border ${mode === 'LIVE' ? 'bg-bullish/15 border-bullish/40 text-bullish' : 'bg-secondary/30 border-border text-muted-foreground'}`}>
               LIVE
             </button>
           </div>
         </div>
         <textarea value={rationale} onChange={e => setRationale(e.target.value)}
-          className="w-full bg-secondary/50 border border-border rounded px-1.5 py-1 text-[10px] text-foreground resize-none"
+          className="w-full bg-secondary/50 border border-border rounded px-1.5 py-1 text-[0.625rem] text-foreground resize-none"
           rows={1} placeholder="Rationale — why are you taking this trade?" />
         <div className="flex gap-2">
           <input value={tags} onChange={e => setTags(e.target.value)}
-            className="flex-1 bg-secondary/50 border border-border rounded px-1.5 py-1 text-[10px] text-foreground"
+            className="flex-1 bg-secondary/50 border border-border rounded px-1.5 py-1 text-[0.625rem] text-foreground"
             placeholder="Tags: breakout, momentum, scalp" />
           <button type="submit" disabled={createMutation.isPending}
-            className="px-3 py-1 rounded bg-info-cyan/15 border border-info-cyan/40 text-info-cyan text-[10px] font-bold tracking-wider hover:bg-info-cyan/25 transition-colors disabled:opacity-50">
+            className="px-3 py-1 rounded bg-info-cyan/15 border border-info-cyan/40 text-info-cyan text-[0.625rem] font-bold tracking-wider hover:bg-info-cyan/25 transition-colors disabled:opacity-50">
             {createMutation.isPending ? 'LOGGING...' : 'LOG'}
           </button>
         </div>
@@ -171,16 +171,16 @@ function InlineCloseForm({ tradeId, onClose, onSuccess }: { tradeId: number; onC
   return (
     <div className="flex items-center gap-2 mt-1.5 p-2 rounded bg-destructive/5 border border-destructive/20">
       <input type="number" step="any" value={exitPrice} onChange={e => setExitPrice(e.target.value)}
-        className="w-24 bg-secondary/50 border border-border rounded px-1.5 py-1 text-[10px] text-foreground tabular-nums"
+        className="w-24 bg-secondary/50 border border-border rounded px-1.5 py-1 text-[0.625rem] text-foreground tabular-nums"
         placeholder="Exit ₹" />
       <input value={exitReason} onChange={e => setExitReason(e.target.value)}
-        className="flex-1 bg-secondary/50 border border-border rounded px-1.5 py-1 text-[10px] text-foreground"
+        className="flex-1 bg-secondary/50 border border-border rounded px-1.5 py-1 text-[0.625rem] text-foreground"
         placeholder="Exit reason" />
       <button onClick={() => {
         if (!exitPrice) { toast.error('Exit price required'); return; }
         closeMutation.mutate({ id: tradeId, exitPrice: parseFloat(exitPrice), exitTime: Date.now(), exitReason: exitReason || undefined });
       }} disabled={closeMutation.isPending}
-        className="px-2 py-1 rounded bg-destructive/15 border border-destructive/40 text-destructive text-[9px] font-bold tracking-wider hover:bg-destructive/25 disabled:opacity-50">
+        className="px-2 py-1 rounded bg-destructive/15 border border-destructive/40 text-destructive text-[0.5625rem] font-bold tracking-wider hover:bg-destructive/25 disabled:opacity-50">
         {closeMutation.isPending ? '...' : 'CLOSE'}
       </button>
       <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
@@ -206,10 +206,10 @@ function JournalEntryForm({ tradeId, existing, onSuccess }: { tradeId: number; e
       <div className="mt-1">
         <div className="flex items-center gap-1">
           <MessageSquare className="h-2.5 w-2.5 text-warning-amber" />
-          <span className="text-[8px] text-muted-foreground tracking-wider uppercase">Journal</span>
-          <button onClick={() => setEditing(true)} className="text-[8px] text-info-cyan hover:underline ml-1">edit</button>
+          <span className="text-[0.5rem] text-muted-foreground tracking-wider uppercase">Journal</span>
+          <button onClick={() => setEditing(true)} className="text-[0.5rem] text-info-cyan hover:underline ml-1">edit</button>
         </div>
-        <p className="text-[10px] text-foreground/80 mt-0.5">{existing}</p>
+        <p className="text-[0.625rem] text-foreground/80 mt-0.5">{existing}</p>
       </div>
     );
   }
@@ -218,20 +218,20 @@ function JournalEntryForm({ tradeId, existing, onSuccess }: { tradeId: number; e
     <div className="mt-1.5 space-y-1">
       <div className="flex items-center gap-1">
         <MessageSquare className="h-2.5 w-2.5 text-warning-amber" />
-        <span className="text-[8px] text-muted-foreground tracking-wider uppercase">Post-Trade Journal Entry</span>
+        <span className="text-[0.5rem] text-muted-foreground tracking-wider uppercase">Post-Trade Journal Entry</span>
       </div>
       <textarea value={notes} onChange={e => setNotes(e.target.value)}
-        className="w-full bg-secondary/50 border border-border rounded px-1.5 py-1 text-[10px] text-foreground resize-none"
+        className="w-full bg-secondary/50 border border-border rounded px-1.5 py-1 text-[0.625rem] text-foreground resize-none"
         rows={2} placeholder="What did you learn? What would you do differently? How did you feel?" />
       <div className="flex gap-1">
         <button onClick={() => updateMutation.mutate({ id: tradeId, rationale: notes })}
           disabled={updateMutation.isPending || !notes.trim()}
-          className="px-2 py-0.5 rounded bg-warning-amber/15 border border-warning-amber/40 text-warning-amber text-[9px] font-bold tracking-wider hover:bg-warning-amber/25 disabled:opacity-50">
+          className="px-2 py-0.5 rounded bg-warning-amber/15 border border-warning-amber/40 text-warning-amber text-[0.5625rem] font-bold tracking-wider hover:bg-warning-amber/25 disabled:opacity-50">
           {updateMutation.isPending ? 'SAVING...' : 'SAVE'}
         </button>
         {existing && (
           <button onClick={() => { setNotes(existing); setEditing(false); }}
-            className="px-2 py-0.5 rounded bg-secondary/30 border border-border text-muted-foreground text-[9px] tracking-wider hover:text-foreground">
+            className="px-2 py-0.5 rounded bg-secondary/30 border border-border text-muted-foreground text-[0.5625rem] tracking-wider hover:text-foreground">
             CANCEL
           </button>
         )}
@@ -249,7 +249,7 @@ function StatsCard({ label, value, icon: Icon, color = 'text-foreground', suffix
     <div className="bg-secondary/20 border border-border rounded p-2 space-y-0.5">
       <div className="flex items-center gap-1">
         <Icon className={`h-2.5 w-2.5 ${color}`} />
-        <span className="text-[7px] text-muted-foreground tracking-wider uppercase">{label}</span>
+        <span className="text-[0.4375rem] text-muted-foreground tracking-wider uppercase">{label}</span>
       </div>
       <div className={`text-sm font-bold tabular-nums ${color}`}>{value}{suffix}</div>
     </div>
@@ -265,7 +265,7 @@ function EquityCurve({ trades }: { trades: Array<{ pnl: number | null; entryTime
 
   if (closedTrades.length < 2) {
     return (
-      <div className="flex items-center justify-center h-24 text-[10px] text-muted-foreground">
+      <div className="flex items-center justify-center h-24 text-[0.625rem] text-muted-foreground">
         Need at least 2 closed trades for equity curve
       </div>
     );
@@ -297,8 +297,8 @@ function EquityCurve({ trades }: { trades: Array<{ pnl: number | null; entryTime
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <span className="text-[8px] text-muted-foreground tracking-wider uppercase">Equity Curve</span>
-        <span className={`text-[10px] font-bold tabular-nums ${isPositive ? 'text-bullish' : 'text-destructive'}`}>
+        <span className="text-[0.5rem] text-muted-foreground tracking-wider uppercase">Equity Curve</span>
+        <span className={`text-[0.625rem] font-bold tabular-nums ${isPositive ? 'text-bullish' : 'text-destructive'}`}>
           {fmtAmt(running, true)}
         </span>
       </div>
@@ -339,23 +339,23 @@ function WinRateByInstrument({ trades }: { trades: Array<{ instrument: string; p
 
   return (
     <div className="space-y-1.5">
-      <span className="text-[8px] text-muted-foreground tracking-wider uppercase">Win Rate by Instrument</span>
+      <span className="text-[0.5rem] text-muted-foreground tracking-wider uppercase">Win Rate by Instrument</span>
       {byInstrument.map(({ inst, wins, total, winRate, totalPnl }) => (
         <div key={inst} className="flex items-center gap-2">
-          <span className="text-[9px] text-foreground w-20 truncate">{inst.replace('_', ' ')}</span>
+          <span className="text-[0.5625rem] text-foreground w-20 truncate">{inst.replace('_', ' ')}</span>
           <div className="flex-1 h-3 bg-secondary/30 rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full ${winRate >= 50 ? 'bg-bullish/60' : 'bg-destructive/60'}`}
               style={{ width: `${Math.max(winRate, 2)}%` }}
             />
           </div>
-          <span className={`text-[9px] font-bold tabular-nums w-10 text-right ${winRate >= 50 ? 'text-bullish' : 'text-destructive'}`}>
+          <span className={`text-[0.5625rem] font-bold tabular-nums w-10 text-right ${winRate >= 50 ? 'text-bullish' : 'text-destructive'}`}>
             {winRate.toFixed(0)}%
           </span>
-          <span className={`text-[8px] tabular-nums w-16 text-right ${totalPnl >= 0 ? 'text-bullish/70' : 'text-destructive/70'}`}>
+          <span className={`text-[0.5rem] tabular-nums w-16 text-right ${totalPnl >= 0 ? 'text-bullish/70' : 'text-destructive/70'}`}>
             {fmtAmt(totalPnl)}
           </span>
-          <span className="text-[8px] text-muted-foreground w-8 text-right">{wins}/{total}</span>
+          <span className="text-[0.5rem] text-muted-foreground w-8 text-right">{wins}/{total}</span>
         </div>
       ))}
     </div>
@@ -381,7 +381,7 @@ function TradeDistribution({ trades }: { trades: Array<{ tradeType: string; stat
 
   return (
     <div className="space-y-1.5">
-      <span className="text-[8px] text-muted-foreground tracking-wider uppercase">Trade Distribution</span>
+      <span className="text-[0.5rem] text-muted-foreground tracking-wider uppercase">Trade Distribution</span>
       <div className="flex h-4 rounded-full overflow-hidden">
         {Object.entries(counts).map(([type, count]) => (
           <div
@@ -396,8 +396,8 @@ function TradeDistribution({ trades }: { trades: Array<{ tradeType: string; stat
         {Object.entries(counts).map(([type, count]) => (
           <div key={type} className="flex items-center gap-1">
             <div className={`h-2 w-2 rounded-sm ${colors[type] || 'bg-secondary/50'}`} />
-            <span className="text-[8px] text-muted-foreground">{type.replace('_', ' ')}</span>
-            <span className="text-[8px] font-bold text-foreground">{count}</span>
+            <span className="text-[0.5rem] text-muted-foreground">{type.replace('_', ' ')}</span>
+            <span className="text-[0.5rem] font-bold text-foreground">{count}</span>
           </div>
         ))}
       </div>
@@ -442,7 +442,7 @@ function TradesTab() {
           <div className="flex gap-0.5">
             {(['ALL', 'OPEN', 'CLOSED'] as const).map(s => (
               <button key={s} onClick={() => setFilterStatus(s)}
-                className={`px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider border ${
+                className={`px-1.5 py-0.5 rounded text-[0.5rem] font-bold tracking-wider border ${
                   filterStatus === s
                     ? 'bg-info-cyan/15 border-info-cyan/40 text-info-cyan'
                     : 'bg-secondary/30 border-border text-muted-foreground hover:text-foreground'
@@ -452,13 +452,13 @@ function TradesTab() {
             ))}
           </div>
           <select value={filterInstrument} onChange={e => setFilterInstrument(e.target.value)}
-            className="bg-secondary/50 border border-border rounded px-1.5 py-0.5 text-[8px] text-foreground">
+            className="bg-secondary/50 border border-border rounded px-1.5 py-0.5 text-[0.5rem] text-foreground">
             <option value="ALL">All</option>
             {INSTRUMENTS.map(i => <option key={i} value={i}>{i.replace('_', ' ')}</option>)}
           </select>
         </div>
         <button onClick={() => setShowNewTrade(!showNewTrade)}
-          className="flex items-center gap-1 px-2 py-1 rounded bg-info-cyan/15 border border-info-cyan/40 text-info-cyan text-[9px] font-bold tracking-wider hover:bg-info-cyan/25 transition-colors">
+          className="flex items-center gap-1 px-2 py-1 rounded bg-info-cyan/15 border border-info-cyan/40 text-info-cyan text-[0.5625rem] font-bold tracking-wider hover:bg-info-cyan/25 transition-colors">
           <Plus className="h-2.5 w-2.5" /> LOG
         </button>
       </div>
@@ -478,7 +478,7 @@ function TradesTab() {
       ) : tradesQuery.isError ? (
         <div className="text-center py-8 space-y-2">
           <AlertTriangle className="h-8 w-8 text-warning-amber mx-auto" />
-          <p className="text-[10px] text-muted-foreground">
+          <p className="text-[0.625rem] text-muted-foreground">
             {tradesQuery.error?.message?.includes('UNAUTHORIZED')
               ? 'Login required to view trades. Journal works in deployed mode.'
               : `Failed to load trades: ${tradesQuery.error?.message}`}
@@ -487,9 +487,9 @@ function TradesTab() {
       ) : trades.length === 0 ? (
         <div className="text-center py-8 space-y-2">
           <BookOpen className="h-8 w-8 text-muted-foreground/40 mx-auto" />
-          <p className="text-[10px] text-muted-foreground">No trades logged yet</p>
+          <p className="text-[0.625rem] text-muted-foreground">No trades logged yet</p>
           <button onClick={() => setShowNewTrade(true)}
-            className="text-info-cyan text-[9px] font-bold tracking-wider hover:underline">
+            className="text-info-cyan text-[0.5625rem] font-bold tracking-wider hover:underline">
             Log your first trade
           </button>
         </div>
@@ -517,18 +517,18 @@ function TradesTab() {
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-bold text-foreground">{trade.instrument.replace('_', ' ')}</span>
-                      <span className={`text-[8px] font-bold px-1 py-0.5 rounded ${
+                      <span className="text-[0.625rem] font-bold text-foreground">{trade.instrument.replace('_', ' ')}</span>
+                      <span className={`text-[0.5rem] font-bold px-1 py-0.5 rounded ${
                         isBuy ? 'bg-bullish/10 text-bullish border border-bullish/20' : 'bg-destructive/10 text-destructive border border-destructive/20'
                       }`}>
                         {trade.tradeType.replace('_', ' ')}
                       </span>
-                      <span className="text-[8px] text-muted-foreground tabular-nums">{trade.strike}</span>
+                      <span className="text-[0.5rem] text-muted-foreground tabular-nums">{trade.strike}</span>
                       {trade.mode === 'PAPER' && (
-                        <span className="text-[7px] px-1 py-0.5 rounded bg-warning-amber/10 text-warning-amber border border-warning-amber/20">PAPER</span>
+                        <span className="text-[0.4375rem] px-1 py-0.5 rounded bg-warning-amber/10 text-warning-amber border border-warning-amber/20">PAPER</span>
                       )}
                     </div>
-                    <div className="text-[8px] text-muted-foreground mt-0.5">
+                    <div className="text-[0.5rem] text-muted-foreground mt-0.5">
                       {formatDateShort(trade.entryTime)} · ₹{formatPrice(trade.entryPrice)} × {trade.quantity}
                     </div>
                   </div>
@@ -536,15 +536,15 @@ function TradesTab() {
                   <div className="text-right shrink-0">
                     {trade.status === 'CLOSED' && trade.pnl !== null ? (
                       <>
-                        <div className={`text-[11px] font-bold tabular-nums ${isWin ? 'text-bullish' : 'text-destructive'}`}>
+                        <div className={`text-[0.6875rem] font-bold tabular-nums ${isWin ? 'text-bullish' : 'text-destructive'}`}>
                           {fmtAmt(trade.pnl, true)}
                         </div>
-                        <div className={`text-[8px] tabular-nums ${isWin ? 'text-bullish/70' : 'text-destructive/70'}`}>
+                        <div className={`text-[0.5rem] tabular-nums ${isWin ? 'text-bullish/70' : 'text-destructive/70'}`}>
                           {isWin ? '+' : ''}{trade.pnlPercent?.toFixed(1)}%
                         </div>
                       </>
                     ) : (
-                      <span className="text-[9px] text-info-cyan font-bold">OPEN</span>
+                      <span className="text-[0.5625rem] text-info-cyan font-bold">OPEN</span>
                     )}
                   </div>
 
@@ -554,7 +554,7 @@ function TradesTab() {
                 {/* Expanded details */}
                 {isExpanded && (
                   <div className="px-2.5 pb-2.5 pt-1 border-t border-white/5 space-y-1.5">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[8px]">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[0.5rem]">
                       {trade.stopLoss && (
                         <div><span className="text-muted-foreground">SL:</span> <span className="text-destructive font-bold tabular-nums">₹{formatPrice(trade.stopLoss)}</span></div>
                       )}
@@ -583,20 +583,20 @@ function TradesTab() {
 
                     {trade.rationale && (
                       <div>
-                        <span className="text-[7px] text-muted-foreground tracking-wider uppercase">Rationale:</span>
-                        <p className="text-[9px] text-foreground/80 mt-0.5">{trade.rationale}</p>
+                        <span className="text-[0.4375rem] text-muted-foreground tracking-wider uppercase">Rationale:</span>
+                        <p className="text-[0.5625rem] text-foreground/80 mt-0.5">{trade.rationale}</p>
                       </div>
                     )}
                     {trade.exitReason && (
                       <div>
-                        <span className="text-[7px] text-muted-foreground tracking-wider uppercase">Exit Reason:</span>
-                        <p className="text-[9px] text-foreground/80 mt-0.5">{trade.exitReason}</p>
+                        <span className="text-[0.4375rem] text-muted-foreground tracking-wider uppercase">Exit Reason:</span>
+                        <p className="text-[0.5625rem] text-foreground/80 mt-0.5">{trade.exitReason}</p>
                       </div>
                     )}
                     {trade.tags && (
                       <div className="flex gap-1 flex-wrap">
                         {trade.tags.split(',').map((tag, i) => (
-                          <span key={i} className="text-[7px] px-1 py-0.5 rounded bg-secondary/50 border border-border text-muted-foreground">
+                          <span key={i} className="text-[0.4375rem] px-1 py-0.5 rounded bg-secondary/50 border border-border text-muted-foreground">
                             {tag.trim()}
                           </span>
                         ))}
@@ -611,7 +611,7 @@ function TradesTab() {
                     {/* Close button for open trades */}
                     {isOpen && closingTradeId !== trade.id && (
                       <button onClick={(e) => { e.stopPropagation(); setClosingTradeId(trade.id); }}
-                        className="px-2 py-1 rounded bg-destructive/15 border border-destructive/40 text-destructive text-[9px] font-bold tracking-wider hover:bg-destructive/25 transition-colors">
+                        className="px-2 py-1 rounded bg-destructive/15 border border-destructive/40 text-destructive text-[0.5625rem] font-bold tracking-wider hover:bg-destructive/25 transition-colors">
                         CLOSE TRADE
                       </button>
                     )}
@@ -652,7 +652,7 @@ function AnalyticsTab() {
     return (
       <div className="text-center py-8 space-y-2">
         <AlertTriangle className="h-8 w-8 text-warning-amber mx-auto" />
-        <p className="text-[10px] text-muted-foreground">
+        <p className="text-[0.625rem] text-muted-foreground">
           {statsQuery.error?.message?.includes('UNAUTHORIZED')
             ? 'Login required to view analytics.'
             : `Failed to load stats: ${statsQuery.error?.message}`}
@@ -665,7 +665,7 @@ function AnalyticsTab() {
     return (
       <div className="text-center py-8 space-y-2">
         <PieChart className="h-8 w-8 text-muted-foreground/40 mx-auto" />
-        <p className="text-[10px] text-muted-foreground">No closed trades yet. Analytics will appear after your first completed trade.</p>
+        <p className="text-[0.625rem] text-muted-foreground">No closed trades yet. Analytics will appear after your first completed trade.</p>
       </div>
     );
   }
@@ -716,7 +716,7 @@ function CompareTab() {
     return (
       <div className="text-center py-8 space-y-2">
         <AlertTriangle className="h-8 w-8 text-warning-amber mx-auto" />
-        <p className="text-[10px] text-muted-foreground">
+        <p className="text-[0.625rem] text-muted-foreground">
           {compareQuery.error?.message?.includes('UNAUTHORIZED')
             ? 'Login required to view comparison.'
             : `Failed to load: ${compareQuery.error?.message}`}
@@ -731,7 +731,7 @@ function CompareTab() {
     return (
       <div className="text-center py-8 space-y-2">
         <Scale className="h-8 w-8 text-muted-foreground/40 mx-auto" />
-        <p className="text-[10px] text-muted-foreground">No closed trades yet. Comparison will appear after trades are completed in both modes.</p>
+        <p className="text-[0.625rem] text-muted-foreground">No closed trades yet. Comparison will appear after trades are completed in both modes.</p>
       </div>
     );
   }
@@ -795,23 +795,23 @@ function CompareTab() {
       <div className="flex items-center gap-2 mb-2">
         <Scale className="h-4 w-4 text-info-cyan" />
         <span className="text-xs font-bold tracking-wider text-foreground">YOU vs AI</span>
-        <span className="text-[9px] text-muted-foreground">Who performs better?</span>
+        <span className="text-[0.5625rem] text-muted-foreground">Who performs better?</span>
       </div>
 
       {/* Comparison Table */}
       <div className="border border-border rounded-lg overflow-hidden">
         <div className="grid grid-cols-3 bg-secondary/20 border-b border-border">
-          <div className="px-3 py-2 text-[9px] font-bold tracking-wider text-muted-foreground">METRIC</div>
-          <div className="px-3 py-2 text-[9px] font-bold tracking-wider text-info-cyan text-center">YOU (LIVE)</div>
-          <div className="px-3 py-2 text-[9px] font-bold tracking-wider text-warning-amber text-center">AI (PAPER)</div>
+          <div className="px-3 py-2 text-[0.5625rem] font-bold tracking-wider text-muted-foreground">METRIC</div>
+          <div className="px-3 py-2 text-[0.5625rem] font-bold tracking-wider text-info-cyan text-center">YOU (LIVE)</div>
+          <div className="px-3 py-2 text-[0.5625rem] font-bold tracking-wider text-warning-amber text-center">AI (PAPER)</div>
         </div>
         {rows.map(({ label, liveVal, paperVal, liveColor, paperColor }) => (
           <div key={label} className="grid grid-cols-3 border-b border-border/50 last:border-b-0 hover:bg-secondary/10">
-            <div className="px-3 py-2.5 text-[10px] text-muted-foreground">{label}</div>
-            <div className={`px-3 py-2.5 text-[10px] font-mono font-bold text-center ${liveColor ?? 'text-foreground'}`}>
+            <div className="px-3 py-2.5 text-[0.625rem] text-muted-foreground">{label}</div>
+            <div className={`px-3 py-2.5 text-[0.625rem] font-mono font-bold text-center ${liveColor ?? 'text-foreground'}`}>
               {liveVal}
             </div>
-            <div className={`px-3 py-2.5 text-[10px] font-mono font-bold text-center ${paperColor ?? 'text-foreground'}`}>
+            <div className={`px-3 py-2.5 text-[0.625rem] font-mono font-bold text-center ${paperColor ?? 'text-foreground'}`}>
               {paperVal}
             </div>
           </div>
@@ -827,14 +827,14 @@ function CompareTab() {
             ? 'bg-warning-amber/5 border-warning-amber/30'
             : 'bg-secondary/10 border-border'
         }`}>
-          <span className="text-[10px] font-bold tracking-wider">
+          <span className="text-[0.625rem] font-bold tracking-wider">
             {(live?.totalPnl ?? 0) > (paper?.totalPnl ?? 0)
               ? '\uD83C\uDFC6 YOU are outperforming AI'
               : (paper?.totalPnl ?? 0) > (live?.totalPnl ?? 0)
               ? '\uD83E\uDD16 AI is outperforming YOU'
               : '\uD83E\uDD1D Tied!'}
           </span>
-          <span className="text-[9px] text-muted-foreground block mt-0.5">
+          <span className="text-[0.5625rem] text-muted-foreground block mt-0.5">
             P&L difference: {fmtAmt(Math.abs((live?.totalPnl ?? 0) - (paper?.totalPnl ?? 0)))}
           </span>
         </div>
@@ -862,7 +862,7 @@ export default function JournalOverlay({ open, onOpenChange }: JournalOverlayPro
           <DialogTitle className="flex items-center gap-2 text-base font-display font-bold tracking-tight mb-3">
             <BookOpen className="h-4 w-4 text-warning-amber" />
             Trade Journal
-            <span className="text-[9px] text-muted-foreground tracking-widest uppercase ml-2">
+            <span className="text-[0.5625rem] text-muted-foreground tracking-widest uppercase ml-2">
               Ctrl+J to toggle
             </span>
           </DialogTitle>
@@ -873,7 +873,7 @@ export default function JournalOverlay({ open, onOpenChange }: JournalOverlayPro
               <button
                 key={id}
                 onClick={() => setTab(id)}
-                className={`flex items-center gap-1.5 px-3 py-2 text-[10px] font-bold tracking-wider border-b-2 transition-colors ${
+                className={`flex items-center gap-1.5 px-3 py-2 text-[0.625rem] font-bold tracking-wider border-b-2 transition-colors ${
                   tab === id
                     ? 'border-warning-amber text-warning-amber'
                     : 'border-transparent text-muted-foreground hover:text-foreground'

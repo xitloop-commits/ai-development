@@ -29,13 +29,13 @@ export default function InstrumentFilterPanel() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <LayoutGrid className="h-3 w-3 text-info-cyan" />
-          <span className="text-[9px] font-bold text-info-cyan tracking-wider uppercase">
+          <span className="text-[0.5625rem] font-bold text-info-cyan tracking-wider uppercase">
             Instruments
           </span>
         </div>
         <button
           onClick={enableAll}
-          className={`text-[8px] tracking-wider uppercase px-1.5 py-0.5 rounded transition-colors ${
+          className={`text-[0.5rem] tracking-wider uppercase px-1.5 py-0.5 rounded transition-colors ${
             allEnabled
               ? 'text-muted-foreground bg-secondary/30'
               : 'text-info-cyan bg-info-cyan/10 hover:bg-info-cyan/20 border border-info-cyan/30'
@@ -62,12 +62,12 @@ export default function InstrumentFilterPanel() {
                 <span className="text-sm">{INSTRUMENT_ICONS[inst.key]}</span>
                 <div>
                   <div className="flex items-center gap-1.5">
-                    <span className={`text-[10px] font-bold tracking-wider ${
+                    <span className={`text-[0.625rem] font-bold tracking-wider ${
                       isOn ? 'text-foreground' : 'text-muted-foreground'
                     }`}>
                       {inst.displayName}
                     </span>
-                    <span className={`text-[8px] px-1 py-0.5 rounded ${
+                    <span className={`text-[0.5rem] px-1 py-0.5 rounded ${
                       inst.exchange === 'NSE'
                         ? 'bg-info-cyan/10 text-info-cyan'
                         : 'bg-warning-amber/10 text-warning-amber'
@@ -95,17 +95,17 @@ export default function InstrumentFilterPanel() {
 
       {/* Active count + sync status */}
       <div className="text-center space-y-1">
-        <span className="text-[9px] text-muted-foreground tabular-nums">
+        <span className="text-[0.5625rem] text-muted-foreground tabular-nums">
           {enabledCount} of {ALL_INSTRUMENTS.length} instruments active
         </span>
         <div className="flex items-center justify-center gap-1">
           {isSyncing ? (
             <>
               <Loader2 className="h-2.5 w-2.5 text-info-cyan animate-spin" />
-              <span className="text-[8px] text-info-cyan">Syncing to pipeline...</span>
+              <span className="text-[0.5rem] text-info-cyan">Syncing to pipeline...</span>
             </>
           ) : (
-            <span className="text-[8px] text-muted-foreground">Pipeline synced</span>
+            <span className="text-[0.5rem] text-muted-foreground">Pipeline synced</span>
           )}
         </div>
       </div>

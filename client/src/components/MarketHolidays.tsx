@@ -55,7 +55,7 @@ function SessionBadge({ morning, evening }: { morning?: string; evening?: string
   return (
     <div className="flex items-center gap-1">
       {morning && (
-        <span className={`text-[7px] px-1 py-0 rounded border ${
+        <span className={`text-[0.4375rem] px-1 py-0 rounded border ${
           morning === 'closed'
             ? 'bg-destructive/10 text-destructive border-destructive/20'
             : 'bg-bullish/10 text-bullish border-bullish/20'
@@ -64,7 +64,7 @@ function SessionBadge({ morning, evening }: { morning?: string; evening?: string
         </span>
       )}
       {evening && (
-        <span className={`text-[7px] px-1 py-0 rounded border ${
+        <span className={`text-[0.4375rem] px-1 py-0 rounded border ${
           evening === 'closed'
             ? 'bg-destructive/10 text-destructive border-destructive/20'
             : 'bg-bullish/10 text-bullish border-bullish/20'
@@ -118,11 +118,11 @@ export default function MarketHolidays() {
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <div className="flex items-center gap-1.5">
           <Calendar className="h-3.5 w-3.5 text-info-cyan" />
-          <span className="text-[10px] font-bold tracking-wider text-foreground uppercase">
+          <span className="text-[0.625rem] font-bold tracking-wider text-foreground uppercase">
             Market Holidays
           </span>
           {nextHoliday && nextDays <= 3 && (
-            <span className="text-[8px] px-1.5 py-0.5 rounded bg-warning-amber/10 text-warning-amber border border-warning-amber/20 font-bold animate-pulse-glow">
+            <span className="text-[0.5rem] px-1.5 py-0.5 rounded bg-warning-amber/10 text-warning-amber border border-warning-amber/20 font-bold animate-pulse-glow">
               {getDaysLabel(nextDays)}: {nextHoliday.description}
             </span>
           )}
@@ -132,7 +132,7 @@ export default function MarketHolidays() {
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`text-[8px] px-1.5 py-0.5 rounded font-bold tracking-wider transition-colors ${
+              className={`text-[0.5rem] px-1.5 py-0.5 rounded font-bold tracking-wider transition-colors ${
                 tab === t
                   ? 'bg-info-cyan/15 text-info-cyan border border-info-cyan/30'
                   : 'text-muted-foreground hover:text-foreground'
@@ -148,7 +148,7 @@ export default function MarketHolidays() {
       <div className="divide-y divide-border/50">
         {displayHolidays.length === 0 ? (
           <div className="px-3 py-4 text-center">
-            <span className="text-[10px] text-muted-foreground">No upcoming holidays in the next 90 days</span>
+            <span className="text-[0.625rem] text-muted-foreground">No upcoming holidays in the next 90 days</span>
           </div>
         ) : (
           displayHolidays.map((h, i) => {
@@ -165,20 +165,20 @@ export default function MarketHolidays() {
               >
                 {/* Date */}
                 <div className="w-[52px] shrink-0">
-                  <div className="text-[10px] font-bold tabular-nums text-foreground">
+                  <div className="text-[0.625rem] font-bold tabular-nums text-foreground">
                     {formatDateShort(h.date)}
                   </div>
-                  <div className="text-[8px] text-muted-foreground">{h.day.slice(0, 3)}</div>
+                  <div className="text-[0.5rem] text-muted-foreground">{h.day.slice(0, 3)}</div>
                 </div>
 
                 {/* Description */}
                 <div className="flex-1 min-w-0">
-                  <div className={`text-[10px] leading-tight truncate ${getTypeColor(h)}`}>
+                  <div className={`text-[0.625rem] leading-tight truncate ${getTypeColor(h)}`}>
                     {h.description}
                   </div>
                   <div className="flex items-center gap-1 mt-0.5">
                     {/* Exchange badge */}
-                    <span className={`text-[7px] px-1 py-0 rounded border font-bold ${
+                    <span className={`text-[0.4375rem] px-1 py-0 rounded border font-bold ${
                       h.exchange === 'NSE' ? 'bg-info-cyan/10 text-info-cyan border-info-cyan/20' :
                       h.exchange === 'MCX' ? 'bg-warning-amber/10 text-warning-amber border-warning-amber/20' :
                       'bg-muted/30 text-muted-foreground border-border'
@@ -187,7 +187,7 @@ export default function MarketHolidays() {
                     </span>
                     {/* Type badge */}
                     {badge && (
-                      <span className={`text-[7px] px-1 py-0 rounded border font-bold ${badge.className}`}>
+                      <span className={`text-[0.4375rem] px-1 py-0 rounded border font-bold ${badge.className}`}>
                         {badge.label}
                       </span>
                     )}
@@ -200,7 +200,7 @@ export default function MarketHolidays() {
 
                 {/* Days until */}
                 <div className="shrink-0 text-right">
-                  <span className={`text-[9px] font-bold tabular-nums ${
+                  <span className={`text-[0.5625rem] font-bold tabular-nums ${
                     isImminent ? 'text-warning-amber' : 'text-muted-foreground'
                   }`}>
                     {getDaysLabel(days)}
@@ -217,7 +217,7 @@ export default function MarketHolidays() {
         <div className="px-3 py-1.5 border-t border-border/50">
           <button
             onClick={() => setShowAll(!showAll)}
-            className="text-[9px] text-info-cyan hover:text-info-cyan/80 font-bold tracking-wider transition-colors"
+            className="text-[0.5625rem] text-info-cyan hover:text-info-cyan/80 font-bold tracking-wider transition-colors"
           >
             {showAll ? 'Show Less' : `Show All (${deduped.length})`}
           </button>

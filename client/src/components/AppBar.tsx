@@ -99,7 +99,7 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
               ATS
             </span>
           </div>
-          <span className="hidden xl:inline text-[10px] text-muted-foreground tracking-widest uppercase">
+          <span className="hidden xl:inline text-[0.625rem] text-muted-foreground tracking-widest uppercase">
             Automatic Trading System
           </span>
 
@@ -117,13 +117,13 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
                       className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT_COLORS[mod.status]} ${mod.status === 'active' ? 'animate-pulse-glow' : ''}`}
                     />
                     <Icon className={`h-3.5 w-3.5 ${STATUS_COLORS[mod.status]}`} />
-                    <span className="hidden sm:inline text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                    <span className="hidden sm:inline text-[0.625rem] font-medium tracking-wider text-muted-foreground uppercase">
                       {mod.shortName}
                     </span>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="bg-card border-border text-foreground">
-                  <div className="text-[10px] space-y-0.5">
+                  <div className="text-[0.625rem] space-y-0.5">
                     <div className="font-bold">{mod.name}</div>
                     <div className="text-muted-foreground">{mod.message}</div>
                   </div>
@@ -140,11 +140,11 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
             <TooltipTrigger asChild>
               <div className="flex items-center gap-1 cursor-default">
                 <Globe className={`h-3 w-3 ${brokerConnected ? 'text-bullish' : 'text-muted-foreground'}`} />
-                <span className="hidden lg:inline text-[9px] text-muted-foreground tracking-wider">API</span>
+                <span className="hidden lg:inline text-[0.5625rem] text-muted-foreground tracking-wider">API</span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="bg-card border-border text-foreground">
-              <div className="text-[10px] space-y-0.5">
+              <div className="text-[0.625rem] space-y-0.5">
                 <div className={`font-bold ${brokerConnected ? 'text-bullish' : 'text-muted-foreground'}`}>
                   {brokerConnected ? `${brokerName} Connected` : 'Broker Disconnected'}
                 </div>
@@ -163,11 +163,11 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
                 {feedState?.wsConnected && (
                   <span className="h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
                 )}
-                <span className="hidden lg:inline text-[9px] text-muted-foreground tracking-wider">FEED</span>
+                <span className="hidden lg:inline text-[0.5625rem] text-muted-foreground tracking-wider">FEED</span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="bg-card border-border text-foreground">
-              <div className="text-[10px] space-y-0.5">
+              <div className="text-[0.625rem] space-y-0.5">
                 <div className={`font-bold ${feedState?.wsConnected ? 'text-bullish' : 'text-muted-foreground'}`}>
                   {feedState?.wsConnected ? 'Feed Connected' : 'Feed Disconnected'}
                 </div>
@@ -183,13 +183,13 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
             <TooltipTrigger asChild>
               <div className="flex items-center gap-1 cursor-default">
                 <Shield className={`h-3 w-3 ${scoreColor}`} />
-                <span className={`hidden lg:inline text-[9px] font-bold tabular-nums ${scoreColor}`}>
+                <span className={`hidden lg:inline text-[0.5625rem] font-bold tabular-nums ${scoreColor}`}>
                   {disciplineScore}
                 </span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="bg-card border-border text-foreground">
-              <div className="text-[10px] space-y-0.5">
+              <div className="text-[0.625rem] space-y-0.5">
                 <div className={`font-bold ${scoreColor}`}>Discipline Score: {disciplineScore}/100</div>
                 <div className="text-muted-foreground">
                   {violationCount === 0 ? 'No violations today' : `${violationCount} violation${violationCount > 1 ? 's' : ''} today`}
@@ -204,7 +204,7 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
           {/* Time */}
           <div className="flex items-center gap-1">
             <Clock className="h-3 w-3 text-muted-foreground" />
-            <span className="text-[10px] tabular-nums text-muted-foreground">
+            <span className="text-[0.625rem] tabular-nums text-muted-foreground">
               {time.toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' })} IST
             </span>
           </div>

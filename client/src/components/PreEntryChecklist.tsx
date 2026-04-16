@@ -262,7 +262,7 @@ export default function PreEntryChecklist({ data, onClose, onConfirm }: PreEntry
             <span className="font-display text-sm font-bold tracking-wider text-foreground">
               PRE-ENTRY CHECKLIST
             </span>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-[0.625rem] text-muted-foreground">
               — {data.displayName} {data.tradeDirection === 'GO_CALL' ? 'CALL' : data.tradeDirection === 'GO_PUT' ? 'PUT' : 'WAIT'}
             </span>
           </div>
@@ -280,7 +280,7 @@ export default function PreEntryChecklist({ data, onClose, onConfirm }: PreEntry
               <button
                 key={item.id}
                 onClick={() => handleStepClick(i)}
-                className={`flex items-center gap-1 px-3 py-2 text-[9px] font-bold tracking-wider uppercase whitespace-nowrap transition-all border-b-2 ${
+                className={`flex items-center gap-1 px-3 py-2 text-[0.5625rem] font-bold tracking-wider uppercase whitespace-nowrap transition-all border-b-2 ${
                   isActive
                     ? 'border-info-cyan text-info-cyan bg-info-cyan/5'
                     : isReviewed
@@ -288,7 +288,7 @@ export default function PreEntryChecklist({ data, onClose, onConfirm }: PreEntry
                     : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
-                {isReviewed ? statusIcon(item.result.status) : <span className="text-[10px] tabular-nums w-4 text-center">{i + 1}</span>}
+                {isReviewed ? statusIcon(item.result.status) : <span className="text-[0.625rem] tabular-nums w-4 text-center">{i + 1}</span>}
                 <span className="hidden sm:inline">{item.label}</span>
               </button>
             );
@@ -304,7 +304,7 @@ export default function PreEntryChecklist({ data, onClose, onConfirm }: PreEntry
             }`} />
             <div>
               <div className="text-sm font-bold text-foreground">{current.label}</div>
-              <div className="text-[9px] text-muted-foreground tracking-wider uppercase">{current.category}</div>
+              <div className="text-[0.5625rem] text-muted-foreground tracking-wider uppercase">{current.category}</div>
             </div>
             <div className="ml-auto flex items-center gap-2">
               {statusIcon(current.result.status)}
@@ -318,14 +318,14 @@ export default function PreEntryChecklist({ data, onClose, onConfirm }: PreEntry
           </div>
 
           <div className={`rounded border p-3 ${statusColor(current.result.status)}`}>
-            <p className="text-[11px] text-foreground leading-relaxed">{current.result.detail}</p>
+            <p className="text-[0.6875rem] text-foreground leading-relaxed">{current.result.detail}</p>
           </div>
 
           {/* Score bar */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <span className="text-[9px] text-muted-foreground tracking-wider uppercase">Step Score</span>
-              <span className={`text-[10px] font-bold tabular-nums ${
+              <span className="text-[0.5625rem] text-muted-foreground tracking-wider uppercase">Step Score</span>
+              <span className={`text-[0.625rem] font-bold tabular-nums ${
                 current.result.score >= 70 ? 'text-bullish' :
                 current.result.score >= 45 ? 'text-warning-amber' : 'text-destructive'
               }`}>{current.result.score}/100</span>
@@ -345,7 +345,7 @@ export default function PreEntryChecklist({ data, onClose, onConfirm }: PreEntry
           {currentStep < results.length - 1 && (
             <button
               onClick={handleNext}
-              className="flex items-center gap-1 text-[10px] font-bold tracking-wider text-info-cyan hover:text-info-cyan/80 transition-colors"
+              className="flex items-center gap-1 text-[0.625rem] font-bold tracking-wider text-info-cyan hover:text-info-cyan/80 transition-colors"
             >
               NEXT: {results[currentStep + 1].label}
               <ChevronRight className="h-3 w-3" />
@@ -363,7 +363,7 @@ export default function PreEntryChecklist({ data, onClose, onConfirm }: PreEntry
                   {readiness === 'GO' ? 'READY' : readiness === 'CAUTION' ? 'CAUTION' : 'NOT READY'}
                 </span>
               </div>
-              <div className="flex items-center gap-2 text-[9px]">
+              <div className="flex items-center gap-2 text-[0.5625rem]">
                 <span className="text-bullish font-bold">{passCount} pass</span>
                 <span className="text-warning-amber font-bold">{warnCount} warn</span>
                 <span className="text-destructive font-bold">{failCount} fail</span>
@@ -372,7 +372,7 @@ export default function PreEntryChecklist({ data, onClose, onConfirm }: PreEntry
 
             <div className="flex items-center gap-3">
               <div className="text-right">
-                <div className="text-[8px] text-muted-foreground tracking-wider uppercase">Overall</div>
+                <div className="text-[0.5rem] text-muted-foreground tracking-wider uppercase">Overall</div>
                 <div className={`text-lg font-bold tabular-nums ${readinessColor}`}>{overallScore}%</div>
               </div>
               {allReviewed && readiness === 'GO' && onConfirm && (

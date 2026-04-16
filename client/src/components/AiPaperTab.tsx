@@ -17,15 +17,15 @@ export default function AiPaperTab() {
       </div>
       <div className="space-y-1.5">
         <p className="text-sm font-semibold text-foreground">ML Model Coming Soon</p>
-        <p className="text-[11px] text-muted-foreground max-w-xs leading-relaxed">
+        <p className="text-[0.6875rem] text-muted-foreground max-w-xs leading-relaxed">
           The rule-based Decision Engine has been retired. A trained ML model
           (built on TFA feature data) will power this tab once the model
           training pipeline is complete.
         </p>
       </div>
       <div className="flex items-center gap-2 px-3 py-1.5 rounded border border-violet-pulse/20 bg-violet-pulse/5">
-        <span className="text-[9px] text-violet-pulse tracking-wider uppercase font-bold">Pipeline</span>
-        <span className="text-[9px] text-muted-foreground">TFA → Record → Train → Infer → RCA</span>
+        <span className="text-[0.5625rem] text-violet-pulse tracking-wider uppercase font-bold">Pipeline</span>
+        <span className="text-[0.5625rem] text-muted-foreground">TFA → Record → Train → Infer → RCA</span>
       </div>
     </div>
   );

@@ -107,11 +107,11 @@ export function EmptyState({ icon: Icon, title, description, action, iconColor =
   return (
     <div className="flex flex-col items-center justify-center py-8 px-4 text-center space-y-2">
       <Icon className={`h-10 w-10 ${iconColor}`} />
-      <h3 className="text-[11px] font-bold text-foreground tracking-wide">{title}</h3>
-      <p className="text-[9px] text-muted-foreground max-w-xs leading-relaxed">{description}</p>
+      <h3 className="text-[0.6875rem] font-bold text-foreground tracking-wide">{title}</h3>
+      <p className="text-[0.5625rem] text-muted-foreground max-w-xs leading-relaxed">{description}</p>
       {action && (
         <button onClick={action.onClick}
-          className="mt-1 px-3 py-1 rounded bg-info-cyan/15 border border-info-cyan/40 text-info-cyan text-[9px] font-bold tracking-wider hover:bg-info-cyan/25 transition-colors">
+          className="mt-1 px-3 py-1 rounded bg-info-cyan/15 border border-info-cyan/40 text-info-cyan text-[0.5625rem] font-bold tracking-wider hover:bg-info-cyan/25 transition-colors">
           {action.label}
         </button>
       )}
@@ -177,7 +177,7 @@ export function ErrorState({ message, onRetry, compact = false }: ErrorStateProp
     return (
       <div className="flex items-center gap-2 px-2 py-1.5 rounded bg-destructive/5 border border-destructive/20">
         <AlertTriangle className="h-3 w-3 text-destructive shrink-0" />
-        <span className="text-[9px] text-destructive/80 truncate">{message}</span>
+        <span className="text-[0.5625rem] text-destructive/80 truncate">{message}</span>
         {onRetry && (
           <button onClick={onRetry} className="shrink-0 text-destructive hover:text-destructive/80">
             <RefreshCw className="h-3 w-3" />
@@ -190,10 +190,10 @@ export function ErrorState({ message, onRetry, compact = false }: ErrorStateProp
   return (
     <div className="flex flex-col items-center justify-center py-6 px-4 text-center space-y-2">
       <AlertTriangle className="h-8 w-8 text-destructive/60" />
-      <p className="text-[10px] text-destructive/80 max-w-xs">{message}</p>
+      <p className="text-[0.625rem] text-destructive/80 max-w-xs">{message}</p>
       {onRetry && (
         <button onClick={onRetry}
-          className="flex items-center gap-1 px-2 py-1 rounded bg-destructive/10 border border-destructive/30 text-destructive text-[9px] font-bold tracking-wider hover:bg-destructive/20 transition-colors">
+          className="flex items-center gap-1 px-2 py-1 rounded bg-destructive/10 border border-destructive/30 text-destructive text-[0.5625rem] font-bold tracking-wider hover:bg-destructive/20 transition-colors">
           <RefreshCw className="h-3 w-3" /> RETRY
         </button>
       )}
@@ -211,7 +211,7 @@ export function ConnectionStatus({ connected, label }: { connected: boolean; lab
       ) : (
         <WifiOff className="h-2.5 w-2.5 text-destructive" />
       )}
-      <span className={`text-[7px] tracking-wider uppercase ${connected ? 'text-bullish' : 'text-destructive'}`}>
+      <span className={`text-[0.4375rem] tracking-wider uppercase ${connected ? 'text-bullish' : 'text-destructive'}`}>
         {label}: {connected ? 'OK' : 'DOWN'}
       </span>
     </div>

@@ -87,11 +87,11 @@ const SECTIONS: SectionItem[] = [
 function FieldLabel({ children, hint }: { children: React.ReactNode; hint?: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <label className="text-[11px] font-bold tracking-wider uppercase text-muted-foreground">
+      <label className="text-[0.6875rem] font-bold tracking-wider uppercase text-muted-foreground">
         {children}
       </label>
       {hint && (
-        <span className="text-[9px] text-muted-foreground/70">{hint}</span>
+        <span className="text-[0.5625rem] text-muted-foreground/70">{hint}</span>
       )}
     </div>
   );
@@ -101,7 +101,7 @@ function SettingsCard({ title, children, className = '' }: { title?: string; chi
   return (
     <div className={`border border-border rounded-md bg-card p-4 ${className}`}>
       {title && (
-        <h3 className="text-[11px] font-bold tracking-wider uppercase text-muted-foreground mb-3 pb-2 border-b border-border">
+        <h3 className="text-[0.6875rem] font-bold tracking-wider uppercase text-muted-foreground mb-3 pb-2 border-b border-border">
           {title}
         </h3>
       )}
@@ -169,10 +169,10 @@ function NumberInput({
         max={max}
         step={step}
         disabled={disabled}
-        className="w-20 h-8 px-2 text-[11px] bg-background border border-border rounded text-foreground tabular-nums focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-20 h-8 px-2 text-[0.6875rem] bg-background border border-border rounded text-foreground tabular-nums focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
       />
       {suffix && (
-        <span className="text-[10px] text-muted-foreground">{suffix}</span>
+        <span className="text-[0.625rem] text-muted-foreground">{suffix}</span>
       )}
     </div>
   );
@@ -194,7 +194,7 @@ function SelectInput({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
-      className="h-8 px-2 text-[11px] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+      className="h-8 px-2 text-[0.6875rem] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {options.map((opt) => (
         <option key={opt.value} value={opt.value}>
@@ -212,7 +212,7 @@ function TimeInput({ value, onChange, disabled = false }: { value: string; onCha
       value={value}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
-      className="h-8 px-2 text-[11px] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
+      className="h-8 px-2 text-[0.6875rem] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
     />
   );
 }
@@ -235,7 +235,7 @@ function StatusBadge({ status, label }: { status: 'connected' | 'disconnected' |
     unknown: 'bg-warning-amber',
   };
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[9px] font-bold tracking-wider border ${colors[status] ?? colors.unknown}`}>
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[0.5625rem] font-bold tracking-wider border ${colors[status] ?? colors.unknown}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${dotColors[status] ?? dotColors.unknown} ${status === 'connected' || status === 'valid' ? 'animate-pulse-glow' : ''}`} />
       {label}
     </span>
@@ -247,7 +247,7 @@ function SaveButton({ onClick, loading, disabled }: { onClick: () => void; loadi
     <button
       onClick={onClick}
       disabled={loading || disabled}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-bold tracking-wider uppercase bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[0.625rem] font-bold tracking-wider uppercase bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
       {loading ? 'SAVING...' : 'SAVE'}
@@ -259,7 +259,7 @@ function ResetButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-bold tracking-wider uppercase border border-border text-muted-foreground hover:bg-accent transition-colors"
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[0.625rem] font-bold tracking-wider uppercase border border-border text-muted-foreground hover:bg-accent transition-colors"
     >
       <RotateCcw className="h-3 w-3" />
       RESET
@@ -397,18 +397,18 @@ export function BrokerConfigSection() {
             <div className="flex items-center justify-between">
               <FieldLabel>Client ID</FieldLabel>
               {config.credentials.clientId ? (
-                <span className="text-[11px] text-foreground tabular-nums">
+                <span className="text-[0.6875rem] text-foreground tabular-nums">
                   {config.credentials.clientId}
                 </span>
               ) : (
-                <span className="text-[11px] text-loss-red">
+                <span className="text-[0.6875rem] text-loss-red">
                   Not set — enter below
                 </span>
               )}
             </div>
             <div className="flex items-center justify-between">
               <FieldLabel>Access Token</FieldLabel>
-              <span className="text-[11px] text-foreground tabular-nums">
+              <span className="text-[0.6875rem] text-foreground tabular-nums">
                 {config.credentials.accessToken || '—'}
               </span>
             </div>
@@ -422,14 +422,14 @@ export function BrokerConfigSection() {
             {config.credentials.updatedAt > 0 && (
               <div className="flex items-center justify-between">
                 <FieldLabel>Last Updated</FieldLabel>
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-[0.625rem] text-muted-foreground">
                   {new Date(config.credentials.updatedAt).toLocaleString('en-IN')}
                 </span>
               </div>
             )}
           </div>
         ) : (
-          <p className="text-[11px] text-muted-foreground">No broker configured</p>
+          <p className="text-[0.6875rem] text-muted-foreground">No broker configured</p>
         )}
       </SettingsCard>
 
@@ -439,7 +439,7 @@ export function BrokerConfigSection() {
           <div className="space-y-3">
             <div className="flex items-center gap-2 p-2 rounded bg-warning-amber/5 border border-warning-amber/20">
               <AlertTriangle className="h-3.5 w-3.5 text-warning-amber shrink-0" />
-              <span className="text-[10px] text-warning-amber">
+              <span className="text-[0.625rem] text-warning-amber">
                 Paste a new access token from your Dhan dashboard. Tokens expire every 24 hours.
               </span>
             </div>
@@ -449,7 +449,7 @@ export function BrokerConfigSection() {
                 value={tokenInput}
                 onChange={(e) => setTokenInput(e.target.value)}
                 placeholder="Paste new access token..."
-                className="flex-1 h-8 px-3 text-[11px] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                className="flex-1 h-8 px-3 text-[0.6875rem] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
               <button
                 onClick={() => {
@@ -463,7 +463,7 @@ export function BrokerConfigSection() {
                   });
                 }}
                 disabled={!tokenInput.trim() || tokenMutation.isPending}
-                className="flex items-center gap-1.5 px-3 h-8 rounded text-[10px] font-bold tracking-wider uppercase bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3 h-8 rounded text-[0.625rem] font-bold tracking-wider uppercase bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
               >
                 {tokenMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Key className="h-3 w-3" />}
                 UPDATE
@@ -488,13 +488,13 @@ export function BrokerConfigSection() {
             {config.connection.latencyMs !== null && (
               <div className="flex items-center justify-between">
                 <FieldLabel>API Latency</FieldLabel>
-                <span className="text-[11px] text-foreground tabular-nums">{config.connection.latencyMs}ms</span>
+                <span className="text-[0.6875rem] text-foreground tabular-nums">{config.connection.latencyMs}ms</span>
               </div>
             )}
             {config.connection.lastApiCall && (
               <div className="flex items-center justify-between">
                 <FieldLabel>Last API Call</FieldLabel>
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-[0.625rem] text-muted-foreground">
                   {new Date(config.connection.lastApiCall).toLocaleString('en-IN')}
                 </span>
               </div>
@@ -514,7 +514,7 @@ export function BrokerConfigSection() {
                 ) : (
                   <XCircle className="h-3 w-3 text-muted-foreground" />
                 )}
-                <span className="text-[10px] text-foreground uppercase tracking-wider">
+                <span className="text-[0.625rem] text-foreground uppercase tracking-wider">
                   {key.replace(/([A-Z])/g, ' $1').trim()}
                 </span>
               </div>
@@ -622,7 +622,7 @@ export function OrderExecutionSection() {
   if (!config) {
     return (
       <SettingsCard>
-        <p className="text-[11px] text-muted-foreground">No broker configured. Set up a broker first.</p>
+        <p className="text-[0.6875rem] text-muted-foreground">No broker configured. Set up a broker first.</p>
       </SettingsCard>
     );
   }
@@ -632,7 +632,7 @@ export function OrderExecutionSection() {
       {/* Daily Target */}
       <SettingsCard title="Daily Target">
         <div className="space-y-1 mb-3">
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[0.625rem] text-muted-foreground">
             Target profit per Day Index cycle on Trading Capital. Used by the capital compounding system.
           </span>
         </div>
@@ -829,36 +829,36 @@ export function CapitalManagementSection() {
       <SettingsCard title="Current Capital" className="col-span-full">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-background border border-border rounded p-2.5 text-center">
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Initial Funding</div>
-            <div className="text-[13px] font-mono text-foreground mt-1 font-bold">{fmt(capital.initialFunding)}</div>
+            <div className="text-[0.5625rem] text-muted-foreground uppercase tracking-wider">Initial Funding</div>
+            <div className="text-[0.8125rem] font-mono text-foreground mt-1 font-bold">{fmt(capital.initialFunding)}</div>
           </div>
           <div className="bg-background border border-border rounded p-2.5 text-center">
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Trading Pool</div>
-            <div className="text-[13px] font-mono text-primary mt-1 font-bold">{fmt(capital.tradingPool)}</div>
+            <div className="text-[0.5625rem] text-muted-foreground uppercase tracking-wider">Trading Pool</div>
+            <div className="text-[0.8125rem] font-mono text-primary mt-1 font-bold">{fmt(capital.tradingPool)}</div>
           </div>
           <div className="bg-background border border-border rounded p-2.5 text-center">
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Reserve Pool</div>
-            <div className="text-[13px] font-mono text-foreground mt-1 font-bold">{fmt(capital.reservePool)}</div>
+            <div className="text-[0.5625rem] text-muted-foreground uppercase tracking-wider">Reserve Pool</div>
+            <div className="text-[0.8125rem] font-mono text-foreground mt-1 font-bold">{fmt(capital.reservePool)}</div>
           </div>
           <div className="bg-background border border-border rounded p-2.5 text-center">
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Net Worth</div>
-            <div className="text-[13px] font-mono text-foreground mt-1 font-bold">{fmt(capital.netWorth)}</div>
+            <div className="text-[0.5625rem] text-muted-foreground uppercase tracking-wider">Net Worth</div>
+            <div className="text-[0.8125rem] font-mono text-foreground mt-1 font-bold">{fmt(capital.netWorth)}</div>
           </div>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-3">
           <div className="bg-background border border-border rounded p-2.5 text-center">
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Day Index</div>
-            <div className="text-[13px] font-mono text-foreground mt-1 font-bold">{capital.currentDayIndex}</div>
+            <div className="text-[0.5625rem] text-muted-foreground uppercase tracking-wider">Day Index</div>
+            <div className="text-[0.8125rem] font-mono text-foreground mt-1 font-bold">{capital.currentDayIndex}</div>
           </div>
           <div className="bg-background border border-border rounded p-2.5 text-center">
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Cumulative P&L</div>
-            <div className={`text-[13px] font-mono mt-1 font-bold ${capital.cumulativePnl >= 0 ? 'text-bullish' : 'text-bearish'}`}>
+            <div className="text-[0.5625rem] text-muted-foreground uppercase tracking-wider">Cumulative P&L</div>
+            <div className={`text-[0.8125rem] font-mono mt-1 font-bold ${capital.cumulativePnl >= 0 ? 'text-bullish' : 'text-bearish'}`}>
               {capital.cumulativePnl >= 0 ? '+' : ''}{fmt(capital.cumulativePnl)}
             </div>
           </div>
           <div className="bg-background border border-border rounded p-2.5 text-center">
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Total Charges</div>
-            <div className="text-[13px] font-mono text-muted-foreground mt-1 font-bold">{fmt(capital.cumulativeCharges)}</div>
+            <div className="text-[0.5625rem] text-muted-foreground uppercase tracking-wider">Total Charges</div>
+            <div className="text-[0.8125rem] font-mono text-muted-foreground mt-1 font-bold">{fmt(capital.cumulativeCharges)}</div>
           </div>
         </div>
       </SettingsCard>
@@ -867,20 +867,20 @@ export function CapitalManagementSection() {
       <SettingsCard title="Pool Allocation">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground">Trading Pool share</span>
-            <span className="text-[11px] font-mono text-foreground font-bold">75%</span>
+            <span className="text-[0.625rem] text-muted-foreground">Trading Pool share</span>
+            <span className="text-[0.6875rem] font-mono text-foreground font-bold">75%</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground">Reserve Pool share</span>
-            <span className="text-[11px] font-mono text-foreground font-bold">25%</span>
+            <span className="text-[0.625rem] text-muted-foreground">Reserve Pool share</span>
+            <span className="text-[0.6875rem] font-mono text-foreground font-bold">25%</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground">Daily Target</span>
-            <span className="text-[11px] font-mono text-primary font-bold">{capital.targetPercent}%</span>
+            <span className="text-[0.625rem] text-muted-foreground">Daily Target</span>
+            <span className="text-[0.6875rem] font-mono text-primary font-bold">{capital.targetPercent}%</span>
           </div>
         </div>
         <div className="mt-3 pt-2 border-t border-border">
-          <span className="text-[9px] text-muted-foreground">
+          <span className="text-[0.5625rem] text-muted-foreground">
             New capital injections and profit distributions follow the 75/25 split.
             Losses are absorbed entirely by the Trading Pool.
           </span>
@@ -893,7 +893,7 @@ export function CapitalManagementSection() {
           {hasCycleStarted ? (
             <div className="flex items-center gap-2 p-2 rounded bg-muted/50 border border-border">
               <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-[0.625rem] text-muted-foreground">
                 Reset is only available before any day cycle has started.
                 You are currently on Day {capital.currentDayIndex}.
               </span>
@@ -901,7 +901,7 @@ export function CapitalManagementSection() {
           ) : (
             <>
               <div className="space-y-1">
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-[0.625rem] text-muted-foreground">
                   Reset all capital pools, day records, and projections back to Day 1.
                   This is a <span className="text-destructive font-bold">destructive</span> action and cannot be undone.
                 </span>
@@ -923,7 +923,7 @@ export function CapitalManagementSection() {
               </div>
 
               {/* Preview of what reset will create */}
-              <div className="flex items-center gap-2 text-[9px] text-muted-foreground">
+              <div className="flex items-center gap-2 text-[0.5625rem] text-muted-foreground">
                 <AlertTriangle className="h-3 w-3 text-warning-amber shrink-0" />
                 <span>
                   After reset: Trading Pool = {fmt(newFunding * 0.75)}, Reserve Pool = {fmt(newFunding * 0.25)}, Day Index = 1
@@ -934,7 +934,7 @@ export function CapitalManagementSection() {
               <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
                 <AlertDialogTrigger asChild>
                   <button
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-bold tracking-wider uppercase border border-destructive/40 text-destructive hover:bg-destructive/10 transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[0.625rem] font-bold tracking-wider uppercase border border-destructive/40 text-destructive hover:bg-destructive/10 transition-colors"
                   >
                     <AlertTriangle className="h-3 w-3" />
                     RESET INITIAL CAPITAL
@@ -946,7 +946,7 @@ export function CapitalManagementSection() {
                       <AlertTriangle className="h-4 w-4" />
                       Reset Initial Capital
                     </AlertDialogTitle>
-                    <AlertDialogDescription className="text-[11px] text-muted-foreground space-y-2">
+                    <AlertDialogDescription className="text-[0.6875rem] text-muted-foreground space-y-2">
                       <p>
                         This will permanently delete all day records, trade history, profit history,
                         and reset capital pools to a fresh state with <strong className="text-foreground">{fmt(newFunding)}</strong> initial funding.
@@ -963,7 +963,7 @@ export function CapitalManagementSection() {
 
                   {/* Type RESET to confirm */}
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold tracking-wider uppercase text-muted-foreground">
+                    <label className="text-[0.625rem] font-bold tracking-wider uppercase text-muted-foreground">
                       Type <span className="text-destructive">RESET</span> to confirm
                     </label>
                     <input
@@ -971,7 +971,7 @@ export function CapitalManagementSection() {
                       value={confirmText}
                       onChange={(e) => setConfirmText(e.target.value)}
                       placeholder="RESET"
-                      className="w-full h-8 px-2 text-[11px] bg-background border border-border rounded text-foreground font-mono tracking-widest focus:outline-none focus:ring-1 focus:ring-destructive"
+                      className="w-full h-8 px-2 text-[0.6875rem] bg-background border border-border rounded text-foreground font-mono tracking-widest focus:outline-none focus:ring-1 focus:ring-destructive"
                       autoFocus
                     />
                   </div>
@@ -979,14 +979,14 @@ export function CapitalManagementSection() {
                   <AlertDialogFooter>
                     <AlertDialogCancel
                       onClick={() => setConfirmText('')}
-                      className="text-[10px] h-8"
+                      className="text-[0.625rem] h-8"
                     >
                       Cancel
                     </AlertDialogCancel>
                     <button
                       onClick={handleReset}
                       disabled={confirmText !== 'RESET' || resetCapitalPending}
-                      className="flex items-center gap-1.5 px-4 py-1.5 rounded text-[10px] font-bold tracking-wider uppercase bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed h-8"
+                      className="flex items-center gap-1.5 px-4 py-1.5 rounded text-[0.625rem] font-bold tracking-wider uppercase bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed h-8"
                     >
                       {resetCapitalPending ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -1027,7 +1027,7 @@ function ModeToggle<T extends string>({
           type="button"
           disabled={disabled}
           onClick={() => onChange(opt.value)}
-          className={`px-3 py-1 text-[10px] font-bold tracking-wider uppercase transition-colors ${
+          className={`px-3 py-1 text-[0.625rem] font-bold tracking-wider uppercase transition-colors ${
             value === opt.value
               ? 'bg-primary text-primary-foreground'
               : 'bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -1080,7 +1080,7 @@ export function TradingModeSection() {
               <FieldLabel hint="Switches which channel the AI model uses. Paper is safe for testing.">
                 AI Trades Mode
               </FieldLabel>
-              <p className="text-[9px] text-muted-foreground mt-1">
+              <p className="text-[0.5625rem] text-muted-foreground mt-1">
                 Live → <span className="text-foreground font-mono">ai-live</span> channel (real Dhan account)
                 &nbsp;·&nbsp;
                 Paper → <span className="text-foreground font-mono">ai-paper</span> channel (MockAdapter)
@@ -1100,12 +1100,12 @@ export function TradingModeSection() {
                 AI Kill Switch
               </FieldLabel>
               {tm?.aiKillSwitch && (
-                <span className="text-[9px] text-destructive font-bold tracking-wider">● ACTIVE — ai-live blocked</span>
+                <span className="text-[0.5625rem] text-destructive font-bold tracking-wider">● ACTIVE — ai-live blocked</span>
               )}
             </div>
             <div className="flex items-center gap-2">
               {tm?.aiKillSwitch && (
-                <span className="text-[9px] px-2 py-0.5 rounded bg-destructive/10 text-destructive border border-destructive/30 font-bold tracking-wider uppercase">
+                <span className="text-[0.5625rem] px-2 py-0.5 rounded bg-destructive/10 text-destructive border border-destructive/30 font-bold tracking-wider uppercase">
                   HALTED
                 </span>
               )}
@@ -1127,7 +1127,7 @@ export function TradingModeSection() {
               <FieldLabel hint="Persists the active tab selection across page refreshes.">
                 My Trades Mode
               </FieldLabel>
-              <p className="text-[9px] text-muted-foreground mt-1">
+              <p className="text-[0.5625rem] text-muted-foreground mt-1">
                 Both Live and Paper tabs are always active simultaneously.
               </p>
             </div>
@@ -1145,12 +1145,12 @@ export function TradingModeSection() {
                 My Kill Switch
               </FieldLabel>
               {tm?.myKillSwitch && (
-                <span className="text-[9px] text-destructive font-bold tracking-wider">● ACTIVE — my-live blocked</span>
+                <span className="text-[0.5625rem] text-destructive font-bold tracking-wider">● ACTIVE — my-live blocked</span>
               )}
             </div>
             <div className="flex items-center gap-2">
               {tm?.myKillSwitch && (
-                <span className="text-[9px] px-2 py-0.5 rounded bg-destructive/10 text-destructive border border-destructive/30 font-bold tracking-wider uppercase">
+                <span className="text-[0.5625rem] px-2 py-0.5 rounded bg-destructive/10 text-destructive border border-destructive/30 font-bold tracking-wider uppercase">
                   HALTED
                 </span>
               )}
@@ -1172,7 +1172,7 @@ export function TradingModeSection() {
               <FieldLabel hint="Testing has no capital pool. For code and integration validation only.">
                 Testing Mode
               </FieldLabel>
-              <p className="text-[9px] text-muted-foreground mt-1">
+              <p className="text-[0.5625rem] text-muted-foreground mt-1">
                 Sandbox → <span className="text-foreground font-mono">testing-sandbox</span> (Dhan DevPortal, fills at ₹100)
                 &nbsp;·&nbsp;
                 Live → <span className="text-foreground font-mono">testing-live</span> (real Dhan, small real money)
@@ -1192,12 +1192,12 @@ export function TradingModeSection() {
                 Testing Kill Switch
               </FieldLabel>
               {tm?.testingKillSwitch && (
-                <span className="text-[9px] text-destructive font-bold tracking-wider">● ACTIVE — testing-live blocked</span>
+                <span className="text-[0.5625rem] text-destructive font-bold tracking-wider">● ACTIVE — testing-live blocked</span>
               )}
             </div>
             <div className="flex items-center gap-2">
               {tm?.testingKillSwitch && (
-                <span className="text-[9px] px-2 py-0.5 rounded bg-destructive/10 text-destructive border border-destructive/30 font-bold tracking-wider uppercase">
+                <span className="text-[0.5625rem] px-2 py-0.5 rounded bg-destructive/10 text-destructive border border-destructive/30 font-bold tracking-wider uppercase">
                   HALTED
                 </span>
               )}
@@ -1214,7 +1214,7 @@ export function TradingModeSection() {
       {/* Info note */}
       <div className="flex items-start gap-2 p-3 rounded-md bg-muted/30 border border-border">
         <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
-        <p className="text-[10px] text-muted-foreground leading-relaxed">
+        <p className="text-[0.625rem] text-muted-foreground leading-relaxed">
           Kill switches are <strong className="text-foreground">independent</strong> — activating AI kill switch does not affect My Trades or Testing.
           Kill switches only block live channels — paper and sandbox channels are never blocked.
           State persists across server restarts.
@@ -1261,7 +1261,7 @@ export function DisciplineSection() {
       <SettingsCard>
         <div className="flex items-center gap-2">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-          <span className="text-[11px] text-muted-foreground">Loading discipline settings...</span>
+          <span className="text-[0.6875rem] text-muted-foreground">Loading discipline settings...</span>
         </div>
       </SettingsCard>
     );
@@ -1455,7 +1455,7 @@ export function DisciplineSection() {
                               : [...current, state];
                             upd('preTradeGate.emotionalStateCheck.blockStates', next);
                           }}
-                          className={`px-2.5 py-1 rounded text-[10px] font-bold tracking-wider uppercase border transition-colors ${
+                          className={`px-2.5 py-1 rounded text-[0.625rem] font-bold tracking-wider uppercase border transition-colors ${
                             active
                               ? 'bg-destructive/10 text-destructive border-destructive/30'
                               : 'bg-muted text-muted-foreground border-border hover:bg-accent'
@@ -1669,7 +1669,7 @@ export function TimeWindowsSection() {
       <SettingsCard>
         <div className="flex items-center gap-2">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-          <span className="text-[11px] text-muted-foreground">Loading time window settings...</span>
+          <span className="text-[0.6875rem] text-muted-foreground">Loading time window settings...</span>
         </div>
       </SettingsCard>
     );
@@ -1768,7 +1768,7 @@ export function TimeWindowsSection() {
 
       <div className="col-span-full flex items-center gap-2 p-2 rounded bg-info-cyan/5 border border-info-cyan/20">
         <Info className="h-3.5 w-3.5 text-info-cyan shrink-0" />
-        <span className="text-[10px] text-info-cyan">
+        <span className="text-[0.625rem] text-info-cyan">
           Time windows are enforced by the Discipline Engine. Lunch break pause applies only to NSE. MCX has no scheduled lunch break.
         </span>
       </div>
@@ -1815,7 +1815,7 @@ export function ExpiryControlsSection() {
       <SettingsCard>
         <div className="flex items-center gap-2">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-          <span className="text-[11px] text-muted-foreground">Loading expiry settings...</span>
+          <span className="text-[0.6875rem] text-muted-foreground">Loading expiry settings...</span>
         </div>
       </SettingsCard>
     );
@@ -1840,7 +1840,7 @@ export function ExpiryControlsSection() {
       {rules.map((rule, idx) => (
         <SettingsCard key={rule.instrument}>
           <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
-            <span className={`text-[11px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border ${instrumentColors[rule.instrument] ?? 'text-foreground border-border'}`}>
+            <span className={`text-[0.6875rem] font-bold tracking-wider uppercase px-2 py-0.5 rounded border ${instrumentColors[rule.instrument] ?? 'text-foreground border-border'}`}>
               {instrumentLabels[rule.instrument] ?? rule.instrument}
             </span>
           </div>
@@ -1992,7 +1992,7 @@ export function ChargesSection() {
       <SettingsCard>
         <div className="flex items-center gap-2">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-          <span className="text-[11px] text-muted-foreground">Loading charge rates...</span>
+          <span className="text-[0.6875rem] text-muted-foreground">Loading charge rates...</span>
         </div>
       </SettingsCard>
     );
@@ -2010,7 +2010,7 @@ export function ChargesSection() {
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
       <SettingsCard title="Indian Standard Charges (Options)" className="col-span-full">
         <div className="space-y-1 mb-3">
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[0.625rem] text-muted-foreground">
             These rates are used to calculate net P&L after deducting all charges.
           </span>
         </div>
@@ -2028,10 +2028,10 @@ export function ChargesSection() {
                     }}
                   />
                   <div>
-                    <span className={`text-[11px] font-bold tracking-wider ${charge.enabled ? 'text-foreground' : 'text-muted-foreground line-through'}`}>
+                    <span className={`text-[0.6875rem] font-bold tracking-wider ${charge.enabled ? 'text-foreground' : 'text-muted-foreground line-through'}`}>
                       {charge.name}
                     </span>
-                    <p className="text-[9px] text-muted-foreground">{charge.description}</p>
+                    <p className="text-[0.5625rem] text-muted-foreground">{charge.description}</p>
                   </div>
                 </div>
               </div>
@@ -2049,9 +2049,9 @@ export function ChargesSection() {
                   }}
                   step={charge.unit === 'flat_per_order' ? 1 : 0.0001}
                   min={0}
-                  className="w-24 h-7 px-2 text-[11px] bg-background border border-border rounded text-foreground tabular-nums text-right focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="w-24 h-7 px-2 text-[0.6875rem] bg-background border border-border rounded text-foreground tabular-nums text-right focus:outline-none focus:ring-1 focus:ring-primary"
                 />
-                <span className="text-[9px] text-muted-foreground w-20 text-right">
+                <span className="text-[0.5625rem] text-muted-foreground w-20 text-right">
                   {unitLabels[charge.unit] ?? charge.unit}
                 </span>
               </div>
@@ -2062,7 +2062,7 @@ export function ChargesSection() {
 
       <div className="col-span-full flex items-center gap-2 p-2 rounded bg-info-cyan/5 border border-info-cyan/20">
         <Info className="h-3.5 w-3.5 text-info-cyan shrink-0" />
-        <span className="text-[10px] text-info-cyan">
+        <span className="text-[0.625rem] text-info-cyan">
           Charges are applied to all P&L calculations. Rates are based on Indian standard charges for Options trading via Dhan.
         </span>
       </div>
@@ -2208,23 +2208,23 @@ export function InstrumentsSection() {
     <div className="grid grid-cols-1 gap-4">
       <SettingsCard title="Configured Instruments">
         <div className="space-y-2 mb-4">
-          <div className="text-[10px] text-muted-foreground">
+          <div className="text-[0.625rem] text-muted-foreground">
             {instruments.length} instrument{instruments.length !== 1 ? 's' : ''} configured
           </div>
         </div>
         <div className="space-y-2 max-h-64 overflow-y-auto">
           {instruments.length === 0 ? (
-            <span className="text-[11px] text-muted-foreground">No instruments configured</span>
+            <span className="text-[0.6875rem] text-muted-foreground">No instruments configured</span>
           ) : (
             instruments.map((inst: any) => (
-              <div key={inst.key} className="flex items-center justify-between gap-3 p-2 rounded border border-border text-[11px]">
+              <div key={inst.key} className="flex items-center justify-between gap-3 p-2 rounded border border-border text-[0.6875rem]">
                 <div className="flex-1 min-w-0">
                   <div className="font-bold">{inst.displayName}</div>
-                  <div className="text-[9px] text-muted-foreground">{inst.exchange} • {inst.exchangeSegment}</div>
+                  <div className="text-[0.5625rem] text-muted-foreground">{inst.exchange} • {inst.exchangeSegment}</div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   {inst.isDefault && (
-                    <span className="px-2 py-0.5 text-[9px] bg-primary/10 text-primary rounded">default</span>
+                    <span className="px-2 py-0.5 text-[0.5625rem] bg-primary/10 text-primary rounded">default</span>
                   )}
                   {hotKeyAssignMode === inst.key ? (
                     <input
@@ -2232,19 +2232,19 @@ export function InstrumentsSection() {
                       onKeyDown={(e) => handleHotKeyPress(e, inst.key)}
                       onBlur={() => setHotKeyAssignMode(null)}
                       placeholder="Press key..."
-                      className="w-12 px-1 py-0.5 text-[10px] text-center bg-background border border-primary rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                      className="w-12 px-1 py-0.5 text-[0.625rem] text-center bg-background border border-primary rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                     />
                   ) : (
                     <>
                       {inst.hotkey && (
-                        <span className="px-2 py-0.5 text-[10px] bg-accent/20 text-accent-foreground rounded font-mono font-bold">
+                        <span className="px-2 py-0.5 text-[0.625rem] bg-accent/20 text-accent-foreground rounded font-mono font-bold">
                           {inst.hotkey.toUpperCase()}
                         </span>
                       )}
                       <button
                         onClick={() => setHotKeyAssignMode(inst.key)}
                         disabled={isAssigningHotkey}
-                        className="px-2 py-1 text-[10px] rounded border border-primary/30 text-primary hover:bg-primary/5 disabled:opacity-50"
+                        className="px-2 py-1 text-[0.625rem] rounded border border-primary/30 text-primary hover:bg-primary/5 disabled:opacity-50"
                         title="Assign hotkey"
                       >
                         {inst.hotkey ? 'Change' : 'Set'} Key
@@ -2254,7 +2254,7 @@ export function InstrumentsSection() {
                   <button
                     onClick={() => handleRemoveInstrument(inst.key)}
                     disabled={inst.isDefault || isRemoving}
-                    className="px-2 py-1 text-[10px] rounded border border-destructive/30 text-destructive hover:bg-destructive/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 py-1 text-[0.625rem] rounded border border-destructive/30 text-destructive hover:bg-destructive/5 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Remove
                   </button>
@@ -2268,7 +2268,7 @@ export function InstrumentsSection() {
       {!showSearch && (
         <button
           onClick={() => setShowSearch(true)}
-          className="w-full py-2 px-4 text-[11px] font-bold tracking-wider uppercase rounded border border-primary/30 text-primary hover:bg-primary/5 transition-colors"
+          className="w-full py-2 px-4 text-[0.6875rem] font-bold tracking-wider uppercase rounded border border-primary/30 text-primary hover:bg-primary/5 transition-colors"
         >
           + Add Instrument
         </button>
@@ -2284,12 +2284,12 @@ export function InstrumentsSection() {
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                className="flex-1 h-7 px-2 text-[11px] bg-background border border-border rounded text-foreground placeholder-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                className="flex-1 h-7 px-2 text-[0.6875rem] bg-background border border-border rounded text-foreground placeholder-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
               <select
                 value={searchExchange}
                 onChange={(e) => setSearchExchange(e.target.value as any)}
-                className="h-7 px-2 text-[11px] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                className="h-7 px-2 text-[0.6875rem] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <option>ALL</option>
                 <option>NSE</option>
@@ -2299,7 +2299,7 @@ export function InstrumentsSection() {
               <button
                 onClick={handleSearch}
                 disabled={isSearching}
-                className="px-3 py-1 text-[11px] font-bold rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                className="px-3 py-1 text-[0.6875rem] font-bold rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
                 {isSearching ? '⟳' : 'Search'}
               </button>
@@ -2308,7 +2308,7 @@ export function InstrumentsSection() {
             {searchResults.length > 0 && (
               <div className="border border-border rounded p-2 space-y-1 max-h-48 overflow-y-auto">
                 {searchResults.map((result: any, idx: number) => (
-                  <div key={idx} className="flex items-center justify-between gap-2 p-1.5 text-[10px] rounded hover:bg-muted">
+                  <div key={idx} className="flex items-center justify-between gap-2 p-1.5 text-[0.625rem] rounded hover:bg-muted">
                     <div className="flex-1 min-w-0">
                       <div className="font-mono">{result.tradingSymbol}</div>
                       <div className="text-muted-foreground">{result.exchange} • {result.instrumentName}</div>
@@ -2316,7 +2316,7 @@ export function InstrumentsSection() {
                     <button
                       onClick={() => handleAddInstrument(result)}
                       disabled={isAdding}
-                      className="px-2 py-0.5 text-[9px] rounded bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
+                      className="px-2 py-0.5 text-[0.5625rem] rounded bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
                     >
                       Add
                     </button>
@@ -2327,7 +2327,7 @@ export function InstrumentsSection() {
 
             <button
               onClick={() => setShowSearch(false)}
-              className="w-full py-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+              className="w-full py-1.5 text-[0.625rem] text-muted-foreground hover:text-foreground"
             >
               Cancel
             </button>
@@ -2349,7 +2349,7 @@ export default function Settings() {
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex items-center gap-2">
           <Loader2 className="h-5 w-5 animate-spin text-primary" />
-          <span className="text-[11px] text-muted-foreground">Loading...</span>
+          <span className="text-[0.6875rem] text-muted-foreground">Loading...</span>
         </div>
       </div>
     );
@@ -2425,10 +2425,10 @@ export default function Settings() {
                       >
                         <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-primary' : ''}`} />
                         <div className="flex-1 min-w-0">
-                          <span className={`text-[11px] font-bold tracking-wider uppercase block ${isActive ? 'text-primary' : ''}`}>
+                          <span className={`text-[0.6875rem] font-bold tracking-wider uppercase block ${isActive ? 'text-primary' : ''}`}>
                             {section.label}
                           </span>
-                          <span className="text-[9px] text-muted-foreground truncate block mt-0.5">
+                          <span className="text-[0.5625rem] text-muted-foreground truncate block mt-0.5">
                             {section.description}
                           </span>
                         </div>
@@ -2442,7 +2442,7 @@ export default function Settings() {
 
                 {/* Last updated */}
                 <div className="mt-6 px-3">
-                  <span className="text-[9px] text-muted-foreground tracking-wider uppercase">
+                  <span className="text-[0.5625rem] text-muted-foreground tracking-wider uppercase">
                     Settings are persisted to MongoDB
                   </span>
                 </div>
@@ -2459,7 +2459,7 @@ export default function Settings() {
                     {currentSection?.label}
                   </h2>
                 </div>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[0.6875rem] text-muted-foreground">
                   {currentSection?.description}
                 </p>
               </div>

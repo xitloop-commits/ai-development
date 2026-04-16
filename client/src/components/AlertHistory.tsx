@@ -73,17 +73,17 @@ export default function AlertHistory() {
       >
         <div className="flex items-center gap-1.5">
           <Bell className="h-3 w-3 text-info-cyan" />
-          <span className="text-[10px] font-bold text-info-cyan tracking-wider uppercase">
+          <span className="text-[0.625rem] font-bold text-info-cyan tracking-wider uppercase">
             Alert History
           </span>
           {unreadCount > 0 && (
-            <span className="text-[9px] bg-destructive text-destructive-foreground rounded-full px-1.5 py-0.5 font-bold tabular-nums animate-pulse-glow">
+            <span className="text-[0.5625rem] bg-destructive text-destructive-foreground rounded-full px-1.5 py-0.5 font-bold tabular-nums animate-pulse-glow">
               {unreadCount}
             </span>
           )}
         </div>
         <div className="flex items-center gap-1">
-          <span className="text-[9px] text-muted-foreground tabular-nums">
+          <span className="text-[0.5625rem] text-muted-foreground tabular-nums">
             {alerts.length} alerts
           </span>
           {isExpanded ? (
@@ -102,14 +102,14 @@ export default function AlertHistory() {
             <div className="px-3 py-1.5 border-b border-border flex items-center justify-end gap-2">
               <button
                 onClick={markAllRead}
-                className="text-[9px] text-muted-foreground hover:text-info-cyan flex items-center gap-1 transition-colors"
+                className="text-[0.5625rem] text-muted-foreground hover:text-info-cyan flex items-center gap-1 transition-colors"
               >
                 <CheckCheck className="h-3 w-3" />
                 Mark Read
               </button>
               <button
                 onClick={clearAlerts}
-                className="text-[9px] text-muted-foreground hover:text-destructive flex items-center gap-1 transition-colors"
+                className="text-[0.5625rem] text-muted-foreground hover:text-destructive flex items-center gap-1 transition-colors"
               >
                 <Trash2 className="h-3 w-3" />
                 Clear All
@@ -122,10 +122,10 @@ export default function AlertHistory() {
             {displayAlerts.length === 0 ? (
               <div className="px-3 py-6 text-center">
                 <Bell className="h-5 w-5 text-muted-foreground mx-auto mb-2 opacity-30" />
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[0.625rem] text-muted-foreground">
                   No alerts yet
                 </p>
-                <p className="text-[9px] text-muted-foreground mt-0.5">
+                <p className="text-[0.5625rem] text-muted-foreground mt-0.5">
                   Alerts will appear here when events are detected
                 </p>
               </div>
@@ -143,22 +143,22 @@ export default function AlertHistory() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <span className={`text-[10px] font-bold ${getAlertColor(alert.type)} truncate`}>
+                        <span className={`text-[0.625rem] font-bold ${getAlertColor(alert.type)} truncate`}>
                           {alert.title}
                         </span>
-                        <span className="text-[8px] text-muted-foreground tabular-nums shrink-0">
+                        <span className="text-[0.5rem] text-muted-foreground tabular-nums shrink-0">
                           {formatAlertTime(alert.timestamp)}
                         </span>
                       </div>
-                      <p className="text-[9px] text-muted-foreground mt-0.5 line-clamp-2">
+                      <p className="text-[0.5625rem] text-muted-foreground mt-0.5 line-clamp-2">
                         {alert.message}
                       </p>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className={`text-[8px] px-1 py-0.5 rounded border ${getAlertGlow(alert.type)} bg-secondary/30`}>
+                        <span className={`text-[0.5rem] px-1 py-0.5 rounded border ${getAlertGlow(alert.type)} bg-secondary/30`}>
                           {getAlertLabel(alert.type)}
                         </span>
                         {alert.instrument && (
-                          <span className="text-[8px] text-muted-foreground px-1 py-0.5 bg-secondary rounded">
+                          <span className="text-[0.5rem] text-muted-foreground px-1 py-0.5 bg-secondary rounded">
                             {alert.instrument}
                           </span>
                         )}

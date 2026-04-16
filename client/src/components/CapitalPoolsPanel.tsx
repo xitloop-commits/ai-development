@@ -56,13 +56,13 @@ function PoolBar({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Icon className={`h-3 w-3 ${color}`} />
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="text-[0.625rem] font-semibold uppercase tracking-wider text-muted-foreground">
             {label}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold tabular-nums text-foreground">{fmt(amount)}</span>
-          <span className="text-[9px] text-muted-foreground tabular-nums">({percent.toFixed(1)}%)</span>
+          <span className="text-[0.6875rem] font-bold tabular-nums text-foreground">{fmt(amount)}</span>
+          <span className="text-[0.5625rem] text-muted-foreground tabular-nums">({percent.toFixed(1)}%)</span>
         </div>
       </div>
       <div className="h-2 rounded-full bg-secondary/50 overflow-hidden">
@@ -93,9 +93,9 @@ function StatCard({
     <div className="flex items-center gap-2 p-2 rounded-md bg-secondary/30">
       <Icon className={`h-3.5 w-3.5 ${color} shrink-0`} />
       <div className="min-w-0">
-        <div className="text-[9px] text-muted-foreground uppercase tracking-wider">{label}</div>
-        <div className={`text-[11px] font-bold tabular-nums ${color}`}>{value}</div>
-        {sub && <div className="text-[8px] text-muted-foreground tabular-nums">{sub}</div>}
+        <div className="text-[0.5625rem] text-muted-foreground uppercase tracking-wider">{label}</div>
+        <div className={`text-[0.6875rem] font-bold tabular-nums ${color}`}>{value}</div>
+        {sub && <div className="text-[0.5rem] text-muted-foreground tabular-nums">{sub}</div>}
       </div>
     </div>
   );
@@ -116,7 +116,7 @@ function MilestoneRow({
   const isPast = currentDay > day;
   const isCurrent = currentDay >= day - 10 && currentDay <= day;
   return (
-    <tr className={`text-[9px] tabular-nums ${isPast ? 'text-muted-foreground' : isCurrent ? 'text-primary font-bold' : 'text-foreground/70'}`}>
+    <tr className={`text-[0.5625rem] tabular-nums ${isPast ? 'text-muted-foreground' : isCurrent ? 'text-primary font-bold' : 'text-foreground/70'}`}>
       <td className="py-0.5 pr-2">
         {isPast ? '✓' : isCurrent ? '→' : ''} Day {day}
       </td>
@@ -183,12 +183,12 @@ export default function CapitalPoolsPanel() {
     <div className="space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h3 className="text-[11px] font-bold tracking-widest uppercase text-muted-foreground">
+        <h3 className="text-[0.6875rem] font-bold tracking-widest uppercase text-muted-foreground">
           Capital Pools
         </h3>
         <Dialog open={injectOpen} onOpenChange={setInjectOpen}>
           <DialogTrigger asChild>
-            <button className="flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
+            <button className="flex items-center gap-1 px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
               <Plus className="h-2.5 w-2.5" /> Inject
             </button>
           </DialogTrigger>
@@ -197,7 +197,7 @@ export default function CapitalPoolsPanel() {
               <DialogTitle className="text-sm">Inject Capital</DialogTitle>
             </DialogHeader>
             <div className="space-y-3 pt-2">
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[0.625rem] text-muted-foreground">
                 New capital is split 75% Trading / 25% Reserve.
               </p>
               <input
@@ -231,7 +231,7 @@ export default function CapitalPoolsPanel() {
                 </button>
               </div>
               {injectAmount && parseFloat(injectAmount) > 0 && (
-                <div className="text-[9px] text-muted-foreground space-y-0.5">
+                <div className="text-[0.5625rem] text-muted-foreground space-y-0.5">
                   <div>Trading Pool: +{fmt(parseFloat(injectAmount) * 0.75)}</div>
                   <div>Reserve Pool: +{fmt(parseFloat(injectAmount) * 0.25)}</div>
                 </div>
@@ -261,10 +261,10 @@ export default function CapitalPoolsPanel() {
 
       {/* Net Worth */}
       <div className="flex items-center justify-between px-1">
-        <span className="text-[10px] font-semibold text-muted-foreground">Net Worth</span>
+        <span className="text-[0.625rem] font-semibold text-muted-foreground">Net Worth</span>
         <div className="flex items-center gap-1.5">
-          <span className="text-[12px] font-bold tabular-nums text-foreground">{fmt(netWorth)}</span>
-          <span className={`text-[9px] font-bold tabular-nums ${growthPercent >= 0 ? 'text-bullish' : 'text-destructive'}`}>
+          <span className="text-xs font-bold tabular-nums text-foreground">{fmt(netWorth)}</span>
+          <span className={`text-[0.5625rem] font-bold tabular-nums ${growthPercent >= 0 ? 'text-bullish' : 'text-destructive'}`}>
             {growthPercent >= 0 ? '+' : ''}{growthPercent.toFixed(1)}%
           </span>
         </div>
@@ -305,10 +305,10 @@ export default function CapitalPoolsPanel() {
       {/* Day 250 Progress Bar */}
       <div className="space-y-1">
         <div className="flex items-center justify-between">
-          <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="text-[0.5625rem] font-semibold uppercase tracking-wider text-muted-foreground">
             Day 250 Journey
           </span>
-          <span className="text-[9px] font-bold tabular-nums text-primary">
+          <span className="text-[0.5625rem] font-bold tabular-nums text-primary">
             {dayProgress.toFixed(1)}%
           </span>
         </div>
@@ -323,10 +323,10 @@ export default function CapitalPoolsPanel() {
       {/* Today's Target Progress */}
       <div className="space-y-1">
         <div className="flex items-center justify-between">
-          <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="text-[0.5625rem] font-semibold uppercase tracking-wider text-muted-foreground">
             Today's Target ({targetPercent}%)
           </span>
-          <span className={`text-[9px] font-bold tabular-nums ${todayProgress >= 100 ? 'text-bullish' : 'text-foreground'}`}>
+          <span className={`text-[0.5625rem] font-bold tabular-nums ${todayProgress >= 100 ? 'text-bullish' : 'text-foreground'}`}>
             {todayProgress.toFixed(0)}%
           </span>
         </div>
@@ -343,7 +343,7 @@ export default function CapitalPoolsPanel() {
       {/* Milestones Toggle */}
       <button
         onClick={() => setShowMilestones(!showMilestones)}
-        className="flex items-center gap-1 text-[9px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center gap-1 text-[0.5625rem] font-semibold text-muted-foreground hover:text-foreground transition-colors"
       >
         {showMilestones ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
         Projected Milestones
@@ -353,7 +353,7 @@ export default function CapitalPoolsPanel() {
         <div className="rounded-md border border-border/50 overflow-hidden">
           <table className="w-full">
             <thead>
-              <tr className="text-[8px] uppercase tracking-wider text-muted-foreground bg-secondary/30">
+              <tr className="text-[0.5rem] uppercase tracking-wider text-muted-foreground bg-secondary/30">
                 <th className="py-1 px-2 text-left font-semibold">Cycle</th>
                 <th className="py-1 px-2 text-right font-semibold">Trading</th>
                 <th className="py-1 px-2 text-right font-semibold">Total</th>

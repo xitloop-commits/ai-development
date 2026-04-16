@@ -20,7 +20,7 @@ export default function RightSidebar({ visible, signals }: RightSidebarProps) {
     <aside className="w-[320px] shrink-0 border-l border-border bg-background flex flex-col overflow-hidden">
       {/* Signals & Alerts Header */}
       <div className="px-4 pt-3 pb-2 border-b border-border/50">
-        <h2 className="text-[11px] font-bold tracking-widest uppercase text-muted-foreground">
+        <h2 className="text-[0.6875rem] font-bold tracking-widest uppercase text-muted-foreground">
           Signals & Alerts
         </h2>
       </div>

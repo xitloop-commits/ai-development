@@ -58,10 +58,10 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
     <div className="border border-border rounded-md bg-card overflow-hidden h-full">
       <div className="px-3 py-2 border-b border-border bg-secondary/30">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold text-info-cyan tracking-wider uppercase">
+          <span className="text-[0.625rem] font-bold text-info-cyan tracking-wider uppercase">
             Live Signals Feed
           </span>
-          <span className="text-[9px] text-muted-foreground tabular-nums">
+          <span className="text-[0.5625rem] text-muted-foreground tabular-nums">
             {signals.length} signals
           </span>
         </div>
@@ -81,18 +81,18 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                 <div className="flex items-center justify-between mb-0.5">
                   <div className="flex items-center gap-1.5">
                     <Icon className={`h-3 w-3 ${color}`} />
-                    <span className="text-[10px] font-bold text-foreground tracking-wider">
+                    <span className="text-[0.625rem] font-bold text-foreground tracking-wider">
                       {signal.instrument}
                     </span>
-                    <span className="text-[10px] tabular-nums text-muted-foreground">
+                    <span className="text-[0.625rem] tabular-nums text-muted-foreground">
                       @ {signal.strike}
                     </span>
                   </div>
-                  <span className="text-[9px] text-muted-foreground tabular-nums">
+                  <span className="text-[0.5625rem] text-muted-foreground tabular-nums">
                     {timeAgo(signal.timestamp)}
                   </span>
                 </div>
-                <p className="text-[10px] text-muted-foreground leading-relaxed">
+                <p className="text-[0.625rem] text-muted-foreground leading-relaxed">
                   {signal.description}
                 </p>
               </div>
