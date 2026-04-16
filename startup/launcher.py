@@ -142,6 +142,12 @@ def act_train_banknifty():_launch_new_window("Train: banknifty",    "train-auto.
 def act_train_crudeoil(): _launch_new_window("Train: crudeoil",     "train-auto.bat crudeoil")
 def act_train_natgas():   _launch_new_window("Train: naturalgas",   "train-auto.bat naturalgas")
 
+# --- Backtest (stream parquet as live for end-to-end test) ---
+def act_bt_nifty():       _launch_new_window("Backtest: nifty50",   "backtest.bat nifty50 2026-04-15")
+def act_bt_banknifty():   _launch_new_window("Backtest: banknifty", "backtest.bat banknifty 2026-04-15")
+def act_bt_crudeoil():    _launch_new_window("Backtest: crudeoil",  "backtest.bat crudeoil 2026-04-15")
+def act_bt_natgas():      _launch_new_window("Backtest: naturalgas","backtest.bat naturalgas 2026-04-15")
+
 # --- Feature dashboards ---
 def act_feat_nifty():     _launch_new_window("Features: nifty50",    "watch-features.bat nifty50")
 def act_feat_banknifty(): _launch_new_window("Features: banknifty",  "watch-features.bat banknifty")
@@ -247,6 +253,11 @@ def main():
         ("Train  banknifty (MTA)",                        act_train_banknifty),
         ("Train  crudeoil  (MTA)",                        act_train_crudeoil),
         ("Train  naturalgas(MTA)",                        act_train_natgas),
+        ("─── Backtest ─── parquet → live ndjson  (end-to-end) ─", None),
+        ("Backtest  nifty50    (date 2026-04-15)",        act_bt_nifty),
+        ("Backtest  banknifty  (date 2026-04-15)",        act_bt_banknifty),
+        ("Backtest  crudeoil   (date 2026-04-15)",        act_bt_crudeoil),
+        ("Backtest  naturalgas (date 2026-04-15)",        act_bt_natgas),
         ("─── 4. INFER ─── live features  →  signals/  ───────", None),
         ("Start SEA  nifty50",                            act_sea_nifty),
         ("Start SEA  banknifty",                          act_sea_banknifty),
