@@ -28,16 +28,36 @@ Decision Engine (live trading)
 | SEA MVP built (loads LATEST, tails live ndjson, emits GO_CALL/GO_PUT) | DONE |
 | `watch_signals.py` dashboard | DONE |
 | All 4 instruments have trained MVP models | DONE (commit 9a4ba94) |
-| End-to-end backtest (option A: replay parquet → live ndjson → SEA → log → watch) | Pending — left off mid-discussion |
+| End-to-end backtest (option A: parquet → live ndjson → SEA → log → watch) | DONE 2026-04-16 (commit 1dd393e) |
+| Live pipeline validated during market hours 2026-04-16 | DONE (crudeoil/naturalgas firing signals live) |
 | Delete test models, retrain on ~1 month clean data | Future |
 
 **MVP model quality is intentionally poor** (val AUC ~0.57 for crudeoil; banknifty/nifty50 trained on single-day with random split). Purpose is pipeline validation, NOT trading. User explicitly aware.
 
-**Where we left off (2026-04-16 night):** discussing 3 backtest options before bed —
-A) parquet → live ndjson → SEA tails (smoke test, skips TFA feature compute)
-B) SEA `--backtest` direct from parquet (fast, skips file tail)
-C) tomorrow's real live market (true validation)
-User asked the smart Q "why parquet → ndjson when parquet came from raw ndjson?" — answer is `data/features/<inst>_live.ndjson` (live feature stream from TFA) is a different file from `data/raw/<date>/*_ticks.ndjson.gz` (raw ticks). Resume tomorrow with this clarified.
+## Live observations 2026-04-16
+
+During market hours with live TFA + SEA running:
+- **crudeoil, naturalgas (MCX)** — `data_quality_flag=1`, signals flowing (all GO_PUT due to model bias from skewed training data)
+- **nifty50, banknifty (NSE)** — `data_quality_flag=0`, SEA silently filters all rows
+  - Root cause: NSE index options have thin liquidity at ATM±2/±3 early in session; `option_feed_stale` gate zeroes the quality flag until all 14 ATM±3 CE/PE have ticked
+  - Not a bug — gate is working as designed. DQ typically flips to 1 by ~10:30-11:00 once spot moves enough to activate more strikes.
+
+## Training cadence decision (2026-04-16)
+
+- **Daily replay** — automated, keeps parquets fresh for tomorrow's training
+- **Weekly MTA retrain** — manual trigger (Friday evening), train on 5 days, replace LATEST if metrics improved
+- **Monthly review** — compare 4 weekly versions, promote best, archive rest
+- **NOT daily training** — causes overfitting to recent regime, unstable val metrics, misleading AUC swings. Only during pipeline debugging phase, and never traded on.
+
+## Strike selection — Open Item F resolved (plan, not yet implemented)
+
+Data for ATM±2 already in every parquet row (`opt_m2_ce_ltp` ... `opt_p2_pe_ltp` + bid/ask/OI/greeks per strike). Three-phase implementation plan:
+
+1. **Phase 1 (do first):** rule-based. LONG_CE/PE → ATM; SHORT_CE/PE → ATM+1 or ATM-1. ~1 hour of SEA work, no model changes.
+2. **Phase 2 (post-data-collection):** regime-driven dynamic rule. TREND + momentum → ATM; RANGE/DEAD → ATM+1/2 (collect theta further from strike). ~2-3 hours, no retraining.
+3. **Phase 3 (long-term):** per-strike target models. Add `max_upside_m1_30s`, `max_upside_0_30s`, `max_upside_p1_30s`, etc. SEA picks best predicted RR across strikes. ~15 more models per instrument.
+
+Start with Phase 1 once full LONG/SHORT/SL/TP signal output is built.
 
 ## Component status (as of 2026-04-13)
 
