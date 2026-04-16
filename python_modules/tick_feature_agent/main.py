@@ -362,6 +362,16 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     _holiday_nse = _fetch_holiday_status(args.broker_url, "NSE")
     _holiday_mcx = _fetch_holiday_status(args.broker_url, "MCX")
 
+    # ── Derive instrument key from profile filename ───────────────────────────
+    # We use the profile FILENAME (e.g. "nifty50") not instrument_name
+    # lowercased ("nifty"). This keeps raw filenames consistent with the rest
+    # of the system (bat scripts, live ndjson, parquet, models directory).
+    # Pre-2026-04-17 the recorder used instrument_name.lower() which wrote
+    # nifty_*.ndjson.gz — creating a mismatch with the nifty50 key everywhere
+    # else and breaking replay.
+    profile_path_live = Path(args.instrument_profile)
+    instrument_key = profile_path_live.stem.replace("_profile", "")
+
     # ── Instantiate pipeline components ───────────────────────────────────────
     tick_buf   = CircularBuffer(maxlen=50)
     opt_store  = OptionBufferStore()
@@ -372,7 +382,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         socket_addr=_parse_socket(args.output_socket),
     )
     recorder   = SessionRecorder(
-        instrument=profile.instrument_name.lower(),
+        instrument=instrument_key,
         data_root=args.data_root,
         underlying_symbol=underlying_symbol,       # resolved, not profile default
         underlying_security_id=profile.underlying_security_id,
@@ -405,12 +415,36 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         log.info("SESSION_CLOSE", msg="Session closed")
 
     def _on_rollover():
+        # Known bug (pre-2026-04-17): chain_poller._check_rollover marks
+        # _rolled_over=True but never updates _active_expiry to the new
+        # contract. Underlying WebSocket keeps subscribing to expired
+        # security_id, chain poller keeps querying expired expiry.
+        #
+        # Simple fix: exit with code 75 so the bat loop restarts TFA.
+        # Fresh startup re-runs _resolve_near_month_contract() which picks
+        # the NEXT FUTIDX/FUTCOM expiry > today — effectively rolling to
+        # the new contract with correct security_id + chain + strikes.
         if poller.active_expiry:
             recorder.on_expiry_rollover(
                 new_expiry=poller.active_expiry,
-                new_underlying_symbol=underlying_symbol,   # resolved symbol
+                new_underlying_symbol=underlying_symbol,
             )
-        log.info("EXPIRY_ROLLOVER", msg=f"Rolled to {poller.active_expiry}")
+        log.warn(
+            "EXPIRY_ROLLOVER_EXIT",
+            msg=f"Expiry rollover on {poller.active_expiry} — exiting with code 75 "
+                f"so bat loop restarts TFA on the next contract.",
+            old_expiry=poller.active_expiry,
+        )
+        print(
+            f"\n  {YELLOW('◼  Expiry rollover')} — restarting on next contract…\n",
+            flush=True,
+        )
+        try:
+            processor.on_session_close()
+            recorder.on_session_close()
+        except Exception:
+            pass
+        sys.exit(75)
 
     session_mgr = SessionManager(
         profile=profile,
@@ -507,8 +541,8 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         _h["session_open"] = False
         _orig_session_close()
         # Market closed — schedule a clean exit after a short flush delay
-        print(f"\n  {YELLOW('◼  Market session closed.')}  Stopping in 5s…\n", flush=True)
-        log.info("SESSION_AUTO_STOP", msg="Market session closed — TFA will stop in 5s")
+        print(f"\n  {YELLOW('◼  Market session closed.')}  Stopping in 10s…\n", flush=True)
+        log.info("SESSION_AUTO_STOP", msg="Market session closed — TFA will stop in 10s")
         asyncio.ensure_future(_auto_stop())
 
     # Rebuild session_mgr with wrapped callbacks (replace in-place)
@@ -573,6 +607,60 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         while True:
             await asyncio.sleep(3)
             recorder.flush()
+
+    async def _tick_watchdog():
+        """
+        Detect silent tick-stall: session is OPEN but no underlying tick
+        for > TICK_STALL_THRESHOLD_SEC. Typical cause is Dhan-side socket
+        that stays 'connected' but stops sending frames (what happened
+        2026-04-16 17:15 IST — both MCX feeds silently stopped for 6h).
+        On stall: log ERROR, terminate with exit code 75 so the bat
+        loop relaunches the process cleanly.
+        """
+        TICK_STALL_THRESHOLD_SEC = 120   # 2 minutes with no tick in open session
+        CHECK_INTERVAL_SEC       = 30
+        # Grace period after session open so we don't false-fire on slow first tick
+        GRACE_AFTER_SESSION_OPEN = 60
+
+        while True:
+            await asyncio.sleep(CHECK_INTERVAL_SEC)
+
+            if not _h.get("session_open"):
+                continue
+
+            session_ts = _h.get("session_ts")
+            if session_ts is None:
+                continue
+            now = time.monotonic()
+            if now - session_ts < GRACE_AFTER_SESSION_OPEN:
+                continue   # grace window — let the feed warm up
+
+            last_u_ts = _h.get("last_u_ts")
+            # No tick ever received since session open
+            if last_u_ts is None:
+                age = now - session_ts
+            else:
+                age = now - last_u_ts
+
+            if age > TICK_STALL_THRESHOLD_SEC:
+                log.error(
+                    "FEED_WATCHDOG_STALL",
+                    msg=f"No underlying ticks for {age:.0f}s while session open — "
+                        f"exiting with code 75 so bat loop restarts the process.",
+                    tick_age_sec=round(age, 1),
+                    threshold_sec=TICK_STALL_THRESHOLD_SEC,
+                )
+                print(
+                    f"\n  {RED('FEED STALLED')}  no ticks for {age:.0f}s — "
+                    f"auto-restarting...\n",
+                    flush=True,
+                )
+                # Close writers + log cleanly, then exit 75 (bat loop picks up)
+                try:
+                    recorder.on_session_close()
+                except Exception:
+                    pass
+                sys.exit(75)
 
     def _render_health() -> list[str]:
         """Build health display lines (no trailing newline on each)."""
@@ -744,8 +832,39 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
 
     async def _auto_stop():
         """Wait briefly for final flushes then cancel all tasks cleanly."""
-        await asyncio.sleep(5)
+        await asyncio.sleep(10)
         raise asyncio.CancelledError
+
+    async def _session_end_enforcer():
+        """
+        Wall-clock safety net: if IST time crosses session_end + 10s and TFA
+        is still running for any reason (callback didn't fire, stuck poller,
+        etc.), force exit. Checks every 30s — cheap and robust.
+        """
+        while True:
+            await asyncio.sleep(30)
+            try:
+                now_ist = datetime.now(_IST)
+                today = now_ist.strftime("%Y-%m-%d")
+                end_sec = _session_boundary_sec(today, profile.session_end)
+                if now_ist.timestamp() > end_sec + 10:
+                    print(
+                        f"\n  {YELLOW('◼  session_end + 10s passed')}  —  force-stopping.\n",
+                        flush=True,
+                    )
+                    log.warn(
+                        "SESSION_END_FORCE_STOP",
+                        msg=f"Wall-clock passed session_end ({profile.session_end}) + 10s — force exit",
+                    )
+                    try:
+                        recorder.on_session_close()
+                    except Exception:
+                        pass
+                    raise asyncio.CancelledError
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.warn("SESSION_END_CHECK_FAILED", msg=str(exc))
 
     # ── Run ───────────────────────────────────────────────────────────────────
     print()
@@ -758,6 +877,8 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
             poller.run(),
             _stale_checker(),
             _recorder_flusher(),
+            _tick_watchdog(),
+            _session_end_enforcer(),
             _health_display(),
             _keyboard_handler(),
         )
@@ -795,9 +916,17 @@ def _run_replay(profile, args, log) -> None:
     else:
         _fatal("Replay mode requires --date or both --date-from and --date-to")
 
+    # Use the profile FILENAME key (e.g. "nifty50") instead of instrument_name
+    # lowercased ("nifty"). Matches the convention used everywhere else:
+    # start-tfa.bat nifty50, data/features/<date>/nifty50_features.parquet,
+    # models/nifty50/, config/model_feature_config/nifty50_feature_config.json.
+    # Previously replay wrote nifty_features.parquet causing a naming mismatch.
+    profile_path_obj = Path(args.instrument_profile)
+    instrument_key = profile_path_obj.stem.replace("_profile", "")
+
     summary = replay(
-        profile_path=Path(args.instrument_profile),
-        instrument=profile.instrument_name.lower(),
+        profile_path=profile_path_obj,
+        instrument=instrument_key,
         date_from=date_from,
         date_to=date_to,
         raw_root=args.data_root,

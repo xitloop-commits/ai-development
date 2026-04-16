@@ -5,7 +5,9 @@ REM
 REM   Pre-flight (this window, blocking):
 REM     1. Start the ATS web server in a new window
 REM     2. Wait for server to be ready (~10s)
-REM     3. Check / refresh Dhan access token (TOTP)
+REM   (Server handles Dhan token: refreshes via TOTP on startup if
+REM    expired, and again on any 401 via the 401 handler. TFA reads
+REM    the live token from /api/broker/token on every reconnect.)
 REM
 REM   Then launches TFA instruments with 5s stagger:
 REM     crudeoil    (window 1)
@@ -121,18 +123,7 @@ if !errorlevel! neq 0 (
     goto health_poll
 )
 echo   Server is ready ^(attempt !HEALTH_ATTEMPTS!^).
-
-REM ── Step 2: Check / refresh Dhan access token ────────────────
-echo [PRE-FLIGHT 2/2] Checking Dhan access token...
-call "%ROOT%scripts\run-dhan-refresh.bat"
-if !errorlevel! neq 0 (
-    echo.
-    echo   ERROR: Token refresh failed. TFA instruments NOT started.
-    echo   Fix the token issue and re-run startup\start-all.bat
-    echo.
-    pause
-    exit /b 1
-)
+echo   ^(Dhan token refresh is handled by server startup ^& 401 handler.^)
 
 echo.
 echo ============================================================

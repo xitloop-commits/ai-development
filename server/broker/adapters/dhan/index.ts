@@ -134,6 +134,24 @@ export class DhanAdapter implements BrokerAdapter {
    */
   private async _tryAutoRefresh(): Promise<boolean> {
     try {
+      // Coalesce with any refresh already in flight from the 401 handler.
+      // handleDhan401() may have just generated a fresh token — reuse it
+      // instead of doing a second TOTP call.
+      const { _inflightRefresh } = await import("./auth");
+      const existing = _inflightRefresh.get(this.brokerId);
+      if (existing) {
+        log.info("Refresh already in flight — awaiting existing result.");
+        const newToken = await existing;
+        if (newToken) {
+          // handleDhan401 already wrote to Mongo — just sync in-memory token
+          this.accessToken = newToken;
+          this.tokenUpdatedAt = Date.now();
+          log.info("Token synced from in-flight refresh.");
+          return true;
+        }
+        return false;
+      }
+
       log.info("Auto-refreshing Dhan token via TOTP...");
       const newToken = await generateDhanToken(this.brokerId);
       await this.updateToken(newToken);
