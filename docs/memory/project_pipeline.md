@@ -18,18 +18,26 @@ Model Training Agent → trained model
 Decision Engine (live trading)
 ```
 
-## Component status (as of 2026-04-14)
+## Component status (as of 2026-04-16)
 
-| Milestone | Date |
-|-----------|------|
-| Data collection start (TFA live, all 4 instruments) | 2026-04-14 (planned) |
-| MTA + Signal Engine Agent (SEA) build | 2026-04-14 onwards (parallel to data collection) |
-| End-to-end test run (partial data, test models) | after enough data to train |
-| Delete test models, retrain with qualified data | after ~1 week of clean data |
-| Real signal observation begins | after qualified retrain |
+| Milestone | Status |
+|-----------|--------|
+| TFA live recording (all 4 instruments) | Working |
+| TFA replay → Parquet features | Working |
+| MTA MVP built (3 targets: direction_30s, max_upside_30s, max_drawdown_30s) | DONE |
+| SEA MVP built (loads LATEST, tails live ndjson, emits GO_CALL/GO_PUT) | DONE |
+| `watch_signals.py` dashboard | DONE |
+| All 4 instruments have trained MVP models | DONE (commit 9a4ba94) |
+| End-to-end backtest (option A: replay parquet → live ndjson → SEA → log → watch) | Pending — left off mid-discussion |
+| Delete test models, retrain on ~1 month clean data | Future |
 
-**Note:** First training run uses partial/test data for pipeline validation only.
-Test model brains will be deleted and replaced once fully qualified data is available.
+**MVP model quality is intentionally poor** (val AUC ~0.57 for crudeoil; banknifty/nifty50 trained on single-day with random split). Purpose is pipeline validation, NOT trading. User explicitly aware.
+
+**Where we left off (2026-04-16 night):** discussing 3 backtest options before bed —
+A) parquet → live ndjson → SEA tails (smoke test, skips TFA feature compute)
+B) SEA `--backtest` direct from parquet (fast, skips file tail)
+C) tomorrow's real live market (true validation)
+User asked the smart Q "why parquet → ndjson when parquet came from raw ndjson?" — answer is `data/features/<inst>_live.ndjson` (live feature stream from TFA) is a different file from `data/raw/<date>/*_ticks.ndjson.gz` (raw ticks). Resume tomorrow with this clarified.
 
 ## Component status (as of 2026-04-13)
 

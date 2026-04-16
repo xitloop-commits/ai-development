@@ -136,6 +136,18 @@ def act_sea_banknifty():  _launch_new_window("SEA: banknifty",     "start-sea.ba
 def act_sea_crudeoil():   _launch_new_window("SEA: crudeoil",      "start-sea.bat crudeoil")
 def act_sea_natgas():     _launch_new_window("SEA: naturalgas",    "start-sea.bat naturalgas")
 
+# --- Training (MTA) ---
+def act_train_nifty():    _launch_new_window("Train: nifty50",      "train-auto.bat nifty50")
+def act_train_banknifty():_launch_new_window("Train: banknifty",    "train-auto.bat banknifty")
+def act_train_crudeoil(): _launch_new_window("Train: crudeoil",     "train-auto.bat crudeoil")
+def act_train_natgas():   _launch_new_window("Train: naturalgas",   "train-auto.bat naturalgas")
+
+# --- Feature dashboards ---
+def act_feat_nifty():     _launch_new_window("Features: nifty50",    "watch-features.bat nifty50")
+def act_feat_banknifty(): _launch_new_window("Features: banknifty",  "watch-features.bat banknifty")
+def act_feat_crudeoil():  _launch_new_window("Features: crudeoil",   "watch-features.bat crudeoil")
+def act_feat_natgas():    _launch_new_window("Features: naturalgas", "watch-features.bat naturalgas")
+
 # --- Signal dashboards ---
 def act_watch_nifty():    _launch_new_window("Signals: nifty50",    "watch-signals.bat nifty50")
 def act_watch_banknifty():_launch_new_window("Signals: banknifty",  "watch-signals.bat banknifty")
@@ -218,32 +230,42 @@ def act_checkpoint_status():
 # ── Main ──────────────────────────────────────────────────────────────────
 def main():
     items = [
-        ("── Live ──────────────────────────────────────────", None),
-        ("Start everything  (API server + all 4 TFAs)",   act_start_all),
-        ("Start API server only",                         act_api_server),
-        ("Start TFA  nifty50",                            act_tfa_nifty),
-        ("Start TFA  banknifty",                          act_tfa_banknifty),
-        ("Start TFA  crudeoil",                           act_tfa_crudeoil),
-        ("Start TFA  naturalgas",                         act_tfa_natgas),
-        ("── Replay  (feature generation) ─────────────────", None),
+        ("─── 1. RECORD ─── ticks  →  data/raw/  ──────────────", None),
+        ("Start everything  (API + all 4 TFAs)",          act_start_all),
+        ("API server only",                               act_api_server),
+        ("Record  nifty50",                               act_tfa_nifty),
+        ("Record  banknifty",                             act_tfa_banknifty),
+        ("Record  crudeoil",                              act_tfa_crudeoil),
+        ("Record  naturalgas",                            act_tfa_natgas),
+        ("─── 2. FEATURIZE ─── raw  →  data/features/  ───────", None),
         ("Replay  nifty50",                               act_rep_nifty),
         ("Replay  banknifty",                             act_rep_banknifty),
         ("Replay  crudeoil",                              act_rep_crudeoil),
         ("Replay  naturalgas",                            act_rep_natgas),
-        ("── Signals  (SEA live inference) ────────────────", None),
+        ("─── 3. TRAIN ─── features  →  models/  ─────────────", None),
+        ("Train  nifty50   (MTA)",                        act_train_nifty),
+        ("Train  banknifty (MTA)",                        act_train_banknifty),
+        ("Train  crudeoil  (MTA)",                        act_train_crudeoil),
+        ("Train  naturalgas(MTA)",                        act_train_natgas),
+        ("─── 4. INFER ─── live features  →  signals/  ───────", None),
         ("Start SEA  nifty50",                            act_sea_nifty),
         ("Start SEA  banknifty",                          act_sea_banknifty),
         ("Start SEA  crudeoil",                           act_sea_crudeoil),
         ("Start SEA  naturalgas",                         act_sea_natgas),
-        ("Watch signals  nifty50",                        act_watch_nifty),
-        ("Watch signals  banknifty",                      act_watch_banknifty),
-        ("Watch signals  crudeoil",                       act_watch_crudeoil),
-        ("Watch signals  naturalgas",                     act_watch_natgas),
-        ("── Tools ─────────────────────────────────────────", None),
+        ("─── 5. WATCH ─── live dashboards  ───────────────────", None),
+        ("Watch features  nifty50",                       act_feat_nifty),
+        ("Watch features  banknifty",                     act_feat_banknifty),
+        ("Watch features  crudeoil",                      act_feat_crudeoil),
+        ("Watch features  naturalgas",                    act_feat_natgas),
+        ("Watch signals   nifty50",                       act_watch_nifty),
+        ("Watch signals   banknifty",                     act_watch_banknifty),
+        ("Watch signals   crudeoil",                      act_watch_crudeoil),
+        ("Watch signals   naturalgas",                    act_watch_natgas),
+        ("─── Tools ───────────────────────────────────────────", None),
         ("Refresh Dhan token (TOTP)",                     act_refresh_token),
         ("Update Dhan credentials (info)",                act_update_creds),
         ("Start Telegram Bot",                            act_bot),
-        ("── Status ────────────────────────────────────────", None),
+        ("─── Status ──────────────────────────────────────────", None),
         ("Today's raw file sizes",                        act_file_sizes),
         ("Today's log files",                             act_tail_log),
         ("Replay checkpoint status",                      act_checkpoint_status),
