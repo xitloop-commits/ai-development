@@ -887,20 +887,20 @@ export default function TradingDesk({
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-[oklch(0.18_0.025_270)] backdrop-blur-md border-b-2 border-border">
-                <th className="px-2.5 py-2 text-left text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase w-12 border-r border-border/30">Day</th>
-                <th className="px-2.5 py-2 text-left text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Date</th>
-                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Trade Cap.</th>
-                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Target</th>
-                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Proj. Cap.</th>
-                <th className="px-2.5 py-2 text-left text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Instrument</th>
-                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Entry</th>
-                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">LTP</th>
-                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Qty</th>
-                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Capital</th>
-                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">P&amp;L</th>
-                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Charges</th>
-                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Actual Cap.</th>
-                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border/30">Dev.</th>
+                <th className="px-2.5 py-2 text-left text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase w-12 border-r border-border">Day</th>
+                <th className="px-2.5 py-2 text-left text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Date</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Trade Cap.</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Target</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Proj. Cap.</th>
+                <th className="px-2.5 py-2 text-left text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Instrument</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Entry</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border">LTP</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Qty</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Capital</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border">P&amp;L</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Charges</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Actual Cap.</th>
+                <th className="px-2.5 py-2 text-right text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Dev.</th>
                 <th className="px-2.5 py-2 text-center text-[0.5625rem] font-bold text-foreground/70 tracking-widest uppercase w-16">Rating</th>
               </tr>
             </thead>
