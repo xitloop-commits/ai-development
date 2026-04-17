@@ -688,3 +688,19 @@ Returns `true` on success, `false` on any failure (logs the error, does not thro
 | `server/broker/adapters/dhan/index.ts` | `_tryAutoRefresh()` — wires token refresh into `connect()` and all 401 paths |
 
 ---
+
+---
+
+## Appendix: Implementation Deviations (as of 2026-04-17)
+
+> This section tracks differences between the spec and the actual implementation.
+> It will be merged into the spec body when the code stabilises.
+
+- Token management: standalone `scripts/dhan-token-refresh.mjs` and `scripts/run-dhan-refresh.bat` deleted. Server (BSA) is now the single source of token generation via TOTP.
+- `handleDhan401()` in `auth.ts` now triggers immediate TOTP refresh with module-level coalescing lock (`_inflightRefresh` map). Eliminates the previous ~18-minute delay where 401s were only marked as expired without triggering refresh.
+- `_tryAutoRefresh()` in DhanAdapter coalesces with `handleDhan401` via the shared `_inflightRefresh` map — prevents double TOTP generation.
+- `GET /api/broker/token` endpoint is now self-healing: checks token expiry on every read and triggers coalesced refresh if stale/expired before returning. TFA always gets a usable token.
+- Telegram notification (`notifyTelegram()` in auth.ts) fires on every token regeneration (success and failure). Reads `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` from `.env`; silently skips if either missing.
+- Windows scheduled task `DhanTokenRefresh` removed.
+- `start-all.bat` no longer has a token refresh pre-flight step — server handles it at startup via `BSA.connect()`.
+- `brokerConfig.ts` `docToConfig()` now passes through the `auth` sub-document (clientId, pin, totpSecret) so `tokenManager.ts` can read TOTP credentials from MongoDB.

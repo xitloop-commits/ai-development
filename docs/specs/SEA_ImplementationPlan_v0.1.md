@@ -390,3 +390,20 @@ No additional dependencies beyond what MTA already requires.
 - [ ] Re-accepts TFA connection automatically after disconnect
 - [ ] Stale socket file cleaned up on startup
 - [ ] Clear error message if models not found (MTA not run yet)
+
+---
+
+## Appendix: Implementation Deviations (as of 2026-04-17)
+
+> This section tracks differences between the spec and the actual implementation.
+> It will be merged into the spec body when the code stabilises.
+
+- **MVP subset implemented (2026-04-16).** Full spec deferred.
+- Transport: MVP uses **NDJSON file tail** (`data/features/{instrument}_live.ndjson`) instead of Unix Domain Socket. SEA polls the file every 200ms for new lines.
+- Thresholds: MVP uses `direction_prob` only for GO_CALL (≥0.55) / GO_PUT (≤0.45) decision. Full spec rule (prob + risk_reward + upside_percentile) deferred until regression models are reliable.
+- Thresholds configurable via CLI: `--call-thresh` and `--put-thresh`.
+- Signal output: WAIT signals not logged (per spec). GO_CALL/GO_PUT written to `logs/signals/{instrument}/YYYY-MM-DD_signals.log` as NDJSON.
+- `watch_signals.py` dashboard: live terminal display tailing the signal log, showing last 25 signals + daily totals.
+- `backtest.py`: streams Parquet feature rows into the live ndjson file for end-to-end pipeline testing.
+- Launcher wrappers: `startup/start-sea.bat`, `startup/watch-signals.bat`, `startup/backtest.bat`.
+- Location: `python_modules/signal_engine_agent/` with `model_loader.py`, `engine.py`, `signal_logger.py`.

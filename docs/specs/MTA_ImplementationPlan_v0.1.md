@@ -361,3 +361,19 @@ Add to `python_modules/requirements.txt`.
 - [ ] `preprocessor.preprocess_live_tick()` public API stable and documented
 - [ ] End-to-end CLI run completes: reads Parquet → trains 15 models → writes artifacts → updates LATEST
 - [ ] Signal Engine Agent (SEA) session can `from model_training_agent.preprocessor import preprocess_live_tick` successfully
+
+---
+
+## Appendix: Implementation Deviations (as of 2026-04-17)
+
+> This section tracks differences between the spec and the actual implementation.
+> It will be merged into the spec body when the code stabilises.
+
+- **MVP subset implemented (2026-04-16).** Full spec deferred until 1 month of clean data is collected.
+- Only 3 of 15 targets trained: `direction_30s` (binary, AUC eval), `max_upside_30s` (regression, RMSE), `max_drawdown_30s` (regression, RMSE).
+- Preprocessing: only Steps 1–3 implemented (row filter, column drops, redundancy reduction). Steps 4–7 (strike tier, active strikes, variance pruning, importance pruning) deferred.
+- Training split: MVP uses smallest day as validation (not temporal last-day split) to maximise training rows with limited data. Single-day fallback uses random 80/20 split.
+- Checkpoint, SHAP importance, training manifest validator, and LATEST promotion logic: not yet implemented. LATEST is always updated (no quality gate).
+- `feature_config.json` is locked after first run and reused on subsequent runs (per spec).
+- Location: `python_modules/model_training_agent/` with `preprocessor.py`, `trainer.py`, `cli.py`.
+- Launcher wrappers: `startup/train-auto.bat`, `startup/train-model.bat`.

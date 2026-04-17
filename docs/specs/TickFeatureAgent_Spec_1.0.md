@@ -3310,3 +3310,21 @@ When WARN or FAIL is reported:
 5. `direction_30s` always same value → target variable leakage
 6. `data_quality_flag = 0` > 60% → chain snapshots not arriving
 7. `atm_strike` deviating from spot → ATM detection bug
+
+---
+
+## Appendix: Implementation Deviations (as of 2026-04-17)
+
+> This section tracks differences between the spec and the actual implementation.
+> It will be merged into the spec body when the code stabilises.
+
+- `session_start` changed from `09:15` to `09:00` for NSE instruments (nifty50, banknifty) to capture pre-open session activity. All 4 instruments now start at 09:00.
+- Pre-market wait: TFA now waits until `session_start - 2 minutes` before connecting to Dhan WebSocket. Prevents multi-hour idle connections that caused the 2026-04-16 silent stall.
+- Feed watchdog (`_tick_watchdog`): new async task checks every 30s — if session is open and no underlying ticks received for >120s, exits with code 75 so bat run_loop restarts TFA. Prevents silent data loss from dead WebSocket connections.
+- Session-end enforcer (`_session_end_enforcer`): wall-clock safety net checking every 30s — forces exit at `session_end + 10s` even if `on_session_end` callback fails to fire.
+- Auto-stop delay extended from 5s to 10s after session close.
+- Expiry rollover: `_on_rollover` now exits with code 75 so bat loop restarts TFA onto the next near-month contract. Works around a bug where `chain_poller._check_rollover` marks `_rolled_over=True` but never updates `_active_expiry` or re-resolves the new contract.
+- Instrument naming: recorder and replay now use the profile FILENAME key (e.g. `nifty50` from `nifty50_profile.json`) instead of `instrument_name.lower()` (`nifty`). Fixes raw file naming mismatch (`nifty_*.ndjson.gz` vs `nifty50_*` everywhere else).
+- Dhan WebSocket reconnect: hard 10-attempt cap removed — retries indefinitely. HTTP 429 gets 60s flat backoff (was 30s exponential). Credentials refreshed from server on every reconnect attempt. `ping_timeout=None` added alongside `ping_interval=None`.
+- Dhan disconnect code + reason shown in terminal print and health display. Cleared on successful reconnect.
+- Retry countdown shown in health display when feed is disconnected.

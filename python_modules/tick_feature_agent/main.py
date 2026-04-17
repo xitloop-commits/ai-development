@@ -324,7 +324,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     # ── Wait until 5 minutes before market open ─────────────────────────────
     # Don't hold a Dhan WebSocket for hours pre-market — connect just before
     # session start so the connection is fresh and avoids idle-timeout stalls.
-    PRE_MARKET_LEAD_MIN = 5
+    PRE_MARKET_LEAD_MIN = 2
     now_ist = datetime.now(_IST)
     today_str = now_ist.strftime("%Y-%m-%d")
     start_sec = _session_boundary_sec(today_str, profile.session_start)

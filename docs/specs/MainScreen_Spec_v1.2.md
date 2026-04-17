@@ -139,3 +139,17 @@ Secondary system views are no longer accessed via navigation tabs. They are invo
 - **Discipline Engine:** See `DisciplineEngine_Spec_v1.1.md`
 - **Trade Journal:** See Task I in `ats-feature-requirements.md`
 - **System Settings:** See `Settings_Spec_v1.2.md`
+
+---
+
+## Appendix: Implementation Deviations (as of 2026-04-17)
+
+> This section tracks differences between the spec and the actual implementation.
+> It will be merged into the spec body when the code stabilises.
+
+- Font scaling: all 665 hardcoded `text-[Npx]` values in `client/src/` converted to rem-based equivalents. Responsive root font-size added via `clamp(16px, 0.625vw + 4px, 28px)` — scales from 16px at 1080p to 28px at 4K. Commit 4f66e01.
+- InstrumentCard v2 redesign approved (Option B) but **not yet implemented**. Planned 6 sections: Live Snapshot, SEA Signal, Live Features, Chain OI, Health, News Sentiment. Drops legacy sections: AI Rationale, S/R Strength Line, Scoring Factors, Phase 2 Filter Badges.
+- PreEntryChecklist: deferred. All 8 legacy checks depend on removed AI engine fields. Planned partial rewrite (Option III) using Python pipeline outputs once SEA LONG/SHORT signals are built.
+- LeftDrawer pipeline health dots (per-instrument green/yellow/red based on DQ flag + tick rate): planned but not yet implemented.
+- Model status popover in AppBar: planned but not yet implemented.
+- SEA signals wiring to RightDrawer SignalsFeed: planned but not yet implemented.
