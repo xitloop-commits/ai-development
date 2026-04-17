@@ -127,7 +127,7 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
   };
 
   return (
-    <div className="sticky top-0 z-50 w-full border-b border-border bg-card/90 backdrop-blur-md">
+    <div className="sticky top-0 z-50 w-full border-b border-border bg-secondary backdrop-blur-md">
       <div className="flex items-center justify-between px-3 py-2">
         {/* Left Edge: Drawer Toggle */}
         <button
