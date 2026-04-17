@@ -475,7 +475,7 @@ export default function MainFooter() {
                     <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">Trading</span>
                     <span className="text-xs font-bold tabular-nums text-foreground">{fmt(tradingPool)}</span>
                   </div>
-                  <div className="relative h-2 rounded-full bg-border/40 overflow-hidden">
+                  <div className="relative h-2 rounded-full bg-border overflow-hidden">
                     <div
                       className="h-full rounded-full bg-gradient-green-cyan transition-all duration-500"
                       style={{ width: `${Math.min(parseFloat(tradingPoolPct), 100)}%` }}
@@ -498,7 +498,7 @@ export default function MainFooter() {
                     <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">Reserve</span>
                     <span className="text-xs font-bold tabular-nums text-foreground">{fmt(reservePool)}</span>
                   </div>
-                  <div className="relative h-2 rounded-full bg-border/40 overflow-hidden">
+                  <div className="relative h-2 rounded-full bg-border overflow-hidden">
                     <div
                       className="h-full rounded-full bg-gradient-cyan-violet transition-all duration-500"
                       style={{ width: `${Math.min(parseFloat(reservePoolPct), 100)}%` }}
