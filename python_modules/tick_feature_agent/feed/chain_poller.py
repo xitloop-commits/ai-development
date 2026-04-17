@@ -247,21 +247,36 @@ class ChainPoller:
         are the most liquid contracts.
         """
         loop = asyncio.get_event_loop()
-        # OPTIDX for NSE (includes weekly expiries), OPTFUT for MCX (option expiries,
-        # not futures expiries — MCX options expire on different dates than futures)
-        inst_type = "OPTFUT" if self._profile.exchange == "MCX" else "OPTIDX"
         try:
-            resp = await loop.run_in_executor(
-                None,
-                lambda: _requests.get(
-                    f"{self._broker_url}/api/broker/scrip-master/expiry-list",
-                    params={
-                        "symbol": self._profile.instrument_name,
-                        "instrumentName": inst_type,
-                    },
-                    timeout=10,
+            if self._profile.exchange == "MCX":
+                # MCX: use Dhan's option-chain expiry-list endpoint directly.
+                # Scrip-master OPTFUT returns intermediate expiries (05-07) that
+                # the chain API doesn't support — only main expiries (05-14) work.
+                resp = await loop.run_in_executor(
+                    None,
+                    lambda: _requests.get(
+                        f"{self._broker_url}/api/broker/option-chain/expiry-list",
+                        params={
+                            "underlying": self._profile.underlying_security_id,
+                            "exchangeSegment": self._exch_seg,
+                        },
+                        timeout=10,
+                    )
                 )
-            )
+            else:
+                # NSE: use scrip-master with OPTIDX to get weekly expiries
+                # (Dhan's option-chain endpoint only returns monthly for NSE)
+                resp = await loop.run_in_executor(
+                    None,
+                    lambda: _requests.get(
+                        f"{self._broker_url}/api/broker/scrip-master/expiry-list",
+                        params={
+                            "symbol": self._profile.instrument_name,
+                            "instrumentName": "OPTIDX",
+                        },
+                        timeout=10,
+                    )
+                )
             if resp.status_code != 200:
                 self._log.error(
                     "EXPIRY_FETCH_FAILED",
