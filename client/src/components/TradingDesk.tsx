@@ -704,82 +704,76 @@ export default function TradingDesk({
   // ─── Render ────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full">
-      {/* ─── Tab Bar ──────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 items-center border-b border-border px-3 py-2 bg-card/80 backdrop-blur-sm">
-        {/* Left: AI Trades */}
-        <div className="flex items-center">
+      {/* ─── Tab Bar (segmented control) ─────────────────────── */}
+      <div className="flex items-center justify-between border-b border-border px-3 py-2 bg-card/80 backdrop-blur-sm">
+        {/* Segmented control */}
+        <div className="flex items-center rounded-md border border-border overflow-hidden">
           <button
             onClick={() => setWorkspace('paper')}
-            className={`px-4 py-1.5 rounded text-xs font-bold tracking-wider uppercase transition-colors ${
+            className={`px-4 py-1.5 text-[0.6875rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
               workspace === 'paper'
-                ? 'bg-violet-pulse/10 text-violet-pulse'
-                : 'text-muted-foreground hover:text-foreground'
+                ? 'bg-violet-pulse/15 text-violet-pulse'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
             }`}
           >
             AI Trades
           </button>
-        </div>
-
-        {/* Center: My Trades */}
-        <div className="flex items-center justify-center">
           <button
             onClick={() => setWorkspace('live')}
-            className={`px-4 py-1.5 rounded text-xs font-bold tracking-wider uppercase transition-colors ${
+            className={`px-4 py-1.5 text-[0.6875rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
               workspace === 'live'
-                ? 'bg-bullish/10 text-bullish'
-                : 'text-muted-foreground hover:text-foreground'
+                ? 'bg-bullish/15 text-bullish'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
             }`}
           >
             My Trades
-            <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
+            {workspace === 'live' && (
+              <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
+            )}
           </button>
-        </div>
-
-        {/* Right: Testing + controls */}
-        <div className="flex items-center justify-end gap-2">
-          {workspace === 'paper_manual' && (
-            <>
-              {/* Live/Paper toggle */}
-              <div className="flex items-center rounded border border-border overflow-hidden">
-                <button
-                  onClick={() => setTestingMode('live')}
-                  className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
-                    testingMode === 'live' ? 'bg-bullish/20 text-bullish' : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  LIVE
-                </button>
-                <button
-                  onClick={() => setTestingMode('paper')}
-                  className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
-                    testingMode === 'paper' ? 'bg-warning-amber/20 text-warning-amber' : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  PAPER
-                </button>
-              </div>
-              {/* Clear all trades */}
-              <button
-                onClick={handleClearTesting}
-                disabled={clearWorkspaceMutation.isPending}
-                className="px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
-                title="Clear all testing trades and reset to zero"
-              >
-                {clearWorkspaceMutation.isPending ? '...' : 'CLEAR ALL'}
-              </button>
-            </>
-          )}
           <button
             onClick={() => setWorkspace('paper_manual')}
-            className={`px-4 py-1.5 rounded text-xs font-bold tracking-wider uppercase transition-colors ${
+            className={`px-4 py-1.5 text-[0.6875rem] font-bold tracking-wider uppercase transition-colors ${
               workspace === 'paper_manual'
-                ? 'bg-warning-amber/10 text-warning-amber'
-                : 'text-muted-foreground hover:text-foreground'
+                ? 'bg-warning-amber/15 text-warning-amber'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
             }`}
           >
             Testing
           </button>
         </div>
+
+        {/* Testing controls (shown only when Testing tab active) */}
+        {workspace === 'paper_manual' && (
+          <div className="flex items-center gap-2">
+            <div className="flex items-center rounded border border-border overflow-hidden">
+              <button
+                onClick={() => setTestingMode('live')}
+                className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
+                  testingMode === 'live' ? 'bg-bullish/20 text-bullish' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                LIVE
+              </button>
+              <button
+                onClick={() => setTestingMode('paper')}
+                className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
+                  testingMode === 'paper' ? 'bg-warning-amber/20 text-warning-amber' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                PAPER
+              </button>
+            </div>
+            <button
+              onClick={handleClearTesting}
+              disabled={clearWorkspaceMutation.isPending}
+              className="px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
+              title="Clear all testing trades and reset to zero"
+            >
+              {clearWorkspaceMutation.isPending ? '...' : 'CLEAR ALL'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ─── Summary Bar ──────────────────────────────────────── */}
