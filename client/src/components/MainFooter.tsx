@@ -457,27 +457,7 @@ export default function MainFooter() {
             </DialogContent>
           </Dialog>
 
-          {/* Discipline Score */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 cursor-default">
-                <Shield className={`h-3 w-3 ${scoreColor}`} />
-                <span className={`text-[0.8125rem] tabular-nums font-bold ${scoreColor}`}>{disciplineScore}/100</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="bg-card border-border text-foreground">
-              <div className="text-xs space-y-1 font-mono">
-                <div className={`font-bold mb-1 ${scoreColor}`}>Discipline Score: {disciplineScore}/100</div>
-                <div className="text-muted-foreground">Circuit Breaker   {breakdown.circuitBreaker}/20  {breakdown.circuitBreaker >= 18 ? '✓' : '!'}</div>
-                <div className="text-muted-foreground">Trade Limits      {breakdown.tradeLimits}/15  {breakdown.tradeLimits >= 13 ? '✓' : '!'}</div>
-                <div className="text-muted-foreground">Cooldowns         {breakdown.cooldowns}/15  {breakdown.cooldowns >= 13 ? '✓' : '!'}</div>
-                <div className="text-muted-foreground">Time Windows      {breakdown.timeWindows}/10  {breakdown.timeWindows >= 9 ? '✓' : '!'}</div>
-                <div className="text-muted-foreground">Position Sizing   {breakdown.positionSizing}/15  {breakdown.positionSizing >= 13 ? '✓' : '!'}</div>
-                <div className="text-muted-foreground">Journal           {breakdown.journal}/10  {breakdown.journal >= 9 ? '✓' : '!'}</div>
-                <div className="text-muted-foreground">Pre-Trade Gate    {breakdown.preTradeGate}/15  {breakdown.preTradeGate >= 13 ? '✓' : '!'}</div>
-              </div>
-            </TooltipContent>
-          </Tooltip>
+          {/* Discipline Score — moved to AppBar */}
         </div>
 
         {/* Separator */}

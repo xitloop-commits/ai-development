@@ -8,7 +8,7 @@
  */
 import { useState, useEffect } from 'react';
 import {
-  Globe, Wifi, Clock,
+  Globe, Wifi, Clock, Shield,
   Menu, FlaskConical, Target,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -105,12 +105,26 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
     retry: 1,
   });
 
+  const disciplineQuery = trpc.discipline.getDashboard.useQuery(undefined, {
+    refetchInterval: 30000,
+    retry: 1,
+  });
+
   // ─── Derived Data ──────────────────────────────────────────
   const brokerStatus = brokerStatusQuery.data;
   const feedState = feedStateQuery.data;
   const brokerConnected = !!brokerStatus && (brokerStatus as any).connected !== false;
   const brokerName = (brokerStatus as any)?.activeBroker ?? 'None';
   const brokerMode = (brokerStatus as any)?.mode ?? 'paper';
+
+  const disciplineData = disciplineQuery.data as any;
+  const scoreObj = disciplineData?.score;
+  const disciplineScore = typeof scoreObj === 'object' && scoreObj !== null ? (scoreObj as any).score ?? 100 : scoreObj ?? 100;
+  const scoreColor = disciplineScore >= 80 ? 'text-info-cyan' : disciplineScore >= 60 ? 'text-warning-amber' : 'text-loss-red';
+  const breakdown = (typeof disciplineData?.score === 'object' ? (disciplineData.score as any).breakdown : disciplineData?.breakdown) ?? {
+    circuitBreaker: 20, tradeLimits: 15, cooldowns: 15, timeWindows: 10,
+    positionSizing: 15, journal: 10, preTradeGate: 15,
+  };
 
   return (
     <div className="sticky top-0 z-50 w-full border-b border-border bg-card/90 backdrop-blur-md">
@@ -157,6 +171,30 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
               <div className="text-muted-foreground">Current Day: {currentDay}</div>
               <div className="text-muted-foreground">Remaining: {250 - currentDay} days</div>
               <div className="text-muted-foreground">Growth: {growthPercent}% from {formatINR(initialFunding)}</div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+
+        {/* Discipline Score */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-1 cursor-default shrink-0 ml-3">
+              <Shield className={`h-3 w-3 ${scoreColor}`} />
+              <span className={`text-[0.625rem] font-bold tabular-nums ${scoreColor}`}>
+                {disciplineScore}/100
+              </span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="bg-card border-border text-foreground">
+            <div className="text-[0.625rem] space-y-0.5 font-mono">
+              <div className={`font-bold mb-1 ${scoreColor}`}>Discipline: {disciplineScore}/100</div>
+              <div className="text-muted-foreground">Circuit Breaker  {breakdown.circuitBreaker}/20</div>
+              <div className="text-muted-foreground">Trade Limits     {breakdown.tradeLimits}/15</div>
+              <div className="text-muted-foreground">Cooldowns        {breakdown.cooldowns}/15</div>
+              <div className="text-muted-foreground">Time Windows     {breakdown.timeWindows}/10</div>
+              <div className="text-muted-foreground">Position Sizing  {breakdown.positionSizing}/15</div>
+              <div className="text-muted-foreground">Journal          {breakdown.journal}/10</div>
+              <div className="text-muted-foreground">Pre-Trade Gate   {breakdown.preTradeGate}/15</div>
             </div>
           </TooltipContent>
         </Tooltip>
