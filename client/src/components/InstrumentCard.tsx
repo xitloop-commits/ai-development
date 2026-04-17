@@ -20,11 +20,75 @@ function Tip({ children, text }: { children: React.ReactNode; text: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild><span className="cursor-default">{children}</span></TooltipTrigger>
-      <TooltipContent side="top" className="bg-card border-border text-foreground max-w-[220px]">
+      <TooltipContent side="top" className="bg-card border-border text-foreground max-w-[240px]">
         <p className="text-[0.625rem] leading-relaxed">{text}</p>
       </TooltipContent>
     </Tooltip>
   );
+}
+
+// ── Dynamic insight generators ───────────────────────────────
+function insightMomentum(v: number | null): string {
+  if (v === null) return 'No data yet.';
+  if (v > 0.5) return 'Strong buying pressure — price pushing up aggressively.';
+  if (v > 0.1) return 'Mild bullish push — buyers slightly in control.';
+  if (v < -0.5) return 'Strong selling pressure — price falling fast.';
+  if (v < -0.1) return 'Mild bearish push — sellers slightly in control.';
+  return 'Flat — no directional pressure right now.';
+}
+function insightVelocity(v: number | null): string {
+  if (v === null) return 'No data yet.';
+  if (Math.abs(v) > 0.5) return 'Price moving rapidly — high-speed action.';
+  if (Math.abs(v) > 0.1) return 'Moderate speed — price ticking along.';
+  return 'Stagnant — price barely moving.';
+}
+function insightOFI(v: number | null): string {
+  if (v === null) return 'No data yet.';
+  if (v > 0.3) return 'Buyers very aggressive at the bid — expect price to push up.';
+  if (v > 0.05) return 'Slightly more buying than selling activity.';
+  if (v < -0.3) return 'Sellers very aggressive — expect downward pressure.';
+  if (v < -0.05) return 'Slightly more selling activity.';
+  return 'Balanced — buyers and sellers equally active.';
+}
+function insightCompression(v: number | null): string {
+  if (v === null) return 'No data yet.';
+  if (v > 0.7) return 'Tightly coiled — big move is likely imminent!';
+  if (v > 0.4) return 'Range is narrowing — building energy for a move.';
+  return 'Price swinging freely — no compression building.';
+}
+function insightBreakout(v: number | null): string {
+  if (v === null) return 'No data yet.';
+  if (v > 0.7) return 'Breakout conditions met — watch for a sharp move any moment.';
+  if (v > 0.4) return 'Getting close to breakout territory.';
+  return 'No breakout setup — market is relaxed.';
+}
+function insightZone(v: number | null): string {
+  if (v === null) return 'No data yet.';
+  if (v > 0.6) return 'Heavy option trading around ATM — strong market participation.';
+  if (v > 0.3) return 'Moderate option activity.';
+  return 'Thin option activity — low participation, be cautious.';
+}
+function insightPCR(v: number | null): string {
+  if (v === null) return 'No data yet.';
+  if (v < 0.7) return 'Very bullish positioning — traders buying far more calls than puts.';
+  if (v < 0.9) return 'Mildly bullish — more call activity.';
+  if (v > 1.3) return 'Very bearish positioning — heavy put buying for protection.';
+  if (v > 1.1) return 'Mildly bearish — more put activity.';
+  return 'Neutral — calls and puts roughly balanced.';
+}
+function insightOIImbalance(v: number | null): string {
+  if (v === null) return 'No data yet.';
+  if (v > 0.3) return 'Strong call-side dominance at ATM — bulls in charge.';
+  if (v > 0.05) return 'Slight call-side lean.';
+  if (v < -0.3) return 'Strong put-side dominance at ATM — bears in charge.';
+  if (v < -0.05) return 'Slight put-side lean.';
+  return 'Balanced open interest at ATM.';
+}
+function insightRegime(v: string | null): string {
+  if (v === 'TREND') return 'Market is trending — strong directional move underway. Go with the flow.';
+  if (v === 'RANGE') return 'Price oscillating in a range — no clear direction. Sell options or wait.';
+  if (v === 'DEAD') return 'Dead market — very low activity. No edge. Stay out.';
+  return 'Unclear market character — wait for a clearer setup.';
 }
 
 // ── Instrument key mapping ───────────────────────────────────
@@ -240,7 +304,7 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
         </div>
 
         <div className="space-y-0.5 text-[0.625rem] tabular-nums">
-          <Tip text="Market character right now. TREND = strong move. RANGE = oscillating. DEAD = no activity. NEUTRAL = unclear.">
+          <Tip text={insightRegime(live.regime)}>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Regime</span>
               <span className={`font-bold ${REGIME_COLORS[live.regime ?? ''] ?? 'text-muted-foreground'}`}>
@@ -250,14 +314,14 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
           </Tip>
 
           {([
-            ['Momentum', live.underlying_momentum, 'Is price pushing up or down? Positive = buyers in control, negative = sellers.'],
-            ['Velocity', live.underlying_velocity, 'How fast is price moving? High = rapid move, zero = stagnant.'],
-            ['OFI (5)', live.underlying_ofi_5, 'Order Flow Imbalance — are buyers or sellers more aggressive? Positive = buying pressure.'],
-            ['Compression', live.volatility_compression, 'Is price range tightening like a coiled spring? High = big move likely soon.'],
-            ['Breakout rdy', live.breakout_readiness, 'How ready is the market for a breakout? High = imminent move expected.'],
-            ['Zone activity', live.zone_activity_score, 'How actively are options trading around ATM? High = strong participation.'],
-            ['PCR ATM', live.chain_pcr_atm, 'Put-Call Ratio. Below 0.8 = bullish (more calls). Above 1.2 = bearish (more puts).'],
-            ['OI imbalance', live.chain_oi_imbalance_atm, 'Open Interest balance at ATM. Positive = call-heavy (bullish). Negative = put-heavy (bearish).'],
+            ['Momentum', live.underlying_momentum, insightMomentum(live.underlying_momentum)],
+            ['Velocity', live.underlying_velocity, insightVelocity(live.underlying_velocity)],
+            ['OFI (5)', live.underlying_ofi_5, insightOFI(live.underlying_ofi_5)],
+            ['Compression', live.volatility_compression, insightCompression(live.volatility_compression)],
+            ['Breakout rdy', live.breakout_readiness, insightBreakout(live.breakout_readiness)],
+            ['Zone activity', live.zone_activity_score, insightZone(live.zone_activity_score)],
+            ['PCR ATM', live.chain_pcr_atm, insightPCR(live.chain_pcr_atm)],
+            ['OI imbalance', live.chain_oi_imbalance_atm, insightOIImbalance(live.chain_oi_imbalance_atm)],
           ] as [string, number | null, string][]).map(([label, val, tip]) => (
             <Tip key={label} text={tip}>
               <div className="flex items-center justify-between">
@@ -332,7 +396,11 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
         </div>
 
         <div className="space-y-0.5 text-[0.625rem]">
-          <Tip text="Is the price feed alive? Green = ticks arriving. Yellow = slow. Red = no data — signals unreliable.">
+          <Tip text={
+            live.file_age_sec < 5 ? 'Ticks flowing normally — data is live and fresh.'
+            : live.file_age_sec < 30 ? `Last tick was ${live.file_age_sec}s ago — feed is slow, data may be slightly delayed.`
+            : `No ticks for ${live.file_age_sec}s — feed appears dead. Signals are unreliable!`
+          }>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Feed</span>
               <span className={live.file_age_sec < 5 ? 'text-bullish' : live.file_age_sec < 30 ? 'text-warning-amber' : 'text-destructive'}>
@@ -342,7 +410,11 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
             </div>
           </Tip>
 
-          <Tip text="Is the market currently open and trading? WARMING_UP = just started, waiting for data.">
+          <Tip text={
+            live.trading_state === 'TRADING' ? 'Market is open and actively trading.'
+            : live.trading_state === 'WARMING_UP' ? 'Just started — collecting initial data before trading features are ready.'
+            : `Session state: ${live.trading_state}. Not actively trading.`
+          }>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Session</span>
               <span className={live.trading_state === 'TRADING' ? 'text-bullish' : 'text-warning-amber'}>
@@ -351,7 +423,10 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
             </div>
           </Tip>
 
-          <Tip text="Are all data sources healthy? Valid = safe to use signals. Stale = some option data missing, signals may be wrong.">
+          <Tip text={
+            live.data_quality_flag === 1 ? 'All data sources healthy — features and signals are trustworthy.'
+            : 'Some option data is stale or missing. Signals may be based on incomplete information — treat with caution.'
+          }>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Data quality</span>
               <span className={live.data_quality_flag === 1 ? 'text-bullish' : 'text-warning-amber'}>
@@ -360,7 +435,13 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
             </div>
           </Tip>
 
-          <Tip text="Is the option chain snapshot current? Fresh = recent data. Missing = chain not available.">
+          <Tip text={
+            live.chain_available && live.time_since_chain_sec < 10
+              ? `Option chain refreshed ${fmt(live.time_since_chain_sec, 0)}s ago — OI and IV data is current.`
+              : live.chain_available
+                ? `Chain is ${fmt(live.time_since_chain_sec, 0)}s old — getting stale, PCR and OI values may be outdated.`
+                : 'Option chain not available — chain-based features (PCR, OI, IV) are missing.'
+          }>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Chain</span>
               <span className={live.time_since_chain_sec < 10 ? 'text-bullish' : 'text-warning-amber'}>
