@@ -147,21 +147,17 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
           </span>
         </div>
 
-        {/* Day 250 Journey — compact progress bar */}
+        {/* Day 250 Journey — inline progress */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex items-center gap-2 cursor-default shrink-0 ml-3">
+            <div className="flex items-center gap-1.5 cursor-default shrink-0 ml-3">
               <Target className="h-3 w-3 text-primary shrink-0" />
-              <div className="flex flex-col w-[80px]">
-                <div className="flex items-center justify-end">
-                  <span className="text-[0.625rem] font-bold tabular-nums text-primary">{currentDay}/250</span>
-                </div>
-                <div className="h-1 rounded-full bg-secondary/50 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-gradient-cyan-violet transition-all duration-700"
-                    style={{ width: `${Math.min(dayProgress, 100)}%` }}
-                  />
-                </div>
+              <span className="text-[0.625rem] font-bold tabular-nums text-primary">{currentDay}/250</span>
+              <div className="w-[60px] h-1.5 rounded-full bg-secondary/50 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-cyan-violet transition-all duration-700"
+                  style={{ width: `${Math.min(dayProgress, 100)}%` }}
+                />
               </div>
             </div>
           </TooltipTrigger>
