@@ -243,45 +243,61 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
           </span>
         </div>
 
-        {signal ? (
+        {signal ? (() => {
+          const action = (signal as any).action ?? signal.direction?.replace('GO_', '');
+          const isLong = action?.startsWith('LONG');
+          const isShort = action?.startsWith('SHORT');
+          const accentColor = isLong ? 'text-bullish' : isShort ? 'text-warning-amber' : signal.direction === 'GO_CALL' ? 'text-bullish' : 'text-destructive';
+          const Icon = (isLong || signal.direction === 'GO_CALL') ? TrendingUp : TrendingDown;
+          const hasV2 = !!(signal as any).action;
+
+          return (
           <>
+            {/* Action + prob + time */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                {signal.direction === 'GO_CALL' ? (
-                  <TrendingUp className="h-4 w-4 text-bullish" />
-                ) : (
-                  <TrendingDown className="h-4 w-4 text-destructive" />
-                )}
-                <span className={`text-[0.8125rem] font-bold tracking-wider ${
-                  signal.direction === 'GO_CALL' ? 'text-bullish' : 'text-destructive'
-                }`}>
-                  {signal.direction.replace('GO_', '')}
+                <Icon className={`h-4 w-4 ${accentColor}`} />
+                <span className={`text-[0.8125rem] font-bold tracking-wider ${accentColor}`}>
+                  {hasV2 ? action.replace('_', ' ') : signal.direction?.replace('GO_', '')}
                 </span>
-                <span className={`text-[0.6875rem] font-bold ${
-                  signal.direction === 'GO_CALL' ? 'text-bullish' : 'text-destructive'
-                }`}>
+                <span className={`text-[0.6875rem] font-bold ${accentColor}`}>
                   {(signal.direction_prob_30s * 100).toFixed(0)}%
                 </span>
+                {(signal as any).regime && (
+                  <span className="text-[0.5625rem] text-muted-foreground">{(signal as any).regime}</span>
+                )}
               </div>
               <span className="text-[0.5625rem] text-muted-foreground">
                 {timeAgo(signal.timestamp_ist)}
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[0.625rem] tabular-nums text-muted-foreground">
-              <Tip text="Predicted max gain in 30s">
-                <div>up <span className="text-bullish font-medium">{fmt(signal.max_upside_pred_30s)}</span></div>
-              </Tip>
-              <Tip text="Predicted max loss in 30s">
-                <div>dn <span className="text-destructive font-medium">{fmt(signal.max_drawdown_pred_30s)}</span></div>
-              </Tip>
-              {signal.atm_ce_ltp != null && <Tip text="ATM Call price">
-                <div>CE <span className="text-foreground">{fmt(signal.atm_ce_ltp)}</span></div>
-              </Tip>}
-              {signal.atm_pe_ltp != null && <Tip text="ATM Put price">
-                <div>PE <span className="text-foreground">{fmt(signal.atm_pe_ltp)}</span></div>
-              </Tip>}
-            </div>
+            {/* Entry / TP / SL / RR (v2) or up/dn (legacy) */}
+            {hasV2 && (signal as any).entry ? (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[0.625rem] tabular-nums text-muted-foreground">
+                <Tip text="Option price at signal time">
+                  <div>entry <span className="text-foreground font-bold">{fmt((signal as any).entry)}</span></div>
+                </Tip>
+                <Tip text={`Risk-reward ratio: ${(signal as any).rr >= 1.5 ? 'Favourable' : 'Tight'}`}>
+                  <div>RR <span className={`font-bold ${(signal as any).rr >= 1.5 ? 'text-bullish' : 'text-warning-amber'}`}>{fmt((signal as any).rr, 1)}</span></div>
+                </Tip>
+                <Tip text="Take profit target">
+                  <div>TP <span className="text-bullish font-bold">{fmt((signal as any).tp)}</span></div>
+                </Tip>
+                <Tip text="Stop loss level">
+                  <div>SL <span className="text-destructive font-bold">{fmt((signal as any).sl)}</span></div>
+                </Tip>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[0.625rem] tabular-nums text-muted-foreground">
+                <Tip text="Predicted max gain in 30s">
+                  <div>up <span className="text-bullish font-medium">{fmt(signal.max_upside_pred_30s)}</span></div>
+                </Tip>
+                <Tip text="Predicted max loss in 30s">
+                  <div>dn <span className="text-destructive font-medium">{fmt(signal.max_drawdown_pred_30s)}</span></div>
+                </Tip>
+              </div>
+            )}
 
             {model && (
               <div className="text-[0.5rem] text-muted-foreground">
@@ -291,7 +307,8 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
               </div>
             )}
           </>
-        ) : (
+          );
+        })() : (
           <div className="text-[0.625rem] text-muted-foreground py-2">
             No signal — SEA not running
           </div>

@@ -50,9 +50,15 @@ export interface LiveTick {
 
 export interface LatestSignal {
   direction: string;
+  action: string | null;
   direction_prob_30s: number;
   max_upside_pred_30s: number;
   max_drawdown_pred_30s: number;
+  regime: string | null;
+  entry: number | null;
+  tp: number | null;
+  sl: number | null;
+  rr: number | null;
   atm_strike: number;
   atm_ce_ltp: number | null;
   atm_pe_ltp: number | null;
@@ -147,9 +153,15 @@ export function getInstrumentLiveState(instrument: string): LiveState {
   if (sigRow) {
     signal = {
       direction: sigRow.direction ?? "WAIT",
+      action: sigRow.action ?? null,
       direction_prob_30s: sigRow.direction_prob_30s ?? 0,
       max_upside_pred_30s: sigRow.max_upside_pred_30s ?? 0,
       max_drawdown_pred_30s: sigRow.max_drawdown_pred_30s ?? 0,
+      regime: sigRow.regime ?? null,
+      entry: sigRow.entry ?? null,
+      tp: sigRow.tp ?? null,
+      sl: sigRow.sl ?? null,
+      rr: sigRow.rr ?? null,
       atm_strike: sigRow.atm_strike ?? 0,
       atm_ce_ltp: sigRow.atm_ce_ltp ?? null,
       atm_pe_ltp: sigRow.atm_pe_ltp ?? null,
