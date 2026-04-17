@@ -234,16 +234,25 @@ class ChainPoller:
     # ── HTTP helpers ──────────────────────────────────────────────────────────
 
     async def _resolve_expiry(self) -> str:
-        """Fetch the nearest active expiry for this instrument."""
+        """
+        Fetch the nearest active expiry for this instrument.
+
+        Uses the scrip-master endpoint (local cache) instead of Dhan's
+        option-chain endpoint because the latter only returns monthly
+        expiries for NSE instruments — missing NIFTY weekly options which
+        are the most liquid contracts.
+        """
         loop = asyncio.get_event_loop()
+        # OPTIDX for NSE (includes weekly expiries), FUTCOM for MCX
+        inst_type = "FUTCOM" if self._profile.exchange == "MCX" else "OPTIDX"
         try:
             resp = await loop.run_in_executor(
                 None,
                 lambda: _requests.get(
-                    f"{self._broker_url}/api/broker/option-chain/expiry-list",
+                    f"{self._broker_url}/api/broker/scrip-master/expiry-list",
                     params={
-                        "underlying": self._profile.underlying_security_id,
-                        "exchangeSegment": self._exch_seg,
+                        "symbol": self._profile.instrument_name,
+                        "instrumentName": inst_type,
                     },
                     timeout=10,
                 )
