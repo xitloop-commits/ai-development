@@ -103,12 +103,17 @@ def menu(title: str, items: list[tuple[str, callable]],
 
 # ── Launch helpers ────────────────────────────────────────────────────────
 def _launch_new_window(title: str, bat_args: str) -> None:
-    """Open a new cmd window running `startup\\<bat_args>` then return."""
+    """Open a new cmd window running `startup\\<bat_args>` then pause."""
+    _launch_no_pause(title, bat_args)
+    _pause_briefly()
+
+
+def _launch_no_pause(title: str, bat_args: str) -> None:
+    """Open a new cmd window without waiting — used by batch launchers."""
     cmd = (f'start "{title}" cmd /k "chcp 65001 >nul && '
            f'cd /d "{ROOT}" && call startup\\{bat_args}"')
     subprocess.Popen(cmd, shell=True, cwd=str(ROOT))
     print(f"  {GREEN('✓')} Launched: {title}")
-    _pause_briefly()
 
 
 def _pause_briefly() -> None:
@@ -132,7 +137,8 @@ def act_bot():            _launch_new_window("TFA Bot",            "start-bot.ba
 
 def act_rep_all():
     for inst in ["nifty50", "banknifty", "crudeoil", "naturalgas"]:
-        _launch_new_window(f"Replay: {inst}", f"start-replay.bat {inst}")
+        _launch_no_pause(f"Replay: {inst}", f"start-replay.bat {inst}")
+    _pause_briefly()
 
 # --- Signal engine (SEA) ---
 def act_sea_nifty():      _launch_new_window("SEA: nifty50",       "start-sea.bat nifty50")
@@ -142,7 +148,8 @@ def act_sea_natgas():     _launch_new_window("SEA: naturalgas",    "start-sea.ba
 
 def act_sea_all():
     for inst in ["nifty50", "banknifty", "crudeoil", "naturalgas"]:
-        _launch_new_window(f"SEA: {inst}", f"start-sea.bat {inst}")
+        _launch_no_pause(f"SEA: {inst}", f"start-sea.bat {inst}")
+    _pause_briefly()
 
 # --- Training (MTA) ---
 def act_train_nifty():    _launch_new_window("Train: nifty50",      "train-auto.bat nifty50")
@@ -152,7 +159,8 @@ def act_train_natgas():   _launch_new_window("Train: naturalgas",   "train-auto.
 
 def act_train_all():
     for inst in ["nifty50", "banknifty", "crudeoil", "naturalgas"]:
-        _launch_new_window(f"Train: {inst}", f"train-auto.bat {inst}")
+        _launch_no_pause(f"Train: {inst}", f"train-auto.bat {inst}")
+    _pause_briefly()
 
 # --- Backtest (stream parquet as live for end-to-end test) ---
 def act_bt_nifty():       _launch_new_window("Backtest: nifty50",   "backtest.bat nifty50 2026-04-15")
