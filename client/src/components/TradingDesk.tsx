@@ -704,47 +704,7 @@ export default function TradingDesk({
   // ─── Render ────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full">
-      {/* ─── Tab Bar (segmented control) ─────────────────────── */}
-      <div className="flex items-center justify-between border-b border-border px-3 py-2 bg-card/80 backdrop-blur-sm">
-        {/* Segmented control */}
-        <div className="flex items-center rounded-md border border-border overflow-hidden">
-          <button
-            onClick={() => setWorkspace('paper')}
-            className={`px-4 py-1.5 text-[0.6875rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
-              workspace === 'paper'
-                ? 'bg-violet-pulse/15 text-violet-pulse'
-                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-            }`}
-          >
-            AI Trades
-          </button>
-          <button
-            onClick={() => setWorkspace('live')}
-            className={`px-4 py-1.5 text-[0.6875rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
-              workspace === 'live'
-                ? 'bg-bullish/15 text-bullish'
-                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-            }`}
-          >
-            My Trades
-            {workspace === 'live' && (
-              <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
-            )}
-          </button>
-          <button
-            onClick={() => setWorkspace('paper_manual')}
-            className={`px-4 py-1.5 text-[0.6875rem] font-bold tracking-wider uppercase transition-colors ${
-              workspace === 'paper_manual'
-                ? 'bg-warning-amber/15 text-warning-amber'
-                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-            }`}
-          >
-            Testing
-          </button>
-        </div>
-
-        {/* Testing controls moved to summary bar */}
-      </div>
+      {/* Tab bar moved to AppBar — workspace tabs are now in the top bar */}
 
       {/* ─── Summary Bar ──────────────────────────────────────── */}
       <div className="flex items-stretch divide-x divide-border border-b border-border bg-secondary backdrop-blur-sm">

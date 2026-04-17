@@ -73,6 +73,50 @@ function ModelStatusIndicator() {
   );
 }
 
+// ── Workspace Tabs (segmented control) ───────────────────────
+
+function WorkspaceTabs() {
+  const { capital, workspace, setWorkspace } = useCapital() as any;
+
+  return (
+    <div className="flex items-center rounded-md border border-border overflow-hidden">
+      <button
+        onClick={() => setWorkspace('paper')}
+        className={`px-3 py-1 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
+          workspace === 'paper'
+            ? 'bg-violet-pulse/15 text-violet-pulse'
+            : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+        }`}
+      >
+        AI Trades
+      </button>
+      <button
+        onClick={() => setWorkspace('live')}
+        className={`px-3 py-1 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
+          workspace === 'live'
+            ? 'bg-bullish/15 text-bullish'
+            : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+        }`}
+      >
+        My Trades
+        {workspace === 'live' && (
+          <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
+        )}
+      </button>
+      <button
+        onClick={() => setWorkspace('paper_manual')}
+        className={`px-3 py-1 text-[0.625rem] font-bold tracking-wider uppercase transition-colors ${
+          workspace === 'paper_manual'
+            ? 'bg-warning-amber/15 text-warning-amber'
+            : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+        }`}
+      >
+        Testing
+      </button>
+    </div>
+  );
+}
+
 interface AppBarProps {
   onToggleLeftDrawer: () => void;
   onToggleRightDrawer: () => void;
@@ -199,8 +243,10 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
           </TooltipContent>
         </Tooltip>
 
-        {/* Center spacer */}
-        <div className="flex-1" />
+        {/* Center: Workspace tabs (segmented control) */}
+        <div className="flex-1 flex items-center justify-center">
+          <WorkspaceTabs />
+        </div>
 
         {/* Right Group: Service Indicators + Time */}
         <div className="flex items-center gap-3 mr-2">
