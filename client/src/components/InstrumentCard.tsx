@@ -20,75 +20,79 @@ function Tip({ children, text }: { children: React.ReactNode; text: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild><span className="cursor-default">{children}</span></TooltipTrigger>
-      <TooltipContent side="top" className="bg-card border-border text-foreground max-w-[240px]">
-        <p className="text-[0.625rem] leading-relaxed">{text}</p>
+      <TooltipContent
+        side="top"
+        sideOffset={6}
+        className="bg-popover border border-info-cyan/30 text-popover-foreground shadow-lg shadow-info-cyan/10 rounded-md px-3 py-1.5 max-w-[220px]"
+      >
+        <p className="text-[0.6875rem] font-medium leading-snug">{text}</p>
       </TooltipContent>
     </Tooltip>
   );
 }
 
-// ── Dynamic insight generators ───────────────────────────────
+// ── Dynamic insight generators (short + punchy) ─────────────
 function insightMomentum(v: number | null): string {
-  if (v === null) return 'No data yet.';
-  if (v > 0.5) return 'Strong buying pressure — price pushing up aggressively.';
-  if (v > 0.1) return 'Mild bullish push — buyers slightly in control.';
-  if (v < -0.5) return 'Strong selling pressure — price falling fast.';
-  if (v < -0.1) return 'Mild bearish push — sellers slightly in control.';
-  return 'Flat — no directional pressure right now.';
+  if (v === null) return 'No data';
+  if (v > 0.5) return 'Strong buyers';
+  if (v > 0.1) return 'Mild bull push';
+  if (v < -0.5) return 'Strong sellers';
+  if (v < -0.1) return 'Mild bear push';
+  return 'Flat';
 }
 function insightVelocity(v: number | null): string {
-  if (v === null) return 'No data yet.';
-  if (Math.abs(v) > 0.5) return 'Price moving rapidly — high-speed action.';
-  if (Math.abs(v) > 0.1) return 'Moderate speed — price ticking along.';
-  return 'Stagnant — price barely moving.';
+  if (v === null) return 'No data';
+  if (Math.abs(v) > 0.5) return 'Fast move';
+  if (Math.abs(v) > 0.1) return 'Moderate';
+  return 'Stagnant';
 }
 function insightOFI(v: number | null): string {
-  if (v === null) return 'No data yet.';
-  if (v > 0.3) return 'Buyers very aggressive at the bid — expect price to push up.';
-  if (v > 0.05) return 'Slightly more buying than selling activity.';
-  if (v < -0.3) return 'Sellers very aggressive — expect downward pressure.';
-  if (v < -0.05) return 'Slightly more selling activity.';
-  return 'Balanced — buyers and sellers equally active.';
+  if (v === null) return 'No data';
+  if (v > 0.3) return 'Aggressive buying';
+  if (v > 0.05) return 'Slight buy pressure';
+  if (v < -0.3) return 'Aggressive selling';
+  if (v < -0.05) return 'Slight sell pressure';
+  return 'Balanced';
 }
 function insightCompression(v: number | null): string {
-  if (v === null) return 'No data yet.';
-  if (v > 0.7) return 'Tightly coiled — big move is likely imminent!';
-  if (v > 0.4) return 'Range is narrowing — building energy for a move.';
-  return 'Price swinging freely — no compression building.';
+  if (v === null) return 'No data';
+  if (v > 0.7) return 'Coiled — big move soon';
+  if (v > 0.4) return 'Narrowing range';
+  return 'No squeeze';
 }
 function insightBreakout(v: number | null): string {
-  if (v === null) return 'No data yet.';
-  if (v > 0.7) return 'Breakout conditions met — watch for a sharp move any moment.';
-  if (v > 0.4) return 'Getting close to breakout territory.';
-  return 'No breakout setup — market is relaxed.';
+  if (v === null) return 'No data';
+  if (v > 0.7) return 'Breakout imminent';
+  if (v > 0.4) return 'Building up';
+  return 'Relaxed';
 }
 function insightZone(v: number | null): string {
-  if (v === null) return 'No data yet.';
-  if (v > 0.6) return 'Heavy option trading around ATM — strong market participation.';
-  if (v > 0.3) return 'Moderate option activity.';
-  return 'Thin option activity — low participation, be cautious.';
+  if (v === null) return 'No data';
+  if (v > 0.6) return 'Heavy participation';
+  if (v > 0.3) return 'Moderate activity';
+  return 'Thin — caution';
 }
 function insightPCR(v: number | null): string {
-  if (v === null) return 'No data yet.';
-  if (v < 0.7) return 'Very bullish positioning — traders buying far more calls than puts.';
-  if (v < 0.9) return 'Mildly bullish — more call activity.';
-  if (v > 1.3) return 'Very bearish positioning — heavy put buying for protection.';
-  if (v > 1.1) return 'Mildly bearish — more put activity.';
-  return 'Neutral — calls and puts roughly balanced.';
+  if (v === null) return 'No data';
+  if (v < 0.7) return 'Bullish — calls dominate';
+  if (v < 0.9) return 'Mild bull lean';
+  if (v > 1.3) return 'Bearish — puts dominate';
+  if (v > 1.1) return 'Mild bear lean';
+  return 'Neutral';
 }
 function insightOIImbalance(v: number | null): string {
-  if (v === null) return 'No data yet.';
-  if (v > 0.3) return 'Strong call-side dominance at ATM — bulls in charge.';
-  if (v > 0.05) return 'Slight call-side lean.';
-  if (v < -0.3) return 'Strong put-side dominance at ATM — bears in charge.';
-  if (v < -0.05) return 'Slight put-side lean.';
-  return 'Balanced open interest at ATM.';
+  if (v === null) return 'No data';
+  if (v > 0.3) return 'Bulls in charge';
+  if (v > 0.05) return 'Slight call lean';
+  if (v < -0.3) return 'Bears in charge';
+  if (v < -0.05) return 'Slight put lean';
+  return 'Balanced';
 }
 function insightRegime(v: string | null): string {
-  if (v === 'TREND') return 'Market is trending — strong directional move underway. Go with the flow.';
-  if (v === 'RANGE') return 'Price oscillating in a range — no clear direction. Sell options or wait.';
-  if (v === 'DEAD') return 'Dead market — very low activity. No edge. Stay out.';
-  return 'Unclear market character — wait for a clearer setup.';
+  if (v === 'TREND') return 'Trending — go with it';
+  if (v === 'RANGE') return 'Ranging — sell premium or wait';
+  if (v === 'DEAD') return 'Dead — stay out';
+  return 'Unclear — wait';
 }
 
 // ── Instrument key mapping ───────────────────────────────────
@@ -202,26 +206,26 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
         </div>
 
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[0.6875rem] tabular-nums">
-          <Tip text="Current futures price of the instrument.">
+          <Tip text="Futures price">
             <div>
               <span className="text-muted-foreground">Spot </span>
               <span className="text-foreground font-bold">{fmt(live.spot_price, 1)}</span>
             </div>
           </Tip>
-          <Tip text="At-the-money strike — the option strike closest to spot price. Step is the gap between strikes.">
+          <Tip text="Nearest option strike to spot">
             <div>
               <span className="text-muted-foreground">ATM </span>
               <span className="text-foreground font-bold">{live.atm_strike}</span>
               <span className="text-muted-foreground text-[0.5625rem]"> /{live.strike_step}</span>
             </div>
           </Tip>
-          <Tip text="How old the latest option chain snapshot is. Below 10s is good.">
+          <Tip text={live.time_since_chain_sec < 10 ? 'Chain data fresh' : 'Chain getting stale'}>
             <div>
               <span className="text-muted-foreground">Chain </span>
               <span className="text-foreground">{fmt(live.time_since_chain_sec, 0)}s</span>
             </div>
           </Tip>
-          <Tip text="Number of option strikes actively trading around ATM. More = better data quality.">
+          <Tip text={live.active_strike_count >= 6 ? 'Good strike coverage' : 'Thin coverage — some data missing'}>
             <div>
               <span className="text-muted-foreground">Strikes </span>
               <span className="text-foreground">{live.active_strike_count}</span>
@@ -265,16 +269,16 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
             </div>
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[0.625rem] tabular-nums text-muted-foreground">
-              <Tip text="Predicted maximum gain in the next 30 seconds (in ₹). Higher = bigger expected move.">
+              <Tip text="Predicted max gain in 30s">
                 <div>up <span className="text-bullish font-medium">{fmt(signal.max_upside_pred_30s)}</span></div>
               </Tip>
-              <Tip text="Predicted maximum loss in the next 30 seconds (in ₹). Lower = less risk.">
+              <Tip text="Predicted max loss in 30s">
                 <div>dn <span className="text-destructive font-medium">{fmt(signal.max_drawdown_pred_30s)}</span></div>
               </Tip>
-              {signal.atm_ce_ltp != null && <Tip text="Current price of the ATM Call option.">
+              {signal.atm_ce_ltp != null && <Tip text="ATM Call price">
                 <div>CE <span className="text-foreground">{fmt(signal.atm_ce_ltp)}</span></div>
               </Tip>}
-              {signal.atm_pe_ltp != null && <Tip text="Current price of the ATM Put option.">
+              {signal.atm_pe_ltp != null && <Tip text="ATM Put price">
                 <div>PE <span className="text-foreground">{fmt(signal.atm_pe_ltp)}</span></div>
               </Tip>}
             </div>
@@ -397,9 +401,9 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
 
         <div className="space-y-0.5 text-[0.625rem]">
           <Tip text={
-            live.file_age_sec < 5 ? 'Ticks flowing normally — data is live and fresh.'
-            : live.file_age_sec < 30 ? `Last tick was ${live.file_age_sec}s ago — feed is slow, data may be slightly delayed.`
-            : `No ticks for ${live.file_age_sec}s — feed appears dead. Signals are unreliable!`
+            live.file_age_sec < 5 ? 'Live and fresh'
+            : live.file_age_sec < 30 ? `Slow — ${live.file_age_sec}s delay`
+            : `Dead — ${live.file_age_sec}s no data`
           }>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Feed</span>
@@ -411,9 +415,9 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
           </Tip>
 
           <Tip text={
-            live.trading_state === 'TRADING' ? 'Market is open and actively trading.'
-            : live.trading_state === 'WARMING_UP' ? 'Just started — collecting initial data before trading features are ready.'
-            : `Session state: ${live.trading_state}. Not actively trading.`
+            live.trading_state === 'TRADING' ? 'Market open'
+            : live.trading_state === 'WARMING_UP' ? 'Starting up'
+            : 'Not trading'
           }>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Session</span>
@@ -424,8 +428,8 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
           </Tip>
 
           <Tip text={
-            live.data_quality_flag === 1 ? 'All data sources healthy — features and signals are trustworthy.'
-            : 'Some option data is stale or missing. Signals may be based on incomplete information — treat with caution.'
+            live.data_quality_flag === 1 ? 'All data healthy — signals trustworthy'
+            : 'Data gaps — signals unreliable'
           }>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Data quality</span>
@@ -437,10 +441,10 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
 
           <Tip text={
             live.chain_available && live.time_since_chain_sec < 10
-              ? `Option chain refreshed ${fmt(live.time_since_chain_sec, 0)}s ago — OI and IV data is current.`
+              ? 'Chain fresh'
               : live.chain_available
-                ? `Chain is ${fmt(live.time_since_chain_sec, 0)}s old — getting stale, PCR and OI values may be outdated.`
-                : 'Option chain not available — chain-based features (PCR, OI, IV) are missing.'
+                ? `Chain ${fmt(live.time_since_chain_sec, 0)}s old — getting stale`
+                : 'Chain missing'
           }>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Chain</span>
