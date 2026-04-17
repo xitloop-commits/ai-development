@@ -10,7 +10,7 @@ import { useState, useEffect } from 'react';
 import {
   Activity, Cpu, Brain, Zap,
   Globe, Wifi, Shield, Clock,
-  Menu,
+  Menu, FlaskConical,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
@@ -36,6 +36,63 @@ const STATUS_DOT_COLORS: Record<string, string> = {
   error: 'bg-destructive',
   idle: 'bg-muted-foreground',
 };
+
+// ── Model Status Popover ─────────────────────────────────────
+
+const MODEL_INSTRUMENTS = ['nifty50', 'banknifty', 'crudeoil', 'naturalgas'];
+const MODEL_LABELS: Record<string, string> = {
+  nifty50: 'NIFTY', banknifty: 'BNIFTY', crudeoil: 'CRUDE', naturalgas: 'GAS',
+};
+const MODEL_COLORS: Record<string, string> = {
+  nifty50: 'text-info-cyan', banknifty: 'text-bullish',
+  crudeoil: 'text-warning-amber', naturalgas: 'text-destructive',
+};
+
+function ModelStatusIndicator() {
+  const queries = MODEL_INSTRUMENTS.map((inst) =>
+    trpc.trading.instrumentLiveState.useQuery({ instrument: inst }, { refetchInterval: 30000, retry: 1 })
+  );
+
+  const loaded = queries.filter((q) => q.data?.model).length;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="flex items-center gap-1 cursor-default">
+          <FlaskConical className={`h-3 w-3 ${loaded > 0 ? 'text-info-cyan' : 'text-muted-foreground'}`} />
+          <span className="hidden lg:inline text-[0.5625rem] text-muted-foreground tracking-wider">
+            {loaded}/4
+          </span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="bg-card border-border text-foreground min-w-[240px]">
+        <div className="text-[0.625rem] space-y-1.5">
+          <div className="font-bold text-info-cyan mb-1">ML Models</div>
+          {MODEL_INSTRUMENTS.map((inst, i) => {
+            const model = queries[i].data?.model as any;
+            const valAuc = model?.metrics?.direction_30s?.val_auc;
+            const label = MODEL_LABELS[inst];
+            const color = MODEL_COLORS[inst];
+            return (
+              <div key={inst} className="flex items-center justify-between gap-3">
+                <span className={`font-bold ${color}`}>{label}</span>
+                {model ? (
+                  <span className="text-muted-foreground tabular-nums">
+                    v{model.version?.slice(0, 8)}
+                    {valAuc != null && <span className="ml-1">AUC {valAuc.toFixed(3)}</span>}
+                    <span className="ml-1">{model.feature_count}f</span>
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">not trained</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 interface AppBarProps {
   modules: ModuleStatus[];
@@ -197,6 +254,9 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
               </div>
             </TooltipContent>
           </Tooltip>
+
+          {/* Model Status */}
+          <ModelStatusIndicator />
 
           {/* Separator */}
           <div className="h-4 w-px bg-border" />
