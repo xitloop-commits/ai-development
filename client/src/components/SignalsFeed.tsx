@@ -91,10 +91,10 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
 
-  // Auto-scroll to top (newest) when new signals arrive, unless user is hovering
+  // Auto-scroll to bottom (newest signal at bottom) unless user is hovering
   useEffect(() => {
     if (!hovered && scrollRef.current) {
-      scrollRef.current.scrollTop = 0;
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [signals, hovered]);
 

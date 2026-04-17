@@ -131,9 +131,8 @@ export function getSEASignals(
     }
   }
 
-  // Return newest-first, limited
-  deduped.reverse();
-  return deduped.slice(0, limit);
+  // Return oldest-first (chronological) — client auto-scrolls to bottom (newest)
+  return deduped.slice(-limit);
 }
 
 /**
