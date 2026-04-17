@@ -22,6 +22,7 @@ import {
 } from "./holidays";
 import { getMongoHealth, pingMongo } from "./mongo";
 import { getSEASignals } from "./seaSignals";
+import { getInstrumentLiveState } from "./instrumentLiveState";
 import { brokerRouter } from "./broker/brokerRouter";
 import { capitalRouter } from "./capital/capitalRouter";
 import { disciplineRouter } from "./discipline/disciplineRouter";
@@ -65,6 +66,13 @@ export const appRouter = router({
     instruments: publicProcedure.query(() => {
       return getInstrumentData();
     }),
+
+    // Get live state for one instrument (InstrumentCard v2)
+    instrumentLiveState: publicProcedure
+      .input(z.object({ instrument: z.string() }))
+      .query(({ input }) => {
+        return getInstrumentLiveState(input.instrument);
+      }),
 
     // Get recent SEA signals (reads from logs/signals/<inst>/<date>_signals.log)
     signals: publicProcedure
