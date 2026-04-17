@@ -207,13 +207,13 @@ function getWorkspaceThemeMeta(workspace: Workspace): {
 function RatingIcon({ rating }: { rating: DayRating }) {
   switch (rating) {
     case 'jackpot':
-      return <span className="text-[0.6875rem]" title="≥50% Jackpot">🏆🏆👑💰</span>;
+      return <span className="text-[0.6875rem]" title="≥50%">👑</span>;
     case 'crown':
-      return <span className="text-[0.6875rem]" title="≥20% Crown">🏆👑</span>;
+      return <span className="text-[0.6875rem]" title="≥20%">🏆</span>;
     case 'double_trophy':
-      return <span className="text-[0.6875rem]" title="≥10%">🏆🏆</span>;
+      return <span className="text-[0.6875rem]" title="≥10%">💰</span>;
     case 'trophy':
-      return <span className="text-[0.6875rem]" title="≥5% Single Day">🏆</span>;
+      return <span className="text-[0.6875rem]" title="≥5% Single Day">👍</span>;
     case 'star':
       return <span className="text-[0.6875rem]" title="≥5% Multi-Day">⭐</span>;
     case 'gift':
@@ -221,7 +221,7 @@ function RatingIcon({ rating }: { rating: DayRating }) {
     case 'finish':
       return <span className="text-[0.6875rem]" title="Day 250">🏁</span>;
     default:
-      return <span className="text-[0.6875rem] opacity-40">⬜</span>;
+      return null;
   }
 }
 
@@ -868,7 +868,7 @@ export default function TradingDesk({
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
           }} />
         ) : (
-          <table className="w-full border-collapse text-xs [&_td]:align-middle [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
+          <table className="w-full border-collapse text-xs [&_td]:align-middle [&_td]:whitespace-nowrap [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
             <colgroup>
               <col style={{ width: 44 }} />
               <col style={{ width: 92 }} />
@@ -881,27 +881,29 @@ export default function TradingDesk({
               <col style={{ width: 68 }} />
               <col style={{ width: 116 }} />
               <col style={{ width: 100 }} />
+              <col style={{ width: 60 }} />
               <col style={{ width: 88 }} />
               <col style={{ width: 88 }} />
               <col style={{ width: 76 }} />
             </colgroup>
             <thead className="sticky top-0 z-10">
-              <tr className="bg-secondary backdrop-blur-md border-b border-border">
-                <th className="px-2.5 py-2 text-left font-bold text-foreground/70 tracking-widest uppercase w-12 border-r border-border">Day</th>
-                <th className="px-2.5 py-2 text-left font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Date</th>
-                <th className="px-2.5 py-2 text-right font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Trade Cap.</th>
-                <th className="px-2.5 py-2 text-right font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Target</th>
-                <th className="px-2.5 py-2 text-right font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Proj. Cap.</th>
-                <th className="px-2.5 py-2 text-left font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Instrument</th>
-                <th className="px-2.5 py-2 text-right font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Entry</th>
-                <th className="px-2.5 py-2 text-right font-bold text-foreground/70 tracking-widest uppercase border-r border-border">LTP</th>
-                <th className="px-2.5 py-2 text-right font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Qty</th>
-                <th className="px-2.5 py-2 text-right font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Capital</th>
-                <th className="px-2.5 py-2 text-right font-bold text-foreground/70 tracking-widest uppercase border-r border-border">P&amp;L</th>
-                <th className="px-2.5 py-2 text-right font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Charges</th>
-                <th className="px-2.5 py-2 text-right font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Actual Cap.</th>
-                <th className="px-2.5 py-2 text-right font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Dev.</th>
-                <th className="px-2.5 py-2 text-center font-bold text-foreground/70 tracking-widest uppercase w-16">Rating</th>
+              <tr className="bg-card border-b border-border uppercase">
+                <th className="px-2 py-2 text-left font-bold text-muted-foreground w-12 border-r border-border">Day</th>
+                <th className="px-2 py-2 text-left font-bold text-muted-foreground border-r border-border">Date</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Trade Cap.</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Target</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Proj. Cap.</th>
+                <th className="px-2 py-2 text-left font-bold text-muted-foreground border-r border-border">Instrument</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Entry</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">LTP</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Qty</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Capital</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L %</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Charges</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Actual Cap.</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Dev.</th>
+                <th className="px-2 py-2 text-center font-bold text-muted-foreground w-16 border-r border-border">Rating</th>
               </tr>
             </thead>
             <tbody>
@@ -1014,7 +1016,7 @@ function PastRow({
   const dateLabel = formatDateAgeLabel(day.date || '', day.openedAt);
 
   return (
-    <tr data-day={day.dayIndex} className={`border-b border-border/30 transition-colors text-muted-foreground ${
+    <tr data-day={day.dayIndex} className={`border-b border-border transition-colors text-muted-foreground ${
       highlighted ? 'bg-warning-amber/20 outline outline-1 outline-warning-amber/60' : 'hover:bg-muted/30'
     }`}>
       {/* Day */}
@@ -1043,24 +1045,27 @@ function PastRow({
         <div className="flex max-w-full items-center gap-1 overflow-hidden whitespace-nowrap">
           {day.instruments.length > 0
             ? day.instruments.map((inst) => <InstrumentTag key={inst} name={inst} />)
-            : <span>—</span>
+            : null
           }
         </div>
       </td>
       {/* Entry */}
-      <td className="px-2 py-2 text-right border-r border-border">—</td>
+      <td className="px-2 py-2 text-right border-r border-border"></td>
       {/* LTP */}
-      <td className="px-2 py-2 text-right border-r border-border">—</td>
+      <td className="px-2 py-2 text-right border-r border-border"></td>
       {/* Qty */}
       <td className="px-2 py-2 text-right tabular-nums border-r border-border">
         {day.totalQty > 0 ? day.totalQty : ''}
       </td>
       {/* Capital */}
-      <td className="px-2 py-2 text-right border-r border-border">—</td>
+      <td className="px-2 py-2 text-right border-r border-border"></td>
       {/* P&L */}
       <td className={`px-2 py-2 text-right tabular-nums font-bold border-r border-border ${pnlColor(pnlValue)}`}>
         {fmt(pnlValue, false)}
-        <span className="text-[0.5rem] ml-0.5">({pnlPercent}%)</span>
+      </td>
+      {/* P&L % */}
+      <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(pnlValue)}`}>
+        {pnlPercent}%
       </td>
       {/* Charges */}
       <td className="px-2 py-2 text-right tabular-nums border-r border-border">
@@ -1077,7 +1082,7 @@ function PastRow({
           : ''}
       </td>
       {/* Rating */}
-      <td className="px-2 py-2 text-center whitespace-nowrap">
+      <td className="px-2 py-2 text-center">
         <RatingIcon rating={day.rating} />
       </td>
     </tr>
@@ -1282,6 +1287,7 @@ function TodaySection({
         <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
           {fmt(totalPnl, false)}
         </td>
+        <td className="px-2 py-2 border-r border-border" />
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
           {day.totalCharges > 0 ? fmt(day.totalCharges, false) : ''}
         </td>
@@ -1344,6 +1350,8 @@ function TodaySection({
         <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
           {fmt(totalPnl, false)}
         </td>
+        {/* P&L % */}
+        <td className="px-2 py-2 border-r border-border" />
         {/* Charges */}
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
           {day.totalCharges > 0 ? fmt(day.totalCharges, false) : ''}
@@ -1527,7 +1535,7 @@ function TodayTradeRow({
   return (
     <tr
       ref={todayRef}
-      className={`border-b border-border/30 transition-colors ${
+      className={`border-b border-border transition-colors ${
         isFirst
           ? `${theme.todayBg} border-l-2 ${theme.borderStrong}`
           : `${theme.todayAltBg} border-l-2 ${theme.borderSoft}`
@@ -1681,14 +1689,13 @@ function TodayTradeRow({
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
         {fmt(trade.entryPrice * trade.qty, false)}
       </td>
-      {/* P&L + Exit button for open trades */}
-      <td className={`px-2 py-1.5 text-right tabular-nums font-bold border-r border-border whitespace-nowrap ${pnlColor(pnl)}`}>
-        <div className="flex flex-col items-end">
-          <span>{fmt(pnl, false)}</span>
-          <span className={`text-[0.5rem] font-normal tabular-nums ${pnlColor(pnl)}`}>
-            {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%
-          </span>
-        </div>
+      {/* P&L */}
+      <td className={`px-2 py-1.5 text-right tabular-nums font-bold border-r border-border ${pnlColor(pnl)}`}>
+        {fmt(pnl, false)}
+      </td>
+      {/* P&L % */}
+      <td className={`px-2 py-1.5 text-right tabular-nums border-r border-border ${pnlColor(pnl)}`}>
+        {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%
       </td>
       {/* Charges */}
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
@@ -1720,7 +1727,7 @@ function FutureRow({
   highlighted?: boolean;
 }) {
   return (
-    <tr data-day={day.dayIndex} className={`border-b border-border/20 transition-colors ${
+    <tr data-day={day.dayIndex} className={`border-b border-border transition-colors ${
       highlighted ? 'bg-warning-amber/20 outline outline-1 outline-warning-amber/60' : 'bg-background/30'
     } ${isDay250 ? 'opacity-90' : 'opacity-[0.55]'}`}>
       {/* Day */}
@@ -1746,6 +1753,7 @@ function FutureRow({
       <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground border-r border-border">
         {fmt(day.projCapital, true)}
       </td>
+      <td className="px-2 py-2 border-r border-border"></td>
       <td className="px-2 py-2 border-r border-border"></td>
       <td className="px-2 py-2 border-r border-border"></td>
       <td className="px-2 py-2 border-r border-border"></td>
