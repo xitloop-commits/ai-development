@@ -1746,24 +1746,15 @@ function FutureRow({
       <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground border-r border-border">
         {fmt(day.projCapital, true)}
       </td>
-      {/* Instrument */}
-      <td className="px-2 py-2 text-foreground border-r border-border">—</td>
-      {/* Entry */}
-      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
-      {/* LTP */}
-      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
-      {/* Qty */}
-      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
-      {/* Capital */}
-      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
-      {/* P&L */}
-      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
-      {/* Charges */}
-      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
-      {/* Actual Capital */}
-      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
-      {/* Deviation */}
-      <td className="px-2 py-2 text-right text-foreground border-r border-border">—</td>
+      <td className="px-2 py-2 border-r border-border"></td>
+      <td className="px-2 py-2 border-r border-border"></td>
+      <td className="px-2 py-2 border-r border-border"></td>
+      <td className="px-2 py-2 border-r border-border"></td>
+      <td className="px-2 py-2 border-r border-border"></td>
+      <td className="px-2 py-2 border-r border-border"></td>
+      <td className="px-2 py-2 border-r border-border"></td>
+      <td className="px-2 py-2 border-r border-border"></td>
+      <td className="px-2 py-2 border-r border-border"></td>
       {/* Rating */}
       <td className="px-2 py-2 text-center whitespace-nowrap">
         <RatingIcon rating={isDay250 ? 'finish' : 'future'} />
