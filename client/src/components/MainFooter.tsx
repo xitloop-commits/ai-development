@@ -321,37 +321,7 @@ export default function MainFooter() {
         {/* Separator */}
         <div className="w-px self-stretch bg-border shrink-0" />
 
-        {/* ─── 3. Day 250 Journey ─── */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex items-center gap-2 cursor-default shrink-0">
-              <Target className="h-3 w-3 text-primary shrink-0" />
-              <div className="flex flex-col w-[80px]">
-                <div className="flex items-center justify-between">
-                  <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">Day 250</span>
-                  <span className="text-xs font-bold tabular-nums text-primary">{currentDay}/250</span>
-                </div>
-                <div className="h-1 rounded-full bg-secondary/50 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-gradient-cyan-violet transition-all duration-700"
-                    style={{ width: `${Math.min(dayProgress, 100)}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="bg-card border-border text-foreground">
-            <div className="text-xs space-y-0.5">
-              <div className="font-bold">Day 250 Journey — {dayProgress.toFixed(1)}% Complete</div>
-              <div className="text-muted-foreground">Current Day: {currentDay}</div>
-              <div className="text-muted-foreground">Remaining: {250 - currentDay} days</div>
-              <div className="text-muted-foreground">Growth: {growthPercent}% from {fmt(initialFunding)}</div>
-            </div>
-          </TooltipContent>
-        </Tooltip>
-
-        {/* Separator */}
-        <div className="w-px self-stretch bg-border shrink-0" />
+        {/* Day 250 Journey — moved to AppBar */}
 
         {/* ─── 4. Project Milestone ─── */}
         <Tooltip>

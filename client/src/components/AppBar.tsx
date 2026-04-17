@@ -9,10 +9,12 @@
 import { useState, useEffect } from 'react';
 import {
   Globe, Wifi, Shield, Clock,
-  Menu, FlaskConical,
+  Menu, FlaskConical, Target,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
+import { useCapital } from '@/contexts/CapitalContext';
+import { formatINR } from '@/lib/formatINR';
 
 // ── Model Status Popover ─────────────────────────────────────
 
@@ -78,6 +80,14 @@ interface AppBarProps {
 
 export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
   const [time, setTime] = useState(new Date());
+  const { capital } = useCapital();
+  const currentDay = capital.currentDayIndex;
+  const dayProgress = (currentDay / 250) * 100;
+  const netWorth = capital.netWorth;
+  const initialFunding = capital.initialFunding;
+  const growthPercent = initialFunding > 0
+    ? (((netWorth - initialFunding) / initialFunding) * 100).toFixed(1)
+    : '0.0';
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -135,8 +145,36 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
           <span className="hidden xl:inline text-[0.625rem] text-muted-foreground tracking-widest uppercase">
             Lucky Basker
           </span>
-
         </div>
+
+        {/* Day 250 Journey — compact progress bar */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-2 cursor-default shrink-0 ml-3">
+              <Target className="h-3 w-3 text-primary shrink-0" />
+              <div className="flex flex-col w-[80px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Day 250</span>
+                  <span className="text-[0.625rem] font-bold tabular-nums text-primary">{currentDay}/250</span>
+                </div>
+                <div className="h-1 rounded-full bg-secondary/50 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-cyan-violet transition-all duration-700"
+                    style={{ width: `${Math.min(dayProgress, 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="bg-card border-border text-foreground">
+            <div className="text-[0.625rem] space-y-0.5">
+              <div className="font-bold">Day 250 Journey — {dayProgress.toFixed(1)}% Complete</div>
+              <div className="text-muted-foreground">Current Day: {currentDay}</div>
+              <div className="text-muted-foreground">Remaining: {250 - currentDay} days</div>
+              <div className="text-muted-foreground">Growth: {growthPercent}% from {formatINR(initialFunding)}</div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
 
         {/* Center spacer */}
         <div className="flex-1" />
