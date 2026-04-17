@@ -7,7 +7,7 @@
  *   3. Model info from models/{instrument}/LATEST + metrics.json
  */
 
-import { readFileSync, existsSync, statSync } from "fs";
+import { readFileSync, existsSync, statSync, openSync, readSync, fstatSync, closeSync } from "fs";
 import path from "path";
 
 // ── Types ────────────────────────────────────────────────────
@@ -74,11 +74,11 @@ function readLastJsonLine(filePath: string): any | null {
   if (!existsSync(filePath)) return null;
   try {
     const buf = Buffer.alloc(32768);
-    const fd = require("fs").openSync(filePath, "r");
-    const size = require("fs").fstatSync(fd).size;
+    const fd = openSync(filePath, "r");
+    const size = fstatSync(fd).size;
     const readFrom = Math.max(0, size - 32768);
-    const bytesRead = require("fs").readSync(fd, buf, 0, 32768, readFrom);
-    require("fs").closeSync(fd);
+    const bytesRead = readSync(fd, buf, 0, 32768, readFrom);
+    closeSync(fd);
     const chunk = buf.toString("utf-8", 0, bytesRead);
     const lines = chunk.split("\n").filter((l: string) => l.trim().startsWith("{"));
     if (lines.length === 0) return null;
