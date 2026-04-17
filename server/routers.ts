@@ -21,6 +21,7 @@ import {
   getAllHolidays,
 } from "./holidays";
 import { getMongoHealth, pingMongo } from "./mongo";
+import { getSEASignals } from "./seaSignals";
 import { brokerRouter } from "./broker/brokerRouter";
 import { capitalRouter } from "./capital/capitalRouter";
 import { disciplineRouter } from "./discipline/disciplineRouter";
@@ -65,11 +66,11 @@ export const appRouter = router({
       return getInstrumentData();
     }),
 
-    // Get recent signals
+    // Get recent SEA signals (reads from logs/signals/<inst>/<date>_signals.log)
     signals: publicProcedure
       .input(z.object({ limit: z.number().min(1).max(200).optional() }).optional())
       .query(({ input }) => {
-        return getSignals(input?.limit ?? 50);
+        return getSEASignals(input?.limit ?? 50);
       }),
 
     // Get positions

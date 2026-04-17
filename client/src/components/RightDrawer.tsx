@@ -5,12 +5,12 @@
  * Capital Pools and Discipline have been moved to the footer.
  */
 import SignalsFeed from '@/components/SignalsFeed';
+import type { SEASignal } from '@/components/SignalsFeed';
 import AlertHistory from '@/components/AlertHistory';
-import type { Signal } from '@/lib/types';
 
 interface RightSidebarProps {
   visible: boolean;
-  signals: Signal[];
+  signals: SEASignal[];
 }
 
 export default function RightSidebar({ visible, signals }: RightSidebarProps) {

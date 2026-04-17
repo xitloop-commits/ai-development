@@ -64,7 +64,7 @@ import {
   bankNiftyData,
   crudeOilData,
   naturalGasData,
-  recentSignals as mockSignals,
+  // recentSignals removed — SEA signals come from server now
   openPositions as mockPositions,
 } from '@/lib/mockData';
 
@@ -200,7 +200,7 @@ export default function MainScreen() {
   ];
   // Full instrument analysis data (for left sidebar display)
   const allInstruments = instrumentAnalysisQuery.data ?? [niftyData, bankNiftyData, crudeOilData, naturalGasData];
-  const allSignals = signalsQuery.data ?? mockSignals;
+  const allSignals = signalsQuery.data ?? [];
   const allPositions = positionsQuery.data ?? mockPositions;
 
   // Discipline data with fallbacks
@@ -219,12 +219,13 @@ export default function MainScreen() {
   }, [allInstruments, configuredInstruments, isEnabled]);
 
   const signals = useMemo(() => {
-    return allSignals.filter((sig) => {
+    return allSignals.filter((sig: any) => {
+      // SEA signals use uppercase instrument names: CRUDEOIL, NIFTY, etc.
       const keyMap: Record<string, string> = {
-        'NIFTY 50': 'NIFTY_50', 'NIFTY_50': 'NIFTY_50',
-        'BANK NIFTY': 'BANKNIFTY', 'BANKNIFTY': 'BANKNIFTY',
-        'CRUDE OIL': 'CRUDEOIL', 'CRUDEOIL': 'CRUDEOIL',
-        'NATURAL GAS': 'NATURALGAS', 'NATURALGAS': 'NATURALGAS',
+        'NIFTY': 'NIFTY_50', 'NIFTY_50': 'NIFTY_50', 'NIFTY 50': 'NIFTY_50',
+        'BANKNIFTY': 'BANKNIFTY', 'BANK NIFTY': 'BANKNIFTY',
+        'CRUDEOIL': 'CRUDEOIL', 'CRUDE OIL': 'CRUDEOIL',
+        'NATURALGAS': 'NATURALGAS', 'NATURAL GAS': 'NATURALGAS',
       };
       const key = keyMap[sig.instrument] || sig.instrument;
       return isEnabled(key as any);
@@ -235,7 +236,7 @@ export default function MainScreen() {
   useAlertMonitor({
     instruments: instrumentAnalysisQuery.data,
     modules: modulesQuery.data,
-    signals: signalsQuery.data,
+    signals: signalsQuery.data as any,   // SEASignal[] shape differs from legacy Signal[]
     positions: positionsQuery.data,
   });
 
