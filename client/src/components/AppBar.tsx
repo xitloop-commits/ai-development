@@ -178,7 +178,7 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
         {/* Discipline Score */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex items-center gap-1 cursor-default shrink-0 ml-3">
+            <div className="flex items-center gap-1 cursor-default shrink-0 ml-2">
               <Shield className={`h-3 w-3 ${scoreColor}`} />
               <span className={`text-[0.625rem] font-bold tabular-nums ${scoreColor}`}>
                 {disciplineScore}/100
