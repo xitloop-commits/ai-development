@@ -8,7 +8,7 @@
  */
 import { useState, useEffect } from 'react';
 import {
-  Globe, Wifi, Shield, Clock,
+  Globe, Wifi, Clock,
   Menu, FlaskConical, Target,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -105,22 +105,12 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
     retry: 1,
   });
 
-  const disciplineQuery = trpc.discipline.getDashboard.useQuery(undefined, {
-    refetchInterval: 30000,
-    retry: 1,
-  });
-
   // ─── Derived Data ──────────────────────────────────────────
   const brokerStatus = brokerStatusQuery.data;
   const feedState = feedStateQuery.data;
   const brokerConnected = !!brokerStatus && (brokerStatus as any).connected !== false;
   const brokerName = (brokerStatus as any)?.activeBroker ?? 'None';
   const brokerMode = (brokerStatus as any)?.mode ?? 'paper';
-
-  const rawScore = (disciplineQuery.data as any)?.score;
-  const disciplineScore = typeof rawScore === 'object' && rawScore !== null ? rawScore.score ?? 100 : rawScore ?? 100;
-  const violationCount = (disciplineQuery.data as any)?.state?.violations?.length ?? 0;
-  const scoreColor = disciplineScore >= 80 ? 'text-info-cyan' : disciplineScore >= 60 ? 'text-warning-amber' : 'text-loss-red';
 
   return (
     <div className="sticky top-0 z-50 w-full border-b border-border bg-card/90 backdrop-blur-md">
@@ -219,25 +209,7 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
             </TooltipContent>
           </Tooltip>
 
-          {/* Discipline Score */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 cursor-default">
-                <Shield className={`h-3 w-3 ${scoreColor}`} />
-                <span className={`hidden lg:inline text-[0.5625rem] font-bold tabular-nums ${scoreColor}`}>
-                  {disciplineScore}
-                </span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="bg-card border-border text-foreground">
-              <div className="text-[0.625rem] space-y-0.5">
-                <div className={`font-bold ${scoreColor}`}>Discipline Score: {disciplineScore}/100</div>
-                <div className="text-muted-foreground">
-                  {violationCount === 0 ? 'No violations today' : `${violationCount} violation${violationCount > 1 ? 's' : ''} today`}
-                </div>
-              </div>
-            </TooltipContent>
-          </Tooltip>
+          {/* Discipline Score — shown in footer, removed from AppBar */}
 
           {/* Model Status */}
           <ModelStatusIndicator />
