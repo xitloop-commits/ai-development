@@ -475,12 +475,12 @@ export default function MainFooter() {
                     <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">Trading</span>
                     <span className="text-xs font-bold tabular-nums text-foreground">{fmt(tradingPool)}</span>
                   </div>
-                  <div className="relative h-2 rounded-full bg-border overflow-hidden">
+                  <div className="relative h-2 rounded-full bg-muted-foreground/30 overflow-hidden">
                     <div
                       className="h-full rounded-full bg-gradient-green-cyan transition-all duration-500"
                       style={{ width: `${Math.min(parseFloat(tradingPoolPct), 100)}%` }}
                     />
-                    <span className="absolute inset-0 flex items-center justify-center text-[0.4375rem] font-bold text-foreground/60">
+                    <span className="absolute inset-0 flex items-center justify-center text-[0.5rem] font-bold text-foreground drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">
                       {tradingPoolPct}%
                     </span>
                   </div>
@@ -498,12 +498,12 @@ export default function MainFooter() {
                     <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">Reserve</span>
                     <span className="text-xs font-bold tabular-nums text-foreground">{fmt(reservePool)}</span>
                   </div>
-                  <div className="relative h-2 rounded-full bg-border overflow-hidden">
+                  <div className="relative h-2 rounded-full bg-muted-foreground/30 overflow-hidden">
                     <div
                       className="h-full rounded-full bg-gradient-cyan-violet transition-all duration-500"
                       style={{ width: `${Math.min(parseFloat(reservePoolPct), 100)}%` }}
                     />
-                    <span className="absolute inset-0 flex items-center justify-center text-[0.4375rem] font-bold text-foreground/60">
+                    <span className="absolute inset-0 flex items-center justify-center text-[0.5rem] font-bold text-foreground drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">
                       {reservePoolPct}%
                     </span>
                   </div>
