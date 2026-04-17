@@ -308,19 +308,19 @@ async function notifyTelegram(message: string): Promise<void> {
 }
 
 export async function handleDhan401(brokerId: string): Promise<string | null> {
-  log.warn(`401 detected for broker "${brokerId}". Triggering refresh.`);
+  // If a refresh is already in flight, just wait on it — don't re-mark expired
+  // (that would overwrite the "valid" status set by the in-flight refresh)
+  if (_inflightRefresh.has(brokerId)) {
+    log.info(`401 for "${brokerId}" — refresh already in flight, coalescing.`);
+    return _inflightRefresh.get(brokerId)!;
+  }
 
+  log.warn(`401 detected for broker "${brokerId}". Triggering refresh.`);
   await updateBrokerCredentials(brokerId, { status: "expired" });
   await updateBrokerConnection(brokerId, {
     apiStatus: "error",
     lastApiCall: Date.now(),
   });
-
-  // If a refresh is already in flight for this broker, wait on it.
-  if (_inflightRefresh.has(brokerId)) {
-    log.info(`Refresh already in flight for "${brokerId}" — coalescing.`);
-    return _inflightRefresh.get(brokerId)!;
-  }
 
   // Import lazily to avoid circular dep with tokenManager.
   const { generateDhanToken } = await import("./tokenManager");
