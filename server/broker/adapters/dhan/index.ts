@@ -1001,19 +1001,19 @@ export class DhanAdapter implements BrokerAdapter {
       return;
     }
 
-    // Auto-refresh if expired or expiring soon
-    const expiry = calculateTokenExpiry(this.tokenUpdatedAt);
-
-    if (expiry.isExpired || expiry.isExpiringSoon) {
-      const label = expiry.isExpired
-        ? "expired"
-        : `expiring in ${Math.round(expiry.remainingMs / 60000)} min`;
-      log.warn(`Token ${label} — auto-refreshing...`);
-      const refreshed = await this._tryAutoRefresh();
-      if (!refreshed && expiry.isExpired) {
-        log.error("Auto-refresh failed. BSA will start without a valid token.");
+    // Always refresh on startup — ensures a fresh 24h token every morning.
+    // Without this, yesterday's 13:30 token expires at 13:30 today (mid-session).
+    // A fresh token at startup means it's valid for the entire trading day.
+    log.info("Refreshing token on startup (fresh 24h TTL for today)...");
+    const refreshed = await this._tryAutoRefresh();
+    if (!refreshed) {
+      // Fall back to existing token if refresh fails
+      const expiry = calculateTokenExpiry(this.tokenUpdatedAt);
+      if (expiry.isExpired) {
+        log.error("Token refresh failed and existing token expired. BSA will start without a valid token.");
         return;
       }
+      log.warn(`Token refresh failed but existing token still valid (${Math.round(expiry.remainingMs / 60000)} min remaining). Continuing with it.`);
     }
 
     // Validate token against Dhan API
