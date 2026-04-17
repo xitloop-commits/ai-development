@@ -1014,7 +1014,7 @@ function PastRow({
   const dateLabel = formatDateAgeLabel(day.date || '', day.openedAt);
 
   return (
-    <tr data-day={day.dayIndex} className={`border-b border-border/30 transition-colors ${
+    <tr data-day={day.dayIndex} className={`border-b border-border/30 transition-colors text-muted-foreground ${
       highlighted ? 'bg-warning-amber/20 outline outline-1 outline-warning-amber/60' : 'hover:bg-muted/30'
     }`}>
       {/* Day */}
