@@ -50,7 +50,7 @@ function TooltipContent({
         {...props}
       >
         {children}
-        <TooltipPrimitive.Arrow className="fill-popover z-50 size-2.5 drop-shadow-sm" />
+        <TooltipPrimitive.Arrow className="fill-popover stroke-[oklch(0.82_0.18_210/0.3)] z-50" width={12} height={6} />
       </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>
   );
