@@ -359,7 +359,7 @@ def _draw_flat(items: list[tuple[str, callable | None]], selected: int) -> None:
     bar = "═" * W
     print()
     print(f"  {bar}")
-    print(f"    {BOLD('ATS — Launcher')}")
+    print(f"    {BOLD('lubas — Lucky Basker')}")
     print(f"  {bar}")
     for i, (label, action) in enumerate(items):
         if action is None:

@@ -153,11 +153,11 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
           <div className="flex items-center gap-1.5">
             <div className="h-2 w-2 rounded-sm bg-primary" />
             <span className="font-display text-sm font-bold tracking-wider text-primary uppercase">
-              ATS
+              lubas
             </span>
           </div>
           <span className="hidden xl:inline text-[0.625rem] text-muted-foreground tracking-widest uppercase">
-            Automatic Trading System
+            Lucky Basker
           </span>
 
         </div>
