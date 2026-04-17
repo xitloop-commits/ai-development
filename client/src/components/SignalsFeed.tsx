@@ -1,10 +1,14 @@
 /*
  * SignalsFeed — Live feed of SEA (Signal Engine Agent) trading signals.
- * Shows GO_CALL / GO_PUT signals with direction probability, predicted
- * upside/drawdown, ATM strike and option prices.
  *
- * Data source: tRPC trading.signals → reads logs/signals/<inst>/<date>_signals.log
+ * Enhancements:
+ *   - Sticky header with CALL/PUT counts
+ *   - Deduped entries (server collapses 30 identical signals/sec into one with count badge)
+ *   - Auto-scroll to newest, pauses on hover
+ *   - Instrument colour coding
+ *   - Clean spacing and hierarchy
  */
+import { useRef, useEffect, useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
 
@@ -24,42 +28,66 @@ export interface SEASignal {
   momentum: number | null;
   breakout: number | null;
   model_version: string;
+  count?: number;
 }
 
 interface SignalsFeedProps {
   signals: SEASignal[];
 }
 
+const INST_COLORS: Record<string, string> = {
+  NIFTY: 'text-info-cyan',
+  BANKNIFTY: 'text-bullish',
+  CRUDEOIL: 'text-warning-amber',
+  NATURALGAS: 'text-destructive',
+};
+
+const INST_BG: Record<string, string> = {
+  NIFTY: 'bg-info-cyan/5',
+  BANKNIFTY: 'bg-bullish/5',
+  CRUDEOIL: 'bg-warning-amber/5',
+  NATURALGAS: 'bg-destructive/5',
+};
+
 function timeAgo(ts_ist: string): string {
-  if (!ts_ist) return '-';
+  if (!ts_ist) return '';
   try {
     const diff = Date.now() - new Date(ts_ist).getTime();
     const seconds = Math.floor(diff / 1000);
-    if (seconds < 0) return 'just now';
-    if (seconds < 60) return `${seconds}s ago`;
+    if (seconds < 0) return 'now';
+    if (seconds < 60) return `${seconds}s`;
     const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    return `${hours}h ago`;
+    if (minutes < 60) return `${minutes}m`;
+    return `${Math.floor(minutes / 60)}h`;
   } catch {
-    return '-';
+    return '';
   }
 }
 
-function fmtPrice(v: number | null): string {
+function fmtNum(v: number | null, dec = 2): string {
   if (v === null || v === undefined) return '-';
-  if (Math.abs(v) >= 1000) return v.toLocaleString('en-IN', { maximumFractionDigits: 1 });
-  return v.toFixed(2);
+  if (Math.abs(v) >= 10000) return v.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  if (Math.abs(v) >= 100) return v.toFixed(1);
+  return v.toFixed(dec);
 }
 
 export default function SignalsFeed({ signals }: SignalsFeedProps) {
-  const calls = signals.filter((s) => s.direction === 'GO_CALL').length;
-  const puts  = signals.filter((s) => s.direction === 'GO_PUT').length;
+  const calls = signals.reduce((sum, s) => sum + (s.direction === 'GO_CALL' ? (s.count ?? 1) : 0), 0);
+  const puts  = signals.reduce((sum, s) => sum + (s.direction === 'GO_PUT' ? (s.count ?? 1) : 0), 0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [hovered, setHovered] = useState(false);
+
+  // Auto-scroll to top (newest) when new signals arrive, unless user is hovering
+  useEffect(() => {
+    if (!hovered && scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
+    }
+  }, [signals, hovered]);
 
   return (
-    <div className="border border-border rounded-md bg-card overflow-hidden h-full">
-      {/* Header */}
-      <div className="px-3 py-2 border-b border-border bg-secondary/30">
+    <div className="border border-border rounded-md bg-card overflow-hidden h-full flex flex-col">
+      {/* ── Sticky header ── */}
+      <div className="px-3 py-2 border-b border-border bg-secondary/30 shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <Activity className="h-3 w-3 text-info-cyan" />
@@ -67,92 +95,109 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
               SEA Signals
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[0.5rem] text-bullish tabular-nums font-bold">
+          <div className="flex items-center gap-3">
+            <span className="text-[0.5625rem] text-bullish tabular-nums font-bold">
               {calls} CALL
             </span>
-            <span className="text-[0.5rem] text-destructive tabular-nums font-bold">
+            <span className="text-[0.5625rem] text-destructive tabular-nums font-bold">
               {puts} PUT
+            </span>
+            <span className="text-[0.5rem] text-muted-foreground tabular-nums">
+              {signals.length} groups
             </span>
           </div>
         </div>
       </div>
 
-      {/* Signal list */}
-      <ScrollArea className="h-[calc(100%-36px)]">
-        <div className="p-2 space-y-1">
-          {signals.length === 0 ? (
-            <div className="flex items-center justify-center py-8">
-              <span className="text-[0.625rem] text-muted-foreground">
-                No signals yet today
-              </span>
-            </div>
-          ) : (
-            signals.map((signal) => {
-              const isCall = signal.direction === 'GO_CALL';
-              const Icon = isCall ? TrendingUp : TrendingDown;
-              const dirColor = isCall ? 'text-bullish' : 'text-destructive';
-              const borderColor = isCall ? 'border-l-bullish' : 'border-l-destructive';
-              const bgColor = isCall ? 'bg-bullish/5' : 'bg-destructive/5';
-              const ts = signal.timestamp_ist?.slice(11, 19) || '';
+      {/* ── Signal list (scrollable with custom scrollbar) ── */}
+      <ScrollArea
+        className="flex-1"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <div ref={scrollRef} className="px-2 py-2 space-y-2">
+        {signals.length === 0 ? (
+          <div className="flex items-center justify-center py-12">
+            <span className="text-[0.6875rem] text-muted-foreground">
+              No signals yet today
+            </span>
+          </div>
+        ) : (
+          signals.map((signal) => {
+            const isCall = signal.direction === 'GO_CALL';
+            const Icon = isCall ? TrendingUp : TrendingDown;
+            const dirColor = isCall ? 'text-bullish' : 'text-destructive';
+            const borderColor = isCall ? 'border-l-bullish' : 'border-l-destructive';
+            const instColor = INST_COLORS[signal.instrument] ?? 'text-foreground';
+            const instBg = INST_BG[signal.instrument] ?? 'bg-secondary/10';
+            const ts = signal.timestamp_ist?.slice(11, 19) || '';
+            const count = signal.count ?? 1;
 
-              return (
-                <div
-                  key={signal.id}
-                  className={`border-l-2 ${borderColor} ${bgColor} rounded-r px-2.5 py-1.5`}
-                >
-                  {/* Row 1: direction + instrument + time */}
-                  <div className="flex items-center justify-between mb-0.5">
-                    <div className="flex items-center gap-1.5">
-                      <Icon className={`h-3 w-3 ${dirColor}`} />
-                      <span className={`text-[0.625rem] font-bold ${dirColor} tracking-wider`}>
-                        {signal.direction.replace('GO_', '')}
-                      </span>
-                      <span className="text-[0.625rem] font-bold text-foreground">
-                        {signal.instrument}
-                      </span>
-                    </div>
-                    <span className="text-[0.5rem] text-muted-foreground tabular-nums">
-                      {ts} · {timeAgo(signal.timestamp_ist)}
+            return (
+              <div
+                key={signal.id}
+                className={`border-l-2 ${borderColor} ${instBg} rounded-r px-3 py-2 space-y-1`}
+              >
+                {/* Row 1: direction + instrument + count + time */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Icon className={`h-3.5 w-3.5 ${dirColor}`} />
+                    <span className={`text-[0.6875rem] font-bold ${dirColor} tracking-wider`}>
+                      {signal.direction.replace('GO_', '')}
                     </span>
-                  </div>
-
-                  {/* Row 2: prob + strike + spot */}
-                  <div className="flex items-center gap-3 text-[0.5625rem] tabular-nums text-muted-foreground">
-                    <span>
-                      prob <span className={`font-bold ${dirColor}`}>
-                        {(signal.direction_prob_30s * 100).toFixed(0)}%
-                      </span>
+                    <span className={`text-[0.625rem] font-bold ${instColor}`}>
+                      {signal.instrument}
                     </span>
-                    <span>
-                      ATM <span className="text-foreground font-bold">{signal.atm_strike}</span>
-                    </span>
-                    {signal.spot_price && (
-                      <span>
-                        spot <span className="text-foreground">{fmtPrice(signal.spot_price)}</span>
+                    {count > 1 && (
+                      <span className="text-[0.5rem] px-1.5 py-0.5 rounded-full bg-secondary/50 text-muted-foreground font-bold tabular-nums">
+                        x{count}
                       </span>
                     )}
                   </div>
-
-                  {/* Row 3: upside/drawdown + CE/PE LTP */}
-                  <div className="flex items-center gap-3 text-[0.5rem] tabular-nums text-muted-foreground mt-0.5">
-                    <span>
-                      up <span className="text-bullish">{fmtPrice(signal.max_upside_pred_30s)}</span>
-                    </span>
-                    <span>
-                      dn <span className="text-destructive">{fmtPrice(signal.max_drawdown_pred_30s)}</span>
-                    </span>
-                    {signal.atm_ce_ltp && (
-                      <span>CE {fmtPrice(signal.atm_ce_ltp)}</span>
-                    )}
-                    {signal.atm_pe_ltp && (
-                      <span>PE {fmtPrice(signal.atm_pe_ltp)}</span>
-                    )}
-                  </div>
+                  <span className="text-[0.5625rem] text-muted-foreground tabular-nums">
+                    {ts} <span className="text-[0.5rem]">({timeAgo(signal.timestamp_ist)})</span>
+                  </span>
                 </div>
-              );
-            })
-          )}
+
+                {/* Row 2: prob + ATM + spot */}
+                <div className="flex items-center gap-4 text-[0.625rem] tabular-nums">
+                  <span className="text-muted-foreground">
+                    prob{' '}
+                    <span className={`font-bold ${dirColor}`}>
+                      {(signal.direction_prob_30s * 100).toFixed(0)}%
+                    </span>
+                  </span>
+                  <span className="text-muted-foreground">
+                    ATM{' '}
+                    <span className="text-foreground font-bold">{signal.atm_strike}</span>
+                  </span>
+                  {signal.spot_price && (
+                    <span className="text-muted-foreground">
+                      spot{' '}
+                      <span className="text-foreground">{fmtNum(signal.spot_price, 1)}</span>
+                    </span>
+                  )}
+                </div>
+
+                {/* Row 3: upside/drawdown + CE/PE */}
+                <div className="flex items-center gap-4 text-[0.5625rem] tabular-nums text-muted-foreground">
+                  <span>
+                    up <span className="text-bullish font-medium">{fmtNum(signal.max_upside_pred_30s)}</span>
+                  </span>
+                  <span>
+                    dn <span className="text-destructive font-medium">{fmtNum(signal.max_drawdown_pred_30s)}</span>
+                  </span>
+                  {signal.atm_ce_ltp != null && (
+                    <span>CE <span className="text-foreground">{fmtNum(signal.atm_ce_ltp)}</span></span>
+                  )}
+                  {signal.atm_pe_ltp != null && (
+                    <span>PE <span className="text-foreground">{fmtNum(signal.atm_pe_ltp)}</span></span>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
         </div>
       </ScrollArea>
     </div>

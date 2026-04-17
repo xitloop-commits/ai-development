@@ -27,6 +27,7 @@ export interface SEASignal {
   momentum: number | null;
   breakout: number | null;
   model_version: string;
+  count?: number;           // number of raw signals collapsed into this entry (dedup)
 }
 
 const INSTRUMENTS = ["nifty50", "banknifty", "crudeoil", "naturalgas"];
@@ -49,8 +50,15 @@ function readLastLines(filePath: string, maxLines: number): string[] {
 /**
  * Get today's SEA signals across all instruments (or one specific instrument).
  *
+ * Deduplicates consecutive signals with the same instrument + direction
+ * within a 30s window into a single entry with a `count` field. This
+ * prevents 30 identical GO_PUT signals/second from flooding the UI.
+ *
  * Returns newest-first (reversed chronological) for display.
  */
+
+const DEDUP_WINDOW_SEC = 30;
+
 export function getSEASignals(
   limit: number = 50,
   instrument?: string
@@ -60,32 +68,34 @@ export function getSEASignals(
     ? [instrument.toLowerCase()]
     : INSTRUMENTS;
 
-  const all: SEASignal[] = [];
+  const raw: SEASignal[] = [];
   let counter = 0;
 
   for (const inst of instruments) {
     const logPath = path.resolve(`logs/signals/${inst}/${today}_signals.log`);
-    const lines = readLastLines(logPath, limit);
+    // Read more lines than limit since we'll deduplicate
+    const lines = readLastLines(logPath, limit * 50);
 
     for (const line of lines) {
       try {
-        const raw = JSON.parse(line);
-        all.push({
+        const r = JSON.parse(line);
+        raw.push({
           id: `sea-${inst}-${++counter}`,
-          timestamp: raw.timestamp ?? 0,
-          timestamp_ist: raw.timestamp_ist ?? "",
-          instrument: raw.instrument ?? inst.toUpperCase(),
-          direction: raw.direction ?? "GO_CALL",
-          direction_prob_30s: raw.direction_prob_30s ?? 0,
-          max_upside_pred_30s: raw.max_upside_pred_30s ?? 0,
-          max_drawdown_pred_30s: raw.max_drawdown_pred_30s ?? 0,
-          atm_strike: raw.atm_strike ?? 0,
-          atm_ce_ltp: raw.atm_ce_ltp ?? null,
-          atm_pe_ltp: raw.atm_pe_ltp ?? null,
-          spot_price: raw.spot_price ?? null,
-          momentum: raw.momentum ?? null,
-          breakout: raw.breakout ?? null,
-          model_version: raw.model_version ?? "",
+          timestamp: r.timestamp ?? 0,
+          timestamp_ist: r.timestamp_ist ?? "",
+          instrument: r.instrument ?? inst.toUpperCase(),
+          direction: r.direction ?? "GO_CALL",
+          direction_prob_30s: r.direction_prob_30s ?? 0,
+          max_upside_pred_30s: r.max_upside_pred_30s ?? 0,
+          max_drawdown_pred_30s: r.max_drawdown_pred_30s ?? 0,
+          atm_strike: r.atm_strike ?? 0,
+          atm_ce_ltp: r.atm_ce_ltp ?? null,
+          atm_pe_ltp: r.atm_pe_ltp ?? null,
+          spot_price: r.spot_price ?? null,
+          momentum: r.momentum ?? null,
+          breakout: r.breakout ?? null,
+          model_version: r.model_version ?? "",
+          count: 1,
         });
       } catch {
         // skip malformed lines
@@ -93,9 +103,37 @@ export function getSEASignals(
     }
   }
 
-  // Sort by timestamp descending (newest first)
-  all.sort((a, b) => b.timestamp - a.timestamp);
-  return all.slice(0, limit);
+  // Sort by timestamp ascending for dedup pass
+  raw.sort((a, b) => a.timestamp - b.timestamp);
+
+  // Deduplicate: merge consecutive same-instrument+direction within window
+  const deduped: SEASignal[] = [];
+  for (const sig of raw) {
+    const prev = deduped.length > 0 ? deduped[deduped.length - 1] : null;
+    if (
+      prev &&
+      prev.instrument === sig.instrument &&
+      prev.direction === sig.direction &&
+      sig.timestamp - prev.timestamp < DEDUP_WINDOW_SEC
+    ) {
+      // Merge into previous — keep the latest values, increment count
+      prev.count = (prev.count ?? 1) + 1;
+      prev.timestamp = sig.timestamp;
+      prev.timestamp_ist = sig.timestamp_ist;
+      prev.direction_prob_30s = sig.direction_prob_30s;
+      prev.max_upside_pred_30s = sig.max_upside_pred_30s;
+      prev.max_drawdown_pred_30s = sig.max_drawdown_pred_30s;
+      prev.spot_price = sig.spot_price;
+      prev.atm_ce_ltp = sig.atm_ce_ltp;
+      prev.atm_pe_ltp = sig.atm_pe_ltp;
+    } else {
+      deduped.push({ ...sig });
+    }
+  }
+
+  // Return newest-first, limited
+  deduped.reverse();
+  return deduped.slice(0, limit);
 }
 
 /**
