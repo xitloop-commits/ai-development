@@ -513,11 +513,18 @@ export default function TradingDesk({
 
 
   // ─── Auto-scroll to today on load and on tab switch ────────
+  const prevWorkspaceRef = useRef(workspace);
   useEffect(() => {
     if (!capitalReady) return;
+    // Use instant scroll on tab switch (no animation flicker)
+    const isTabSwitch = prevWorkspaceRef.current !== workspace;
+    prevWorkspaceRef.current = workspace;
     const frame = requestAnimationFrame(() => {
       if (todayRef.current) {
-        todayRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        todayRef.current.scrollIntoView({
+          behavior: isTabSwitch ? 'instant' : 'smooth',
+          block: 'center',
+        });
       }
     });
     return () => cancelAnimationFrame(frame);
@@ -827,8 +834,8 @@ export default function TradingDesk({
       {/* Mutation errors are handled by the global CapitalContext */}
 
       {/* ─── Table ────────────────────────────────────────────── */}
-      <div className="flex-1 relative overflow-hidden">
-      <div ref={tableContainerRef} className={`h-full overflow-auto scrollbar-thin ${
+      <div className="flex-1 relative overflow-hidden" style={{ contentVisibility: 'auto' }}>
+      <div ref={tableContainerRef} className={`h-full overflow-auto scrollbar-thin transition-opacity duration-150 ${
         workspace === 'live' ? 'scrollbar-bullish' :
         workspace === 'paper_manual' ? 'scrollbar-amber' :
         'scrollbar-violet'
