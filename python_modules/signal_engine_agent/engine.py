@@ -183,11 +183,14 @@ def run(instrument: str,
                 continue
             X = vec.reshape(1, -1)
 
-            # direction_30s booster trained as binary classifier — predict() returns
-            # probability of class 1 (up) directly for binary objective
-            dir_prob = float(models.models["direction_30s"].predict(X)[0])
-            up_pred  = float(models.models["max_upside_30s"].predict(X)[0])
-            dn_pred  = float(models.models["max_drawdown_30s"].predict(X)[0])
+            # Run all available models
+            def _pred(name: str) -> float:
+                m = models.models.get(name)
+                return float(m.predict(X)[0]) if m else float('nan')
+
+            dir_prob = _pred("direction_30s")
+            up_pred  = _pred("max_upside_30s")
+            dn_pred  = _pred("max_drawdown_30s")
 
             # Extract context from raw row (before preprocessing strips them)
             regime  = row.get("regime")

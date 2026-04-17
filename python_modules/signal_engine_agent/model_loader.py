@@ -14,9 +14,17 @@ import lightgbm as lgb
 
 
 MVP_TARGETS: tuple[str, ...] = (
-    "direction_30s",
-    "max_upside_30s",
-    "max_drawdown_30s",
+    # Tier 1
+    "direction_30s", "direction_60s",
+    "risk_reward_ratio_30s", "risk_reward_ratio_60s",
+    # Tier 2
+    "max_upside_30s", "max_upside_60s",
+    "max_drawdown_30s", "max_drawdown_60s",
+    "direction_30s_magnitude", "direction_60s_magnitude",
+    "upside_percentile_30s",
+    # Tier 3
+    "total_premium_decay_30s", "total_premium_decay_60s",
+    "avg_decay_per_strike_30s", "avg_decay_per_strike_60s",
 )
 
 
