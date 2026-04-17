@@ -58,9 +58,13 @@ _CHAIN_STALE_AFTER_SEC = 30.0
 _STARTUP_RETRY_MAX = 12
 _STARTUP_RETRY_INTERVAL_SEC = 5.0
 
-# Exchange segment to use when querying the option chain via Node.js
+# Exchange segment to use when querying the option chain via Node.js.
+# NSE uses IDX_I (index segment) — NOT NSE_FNO. Dhan's option chain API
+# expects the underlying's own segment. NIFTY/BANKNIFTY index (security_id 13/25)
+# live in IDX_I. Using NSE_FNO with security_id 13 returns a DIFFERENT instrument
+# (spot ~7000 instead of ~24300) — this bug kept NSE option features null since day 1.
 _CHAIN_EXCHANGE_SEG: dict[str, str] = {
-    "NSE": "NSE_FNO",
+    "NSE": "IDX_I",
     "MCX": "MCX_COMM",
 }
 
