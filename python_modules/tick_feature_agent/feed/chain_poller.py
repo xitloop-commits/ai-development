@@ -247,8 +247,9 @@ class ChainPoller:
         are the most liquid contracts.
         """
         loop = asyncio.get_event_loop()
-        # OPTIDX for NSE (includes weekly expiries), FUTCOM for MCX
-        inst_type = "FUTCOM" if self._profile.exchange == "MCX" else "OPTIDX"
+        # OPTIDX for NSE (includes weekly expiries), OPTFUT for MCX (option expiries,
+        # not futures expiries — MCX options expire on different dates than futures)
+        inst_type = "OPTFUT" if self._profile.exchange == "MCX" else "OPTIDX"
         try:
             resp = await loop.run_in_executor(
                 None,
