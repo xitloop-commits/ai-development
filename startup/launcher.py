@@ -130,17 +130,29 @@ def act_rep_crudeoil():   _launch_new_window("Replay: crudeoil",   "start-replay
 def act_rep_natgas():     _launch_new_window("Replay: naturalgas", "start-replay.bat naturalgas")
 def act_bot():            _launch_new_window("TFA Bot",            "start-bot.bat")
 
+def act_rep_all():
+    for inst in ["nifty50", "banknifty", "crudeoil", "naturalgas"]:
+        _launch_new_window(f"Replay: {inst}", f"start-replay.bat {inst}")
+
 # --- Signal engine (SEA) ---
 def act_sea_nifty():      _launch_new_window("SEA: nifty50",       "start-sea.bat nifty50")
 def act_sea_banknifty():  _launch_new_window("SEA: banknifty",     "start-sea.bat banknifty")
 def act_sea_crudeoil():   _launch_new_window("SEA: crudeoil",      "start-sea.bat crudeoil")
 def act_sea_natgas():     _launch_new_window("SEA: naturalgas",    "start-sea.bat naturalgas")
 
+def act_sea_all():
+    for inst in ["nifty50", "banknifty", "crudeoil", "naturalgas"]:
+        _launch_new_window(f"SEA: {inst}", f"start-sea.bat {inst}")
+
 # --- Training (MTA) ---
 def act_train_nifty():    _launch_new_window("Train: nifty50",      "train-auto.bat nifty50")
 def act_train_banknifty():_launch_new_window("Train: banknifty",    "train-auto.bat banknifty")
 def act_train_crudeoil(): _launch_new_window("Train: crudeoil",     "train-auto.bat crudeoil")
 def act_train_natgas():   _launch_new_window("Train: naturalgas",   "train-auto.bat naturalgas")
+
+def act_train_all():
+    for inst in ["nifty50", "banknifty", "crudeoil", "naturalgas"]:
+        _launch_new_window(f"Train: {inst}", f"train-auto.bat {inst}")
 
 # --- Backtest (stream parquet as live for end-to-end test) ---
 def act_bt_nifty():       _launch_new_window("Backtest: nifty50",   "backtest.bat nifty50 2026-04-15")
@@ -244,11 +256,13 @@ def main():
         ("Record  crudeoil",                              act_tfa_crudeoil),
         ("Record  naturalgas",                            act_tfa_natgas),
         ("─── 2. FEATURIZE ─── raw  →  data/features/  ───────", None),
+        ("Replay ALL  (4 instruments)",                   act_rep_all),
         ("Replay  nifty50",                               act_rep_nifty),
         ("Replay  banknifty",                             act_rep_banknifty),
         ("Replay  crudeoil",                              act_rep_crudeoil),
         ("Replay  naturalgas",                            act_rep_natgas),
         ("─── 3. TRAIN ─── features  →  models/  ─────────────", None),
+        ("Train ALL  (4 instruments)",                    act_train_all),
         ("Train  nifty50   (MTA)",                        act_train_nifty),
         ("Train  banknifty (MTA)",                        act_train_banknifty),
         ("Train  crudeoil  (MTA)",                        act_train_crudeoil),
@@ -259,6 +273,7 @@ def main():
         ("Backtest  crudeoil   (date 2026-04-15)",        act_bt_crudeoil),
         ("Backtest  naturalgas (date 2026-04-15)",        act_bt_natgas),
         ("─── 4. INFER ─── live features  →  signals/  ───────", None),
+        ("Start ALL SEAs  (4 instruments)",               act_sea_all),
         ("Start SEA  nifty50",                            act_sea_nifty),
         ("Start SEA  banknifty",                          act_sea_banknifty),
         ("Start SEA  crudeoil",                           act_sea_crudeoil),
