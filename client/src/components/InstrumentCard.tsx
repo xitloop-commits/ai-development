@@ -12,7 +12,20 @@
  * Data: tRPC trading.instrumentLiveState polling every 1s.
  */
 import { TrendingUp, TrendingDown, Activity, Zap, BarChart3, Shield } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
+
+// ── Tooltip wrapper ──────────────────────────────────────────
+function Tip({ children, text }: { children: React.ReactNode; text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild><span className="cursor-default">{children}</span></TooltipTrigger>
+      <TooltipContent side="top" className="bg-card border-border text-foreground max-w-[220px]">
+        <p className="text-[0.625rem] leading-relaxed">{text}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 // ── Instrument key mapping ───────────────────────────────────
 
@@ -125,23 +138,31 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
         </div>
 
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[0.6875rem] tabular-nums">
-          <div>
-            <span className="text-muted-foreground">Spot </span>
-            <span className="text-foreground font-bold">{fmt(live.spot_price, 1)}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">ATM </span>
-            <span className="text-foreground font-bold">{live.atm_strike}</span>
-            <span className="text-muted-foreground text-[0.5625rem]"> /{live.strike_step}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Chain </span>
-            <span className="text-foreground">{fmt(live.time_since_chain_sec, 0)}s</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Strikes </span>
-            <span className="text-foreground">{live.active_strike_count}</span>
-          </div>
+          <Tip text="Current futures price of the instrument.">
+            <div>
+              <span className="text-muted-foreground">Spot </span>
+              <span className="text-foreground font-bold">{fmt(live.spot_price, 1)}</span>
+            </div>
+          </Tip>
+          <Tip text="At-the-money strike — the option strike closest to spot price. Step is the gap between strikes.">
+            <div>
+              <span className="text-muted-foreground">ATM </span>
+              <span className="text-foreground font-bold">{live.atm_strike}</span>
+              <span className="text-muted-foreground text-[0.5625rem]"> /{live.strike_step}</span>
+            </div>
+          </Tip>
+          <Tip text="How old the latest option chain snapshot is. Below 10s is good.">
+            <div>
+              <span className="text-muted-foreground">Chain </span>
+              <span className="text-foreground">{fmt(live.time_since_chain_sec, 0)}s</span>
+            </div>
+          </Tip>
+          <Tip text="Number of option strikes actively trading around ATM. More = better data quality.">
+            <div>
+              <span className="text-muted-foreground">Strikes </span>
+              <span className="text-foreground">{live.active_strike_count}</span>
+            </div>
+          </Tip>
         </div>
       </div>
 
@@ -180,10 +201,18 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
             </div>
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[0.625rem] tabular-nums text-muted-foreground">
-              <div>up <span className="text-bullish font-medium">{fmt(signal.max_upside_pred_30s)}</span></div>
-              <div>dn <span className="text-destructive font-medium">{fmt(signal.max_drawdown_pred_30s)}</span></div>
-              {signal.atm_ce_ltp != null && <div>CE <span className="text-foreground">{fmt(signal.atm_ce_ltp)}</span></div>}
-              {signal.atm_pe_ltp != null && <div>PE <span className="text-foreground">{fmt(signal.atm_pe_ltp)}</span></div>}
+              <Tip text="Predicted maximum gain in the next 30 seconds (in ₹). Higher = bigger expected move.">
+                <div>up <span className="text-bullish font-medium">{fmt(signal.max_upside_pred_30s)}</span></div>
+              </Tip>
+              <Tip text="Predicted maximum loss in the next 30 seconds (in ₹). Lower = less risk.">
+                <div>dn <span className="text-destructive font-medium">{fmt(signal.max_drawdown_pred_30s)}</span></div>
+              </Tip>
+              {signal.atm_ce_ltp != null && <Tip text="Current price of the ATM Call option.">
+                <div>CE <span className="text-foreground">{fmt(signal.atm_ce_ltp)}</span></div>
+              </Tip>}
+              {signal.atm_pe_ltp != null && <Tip text="Current price of the ATM Put option.">
+                <div>PE <span className="text-foreground">{fmt(signal.atm_pe_ltp)}</span></div>
+              </Tip>}
             </div>
 
             {model && (
@@ -211,29 +240,33 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
         </div>
 
         <div className="space-y-0.5 text-[0.625rem] tabular-nums">
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Regime</span>
-            <span className={`font-bold ${REGIME_COLORS[live.regime ?? ''] ?? 'text-muted-foreground'}`}>
-              {live.regime ?? '-'}
-            </span>
-          </div>
-
-          {([
-            ['Momentum', live.underlying_momentum],
-            ['Velocity', live.underlying_velocity],
-            ['OFI (5)', live.underlying_ofi_5],
-            ['Compression', live.volatility_compression],
-            ['Breakout rdy', live.breakout_readiness],
-            ['Zone activity', live.zone_activity_score],
-            ['PCR ATM', live.chain_pcr_atm],
-            ['OI imbalance', live.chain_oi_imbalance_atm],
-          ] as [string, number | null][]).map(([label, val]) => (
-            <div key={label} className="flex items-center justify-between">
-              <span className="text-muted-foreground">{label}</span>
-              <span className={`font-medium ${arrowColor(val)}`}>
-                {arrow(val)} {fmt(val, 3)}
+          <Tip text="Market character right now. TREND = strong move. RANGE = oscillating. DEAD = no activity. NEUTRAL = unclear.">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Regime</span>
+              <span className={`font-bold ${REGIME_COLORS[live.regime ?? ''] ?? 'text-muted-foreground'}`}>
+                {live.regime ?? '-'}
               </span>
             </div>
+          </Tip>
+
+          {([
+            ['Momentum', live.underlying_momentum, 'Is price pushing up or down? Positive = buyers in control, negative = sellers.'],
+            ['Velocity', live.underlying_velocity, 'How fast is price moving? High = rapid move, zero = stagnant.'],
+            ['OFI (5)', live.underlying_ofi_5, 'Order Flow Imbalance — are buyers or sellers more aggressive? Positive = buying pressure.'],
+            ['Compression', live.volatility_compression, 'Is price range tightening like a coiled spring? High = big move likely soon.'],
+            ['Breakout rdy', live.breakout_readiness, 'How ready is the market for a breakout? High = imminent move expected.'],
+            ['Zone activity', live.zone_activity_score, 'How actively are options trading around ATM? High = strong participation.'],
+            ['PCR ATM', live.chain_pcr_atm, 'Put-Call Ratio. Below 0.8 = bullish (more calls). Above 1.2 = bearish (more puts).'],
+            ['OI imbalance', live.chain_oi_imbalance_atm, 'Open Interest balance at ATM. Positive = call-heavy (bullish). Negative = put-heavy (bearish).'],
+          ] as [string, number | null, string][]).map(([label, val, tip]) => (
+            <Tip key={label} text={tip}>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">{label}</span>
+                <span className={`font-medium ${arrowColor(val)}`}>
+                  {arrow(val)} {fmt(val, 3)}
+                </span>
+              </div>
+            </Tip>
           ))}
         </div>
       </div>
@@ -299,35 +332,43 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
         </div>
 
         <div className="space-y-0.5 text-[0.625rem]">
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Feed</span>
-            <span className={live.file_age_sec < 5 ? 'text-bullish' : live.file_age_sec < 30 ? 'text-warning-amber' : 'text-destructive'}>
-              {live.file_age_sec < 5 ? '● OK' : live.file_age_sec < 30 ? '● SLOW' : '✗ STALE'}
-              <span className="text-muted-foreground"> ({live.file_age_sec}s)</span>
-            </span>
-          </div>
+          <Tip text="Is the price feed alive? Green = ticks arriving. Yellow = slow. Red = no data — signals unreliable.">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Feed</span>
+              <span className={live.file_age_sec < 5 ? 'text-bullish' : live.file_age_sec < 30 ? 'text-warning-amber' : 'text-destructive'}>
+                {live.file_age_sec < 5 ? '● OK' : live.file_age_sec < 30 ? '● SLOW' : '✗ STALE'}
+                <span className="text-muted-foreground"> ({live.file_age_sec}s)</span>
+              </span>
+            </div>
+          </Tip>
 
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Session</span>
-            <span className={live.trading_state === 'TRADING' ? 'text-bullish' : 'text-warning-amber'}>
-              {live.trading_state === 'TRADING' ? '● TRADING' : live.trading_state}
-            </span>
-          </div>
+          <Tip text="Is the market currently open and trading? WARMING_UP = just started, waiting for data.">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Session</span>
+              <span className={live.trading_state === 'TRADING' ? 'text-bullish' : 'text-warning-amber'}>
+                {live.trading_state === 'TRADING' ? '● TRADING' : live.trading_state}
+              </span>
+            </div>
+          </Tip>
 
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Data quality</span>
-            <span className={live.data_quality_flag === 1 ? 'text-bullish' : 'text-warning-amber'}>
-              {live.data_quality_flag === 1 ? '● Valid' : '◐ Stale'}
-            </span>
-          </div>
+          <Tip text="Are all data sources healthy? Valid = safe to use signals. Stale = some option data missing, signals may be wrong.">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Data quality</span>
+              <span className={live.data_quality_flag === 1 ? 'text-bullish' : 'text-warning-amber'}>
+                {live.data_quality_flag === 1 ? '● Valid' : '◐ Stale'}
+              </span>
+            </div>
+          </Tip>
 
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Chain</span>
-            <span className={live.time_since_chain_sec < 10 ? 'text-bullish' : 'text-warning-amber'}>
-              {live.chain_available ? '● Fresh' : '✗ Missing'}
-              <span className="text-muted-foreground"> ({fmt(live.time_since_chain_sec, 0)}s)</span>
-            </span>
-          </div>
+          <Tip text="Is the option chain snapshot current? Fresh = recent data. Missing = chain not available.">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Chain</span>
+              <span className={live.time_since_chain_sec < 10 ? 'text-bullish' : 'text-warning-amber'}>
+                {live.chain_available ? '● Fresh' : '✗ Missing'}
+                <span className="text-muted-foreground"> ({fmt(live.time_since_chain_sec, 0)}s)</span>
+              </span>
+            </div>
+          </Tip>
         </div>
       </div>
     </div>
