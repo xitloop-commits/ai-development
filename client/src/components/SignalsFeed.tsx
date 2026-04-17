@@ -49,6 +49,20 @@ const INST_BG: Record<string, string> = {
   NATURALGAS: 'bg-destructive/5',
 };
 
+const INST_PILL: Record<string, string> = {
+  NIFTY: 'bg-info-cyan/15 text-info-cyan border-info-cyan/30',
+  BANKNIFTY: 'bg-bullish/15 text-bullish border-bullish/30',
+  CRUDEOIL: 'bg-warning-amber/15 text-warning-amber border-warning-amber/30',
+  NATURALGAS: 'bg-destructive/15 text-destructive border-destructive/30',
+};
+
+const INST_SHORT: Record<string, string> = {
+  NIFTY: 'NIFTY',
+  BANKNIFTY: 'BNIFTY',
+  CRUDEOIL: 'CRUDE',
+  NATURALGAS: 'GAS',
+};
+
 function timeAgo(ts_ist: string): string {
   if (!ts_ist) return '';
   try {
@@ -145,8 +159,8 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                     <span className={`text-[0.6875rem] font-bold ${dirColor} tracking-wider`}>
                       {signal.direction.replace('GO_', '')}
                     </span>
-                    <span className={`text-[0.625rem] font-bold ${instColor}`}>
-                      {signal.instrument}
+                    <span className={`text-[0.5rem] font-bold px-1.5 py-0.5 rounded border tracking-wider ${INST_PILL[signal.instrument] ?? 'bg-secondary/30 text-muted-foreground border-border'}`}>
+                      {INST_SHORT[signal.instrument] ?? signal.instrument}
                     </span>
                     {count > 1 && (
                       <span className="text-[0.5rem] px-1.5 py-0.5 rounded-full bg-secondary/50 text-muted-foreground font-bold tabular-nums">
