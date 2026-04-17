@@ -447,7 +447,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         # contract. Underlying WebSocket keeps subscribing to expired
         # security_id, chain poller keeps querying expired expiry.
         #
-        # Simple fix: exit with code 75 so the bat loop restarts TFA.
+        # Simple fix: signal restart so bat loop re-launches TFA.
         # Fresh startup re-runs _resolve_near_month_contract() which picks
         # the NEXT FUTIDX/FUTCOM expiry > today — effectively rolling to
         # the new contract with correct security_id + chain + strikes.
@@ -458,20 +458,18 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
             )
         log.warn(
             "EXPIRY_ROLLOVER_EXIT",
-            msg=f"Expiry rollover on {poller.active_expiry} — exiting with code 75 "
-                f"so bat loop restarts TFA on the next contract.",
+            msg=f"Expiry rollover on {poller.active_expiry} — restarting "
+                f"TFA on the next contract.",
             old_expiry=poller.active_expiry,
         )
         print(
             f"\n  {YELLOW('◼  Expiry rollover')} — restarting on next contract…\n",
             flush=True,
         )
-        try:
-            processor.on_session_close()
-            recorder.on_session_close()
-        except Exception:
-            pass
-        sys.exit(75)
+        # Schedule clean restart via asyncio — CancelledError propagates
+        # through gather, main() sees action="restart" and exits with 75.
+        _kb["action"] = "restart"
+        asyncio.ensure_future(_auto_stop())
 
     session_mgr = SessionManager(
         profile=profile,
@@ -670,10 +668,10 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
                 age = now - last_u_ts
 
             if age > TICK_STALL_THRESHOLD_SEC:
-                log.error(
+                log.warn(
                     "FEED_WATCHDOG_STALL",
                     msg=f"No underlying ticks for {age:.0f}s while session open — "
-                        f"exiting with code 75 so bat loop restarts the process.",
+                        f"restarting via exit code 75.",
                     tick_age_sec=round(age, 1),
                     threshold_sec=TICK_STALL_THRESHOLD_SEC,
                 )
@@ -682,12 +680,9 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
                     f"auto-restarting...\n",
                     flush=True,
                 )
-                # Close writers + log cleanly, then exit 75 (bat loop picks up)
-                try:
-                    recorder.on_session_close()
-                except Exception:
-                    pass
-                sys.exit(75)
+                # Signal restart via the same mechanism as Esc→Enter menu
+                _kb["action"] = "restart"
+                raise asyncio.CancelledError
 
     def _render_health() -> list[str]:
         """Build health display lines (no trailing newline on each)."""
