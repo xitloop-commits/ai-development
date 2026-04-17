@@ -251,8 +251,21 @@ function formatAge(openedAt?: number): string {
   return `${diffDays}d`;
 }
 
+function ordinal(n: number): string {
+  if (n >= 11 && n <= 13) return n + 'th';
+  switch (n % 10) {
+    case 1: return n + 'st';
+    case 2: return n + 'nd';
+    case 3: return n + 'rd';
+    default: return n + 'th';
+  }
+}
+
 function formatCalendarDay(timestamp: number = Date.now()): string {
-  return new Date(timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+  const d = new Date(timestamp);
+  const day = d.getDate();
+  const month = d.toLocaleDateString('en-IN', { month: 'short' });
+  return `${ordinal(day)} ${month}`;
 }
 
 function formatExpiryLabel(expiry?: string | null): string {
@@ -988,7 +1001,7 @@ function PastRow({
 
   const pnlValue = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
   const pnlPercent = day.tradeCapital > 0 ? (day.totalPnl / day.tradeCapital * 100).toFixed(1) : '0.0';
-  const dateLabel = formatDateAgeLabel(day.date || '—', day.openedAt);
+  const dateLabel = formatDateAgeLabel(day.date || '', day.openedAt);
 
   return (
     <tr data-day={day.dayIndex} className={`border-b border-border/30 transition-colors ${
@@ -1032,7 +1045,7 @@ function PastRow({
       <td className="px-2 py-2 text-right border-r border-border">—</td>
       {/* Qty */}
       <td className="px-2 py-2 text-right tabular-nums border-r border-border">
-        {day.totalQty > 0 ? day.totalQty : '—'}
+        {day.totalQty > 0 ? day.totalQty : ''}
       </td>
       {/* Capital */}
       <td className="px-2 py-2 text-right border-r border-border">—</td>
@@ -1043,17 +1056,17 @@ function PastRow({
       </td>
       {/* Charges */}
       <td className="px-2 py-2 text-right tabular-nums border-r border-border">
-        {day.totalCharges > 0 ? fmt(day.totalCharges, false) : '—'}
+        {day.totalCharges > 0 ? fmt(day.totalCharges, false) : ''}
       </td>
       {/* Actual Capital */}
       <td className="px-2 py-2 text-right tabular-nums font-medium border-r border-border">
-        {day.actualCapital > 0 ? fmt(day.actualCapital, true) : '—'}
+        {day.actualCapital > 0 ? fmt(day.actualCapital, true) : ''}
       </td>
       {/* Deviation */}
       <td className={`px-2 py-2 text-right tabular-nums text-[0.5625rem] border-r border-border ${pnlColor(day.deviation)}`}>
         {day.actualCapital > 0
           ? formatDeviation(day.deviation)
-          : '—'}
+          : ''}
       </td>
       {/* Rating */}
       <td className="px-2 py-2 text-center whitespace-nowrap">
@@ -1253,16 +1266,16 @@ function TodaySection({
           </div>
         </td>
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {day.totalQty > 0 ? day.totalQty : '—'}
+          {day.totalQty > 0 ? day.totalQty : ''}
         </td>
         <td className="px-2 py-2 text-right tabular-nums text-foreground text-[0.625rem] border-r border-border">
-          {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0), false) : '—'}
+          {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0), false) : ''}
         </td>
         <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
           {fmt(totalPnl, false)}
         </td>
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {day.totalCharges > 0 ? fmt(day.totalCharges, false) : '—'}
+          {day.totalCharges > 0 ? fmt(day.totalCharges, false) : ''}
         </td>
         <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground border-r border-border">
           {day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
@@ -1313,11 +1326,11 @@ function TodaySection({
         </td>
         {/* Qty */}
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {day.totalQty > 0 ? day.totalQty : '—'}
+          {day.totalQty > 0 ? day.totalQty : ''}
         </td>
         {/* Capital */}
         <td className="px-2 py-2 text-right tabular-nums text-foreground text-[0.625rem] border-r border-border">
-          {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0), false) : '—'}
+          {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0), false) : ''}
         </td>
         {/* P&L */}
         <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
@@ -1325,7 +1338,7 @@ function TodaySection({
         </td>
         {/* Charges */}
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {day.totalCharges > 0 ? fmt(day.totalCharges, false) : '—'}
+          {day.totalCharges > 0 ? fmt(day.totalCharges, false) : ''}
         </td>
         {/* Actual Capital */}
         <td className="px-2 py-2 text-right tabular-nums text-warning-amber border-r border-border">
@@ -1600,13 +1613,13 @@ function TodayTradeRow({
                   setEditOpen(true);
                 }}
               >
-                {isOpen && trade.stopLossPrice != null ? `${trade.trailingStopEnabled ? '~' : ''}${trade.stopLossPrice.toFixed(2)}` : '—'}
+                {isOpen && trade.stopLossPrice != null ? `${trade.trailingStopEnabled ? '~' : ''}${trade.stopLossPrice.toFixed(2)}` : ''}
               </span>
             </PopoverTrigger>
 
             {/* LTP */}
             <span className={`font-bold ${isOpen ? (displayLtp >= trade.entryPrice ? 'text-bullish' : 'text-destructive') : pnlColor(pnl)}`}>
-              {isOpen ? displayLtp.toFixed(2) : (trade.exitPrice?.toFixed(2) ?? '—')}
+              {isOpen ? displayLtp.toFixed(2) : (trade.exitPrice?.toFixed(2) ?? '')}
               {isOpen && liveLtp !== undefined && (
                 <span className="ml-0.5 inline-block h-1 w-1 rounded-full bg-bullish animate-pulse" />
               )}
@@ -1622,7 +1635,7 @@ function TodayTradeRow({
                 setEditOpen(true);
               }}
             >
-              {isOpen && trade.targetPrice != null ? trade.targetPrice.toFixed(2) : '—'}
+              {isOpen && trade.targetPrice != null ? trade.targetPrice.toFixed(2) : ''}
             </span>
           </div>
           <PopoverContent className="w-56 p-3" align="center" side="top">
@@ -1671,7 +1684,7 @@ function TodayTradeRow({
       </td>
       {/* Charges */}
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
-        {trade.charges > 0 ? fmt(trade.charges, false) : '—'}
+        {trade.charges > 0 ? fmt(trade.charges, false) : ''}
       </td>
       {/* Actual Capital */}
       <td className="px-2 py-1.5 border-r border-border" />
@@ -1710,7 +1723,7 @@ function FutureRow({
       </td>
       {/* Date */}
       <td className="px-2 py-2 tabular-nums text-foreground border-r border-border">
-        {day.date || '—'}
+        {day.date || ''}
       </td>
       {/* Trade Capital */}
       <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
