@@ -275,9 +275,19 @@ function formatExpiryLabel(expiry?: string | null): string {
   return formatCalendarDay(time);
 }
 
+function formatDateStr(dateStr: string): string {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr + 'T00:00:00');
+    if (isNaN(d.getTime())) return dateStr;
+    return formatCalendarDay(d.getTime());
+  } catch { return dateStr; }
+}
+
 function formatDateAgeLabel(dateLabel: string, openedAt?: number): string {
+  const formatted = formatDateStr(dateLabel);
   const age = formatAge(openedAt);
-  return age ? `${dateLabel} | ${age}` : dateLabel;
+  return age ? `${formatted} | ${age}` : formatted;
 }
 
 function getTradeDirectionLabel(type: string): 'B' | 'S' | '—' {
@@ -1006,8 +1016,6 @@ function PastRow({
   return (
     <tr data-day={day.dayIndex} className={`border-b border-border/30 transition-colors ${
       highlighted ? 'bg-warning-amber/20 outline outline-1 outline-warning-amber/60' : 'hover:bg-muted/30'
-    } ${
-      pnlValue > 0 ? 'text-bullish/60' : pnlValue < 0 ? 'text-destructive/60' : 'text-foreground'
     }`}>
       {/* Day */}
       <td className="px-2 py-2 border-r border-border">
@@ -1723,7 +1731,7 @@ function FutureRow({
       </td>
       {/* Date */}
       <td className="px-2 py-2 tabular-nums text-foreground border-r border-border">
-        {day.date || ''}
+        {formatDateStr(day.date || '')}
       </td>
       {/* Trade Capital */}
       <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
