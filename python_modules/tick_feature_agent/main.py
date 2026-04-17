@@ -321,6 +321,33 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     from tick_feature_agent.feed.dhan_feed import DhanFeed
     from tick_feature_agent.feed.chain_poller import ChainPoller
 
+    # ── Wait until 5 minutes before market open ─────────────────────────────
+    # Don't hold a Dhan WebSocket for hours pre-market — connect just before
+    # session start so the connection is fresh and avoids idle-timeout stalls.
+    PRE_MARKET_LEAD_MIN = 5
+    now_ist = datetime.now(_IST)
+    today_str = now_ist.strftime("%Y-%m-%d")
+    start_sec = _session_boundary_sec(today_str, profile.session_start)
+    connect_at_sec = start_sec - PRE_MARKET_LEAD_MIN * 60
+
+    if now_ist.timestamp() < connect_at_sec:
+        wait_sec = connect_at_sec - now_ist.timestamp()
+        h, m = profile.session_start.split(":")
+        connect_time = f"{int(h):02d}:{int(m) - PRE_MARKET_LEAD_MIN:02d}" \
+            if int(m) >= PRE_MARKET_LEAD_MIN \
+            else f"{int(h) - 1:02d}:{int(m) + 60 - PRE_MARKET_LEAD_MIN:02d}"
+        print(
+            f"\n  {YELLOW('◌')}  Market opens at {profile.session_start} IST."
+            f"  Connecting at {connect_time} IST ({int(wait_sec // 60)}m away).\n",
+            flush=True,
+        )
+        log.info("PRE_MARKET_WAIT",
+                 msg=f"Waiting {int(wait_sec)}s until {connect_time} IST "
+                     f"({PRE_MARKET_LEAD_MIN}m before session_start)")
+        # Sleep in 30s chunks so Ctrl+C / Esc menu still works
+        while time.time() < connect_at_sec:
+            time.sleep(min(30, max(0, connect_at_sec - time.time())))
+
     # ── Wait for API server ───────────────────────────────────────────────────
     _wait_for_server(args.broker_url, log)
 
