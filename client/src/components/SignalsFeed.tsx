@@ -169,7 +169,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                     )}
                   </div>
                   <span className="text-[0.5625rem] text-muted-foreground tabular-nums">
-                    {ts} <span className="text-[0.5rem]">({timeAgo(signal.timestamp_ist)})</span>
+                    {timeAgo(signal.timestamp_ist)}
                   </span>
                 </div>
 
