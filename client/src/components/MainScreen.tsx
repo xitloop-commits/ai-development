@@ -340,7 +340,6 @@ export default function MainScreen() {
     <div className="h-screen bg-background flex flex-col overflow-hidden">
       {/* Sticky App Bar */}
       <AppBar
-        modules={modules}
         onToggleLeftDrawer={() => setLeftSidebarVisible((p) => !p)}
         onToggleRightDrawer={() => setRightSidebarVisible((p) => !p)}
       />

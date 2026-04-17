@@ -8,34 +8,11 @@
  */
 import { useState, useEffect } from 'react';
 import {
-  Activity, Cpu, Brain, Zap,
   Globe, Wifi, Shield, Clock,
   Menu, FlaskConical,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
-import type { ModuleStatus } from '@/lib/types';
-
-const MODULE_ICONS: Record<string, React.ElementType> = {
-  FETCHER: Activity,
-  ANALYZER: Cpu,
-  'AI ENGINE': Brain,
-  EXECUTOR: Zap,
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  active: 'text-bullish',
-  warning: 'text-warning-amber',
-  error: 'text-destructive',
-  idle: 'text-muted-foreground',
-};
-
-const STATUS_DOT_COLORS: Record<string, string> = {
-  active: 'bg-bullish',
-  warning: 'bg-warning-amber',
-  error: 'bg-destructive',
-  idle: 'bg-muted-foreground',
-};
 
 // ── Model Status Popover ─────────────────────────────────────
 
@@ -95,12 +72,11 @@ function ModelStatusIndicator() {
 }
 
 interface AppBarProps {
-  modules: ModuleStatus[];
   onToggleLeftDrawer: () => void;
   onToggleRightDrawer: () => void;
 }
 
-export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
+export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
   const [time, setTime] = useState(new Date());
 
   useEffect(() => {
@@ -162,33 +138,8 @@ export default function AppBar({ modules, onToggleLeftDrawer, onToggleRightDrawe
 
         </div>
 
-        {/* Center Group: Module Heartbeats */}
-        <div className="flex items-center gap-3 sm:gap-5 mx-auto">
-          {modules.map((mod) => {
-            const Icon = MODULE_ICONS[mod.shortName] || Activity;
-            return (
-              <Tooltip key={mod.shortName}>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1.5 cursor-default">
-                    <div
-                      className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT_COLORS[mod.status]} ${mod.status === 'active' ? 'animate-pulse-glow' : ''}`}
-                    />
-                    <Icon className={`h-3.5 w-3.5 ${STATUS_COLORS[mod.status]}`} />
-                    <span className="hidden sm:inline text-[0.625rem] font-medium tracking-wider text-muted-foreground uppercase">
-                      {mod.shortName}
-                    </span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="bg-card border-border text-foreground">
-                  <div className="text-[0.625rem] space-y-0.5">
-                    <div className="font-bold">{mod.name}</div>
-                    <div className="text-muted-foreground">{mod.message}</div>
-                  </div>
-                </TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </div>
+        {/* Center spacer */}
+        <div className="flex-1" />
 
         {/* Right Group: Service Indicators + Time */}
         <div className="flex items-center gap-3 mr-2">
