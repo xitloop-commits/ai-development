@@ -9,7 +9,7 @@
  *   - Clean spacing and hierarchy
  */
 import { useRef, useEffect, useState } from 'react';
-import { ScrollArea } from '@/components/ui/scroll-area';
+// Uses native CSS scrollbar (scrollbar-thin + scrollbar-cyan) matching TradingDesk style
 import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
 
 export interface SEASignal {
@@ -109,13 +109,13 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
         </div>
       </div>
 
-      {/* ── Signal list (scrollable with custom scrollbar) ── */}
-      <ScrollArea
-        className="flex-1"
+      {/* ── Signal list (scrollable with TradingDesk-style scrollbar) ── */}
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-auto scrollbar-thin scrollbar-cyan px-2 py-2 space-y-2"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
-        <div ref={scrollRef} className="px-2 py-2 space-y-2">
         {signals.length === 0 ? (
           <div className="flex items-center justify-center py-12">
             <span className="text-[0.6875rem] text-muted-foreground">
@@ -198,8 +198,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
             );
           })
         )}
-        </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }
