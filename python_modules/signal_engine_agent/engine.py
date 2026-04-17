@@ -162,6 +162,13 @@ def run(instrument: str,
     emitted_short = 0
     started = time.time()
 
+    # ── Signal cooldown ──────────────────────────────────────────
+    # Only emit when: action CHANGES or COOLDOWN_SEC elapsed since last emit.
+    # Prevents 30 identical signals/sec flooding the log + UI.
+    COOLDOWN_SEC = 30
+    _last_action: str = ""
+    _last_emit_ts: float = 0.0
+
     try:
         for line in _tail(live_path):
             if not line.strip():
@@ -200,7 +207,16 @@ def run(instrument: str,
             elif "SHORT" in action:
                 emitted_short += 1
 
-            if action != "WAIT":
+            # Cooldown: emit only on action change or after COOLDOWN_SEC
+            now_ts = time.time()
+            should_emit = (
+                action != "WAIT"
+                and (action != _last_action or now_ts - _last_emit_ts >= COOLDOWN_SEC)
+            )
+
+            if should_emit:
+                _last_action = action
+                _last_emit_ts = now_ts
                 signal = {
                     "timestamp": row.get("timestamp"),
                     "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
