@@ -845,7 +845,7 @@ export default function TradingDesk({
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
           }} />
         ) : (
-          <table className="w-full border-collapse text-xs [&_td]:align-middle [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30">
+          <table className="w-full border-collapse text-xs [&_td]:align-middle [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30 [&_tbody_tr]:border-b [&_tbody_tr]:border-border/30">
             <colgroup>
               <col style={{ width: 44 }} />
               <col style={{ width: 92 }} />
