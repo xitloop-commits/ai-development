@@ -131,9 +131,26 @@ export function getSEASignals(
     }
   }
 
-  // Return newest-first — client shows newest at top, auto-scrolls to top
-  deduped.reverse();
-  return deduped.slice(0, limit);
+  // Fair share per instrument so high-volume instruments don't crowd out others.
+  // Take up to (limit / active_instruments) per instrument, then merge newest-first.
+  const byInst = new Map<string, SEASignal[]>();
+  for (const sig of deduped) {
+    const key = sig.instrument;
+    if (!byInst.has(key)) byInst.set(key, []);
+    byInst.get(key)!.push(sig);
+  }
+  const activeCount = byInst.size || 1;
+  const perInst = Math.max(5, Math.ceil(limit / activeCount));
+
+  const merged: SEASignal[] = [];
+  for (const [, sigs] of byInst) {
+    // Each instrument's signals are already in chronological order — take last N
+    merged.push(...sigs.slice(-perInst));
+  }
+
+  // Sort newest-first for display
+  merged.sort((a, b) => b.timestamp - a.timestamp);
+  return merged.slice(0, limit);
 }
 
 /**
