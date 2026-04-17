@@ -153,8 +153,7 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
             <div className="flex items-center gap-2 cursor-default shrink-0 ml-3">
               <Target className="h-3 w-3 text-primary shrink-0" />
               <div className="flex flex-col w-[80px]">
-                <div className="flex items-center justify-between">
-                  <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Day 250</span>
+                <div className="flex items-center justify-end">
                   <span className="text-[0.625rem] font-bold tabular-nums text-primary">{currentDay}/250</span>
                 </div>
                 <div className="h-1 rounded-full bg-secondary/50 overflow-hidden">
