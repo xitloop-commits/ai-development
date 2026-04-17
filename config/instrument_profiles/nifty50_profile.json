@@ -3,7 +3,7 @@
   "instrument_name": "NIFTY",
   "underlying_symbol": "NIFTY25APRFUT",
   "underlying_security_id": "13",
-  "session_start": "09:15",
+  "session_start": "09:00",
   "session_end": "15:30",
   "underlying_tick_timeout_sec": 5,
   "option_tick_timeout_sec": 30,
