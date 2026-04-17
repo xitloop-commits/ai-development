@@ -28,6 +28,12 @@ export interface SEASignal {
   momentum: number | null;
   breakout: number | null;
   model_version: string;
+  action?: string;
+  regime?: string;
+  entry?: number;
+  tp?: number;
+  sl?: number;
+  rr?: number;
   count?: number;
 }
 
@@ -138,30 +144,36 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
           </div>
         ) : (
           signals.map((signal) => {
-            const isCall = signal.direction === 'GO_CALL';
-            const Icon = isCall ? TrendingUp : TrendingDown;
-            const dirColor = isCall ? 'text-bullish' : 'text-destructive';
-            const borderColor = isCall ? 'border-l-bullish' : 'border-l-destructive';
-            const instColor = INST_COLORS[signal.instrument] ?? 'text-foreground';
+            // Use v2 action field if present, fall back to legacy direction
+            const action = signal.action ?? signal.direction?.replace('GO_', '') ?? '';
+            const isLong = action.startsWith('LONG');
+            const isShort = action.startsWith('SHORT');
+            const isCE = action.includes('CE');
+            const Icon = (isLong || signal.direction === 'GO_CALL') ? TrendingUp : TrendingDown;
+            const accentColor = isLong ? 'text-bullish' : isShort ? 'text-warning-amber' : signal.direction === 'GO_CALL' ? 'text-bullish' : 'text-destructive';
+            const borderColor = isLong ? 'border-l-bullish' : isShort ? 'border-l-warning-amber' : signal.direction === 'GO_CALL' ? 'border-l-bullish' : 'border-l-destructive';
             const instBg = INST_BG[signal.instrument] ?? 'bg-secondary/10';
-            const ts = signal.timestamp_ist?.slice(11, 19) || '';
             const count = signal.count ?? 1;
+            const hasV2 = !!signal.action;
 
             return (
               <div
                 key={signal.id}
                 className={`border-l-2 ${borderColor} ${instBg} rounded-r px-3 py-2 space-y-1`}
               >
-                {/* Row 1: direction + instrument + count + time */}
+                {/* Row 1: action + instrument + regime + count + time */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Icon className={`h-3.5 w-3.5 ${dirColor}`} />
-                    <span className={`text-[0.6875rem] font-bold ${dirColor} tracking-wider`}>
-                      {signal.direction.replace('GO_', '')}
+                    <Icon className={`h-3.5 w-3.5 ${accentColor}`} />
+                    <span className={`text-[0.6875rem] font-bold ${accentColor} tracking-wider`}>
+                      {hasV2 ? action.replace('_', ' ') : signal.direction?.replace('GO_', '')}
                     </span>
                     <span className={`text-[0.5rem] font-bold px-1.5 py-0.5 rounded border tracking-wider ${INST_PILL[signal.instrument] ?? 'bg-secondary/30 text-muted-foreground border-border'}`}>
                       {INST_SHORT[signal.instrument] ?? signal.instrument}
                     </span>
+                    {signal.regime && (
+                      <span className="text-[0.5rem] text-muted-foreground">{signal.regime}</span>
+                    )}
                     {count > 1 && (
                       <span className="text-[0.5rem] px-1.5 py-0.5 rounded-full bg-secondary/50 text-muted-foreground font-bold tabular-nums">
                         x{count}
@@ -173,40 +185,46 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                   </span>
                 </div>
 
-                {/* Row 2: prob + ATM + spot */}
-                <div className="flex items-center gap-4 text-[0.625rem] tabular-nums">
-                  <span className="text-muted-foreground">
-                    prob{' '}
-                    <span className={`font-bold ${dirColor}`}>
-                      {(signal.direction_prob_30s * 100).toFixed(0)}%
-                    </span>
-                  </span>
-                  <span className="text-muted-foreground">
-                    ATM{' '}
-                    <span className="text-foreground font-bold">{signal.atm_strike}</span>
-                  </span>
-                  {signal.spot_price && (
+                {/* Row 2: entry/SL/TP (v2) or prob/ATM (legacy) */}
+                {hasV2 && signal.entry ? (
+                  <div className="flex items-center gap-3 text-[0.625rem] tabular-nums">
                     <span className="text-muted-foreground">
-                      spot{' '}
-                      <span className="text-foreground">{fmtNum(signal.spot_price, 1)}</span>
+                      entry <span className="text-foreground font-bold">{fmtNum(signal.entry)}</span>
                     </span>
-                  )}
-                </div>
+                    <span className="text-muted-foreground">
+                      TP <span className="text-bullish font-bold">{fmtNum(signal.tp)}</span>
+                    </span>
+                    <span className="text-muted-foreground">
+                      SL <span className="text-destructive font-bold">{fmtNum(signal.sl)}</span>
+                    </span>
+                    {signal.rr != null && signal.rr > 0 && (
+                      <span className="text-muted-foreground">
+                        RR <span className={`font-bold ${(signal.rr ?? 0) >= 1.5 ? 'text-bullish' : 'text-warning-amber'}`}>
+                          {signal.rr?.toFixed(1)}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-4 text-[0.625rem] tabular-nums">
+                    <span className="text-muted-foreground">
+                      prob <span className={`font-bold ${accentColor}`}>{(signal.direction_prob_30s * 100).toFixed(0)}%</span>
+                    </span>
+                    <span className="text-muted-foreground">
+                      ATM <span className="text-foreground font-bold">{signal.atm_strike}</span>
+                    </span>
+                  </div>
+                )}
 
-                {/* Row 3: upside/drawdown + CE/PE */}
-                <div className="flex items-center gap-4 text-[0.5625rem] tabular-nums text-muted-foreground">
-                  <span>
-                    up <span className="text-bullish font-medium">{fmtNum(signal.max_upside_pred_30s)}</span>
-                  </span>
-                  <span>
-                    dn <span className="text-destructive font-medium">{fmtNum(signal.max_drawdown_pred_30s)}</span>
-                  </span>
-                  {signal.atm_ce_ltp != null && (
-                    <span>CE <span className="text-foreground">{fmtNum(signal.atm_ce_ltp)}</span></span>
+                {/* Row 3: prob + spot (compact) */}
+                <div className="flex items-center gap-3 text-[0.5625rem] tabular-nums text-muted-foreground">
+                  {hasV2 && (
+                    <span>prob <span className={`font-medium ${accentColor}`}>{(signal.direction_prob_30s * 100).toFixed(0)}%</span></span>
                   )}
-                  {signal.atm_pe_ltp != null && (
-                    <span>PE <span className="text-foreground">{fmtNum(signal.atm_pe_ltp)}</span></span>
+                  {signal.spot_price && (
+                    <span>spot <span className="text-foreground">{fmtNum(signal.spot_price, 1)}</span></span>
                   )}
+                  <span>ATM {signal.atm_strike}</span>
                 </div>
               </div>
             );

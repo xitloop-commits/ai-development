@@ -27,6 +27,13 @@ export interface SEASignal {
   momentum: number | null;
   breakout: number | null;
   model_version: string;
+  // v2 fields (LONG/SHORT upgrade)
+  action?: string;          // LONG_CE | LONG_PE | SHORT_CE | SHORT_PE
+  regime?: string;
+  entry?: number;
+  tp?: number;
+  sl?: number;
+  rr?: number;
   count?: number;           // number of raw signals collapsed into this entry (dedup)
 }
 
@@ -95,6 +102,12 @@ export function getSEASignals(
           momentum: r.momentum ?? null,
           breakout: r.breakout ?? null,
           model_version: r.model_version ?? "",
+          action: r.action ?? undefined,
+          regime: r.regime ?? undefined,
+          entry: r.entry ?? undefined,
+          tp: r.tp ?? undefined,
+          sl: r.sl ?? undefined,
+          rr: r.rr ?? undefined,
           count: 1,
         });
       } catch {

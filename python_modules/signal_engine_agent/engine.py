@@ -40,25 +40,80 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 # ── Default thresholds (CLI can override) ─────────────────────────────────
 DIRECTION_PROB_CALL = 0.55
 DIRECTION_PROB_PUT  = 0.45
+NEUTRAL_HIGH_PROB   = 0.72   # NEUTRAL regime → only LONG if prob very high
 
 
 def _decide(dir_prob: float, up_pred: float, dn_pred: float,
-            call_thresh: float, put_thresh: float) -> str:
+            regime: str | None, ce_ltp: float | None, pe_ltp: float | None,
+            call_thresh: float, put_thresh: float) -> dict:
     """
-    Return 'GO_CALL', 'GO_PUT', or 'WAIT'.
+    Route to LONG_CE / LONG_PE / SHORT_CE / SHORT_PE / WAIT.
 
-    MVP rule: use direction_prob only. The upside/drawdown predictions are
-    stored alongside for context but aren't used for the decision yet — these
-    regression models need more training data to be reliable. Once real data
-    is collected the full spec rule (prob + RR + percentile) can be re-enabled.
+    Regime is the primary router:
+      TREND    → LONG (directional, movement-driven)
+      RANGE    → SHORT (premium selling, decay-driven)
+      DEAD     → SHORT (if there's an edge) or WAIT
+      NEUTRAL  → LONG only if prob very high (>0.72), else WAIT
+
+    Returns dict with: action, entry, tp, sl, rr
     """
+    result = {"action": "WAIT", "entry": 0.0, "tp": 0.0, "sl": 0.0, "rr": 0.0}
+
     if np.isnan(dir_prob):
-        return "WAIT"
-    if dir_prob >= call_thresh:
-        return "GO_CALL"
-    if dir_prob <= put_thresh:
-        return "GO_PUT"
-    return "WAIT"
+        return result
+
+    regime = (regime or "").upper()
+    is_bullish = dir_prob >= call_thresh
+    is_bearish = dir_prob <= put_thresh
+
+    # ── TREND regime → LONG (go with the move) ──
+    if regime == "TREND":
+        if is_bullish and ce_ltp:
+            result["action"] = "LONG_CE"
+            result["entry"] = ce_ltp
+            result["tp"] = ce_ltp + abs(up_pred)
+            result["sl"] = ce_ltp - abs(dn_pred)
+        elif is_bearish and pe_ltp:
+            result["action"] = "LONG_PE"
+            result["entry"] = pe_ltp
+            result["tp"] = pe_ltp + abs(up_pred)
+            result["sl"] = pe_ltp - abs(dn_pred)
+
+    # ── RANGE / DEAD → SHORT (sell premium, collect decay) ──
+    elif regime in ("RANGE", "DEAD"):
+        if is_bearish and ce_ltp:
+            # No upward move expected → sell CE
+            result["action"] = "SHORT_CE"
+            result["entry"] = ce_ltp
+            result["sl"] = ce_ltp + abs(up_pred)     # risk: price goes up
+            result["tp"] = ce_ltp - abs(dn_pred)     # profit: CE decays
+        elif is_bullish and pe_ltp:
+            # No downward move expected → sell PE
+            result["action"] = "SHORT_PE"
+            result["entry"] = pe_ltp
+            result["sl"] = pe_ltp + abs(up_pred)     # risk: price goes down
+            result["tp"] = pe_ltp - abs(dn_pred)     # profit: PE decays
+
+    # ── NEUTRAL → only LONG if prob very high ──
+    elif regime == "NEUTRAL" or not regime:
+        if dir_prob >= NEUTRAL_HIGH_PROB and ce_ltp:
+            result["action"] = "LONG_CE"
+            result["entry"] = ce_ltp
+            result["tp"] = ce_ltp + abs(up_pred)
+            result["sl"] = ce_ltp - abs(dn_pred)
+        elif dir_prob <= (1 - NEUTRAL_HIGH_PROB) and pe_ltp:
+            result["action"] = "LONG_PE"
+            result["entry"] = pe_ltp
+            result["tp"] = pe_ltp + abs(up_pred)
+            result["sl"] = pe_ltp - abs(dn_pred)
+
+    # ── Compute RR ──
+    if result["action"] != "WAIT" and result["entry"] > 0:
+        tp_dist = abs(result["tp"] - result["entry"])
+        sl_dist = abs(result["sl"] - result["entry"])
+        result["rr"] = round(tp_dist / sl_dist, 2) if sl_dist > 0 else 0.0
+
+    return result
 
 
 def _tail(path: Path, poll_sec: float = 0.2):
@@ -103,8 +158,8 @@ def run(instrument: str,
 
     logger = SignalLogger(instrument)
     processed = 0
-    emitted_call = 0
-    emitted_put = 0
+    emitted_long = 0
+    emitted_short = 0
     started = time.time()
 
     try:
@@ -127,38 +182,55 @@ def run(instrument: str,
             up_pred  = float(models.models["max_upside_30s"].predict(X)[0])
             dn_pred  = float(models.models["max_drawdown_30s"].predict(X)[0])
 
-            direction = _decide(dir_prob, up_pred, dn_pred, call_thresh, put_thresh)
+            # Extract context from raw row (before preprocessing strips them)
+            regime  = row.get("regime")
+            ce_ltp  = row.get("opt_0_ce_ltp")
+            pe_ltp  = row.get("opt_0_pe_ltp")
+
+            result = _decide(
+                dir_prob, up_pred, dn_pred,
+                regime, ce_ltp, pe_ltp,
+                call_thresh, put_thresh,
+            )
+            action = result["action"]
             processed += 1
 
-            if direction == "GO_CALL":
-                emitted_call += 1
-            elif direction == "GO_PUT":
-                emitted_put += 1
+            if "LONG" in action:
+                emitted_long += 1
+            elif "SHORT" in action:
+                emitted_short += 1
 
-            if direction != "WAIT":
+            if action != "WAIT":
                 signal = {
                     "timestamp": row.get("timestamp"),
                     "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
                     "instrument": instrument.upper(),
-                    "direction": direction,
+                    "action": action,
                     "direction_prob_30s": round(dir_prob, 4),
                     "max_upside_pred_30s": round(up_pred, 2),
                     "max_drawdown_pred_30s": round(dn_pred, 2),
+                    "regime": regime,
+                    "entry": round(result["entry"], 2),
+                    "tp": round(result["tp"], 2),
+                    "sl": round(result["sl"], 2),
+                    "rr": result["rr"],
                     "atm_strike": row.get("atm_strike"),
-                    "atm_ce_ltp": row.get("opt_0_ce_ltp"),
-                    "atm_pe_ltp": row.get("opt_0_pe_ltp"),
+                    "atm_ce_ltp": ce_ltp,
+                    "atm_pe_ltp": pe_ltp,
                     "spot_price": row.get("spot_price"),
                     "momentum":   row.get("underlying_momentum"),
                     "breakout":   row.get("breakout_readiness"),
                     "model_version": models.version,
+                    # Backward compat: map action to old direction field
+                    "direction": "GO_CALL" if "CE" in action else "GO_PUT",
                 }
                 logger.log(signal)
-                # Also print to terminal for visibility
                 ts_short = datetime.now(_IST).strftime("%H:%M:%S")
-                print(f"  [{ts_short}] {direction:<8}  "
-                      f"prob={dir_prob:.3f}  "
-                      f"up={up_pred:+.2f}  dn={dn_pred:+.2f}  "
-                      f"atm={row.get('atm_strike')}")
+                print(f"  [{ts_short}] {action:<10}  "
+                      f"prob={dir_prob:.3f}  regime={regime or '-':<7}  "
+                      f"entry={result['entry']:.1f}  "
+                      f"TP={result['tp']:.1f}  SL={result['sl']:.1f}  "
+                      f"RR={result['rr']:.1f}")
 
             # Periodic heartbeat
             if processed % 500 == 0:
@@ -166,7 +238,7 @@ def run(instrument: str,
                 rate = processed / max(elapsed, 0.001)
                 sys.stdout.write(
                     f"\r  [stats] processed={processed:,}  "
-                    f"CALL={emitted_call}  PUT={emitted_put}  "
+                    f"LONG={emitted_long}  SHORT={emitted_short}  "
                     f"rate={rate:.1f}/s"
                 )
                 sys.stdout.flush()
