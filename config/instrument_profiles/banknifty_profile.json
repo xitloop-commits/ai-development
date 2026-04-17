@@ -6,7 +6,7 @@
   "session_start": "09:15",
   "session_end": "15:30",
   "underlying_tick_timeout_sec": 5,
-  "option_tick_timeout_sec": 30,
+  "option_tick_timeout_sec": 300,
   "momentum_staleness_threshold_sec": 60,
   "warm_up_duration_sec": 15,
   "regime_trend_volatility_min": 0.6,
