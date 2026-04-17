@@ -886,7 +886,7 @@ export default function TradingDesk({
               <col style={{ width: 76 }} />
             </colgroup>
             <thead className="sticky top-0 z-10">
-              <tr className="bg-[oklch(0.18_0.025_270)] backdrop-blur-md border-b-2 border-border">
+              <tr className="bg-secondary backdrop-blur-md border-b border-border">
                 <th className="px-2.5 py-2 text-left font-bold text-foreground/70 tracking-widest uppercase w-12 border-r border-border">Day</th>
                 <th className="px-2.5 py-2 text-left font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Date</th>
                 <th className="px-2.5 py-2 text-right font-bold text-foreground/70 tracking-widest uppercase border-r border-border">Trade Cap.</th>
