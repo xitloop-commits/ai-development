@@ -79,10 +79,10 @@ function WorkspaceTabs() {
   const { capital, workspace, setWorkspace } = useCapital() as any;
 
   return (
-    <div className="flex items-center rounded-md border border-border overflow-hidden">
+    <div className="flex items-stretch self-stretch">
       <button
         onClick={() => setWorkspace('paper')}
-        className={`px-3 py-1 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
+        className={`px-4 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-x border-border ${
           workspace === 'paper'
             ? 'bg-violet-pulse/15 text-violet-pulse'
             : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
@@ -92,7 +92,7 @@ function WorkspaceTabs() {
       </button>
       <button
         onClick={() => setWorkspace('live')}
-        className={`px-3 py-1 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
+        className={`px-4 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
           workspace === 'live'
             ? 'bg-bullish/15 text-bullish'
             : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
@@ -105,7 +105,7 @@ function WorkspaceTabs() {
       </button>
       <button
         onClick={() => setWorkspace('paper_manual')}
-        className={`px-3 py-1 text-[0.625rem] font-bold tracking-wider uppercase transition-colors ${
+        className={`px-4 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
           workspace === 'paper_manual'
             ? 'bg-warning-amber/15 text-warning-amber'
             : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
@@ -172,11 +172,11 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
 
   return (
     <div className="sticky top-0 z-50 w-full border-b border-border bg-secondary backdrop-blur-md">
-      <div className="flex items-center justify-between px-3 py-2">
+      <div className="flex items-stretch justify-between px-3">
         {/* Left Edge: Drawer Toggle */}
         <button
           onClick={onToggleLeftDrawer}
-          className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors shrink-0"
+          className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors shrink-0 my-1.5"
           title="Toggle Instrument Cards (Ctrl+[)"
         >
           <Menu className="h-4 w-4 text-muted-foreground" />
@@ -313,7 +313,7 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
         {/* Right Edge: Drawer Toggle */}
         <button
           onClick={onToggleRightDrawer}
-          className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors shrink-0"
+          className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors shrink-0 my-1.5"
           title="Toggle Signals & Alerts (Ctrl+])"
         >
           <Menu className="h-4 w-4 text-muted-foreground" />
