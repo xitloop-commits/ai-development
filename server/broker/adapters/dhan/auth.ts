@@ -281,6 +281,11 @@ export async function updateDhanToken(
 // the one we fire from the 401 handler (prevents double TOTP generation).
 export const _inflightRefresh = new Map<string, Promise<string | null>>();
 
+// Backoff: after a failed refresh (rate limit), don't retry for this many ms.
+// Dhan rate limit is "once every 2 minutes", so we wait 150s to be safe.
+const _REFRESH_BACKOFF_MS = 150_000;
+const _lastRefreshFailure = new Map<string, number>();
+
 /**
  * Best-effort Telegram notification. Silently no-ops if credentials missing.
  * Used to alert the user on mid-day token regen events so they aren't invisible.
@@ -315,6 +320,15 @@ export async function handleDhan401(brokerId: string): Promise<string | null> {
     return _inflightRefresh.get(brokerId)!;
   }
 
+  // Backoff: if last refresh failed (rate limit), don't retry until cooldown expires
+  const lastFail = _lastRefreshFailure.get(brokerId) ?? 0;
+  const elapsed = Date.now() - lastFail;
+  if (lastFail > 0 && elapsed < _REFRESH_BACKOFF_MS) {
+    const waitSec = Math.ceil((_REFRESH_BACKOFF_MS - elapsed) / 1000);
+    log.debug(`401 for "${brokerId}" — backoff active, retry in ${waitSec}s.`);
+    return null;
+  }
+
   log.warn(`401 detected for broker "${brokerId}". Triggering refresh.`);
   await updateBrokerCredentials(brokerId, { status: "expired" });
   await updateBrokerConnection(brokerId, {
@@ -332,6 +346,7 @@ export async function handleDhan401(brokerId: string): Promise<string | null> {
       // updateDhanToken is defined in this same file — call directly
       const result = await updateDhanToken(brokerId, newToken);
       if (result.success) {
+        _lastRefreshFailure.delete(brokerId);
         log.warn(
           `Token auto-refreshed successfully after 401 — new token valid 24h.`
         );
@@ -358,6 +373,7 @@ export async function handleDhan401(brokerId: string): Promise<string | null> {
       }
     } catch (err: any) {
       log.error(`Auto-refresh from 401 handler failed: ${err.message}`);
+      _lastRefreshFailure.set(brokerId, Date.now());
       return null;
     } finally {
       _inflightRefresh.delete(brokerId);
