@@ -184,15 +184,26 @@ def run_scored_backtest(
             avg_decay_30 = _pred("avg_decay_per_strike_30s")
             avg_decay_60 = _pred("avg_decay_per_strike_60s")
             pctile_pred = _pred("upside_percentile_30s")
+            # Swing predictions (5min / 15min)
+            up_pred_300 = _pred("max_upside_300s")
+            dn_pred_300 = _pred("max_drawdown_300s")
+            up_pred_900 = _pred("max_upside_900s")
+            dn_pred_900 = _pred("max_drawdown_900s")
 
             regime = row.get("regime")
             ce_ltp = row.get("opt_0_ce_ltp")
             pe_ltp = row.get("opt_0_pe_ltp")
 
+            # Prefer 15min for TP/SL, fallback to 5min, then 30s
+            up_swing = up_pred_900 if not np.isnan(up_pred_900) else up_pred_300
+            dn_swing = dn_pred_900 if not np.isnan(dn_pred_900) else dn_pred_300
+
             result = _decide(
                 dir_prob_30, up_pred_30, dn_pred_30,
                 regime, ce_ltp, pe_ltp,
                 call_thresh, put_thresh,
+                up_pred_swing=up_swing,
+                dn_pred_swing=dn_swing,
             )
             action = result["action"]
             processed += 1

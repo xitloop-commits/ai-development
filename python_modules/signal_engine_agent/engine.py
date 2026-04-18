@@ -46,7 +46,9 @@ NEUTRAL_HIGH_PROB   = 0.72   # NEUTRAL regime → only LONG if prob very high
 
 def _decide(dir_prob: float, up_pred: float, dn_pred: float,
             regime: str | None, ce_ltp: float | None, pe_ltp: float | None,
-            call_thresh: float, put_thresh: float) -> dict:
+            call_thresh: float, put_thresh: float,
+            up_pred_swing: float = float('nan'),
+            dn_pred_swing: float = float('nan')) -> dict:
     """
     Route to LONG_CE / LONG_PE / SHORT_CE / SHORT_PE / WAIT.
 
@@ -56,12 +58,18 @@ def _decide(dir_prob: float, up_pred: float, dn_pred: float,
       DEAD     → SHORT (if there's an edge) or WAIT
       NEUTRAL  → LONG only if prob very high (>0.72), else WAIT
 
+    TP/SL uses swing predictions (5min/15min) if available, falls back to 30s.
+
     Returns dict with: action, entry, tp, sl, rr
     """
     result = {"action": "WAIT", "entry": 0.0, "tp": 0.0, "sl": 0.0, "rr": 0.0}
 
     if np.isnan(dir_prob):
         return result
+
+    # Use swing predictions for TP/SL if available, else fall back to 30s
+    tp_up = up_pred_swing if not np.isnan(up_pred_swing) else up_pred
+    tp_dn = dn_pred_swing if not np.isnan(dn_pred_swing) else dn_pred
 
     regime = (regime or "").upper()
     is_bullish = dir_prob >= call_thresh
@@ -72,41 +80,39 @@ def _decide(dir_prob: float, up_pred: float, dn_pred: float,
         if is_bullish and ce_ltp:
             result["action"] = "LONG_CE"
             result["entry"] = ce_ltp
-            result["tp"] = ce_ltp + abs(up_pred)
-            result["sl"] = ce_ltp - abs(dn_pred)
+            result["tp"] = ce_ltp + abs(tp_up)
+            result["sl"] = ce_ltp - abs(tp_dn)
         elif is_bearish and pe_ltp:
             result["action"] = "LONG_PE"
             result["entry"] = pe_ltp
-            result["tp"] = pe_ltp + abs(up_pred)
-            result["sl"] = pe_ltp - abs(dn_pred)
+            result["tp"] = pe_ltp + abs(tp_up)
+            result["sl"] = pe_ltp - abs(tp_dn)
 
     # ── RANGE / DEAD → SHORT (sell premium, collect decay) ──
     elif regime in ("RANGE", "DEAD"):
         if is_bearish and ce_ltp:
-            # No upward move expected → sell CE
             result["action"] = "SHORT_CE"
             result["entry"] = ce_ltp
-            result["sl"] = ce_ltp + abs(up_pred)     # risk: price goes up
-            result["tp"] = ce_ltp - abs(dn_pred)     # profit: CE decays
+            result["sl"] = ce_ltp + abs(tp_up)
+            result["tp"] = ce_ltp - abs(tp_dn)
         elif is_bullish and pe_ltp:
-            # No downward move expected → sell PE
             result["action"] = "SHORT_PE"
             result["entry"] = pe_ltp
-            result["sl"] = pe_ltp + abs(up_pred)     # risk: price goes down
-            result["tp"] = pe_ltp - abs(dn_pred)     # profit: PE decays
+            result["sl"] = pe_ltp + abs(tp_up)
+            result["tp"] = pe_ltp - abs(tp_dn)
 
     # ── NEUTRAL → only LONG if prob very high ──
     elif regime == "NEUTRAL" or not regime:
         if dir_prob >= NEUTRAL_HIGH_PROB and ce_ltp:
             result["action"] = "LONG_CE"
             result["entry"] = ce_ltp
-            result["tp"] = ce_ltp + abs(up_pred)
-            result["sl"] = ce_ltp - abs(dn_pred)
+            result["tp"] = ce_ltp + abs(tp_up)
+            result["sl"] = ce_ltp - abs(tp_dn)
         elif dir_prob <= (1 - NEUTRAL_HIGH_PROB) and pe_ltp:
             result["action"] = "LONG_PE"
             result["entry"] = pe_ltp
-            result["tp"] = pe_ltp + abs(up_pred)
-            result["sl"] = pe_ltp - abs(dn_pred)
+            result["tp"] = pe_ltp + abs(tp_up)
+            result["sl"] = pe_ltp - abs(tp_dn)
 
     # ── Compute RR ──
     if result["action"] != "WAIT" and result["entry"] > 0:
@@ -203,6 +209,14 @@ def run(instrument: str,
             rr_pred  = _pred("risk_reward_ratio_30s")
             mag_pred = _pred("direction_30s_magnitude")
 
+            # Swing predictions for TP/SL (prefer 15min, fallback to 5min, then 30s)
+            up_swing = _pred("max_upside_900s")
+            dn_swing = _pred("max_drawdown_900s")
+            if np.isnan(up_swing):
+                up_swing = _pred("max_upside_300s")
+            if np.isnan(dn_swing):
+                dn_swing = _pred("max_drawdown_300s")
+
             # Extract context from raw row (before preprocessing strips them)
             regime  = row.get("regime")
             ce_ltp  = row.get("opt_0_ce_ltp")
@@ -212,6 +226,8 @@ def run(instrument: str,
                 dir_prob, up_pred, dn_pred,
                 regime, ce_ltp, pe_ltp,
                 call_thresh, put_thresh,
+                up_pred_swing=up_swing,
+                dn_pred_swing=dn_swing,
             )
             action = result["action"]
             processed += 1

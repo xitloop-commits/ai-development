@@ -216,15 +216,15 @@ def load_profile(path: str | Path) -> InstrumentProfile:
     # target_windows_sec validation
     if not target_windows_raw:
         raise ProfileValidationError("'target_windows_sec' must not be empty")
-    if len(target_windows_raw) > 4:
+    if len(target_windows_raw) > 6:
         raise ProfileValidationError(
-            f"'target_windows_sec' must have ≤ 4 elements, got {len(target_windows_raw)}"
+            f"'target_windows_sec' must have ≤ 6 elements, got {len(target_windows_raw)}"
         )
     for w in target_windows_raw:
         if not isinstance(w, int):
             raise ProfileValidationError(f"'target_windows_sec' elements must be integers, got: {w!r}")
-        if not (5 <= w <= 300):
-            raise ProfileValidationError(f"'target_windows_sec' element {w} must be in [5, 300]")
+        if not (5 <= w <= 1800):
+            raise ProfileValidationError(f"'target_windows_sec' element {w} must be in [5, 1800]")
     if len(target_windows_raw) != len(set(target_windows_raw)):
         raise ProfileValidationError(f"'target_windows_sec' must not contain duplicates: {target_windows_raw}")
 

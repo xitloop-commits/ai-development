@@ -18,5 +18,5 @@
   "regime_range_activity_min": 0.3,
   "regime_dead_activity_max": 0.15,
   "regime_dead_vol_drought_max": 0.02,
-  "target_windows_sec": [30, 60]
+  "target_windows_sec": [30, 60, 300, 900]
 }

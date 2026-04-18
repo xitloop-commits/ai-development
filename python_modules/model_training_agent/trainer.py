@@ -29,12 +29,12 @@ import pandas as pd
 from model_training_agent.preprocessor import preprocess_for_training
 
 MVP_TARGETS: dict[str, str] = {
-    # Tier 1 — Trade entry signals
+    # Tier 1 — Trade entry signals (30s/60s for fast direction)
     "direction_30s":            "binary",
     "direction_60s":            "binary",
     "risk_reward_ratio_30s":    "regression",
     "risk_reward_ratio_60s":    "regression",
-    # Tier 2 — Sizing and confidence
+    # Tier 2 — Sizing and confidence (30s/60s)
     "max_upside_30s":           "regression",
     "max_upside_60s":           "regression",
     "max_drawdown_30s":         "regression",
@@ -47,6 +47,22 @@ MVP_TARGETS: dict[str, str] = {
     "total_premium_decay_60s":  "regression",
     "avg_decay_per_strike_30s": "regression",
     "avg_decay_per_strike_60s": "regression",
+    # Tier 4 — 5min swing targets (tradeable TP/SL)
+    "direction_300s":            "binary",
+    "max_upside_300s":           "regression",
+    "max_drawdown_300s":         "regression",
+    "risk_reward_ratio_300s":    "regression",
+    "direction_300s_magnitude":  "regression",
+    "total_premium_decay_300s":  "regression",
+    "avg_decay_per_strike_300s": "regression",
+    # Tier 5 — 15min swing targets (main trading timeframe)
+    "direction_900s":            "binary",
+    "max_upside_900s":           "regression",
+    "max_drawdown_900s":         "regression",
+    "risk_reward_ratio_900s":    "regression",
+    "direction_900s_magnitude":  "regression",
+    "total_premium_decay_900s":  "regression",
+    "avg_decay_per_strike_900s": "regression",
 }
 
 LGBM_PARAMS_BINARY = {
