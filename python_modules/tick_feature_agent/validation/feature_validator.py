@@ -32,7 +32,9 @@ from typing import Any
 
 # ── Spec constants ─────────────────────────────────────────────────────────────
 
-_EXPECTED_COLUMNS = 370
+# Dynamic: 355 base + 7 per target window + 1 percentile
+# [30, 60] = 370, [30, 60, 300, 900] = 384
+_EXPECTED_COLUMNS = None  # Set dynamically from parquet; see validate()
 
 # Null rate thresholds (outside warm-up)
 _NULL_WARN_THRESHOLD = 0.02   # 2%
@@ -57,9 +59,10 @@ def _layer1_structural(df_cols: list[str], n_rows: int,
     checks: dict[str, str] = {}
     verdict = "PASS"
 
-    # Column count
-    if len(df_cols) != _EXPECTED_COLUMNS:
-        checks["column_count"] = f"FAIL — {len(df_cols)} columns (expected {_EXPECTED_COLUMNS})"
+    # Column count (dynamic based on target windows)
+    expected_n = len(expected_cols)
+    if len(df_cols) != expected_n:
+        checks["column_count"] = f"FAIL — {len(df_cols)} columns (expected {expected_n})"
         verdict = "FAIL"
     else:
         checks["column_count"] = "PASS"
@@ -345,12 +348,21 @@ def validate(
     except ImportError as exc:
         raise ImportError("pyarrow required for validation") from exc
 
-    from tick_feature_agent.output.emitter import COLUMN_NAMES
+    from tick_feature_agent.output.emitter import _build_column_names
 
     parquet_path = Path(parquet_path)
     table = pq.read_table(parquet_path)
     n_rows = table.num_rows
     df_cols = table.schema.names
+
+    # Infer target windows from parquet columns
+    windows = sorted({
+        int(c.split("_")[-1].rstrip("s"))
+        for c in df_cols if c.startswith("direction_") and c.endswith("s")
+        and not c.endswith("magnitude") and c != "direction_30s_magnitude"
+        and c.split("_")[-1].rstrip("s").isdigit()
+    }) or [30, 60]
+    COLUMN_NAMES = _build_column_names(tuple(windows))
 
     # Extract column data as Python lists for validation
     def _col(name: str) -> list:

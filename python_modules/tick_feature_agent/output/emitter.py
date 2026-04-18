@@ -261,13 +261,10 @@ def _build_column_names(
 
 
 #: Ordered column names for the default 2-window (30s, 60s) configuration.
-#: Exactly 370 entries — asserted below.
+#: Used as a fallback; replay/live use profile-specific windows.
 COLUMN_NAMES: tuple[str, ...] = _build_column_names((30, 60))
 
-assert len(COLUMN_NAMES) == 370, (
-    f"COLUMN_NAMES has {len(COLUMN_NAMES)} entries; expected 370"
-)
-assert len(set(COLUMN_NAMES)) == 370, "Duplicate column name detected in COLUMN_NAMES"
+assert len(set(COLUMN_NAMES)) == len(COLUMN_NAMES), "Duplicate column name detected in COLUMN_NAMES"
 
 
 # ══════════════════════════════════════════════════════════════════════════════

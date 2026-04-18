@@ -216,7 +216,7 @@ last_row  = None
 row_count = 0
 _prev_ltp = None
 
-mode_label = "FULL (370 cols)" if full_mode else "SUMMARY  [--full for all cols]"
+mode_label = "FULL (all cols)" if full_mode else "SUMMARY  [--full for all cols]"
 
 while True:
     try:
