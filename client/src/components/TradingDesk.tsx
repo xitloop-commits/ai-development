@@ -265,7 +265,7 @@ function formatCalendarDay(timestamp: number = Date.now()): string {
   const d = new Date(timestamp);
   const day = d.getDate();
   const month = d.toLocaleDateString('en-IN', { month: 'short' });
-  return `${ordinal(day)} ${month}`;
+  return `${day} ${month}`;
 }
 
 function formatExpiryLabel(expiry?: string | null): string {
@@ -888,12 +888,12 @@ export default function TradingDesk({
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-card border-b border-border uppercase">
-                <th className="px-2 py-2 text-left font-bold text-muted-foreground w-12 border-r border-border">Day</th>
-                <th className="px-2 py-2 text-left font-bold text-muted-foreground border-r border-border">Date</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground w-12 border-r border-border">Day</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Date</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Trade Cap.</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Target</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Proj. Cap.</th>
-                <th className="px-2 py-2 text-left font-bold text-muted-foreground border-r border-border">Instrument</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Instrument</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Entry</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">LTP</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Qty</th>
@@ -1020,11 +1020,11 @@ function PastRow({
       highlighted ? 'bg-warning-amber/20 outline outline-1 outline-warning-amber/60' : 'hover:bg-muted/30'
     }`}>
       {/* Day */}
-      <td className="px-2 py-2 border-r border-border">
+      <td className="px-2 py-2 text-right border-r border-border">
         <span className="font-bold tabular-nums">{day.dayIndex}</span>
       </td>
       {/* Date + Age */}
-      <td className="px-2 py-2 border-r border-border">
+      <td className="px-2 py-2 text-right border-r border-border">
         <span className="block truncate tabular-nums">{dateLabel}</span>
       </td>
       {/* Trade Capital */}
@@ -1041,8 +1041,8 @@ function PastRow({
         {fmt(day.projCapital, true)}
       </td>
       {/* Instrument — color-coded tags */}
-      <td className="px-2 py-2 border-r border-border">
-        <div className="flex max-w-full items-center gap-1 overflow-hidden whitespace-nowrap">
+      <td className="px-2 py-2 text-right border-r border-border">
+        <div className="flex max-w-full items-center justify-end gap-1 overflow-hidden whitespace-nowrap">
           {day.instruments.length > 0
             ? day.instruments.map((inst) => <InstrumentTag key={inst} name={inst} />)
             : null
@@ -1542,7 +1542,7 @@ function TodayTradeRow({
       } ${pnl > 0 ? 'text-bullish/60' : pnl < 0 ? 'text-destructive/60' : 'text-foreground'}`}
     >
       {/* Day */}
-      <td className="px-2 py-1.5 border-r border-border">
+      <td className="px-2 py-1.5 text-right border-r border-border">
         {isFirst ? (
           <span className="font-bold tabular-nums text-foreground">{day.dayIndex}</span>
         ) : (
@@ -1550,7 +1550,7 @@ function TodayTradeRow({
         )}
       </td>
       {/* Date + Age */}
-      <td className="px-2 py-1.5 border-r border-border">
+      <td className="px-2 py-1.5 text-right border-r border-border">
         <span className="block truncate tabular-nums">
           {cycleDateLabel}
         </span>
@@ -1569,7 +1569,7 @@ function TodayTradeRow({
         {fmt(day.projCapital, true)}
       </td>
       {/* Instrument — merged with type info: Instrument | Expiry | Strike | CE/PE | B/S | Exit */}
-      <td className="px-2 py-1.5 border-r border-border">
+      <td className="px-2 py-1.5 text-right border-r border-border">
         <div className="flex items-center justify-between gap-1.5">
           <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0">
             <InstrumentTag name={trade.instrument} />
@@ -1731,13 +1731,13 @@ function FutureRow({
       highlighted ? 'bg-warning-amber/20 outline outline-1 outline-warning-amber/60' : 'bg-background/30'
     } ${isDay250 ? 'opacity-90' : 'opacity-[0.55]'}`}>
       {/* Day */}
-      <td className="px-2 py-2 border-r border-border">
+      <td className="px-2 py-2 text-right border-r border-border">
         <span className="font-bold tabular-nums text-foreground">
           {day.dayIndex}
         </span>
       </td>
       {/* Date */}
-      <td className="px-2 py-2 tabular-nums text-foreground border-r border-border">
+      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
         {formatDateStr(day.date || '')}
       </td>
       {/* Trade Capital */}

@@ -251,7 +251,7 @@ export default function MainFooter() {
         </div>
 
         {/* Separator */}
-        <div className="w-px self-stretch bg-border shrink-0" />
+        <div className="w-px self-stretch -my-2 bg-border shrink-0" />
 
         {/* ─── 2. Monthly Growth ─── */}
         <div className="flex items-center gap-3 shrink-0">
@@ -319,7 +319,7 @@ export default function MainFooter() {
         </div>
 
         {/* Separator */}
-        <div className="w-px self-stretch bg-border shrink-0" />
+        <div className="w-px self-stretch -my-2 bg-border shrink-0" />
 
         {/* Day 250 Journey — moved to AppBar */}
 
@@ -461,7 +461,7 @@ export default function MainFooter() {
         </div>
 
         {/* Separator */}
-        <div className="w-px self-stretch bg-border shrink-0" />
+        <div className="w-px self-stretch -my-2 bg-border shrink-0" />
 
         {/* ─── 7. Capital Pools (horizontal) ─── */}
         <Tooltip>
@@ -488,7 +488,7 @@ export default function MainFooter() {
               </div>
 
               {/* Divider between pools */}
-              <div className="w-px self-stretch bg-border/50 shrink-0" />
+              <div className="w-px self-stretch -my-2 bg-border/50 shrink-0" />
 
               {/* Reserve Pool mini bar */}
               <div className="flex items-center gap-1.5">
@@ -586,7 +586,7 @@ export default function MainFooter() {
         </Tooltip>
 
         {/* Separator */}
-        <div className="w-px self-stretch bg-border shrink-0" />
+        <div className="w-px self-stretch -my-2 bg-border shrink-0" />
 
         {/* ─── 8. Net Worth ─── */}
         <Tooltip>

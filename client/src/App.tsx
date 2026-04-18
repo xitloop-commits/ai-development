@@ -49,10 +49,17 @@ function App() {
             <TooltipProvider>
               <Toaster
                 theme="dark"
-                position="top-right"
+                position="bottom-center"
                 closeButton
                 toastOptions={{
                   duration: 6000,
+                  classNames: {
+                    toast: "font-mono !rounded-md !shadow-lg",
+                    info: "!bg-[oklch(0.15_0.03_210)] !border-info-cyan/30 !text-info-cyan",
+                    error: "!bg-[oklch(0.15_0.03_25)] !border-destructive/30 !text-destructive",
+                    warning: "!bg-[oklch(0.15_0.03_55)] !border-warning-amber/30 !text-warning-amber",
+                    success: "!bg-[oklch(0.15_0.03_145)] !border-bullish/30 !text-bullish",
+                  },
                   style: {
                     background: 'oklch(0.15 0.01 250)',
                     border: '1px solid oklch(0.25 0.01 250)',
