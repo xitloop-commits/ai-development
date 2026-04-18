@@ -35,6 +35,11 @@ export interface SEASignal {
   sl?: number;
   rr?: number;
   count?: number;
+  confidence?: string;
+  score?: number;
+  sustained_ticks?: number;
+  avg_prob?: number;
+  filtered?: boolean;
 }
 
 interface SignalsFeedProps {
@@ -92,8 +97,9 @@ function fmtNum(v: number | null, dec = 2): string {
 }
 
 export default function SignalsFeed({ signals }: SignalsFeedProps) {
-  const calls = signals.reduce((sum, s) => sum + (s.direction === 'GO_CALL' ? (s.count ?? 1) : 0), 0);
-  const puts  = signals.reduce((sum, s) => sum + (s.direction === 'GO_PUT' ? (s.count ?? 1) : 0), 0);
+  const hasFiltered = signals.some(s => s.filtered);
+  const longs = signals.reduce((sum, s) => sum + ((s.action?.startsWith('LONG') || s.direction === 'GO_CALL') ? 1 : 0), 0);
+  const shorts = signals.reduce((sum, s) => sum + ((s.action?.startsWith('SHORT') || s.direction === 'GO_PUT') ? 1 : 0), 0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
 
@@ -112,18 +118,18 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
           <div className="flex items-center gap-1.5">
             <Activity className="h-3 w-3 text-info-cyan" />
             <span className="text-[0.625rem] font-bold text-info-cyan tracking-wider uppercase">
-              SEA Signals
+              {hasFiltered ? 'Trade Signals' : 'SEA Signals'}
             </span>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-[0.5625rem] text-bullish tabular-nums font-bold">
-              {calls} CALL
+              {longs} LONG
             </span>
-            <span className="text-[0.5625rem] text-destructive tabular-nums font-bold">
-              {puts} PUT
+            <span className="text-[0.5625rem] text-warning-amber tabular-nums font-bold">
+              {shorts} SHORT
             </span>
             <span className="text-[0.5rem] text-muted-foreground tabular-nums">
-              {signals.length} groups
+              {signals.length}
             </span>
           </div>
         </div>
@@ -173,6 +179,18 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                     </span>
                     {signal.regime && (
                       <span className="text-[0.5rem] text-muted-foreground">{signal.regime}</span>
+                    )}
+                    {signal.confidence && (
+                      <span className={`text-[0.5rem] px-1.5 py-0.5 rounded font-bold ${
+                        signal.confidence === 'HIGH' ? 'bg-bullish/15 text-bullish' : 'bg-warning-amber/15 text-warning-amber'
+                      }`}>
+                        {signal.confidence}
+                      </span>
+                    )}
+                    {signal.score != null && (
+                      <span className="text-[0.5rem] px-1 py-0.5 rounded bg-secondary/50 text-muted-foreground font-bold tabular-nums">
+                        {signal.score}/6
+                      </span>
                     )}
                     {count > 1 && (
                       <span className="text-[0.5rem] px-1.5 py-0.5 rounded-full bg-secondary/50 text-muted-foreground font-bold tabular-nums">

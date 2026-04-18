@@ -35,6 +35,12 @@ export interface SEASignal {
   sl?: number;
   rr?: number;
   count?: number;           // number of raw signals collapsed into this entry (dedup)
+  // v3 fields (filtered trade recommendations)
+  confidence?: string;      // "HIGH" | "MEDIUM"
+  score?: number;           // consensus score out of 6
+  sustained_ticks?: number; // consecutive ticks that sustained this direction
+  avg_prob?: number;        // average conviction probability across window
+  filtered?: boolean;       // true = filtered trade recommendation
 }
 
 const INSTRUMENTS = ["nifty50", "banknifty", "crudeoil", "naturalgas"];
@@ -68,7 +74,8 @@ const DEDUP_WINDOW_SEC = 30;
 
 export function getSEASignals(
   limit: number = 50,
-  instrument?: string
+  instrument?: string,
+  source: "filtered" | "raw" | "auto" = "auto"
 ): SEASignal[] {
   const today = todayIST();
   const instruments = instrument
@@ -79,7 +86,12 @@ export function getSEASignals(
   let counter = 0;
 
   for (const inst of instruments) {
-    const logPath = path.resolve(`logs/signals/${inst}/${today}_signals.log`);
+    // "auto" prefers filtered signals, falls back to raw if no filtered file exists
+    const filteredPath = path.resolve(`logs/signals/${inst}/${today}_filtered_signals.log`);
+    const rawPath = path.resolve(`logs/signals/${inst}/${today}_signals.log`);
+    const useFiltered = source === "filtered" || (source === "auto" && existsSync(filteredPath));
+    const logPath = useFiltered ? filteredPath : rawPath;
+    const isFiltered = useFiltered;
     // Read more lines than limit since we'll deduplicate
     const lines = readLastLines(logPath, limit * 50);
 
@@ -109,6 +121,11 @@ export function getSEASignals(
           sl: r.sl ?? undefined,
           rr: r.rr ?? undefined,
           count: 1,
+          confidence: r.confidence ?? undefined,
+          score: r.score ?? undefined,
+          sustained_ticks: r.sustained_ticks ?? undefined,
+          avg_prob: r.avg_prob ?? undefined,
+          filtered: isFiltered || undefined,
         });
       } catch {
         // skip malformed lines
