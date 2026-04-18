@@ -278,19 +278,38 @@ export default function MainFooter() {
 
         {/* Day 250 Journey — moved to AppBar */}
 
-        {/* ─── 4. Project Milestone ─── */}
+        {/* ─── 4. Project Milestone — horizontal progress bar ─── */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex items-center gap-2 cursor-default shrink-0">
-              <div className="flex flex-col">
-                <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">Milestone</span>
-                <span className="text-[0.8125rem] font-bold tabular-nums text-foreground">
-                  {prevMilestone ? `Day ${prevMilestone.day}` : 'Start'} → Day {currentMilestone.day}
-                </span>
+            <div className="flex-1 flex items-center gap-2 cursor-default min-w-[200px]">
+              <div className="flex-1 relative h-2 rounded-full bg-muted/30 overflow-hidden">
+                {/* Progress fill */}
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full bg-gradient-cyan-violet transition-all duration-700"
+                  style={{ width: `${Math.min((currentDay / 250) * 100, 100)}%` }}
+                />
+                {/* Milestone markers */}
+                {milestones.filter(m => m.day > 1 && m.day < 250).map((m) => (
+                  <div
+                    key={m.day}
+                    className={`absolute top-0 bottom-0 w-px ${
+                      currentDay >= m.day ? 'bg-foreground/20' : 'bg-muted-foreground/20'
+                    }`}
+                    style={{ left: `${(m.day / 250) * 100}%` }}
+                  />
+                ))}
+                {/* Current position dot */}
+                <div
+                  className="absolute top-1/2 -translate-y-1/2 h-3 w-3 rounded-full bg-primary border-2 border-background shadow-sm transition-all duration-700"
+                  style={{ left: `${Math.min((currentDay / 250) * 100, 100)}%`, marginLeft: '-6px' }}
+                />
               </div>
+              <span className="text-[0.5625rem] font-bold tabular-nums text-muted-foreground shrink-0">
+                {currentDay}/250
+              </span>
             </div>
           </TooltipTrigger>
-          <TooltipContent side="top" className="bg-card border-border text-foreground max-w-[280px]">
+          <TooltipContent side="top" className="max-w-[280px]">
             <div className="text-xs">
               <div className="font-bold mb-1.5">Projected Milestones</div>
               <table className="w-full">
@@ -320,9 +339,6 @@ export default function MainFooter() {
             </div>
           </TooltipContent>
         </Tooltip>
-
-        {/* ─── Center Elastic Spacer ─── */}
-        <div className="flex-1" />
 
         {/* Separator */}
         <div className="w-px self-stretch -my-2 bg-border shrink-0" />
