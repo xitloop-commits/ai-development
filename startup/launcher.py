@@ -162,11 +162,23 @@ def act_train_all():
         _launch_no_pause(f"Train: {inst}", f"train-auto.bat {inst}")
     _pause_briefly()
 
-# --- Backtest (stream parquet as live for end-to-end test) ---
-def act_bt_nifty():       _launch_new_window("Backtest: nifty50",   "backtest.bat nifty50 2026-04-15")
-def act_bt_banknifty():   _launch_new_window("Backtest: banknifty", "backtest.bat banknifty 2026-04-15")
-def act_bt_crudeoil():    _launch_new_window("Backtest: crudeoil",  "backtest.bat crudeoil 2026-04-15")
-def act_bt_natgas():      _launch_new_window("Backtest: naturalgas","backtest.bat naturalgas 2026-04-15")
+# --- Scored Backtest (run SEA inline on parquet, produce scorecard) ---
+_BT_DATE = "2026-04-16"  # benchmark date — update when more clean data available
+
+def act_sbt_nifty():       _launch_new_window("Scored BT: nifty50",    f"backtest-scored.bat nifty50 {_BT_DATE}")
+def act_sbt_banknifty():   _launch_new_window("Scored BT: banknifty",  f"backtest-scored.bat banknifty {_BT_DATE}")
+def act_sbt_crudeoil():    _launch_new_window("Scored BT: crudeoil",   f"backtest-scored.bat crudeoil {_BT_DATE}")
+def act_sbt_natgas():      _launch_new_window("Scored BT: naturalgas", f"backtest-scored.bat naturalgas {_BT_DATE}")
+
+def act_sbt_all():
+    for inst in ["nifty50", "banknifty", "crudeoil", "naturalgas"]:
+        _launch_no_pause(f"Scored BT: {inst}", f"backtest-scored.bat {inst} {_BT_DATE}")
+    _pause_briefly()
+
+def act_compare_nifty():     _launch_new_window("Compare: nifty50",    f"backtest-compare.bat nifty50 {_BT_DATE}")
+def act_compare_banknifty(): _launch_new_window("Compare: banknifty",  f"backtest-compare.bat banknifty {_BT_DATE}")
+def act_compare_crudeoil():  _launch_new_window("Compare: crudeoil",   f"backtest-compare.bat crudeoil {_BT_DATE}")
+def act_compare_natgas():    _launch_new_window("Compare: naturalgas", f"backtest-compare.bat naturalgas {_BT_DATE}")
 
 # --- Feature dashboards ---
 def act_feat_nifty():     _launch_new_window("Features: nifty50",    "watch-features.bat nifty50")
@@ -275,11 +287,17 @@ def main():
         ("Train  banknifty (MTA)",                        act_train_banknifty),
         ("Train  crudeoil  (MTA)",                        act_train_crudeoil),
         ("Train  naturalgas(MTA)",                        act_train_natgas),
-        ("─── Backtest ─── parquet → live ndjson  (end-to-end) ─", None),
-        ("Backtest  nifty50    (date 2026-04-15)",        act_bt_nifty),
-        ("Backtest  banknifty  (date 2026-04-15)",        act_bt_banknifty),
-        ("Backtest  crudeoil   (date 2026-04-15)",        act_bt_crudeoil),
-        ("Backtest  naturalgas (date 2026-04-15)",        act_bt_natgas),
+        ("─── Scored Backtest ─── predict + score vs ground truth ─", None),
+        ("Scored BT ALL  (4 instruments)",                act_sbt_all),
+        ("Scored BT  nifty50",                            act_sbt_nifty),
+        ("Scored BT  banknifty",                          act_sbt_banknifty),
+        ("Scored BT  crudeoil",                           act_sbt_crudeoil),
+        ("Scored BT  naturalgas",                         act_sbt_natgas),
+        ("─── Compare ─── side-by-side model comparison ──────", None),
+        ("Compare  nifty50",                              act_compare_nifty),
+        ("Compare  banknifty",                            act_compare_banknifty),
+        ("Compare  crudeoil",                             act_compare_crudeoil),
+        ("Compare  naturalgas",                           act_compare_natgas),
         ("─── 4. INFER ─── live features  →  signals/  ───────", None),
         ("Start ALL SEAs  (4 instruments)",               act_sea_all),
         ("Start SEA  nifty50",                            act_sea_nifty),

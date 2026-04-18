@@ -236,15 +236,15 @@ def replay(
         )
         summary[verdict] = summary.get(verdict, 0) + 1
 
-        if verdict in ("pass", "warn"):
+        if verdict in ("pass", "warn", "fail"):
+            # Mark all processed dates (including fail) so replay moves forward.
+            # Failed parquet files still exist and can be retrained on if desired.
             checkpoint.mark_complete(instrument, date_str)
-        elif verdict == "fail":
-            # Stop on failure — don't mark checkpoint so next run retries
-            if logger:
-                logger.error("REPLAY_STOPPED_ON_FAIL",
-                             msg=f"Replay stopped on {date_str} due to FAIL verdict",
-                             instrument=instrument, date=date_str)
-            break
+            if verdict == "fail" and logger:
+                logger.warn("REPLAY_DATE_FAILED",
+                            msg=f"{date_str} completed with FAIL verdict — "
+                                f"skipping to next date (partial data saved)",
+                            instrument=instrument, date=date_str)
 
     return summary
 
