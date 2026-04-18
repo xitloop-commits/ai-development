@@ -6,15 +6,19 @@
  * Data: Broker status from tRPC broker.getStatus, discipline score from
  * tRPC discipline.getDashboard, module heartbeats from props (polling).
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
-  Globe, Wifi, Clock, Shield,
+  Globe, Wifi, Shield, Calendar,
   Menu, FlaskConical, Target,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+} from '@/components/ui/dialog';
 import { trpc } from '@/lib/trpc';
 import { useCapital } from '@/contexts/CapitalContext';
 import { formatINR } from '@/lib/formatINR';
+import type { MarketHoliday } from '@/lib/types';
 
 // ── Model Status Popover ─────────────────────────────────────
 
@@ -73,6 +77,144 @@ function ModelStatusIndicator() {
   );
 }
 
+// ── Holiday helpers ──────────────────────────────────────────
+
+function getDaysUntil(dateStr: string): number {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const target = new Date(dateStr + 'T00:00:00');
+  return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+function getDaysLabel(days: number): string {
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Tomorrow';
+  return `In ${days} days`;
+}
+function formatDateShort(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+}
+function isHolidayThisMonth(dateStr: string): boolean {
+  const now = new Date();
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+}
+
+function HolidayIndicator() {
+  const [holidayTab, setHolidayTab] = useState<'ALL' | 'NSE' | 'MCX'>('ALL');
+  const holidaysQuery = trpc.holidays.upcoming.useQuery(
+    { exchange: 'ALL', daysAhead: 60 },
+    { refetchInterval: 3600000, retry: 1 },
+  );
+  const holidaysDialogQuery = trpc.holidays.upcoming.useQuery(
+    { exchange: holidayTab, daysAhead: 365 },
+    { refetchInterval: 3600000, retry: 1 },
+  );
+
+  const allHolidays = holidaysQuery.data ?? [];
+  const nextHoliday = allHolidays.find((h: MarketHoliday) => getDaysUntil(h.date) >= 0);
+  const hasHolidayThisMonth = allHolidays.some((h: MarketHoliday) => getDaysUntil(h.date) >= 0 && isHolidayThisMonth(h.date));
+
+  const dialogHolidays = useMemo(() => {
+    const holidays = holidaysDialogQuery.data ?? [];
+    if (holidayTab !== 'ALL') return holidays;
+    const seen = new Map<string, MarketHoliday>();
+    for (const h of holidays) {
+      const key = `${h.date}-${h.description}`;
+      if (!seen.has(key)) seen.set(key, h);
+    }
+    return Array.from(seen.values()).sort((a: MarketHoliday, b: MarketHoliday) => a.date.localeCompare(b.date));
+  }, [holidaysDialogQuery.data, holidayTab]);
+
+  let holidayText = 'No holidays this month';
+  if (nextHoliday && hasHolidayThisMonth) {
+    const days = getDaysUntil(nextHoliday.date);
+    holidayText = `${getDaysLabel(days)}: ${nextHoliday.description}`;
+  } else if (nextHoliday) {
+    const days = getDaysUntil(nextHoliday.date);
+    holidayText = `${getDaysLabel(days)}: ${nextHoliday.description}`;
+  }
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button className="flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity">
+          <Calendar className="h-3 w-3 text-muted-foreground" />
+          <span className="text-[0.5625rem] text-muted-foreground tracking-wider hover:text-foreground transition-colors">
+            {holidayText}
+          </span>
+        </button>
+      </DialogTrigger>
+      <DialogContent className="bg-card border-border text-foreground max-w-lg max-h-[70vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="text-sm font-bold tracking-wider uppercase flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-info-cyan" />
+            Market Holidays
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex items-center gap-1 px-1 py-2">
+          {(['ALL', 'NSE', 'MCX'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setHolidayTab(t)}
+              className={`text-[0.6875rem] px-2 py-1 rounded font-bold tracking-wider transition-colors ${
+                holidayTab === t
+                  ? 'bg-info-cyan/15 text-info-cyan border border-info-cyan/30'
+                  : 'text-muted-foreground hover:text-foreground border border-transparent'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 overflow-y-auto divide-y divide-border/50">
+          {dialogHolidays.length === 0 ? (
+            <div className="px-3 py-6 text-center">
+              <span className="text-xs text-muted-foreground">No upcoming holidays</span>
+            </div>
+          ) : (
+            dialogHolidays.map((h: MarketHoliday, i: number) => {
+              const days = getDaysUntil(h.date);
+              const isImminent = days <= 3;
+              return (
+                <div
+                  key={`${h.date}-${h.description}-${h.exchange}-${i}`}
+                  className={`flex items-center gap-3 px-3 py-2 ${isImminent ? 'bg-warning-amber/5' : ''}`}
+                >
+                  <div className="w-[52px] shrink-0">
+                    <div className="text-xs font-bold tabular-nums text-foreground">
+                      {formatDateShort(h.date)}
+                    </div>
+                    <div className="text-[0.625rem] text-muted-foreground">{h.day?.slice(0, 3)}</div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs leading-tight truncate text-foreground">
+                      {h.description}
+                    </div>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <span className={`text-[0.5625rem] px-1 py-0 rounded border font-bold ${
+                        h.exchange === 'NSE' ? 'bg-info-cyan/10 text-info-cyan border-info-cyan/20' :
+                        h.exchange === 'MCX' ? 'bg-warning-amber/10 text-warning-amber border-warning-amber/20' :
+                        'bg-muted/30 text-muted-foreground border-border'
+                      }`}>
+                        {h.exchange}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <span className={`text-[0.6875rem] font-bold tabular-nums ${isImminent ? 'text-warning-amber' : 'text-muted-foreground'}`}>
+                      {getDaysLabel(days)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Workspace Tabs (segmented control) ───────────────────────
 
 function WorkspaceTabs() {
@@ -123,7 +265,6 @@ interface AppBarProps {
 }
 
 export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
-  const [time, setTime] = useState(new Date());
   const { capital } = useCapital();
   const currentDay = capital.currentDayIndex;
   const dayProgress = (currentDay / 250) * 100;
@@ -132,11 +273,6 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
   const growthPercent = initialFunding > 0
     ? (((netWorth - initialFunding) / initialFunding) * 100).toFixed(1)
     : '0.0';
-
-  useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
    // ─── tRPC Queries ──────────────────────────────────────────
   const brokerStatusQuery = trpc.broker.status.useQuery(undefined, {
@@ -301,13 +437,8 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
           {/* Separator */}
           <div className="h-4 w-px bg-border" />
 
-          {/* Time */}
-          <div className="flex items-center gap-1">
-            <Clock className="h-3 w-3 text-muted-foreground" />
-            <span className="text-[0.625rem] tabular-nums text-muted-foreground">
-              {time.toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' })} IST
-            </span>
-          </div>
+          {/* Holiday Indicator (replaced date/time) */}
+          <HolidayIndicator />
         </div>
 
         {/* Right Edge: Drawer Toggle */}

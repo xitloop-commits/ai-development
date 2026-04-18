@@ -16,7 +16,6 @@
 import { useState, useMemo } from 'react';
 import {
   Shield,
-  Calendar,
   Zap,
   Target,
   Plus,
@@ -33,7 +32,6 @@ import {
 import { trpc } from '@/lib/trpc';
 import { useCapital } from '@/contexts/CapitalContext';
 import { formatINR } from '@/lib/formatINR';
-import type { MarketHoliday } from '@/lib/types';
 
 // ─── Holiday Helpers ────────────────────────────────────────
 function getDaysUntil(dateStr: string): number {
@@ -62,7 +60,7 @@ function isHolidayThisMonth(dateStr: string): boolean {
 
 // ─── Component ──────────────────────────────────────────────
 export default function MainFooter() {
-  const [holidayTab, setHolidayTab] = useState<'ALL' | 'NSE' | 'MCX'>('ALL');
+  // Holiday moved to AppBar
   const [injectAmount, setInjectAmount] = useState('');
   const [injectOpen, setInjectOpen] = useState(false);
 
@@ -74,16 +72,6 @@ export default function MainFooter() {
     refetchInterval: 30000,
     retry: 1,
   });
-
-  const holidaysQuery = trpc.holidays.upcoming.useQuery(
-    { exchange: 'ALL', daysAhead: 90 },
-    { refetchInterval: 60000 }
-  );
-
-  const holidaysDialogQuery = trpc.holidays.upcoming.useQuery(
-    { exchange: holidayTab, daysAhead: 365 },
-    { refetchInterval: 60000 }
-  );
 
   // ─── Capital Data (from global context) ─────────────────────
   const capitalData = stateData as any;
@@ -142,29 +130,6 @@ export default function MainFooter() {
     preTradeGate: 15,
   };
 
-  // ─── Holiday Data ────────────────────────────────────────────
-  const allHolidays = holidaysQuery.data ?? [];
-  const nextHoliday = allHolidays.find(h => getDaysUntil(h.date) >= 0);
-  const hasHolidayThisMonth = allHolidays.some(h => getDaysUntil(h.date) >= 0 && isHolidayThisMonth(h.date));
-
-  const dialogHolidays = useMemo(() => {
-    const holidays = holidaysDialogQuery.data ?? [];
-    if (holidayTab !== 'ALL') return holidays;
-    const seen = new Map<string, MarketHoliday>();
-    for (const h of holidays) {
-      const key = `${h.date}-${h.description}-${h.type}`;
-      if (!seen.has(key)) {
-        seen.set(key, h);
-      } else {
-        const existing = seen.get(key)!;
-        if (existing.exchange !== h.exchange) {
-          seen.set(key, { ...existing, exchange: 'BOTH' as any });
-        }
-      }
-    }
-    return Array.from(seen.values()).sort((a, b) => a.date.localeCompare(b.date));
-  }, [holidaysDialogQuery.data, holidayTab]);
-
   const fmt = (n: number) => formatINR(n);
 
   // ─── Quarterly Projections (from global context) ────────────
@@ -193,16 +158,6 @@ export default function MainFooter() {
   // Find current milestone range
   const currentMilestone = milestones.find(m => m.day >= currentDay) ?? milestones[milestones.length - 1];
   const prevMilestone = milestones.filter(m => m.day < currentDay).pop();
-
-  // Holiday indicator text
-  let holidayText = 'No holidays this month';
-  if (nextHoliday && hasHolidayThisMonth) {
-    const days = getDaysUntil(nextHoliday.date);
-    holidayText = `${getDaysLabel(days)}: ${nextHoliday.description}`;
-  } else if (nextHoliday) {
-    const days = getDaysUntil(nextHoliday.date);
-    holidayText = `${getDaysLabel(days)}: ${nextHoliday.description}`;
-  }
 
   const handleInject = () => {
     const amount = parseFloat(injectAmount);
@@ -367,98 +322,7 @@ export default function MainFooter() {
         </Tooltip>
 
         {/* ─── Center Elastic Spacer ─── */}
-        <div className="flex-1 flex items-center justify-center gap-4">
-          {/* Holiday Indicator */}
-          <Dialog>
-            <DialogTrigger asChild>
-              <button className="flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity">
-                <Calendar className="h-3 w-3 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground tracking-wider hover:text-foreground transition-colors">
-                  {holidayText}
-                </span>
-              </button>
-            </DialogTrigger>
-            <DialogContent className="bg-card border-border text-foreground max-w-lg max-h-[70vh] overflow-hidden flex flex-col">
-              <DialogHeader>
-                <DialogTitle className="text-sm font-bold tracking-wider uppercase flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-info-cyan" />
-                  Market Holidays
-                </DialogTitle>
-              </DialogHeader>
-              <div className="flex items-center gap-1 px-1 py-2">
-                {(['ALL', 'NSE', 'MCX'] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setHolidayTab(t)}
-                    className={`text-[0.6875rem] px-2 py-1 rounded font-bold tracking-wider transition-colors ${
-                      holidayTab === t
-                        ? 'bg-info-cyan/15 text-info-cyan border border-info-cyan/30'
-                        : 'text-muted-foreground hover:text-foreground border border-transparent'
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-              <div className="flex-1 overflow-y-auto divide-y divide-border/50">
-                {dialogHolidays.length === 0 ? (
-                  <div className="px-3 py-6 text-center">
-                    <span className="text-xs text-muted-foreground">No upcoming holidays</span>
-                  </div>
-                ) : (
-                  dialogHolidays.map((h, i) => {
-                    const days = getDaysUntil(h.date);
-                    const isImminent = days <= 3;
-                    return (
-                      <div
-                        key={`${h.date}-${h.description}-${h.exchange}-${i}`}
-                        className={`flex items-center gap-3 px-3 py-2 ${isImminent ? 'bg-warning-amber/5' : ''}`}
-                      >
-                        <div className="w-[52px] shrink-0">
-                          <div className="text-xs font-bold tabular-nums text-foreground">
-                            {formatDateShort(h.date)}
-                          </div>
-                          <div className="text-[0.625rem] text-muted-foreground">{h.day?.slice(0, 3)}</div>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs leading-tight truncate text-foreground">
-                            {h.description}
-                          </div>
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <span className={`text-[0.5625rem] px-1 py-0 rounded border font-bold ${
-                              h.exchange === 'NSE' ? 'bg-info-cyan/10 text-info-cyan border-info-cyan/20' :
-                              h.exchange === 'MCX' ? 'bg-warning-amber/10 text-warning-amber border-warning-amber/20' :
-                              'bg-muted/30 text-muted-foreground border-border'
-                            }`}>
-                              {h.exchange}
-                            </span>
-                            {h.type === 'settlement' && (
-                              <span className="text-[0.5625rem] px-1 py-0 rounded border font-bold bg-warning-amber/10 text-warning-amber border-warning-amber/20">
-                                SETTLEMENT
-                              </span>
-                            )}
-                            {h.special && (
-                              <span className="text-[0.5625rem] px-1 py-0 rounded border font-bold bg-info-cyan/10 text-info-cyan border-info-cyan/20">
-                                {h.special.toUpperCase()}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <span className={`text-[0.6875rem] font-bold tabular-nums ${isImminent ? 'text-warning-amber' : 'text-muted-foreground'}`}>
-                            {getDaysLabel(days)}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </DialogContent>
-          </Dialog>
-
-          {/* Discipline Score — moved to AppBar */}
-        </div>
+        <div className="flex-1" />
 
         {/* Separator */}
         <div className="w-px self-stretch -my-2 bg-border shrink-0" />
