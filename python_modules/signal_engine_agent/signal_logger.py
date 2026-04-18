@@ -13,8 +13,10 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 
 
 class SignalLogger:
-    def __init__(self, instrument: str, root: Path = Path("logs/signals")) -> None:
+    def __init__(self, instrument: str, root: Path = Path("logs/signals"),
+                 suffix: str = "") -> None:
         self._instrument = instrument
+        self._suffix = suffix  # e.g. "_filtered" → YYYY-MM-DD_filtered.log
         self._dir = root / instrument
         self._dir.mkdir(parents=True, exist_ok=True)
         self._current_date: str | None = None
@@ -28,7 +30,7 @@ class SignalLogger:
                     self._fh.close()
                 except Exception:
                     pass
-            path = self._dir / f"{today}_signals.log"
+            path = self._dir / f"{today}{self._suffix}_signals.log"
             self._fh = open(path, "a", encoding="utf-8")
             self._current_date = today
 

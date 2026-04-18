@@ -35,6 +35,7 @@ import pyarrow.parquet as pq
 from model_training_agent.preprocessor import preprocess_live_tick
 from signal_engine_agent.model_loader import load_models, LoadedModels
 from signal_engine_agent.engine import _decide, DIRECTION_PROB_CALL, DIRECTION_PROB_PUT
+from signal_engine_agent.trade_filter import TradeFilter, TickDecision
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -75,6 +76,9 @@ def run_scored_backtest(
     output_root: Path = Path("data/backtests"),
     call_thresh: float = DIRECTION_PROB_CALL,
     put_thresh: float = DIRECTION_PROB_PUT,
+    sustained_n: int = 5,
+    avg_prob_thresh: float = 0.65,
+    filter_cooldown_sec: float = 60.0,
 ) -> dict:
     """Run scored backtest, return scorecard dict."""
 
@@ -92,6 +96,13 @@ def run_scored_backtest(
     # Output directory
     out_dir = output_root / instrument / model_version / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Trade filter
+    trade_filter = TradeFilter(
+        sustained_n=sustained_n,
+        avg_prob_threshold=avg_prob_thresh,
+        cooldown_sec=filter_cooldown_sec,
+    )
 
     print()
     print(f"  ═══════════════════════════════════════════════════════════")
@@ -117,8 +128,10 @@ def run_scored_backtest(
     processed = 0
     skipped = 0
     signals_emitted = 0
+    filtered_emitted = 0
     predictions_list: list[dict] = []
     signals_list: list[dict] = []
+    filtered_list: list[dict] = []
 
     # Cooldown tracking (same as live SEA)
     COOLDOWN_SEC = 30
@@ -129,6 +142,7 @@ def run_scored_backtest(
 
     pred_f = open(out_dir / "predictions.ndjson", "w", encoding="utf-8")
     sig_f = open(out_dir / "signals.ndjson", "w", encoding="utf-8")
+    filt_f = open(out_dir / "filtered_signals.ndjson", "w", encoding="utf-8")
 
     try:
         for i in range(n_rows):
@@ -244,33 +258,113 @@ def run_scored_backtest(
                 sig_f.write(json.dumps(pred_rec) + "\n")
                 signals_emitted += 1
 
+            # ── Filtered trade recommendation (3-stage filter) ──
+            tick_decision = TickDecision(
+                timestamp=row.get("timestamp") or 0,
+                action=action,
+                direction_prob=dir_prob_30,
+                max_upside_pred=up_pred_30,
+                max_drawdown_pred=dn_pred_30,
+                risk_reward_pred=rr_pred_30,
+                magnitude_pred=mag_pred_30,
+                regime=regime,
+                entry=result["entry"],
+                tp=result["tp"],
+                sl=result["sl"],
+                rr=result["rr"],
+            )
+            rec = trade_filter.evaluate(tick_decision)
+            if rec is not None:
+                filtered_emitted += 1
+                filt_rec = {**pred_rec,
+                            "filter_action": rec.action,
+                            "filter_confidence": rec.confidence,
+                            "filter_score": rec.score,
+                            "filter_sustained": rec.sustained_ticks,
+                            "filter_avg_prob": rec.avg_prob,
+                            "filter_reasoning": rec.reasoning}
+                filtered_list.append(filt_rec)
+                filt_f.write(json.dumps(filt_rec) + "\n")
+
             # Progress
             if processed % 2000 == 0:
                 elapsed = time.time() - started
                 rate = processed / max(elapsed, 0.001)
                 sys.stdout.write(
                     f"\r  processed {processed:>7,} / {n_rows:,}  "
-                    f"signals={signals_emitted}  ({rate:,.0f}/s)"
+                    f"raw={signals_emitted}  filtered={filtered_emitted}  ({rate:,.0f}/s)"
                 )
                 sys.stdout.flush()
 
     finally:
         pred_f.close()
         sig_f.close()
+        filt_f.close()
 
     elapsed = time.time() - started
     print(f"\n\n  Done. {processed:,} ticks processed, "
-          f"{signals_emitted} signals emitted in {elapsed:.1f}s\n")
+          f"{signals_emitted} raw signals, {filtered_emitted} filtered in {elapsed:.1f}s\n")
 
     # ── Compute scorecard ────────────────────────────────────────────────────
     scorecard = _compute_scorecard(predictions_list, signals_list, instrument,
                                    date_str, model_version, processed, skipped)
+
+    # Add filtered signal metrics
+    scorecard["filtered"] = _compute_filtered_metrics(
+        filtered_list, trade_filter.stats())
 
     (out_dir / "scorecard.json").write_text(
         json.dumps(scorecard, indent=2, default=str), encoding="utf-8")
 
     _print_scorecard(scorecard)
     return scorecard
+
+
+def _compute_filtered_metrics(filtered_signals: list[dict], filter_stats: dict) -> dict:
+    """Compute metrics for filtered trade recommendations."""
+    fm: dict = {
+        "count": len(filtered_signals),
+        "filter_stats": filter_stats,
+    }
+
+    if not filtered_signals:
+        fm["precision"] = None
+        fm["action_breakdown"] = {}
+        return fm
+
+    # Direction-based precision (same logic as raw signals)
+    counts = {}
+    correct = {}
+    for s in filtered_signals:
+        action = s.get("filter_action", s.get("action"))
+        counts[action] = counts.get(action, 0) + 1
+        actual_dir = s.get("actual_dir_30s")
+        if actual_dir is None:
+            continue
+        if action == "LONG_CE" and actual_dir == 1:
+            correct[action] = correct.get(action, 0) + 1
+        elif action == "LONG_PE" and actual_dir == 0:
+            correct[action] = correct.get(action, 0) + 1
+        elif action == "SHORT_CE" and actual_dir == 0:
+            correct[action] = correct.get(action, 0) + 1
+        elif action == "SHORT_PE" and actual_dir == 1:
+            correct[action] = correct.get(action, 0) + 1
+
+    fm["action_breakdown"] = {}
+    total_c = 0
+    total_n = 0
+    for action in counts:
+        n = counts[action]
+        c = correct.get(action, 0)
+        total_c += c
+        total_n += n
+        fm["action_breakdown"][action] = {
+            "count": n,
+            "precision": round(c / n * 100, 2) if n > 0 else None,
+        }
+
+    fm["precision"] = round(total_c / total_n * 100, 2) if total_n > 0 else None
+    return fm
 
 
 def _compute_scorecard(
@@ -481,6 +575,32 @@ def _print_scorecard(sc: dict) -> None:
         pct = count / max(sc["total_ticks"], 1) * 100
         print(f"      {r:<10}  {count:>6,}  ({pct:.1f}%)")
 
+    # Filtered trade recommendations
+    filt = sc.get("filtered", {})
+    filt_count = filt.get("count", 0)
+    filt_prec = filt.get("precision")
+    raw_count = sc.get("total_signals", 0)
+    print()
+    print(f"    ─── Filtered Trade Recommendations ───")
+    print(f"      Raw signals:      {raw_count}")
+    print(f"      Filtered trades:  {filt_count}")
+    if raw_count > 0:
+        print(f"      Pass rate:        {filt_count / raw_count * 100:.1f}%")
+    if filt_prec is not None:
+        print(f"      Precision:        {filt_prec:.1f}%")
+    for action, data in filt.get("action_breakdown", {}).items():
+        prec = data.get("precision")
+        n = data.get("count", 0)
+        prec_str = f"{prec:.1f}%" if prec is not None else "—"
+        print(f"        {action:<10}  {n:>4} trades  →  {prec_str} correct")
+    fstats = filt.get("filter_stats", {})
+    if fstats:
+        print(f"      Stage 1 (sustained):  {fstats.get('stage1_passed', 0)} passed")
+        print(f"      Stage 2 (confidence): {fstats.get('stage2_passed', 0)} passed")
+        print(f"      Stage 3 (consensus):  {fstats.get('stage3_passed', 0)} passed")
+        print(f"      Stage 4 (dir change): {fstats.get('stage4_blocked', 0)} blocked (same direction)")
+        print(f"      Cooldown blocked:     {fstats.get('cooldown_blocked', 0)}")
+
     print()
     print(f"  ═══════════════════════════════════════════════════════════")
     print()
@@ -500,6 +620,12 @@ def main() -> int:
     p.add_argument("--output-root", default="data/backtests")
     p.add_argument("--call-thresh", type=float, default=DIRECTION_PROB_CALL)
     p.add_argument("--put-thresh", type=float, default=DIRECTION_PROB_PUT)
+    p.add_argument("--sustained-n", type=int, default=5,
+                   help="Consecutive ticks for sustained direction (default 5)")
+    p.add_argument("--avg-prob-thresh", type=float, default=0.65,
+                   help="Avg conviction probability threshold (default 0.65)")
+    p.add_argument("--filter-cooldown", type=float, default=60.0,
+                   help="Min seconds between filtered recommendations (default 60)")
     args = p.parse_args()
 
     try:
@@ -510,6 +636,9 @@ def main() -> int:
             output_root=Path(args.output_root),
             call_thresh=args.call_thresh,
             put_thresh=args.put_thresh,
+            sustained_n=args.sustained_n,
+            avg_prob_thresh=args.avg_prob_thresh,
+            filter_cooldown_sec=args.filter_cooldown,
         )
     except KeyboardInterrupt:
         print("\n  Stopped by user.")
