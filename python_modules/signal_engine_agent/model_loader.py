@@ -75,9 +75,9 @@ def load_models(
     models: dict = {}
     for target in MVP_TARGETS:
         p = version_dir / f"{target}.lgbm"
-        if not p.exists():
-            raise FileNotFoundError(f"Missing model file: {p}")
-        models[target] = lgb.Booster(model_file=str(p))
+        if p.exists():
+            models[target] = lgb.Booster(model_file=str(p))
+        # Skip missing models — engine uses .get() which returns nan for absent models
 
     cfg_path = config_dir / f"{instrument}_feature_config.json"
     if not cfg_path.exists():

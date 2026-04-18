@@ -9,147 +9,73 @@ originSessionId: 76596a3c-288e-48bc-b661-77b101f6c7b0
 ```
 TFA (live + record) → data/raw/{date}/ (NDJSON.gz)
        ↓
-TFA Replay → data/features/{date}/ (Parquet)
+TFA Replay → data/features/{date}/ (Parquet, 384 cols with 4 target windows)
        ↓
-Feature Validator → data/validation/ (JSON reports)
+Feature Validator → data/validation/ (JSON reports, dynamic column count)
        ↓
-Model Training Agent → trained model
+MTA (Model Training Agent) → models/{instrument}/LATEST/ (29 .lgbm files per instrument)
        ↓
-Decision Engine (live trading)
+SEA (Signal Engine Agent) → raw signals + 4-stage filtered trade recommendations
+       ↓
+Scored Backtest → data/backtests/ (predictions + signals + filtered + scorecard)
 ```
 
-## Component status (as of 2026-04-16)
+## Component status (as of 2026-04-18)
 
 | Milestone | Status |
 |-----------|--------|
 | TFA live recording (all 4 instruments) | Working |
-| TFA replay → Parquet features | Working |
-| MTA MVP built (3 targets: direction_30s, max_upside_30s, max_drawdown_30s) | DONE |
-| SEA MVP built (loads LATEST, tails live ndjson, emits GO_CALL/GO_PUT) | DONE |
-| `watch_signals.py` dashboard | DONE |
-| All 4 instruments have trained MVP models | DONE (commit 9a4ba94) |
-| End-to-end backtest (option A: parquet → live ndjson → SEA → log → watch) | DONE 2026-04-16 (commit 1dd393e) |
-| Live pipeline validated during market hours 2026-04-16 | DONE (crudeoil/naturalgas firing signals live) |
-| Delete test models, retrain on ~1 month clean data | Future |
+| TFA replay → Parquet features | Working (skip-on-fail for corrupt gzip) |
+| MTA 29-target training (4 windows: 30s/60s/5min/15min) | DONE |
+| SEA with 4-stage trade filter | DONE |
+| Scored backtest with filter metrics | DONE |
+| UI signal feed shows filtered trade recommendations | DONE |
+| 4 instruments trained with 15 models each (30s/60s only) | DONE (2026-04-18) |
+| Re-replay + retrain with 29 targets (adding 5min/15min) | PENDING |
 
-**MVP model quality is intentionally poor** (val AUC ~0.57 for crudeoil; banknifty/nifty50 trained on single-day with random split). Purpose is pipeline validation, NOT trading. User explicitly aware.
+## Target windows: [30, 60, 300, 900]
 
-## Live observations 2026-04-16
+- 30s/60s: fast direction confirmation (filter Stage 1 uses direction_30s)
+- 300s (5min): entry timing + scalp TP/SL
+- 900s (15min): main swing TP/SL (meaningful profit after brokerage)
+- SEA _decide() uses 15min→5min→30s fallback for TP/SL
 
-During market hours with live TFA + SEA running:
-- **crudeoil, naturalgas (MCX)** — `data_quality_flag=1`, signals flowing (all GO_PUT due to model bias from skewed training data)
-- **nifty50, banknifty (NSE)** — `data_quality_flag=0`, SEA silently filters all rows
-  - Root cause: NSE index options have thin liquidity at ATM±2/±3 early in session; `option_feed_stale` gate zeroes the quality flag until all 14 ATM±3 CE/PE have ticked
-  - Not a bug — gate is working as designed. DQ typically flips to 1 by ~10:30-11:00 once spot moves enough to activate more strikes.
+## 4-Stage Trade Filter
 
-## Training cadence decision (2026-04-16)
+1. **Sustained Direction**: same action for N consecutive ticks (default 5)
+2. **Confidence Gate**: avg conviction prob >= 0.65, min >= 0.55
+3. **Multi-Model Consensus**: score >= 4/6 (direction, upside, RR, regime, magnitude)
+4. **Direction Change**: only emit on BULLISH↔BEARISH flip (prevents repeated same-direction)
 
-- **Daily replay** — automated, keeps parquets fresh for tomorrow's training
-- **Weekly MTA retrain** — manual trigger (Friday evening), train on 5 days, replace LATEST if metrics improved
-- **Monthly review** — compare 4 weekly versions, promote best, archive rest
-- **NOT daily training** — causes overfitting to recent regime, unstable val metrics, misleading AUC swings. Only during pipeline debugging phase, and never traded on.
+Results on nifty50 Apr 16: 1710 raw → 34 filtered at 97.1% precision
+Results on naturalgas Apr 16: 3030 raw → 57 filtered at 86.0% precision
 
-## Strike selection — Open Item F resolved (plan, not yet implemented)
+## Scored Backtest
 
-Data for ATM±2 already in every parquet row (`opt_m2_ce_ltp` ... `opt_p2_pe_ltp` + bid/ask/OI/greeks per strike). Three-phase implementation plan:
+- `backtest_scored.py`: runs SEA inline on parquet, scores predictions vs ground truth
+- `backtest_compare.py`: side-by-side comparison of two model versions
+- Output: data/backtests/{instrument}/{model_version}/{date}/scorecard.json
 
-1. **Phase 1 (do first):** rule-based. LONG_CE/PE → ATM; SHORT_CE/PE → ATM+1 or ATM-1. ~1 hour of SEA work, no model changes.
-2. **Phase 2 (post-data-collection):** regime-driven dynamic rule. TREND + momentum → ATM; RANGE/DEAD → ATM+1/2 (collect theta further from strike). ~2-3 hours, no retraining.
-3. **Phase 3 (long-term):** per-strike target models. Add `max_upside_m1_30s`, `max_upside_0_30s`, `max_upside_p1_30s`, etc. SEA picks best predicted RR across strikes. ~15 more models per instrument.
+## Feedback Loop (planned, not yet built)
 
-Start with Phase 1 once full LONG/SHORT/SL/TP signal output is built.
+Phase 3: FeedbackTracker (prediction accuracy, signal outcomes)
+Phase 4: Feature pipeline integration (15 fb_ columns in emitter)
+Phase 5: Wire into engine + backtest
+Phase 6: Validation
+Meta-model gatekeeper (future)
 
-## Component status (as of 2026-04-13)
+## Raw data integrity (2026-04-18)
 
-| Component | Status | Location |
-|-----------|--------|----------|
-| BSA (Broker Service Agent) | Built, working | server/ |
-| Web UI | Built, working | client/ |
-| TFA (TickFeatureAgent) | **Phases 0–15 all built, 961 tests passing** | python_modules/tick_feature_agent/ |
-| Model Training Agent | Not yet specced | TBD |
-| Old AI engine modules | Deprecated, moved to python_modules/deprecated/ | — |
-
-## TFA completed phases (all tests passing as of 2026-04-13)
-
-- Phase 0: instrument_profile.py (InstrumentProfile, load_profile)
-- Phase 2: buffers/ (CircularBuffer, OptionBufferStore)
-- Phase 3: feed/ (DhanFeed, ChainPoller, binary_parser)
-- Phase 4: state_machine.py (StateMachine — WARMING_UP/TRADING/FEED_STALE/CHAIN_STALE)
-- Phase 5: session.py (SessionManager — IST edge trigger, rollover)
-- Phase 6: features/atm.py + features/active_strikes.py
-- Phase 7: ALL feature modules (underlying, ofi, realized_vol, horizon, compression, time_to_move, option_tick, chain, active_features, decay, regime, zone, meta)
-- Phase 8: chain_cache.py
-- Phase 9: output/emitter.py (COLUMN_NAMES 370 cols, assemble_flat_vector, Emitter live+replay modes)
-- Phase 10: features/targets.py (TargetBuffer, UpsidePercentileTracker, two-pass lookahead)
-- Phase 11: output/alerts.py (AlertEmitter, DA handshake, 14 alert methods)
-- Phase 13: recorder/ (NdjsonGzWriter, SessionRecorder, metadata_writer, DashboardWriter)
-- Phase 14.1: replay/stream_merger.py (heap merge of 3 NDJSON.gz streams)
-- Phase 14.2: replay/replay_adapter.py (full TFA pipeline in replay mode)
-- Phase 14.3: replay/checkpoint.py (ReplayCheckpoint)
-- Phase 14.4: replay/replay_runner.py (CLI: date-range iteration, checkpoint, validator)
-- Phase 14.5: emitter Parquet mode (write_parquet, pyarrow casting)
-- Phase 15: validation/feature_validator.py (3-layer validation: structural/null_rates/statistical)
-- **Live pipeline integration**: tick_processor.py (hot path: all features → emit → record) + main.py fully wired (live asyncio loop + replay dispatch)
-
-## TFA implementation order (user confirmed 2026-04-13)
-
-1. Create 4 instrument profile JSON files (config/instrument_profiles/)
-2. Build BSA credentials endpoint (GET /api/internal/broker/credentials)
-3. Build TFA Phases: 11b → 0 → 1 → 2 → 4 → 5 → 3 → 13 (recording)
-   → **Milestone A: start collecting raw data**
-4. Build TFA Phases: 6 → 8 → 7 → 9 → 10 → 11 (features)
-   → **Milestone B: live feature stream**
-5. After ~1 month data: Phases 14 → 15 → 12 (replay + validation)
-   → **Milestone C: Parquet training dataset**
-6. Spec + build Model Training Agent
-   → **Milestone D: first trained model**
-7. Deploy to live production
-   → **Milestone E: live trading with ML model**
+Most raw gzip files have truncated/corrupt endings (TFA killed before gzip close).
+Replay handles this gracefully — reads whatever lines are valid, marks checkpoint, continues.
+Clean files: crudeoil Apr 17, naturalgas Apr 17, nifty50/banknifty Apr 16.
 
 ## Key architectural decisions
 
-- TFA runs as 4 isolated processes (one per instrument) — 4 Dhan WS + 1 BSA = 5 connections (Dhan limit)
-- Stagger TFA process starts by 5s each
-- DataRecorder as separate module was superseded — recording is built into TFA
-- python_modules/deprecated/ contains all old AI engine modules
-- data/ directory at project root (not inside python_modules/)
-- Instrument profiles at config/instrument_profiles/
-
-## Model Training Agent
-- Reads Parquet from data/features/
-- Resumes from its own checkpoint (not TFA's responsibility)
-- Triggered explicitly by user ("train the model"), weekly
-- NOT TFA's responsibility
-- Location: python_modules/model_training_agent/
-- Spec: docs/specs/ModelTrainingAgent_Spec_v0.1.md (draft)
-
-## MTA (Model Training Agent)
-- Replaces deprecated AI engine modules
-- Consumes TFA NDJSON socket (live ticks), runs LightGBM inference
-- Posts TradeSuggestions to RCA POST /api/risk-control/evaluate
-- Location: python_modules/decision_engine/
-- One process per instrument (4 total)
-- Operates in AI Trades workspace (ai-paper default, ai-live via Settings)
-
-## Model Architecture Decisions (locked)
-- Algorithm: LightGBM v1 (LSTM/Transformer future TODO)
-- 15 models per instrument (one per target column — see §4 of spec)
-- Separate models per instrument (not shared)
-- Minimum 5 trading days before first training
-- Weekly retraining, manual trigger
-- Versioning: timestamp-based (YYYYMMDD_HHMMSS)
-- models/ at project root (gitignored), NOT inside data/
-- config/model_feature_config/*.json git-tracked (feature config)
-
-## Two-Phase Delivery (user decision 2026-04-13)
-- Phase 1 (current): Build Model Training Agent + Signal Engine Agent (SEA)
-  Signal Engine Agent (SEA) outputs signals to log/dashboard only — NO trade execution
-  User manually watches GO_CALL/GO_PUT/WAIT signals and tracks win rate
-- Phase 2 (future): Wire Signal Engine Agent (SEA) → RCA, then build RCA/TEA/Discipline/Portfolio
-  Phase 2 starts ONLY after win rate is manually validated as satisfactory
-  Downstream execution stack (RCA, TEA, Discipline, Portfolio) not in scope yet
-
-## Open Items (model spec v0.1)
-- E: Model promotion threshold (what AUC/RMSE is good enough?)
-- F: Strike selection (ATM? ATM-1? best RR across ATM±1?)
-- G: Signal Engine Agent (SEA) socket connection to TFA
+- TFA runs as 4 isolated processes (one per instrument)
+- target_windows_sec is dynamic — profiles, emitter, validator all use the tuple
+- Column count varies: 370 for [30,60], 384 for [30,60,300,900]
+- Old 370-column hardcoded assertions removed, replaced with dynamic checks
+- Models per instrument: 29 (one per target in MVP_TARGETS)
+- SEA raw signals still logged for UI feed; filtered signals logged separately (_filtered_signals.log)
+- UI auto-detects filtered signals when available
