@@ -477,19 +477,19 @@ function InstrumentTag({ name }: { name: string }) {
 
 function CapitalPoolPopover({ capital, fmt }: { capital: CapitalState; fmt: (n: number, compact?: boolean) => string }) {
   const [injectAmount, setInjectAmount] = useState('');
-  const { injectCapital, injectPending } = useCapital() as any;
+  const { inject: ctxInject, injectPending } = useCapital() as any;
 
   const handleInject = () => {
     const amount = parseFloat(injectAmount);
     if (isNaN(amount) || amount <= 0) return;
-    injectCapital(amount);
+    ctxInject(amount);
     setInjectAmount('');
   };
 
   return (
-    <div className="text-[0.625rem] space-y-2">
-      <div className="font-bold text-foreground">Capital Pools</div>
-      <div className="space-y-1">
+    <div className="space-y-3">
+      <div className="text-xs font-bold text-foreground">Capital Pools</div>
+      <div className="text-xs space-y-1.5">
         <div className="flex justify-between gap-4">
           <span className="text-muted-foreground">Trading Pool</span>
           <span className="font-bold tabular-nums">{fmt(capital.tradingPool, true)}</span>
@@ -502,37 +502,42 @@ function CapitalPoolPopover({ capital, fmt }: { capital: CapitalState; fmt: (n: 
           <span className="text-muted-foreground">Reserve Pool</span>
           <span className="font-bold tabular-nums">{fmt(capital.reservePool, true)}</span>
         </div>
-        <div className="flex justify-between gap-4 pt-1 border-t border-border/50">
+        <div className="flex justify-between gap-4 pt-1.5 border-t border-border/50">
           <span className="text-muted-foreground">Net Worth</span>
           <span className="font-bold tabular-nums">{fmt(capital.netWorth, true)}</span>
         </div>
       </div>
-      <div className="pt-1 border-t border-border/50 space-y-2">
-        <div className="flex items-center gap-1.5">
-          <input
-            type="number"
-            placeholder="Amount"
-            value={injectAmount}
-            onChange={(e) => setInjectAmount(e.target.value)}
-            className="flex-1 min-w-0 px-2 py-1 rounded border border-border bg-background text-foreground text-[0.625rem] tabular-nums outline-none focus:border-primary"
-            min="1"
-            step="1000"
-          />
+      <div className="pt-2 border-t border-border/50 space-y-2">
+        <div className="text-xs font-bold text-foreground">Inject Capital</div>
+        <p className="text-[0.6875rem] text-muted-foreground">
+          New capital is split 75% Trading / 25% Reserve.
+        </p>
+        <input
+          type="number"
+          placeholder="Amount (₹)"
+          value={injectAmount}
+          onChange={(e) => setInjectAmount(e.target.value)}
+          className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
+          min="1"
+          step="1000"
+        />
+        <div className="flex gap-2">
           <button
             onClick={handleInject}
             disabled={injectPending || !injectAmount}
-            className="flex items-center gap-0.5 px-2 py-1 rounded font-bold bg-primary/15 text-primary hover:bg-primary/25 transition-colors disabled:opacity-40"
+            className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors"
           >
             {injectPending ? (
-              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              <Loader2 className="h-3 w-3 animate-spin" />
             ) : (
-              <><Plus className="h-2.5 w-2.5" /> Inject</>
+              <><Plus className="h-3 w-3" /> Inject</>
             )}
           </button>
         </div>
         {injectAmount && parseFloat(injectAmount) > 0 && (
-          <div className="text-[0.5625rem] text-muted-foreground">
-            Trading: +{fmt(parseFloat(injectAmount) * 0.75)} | Reserve: +{fmt(parseFloat(injectAmount) * 0.25)}
+          <div className="text-[0.6875rem] text-muted-foreground space-y-0.5">
+            <div>Trading Pool: +{fmt(parseFloat(injectAmount) * 0.75)}</div>
+            <div>Reserve Pool: +{fmt(parseFloat(injectAmount) * 0.25)}</div>
           </div>
         )}
       </div>
