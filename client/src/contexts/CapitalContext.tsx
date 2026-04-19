@@ -107,6 +107,8 @@ export interface CapitalContextValue {
   syncDailyTargetPending: boolean;
   resetCapital: (initialFunding: number) => void;
   resetCapitalPending: boolean;
+  transferFunds: (from: 'trading' | 'reserve', to: 'trading' | 'reserve', amount: number) => void;
+  transferFundsPending: boolean;
 
   // Manual refetch
   refetchAll: () => void;
@@ -218,6 +220,15 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  const transferFundsMutation = trpc.capital.transferFunds.useMutation({
+    onSuccess: async () => {
+      await invalidateAll();
+    },
+    onError: (err) => {
+      console.error('[CapitalContext] transferFunds failed:', err.message);
+    },
+  });
+
   // ─── Derived state ──────────────────────────────────────────
   const capital: CapitalState = useMemo(() => {
     if (stateQuery.data) {
@@ -302,6 +313,13 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
     [resetCapitalMutation]
   );
 
+  const transferFunds = useCallback(
+    (from: 'trading' | 'reserve', to: 'trading' | 'reserve', amount: number) => {
+      transferFundsMutation.mutate({ workspace: 'live', from, to, amount });
+    },
+    [transferFundsMutation]
+  );
+
   const refetchAll = useCallback(() => {
     stateQuery.refetch();
     allDaysQuery.refetch();
@@ -331,6 +349,8 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
         syncDailyTargetPending: syncDailyTargetMutation.isPending,
         resetCapital,
         resetCapitalPending: resetCapitalMutation.isPending,
+        transferFunds,
+        transferFundsPending: transferFundsMutation.isPending,
         refetchAll,
       }}
     >

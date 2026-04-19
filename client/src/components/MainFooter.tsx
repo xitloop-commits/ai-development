@@ -22,13 +22,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { trpc } from '@/lib/trpc';
 import { useCapital } from '@/contexts/CapitalContext';
 import { formatINR } from '@/lib/formatINR';
@@ -59,6 +53,179 @@ function isHolidayThisMonth(dateStr: string): boolean {
 }
 
 // ─── Component ──────────────────────────────────────────────
+// ─── Net Worth Popover (inject + transfer) ──────────────────
+
+function NetWorthPopover({
+  netWorth, tradingPool, reservePool, growthPercent,
+  tradingPoolGrowth, reservePoolGrowth, fmt,
+}: {
+  netWorth: number; tradingPool: number; reservePool: number;
+  growthPercent: string; tradingPoolGrowth: string; reservePoolGrowth: string;
+  fmt: (n: number) => string;
+}) {
+  const [tab, setTab] = useState<'overview' | 'inject' | 'transfer'>('overview');
+  const [amount, setAmount] = useState('');
+  const [transferDir, setTransferDir] = useState<'reserve-to-trading' | 'trading-to-reserve'>('reserve-to-trading');
+  const { inject: ctxInject, injectPending, transferFunds, transferFundsPending } = useCapital() as any;
+
+  const handleInject = () => {
+    const v = parseFloat(amount);
+    if (isNaN(v) || v <= 0) return;
+    ctxInject(v);
+    setAmount('');
+    setTab('overview');
+  };
+
+  const handleTransfer = () => {
+    const v = parseFloat(amount);
+    if (isNaN(v) || v <= 0) return;
+    const from = transferDir === 'reserve-to-trading' ? 'reserve' : 'trading';
+    const to = transferDir === 'reserve-to-trading' ? 'trading' : 'reserve';
+    transferFunds(from, to, v);
+    setAmount('');
+    setTab('overview');
+  };
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <div className="flex flex-col items-end cursor-pointer shrink-0 hover:opacity-80 transition-opacity">
+          <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">Net Worth</span>
+          <span className="text-sm font-bold tabular-nums text-foreground">
+            {fmt(netWorth)}{' '}
+            <span className={`text-xs ${Number(growthPercent) >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
+              {Number(growthPercent) >= 0 ? '+' : ''}{growthPercent}%
+            </span>
+          </span>
+        </div>
+      </PopoverTrigger>
+      <PopoverContent side="top" className="w-72 p-3">
+        <div className="space-y-3">
+          {/* Pool breakdown */}
+          <div className="text-xs space-y-1.5">
+            <div className="font-bold text-foreground">Capital Pools</div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Trading Pool</span>
+              <span className="font-bold tabular-nums">
+                {fmt(tradingPool)}{' '}
+                <span className={`text-[0.625rem] ${Number(tradingPoolGrowth) >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
+                  {Number(tradingPoolGrowth) >= 0 ? '+' : ''}{tradingPoolGrowth}%
+                </span>
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Reserve Pool</span>
+              <span className="font-bold tabular-nums">
+                {fmt(reservePool)}{' '}
+                <span className={`text-[0.625rem] ${Number(reservePoolGrowth) >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
+                  {Number(reservePoolGrowth) >= 0 ? '+' : ''}{reservePoolGrowth}%
+                </span>
+              </span>
+            </div>
+            <div className="flex justify-between pt-1 border-t border-border/50">
+              <span className="text-muted-foreground">Net Worth</span>
+              <span className="font-bold tabular-nums">{fmt(netWorth)}</span>
+            </div>
+          </div>
+
+          {/* Tab buttons */}
+          <div className="flex gap-1 border-t border-border/50 pt-2">
+            <button
+              onClick={() => { setTab('inject'); setAmount(''); }}
+              className={`flex-1 px-2 py-1 rounded text-[0.625rem] font-bold transition-colors ${
+                tab === 'inject' ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Plus className="inline h-2.5 w-2.5 mr-0.5" />Inject
+            </button>
+            <button
+              onClick={() => { setTab('transfer'); setAmount(''); }}
+              className={`flex-1 px-2 py-1 rounded text-[0.625rem] font-bold transition-colors ${
+                tab === 'transfer' ? 'bg-info-cyan/15 text-info-cyan' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Transfer
+            </button>
+          </div>
+
+          {/* Inject form */}
+          {tab === 'inject' && (
+            <div className="space-y-2">
+              <p className="text-[0.6875rem] text-muted-foreground">
+                Split 75% Trading / 25% Reserve.
+              </p>
+              <input
+                type="number" placeholder="Amount (₹)" value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
+                min="1" step="1000"
+              />
+              <button
+                onClick={handleInject}
+                disabled={injectPending || !amount}
+                className="w-full flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors"
+              >
+                {injectPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Plus className="h-3 w-3" /> Inject</>}
+              </button>
+              {amount && parseFloat(amount) > 0 && (
+                <div className="text-[0.6875rem] text-muted-foreground">
+                  Trading: +{fmt(parseFloat(amount) * 0.75)} | Reserve: +{fmt(parseFloat(amount) * 0.25)}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Transfer form */}
+          {tab === 'transfer' && (
+            <div className="space-y-2">
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setTransferDir('reserve-to-trading')}
+                  className={`flex-1 px-2 py-1 rounded text-[0.625rem] font-bold transition-colors ${
+                    transferDir === 'reserve-to-trading' ? 'bg-bullish/15 text-bullish border border-bullish/30' : 'text-muted-foreground border border-transparent'
+                  }`}
+                >
+                  Reserve → Trading
+                </button>
+                <button
+                  onClick={() => setTransferDir('trading-to-reserve')}
+                  className={`flex-1 px-2 py-1 rounded text-[0.625rem] font-bold transition-colors ${
+                    transferDir === 'trading-to-reserve' ? 'bg-info-cyan/15 text-info-cyan border border-info-cyan/30' : 'text-muted-foreground border border-transparent'
+                  }`}
+                >
+                  Trading → Reserve
+                </button>
+              </div>
+              <input
+                type="number" placeholder="Amount (₹)" value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan"
+                min="1" step="1000"
+                max={transferDir === 'reserve-to-trading' ? reservePool : tradingPool}
+              />
+              <button
+                onClick={handleTransfer}
+                disabled={transferFundsPending || !amount}
+                className="w-full flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-xs font-bold bg-info-cyan text-background hover:bg-info-cyan/90 disabled:opacity-40 transition-colors"
+              >
+                {transferFundsPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Transfer'}
+              </button>
+              {amount && parseFloat(amount) > 0 && (
+                <div className="text-[0.6875rem] text-muted-foreground">
+                  {transferDir === 'reserve-to-trading'
+                    ? `Reserve ${fmt(reservePool)} → ${fmt(reservePool - parseFloat(amount))} | Trading ${fmt(tradingPool)} → ${fmt(tradingPool + parseFloat(amount))}`
+                    : `Trading ${fmt(tradingPool)} → ${fmt(tradingPool - parseFloat(amount))} | Reserve ${fmt(reservePool)} → ${fmt(reservePool + parseFloat(amount))}`
+                  }
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export default function MainFooter() {
   // Holiday moved to AppBar
   const [injectAmount, setInjectAmount] = useState('');
@@ -171,116 +338,7 @@ export default function MainFooter() {
     <div className="sticky bottom-0 z-40 border-t border-border bg-gradient-footer backdrop-blur-md">
       <div className="flex items-center px-3 py-2 gap-4">
 
-        {/* ─── 1. Quarterly Projections ─── */}
-        <div className="flex items-center gap-0.5 shrink-0">
-          {allQuarters.map((q) => (
-            <div
-              key={q.quarterLabel}
-              className={`px-2 py-0.5 rounded flex flex-col items-center ${
-                q.isCurrent
-                  ? 'bg-info-cyan/15 border border-info-cyan/30'
-                  : q.isPast
-                    ? 'bg-secondary/30 opacity-50'
-                    : 'bg-secondary/50'
-              }`}
-            >
-              <span className={`text-[0.625rem] tracking-widest uppercase font-bold ${
-                q.isCurrent ? 'text-info-cyan' : 'text-muted-foreground'
-              }`}>
-                {q.quarterLabel}
-              </span>
-              <span className={`text-xs font-bold tabular-nums ${
-                q.isCurrent ? 'text-info-cyan' : q.isPast ? 'text-muted-foreground' : 'text-foreground/70'
-              }`}>
-                {fmt(q.projectedCapital)}
-              </span>
-              {q.isCurrent && q.deviation !== 0 && (
-                <span className={`text-[0.625rem] tabular-nums font-medium ${
-                  q.deviation > 0 ? 'text-profit' : 'text-loss'
-                }`}>
-                  ({q.deviation > 0 ? '+' : ''}{fmt(q.deviation)})
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Separator */}
-        <div className="w-px self-stretch -my-2 bg-border shrink-0" />
-
-        {/* ─── 2. Monthly Growth ─── */}
-        <div className="flex items-center gap-3 shrink-0">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex flex-col cursor-default">
-                <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">{prevMonthName}</span>
-                <span className="text-[0.8125rem] font-bold tabular-nums text-foreground">
-                  {fmt(prevMonthFund)}{' '}
-                  <span className={`text-[0.6875rem] ${prevMonthGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
-                    {prevMonthGrowth >= 0 ? '+' : ''}{prevMonthGrowth.toFixed(1)}%
-                  </span>
-                </span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="bg-card border-border text-foreground">
-              <div className="text-xs space-y-0.5">
-                <div className="font-bold">{prevMonthName} Pool Breakdown</div>
-                <div className="text-muted-foreground">
-                  Trading Pool: {fmt(prevTradingPool)}{' '}
-                  <span className={prevTradingGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>
-                    {prevTradingGrowth >= 0 ? '+' : ''}{prevTradingGrowth.toFixed(1)}%
-                  </span>
-                </div>
-                <div className="text-muted-foreground">
-                  Reserve Pool: {fmt(prevReservePool)}{' '}
-                  <span className={prevReserveGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>
-                    {prevReserveGrowth >= 0 ? '+' : ''}{prevReserveGrowth.toFixed(1)}%
-                  </span>
-                </div>
-              </div>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex flex-col cursor-default">
-                <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">{currMonthName}</span>
-                <span className="text-[0.8125rem] font-bold tabular-nums text-foreground">
-                  {fmt(currMonthFund)}{' '}
-                  <span className={`text-[0.6875rem] ${currMonthGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
-                    {currMonthGrowth >= 0 ? '+' : ''}{currMonthGrowth.toFixed(1)}%
-                  </span>
-                </span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="bg-card border-border text-foreground">
-              <div className="text-xs space-y-0.5">
-                <div className="font-bold">{currMonthName} Pool Breakdown</div>
-                <div className="text-muted-foreground">
-                  Trading Pool: {fmt(tradingPool)}{' '}
-                  <span className={currTradingGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>
-                    {currTradingGrowth >= 0 ? '+' : ''}{currTradingGrowth.toFixed(1)}%
-                  </span>
-                </div>
-                <div className="text-muted-foreground">
-                  Reserve Pool: {fmt(reservePool)}{' '}
-                  <span className={currReserveGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>
-                    {currReserveGrowth >= 0 ? '+' : ''}{currReserveGrowth.toFixed(1)}%
-                  </span>
-                </div>
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        </div>
-
-        {/* Separator */}
-        <div className="w-px self-stretch -my-2 bg-border shrink-0" />
-
-        {/* Day 250 Journey — moved to AppBar */}
-
-        {/* ─── 4. Project Milestone — horizontal progress bar ─── */}
-        <Tooltip>
-          <TooltipTrigger asChild>
+        {/* ─── Milestone — horizontal progress bar ─── */}
             <div className="flex-1 flex items-center cursor-default min-w-[200px] pr-6">
               <div className="flex-1 relative h-2.5 rounded-full bg-muted-foreground/20 my-6">
                 {/* Progress fill (clipped to bar shape) */}
@@ -329,72 +387,20 @@ export default function MainFooter() {
                 </div>
               </div>
             </div>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-[280px]">
-            <div className="text-xs">
-              <div className="font-bold mb-1.5">Projected Milestones</div>
-              <table className="w-full">
-                <thead>
-                  <tr className="text-[0.625rem] uppercase tracking-wider text-muted-foreground">
-                    <th className="py-0.5 pr-2 text-left font-semibold">Cycle</th>
-                    <th className="py-0.5 pr-2 text-right font-semibold">Trading</th>
-                    <th className="py-0.5 text-right font-semibold">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {milestones.map((m) => {
-                    const isPast = currentDay > m.day;
-                    const isCurrent = currentDay >= m.day - 10 && currentDay <= m.day;
-                    return (
-                      <tr key={m.day} className={`tabular-nums ${isPast ? 'text-muted-foreground' : isCurrent ? 'text-primary font-bold' : 'text-foreground/70'}`}>
-                        <td className="py-0.5 pr-2">
-                          {isPast ? '✓' : isCurrent ? '→' : ''} Day {m.day}
-                        </td>
-                        <td className="py-0.5 pr-2 text-right">{fmt(m.tradingPool)}</td>
-                        <td className="py-0.5 text-right">{fmt(m.total)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </TooltipContent>
-        </Tooltip>
 
         {/* Separator */}
         <div className="w-px self-stretch -my-2 bg-border shrink-0" />
 
-        {/* ─── 8. Net Worth ─── */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex flex-col items-end cursor-default shrink-0">
-              <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">Net Worth</span>
-              <span className="text-sm font-bold tabular-nums text-foreground">
-                {fmt(netWorth)}{' '}
-                <span className={`text-xs ${Number(growthPercent) >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
-                  {Number(growthPercent) >= 0 ? '+' : ''}{growthPercent}%
-                </span>
-              </span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="bg-card border-border text-foreground">
-            <div className="text-xs space-y-0.5">
-              <div className="font-bold">Net Worth Breakdown</div>
-              <div className="text-muted-foreground">
-                Trading Pool: {fmt(tradingPool)}{' '}
-                <span className={Number(tradingPoolGrowth) >= 0 ? 'text-bullish' : 'text-loss-red'}>
-                  {Number(tradingPoolGrowth) >= 0 ? '+' : ''}{tradingPoolGrowth}%
-                </span>
-              </div>
-              <div className="text-muted-foreground">
-                Reserve Pool: {fmt(reservePool)}{' '}
-                <span className={Number(reservePoolGrowth) >= 0 ? 'text-bullish' : 'text-loss-red'}>
-                  {Number(reservePoolGrowth) >= 0 ? '+' : ''}{reservePoolGrowth}%
-                </span>
-              </div>
-            </div>
-          </TooltipContent>
-        </Tooltip>
+        {/* ─── 8. Net Worth — popover with inject + transfer ─── */}
+        <NetWorthPopover
+          netWorth={netWorth}
+          tradingPool={tradingPool}
+          reservePool={reservePool}
+          growthPercent={growthPercent}
+          tradingPoolGrowth={tradingPoolGrowth}
+          reservePoolGrowth={reservePoolGrowth}
+          fmt={fmt}
+        />
       </div>
     </div>
   );

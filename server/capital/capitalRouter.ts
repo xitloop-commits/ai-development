@@ -248,6 +248,58 @@ export const capitalRouter = router({
       return liveResult;
     }),
 
+  /** Transfer funds between Trading ↔ Reserve pools. */
+  transferFunds: publicProcedure
+    .input(z.object({
+      workspace: workspaceSchema,
+      from: z.enum(['trading', 'reserve']),
+      to: z.enum(['trading', 'reserve']),
+      amount: z.number().positive(),
+    }))
+    .mutation(async ({ input }) => {
+      if (input.from === input.to) throw new Error('Cannot transfer to same pool');
+
+      const targetPercent = await getDailyTargetPercent();
+
+      async function syncWorkspace(ws: typeof input.workspace) {
+        const state = await getCapitalState(ws);
+
+        // Validate sufficient balance
+        const sourceBalance = input.from === 'trading' ? state.tradingPool : state.reservePool;
+        if (input.amount > sourceBalance) {
+          throw new Error(`Insufficient ${input.from} pool balance: ${sourceBalance}`);
+        }
+
+        const tradingDelta = input.from === 'trading' ? -input.amount : input.amount;
+        const newTrading = Math.round((state.tradingPool + tradingDelta) * 100) / 100;
+        const newReserve = Math.round((state.reservePool - tradingDelta) * 100) / 100;
+
+        const updated = await updateCapitalState(ws, {
+          tradingPool: newTrading,
+          reservePool: newReserve,
+        });
+
+        // Sync current day record with new trading capital
+        const day = await getDayRecord(ws, state.currentDayIndex);
+        if (day) {
+          day.tradeCapital = newTrading;
+          day.targetPercent = targetPercent;
+          day.targetAmount = Math.round(newTrading * targetPercent / 100 * 100) / 100;
+          day.projCapital = Math.round((newTrading + day.targetAmount) * 100) / 100;
+          day.actualCapital = Math.round((newTrading + day.totalPnl) * 100) / 100;
+          day.deviation = Math.round((day.actualCapital - day.originalProjCapital) * 100) / 100;
+          await upsertDayRecord(ws, day);
+        }
+        return updated;
+      }
+
+      const liveResult = await syncWorkspace('live');
+      for (const workspace of mirroredWorkspaces) {
+        try { await syncWorkspace(workspace); } catch {}
+      }
+      return liveResult;
+    }),
+
   // ─── Day Record Queries ────────────────────────────────────────
 
   /** Get completed (past) day records. */

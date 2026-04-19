@@ -477,7 +477,9 @@ function InstrumentTag({ name }: { name: string }) {
 
 function CapitalPoolPopover({ capital, fmt }: { capital: CapitalState; fmt: (n: number, compact?: boolean) => string }) {
   const [injectAmount, setInjectAmount] = useState('');
-  const { inject: ctxInject, injectPending } = useCapital() as any;
+  const [resetAmount, setResetAmount] = useState('');
+  const [showReset, setShowReset] = useState(false);
+  const { inject: ctxInject, injectPending, resetCapital, resetCapitalPending } = useCapital() as any;
 
   const handleInject = () => {
     const amount = parseFloat(injectAmount);
@@ -820,18 +822,11 @@ export default function TradingDesk({
             <span className="text-muted-foreground"> / 250</span>
           </span>
         </div>
-        {/* Trade Capital — with pool breakdown popover + inject */}
-        <Popover>
-          <PopoverTrigger asChild>
-            <div className="px-3 py-1.5 flex flex-col items-center justify-center cursor-pointer hover:bg-secondary/50 transition-colors">
-              <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Trade Capital</span>
-              <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.tradingPool, true)}</span>
-            </div>
-          </PopoverTrigger>
-          <PopoverContent side="bottom" className="w-64 p-3">
-            <CapitalPoolPopover capital={capital} fmt={fmt} />
-          </PopoverContent>
-        </Popover>
+        {/* Trade Capital */}
+        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
+          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Capital</span>
+          <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.tradingPool, true)}</span>
+        </div>
         {/* Cum. Profit */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
           <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Cum. Profit</span>
@@ -890,12 +885,10 @@ export default function TradingDesk({
                   )}
                   {/* Current position marker */}
                   <div
-                    className="absolute top-1/2 -translate-y-1/2 h-4 w-4 rounded-full border-2 border-background shadow-md z-[2] transition-all duration-500"
-                    style={{
-                      left: `${markerLeft}%`,
-                      marginLeft: '-8px',
-                      backgroundColor: pnl >= 0 ? 'var(--bullish)' : 'var(--destructive)',
-                    }}
+                    className={`absolute top-1/2 -translate-y-1/2 h-4 w-4 rounded-full border-2 border-background shadow-md z-[2] transition-all duration-500 ${
+                      pnl >= 0 ? 'bg-bullish' : 'bg-destructive'
+                    }`}
+                    style={{ left: `${markerLeft}%`, marginLeft: '-8px' }}
                   />
                 </div>
                 {/* Bottom label: 0 at center */}
@@ -964,16 +957,7 @@ export default function TradingDesk({
           <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Charges</span>
           <span className="text-xs font-bold tabular-nums text-muted-foreground">{fmt(capital.cumulativeCharges)}</span>
         </div>
-        {/* Reserve */}
-        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Reserve</span>
-          <span className="text-xs font-bold tabular-nums text-warning-amber">{fmt(capital.reservePool, true)}</span>
-        </div>
-        {/* Net Worth */}
-        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Net Worth</span>
-          <span className="text-xs font-bold tabular-nums text-bullish">{fmt(capital.netWorth, true)}</span>
-        </div>
+        {/* Reserve + Net Worth moved to MainFooter Net Worth popover */}
       </div>
 
       {/* Mutation Error */}
