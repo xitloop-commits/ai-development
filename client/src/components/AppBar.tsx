@@ -336,7 +336,7 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
           <TooltipTrigger asChild>
             <div className="flex items-center gap-1.5 cursor-default shrink-0 ml-3">
               <Target className="h-3 w-3 text-primary shrink-0" />
-              <span className="text-[0.625rem] font-bold tabular-nums text-primary">{currentDay}/250</span>
+              <span className="text-[0.625rem] font-bold tabular-nums text-primary">{250 - currentDay} left</span>
               <div className="w-[60px] h-1.5 rounded-full bg-secondary/50 overflow-hidden">
                 <div
                   className="h-full rounded-full bg-gradient-cyan-violet transition-all duration-700"

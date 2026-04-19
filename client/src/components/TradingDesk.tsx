@@ -814,14 +814,6 @@ export default function TradingDesk({
 
       {/* ─── Summary Bar ──────────────────────────────────────── */}
       <div className="flex items-stretch divide-x divide-border border-b border-border bg-secondary backdrop-blur-sm">
-        {/* Day */}
-        <div className="px-3 py-1.5 flex flex-col items-center justify-center min-w-[80px]">
-          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Day</span>
-          <span className="text-xs font-bold tabular-nums">
-            <span className="text-warning-amber">{capital.currentDayIndex}</span>
-            <span className="text-muted-foreground"> / 250</span>
-          </span>
-        </div>
         {/* Trade Capital */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
           <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Capital</span>
