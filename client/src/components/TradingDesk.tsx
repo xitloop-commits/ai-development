@@ -931,8 +931,8 @@ export default function TradingDesk({
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground w-12 border-r border-border">Day</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Date</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Capital</th>
-                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Target Profit</th>
-                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Proj. Cap.</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Profit+</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Capital+</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Instrument</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Entry</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">LTP</th>
