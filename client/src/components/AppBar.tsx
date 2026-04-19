@@ -260,31 +260,35 @@ function WorkspaceTabs() {
         Testing
       </button>
       {workspace === 'paper_manual' && (
-        <>
-          <button
-            onClick={() => setTestingMode?.('live')}
-            className={`px-3 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
-              testingMode === 'live' ? 'bg-bullish/15 text-bullish' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-            }`}
-          >
-            LIVE
-          </button>
-          <button
-            onClick={() => setTestingMode?.('paper')}
-            className={`px-3 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
-              testingMode === 'paper' ? 'bg-warning-amber/15 text-warning-amber' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-            }`}
-          >
-            PAPER
-          </button>
+        <div className="flex items-center gap-2 px-3 border-r border-border">
+          {/* Live/Paper toggle */}
+          <div className="flex items-center rounded border border-border overflow-hidden">
+            <button
+              onClick={() => setTestingMode('live')}
+              className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
+                testingMode === 'live' ? 'bg-bullish/20 text-bullish' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              LIVE
+            </button>
+            <button
+              onClick={() => setTestingMode('paper')}
+              className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
+                testingMode === 'paper' ? 'bg-warning-amber/20 text-warning-amber' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              PAPER
+            </button>
+          </div>
+          {/* Clear */}
           <button
             onClick={() => clearWorkspaceMutation.mutate({ workspace: 'paper_manual', initialFunding: capital.tradingPool + capital.reservePool || 100000 })}
             disabled={clearWorkspaceMutation.isPending}
-            className="px-3 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border text-destructive hover:bg-destructive/10 disabled:opacity-50"
+            className="px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
           >
             {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
           </button>
-        </>
+        </div>
       )}
     </div>
   );
