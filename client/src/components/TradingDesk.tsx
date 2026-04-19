@@ -1660,13 +1660,23 @@ function TodayTradeRow({
                   {trade.stopLossPrice != null && (
                     <div className="flex justify-between gap-3">
                       <span className="text-destructive font-bold">{trade.trailingStopEnabled ? 'TSL' : 'SL'}</span>
-                      <span className="text-destructive">{trade.stopLossPrice.toFixed(2)}</span>
+                      <span className="text-destructive">
+                        {trade.stopLossPrice.toFixed(2)}
+                        <span className="ml-1 text-destructive/70">
+                          ({pctFromPrice('sl', isBuy, trade.entryPrice, trade.stopLossPrice).toFixed(1)}%)
+                        </span>
+                      </span>
                     </div>
                   )}
                   {trade.targetPrice != null && (
                     <div className="flex justify-between gap-3">
                       <span className="text-bullish font-bold">TP</span>
-                      <span className="text-bullish">{trade.targetPrice.toFixed(2)}</span>
+                      <span className="text-bullish">
+                        {trade.targetPrice.toFixed(2)}
+                        <span className="ml-1 text-bullish/70">
+                          ({pctFromPrice('tp', isBuy, trade.entryPrice, trade.targetPrice).toFixed(1)}%)
+                        </span>
+                      </span>
                     </div>
                   )}
                 </div>
