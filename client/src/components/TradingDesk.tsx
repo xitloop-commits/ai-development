@@ -814,10 +814,10 @@ export default function TradingDesk({
 
       {/* ─── Summary Bar ──────────────────────────────────────── */}
       <div className="flex items-stretch divide-x divide-border border-b border-border bg-secondary backdrop-blur-sm">
-        {/* Trade Capital */}
+        {/* Available Fund */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Capital</span>
-          <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.tradingPool, true)}</span>
+          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Available</span>
+          <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
         </div>
         {/* Cum. Profit */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
