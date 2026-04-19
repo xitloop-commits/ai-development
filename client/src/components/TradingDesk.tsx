@@ -907,7 +907,7 @@ export default function TradingDesk({
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
           }} />
         ) : (
-          <table className="w-full border-collapse text-xs [&_td]:align-middle [&_td]:whitespace-nowrap [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
+          <table className="w-full table-fixed border-collapse text-xs [&_td]:align-middle [&_td]:whitespace-nowrap [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
             <colgroup>
               <col style={{ width: 40 }} />   {/* Day */}
               <col style={{ width: 70 }} />   {/* Date */}
