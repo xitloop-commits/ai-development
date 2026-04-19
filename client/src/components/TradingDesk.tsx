@@ -884,11 +884,6 @@ export default function TradingDesk({
             );
           })()}
         </div>
-        {/* Charges */}
-        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Charges</span>
-          <span className="text-xs font-bold tabular-nums text-muted-foreground">{fmt(capital.cumulativeCharges)}</span>
-        </div>
         {/* Reserve + Net Worth moved to MainFooter Net Worth popover */}
       </div>
 
@@ -921,7 +916,7 @@ export default function TradingDesk({
               <col style={{ width: 90 }} />   {/* Invested */}
               <col style={{ width: 80 }} />   {/* P&L */}
               <col style={{ width: 55 }} />   {/* P&L % */}
-              <col style={{ width: 70 }} />   {/* Charges */}
+              {/* Charges column removed */}
               <col style={{ width: 80 }} />   {/* Capital */}
               <col style={{ width: 70 }} />   {/* Dev. */}
               <col style={{ width: 50 }} />   {/* Rating */}
@@ -940,7 +935,6 @@ export default function TradingDesk({
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Invested</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L %</th>
-                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Charges</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Capital</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Dev.</th>
                 <th className="px-2 py-2 text-center font-bold text-muted-foreground w-16 border-r border-border">Rating</th>
@@ -1107,11 +1101,7 @@ function PastRow({
       <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(pnlValue)}`}>
         {pnlPercent}%
       </td>
-      {/* Charges */}
-      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
-        {day.totalCharges > 0 ? fmt(day.totalCharges, false) : ''}
-      </td>
-      {/* Actual Capital */}
+      {/* Capital */}
       <td className="px-2 py-2 text-right tabular-nums font-medium border-r border-border">
         {day.actualCapital > 0 ? fmt(day.actualCapital, true) : ''}
       </td>
@@ -1323,9 +1313,6 @@ function TodaySection({
           {fmt(totalPnl, false)}
         </td>
         <td className="px-2 py-2 border-r border-border" />
-        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {day.totalCharges > 0 ? fmt(day.totalCharges, false) : ''}
-        </td>
         <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground border-r border-border">
           {day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
         </td>
@@ -1387,11 +1374,7 @@ function TodaySection({
         </td>
         {/* P&L % */}
         <td className="px-2 py-2 border-r border-border" />
-        {/* Charges */}
-        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {day.totalCharges > 0 ? fmt(day.totalCharges, false) : ''}
-        </td>
-        {/* Actual Capital */}
+        {/* Capital */}
         <td className="px-2 py-2 text-right tabular-nums text-warning-amber border-r border-border">
           {day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
         </td>
@@ -1732,11 +1715,7 @@ function TodayTradeRow({
       <td className={`px-2 py-1.5 text-right tabular-nums border-r border-border ${pnlColor(pnl)}`}>
         {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%
       </td>
-      {/* Charges */}
-      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
-        {trade.charges > 0 ? fmt(trade.charges, false) : ''}
-      </td>
-      {/* Actual Capital */}
+      {/* Capital */}
       <td className="px-2 py-1.5 border-r border-border" />
       {/* Deviation */}
       <td className="px-2 py-1.5 border-r border-border" />
@@ -1788,7 +1767,6 @@ function FutureRow({
       <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground border-r border-border">
         {fmt(day.projCapital, true)}
       </td>
-      <td className="px-2 py-2 border-r border-border"></td>
       <td className="px-2 py-2 border-r border-border"></td>
       <td className="px-2 py-2 border-r border-border"></td>
       <td className="px-2 py-2 border-r border-border"></td>
