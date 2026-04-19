@@ -932,6 +932,11 @@ export function CapitalManagementSection() {
                 />
               </div>
 
+              {/* Entered value in full format */}
+              <div className="text-[0.6875rem] font-bold tabular-nums text-foreground">
+                {newFunding.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+              </div>
+
               {/* Preview of what reset will create */}
               <div className="flex items-center gap-2 text-[0.5625rem] text-muted-foreground">
                 <AlertTriangle className="h-3 w-3 text-warning-amber shrink-0" />
