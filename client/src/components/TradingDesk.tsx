@@ -904,21 +904,21 @@ export default function TradingDesk({
         ) : (
           <table className="w-full table-fixed border-collapse text-xs [&_td]:align-middle [&_td]:whitespace-nowrap [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
             <colgroup>
-              <col className="w-[3%]" />    {/* Day */}
-              <col className="w-[5%]" />    {/* Date */}
-              <col className="w-[6%]" />    {/* Capital */}
-              <col className="w-[6%]" />    {/* Profit+ */}
-              <col className="w-[6%]" />    {/* Capital+ */}
-              <col />                        {/* Instrument — takes remaining */}
-              <col className="w-[6%]" />    {/* Entry */}
-              <col className="w-[6%]" />    {/* LTP */}
-              <col className="w-[4%]" />    {/* Lot */}
-              <col className="w-[6%]" />    {/* Invested */}
-              <col className="w-[6%]" />    {/* P&L */}
-              <col className="w-[5%]" />    {/* P&L % */}
-              <col className="w-[6%]" />    {/* Capital */}
-              <col className="w-[5%]" />    {/* Dev. */}
-              <col className="w-[4%]" />    {/* Rating */}
+              <col style={{ width: 36, maxWidth: 36 }} />   {/* Day */}
+              <col style={{ width: 62, maxWidth: 62 }} />   {/* Date */}
+              <col style={{ width: 72, maxWidth: 72 }} />   {/* Capital */}
+              <col style={{ width: 68, maxWidth: 68 }} />   {/* Profit+ */}
+              <col style={{ width: 72, maxWidth: 72 }} />   {/* Capital+ */}
+              <col />                                        {/* Instrument — remaining */}
+              <col style={{ width: 68, maxWidth: 68 }} />   {/* Entry */}
+              <col style={{ width: 68, maxWidth: 68 }} />   {/* LTP */}
+              <col style={{ width: 36, maxWidth: 36 }} />   {/* Lot */}
+              <col style={{ width: 72, maxWidth: 72 }} />   {/* Invested */}
+              <col style={{ width: 72, maxWidth: 72 }} />   {/* P&L */}
+              <col style={{ width: 50, maxWidth: 50 }} />   {/* P&L % */}
+              <col style={{ width: 72, maxWidth: 72 }} />   {/* Capital */}
+              <col style={{ width: 62, maxWidth: 62 }} />   {/* Dev. */}
+              <col style={{ width: 40, maxWidth: 40 }} />   {/* Rating */}
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-card border-b border-border uppercase">
