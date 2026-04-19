@@ -281,12 +281,12 @@ export default function MainFooter() {
         {/* ─── 4. Project Milestone — horizontal progress bar ─── */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex-1 flex items-center cursor-default min-w-[200px] pr-4">
-              <div className="flex-1 relative h-2 rounded-full bg-muted/30 my-5">
+            <div className="flex-1 flex items-center cursor-default min-w-[200px] pr-6">
+              <div className="flex-1 relative h-2.5 rounded-full bg-muted-foreground/20 my-6">
                 {/* Progress fill (clipped to bar shape) */}
                 <div className="absolute inset-0 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-bullish/70 transition-all duration-700"
+                    className="h-full bg-bullish transition-all duration-700"
                     style={{ width: `${Math.min((currentDay / 250) * 100, 100)}%` }}
                   />
                 </div>
@@ -295,18 +295,18 @@ export default function MainFooter() {
                   <div
                     key={m.day}
                     className="absolute flex flex-col items-center -translate-x-1/2"
-                    style={{ left: `${(m.day / 250) * 100}%`, top: '-14px', bottom: '-16px' }}
+                    style={{ left: `${(m.day / 250) * 100}%`, top: '-16px', bottom: '-18px' }}
                   >
-                    <span className={`text-[0.5rem] font-bold tabular-nums leading-none ${
-                      currentDay >= m.day ? 'text-foreground/60' : 'text-muted-foreground/50'
+                    <span className={`text-[0.625rem] font-bold tabular-nums leading-none ${
+                      currentDay >= m.day ? 'text-foreground' : 'text-foreground/60'
                     }`}>
                       {m.day}
                     </span>
                     <div className={`flex-1 w-px my-0.5 ${
-                      currentDay >= m.day ? 'bg-foreground/30' : 'bg-muted-foreground/20'
+                      currentDay >= m.day ? 'bg-foreground/40' : 'bg-muted-foreground/30'
                     }`} />
-                    <span className={`text-[0.4375rem] tabular-nums leading-none ${
-                      currentDay >= m.day ? 'text-foreground/50' : 'text-muted-foreground/40'
+                    <span className={`text-[0.5625rem] tabular-nums leading-none ${
+                      currentDay >= m.day ? 'text-foreground' : 'text-foreground/50'
                     }`}>
                       {fmt(m.total)}
                     </span>
@@ -314,16 +314,16 @@ export default function MainFooter() {
                 ))}
                 {/* Current position marker with day label */}
                 <div
-                  className="absolute flex flex-col items-center -translate-x-1/2 transition-all duration-700"
-                  style={{ left: `${Math.min((currentDay / 250) * 100, 100)}%`, top: '-14px', bottom: '-16px' }}
+                  className="absolute flex flex-col items-center -translate-x-1/2 transition-all duration-700 z-10"
+                  style={{ left: `${Math.min((currentDay / 250) * 100, 100)}%`, top: '-16px', bottom: '-18px' }}
                 >
-                  <span className="text-[0.5rem] font-bold tabular-nums leading-none text-primary">
+                  <span className="text-[0.625rem] font-bold tabular-nums leading-none text-primary">
                     {currentDay}
                   </span>
                   <div className="flex-1 flex items-center justify-center my-0.5">
-                    <div className="h-3.5 w-3.5 rounded-full bg-primary border-2 border-background shadow-sm" />
+                    <div className="h-4 w-4 rounded-full bg-primary border-2 border-background shadow-md" />
                   </div>
-                  <span className="text-[0.4375rem] font-bold tabular-nums leading-none text-primary">
+                  <span className="text-[0.5625rem] font-bold tabular-nums leading-none text-primary">
                     {fmt(netWorth)}
                   </span>
                 </div>
