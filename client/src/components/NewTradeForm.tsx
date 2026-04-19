@@ -428,7 +428,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         {dayValues ? fmt(dayValues.projCapital, true) : '-'}
       </td>
 
-      <td className="px-2 py-1 min-w-[280px] border-r border-border">
+      <td className="px-2 py-1 border-r border-border">
         <div className="flex items-center justify-between gap-2">
           {/* Left section: Instrument and controls */}
           <div className="flex flex-wrap items-center gap-1">
@@ -634,7 +634,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
           onChange={(e) => setEntryPrice(e.target.value)}
           placeholder="Entry"
           step="0.05"
-          className={`w-24 bg-background border border-border rounded px-1.5 py-1 text-[0.625rem] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`}
+          className={`w-full bg-background border border-border rounded px-1.5 py-1 text-[0.625rem] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`}
         />
       </td>
 
