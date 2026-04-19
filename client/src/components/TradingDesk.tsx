@@ -22,6 +22,7 @@ import {
   TrendingUp,
   TrendingDown,
   Loader2,
+  Plus,
 } from 'lucide-react';
 import NewTradeForm from './NewTradeForm';
 import { TradingDeskSkeleton, NoCapitalEmpty, ErrorState } from './LoadingStates';
@@ -472,6 +473,73 @@ function InstrumentTag({ name }: { name: string }) {
   );
 }
 
+// ─── Capital Pool Popover ────────────────────────────────────────
+
+function CapitalPoolPopover({ capital, fmt }: { capital: CapitalState; fmt: (n: number, compact?: boolean) => string }) {
+  const [injectAmount, setInjectAmount] = useState('');
+  const { injectCapital, injectPending } = useCapital() as any;
+
+  const handleInject = () => {
+    const amount = parseFloat(injectAmount);
+    if (isNaN(amount) || amount <= 0) return;
+    injectCapital(amount);
+    setInjectAmount('');
+  };
+
+  return (
+    <div className="text-[0.625rem] space-y-2">
+      <div className="font-bold text-foreground">Capital Pools</div>
+      <div className="space-y-1">
+        <div className="flex justify-between gap-4">
+          <span className="text-muted-foreground">Trading Pool</span>
+          <span className="font-bold tabular-nums">{fmt(capital.tradingPool, true)}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-muted-foreground">Available</span>
+          <span className="font-bold tabular-nums">{fmt(capital.availableCapital, true)}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-muted-foreground">Reserve Pool</span>
+          <span className="font-bold tabular-nums">{fmt(capital.reservePool, true)}</span>
+        </div>
+        <div className="flex justify-between gap-4 pt-1 border-t border-border/50">
+          <span className="text-muted-foreground">Net Worth</span>
+          <span className="font-bold tabular-nums">{fmt(capital.netWorth, true)}</span>
+        </div>
+      </div>
+      <div className="pt-1 border-t border-border/50 space-y-2">
+        <div className="flex items-center gap-1.5">
+          <input
+            type="number"
+            placeholder="Amount"
+            value={injectAmount}
+            onChange={(e) => setInjectAmount(e.target.value)}
+            className="flex-1 min-w-0 px-2 py-1 rounded border border-border bg-background text-foreground text-[0.625rem] tabular-nums outline-none focus:border-primary"
+            min="1"
+            step="1000"
+          />
+          <button
+            onClick={handleInject}
+            disabled={injectPending || !injectAmount}
+            className="flex items-center gap-0.5 px-2 py-1 rounded font-bold bg-primary/15 text-primary hover:bg-primary/25 transition-colors disabled:opacity-40"
+          >
+            {injectPending ? (
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            ) : (
+              <><Plus className="h-2.5 w-2.5" /> Inject</>
+            )}
+          </button>
+        </div>
+        {injectAmount && parseFloat(injectAmount) > 0 && (
+          <div className="text-[0.5625rem] text-muted-foreground">
+            Trading: +{fmt(parseFloat(injectAmount) * 0.75)} | Reserve: +{fmt(parseFloat(injectAmount) * 0.25)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ──────────────────────────────────────────────
 
 export default function TradingDesk({
@@ -747,36 +815,18 @@ export default function TradingDesk({
             <span className="text-muted-foreground"> / 250</span>
           </span>
         </div>
-        {/* Trade Capital — with pool breakdown tooltip */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="px-3 py-1.5 flex flex-col items-center justify-center cursor-default">
+        {/* Trade Capital — with pool breakdown popover + inject */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <div className="px-3 py-1.5 flex flex-col items-center justify-center cursor-pointer hover:bg-secondary/50 transition-colors">
               <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Trade Capital</span>
               <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.tradingPool, true)}</span>
             </div>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            <div className="text-[0.625rem] space-y-1">
-              <div className="font-bold">Capital Pools</div>
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">Trading Pool</span>
-                <span className="font-bold tabular-nums">{fmt(capital.tradingPool, true)}</span>
-              </div>
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">Available</span>
-                <span className="font-bold tabular-nums">{fmt(capital.availableCapital, true)}</span>
-              </div>
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">Reserve Pool</span>
-                <span className="font-bold tabular-nums">{fmt(capital.reservePool, true)}</span>
-              </div>
-              <div className="flex justify-between gap-4 pt-1 border-t border-border/50">
-                <span className="text-muted-foreground">Net Worth</span>
-                <span className="font-bold tabular-nums">{fmt(capital.netWorth, true)}</span>
-              </div>
-            </div>
-          </TooltipContent>
-        </Tooltip>
+          </PopoverTrigger>
+          <PopoverContent side="bottom" className="w-64 p-3">
+            <CapitalPoolPopover capital={capital} fmt={fmt} />
+          </PopoverContent>
+        </Popover>
         {/* Cum. Profit */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
           <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Cum. Profit</span>
