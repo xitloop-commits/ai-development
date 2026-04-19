@@ -1311,13 +1311,8 @@ function TodaySection({
             )}
           </div>
         </td>
-        <td className="px-2 py-2 border-r border-border" colSpan={2}>
-          <div className="min-w-0 truncate text-foreground">
-            <span>Risk@SL {fmt(openRisk)}</span>
-            <span className="mx-1.5 text-border">|</span>
-            <span>Reward@TP {fmt(openReward)}</span>
-          </div>
-        </td>
+        <td className="px-2 py-2 border-r border-border" />
+        <td className="px-2 py-2 border-r border-border" />
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
           {day.totalQty > 0 ? day.totalQty : ''}
         </td>
