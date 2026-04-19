@@ -152,17 +152,28 @@ function NumberInput({
   className?: string;
   disabled?: boolean;
 }) {
+  const [raw, setRaw] = useState(String(value));
+  useEffect(() => { setRaw(String(value)); }, [value]);
+
   return (
     <div className={`flex items-center gap-1.5 ${className}`}>
       <input
         type="number"
-        value={value}
+        value={raw}
         onChange={(e) => {
+          setRaw(e.target.value);
           const v = parseFloat(e.target.value);
           if (!isNaN(v)) {
             if (min !== undefined && v < min) return;
             if (max !== undefined && v > max) return;
             onChange(v);
+          }
+        }}
+        onBlur={() => {
+          const v = parseFloat(raw);
+          if (isNaN(v) || (min !== undefined && v < min)) {
+            setRaw(String(min ?? value));
+            onChange(min ?? value);
           }
         }}
         min={min}
