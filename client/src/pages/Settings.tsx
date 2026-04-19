@@ -888,17 +888,16 @@ export function CapitalManagementSection() {
       </SettingsCard>
 
       {/* Reset Initial Capital */}
-      <SettingsCard title="Reset Initial Capital" className={hasCycleStarted ? 'opacity-60' : 'border-destructive/30'}>
+      <SettingsCard title="Reset Initial Capital" className="border-destructive/30">
         <div className="space-y-3">
-          {hasCycleStarted ? (
-            <div className="flex items-center gap-2 p-2 rounded bg-muted/50 border border-border">
-              <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <span className="text-[0.625rem] text-muted-foreground">
-                Reset is only available before any day cycle has started.
-                You are currently on Day {capital.currentDayIndex}.
+          {hasCycleStarted && (
+            <div className="flex items-center gap-2 p-2 rounded bg-destructive/10 border border-destructive/30">
+              <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
+              <span className="text-[0.625rem] text-destructive">
+                You are on Day {capital.currentDayIndex} with active data. Resetting will delete all day records and trades permanently.
               </span>
             </div>
-          ) : (
+          )}
             <>
               <div className="space-y-1">
                 <span className="text-[0.625rem] text-muted-foreground">
@@ -999,7 +998,6 @@ export function CapitalManagementSection() {
                 </AlertDialogContent>
               </AlertDialog>
             </>
-          )}
         </div>
       </SettingsCard>
     </div>
