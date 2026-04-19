@@ -891,37 +891,7 @@ export default function TradingDesk({
             );
           })()}
         </div>
-        {/* Testing controls (Live/Paper + Clear) — before P&L Mode */}
-        {workspace === 'paper_manual' && (
-          <div className="px-3 py-1.5 flex items-center gap-2">
-            <div className="flex items-center rounded border border-border overflow-hidden">
-              <button
-                onClick={() => setTestingMode('live')}
-                className={`px-2 py-0.5 font-bold transition-colors ${
-                  testingMode === 'live' ? 'bg-bullish/20 text-bullish' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                LIVE
-              </button>
-              <button
-                onClick={() => setTestingMode('paper')}
-                className={`px-2 py-0.5 font-bold transition-colors ${
-                  testingMode === 'paper' ? 'bg-warning-amber/20 text-warning-amber' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                PAPER
-              </button>
-            </div>
-            <button
-              onClick={handleClearTesting}
-              disabled={clearWorkspaceMutation.isPending}
-              className="px-2 py-0.5 rounded font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
-              title="Clear all testing trades and reset to zero"
-            >
-              {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
-            </button>
-          </div>
-        )}
+        {/* Testing controls moved to AppBar next to workspace tabs */}
         {/* NET/GROSS toggle */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
           <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">P&L Mode</span>

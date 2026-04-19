@@ -218,7 +218,10 @@ function HolidayIndicator() {
 // ── Workspace Tabs (segmented control) ───────────────────────
 
 function WorkspaceTabs() {
-  const { capital, workspace, setWorkspace } = useCapital() as any;
+  const { capital, workspace, setWorkspace, refetchAll } = useCapital() as any;
+  const clearWorkspaceMutation = trpc.capital.clearWorkspace.useMutation({
+    onSuccess: () => refetchAll(),
+  });
 
   return (
     <div className="flex items-stretch self-stretch">
@@ -255,6 +258,15 @@ function WorkspaceTabs() {
       >
         Testing
       </button>
+      {workspace === 'paper_manual' && (
+        <button
+          onClick={() => clearWorkspaceMutation.mutate({ workspace: 'paper_manual', initialFunding: capital.tradingPool + capital.reservePool || 100000 })}
+          disabled={clearWorkspaceMutation.isPending}
+          className="px-3 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-50"
+        >
+          {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
+        </button>
+      )}
     </div>
   );
 }
