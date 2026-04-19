@@ -54,13 +54,6 @@ export default function LeftSidebar({ visible, instruments, resolvedInstruments 
 
   return (
     <aside className="w-[360px] shrink-0 border-r border-border bg-background flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="px-4 pt-3 pb-0">
-        <h2 className="text-[0.6875rem] font-bold tracking-widest uppercase text-muted-foreground">
-          Instrument Analysis
-        </h2>
-      </div>
-
       {/* Tabs */}
       <div className="flex items-center gap-1 px-4 pt-2 pb-0">
         {instruments.map((inst, idx) => {
