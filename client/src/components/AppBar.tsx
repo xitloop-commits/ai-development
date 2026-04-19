@@ -362,8 +362,9 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
           <Menu className="h-4 w-4 text-muted-foreground" />
         </button>
 
-        {/* Left Group: Brand */}
-        <div className="flex items-center gap-2 ml-2">
+        {/* Left Group (flex-1 for center alignment) */}
+        <div className="flex-1 flex items-center gap-2 ml-2">
+          {/* Brand */}
           <div className="flex items-center gap-1.5">
             <div className="h-2 w-2 rounded-sm bg-primary" />
             <span className="font-display text-sm font-bold tracking-wider text-primary uppercase">
@@ -373,7 +374,9 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
           <span className="hidden xl:inline text-[0.625rem] text-muted-foreground tracking-widest uppercase">
             Lucky Basker
           </span>
-        </div>
+
+          {/* Holiday Indicator */}
+          <HolidayIndicator />
 
         {/* Day 250 Journey — inline progress */}
         <Tooltip>
@@ -399,37 +402,13 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
           </TooltipContent>
         </Tooltip>
 
-        {/* Discipline Score */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex items-center gap-1 cursor-default shrink-0 ml-2">
-              <Shield className={`h-3 w-3 ${scoreColor}`} />
-              <span className={`text-[0.625rem] font-bold tabular-nums ${scoreColor}`}>
-                {disciplineScore}/100
-              </span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="bg-card border-border text-foreground">
-            <div className="text-[0.625rem] space-y-0.5 font-mono">
-              <div className={`font-bold mb-1 ${scoreColor}`}>Discipline: {disciplineScore}/100</div>
-              <div className="text-muted-foreground">Circuit Breaker  {breakdown.circuitBreaker}/20</div>
-              <div className="text-muted-foreground">Trade Limits     {breakdown.tradeLimits}/15</div>
-              <div className="text-muted-foreground">Cooldowns        {breakdown.cooldowns}/15</div>
-              <div className="text-muted-foreground">Time Windows     {breakdown.timeWindows}/10</div>
-              <div className="text-muted-foreground">Position Sizing  {breakdown.positionSizing}/15</div>
-              <div className="text-muted-foreground">Journal          {breakdown.journal}/10</div>
-              <div className="text-muted-foreground">Pre-Trade Gate   {breakdown.preTradeGate}/15</div>
-            </div>
-          </TooltipContent>
-        </Tooltip>
-
-        {/* Center: Workspace tabs (segmented control) */}
-        <div className="flex-1 flex items-center justify-center">
-          <WorkspaceTabs />
         </div>
 
-        {/* Right Group: Testing controls + Service Indicators */}
-        <div className="flex items-center gap-3 mr-2">
+        {/* Center: Workspace tabs (segmented control) */}
+        <WorkspaceTabs />
+
+        {/* Right Group (flex-1 for center alignment) */}
+        <div className="flex-1 flex items-center justify-end gap-3 mr-2">
           {/* Testing controls (before service indicators) */}
           <TestingControls />
 
@@ -481,12 +460,32 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
           {/* Model Status */}
           <ModelStatusIndicator />
 
-          {/* Separator */}
-          <div className="h-4 w-px bg-border" />
-
-          {/* Holiday Indicator (replaced date/time) */}
-          <HolidayIndicator />
+          {/* Holiday moved to left group next to brand */}
         </div>
+
+        {/* Discipline Score */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-1 cursor-default shrink-0">
+              <Shield className={`h-3 w-3 ${scoreColor}`} />
+              <span className={`text-[0.625rem] font-bold tabular-nums ${scoreColor}`}>
+                {disciplineScore}
+              </span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <div className="text-[0.625rem] space-y-0.5 font-mono">
+              <div className={`font-bold mb-1 ${scoreColor}`}>Discipline: {disciplineScore}/100</div>
+              <div className="text-muted-foreground">Circuit Breaker  {breakdown.circuitBreaker}/20</div>
+              <div className="text-muted-foreground">Trade Limits     {breakdown.tradeLimits}/15</div>
+              <div className="text-muted-foreground">Cooldowns        {breakdown.cooldowns}/15</div>
+              <div className="text-muted-foreground">Time Windows     {breakdown.timeWindows}/10</div>
+              <div className="text-muted-foreground">Position Sizing  {breakdown.positionSizing}/15</div>
+              <div className="text-muted-foreground">Journal          {breakdown.journal}/10</div>
+              <div className="text-muted-foreground">Pre-Trade Gate   {breakdown.preTradeGate}/15</div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
 
         {/* Right Edge: Drawer Toggle */}
         <button
