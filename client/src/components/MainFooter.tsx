@@ -232,7 +232,7 @@ export default function MainFooter() {
   const [injectOpen, setInjectOpen] = useState(false);
 
   // ─── Global Capital Context (single source of truth) ────────
-  const { capital, stateData, inject: ctxInject, injectPending } = useCapital();
+  const { capital, stateData, allDays, inject: ctxInject, injectPending } = useCapital() as any;
 
   // ─── Other tRPC Queries (not capital) ───────────────────────
   const disciplineQuery = trpc.discipline.getDashboard.useQuery(undefined, {
@@ -255,20 +255,32 @@ export default function MainFooter() {
   // Day 250 progress
   const dayProgress = (currentDay / 250) * 100;
 
-  // Monthly growth
+  // Monthly P&L (profit only, excludes injected funds) computed from day records
   const now = new Date();
-  const prevMonthName = new Date(now.getFullYear(), now.getMonth() - 1).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
-  const currMonthName = new Date(now.getFullYear(), now.getMonth()).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
-  const prevMonthFund = capitalData?.prevMonthFund ?? 0;
-  const prevMonthGrowth = capitalData?.prevMonthGrowth ?? 0;
-  const currMonthFund = capitalData?.currMonthFund ?? netWorth;
-  const currMonthGrowth = capitalData?.currMonthGrowth ?? 0;
-  const prevTradingPool = capitalData?.prevMonthTradingPool ?? 0;
-  const prevReservePool = capitalData?.prevMonthReservePool ?? 0;
-  const prevTradingGrowth = capitalData?.prevMonthTradingGrowth ?? 0;
-  const prevReserveGrowth = capitalData?.prevMonthReserveGrowth ?? 0;
-  const currTradingGrowth = capitalData?.currMonthTradingGrowth ?? 0;
-  const currReserveGrowth = capitalData?.currMonthReserveGrowth ?? 0;
+  const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const currMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const prevMonthName = prevMonthStart.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+  const currMonthName = currMonthStart.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+
+  const monthlyPnl = useMemo(() => {
+    const days = allDays ?? [];
+    let prevPnl = 0, prevCharges = 0, prevTrades = 0;
+    let currPnl = 0, currCharges = 0, currTrades = 0;
+    for (const d of days) {
+      if (!d.date || d.status === 'FUTURE') continue;
+      const dayDate = new Date(d.date + 'T00:00:00');
+      if (dayDate >= prevMonthStart && dayDate < currMonthStart) {
+        prevPnl += d.totalPnl || 0;
+        prevCharges += d.totalCharges || 0;
+        prevTrades += (d.trades?.length ?? 0);
+      } else if (dayDate >= currMonthStart) {
+        currPnl += d.totalPnl || 0;
+        currCharges += d.totalCharges || 0;
+        currTrades += (d.trades?.length ?? 0);
+      }
+    }
+    return { prevPnl, prevCharges, prevTrades, currPnl, currCharges, currTrades };
+  }, [allDays, prevMonthStart.getTime(), currMonthStart.getTime()]);
 
   // Net Worth pool growth since inception
   const tradingPoolGrowth = initialFunding > 0
@@ -338,28 +350,39 @@ export default function MainFooter() {
     <div className="sticky bottom-0 z-40 border-t border-border bg-gradient-footer backdrop-blur-md">
       <div className="flex items-center px-3 py-2 gap-4">
 
-        {/* ─── Monthly Growth ─── */}
+        {/* ─── Monthly P&L (profit only) ─── */}
         <div className="flex items-center gap-3 shrink-0">
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex flex-col cursor-default">
                 <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">{prevMonthName}</span>
-                <span className="text-[0.8125rem] font-bold tabular-nums text-foreground">
-                  {fmt(prevMonthFund)}{' '}
-                  <span className={`text-[0.6875rem] ${prevMonthGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
-                    {prevMonthGrowth >= 0 ? '+' : ''}{prevMonthGrowth.toFixed(1)}%
-                  </span>
+                <span className={`text-[0.8125rem] font-bold tabular-nums ${monthlyPnl.prevPnl >= 0 ? 'text-bullish' : 'text-destructive'}`}>
+                  {monthlyPnl.prevPnl >= 0 ? '+' : ''}{fmt(monthlyPnl.prevPnl)}
                 </span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="top">
               <div className="text-xs space-y-0.5">
-                <div className="font-bold">{prevMonthName} Pool Breakdown</div>
-                <div className="text-muted-foreground">
-                  Trading: {fmt(prevTradingPool)} <span className={prevTradingGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>{prevTradingGrowth >= 0 ? '+' : ''}{prevTradingGrowth.toFixed(1)}%</span>
+                <div className="font-bold">{prevMonthName}</div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">P&L</span>
+                  <span className={`font-bold ${monthlyPnl.prevPnl >= 0 ? 'text-bullish' : 'text-destructive'}`}>
+                    {monthlyPnl.prevPnl >= 0 ? '+' : ''}{fmt(monthlyPnl.prevPnl)}
+                  </span>
                 </div>
-                <div className="text-muted-foreground">
-                  Reserve: {fmt(prevReservePool)} <span className={prevReserveGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>{prevReserveGrowth >= 0 ? '+' : ''}{prevReserveGrowth.toFixed(1)}%</span>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Charges</span>
+                  <span className="font-bold">{fmt(monthlyPnl.prevCharges)}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Net</span>
+                  <span className={`font-bold ${(monthlyPnl.prevPnl - monthlyPnl.prevCharges) >= 0 ? 'text-bullish' : 'text-destructive'}`}>
+                    {fmt(monthlyPnl.prevPnl - monthlyPnl.prevCharges)}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Trades</span>
+                  <span className="font-bold">{monthlyPnl.prevTrades}</span>
                 </div>
               </div>
             </TooltipContent>
@@ -368,22 +391,33 @@ export default function MainFooter() {
             <TooltipTrigger asChild>
               <div className="flex flex-col cursor-default">
                 <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">{currMonthName}</span>
-                <span className="text-[0.8125rem] font-bold tabular-nums text-foreground">
-                  {fmt(currMonthFund)}{' '}
-                  <span className={`text-[0.6875rem] ${currMonthGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
-                    {currMonthGrowth >= 0 ? '+' : ''}{currMonthGrowth.toFixed(1)}%
-                  </span>
+                <span className={`text-[0.8125rem] font-bold tabular-nums ${monthlyPnl.currPnl >= 0 ? 'text-bullish' : 'text-destructive'}`}>
+                  {monthlyPnl.currPnl >= 0 ? '+' : ''}{fmt(monthlyPnl.currPnl)}
                 </span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="top">
               <div className="text-xs space-y-0.5">
-                <div className="font-bold">{currMonthName} Pool Breakdown</div>
-                <div className="text-muted-foreground">
-                  Trading: {fmt(tradingPool)} <span className={currTradingGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>{currTradingGrowth >= 0 ? '+' : ''}{currTradingGrowth.toFixed(1)}%</span>
+                <div className="font-bold">{currMonthName}</div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">P&L</span>
+                  <span className={`font-bold ${monthlyPnl.currPnl >= 0 ? 'text-bullish' : 'text-destructive'}`}>
+                    {monthlyPnl.currPnl >= 0 ? '+' : ''}{fmt(monthlyPnl.currPnl)}
+                  </span>
                 </div>
-                <div className="text-muted-foreground">
-                  Reserve: {fmt(reservePool)} <span className={currReserveGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>{currReserveGrowth >= 0 ? '+' : ''}{currReserveGrowth.toFixed(1)}%</span>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Charges</span>
+                  <span className="font-bold">{fmt(monthlyPnl.currCharges)}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Net</span>
+                  <span className={`font-bold ${(monthlyPnl.currPnl - monthlyPnl.currCharges) >= 0 ? 'text-bullish' : 'text-destructive'}`}>
+                    {fmt(monthlyPnl.currPnl - monthlyPnl.currCharges)}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Trades</span>
+                  <span className="font-bold">{monthlyPnl.currTrades}</span>
                 </div>
               </div>
             </TooltipContent>
