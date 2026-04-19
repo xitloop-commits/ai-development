@@ -627,14 +627,14 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         </div>
       </td>
 
-      <td className="px-2 py-1 border-r border-border">
+      <td className="py-1 border-r border-border">
         <input
           type="number"
           value={entryPrice}
           onChange={(e) => setEntryPrice(e.target.value)}
           placeholder="Entry"
           step="0.05"
-          className={`w-full bg-background border border-border rounded px-1.5 py-1 text-[0.625rem] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`}
+          className={`w-full bg-background border-y border-border px-1.5 py-1 text-[0.625rem] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`}
         />
       </td>
 
