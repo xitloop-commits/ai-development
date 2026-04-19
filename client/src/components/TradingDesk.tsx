@@ -14,6 +14,7 @@
  */
 import { Fragment, useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCapital } from '@/contexts/CapitalContext';
 import { trpc } from '@/lib/trpc';
 import { formatINR, formatPrice as fmtPrice } from '@/lib/formatINR';
@@ -746,16 +747,36 @@ export default function TradingDesk({
             <span className="text-muted-foreground"> / 250</span>
           </span>
         </div>
-        {/* Trade Capital */}
-        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Trade Capital</span>
-          <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.tradingPool, true)}</span>
-        </div>
-        {/* Available */}
-        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Available</span>
-          <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
-        </div>
+        {/* Trade Capital — with pool breakdown tooltip */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="px-3 py-1.5 flex flex-col items-center justify-center cursor-default">
+              <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Trade Capital</span>
+              <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.tradingPool, true)}</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <div className="text-[0.625rem] space-y-1">
+              <div className="font-bold">Capital Pools</div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Trading Pool</span>
+                <span className="font-bold tabular-nums">{fmt(capital.tradingPool, true)}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Available</span>
+                <span className="font-bold tabular-nums">{fmt(capital.availableCapital, true)}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Reserve Pool</span>
+                <span className="font-bold tabular-nums">{fmt(capital.reservePool, true)}</span>
+              </div>
+              <div className="flex justify-between gap-4 pt-1 border-t border-border/50">
+                <span className="text-muted-foreground">Net Worth</span>
+                <span className="font-bold tabular-nums">{fmt(capital.netWorth, true)}</span>
+              </div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
         {/* Cum. Profit */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
           <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Cum. Profit</span>

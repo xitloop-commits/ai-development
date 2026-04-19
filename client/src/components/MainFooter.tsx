@@ -281,32 +281,53 @@ export default function MainFooter() {
         {/* ─── 4. Project Milestone — horizontal progress bar ─── */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex-1 flex items-center gap-2 cursor-default min-w-[200px]">
-              <div className="flex-1 relative h-2 rounded-full bg-muted/30 overflow-hidden">
-                {/* Progress fill */}
-                <div
-                  className="absolute inset-y-0 left-0 rounded-full bg-gradient-cyan-violet transition-all duration-700"
-                  style={{ width: `${Math.min((currentDay / 250) * 100, 100)}%` }}
-                />
-                {/* Milestone markers */}
-                {milestones.filter(m => m.day > 1 && m.day < 250).map((m) => (
+            <div className="flex-1 flex items-center cursor-default min-w-[200px] pr-4">
+              <div className="flex-1 relative h-2 rounded-full bg-muted/30 my-5">
+                {/* Progress fill (clipped to bar shape) */}
+                <div className="absolute inset-0 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-bullish/70 transition-all duration-700"
+                    style={{ width: `${Math.min((currentDay / 250) * 100, 100)}%` }}
+                  />
+                </div>
+                {/* Milestone markers with day above + capital below */}
+                {milestones.filter(m => m.day > 1).map((m) => (
                   <div
                     key={m.day}
-                    className={`absolute top-0 bottom-0 w-px ${
-                      currentDay >= m.day ? 'bg-foreground/20' : 'bg-muted-foreground/20'
-                    }`}
-                    style={{ left: `${(m.day / 250) * 100}%` }}
-                  />
+                    className="absolute flex flex-col items-center -translate-x-1/2"
+                    style={{ left: `${(m.day / 250) * 100}%`, top: '-14px', bottom: '-16px' }}
+                  >
+                    <span className={`text-[0.5rem] font-bold tabular-nums leading-none ${
+                      currentDay >= m.day ? 'text-foreground/60' : 'text-muted-foreground/50'
+                    }`}>
+                      {m.day}
+                    </span>
+                    <div className={`flex-1 w-px my-0.5 ${
+                      currentDay >= m.day ? 'bg-foreground/30' : 'bg-muted-foreground/20'
+                    }`} />
+                    <span className={`text-[0.4375rem] tabular-nums leading-none ${
+                      currentDay >= m.day ? 'text-foreground/50' : 'text-muted-foreground/40'
+                    }`}>
+                      {fmt(m.total)}
+                    </span>
+                  </div>
                 ))}
-                {/* Current position dot */}
+                {/* Current position marker with day label */}
                 <div
-                  className="absolute top-1/2 -translate-y-1/2 h-3 w-3 rounded-full bg-primary border-2 border-background shadow-sm transition-all duration-700"
-                  style={{ left: `${Math.min((currentDay / 250) * 100, 100)}%`, marginLeft: '-6px' }}
-                />
+                  className="absolute flex flex-col items-center -translate-x-1/2 transition-all duration-700"
+                  style={{ left: `${Math.min((currentDay / 250) * 100, 100)}%`, top: '-14px', bottom: '-16px' }}
+                >
+                  <span className="text-[0.5rem] font-bold tabular-nums leading-none text-primary">
+                    {currentDay}
+                  </span>
+                  <div className="flex-1 flex items-center justify-center my-0.5">
+                    <div className="h-3.5 w-3.5 rounded-full bg-primary border-2 border-background shadow-sm" />
+                  </div>
+                  <span className="text-[0.4375rem] font-bold tabular-nums leading-none text-primary">
+                    {fmt(netWorth)}
+                  </span>
+                </div>
               </div>
-              <span className="text-[0.5625rem] font-bold tabular-nums text-muted-foreground shrink-0">
-                {currentDay}/250
-              </span>
             </div>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-[280px]">
@@ -336,131 +357,6 @@ export default function MainFooter() {
                   })}
                 </tbody>
               </table>
-            </div>
-          </TooltipContent>
-        </Tooltip>
-
-        {/* Separator */}
-        <div className="w-px self-stretch -my-2 bg-border shrink-0" />
-
-        {/* ─── 7. Capital Pools (horizontal) ─── */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex items-center gap-5 cursor-default shrink-0">
-              {/* Trading Pool mini bar */}
-              <div className="flex items-center gap-1.5">
-                <Zap className="h-3.5 w-3.5 text-primary shrink-0" />
-                <div className="flex flex-col w-[170px]">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">Trading</span>
-                    <span className="text-xs font-bold tabular-nums text-foreground">{fmt(tradingPool)}</span>
-                  </div>
-                  <div className="relative h-2 rounded-full bg-muted-foreground/30 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-gradient-green-cyan transition-all duration-500"
-                      style={{ width: `${Math.min(parseFloat(tradingPoolPct), 100)}%` }}
-                    />
-                    <span className="absolute inset-0 flex items-center justify-center text-[0.5rem] font-bold text-foreground drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">
-                      {tradingPoolPct}%
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Divider between pools */}
-              <div className="w-px self-stretch -my-2 bg-border/50 shrink-0" />
-
-              {/* Reserve Pool mini bar */}
-              <div className="flex items-center gap-1.5">
-                <Shield className="h-3.5 w-3.5 text-info-cyan shrink-0" />
-                <div className="flex flex-col w-[170px]">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">Reserve</span>
-                    <span className="text-xs font-bold tabular-nums text-foreground">{fmt(reservePool)}</span>
-                  </div>
-                  <div className="relative h-2 rounded-full bg-muted-foreground/30 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-gradient-cyan-violet transition-all duration-500"
-                      style={{ width: `${Math.min(parseFloat(reservePoolPct), 100)}%` }}
-                    />
-                    <span className="absolute inset-0 flex items-center justify-center text-[0.5rem] font-bold text-foreground drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">
-                      {reservePoolPct}%
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="bg-card border-border text-foreground">
-            <div className="text-xs space-y-1">
-              <div className="font-bold">Capital Pools</div>
-              <div className="text-muted-foreground">
-                Trading Pool: {fmt(tradingPool)} ({tradingPoolPct}%){' '}
-                <span className={Number(tradingPoolGrowth) >= 0 ? 'text-bullish' : 'text-loss-red'}>
-                  {Number(tradingPoolGrowth) >= 0 ? '+' : ''}{tradingPoolGrowth}%
-                </span>
-              </div>
-              <div className="text-muted-foreground">
-                Reserve Pool: {fmt(reservePool)} ({reservePoolPct}%){' '}
-                <span className={Number(reservePoolGrowth) >= 0 ? 'text-bullish' : 'text-loss-red'}>
-                  {Number(reservePoolGrowth) >= 0 ? '+' : ''}{reservePoolGrowth}%
-                </span>
-              </div>
-              <div className="pt-1 border-t border-border/50">
-                <Dialog open={injectOpen} onOpenChange={setInjectOpen}>
-                  <DialogTrigger asChild>
-                    <button className="flex items-center gap-1 px-2 py-0.5 rounded text-[0.6875rem] font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
-                      <Plus className="h-2.5 w-2.5" /> Inject Capital
-                    </button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-xs" onClick={(e) => e.stopPropagation()}>
-                    <DialogHeader>
-                      <DialogTitle className="text-sm">Inject Capital</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-3 pt-2">
-                      <p className="text-xs text-muted-foreground">
-                        New capital is split 75% Trading / 25% Reserve.
-                      </p>
-                      <input
-                        type="number"
-                        placeholder="Amount (₹)"
-                        value={injectAmount}
-                        onChange={(e) => setInjectAmount(e.target.value)}
-                        className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
-                        min="1"
-                        step="1000"
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          onClick={handleInject}
-                          disabled={injectPending || !injectAmount}
-                          className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors"
-                        >
-                          {injectPending ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <>
-                              <Plus className="h-3 w-3" /> Inject
-                            </>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => setInjectOpen(false)}
-                          className="px-3 py-1.5 rounded-md text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                      {injectAmount && parseFloat(injectAmount) > 0 && (
-                        <div className="text-[0.6875rem] text-muted-foreground space-y-0.5">
-                          <div>Trading Pool: +{fmt(parseFloat(injectAmount) * 0.75)}</div>
-                          <div>Reserve Pool: +{fmt(parseFloat(injectAmount) * 0.25)}</div>
-                        </div>
-                      )}
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              </div>
             </div>
           </TooltipContent>
         </Tooltip>
