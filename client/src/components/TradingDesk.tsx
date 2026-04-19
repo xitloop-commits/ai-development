@@ -819,13 +819,6 @@ export default function TradingDesk({
           <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Available</span>
           <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
         </div>
-        {/* Cum. Profit */}
-        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Cum. Profit</span>
-          <span className={`text-xs font-bold tabular-nums ${pnlColor(capital.cumulativePnl)}`}>
-            {capital.cumulativePnl >= 0 ? '+' : ''}{fmt(capital.cumulativePnl)}
-          </span>
-        </div>
         {/* Today P&L — center-zero progress bar with marker */}
         <div className="px-3 py-1.5 flex flex-col justify-center flex-1 min-w-[220px]">
           {(() => {
