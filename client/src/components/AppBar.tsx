@@ -215,14 +215,53 @@ function HolidayIndicator() {
   );
 }
 
-// ── Workspace Tabs (segmented control) ───────────────────────
+// ── Testing Controls (Live/Paper toggle + Clear) ────────────
 
-function WorkspaceTabs() {
-  const { capital, workspace, setWorkspace, refetchAll } = useCapital() as any;
+function TestingControls() {
+  const { capital, workspace, refetchAll } = useCapital() as any;
   const [testingMode, setTestingMode] = useState<'live' | 'paper'>('paper');
   const clearWorkspaceMutation = trpc.capital.clearWorkspace.useMutation({
     onSuccess: () => refetchAll(),
   });
+
+  if (workspace !== 'paper_manual') return null;
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex items-center rounded border border-border overflow-hidden">
+        <button
+          onClick={() => setTestingMode('live')}
+          className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
+            testingMode === 'live' ? 'bg-bullish/20 text-bullish' : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          LIVE
+        </button>
+        <button
+          onClick={() => setTestingMode('paper')}
+          className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
+            testingMode === 'paper' ? 'bg-warning-amber/20 text-warning-amber' : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          PAPER
+        </button>
+      </div>
+      <button
+        onClick={() => clearWorkspaceMutation.mutate({ workspace: 'paper_manual', initialFunding: capital.tradingPool + capital.reservePool || 100000 })}
+        disabled={clearWorkspaceMutation.isPending}
+        className="px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
+      >
+        {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
+      </button>
+      <div className="h-4 w-px bg-border" />
+    </div>
+  );
+}
+
+// ── Workspace Tabs (segmented control) ───────────────────────
+
+function WorkspaceTabs() {
+  const { workspace, setWorkspace } = useCapital() as any;
 
   return (
     <div className="flex items-stretch self-stretch">
@@ -259,37 +298,7 @@ function WorkspaceTabs() {
       >
         Testing
       </button>
-      {workspace === 'paper_manual' && (
-        <div className="flex items-center gap-2 px-3 border-r border-border">
-          {/* Live/Paper toggle */}
-          <div className="flex items-center rounded border border-border overflow-hidden">
-            <button
-              onClick={() => setTestingMode('live')}
-              className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
-                testingMode === 'live' ? 'bg-bullish/20 text-bullish' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              LIVE
-            </button>
-            <button
-              onClick={() => setTestingMode('paper')}
-              className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
-                testingMode === 'paper' ? 'bg-warning-amber/20 text-warning-amber' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              PAPER
-            </button>
-          </div>
-          {/* Clear */}
-          <button
-            onClick={() => clearWorkspaceMutation.mutate({ workspace: 'paper_manual', initialFunding: capital.tradingPool + capital.reservePool || 100000 })}
-            disabled={clearWorkspaceMutation.isPending}
-            className="px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
-          >
-            {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
-          </button>
-        </div>
-      )}
+      {/* Testing controls moved to right group */}
     </div>
   );
 }
@@ -419,8 +428,11 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
           <WorkspaceTabs />
         </div>
 
-        {/* Right Group: Service Indicators + Time */}
+        {/* Right Group: Testing controls + Service Indicators */}
         <div className="flex items-center gap-3 mr-2">
+          {/* Testing controls (before service indicators) */}
+          <TestingControls />
+
           {/* Broker API Status */}
           <Tooltip>
             <TooltipTrigger asChild>
