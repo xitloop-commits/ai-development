@@ -25,11 +25,11 @@ const TAB_LABELS: Record<string, string> = {
   NATURALGAS: 'NATGAS',
 };
 
-const TAB_COLORS: Record<string, string> = {
-  NIFTY_50: 'text-info-cyan border-info-cyan',
-  BANKNIFTY: 'text-bullish border-bullish',
-  CRUDEOIL: 'text-warning-amber border-warning-amber',
-  NATURALGAS: 'text-destructive border-destructive',
+const TAB_COLORS: Record<string, { active: string; text: string }> = {
+  NIFTY_50: { active: 'bg-info-cyan/15 text-info-cyan', text: 'text-info-cyan' },
+  BANKNIFTY: { active: 'bg-bullish/15 text-bullish', text: 'text-bullish' },
+  CRUDEOIL: { active: 'bg-warning-amber/15 text-warning-amber', text: 'text-warning-amber' },
+  NATURALGAS: { active: 'bg-destructive/15 text-destructive', text: 'text-destructive' },
 };
 
 interface ResolvedFeedInstrument {
@@ -54,19 +54,19 @@ export default function LeftSidebar({ visible, instruments, resolvedInstruments 
 
   return (
     <aside className="w-[360px] shrink-0 border-r border-border bg-background flex flex-col overflow-hidden">
-      {/* Tabs */}
-      <div className="flex items-center gap-1 px-4 pt-2 pb-0">
+      {/* Tabs — same style as workspace tabs */}
+      <div className="flex items-stretch border-b border-border">
         {instruments.map((inst, idx) => {
           const isActive = idx === activeTab;
-          const colorClass = TAB_COLORS[inst.name] ?? 'text-foreground border-foreground';
+          const colors = TAB_COLORS[inst.name] ?? { active: 'bg-foreground/15 text-foreground', text: 'text-foreground' };
           return (
             <button
               key={inst.name}
               onClick={() => setActiveTab(idx)}
-              className={`px-3 py-1.5 rounded-t text-[0.625rem] font-bold tracking-wider uppercase border-b-2 transition-colors ${
+              className={`flex-1 px-4 py-2 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border last:border-r-0 ${
                 isActive
-                  ? `${colorClass} bg-card`
-                  : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-accent'
+                  ? colors.active
+                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
               }`}
             >
               {TAB_LABELS[inst.name] ?? inst.name}
