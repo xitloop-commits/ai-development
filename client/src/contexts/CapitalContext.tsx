@@ -308,7 +308,7 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
 
   const resetCapital = useCallback(
     (initialFunding: number) => {
-      resetCapitalMutation.mutate({ workspace: 'live', initialFunding });
+      resetCapitalMutation.mutate({ workspace: 'live', initialFunding, force: true });
     },
     [resetCapitalMutation]
   );

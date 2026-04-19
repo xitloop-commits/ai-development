@@ -875,8 +875,28 @@ export const capitalRouter = router({
     .input(z.object({
       workspace: workspaceSchema,
       initialFunding: z.number().positive().default(100000),
+      force: z.boolean().default(false),
     }))
     .mutation(async ({ input }) => {
+      // Guard: warn if day cycles have started — require force=true to proceed
+      if (!input.force) {
+        const state = await getCapitalState(input.workspace);
+        const day = await getDayRecord(input.workspace, state.currentDayIndex);
+        const hasCompletedTrades = day?.trades?.some(
+          (t) => t.status !== 'OPEN' && t.status !== 'PENDING' && t.status !== 'CANCELLED'
+        ) ?? false;
+        const hasPastDays = state.currentDayIndex > 1;
+
+        if (hasPastDays || hasCompletedTrades) {
+          throw new Error(
+            'Capital reset requires confirmation. ' +
+            'Current state: Day ' + state.currentDayIndex +
+            (hasCompletedTrades ? ' with completed trades.' : '.') +
+            ' Pass force=true to confirm reset.'
+          );
+        }
+      }
+
       const targetPercent = await getDailyTargetPercent();
       const now = Date.now();
       const today = new Date().toISOString().slice(0, 10);
