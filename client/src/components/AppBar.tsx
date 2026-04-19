@@ -351,7 +351,7 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
 
   return (
     <div className="sticky top-0 z-50 w-full border-b border-border bg-secondary backdrop-blur-md">
-      <div className="flex items-stretch">
+      <div className="relative flex items-stretch h-10">
         {/* Drawer Toggle */}
         <button
           onClick={onToggleLeftDrawer}
@@ -399,8 +399,11 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
-        {/* Center: Workspace tabs */}
-        <div className="flex-1 flex items-center justify-center">
+        {/* Spacer to push right items to the end */}
+        <div className="flex-1" />
+
+        {/* Center: Workspace tabs (absolute center of screen) */}
+        <div className="absolute left-1/2 top-0 bottom-0 -translate-x-1/2 flex items-stretch z-10">
           <WorkspaceTabs />
         </div>
 
