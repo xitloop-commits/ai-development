@@ -253,7 +253,6 @@ function TestingControls() {
       >
         {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
       </button>
-      <div className="h-4 w-px bg-border" />
     </div>
   );
 }
@@ -352,107 +351,118 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
 
   return (
     <div className="sticky top-0 z-50 w-full border-b border-border bg-secondary backdrop-blur-md">
-      <div className="flex items-stretch justify-between px-3">
-        {/* Left Edge: Drawer Toggle */}
+      <div className="flex items-stretch">
+        {/* Drawer Toggle */}
         <button
           onClick={onToggleLeftDrawer}
-          className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors shrink-0 my-1.5"
+          className="px-2 flex items-center justify-center hover:bg-accent transition-colors shrink-0"
           title="Toggle Instrument Cards (Ctrl+[)"
         >
           <Menu className="h-4 w-4 text-muted-foreground" />
         </button>
 
-        {/* Left Group (flex-1 for center alignment) */}
-        <div className="flex-1 flex items-center gap-2 ml-2">
-          {/* Brand + Days Left */}
-          <div className="flex items-center gap-1.5">
-            <div className="h-2 w-2 rounded-sm bg-primary" />
-            <span className="font-display text-sm font-bold tracking-wider text-primary uppercase">
-              lubas
-            </span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="text-[0.5625rem] font-bold tabular-nums text-muted-foreground cursor-default">
-                  {250 - currentDay} left
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <div className="text-[0.625rem] space-y-0.5">
-                  <div className="font-bold">Day 250 Journey — {dayProgress.toFixed(1)}% Complete</div>
-                  <div className="text-muted-foreground">Current Day: {currentDay}</div>
-                  <div className="text-muted-foreground">Remaining: {250 - currentDay} days</div>
-                  <div className="text-muted-foreground">Growth: {growthPercent}% from {formatINR(initialFunding)}</div>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </div>
+        <div className="w-px self-stretch bg-border shrink-0" />
 
-          <div className="w-px self-stretch bg-border shrink-0" />
+        {/* Brand */}
+        <div className="px-3 flex items-center gap-1.5 shrink-0">
+          <div className="h-2 w-2 rounded-sm bg-primary" />
+          <span className="font-display text-sm font-bold tracking-wider text-primary uppercase">lubas</span>
+          <span className="hidden xl:inline text-[0.5625rem] text-muted-foreground tracking-widest uppercase">Lucky Basker</span>
+        </div>
 
-          {/* Holiday Indicator */}
+        <div className="w-px self-stretch bg-border shrink-0" />
+
+        {/* Days Left */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="px-3 flex items-center gap-1.5 shrink-0 cursor-default">
+              <Target className="h-3 w-3 text-primary shrink-0" />
+              <span className="text-[0.625rem] font-bold tabular-nums text-primary">{250 - currentDay} left</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <div className="text-[0.625rem] space-y-0.5">
+              <div className="font-bold">Day 250 Journey — {dayProgress.toFixed(1)}% Complete</div>
+              <div className="text-muted-foreground">Current Day: {currentDay}</div>
+              <div className="text-muted-foreground">Remaining: {250 - currentDay} days</div>
+              <div className="text-muted-foreground">Growth: {growthPercent}% from {formatINR(initialFunding)}</div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+
+        <div className="w-px self-stretch bg-border shrink-0" />
+
+        {/* Holiday */}
+        <div className="px-3 flex items-center shrink-0">
           <HolidayIndicator />
         </div>
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
-        {/* Center: Workspace tabs (segmented control) */}
-        <WorkspaceTabs />
+        {/* Center: Workspace tabs */}
+        <div className="flex-1 flex items-center justify-center">
+          <WorkspaceTabs />
+        </div>
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
-        {/* Right Group (flex-1 for center alignment) */}
-        <div className="flex-1 flex items-center justify-end gap-3 mr-2">
-          {/* Testing controls (before service indicators) */}
+        {/* Testing controls */}
+        <div className="px-3 flex items-center shrink-0">
           <TestingControls />
+        </div>
 
-          {/* Broker API Status */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 cursor-default">
-                <Globe className={`h-3 w-3 ${brokerConnected ? 'text-bullish' : 'text-muted-foreground'}`} />
-                <span className="hidden lg:inline text-[0.5625rem] text-muted-foreground tracking-wider">API</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="bg-card border-border text-foreground">
-              <div className="text-[0.625rem] space-y-0.5">
-                <div className={`font-bold ${brokerConnected ? 'text-bullish' : 'text-muted-foreground'}`}>
-                  {brokerConnected ? `${brokerName} Connected` : 'Broker Disconnected'}
-                </div>
-                <div className="text-muted-foreground">
-                  Mode: {brokerMode === 'live' ? 'LIVE TRADING' : 'Paper Trading'}
-                </div>
-              </div>
-            </TooltipContent>
-          </Tooltip>
+        <div className="w-px self-stretch bg-border shrink-0" />
 
-          {/* Feed Status */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 cursor-default">
-                <Wifi className={`h-3 w-3 ${feedState?.wsConnected ? 'text-bullish' : 'text-muted-foreground'}`} />
-                {feedState?.wsConnected && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
-                )}
-                <span className="hidden lg:inline text-[0.5625rem] text-muted-foreground tracking-wider">FEED</span>
+        {/* API */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="px-3 flex items-center gap-1 shrink-0 cursor-default">
+              <Globe className={`h-3 w-3 ${brokerConnected ? 'text-bullish' : 'text-muted-foreground'}`} />
+              <span className="text-[0.5625rem] text-muted-foreground tracking-wider">API</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <div className="text-[0.625rem] space-y-0.5">
+              <div className={`font-bold ${brokerConnected ? 'text-bullish' : 'text-muted-foreground'}`}>
+                {brokerConnected ? `${brokerName} Connected` : 'Broker Disconnected'}
               </div>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="bg-card border-border text-foreground">
-              <div className="text-[0.625rem] space-y-0.5">
-                <div className={`font-bold ${feedState?.wsConnected ? 'text-bullish' : 'text-muted-foreground'}`}>
-                  {feedState?.wsConnected ? 'Feed Connected' : 'Feed Disconnected'}
-                </div>
-                <div className="text-muted-foreground">
-                  {feedState ? `${feedState.totalSubscriptions} subscriptions` : 'No feed data'}
-                </div>
+              <div className="text-muted-foreground">
+                Mode: {brokerMode === 'live' ? 'LIVE TRADING' : 'Paper Trading'}
               </div>
-            </TooltipContent>
-          </Tooltip>
+            </div>
+          </TooltipContent>
+        </Tooltip>
 
-          {/* Discipline Score — shown in footer, removed from AppBar */}
+        <div className="w-px self-stretch bg-border shrink-0" />
 
-          {/* Model Status */}
+        {/* Feed */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="px-3 flex items-center gap-1 shrink-0 cursor-default">
+              <Wifi className={`h-3 w-3 ${feedState?.wsConnected ? 'text-bullish' : 'text-muted-foreground'}`} />
+              {feedState?.wsConnected && (
+                <span className="h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
+              )}
+              <span className="text-[0.5625rem] text-muted-foreground tracking-wider">FEED</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <div className="text-[0.625rem] space-y-0.5">
+              <div className={`font-bold ${feedState?.wsConnected ? 'text-bullish' : 'text-muted-foreground'}`}>
+                {feedState?.wsConnected ? 'Feed Connected' : 'Feed Disconnected'}
+              </div>
+              <div className="text-muted-foreground">
+                {feedState ? `${feedState.totalSubscriptions} subscriptions` : 'No feed data'}
+              </div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+
+        <div className="w-px self-stretch bg-border shrink-0" />
+
+        {/* Model Status */}
+        <div className="px-3 flex items-center shrink-0">
           <ModelStatusIndicator />
-
         </div>
 
         <div className="w-px self-stretch bg-border shrink-0" />
@@ -460,7 +470,7 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
         {/* Discipline Score */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex items-center gap-1 cursor-default shrink-0">
+            <div className="px-3 flex items-center gap-1 shrink-0 cursor-default">
               <Shield className={`h-3 w-3 ${scoreColor}`} />
               <span className={`text-[0.625rem] font-bold tabular-nums ${scoreColor}`}>
                 {disciplineScore}
@@ -481,10 +491,12 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
           </TooltipContent>
         </Tooltip>
 
-        {/* Right Edge: Drawer Toggle */}
+        <div className="w-px self-stretch bg-border shrink-0" />
+
+        {/* Drawer Toggle */}
         <button
           onClick={onToggleRightDrawer}
-          className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors shrink-0 my-1.5"
+          className="px-2 flex items-center justify-center hover:bg-accent transition-colors shrink-0"
           title="Toggle Signals & Alerts (Ctrl+])"
         >
           <Menu className="h-4 w-4 text-muted-foreground" />
