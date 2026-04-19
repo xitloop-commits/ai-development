@@ -915,9 +915,9 @@ export default function TradingDesk({
               <col style={{ width: 80 }} />   {/* Target Profit */}
               <col style={{ width: 80 }} />   {/* Proj. Cap. */}
               <col />                          {/* Instrument — takes remaining */}
-              <col style={{ width: 65 }} />   {/* Entry */}
-              <col style={{ width: 140 }} />  {/* LTP */}
-              <col style={{ width: 60 }} />   {/* Qty */}
+              <col style={{ width: 75 }} />   {/* Entry */}
+              <col style={{ width: 120 }} />  {/* LTP */}
+              <col style={{ width: 70 }} />   {/* Qty */}
               <col style={{ width: 90 }} />   {/* Invested */}
               <col style={{ width: 80 }} />   {/* P&L */}
               <col style={{ width: 55 }} />   {/* P&L % */}
