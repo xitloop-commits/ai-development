@@ -350,17 +350,16 @@ export default function MainFooter() {
     <div className="sticky bottom-0 z-40 border-t border-border bg-gradient-footer backdrop-blur-md">
       <div className="flex items-center px-3 py-2 gap-4">
 
-        {/* ─── Monthly P&L (profit only) ─── */}
-        <div className="flex items-center gap-3 shrink-0">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex flex-col cursor-default">
-                <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">{prevMonthName}</span>
-                <span className={`text-[0.8125rem] font-bold tabular-nums ${monthlyPnl.prevPnl >= 0 ? 'text-bullish' : 'text-destructive'}`}>
-                  {monthlyPnl.prevPnl >= 0 ? '+' : ''}{fmt(monthlyPnl.prevPnl)}
-                </span>
-              </div>
-            </TooltipTrigger>
+        {/* ─── Prev Month P&L ─── */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex flex-col cursor-default shrink-0">
+              <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">{prevMonthName}</span>
+              <span className={`text-[0.8125rem] font-bold tabular-nums ${monthlyPnl.prevPnl >= 0 ? 'text-bullish' : 'text-destructive'}`}>
+                {monthlyPnl.prevPnl >= 0 ? '+' : ''}{fmt(monthlyPnl.prevPnl)}
+              </span>
+            </div>
+          </TooltipTrigger>
             <TooltipContent side="top">
               <div className="text-xs space-y-0.5">
                 <div className="font-bold">{prevMonthName}</div>
@@ -386,12 +385,16 @@ export default function MainFooter() {
                 </div>
               </div>
             </TooltipContent>
-          </Tooltip>
-          <div className="w-px self-stretch -my-2 bg-border shrink-0" />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex flex-col cursor-default">
-                <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">{currMonthName}</span>
+        </Tooltip>
+
+        {/* Separator */}
+        <div className="w-px self-stretch -my-2 bg-border shrink-0" />
+
+        {/* ─── Curr Month P&L ─── */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex flex-col cursor-default shrink-0">
+              <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">{currMonthName}</span>
                 <span className={`text-[0.8125rem] font-bold tabular-nums ${monthlyPnl.currPnl >= 0 ? 'text-bullish' : 'text-destructive'}`}>
                   {monthlyPnl.currPnl >= 0 ? '+' : ''}{fmt(monthlyPnl.currPnl)}
                 </span>
@@ -422,8 +425,7 @@ export default function MainFooter() {
                 </div>
               </div>
             </TooltipContent>
-          </Tooltip>
-        </div>
+        </Tooltip>
 
         {/* Separator */}
         <div className="w-px self-stretch -my-2 bg-border shrink-0" />
