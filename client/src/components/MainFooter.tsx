@@ -259,8 +259,8 @@ export default function MainFooter() {
   const now = new Date();
   const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const currMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const prevMonthName = prevMonthStart.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
-  const currMonthName = currMonthStart.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+  const prevMonthName = prevMonthStart.toLocaleDateString('en-IN', { month: 'short' }).toUpperCase() + "'" + String(prevMonthStart.getFullYear()).slice(2);
+  const currMonthName = currMonthStart.toLocaleDateString('en-IN', { month: 'short' }).toUpperCase() + "'" + String(currMonthStart.getFullYear()).slice(2);
 
   const monthlyPnl = useMemo(() => {
     const days = allDays ?? [];
@@ -387,6 +387,7 @@ export default function MainFooter() {
               </div>
             </TooltipContent>
           </Tooltip>
+          <div className="w-px self-stretch -my-2 bg-border shrink-0" />
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex flex-col cursor-default">
