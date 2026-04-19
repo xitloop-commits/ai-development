@@ -133,6 +133,42 @@ function ToggleSwitch({ checked, onChange, disabled = false }: { checked: boolea
   );
 }
 
+// ─── Number to Indian words ─────────────────────────────────
+
+const _ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+  'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+const _tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+function numberToWords(n: number): string {
+  if (n === 0) return 'Zero';
+  if (n < 0) return 'Minus ' + numberToWords(-n);
+  n = Math.floor(n);
+  const parts: string[] = [];
+
+  if (n >= 1_00_00_000) {
+    parts.push(numberToWords(Math.floor(n / 1_00_00_000)) + ' Crore');
+    n %= 1_00_00_000;
+  }
+  if (n >= 1_00_000) {
+    parts.push(numberToWords(Math.floor(n / 1_00_000)) + ' Lakh');
+    n %= 1_00_000;
+  }
+  if (n >= 1_000) {
+    parts.push(numberToWords(Math.floor(n / 1_000)) + ' Thousand');
+    n %= 1_000;
+  }
+  if (n >= 100) {
+    parts.push(_ones[Math.floor(n / 100)] + ' Hundred');
+    n %= 100;
+  }
+  if (n >= 20) {
+    parts.push(_tens[Math.floor(n / 10)] + (n % 10 ? ' ' + _ones[n % 10] : ''));
+  } else if (n > 0) {
+    parts.push(_ones[n]);
+  }
+  return parts.join(' ');
+}
+
 function NumberInput({
   value,
   onChange,
@@ -928,13 +964,13 @@ export function CapitalManagementSection() {
                   min={10000}
                   max={100000000}
                   step={10000}
-                  suffix="\u20B9"
+                  suffix="₹"
                 />
               </div>
 
-              {/* Entered value in full format */}
-              <div className="text-[0.6875rem] font-bold tabular-nums text-foreground">
-                {newFunding.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+              {/* Entered value in words */}
+              <div className="text-[0.625rem] text-muted-foreground italic">
+                Rupees {numberToWords(newFunding)} Only
               </div>
 
               {/* Preview of what reset will create */}
