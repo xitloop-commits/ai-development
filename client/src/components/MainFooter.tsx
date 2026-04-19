@@ -391,7 +391,75 @@ export default function MainFooter() {
         {/* Separator */}
         <div className="w-px self-stretch -my-2 bg-border shrink-0" />
 
-        {/* ─── 8. Net Worth — popover with inject + transfer ─── */}
+        {/* ─── Monthly Growth ─── */}
+        <div className="flex items-center gap-3 shrink-0">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex flex-col cursor-default">
+                <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">{prevMonthName}</span>
+                <span className="text-[0.8125rem] font-bold tabular-nums text-foreground">
+                  {fmt(prevMonthFund)}{' '}
+                  <span className={`text-[0.6875rem] ${prevMonthGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
+                    {prevMonthGrowth >= 0 ? '+' : ''}{prevMonthGrowth.toFixed(1)}%
+                  </span>
+                </span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <div className="text-xs space-y-0.5">
+                <div className="font-bold">{prevMonthName} Pool Breakdown</div>
+                <div className="text-muted-foreground">
+                  Trading Pool: {fmt(prevTradingPool)}{' '}
+                  <span className={prevTradingGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>
+                    {prevTradingGrowth >= 0 ? '+' : ''}{prevTradingGrowth.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="text-muted-foreground">
+                  Reserve Pool: {fmt(prevReservePool)}{' '}
+                  <span className={prevReserveGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>
+                    {prevReserveGrowth >= 0 ? '+' : ''}{prevReserveGrowth.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex flex-col cursor-default">
+                <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">{currMonthName}</span>
+                <span className="text-[0.8125rem] font-bold tabular-nums text-foreground">
+                  {fmt(currMonthFund)}{' '}
+                  <span className={`text-[0.6875rem] ${currMonthGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
+                    {currMonthGrowth >= 0 ? '+' : ''}{currMonthGrowth.toFixed(1)}%
+                  </span>
+                </span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <div className="text-xs space-y-0.5">
+                <div className="font-bold">{currMonthName} Pool Breakdown</div>
+                <div className="text-muted-foreground">
+                  Trading Pool: {fmt(tradingPool)}{' '}
+                  <span className={currTradingGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>
+                    {currTradingGrowth >= 0 ? '+' : ''}{currTradingGrowth.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="text-muted-foreground">
+                  Reserve Pool: {fmt(reservePool)}{' '}
+                  <span className={currReserveGrowth >= 0 ? 'text-bullish' : 'text-loss-red'}>
+                    {currReserveGrowth >= 0 ? '+' : ''}{currReserveGrowth.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
+        {/* Separator */}
+        <div className="w-px self-stretch -my-2 bg-border shrink-0" />
+
+        {/* ─── Net Worth — popover with inject + transfer ─── */}
         <NetWorthPopover
           netWorth={netWorth}
           tradingPool={tradingPool}
