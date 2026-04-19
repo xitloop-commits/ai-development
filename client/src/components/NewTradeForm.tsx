@@ -652,8 +652,8 @@ export default function NewTradeForm(props: NewTradeFormProps) {
               title="Click to adjust quantity"
             >
               {actualQty > 0
-                ? (lotSize > 1 ? `${actualQty}×${lotSize}=${totalUnits}` : `${totalUnits}`)
-                : qtyMode === 'percent' ? `${qty}%` : '-'}
+                ? (lotSize > 1 ? actualQty : totalUnits)
+                : qtyMode === 'percent' ? `${qty}%` : '1'}
             </button>
           </PopoverTrigger>
           <PopoverContent className="w-64 p-3" align="start">
