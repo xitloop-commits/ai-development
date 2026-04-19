@@ -911,7 +911,7 @@ export default function TradingDesk({
               <col style={{ width: 80 }} />   {/* Proj. Cap. */}
               <col />                          {/* Instrument — takes remaining */}
               <col style={{ width: 75 }} />   {/* Entry */}
-              <col style={{ width: 120 }} />  {/* LTP */}
+              <col style={{ width: 80 }} />   {/* LTP */}
               <col style={{ width: 70 }} />   {/* Qty */}
               <col style={{ width: 90 }} />   {/* Invested */}
               <col style={{ width: 80 }} />   {/* P&L */}
@@ -1631,47 +1631,48 @@ function TodayTradeRow({
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
         {trade.entryPrice.toFixed(2)}
       </td>
-      {/* SL | LTP | TP — single line, merged popover */}
-      <td className="px-2 py-1.5 border-r border-border">
+      {/* LTP — hover shows SL/TP/TSL, click to edit */}
+      <td className="px-2 py-1.5 text-right border-r border-border">
         <Popover open={editOpen} onOpenChange={open => { if (!open) setEditOpen(false); }}>
-          <div className="flex items-center justify-between gap-1 tabular-nums whitespace-nowrap">
-            {/* SL */}
-            <PopoverTrigger asChild>
-              <span
-                className={`font-medium tabular-nums ${isOpen && canManageTrades && trade.stopLossPrice != null ? (trade.trailingStopEnabled ? 'text-warning-amber cursor-pointer hover:opacity-70' : 'text-destructive cursor-pointer hover:opacity-70') : 'text-muted-foreground/40 cursor-default'}`}
-                onClick={() => {
-                  if (!isOpen || !canManageTrades) return;
-                  setSlPrice(trade.stopLossPrice?.toFixed(2) ?? '');
-                  setTpPrice(trade.targetPrice?.toFixed(2) ?? '');
-                  setTrailingStopEnabled(trade.trailingStopEnabled ?? false);
-                  setEditOpen(true);
-                }}
-              >
-                {isOpen && trade.stopLossPrice != null ? `${trade.trailingStopEnabled ? '~' : ''}${trade.stopLossPrice.toFixed(2)}` : ''}
-              </span>
-            </PopoverTrigger>
-
-            {/* LTP */}
-            <span className={`font-bold ${isOpen ? (displayLtp >= trade.entryPrice ? 'text-bullish' : 'text-destructive') : pnlColor(pnl)}`}>
-              {isOpen ? displayLtp.toFixed(2) : (trade.exitPrice?.toFixed(2) ?? '')}
-              {isOpen && liveLtp !== undefined && (
-                <span className="ml-0.5 inline-block h-1 w-1 rounded-full bg-bullish animate-pulse" />
-              )}
-            </span>
-
-            {/* TP */}
-            <span
-              className={`font-medium tabular-nums ${isOpen && canManageTrades && trade.targetPrice != null ? 'text-bullish cursor-pointer hover:opacity-70' : 'text-muted-foreground/40 cursor-default'}`}
-              onClick={() => {
-                if (!isOpen || !canManageTrades) return;
-                setSlPrice(trade.stopLossPrice?.toFixed(2) ?? '');
-                setTpPrice(trade.targetPrice?.toFixed(2) ?? '');
-                setEditOpen(true);
-              }}
-            >
-              {isOpen && trade.targetPrice != null ? trade.targetPrice.toFixed(2) : ''}
-            </span>
-          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <span
+                  className={`font-bold tabular-nums cursor-pointer ${isOpen ? (displayLtp >= trade.entryPrice ? 'text-bullish' : 'text-destructive') : pnlColor(pnl)}`}
+                  onClick={() => {
+                    if (!isOpen || !canManageTrades) return;
+                    setSlPrice(trade.stopLossPrice?.toFixed(2) ?? '');
+                    setTpPrice(trade.targetPrice?.toFixed(2) ?? '');
+                    setTrailingStopEnabled(trade.trailingStopEnabled ?? false);
+                    setEditOpen(true);
+                  }}
+                >
+                  {isOpen ? displayLtp.toFixed(2) : (trade.exitPrice?.toFixed(2) ?? '')}
+                  {isOpen && liveLtp !== undefined && (
+                    <span className="ml-0.5 inline-block h-1 w-1 rounded-full bg-bullish animate-pulse" />
+                  )}
+                </span>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            {isOpen && (trade.stopLossPrice != null || trade.targetPrice != null) && (
+              <TooltipContent side="top">
+                <div className="text-[0.625rem] space-y-0.5 tabular-nums">
+                  {trade.stopLossPrice != null && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-destructive font-bold">{trade.trailingStopEnabled ? 'TSL' : 'SL'}</span>
+                      <span className="text-destructive">{trade.stopLossPrice.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {trade.targetPrice != null && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-bullish font-bold">TP</span>
+                      <span className="text-bullish">{trade.targetPrice.toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
+              </TooltipContent>
+            )}
+          </Tooltip>
           <PopoverContent className="w-56 p-3" align="center" side="top">
             <TpSlMergedBody
               isBuy={isBuy}
