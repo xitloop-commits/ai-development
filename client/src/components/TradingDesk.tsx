@@ -931,7 +931,7 @@ export default function TradingDesk({
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Instrument</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Entry</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">LTP</th>
-                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Qty</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Lot</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Invested</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L %</th>
@@ -1708,11 +1708,31 @@ function TodayTradeRow({
           </PopoverContent>
         </Popover>
       </td>
-      {/* Qty */}
+      {/* Lot */}
       <td className="px-2 py-1.5 text-right tabular-nums font-medium border-r border-border">
-        {trade.lotSize && trade.lotSize > 1
-          ? `${Math.floor(trade.qty / trade.lotSize)}×${trade.lotSize}=${trade.qty}`
-          : trade.qty}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-default">
+              {trade.lotSize && trade.lotSize > 1 ? Math.floor(trade.qty / trade.lotSize) : trade.qty}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <div className="text-[0.625rem] space-y-0.5 tabular-nums">
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Lots</span>
+                <span className="font-bold">{trade.lotSize && trade.lotSize > 1 ? Math.floor(trade.qty / trade.lotSize) : 1}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Lot Size</span>
+                <span className="font-bold">{trade.lotSize || 1}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Total Units</span>
+                <span className="font-bold">{trade.qty}</span>
+              </div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
       </td>
       {/* Capital */}
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
