@@ -230,7 +230,7 @@ function RatingIcon({ rating }: { rating: DayRating }) {
 // ─── Currency Formatter ──────────────────────────────────────────
 
 function fmt(n: number, compact = true): string {
-  return formatINR(Math.ceil(n), { compact, decimals: 0 });
+  return formatINR(n, { compact, decimals: 2 });
 }
 
 function pnlColor(n: number): string {
@@ -909,21 +909,22 @@ export default function TradingDesk({
         ) : (
           <table className="w-full border-collapse text-xs [&_td]:align-middle [&_td]:whitespace-nowrap [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
             <colgroup>
-              <col style={{ width: 44 }} />
-              <col style={{ width: 92 }} />
-              <col style={{ width: 88 }} />
-              <col style={{ width: 88 }} />
-              <col style={{ width: 88 }} />
-              <col />
-              <col style={{ width: 72 }} />
-              <col style={{ width: 160 }} />
-              <col style={{ width: 68 }} />
-              <col style={{ width: 116 }} />
-              <col style={{ width: 100 }} />
-              <col style={{ width: 60 }} />
-              <col style={{ width: 88 }} />
-              <col style={{ width: 88 }} />
-              <col style={{ width: 76 }} />
+              <col style={{ width: 40 }} />   {/* Day */}
+              <col style={{ width: 70 }} />   {/* Date */}
+              <col style={{ width: 80 }} />   {/* Capital */}
+              <col style={{ width: 80 }} />   {/* Target Profit */}
+              <col style={{ width: 80 }} />   {/* Proj. Cap. */}
+              <col />                          {/* Instrument — takes remaining */}
+              <col style={{ width: 65 }} />   {/* Entry */}
+              <col style={{ width: 140 }} />  {/* LTP */}
+              <col style={{ width: 60 }} />   {/* Qty */}
+              <col style={{ width: 90 }} />   {/* Invested */}
+              <col style={{ width: 80 }} />   {/* P&L */}
+              <col style={{ width: 55 }} />   {/* P&L % */}
+              <col style={{ width: 70 }} />   {/* Charges */}
+              <col style={{ width: 80 }} />   {/* Capital */}
+              <col style={{ width: 70 }} />   {/* Dev. */}
+              <col style={{ width: 50 }} />   {/* Rating */}
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-card border-b border-border uppercase">
