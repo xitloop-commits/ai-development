@@ -1307,7 +1307,7 @@ function TodaySection({
           {day.totalQty > 0 ? day.totalQty : ''}
         </td>
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0), false) : ''}
+          {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0)) : ''}
         </td>
         <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
           {fmt(totalPnl, false)}
@@ -1366,7 +1366,7 @@ function TodaySection({
         </td>
         {/* Capital */}
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0), false) : ''}
+          {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0)) : ''}
         </td>
         {/* P&L */}
         <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
@@ -1734,9 +1734,9 @@ function TodayTradeRow({
           </TooltipContent>
         </Tooltip>
       </td>
-      {/* Capital */}
+      {/* Invested */}
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
-        {fmt(trade.entryPrice * trade.qty, false)}
+        {fmt(trade.entryPrice * trade.qty)}
       </td>
       {/* P&L */}
       <td className={`px-2 py-1.5 text-right tabular-nums font-bold border-r border-border ${pnlColor(pnl)}`}>
