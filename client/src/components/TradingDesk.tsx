@@ -904,22 +904,21 @@ export default function TradingDesk({
         ) : (
           <table className="w-full table-fixed border-collapse text-xs [&_td]:align-middle [&_td]:whitespace-nowrap [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
             <colgroup>
-              <col style={{ width: 40 }} />   {/* Day */}
-              <col style={{ width: 70 }} />   {/* Date */}
-              <col style={{ width: 80 }} />   {/* Capital */}
-              <col style={{ width: 80 }} />   {/* Target Profit */}
-              <col style={{ width: 80 }} />   {/* Proj. Cap. */}
-              <col />                          {/* Instrument — takes remaining */}
-              <col style={{ width: 75 }} />   {/* Entry */}
-              <col style={{ width: 80 }} />   {/* LTP */}
-              <col style={{ width: 70 }} />   {/* Qty */}
-              <col style={{ width: 90 }} />   {/* Invested */}
-              <col style={{ width: 80 }} />   {/* P&L */}
-              <col style={{ width: 55 }} />   {/* P&L % */}
-              {/* Charges column removed */}
-              <col style={{ width: 80 }} />   {/* Capital */}
-              <col style={{ width: 70 }} />   {/* Dev. */}
-              <col style={{ width: 50 }} />   {/* Rating */}
+              <col className="w-[3%]" />    {/* Day */}
+              <col className="w-[5%]" />    {/* Date */}
+              <col className="w-[6%]" />    {/* Capital */}
+              <col className="w-[6%]" />    {/* Profit+ */}
+              <col className="w-[6%]" />    {/* Capital+ */}
+              <col />                        {/* Instrument — takes remaining */}
+              <col className="w-[6%]" />    {/* Entry */}
+              <col className="w-[6%]" />    {/* LTP */}
+              <col className="w-[4%]" />    {/* Lot */}
+              <col className="w-[6%]" />    {/* Invested */}
+              <col className="w-[6%]" />    {/* P&L */}
+              <col className="w-[5%]" />    {/* P&L % */}
+              <col className="w-[6%]" />    {/* Capital */}
+              <col className="w-[5%]" />    {/* Dev. */}
+              <col className="w-[4%]" />    {/* Rating */}
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-card border-b border-border uppercase">
