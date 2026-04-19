@@ -884,29 +884,6 @@ export default function TradingDesk({
             );
           })()}
         </div>
-        {/* Testing controls moved to AppBar next to workspace tabs */}
-        {/* NET/GROSS toggle */}
-        <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">P&L Mode</span>
-          <div className="flex items-center gap-0.5 border border-border rounded overflow-hidden">
-            <button
-              onClick={() => setShowNet(true)}
-              className={`px-2 py-0.5 font-bold transition-colors ${
-                showNet ? 'bg-info-cyan/20 text-info-cyan' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              NET
-            </button>
-            <button
-              onClick={() => setShowNet(false)}
-              className={`px-2 py-0.5 font-bold transition-colors ${
-                !showNet ? 'bg-info-cyan/20 text-info-cyan' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              GROSS
-            </button>
-          </div>
-        </div>
         {/* Charges */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
           <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Charges</span>
@@ -952,18 +929,18 @@ export default function TradingDesk({
               <tr className="bg-card border-b border-border uppercase">
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground w-12 border-r border-border">Day</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Date</th>
-                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Trade Cap.</th>
-                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Target</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Capital</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Target Profit</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Proj. Cap.</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Instrument</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Entry</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">LTP</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Qty</th>
-                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Capital</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Invested</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L %</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Charges</th>
-                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Actual Cap.</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Capital</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Dev.</th>
                 <th className="px-2 py-2 text-center font-bold text-muted-foreground w-16 border-r border-border">Rating</th>
               </tr>
