@@ -904,21 +904,21 @@ export default function TradingDesk({
         ) : (
           <table className="w-full table-fixed border-collapse text-xs [&_td]:align-middle [&_td]:whitespace-nowrap [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
             <colgroup>
-              <col style={{ width: 36, maxWidth: 36 }} />   {/* Day */}
-              <col style={{ width: 62, maxWidth: 62 }} />   {/* Date */}
-              <col style={{ width: 72, maxWidth: 72 }} />   {/* Capital */}
-              <col style={{ width: 68, maxWidth: 68 }} />   {/* Profit+ */}
-              <col style={{ width: 72, maxWidth: 72 }} />   {/* Capital+ */}
+              <col style={{ width: 36, maxWidth: 36 }} />   {/* Day: "250" */}
+              <col style={{ width: 58, maxWidth: 58 }} />   {/* Date: "28 Dec" */}
+              <col style={{ width: 72, maxWidth: 72 }} />   {/* Capital: "₹7.44Cr" */}
+              <col style={{ width: 68, maxWidth: 68 }} />   {/* Profit+: "₹27.9L(5%)" */}
+              <col style={{ width: 72, maxWidth: 72 }} />   {/* Capital+: "₹7.72Cr" */}
               <col />                                        {/* Instrument — remaining */}
-              <col style={{ width: 68, maxWidth: 68 }} />   {/* Entry */}
-              <col style={{ width: 68, maxWidth: 68 }} />   {/* LTP */}
-              <col style={{ width: 36, maxWidth: 36 }} />   {/* Lot */}
-              <col style={{ width: 72, maxWidth: 72 }} />   {/* Invested */}
-              <col style={{ width: 72, maxWidth: 72 }} />   {/* P&L */}
-              <col style={{ width: 50, maxWidth: 50 }} />   {/* P&L % */}
-              <col style={{ width: 72, maxWidth: 72 }} />   {/* Capital */}
-              <col style={{ width: 62, maxWidth: 62 }} />   {/* Dev. */}
-              <col style={{ width: 40, maxWidth: 40 }} />   {/* Rating */}
+              <col style={{ width: 72, maxWidth: 72 }} />   {/* Entry: "24300.00" */}
+              <col style={{ width: 72, maxWidth: 72 }} />   {/* LTP: "24300.00" */}
+              <col style={{ width: 30, maxWidth: 30 }} />   {/* Lot: "99" */}
+              <col style={{ width: 72, maxWidth: 72 }} />   {/* Invested: "₹99.99L" */}
+              <col style={{ width: 72, maxWidth: 72 }} />   {/* P&L: "+₹27.9L" */}
+              <col style={{ width: 58, maxWidth: 58 }} />   {/* P&L %: "+99.9%" */}
+              <col style={{ width: 72, maxWidth: 72 }} />   {/* Capital: "₹7.72Cr" */}
+              <col style={{ width: 72, maxWidth: 72 }} />   {/* Dev.: "+₹27.9L" */}
+              <col style={{ width: 32, maxWidth: 32 }} />   {/* Rating: emoji */}
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-card border-b border-border uppercase">
