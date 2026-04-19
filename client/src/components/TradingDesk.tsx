@@ -839,25 +839,56 @@ export default function TradingDesk({
             {capital.cumulativePnl >= 0 ? '+' : ''}{fmt(capital.cumulativePnl)}
           </span>
         </div>
-        {/* Today P&L / Target + Exit All */}
-        <div className="px-3 py-1.5 flex flex-col items-center justify-center flex-1">
-<span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Today P&L / Target</span>
-          <div className="flex items-center gap-1">
-            <span className="text-xs font-bold tabular-nums">
-              <span className={pnlColor(capital.todayPnl)}>{fmt(capital.todayPnl)}</span>
-              <span className="text-muted-foreground"> / </span>
-              <span className="text-warning-amber">{fmt(capital.todayTarget)}</span>
-            </span>
-            {canManageTrades && openTradeCount > 0 && (
-              <button
-                onClick={handleExitAll}
-                className="px-1 py-0.5 rounded font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
-                title="Exit all open positions"
-              >
-                ×
-              </button>
-            )}
+        {/* Today P&L / Target — center-zero progress bar */}
+        <div className="px-3 py-1.5 flex flex-col justify-center flex-1 min-w-[180px]">
+          <div className="flex items-center justify-between w-full mb-1">
+            <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Today P&L</span>
+            <div className="flex items-center gap-1">
+              <span className="text-xs font-bold tabular-nums">
+                <span className={pnlColor(capital.todayPnl)}>{fmt(capital.todayPnl)}</span>
+                <span className="text-muted-foreground"> / </span>
+                <span className="text-warning-amber">{fmt(capital.todayTarget)}</span>
+              </span>
+              {canManageTrades && openTradeCount > 0 && (
+                <button
+                  onClick={handleExitAll}
+                  className="px-1 py-0.5 rounded font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
+                  title="Exit all open positions"
+                >
+                  ×
+                </button>
+              )}
+            </div>
           </div>
+          {/* Center-zero bar: left = loss, right = profit, target at right edge */}
+          {(() => {
+            const target = capital.todayTarget || 1;
+            const pnl = capital.todayPnl;
+            const pct = Math.min(Math.max(pnl / target, -1), 1);
+            const isPositive = pct >= 0;
+            return (
+              <div className="relative w-full h-2 rounded-full bg-muted-foreground/20">
+                {/* Center line (zero) */}
+                <div className="absolute top-0 bottom-0 left-1/2 w-px bg-foreground/30 z-[1]" />
+                {/* Fill bar from center */}
+                {isPositive ? (
+                  <div
+                    className="absolute top-0 bottom-0 left-1/2 rounded-r-full bg-bullish transition-all duration-500"
+                    style={{ width: `${pct * 50}%` }}
+                  />
+                ) : (
+                  <div
+                    className="absolute top-0 bottom-0 right-1/2 rounded-l-full bg-destructive transition-all duration-500"
+                    style={{ width: `${Math.abs(pct) * 50}%` }}
+                  />
+                )}
+                {/* Target marker at right edge */}
+                <div className="absolute top-0 bottom-0 right-0 w-0.5 bg-warning-amber/70 rounded-full" />
+                {/* -Target marker at left edge */}
+                <div className="absolute top-0 bottom-0 left-0 w-0.5 bg-destructive/40 rounded-full" />
+              </div>
+            );
+          })()}
         </div>
         {/* Testing controls (Live/Paper + Clear) — before P&L Mode */}
         {workspace === 'paper_manual' && (
