@@ -156,7 +156,7 @@ function normalizeDayRecord(day: any): DayRecord {
 
 // ─── Provider ───────────────────────────────────────────────────
 export function CapitalProvider({ children }: { children: ReactNode }) {
-  const [workspace, setWorkspace] = useState<Workspace>('live');
+  const [workspace, setWorkspace] = useState<Workspace>('paper_manual');
   const utils = trpc.useUtils();
 
   // ─── Single shared query for capital state ──────────────────
