@@ -364,48 +364,41 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
 
         {/* Left Group (flex-1 for center alignment) */}
         <div className="flex-1 flex items-center gap-2 ml-2">
-          {/* Brand */}
+          {/* Brand + Days Left */}
           <div className="flex items-center gap-1.5">
             <div className="h-2 w-2 rounded-sm bg-primary" />
             <span className="font-display text-sm font-bold tracking-wider text-primary uppercase">
               lubas
             </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-[0.5625rem] font-bold tabular-nums text-muted-foreground cursor-default">
+                  {250 - currentDay} left
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <div className="text-[0.625rem] space-y-0.5">
+                  <div className="font-bold">Day 250 Journey — {dayProgress.toFixed(1)}% Complete</div>
+                  <div className="text-muted-foreground">Current Day: {currentDay}</div>
+                  <div className="text-muted-foreground">Remaining: {250 - currentDay} days</div>
+                  <div className="text-muted-foreground">Growth: {growthPercent}% from {formatINR(initialFunding)}</div>
+                </div>
+              </TooltipContent>
+            </Tooltip>
           </div>
-          <span className="hidden xl:inline text-[0.625rem] text-muted-foreground tracking-widest uppercase">
-            Lucky Basker
-          </span>
+
+          <div className="w-px self-stretch bg-border shrink-0" />
 
           {/* Holiday Indicator */}
           <HolidayIndicator />
-
-        {/* Day 250 Journey — inline progress */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex items-center gap-1.5 cursor-default shrink-0 ml-3">
-              <Target className="h-3 w-3 text-primary shrink-0" />
-              <span className="text-[0.625rem] font-bold tabular-nums text-primary">{250 - currentDay} left</span>
-              <div className="w-[60px] h-1.5 rounded-full bg-secondary/50 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-gradient-cyan-violet transition-all duration-700"
-                  style={{ width: `${Math.min(dayProgress, 100)}%` }}
-                />
-              </div>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="bg-card border-border text-foreground">
-            <div className="text-[0.625rem] space-y-0.5">
-              <div className="font-bold">Day 250 Journey — {dayProgress.toFixed(1)}% Complete</div>
-              <div className="text-muted-foreground">Current Day: {currentDay}</div>
-              <div className="text-muted-foreground">Remaining: {250 - currentDay} days</div>
-              <div className="text-muted-foreground">Growth: {growthPercent}% from {formatINR(initialFunding)}</div>
-            </div>
-          </TooltipContent>
-        </Tooltip>
-
         </div>
+
+        <div className="w-px self-stretch bg-border shrink-0" />
 
         {/* Center: Workspace tabs (segmented control) */}
         <WorkspaceTabs />
+
+        <div className="w-px self-stretch bg-border shrink-0" />
 
         {/* Right Group (flex-1 for center alignment) */}
         <div className="flex-1 flex items-center justify-end gap-3 mr-2">
@@ -460,8 +453,9 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
           {/* Model Status */}
           <ModelStatusIndicator />
 
-          {/* Holiday moved to left group next to brand */}
         </div>
+
+        <div className="w-px self-stretch bg-border shrink-0" />
 
         {/* Discipline Score */}
         <Tooltip>
