@@ -1139,7 +1139,7 @@ function PastRow({
       </td>
       {/* P&L */}
       <td className={`px-2 py-2 text-right tabular-nums font-bold border-r border-border ${pnlColor(pnlValue)}`}>
-        {fmt(pnlValue, false)}
+        {fmt(Math.round(pnlValue), false)}
       </td>
       {/* P&L % */}
       <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(pnlValue)}`}>
@@ -1380,7 +1380,7 @@ function TodaySection({
           })()}
         </td>
         <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
-          {trades.length > 0 ? fmt(totalPnl, false) : ''}
+          {trades.length > 0 ? fmt(Math.round(totalPnl), false) : ''}
         </td>
         <td className="px-2 py-2 border-r border-border" />
         <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground border-r border-border">
@@ -1442,7 +1442,7 @@ function TodaySection({
         <td className="px-2 py-2 border-r border-border" />
         {/* P&L */}
         <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
-          {fmt(totalPnl, false)}
+          {fmt(Math.round(totalPnl), false)}
         </td>
         {/* P&L % */}
         <td className="px-2 py-2 border-r border-border" />
@@ -1821,7 +1821,7 @@ function TodayTradeRow({
       </td>
       {/* P&L */}
       <td className={`px-2 py-1.5 text-right tabular-nums font-bold border-r border-border ${pnlColor(pnl)}`}>
-        {fmt(pnl, false)}
+        {fmt(Math.round(pnl), false)}
       </td>
       {/* P&L % */}
       <td className={`px-2 py-1.5 text-right tabular-nums border-r border-border ${pnlColor(pnl)}`}>

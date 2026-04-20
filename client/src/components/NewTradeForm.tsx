@@ -392,7 +392,11 @@ export default function NewTradeForm(props: NewTradeFormProps) {
   };
 
   const cycleDateLabel = (() => {
-    const dateLabel = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+    const now = new Date();
+    const day = now.getDate();
+    const month = now.toLocaleDateString('en-IN', { month: 'short' });
+    const year = String(now.getFullYear()).slice(2);
+    const dateLabel = `${day} ${month} ${year}`;
     const ageLabel = formatAge(dayOpenedAt);
     return ageLabel ? `${dateLabel} | ${ageLabel}` : dateLabel;
   })();
@@ -403,7 +407,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
 
   return (
     <tr className={`border-b border-l-2 ${tone.row}`}>
-      <td className="px-2 py-2 border-r border-border">
+      <td className="px-2 py-2 text-right border-r border-border">
         {dayValues ? (
           <span className={`tabular-nums ${tone.textSoft}`}>{dayValues.dayIndex}</span>
         ) : (
@@ -411,7 +415,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         )}
       </td>
 
-      <td className="px-2 py-2 border-r border-border">
+      <td className="px-2 py-2 text-right border-r border-border">
         <span className={`block truncate text-[0.625rem] tabular-nums ${tone.text}`}>{cycleDateLabel}</span>
       </td>
 
