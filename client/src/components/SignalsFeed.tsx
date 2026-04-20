@@ -10,7 +10,16 @@
  */
 import { useRef, useEffect, useState } from 'react';
 // Uses native CSS scrollbar (scrollbar-thin + scrollbar-cyan) matching TradingDesk style
-import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, Zap } from 'lucide-react';
+import { useCapital } from '@/contexts/CapitalContext';
+
+// ─── Instrument name mapping for trade placement ───────────
+const SIG_TO_UI_NAME: Record<string, string> = {
+  NIFTY: 'NIFTY 50', NIFTY_50: 'NIFTY 50', NIFTY50: 'NIFTY 50',
+  BANKNIFTY: 'BANK NIFTY',
+  CRUDEOIL: 'CRUDE OIL',
+  NATURALGAS: 'NATURAL GAS',
+};
 
 export interface SEASignal {
   id: string;
@@ -102,6 +111,31 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
   const shorts = signals.reduce((sum, s) => sum + ((s.action?.startsWith('SHORT') || s.direction === 'GO_PUT') ? 1 : 0), 0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
+  const { workspace, placeTrade } = useCapital() as any;
+  const canTrade = workspace === 'live' || workspace === 'paper_manual';
+
+  const handleTrade = (signal: SEASignal) => {
+    const action = signal.action ?? signal.direction?.replace('GO_', '') ?? '';
+    const isLong = action.startsWith('LONG');
+    const isCE = action.includes('CE');
+    // Map SEA action → trade type
+    let tradeType: 'CALL_BUY' | 'CALL_SELL' | 'PUT_BUY' | 'PUT_SELL';
+    if (isCE) tradeType = isLong ? 'CALL_BUY' : 'CALL_SELL';
+    else tradeType = isLong ? 'PUT_BUY' : 'PUT_SELL';
+
+    const uiName = SIG_TO_UI_NAME[signal.instrument] ?? signal.instrument;
+    placeTrade({
+      instrument: uiName,
+      type: tradeType,
+      strike: signal.atm_strike,
+      expiry: '',  // server resolves current expiry
+      entryPrice: signal.entry ?? (isCE ? signal.atm_ce_ltp : signal.atm_pe_ltp) ?? 0,
+      capitalPercent: 5,  // default 5% — user can adjust in TradingDesk
+      qty: 1,
+      targetPrice: signal.tp ?? null,
+      stopLossPrice: signal.sl ?? null,
+    });
+  };
 
   // Auto-scroll to top (newest signal at top) unless user is hovering
   useEffect(() => {
@@ -198,9 +232,24 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                       </span>
                     )}
                   </div>
-                  <span className="text-[0.5625rem] text-muted-foreground tabular-nums">
-                    {timeAgo(signal.timestamp_ist)}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {canTrade && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleTrade(signal); }}
+                        className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold text-[0.5625rem] tracking-wider uppercase transition-colors ${
+                          isLong
+                            ? 'bg-bullish/15 text-bullish hover:bg-bullish/25'
+                            : 'bg-warning-amber/15 text-warning-amber hover:bg-warning-amber/25'
+                        }`}
+                        title={`Place ${action} trade`}
+                      >
+                        <Zap className="h-2.5 w-2.5" />TRADE
+                      </button>
+                    )}
+                    <span className="text-[0.5625rem] text-muted-foreground tabular-nums">
+                      {timeAgo(signal.timestamp_ist)}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Row 2: entry/SL/TP (v2) or prob/ATM (legacy) */}
