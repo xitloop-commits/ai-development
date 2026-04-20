@@ -946,7 +946,7 @@ export default function TradingDesk({
               <col style={{ width: '3.625rem', maxWidth: '3.625rem' }} />  {/* P&L % */}
               <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* Capital */}
               <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />  {/* Dev.: 90px */}
-              <col style={{ width: '3rem',     maxWidth: '3rem' }} />      {/* Rating */}
+              <col style={{ width: '4rem',     maxWidth: '4rem' }} />      {/* Rating */}
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-card border-b border-border uppercase">
@@ -1156,7 +1156,7 @@ function PastRow({
           : ''}
       </td>
       {/* Rating */}
-      <td className="px-2 py-2 text-center">
+      <td className="px-1 py-2 text-center">
         <RatingIcon rating={day.rating} />
       </td>
     </tr>
@@ -1874,7 +1874,7 @@ function FutureRow({
       <td className="px-2 py-2 border-r border-border"></td>
       <td className="px-2 py-2 border-r border-border"></td>
       {/* Rating */}
-      <td className="px-2 py-2 text-center whitespace-nowrap">
+      <td className="px-1 py-2 text-center whitespace-nowrap">
         <RatingIcon rating={isDay250 ? 'finish' : 'future'} />
       </td>
     </tr>
