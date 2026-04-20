@@ -115,6 +115,12 @@ export class DhanAdapter implements BrokerAdapter {
   // Rate limiter for Dhan API calls
   private rateLimiter = new RateLimiter(10, 250);
 
+  // Option chain cache — multiple callers for same (underlying,expiry) within
+  // CHAIN_CACHE_TTL_MS share a single upstream fetch. Matches Dhan's 3s limit.
+  private chainCache = new Map<string, { data: OptionChainData; fetchedAt: number }>();
+  private chainInflight = new Map<string, Promise<OptionChainData>>();
+  private readonly CHAIN_CACHE_TTL_MS = 2500;
+
   // WebSocket and Subscription Manager
   private ws: DhanWebSocket | null = null;
   private subManager: SubscriptionManager | null = null;
@@ -653,6 +659,32 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
    async getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData> {
+    // Cache key: underlying + expiry + segment
+    const cacheKey = `${underlying}|${expiry}|${exchangeSegment || "IDX_I"}`;
+    const now = Date.now();
+
+    // Return cached result if fresh
+    const cached = this.chainCache.get(cacheKey);
+    if (cached && now - cached.fetchedAt < this.CHAIN_CACHE_TTL_MS) {
+      return cached.data;
+    }
+
+    // Coalesce in-flight requests
+    const inflight = this.chainInflight.get(cacheKey);
+    if (inflight) return inflight;
+
+    const promise = this._fetchOptionChain(underlying, expiry, exchangeSegment);
+    this.chainInflight.set(cacheKey, promise);
+    try {
+      const data = await promise;
+      this.chainCache.set(cacheKey, { data, fetchedAt: Date.now() });
+      return data;
+    } finally {
+      this.chainInflight.delete(cacheKey);
+    }
+  }
+
+  private async _fetchOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData> {
     this._ensureToken();
 
     const requestBody = {
