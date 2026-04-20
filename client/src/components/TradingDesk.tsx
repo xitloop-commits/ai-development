@@ -850,26 +850,35 @@ export default function TradingDesk({
         <div className="relative px-3 py-1.5 flex flex-col justify-center flex-1 min-w-[280px]">
           {(() => {
             // Per DisciplineEngine spec v1.3: daily profit cap +5%, circuit breaker -3%
-            // Bar extends up to +50% to show excess profit (gift territory grows the further you go)
-            const targetPct = 5;          // daily profit cap
-            const maxLossPct = 3;         // circuit breaker
-            const rightEdgePct = 50;      // gift territory extends to +50%
+            // Piecewise scaling gives equal visual space to 3 zones:
+            //   Negative zone (-3% → 0):    0%  → 30% of bar
+            //   Target zone   (0  → +5%):  30% → 65% of bar  (larger share — most important)
+            //   Gift zone    (+5% → +50%): 65% → 100% of bar
+            const targetPct = 5;
+            const maxLossPct = 3;
+            const rightEdgePct = 50;
+            const NEG_ZONE_END = 30;      // % of bar where 0 sits
+            const TARGET_ZONE_END = 65;   // % of bar where +5 sits
             const tradeCapital = capital.tradingPool || 1;
             const pnl = capital.todayPnl;
             const pnlPct = (pnl / tradeCapital) * 100;
             const clamped = Math.min(Math.max(pnlPct, -maxLossPct), rightEdgePct);
-            const markerLeft = ((clamped + maxLossPct) / (maxLossPct + rightEdgePct)) * 100;
-            // Markers:
-            // - Negative: every 1% from -3% to -1%
-            // - Target zone: 1,2,3,4 (ticks only, no labels to reduce clutter)
-            // - Gift: every 5% from +10% to +45%
+            const positionFor = (v: number): number => {
+              if (v <= 0) {
+                return ((v + maxLossPct) / maxLossPct) * NEG_ZONE_END;
+              } else if (v <= targetPct) {
+                return NEG_ZONE_END + (v / targetPct) * (TARGET_ZONE_END - NEG_ZONE_END);
+              } else {
+                return TARGET_ZONE_END + ((v - targetPct) / (rightEdgePct - targetPct)) * (100 - TARGET_ZONE_END);
+              }
+            };
+            const markerLeft = positionFor(clamped);
             const negMarkers: number[] = [];
-            const posMarkers: number[] = [];  // small ticks, no labels
+            const posMarkers: number[] = [];
             const giftMarkers: number[] = [];
             for (let v = -maxLossPct + 1; v < 0; v++) negMarkers.push(v);
             for (let v = 1; v < targetPct; v++) posMarkers.push(v);
             for (let v = targetPct + 5; v < rightEdgePct; v += 5) giftMarkers.push(v);
-            const positionFor = (v: number) => ((v + maxLossPct) / (maxLossPct + rightEdgePct)) * 100;
             const valueAt = (v: number) => tradeCapital * v / 100;
             return (
               <>
@@ -894,7 +903,13 @@ export default function TradingDesk({
                       {fmt(valueAt(v))}
                     </span>
                   ))}
-                  {/* posMarkers (1-4%) are visual ticks only — labels skipped due to narrow space */}
+                  {posMarkers.map(v => (
+                    <span key={`vp${v}`}
+                      className="absolute text-[0.4375rem] tabular-nums text-bullish/70 -translate-x-1/2"
+                      style={{ left: `${positionFor(v)}%` }}>
+                      {fmt(valueAt(v))}
+                    </span>
+                  ))}
                   {giftMarkers.map(v => (
                     <span key={`vg${v}`}
                       className="absolute text-[0.4375rem] tabular-nums text-primary/70 -translate-x-1/2"
@@ -970,7 +985,13 @@ export default function TradingDesk({
                       {v}%
                     </span>
                   ))}
-                  {/* posMarkers (1-4%) are visual ticks only — labels skipped due to narrow space */}
+                  {posMarkers.map(v => (
+                    <span key={`pp${v}`}
+                      className="absolute text-[0.4375rem] tabular-nums text-bullish/70 -translate-x-1/2"
+                      style={{ left: `${positionFor(v)}%` }}>
+                      +{v}%
+                    </span>
+                  ))}
                   {giftMarkers.map(v => (
                     <span key={`pg${v}`}
                       className="absolute text-[0.4375rem] tabular-nums text-primary/70 -translate-x-1/2"
