@@ -339,6 +339,13 @@ function calculateOpenMargin(trades: TradeRecord[]): number {
   }, 0);
 }
 
+function calculateTotalLots(trades: TradeRecord[]): number {
+  return trades.reduce((sum, trade) => {
+    const lots = trade.lotSize && trade.lotSize > 1 ? Math.floor(trade.qty / trade.lotSize) : trade.qty;
+    return sum + lots;
+  }, 0);
+}
+
 function countTradeOutcomes(trades: TradeRecord[]): { wins: number; losses: number } {
   return trades.reduce((acc, trade) => {
     if (trade.status === 'OPEN' || trade.status === 'PENDING' || trade.status === 'CANCELLED') {
@@ -1087,9 +1094,9 @@ function PastRow({
       <td className="px-2 py-2 text-right border-r border-border"></td>
       {/* LTP */}
       <td className="px-2 py-2 text-right border-r border-border"></td>
-      {/* Qty */}
+      {/* Lot */}
       <td className="px-2 py-2 text-right tabular-nums border-r border-border">
-        {day.totalQty > 0 ? day.totalQty : ''}
+        {(() => { const lots = calculateTotalLots(day.trades ?? []); return lots > 0 ? lots : ''; })()}
       </td>
       {/* Capital */}
       <td className="px-2 py-2 text-right border-r border-border"></td>
@@ -1304,7 +1311,7 @@ function TodaySection({
         <td className="px-2 py-2 border-r border-border" />
         <td className="px-2 py-2 border-r border-border" />
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {day.totalQty > 0 ? day.totalQty : ''}
+          {(() => { const lots = calculateTotalLots(trades ?? []); return lots > 0 ? lots : ''; })()}
         </td>
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
           {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0)) : ''}
@@ -1362,7 +1369,7 @@ function TodaySection({
         </td>
         {/* Qty */}
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {day.totalQty > 0 ? day.totalQty : ''}
+          {(() => { const lots = calculateTotalLots(trades ?? []); return lots > 0 ? lots : ''; })()}
         </td>
         {/* Capital */}
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
