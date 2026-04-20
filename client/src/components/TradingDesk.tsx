@@ -850,23 +850,25 @@ export default function TradingDesk({
         <div className="px-3 py-1.5 flex flex-col justify-center flex-1 min-w-[280px]">
           {(() => {
             // Per DisciplineEngine spec v1.3: daily profit cap +5%, circuit breaker -3%
-            // Bar extends 3 markers beyond +5% to show excess profit (gift territory)
+            // Bar extends up to +50% to show excess profit (gift territory grows the further you go)
             const targetPct = 5;          // daily profit cap
             const maxLossPct = 3;         // circuit breaker
-            const extraPosPct = 3;        // 3 extra markers beyond target (→ +8%)
-            const rightEdgePct = targetPct + extraPosPct;
+            const rightEdgePct = 50;      // gift territory extends to +50%
             const tradeCapital = capital.tradingPool || 1;
             const pnl = capital.todayPnl;
             const pnlPct = (pnl / tradeCapital) * 100;
             const clamped = Math.min(Math.max(pnlPct, -maxLossPct), rightEdgePct);
             const markerLeft = ((clamped + maxLossPct) / (maxLossPct + rightEdgePct)) * 100;
-            // Intermediate markers at 1% intervals (skipping edges + center + target)
+            // Markers:
+            // - Negative: every 1% from -3% to -1%
+            // - Target zone: 1,2,3,4 (ticks only, no labels to reduce clutter)
+            // - Gift: every 5% from +10% to +45%
             const negMarkers: number[] = [];
-            const posMarkers: number[] = [];
+            const posMarkers: number[] = [];  // small ticks, no labels
             const giftMarkers: number[] = [];
             for (let v = -maxLossPct + 1; v < 0; v++) negMarkers.push(v);
             for (let v = 1; v < targetPct; v++) posMarkers.push(v);
-            for (let v = targetPct + 1; v < rightEdgePct; v++) giftMarkers.push(v);
+            for (let v = targetPct + 5; v < rightEdgePct; v += 5) giftMarkers.push(v);
             const positionFor = (v: number) => ((v + maxLossPct) / (maxLossPct + rightEdgePct)) * 100;
             const valueAt = (v: number) => tradeCapital * v / 100;
             return (
@@ -895,13 +897,7 @@ export default function TradingDesk({
                       {fmt(valueAt(v))}
                     </span>
                   ))}
-                  {posMarkers.map(v => (
-                    <span key={`vp${v}`}
-                      className="absolute text-[0.4375rem] tabular-nums text-bullish/60 -translate-x-1/2"
-                      style={{ left: `${positionFor(v)}%` }}>
-                      {fmt(valueAt(v))}
-                    </span>
-                  ))}
+                  {/* posMarkers (1-4%) are visual ticks only — labels skipped due to narrow space */}
                   {giftMarkers.map(v => (
                     <span key={`vg${v}`}
                       className="absolute text-[0.4375rem] tabular-nums text-primary/70 -translate-x-1/2"
@@ -921,7 +917,7 @@ export default function TradingDesk({
                   </span>
                 </div>
                 {/* Bar */}
-                <div className="relative w-full h-2.5 rounded-full bg-muted-foreground/20">
+                <div className="relative w-full h-1.5 rounded-full bg-muted-foreground/20">
                   {/* Fill from center */}
                   {pnl >= 0 ? (
                     <div
@@ -950,10 +946,10 @@ export default function TradingDesk({
                   <div className="absolute top-[-2px] bottom-[-2px] w-0.5 bg-warning-amber/70 z-[1]" style={{ left: `${positionFor(targetPct)}%`, marginLeft: '-1px' }} />
                   {/* Current position marker (dot) */}
                   <div
-                    className={`absolute top-1/2 -translate-y-1/2 h-4 w-4 rounded-full border-2 border-background shadow-md z-[2] transition-all duration-500 ${
+                    className={`absolute top-1/2 -translate-y-1/2 h-3 w-3 rounded-full border-2 border-background shadow-md z-[2] transition-all duration-500 ${
                       pnl >= 0 ? 'bg-bullish' : 'bg-destructive'
                     }`}
-                    style={{ left: `${markerLeft}%`, marginLeft: '-8px' }}
+                    style={{ left: `${markerLeft}%`, marginLeft: '-6px' }}
                   />
                 </div>
                 {/* Bottom percentage row (below bar) */}
@@ -965,13 +961,7 @@ export default function TradingDesk({
                       {v}%
                     </span>
                   ))}
-                  {posMarkers.map(v => (
-                    <span key={`pp${v}`}
-                      className="absolute text-[0.4375rem] tabular-nums text-bullish/60 -translate-x-1/2"
-                      style={{ left: `${positionFor(v)}%` }}>
-                      +{v}%
-                    </span>
-                  ))}
+                  {/* posMarkers (1-4%) are visual ticks only — labels skipped due to narrow space */}
                   {giftMarkers.map(v => (
                     <span key={`pg${v}`}
                       className="absolute text-[0.4375rem] tabular-nums text-primary/70 -translate-x-1/2"
