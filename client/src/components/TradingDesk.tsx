@@ -849,26 +849,25 @@ export default function TradingDesk({
         {/* Today P&L — center-zero progress bar with multiple markers */}
         <div className="px-3 py-1.5 flex flex-col justify-center flex-1 min-w-[280px]">
           {(() => {
-            const targetPct = capital.targetPercent || 5;          // e.g., 5%
-            const maxLossPct = capital.maxLossPercent ?? targetPct;  // symmetric by default
+            // Per DisciplineEngine spec v1.3: daily profit cap +5%, loss cap -2%, circuit breaker -3%
+            const targetPct = 5;   // daily profit cap (right edge)
+            const maxLossPct = 3;  // circuit breaker (left edge, hard stop)
             const tradeCapital = capital.tradingPool || 1;
             const pnl = capital.todayPnl;
             const pnlPct = (pnl / tradeCapital) * 100;
-            // Clamp to [-maxLossPct, +targetPct]
             const clamped = Math.min(Math.max(pnlPct, -maxLossPct), targetPct);
-            // Map [-maxLossPct..+targetPct] → 0%..100% left position
             const markerLeft = ((clamped + maxLossPct) / (maxLossPct + targetPct)) * 100;
-            // Generate intermediate markers at 1% intervals (skipping edges + center)
+            // Intermediate markers at 1% intervals (skipping edges + center)
             const negMarkers: number[] = [];
             const posMarkers: number[] = [];
-            const step = maxLossPct >= 4 ? 1 : 0.5;
-            for (let v = -maxLossPct + step; v < 0; v += step) negMarkers.push(+v.toFixed(1));
-            for (let v = step; v < targetPct; v += step) posMarkers.push(+v.toFixed(1));
+            for (let v = -maxLossPct + 1; v < 0; v++) negMarkers.push(v);
+            for (let v = 1; v < targetPct; v++) posMarkers.push(v);
             const positionFor = (v: number) => ((v + maxLossPct) / (maxLossPct + targetPct)) * 100;
+            const valueAt = (v: number) => tradeCapital * v / 100;
             return (
               <>
                 {/* Top: P&L value + Exit All */}
-                <div className="flex items-center justify-center gap-1 mb-1">
+                <div className="flex items-center justify-center gap-1 mb-0.5">
                   <span className={`text-xs font-bold tabular-nums ${pnlColor(pnl)}`}>
                     {fmt(pnl)} <span className="text-[0.5rem] opacity-70">({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%)</span>
                   </span>
@@ -881,6 +880,29 @@ export default function TradingDesk({
                       ×
                     </button>
                   )}
+                </div>
+                {/* Top values row (above bar) */}
+                <div className="relative w-full h-3 mb-0.5">
+                  {negMarkers.map(v => (
+                    <span key={`vn${v}`}
+                      className="absolute text-[0.4375rem] tabular-nums text-destructive/60 -translate-x-1/2"
+                      style={{ left: `${positionFor(v)}%` }}>
+                      {fmt(valueAt(v))}
+                    </span>
+                  ))}
+                  {posMarkers.map(v => (
+                    <span key={`vp${v}`}
+                      className="absolute text-[0.4375rem] tabular-nums text-bullish/60 -translate-x-1/2"
+                      style={{ left: `${positionFor(v)}%` }}>
+                      {fmt(valueAt(v))}
+                    </span>
+                  ))}
+                  <span className="absolute left-0 text-[0.4375rem] font-bold tabular-nums text-destructive">
+                    {fmt(valueAt(-maxLossPct))}
+                  </span>
+                  <span className="absolute right-0 text-[0.4375rem] font-bold tabular-nums text-warning-amber">
+                    {fmt(valueAt(targetPct))}
+                  </span>
                 </div>
                 {/* Bar */}
                 <div className="relative w-full h-2.5 rounded-full bg-muted-foreground/20">
@@ -896,16 +918,15 @@ export default function TradingDesk({
                       style={{ left: `${markerLeft}%`, width: `${positionFor(0) - markerLeft}%` }}
                     />
                   )}
-                  {/* Intermediate ticks (negative side, dim red) */}
+                  {/* Intermediate ticks */}
                   {negMarkers.map(v => (
-                    <div key={`n${v}`} className="absolute top-0 bottom-0 w-px bg-destructive/30" style={{ left: `${positionFor(v)}%` }} />
+                    <div key={`n${v}`} className="absolute top-0 bottom-0 w-px bg-destructive/40" style={{ left: `${positionFor(v)}%` }} />
+                  ))}
+                  {posMarkers.map(v => (
+                    <div key={`p${v}`} className="absolute top-0 bottom-0 w-px bg-bullish/40" style={{ left: `${positionFor(v)}%` }} />
                   ))}
                   {/* Zero line (prominent) */}
                   <div className="absolute top-[-2px] bottom-[-2px] w-0.5 bg-foreground/50 z-[1]" style={{ left: `${positionFor(0)}%`, marginLeft: '-1px' }} />
-                  {/* Intermediate ticks (positive side, dim green) */}
-                  {posMarkers.map(v => (
-                    <div key={`p${v}`} className="absolute top-0 bottom-0 w-px bg-bullish/30" style={{ left: `${positionFor(v)}%` }} />
-                  ))}
                   {/* Current position marker (dot) */}
                   <div
                     className={`absolute top-1/2 -translate-y-1/2 h-4 w-4 rounded-full border-2 border-background shadow-md z-[2] transition-all duration-500 ${
@@ -914,15 +935,29 @@ export default function TradingDesk({
                     style={{ left: `${markerLeft}%`, marginLeft: '-8px' }}
                   />
                 </div>
-                {/* Labels row: -maxLoss%, 0, +target% */}
-                <div className="relative w-full mt-0.5 h-3">
-                  <span className="absolute left-0 text-[0.5rem] font-bold tabular-nums text-destructive">
+                {/* Bottom percentage row (below bar) */}
+                <div className="relative w-full h-3 mt-0.5">
+                  {negMarkers.map(v => (
+                    <span key={`pn${v}`}
+                      className="absolute text-[0.4375rem] tabular-nums text-destructive/60 -translate-x-1/2"
+                      style={{ left: `${positionFor(v)}%` }}>
+                      {v}%
+                    </span>
+                  ))}
+                  {posMarkers.map(v => (
+                    <span key={`pp${v}`}
+                      className="absolute text-[0.4375rem] tabular-nums text-bullish/60 -translate-x-1/2"
+                      style={{ left: `${positionFor(v)}%` }}>
+                      +{v}%
+                    </span>
+                  ))}
+                  <span className="absolute left-0 text-[0.4375rem] font-bold tabular-nums text-destructive">
                     -{maxLossPct}%
                   </span>
-                  <span className="absolute left-1/2 -translate-x-1/2 text-[0.5rem] text-foreground/50 tabular-nums">
+                  <span className="absolute left-1/2 -translate-x-1/2 text-[0.4375rem] text-foreground/50 tabular-nums">
                     0
                   </span>
-                  <span className="absolute right-0 text-[0.5rem] font-bold tabular-nums text-warning-amber">
+                  <span className="absolute right-0 text-[0.4375rem] font-bold tabular-nums text-warning-amber">
                     +{targetPct}%
                   </span>
                 </div>
