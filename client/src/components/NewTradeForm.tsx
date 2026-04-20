@@ -134,6 +134,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
   const [optionType, setOptionType] = useState<'CE' | 'PE' | 'NONE' | null>(null);
   const [selectedStrike, setSelectedStrike] = useState('');
   const [entryPrice, setEntryPrice] = useState('');
+  const [entryPriceEdited, setEntryPriceEdited] = useState(false);
   const [capitalPercent, setCapitalPercent] = useState(5);
   const [expiry, setExpiry] = useState('');
   const [qty, setQty] = useState(1);
@@ -278,6 +279,8 @@ export default function NewTradeForm(props: NewTradeFormProps) {
 
   useEffect(() => {
     if (!isOptionTrade || !selectedStrike) return;
+    // Reset edited flag when strike/option changes, then set LTP as new default
+    setEntryPriceEdited(false);
     const strikeData = strikeOptions.find((item) => String(item.strike) === selectedStrike);
     if (!strikeData) return;
 
@@ -285,7 +288,8 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     if (ltp > 0) {
       setEntryPrice(ltp.toFixed(2));
     }
-  }, [isOptionTrade, optionType, selectedStrike, strikeOptions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOptionTrade, optionType, selectedStrike]);  // Note: strikeOptions intentionally excluded to prevent LTP live-updates overwriting user edits
 
   // Reset qty when switching to percent mode or when instrument/entry price changes
   useEffect(() => {
@@ -631,7 +635,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         <input
           type="number"
           value={entryPrice}
-          onChange={(e) => setEntryPrice(e.target.value)}
+          onChange={(e) => { setEntryPrice(e.target.value); setEntryPriceEdited(true); }}
           placeholder="Entry"
           step="0.05"
           className={`w-full bg-background border-y border-border px-1.5 py-1 text-[0.625rem] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`}
