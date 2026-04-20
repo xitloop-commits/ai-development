@@ -921,12 +921,12 @@ export default function TradingDesk({
                   {/* Fill from center */}
                   {pnl >= 0 ? (
                     <div
-                      className="absolute top-0 bottom-0 rounded-r-full bg-bullish transition-all duration-500"
+                      className="absolute top-0 bottom-0 rounded-r-full bg-bullish/60 transition-all duration-500"
                       style={{ left: `${positionFor(0)}%`, width: `${markerLeft - positionFor(0)}%` }}
                     />
                   ) : (
                     <div
-                      className="absolute top-0 bottom-0 rounded-l-full bg-destructive transition-all duration-500"
+                      className="absolute top-0 bottom-0 rounded-l-full bg-destructive/80 transition-all duration-500"
                       style={{ left: `${markerLeft}%`, width: `${positionFor(0) - markerLeft}%` }}
                     />
                   )}
@@ -935,7 +935,7 @@ export default function TradingDesk({
                     <div key={`n${v}`} className="absolute top-0 bottom-0 w-px bg-destructive/40" style={{ left: `${positionFor(v)}%` }} />
                   ))}
                   {posMarkers.map(v => (
-                    <div key={`p${v}`} className="absolute top-0 bottom-0 w-px bg-bullish/40" style={{ left: `${positionFor(v)}%` }} />
+                    <div key={`p${v}`} className="absolute top-0 bottom-0 w-px bg-bullish/30" style={{ left: `${positionFor(v)}%` }} />
                   ))}
                   {giftMarkers.map(v => (
                     <div key={`g${v}`} className="absolute top-0 bottom-0 w-px bg-primary/40" style={{ left: `${positionFor(v)}%` }} />
@@ -944,13 +944,22 @@ export default function TradingDesk({
                   <div className="absolute top-[-2px] bottom-[-2px] w-0.5 bg-foreground/50 z-[1]" style={{ left: `${positionFor(0)}%`, marginLeft: '-1px' }} />
                   {/* Target line (prominent amber, marks +5% cap) */}
                   <div className="absolute top-[-2px] bottom-[-2px] w-0.5 bg-warning-amber/70 z-[1]" style={{ left: `${positionFor(targetPct)}%`, marginLeft: '-1px' }} />
-                  {/* Current position marker (dot) */}
+                  {/* Current position marker (dot + floating value) */}
                   <div
                     className={`absolute top-1/2 -translate-y-1/2 h-3 w-3 rounded-full border-2 border-background shadow-md z-[2] transition-all duration-500 ${
-                      pnl >= 0 ? 'bg-bullish' : 'bg-destructive'
+                      pnl >= 0 ? 'bg-bullish/80' : 'bg-destructive'
                     }`}
                     style={{ left: `${markerLeft}%`, marginLeft: '-6px' }}
                   />
+                  {/* Current value floating label above dot */}
+                  <div
+                    className={`absolute -top-4 text-[0.5rem] font-bold tabular-nums -translate-x-1/2 z-[3] transition-all duration-500 ${
+                      pnl >= 0 ? 'text-bullish' : 'text-destructive'
+                    }`}
+                    style={{ left: `${markerLeft}%` }}
+                  >
+                    {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
+                  </div>
                 </div>
                 {/* Bottom percentage row (below bar) */}
                 <div className="relative w-full h-3 mt-0.5">
