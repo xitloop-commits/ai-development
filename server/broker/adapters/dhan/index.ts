@@ -937,7 +937,10 @@ export class DhanAdapter implements BrokerAdapter {
         updateBrokerConnection(this.brokerId, { wsStatus: "disconnected" });
       },
       onError: (err) => {
-        log.error(`WS error: ${err.message}`);
+        // Suppress repeated "max reconnect" spam — it's already logged once by WS
+        if (!err.message.includes("max reconnect attempts")) {
+          log.error(`WS error: ${err.message}`);
+        }
         updateBrokerConnection(this.brokerId, { wsStatus: "error" });
       },
       onConnected: () => {

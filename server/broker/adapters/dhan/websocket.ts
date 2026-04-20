@@ -182,6 +182,7 @@ export class DhanWebSocket extends EventEmitter {
   private isConnecting = false;
   private isDisconnecting = false;
   private _connected = false;
+  private _cooldownUntil = 0;   // 429/auth cooldown — reject connects until this time
 
   constructor(config: DhanWSConfig) {
     super();
@@ -200,6 +201,12 @@ export class DhanWebSocket extends EventEmitter {
 
   async connect(): Promise<void> {
     if (this._connected || this.isConnecting) return;
+    const now = Date.now();
+    if (now < this._cooldownUntil) {
+      const waitSec = Math.ceil((this._cooldownUntil - now) / 1000);
+      log.debug(`Skip connect — cooldown active, retry in ${waitSec}s`);
+      return;
+    }
     this.isConnecting = true;
     this.isDisconnecting = false;
 
@@ -256,6 +263,17 @@ export class DhanWebSocket extends EventEmitter {
         clearTimeout(timeout);
         log.error(`Error: ${err.message}`);
         this.config.onError(err);
+
+        // Set cooldown on rate limit or auth errors to avoid hammering Dhan
+        if (err.message.includes("429")) {
+          this._cooldownUntil = Date.now() + 5 * 60 * 1000;  // 5 min cooldown for 429
+          this.reconnectAttempts = this.maxReconnectAttempts;  // stop further retries
+          log.warn("WS 429 — 5 min cooldown active, reconnects suspended");
+        } else if (err.message.includes("401") || err.message.includes("403")) {
+          this._cooldownUntil = Date.now() + 2 * 60 * 1000;  // 2 min for auth errors
+          this.reconnectAttempts = this.maxReconnectAttempts;
+          log.warn("WS auth error — 2 min cooldown active");
+        }
 
         if (this.isConnecting) {
           this.isConnecting = false;
