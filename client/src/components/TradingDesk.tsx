@@ -346,6 +346,25 @@ function calculateTotalLots(trades: TradeRecord[]): number {
   }, 0);
 }
 
+function calculateTotalInvested(trades: TradeRecord[]): number {
+  return trades.reduce((sum, t) => sum + t.entryPrice * t.qty, 0);
+}
+
+function calculateAvgEntryPrice(trades: TradeRecord[]): number {
+  const totalQty = trades.reduce((sum, t) => sum + t.qty, 0);
+  if (totalQty === 0) return 0;
+  const totalValue = trades.reduce((sum, t) => sum + t.entryPrice * t.qty, 0);
+  return totalValue / totalQty;
+}
+
+function calculateAvgExitPrice(trades: TradeRecord[]): number {
+  const closed = trades.filter(t => t.exitPrice != null && t.qty > 0);
+  const totalQty = closed.reduce((sum, t) => sum + t.qty, 0);
+  if (totalQty === 0) return 0;
+  const totalValue = closed.reduce((sum, t) => sum + (t.exitPrice ?? 0) * t.qty, 0);
+  return totalValue / totalQty;
+}
+
 function countTradeOutcomes(trades: TradeRecord[]): { wins: number; losses: number } {
   return trades.reduce((acc, trade) => {
     if (trade.status === 'OPEN' || trade.status === 'PENDING' || trade.status === 'CANCELLED') {
@@ -1090,16 +1109,22 @@ function PastRow({
           }
         </div>
       </td>
-      {/* Entry */}
-      <td className="px-2 py-2 text-right border-r border-border"></td>
-      {/* LTP */}
-      <td className="px-2 py-2 text-right border-r border-border"></td>
+      {/* Entry (avg) */}
+      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
+        {(() => { const avg = calculateAvgEntryPrice(day.trades ?? []); return avg > 0 ? avg.toFixed(2) : ''; })()}
+      </td>
+      {/* LTP (avg exit) */}
+      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
+        {(() => { const avg = calculateAvgExitPrice(day.trades ?? []); return avg > 0 ? avg.toFixed(2) : ''; })()}
+      </td>
       {/* Lot */}
       <td className="px-2 py-2 text-right tabular-nums border-r border-border">
         {(() => { const lots = calculateTotalLots(day.trades ?? []); return lots > 0 ? lots : ''; })()}
       </td>
-      {/* Capital */}
-      <td className="px-2 py-2 text-right border-r border-border"></td>
+      {/* Invested (total) */}
+      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
+        {(() => { const inv = calculateTotalInvested(day.trades ?? []); return inv > 0 ? fmt(inv) : ''; })()}
+      </td>
       {/* P&L */}
       <td className={`px-2 py-2 text-right tabular-nums font-bold border-r border-border ${pnlColor(pnlValue)}`}>
         {fmt(pnlValue, false)}
