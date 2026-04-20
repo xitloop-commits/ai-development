@@ -189,6 +189,14 @@ export class DhanWebSocket extends EventEmitter {
     this.config = config;
   }
 
+  /** Update the access token used for future (re)connects. Does not reconnect. */
+  updateToken(newToken: string): void {
+    this.config.accessToken = newToken;
+    this._cooldownUntil = 0;       // clear cooldown so next reconnect can try
+    this.reconnectAttempts = 0;    // reset attempt counter with fresh token
+    log.info("WS token updated — next reconnect will use new token");
+  }
+
   // ── Public API ─────────────────────────────────────────────────
 
   get connected(): boolean {

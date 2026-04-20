@@ -146,6 +146,9 @@ export class DhanAdapter implements BrokerAdapter {
           // handleDhan401 already wrote to Mongo — just sync in-memory token
           this.accessToken = newToken;
           this.tokenUpdatedAt = Date.now();
+          // Propagate to WebSocket so next reconnect uses the new token
+          if (this.ws) this.ws.updateToken(newToken);
+          if (this.orderUpdateWs) this.orderUpdateWs.accessToken = newToken;
           log.info("Token synced from in-flight refresh.");
           return true;
         }
@@ -204,6 +207,9 @@ export class DhanAdapter implements BrokerAdapter {
       this.accessToken = token;
       this.clientId = result.clientId ?? clientId ?? this.clientId;
       this.tokenUpdatedAt = Date.now();
+      // Propagate to WebSocket + order update WS
+      if (this.ws) this.ws.updateToken(token);
+      if (this.orderUpdateWs) this.orderUpdateWs.accessToken = token;
       log.info(`Token updated. Client: ${this.clientId}`);
     } else {
       throw new Error(result.message);
