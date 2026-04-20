@@ -905,21 +905,21 @@ export default function TradingDesk({
         ) : (
           <table className="w-full table-fixed border-collapse text-xs [&_td]:align-middle [&_td]:whitespace-nowrap [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
             <colgroup>
-              <col style={{ width: '2.25rem', maxWidth: '2.25rem' }} />    {/* Day: "250" */}
-              <col style={{ width: '5rem',    maxWidth: '5rem' }} />       {/* Date: "28 Dec 26" */}
-              <col style={{ width: '4.5rem',  maxWidth: '4.5rem' }} />     {/* Capital */}
-              <col style={{ width: '5rem',    maxWidth: '5rem' }} />       {/* Profit+ */}
-              <col style={{ width: '4.5rem',  maxWidth: '4.5rem' }} />     {/* Capital+ */}
+              <col style={{ width: '2.25rem',  maxWidth: '2.25rem' }} />   {/* Day: "250" */}
+              <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />  {/* Date: 90px */}
+              <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* Capital */}
+              <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />  {/* Profit+: 90px */}
+              <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* Capital+ */}
               <col />                                                       {/* Instrument */}
-              <col style={{ width: '4.5rem',  maxWidth: '4.5rem' }} />     {/* Entry */}
-              <col style={{ width: '4.5rem',  maxWidth: '4.5rem' }} />     {/* LTP */}
-              <col style={{ width: '1.875rem',maxWidth: '1.875rem' }} />   {/* Lot */}
-              <col style={{ width: '4.5rem',  maxWidth: '4.5rem' }} />     {/* Invested */}
-              <col style={{ width: '4.5rem',  maxWidth: '4.5rem' }} />     {/* P&L */}
-              <col style={{ width: '3.625rem',maxWidth: '3.625rem' }} />   {/* P&L % */}
-              <col style={{ width: '4.5rem',  maxWidth: '4.5rem' }} />     {/* Capital */}
-              <col style={{ width: '4.5rem',  maxWidth: '4.5rem' }} />     {/* Dev. */}
-              <col style={{ width: '2rem',    maxWidth: '2rem' }} />       {/* Rating */}
+              <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* Entry */}
+              <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* LTP */}
+              <col style={{ width: '2.5rem',   maxWidth: '2.5rem' }} />    {/* Lot: 40px */}
+              <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* Invested */}
+              <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />  {/* P&L: 90px */}
+              <col style={{ width: '3.625rem', maxWidth: '3.625rem' }} />  {/* P&L % */}
+              <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* Capital */}
+              <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />  {/* Dev.: 90px */}
+              <col style={{ width: '2rem',     maxWidth: '2rem' }} />      {/* Rating */}
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-card border-b border-border uppercase">
