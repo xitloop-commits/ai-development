@@ -1303,11 +1303,27 @@ function TodaySection({
 
       {/* Today Summary Row */}
       <tr data-day={day.dayIndex} className={`border-y font-bold ${theme.summaryBorder} ${theme.summaryBg}`} ref={trades.length === 0 ? todayRef : undefined}>
-        <td className="px-2 py-2 border-r border-border" />
-        <td className="px-2 py-2 border-r border-border" />
-        <td className="px-2 py-2 border-r border-border" />
-        <td className="px-2 py-2 border-r border-border" />
-        <td className="px-2 py-2 border-r border-border" />
+        {/* Day */}
+        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+          {day.dayIndex}
+        </td>
+        {/* Date */}
+        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+          {cycleDateLabel}
+        </td>
+        {/* Capital */}
+        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+          {fmt(day.tradeCapital, true)}
+        </td>
+        {/* Profit+ */}
+        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+          {fmt(day.targetAmount)}
+          <span className="text-[0.5rem] ml-0.5">({day.targetPercent}%)</span>
+        </td>
+        {/* Capital+ */}
+        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+          {fmt(day.projCapital, true)}
+        </td>
         <td className="px-2 py-2 border-r border-border">
           <div className="flex items-center justify-end gap-2">
             {!canManageTrades && (
@@ -1364,16 +1380,16 @@ function TodaySection({
           })()}
         </td>
         <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
-          {fmt(totalPnl, false)}
+          {trades.length > 0 ? fmt(totalPnl, false) : ''}
         </td>
         <td className="px-2 py-2 border-r border-border" />
         <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground border-r border-border">
-          {day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
+          {trades.length > 0 && day.actualCapital > 0 ? fmt(day.actualCapital, true) : ''}
         </td>
         <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(day.deviation)}`}>
-          {formatDeviation(day.deviation)}
+          {trades.length > 0 ? formatDeviation(day.deviation) : ''}
         </td>
-        <td className="px-2 py-2" />
+        <td className="px-1 py-2" />
       </tr>
       <tr className="hidden border-y border-warning-amber/30 bg-warning-amber/10 bg-muted/20 font-bold">
         {/* Day */}
