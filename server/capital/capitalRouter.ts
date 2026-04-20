@@ -867,6 +867,46 @@ export const capitalRouter = router({
         cumulativeCharges: state.cumulativeCharges + totalCharges,
       });
 
+      // Check day completion (target hit → generate gift days if excess)
+      const completion = checkDayCompletion(updated);
+      if (completion.complete) {
+        const freshState = await getCapitalState(input.workspace);
+        const result = completeDayIndex(freshState, updated);
+
+        await updateCapitalState(input.workspace, {
+          tradingPool: result.tradingPool,
+          reservePool: result.reservePool,
+          currentDayIndex: freshState.currentDayIndex + 1,
+          profitHistory: [...freshState.profitHistory, result.profitEntry],
+        });
+
+        updated.status = "COMPLETED";
+        updated.rating = result.rating;
+        await upsertDayRecord(input.workspace, updated);
+
+        if (completion.excessProfit > 0) {
+          const gifts = calculateGiftDays(
+            completion.excessProfit,
+            freshState.currentDayIndex + 1,
+            result.tradingPool,
+            freshState.targetPercent,
+            (idx) => result.tradingPool * Math.pow(1 + freshState.targetPercent / 100, idx - freshState.currentDayIndex),
+            input.workspace
+          );
+
+          for (const giftDay of gifts.giftDays) {
+            await upsertDayRecord(input.workspace, giftDay);
+          }
+
+          if (gifts.giftDays.length > 0) {
+            await updateCapitalState(input.workspace, {
+              currentDayIndex: freshState.currentDayIndex + 1 + gifts.giftDays.length,
+              tradingPool: gifts.finalTradingPool,
+            });
+          }
+        }
+      }
+
       return { results, day: updated };
     }),
 
