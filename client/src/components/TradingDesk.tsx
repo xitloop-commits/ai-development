@@ -946,7 +946,7 @@ export default function TradingDesk({
               <col style={{ width: '3.625rem', maxWidth: '3.625rem' }} />  {/* P&L % */}
               <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* Capital */}
               <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />  {/* Dev.: 90px */}
-              <col style={{ width: '2rem',     maxWidth: '2rem' }} />      {/* Rating */}
+              <col style={{ width: '3rem',     maxWidth: '3rem' }} />      {/* Rating */}
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-card border-b border-border uppercase">
