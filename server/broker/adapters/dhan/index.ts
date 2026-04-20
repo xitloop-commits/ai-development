@@ -115,9 +115,6 @@ export class DhanAdapter implements BrokerAdapter {
   // Rate limiter for Dhan API calls
   private rateLimiter = new RateLimiter(10, 250);
 
-  // Option chain cooldown — skip fetches until this time after 429
-  private optionChainCooldownUntil: number = 0;
-
   // WebSocket and Subscription Manager
   private ws: DhanWebSocket | null = null;
   private subManager: SubscriptionManager | null = null;
@@ -658,13 +655,6 @@ export class DhanAdapter implements BrokerAdapter {
    async getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData> {
     this._ensureToken();
 
-    // Cooldown check — if recent 429, return cached/throw early
-    const now = Date.now();
-    if (now < this.optionChainCooldownUntil) {
-      const waitSec = Math.ceil((this.optionChainCooldownUntil - now) / 1000);
-      throw new Error(`Option chain rate limit — retry in ${waitSec}s`);
-    }
-
     const requestBody = {
       UnderlyingScrip: Number(underlying),
       UnderlyingSeg: exchangeSegment || "IDX_I",
@@ -711,19 +701,10 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (!result.ok || !result.data) {
       const errorMsg = result.error?.errorMessage || result.error?.errorType || "Unknown error";
-      // 429 rate limit — set cooldown to avoid hammering Dhan
-      if (result.status === 429) {
-        this.optionChainCooldownUntil = Date.now() + 3 * 60 * 1000;  // 3 min
-        log.warn(`Option chain 429 — 3 min cooldown active (underlying=${underlying})`);
-        throw new Error(`Option chain rate limited — cooldown 3 min`);
-      }
       log.warn(`Option chain fetch failed: underlying=${underlying}, expiry=${expiry}, status=${result.status}, error=${errorMsg}`);
       log.debug(`Full error response: ${JSON.stringify(result.error)}`);
       throw new Error(`Failed to fetch option chain: ${errorMsg}`);
     }
-
-    // Reset cooldown on success
-    this.optionChainCooldownUntil = 0;
 
     const ocData = result.data.data;
     const rows = Object.entries(ocData.oc ?? {}).map(([strikeStr, strikes]) => ({

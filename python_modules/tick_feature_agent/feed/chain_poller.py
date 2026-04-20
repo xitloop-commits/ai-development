@@ -301,10 +301,6 @@ class ChainPoller:
             self._log.error("EXPIRY_FETCH_FAILED", msg=f"Exception: {exc}")
 
     async def _fetch_snapshot(self) -> ChainSnapshot | None:
-        # Respect cooldown from previous 429
-        now = time.monotonic()
-        if now < getattr(self, "_cooldown_until", 0):
-            return None
         loop = asyncio.get_event_loop()
         try:
             resp = await loop.run_in_executor(
@@ -319,12 +315,6 @@ class ChainPoller:
                     timeout=8,
                 )
             )
-            if resp.status_code == 429:
-                # Rate-limited upstream — back off for 3 minutes
-                self._cooldown_until = time.monotonic() + 180.0
-                self._log.warn("CHAIN_RATE_LIMITED",
-                               msg="Upstream 429 — backing off 3 min")
-                return None
             if resp.status_code != 200:
                 return None
             body = resp.json()

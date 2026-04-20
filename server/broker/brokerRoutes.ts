@@ -528,12 +528,6 @@ export function registerBrokerRoutes(app: Express): void {
       );
       res.json({ success: true, data: chain });
     } catch (err: any) {
-      // Cooldown/rate-limit errors are expected — log as debug, not error
-      if (err.message?.includes("rate limit") || err.message?.includes("cooldown")) {
-        log.debug(`Option chain skipped: ${err.message}`);
-        sendError(res, 429, err.message);
-        return;
-      }
       log.error("Error getting option chain:", err);
       sendError(res, 500, err.message);
     }
