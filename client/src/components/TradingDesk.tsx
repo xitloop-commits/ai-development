@@ -849,20 +849,25 @@ export default function TradingDesk({
         {/* Today P&L — center-zero progress bar with multiple markers */}
         <div className="px-3 py-1.5 flex flex-col justify-center flex-1 min-w-[280px]">
           {(() => {
-            // Per DisciplineEngine spec v1.3: daily profit cap +5%, loss cap -2%, circuit breaker -3%
-            const targetPct = 5;   // daily profit cap (right edge)
-            const maxLossPct = 3;  // circuit breaker (left edge, hard stop)
+            // Per DisciplineEngine spec v1.3: daily profit cap +5%, circuit breaker -3%
+            // Bar extends 3 markers beyond +5% to show excess profit (gift territory)
+            const targetPct = 5;          // daily profit cap
+            const maxLossPct = 3;         // circuit breaker
+            const extraPosPct = 3;        // 3 extra markers beyond target (→ +8%)
+            const rightEdgePct = targetPct + extraPosPct;
             const tradeCapital = capital.tradingPool || 1;
             const pnl = capital.todayPnl;
             const pnlPct = (pnl / tradeCapital) * 100;
-            const clamped = Math.min(Math.max(pnlPct, -maxLossPct), targetPct);
-            const markerLeft = ((clamped + maxLossPct) / (maxLossPct + targetPct)) * 100;
-            // Intermediate markers at 1% intervals (skipping edges + center)
+            const clamped = Math.min(Math.max(pnlPct, -maxLossPct), rightEdgePct);
+            const markerLeft = ((clamped + maxLossPct) / (maxLossPct + rightEdgePct)) * 100;
+            // Intermediate markers at 1% intervals (skipping edges + center + target)
             const negMarkers: number[] = [];
             const posMarkers: number[] = [];
+            const giftMarkers: number[] = [];
             for (let v = -maxLossPct + 1; v < 0; v++) negMarkers.push(v);
             for (let v = 1; v < targetPct; v++) posMarkers.push(v);
-            const positionFor = (v: number) => ((v + maxLossPct) / (maxLossPct + targetPct)) * 100;
+            for (let v = targetPct + 1; v < rightEdgePct; v++) giftMarkers.push(v);
+            const positionFor = (v: number) => ((v + maxLossPct) / (maxLossPct + rightEdgePct)) * 100;
             const valueAt = (v: number) => tradeCapital * v / 100;
             return (
               <>
@@ -897,11 +902,22 @@ export default function TradingDesk({
                       {fmt(valueAt(v))}
                     </span>
                   ))}
+                  {giftMarkers.map(v => (
+                    <span key={`vg${v}`}
+                      className="absolute text-[0.4375rem] tabular-nums text-primary/70 -translate-x-1/2"
+                      style={{ left: `${positionFor(v)}%` }}>
+                      {fmt(valueAt(v))}
+                    </span>
+                  ))}
                   <span className="absolute left-0 text-[0.4375rem] font-bold tabular-nums text-destructive">
                     {fmt(valueAt(-maxLossPct))}
                   </span>
-                  <span className="absolute right-0 text-[0.4375rem] font-bold tabular-nums text-warning-amber">
+                  <span className="absolute text-[0.4375rem] font-bold tabular-nums text-warning-amber -translate-x-1/2"
+                    style={{ left: `${positionFor(targetPct)}%` }}>
                     {fmt(valueAt(targetPct))}
+                  </span>
+                  <span className="absolute right-0 text-[0.4375rem] font-bold tabular-nums text-primary">
+                    {fmt(valueAt(rightEdgePct))}
                   </span>
                 </div>
                 {/* Bar */}
@@ -925,8 +941,13 @@ export default function TradingDesk({
                   {posMarkers.map(v => (
                     <div key={`p${v}`} className="absolute top-0 bottom-0 w-px bg-bullish/40" style={{ left: `${positionFor(v)}%` }} />
                   ))}
+                  {giftMarkers.map(v => (
+                    <div key={`g${v}`} className="absolute top-0 bottom-0 w-px bg-primary/40" style={{ left: `${positionFor(v)}%` }} />
+                  ))}
                   {/* Zero line (prominent) */}
                   <div className="absolute top-[-2px] bottom-[-2px] w-0.5 bg-foreground/50 z-[1]" style={{ left: `${positionFor(0)}%`, marginLeft: '-1px' }} />
+                  {/* Target line (prominent amber, marks +5% cap) */}
+                  <div className="absolute top-[-2px] bottom-[-2px] w-0.5 bg-warning-amber/70 z-[1]" style={{ left: `${positionFor(targetPct)}%`, marginLeft: '-1px' }} />
                   {/* Current position marker (dot) */}
                   <div
                     className={`absolute top-1/2 -translate-y-1/2 h-4 w-4 rounded-full border-2 border-background shadow-md z-[2] transition-all duration-500 ${
@@ -951,14 +972,26 @@ export default function TradingDesk({
                       +{v}%
                     </span>
                   ))}
+                  {giftMarkers.map(v => (
+                    <span key={`pg${v}`}
+                      className="absolute text-[0.4375rem] tabular-nums text-primary/70 -translate-x-1/2"
+                      style={{ left: `${positionFor(v)}%` }}>
+                      +{v}%
+                    </span>
+                  ))}
                   <span className="absolute left-0 text-[0.4375rem] font-bold tabular-nums text-destructive">
                     -{maxLossPct}%
                   </span>
-                  <span className="absolute left-1/2 -translate-x-1/2 text-[0.4375rem] text-foreground/50 tabular-nums">
+                  <span className="absolute text-[0.4375rem] text-foreground/50 tabular-nums -translate-x-1/2"
+                    style={{ left: `${positionFor(0)}%` }}>
                     0
                   </span>
-                  <span className="absolute right-0 text-[0.4375rem] font-bold tabular-nums text-warning-amber">
+                  <span className="absolute text-[0.4375rem] font-bold tabular-nums text-warning-amber -translate-x-1/2"
+                    style={{ left: `${positionFor(targetPct)}%` }}>
                     +{targetPct}%
+                  </span>
+                  <span className="absolute right-0 text-[0.4375rem] font-bold tabular-nums text-primary">
+                    +{rightEdgePct}%
                   </span>
                 </div>
               </>
