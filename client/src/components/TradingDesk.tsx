@@ -941,6 +941,7 @@ export default function TradingDesk({
               <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* LTP */}
               <col style={{ width: '2.5rem',   maxWidth: '2.5rem' }} />    {/* Lot: 40px */}
               <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* Invested */}
+              <col style={{ width: '3.625rem', maxWidth: '3.625rem' }} />  {/* Points: ltp - entry */}
               <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />  {/* P&L: 90px */}
               <col style={{ width: '3.625rem', maxWidth: '3.625rem' }} />  {/* P&L % */}
               <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* Capital */}
@@ -959,6 +960,7 @@ export default function TradingDesk({
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">LTP</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Lot</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Invested</th>
+                <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Points</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L %</th>
                 <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Capital</th>
@@ -1124,6 +1126,16 @@ function PastRow({
       {/* Invested (total) */}
       <td className="px-2 py-2 text-right tabular-nums border-r border-border">
         {(() => { const inv = calculateTotalInvested(day.trades ?? []); return inv > 0 ? fmt(inv) : ''; })()}
+      </td>
+      {/* Points (avg exit - avg entry) */}
+      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
+        {(() => {
+          const avgE = calculateAvgEntryPrice(day.trades ?? []);
+          const avgX = calculateAvgExitPrice(day.trades ?? []);
+          if (avgE === 0 || avgX === 0) return '';
+          const pts = avgX - avgE;
+          return <span className={pnlColor(pts)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
+        })()}
       </td>
       {/* P&L */}
       <td className={`px-2 py-2 text-right tabular-nums font-bold border-r border-border ${pnlColor(pnlValue)}`}>
@@ -1341,6 +1353,16 @@ function TodaySection({
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
           {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0)) : ''}
         </td>
+        {/* Points — summed avg */}
+        <td className="px-2 py-2 text-right tabular-nums border-r border-border">
+          {(() => {
+            const avgE = calculateAvgEntryPrice(trades);
+            const avgX = calculateAvgExitPrice(trades);
+            if (avgE === 0 || avgX === 0) return '';
+            const pts = avgX - avgE;
+            return <span className={pnlColor(pts)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
+          })()}
+        </td>
         <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
           {fmt(totalPnl, false)}
         </td>
@@ -1400,6 +1422,8 @@ function TodaySection({
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
           {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0)) : ''}
         </td>
+        {/* Points */}
+        <td className="px-2 py-2 border-r border-border" />
         {/* P&L */}
         <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
           {fmt(totalPnl, false)}
@@ -1770,6 +1794,15 @@ function TodayTradeRow({
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
         {fmt(trade.entryPrice * trade.qty)}
       </td>
+      {/* Points (ltp - entry) */}
+      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
+        {(() => {
+          const price = isOpen ? displayLtp : (trade.exitPrice ?? 0);
+          if (!price) return '';
+          const pts = price - trade.entryPrice;
+          return <span className={pnlColor(pts)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
+        })()}
+      </td>
       {/* P&L */}
       <td className={`px-2 py-1.5 text-right tabular-nums font-bold border-r border-border ${pnlColor(pnl)}`}>
         {fmt(pnl, false)}
@@ -1830,6 +1863,7 @@ function FutureRow({
       <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground border-r border-border">
         {fmt(day.projCapital, true)}
       </td>
+      <td className="px-2 py-2 border-r border-border"></td>
       <td className="px-2 py-2 border-r border-border"></td>
       <td className="px-2 py-2 border-r border-border"></td>
       <td className="px-2 py-2 border-r border-border"></td>

@@ -732,6 +732,8 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         {invested > 0 ? fmt(invested) : '-'}
       </td>
 
+      <td className="px-2 py-2 border-r border-border" /> {/* Points - empty for new trade */}
+      <td className="px-2 py-2 border-r border-border" /> {/* P&L - empty for new trade */}
       <td className="px-2 py-2 border-r border-border" /> {/* Capital - empty for new trade */}
       <td className="px-2 py-2 border-r border-border" /> {/* Dev. - empty for new trade */}
       <td className="px-2 py-2 text-center" /> {/* Rating - empty for new trade */}
