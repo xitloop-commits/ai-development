@@ -847,7 +847,7 @@ export default function TradingDesk({
           <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
         </div>
         {/* Today P&L — center-zero progress bar with multiple markers */}
-        <div className="px-3 py-1.5 flex flex-col justify-center flex-1 min-w-[280px]">
+        <div className="relative px-3 py-1.5 flex flex-col justify-center flex-1 min-w-[280px]">
           {(() => {
             // Per DisciplineEngine spec v1.3: daily profit cap +5%, circuit breaker -3%
             // Bar extends up to +50% to show excess profit (gift territory grows the further you go)
@@ -873,12 +873,9 @@ export default function TradingDesk({
             const valueAt = (v: number) => tradeCapital * v / 100;
             return (
               <>
-                {/* Top: P&L value + Exit All */}
-                <div className="flex items-center justify-center gap-1 mb-0.5">
-                  <span className={`text-xs font-bold tabular-nums ${pnlColor(pnl)}`}>
-                    {fmt(pnl)} <span className="text-[0.5rem] opacity-70">({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%)</span>
-                  </span>
-                  {canManageTrades && openTradeCount > 0 && (
+                {/* Exit All button (top-right, only when open trades) */}
+                {canManageTrades && openTradeCount > 0 && (
+                  <div className="absolute top-0.5 right-0">
                     <button
                       onClick={handleExitAll}
                       className="px-1 py-0.5 rounded font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
@@ -886,8 +883,8 @@ export default function TradingDesk({
                     >
                       ×
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
                 {/* Top values row (above bar) */}
                 <div className="relative w-full h-3 mb-0.5">
                   {negMarkers.map(v => (
@@ -914,6 +911,13 @@ export default function TradingDesk({
                   </span>
                   <span className="absolute right-0 text-[0.4375rem] font-bold tabular-nums text-primary">
                     {fmt(valueAt(rightEdgePct))}
+                  </span>
+                  {/* Current value above marker */}
+                  <span
+                    className="absolute text-[0.5rem] font-bold tabular-nums text-info-cyan -translate-x-1/2 whitespace-nowrap transition-all duration-500"
+                    style={{ left: `${markerLeft}%`, bottom: 0 }}
+                  >
+                    {pnl >= 0 ? '+' : ''}{fmt(pnl)}
                   </span>
                 </div>
                 {/* Bar */}
@@ -944,21 +948,17 @@ export default function TradingDesk({
                   <div className="absolute top-[-2px] bottom-[-2px] w-0.5 bg-foreground/50 z-[1]" style={{ left: `${positionFor(0)}%`, marginLeft: '-1px' }} />
                   {/* Target line (prominent amber, marks +5% cap) */}
                   <div className="absolute top-[-2px] bottom-[-2px] w-0.5 bg-warning-amber/70 z-[1]" style={{ left: `${positionFor(targetPct)}%`, marginLeft: '-1px' }} />
-                  {/* Current position marker (dot + floating value) */}
+                  {/* Current position — vertical line through bar */}
                   <div
-                    className={`absolute top-1/2 -translate-y-1/2 h-3 w-3 rounded-full border-2 border-background shadow-md z-[2] transition-all duration-500 ${
-                      pnl >= 0 ? 'bg-bullish/80' : 'bg-destructive'
-                    }`}
-                    style={{ left: `${markerLeft}%`, marginLeft: '-6px' }}
+                    className="absolute top-[-3px] bottom-[-3px] w-0.5 bg-info-cyan shadow-[0_0_4px_oklch(0.8_0.15_210)] z-[3] transition-all duration-500"
+                    style={{ left: `${markerLeft}%`, marginLeft: '-1px' }}
                   />
-                  {/* Current value floating label above dot */}
+                  {/* Downward arrow (▼) pointing to the bar */}
                   <div
-                    className={`absolute -top-4 text-[0.5rem] font-bold tabular-nums -translate-x-1/2 z-[3] transition-all duration-500 ${
-                      pnl >= 0 ? 'text-bullish' : 'text-destructive'
-                    }`}
-                    style={{ left: `${markerLeft}%` }}
+                    className="absolute z-[3] transition-all duration-500 -translate-x-1/2"
+                    style={{ left: `${markerLeft}%`, top: '-7px' }}
                   >
-                    {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
+                    <div className="w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent border-t-info-cyan" />
                   </div>
                 </div>
                 {/* Bottom percentage row (below bar) */}
@@ -991,6 +991,13 @@ export default function TradingDesk({
                   </span>
                   <span className="absolute right-0 text-[0.4375rem] font-bold tabular-nums text-primary">
                     +{rightEdgePct}%
+                  </span>
+                  {/* Current percentage below marker */}
+                  <span
+                    className="absolute text-[0.5rem] font-bold tabular-nums text-info-cyan -translate-x-1/2 whitespace-nowrap transition-all duration-500"
+                    style={{ left: `${markerLeft}%`, top: 0 }}
+                  >
+                    {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
                   </span>
                 </div>
               </>
