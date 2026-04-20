@@ -110,9 +110,16 @@ def _launch_new_window(title: str, bat_args: str) -> None:
 
 def _launch_no_pause(title: str, bat_args: str) -> None:
     """Open a new cmd window without waiting — used by batch launchers."""
-    cmd = (f'start "{title}" cmd /k "chcp 65001 >nul && '
-           f'cd /d "{ROOT}" && call startup\\{bat_args}"')
-    subprocess.Popen(cmd, shell=True, cwd=str(ROOT))
+    # Use subprocess list form with CREATE_NEW_CONSOLE to avoid quote-escaping issues
+    # from trailing backslashes in ROOT path.
+    root_str = str(ROOT).rstrip("\\")
+    parts = bat_args.split()
+    bat_name = parts[0]
+    bat_extra = " ".join(parts[1:])
+    inner = f'chcp 65001 >nul & cd /d "{root_str}" & call startup\\{bat_name} {bat_extra}'
+    # Use start to launch in a new window with title
+    cmd = ["cmd", "/c", "start", title, "cmd", "/k", inner]
+    subprocess.Popen(cmd, cwd=str(ROOT))
     print(f"  {GREEN('✓')} Launched: {title}")
 
 
