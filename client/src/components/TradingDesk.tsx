@@ -919,7 +919,7 @@ export default function TradingDesk({
 
       {/* ─── Table ────────────────────────────────────────────── */}
       <div className="flex-1 relative overflow-hidden" style={{ contentVisibility: 'auto' }}>
-      <div ref={tableContainerRef} className={`h-full overflow-auto scrollbar-thin transition-opacity duration-150 ${
+      <div ref={tableContainerRef} className={`h-full overflow-y-auto overflow-x-hidden scrollbar-thin transition-opacity duration-150 ${
         workspace === 'live' ? 'scrollbar-bullish' :
         workspace === 'paper_manual' ? 'scrollbar-amber' :
         'scrollbar-violet'
