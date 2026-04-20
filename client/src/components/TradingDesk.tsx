@@ -267,7 +267,8 @@ function formatCalendarDay(timestamp: number = Date.now()): string {
   const d = new Date(timestamp);
   const day = d.getDate();
   const month = d.toLocaleDateString('en-IN', { month: 'short' });
-  return `${day} ${month}`;
+  const year = String(d.getFullYear()).slice(2);
+  return `${day} ${month} ${year}`;
 }
 
 function formatExpiryLabel(expiry?: string | null): string {
@@ -905,9 +906,9 @@ export default function TradingDesk({
           <table className="w-full table-fixed border-collapse text-xs [&_td]:align-middle [&_td]:whitespace-nowrap [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
             <colgroup>
               <col style={{ width: 36, maxWidth: 36 }} />   {/* Day: "250" */}
-              <col style={{ width: 58, maxWidth: 58 }} />   {/* Date: "28 Dec" */}
+              <col style={{ width: 80, maxWidth: 80 }} />   {/* Date: "28 Dec 26" */}
               <col style={{ width: 72, maxWidth: 72 }} />   {/* Capital: "₹7.44Cr" */}
-              <col style={{ width: 68, maxWidth: 68 }} />   {/* Profit+: "₹27.9L(5%)" */}
+              <col style={{ width: 80, maxWidth: 80 }} />   {/* Profit+: "₹27.9L(5%)" */}
               <col style={{ width: 72, maxWidth: 72 }} />   {/* Capital+: "₹7.72Cr" */}
               <col />                                        {/* Instrument — remaining */}
               <col style={{ width: 72, maxWidth: 72 }} />   {/* Entry: "24300.00" */}
