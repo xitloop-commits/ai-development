@@ -1058,6 +1058,10 @@ export default function TradingDesk({
   );
 }
 
+// Track which gift days have already been seen this session — used to
+// trigger a one-time celebration animation when a new gift row appears.
+const _seenGiftDays = new Set<number>();
+
 // ─── Past / Gift Row ────────────────────────────────────────────
 
 function PastRow({
@@ -1076,9 +1080,16 @@ function PastRow({
   const pnlValue = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
   const pnlPercent = day.tradeCapital > 0 ? (day.totalPnl / day.tradeCapital * 100).toFixed(1) : '0.0';
   const dateLabel = formatDateAgeLabel(day.date || '', day.openedAt);
+  const isGift = day.rating === 'gift';
+
+  // Animate only on newly-appearing gift rows (tracked per session in ref)
+  const isFreshGift = isGift && !_seenGiftDays.has(day.dayIndex);
+  if (isGift) _seenGiftDays.add(day.dayIndex);
 
   return (
     <tr data-day={day.dayIndex} className={`border-b border-border transition-colors text-muted-foreground ${
+      isFreshGift ? 'animate-gift-celebrate' : ''
+    } ${
       highlighted ? 'bg-warning-amber/20 outline outline-1 outline-warning-amber/60' : 'hover:bg-muted/30'
     }`}>
       {/* Day */}
@@ -1157,7 +1168,9 @@ function PastRow({
       </td>
       {/* Rating */}
       <td className="px-1 py-2 text-center">
-        <RatingIcon rating={day.rating} />
+        <span className={isFreshGift ? 'animate-gift-bounce' : ''}>
+          <RatingIcon rating={day.rating} />
+        </span>
       </td>
     </tr>
   );
