@@ -21,7 +21,7 @@ if str(_PKG) not in sys.path:
 
 import pytest
 
-from tick_feature_agent.recorder.writer import NdjsonGzWriter
+from tick_feature_agent.recorder.writer import NdjsonGzWriter, WriterLockError
 from tick_feature_agent.recorder.metadata_writer import read_metadata, write_metadata
 from tick_feature_agent.recorder.session_recorder import SessionRecorder
 from tick_feature_agent.recorder.dashboard_writer import DashboardWriter
@@ -171,6 +171,65 @@ class TestNdjsonGzWriter:
         writer = NdjsonGzWriter(path)
         writer.close()
         writer.flush()  # should not raise
+
+    def test_second_writer_on_same_path_raises(self, tmp_path):
+        """
+        Cross-process corruption guard: while one writer holds the lock on a
+        given .ndjson.gz, a second writer on the same path must refuse to
+        start. Prevents the interleaved-gzip corruption seen in raw data
+        from 2026-04-14 onward.
+        """
+        path = tmp_path / "locked.ndjson.gz"
+        w1 = NdjsonGzWriter(path)
+        try:
+            with pytest.raises(WriterLockError):
+                NdjsonGzWriter(path)
+        finally:
+            w1.close()
+
+    def test_lock_released_on_close(self, tmp_path):
+        """After close(), a new writer on the same path must succeed."""
+        path = tmp_path / "released.ndjson.gz"
+        w1 = NdjsonGzWriter(path)
+        w1.write({"seq": 1})
+        w1.close()
+
+        w2 = NdjsonGzWriter(path)   # must not raise
+        w2.write({"seq": 2})
+        w2.close()
+
+        records = _read_gz(path)
+        assert [r["seq"] for r in records] == [1, 2]
+
+    def test_roll_releases_old_lock(self, tmp_path):
+        """After roll(), another writer can open the old path."""
+        p1 = tmp_path / "old.ndjson.gz"
+        p2 = tmp_path / "new.ndjson.gz"
+        w = NdjsonGzWriter(p1)
+        w.write({"x": 1})
+        w.roll(p2)
+        # old path's lock should be released
+        w_reopen_old = NdjsonGzWriter(p1)
+        w_reopen_old.close()
+        w.close()
+
+    def test_failed_init_releases_lock(self, tmp_path):
+        """
+        If _open() fails after lock acquisition, the lock must be released
+        so retries don't deadlock.
+        """
+        path = tmp_path / "sub" / "test.ndjson.gz"
+        import unittest.mock as _mock
+
+        with _mock.patch("gzip.open", side_effect=OSError("simulated")):
+            with pytest.raises(OSError):
+                NdjsonGzWriter(path)
+
+        # Lock should be released; a fresh writer on the same path succeeds
+        w = NdjsonGzWriter(path)
+        w.write({"ok": True})
+        w.close()
+        assert _read_gz(path) == [{"ok": True}]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
