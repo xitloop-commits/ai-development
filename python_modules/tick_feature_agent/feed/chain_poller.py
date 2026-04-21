@@ -116,6 +116,7 @@ class ChainPoller:
         on_new_strikes: Callable[[dict[str, tuple[int, str]]], None] | None = None,
         on_chain_stale: Callable[[], None] | None = None,
         on_chain_recovered: Callable[[], None] | None = None,
+        underlying_security_id: str | None = None,
     ) -> None:
         """
         Args:
@@ -126,6 +127,16 @@ class ChainPoller:
             on_new_strikes:    Called with new sec_id_map entries when new strikes appear.
             on_chain_stale:    Called when no snapshot received for >30s.
             on_chain_recovered: Called when chain snapshot resumes after stale.
+            underlying_security_id:
+                Override for the Dhan option-chain 'UnderlyingScrip' parameter.
+                For MCX (commodity options), this MUST be the currently-active
+                near-month futures security_id resolved at TFA startup via
+                scrip-master. The profile's static value rots every month when
+                the front-month contract expires - using it causes Dhan to
+                return HTTP 400 on the option-chain expiry-list call and TFA
+                halts at startup (observed 2026-04-21 after the April crude
+                contract expired on 2026-04-20). For NSE (IDX_I) the profile's
+                static index id is stable, so this override is optional there.
         """
         self._profile = profile
         self._broker_url = broker_url.rstrip("/")
@@ -137,6 +148,9 @@ class ChainPoller:
 
         self._log = get_logger("tfa.chain_poller", instrument=profile.instrument_name)
 
+        self._underlying_sec_id = (
+            underlying_security_id or profile.underlying_security_id
+        )
         self._snapshot: ChainSnapshot | None = None
         self._active_expiry: str | None = None
         self._rolled_over = False
@@ -257,7 +271,7 @@ class ChainPoller:
                     lambda: _requests.get(
                         f"{self._broker_url}/api/broker/option-chain/expiry-list",
                         params={
-                            "underlying": self._profile.underlying_security_id,
+                            "underlying": self._underlying_sec_id,
                             "exchangeSegment": self._exch_seg,
                         },
                         timeout=10,
@@ -308,7 +322,7 @@ class ChainPoller:
                 lambda: _requests.get(
                     f"{self._broker_url}/api/broker/option-chain",
                     params={
-                        "underlying": self._profile.underlying_security_id,
+                        "underlying": self._underlying_sec_id,
                         "expiry": self._active_expiry,
                         "exchangeSegment": self._exch_seg,
                     },
@@ -398,7 +412,7 @@ class ChainPoller:
                 msg=(
                     f"Chain returned spot_price=0 for underlying_symbol="
                     f"'{self._profile.underlying_symbol}' "
-                    f"(underlying_security_id='{self._profile.underlying_security_id}'). "
+                    f"(underlying_security_id='{self._underlying_sec_id}'). "
                     f"Verify underlying_security_id in the instrument profile JSON."
                 ),
             )
@@ -415,7 +429,7 @@ class ChainPoller:
             "SECURITY_ID_OK",
             msg=f"Security ID verified — spot={snapshot.spot_price:.2f}, "
                 f"strikes={len(snapshot.rows)}, step={snapshot.strike_step}",
-            underlying_security_id=self._profile.underlying_security_id,
+            underlying_security_id=self._underlying_sec_id,
         )
 
     # ── Clock skew check ──────────────────────────────────────────────────────

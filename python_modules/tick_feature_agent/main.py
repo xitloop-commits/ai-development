@@ -483,9 +483,22 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     processor._session_mgr = session_mgr
 
     # ── Chain poller ──────────────────────────────────────────────────────────
+    # For MCX, Dhan's option-chain API needs the CURRENT near-month futures
+    # security_id as 'UnderlyingScrip'. The profile's static id rots every
+    # month when the front-month expires, so pass the freshly-resolved
+    # ws_security_id from _resolve_near_month_contract.
+    # For NSE, the option chain API expects the SPOT INDEX id (IDX_I: 13, 25)
+    # which is stable and already stored in profile.underlying_security_id —
+    # ws_security_id holds the FUTIDX contract id (e.g. 66691) which would
+    # be WRONG to use here.
+    chain_underlying_id = (
+        ws_security_id if profile.exchange == "MCX"
+        else profile.underlying_security_id
+    )
     poller = ChainPoller(
         profile=profile,
         broker_url=args.broker_url,
+        underlying_security_id=chain_underlying_id,
         on_snapshot=processor.on_chain_snapshot,
         on_chain_stale=processor.on_chain_stale,
         on_chain_recovered=processor.on_chain_recovered,
