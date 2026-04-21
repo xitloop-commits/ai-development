@@ -16,7 +16,6 @@
  * Keyboard Shortcuts:
  *   F2 → Settings overlay
  *   Ctrl+D → Discipline overlay
- *   Ctrl+J → Journal overlay
  *   Ctrl+[ → Toggle Left sidebar (Instruments)
  *   Ctrl+] → Toggle Right sidebar (Signals)
  *   Esc    → Close any open overlay
@@ -45,7 +44,6 @@ import RightSidebar from '@/components/RightDrawer';
 // Overlays
 import SettingsOverlay from '@/components/SettingsOverlay';
 import DisciplineOverlay from '@/components/DisciplineOverlay';
-import JournalOverlay from '@/components/JournalOverlay';
 
 // Center content
 import TradingDesk from '@/components/TradingDesk';
@@ -78,7 +76,6 @@ export default function MainScreen() {
   // ─── Overlay State ─────────────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [disciplineOpen, setDisciplineOpen] = useState(false);
-  const [journalOpen, setJournalOpen] = useState(false);
 
   // ─── Quick Order Popup State (hotkey-triggered) ─────────────────
   const [quickOrderOpen, setQuickOrderOpen] = useState(false);
@@ -257,11 +254,6 @@ export default function MainScreen() {
           e.preventDefault();
           setDisciplineOpen((prev) => !prev);
           break;
-        case 'j':
-        case 'J':
-          e.preventDefault();
-          setJournalOpen((prev) => !prev);
-          break;
         case '[':
           e.preventDefault();
           setLeftSidebarVisible((prev) => !prev);
@@ -276,7 +268,6 @@ export default function MainScreen() {
     if (e.key === 'Escape') {
       setSettingsOpen(false);
       setDisciplineOpen(false);
-      setJournalOpen(false);
     }
   }, []);
 
@@ -389,13 +380,6 @@ export default function MainScreen() {
           onOpenChange={setDisciplineOpen}
         />
       </ErrorBoundary>
-      <ErrorBoundary section="Journal" compact>
-        <JournalOverlay
-          open={journalOpen}
-          onOpenChange={setJournalOpen}
-        />
-      </ErrorBoundary>
-
       {/* ─── Circuit Breaker Full-Screen Block (system-triggered) ── */}
       <CircuitBreakerOverlay
         visible={circuitBreakerTriggered}

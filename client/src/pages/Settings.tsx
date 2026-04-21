@@ -9,8 +9,6 @@
  * 6. Charges
  */
 import { useState, useEffect, useMemo } from 'react';
-import { useAuth } from '@/_core/hooks/useAuth';
-import { getLoginUrl } from '@/const';
 import { trpc } from '@/lib/trpc';
 import { useCapital } from '@/contexts/CapitalContext';
 import { Link } from 'wouter';
@@ -2391,40 +2389,7 @@ export function InstrumentsSection() {
 // ─── Main Settings Page ──────────────────────────────────────────
 
 export default function Settings() {
-  const { user, loading } = useAuth();
   const [activeSection, setActiveSection] = useState<SettingsSection>('broker');
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="flex items-center gap-2">
-          <Loader2 className="h-5 w-5 animate-spin text-primary" />
-          <span className="text-[0.6875rem] text-muted-foreground">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">
-          <h1 className="text-2xl font-semibold tracking-tight text-center">
-            Sign in to continue
-          </h1>
-          <p className="text-sm text-muted-foreground text-center max-w-sm">
-            Access to settings requires authentication.
-          </p>
-          <button
-            onClick={() => { window.location.href = getLoginUrl(); }}
-            className="w-full px-6 py-3 rounded bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors"
-          >
-            Sign in
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   const renderSection = () => {
     switch (activeSection) {

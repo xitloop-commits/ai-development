@@ -365,6 +365,28 @@ function calculateAvgExitPrice(trades: TradeRecord[]): number {
   return totalValue / totalQty;
 }
 
+/**
+ * Direction-aware points for a single trade at a given price.
+ * BUY: price - entry (favorable when price rises)
+ * SELL: entry - price (favorable when price falls)
+ */
+function tradePoints(trade: { type: string; entryPrice: number }, price: number): number {
+  const isBuy = typeof trade.type === 'string' && trade.type.includes('BUY');
+  return isBuy ? price - trade.entryPrice : trade.entryPrice - price;
+}
+
+/** Qty-weighted signed points across a group of closed trades. */
+function calculateAvgSignedPoints(trades: TradeRecord[]): number {
+  const closed = trades.filter(t => t.exitPrice != null && t.qty > 0);
+  const totalQty = closed.reduce((sum, t) => sum + t.qty, 0);
+  if (totalQty === 0) return 0;
+  const totalPts = closed.reduce(
+    (sum, t) => sum + tradePoints(t, t.exitPrice ?? 0) * t.qty,
+    0
+  );
+  return totalPts / totalQty;
+}
+
 function countTradeOutcomes(trades: TradeRecord[]): { wins: number; losses: number } {
   return trades.reduce((acc, trade) => {
     if (trade.status === 'OPEN' || trade.status === 'PENDING' || trade.status === 'CANCELLED') {
@@ -618,12 +640,30 @@ export default function TradingDesk({
     return map;
   }, [resolvedInstruments]);
 
-  const getLiveLtp = useCallback((trade: { instrument: string; contractSecurityId?: string | null }): number | undefined => {
+  const getLiveLtp = useCallback((trade: { id?: string; instrument: string; contractSecurityId?: string | null }): number | undefined => {
     if (trade.contractSecurityId) {
       const exchange = (trade.instrument.includes('CRUDE') || trade.instrument.includes('NATURAL'))
         ? 'MCX_COMM'
         : 'NSE_FNO';
-      return getTick(exchange, trade.contractSecurityId)?.ltp;
+      const tick = getTick(exchange, trade.contractSecurityId);
+      // One-shot debug: log when we have contractSecurityId but no option tick yet
+      if (!tick && trade.id && !(window as any).__loggedLtp?.[trade.id]) {
+        (window as any).__loggedLtp = (window as any).__loggedLtp ?? {};
+        (window as any).__loggedLtp[trade.id] = true;
+        console.warn(
+          `[getLiveLtp] No option tick for ${exchange}:${trade.contractSecurityId} (trade ${trade.id} ${trade.instrument}) — using fallback`
+        );
+      }
+      return tick?.ltp;
+    }
+
+    // One-shot debug: log when trade has no contractSecurityId (falls back to underlying)
+    if (trade.id && !(window as any).__loggedLtpFallback?.[trade.id]) {
+      (window as any).__loggedLtpFallback = (window as any).__loggedLtpFallback ?? {};
+      (window as any).__loggedLtpFallback[trade.id] = true;
+      console.warn(
+        `[getLiveLtp] Trade ${trade.id} ${trade.instrument} has NO contractSecurityId — falling back to underlying feed`
+      );
     }
 
     const resolvedName = UI_TO_RESOLVED[trade.instrument] ?? trade.instrument;
@@ -1045,22 +1085,22 @@ export default function TradingDesk({
         ) : (
           <table className="w-full table-fixed border-collapse text-xs [&_td]:align-middle [&_td]:whitespace-nowrap [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
             <colgroup>
-              <col style={{ width: '2.25rem',  maxWidth: '2.25rem' }} />   {/* Day: "250" */}
-              <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />  {/* Date: 90px */}
-              <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* Capital */}
-              <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />  {/* Profit+: 90px */}
-              <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* Capital+ */}
-              <col />                                                       {/* Instrument */}
-              <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* Entry */}
-              <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* LTP */}
-              <col style={{ width: '2.5rem',   maxWidth: '2.5rem' }} />    {/* Lot: 40px */}
-              <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* Invested */}
-              <col style={{ width: '3.625rem', maxWidth: '3.625rem' }} />  {/* Points: ltp - entry */}
-              <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />  {/* P&L: 90px */}
-              <col style={{ width: '3.625rem', maxWidth: '3.625rem' }} />  {/* P&L % */}
-              <col style={{ width: '4.5rem',   maxWidth: '4.5rem' }} />    {/* Capital */}
-              <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />  {/* Dev.: 90px */}
-              <col style={{ width: '4rem',     maxWidth: '4rem' }} />      {/* Rating */}
+              <col style={{ width: '2.25rem', maxWidth: '2.25rem' }} />
+              <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />
+              <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
+              <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />
+              <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
+              <col />
+              <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
+              <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
+              <col style={{ width: '2.5rem', maxWidth: '2.5rem' }} />
+              <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
+              <col style={{ width: '3.625rem', maxWidth: '3.625rem' }} />
+              <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />
+              <col style={{ width: '3.625rem', maxWidth: '3.625rem' }} />
+              <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
+              <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />
+              <col style={{ width: '4rem', maxWidth: '4rem' }} />
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr className="bg-card border-b border-border uppercase">
@@ -1252,13 +1292,11 @@ function PastRow({
       <td className="px-2 py-2 text-right tabular-nums border-r border-border">
         {(() => { const inv = calculateTotalInvested(day.trades ?? []); return inv > 0 ? fmt(inv) : ''; })()}
       </td>
-      {/* Points (avg exit - avg entry) */}
+      {/* Points — qty-weighted signed (favorable direction per trade) */}
       <td className="px-2 py-2 text-right tabular-nums border-r border-border">
         {(() => {
-          const avgE = calculateAvgEntryPrice(day.trades ?? []);
-          const avgX = calculateAvgExitPrice(day.trades ?? []);
-          if (avgE === 0 || avgX === 0) return '';
-          const pts = avgX - avgE;
+          const pts = calculateAvgSignedPoints(day.trades ?? []);
+          if (pts === 0) return '';
           return <span className={pnlColor(pts)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
         })()}
       </td>
@@ -1496,13 +1534,11 @@ function TodaySection({
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
           {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0)) : ''}
         </td>
-        {/* Points — summed avg */}
+        {/* Points — qty-weighted signed (favorable direction per trade) */}
         <td className="px-2 py-2 text-right tabular-nums border-r border-border">
           {(() => {
-            const avgE = calculateAvgEntryPrice(trades);
-            const avgX = calculateAvgExitPrice(trades);
-            if (avgE === 0 || avgX === 0) return '';
-            const pts = avgX - avgE;
+            const pts = calculateAvgSignedPoints(trades);
+            if (pts === 0) return '';
             return <span className={pnlColor(pts)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
           })()}
         </td>
@@ -1937,12 +1973,12 @@ function TodayTradeRow({
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
         {fmt(trade.entryPrice * trade.qty)}
       </td>
-      {/* Points (ltp - entry) */}
+      {/* Points — direction-aware: BUY=(price-entry), SELL=(entry-price) */}
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
         {(() => {
           const price = isOpen ? displayLtp : (trade.exitPrice ?? 0);
           if (!price) return '';
-          const pts = price - trade.entryPrice;
+          const pts = tradePoints(trade, price);
           return <span className={pnlColor(pts)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
         })()}
       </td>

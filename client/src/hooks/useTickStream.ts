@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { trpc } from "@/lib/trpc";
+import * as chainStore from "@/stores/optionChainStore";
 
 export interface TickData {
   securityId: string;
@@ -274,7 +275,7 @@ function connectWs() {
       return;
     }
 
-    // Text message — JSON snapshot on connect
+    // Text message — JSON envelope (tick snapshot, chain update, chain snapshot)
     try {
       const data = JSON.parse(event.data);
       if (data.type === "snapshot" && Array.isArray(data.ticks)) {
@@ -287,6 +288,12 @@ function connectWs() {
           }
         }
         if (changed) notifyListeners();
+      } else if (data.type === "chainUpdate" && data.chain) {
+        // One option-chain update pushed by server when its chainCache refreshes
+        chainStore._ingest(data.chain);
+      } else if (data.type === "chainSnapshot" && Array.isArray(data.chains)) {
+        // Bulk hydrate on new WS connect
+        chainStore._ingestBulk(data.chains);
       }
     } catch {
       // ignore

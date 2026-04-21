@@ -44,12 +44,8 @@ import type { ChargeRate } from "./chargesEngine";
 import { getUserSettings } from "../userSettings";
 import { getActiveBroker } from "../broker/brokerService";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
+import { tickBus } from "../broker/tickBus";
 import type { BrokerSettings, OrderParams } from "../broker/types";
-import { createTrade as createJournalEntry, closeTrade as closeJournalEntry } from "../db";
-
-/** System user ID for auto-journaled trades (no auth context in capital flow). */
-const SYSTEM_USER_ID = 1;
-
 // ─── Helpers ─────────────────────────────────────────────────────
 
 const workspaceSchema = z.enum(["live", "paper_manual", "paper"]);
@@ -85,6 +81,130 @@ async function getTradeTargetPercent(instrument: string): Promise<{ tpPercent: n
     : (config?.settings?.tradeTargetOther ?? 2);
   const slPercent = config?.settings?.defaultSL ?? 10;
   return { tpPercent, slPercent };
+}
+
+/**
+ * Map UI instrument name → { underlying, exchangeSegment } for expiry-list lookup.
+ * Live broker needs numeric securityId; paper broker accepts symbolic underlying.
+ */
+async function resolveUnderlyingForExpiry(
+  instrument: string
+): Promise<{ underlying: string; exchangeSegment: string } | null> {
+  const norm = instrument.toUpperCase().replace(/\s+/g, "");
+  const config = await getActiveBrokerConfig();
+  const isPaper = config?.isPaperBroker ?? true;
+
+  if (isPaper) {
+    const map: Record<string, { underlying: string; segment: string }> = {
+      "NIFTY50": { underlying: "NIFTY", segment: "IDX_I" },
+      "NIFTY": { underlying: "NIFTY", segment: "IDX_I" },
+      "BANKNIFTY": { underlying: "BANKNIFTY", segment: "IDX_I" },
+      "CRUDEOIL": { underlying: "CRUDEOIL", segment: "MCX_COMM" },
+      "CRUDE": { underlying: "CRUDEOIL", segment: "MCX_COMM" },
+      "NATURALGAS": { underlying: "NATURALGAS", segment: "MCX_COMM" },
+    };
+    const m = map[norm];
+    return m ? { underlying: m.underlying, exchangeSegment: m.segment } : null;
+  }
+
+  const idxMap: Record<string, { securityId: string; segment: string }> = {
+    "NIFTY50": { securityId: "13", segment: "IDX_I" },
+    "NIFTY": { securityId: "13", segment: "IDX_I" },
+    "BANKNIFTY": { securityId: "25", segment: "IDX_I" },
+  };
+  if (idxMap[norm]) {
+    return { underlying: idxMap[norm].securityId, exchangeSegment: idxMap[norm].segment };
+  }
+
+  const broker = getActiveBroker();
+  if ((norm === "CRUDEOIL" || norm === "CRUDE" || norm === "NATURALGAS") && broker?.resolveMCXFutcom) {
+    const mcxSym = norm === "CRUDE" ? "CRUDEOIL" : norm;
+    const result = await broker.resolveMCXFutcom(mcxSym);
+    if (result) {
+      return { underlying: String(result.securityId), exchangeSegment: "MCX_COMM" };
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve the nearest (earliest) expiry for a given instrument.
+ * Returns null if broker unavailable or no expiries found.
+ */
+async function resolveNearestExpiry(instrument: string): Promise<string | null> {
+  const broker = getActiveBroker();
+  if (!broker) return null;
+  const resolved = await resolveUnderlyingForExpiry(instrument);
+  if (!resolved) return null;
+  try {
+    const list = await broker.getExpiryList(resolved.underlying, resolved.exchangeSegment);
+    if (!list || list.length === 0) return null;
+    const sorted = [...list].sort(
+      (a, b) => new Date(`${a}T00:00:00`).getTime() - new Date(`${b}T00:00:00`).getTime()
+    );
+    return sorted[0];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the option contract securityId AND current LTP for
+ * (instrument, expiry, strike, isCall). Returns null if unavailable.
+ * Needed so trade LTP polling subscribes to the option leg (not spot), and
+ * so signal-initiated trades can refresh entry price against the live chain
+ * rather than the stale value carried on the SEA signal.
+ */
+async function resolveContract(
+  instrument: string,
+  expiry: string,
+  strike: number,
+  isCall: boolean
+): Promise<{ secId: string; ltp: number; strike: number } | null> {
+  const broker = getActiveBroker();
+  if (!broker) {
+    console.warn(`[resolveContract] No active broker for ${instrument}`);
+    return null;
+  }
+  const resolved = await resolveUnderlyingForExpiry(instrument);
+  if (!resolved) {
+    console.warn(`[resolveContract] Could not resolve underlying for ${instrument}`);
+    return null;
+  }
+  try {
+    const chain = await broker.getOptionChain(
+      resolved.underlying,
+      expiry,
+      resolved.exchangeSegment
+    );
+    const rows = chain.rows ?? [];
+    if (rows.length === 0) {
+      console.warn(`[resolveContract] Empty option chain for ${instrument} ${expiry}`);
+      return null;
+    }
+    // Find nearest strike — signal's ATM strike may not exactly match chain steps
+    let row = rows.find((r: any) => r.strike === strike);
+    if (!row) {
+      row = rows.reduce((best: any, r: any) =>
+        Math.abs(r.strike - strike) < Math.abs(best.strike - strike) ? r : best
+      );
+      console.warn(
+        `[resolveContract] Strike ${strike} not in chain for ${instrument}; using nearest ${row.strike}`
+      );
+    }
+    const secId = isCall ? row.callSecurityId : row.putSecurityId;
+    const ltp = isCall ? row.callLTP : row.putLTP;
+    if (!secId || !ltp || ltp <= 0) {
+      console.warn(
+        `[resolveContract] Missing secId/ltp for ${instrument} ${row.strike} ${isCall ? 'CE' : 'PE'}: secId=${secId}, ltp=${ltp}`
+      );
+      return null;
+    }
+    return { secId, ltp, strike: row.strike };
+  } catch (err: any) {
+    console.warn(`[resolveContract] getOptionChain failed for ${instrument} ${expiry}: ${err?.message}`);
+    return null;
+  }
 }
 
 /**
@@ -408,6 +528,95 @@ export const capitalRouter = router({
       const state = await getCapitalState(input.workspace);
       const day = await ensureCurrentDay(input.workspace);
 
+      // Resolve nearest expiry for option trades when client didn't supply one
+      // (e.g. TRADE button on SignalsFeed sends empty expiry)
+      const isOptionTrade = /^(CALL|PUT)_/.test(input.type);
+      if (isOptionTrade && !input.expiry) {
+        const resolvedExpiry = await resolveNearestExpiry(input.instrument);
+        if (resolvedExpiry) {
+          input.expiry = resolvedExpiry;
+        }
+      }
+
+      // Resolve lot size server-side when not supplied. Without this the TRADE
+      // button from SignalsFeed (which only sends qty=1, no lotSize) would open
+      // a 1-unit trade instead of 1 lot — charges then exceed the points and
+      // make winning trades show negative P&L.
+      if (isOptionTrade && !input.lotSize) {
+        const broker = getActiveBroker();
+        if (broker?.getLotSize) {
+          const norm = input.instrument.toUpperCase().replace(/\s+/g, "");
+          const lotSymbol =
+            norm === "NIFTY50" || norm === "NIFTY" ? "NIFTY"
+            : norm === "BANKNIFTY" ? "BANKNIFTY"
+            : norm === "CRUDEOIL" || norm === "CRUDE" ? "CRUDEOIL"
+            : norm === "NATURALGAS" ? "NATURALGAS"
+            : input.instrument;
+          try {
+            const ls = await broker.getLotSize(lotSymbol);
+            if (ls && ls > 0) input.lotSize = ls;
+          } catch {
+            /* leave undefined; placeTrade falls back to 1 */
+          }
+        }
+      }
+
+      // Resolve option contract securityId + fresh LTP server-side when the
+      // client didn't supply a contractSecurityId (signal-initiated TRADE).
+      // This also refreshes entry against the live option chain and shifts
+      // TP/SL by the same delta so the SEA-computed risk/reward is preserved
+      // against current prices (SEA signals can be minutes stale).
+      if (isOptionTrade && !input.contractSecurityId && input.expiry && input.strike != null) {
+        const isCall = input.type.startsWith("CALL");
+        const resolved = await resolveContract(
+          input.instrument,
+          input.expiry,
+          input.strike,
+          isCall
+        );
+        if (resolved) {
+          input.contractSecurityId = resolved.secId;
+          input.strike = resolved.strike;
+          const staleEntry = input.entryPrice;
+          const delta = resolved.ltp - staleEntry;
+          input.entryPrice = resolved.ltp;
+          if (input.targetPrice != null) input.targetPrice += delta;
+          if (input.stopLossPrice != null) input.stopLossPrice += delta;
+        } else {
+          console.warn(
+            `[placeTrade] Could not resolve option contract for ${input.instrument} ` +
+            `${input.expiry} ${input.strike} — LTP will fall back to underlying feed.`
+          );
+        }
+      }
+
+      // Ensure the option leg is subscribed on the live WS feed so ticks flow
+      if (isOptionTrade && input.contractSecurityId) {
+        const broker = getActiveBroker();
+        if (broker?.subscribeLTP) {
+          const isMcx = input.instrument.toUpperCase().includes("CRUDE")
+            || input.instrument.toUpperCase().includes("NATURAL");
+          const exchange = isMcx ? "MCX_COMM" : "NSE_FNO";
+          try {
+            broker.subscribeLTP(
+              [{
+                exchange,
+                securityId: input.contractSecurityId,
+                mode: "full",
+              }] as any,
+              (tick) => tickBus.emitTick(tick)
+            );
+            console.log(
+              `[placeTrade] Subscribed option leg: ${exchange}:${input.contractSecurityId}`
+            );
+          } catch (err: any) {
+            console.warn(`[placeTrade] subscribeLTP failed: ${err?.message}`);
+          }
+        } else {
+          console.warn(`[placeTrade] No broker.subscribeLTP available — LTP will not stream`);
+        }
+      }
+
       // Calculate open margin
       const openMargin = day.trades
         .filter((t) => t.status === "OPEN")
@@ -503,6 +712,13 @@ export const capitalRouter = router({
         closedAt: null,
       };
 
+      console.log(
+        `[placeTrade] ${input.workspace} ${input.instrument} ${input.type} ` +
+        `strike=${input.strike} expiry=${input.expiry} ` +
+        `contractSecurityId=${trade.contractSecurityId} ` +
+        `lotSize=${trade.lotSize} qty=${trade.qty} entry=${trade.entryPrice}`
+      );
+
       // ── Broker order placement (live workspace only) ──────────
       let brokerOrderId: string | null = null;
       if (input.workspace === "live") {
@@ -571,31 +787,6 @@ export const capitalRouter = router({
       });
 
       await upsertDayRecord(input.workspace, updated);
-
-      // ── Auto-journal: fire-and-forget ──────────────────────
-      try {
-        const journalMode = input.workspace === "live" ? "LIVE" as const : "PAPER" as const;
-        const journalType = ["CALL_BUY", "PUT_BUY", "CALL_SELL", "PUT_SELL"].includes(input.type)
-          ? input.type as "CALL_BUY" | "PUT_BUY" | "CALL_SELL" | "PUT_SELL"
-          : input.type === "BUY" ? "CALL_BUY" as const : "PUT_SELL" as const;
-        const journalId = await createJournalEntry({
-          userId: SYSTEM_USER_ID,
-          instrument: input.instrument,
-          tradeType: journalType,
-          strike: input.strike ?? 0,
-          entryPrice: input.entryPrice,
-          quantity: qty,
-          stopLoss: stopLossPrice,
-          target: targetPrice,
-          mode: journalMode,
-          entryTime: trade.openedAt,
-          tags: `capital:${trade.id}`,
-        });
-        // Store journal ID on trade for exit sync
-        (trade as any).journalId = journalId;
-      } catch (err) {
-        console.warn("[Capital] Auto-journal entry failed:", err);
-      }
 
       return { trade, day: updated };
     }),
@@ -712,28 +903,6 @@ export const capitalRouter = router({
         EOD: "CLOSED_EOD",
       };
       trade.status = statusMap[input.reason] ?? "CLOSED_MANUAL";
-
-      // ── Auto-journal close: fire-and-forget ──────────────────
-      try {
-        const { getUserTrades } = await import("../db");
-        const journalTrades = await getUserTrades(SYSTEM_USER_ID, {
-          status: "OPEN",
-          instrument: trade.instrument,
-          limit: 50,
-        });
-        const match = journalTrades.find((j) => j.tags === `capital:${trade.id}`);
-        if (match) {
-          await closeJournalEntry(
-            match.id,
-            SYSTEM_USER_ID,
-            input.exitPrice,
-            trade.closedAt!,
-            input.reason
-          );
-        }
-      } catch (err) {
-        console.warn("[Capital] Auto-journal close failed:", err);
-      }
 
       // Recalculate day aggregates
       const updated = recalculateDayAggregates(day);

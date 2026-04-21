@@ -4,6 +4,7 @@ import { trpc } from '../lib/trpc';
 import { formatINR } from '@/lib/formatINR';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { estimateSingleLegCharges, type ChargeRate, DEFAULT_CHARGES } from '@shared/chargesEngine';
+import { useChain, _ingest as ingestChain } from '@/stores/optionChainStore';
 
 const UNDERLYING_MAP: Record<string, string> = {
   'NIFTY 50': 'NIFTY',
@@ -215,6 +216,15 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     });
   }, [expiryQuery.data]);
 
+  // Clear expiry + strike immediately on instrument change so a stale value
+  // (from the previous instrument's expiry list) can't be submitted while
+  // the new expiry query is still refetching. Prevents "Invalid Expiry Date"
+  // errors when switching e.g. NIFTY → CRUDE OIL and submitting quickly.
+  useEffect(() => {
+    setExpiry('');
+    setSelectedStrike('');
+  }, [instrument]);
+
   useEffect(() => {
     if (!canSelectExpiry || expiryOptions.length === 0) {
       setExpiry('');
@@ -228,17 +238,58 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     ));
   }, [canSelectExpiry, expiryOptions, instrument]);
 
-  const optionChainQuery = trpc.broker.optionChain.useQuery(
-    { underlying: requestUnderlying, expiry, exchangeSegment: requestExchangeSegment },
-    { enabled: canSelectStrike, refetchInterval: 5000 }
+  // ─── Option chain — read from client store (populated by server push) ──
+  // The server's DhanAdapter.chainCache emits a chainUpdate over /ws/ticks
+  // whenever it refreshes (triggered by TFA's ~5s polling). The browser's
+  // optionChainStore mirrors those pushes. Zero Dhan traffic originates from
+  // this form as long as the store has the requested (u, expiry, segment).
+  const cachedChain = useChain(
+    canSelectStrike ? requestUnderlying : null,
+    canSelectStrike ? expiry : null,
+    canSelectStrike ? (requestExchangeSegment || null) : null,
   );
 
-  const strikeOptions = useMemo(() => {
-    const rows = optionChainQuery.data?.rows ?? [];
-    if (rows.length === 0) return [];
+  // Fallback: if the store is cold for this key (e.g. TFA not polling this
+  // instrument, or browser just connected before first push), issue a single
+  // tRPC query. Result is written into the store; every subsequent consumer
+  // reads from the store. Self-healing — first visitor pays one fetch.
+  const needsFallback = canSelectStrike && !cachedChain;
+  const fallbackQuery = trpc.broker.optionChain.useQuery(
+    { underlying: requestUnderlying, expiry, exchangeSegment: requestExchangeSegment },
+    {
+      enabled: needsFallback,
+      refetchInterval: false,
+      refetchOnWindowFocus: false,
+      staleTime: Infinity,
+    }
+  );
 
-    const sorted = [...rows].sort((a, b) => a.strike - b.strike);
-    const spotPrice = optionChainQuery.data?.spotPrice ?? 0;
+  useEffect(() => {
+    const data = fallbackQuery.data;
+    if (!data || !data.rows) return;
+    ingestChain({
+      underlying: requestUnderlying,
+      expiry,
+      exchangeSegment: requestExchangeSegment || 'IDX_I',
+      spotPrice: data.spotPrice ?? 0,
+      lotSize: data.lotSize ?? 1,
+      timestamp: data.timestamp ?? Date.now(),
+      strikes: data.rows.map((r) => ({
+        strike: r.strike,
+        ceSecurityId: r.callSecurityId ?? null,
+        peSecurityId: r.putSecurityId ?? null,
+        ceLTP: r.callLTP ?? 0,
+        peLTP: r.putLTP ?? 0,
+      })),
+    });
+  }, [fallbackQuery.data, requestUnderlying, expiry, requestExchangeSegment]);
+
+  const strikeOptions = useMemo(() => {
+    const strikes = cachedChain?.strikes ?? [];
+    if (strikes.length === 0) return [];
+
+    const sorted = [...strikes].sort((a, b) => a.strike - b.strike);
+    const spotPrice = cachedChain?.spotPrice ?? 0;
 
     let atmIndex = 0;
     let minDist = Number.POSITIVE_INFINITY;
@@ -256,13 +307,13 @@ export default function NewTradeForm(props: NewTradeFormProps) {
 
     return visible.map((row) => ({
       strike: row.strike,
-      callLTP: row.callLTP,
-      putLTP: row.putLTP,
-      callSecurityId: row.callSecurityId,
-      putSecurityId: row.putSecurityId,
+      callLTP: row.ceLTP,
+      putLTP: row.peLTP,
+      callSecurityId: row.ceSecurityId ?? undefined,
+      putSecurityId: row.peSecurityId ?? undefined,
       isATM: row.strike === sorted[atmIndex].strike,
     }));
-  }, [optionChainQuery.data]);
+  }, [cachedChain]);
 
   useEffect(() => {
     setSelectedStrike('');
@@ -317,7 +368,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     { symbol: underlyingSymbol },
     { enabled: isDerivative, staleTime: Infinity }
   );
-  const lotSize = optionChainQuery.data?.lotSize ?? lotSizeQuery.data ?? 1;
+  const lotSize = cachedChain?.lotSize ?? lotSizeQuery.data ?? 1;
 
   // actualQty is always in LOTS (qty=1 means 1 lot).
   // totalUnits = actualQty * lotSize is what gets traded.
@@ -483,7 +534,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
                   <option value="">
                     {expiry ? 'Strike' : 'Pick Exp'}
                   </option>
-                  {optionChainQuery.isLoading && (
+                  {needsFallback && fallbackQuery.isLoading && (
                     <option value="" disabled>Loading...</option>
                   )}
                   {strikeOptions.map((strike) => (
@@ -491,7 +542,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
                       {strike.strike}
                     </option>
                   ))}
-                  {expiry && !optionChainQuery.isLoading && strikeOptions.length === 0 && (
+                  {expiry && !fallbackQuery.isLoading && strikeOptions.length === 0 && (
                     <option value="" disabled>No strikes</option>
                   )}
                 </select>

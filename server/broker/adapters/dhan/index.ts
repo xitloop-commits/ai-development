@@ -678,6 +678,16 @@ export class DhanAdapter implements BrokerAdapter {
     try {
       const data = await promise;
       this.chainCache.set(cacheKey, { data, fetchedAt: Date.now() });
+      // Fan out to browsers via tickBus → /ws/ticks (text frame).
+      // TFA and UI both trigger this path; every cache write pushes the latest
+      // chain to all connected clients so their optionChainStore stays current
+      // without additional Dhan traffic.
+      try {
+        const { tickBus } = await import("../../tickBus");
+        tickBus.emitChainUpdate(underlying, expiry, exchangeSegment || "IDX_I", data);
+      } catch {
+        /* non-fatal: emit path isn't required for cache correctness */
+      }
       return data;
     } finally {
       this.chainInflight.delete(cacheKey);
@@ -732,7 +742,18 @@ export class DhanAdapter implements BrokerAdapter {
     }
 
     if (!result.ok || !result.data) {
-      const errorMsg = result.error?.errorMessage || result.error?.errorType || "Unknown error";
+      // Dhan sometimes returns {status:"failed", data:{<code>:"<message>"}}
+      // instead of the typed {errorMessage, errorType} shape — unwrap the
+      // first message from `data` so the real reason reaches the caller.
+      const errAny = result.error as any;
+      const dataMsg = errAny && typeof errAny.data === "object" && errAny.data
+        ? String(Object.values(errAny.data)[0] ?? "")
+        : "";
+      const errorMsg =
+        errAny?.errorMessage ||
+        errAny?.errorType ||
+        dataMsg ||
+        (result.status === 429 ? "Rate limited by Dhan" : "Unknown error");
       log.warn(`Option chain fetch failed: underlying=${underlying}, expiry=${expiry}, status=${result.status}, error=${errorMsg}`);
       log.debug(`Full error response: ${JSON.stringify(result.error)}`);
       throw new Error(`Failed to fetch option chain: ${errorMsg}`);

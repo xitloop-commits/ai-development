@@ -3,7 +3,6 @@ import express from "express";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
 import { registerTradingRoutes } from "../tradingRoutes";
 import { connectMongo } from "../mongo";
 import { appRouter } from "../routers";
@@ -66,8 +65,6 @@ async function startServer() {
 
   // Simple health check — used by start-all.bat to wait until server is ready
   app.get("/health", (_req, res) => res.json({ ok: true }));
-  // OAuth callback under /api/oauth/callback
-  registerOAuthRoutes(app);
   // Trading data push API (receives data from Python modules)
   registerTradingRoutes(app);
   // Broker Service REST API (for Python modules)

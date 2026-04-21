@@ -464,7 +464,7 @@ class TickProcessor:
         warm_remain = self._sm.warm_up_remaining_sec or 0.0
         stale_rsn   = sm_state.value if sm_state != TradingState.TRADING else None
 
-        return assemble_flat_vector(
+        row = assemble_flat_vector(
             timestamp=ts,
             spot_price=ltp,
             atm_strike=atm_strike,
@@ -491,6 +491,15 @@ class TickProcessor:
             target_windows_sec=profile.target_windows_sec,
         )
 
+        # ── Attach ATM option security IDs (non-feature metadata) ───────────
+        # String-typed; preprocessor._derive_feature_columns drops object dtype
+        # columns, so these don't leak into model training. They propagate via
+        # NDJSON to SEA → signal payload → UI for one-click TRADE placement.
+        ce_sid, pe_sid = self._lookup_atm_security_ids(atm_strike)
+        row["atm_ce_security_id"] = ce_sid
+        row["atm_pe_security_id"] = pe_sid
+        return row
+
     # ── Target backfill helpers ───────────────────────────────────────────────
 
     def _flush_pending(self, current_ts: float) -> None:
@@ -511,6 +520,29 @@ class TickProcessor:
             targets[f"upside_percentile_{min_w}s"] = self._upside_pct.add_and_query(upside)
             p.row.update(targets)
             self._emitter.emit(p.row)
+
+    def _lookup_atm_security_ids(self, atm_strike: int | None) -> tuple[str | None, str | None]:
+        """
+        Resolve (ce_security_id, pe_security_id) for the current ATM strike
+        from the latest chain snapshot's sec_id_map.
+
+        Returns (None, None) when no snapshot or strike is unavailable.
+        """
+        if atm_strike is None or self._cache.snapshot is None:
+            return (None, None)
+        ce_sid: str | None = None
+        pe_sid: str | None = None
+        # sec_id_map: {security_id(str): (strike, opt_type)}
+        for sid, (strike, opt_type) in self._cache.snapshot.sec_id_map.items():
+            if int(strike) != int(atm_strike):
+                continue
+            if opt_type == "CE":
+                ce_sid = sid
+            elif opt_type == "PE":
+                pe_sid = sid
+            if ce_sid and pe_sid:
+                break
+        return (ce_sid, pe_sid)
 
     def _get_atm_strike_ltps(self) -> dict[int, tuple[float, float]]:
         """Return {strike: (ce_ltp, pe_ltp)} for current ATM window."""

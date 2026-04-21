@@ -10,8 +10,9 @@
  */
 import { useRef, useEffect, useState } from 'react';
 // Uses native CSS scrollbar (scrollbar-thin + scrollbar-cyan) matching TradingDesk style
-import { TrendingUp, TrendingDown, Activity, Zap } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, Zap, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { useCapital } from '@/contexts/CapitalContext';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 // ─── Instrument name mapping for trade placement ───────────
 const SIG_TO_UI_NAME: Record<string, string> = {
@@ -33,6 +34,8 @@ export interface SEASignal {
   atm_strike: number;
   atm_ce_ltp: number | null;
   atm_pe_ltp: number | null;
+  atm_ce_security_id?: string | null;
+  atm_pe_security_id?: string | null;
   spot_price: number | null;
   momentum: number | null;
   breakout: number | null;
@@ -124,11 +127,16 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
     else tradeType = isLong ? 'PUT_BUY' : 'PUT_SELL';
 
     const uiName = SIG_TO_UI_NAME[signal.instrument] ?? signal.instrument;
+    // Direction-appropriate contract security id: CE leg for CE trades, PE leg for PE trades
+    const contractSecurityId = isCE
+      ? (signal.atm_ce_security_id ?? null)
+      : (signal.atm_pe_security_id ?? null);
     placeTrade({
       instrument: uiName,
       type: tradeType,
       strike: signal.atm_strike,
       expiry: '',  // server resolves current expiry
+      contractSecurityId,
       entryPrice: signal.entry ?? (isCE ? signal.atm_ce_ltp : signal.atm_pe_ltp) ?? 0,
       capitalPercent: 5,  // default 5% — user can adjust in TradingDesk
       qty: 1,
@@ -196,103 +204,128 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
             const count = signal.count ?? 1;
             const hasV2 = !!signal.action;
 
+            const tpUp = signal.tp != null && signal.entry != null && signal.tp >= signal.entry;
+            const slDown = signal.sl != null && signal.entry != null && signal.sl <= signal.entry;
+            const TpArrow = tpUp ? ArrowUpRight : ArrowDownRight;
+            const SlArrow = slDown ? ArrowDownRight : ArrowUpRight;
+            const probPct = Math.round(signal.direction_prob_30s * 100);
+
             return (
               <div
                 key={signal.id}
-                className={`border-l-2 ${borderColor} ${instBg} rounded-r px-3 py-2 space-y-1`}
+                className={`border-l-2 ${borderColor} ${instBg} rounded-r flex items-stretch overflow-hidden`}
               >
-                {/* Row 1: action + instrument + regime + count + time */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Icon className={`h-3.5 w-3.5 ${accentColor}`} />
-                    <span className={`text-[0.6875rem] font-bold ${accentColor} tracking-wider`}>
-                      {hasV2 ? action.replace('_', ' ') : signal.direction?.replace('GO_', '')}
-                    </span>
-                    <span className={`text-[0.5rem] font-bold px-1.5 py-0.5 rounded border tracking-wider ${INST_PILL[signal.instrument] ?? 'bg-secondary/30 text-muted-foreground border-border'}`}>
-                      {INST_SHORT[signal.instrument] ?? signal.instrument}
-                    </span>
-                    {signal.regime && (
-                      <span className="text-[0.5rem] text-muted-foreground">{signal.regime}</span>
-                    )}
-                    {signal.confidence && (
-                      <span className={`text-[0.5rem] px-1.5 py-0.5 rounded font-bold ${
-                        signal.confidence === 'HIGH' ? 'bg-bullish/15 text-bullish' : 'bg-warning-amber/15 text-warning-amber'
-                      }`}>
-                        {signal.confidence}
-                      </span>
-                    )}
-                    {signal.score != null && (
-                      <span className="text-[0.5rem] px-1 py-0.5 rounded bg-secondary/50 text-muted-foreground font-bold tabular-nums">
-                        {signal.score}/6
-                      </span>
-                    )}
-                    {count > 1 && (
-                      <span className="text-[0.5rem] px-1.5 py-0.5 rounded-full bg-secondary/50 text-muted-foreground font-bold tabular-nums">
-                        x{count}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {canTrade && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleTrade(signal); }}
-                        className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold text-[0.5625rem] tracking-wider uppercase transition-colors ${
-                          isLong
-                            ? 'bg-bullish/15 text-bullish hover:bg-bullish/25'
-                            : 'bg-warning-amber/15 text-warning-amber hover:bg-warning-amber/25'
-                        }`}
-                        title={`Place ${action} trade`}
-                      >
-                        <Zap className="h-2.5 w-2.5" />TRADE
-                      </button>
-                    )}
-                    <span className="text-[0.5625rem] text-muted-foreground tabular-nums">
-                      {timeAgo(signal.timestamp_ist)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Row 2: entry/SL/TP (v2) or prob/ATM (legacy) */}
-                {hasV2 && signal.entry ? (
-                  <div className="flex items-center gap-3 text-[0.625rem] tabular-nums">
-                    <span className="text-muted-foreground">
-                      entry <span className="text-foreground font-bold">{fmtNum(signal.entry)}</span>
-                    </span>
-                    <span className="text-muted-foreground">
-                      TP <span className="text-bullish font-bold">{fmtNum(signal.tp)}</span>
-                    </span>
-                    <span className="text-muted-foreground">
-                      SL <span className="text-destructive font-bold">{fmtNum(signal.sl)}</span>
-                    </span>
-                    {signal.rr != null && signal.rr > 0 && (
-                      <span className="text-muted-foreground">
-                        RR <span className={`font-bold ${(signal.rr ?? 0) >= 1.5 ? 'text-bullish' : 'text-warning-amber'}`}>
-                          {signal.rr?.toFixed(1)}
+                {/* Left: details (wrapped in tooltip for metadata) */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex-1 px-3 py-2 space-y-1 min-w-0 cursor-default">
+                      {/* Line 1: Action · Instrument+strike — time */}
+                      <div className="flex items-center gap-2 text-[0.6875rem]">
+                        <Icon className={`h-3.5 w-3.5 shrink-0 ${accentColor}`} />
+                        <span className={`font-bold tracking-wider ${accentColor}`}>
+                          {hasV2 ? action.replace('_', ' ') : signal.direction?.replace('GO_', '')}
                         </span>
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-4 text-[0.625rem] tabular-nums">
-                    <span className="text-muted-foreground">
-                      prob <span className={`font-bold ${accentColor}`}>{(signal.direction_prob_30s * 100).toFixed(0)}%</span>
-                    </span>
-                    <span className="text-muted-foreground">
-                      ATM <span className="text-foreground font-bold">{signal.atm_strike}</span>
-                    </span>
-                  </div>
-                )}
+                        <span className="text-muted-foreground/60">·</span>
+                        <span className={`font-bold tabular-nums truncate ${INST_COLORS[signal.instrument] ?? ''}`}>
+                          {INST_SHORT[signal.instrument] ?? signal.instrument} {signal.atm_strike || ''}
+                        </span>
+                        {count > 1 && (
+                          <span className="text-[0.5rem] px-1.5 py-0.5 rounded-full bg-secondary/50 text-muted-foreground font-bold tabular-nums">
+                            ×{count}
+                          </span>
+                        )}
+                        <span className="ml-auto text-[0.5625rem] text-muted-foreground tabular-nums shrink-0">
+                          {timeAgo(signal.timestamp_ist)}
+                        </span>
+                      </div>
 
-                {/* Row 3: prob + spot (compact) */}
-                <div className="flex items-center gap-3 text-[0.5625rem] tabular-nums text-muted-foreground">
-                  {hasV2 && (
-                    <span>prob <span className={`font-medium ${accentColor}`}>{(signal.direction_prob_30s * 100).toFixed(0)}%</span></span>
-                  )}
-                  {signal.spot_price && (
-                    <span>spot <span className="text-foreground">{fmtNum(signal.spot_price, 1)}</span></span>
-                  )}
-                  <span>ATM {signal.atm_strike}</span>
-                </div>
+                      {/* Line 2: price strip — entry → TP · SL · RR */}
+                      {hasV2 && signal.entry ? (
+                        <div className="flex items-center gap-1.5 text-[0.6875rem] tabular-nums">
+                          <span className="font-bold text-foreground">{fmtNum(signal.entry ?? null)}</span>
+                          <TpArrow className={`h-3 w-3 shrink-0 ${tpUp ? 'text-bullish' : 'text-destructive'}`} />
+                          <span className="font-bold text-bullish">{fmtNum(signal.tp ?? null)}</span>
+                          <span className="text-muted-foreground/60 mx-0.5">·</span>
+                          <span className="font-bold text-destructive">{fmtNum(signal.sl ?? null)}</span>
+                          <SlArrow className={`h-3 w-3 shrink-0 ${slDown ? 'text-destructive' : 'text-bullish'}`} />
+                          {signal.rr != null && signal.rr > 0 && (
+                            <span className="ml-auto text-[0.625rem] text-muted-foreground shrink-0">
+                              RR <span className={`font-bold ${(signal.rr ?? 0) >= 1.5 ? 'text-bullish' : 'text-warning-amber'}`}>
+                                {signal.rr.toFixed(1)}
+                              </span>
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-[0.6875rem] tabular-nums">
+                          <span className="text-muted-foreground">prob</span>
+                          <span className={`font-bold ${accentColor}`}>{probPct}%</span>
+                          <span className="text-muted-foreground/60">·</span>
+                          <span className="text-muted-foreground">ATM</span>
+                          <span className="font-bold text-foreground">{signal.atm_strike}</span>
+                        </div>
+                      )}
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" className="text-[0.625rem] tabular-nums">
+                    <div className="space-y-0.5">
+                      <div className="flex justify-between gap-6">
+                        <span className="text-muted-foreground">Prob</span>
+                        <span className={`font-bold ${accentColor}`}>{probPct}%</span>
+                      </div>
+                      {signal.regime && (
+                        <div className="flex justify-between gap-6">
+                          <span className="text-muted-foreground">Regime</span>
+                          <span className="font-bold">{signal.regime}</span>
+                        </div>
+                      )}
+                      {signal.confidence && (
+                        <div className="flex justify-between gap-6">
+                          <span className="text-muted-foreground">Confidence</span>
+                          <span className={`font-bold ${signal.confidence === 'HIGH' ? 'text-bullish' : 'text-warning-amber'}`}>
+                            {signal.confidence}
+                          </span>
+                        </div>
+                      )}
+                      {signal.score != null && (
+                        <div className="flex justify-between gap-6">
+                          <span className="text-muted-foreground">Score</span>
+                          <span className="font-bold">{signal.score}/6</span>
+                        </div>
+                      )}
+                      {signal.spot_price != null && (
+                        <div className="flex justify-between gap-6">
+                          <span className="text-muted-foreground">Spot</span>
+                          <span className="font-bold">{fmtNum(signal.spot_price, 1)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between gap-6">
+                        <span className="text-muted-foreground">ATM</span>
+                        <span className="font-bold">{signal.atm_strike}</span>
+                      </div>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+
+                {/* Right: full-height TRADE CTA */}
+                {canTrade && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleTrade(signal); }}
+                    className={`flex flex-col items-center justify-center gap-0.5 px-3 shrink-0 transition-colors ${
+                      isLong
+                        ? 'bg-bullish/20 text-bullish hover:bg-bullish/35'
+                        : isShort
+                          ? 'bg-warning-amber/20 text-warning-amber hover:bg-warning-amber/35'
+                          : signal.direction === 'GO_CALL'
+                            ? 'bg-bullish/20 text-bullish hover:bg-bullish/35'
+                            : 'bg-destructive/20 text-destructive hover:bg-destructive/35'
+                    }`}
+                    title={`Place ${action} trade`}
+                  >
+                    <Zap className="h-3.5 w-3.5" />
+                    <span className="text-[0.5625rem] font-bold tracking-wider">TRADE</span>
+                  </button>
+                )}
               </div>
             );
           })

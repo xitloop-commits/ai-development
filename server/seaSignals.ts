@@ -23,6 +23,8 @@ export interface SEASignal {
   atm_strike: number;
   atm_ce_ltp: number | null;
   atm_pe_ltp: number | null;
+  atm_ce_security_id?: string | null;
+  atm_pe_security_id?: string | null;
   spot_price: number | null;
   momentum: number | null;
   breakout: number | null;
@@ -110,6 +112,8 @@ export function getSEASignals(
           atm_strike: r.atm_strike ?? 0,
           atm_ce_ltp: r.atm_ce_ltp ?? null,
           atm_pe_ltp: r.atm_pe_ltp ?? null,
+          atm_ce_security_id: r.atm_ce_security_id ?? null,
+          atm_pe_security_id: r.atm_pe_security_id ?? null,
           spot_price: r.spot_price ?? null,
           momentum: r.momentum ?? null,
           breakout: r.breakout ?? null,
