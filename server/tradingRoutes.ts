@@ -189,6 +189,7 @@ export function registerTradingRoutes(app: Express): void {
         underlying: underlying || null,
         autoResolve: autoResolve === true,
         symbolName: symbolName || null,
+        hotkey: null,
       };
 
       const result = await addInstrument(config);

@@ -794,7 +794,7 @@ All implemented in `main.py`:
 
 #### 13.4 `recorder/dashboard_writer.py`
 - On each chain poll: overwrite `python_modules/output/option_chain_{instrument}.json`
-- Keeps web UI option chain display updated — same format as old `option_chain_fetcher.py`
+- Keeps web UI option chain display updated — standard option-chain JSON shape
 - Non-blocking: write in background, failure logged but not fatal
 
 **Record formats:** per spec §15.4 — underlying tick, option tick, chain snapshot with `call_delta_oi` + `call_oi_from_open`.

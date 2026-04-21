@@ -12,7 +12,7 @@
 |---------|------|-------------|
 | 1.0 | April 1, 2026 | Initial specification for 7-module discipline pipeline |
 | 1.1 | April 2, 2026 | Cross-functionality update: updated default exposure/position limits (40%/80%), renamed Position Tracker to Trading Desk, deferred settings schema to Settings spec |
-| 1.2 | April 9, 2026 | **NEW:** Added Module 8 (Capital Protection & Session Management) — daily profit/loss caps, carry forward engine, session halt flag, exit signaling to RCA, deprecation of Session Manager module |
+| 1.2 | April 9, 2026 | **NEW:** Added Module 8 (Capital Protection & Session Management) — daily profit/loss caps, carry forward engine, session halt flag, exit signaling to RCA |
 | 1.3 | April 9, 2026 | **UPDATED:** Resolved conflicts with PDF v2.0 — state model split (config to discipline_settings, runtime to discipline_state), added Section 11.5 Semi-Auto Intervention Flow (grace period, user actions, PARTIAL_EXIT signals), removed 5-second polling in favour of Portfolio Agent push, added `graceDeadline`/`userResponded`/`userAction`/`userActionDetail` state fields, added `discipline.submitUserAction` API endpoint |
 
 ---
@@ -44,7 +44,7 @@ The Discipline Engine exists to protect the trader from their own worst impulses
 
 The core philosophy is **"guard first, trade second."** Every trade must pass through a pipeline of checks before it reaches the Broker Service. The pipeline evaluates loss limits, cooldown timers, time windows, position sizing, exposure limits, emotional state, journal compliance, and capital protection limits. If any hard check fails, the trade is rejected at the application layer before it ever reaches the broker API.
 
-**NEW in v1.2:** The Discipline Engine now also owns **Session Management** — daily profit/loss caps, carry forward evaluation, and session halt logic (previously in the Session Manager module which is being deprecated).
+**NEW in v1.2:** The Discipline Engine now also owns **Session Management** — daily profit/loss caps, carry forward evaluation, and session halt logic.
 
 ---
 
@@ -387,7 +387,7 @@ The carry forward check evaluates FOUR conditions. **All must pass** for positio
 | # | Condition | Metric | Threshold | Source |
 |---|-----------|--------|-----------|--------|
 | 1 | Profitability | Realized P&L % today | ≥ 15% | Portfolio Agent |
-| 2 | Momentum | Latest momentum score | ≥ 70 | AI Decision Engine or RCA monitoring |
+| 2 | Momentum | Latest momentum score | ≥ 70 | SEA or RCA monitoring |
 | 3 | IV Level | Implied Volatility | Fair (not expensive) | AI analysis or market data |
 | 4 | Days to Expiry | Min DTE across open positions | ≥ 2 days | Position data |
 
@@ -396,7 +396,7 @@ The carry forward check evaluates FOUR conditions. **All must pass** for positio
 At 15:15 IST, Discipline Engine:
 
 1. Queries Portfolio Agent for `dailyRealizedPnl` and `dailyRealizedPnlPercent`
-2. Queries AI Decision Engine or RCA for latest momentum score
+2. Queries SEA or RCA for latest momentum score
 3. Queries market data for IV levels (NSE/MCX specific)
 4. Inspects all open positions for days to expiry
 
@@ -682,7 +682,7 @@ Signal Precedence (highest to lowest):
    ├─ Volatility spike detected
    └─ Trend reversal detected
    
-3. 🤖 AI Decision Engine (validated by RCA)
+3. 🤖 AI/SEA signals (validated by RCA)
    ├─ Trend reversal signal
    ├─ Anomaly detected
    └─ Breakout failed
@@ -942,7 +942,7 @@ describe("E2E: Loss Cap Scenario", () => {
   
 - [ ] Implement 4-condition evaluation:
   - [ ] Fetch dailyRealizedPnlPercent from Portfolio Agent
-  - [ ] Fetch latest momentum score from RCA or AI
+  - [ ] Fetch latest momentum score from RCA or SEA
   - [ ] Fetch IV level from market data service
   - [ ] Inspect open positions for min DTE
   
@@ -999,48 +999,18 @@ describe("E2E: Loss Cap Scenario", () => {
 
 ---
 
-## Deprecations
-
-### Session Manager Module (ai-engine-session-spec.md)
-
-**Status:** DEPRECATED v1.2
-
-The Session Manager module (Python) is being **deprecated and removed** because its responsibilities are now owned by Discipline Engine Module 8:
-
-| Responsibility | Was | Now |
-|---|---|---|
-| Daily profit cap (+5%) | Session Manager | Discipline Engine |
-| Daily loss cap (-2%) | Session Manager | Discipline Engine |
-| Carry forward evaluation (15:15) | Session Manager | Discipline Engine |
-| Session halt flag | Session Manager | Discipline Engine |
-| Exit signaling | Session Manager API | Discipline Engine → RCA |
-
-**Timeline:**
-- **v1.2 (now):** Discipline Engine implements Module 8 (mirrors Session Manager logic)
-- **Week 2:** Verify Module 8 integration with RCA
-- **Week 3:** Decommission Session Manager (delete Python module)
-- **Week 4:** Remove ai-engine-session-spec.md from docs
-
-**Migration:**
-- No code changes needed (Session Manager was standalone)
-- RCA updated to receive signals from Discipline Engine instead
-- Portfolio Agent already provides P&L data to Discipline Engine
-
----
-
 ## Summary of Changes from v1.1 to v1.2
 
 | Change | Type | Impact |
 |--------|------|--------|
 | Module 8: Capital Protection | NEW | Daily profit/loss caps, carry forward evaluation |
-| Session Management | MERGED | Session Manager logic moved to Discipline Engine |
+| Session Management | MERGED | Capital protection and session halt logic consolidated in Discipline Engine |
 | P&L Tracking | NEW | Real-time tracking from Portfolio Agent |
 | Exit Signaling to RCA | NEW | "MUST_EXIT" signals for caps and carry forward |
 | Session Halt Flag | NEW | Blocks new entries when caps triggered |
 | Carry Forward Engine | NEW | 15:15 IST evaluation with 4 conditions |
 | API endpoints | ADDED | recordTradeOutcome, getSessionStatus, evaluateCarryForward |
 | RCA Integration | NEW | Discipline → RCA signal flow for hard rules |
-| Deprecation notice | NEW | Session Manager module marked for removal |
 
 ---
 

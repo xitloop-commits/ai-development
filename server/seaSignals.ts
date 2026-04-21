@@ -177,10 +177,10 @@ export function getSEASignals(
   const perInst = Math.max(5, Math.ceil(limit / activeCount));
 
   const merged: SEASignal[] = [];
-  for (const [, sigs] of byInst) {
+  byInst.forEach((sigs) => {
     // Each instrument's signals are already in chronological order — take last N
     merged.push(...sigs.slice(-perInst));
-  }
+  });
 
   // Sort newest-first for display
   merged.sort((a, b) => b.timestamp - a.timestamp);

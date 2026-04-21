@@ -20,31 +20,33 @@
 ## 1. Overview
 
 The Risk Control Agent (RCA) is the **real-time risk decision maker** that:
-- **Approves or rejects** trades suggested by Decision Engine
+- **Approves or rejects** trade requests that arrive after the Discipline pre-trade gate
 - **Monitors all open positions** continuously (every 1-5 seconds)
 - **Decides when to exit** based on market conditions, own rules, and external signals
 - **Modifies SL/TP/TSL** for live trades to adapt to market changes
 - **Manages paper trades completely** (entry to exit)
 - **Coordinates with Discipline Engine** (honors hard rules)
-- **Validates AI signals** before executing
+- **Validates AI/SEA signals** before executing
 
 RCA is the **central risk hub** — all trade decisions flow through it, and it sends commands only to TradeExecutorAgent.
 
 ```
-Decision Engine (suggests)
+SEA (generates signal)
         ↓
-RCA (approves/monitors/exits)
+Discipline Engine.validateTrade (pre-trade gate, Module 4)
         ↓
-TradeExecutorAgent (executes ONLY)
+RCA.evaluate (approves/sizes/sets SL/TP)
         ↓
-Broker / Portfolio Agent
+TradeExecutorAgent (ONLY broker caller)
+        ↓
+Broker (Dhan) / Portfolio Agent records outcome
 ```
 
 ---
 
 ## 2. Inputs
 
-### 2.1 From Decision Engine (Trade Suggestions)
+### 2.1 From SEA via Discipline.validateTrade (Validated Trade Requests)
 
 ```json
 {
@@ -104,7 +106,7 @@ Via WebSocket (or REST fallback):
 }
 ```
 
-### 2.5 From AI Decision Engine (Continuous Signals)
+### 2.5 From SEA / AI Signals (Continuous Signals)
 
 ```json
 {
@@ -127,7 +129,7 @@ Via WebSocket (or REST fallback):
 
 ## 3. Outputs
 
-### 3.1 Trade Approval (to TradeExecutorAgent)
+### 3.1 Trade Approval (forwarded to TradeExecutorAgent)
 
 ```json
 {
@@ -194,10 +196,10 @@ Via WebSocket (or REST fallback):
 
 ### 4.1 Trade Approval (Entry Gate)
 
-When Decision Engine sends a trade suggestion:
+When a validated trade request arrives (SEA signal that has already passed Discipline.validateTrade):
 
 ```
-1. Validate Decision Engine's suggestion
+1. Validate the incoming trade request
    ├─ Check confidence >= MIN_CONFIDENCE
    ├─ Check R:R >= MIN_RISK_REWARD
    └─ Check entry price > 0, strike valid
@@ -276,7 +278,7 @@ For positions with `environment: "paper"`:
 RCA owns COMPLETE lifecycle:
 
 Entry:
-  ├─ Receive approved trade from Decision Engine
+  ├─ Receive validated trade request (SEA → Discipline.validateTrade → RCA)
   ├─ Send to TradeExecutor: submitTrade(paper)
   └─ TradeExecutor places paper order
 
@@ -301,7 +303,7 @@ For positions with `environment: "live"`:
 RCA monitors & requests, Broker executes:
 
 Entry:
-  ├─ Receive approved trade from Decision Engine
+  ├─ Receive validated trade request (SEA → Discipline.validateTrade → RCA)
   ├─ Send to TradeExecutor: submitTrade(live)
   ├─ TradeExecutor attaches SL/TP/TSL to broker order
   └─ Broker manages auto-exit when SL/TP hit
@@ -327,7 +329,7 @@ Exit:
   └─ If Discipline signals exit → RCA honors it, sends to TradeExecutor
 ```
 
-### 4.5 Handle External Requests (Discipline & AI)
+### 4.5 Handle External Requests (Discipline & AI/SEA)
 
 ```
 From Discipline Engine:
@@ -336,13 +338,13 @@ From Discipline Engine:
   ├─ Decision: MUST honor (hard rules override RCA's decision)
   └─ Execute: immediately send to TradeExecutor
 
-From AI Decision Engine:
-  ├─ Receive: POST /api/risk-control/ai-decision-request
+From AI/SEA signals:
+  ├─ Receive: POST /api/risk-control/ai-signal
   ├─ Extract: action (EXIT|MODIFY), signal, reason, params
   ├─ Validate: Does AI signal align with current momentum/volatility?
   │  ├─ If YES (aligned) → Execute
   │  ├─ If NO (conflict) → Log rejection, don't execute
-  │  └─ Optionally notify AI of rejection
+  │  └─ Optionally notify SEA of rejection
   └─ Execute (if valid): send to TradeExecutor
 ```
 
@@ -368,7 +370,7 @@ Priority 2: RCA OWN RULES (ADAPTIVE)
   ├─ Momentum < 50 while +profit → PARTIAL_EXIT
   └─ Momentum > 70 while +profit → HOLD or PYRAMID
 
-Priority 3: AI SIGNALS (VALIDATED)
+Priority 3: AI/SEA SIGNALS (VALIDATED)
   ├─ Trend reversal (IF momentum confirms) → EXIT
   ├─ Breakout failed (IF price confirmation) → EXIT
   ├─ Anomaly detected (IF volatility check passes) → EXIT
@@ -376,8 +378,8 @@ Priority 3: AI SIGNALS (VALIDATED)
 
 Rule:
   If Discipline signal arrives → ALL other rules paused, execute Discipline
-  If RCA rule triggered → Check for AI validation
-  If AI signal arrives → Validate, then execute or reject
+  If RCA rule triggered → Check for AI/SEA validation
+  If AI/SEA signal arrives → Validate, then execute or reject
 ```
 
 ---
@@ -443,11 +445,11 @@ def monitor_position(position, current_price):
     if age_seconds > 300 and pnl_pct <= 1.0:  # 5 minutes, no progress
         return ("FULL_EXIT", f"AGE: {age_seconds/60:.1f} min, no progress ({pnl_pct:+.1f}%)")
     
-    # 5. Check AI signals (async, non-blocking)
+    # 5. Check AI/SEA signals (async, non-blocking)
     if ai_signal_received(position.id):
         signal = get_ai_signal(position.id)
         if validate_ai_signal(signal, momentum, current_volatility):
-            return (signal.action, f"AI: {signal.signal} - {signal.reason}")
+            return (signal.action, f"AI/SEA: {signal.signal} - {signal.reason}")
         else:
             log_ai_rejection(position.id, signal)
     
@@ -459,7 +461,7 @@ def monitor_position(position, current_price):
 
 ## 7. API Contracts
 
-### 7.1 Trade Approval (from Decision Engine)
+### 7.1 Trade Approval (from Discipline.validateTrade upstream, invoked by SEA)
 
 ```
 POST /api/risk-control/evaluate
@@ -467,7 +469,8 @@ POST /api/risk-control/evaluate
 Request:
 {
   "instrument": "NIFTY_50",
-  "ai_decision": { ... },
+  "signal": { ... },                // SEA signal that passed Discipline.validateTrade
+  "discipline_status": { ... },
   "timestamp": "2026-04-09T10:15:35Z"
 }
 
@@ -494,10 +497,10 @@ Response (400 Bad Request):
 }
 ```
 
-### 7.2 AI Decision Signal Request
+### 7.2 AI/SEA Signal Request
 
 ```
-POST /api/risk-control/ai-decision-request
+POST /api/risk-control/ai-signal
 
 Request:
 {
@@ -525,7 +528,7 @@ Response (200 OK - Rejected):
 {
   "accepted": false,
   "executed": false,
-  "reason": "AI exit signal conflicts with current momentum (45 < 50 threshold). Not executing.",
+  "reason": "AI/SEA exit signal conflicts with current momentum (45 < 50 threshold). Not executing.",
   "command_id": null
 }
 ```
@@ -618,7 +621,7 @@ VOLATILITY_SPIKE_THRESHOLD = 2.0  # 2x normal IV
   ├─ Record trade outcomes (Portfolio Agent does)
   ├─ Enforce pre-trade rules (Discipline Engine does)
   ├─ Persist state to database (Portfolio Agent does)
-  └─ Generate AI signals (Decision Engine does)
+  └─ Generate AI signals (SEA does)
 
 ✅ RCA:
   ├─ Makes real-time decisions
@@ -650,7 +653,7 @@ Exit Decision Tests:
   - ✅ Partial exit on momentum < 50 while in profit
   - ✅ Force exit on trade age > 10 min
   - ✅ Honor Discipline signal (priority test)
-  - ✅ Validate AI signal (accept valid, reject conflicting)
+  - ✅ Validate AI/SEA signal (accept valid, reject conflicting)
 
 Modification Tests:
   - ✅ Tighten SL on volatility spike
@@ -668,7 +671,7 @@ Paper vs Live Tests:
 ### 10.2 Integration Tests (10+ tests)
 
 ```
-Decision Engine → RCA → TradeExecutor:
+SEA → Discipline.validateTrade → RCA → TradeExecutor:
   - ✅ Full trade lifecycle (entry, monitor, exit)
   - ✅ Paper trade scenario
   - ✅ Live trade scenario
@@ -679,9 +682,9 @@ Discipline Engine → RCA → TradeExecutor:
   - ✅ Cooldown blocks entry
   - ✅ Session halt forces close
 
-AI Engine → RCA → TradeExecutor:
+SEA (AI signals) → RCA → TradeExecutor:
   - ✅ Trend reversal signal accepted
-  - ✅ Conflicting AI signal rejected
+  - ✅ Conflicting AI/SEA signal rejected
   - ✅ Multiple signals handled in order
 
 Portfolio Agent Integration:
@@ -719,11 +722,11 @@ Portfolio Agent Integration:
 - [ ] Implement AI signal validation
 
 ### Phase 3: Integration (Week 3-4)
-- [ ] Wire to Decision Engine
+- [ ] Wire from Discipline.validateTrade (SEA upstream)
 - [ ] Wire to TradeExecutorAgent
 - [ ] Wire to Portfolio Agent
-- [ ] Wire to Discipline Engine
-- [ ] Wire to AI Decision Engine
+- [ ] Wire to Discipline Engine (signals in)
+- [ ] Wire to SEA (AI signal channel)
 
 ### Phase 4: Testing & Hardening (Week 4)
 - [ ] Unit tests (30+ tests)
@@ -826,7 +829,7 @@ TP_HIT              Price >= take profit
 MOMENTUM_EXIT       Momentum < threshold
 AGE_EXIT            Trade age > max time
 DISCIPLINE_EXIT     Discipline Engine signal
-AI_EXIT             AI Decision Engine signal
+AI_EXIT             AI/SEA signal
 VOLATILITY_EXIT     IV spike detected
 REVERSAL_EXIT       Trend reversal detected
 ANOMALY_EXIT        Price anomaly detected

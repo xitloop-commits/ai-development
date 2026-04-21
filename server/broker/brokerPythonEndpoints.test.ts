@@ -51,9 +51,9 @@ beforeEach(async () => {
   await initBrokerService();
 }, 15000);
 
-// ─── Token Status (used by option_chain_fetcher, execution_module) ──
+// ─── Token Status (used by TFA, SEA) ──
 
-describe("GET /api/broker/token/status (Python: option_chain_fetcher, execution_module)", () => {
+describe("GET /api/broker/token/status (Python: TFA, SEA)", () => {
   it("returns valid token status for mock adapter", async () => {
     const broker = getAdapter("ai-paper");
     const result = await broker.validateToken();
@@ -70,9 +70,9 @@ describe("GET /api/broker/token/status (Python: option_chain_fetcher, execution_
   });
 });
 
-// ─── Expiry List with exchangeSegment (used by option_chain_fetcher) ──
+// ─── Expiry List with exchangeSegment (used by TFA) ──
 
-describe("GET /api/broker/option-chain/expiry-list (Python: option_chain_fetcher)", () => {
+describe("GET /api/broker/option-chain/expiry-list (Python: TFA)", () => {
   it("returns expiry dates for IDX_I segment (NIFTY)", async () => {
     const broker = getAdapter("ai-paper");
     const expiries = await broker.getExpiryList("13", "IDX_I");
@@ -106,9 +106,9 @@ describe("GET /api/broker/option-chain/expiry-list (Python: option_chain_fetcher
   });
 });
 
-// ─── Option Chain with exchangeSegment (used by option_chain_fetcher) ──
+// ─── Option Chain with exchangeSegment (used by TFA) ──
 
-describe("GET /api/broker/option-chain (Python: option_chain_fetcher)", () => {
+describe("GET /api/broker/option-chain (Python: TFA)", () => {
   it("returns option chain with normalized rows for IDX_I", async () => {
     const broker = getAdapter("ai-paper");
     const chain = await broker.getOptionChain("13", "2026-04-07", "IDX_I");
@@ -164,9 +164,9 @@ describe("GET /api/broker/option-chain (Python: option_chain_fetcher)", () => {
   });
 });
 
-// ─── MCX FUTCOM Resolution (used by option_chain_fetcher) ──
+// ─── MCX FUTCOM Resolution (used by TFA) ──
 
-describe("GET /api/broker/scrip-master/mcx-futcom (Python: option_chain_fetcher)", () => {
+describe("GET /api/broker/scrip-master/mcx-futcom (Python: TFA)", () => {
   it("resolves CRUDEOIL to a valid security", async () => {
     const broker = getAdapter("ai-paper");
     const result = broker.resolveMCXFutcom!("CRUDEOIL");
@@ -208,9 +208,9 @@ describe("GET /api/broker/scrip-master/mcx-futcom (Python: option_chain_fetcher)
   });
 });
 
-// ─── Scrip Master Lookup (used by execution_module) ──
+// ─── Scrip Master Lookup (used by SEA) ──
 
-describe("GET /api/broker/scrip-master/lookup (Python: execution_module)", () => {
+describe("GET /api/broker/scrip-master/lookup (Python: SEA)", () => {
   it("finds NIFTY CE option by symbol and strike", async () => {
     const broker = getAdapter("ai-paper");
     const result = broker.lookupSecurity!({
@@ -257,9 +257,9 @@ describe("GET /api/broker/scrip-master/lookup (Python: execution_module)", () =>
   });
 });
 
-// ─── Order Placement (used by execution_module) ──
+// ─── Order Placement (used by SEA) ──
 
-describe("POST /api/broker/orders (Python: execution_module)", () => {
+describe("POST /api/broker/orders (Python: SEA)", () => {
   it("places a BUY order and returns orderId with FILLED status", async () => {
     const broker = getAdapter("ai-paper");
     const result = await broker.placeOrder({
@@ -314,9 +314,9 @@ describe("POST /api/broker/orders (Python: execution_module)", () => {
   });
 });
 
-// ─── Positions (used by execution_module) ──
+// ─── Positions (used by SEA) ──
 
-describe("GET /api/broker/positions (Python: execution_module)", () => {
+describe("GET /api/broker/positions (Python: SEA)", () => {
   it("returns empty positions initially", async () => {
     const broker = getAdapter("ai-paper");
     const positions = await broker.getPositions();
@@ -383,9 +383,9 @@ describe("GET /api/broker/positions (Python: execution_module)", () => {
   });
 });
 
-// ─── Kill Switch (used by execution_module) ──
+// ─── Kill Switch (used by SEA) ──
 
-describe("POST /api/broker/kill-switch (Python: execution_module)", () => {
+describe("POST /api/broker/kill-switch (Python: SEA)", () => {
   it("activates kill switch and rejects new orders", async () => {
     const broker = getAdapter("ai-paper");
     const ksResult = await broker.killSwitch("ACTIVATE");

@@ -562,6 +562,8 @@ export default function TradingDeskMockupPage() {
       syncDailyTargetPending: false,
       resetCapital: () => {},
       resetCapitalPending: false,
+      transferFunds: () => {},
+      transferFundsPending: false,
       refetchAll: () => {},
     };
   }, [active, workspace]);

@@ -216,8 +216,6 @@ The Settings Page communicates with the backend via tRPC procedures defined in `
 | Endpoint | Type | Description |
 |---|---|---|
 | `get` | Query | Retrieves the complete settings document for the authenticated user. Returns default values if no document exists. |
-| `updateTimeWindows` | Mutation | Accepts a partial `timeWindows` object and updates the corresponding fields in the database. |
-| `updateDiscipline` | Mutation | Accepts a partial `discipline` object and updates the corresponding fields. |
 | `updateExpiryControls` | Mutation | Accepts an array of `rules` and replaces the existing expiry controls array. |
 | `updateCharges` | Mutation | Accepts an array of `rates` and replaces the existing charges array. |
 | `updateTradingMode` | Mutation | Accepts a partial `tradingMode` object and updates the corresponding fields. Used by AI Trades Settings toggle, My Trades on-screen toggle, Testing on-screen toggle, and all three kill switch controls. |

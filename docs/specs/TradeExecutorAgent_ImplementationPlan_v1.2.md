@@ -40,7 +40,7 @@
 - Ensure only the executor mutates portfolio state.
 
 ## 8. Logger & Analytics
-- Use the dedicated logger (server/executor/executorLogger.ts) with [TradeExecutor] prefix.
+- Use a dedicated logger under `server/executor/` with `[TradeExecutor]` prefix (to be created as part of the agent implementation).
 - Log every execution step, event, error, and state change (structured, with executionId, tradeId, orderId, etc.).
 - Track slippage, latency, and outcomes for analytics and ML feedback.
 

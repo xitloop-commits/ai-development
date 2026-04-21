@@ -2,7 +2,6 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import {
   pushOptionChain,
   pushAnalyzerOutput,
-  pushAIDecision,
   pushPosition,
   updateModuleHeartbeat,
   setTradingMode,
@@ -12,7 +11,7 @@ import {
   getSignals,
   getPositions,
 } from './tradingStore';
-import type { RawOptionChainData, RawAnalyzerOutput, RawAIDecision, Position } from '../shared/tradingTypes';
+import type { RawOptionChainData, RawAnalyzerOutput, Position } from '../shared/tradingTypes';
 
 // Sample test data
 const sampleOptionChain: RawOptionChainData = {
@@ -107,24 +106,6 @@ const sampleAnalyzerOutput: RawAnalyzerOutput = {
   real_time_signals: ['Short Covering at 23100 PE: OI -12000'],
   exit_signals: [],
   smart_money_signals: [],
-};
-
-const sampleAIDecision: RawAIDecision = {
-  instrument: 'NIFTY_50',
-  timestamp: new Date().toISOString(),
-  decision: 'GO',
-  trade_type: 'CALL_BUY',
-  confidence_score: 0.78,
-  rationale: 'Strong bullish signals with call writing support.',
-  market_bias_oc: 'BULLISH',
-  market_bias_news: 'POSITIVE',
-  active_strikes: { call: [23300, 23400], put: [23200] },
-  main_support: 23200,
-  main_resistance: 23500,
-  entry_signal_details: 'Long Buildup at 23300 CE',
-  news_summary: 'Positive IT earnings outlook',
-  target_strike: 23300,
-  target_expiry_date: '2026-03-24',
 };
 
 const samplePosition: Position = {
@@ -237,18 +218,6 @@ describe('tradingStore', () => {
       // Check that at least one signal was created from the OI change signals
       const niftySignals = signals.filter(s => s.instrument === 'NIFTY_50');
       expect(niftySignals.length).toBeGreaterThan(0);
-    });
-  });
-
-  describe('AI Decision', () => {
-    it('pushes AI decision and updates instrument data', () => {
-      pushAIDecision('NIFTY_50', sampleAIDecision);
-      const instruments = getInstrumentData();
-      const nifty = instruments.find(i => i.name === 'NIFTY_50');
-      expect(nifty).toBeDefined();
-      expect(nifty!.aiDecision).toBe('GO');
-      expect(nifty!.aiConfidence).toBe(0.78);
-      expect(nifty!.aiRationale).toBe('Strong bullish signals with call writing support.');
     });
   });
 

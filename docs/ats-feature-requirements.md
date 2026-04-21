@@ -79,7 +79,7 @@ A sound engine using Web Audio API with programmatic alert tones, a Notification
 
 Include/exclude instruments with localStorage persistence. Filter toggles in the Control Panel sync to the backend via tRPC mutation. All four Python modules (fetcher, analyzer, AI engine, executor) poll the dashboard for active instruments and skip disabled ones. The dashboard filters cards, signals, and positions based on active instruments.
 
-### 3.6 Task F: Enhanced AI Decision Engine ✅
+### 3.6 Task F: Enhanced AI Signal Engine (SEA) ✅
 
 Weighted scoring across OI momentum, wall strength, IV, PCR trend, and theta risk. Breakout vs bounce prediction at S/R levels. Auto-calculation of ATM strike, target prices, stop loss, and risk:reward ratio. Trade setup output includes rationale and risk flags. Enhanced news coverage includes Gift Nifty pre-market, India VIX, US overnight moves (S&P/Nasdaq), India CPI/PMI, US banking contagion (for BANKNIFTY), DXY (for CRUDEOIL), European TTF (for NATURALGAS), and Russia/sanctions supply disruption. Event calendar entries for weekly expiry, India CPI monthly, India PMI monthly, and Baker Hughes rig count.
 
@@ -501,18 +501,15 @@ The second tab in the Trading Desk, running fully automated paper trades.
 
 ## 5. Python Pipeline Modules
 
-Six standalone Python modules form the data analysis and execution pipeline. They run independently and communicate with the dashboard via REST API.
+Three standalone Python packages form the data, training, and signal pipeline. They run independently and communicate with the dashboard + TypeScript agents via REST API.
 
-| Module | File | Purpose |
-|--------|------|---------|
-| **Option Chain Fetcher** | `option_chain_fetcher.py` | Downloads scrip master CSV, resolves MCX security IDs, fetches option chain data from Dhan API, polls dashboard for active instruments, saves JSON files |
-| **Option Chain Analyzer** | `option_chain_analyzer.py` | Analyzes option chain data: OI distribution, PCR, max pain, S/R levels, wall strength, IV analysis. Captures opening OI snapshot at 9:15 AM for intraday tracking. |
-| **AI Decision Engine** | `ai_decision_engine.py` | Weighted scoring across OI momentum, wall strength, IV, PCR trend, theta risk. Breakout vs bounce prediction. Auto-calculates ATM strike, target, SL, R:R. Enhanced news sentiment with multi-query targeted fetching, weighted keyword scoring, event calendar awareness. Outputs trade direction, setup, rationale, and risk flags. |
-| **Execution Module** | `execution_module.py` | Reads AI decisions, manages paper/live trades. Paper trades use real option chain prices. In-memory position tracking with SL/TP monitoring. Pushes position updates to dashboard. Supports both enhanced and legacy AI format. |
-| **Data Pusher** | `dashboard_data_pusher.py` | Bridges Python modules to the dashboard. Reads JSON output files and pushes data via REST API. Respects active instruments filter. |
-| **Test Analyzer** | `test_analyzer.py` | Test harness for the option chain analyzer module. |
+| Module | Package | Purpose |
+|--------|---------|---------|
+| **TFA (Tick Feature Agent)** | `tick_feature_agent/` | Live tick ingestion from Dhan, option chain polling, rollover handling, feature engineering (compression, decay, time-to-move, upside percentiles, targets). Records NDJSON.gz + writes the option-chain JSON the dashboard consumes. |
+| **MTA (Model Training Agent)** | `model_training_agent/` | Trains LightGBM models from TFA-emitted Parquet features (29 models per instrument across 30s/60s/5min/15min target windows). Outputs to `models/{instrument}/LATEST/`. |
+| **SEA (Signal Engine Agent)** | `signal_engine_agent/` | Consumes model predictions, runs the 4-stage trade filter (sustained direction, confidence gate, multi-model consensus, direction change), and produces LONG/SHORT CE/PE recommendations with SL/TP. Pushes signals to Discipline Engine (pre-trade gate) and RCA (approval + sizing). |
 
-**Future migration (Feature 21 in task breakdown):** All Python modules will be updated to call the Broker Service REST endpoints instead of Dhan directly. Hardcoded tokens will be removed; credentials will be read from MongoDB via the Broker Service.
+All three packages call the Broker Service REST endpoints (never the Dhan API directly); credentials are read from MongoDB via the Broker Service.
 
 ---
 

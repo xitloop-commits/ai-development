@@ -154,7 +154,7 @@ export class DhanAdapter implements BrokerAdapter {
           this.tokenUpdatedAt = Date.now();
           // Propagate to WebSocket so next reconnect uses the new token
           if (this.ws) this.ws.updateToken(newToken);
-          if (this.orderUpdateWs) this.orderUpdateWs.accessToken = newToken;
+          if (this.orderUpdateWs) this.orderUpdateWs.updateCredentials(this.clientId, newToken);
           log.info("Token synced from in-flight refresh.");
           return true;
         }
@@ -215,7 +215,7 @@ export class DhanAdapter implements BrokerAdapter {
       this.tokenUpdatedAt = Date.now();
       // Propagate to WebSocket + order update WS
       if (this.ws) this.ws.updateToken(token);
-      if (this.orderUpdateWs) this.orderUpdateWs.accessToken = token;
+      if (this.orderUpdateWs) this.orderUpdateWs.updateCredentials(this.clientId, token);
       log.info(`Token updated. Client: ${this.clientId}`);
     } else {
       throw new Error(result.message);
