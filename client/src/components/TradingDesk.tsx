@@ -25,6 +25,7 @@ import {
   Plus,
 } from 'lucide-react';
 import NewTradeForm from './NewTradeForm';
+import { TodayPnlBar } from './TodayPnlBar';
 import { TradingDeskSkeleton, NoCapitalEmpty, ErrorState } from './LoadingStates';
 import { useTickStream } from '@/hooks/useTickStream';
 
@@ -881,190 +882,19 @@ export default function TradingDesk({
 
       {/* ─── Summary Bar ──────────────────────────────────────── */}
       <div className="flex items-stretch divide-x divide-border border-b border-border bg-secondary backdrop-blur-sm">
-        {/* Available Fund */}
+        {/* Cash (available capital not in open positions) */}
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
-          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Available</span>
+          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Cash</span>
           <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
         </div>
-        {/* Today P&L — center-zero progress bar with multiple markers */}
-        <div className="relative px-3 py-1.5 flex flex-col justify-center flex-1 min-w-[280px]">
-          {(() => {
-            // Per DisciplineEngine spec v1.3: daily profit cap +5%, circuit breaker -3%
-            // Piecewise scaling gives equal visual space to 3 zones:
-            //   Negative zone (-3% → 0):    0%  → 30% of bar
-            //   Target zone   (0  → +5%):  30% → 65% of bar  (larger share — most important)
-            //   Gift zone    (+5% → +50%): 65% → 100% of bar
-            const targetPct = 5;
-            const maxLossPct = 3;
-            const rightEdgePct = 50;
-            const NEG_ZONE_END = 30;      // % of bar where 0 sits
-            const TARGET_ZONE_END = 65;   // % of bar where +5 sits
-            const tradeCapital = capital.tradingPool || 1;
-            const pnl = capital.todayPnl;
-            const pnlPct = (pnl / tradeCapital) * 100;
-            const clamped = Math.min(Math.max(pnlPct, -maxLossPct), rightEdgePct);
-            const positionFor = (v: number): number => {
-              if (v <= 0) {
-                return ((v + maxLossPct) / maxLossPct) * NEG_ZONE_END;
-              } else if (v <= targetPct) {
-                return NEG_ZONE_END + (v / targetPct) * (TARGET_ZONE_END - NEG_ZONE_END);
-              } else {
-                return TARGET_ZONE_END + ((v - targetPct) / (rightEdgePct - targetPct)) * (100 - TARGET_ZONE_END);
-              }
-            };
-            const markerLeft = positionFor(clamped);
-            const negMarkers: number[] = [];
-            const posMarkers: number[] = [];
-            const giftMarkers: number[] = [];
-            for (let v = -maxLossPct + 1; v < 0; v++) negMarkers.push(v);
-            for (let v = 1; v < targetPct; v++) posMarkers.push(v);
-            for (let v = targetPct + 5; v < rightEdgePct; v += 5) giftMarkers.push(v);
-            const valueAt = (v: number) => tradeCapital * v / 100;
-            return (
-              <>
-                {/* Exit All button (top-right, only when open trades) */}
-                {canManageTrades && openTradeCount > 0 && (
-                  <div className="absolute top-0.5 right-0">
-                    <button
-                      onClick={handleExitAll}
-                      className="px-1 py-0.5 rounded font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
-                      title="Exit all open positions"
-                    >
-                      ×
-                    </button>
-                  </div>
-                )}
-                {/* Top values row (above bar) */}
-                <div className="relative w-full h-3 mb-0.5">
-                  {negMarkers.map(v => (
-                    <span key={`vn${v}`}
-                      className="absolute text-[0.4375rem] tabular-nums text-destructive/60 -translate-x-1/2"
-                      style={{ left: `${positionFor(v)}%` }}>
-                      {fmt(valueAt(v))}
-                    </span>
-                  ))}
-                  {posMarkers.map(v => (
-                    <span key={`vp${v}`}
-                      className="absolute text-[0.4375rem] tabular-nums text-bullish/70 -translate-x-1/2"
-                      style={{ left: `${positionFor(v)}%` }}>
-                      {fmt(valueAt(v))}
-                    </span>
-                  ))}
-                  {giftMarkers.map(v => (
-                    <span key={`vg${v}`}
-                      className="absolute text-[0.4375rem] tabular-nums text-primary/70 -translate-x-1/2"
-                      style={{ left: `${positionFor(v)}%` }}>
-                      {fmt(valueAt(v))}
-                    </span>
-                  ))}
-                  <span className="absolute left-0 text-[0.4375rem] font-bold tabular-nums text-destructive">
-                    {fmt(valueAt(-maxLossPct))}
-                  </span>
-                  <span className="absolute text-[0.4375rem] font-bold tabular-nums text-warning-amber -translate-x-1/2"
-                    style={{ left: `${positionFor(targetPct)}%` }}>
-                    {fmt(valueAt(targetPct))}
-                  </span>
-                  <span className="absolute right-0 text-[0.4375rem] font-bold tabular-nums text-primary">
-                    {fmt(valueAt(rightEdgePct))}
-                  </span>
-                  {/* Current value above marker */}
-                  <span
-                    className="absolute text-[0.5rem] font-bold tabular-nums text-info-cyan -translate-x-1/2 whitespace-nowrap transition-all duration-500"
-                    style={{ left: `${markerLeft}%`, bottom: 0 }}
-                  >
-                    {pnl >= 0 ? '+' : ''}{fmt(pnl)}
-                  </span>
-                </div>
-                {/* Bar */}
-                <div className="relative w-full h-1.5 rounded-full bg-muted-foreground/20">
-                  {/* Fill from center */}
-                  {pnl >= 0 ? (
-                    <div
-                      className="absolute top-0 bottom-0 rounded-r-full bg-bullish/60 transition-all duration-500"
-                      style={{ left: `${positionFor(0)}%`, width: `${markerLeft - positionFor(0)}%` }}
-                    />
-                  ) : (
-                    <div
-                      className="absolute top-0 bottom-0 rounded-l-full bg-destructive/80 transition-all duration-500"
-                      style={{ left: `${markerLeft}%`, width: `${positionFor(0) - markerLeft}%` }}
-                    />
-                  )}
-                  {/* Intermediate ticks */}
-                  {negMarkers.map(v => (
-                    <div key={`n${v}`} className="absolute top-0 bottom-0 w-px bg-destructive/40" style={{ left: `${positionFor(v)}%` }} />
-                  ))}
-                  {posMarkers.map(v => (
-                    <div key={`p${v}`} className="absolute top-0 bottom-0 w-px bg-bullish/30" style={{ left: `${positionFor(v)}%` }} />
-                  ))}
-                  {giftMarkers.map(v => (
-                    <div key={`g${v}`} className="absolute top-0 bottom-0 w-px bg-primary/40" style={{ left: `${positionFor(v)}%` }} />
-                  ))}
-                  {/* Zero line (prominent) */}
-                  <div className="absolute top-[-2px] bottom-[-2px] w-0.5 bg-foreground/50 z-[1]" style={{ left: `${positionFor(0)}%`, marginLeft: '-1px' }} />
-                  {/* Target line (prominent amber, marks +5% cap) */}
-                  <div className="absolute top-[-2px] bottom-[-2px] w-0.5 bg-warning-amber/70 z-[1]" style={{ left: `${positionFor(targetPct)}%`, marginLeft: '-1px' }} />
-                  {/* Current position — vertical line through bar */}
-                  <div
-                    className="absolute top-[-3px] bottom-[-3px] w-0.5 bg-info-cyan shadow-[0_0_4px_oklch(0.8_0.15_210)] z-[3] transition-all duration-500"
-                    style={{ left: `${markerLeft}%`, marginLeft: '-1px' }}
-                  />
-                  {/* Downward arrow (▼) pointing to the bar */}
-                  <div
-                    className="absolute z-[3] transition-all duration-500 -translate-x-1/2"
-                    style={{ left: `${markerLeft}%`, top: '-7px' }}
-                  >
-                    <div className="w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent border-t-info-cyan" />
-                  </div>
-                </div>
-                {/* Bottom percentage row (below bar) */}
-                <div className="relative w-full h-3 mt-0.5">
-                  {negMarkers.map(v => (
-                    <span key={`pn${v}`}
-                      className="absolute text-[0.4375rem] tabular-nums text-destructive/60 -translate-x-1/2"
-                      style={{ left: `${positionFor(v)}%` }}>
-                      {v}%
-                    </span>
-                  ))}
-                  {posMarkers.map(v => (
-                    <span key={`pp${v}`}
-                      className="absolute text-[0.4375rem] tabular-nums text-bullish/70 -translate-x-1/2"
-                      style={{ left: `${positionFor(v)}%` }}>
-                      +{v}%
-                    </span>
-                  ))}
-                  {giftMarkers.map(v => (
-                    <span key={`pg${v}`}
-                      className="absolute text-[0.4375rem] tabular-nums text-primary/70 -translate-x-1/2"
-                      style={{ left: `${positionFor(v)}%` }}>
-                      +{v}%
-                    </span>
-                  ))}
-                  <span className="absolute left-0 text-[0.4375rem] font-bold tabular-nums text-destructive">
-                    -{maxLossPct}%
-                  </span>
-                  <span className="absolute text-[0.4375rem] text-foreground/50 tabular-nums -translate-x-1/2"
-                    style={{ left: `${positionFor(0)}%` }}>
-                    0
-                  </span>
-                  <span className="absolute text-[0.4375rem] font-bold tabular-nums text-warning-amber -translate-x-1/2"
-                    style={{ left: `${positionFor(targetPct)}%` }}>
-                    +{targetPct}%
-                  </span>
-                  <span className="absolute right-0 text-[0.4375rem] font-bold tabular-nums text-primary">
-                    +{rightEdgePct}%
-                  </span>
-                  {/* Current percentage below marker */}
-                  <span
-                    className="absolute text-[0.5rem] font-bold tabular-nums text-info-cyan -translate-x-1/2 whitespace-nowrap transition-all duration-500"
-                    style={{ left: `${markerLeft}%`, top: 0 }}
-                  >
-                    {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
-                  </span>
-                </div>
-              </>
-            );
-          })()}
-        </div>
+        {/* Today P&L — adaptive progress bar (see TodayPnlBar.tsx) */}
+        <TodayPnlBar
+          pnl={capital.todayPnl}
+          tradingPool={capital.tradingPool}
+          exitAllEnabled={canManageTrades}
+          openTradeCount={openTradeCount}
+          onExitAll={handleExitAll}
+        />
         {/* Reserve + Net Worth moved to MainFooter Net Worth popover */}
       </div>
 
