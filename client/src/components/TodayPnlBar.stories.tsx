@@ -5,7 +5,7 @@
  */
 
 import type { Meta, StoryObj } from "@storybook/react";
-import { TodayPnlBar, DEFAULT_BAR_CONFIG, type BarConfig } from "./TodayPnlBar.v3";
+import { TodayPnlBar, DEFAULT_BAR_CONFIG, type BarConfig } from "./TodayPnlBar";
 
 const meta = {
   title: "Components/TodayPnlBar v3 (Fixed Range Rolling Window)",
