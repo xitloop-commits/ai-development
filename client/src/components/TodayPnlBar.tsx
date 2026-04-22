@@ -407,7 +407,7 @@ function _TodayPnlBar({
         {/* Visible window background highlight */}
         {visibleRange.end > visibleRange.start && (
           <div
-            className="absolute top-0 bottom-0 bg-primary/10 transition-all duration-500 rounded-full"
+            className="absolute top-0 bottom-0 bg-primary/10 transition-all duration-200 rounded-full"
             style={{
               left: `0%`,
               right: `0%`,
@@ -457,7 +457,7 @@ function _TodayPnlBar({
 
           return (
             <div
-              className={`absolute top-0 bottom-0 transition-[left,width] duration-500 ${
+              className={`absolute top-0 bottom-0 transition-[left,width] duration-200 ${
                 markerIsPositive ? "rounded-r-full" : "rounded-l-full"
               }`}
               style={{
@@ -516,7 +516,7 @@ function _TodayPnlBar({
 
         {/* Marker triangle */}
         <div
-          className="absolute z-[3] transition-[left] duration-500 -translate-x-1/2"
+          className="absolute z-[3] transition-[left] duration-200 -translate-x-1/2"
           style={{ left: "var(--m)", top: "-7px" }}
         >
           <div
