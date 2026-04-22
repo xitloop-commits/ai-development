@@ -549,7 +549,7 @@ function _TodayPnlBar({
           aria-label="Exit all open positions"
         >
           <div>{pnl}</div>
-          <div>({currentPct >= 0 ? "+" : ""}{currentPct.toFixed(2)}%)</div>
+          <div>{currentPct >= 0 ? "+" : ""}{currentPct.toFixed(2)}%</div>
         </button>
       )}
 
