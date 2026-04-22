@@ -118,6 +118,7 @@ const BG_TICK: Record<BarColor, string> = {
 interface Layout {
   leftEdge: number;
   rightEdge: number;
+  target: number;
   anchors: LayoutTick[];
   detailTicks: LayoutTick[];
   milestones: LayoutTick[];
@@ -173,8 +174,9 @@ function computeLayout(bucketedPct: number, cfg: BarConfig): Layout {
     });
   }
 
-  // Milestones — round numbers outside detail window, below right edge, > target
-  const candidateMilestones = [10, 15, 25, 50, 75, 100, 125, 150, 200];
+  // Milestones — round numbers outside detail window, below right edge, > target.
+  // Kept deliberately sparse to avoid visual crowding; +15 dropped because +10 / +25 bracket it.
+  const candidateMilestones = [10, 25, 50, 75, 100, 150, 200];
   const milestones: LayoutTick[] = [];
   for (const m of candidateMilestones) {
     if (m <= cfg.target) continue;
@@ -190,6 +192,7 @@ function computeLayout(bucketedPct: number, cfg: BarConfig): Layout {
   return {
     leftEdge,
     rightEdge,
+    target: cfg.target,
     anchors,
     detailTicks,
     milestones,
@@ -197,12 +200,32 @@ function computeLayout(bucketedPct: number, cfg: BarConfig): Layout {
   };
 }
 
-/** Linear map from raw % to 0..100 bar position. */
-function pctToBar(pct: number, leftEdge: number, rightEdge: number): number {
-  const span = rightEdge - leftEdge;
-  if (span <= 0) return 0;
-  const clamped = Math.max(leftEdge, Math.min(rightEdge, pct));
-  return ((clamped - leftEdge) / span) * 100;
+/**
+ * Piecewise map from raw % to 0..100 bar position.
+ * Each zone gets a fixed proportion of the bar so the left/target/gift
+ * regions stay readable regardless of how wide the overall range is:
+ *   risk zone   (leftEdge  →  0     ): 0%   → 25% of bar
+ *   target zone (0         →  target): 25%  → 60% of bar
+ *   gift zone   (target    → right  ): 60%  → 100% of bar
+ */
+const RISK_END = 25;
+const TARGET_END = 60;
+
+function pctToBar(pct: number, leftEdge: number, target: number, rightEdge: number): number {
+  if (pct <= 0) {
+    const span = 0 - leftEdge;
+    if (span <= 0) return 0;
+    const clamped = Math.max(leftEdge, pct);
+    return ((clamped - leftEdge) / span) * RISK_END;
+  }
+  if (pct <= target) {
+    if (target <= 0) return RISK_END;
+    return RISK_END + (pct / target) * (TARGET_END - RISK_END);
+  }
+  const giftSpan = rightEdge - target;
+  if (giftSpan <= 0) return TARGET_END;
+  const clamped = Math.min(rightEdge, pct);
+  return TARGET_END + ((clamped - target) / giftSpan) * (100 - TARGET_END);
 }
 
 // ─── Component ────────────────────────────────────────────────────────
@@ -227,8 +250,8 @@ function _TodayPnlBar({
     [bucketedPct, cfg]
   );
 
-  const markerLeft = pctToBar(currentPct, layout.leftEdge, layout.rightEdge);
-  const zeroLeft = pctToBar(0, layout.leftEdge, layout.rightEdge);
+  const markerLeft = pctToBar(currentPct, layout.leftEdge, layout.target, layout.rightEdge);
+  const zeroLeft = pctToBar(0, layout.leftEdge, layout.target, layout.rightEdge);
   const signedAbs = currentPct >= 0;
   const fillLeft = signedAbs ? zeroLeft : markerLeft;
   const fillWidth = signedAbs ? markerLeft - zeroLeft : zeroLeft - markerLeft;
@@ -236,6 +259,12 @@ function _TodayPnlBar({
   const showExit = exitAllEnabled && openTradeCount > 0;
   const markerInDanger = currentPct <= cfg.lossCap + 0.3;
   const markerNearTarget = currentPct >= cfg.target - 0.3;
+  // Collision handling: if the marker is on top of an anchor, suppress the
+  // marker's value/percent overlay labels so they don't stack with the
+  // anchor's own labels. Anchor labels win because they're stable.
+  const markerOverlapsAnchor = layout.anchors.some(
+    (a) => Math.abs(currentPct - a.pct) < 0.5
+  );
 
   return (
     <div
@@ -271,47 +300,43 @@ function _TodayPnlBar({
             <span
               key={`av${a.pct}`}
               className={`absolute text-[0.4375rem] font-bold tabular-nums -translate-x-1/2 ${TEXT_FULL[a.color]} ${inDetail ? "" : "opacity-40"}`}
-              style={{ left: `${pctToBar(a.pct, layout.leftEdge, layout.rightEdge)}%` }}
+              style={{ left: `${pctToBar(a.pct, layout.leftEdge, layout.target, layout.rightEdge)}%` }}
             >
               {formatINR((tradingPool * a.pct) / 100)}
             </span>
           );
         })}
 
-        {/* Detail tick values */}
-        {layout.detailTicks.map((t) => (
-          <span
-            key={`dv${t.pct}`}
-            className={`absolute text-[0.4375rem] tabular-nums -translate-x-1/2 ${TEXT_DIM[t.color]}`}
-            style={{ left: `${pctToBar(t.pct, layout.leftEdge, layout.rightEdge)}%` }}
-          >
-            {formatINR((tradingPool * t.pct) / 100)}
-          </span>
-        ))}
+        {/* Detail ticks intentionally omit value labels (top row). Their
+            percent label remains in the bottom row below. This is the single
+            biggest visual-density win for the bar. */}
 
         {/* Milestone value labels */}
         {layout.milestones.map((m) => (
           <span
             key={`mv${m.pct}`}
             className="absolute text-[0.4375rem] font-bold tabular-nums text-primary/70 -translate-x-1/2"
-            style={{ left: `${pctToBar(m.pct, layout.leftEdge, layout.rightEdge)}%` }}
+            style={{ left: `${pctToBar(m.pct, layout.leftEdge, layout.target, layout.rightEdge)}%` }}
           >
             {formatINR((tradingPool * m.pct) / 100)}
           </span>
         ))}
 
-        {/* Current value at marker */}
-        <span
-          className="absolute text-[0.5rem] font-bold tabular-nums text-info-cyan -translate-x-1/2 whitespace-nowrap transition-[left] duration-500"
-          style={{ left: "var(--m)", bottom: 0 }}
-        >
-          {currentPct >= 0 ? "+" : ""}
-          {formatINR(pnl)}
-        </span>
+        {/* Current value at marker (suppressed when sitting on top of an anchor) */}
+        {!markerOverlapsAnchor && (
+          <span
+            className="absolute text-[0.5rem] font-bold tabular-nums text-info-cyan -translate-x-1/2 whitespace-nowrap transition-[left] duration-500"
+            style={{ left: "var(--m)", bottom: 0 }}
+          >
+            {currentPct >= 0 ? "+" : ""}
+            {formatINR(pnl)}
+          </span>
+        )}
       </div>
 
-      {/* The bar */}
-      <div className="relative w-full h-1.5 rounded-full bg-muted-foreground/20">
+      {/* The bar — track slightly more visible (/30 instead of /20) so the
+          bar reads as "present" even when P&L is zero and there's no fill. */}
+      <div className="relative w-full h-1.5 rounded-full bg-muted-foreground/30">
         {/* Fill from zero to marker */}
         <div
           className={`absolute top-0 bottom-0 transition-[left,width] duration-500 ${
@@ -328,7 +353,7 @@ function _TodayPnlBar({
             key={`al${a.pct}`}
             className={`absolute top-[-2px] bottom-[-2px] w-0.5 z-[1] ${BG_LINE[a.color]}`}
             style={{
-              left: `${pctToBar(a.pct, layout.leftEdge, layout.rightEdge)}%`,
+              left: `${pctToBar(a.pct, layout.leftEdge, layout.target, layout.rightEdge)}%`,
               marginLeft: "-1px",
             }}
           />
@@ -339,7 +364,7 @@ function _TodayPnlBar({
           <div
             key={`dl${t.pct}`}
             className={`absolute top-0 bottom-0 w-px ${BG_TICK[t.color]}`}
-            style={{ left: `${pctToBar(t.pct, layout.leftEdge, layout.rightEdge)}%` }}
+            style={{ left: `${pctToBar(t.pct, layout.leftEdge, layout.target, layout.rightEdge)}%` }}
           />
         ))}
 
@@ -348,7 +373,7 @@ function _TodayPnlBar({
           <div
             key={`ml${m.pct}`}
             className="absolute top-0 bottom-0 w-px bg-primary/40"
-            style={{ left: `${pctToBar(m.pct, layout.leftEdge, layout.rightEdge)}%` }}
+            style={{ left: `${pctToBar(m.pct, layout.leftEdge, layout.target, layout.rightEdge)}%` }}
           />
         ))}
 
@@ -358,7 +383,7 @@ function _TodayPnlBar({
             key={`pe${i}`}
             className="absolute top-[-4px] bottom-[-4px] z-[2] flex items-center"
             style={{
-              left: `${pctToBar(p.percent, layout.leftEdge, layout.rightEdge)}%`,
+              left: `${pctToBar(p.percent, layout.leftEdge, layout.target, layout.rightEdge)}%`,
               marginLeft: "-4px",
             }}
             title={p.label ?? `Exit ${p.closePct}% @ ${p.percent}%`}
@@ -420,7 +445,7 @@ function _TodayPnlBar({
             <span
               key={`ap${a.pct}`}
               className={`absolute text-[0.4375rem] font-bold tabular-nums -translate-x-1/2 ${TEXT_FULL[a.color]} ${inDetail ? "" : "opacity-40"}`}
-              style={{ left: `${pctToBar(a.pct, layout.leftEdge, layout.rightEdge)}%` }}
+              style={{ left: `${pctToBar(a.pct, layout.leftEdge, layout.target, layout.rightEdge)}%` }}
             >
               {a.label ?? (a.pct >= 0 ? `+${a.pct}%` : `${a.pct}%`)}
             </span>
@@ -431,7 +456,7 @@ function _TodayPnlBar({
           <span
             key={`dp${t.pct}`}
             className={`absolute text-[0.4375rem] tabular-nums -translate-x-1/2 ${TEXT_DIM[t.color]}`}
-            style={{ left: `${pctToBar(t.pct, layout.leftEdge, layout.rightEdge)}%` }}
+            style={{ left: `${pctToBar(t.pct, layout.leftEdge, layout.target, layout.rightEdge)}%` }}
           >
             {t.pct >= 0 ? `+${t.pct}%` : `${t.pct}%`}
           </span>
@@ -441,19 +466,21 @@ function _TodayPnlBar({
           <span
             key={`mp${m.pct}`}
             className="absolute text-[0.4375rem] font-bold tabular-nums text-primary/70 -translate-x-1/2"
-            style={{ left: `${pctToBar(m.pct, layout.leftEdge, layout.rightEdge)}%` }}
+            style={{ left: `${pctToBar(m.pct, layout.leftEdge, layout.target, layout.rightEdge)}%` }}
           >
             +{m.pct}%
           </span>
         ))}
 
-        <span
-          className="absolute text-[0.5rem] font-bold tabular-nums text-info-cyan -translate-x-1/2 whitespace-nowrap transition-[left] duration-500"
-          style={{ left: "var(--m)", top: 0 }}
-        >
-          {currentPct >= 0 ? "+" : ""}
-          {currentPct.toFixed(2)}%
-        </span>
+        {!markerOverlapsAnchor && (
+          <span
+            className="absolute text-[0.5rem] font-bold tabular-nums text-info-cyan -translate-x-1/2 whitespace-nowrap transition-[left] duration-500"
+            style={{ left: "var(--m)", top: 0 }}
+          >
+            {currentPct >= 0 ? "+" : ""}
+            {currentPct.toFixed(2)}%
+          </span>
+        )}
       </div>
     </div>
   );
