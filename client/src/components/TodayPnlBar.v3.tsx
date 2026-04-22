@@ -362,8 +362,9 @@ function _TodayPnlBar({
           const isVisible = isMarkerVisible(idx);
           const barPos = getMarkerBarPosition(idx);
 
-          // Color by zone - gradient from light to dark
+          // Color by zone - gradient from light to dark, black for zero
           const getLabelColor = () => {
+            if (marker.pct === 0) return "#000000";  // black for zero
             switch (marker.zone) {
               case "heavyLoss":
                 return "#7f1d1d";  // dark red
@@ -473,8 +474,11 @@ function _TodayPnlBar({
           const isVisible = isMarkerVisible(idx);
           const barPos = getMarkerBarPosition(idx);
 
-          // Color based on zone - gradient from light to dark
+          // Color based on zone - gradient from light to dark, black for zero
           const getMarkerColor = () => {
+            if (marker.pct === 0) {
+              return isVisible ? "#000000" : "#00000040";  // black for zero
+            }
             switch (marker.zone) {
               case "heavyLoss":
                 return isVisible ? "#7f1d1d" : "#7f1d1d40";
@@ -554,8 +558,9 @@ function _TodayPnlBar({
           const isVisible = isMarkerVisible(idx);
           const barPos = getMarkerBarPosition(idx);
 
-          // Color by zone - same gradient as value labels
+          // Color by zone - same gradient as value labels, black for zero
           const getPercentColor = () => {
+            if (marker.pct === 0) return "#000000";  // black for zero
             switch (marker.zone) {
               case "heavyLoss":
                 return "#7f1d1d";  // dark red
