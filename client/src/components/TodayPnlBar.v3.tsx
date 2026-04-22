@@ -345,27 +345,10 @@ function _TodayPnlBar({
           const isVisible = isMarkerVisible(idx);
           const barPos = getMarkerBarPosition(idx);
 
-          // Color by P&L value
-          const getLabelColor = () => {
-            if (marker.pct < 0) {
-              return "text-red-500";
-            } else if (marker.pct === 0) {
-              return "text-muted-foreground";
-            } else if (marker.pct <= 10) {
-              return "text-green-600";
-            } else if (marker.pct <= 25) {
-              return "text-green-500";
-            } else if (marker.pct <= 50) {
-              return "text-green-400";
-            } else {
-              return "text-amber-400";
-            }
-          };
-
           return isVisible ? (
             <span
               key={`val-${marker.pct}`}
-              className={`absolute text-[0.625rem] font-bold tabular-nums -translate-x-1/2 transition-opacity duration-300 opacity-100 ${getLabelColor()}`}
+              className="absolute text-[0.625rem] font-bold tabular-nums -translate-x-1/2 transition-opacity duration-300 opacity-100 text-foreground"
               style={{
                 left: `${barPos}%`,
               }}
