@@ -548,7 +548,7 @@ function _TodayPnlBar({
           title="Exit all open positions"
           aria-label="Exit all open positions"
         >
-          <div>{formatINR(pnl)}</div>
+          <div>{pnl < 0 ? '-' : ''}₹{Math.abs(pnl).toLocaleString('en-IN')}</div>
           <div>{currentPct >= 0 ? "+" : ""}{currentPct.toFixed(2)}%</div>
         </button>
       )}
