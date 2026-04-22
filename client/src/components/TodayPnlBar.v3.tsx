@@ -553,12 +553,38 @@ function _TodayPnlBar({
         {allMarkers.map((marker, idx) => {
           const isVisible = isMarkerVisible(idx);
           const barPos = getMarkerBarPosition(idx);
+
+          // Color by zone - same gradient as value labels
+          const getPercentColor = () => {
+            switch (marker.zone) {
+              case "heavyLoss":
+                return "#7f1d1d";  // dark red
+              case "bigLoss":
+                return "#dc2626";  // medium red
+              case "loss":
+                return "#fca5a5";  // light red
+              case "profit":
+                return "#86efac";  // light green
+              case "bigProfit":
+                return "#4ade80";  // medium green
+              case "superProfit":
+                return "#22c55e";  // darker green
+              case "superDuperProfit":
+                return "#16a34a";  // very dark green
+              case "jockbot":
+                return "#eab308";  // bright yellow
+              default:
+                return "currentColor";
+            }
+          };
+
           return isVisible ? (
             <span
               key={`pct-${marker.pct}`}
-              className={`absolute text-[0.4375rem] font-bold tabular-nums -translate-x-1/2 transition-opacity duration-300 opacity-100 text-foreground`}
+              className="absolute text-[0.4375rem] font-bold tabular-nums -translate-x-1/2 transition-opacity duration-300 opacity-100"
               style={{
                 left: `${barPos}%`,
+                color: getPercentColor(),
               }}
             >
               {marker.pct >= 0 ? "+" : ""}
