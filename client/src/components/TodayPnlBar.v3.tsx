@@ -348,10 +348,26 @@ function _TodayPnlBar({
           const isVisible = isMarkerVisible(idx);
           const barPos = getMarkerBarPosition(idx);
 
+          // Color by zone
+          const getLabelColor = () => {
+            switch (marker.zone) {
+              case "loss":
+                return "text-red-500";
+              case "g1":
+              case "g2":
+              case "g3":
+                return "text-amber-500";
+              case "king":
+                return "text-yellow-400";
+              default:
+                return "text-foreground";
+            }
+          };
+
           return isVisible ? (
             <span
               key={`val-${marker.pct}`}
-              className="absolute text-[0.625rem] font-bold tabular-nums -translate-x-1/2 transition-opacity duration-300 opacity-100 text-foreground"
+              className={`absolute text-[0.625rem] font-bold tabular-nums -translate-x-1/2 transition-opacity duration-300 opacity-100 ${getLabelColor()}`}
               style={{
                 left: `${barPos}%`,
               }}
