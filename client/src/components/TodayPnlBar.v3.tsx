@@ -516,7 +516,7 @@ function _TodayPnlBar({
 
         {/* Current marker line */}
         <div
-          className={`absolute top-[-3px] bottom-[-3px] w-0.5 z-[3] transition-[left] duration-500 ${
+          className={`absolute -top-3 bottom-0 w-0.5 z-3 transition-[left] duration-500 ${
             markerIsPositive
               ? "bg-bullish shadow-[0_0_4px_oklch(0.7_0.15_120)]"
               : "bg-destructive shadow-[0_0_4px_oklch(0.65_0.18_20)]"
