@@ -536,20 +536,21 @@ function _TodayPnlBar({
           />
         </div>
 
-        {/* Exit All button */}
-        {showExit && (
-          <button
-            type="button"
-            onClick={onExitAll}
-            className="absolute z-4 -translate-x-1/2 -top-7.5 px-1 py-0 text-[0.5625rem] font-bold leading-none rounded bg-destructive/20 text-destructive border border-destructive/50 hover:bg-destructive/35 transition-colors whitespace-nowrap"
-            style={{ left: "var(--m)" }}
-            title="Exit all open positions"
-            aria-label="Exit all open positions"
-          >
-            × EXIT
-          </button>
-        )}
       </div>
+
+      {/* Exit All button - outside bar container */}
+      {showExit && (
+        <button
+          type="button"
+          onClick={onExitAll}
+          className="absolute z-4 -translate-x-1/2 top-[-22px] px-1 py-0 text-[0.5625rem] font-bold leading-none rounded bg-destructive/20 text-destructive border border-destructive/50 hover:bg-destructive/35 transition-colors whitespace-nowrap"
+          style={{ left: "var(--m)" }}
+          title="Exit all open positions"
+          aria-label="Exit all open positions"
+        >
+          × EXIT
+        </button>
+      )}
 
       {/* Bottom percent row */}
       <div className="relative w-full h-3 mt-0.5">
