@@ -240,7 +240,7 @@ function _TodayPnlBar({
     return index >= visibleRange.start && index < visibleRange.end;
   };
 
-  // Position markers evenly across the visible window
+  // Position markers evenly across the visible window with margins
   const getMarkerBarPosition = (index: number): number => {
     if (index < visibleRange.start || index >= visibleRange.end) {
       return -1; // Not visible
@@ -249,15 +249,18 @@ function _TodayPnlBar({
     const positionInWindow = index - visibleRange.start;
     const totalVisible = visibleRange.end - visibleRange.start;
 
-    // Evenly distribute visible markers across the bar (0% to 100%)
+    // Evenly distribute visible markers across the bar with 5% margins on each side
+    const marginPercent = 5;
     if (totalVisible <= 1) return 50;
-    return (positionInWindow / (totalVisible - 1)) * 100;
+    return (positionInWindow / (totalVisible - 1)) * (100 - 2 * marginPercent) + marginPercent;
   };
 
-  // Get bar position for any P&L value within the visible window (using even distribution)
+  // Get bar position for any P&L value within the visible window (using even distribution with margins)
   const getBarPositionForPct = (pct: number): number => {
     const totalVisible = visibleRange.end - visibleRange.start;
     if (totalVisible <= 0) return 50;
+
+    const marginPercent = 5;  // Match the margin in getMarkerBarPosition
 
     // Find which visible marker pct aligns with or falls between
     let markerIndex = -1;
@@ -271,7 +274,7 @@ function _TodayPnlBar({
     // If exact match, position at that marker
     if (markerIndex !== -1) {
       const positionInWindow = markerIndex - visibleRange.start;
-      return (positionInWindow / (totalVisible - 1)) * 100;
+      return (positionInWindow / (totalVisible - 1)) * (100 - 2 * marginPercent) + marginPercent;
     }
 
     // Otherwise interpolate between surrounding markers
@@ -307,7 +310,7 @@ function _TodayPnlBar({
     const upperPos = (upperIndex - visibleRange.start) / (totalVisible - 1);
     const position = lowerPos + (upperPos - lowerPos) * interpolationFactor;
 
-    return Math.max(0, Math.min(100, position * 100));
+    return Math.max(0, Math.min(100, position * (100 - 2 * marginPercent) + marginPercent));
   };
 
   const markerLeft = getBarPositionForPct(currentPct);
@@ -360,7 +363,7 @@ function _TodayPnlBar({
       </div>
 
       {/* The bar */}
-      <div className="relative w-full h-1.5 rounded-full bg-muted-foreground/30 px-4">
+      <div className="relative w-full h-1.5 rounded-full bg-muted-foreground/30">
         {/* Visible window background highlight */}
         {visibleRange.end > visibleRange.start && (
           <div
