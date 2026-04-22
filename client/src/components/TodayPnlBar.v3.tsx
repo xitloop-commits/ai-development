@@ -260,7 +260,7 @@ function _TodayPnlBar({
     const totalVisible = visibleRange.end - visibleRange.start;
     if (totalVisible <= 0) return 50;
 
-    const marginPercent = 5;  // Match the margin in getMarkerBarPosition
+    const marginPercent = 1.25;  // Match the margin in getMarkerBarPosition
 
     // Find which visible marker pct aligns with or falls between
     let markerIndex = -1;
