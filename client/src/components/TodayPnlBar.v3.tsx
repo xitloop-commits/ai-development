@@ -387,7 +387,7 @@ function _TodayPnlBar({
             }
           };
 
-          return isVisible ? (
+          return isVisible && marker.pct !== 0 ? (
             <span
               key={`val-${marker.pct}`}
               className="absolute text-[0.625rem] font-bold tabular-nums -translate-x-1/2 transition-opacity duration-300 opacity-100"
@@ -516,12 +516,13 @@ function _TodayPnlBar({
 
         {/* Current marker line */}
         <div
-          className={`absolute -top-3 bottom-0 w-0.5 z-3 transition-[left] duration-500 ${
-            markerIsPositive
-              ? "bg-bullish shadow-[0_0_4px_oklch(0.7_0.15_120)]"
-              : "bg-destructive shadow-[0_0_4px_oklch(0.65_0.18_20)]"
-          }`}
-          style={{ left: "var(--m)", marginLeft: "-1px" }}
+          className="absolute -top-3 bottom-0 w-0.5 z-3 transition-[left,background-color,box-shadow] duration-500"
+          style={{
+            left: "var(--m)",
+            marginLeft: "-1px",
+            backgroundColor: currentPct === 0 ? "#000000" : (markerIsPositive ? "#22c55e" : "#dc2626"),
+            boxShadow: currentPct === 0 ? "0 0 4px rgba(0, 0, 0, 0.3)" : (markerIsPositive ? "0 0 4px oklch(0.7 0.15 120)" : "0 0 4px oklch(0.65 0.18 20)"),
+          }}
         />
 
         {/* Marker triangle */}
@@ -530,9 +531,10 @@ function _TodayPnlBar({
           style={{ left: "var(--m)", top: "-7px" }}
         >
           <div
-            className={`w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent ${
-              markerIsPositive ? "border-t-bullish" : "border-t-destructive"
-            }`}
+            className="w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent"
+            style={{
+              borderTopColor: currentPct === 0 ? "#000000" : (markerIsPositive ? "#22c55e" : "#dc2626"),
+            }}
           />
         </div>
 
@@ -542,9 +544,30 @@ function _TodayPnlBar({
       {showExit && (
         <button
           type="button"
-          onClick={onExitAll}
-          className="absolute z-4 -translate-x-1/2 top-[-22px] px-1 py-0.5 text-[0.5625rem] font-bold leading-tight rounded bg-destructive/20 text-destructive border border-destructive/50 hover:bg-destructive/35 transition-colors flex flex-col items-center"
-          style={{ left: "var(--m)" }}
+          onClick={(e) => {
+            const event = new CustomEvent("exitAll", {
+              detail: { pnl, currentPct, tradingPool, openTradeCount },
+              bubbles: true,
+              cancelable: true,
+            });
+            e.currentTarget.dispatchEvent(event);
+            onExitAll?.();
+          }}
+          className="absolute z-4 -translate-x-1/2 top-[-22px] px-1 py-0.5 text-[0.5625rem] font-bold leading-tight rounded transition-colors flex flex-col items-center"
+          style={{
+            left: "var(--m)",
+            backgroundColor: markerIsPositive ? "rgba(34, 197, 94, 0.2)" : "rgba(220, 38, 38, 0.2)",
+            color: markerIsPositive ? "#22c55e" : "#dc2626",
+            borderColor: markerIsPositive ? "rgba(34, 197, 94, 0.5)" : "rgba(220, 38, 38, 0.5)",
+            borderWidth: "1px",
+            borderStyle: "solid",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = markerIsPositive ? "rgba(34, 197, 94, 0.35)" : "rgba(220, 38, 38, 0.35)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = markerIsPositive ? "rgba(34, 197, 94, 0.2)" : "rgba(220, 38, 38, 0.2)";
+          }}
           title="Exit all open positions"
           aria-label="Exit all open positions"
         >
@@ -585,7 +608,7 @@ function _TodayPnlBar({
             }
           };
 
-          return isVisible ? (
+          return isVisible && marker.pct !== 0 ? (
             <span
               key={`pct-${marker.pct}`}
               className="absolute text-[0.4375rem] font-bold tabular-nums -translate-x-1/2 transition-opacity duration-300 opacity-100"

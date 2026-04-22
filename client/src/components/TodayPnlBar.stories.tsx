@@ -24,7 +24,7 @@ const meta = {
   tags: ["autodocs"],
   argTypes: {
     pnl: {
-      control: { type: "number" },
+      control: { type: "number", step: 500 },
       description: "Today's realized P&L in rupees",
     },
     tradingPool: {
