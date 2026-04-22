@@ -1,22 +1,22 @@
 /**
- * TodayPnlBar v3.stories.tsx
+ * TodayPnlBar.stories.tsx
  *
- * Rolling window marker system with fixed marker range and symmetric buffering.
+ * P&L visualization component with rolling window marker system.
  */
 
 import type { Meta, StoryObj } from "@storybook/react";
 import { TodayPnlBar, DEFAULT_BAR_CONFIG, type BarConfig } from "./TodayPnlBar";
 
 const meta = {
-  title: "Components/TodayPnlBar v3 (Fixed Range Rolling Window)",
+  title: "Components/TodayPnlBar",
   component: TodayPnlBar,
   parameters: {
     layout: "padded",
     docs: {
       description: {
         component:
-          "Rolling window marker system with zone-based increments. " +
-          "Shows configurable number of markers (default 15) that auto-position around current P&L.",
+          "Today's P&L indicator with dynamic zones, rolling window markers, and exit button. " +
+          "Shows P&L value, percentage, and visual progress bar with color-coded zones.",
       },
     },
   },
