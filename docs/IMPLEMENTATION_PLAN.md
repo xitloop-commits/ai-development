@@ -83,8 +83,20 @@ RCA exit path — exit all / partial / reduce (via Module 8 grace flow)
 
 Phases are sequenced by dependency. Within a phase, items can be parallelized unless called out.
 
+### PRIORITY 0 — TradingDesk Redesign (6+10)  *(user-locked: do first before Phase 1)*
+
+Approved redesign per memory [project_tradedesk_redesign.md](../../.claude/projects/c--Users-Admin-ai-development-ai-development/memory/project_tradedesk_redesign.md). Ships before any Phase 1 work per Decision 5.
+
+- [ ] **Summary bar:** 10 items → 6: Day #/250, Capital, Today P&L+target%, Cum profit, Net worth, NET|GROSS toggle. Remove Available (same as Capital), Charges (move to tooltip), Reserve (show in pools panel only).
+- [ ] **Table:** 15 columns → 10: `#`, Date, Capital, Target, Trades, P&L, Charges, End Cap, vs Plan, Status. Remove Proj+ (replaced by vs Plan delta), Entry/LTP/Qty (only in today's expanded row), Rating (replaced by objective Status), Dev. (merged into vs Plan).
+- [ ] **Today row expands** to show individual trade sub-rows (inline CE/PE/qty/entry/LTP/P&L).
+- [ ] Update colgroup widths and regression-test all 3 workspaces (live / AI / testing).
+- [ ] Detailed task breakdown to happen when work starts.
+
+---
+
 ### PHASE 1 — Foundations for Execution (~2 weeks)
-Must-land before any live-trading path works.
+Must-land before any live-trading path works. Starts after Priority 0 ships.
 
 #### 1.1 Portfolio Agent  `L`  *(Risk blocker)*
 Spec: [PortfolioAgent_Spec_v1.1.md](specs/PortfolioAgent_Spec_v1.1.md) · Audit: [audit_trading_execution.md](audit_trading_execution.md)
@@ -234,22 +246,13 @@ Spec: [Settings_Spec_v1.4.md §3.3](specs/Settings_Spec_v1.4.md)
   - Carry forward enabled + evaluation time (default 15:15 IST)
 - [ ] Wire to `discipline.updateSettings` mutation (already exists on server side)
 
-#### 3.3 TradingDesk — approved redesign (6+10)  `M`
-Per memory [project_tradedesk_redesign.md](../../.claude/projects/c--Users-Admin-ai-development-ai-development/memory/project_tradedesk_redesign.md)
+#### 3.3 TradingDesk redesign  —  *moved to Priority 0 (ships before Phase 1 per Decision 5)*
 
-- [ ] **Summary bar:** 10 → 6 items: Day #/250, Capital, Today P&L+target%, Cum profit, Net worth, NET|GROSS toggle. Remove Available, Charges (tooltip), Reserve.
-- [ ] **Table:** 15 → 10 columns: #, Date, Capital, Target, Trades, P&L, Charges, End Cap, vs Plan, Status
-- [ ] Past rows: single-line. Today row expands to show individual trade sub-rows (CE/PE/qty/entry/LTP/P&L)
-- [ ] Update colgroup widths
-- [ ] Regression test all 3 workspaces (live / AI / testing)
-
-#### 3.4 Journal (decision required)  `M` or `—`
-Removed during auth/drizzle cleanup. Spec still references Ctrl+J.
-- [ ] **Decision:** rebuild journal (MongoDB-backed, no auth) or drop it from the spec?
-- If keep: port [TradingDesk_Spec_v1.2.md](specs/TradingDesk_Spec_v1.2.md)'s journal requirements + rebuild page + wire Ctrl+J
+#### 3.4 Journal  —  *deferred post-MVP per Decision 2*
+Rebuild as Mongo-backed page + Ctrl+J hotkey after Phase 1 ships. Module 6 journal-enforcement rules (block-after-N-unjournaled) stay inactive until then.
 
 #### 3.5 Module 8 UI — Intervention Panel  `L`
-Spec: [DisciplineEngine_Spec_v1.3.md §11.5](specs/DisciplineEngine_Spec_v1.3.md)
+Spec: [DisciplineEngine_Spec_v1.3.md §11.5](specs/DisciplineEngine_Spec_v1.3.md). Requires Phase 1.4 (Module 8 backend) done first.
 
 - [ ] Full-screen overlay when daily cap trips
 - [ ] Four actions: Exit All / Exit by Instrument / Reduce Exposure / Hold
@@ -266,26 +269,39 @@ Currently RightDrawer shows mock signals.
 
 Audit: [audit_data_pipeline.md](audit_data_pipeline.md)
 
-#### 4.1 29-target re-replay + retrain  `L`
-Per memory: pending. Today only 3-of-15 targets trained.
+#### 4.1 Val-split widening + NaN guard  `S`  ✅ **DONE — merged to `main` commit `15fa7ea` 2026-04-22**
 
-- [ ] Re-replay existing `data/raw/{date}/` into new 384-column Parquet (adds 5min + 15min windows)
-- [ ] Train all 15 target models per instrument (direction_30s/60s/300/900 × regression targets)
+**Problem observed (2026-04-21 BANKNIFTY run):** walk-forward split used the smallest day as val. That day (435 rows) had single-class labels for 300s and 900s direction targets → `roc_auc_score` returned NaN.
+
+**Shipped (on `main` only, not `ui-refactoring`):**
+- [x] Widen val to last `N` chronological days (CLI `--val-days`, default 3, capped at `total_days // 2`).
+- [x] Degenerate-val guard for binary targets — skip training + record `{skipped: true, reason: ...}` in metrics.json when `y_val` has one class.
+- [x] Training manifest now emits `val_dates` (list), `trained_count`, `skipped_targets`.
+- [x] `upside_percentile_30s` silent drop (discovered via the guard) is now explicitly logged.
+- [ ] Unit test for guard trigger — deferred to Phase 4.4 promotion validator work.
+- [ ] Verify on tomorrow's training run that `direction_300s` / `direction_900s` score cleanly or are skipped with clear reason.
+
+#### 4.2 28-target re-replay + retrain  `L`
+Per memory: pending. Target-set stabilized at 28 (7 target types × 4 windows — confirmed from [metrics.json](../models/banknifty/20260421_200603/metrics.json) 2026-04-21).
+
+- [ ] Re-replay existing `data/raw/{date}/` into current 384-column Parquet (adds 5min + 15min windows beyond old 370-col format if any legacy files remain)
+- [ ] Train all 28 target models per instrument (direction / direction_magnitude / max_upside / max_drawdown / avg_decay_per_strike / total_premium_decay / risk_reward_ratio — each × 30s/60s/300s/900s windows)
 - [ ] Validate feature schema stability across preprocess layers
+- [ ] **Must run after 4.1** so val metrics are reliable.
 
-#### 4.2 Feature importance pruning (Step 7)  `M`
+#### 4.3 Feature importance pruning (Step 7)  `M`
 - [ ] Compute SHAP importance on trained models
-- [ ] Prune low-importance columns; relock feature config (163 → ~80-120)
+- [ ] Prune low-importance columns; relock feature config (337 → ~80-120 per [metrics.json](../models/banknifty/20260421_200603/metrics.json) current count)
 - [ ] Retrain with pruned feature set
-- [ ] Atomic update: train-all-15 + update config + update LATEST in one transaction
+- [ ] Atomic update: train-all-28 + update config + update LATEST in one transaction
 
-#### 4.3 LATEST promotion validator  `M`
-- [ ] Metrics threshold gate — reject LATEST update if val AUC / R² regresses
+#### 4.4 LATEST promotion validator  `M`
+- [ ] Metrics threshold gate — reject LATEST update if val AUC / R² regresses vs current LATEST
 - [ ] `--force-promote` flag override
-- [ ] metrics.json + training_manifest.json artifacts
+- [ ] metrics.json + training_manifest.json artifacts (already partially emitted; extend with pre/post AUC deltas)
 - [ ] Checkpoint resumption (trainer stops/resumes on interrupt)
 
-#### 4.4 SEA threshold upgrade  `S`
+#### 4.5 SEA threshold upgrade  `S`
 - [ ] Implement 3-condition gate (prob ≥0.65 + RR ≥1.5 + upside_percentile ≥60) per spec, replacing MVP direction-only threshold
 
 ---
@@ -378,48 +394,49 @@ Small items that don't map cleanly to a phase but are needed somewhere before pr
 ## 4. Dependencies & Sequencing
 
 ```
+✅ Phase 4.1 (val-split + NaN guard) — done on main
+
+Priority 0: TradingDesk redesign ──► (on ui-refactoring)
+                    │
+                    ▼
+Phase 4.2-4.5 (retrain / SHAP / promotion validator / SEA threshold)
+                    │
+                    ▼
 Phase 1.1 Portfolio Agent ─┬─► Phase 1.2 TEA ──┐
-                           │                    ├─► Phase 1.5 Wiring ──► Phase 5 Feedback Loop
+                           │                    ├─► Phase 1.5 Wiring ──► Phase 5 Feedback Loop (post-MVP)
                            └─► Phase 1.3 RCA ───┤
                                                 │
                   Phase 1.4 Discipline Module 8 ┘
-                           
+
 Phase 2 Broker/Capital hardening — parallel with Phase 1
-Phase 3 UI — parallel with Phase 1 (except 3.5 Module 8 UI needs 1.4)
-Phase 4 MTA — independent; can go anytime after Phase 1.1 data exists
-Phase 5 Feedback Loop — requires 1.1 + 1.3 + 4 done
+Phase 3 UI — parallel with Phase 1 (except 3.5 Module 8 UI needs 1.4; 3.3 moved to Priority 0; 3.4 deferred)
+Phase 5 Feedback Loop — deferred post-MVP; requires 1.1 + 1.3 + 4 done + ~2-4 weeks live data
 Phase 6 Observability — continuous
 ```
 
 ---
 
-## 5. Priorities (decision-needed)
+## 5. Locked Decisions  *(as of 2026-04-22)*
 
-Your call before we start executing:
+All six sequencing decisions are locked. No further input needed before starting execution.
 
-### P5.1 Priority order of Phase 1 agents
-Current proposal: Portfolio → TEA → RCA → Discipline Module 8.
-- Portfolio first because everything else writes into it.
-- TEA second because it's the single broker gateway; RCA sends to TEA.
-- RCA third.
-- Module 8 can land anytime after Portfolio exists (push-based P&L).
+| # | Decision | Locked answer |
+|---|---|---|
+| 1 | **Phase 1 agent order** | Portfolio → TEA → RCA → Discipline Module 8 |
+| 2 | **Journal feature** | Defer — rebuild Mongo-backed page + Ctrl+J after Phase 1 ships |
+| 3 | **Runtime test strategy** | Mock-only pre-merge on `ui-refactoring`; real Dhan validation post-merge on `main` |
+| 4 | **Feedback loop (Phase 5)** | Post-MVP — ship Phase 1-4, run live with manual monitoring for 2-4 weeks to accumulate real signal outcomes, then build Phase 5 on top |
+| 5 | **TradingDesk redesign (6+10)** | **Priority 0 — ships before Phase 1** (see top of §2) |
+| 6 | **MTA retrain timing** | Val-split patch shipped to `main` immediately (done — commit `15fa7ea`); full Phase 4 runs **before** Phase 1 on `ui-refactoring` |
 
-Alternative: build Discipline Module 8 first (since Discipline Engine is most mature), treating caps as the safety net — but it doesn't do anything useful until trades are executing.
+### Effective execution order
 
-### P5.2 Journal feature
-Keep (rebuild as Mongo-backed page + Ctrl+J) or drop entirely?
-
-### P5.3 Runtime test strategy
-Confirm: we'll only test pre-merge with Mock adapter (no Dhan WS), then validate post-merge on main when it becomes the live recorder. **This plan assumes that policy.**
-
-### P5.4 Feedback loop timeline
-Phase 5 is ~4 weeks and depends on Portfolio + RCA. Reasonable to treat as post-MVP, or do you want it in the initial production rollout?
-
-### P5.5 TradingDesk redesign timing
-Redesign the table now (Phase 3.3) or ship current 15-col version and redesign later? Code works as-is; redesign is approved but not urgent.
-
-### P5.6 Target windows re-training
-Memory flags this as pending. Run 29-target retrain before or after Phase 1? (Pre = better signal quality; post = doesn't block execution agents.)
+1. ✅ **Done** — Val-split patch on `main` (Phase 4.1)
+2. **Priority 0** — TradingDesk redesign (6+10) on `ui-refactoring`
+3. **Phase 4 continuation** — 28-target retrain, SHAP pruning, promotion validator, SEA threshold upgrade (on `ui-refactoring`, since MTA code changes flow with the refactor branch going forward)
+4. **Phase 1** — Portfolio → TEA → RCA → Module 8
+5. **Phases 2 + 3** — parallel with Phase 1 (Broker/Capital polish + UI parity)
+6. **Phase 5** — deferred post-MVP
 
 ---
 
@@ -446,15 +463,16 @@ Stretch / post-MVP: Feedback loop Phases 3-6, meta-model gatekeeper, full observ
 
 | Phase | Effort | Blockers |
 |---|---|---|
-| Phase 1 (Foundations) | ~2 weeks full-time | Nothing |
-| Phase 2 (Broker/Capital) | ~1 week (parallel) | BSA context |
-| Phase 3 (UI) | ~1 week (parallel) | 3.5 needs 1.4 |
-| Phase 4 (MTA) | ~1 week | Raw data available |
-| Phase 5 (Feedback) | ~4 weeks (deferred) | Requires 1.1, 1.3 |
+| Priority 0 (TradingDesk) | ~3 days | Done before Phase 1 |
+| Phase 4 remaining (4.2-4.5) | ~1 week | Raw data; 4.1 already done on main |
+| Phase 1 (Foundations) | ~2 weeks full-time | Priority 0 + Phase 4 |
+| Phase 2 (Broker/Capital) | ~1 week (parallel with Phase 1) | BSA context |
+| Phase 3 (UI — excluding 3.3 and 3.4) | ~4 days (parallel with Phase 1) | 3.5 needs 1.4 |
+| Phase 5 (Feedback) | ~4 weeks (post-MVP) | Requires 1.1, 1.3, + 2-4 weeks live data |
 | Phase 6 (Observability) | Continuous | — |
 
-**Aggressive MVP timeline:** Phases 1 + 2 + 3 + 4 + basic 6 in parallel → ~3 weeks.
-**Safer MVP timeline:** Sequential with overlap → ~5 weeks.
+**MVP timeline (sequential priority 0 + phase 4, then phases 1/2/3 in parallel):** ~4-5 weeks
+**Post-MVP (feedback loop + observability polish):** another 4-6 weeks
 
 ---
 
@@ -463,7 +481,8 @@ Stretch / post-MVP: Feedback loop Phases 3-6, meta-model gatekeeper, full observ
 | Date | Change |
 |---|---|
 | 2026-04-21 | Initial draft from audit of all 15 specs + codebase. Supersedes todo.md as source of truth. |
+| 2026-04-22 | All 6 sequencing decisions locked (§5). TradingDesk redesign moved to Priority 0. Phase 4.1 (val-split + NaN guard) shipped to `main` commit `15fa7ea`. Journal deferred post-MVP. Feedback loop post-MVP. Mock-only pre-merge test strategy confirmed. |
 
 ---
 
-**Next action:** Review Section 5 decisions with user; lock priorities; start Phase 1.1 (Portfolio Agent).
+**Next action:** Start Priority 0 — break down TradingDesk redesign (6+10) tasks + begin implementation on `ui-refactoring`.
