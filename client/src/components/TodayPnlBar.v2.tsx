@@ -120,7 +120,8 @@ function generateAllMarkers(cfg: BarConfig, currentPct: number): Marker[] {
 
 /**
  * Select visible markers from rolling window.
- * Window auto-positions to center around current P&L.
+ * Window stays fixed until indicator approaches right edge (2 markers buffer).
+ * Scrolls step-by-step keeping indicator with 2 markers visible to the right.
  */
 function getVisibleMarkerIndices(
   allMarkers: Marker[],
@@ -131,22 +132,21 @@ function getVisibleMarkerIndices(
     return { start: 0, end: allMarkers.length };
   }
 
-  // Find current P&L position in markers (first marker >= currentPct)
+  // Find current marker index closest to or >= currentPct
   let currentIndex = allMarkers.findIndex((m) => m.pct >= currentPct);
   if (currentIndex === -1) {
     currentIndex = allMarkers.length - 1;
   }
 
-  // Center window around current position
-  const halfWindow = Math.floor(visibleCount / 2);
-  let startIdx = currentIndex - halfWindow;
+  // Keep indicator with 2 markers buffer on the right
+  // When indicator reaches position where only 2 markers remain, start scrolling
+  const rightBuffer = 2;  // Keep 2 markers visible to the right of indicator
+  let startIdx = Math.max(0, currentIndex - (visibleCount - 1 - rightBuffer));
+
   let endIdx = startIdx + visibleCount;
 
   // Clamp to array bounds
-  if (startIdx < 0) {
-    startIdx = 0;
-    endIdx = Math.min(visibleCount, allMarkers.length);
-  } else if (endIdx > allMarkers.length) {
+  if (endIdx > allMarkers.length) {
     endIdx = allMarkers.length;
     startIdx = Math.max(0, endIdx - visibleCount);
   }
@@ -156,8 +156,7 @@ function getVisibleMarkerIndices(
 
 /**
  * Map P&L % to bar position (0-100).
- * Piecewise scaling: risk zone (25%), target zone (35%), gift zone (40%).
- * Extends beyond rightEdge to show all markers.
+ * Linear scaling from leftEdge to rightEdge.
  */
 function pctToBar(
   pct: number,
@@ -165,22 +164,10 @@ function pctToBar(
   target: number,
   rightEdge: number
 ): number {
-  const RISK_END = 25;
-  const TARGET_END = 60;
-
-  if (pct <= 0) {
-    const span = 0 - leftEdge;
-    if (span <= 0) return 0;
-    const clamped = Math.max(leftEdge, pct);
-    return ((clamped - leftEdge) / span) * RISK_END;
-  }
-  if (pct <= target) {
-    if (target <= 0) return RISK_END;
-    return RISK_END + (pct / target) * (TARGET_END - RISK_END);
-  }
-  // Gift zone: extends beyond rightEdge to show all markers
-  const giftSpan = Math.max(rightEdge - target, 1);
-  return TARGET_END + ((pct - target) / giftSpan) * (100 - TARGET_END);
+  const span = rightEdge - leftEdge;
+  if (span <= 0) return 0;
+  const clamped = Math.max(leftEdge, Math.min(rightEdge, pct));
+  return ((clamped - leftEdge) / span) * 100;
 }
 
 // ─── Component ────────────────────────────────────────────────────────
@@ -197,6 +184,7 @@ function _TodayPnlBar({
   const cfg = config ?? DEFAULT_BAR_CONFIG;
   const currentPct = tradingPool > 0 ? (pnl / tradingPool) * 100 : 0;
   const leftEdge = cfg.circuitBreaker ?? cfg.lossCap;
+  const barRightEdge = Math.max(cfg.giftMax, currentPct + 20);
   const kingMax = currentPct + 20;
 
   // Generate all markers and calculate visible range
@@ -214,17 +202,78 @@ function _TodayPnlBar({
     return index >= visibleRange.start && index < visibleRange.end;
   };
 
-  // Map visible marker indices to evenly-spaced bar positions (0-100%)
+  // Position markers evenly across the visible window
   const getMarkerBarPosition = (index: number): number => {
-    if (!isMarkerVisible(index)) return -1; // Not visible
+    if (index < visibleRange.start || index >= visibleRange.end) {
+      return -1; // Not visible
+    }
+
     const positionInWindow = index - visibleRange.start;
-    const visibleCount = visibleRange.end - visibleRange.start;
-    if (visibleCount <= 1) return 50;
-    return (positionInWindow / (visibleCount - 1)) * 100;
+    const totalVisible = visibleRange.end - visibleRange.start;
+
+    // Evenly distribute visible markers across the bar (0% to 100%)
+    if (totalVisible <= 1) return 50;
+    return (positionInWindow / (totalVisible - 1)) * 100;
   };
 
-  // Marker position and colors
-  const markerLeft = pctToBar(currentPct, leftEdge, cfg.target, kingMax);
+  // Get bar position for any P&L value within the visible window (using even distribution)
+  const getBarPositionForPct = (pct: number): number => {
+    const totalVisible = visibleRange.end - visibleRange.start;
+    if (totalVisible <= 0) return 50;
+
+    // Find which visible marker pct aligns with or falls between
+    let markerIndex = -1;
+    for (let i = visibleRange.start; i < visibleRange.end; i++) {
+      if (allMarkers[i].pct === pct) {
+        markerIndex = i;
+        break;
+      }
+    }
+
+    // If exact match, position at that marker
+    if (markerIndex !== -1) {
+      const positionInWindow = markerIndex - visibleRange.start;
+      return (positionInWindow / (totalVisible - 1)) * 100;
+    }
+
+    // Otherwise interpolate between surrounding markers
+    let lowerIndex = visibleRange.start;
+    let upperIndex = visibleRange.end - 1;
+
+    for (let i = visibleRange.start; i < visibleRange.end - 1; i++) {
+      if (allMarkers[i].pct < pct && allMarkers[i + 1].pct > pct) {
+        lowerIndex = i;
+        upperIndex = i + 1;
+        break;
+      }
+    }
+
+    if (pct < allMarkers[visibleRange.start].pct) {
+      lowerIndex = visibleRange.start;
+      upperIndex = visibleRange.start;
+    } else if (pct > allMarkers[visibleRange.end - 1].pct) {
+      lowerIndex = visibleRange.end - 1;
+      upperIndex = visibleRange.end - 1;
+    }
+
+    const lowerMarker = allMarkers[lowerIndex];
+    const upperMarker = allMarkers[upperIndex];
+    const markerRange = upperMarker.pct - lowerMarker.pct;
+
+    let interpolationFactor = 0;
+    if (markerRange > 0) {
+      interpolationFactor = (pct - lowerMarker.pct) / markerRange;
+    }
+
+    const lowerPos = (lowerIndex - visibleRange.start) / (totalVisible - 1);
+    const upperPos = (upperIndex - visibleRange.start) / (totalVisible - 1);
+    const position = lowerPos + (upperPos - lowerPos) * interpolationFactor;
+
+    return Math.max(0, Math.min(100, position * 100));
+  };
+
+  const markerLeft = getBarPositionForPct(currentPct);
+
   const markerIsPositive = currentPct > 0;
   const showExit = exitAllEnabled && openTradeCount > 0;
 
@@ -293,48 +342,68 @@ function _TodayPnlBar({
           />
         )}
 
-        {/* Fill from zero to marker */}
-        <div
-          className={`absolute top-0 bottom-0 transition-[left,width] duration-500 ${
-            markerIsPositive
-              ? "rounded-r-full bg-bullish/60"
-              : "rounded-l-full bg-destructive/80"
-          }`}
-          style={{
-            left: `${markerIsPositive ? pctToBar(0, leftEdge, cfg.target, kingMax) : markerLeft}%`,
-            width: `${Math.abs(markerLeft - pctToBar(0, leftEdge, cfg.target, kingMax))}%`,
-          }}
-        />
+        {/* Fill bar: from 0% P&L to indicator (evenly distributed) */}
+        {(() => {
+          const zeroPos = getBarPositionForPct(0);
 
-        {/* All marker ticks - visible ones emphasized */}
+          let fillStart: number;
+          let fillWidth: number;
+          let backgroundColor: string;
+
+          if (currentPct > 0) {
+            // Positive P&L: fill extends RIGHT from 0% to indicator
+            fillStart = zeroPos;
+            fillWidth = markerLeft - zeroPos;
+            backgroundColor = "rgb(34 197 94 / 0.6)";  // Green
+          } else if (currentPct < 0) {
+            // Negative P&L: fill extends LEFT from indicator to 0%
+            fillStart = markerLeft;
+            fillWidth = zeroPos - markerLeft;
+            backgroundColor = "rgb(220 38 38 / 0.8)";  // Red
+          } else {
+            // Exactly 0: no fill bar
+            return null;
+          }
+
+          if (fillWidth <= 0) return null;
+
+          return (
+            <div
+              className={`absolute top-0 bottom-0 transition-[left,width] duration-500 ${
+                markerIsPositive ? "rounded-r-full" : "rounded-l-full"
+              }`}
+              style={{
+                left: `${fillStart}%`,
+                width: `${Math.abs(fillWidth)}%`,
+                background: backgroundColor,
+              }}
+            />
+          );
+        })()}
+
+        {/* All marker ticks - colored by P&L zone, not marker zone */}
         {allMarkers.map((marker, idx) => {
           const isVisible = isMarkerVisible(idx);
-          const barPos = isVisible ? getMarkerBarPosition(idx) : pctToBar(marker.pct, leftEdge, cfg.target, kingMax);
+          const barPos = getMarkerBarPosition(idx);
+
+          // Color based on P&L value, not marker zone
+          const getMarkerColor = () => {
+            if (marker.pct < 0) {
+              // Loss zone: red
+              return isVisible ? "w-0.5 bg-destructive/80" : "w-px bg-destructive/20";
+            } else if (marker.pct === 0) {
+              // Neutral at 0%: gray
+              return isVisible ? "w-0.5 bg-muted-foreground/70" : "w-px bg-muted-foreground/20";
+            } else {
+              // Profit zone: green
+              return isVisible ? "w-0.5 bg-bullish/70" : "w-px bg-bullish/15";
+            }
+          };
 
           return (
             <div
               key={`tick-${marker.pct}`}
-              className={`absolute top-0 bottom-0 transition-all duration-300 ${
-                isVisible
-                  ? marker.zone === "loss"
-                    ? "w-0.5 bg-destructive/80"
-                    : marker.zone === "g1"
-                      ? "w-0.5 bg-primary/70"
-                      : marker.zone === "g2"
-                        ? "w-0.5 bg-primary/80"
-                        : marker.zone === "g3"
-                          ? "w-0.5 bg-primary/90"
-                          : "w-0.5 bg-bullish/70"
-                  : marker.zone === "loss"
-                    ? "w-px bg-destructive/20"
-                    : marker.zone === "g1"
-                      ? "w-px bg-primary/15"
-                      : marker.zone === "g2"
-                        ? "w-px bg-primary/20"
-                        : marker.zone === "g3"
-                          ? "w-px bg-primary/25"
-                          : "w-px bg-bullish/15"
-              }`}
+              className={`absolute top-0 bottom-0 transition-all duration-300 ${getMarkerColor()}`}
               style={{
                 left: `${barPos}%`,
               }}
