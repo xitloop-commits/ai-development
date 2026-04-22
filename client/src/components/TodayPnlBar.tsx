@@ -514,17 +514,6 @@ function _TodayPnlBar({
           );
         })}
 
-        {/* Current marker line */}
-        <div
-          className="absolute -top-3 bottom-0 w-0.5 z-3 transition-[left,background-color,box-shadow] duration-500"
-          style={{
-            left: "var(--m)",
-            marginLeft: "-1px",
-            backgroundColor: currentPct === 0 ? "#000000" : (markerIsPositive ? "#22c55e" : "#dc2626"),
-            boxShadow: currentPct === 0 ? "0 0 4px rgba(0, 0, 0, 0.3)" : (markerIsPositive ? "0 0 4px oklch(0.7 0.15 120)" : "0 0 4px oklch(0.65 0.18 20)"),
-          }}
-        />
-
         {/* Marker triangle */}
         <div
           className="absolute z-[3] transition-[left] duration-500 -translate-x-1/2"
