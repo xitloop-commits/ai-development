@@ -249,8 +249,8 @@ function _TodayPnlBar({
     const positionInWindow = index - visibleRange.start;
     const totalVisible = visibleRange.end - visibleRange.start;
 
-    // Evenly distribute visible markers across the bar with 5% margins on each side
-    const marginPercent = 5;
+    // Evenly distribute visible markers across the bar with 2.5% margins on each side
+    const marginPercent = 2.5;
     if (totalVisible <= 1) return 50;
     return (positionInWindow / (totalVisible - 1)) * (100 - 2 * marginPercent) + marginPercent;
   };
