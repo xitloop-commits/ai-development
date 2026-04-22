@@ -548,7 +548,7 @@ function _TodayPnlBar({
           title="Exit all open positions"
           aria-label="Exit all open positions"
         >
-          {formatINR(pnl)} {currentPct >= 0 ? "+" : ""}{currentPct.toFixed(2)}%
+          ({pnl}) {currentPct >= 0 ? "+" : ""}{currentPct.toFixed(2)}%
         </button>
       )}
 
