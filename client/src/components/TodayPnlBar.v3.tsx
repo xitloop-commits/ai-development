@@ -352,24 +352,25 @@ function _TodayPnlBar({
           const getLabelColor = () => {
             switch (marker.zone) {
               case "loss":
-                return "text-red-500";
+                return "#ef4444";  // red-500
               case "g1":
               case "g2":
               case "g3":
-                return "text-amber-500";
+                return "#b45309";  // amber-500
               case "king":
-                return "text-yellow-400";
+                return "#eab308";  // yellow-400
               default:
-                return "text-foreground";
+                return "currentColor";
             }
           };
 
           return isVisible ? (
             <span
               key={`val-${marker.pct}`}
-              className={`absolute text-[0.625rem] font-bold tabular-nums -translate-x-1/2 transition-opacity duration-300 opacity-100 ${getLabelColor()}`}
+              className="absolute text-[0.625rem] font-bold tabular-nums -translate-x-1/2 transition-opacity duration-300 opacity-100"
               style={{
                 left: `${barPos}%`,
+                color: getLabelColor(),
               }}
             >
               {formatINR((tradingPool * marker.pct) / 100)}
