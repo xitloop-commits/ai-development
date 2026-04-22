@@ -339,15 +339,33 @@ function _TodayPnlBar({
       )}
 
       {/* Top values row */}
-      <div className="relative w-full h-3 mb-0.5">
+      <div className="relative w-full h-4 mb-0.5">
         {/* All marker labels - visible ones emphasized */}
         {allMarkers.map((marker, idx) => {
           const isVisible = isMarkerVisible(idx);
           const barPos = getMarkerBarPosition(idx);
+
+          // Color by P&L value
+          const getLabelColor = () => {
+            if (marker.pct < 0) {
+              return "text-red-500";
+            } else if (marker.pct === 0) {
+              return "text-muted-foreground";
+            } else if (marker.pct <= 10) {
+              return "text-green-600";
+            } else if (marker.pct <= 25) {
+              return "text-green-500";
+            } else if (marker.pct <= 50) {
+              return "text-green-400";
+            } else {
+              return "text-amber-400";
+            }
+          };
+
           return isVisible ? (
             <span
               key={`val-${marker.pct}`}
-              className={`absolute text-[0.4375rem] font-bold tabular-nums -translate-x-1/2 transition-opacity duration-300 opacity-100 text-foreground`}
+              className={`absolute text-[0.625rem] font-bold tabular-nums -translate-x-1/2 transition-opacity duration-300 opacity-100 ${getLabelColor()}`}
               style={{
                 left: `${barPos}%`,
               }}
@@ -356,15 +374,6 @@ function _TodayPnlBar({
             </span>
           ) : null;
         })}
-
-        {/* Current value at marker */}
-        <span
-          className="absolute text-[0.5rem] font-bold tabular-nums text-info-cyan -translate-x-1/2 whitespace-nowrap transition-[left] duration-500 z-10"
-          style={{ left: "var(--m)", bottom: 0 }}
-        >
-          {currentPct >= 0 ? "+" : ""}
-          {formatINR(pnl)}
-        </span>
       </div>
 
       {/* The bar */}
@@ -419,31 +428,32 @@ function _TodayPnlBar({
           );
         })()}
 
-        {/* All marker ticks - colored by P&L zone, not marker zone */}
+        {/* All marker ticks - colored by zone */}
         {allMarkers.map((marker, idx) => {
           const isVisible = isMarkerVisible(idx);
           const barPos = getMarkerBarPosition(idx);
 
-          // Color based on P&L value, not marker zone
+          // Color based on zone
           const getMarkerColor = () => {
             if (marker.pct < 0) {
               // Loss zone: red
-              return isVisible ? "w-0.5 bg-destructive/80" : "w-px bg-destructive/20";
+              return isVisible ? "bg-destructive/80" : "bg-destructive/20";
             } else if (marker.pct === 0) {
               // Neutral at 0%: gray
-              return isVisible ? "w-0.5 bg-muted-foreground/70" : "w-px bg-muted-foreground/20";
+              return isVisible ? "bg-muted-foreground/70" : "bg-muted-foreground/20";
             } else {
               // Profit zone: green
-              return isVisible ? "w-0.5 bg-bullish/70" : "w-px bg-bullish/15";
+              return isVisible ? "bg-bullish/70" : "bg-bullish/15";
             }
           };
 
           return (
             <div
               key={`tick-${marker.pct}`}
-              className={`absolute top-0 bottom-0 transition-all duration-300 ${getMarkerColor()}`}
+              className={`absolute top-1/2 -translate-y-1/2 w-px transition-all duration-300 ${getMarkerColor()}`}
               style={{
                 left: `${barPos}%`,
+                height: "10px",
               }}
             />
           );
