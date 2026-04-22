@@ -499,14 +499,6 @@ function _TodayPnlBar({
           ) : null;
         })}
 
-        {/* Current percent */}
-        <span
-          className="absolute text-[0.5rem] font-bold tabular-nums text-info-cyan -translate-x-1/2 whitespace-nowrap transition-[left] duration-500 z-10"
-          style={{ left: "var(--m)", top: 0 }}
-        >
-          {currentPct >= 0 ? "+" : ""}
-          {currentPct.toFixed(2)}%
-        </span>
       </div>
     </div>
   );
