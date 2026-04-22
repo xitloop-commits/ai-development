@@ -403,7 +403,7 @@ function _TodayPnlBar({
       </div>
 
       {/* The bar */}
-      <div className="relative w-full h-1.5 rounded-full bg-muted-foreground/30">
+      <div className="relative w-full h-2.5 rounded-full bg-muted-foreground/30">
         {/* Visible window background highlight */}
         {visibleRange.end > visibleRange.start && (
           <div
