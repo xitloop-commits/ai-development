@@ -9,7 +9,8 @@
  *   - Milestones (round nums):   10, 25, 50, 75, 100, 150, 200 ... shown beyond
  *                                detail window and below right-edge.
  *   - Right edge auto-extends:   25% steps (50 → 75 → 100 → 150 ...).
- *   - Marker + Exit-All:         travel together along the bar.
+ *   - Marker + Exit-All:         travel together along the bar. Red when P&L < 0,
+ *                                green when P&L > 0.
  *   - Partial-exit markers:      rendered from `config.partialExits` (future DA wiring).
  *
  * Authoritative config: Discipline Agent. Shape declared as `BarConfig` below.
@@ -257,8 +258,7 @@ function _TodayPnlBar({
   const fillWidth = signedAbs ? markerLeft - zeroLeft : zeroLeft - markerLeft;
 
   const showExit = exitAllEnabled && openTradeCount > 0;
-  const markerInDanger = currentPct <= cfg.lossCap + 0.3;
-  const markerNearTarget = currentPct >= cfg.target - 0.3;
+  const markerIsPositive = currentPct > 0;
   // Collision handling: if the marker is on top of an anchor, suppress the
   // marker's value/percent overlay labels so they don't stack with the
   // anchor's own labels. Anchor labels win because they're stable.
@@ -395,11 +395,9 @@ function _TodayPnlBar({
         {/* Current marker — CSS-var driven for buttery updates */}
         <div
           className={`absolute top-[-3px] bottom-[-3px] w-0.5 z-[3] transition-[left] duration-500 ${
-            markerInDanger
-              ? "bg-destructive shadow-[0_0_4px_oklch(0.65_0.18_20)]"
-              : markerNearTarget
-              ? "bg-warning-amber shadow-[0_0_4px_oklch(0.8_0.18_80)]"
-              : "bg-info-cyan shadow-[0_0_4px_oklch(0.8_0.15_210)]"
+            markerIsPositive
+              ? "bg-bullish shadow-[0_0_4px_oklch(0.7_0.15_120)]"
+              : "bg-destructive shadow-[0_0_4px_oklch(0.65_0.18_20)]"
           }`}
           style={{ left: "var(--m)", marginLeft: "-1px" }}
         />
@@ -411,11 +409,9 @@ function _TodayPnlBar({
         >
           <div
             className={`w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent ${
-              markerInDanger
-                ? "border-t-destructive"
-                : markerNearTarget
-                ? "border-t-warning-amber"
-                : "border-t-info-cyan"
+              markerIsPositive
+                ? "border-t-bullish"
+                : "border-t-destructive"
             }`}
           />
         </div>
