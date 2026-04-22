@@ -163,8 +163,21 @@ def train_instrument(
     features_root: Path = Path("data/features"),
     models_root: Path = Path("models"),
     config_dir: Path = Path("config/model_feature_config"),
+    val_days: int = 3,
 ) -> TrainResult:
-    """Train all MVP targets for one instrument across a date range."""
+    """Train all MVP targets for one instrument across a date range.
+
+    Split strategy:
+      - 1 day available   → random 80/20 split on that day.
+      - >=2 days          → walk-forward: last `val_days` chronological days
+                            used as val, earlier days used as train. `val_days`
+                            is capped at `total_days // 2` so train always has
+                            majority of data.
+
+    The wider val split (default 3 days instead of 1) reduces the chance that
+    val ends up single-class for long-lookahead binary targets
+    (direction_300s / direction_900s), which caused NaN AUC in earlier runs.
+    """
     # 1. Load Parquets
     loaded = _load_parquets(instrument, date_from, date_to, features_root)
     if len(loaded) < 1:
@@ -174,29 +187,30 @@ def train_instrument(
         )
 
     if len(loaded) == 1:
-        # MVP single-day fallback: random 80/20 split on the one day's data.
-        # Real runs will have many days → temporal split in the else branch.
+        # Single-day fallback: random 80/20 split on the one day's data.
         date_only, df_only = loaded[0]
         print(f"  Single-day mode: random 80/20 split on {date_only}")
         split_idx = int(len(df_only) * 0.8)
         df_train = df_only.iloc[:split_idx].reset_index(drop=True)
         df_val   = df_only.iloc[split_idx:].reset_index(drop=True)
         train_dates = [date_only + "  (80%)"]
-        val_date    = date_only + " (20%)"
+        val_dates   = [date_only + " (20%)"]
     else:
-        # Multi-day: use SMALLEST day as val so training gets most rows (MVP).
-        # Real pipeline will use last day as val (temporal) once we have a month.
-        dates = [d for d, _ in loaded]
-        loaded_sorted = sorted(loaded, key=lambda t: len(t[1]))
-        val_date = loaded_sorted[0][0]
-        train_dates = [d for d in dates if d != val_date]
+        # Walk-forward: last `val_days` days as val, rest as train.
+        # Cap at total_days // 2 so train keeps majority of rows.
+        effective_val_days = max(1, min(val_days, len(loaded) // 2))
+        loaded_by_date = sorted(loaded, key=lambda t: t[0])  # ascending
+        train_pairs = loaded_by_date[:-effective_val_days]
+        val_pairs   = loaded_by_date[-effective_val_days:]
 
-        df_train = pd.concat([df for d, df in loaded if d in train_dates],
-                             ignore_index=True)
-        df_val   = next(df for d, df in loaded if d == val_date)
+        train_dates = [d for d, _ in train_pairs]
+        val_dates   = [d for d, _ in val_pairs]
+
+        df_train = pd.concat([df for _, df in train_pairs], ignore_index=True)
+        df_val   = pd.concat([df for _, df in val_pairs],   ignore_index=True)
 
     print(f"  Training dates:   {train_dates}  ({len(df_train):,} rows)")
-    print(f"  Validation date:  {val_date}  ({len(df_val):,} rows)")
+    print(f"  Validation dates: {val_dates}  ({len(df_val):,} rows)")
 
     # 3. Feature config
     feature_config, newly = _load_or_derive_feature_config(
@@ -211,14 +225,37 @@ def train_instrument(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     all_metrics: dict = {}
+    skipped_targets: list[str] = []
     for target, objective in MVP_TARGETS.items():
         print(f"\n  >> Training {target} ({objective}) ...")
         X_tr, y_tr, _ = preprocess_for_training(df_train, feature_config, target)
         X_va, y_va, _ = preprocess_for_training(df_val,   feature_config, target)
 
         if len(X_tr) == 0 or len(X_va) == 0:
-            print(f"     SKIP: no data after preprocess (train={len(X_tr)}, val={len(X_va)})")
+            reason = f"no data after preprocess (train={len(X_tr)}, val={len(X_va)})"
+            print(f"     SKIP: {reason}")
+            all_metrics[target] = {
+                "n_train": len(X_tr), "n_val": len(X_va),
+                "skipped": True, "reason": reason,
+            }
+            skipped_targets.append(target)
             continue
+
+        # Degenerate-val guard: AUC is undefined when y_val has one class.
+        # Happens for long-lookahead direction targets when val days all trend
+        # one way. Skip training that target; do not save a .lgbm file.
+        if objective == "binary":
+            unique_classes = np.unique(y_va)
+            if len(unique_classes) < 2:
+                reason = (f"val has only one class ({unique_classes.tolist()}); "
+                          f"AUC undefined. Widen --val-days or wait for more data.")
+                print(f"     SKIP: {reason}")
+                all_metrics[target] = {
+                    "n_train": len(X_tr), "n_val": len(X_va),
+                    "skipped": True, "reason": reason,
+                }
+                skipped_targets.append(target)
+                continue
 
         booster, metrics = _fit_one(target, objective, X_tr, y_tr, X_va, y_va)
         booster.save_model(str(output_dir / f"{target}.lgbm"))
@@ -234,8 +271,10 @@ def train_instrument(
         "date_from": date_from,
         "date_to": date_to,
         "train_dates": train_dates,
-        "val_date": val_date,
+        "val_dates": val_dates,
         "targets": list(MVP_TARGETS.keys()),
+        "trained_count": len(MVP_TARGETS) - len(skipped_targets),
+        "skipped_targets": skipped_targets,
         "feature_count": len(feature_config["final_features"]),
     }
     (output_dir / "training_manifest.json").write_text(

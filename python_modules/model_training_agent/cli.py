@@ -36,6 +36,9 @@ def main() -> int:
     p.add_argument("--features-root", default="data/features")
     p.add_argument("--models-root",   default="models")
     p.add_argument("--config-dir",    default="config/model_feature_config")
+    p.add_argument("--val-days",      type=int, default=3,
+                   help="Number of most recent days to hold out as validation "
+                        "(capped at total_days // 2). Default 3.")
     args = p.parse_args()
 
     print()
@@ -52,6 +55,7 @@ def main() -> int:
             features_root=Path(args.features_root),
             models_root=Path(args.models_root),
             config_dir=Path(args.config_dir),
+            val_days=args.val_days,
         )
     except RuntimeError as e:
         print(f"\n  ERROR: {e}\n")
