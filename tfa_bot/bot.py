@@ -326,7 +326,10 @@ def _health_state_label(h: dict) -> str:
 
 
 def _compact_health_line(inst: str) -> str:
-    """One-line health for /status (plain text, no markdown)."""
+    """One-line health for /status. Uses Markdown V1; state label is wrapped
+    in backticks because labels like FEED_DOWN / OUT_OF_SESSION contain
+    underscores that V1 would otherwise parse as italic markers.
+    """
     h = _compute_health(inst)
     icon  = _health_status_icon(h)
     state = _health_state_label(h)
@@ -343,7 +346,7 @@ def _compact_health_line(inst: str) -> str:
     elif h["warn_count"]:
         issues = f"  ⚠{h['warn_count']}"
 
-    return f"{icon} `{inst:<11}` {state:<15}  up {uptime}{issues}"
+    return f"{icon} `{inst}`  `{state}`  up {uptime}{issues}"
 
 
 def _format_detailed_health(inst: str) -> str:
@@ -395,7 +398,11 @@ def _format_detailed_health(inst: str) -> str:
         lines.append("")
         lines.append(f"Last {lvl.lower()}:  `[{ts}] {alert}`")
         if msg:
-            lines.append(f"  {msg}")
+            # Wrap in backticks — log messages can contain arbitrary punctuation
+            # (asterisks, underscores, backticks inside strings…) that would
+            # otherwise break V1 parsing.
+            safe_msg = msg.replace("`", "'")
+            lines.append(f"  `{safe_msg}`")
 
     return "\n".join(lines)
 
@@ -416,22 +423,26 @@ def _guard(func):
 
 @_guard
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    # Plain text — avoids MarkdownV2 escape headaches (hyphen / angle-bracket /
+    # etc. are all reserved in V2 and silently break parsing).
     text = (
-        "*TFA Bot — Commands*\n\n"
-        "*Per-instrument:*\n"
-        "  /nifty50\\_status    /start\\_nifty50    /stop\\_nifty50    /restart\\_nifty50\n"
-        "  /banknifty\\_status  /start\\_banknifty  /stop\\_banknifty  /restart\\_banknifty\n"
-        "  /crudeoil\\_status   /start\\_crudeoil   /stop\\_crudeoil   /restart\\_crudeoil\n"
-        "  /naturalgas\\_status /start\\_naturalgas /stop\\_naturalgas /restart\\_naturalgas\n\n"
-        "*Global:*\n"
-        "  /status — all 4 compact\n"
-        "  /start\\_all — start every instrument\n"
-        "  /stop\\_all — stop every instrument\n"
-        "  /logs `<inst>` \\[n\\] — last N log lines\n"
-        "  /errors \\[inst\\] — WARN/ERROR lines only\n"
-        "  /files \\[date\\] — raw file sizes\n"
+        "TFA Bot — Commands\n"
+        "\n"
+        "Per-instrument:\n"
+        "  /nifty50_status    /start_nifty50    /stop_nifty50    /restart_nifty50\n"
+        "  /banknifty_status  /start_banknifty  /stop_banknifty  /restart_banknifty\n"
+        "  /crudeoil_status   /start_crudeoil   /stop_crudeoil   /restart_crudeoil\n"
+        "  /naturalgas_status /start_naturalgas /stop_naturalgas /restart_naturalgas\n"
+        "\n"
+        "Global:\n"
+        "  /status             all 4 compact\n"
+        "  /start_all          start every instrument\n"
+        "  /stop_all           stop every instrument\n"
+        "  /logs inst [n]      last N log lines (max 50)\n"
+        "  /errors [inst]      WARN/ERROR lines only\n"
+        "  /files [date]       raw file sizes\n"
     )
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
+    await update.message.reply_text(text)
 
 
 @_guard
@@ -565,14 +576,15 @@ async def _check_crashes(ctx: ContextTypes.DEFAULT_TYPE) -> None:
             alert_key = f"alerted_{inst}"
             if not ctx.bot_data.get(alert_key):
                 ctx.bot_data[alert_key] = True
+                # Plain text — V2 escaping for dynamic fields (=, parens, etc.)
+                # is fragile. Readable without markup.
                 await ctx.bot.send_message(
                     chat_id=ALLOWED_USER_ID,
                     text=(
-                        f"⚠️ *{inst}* TFA process crashed "
-                        f"\\(exit={p.returncode}\\)\n"
-                        f"Use /start\\_{inst} to restart"
+                        f"⚠️ {inst} TFA process crashed "
+                        f"(exit={p.returncode})\n"
+                        f"Use /start_{inst} to restart"
                     ),
-                    parse_mode=ParseMode.MARKDOWN_V2,
                 )
         else:
             ctx.bot_data.pop(f"alerted_{inst}", None)    # clear alert once back up
