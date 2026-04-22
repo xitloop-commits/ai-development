@@ -54,25 +54,39 @@ interface TodayPnlBarProps {
 
 interface Marker {
   pct: number;
-  zone: "loss" | "g1" | "g2" | "g3" | "king";
+  zone: "heavyLoss" | "bigLoss" | "loss" | "profit" | "bigProfit" | "superProfit" | "superDuperProfit" | "jockbot";
   label: string;
 }
 
 /**
- * Generate all markers for fixed comprehensive range (not dependent on currentPct).
- * Uses zone-based increments:
- * - Extended Loss: 1% (below lossCap)
- * - Loss (L→T): 1%
- * - G1 (T→G1): 2%
- * - G2 (G1→G2): 3%
- * - G3 (G2→G3): 4%
- * - King (G3+): 5%
+ * Generate all markers for fixed comprehensive range with new zone boundaries.
+ * Zones: < -10% (heavyLoss), -10% to -2% (bigLoss), -2% to 0% (loss),
+ * 0% to 5% (profit), 5% to 10% (bigProfit), 10% to 25% (superProfit),
+ * 25% to 50% (superDuperProfit), > 50% (jockbot)
  */
 function generateAllMarkers(cfg: BarConfig): Marker[] {
   const markers: Marker[] = [];
 
-  // Extended loss zone: 1% increments from (lossCap - 50) to (lossCap - 1)
-  for (let pct = cfg.lossCap - 50; pct < cfg.lossCap; pct += 1) {
+  // Heavy loss zone: < -10% (1% increments)
+  for (let pct = -100; pct < -10; pct += 1) {
+    markers.push({
+      pct,
+      zone: "heavyLoss",
+      label: `${pct}%`,
+    });
+  }
+
+  // Big loss zone: -10% to -2% (1% increments)
+  for (let pct = -10; pct < -2; pct += 1) {
+    markers.push({
+      pct,
+      zone: "bigLoss",
+      label: `${pct}%`,
+    });
+  }
+
+  // Loss zone: -2% to 0% (1% increments)
+  for (let pct = -2; pct <= 0; pct += 1) {
     markers.push({
       pct,
       zone: "loss",
@@ -80,47 +94,47 @@ function generateAllMarkers(cfg: BarConfig): Marker[] {
     });
   }
 
-  // Loss zone: 1% increments from lossCap to target
-  for (let pct = cfg.lossCap; pct <= cfg.target; pct += 1) {
+  // Profit zone: 0% to 5% (1% increments)
+  for (let pct = 1; pct <= 5; pct += 1) {
     markers.push({
       pct,
-      zone: "loss",
+      zone: "profit",
       label: `${pct}%`,
     });
   }
 
-  // G1 zone: 2% increments from target to 10%
-  for (let pct = cfg.target + 2; pct <= 10; pct += 2) {
+  // Big profit zone: 5% to 10% (1% increments)
+  for (let pct = 6; pct <= 10; pct += 1) {
     markers.push({
       pct,
-      zone: "g1",
+      zone: "bigProfit",
       label: `${pct}%`,
     });
   }
 
-  // G2 zone: 3% increments from 10% to 25%
-  for (let pct = 10 + 3; pct <= 25; pct += 3) {
+  // Super profit zone: 10% to 25% (1% increments)
+  for (let pct = 11; pct <= 25; pct += 1) {
     markers.push({
       pct,
-      zone: "g2",
+      zone: "superProfit",
       label: `${pct}%`,
     });
   }
 
-  // G3 zone: 4% increments from 25% to 50%
-  for (let pct = 25 + 4; pct <= 50; pct += 4) {
+  // Super duper profit zone: 25% to 50% (1% increments)
+  for (let pct = 26; pct <= 50; pct += 1) {
     markers.push({
       pct,
-      zone: "g3",
+      zone: "superDuperProfit",
       label: `${pct}%`,
     });
   }
 
-  // King zone: 5% increments from 50% to (giftMax + 200)
-  for (let pct = 50 + 5; pct <= cfg.giftMax + 200; pct += 5) {
+  // Jockbot zone: > 50% (2% increments)
+  for (let pct = 52; pct <= cfg.giftMax + 200; pct += 2) {
     markers.push({
       pct,
-      zone: "king",
+      zone: "jockbot",
       label: `${pct}%`,
     });
   }
@@ -348,17 +362,25 @@ function _TodayPnlBar({
           const isVisible = isMarkerVisible(idx);
           const barPos = getMarkerBarPosition(idx);
 
-          // Color by zone
+          // Color by zone - gradient from light to dark
           const getLabelColor = () => {
             switch (marker.zone) {
+              case "heavyLoss":
+                return "#7f1d1d";  // dark red
+              case "bigLoss":
+                return "#dc2626";  // medium red
               case "loss":
-                return "#ef4444";  // red-500
-              case "g1":
-              case "g2":
-              case "g3":
-                return "#b45309";  // amber-500
-              case "king":
-                return "#eab308";  // yellow-400
+                return "#fca5a5";  // light red
+              case "profit":
+                return "#86efac";  // light green
+              case "bigProfit":
+                return "#4ade80";  // medium green
+              case "superProfit":
+                return "#22c55e";  // darker green
+              case "superDuperProfit":
+                return "#16a34a";  // very dark green
+              case "jockbot":
+                return "#eab308";  // bright yellow
               default:
                 return "currentColor";
             }
@@ -392,7 +414,7 @@ function _TodayPnlBar({
           />
         )}
 
-        {/* Fill bar: from 0% P&L to indicator (evenly distributed) */}
+        {/* Fill bar: from 0% P&L to indicator (gradient by zone) */}
         {(() => {
           const zeroPos = getBarPositionForPct(0);
 
@@ -400,16 +422,31 @@ function _TodayPnlBar({
           let fillWidth: number;
           let backgroundColor: string;
 
+          // Determine color based on current P&L zone
+          const getGradientColor = () => {
+            if (currentPct > 0) {
+              if (currentPct <= 5) return "rgba(134, 239, 172, 0.6)";  // light green
+              if (currentPct <= 10) return "rgba(74, 222, 128, 0.6)";   // medium green
+              if (currentPct <= 25) return "rgba(34, 197, 94, 0.6)";    // darker green
+              if (currentPct <= 50) return "rgba(22, 163, 74, 0.7)";    // very dark green
+              return "rgba(234, 179, 8, 0.7)";                          // bright yellow (jockbot)
+            } else {
+              if (currentPct >= -2) return "rgba(252, 165, 165, 0.6)";  // light red
+              if (currentPct >= -10) return "rgba(220, 38, 38, 0.7)";   // medium red
+              return "rgba(127, 29, 29, 0.8)";                          // dark red
+            }
+          };
+
           if (currentPct > 0) {
             // Positive P&L: fill extends RIGHT from 0% to indicator
             fillStart = zeroPos;
             fillWidth = markerLeft - zeroPos;
-            backgroundColor = "rgb(34 197 94 / 0.6)";  // Green
+            backgroundColor = getGradientColor();
           } else if (currentPct < 0) {
             // Negative P&L: fill extends LEFT from indicator to 0%
             fillStart = markerLeft;
             fillWidth = zeroPos - markerLeft;
-            backgroundColor = "rgb(220 38 38 / 0.8)";  // Red
+            backgroundColor = getGradientColor();
           } else {
             // Exactly 0: no fill bar
             return null;
@@ -436,27 +473,38 @@ function _TodayPnlBar({
           const isVisible = isMarkerVisible(idx);
           const barPos = getMarkerBarPosition(idx);
 
-          // Color based on zone
+          // Color based on zone - gradient from light to dark
           const getMarkerColor = () => {
-            if (marker.pct < 0) {
-              // Loss zone: red
-              return isVisible ? "bg-destructive/80" : "bg-destructive/20";
-            } else if (marker.pct === 0) {
-              // Neutral at 0%: gray
-              return isVisible ? "bg-muted-foreground/70" : "bg-muted-foreground/20";
-            } else {
-              // Profit zone: green
-              return isVisible ? "bg-bullish/70" : "bg-bullish/15";
+            switch (marker.zone) {
+              case "heavyLoss":
+                return isVisible ? "#7f1d1d" : "#7f1d1d40";
+              case "bigLoss":
+                return isVisible ? "#dc2626" : "#dc262640";
+              case "loss":
+                return isVisible ? "#fca5a5" : "#fca5a540";
+              case "profit":
+                return isVisible ? "#86efac" : "#86efac40";
+              case "bigProfit":
+                return isVisible ? "#4ade80" : "#4ade8040";
+              case "superProfit":
+                return isVisible ? "#22c55e" : "#22c55e40";
+              case "superDuperProfit":
+                return isVisible ? "#16a34a" : "#16a34a40";
+              case "jockbot":
+                return isVisible ? "#eab308" : "#eab30840";
+              default:
+                return "#9ca3af";
             }
           };
 
           return (
             <div
               key={`tick-${marker.pct}`}
-              className={`absolute top-1/2 -translate-y-1/2 w-px transition-all duration-300 ${getMarkerColor()}`}
+              className="absolute top-1/2 -translate-y-1/2 w-px transition-all duration-300"
               style={{
                 left: `${barPos}%`,
                 height: "10px",
+                backgroundColor: getMarkerColor(),
               }}
             />
           );
