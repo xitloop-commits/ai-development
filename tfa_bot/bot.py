@@ -105,6 +105,13 @@ def _log_file(inst: str, date: str | None = None) -> Path:
     return ROOT / "logs" / f"tfa_{_LOG_KEY[inst]}_{d}.log"
 
 
+def _perf_log_file(inst: str, date: str | None = None) -> Path:
+    """Per-tick perf log — updates every tick when TFA is live, so its mtime
+    is the strongest proof-of-life signal for 'is TFA actually running?'"""
+    d = date or _now_ist().strftime("%Y-%m-%d")
+    return ROOT / "logs" / f"tfa_perf_{_LOG_KEY[inst]}_{d}.log"
+
+
 def _tfa_cmd(inst: str) -> list[str]:
     profile = ROOT / "config" / "instrument_profiles" / f"{inst}_profile.json"
     output  = ROOT / "data" / "features" / f"{inst}_live.ndjson"
@@ -177,6 +184,7 @@ def _compute_health(inst: str) -> dict:
         "session_open_ts": None,
         "feed_connected":  False,
         "log_mtime":       None,
+        "perf_log_mtime":  None,
         "warn_count":      0,
         "error_count":     0,
         "last_issue":      None,      # {"level", "alert", "msg", "ts"}
@@ -184,6 +192,14 @@ def _compute_health(inst: str) -> dict:
     }
 
     lf = _log_file(inst)
+    pf = _perf_log_file(inst)
+
+    if pf.exists():
+        try:
+            health["perf_log_mtime"] = datetime.fromtimestamp(pf.stat().st_mtime, tz=IST)
+        except Exception:
+            pass
+
     if not lf.exists():
         return health
 
@@ -300,14 +316,31 @@ def _stop_inst(inst: str) -> str:
 
 # ── Health formatting ──────────────────────────────────────────────────────────
 
+def _is_alive(h: dict) -> bool:
+    """Is TFA actually running? Primary signal is log-file freshness — works
+    whether the bot launched the process or it was started externally via
+    bat scripts. The perf log gets a line per tick during active trading, so
+    its mtime is the strongest proof-of-life. Fall back to the main log for
+    periods when ticks are paused (weekends, pre-market)."""
+    now = _now_ist()
+    if h["perf_log_mtime"]:
+        age = (now - h["perf_log_mtime"]).total_seconds()
+        if age < 60:
+            return True
+    if h["log_mtime"]:
+        age = (now - h["log_mtime"]).total_seconds()
+        if age < 300:        # 5-min main-log grace (events aren't per-tick)
+            return True
+    return False
+
+
 def _health_status_icon(h: dict) -> str:
     """Traffic-light summary of health."""
-    if not h["bot_tracked"] and not h["log_exists"]:
-        return "🔴"           # not running, no log
-    if not h["bot_tracked"]:
-        return "🔴"           # process not tracked
+    alive = _is_alive(h)
+    if not alive:
+        return "🔴"           # no recent log activity — process is not running
     if h["error_count"] > 0:
-        return "🔴"           # hard errors today
+        return "🔴"           # running but hit hard errors today
     if not h["feed_connected"] or not h["session_open"]:
         return "🟡"           # partial — feed down or outside session
     if h["warn_count"] > 0:
@@ -316,7 +349,7 @@ def _health_status_icon(h: dict) -> str:
 
 
 def _health_state_label(h: dict) -> str:
-    if not h["bot_tracked"]:
+    if not _is_alive(h):
         return "STOPPED"
     if not h["feed_connected"]:
         return "FEED_DOWN"
@@ -334,11 +367,16 @@ def _compact_health_line(inst: str) -> str:
     icon  = _health_status_icon(h)
     state = _health_state_label(h)
 
+    # Uptime comes from the TFA_START timestamp in the log — works whether
+    # the bot launched the process or it was started externally.
     uptime = "—"
-    if h["bot_tracked"] and h["last_tfa_start"]:
+    if h["last_tfa_start"] and _is_alive(h):
         start = _parse_iso(h["last_tfa_start"])
         if start:
             uptime = _fmt_duration((_now_ist() - start).total_seconds())
+
+    # Tag external processes so user knows bot can't stop them directly
+    tag = "" if h["bot_tracked"] or not _is_alive(h) else "  (ext)"
 
     issues = ""
     if h["error_count"]:
@@ -346,7 +384,7 @@ def _compact_health_line(inst: str) -> str:
     elif h["warn_count"]:
         issues = f"  ⚠{h['warn_count']}"
 
-    return f"{icon} `{inst}`  `{state}`  up {uptime}{issues}"
+    return f"{icon} `{inst}`  `{state}`  up {uptime}{tag}{issues}"
 
 
 def _format_detailed_health(inst: str) -> str:
@@ -360,12 +398,16 @@ def _format_detailed_health(inst: str) -> str:
         "",
     ]
 
+    alive = _is_alive(h)
+    start = _parse_iso(h["last_tfa_start"]) if h["last_tfa_start"] else None
+    uptime = _fmt_duration((_now_ist() - start).total_seconds()) if start and alive else "—"
+
     if h["bot_tracked"]:
-        start = _parse_iso(h["last_tfa_start"]) if h["last_tfa_start"] else None
-        uptime = _fmt_duration((_now_ist() - start).total_seconds()) if start else "—"
-        lines.append(f"Process:   pid `{h['pid']}`  up `{uptime}`")
+        lines.append(f"Process:   pid `{h['pid']}`  up `{uptime}` (bot-managed)")
+    elif alive:
+        lines.append(f"Process:   up `{uptime}` (running externally, not bot-managed)")
     else:
-        lines.append("Process:   *not tracked by bot*")
+        lines.append("Process:   not running")
 
     # Session
     if h["session_open"] and h["session_open_ts"]:
