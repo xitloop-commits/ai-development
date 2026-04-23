@@ -1,4 +1,3 @@
-import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -34,8 +33,6 @@ import {
 import { searchByQuery, downloadScripMaster, needsRefresh } from "./broker/adapters/dhan/scripMaster";
 
 export const appRouter = router({
-  system: systemRouter,
-
   // Trading data endpoints (read from in-memory store)
   trading: router({
     // Get all module statuses (heartbeats)
@@ -182,6 +179,7 @@ export const appRouter = router({
           underlying: input.underlying,
           autoResolve: input.autoResolve,
           symbolName: input.symbolName,
+          hotkey: null,
         };
         const result = await addInstrument(config);
         // Update in-memory store
@@ -208,49 +206,6 @@ export const appRouter = router({
     get: publicProcedure.query(async ({ ctx }) => {
       return getUserSettings(1 /* single-user */);
     }),
-
-    // @deprecated — Time Windows are now managed via trpc.discipline.getSettings/updateSettings.
-    // Kept for backward compatibility; will be removed in a future version.
-    updateTimeWindows: publicProcedure
-      .input(z.object({
-        nse: z.object({
-          noTradeFirstMinutes: z.number().min(0).max(120).optional(),
-          noTradeLastMinutes: z.number().min(0).max(120).optional(),
-          lunchBreakPause: z.boolean().optional(),
-          lunchBreakStart: z.string().optional(),
-          lunchBreakEnd: z.string().optional(),
-        }).optional(),
-        mcx: z.object({
-          noTradeFirstMinutes: z.number().min(0).max(120).optional(),
-          noTradeLastMinutes: z.number().min(0).max(120).optional(),
-        }).optional(),
-      }))
-      .mutation(async ({ ctx, input }) => {
-        const updated = await updateUserSettings(1 /* single-user */, { timeWindows: input as any });
-        return { success: true, timeWindows: updated.timeWindows };
-      }),
-
-    // @deprecated — Discipline settings are now managed via trpc.discipline.getSettings/updateSettings.
-    // Kept for backward compatibility; will be removed in a future version.
-    updateDiscipline: publicProcedure
-      .input(z.object({
-        maxTradesPerDay: z.number().min(1).max(50).optional(),
-        maxLossPerDay: z.number().min(0).optional(),
-        maxLossPerDayPercent: z.number().min(0).max(100).optional(),
-        maxConsecutiveLosses: z.number().min(1).max(20).optional(),
-        cooldownAfterLoss: z.number().min(0).max(120).optional(),
-        mandatoryChecklist: z.boolean().optional(),
-        minChecklistScore: z.number().min(0).max(100).optional(),
-        maxPositionSize: z.number().min(1).max(100).optional(),
-        trailingStopEnabled: z.boolean().optional(),
-        trailingStopPercent: z.number().min(0).max(50).optional(),
-        noRevengeTrading: z.boolean().optional(),
-        requireRationale: z.boolean().optional(),
-      }))
-      .mutation(async ({ ctx, input }) => {
-        const updated = await updateUserSettings(1 /* single-user */, { discipline: input as any });
-        return { success: true, discipline: updated.discipline };
-      }),
 
     // Update expiry control settings
     updateExpiryControls: publicProcedure

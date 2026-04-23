@@ -747,8 +747,8 @@ export const capitalRouter = router({
               price: input.entryPrice,
               orderType: config.settings.orderType ?? "LIMIT",
               productType: config.settings.productType ?? "INTRADAY",
-              stopLoss: stopLossPrice,
-              target: targetPrice,
+              stopLoss: stopLossPrice ?? undefined,
+              target: targetPrice ?? undefined,
               tag: trade.id,
             };
 

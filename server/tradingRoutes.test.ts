@@ -1,25 +1,21 @@
 /**
- * Vitest tests for Trading REST endpoints used by Python AI modules.
+ * Vitest tests for Trading REST endpoints used by Python modules.
  *
  * Covers the in-memory trading store functions that back the REST endpoints:
  * - pushOptionChain / getInstrumentData
  * - pushAnalyzerOutput / getInstrumentData / getSignals
- * - pushAIDecision / getInstrumentData
  * - pushPosition / getPositions
  * - updateModuleHeartbeat / getModuleStatuses
  * - setTradingMode / getTradingMode
  * - getActiveInstruments / setActiveInstruments
  *
- * These endpoints are called by:
- *   option_chain_fetcher, option_chain_analyzer, ai_decision_engine,
- *   execution_module, dashboard_data_pusher, session_manager
+ * These endpoints are called by Python callers: TFA, SEA, MTA.
  */
 
 import { describe, it, expect } from "vitest";
 import {
   pushOptionChain,
   pushAnalyzerOutput,
-  pushAIDecision,
   pushPosition,
   updateModuleHeartbeat,
   setTradingMode,
@@ -34,7 +30,6 @@ import {
 import type {
   RawOptionChainData,
   RawAnalyzerOutput,
-  RawAIDecision,
   Position,
 } from "../shared/tradingTypes";
 
@@ -100,24 +95,6 @@ const sampleAnalyzerOutput: RawAnalyzerOutput = {
   smart_money_signals: [],
 };
 
-const sampleAIDecision: RawAIDecision = {
-  instrument: "NIFTY_50",
-  timestamp: new Date().toISOString(),
-  decision: "GO",
-  trade_type: "CALL_BUY",
-  confidence_score: 0.85,
-  rationale: "Strong OI buildup at support with bullish bias",
-  market_bias_oc: "BULLISH",
-  market_bias_news: "POSITIVE",
-  active_strikes: { call: [25600, 25700], put: [25500] },
-  main_support: 25500,
-  main_resistance: 25800,
-  entry_signal_details: "Long Buildup at 25600 CE",
-  news_summary: "Positive market outlook",
-  target_strike: 25600,
-  target_expiry_date: "2026-04-07",
-};
-
 const samplePosition: Position = {
   id: "TEST-POS-001",
   instrument: "NIFTY_50",
@@ -170,9 +147,9 @@ describe("Active Instruments (Python: all modules poll this)", () => {
   });
 });
 
-// ─── Push Option Chain (used by dashboard_data_pusher) ──
+// ─── Push Option Chain (used by TFA) ──
 
-describe("POST /api/trading/option-chain (Python: dashboard_data_pusher)", () => {
+describe("POST /api/trading/option-chain (Python: TFA)", () => {
   it("stores option chain data and reflects in instrument data", () => {
     pushOptionChain("NIFTY_50", sampleOptionChain);
     const instruments = getInstrumentData();
@@ -205,9 +182,9 @@ describe("POST /api/trading/option-chain (Python: dashboard_data_pusher)", () =>
   });
 });
 
-// ─── Push Analyzer Output (used by dashboard_data_pusher) ──
+// ─── Push Analyzer Output (used by SEA) ──
 
-describe("POST /api/trading/analyzer (Python: dashboard_data_pusher)", () => {
+describe("POST /api/trading/analyzer (Python: SEA)", () => {
   it("stores analyzer output and updates market bias", () => {
     pushAnalyzerOutput("NIFTY_50", sampleAnalyzerOutput);
     const instruments = getInstrumentData();
@@ -233,48 +210,10 @@ describe("POST /api/trading/analyzer (Python: dashboard_data_pusher)", () => {
   });
 });
 
-// ─── Push AI Decision (used by dashboard_data_pusher) ──
 
-describe("POST /api/trading/ai-decision (Python: dashboard_data_pusher)", () => {
-  it("stores GO decision and reflects in instrument data", () => {
-    pushAIDecision("NIFTY_50", sampleAIDecision);
-    const instruments = getInstrumentData();
-    const nifty = instruments.find((i) => i.name === "NIFTY_50");
-    expect(nifty).toBeDefined();
-    expect(nifty!.aiDecision).toBe("GO");
-    expect(nifty!.aiConfidence).toBe(0.85);
-  });
+// ─── Push Position (used by SEA) ──
 
-  it("stores WAIT decision", () => {
-    const waitDecision: RawAIDecision = {
-      ...sampleAIDecision,
-      decision: "WAIT",
-      confidence_score: 0.3,
-      rationale: "Sideways market detected",
-    };
-    pushAIDecision("NIFTY_50", waitDecision);
-    const instruments = getInstrumentData();
-    const nifty = instruments.find((i) => i.name === "NIFTY_50");
-    expect(nifty!.aiDecision).toBe("WAIT");
-  });
-
-  it("stores NO_GO decision", () => {
-    const noGoDecision: RawAIDecision = {
-      ...sampleAIDecision,
-      decision: "NO_GO",
-      confidence_score: 0.9,
-      rationale: "High risk environment",
-    };
-    pushAIDecision("NIFTY_50", noGoDecision);
-    const instruments = getInstrumentData();
-    const nifty = instruments.find((i) => i.name === "NIFTY_50");
-    expect(nifty!.aiDecision).toBe("NO_GO");
-  });
-});
-
-// ─── Push Position (used by execution_module) ──
-
-describe("POST /api/trading/position (Python: execution_module)", () => {
+describe("POST /api/trading/position (Python: SEA)", () => {
   it("stores position data", () => {
     pushPosition(samplePosition);
     const positions = getPositions();
@@ -301,9 +240,9 @@ describe("POST /api/trading/position (Python: execution_module)", () => {
   });
 });
 
-// ─── Module Heartbeat (used by session_manager) ──
+// ─── Module Heartbeat (used by TFA / SEA / MTA) ──
 
-describe("POST /api/trading/heartbeat (Python: session_manager)", () => {
+describe("POST /api/trading/heartbeat (Python: TFA, SEA, MTA)", () => {
   it("records heartbeat for FETCHER module", () => {
     updateModuleHeartbeat("FETCHER", "Fetching NIFTY_50 - 45 strikes");
     const statuses = getModuleStatuses();
@@ -341,9 +280,9 @@ describe("POST /api/trading/heartbeat (Python: session_manager)", () => {
   });
 });
 
-// ─── Trading Mode (used by execution_module) ──
+// ─── Trading Mode (used by SEA) ──
 
-describe("Trading Mode (Python: execution_module)", () => {
+describe("Trading Mode (Python: SEA)", () => {
   it("defaults to PAPER mode", () => {
     setTradingMode("PAPER"); // Reset since store is singleton
     const mode = getTradingMode();
@@ -366,7 +305,7 @@ describe("Trading Mode (Python: execution_module)", () => {
 
 // ─── Instrument Data (used by dashboard) ──
 
-describe("Instrument Data (Python: dashboard_data_pusher)", () => {
+describe("Instrument Data (Python: SEA)", () => {
   it("returns data for all 4 instruments", () => {
     setActiveInstruments(["NIFTY_50", "BANKNIFTY", "CRUDEOIL", "NATURALGAS"]);
     const instruments = getInstrumentData();

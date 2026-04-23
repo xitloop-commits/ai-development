@@ -82,18 +82,6 @@ export interface InstrumentData {
 
   // S/R Strength Line data (S5..ATM..R5) — built from option chain + analyzer
   srLevels?: SRLevel[];
-
-  // Reserved for ML model output — populated once Model Training Agent + inference are built
-  tradeDirection?: 'GO_CALL' | 'GO_PUT' | 'WAIT';
-  atmStrike?: number;
-  supportAnalysis?: WallAnalysis;
-  resistanceAnalysis?: WallAnalysis;
-  ivAssessment?: IVAssessment;
-  thetaAssessment?: ThetaAssessment;
-  tradeSetup?: TradeSetup | null;
-  riskFlags?: RiskFlag[];
-  scoringFactors?: Record<string, ScoringFactor>;
-  filters?: TradeFilters;
 }
 
 export interface Position {
@@ -256,105 +244,6 @@ export interface RawAnalyzerOutput {
     opening_ltp: number;
   } | null;
   sr_intraday_levels?: SRIntradayLevel[];
-}
-
-/** Wall strength analysis for a support or resistance level */
-export interface WallAnalysis {
-  level: number;
-  strength: number; // 0-100
-  oi: number;
-  oi_change: number;
-  oi_change_pct: number;
-  volume: number;
-  iv: number;
-  prediction: 'BREAKOUT' | 'BREAKDOWN' | 'BOUNCE' | 'UNCERTAIN';
-  probability: number; // 0-100
-  evidence: string[];
-}
-
-/** IV assessment */
-export interface IVAssessment {
-  atm_iv: number;
-  assessment: 'CHEAP' | 'FAIR' | 'EXPENSIVE' | 'UNKNOWN';
-  detail: string;
-}
-
-/** Theta assessment */
-export interface ThetaAssessment {
-  theta_per_day: number;
-  days_to_expiry: number | null;
-  warning: string | null;
-}
-
-/** Trade setup with entry, target, SL */
-export interface TradeSetup {
-  direction: 'GO_CALL' | 'GO_PUT';
-  strike: number;
-  option_type: 'CE' | 'PE';
-  entry_price: number;
-  target_price: number;
-  target_pct: number;
-  stop_loss: number;
-  sl_pct: number;
-  risk_reward: number;
-  target_label: string;
-  delta: number;
-  resistance_level: number;
-  support_level: number;
-}
-
-/** Risk flag */
-export interface RiskFlag {
-  type: 'warning' | 'danger';
-  text: string;
-}
-
-/** Scoring factor detail */
-export interface ScoringFactor {
-  score: number; // -1 to +1
-  weight: number; // 0 to 1
-  detail: string;
-}
-
-/** Sideways market detection result */
-export interface SidewaysDetection {
-  is_sideways: boolean;
-  signals_triggered: number;
-  threshold: number;
-  details: string[];
-}
-
-/** Trap market detection result */
-export interface TrapDetection {
-  is_trap: boolean;
-  trap_types: string[];  // e.g. 'FALSE_BREAKOUT', 'OI_CONTRADICTION', 'SIGNAL_DIVERGENCE'
-  details: string[];
-}
-
-/** Bounce/Breakdown classification result */
-export interface BounceBreakdown {
-  setup_type: 'BOUNCE_SUPPORT' | 'BOUNCE_RESISTANCE' | 'BREAKDOWN_SUPPORT' | 'BREAKOUT_RESISTANCE' | 'NEUTRAL';
-  aligned: boolean;
-  required_direction: 'GO_CALL' | 'GO_PUT' | null;
-  detail: string;
-}
-
-/** Quality gate result */
-export interface QualityGate {
-  passed: boolean;
-  blocked_by: string[];  // e.g. 'LOW_CONFIDENCE', 'SR_MISALIGNED', 'TRAP_DETECTED', 'LATE_SESSION', 'LOW_DTE'
-  details: string[];
-}
-
-/** Combined filter results from AI Engine v2.4 */
-export interface TradeFilters {
-  original_direction: 'GO_CALL' | 'GO_PUT' | 'WAIT';
-  filter_blocked: boolean;
-  rejection_reasons: string[];
-  sideways_detection: SidewaysDetection;
-  trap_detection: TrapDetection;
-  bounce_breakdown: BounceBreakdown;
-  quality_gate: QualityGate;
 }
 
 /** Payload shape for the data push API */

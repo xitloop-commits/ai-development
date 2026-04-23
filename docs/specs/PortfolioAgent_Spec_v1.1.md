@@ -11,7 +11,7 @@
 | Version | Date | Author | Summary |
 | --- | --- | --- | --- |
 | v1.0 | 2026-04-08 | AI Team | Initial specification for a unified, centralized Portfolio Agent that manages portfolio state, capital, exposure, drawdown, and portfolio-level risk signals. |
-| v1.0.1 | 2026-04-09 | Architecture Team | **ENHANCEMENT:** Added trade outcome recording (Section 5.2), daily P&L metrics, exit_triggered_by field for tracking who initiated trade exits. Integration with Discipline Engine capital protection, RCA exit signals, and AI Decision Engine. |
+| v1.0.1 | 2026-04-09 | Architecture Team | **ENHANCEMENT:** Added trade outcome recording (Section 5.2), daily P&L metrics, exit_triggered_by field for tracking who initiated trade exits. Integration with Discipline Engine capital protection, RCA exit signals, and SEA (AI signals). |
 | v1.1 | 2026-04-09 | AI Team | **UPDATED:** Replaced 5-second polling model with push-only integration — Portfolio Agent calls discipline.recordTradeOutcome after every trade close. Defined full response contract for GET /api/portfolio/daily-pnl (7 fields). Clarified endpoint is for on-demand reads only, not cap monitoring. |
 
 ---
@@ -362,12 +362,12 @@ The Portfolio Agent records when RCA exits a position:
 - RCA provides `exit_reason: "RCA_EXIT"` when exiting due to momentum, volatility, or age
 - Portfolio Agent updates `dailyRealizedPnl` and triggers Discipline Engine cap checks
 
-### 10.3 AI Decision Engine Integration
+### 10.3 SEA (AI Signals) Integration
 
-The Portfolio Agent records when AI signals trigger an exit:
+The Portfolio Agent records when AI signals (from SEA) trigger an exit:
 
 - Trade outcome recorded with `exitTriggeredBy: "AI"`
-- RCA validates AI signal and executes exit via TradeExecutorAgent
+- RCA validates the AI signal and executes exit via TradeExecutorAgent
 - Exit reason: "AI_EXIT"
 
 ### 10.4 Broker Integration
@@ -396,4 +396,4 @@ This spec is versioned as `v1.0`. Future updates must be recorded in the Change 
 - The Portfolio Agent is intended to become the authoritative portfolio state engine for the ATS.
 - It should reduce duplicate state held in Python modules and server memory stores.
 - Inputs from trade execution, market valuation, and capital updates must be kept consistent and fresh.
-- **v1.0.1 (2026-04-09):** Enhanced for new unified execution architecture. Trade outcome recording now includes `exitTriggeredBy` field to track whether exit came from RCA, Broker, Discipline Engine, or AI Decision Engine. Daily P&L metrics now feed capital protection monitoring in Discipline Engine.
+- **v1.0.1 (2026-04-09):** Enhanced for new unified execution architecture. Trade outcome recording now includes `exitTriggeredBy` field to track whether exit came from RCA, Broker, Discipline Engine, or AI signals (from SEA). Daily P&L metrics now feed capital protection monitoring in Discipline Engine.

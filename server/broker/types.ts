@@ -389,6 +389,9 @@ export interface BrokerConfigDoc {
   settings: BrokerSettings;
   connection: BrokerConnection;
   capabilities: BrokerCapabilities;
+  // Auth sub-doc (clientId, pin, totpSecret) — written directly to MongoDB by
+  // scripts/dhan-update-credentials.mjs, not declared in the schema.
+  auth?: Record<string, unknown>;
 }
 
 // ─── Broker Adapter Interface ───────────────────────────────────

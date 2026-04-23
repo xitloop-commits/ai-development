@@ -2695,12 +2695,12 @@ Layer 1 (TFA):        Detect outage → Start warm-up → Set trading_state = PA
                       ↓ Emit OUTAGE_WARM_UP_STARTING alert
                       
 Layer 2 (DA):         Receive alert → Set outage_pause_active = TRUE → HARD BLOCK trades
-                      ↓ Decision Engine attempts trade
+                      ↓ SEA attempts trade
                       
 Layer 3 (Backend):    Trade request rejected at gate → No execution possible
 ```
 
-**Rationale:** If TFA alone signals `trading_allowed = false`, a buggy Decision Engine could ignore it. By routing through DA (which already enforces discipline), we ensure **no trade can slip through**.
+**Rationale:** If TFA alone signals `trading_allowed = false`, a buggy SEA could ignore it. By routing through DA (which already enforces discipline), we ensure **no trade can slip through**.
 
 ### 14.2 DA Data Quality Gate (FIRST Gate)
 
@@ -3059,7 +3059,7 @@ Write mode: `gzip.open(path, "at", encoding="utf-8")` — text append. One JSON 
 
 ### 15.8 Dashboard Integration
 
-On each chain poll, the recorder also overwrites `python_modules/output/option_chain_{instrument}.json` — the same format consumed by `dashboard_data_pusher.py`. This keeps the live UI option chain display updated without a separate poller.
+On each chain poll, the recorder also overwrites `python_modules/output/option_chain_{instrument}.json` — the format the dashboard's option-chain panel consumes. This keeps the live UI option chain display updated without a separate poller.
 
 ### 15.9 Recording Configuration
 

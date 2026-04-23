@@ -67,7 +67,7 @@ Decisions (Flexible, based on market):
 └─ Price reversal detected → EXIT
 
 Also:
-├─ Receives requests from AI Decision Engine
+├─ Receives AI/SEA signals
 │  └─ "Trend reversed → EXIT" (validates & executes)
 ├─ Receives signals from Discipline Engine
 │  └─ "Circuit breaker hit → EXIT" (must honor)
@@ -137,7 +137,7 @@ THREE sources can request exits:
    ├─ "Position at profit but momentum weak → PARTIAL_EXIT"
    └─ Priority: RCA's judgment
    
-3. AI DECISION ENGINE (Market Signals)
+3. AI/SEA SIGNALS (Market Signals)
    ├─ "Trend reversed → EXIT THIS"
    ├─ "Breakout failed → EXIT THIS"
    ├─ "Anomaly detected → VERIFY & EXIT"

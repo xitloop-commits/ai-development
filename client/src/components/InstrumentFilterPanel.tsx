@@ -3,14 +3,10 @@
  * Terminal Noir styling with exchange badges and visual feedback.
  */
 import { Switch } from '@/components/ui/switch';
-import {
-  useInstrumentFilter,
-  ALL_INSTRUMENTS,
-  type InstrumentKey,
-} from '@/contexts/InstrumentFilterContext';
-import { Eye, EyeOff, LayoutGrid, Loader2, CloudOff } from 'lucide-react';
+import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
+import { Eye, EyeOff, LayoutGrid, Loader2 } from 'lucide-react';
 
-const INSTRUMENT_ICONS: Record<InstrumentKey, string> = {
+const INSTRUMENT_ICONS: Record<string, string> = {
   NIFTY_50: '📊',
   BANKNIFTY: '🏦',
   CRUDEOIL: '🛢️',
@@ -18,10 +14,16 @@ const INSTRUMENT_ICONS: Record<InstrumentKey, string> = {
 };
 
 export default function InstrumentFilterPanel() {
-  const { enabledInstruments, toggleInstrument, enableAll, enabledCount, isSyncing } =
-    useInstrumentFilter();
+  const {
+    allInstruments,
+    enabledInstruments,
+    toggleInstrument,
+    enableAll,
+    enabledCount,
+    isSyncing,
+  } = useInstrumentFilter();
 
-  const allEnabled = enabledCount === ALL_INSTRUMENTS.length;
+  const allEnabled = enabledCount === allInstruments.length;
 
   return (
     <div className="space-y-3">
@@ -47,7 +49,7 @@ export default function InstrumentFilterPanel() {
 
       {/* Instrument Toggles */}
       <div className="space-y-1.5">
-        {ALL_INSTRUMENTS.map((inst) => {
+        {allInstruments.map((inst) => {
           const isOn = enabledInstruments.has(inst.key);
           return (
             <div
@@ -96,7 +98,7 @@ export default function InstrumentFilterPanel() {
       {/* Active count + sync status */}
       <div className="text-center space-y-1">
         <span className="text-[0.5625rem] text-muted-foreground tabular-nums">
-          {enabledCount} of {ALL_INSTRUMENTS.length} instruments active
+          {enabledCount} of {allInstruments.length} instruments active
         </span>
         <div className="flex items-center justify-center gap-1">
           {isSyncing ? (
