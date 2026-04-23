@@ -46,6 +46,16 @@ const trpcClient = trpc.createClient({
   ],
 });
 
+const analyticsEndpoint = import.meta.env.VITE_ANALYTICS_ENDPOINT;
+const analyticsWebsiteId = import.meta.env.VITE_ANALYTICS_WEBSITE_ID;
+if (analyticsEndpoint && analyticsWebsiteId) {
+  const s = document.createElement("script");
+  s.defer = true;
+  s.src = `${analyticsEndpoint}/umami`;
+  s.dataset.websiteId = analyticsWebsiteId;
+  document.body.appendChild(s);
+}
+
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>
     <QueryClientProvider client={queryClient}>
