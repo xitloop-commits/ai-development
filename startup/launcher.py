@@ -7,8 +7,10 @@ Each action launches in a new window so the launcher stays usable.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # ── Windows VT (ANSI) mode ────────────────────────────────────────────────
@@ -159,27 +161,175 @@ def act_sea_all():
     _pause_briefly()
 
 # --- Training (MTA) ---
-def act_train_nifty():    _launch_new_window("Train: nifty50",      "train-auto.bat nifty50")
-def act_train_banknifty():_launch_new_window("Train: banknifty",    "train-auto.bat banknifty")
-def act_train_crudeoil(): _launch_new_window("Train: crudeoil",     "train-auto.bat crudeoil")
-def act_train_natgas():   _launch_new_window("Train: naturalgas",   "train-auto.bat naturalgas")
+# Train cutoff = D-2 (holds out D-1 as unseen test day for Scored BT)
+
+def _existing_model_for_cutoff(instrument: str, date_to: str) -> str | None:
+    """Return version timestamp of an existing model with matching date_to, else None."""
+    if not date_to:
+        return None
+    import json
+    inst_dir = ROOT / "models" / instrument
+    if not inst_dir.exists():
+        return None
+    for vdir in sorted(inst_dir.iterdir(), reverse=True):
+        if not vdir.is_dir():
+            continue
+        manifest = vdir / "training_manifest.json"
+        if not manifest.exists():
+            continue
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("date_to") == date_to:
+            return vdir.name
+    return None
+
+
+def _train_one(instrument: str) -> None:
+    """Single-instrument train with confirm-if-exists guard."""
+    existing = _existing_model_for_cutoff(instrument, _TRAIN_END_DATE)
+    if existing:
+        print()
+        print(f"  {YELLOW('!')}  Model for {BOLD(instrument)} with train end "
+              f"{BOLD(_TRAIN_END_DATE)} already exists: {existing}")
+        print(f"     Retrain anyway?  {GREEN('Y')} yes   {DIM('N / Esc')} cancel")
+        while True:
+            k = _getkey()
+            if k in ("y", "Y", "enter"):
+                break
+            if k in ("n", "N", "esc"):
+                print(f"  {DIM('Cancelled.')}")
+                import time; time.sleep(0.4)
+                return
+    _launch_new_window(f"Train: {instrument}",
+                       f"train-auto.bat {instrument} {_TRAIN_END_DATE}")
+
+
+def act_train_nifty():    _train_one("nifty50")
+def act_train_banknifty():_train_one("banknifty")
+def act_train_crudeoil(): _train_one("crudeoil")
+def act_train_natgas():   _train_one("naturalgas")
+
 
 def act_train_all():
-    for inst in ["nifty50", "banknifty", "crudeoil", "naturalgas"]:
-        _launch_no_pause(f"Train: {inst}", f"train-auto.bat {inst}")
+    queued = 0
+    for inst in _INSTRUMENTS:
+        existing = _existing_model_for_cutoff(inst, _TRAIN_END_DATE)
+        if existing:
+            print(f"  {DIM('•')} skip {inst:<11} (already trained for {_TRAIN_END_DATE}: {existing})")
+            continue
+        _launch_no_pause(f"Train: {inst}",
+                         f"train-auto.bat {inst} {_TRAIN_END_DATE}")
+        queued += 1
+    if queued == 0:
+        print()
+        print(f"  {YELLOW('All 4 already trained for')} {BOLD(_TRAIN_END_DATE)}.")
+        print(f"  {DIM('Retrain individually if you really want to redo.')}")
     _pause_briefly()
 
-# --- Scored Backtest (run SEA inline on parquet, produce scorecard) ---
-_BT_DATE = "2026-04-16"  # benchmark date — update when more clean data available
+# --- Walk-forward date selection ------------------------------------------
+# Convention: train on [start … D-2], hold out D-1, score on D-1.
+# Dates are picked from feature parquets that exist for all 4 instruments
+# (and exclude today, whose data is likely still being collected).
 
-def act_sbt_nifty():       _launch_new_window("Scored BT: nifty50",    f"backtest-scored.bat nifty50 {_BT_DATE}")
-def act_sbt_banknifty():   _launch_new_window("Scored BT: banknifty",  f"backtest-scored.bat banknifty {_BT_DATE}")
-def act_sbt_crudeoil():    _launch_new_window("Scored BT: crudeoil",   f"backtest-scored.bat crudeoil {_BT_DATE}")
-def act_sbt_natgas():      _launch_new_window("Scored BT: naturalgas", f"backtest-scored.bat naturalgas {_BT_DATE}")
+_INSTRUMENTS = ["nifty50", "banknifty", "crudeoil", "naturalgas"]
+
+
+def _scan_feature_dates() -> list[str]:
+    """Return sorted list of YYYY-MM-DD dirs under data/features/ that have
+    parquets for all 4 instruments and are strictly older than today."""
+    feat_root = ROOT / "data" / "features"
+    if not feat_root.exists():
+        return []
+    today = datetime.now().strftime("%Y-%m-%d")
+    out: list[str] = []
+    for d in feat_root.iterdir():
+        if not d.is_dir():
+            continue
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", d.name):
+            continue
+        if d.name >= today:
+            continue
+        if all((d / f"{inst}_features.parquet").exists() for inst in _INSTRUMENTS):
+            out.append(d.name)
+    out.sort()
+    return out
+
+
+def _compute_dates() -> tuple[str, str]:
+    """Return (test_date = D-1, train_cutoff = D-2) from available parquets."""
+    dates = _scan_feature_dates()
+    if len(dates) >= 2:
+        return dates[-1], dates[-2]
+    if len(dates) == 1:
+        return dates[0], dates[0]
+    return "", ""
+
+
+_BT_DATE, _TRAIN_END_DATE = _compute_dates()
+
+
+# --- Scored Backtest (run SEA inline on parquet, produce scorecard) ---
+
+def _latest_model_version(instrument: str) -> str | None:
+    """Read models/<instrument>/LATEST, return the version timestamp string."""
+    latest_file = ROOT / "models" / instrument / "LATEST"
+    if not latest_file.exists():
+        return None
+    try:
+        return latest_file.read_text(encoding="utf-8").strip() or None
+    except Exception:
+        return None
+
+
+def _scorecard_exists(instrument: str, version: str | None, date: str) -> bool:
+    if not version or not date:
+        return False
+    return (ROOT / "data" / "backtests" / instrument / version / date /
+            "scorecard.json").exists()
+
+
+def _sbt_one(instrument: str) -> None:
+    """Single-instrument scored BT with skip-if-exists guard."""
+    version = _latest_model_version(instrument)
+    if _scorecard_exists(instrument, version, _BT_DATE):
+        print()
+        print(f"  {YELLOW('!')}  Scorecard for {BOLD(instrument)} model "
+              f"{version} on {BOLD(_BT_DATE)} already exists.")
+        print(f"     Re-score anyway?  {GREEN('Y')} yes   {DIM('N / Esc')} cancel")
+        while True:
+            k = _getkey()
+            if k in ("y", "Y", "enter"):
+                break
+            if k in ("n", "N", "esc"):
+                print(f"  {DIM('Cancelled.')}")
+                import time; time.sleep(0.4)
+                return
+    _launch_new_window(f"Scored BT: {instrument}",
+                       f"backtest-scored.bat {instrument} {_BT_DATE}")
+
+
+def act_sbt_nifty():       _sbt_one("nifty50")
+def act_sbt_banknifty():   _sbt_one("banknifty")
+def act_sbt_crudeoil():    _sbt_one("crudeoil")
+def act_sbt_natgas():      _sbt_one("naturalgas")
+
 
 def act_sbt_all():
-    for inst in ["nifty50", "banknifty", "crudeoil", "naturalgas"]:
-        _launch_no_pause(f"Scored BT: {inst}", f"backtest-scored.bat {inst} {_BT_DATE}")
+    queued = 0
+    for inst in _INSTRUMENTS:
+        version = _latest_model_version(inst)
+        if _scorecard_exists(inst, version, _BT_DATE):
+            print(f"  {DIM('•')} skip {inst:<11} (scorecard exists for {version} on {_BT_DATE})")
+            continue
+        _launch_no_pause(f"Scored BT: {inst}",
+                         f"backtest-scored.bat {inst} {_BT_DATE}")
+        queued += 1
+    if queued == 0:
+        print()
+        print(f"  {YELLOW('All 4 already scored on')} {BOLD(_BT_DATE)}.")
+        print(f"  {DIM('Re-score individually if you really want to redo.')}")
     _pause_briefly()
 
 def act_compare_nifty():     _launch_new_window("Compare: nifty50",    f"backtest-compare.bat nifty50 {_BT_DATE}")
@@ -288,19 +438,19 @@ def main():
         ("Replay  banknifty",                             act_rep_banknifty),
         ("Replay  crudeoil",                              act_rep_crudeoil),
         ("Replay  naturalgas",                            act_rep_natgas),
-        ("─── 3. TRAIN ─── features  →  models/  ─────────────", None),
+        (f"─── 3. TRAIN ─── features → models/   train end = D-2 = {_TRAIN_END_DATE or '(no data)'}", None),
         ("Train ALL  (4 instruments)",                    act_train_all),
         ("Train  nifty50   (MTA)",                        act_train_nifty),
         ("Train  banknifty (MTA)",                        act_train_banknifty),
         ("Train  crudeoil  (MTA)",                        act_train_crudeoil),
         ("Train  naturalgas(MTA)",                        act_train_natgas),
-        ("─── Scored Backtest ─── predict + score vs ground truth ─", None),
+        (f"─── Scored Backtest ─── test day = D-1 = {_BT_DATE or '(no data)'}   (held out from training)", None),
         ("Scored BT ALL  (4 instruments)",                act_sbt_all),
         ("Scored BT  nifty50",                            act_sbt_nifty),
         ("Scored BT  banknifty",                          act_sbt_banknifty),
         ("Scored BT  crudeoil",                           act_sbt_crudeoil),
         ("Scored BT  naturalgas",                         act_sbt_natgas),
-        ("─── Compare ─── side-by-side model comparison ──────", None),
+        (f"─── Compare ─── diff last two models on D-1 = {_BT_DATE or '(no data)'}", None),
         ("Compare  nifty50",                              act_compare_nifty),
         ("Compare  banknifty",                            act_compare_banknifty),
         ("Compare  crudeoil",                             act_compare_crudeoil),
