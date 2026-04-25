@@ -33,6 +33,8 @@ import type {
 } from "../broker/types";
 import { portfolioAgent } from "../portfolio";
 import type { Channel, TradeRecord, TradeStatus } from "../portfolio/state";
+import { disciplineEngine } from "../discipline";
+import type { Exchange } from "../discipline/types";
 import { idempotencyStore } from "./idempotency";
 import { orderSync } from "./orderSync";
 import { seaBridge } from "./seaBridge";
@@ -149,6 +151,24 @@ class TradeExecutorAgent {
         return resp;
       }
 
+      // Pre-flight: Discipline cap-check (PA Phase 3 §10.1). Blocks orders
+      // when the circuit breaker / cooldown / trade-limit / position-size
+      // rules would be violated. Skipped silently if Discipline state can't
+      // be read so a transient discipline-engine failure doesn't halt
+      // trading — Phase 4 will harden this to fail-closed.
+      const blockReason = await this.disciplinePreCheck(req);
+      if (blockReason) {
+        const resp = rejection(req.executionId, `Discipline blocked: ${blockReason}`);
+        idempotencyStore.fail(req.executionId, resp.error!);
+        await portfolioAgent.recordTradeRejected({
+          channel: req.channel,
+          trade: { instrument: req.instrument },
+          reason: resp.error!,
+          timestamp: Date.now(),
+        });
+        return resp;
+      }
+
       const adapter: BrokerAdapter = getAdapter(req.channel);
       const orderParams = mapToOrderParams(req);
 
@@ -236,6 +256,50 @@ class TradeExecutorAgent {
       const resp = rejection(req.executionId, message);
       idempotencyStore.fail(req.executionId, message);
       return resp;
+    }
+  }
+
+  /**
+   * Discipline cap-check: query disciplineEngine.validateTrade() with
+   * the snapshot's currentCapital + openExposure. Returns a human
+   * blockedBy string if the trade should be rejected, or null if
+   * Discipline allows it.
+   *
+   * Failures (Discipline engine throws) are downgraded to allow — we
+   * don't want a transient state issue to block an otherwise-valid
+   * trade. Phase 4 fail-closes this.
+   */
+  private async disciplinePreCheck(req: SubmitTradeRequest): Promise<string | null> {
+    try {
+      const snap = await portfolioAgent.getState(req.channel);
+      const exchange: Exchange =
+        req.instrument.toUpperCase().includes("CRUDE") || req.instrument.toUpperCase().includes("NATURAL")
+          ? "MCX"
+          : "NSE";
+      const result = await disciplineEngine.validateTrade(
+        "1",
+        {
+          instrument: req.instrument,
+          exchange,
+          transactionType: req.direction,
+          optionType: (req.optionType ?? "CE") === "FUT" ? "CE" : (req.optionType ?? "CE") as "CE" | "PE",
+          strike: req.strike ?? 0,
+          entryPrice: req.entryPrice,
+          quantity: req.quantity,
+          estimatedValue: req.entryPrice * req.quantity,
+          stopLoss: req.stopLoss ?? undefined,
+          target: req.takeProfit ?? undefined,
+        },
+        snap.currentCapital,
+        snap.openExposure,
+      );
+      if (!result.allowed && result.blockedBy.length > 0) {
+        return result.blockedBy.join(", ");
+      }
+      return null;
+    } catch (err: any) {
+      log.warn(`disciplinePreCheck failed (allowing trade): ${err?.message ?? err}`);
+      return null;
     }
   }
 
