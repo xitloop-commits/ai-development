@@ -225,7 +225,15 @@ function HolidayIndicator() {
   );
 }
 
-// ── Channel Tabs (3 workspaces × in-tab Live/Paper toggle) ───
+// ── Channel Tabs + separate Mode Toggle ──────────────────────
+//
+// The 3 tabs render in the centered slot of the AppBar (clean labels only).
+// The mode toggle (LIVE/PAPER pill + CLEAR) renders on the right side
+// before the API/FEED indicators — see <ChannelModeToggle/> below.
+//
+// Per-workspace mode memory is shared via a module-level ref. Both
+// components read/write it, so switching tabs lands on each workspace's
+// last-used mode without needing to hoist state into the React tree.
 
 const TAB_DEFS: Array<{ ws: Workspace; label: string; tone: { active: string; idle: string } }> = [
   { ws: 'ai',      label: 'AI Trades',  tone: { active: 'bg-violet-pulse/15 text-violet-pulse',     idle: 'text-muted-foreground hover:text-foreground hover:bg-secondary/50' } },
@@ -240,104 +248,108 @@ const MODES_FOR: Record<Workspace, [Mode, Mode]> = {
   testing: ['sandbox', 'live'],
 };
 
+// Module-level memory of the last-used mode per workspace. Updated whenever
+// channel changes (via useEffect in the consumers below).
+const lastModeForWs: Record<Workspace, Mode> = {
+  ai: 'paper',
+  my: 'paper',
+  testing: 'sandbox',
+};
+
 function ChannelTabs() {
-  const { channel, setChannel, refetchAll } = useCapital() as any;
+  const { channel, setChannel } = useCapital() as any;
   const currentWs = channelToWorkspace(channel);
   const currentMode = channelToMode(channel);
 
-  // Per-workspace mode memory: switching tabs returns to that workspace's last-used mode.
-  const [lastModeForWs, setLastModeForWs] = useState<Record<Workspace, Mode>>(() => ({
-    ai: 'paper',
-    my: 'paper',
-    testing: 'sandbox',
-    [currentWs]: currentMode,
-  }));
-
-  const [confirmTarget, setConfirmTarget] = useState<Channel | null>(null);
+  // Keep module-level memory in sync with the active channel.
+  useEffect(() => {
+    lastModeForWs[currentWs] = currentMode;
+  }, [currentWs, currentMode]);
 
   const switchTab = (ws: Workspace) => {
     if (ws === currentWs) return;
     setChannel(channelOf(ws, lastModeForWs[ws]));
   };
 
+  return (
+    <div className="flex items-stretch self-stretch">
+      {TAB_DEFS.map(({ ws, label, tone }) => {
+        const isActive = ws === currentWs;
+        return (
+          <button
+            key={ws}
+            onClick={() => switchTab(ws)}
+            className={`px-4 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
+              isActive ? tone.active : tone.idle
+            }`}
+          >
+            {label}
+            {isActive && currentMode === 'live' && (
+              <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ChannelModeToggle() {
+  const { channel, setChannel, refetchAll } = useCapital() as any;
+  const currentWs = channelToWorkspace(channel);
+  const currentMode = channelToMode(channel);
+
+  const [confirmTarget, setConfirmTarget] = useState<Channel | null>(null);
+
   const requestModeSwitch = (mode: Mode) => {
     if (mode === currentMode) return;
-    const target = channelOf(currentWs, mode);
-    setConfirmTarget(target);
+    setConfirmTarget(channelOf(currentWs, mode));
   };
 
   const onConfirmSwitch = () => {
     if (!confirmTarget) return;
-    const targetMode = channelToMode(confirmTarget);
-    setLastModeForWs((prev) => ({ ...prev, [currentWs]: targetMode }));
+    lastModeForWs[currentWs] = channelToMode(confirmTarget);
     setChannel(confirmTarget);
     setConfirmTarget(null);
   };
 
-  // Clear-workspace mutation (only enabled on paper/sandbox channels)
   const clearWorkspaceMutation = trpc.capital.clearWorkspace.useMutation({
     onSuccess: () => refetchAll(),
   });
-  const isPaperOrSandbox = currentMode === 'paper' || currentMode === 'sandbox';
-  const canClear = isPaperOrSandbox;
-  const clearableChannel = canClear ? channel : null;
+  const canClear = currentMode === 'paper' || currentMode === 'sandbox';
 
   return (
     <>
-      <div className="flex items-stretch self-stretch">
-        {TAB_DEFS.map(({ ws, label, tone }) => {
-          const isActive = ws === currentWs;
-          return (
-            <div key={ws} className="flex items-stretch border-r border-border">
+      <div className="flex items-center gap-2">
+        <div className="flex items-center rounded border border-border overflow-hidden">
+          {MODES_FOR[currentWs].map((m) => {
+            const active = m === currentMode;
+            const activeTone = m === 'live' ? 'bg-bullish/20 text-bullish' : 'bg-warning-amber/20 text-warning-amber';
+            return (
               <button
-                onClick={() => switchTab(ws)}
-                className={`px-4 text-[0.625rem] font-bold tracking-wider uppercase transition-colors ${
-                  isActive ? tone.active : tone.idle
+                key={m}
+                onClick={() => requestModeSwitch(m)}
+                className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
+                  active ? activeTone : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                {label}
-                {isActive && currentMode === 'live' && (
-                  <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
-                )}
+                {MODE_LABELS[m]}
               </button>
-              {/* In-tab mode toggle (only on the active tab) */}
-              {isActive && (
-                <div className="flex items-center px-2">
-                  <div className="flex items-center rounded border border-border overflow-hidden">
-                    {MODES_FOR[ws].map((m) => {
-                      const active = m === currentMode;
-                      const liveTone = m === 'live' ? 'bg-bullish/20 text-bullish' : 'bg-warning-amber/20 text-warning-amber';
-                      return (
-                        <button
-                          key={m}
-                          onClick={() => requestModeSwitch(m)}
-                          className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
-                            active ? liveTone : 'text-muted-foreground hover:text-foreground'
-                          }`}
-                        >
-                          {MODE_LABELS[m]}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {canClear && (
-                    <button
-                      onClick={() =>
-                        clearableChannel &&
-                        clearWorkspaceMutation.mutate({ channel: clearableChannel as any, initialFunding: 100000 })
-                      }
-                      disabled={clearWorkspaceMutation.isPending}
-                      className="ml-2 px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
-                      title={`Clear ${channel} pool`}
-                    >
-                      {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+        {canClear && (
+          <button
+            onClick={() =>
+              clearWorkspaceMutation.mutate({ channel: channel as any, initialFunding: 100000 })
+            }
+            disabled={clearWorkspaceMutation.isPending}
+            className="px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
+            title={`Clear ${channel} pool`}
+          >
+            {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
+          </button>
+        )}
       </div>
       <ConfirmDialog
         open={!!confirmTarget}
@@ -462,9 +474,9 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
-        {/* Testing controls */}
+        {/* Channel mode toggle (LIVE/PAPER or LIVE/SANDBOX + CLEAR) — separated from tabs */}
         <div className="px-3 flex items-center shrink-0">
-          {/* Testing controls now live inside ChannelTabs (mode toggle + clear button per tab). */}
+          <ChannelModeToggle />
         </div>
 
         <div className="w-px self-stretch bg-border shrink-0" />
