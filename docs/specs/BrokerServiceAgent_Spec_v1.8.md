@@ -59,7 +59,7 @@ BSA routes all orders through one of six channels. Each channel has its own adap
 - `testing-sandbox` uses a separate `DhanAdapter` instance (`brokerId: "dhan-sandbox"`, `sandboxMode: true`) pointed at `sandbox.dhan.co` with separate Dhan DevPortal credentials. Fills at a fixed ₹100 regardless of order price — for API contract validation only.
 - `testing-live` uses real Dhan with small real money — for end-to-end logic validation before promoting to production channels.
 - **No capital pool** for Testing channels. Testing is purely for code and integration validation.
-- Capital pools for AI Trades and My Trades are independent per channel — each follows the 75/25 compounding principle (`CapitalPools_Spec_v1.4.md`). Pool management is handled by the Capital Pools system — not BSA.
+- Capital pools for AI Trades and My Trades are independent per channel — each follows the 75/25 compounding principle (`PortfolioAgent_Spec_v1.3.md` §2.1–2.5). Pool management is owned by the Portfolio Agent — not BSA.
 - BSA does not enforce which channel a consumer targets. It routes whatever channel is specified in the request.
 
 ### 1.3 Mode State Storage
@@ -89,7 +89,7 @@ The **Broker Service Agent (BSA)** is the single authoritative gateway for all b
 **Not BSA's responsibility:**
 - ATM window management — consumers own their subscription logic
 - Greeks / IV polling — TFA polls option chain at its own cadence
-- Capital pool tracking — owned by Capital Pools system (`CapitalPools_Spec_v1.4.md`)
+- Capital pool tracking — owned by Portfolio Agent (`PortfolioAgent_Spec_v1.3.md` §2.1–2.5)
 - Feature engineering, model inference, trade decisions — upstream AI pipeline
 
 ---

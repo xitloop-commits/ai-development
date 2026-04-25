@@ -98,7 +98,7 @@ Phase 0 of the unified execution architecture refactoring is complete. Four spec
 
 ---
 
-### 4. ✅ PortfolioAgent_Spec_v1.1.md
+### 4. ✅ PortfolioAgent_Spec_v1.3.md
 
 **Purpose:** Centralized portfolio state & trade outcome recording
 
@@ -261,7 +261,7 @@ Priority Order (highest to lowest):
 - `/docs/ARCHITECTURE_REFACTOR_PLAN.md`
 
 ### Enhanced
-- `/docs/specs/PortfolioAgent_Spec_v1.1.md`
+- `/docs/specs/PortfolioAgent_Spec_v1.3.md`
 
 ---
 

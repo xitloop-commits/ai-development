@@ -114,7 +114,7 @@ This roadmap tracks what was actually delivered for the unified execution archit
 
 ---
 
-### 4. PortfolioAgent_Spec_v1.1.md ✅
+### 4. PortfolioAgent_Spec_v1.3.md ✅
 
 **Key updates:**
 - Added `dailyRealizedPnl` and `dailyRealizedPnlPercent` to Portfolio Snapshot
@@ -198,7 +198,7 @@ Week 4:
 - [x] Interaction with RCA
 - [x] Testing Strategy
 
-### PortfolioAgent_Spec_v1.1.md ✅
+### PortfolioAgent_Spec_v1.3.md ✅
 - [x] Portfolio Snapshot (daily P&L fields)
 - [x] Trade Outcome Recording (exitTriggeredBy)
 - [x] Push integration with Discipline

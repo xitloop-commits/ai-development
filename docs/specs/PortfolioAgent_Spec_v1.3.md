@@ -1,8 +1,9 @@
-# Portfolio Agent Spec v1.1
+# Portfolio Agent Spec v1.3
 
-**Document:** PortfolioAgent_Spec_v1.1.md
+**Document:** PortfolioAgent_Spec_v1.3.md
 **Project:** Automatic Trading System (ATS)
-**Status:** Implementation
+**Status:** Implementation (Phase 1 in progress)
+**Supersedes:** CapitalPools_Spec_v1.4.md (absorbed)
 
 ---
 
@@ -13,6 +14,8 @@
 | v1.0 | 2026-04-08 | AI Team | Initial specification for a unified, centralized Portfolio Agent that manages portfolio state, capital, exposure, drawdown, and portfolio-level risk signals. |
 | v1.0.1 | 2026-04-09 | Architecture Team | **ENHANCEMENT:** Added trade outcome recording (Section 5.2), daily P&L metrics, exit_triggered_by field for tracking who initiated trade exits. Integration with Discipline Engine capital protection, RCA exit signals, and SEA (AI signals). |
 | v1.1 | 2026-04-09 | AI Team | **UPDATED:** Replaced 5-second polling model with push-only integration — Portfolio Agent calls discipline.recordTradeOutcome after every trade close. Defined full response contract for GET /api/portfolio/daily-pnl (7 fields). Clarified endpoint is for on-demand reads only, not cap monitoring. |
+| v1.2 | 2026-04-24 | Architecture Team | **CHANNEL NORMALIZATION:** Replaced legacy `'live' \| 'paper_manual' \| 'paper'` channel vocabulary with the six-channel canonical form per BSA v1.9 (`ai-live \| ai-paper \| my-live \| my-paper \| testing-live \| testing-sandbox`). All API signatures keyed by `channel: Channel`. |
+| v1.3 | 2026-04-25 | Architecture Team | **CONSOLIDATION:** Absorbed CapitalPools_Spec_v1.4 content into this document — Project Target, Capital Architecture (75/25 split), Day Index System (forward/backward/clawback/floor), Compounding model, and Position Sizing now live here as Sections 2.1–2.5. CapitalPools_Spec_v1.4.md is deprecated; cross-refs point here. Phase 1 implementation: PortfolioAgent owns `compounding.ts`, `state.ts`, `tickHandler.ts`, and the `portfolio.*` tRPC namespace. |
 
 ---
 
@@ -32,7 +35,79 @@ The Portfolio Agent will:
 - Calculate portfolio-level P&L, drawdown, and risk metrics
 - Serve portfolio data to strategy, risk, and execution systems
 - Enforce portfolio-level constraints and alerts
-- Support multi-workspace capital contexts (paper, paper_manual, live)
+- Maintain six independent capital pools, one per **channel** (`ai-live`, `ai-paper`, `my-live`, `my-paper`, `testing-live`, `testing-sandbox`) per BSA v1.9 — pool maths is identical across channels; only the persisted state differs.
+- Drive the 250-day compounding journey (75/25 split, Day Index cycles, clawback) — see Sections 2.1–2.5 (absorbed from CapitalPools_Spec_v1.4)
+
+---
+
+### 2.1 Project Target *(absorbed from CapitalPools v1.4 §2)*
+
+> **Achieve 250 completed Day Index cycles starting from ₹1,00,000 initial funding, where each cycle represents a +5% profit on the Trading Capital at the start of that cycle.**
+
+| Parameter | Value |
+|-----------|-------|
+| Initial Funding | ₹1,00,000 |
+| Initial Trading Pool | ₹75,000 (75%) |
+| Initial Reserve Pool | ₹25,000 (25%) |
+| Target per Day Index Cycle | +5% of Trading Capital at start of cycle (configurable) |
+| Effective Compounding Rate (Trading) | 3.75% per cycle (75% of 5% profit retained) |
+| Total Cycles | 250 |
+| Approximate Timeframe | ~1 year (250 market trading days; cycles may span multiple calendar days) |
+
+These parameters are per-channel — every channel runs its own 250-day journey on its own pools. Default values match a fresh `my-live` allocation; AI/paper/testing channels start identical and diverge based on outcomes.
+
+### 2.2 Capital Architecture *(absorbed from CapitalPools v1.4 §3)*
+
+**Universal Capital Allocation Rule:** All incoming capital — regardless of source — is split 75% to Trading Pool and 25% to Reserve Pool.
+
+| Capital Source | Trading Pool (75%) | Reserve Pool (25%) |
+|----------------|--------------------|--------------------|
+| Initial allocation | ₹75,000 | ₹25,000 |
+| Profit earned | 75% of profit | 25% of profit |
+| New capital injection | 75% of new funds | 25% of new funds |
+
+**Capital Rules**
+
+- **Profit split:** 75% → Trading Pool; 25% → Reserve Pool
+- **Loss handling:** 100% of loss deducted from Trading Pool; Reserve untouched
+- **Reserve rules:** No automatic debit, no clawback, no loss adjustment. Reserve grows only via profit split or new capital injection (25% share). Manual transfer only (Reserve → Trading), via `portfolio.transferFunds`.
+
+### 2.3 Compounding Model *(absorbed from CapitalPools v1.4 §4)*
+
+- Effective compounding rate: 3.75% per Day Index cycle
+- Trading Pool compounds; Reserve Pool accumulates (non-compounding)
+
+### 2.4 Day Index System *(absorbed from CapitalPools v1.4 §5)*
+
+A "Day" is **not** a calendar day — it is one completed profit cycle (default +5%, configurable) on the combined Trading Capital across all instruments on that channel. The system stays in the same Day Index until the target is reached, regardless of how many calendar days it takes.
+
+**Forward Movement**
+If combined cumulative P&L ≥ target (e.g. +5%) of Trading Capital at start of cycle:
+- Move to next day (Day + 1)
+- Apply profit split (75/25)
+
+**Backward Movement (Clawback)**
+If cumulative loss ≥ −5%:
+- The loss eats into the **full profit of the previous day(s)**, but the deduction happens **only from the Trading Pool**.
+- The 25% profit that went to Reserve in previous days is permanently safe and not considered for loss adjustment.
+- Move backward (Day − 1). The previous day is nullified.
+- Continue until loss is fully absorbed by previous Trading Pool profits, or Day 1 is reached.
+- **Incomplete Day Recovery:** If a clawback partially eats a previous day's profit, that day is no longer complete. The system stays on that day and must earn the remaining gap to hit the original target. The target does not reset; the remaining profit carries forward.
+
+**Floor Condition**
+- Minimum Day = Day 1
+- No backward movement below Day 1
+- Unabsorbed loss remains in Trading Pool
+
+**Carry Forward Rule**
+- Excess profit beyond the target carries forward to the next day cycle (becomes Day N+1's opening P&L).
+
+### 2.5 Position Sizing *(absorbed from CapitalPools v1.4 §7)*
+
+- Position sizing is percentage-based. The user selects a percentage of Available Capital (5%–100%) when placing each trade.
+- There is no system-mandated fixed allocation — the user freely chooses per trade.
+- The Discipline Engine enforces configurable ceilings (default: 40% max per position, 80% max total exposure) — see DisciplineEngine_Spec_v1.3.
+- If there are not enough available funds (Trading Pool minus capital already deployed in open positions) for the selected percentage, the trade does not execute.
 
 ## 3. Goals
 
@@ -174,7 +249,7 @@ The Portfolio Agent owns:
 - available capital and margin usage
 - realized and unrealized PnL
 - portfolio drawdown and streak state
-- session and workspace state
+- session and channel state
 
 ### 6.3 Persistence
 
@@ -193,10 +268,10 @@ Suggested persistence model:
 
 #### Query APIs
 
-- `portfolio.getState(workspace)`
-- `portfolio.getPositions(workspace)`
-- `portfolio.getMetrics(workspace)`
-- `portfolio.getHistory(workspace, range)`
+- `portfolio.getState(channel)`
+- `portfolio.getPositions(channel)`
+- `portfolio.getMetrics(channel)`
+- `portfolio.getHistory(channel, range)`
 
 #### Mutation APIs
 
@@ -225,7 +300,7 @@ Payload shape should include:
 
 - `tradeId`, `instrument`, `qty`, `entryPrice`, `side`, `status`
 - `currentPrice`, `unrealizedPnl`, `realizedPnl`
-- `workspace`, `timestamp`
+- `channel`, `timestamp`
 
 ## 8. Implementation Plan
 
@@ -272,13 +347,13 @@ Payload shape should include:
 - Add unit tests for portfolio state and exposure calculations
 - Add integration tests for trade lifecycle events and API contracts
 - Simulate adverse drawdown and margin stress conditions
-- Validate portfolio state consistency across workspaces
+- Validate portfolio state consistency across channels
 
 ## 9. Agent State Model
 
 ### Portfolio State
 
-- `workspace`
+- `channel`
 - `currentCapital`
 - `availableCapital`
 - `openExposure`
@@ -341,7 +416,7 @@ GET /api/portfolio/daily-pnl
 
 Response:
 {
-  workspace: "live" | "paper" | "paper_manual",
+  channel: "ai-live" | "ai-paper" | "my-live" | "my-paper" | "testing-live" | "testing-sandbox",
   date: string,                       // "2026-04-09" IST
   openingCapital: number,             // Capital at start of day (denominator for % calc)
   dailyRealizedPnl: number,           // Absolute P&L from closed trades today
@@ -389,7 +464,7 @@ The Portfolio Agent records when broker auto-exits (SL/TP hits) on live trades:
 
 ## 11. Versioning
 
-This spec is versioned as `v1.0`. Future updates must be recorded in the Change History table.
+This spec is versioned as `v1.3`. Future updates must be recorded in the Change History table.
 
 ## 12. Notes
 
@@ -397,3 +472,4 @@ This spec is versioned as `v1.0`. Future updates must be recorded in the Change 
 - It should reduce duplicate state held in Python modules and server memory stores.
 - Inputs from trade execution, market valuation, and capital updates must be kept consistent and fresh.
 - **v1.0.1 (2026-04-09):** Enhanced for new unified execution architecture. Trade outcome recording now includes `exitTriggeredBy` field to track whether exit came from RCA, Broker, Discipline Engine, or AI signals (from SEA). Daily P&L metrics now feed capital protection monitoring in Discipline Engine.
+- **v1.3 (2026-04-25):** CapitalPools_Spec_v1.4 fully absorbed. The Portfolio Agent is now the single document of record for capital pools, the 75/25 split, the 250-day journey, clawback mechanics, and position sizing — formerly split across two specs. Phase 1 implementation: `server/portfolio/{compounding,state,tickHandler,portfolioAgent}.ts` + the `portfolio.*` tRPC namespace + `/api/portfolio/daily-pnl` REST endpoint.

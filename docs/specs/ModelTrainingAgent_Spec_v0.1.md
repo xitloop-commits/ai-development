@@ -91,7 +91,7 @@ The Signal Engine Agent (SEA) operates exclusively in the **AI Trades workspace*
 | Paper (default) | `ai-paper` | MockAdapter | AI Paper pool |
 | Live | `ai-live` | DhanAdapter (real Dhan account) | AI Live pool |
 
-Mode is switched from **Settings page only** — no on-screen toggle in the AI Trades workspace. Both paper and live follow the 75/25 compounding principle (CapitalPools_Spec_v1.4).
+Mode is switched from **Settings page only** — no on-screen toggle in the AI Trades workspace. Both paper and live follow the 75/25 compounding principle (PortfolioAgent_Spec_v1.3 §2.1–2.5).
 
 ### 2.3 Instrument Scope
 
@@ -849,7 +849,7 @@ The following decisions are explicitly deferred and must be resolved before impl
 | RiskControlAgent_Spec_v2.0 §7.1 | TradeSuggestion payload contract |
 | RiskControlAgent_Spec_v2.0 §2.5 | AI signal format expected by RCA |
 | BrokerServiceAgent_Spec_v1.8 §1 | ai-live / ai-paper channel architecture |
-| CapitalPools_Spec_v1.4 | AI Trades capital pool behavior |
+| PortfolioAgent_Spec_v1.3 §2.1–2.5 | AI Trades capital pool behavior (absorbed CapitalPools_Spec_v1.4) |
 | DisciplineEngine_Spec_v1.3 | Discipline status check before trade submission |
 | Settings_Spec_v1.4 §3.7 | AI Trades mode switch (paper ↔ live) |
 

@@ -99,7 +99,7 @@ Approved redesign per memory [project_tradedesk_redesign.md](../../.claude/proje
 Must-land before any live-trading path works. Starts after Priority 0 ships.
 
 #### 1.1 Portfolio Agent  `L`  *(Risk blocker)*
-Spec: [PortfolioAgent_Spec_v1.1.md](specs/PortfolioAgent_Spec_v1.1.md) · Audit: [audit_trading_execution.md](audit_trading_execution.md)
+Spec: [PortfolioAgent_Spec_v1.3.md](specs/PortfolioAgent_Spec_v1.3.md) · Audit: [audit_trading_execution.md](audit_trading_execution.md)
 
 **Data model (Mongo):**
 - [ ] `portfolio_positions` collection: position_id, instrument, direction, qty, entry_price, current_price, sl, tp, tsl, environment (paper/live), status, exit_triggered_by, opened_at, closed_at

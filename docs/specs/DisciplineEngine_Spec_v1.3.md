@@ -2,7 +2,7 @@
 **Version:** 1.3  
 **Date:** April 9, 2026  
 **Status:** Implementation Phase (Modules 1–8)  
-**Dependencies:** RiskControlAgent_Spec_v2.0, TradeExecutorAgent_Spec_v1.3, PortfolioAgent_Spec_v1.1  
+**Dependencies:** RiskControlAgent_Spec_v2.0, TradeExecutorAgent_Spec_v1.3, PortfolioAgent_Spec_v1.3  
 **Previous Version:** v1.2 (April 9, 2026)
 
 ---
@@ -1039,7 +1039,7 @@ describe("E2E: Loss Cap Scenario", () => {
 
 - **RiskControlAgent_Spec_v2.0.md** — RCA receives and honors Discipline signals
 - **TradeExecutorAgent_Spec_v1.2.md** — TEA executes RCA's exit commands
-- **PortfolioAgent_Spec_v1.0.md** — Portfolio Agent sends P&L updates to Discipline Engine
+- **PortfolioAgent_Spec_v1.3.md** — Portfolio Agent sends P&L updates to Discipline Engine
 - **DISCIPLINE_vs_RCA_CLARITY.md** — Distinction between policy layer (Discipline) and risk layer (RCA)
 - **ARCHITECTURE_REFACTOR_PLAN.md** — Overall unified execution architecture
 

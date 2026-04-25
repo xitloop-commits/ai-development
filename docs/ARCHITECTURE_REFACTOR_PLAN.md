@@ -486,7 +486,7 @@ POST /api/discipline/recordTradeOutcome
   → triggers cap checks (Module 8)
 ```
 
-See **PortfolioAgent_Spec_v1.1.md** for the full specification.
+See **PortfolioAgent_Spec_v1.3.md** for the full specification.
 
 ---
 

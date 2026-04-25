@@ -1,4 +1,8 @@
-# Capital Management & Auto-Execution System — Spec v1.4
+# Capital Management & Auto-Execution System — Spec v1.4 *(DEPRECATED)*
+
+> ⚠️ **DEPRECATED — 2026-04-25.** This document has been **absorbed into [PortfolioAgent_Spec_v1.3](PortfolioAgent_Spec_v1.3.md)**. All capital-pool, 75/25 split, Day Index, clawback, and position-sizing rules now live in PortfolioAgent_Spec_v1.3 §2.1–2.5. Implementation is owned by the Portfolio Agent (`server/portfolio/`).
+>
+> The content below is preserved for historical reference only. **Do not author new cross-refs against this file** — point to PortfolioAgent_Spec_v1.3.md instead.
 
 ---
 
