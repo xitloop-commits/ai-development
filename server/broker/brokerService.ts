@@ -358,15 +358,22 @@ export async function initBrokerService(): Promise<void> {
   // 4b. Instantiate DhanAdapter (ai-data) → spouse's Dhan account for TFA + AI Live.
   // Pre-check the TOTP refresh INPUTS (auth.{clientId, pin, totpSecret}) rather
   // than the access token (which is the output — empty until the first refresh).
+  // If connect() throws (auth credentials wrong, network down, etc.) we leave
+  // adapters.dhanAiData null so getAdapter("ai-live") falls back to the primary.
   try {
     const aiDataConfig = await getBrokerConfig("dhan-ai-data");
     const auth = (aiDataConfig as any)?.auth ?? {};
     const hasAuthCreds = !!auth.clientId && !!auth.pin && !!auth.totpSecret;
     if (hasAuthCreds) {
-      adapters.dhanAiData = new DhanAdapter("dhan-ai-data", false);
-      await adapters.dhanAiData.connect();
-      wireTickBus(adapters.dhanAiData);
-      log.info("DhanAdapter (ai-data) connected");
+      const candidate = new DhanAdapter("dhan-ai-data", false);
+      try {
+        await candidate.connect();
+        wireTickBus(candidate);
+        adapters.dhanAiData = candidate;
+        log.info("DhanAdapter (ai-data) connected");
+      } catch (err: any) {
+        log.warn(`DhanAdapter (ai-data) NOT initialized: ${err.message}`);
+      }
     } else {
       log.info(
         "DhanAdapter (ai-data) auth credentials missing — set them with: " +
@@ -374,7 +381,7 @@ export async function initBrokerService(): Promise<void> {
       );
     }
   } catch (err) {
-    log.warn("DhanAdapter (ai-data) failed to connect:", err);
+    log.warn("DhanAdapter (ai-data) initialization error:", err);
   }
 
   // 5. Instantiate MockAdapter (mock-ai) → no-op connect

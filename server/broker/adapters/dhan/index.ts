@@ -1046,12 +1046,20 @@ export class DhanAdapter implements BrokerAdapter {
   // ── Lifecycle ─────────────────────────────────────────────────
 
   async connect(): Promise<void> {
+    // Sandbox mode short-circuits — Dhan's sandbox doesn't expose a real
+    // auth endpoint, so we just mark the adapter as ready without a token.
+    if (this.sandboxMode) {
+      this.log.info("Sandbox mode — skipping token refresh (token-validation only).");
+      await updateBrokerConnection(this.brokerId, { apiStatus: "connected" });
+      return;
+    }
+
     // Load credentials from MongoDB
     const config = await getBrokerConfig(this.brokerId);
 
     if (!config) {
       this.log.warn("No config found in MongoDB. Waiting for token setup.");
-      return;
+      throw new Error(`No broker_config found for ${this.brokerId}`);
     }
 
     this.accessToken = config.credentials.accessToken;
@@ -1070,14 +1078,14 @@ export class DhanAdapter implements BrokerAdapter {
           `Set them with: node scripts/dhan-update-credentials.mjs --brokerId ${this.brokerId} --clientId <ID> --pin <PIN> --totp <SECRET>`
         );
         await updateBrokerConnection(this.brokerId, { apiStatus: "disconnected" });
-        return;
+        throw new Error(`Missing TOTP auth credentials for ${this.brokerId}`);
       }
       this.log.info("No access token yet — running first-time TOTP refresh to mint one...");
       const minted = await this._tryAutoRefresh();
       if (!minted || !this.accessToken) {
         this.log.error("First-time TOTP refresh failed. Adapter will not be ready until next restart.");
         await updateBrokerConnection(this.brokerId, { apiStatus: "disconnected" });
-        return;
+        throw new Error(`First-time TOTP refresh failed for ${this.brokerId}`);
       }
       // Fall through into the validation path below — already have a fresh token.
     } else {
