@@ -385,7 +385,7 @@ function ChannelModeToggle() {
     setConfirmTarget(null);
   };
 
-  const clearWorkspaceMutation = trpc.capital.clearWorkspace.useMutation({
+  const clearWorkspaceMutation = trpc.portfolio.clearWorkspace.useMutation({
     onSuccess: () => refetchAll(),
   });
   const canClear = currentMode === 'paper' || currentMode === 'sandbox';

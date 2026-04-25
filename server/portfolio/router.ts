@@ -46,6 +46,7 @@ import { getActiveBroker } from "../broker/brokerService";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import { tickBus } from "../broker/tickBus";
 import type { BrokerSettings, OrderParams } from "../broker/types";
+import { portfolioAgent } from "./portfolioAgent";
 // ─── Helpers ─────────────────────────────────────────────────────
 
 const channelSchema = z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "testing-sandbox"]);
@@ -245,7 +246,7 @@ async function ensureCurrentDay(channel: Channel): Promise<DayRecord> {
 
 // ─── Router ──────────────────────────────────────────────────────
 
-export const capitalRouter = router({
+export const portfolioRouter = router({
   // ─── State Queries ─────────────────────────────────────────────
 
   /** Get current capital state for a workspace. */
@@ -362,7 +363,7 @@ export const capitalRouter = router({
         try {
           await syncWorkspace(channel);
         } catch (err) {
-          console.warn(`[capital.inject] ${channel} channel sync failed (non-fatal):`, err);
+          console.warn(`[portfolio.inject] ${channel} channel sync failed (non-fatal):`, err);
         }
       }
 
@@ -1145,7 +1146,7 @@ export const capitalRouter = router({
         try {
           await resetWorkspace(channel);
         } catch (err) {
-          console.warn(`[capital.resetCapital] ${channel} channel reset failed (non-fatal):`, err);
+          console.warn(`[portfolio.resetCapital] ${channel} channel reset failed (non-fatal):`, err);
         }
       }
 
@@ -1215,5 +1216,98 @@ export const capitalRouter = router({
 
       const newState = await replaceCapitalState(input.channel, freshState);
       return { success: true, deletedDayRecords: deleted, newState };
+    }),
+
+  // ─── Portfolio Agent Spec §7.1 — Query APIs ────────────────────
+
+  /** Spec §7.1 — full portfolio snapshot (capital + exposure + risk). */
+  snapshot: publicProcedure
+    .input(z.object({ channel: channelSchema }))
+    .query(({ input }) => portfolioAgent.getState(input.channel)),
+
+  /** Spec §7.1 — open positions for a channel. */
+  positions: publicProcedure
+    .input(z.object({ channel: channelSchema }))
+    .query(({ input }) => portfolioAgent.getPositions(input.channel)),
+
+  /** Spec §7.1 — aggregate performance metrics. */
+  metrics: publicProcedure
+    .input(z.object({ channel: channelSchema }))
+    .query(({ input }) => portfolioAgent.getMetrics(input.channel)),
+
+  /** Spec §7.1 — historical day records. */
+  history: publicProcedure
+    .input(z.object({
+      channel: channelSchema,
+      from: z.number().int().min(1).optional(),
+      to: z.number().int().min(1).optional(),
+      limit: z.number().int().min(1).max(500).optional(),
+    }))
+    .query(({ input }) => {
+      const { channel, ...range } = input;
+      return portfolioAgent.getHistory(channel, range);
+    }),
+
+  /** Spec §10.1 — on-demand daily P&L pull. */
+  dailyPnl: publicProcedure
+    .input(z.object({ channel: channelSchema }))
+    .query(({ input }) => portfolioAgent.getDailyPnl(input.channel)),
+
+  /** Spec §5.3 — current risk signals. */
+  exposure: publicProcedure
+    .input(z.object({ channel: channelSchema }))
+    .query(({ input }) => portfolioAgent.evaluateExposure(input.channel)),
+
+  /** Spec §5.3 — drawdown indicator. */
+  drawdown: publicProcedure
+    .input(z.object({ channel: channelSchema }))
+    .query(({ input }) => portfolioAgent.evaluateDrawdown(input.channel)),
+
+  /** Spec §5.3 — portfolio health score. */
+  health: publicProcedure
+    .input(z.object({ channel: channelSchema }))
+    .query(({ input }) => portfolioAgent.evaluateHealth(input.channel)),
+
+  // ─── Portfolio Agent Spec §7.1 — Mutation APIs ─────────────────
+
+  /** Spec §5.2 — record trade close with full outcome metadata. */
+  recordTradeClosed: publicProcedure
+    .input(z.object({
+      channel: channelSchema,
+      tradeId: z.string(),
+      instrument: z.string(),
+      side: z.enum(["LONG", "SHORT"]),
+      entryPrice: z.number(),
+      exitPrice: z.number(),
+      quantity: z.number(),
+      entryTime: z.number(),
+      exitTime: z.number(),
+      realizedPnl: z.number(),
+      realizedPnlPercent: z.number(),
+      exitReason: z.enum(["SL", "TP", "RCA_EXIT", "DISCIPLINE_EXIT", "AI_EXIT", "MANUAL", "EOD", "EXPIRY"]),
+      exitTriggeredBy: z.enum(["RCA", "BROKER", "DISCIPLINE", "AI", "USER", "PA"]),
+      duration: z.number(),
+      pnlCategory: z.enum(["win", "loss", "breakeven"]),
+      signalSource: z.string().optional(),
+      timestamp: z.number(),
+    }))
+    .mutation(({ input }) => portfolioAgent.recordTradeClosed(input)),
+
+  /** Spec §7.1 — audit trail for rejected trades. */
+  recordTradeRejected: publicProcedure
+    .input(z.object({
+      channel: channelSchema,
+      reason: z.string(),
+      instrument: z.string().optional(),
+      timestamp: z.number(),
+    }))
+    .mutation(({ input }) => {
+      const { channel, reason, instrument, timestamp } = input;
+      return portfolioAgent.recordTradeRejected({
+        channel,
+        trade: instrument ? { instrument } : {},
+        reason,
+        timestamp,
+      });
     }),
 });

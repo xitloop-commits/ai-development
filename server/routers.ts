@@ -21,8 +21,7 @@ import { getMongoHealth, pingMongo } from "./mongo";
 import { getSEASignals } from "./seaSignals";
 import { getInstrumentLiveState } from "./instrumentLiveState";
 import { brokerRouter } from "./broker/brokerRouter";
-import { capitalRouter } from "./portfolio/router";
-import { portfolioRouter } from "./portfolio/portfolioRouter";
+import { portfolioRouter } from "./portfolio/router";
 import { disciplineRouter } from "./discipline/disciplineRouter";
 import { getUserSettings, updateUserSettings } from "./userSettings";
 import {
@@ -263,12 +262,8 @@ export const appRouter = router({
   // Broker Service (tRPC)
   broker: brokerRouter,
 
-  // Capital Management & Trading Desk (legacy namespace — removed in
-  // PA Phase 1 commit 4 once all client consumers migrate to `portfolio.*`).
-  capital: capitalRouter,
-
   // Portfolio Agent (PortfolioAgent_Spec_v1.1) — canonical portfolio API.
-  // Both `capital.*` and `portfolio.*` work in commits 2-3; cutover is commit 4.
+  // Absorbed legacy `capital.*` namespace in PA Phase 1 commit 4.
   portfolio: portfolioRouter,
 
   // Discipline Engine

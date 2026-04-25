@@ -162,13 +162,13 @@ export default function MainScreen() {
   // ─── tRPC Mutations ────────────────────────────────────────────
   const utils = trpc.useUtils();
 
-  const placeTradeM = trpc.capital.placeTrade.useMutation({
+  const placeTradeM = trpc.portfolio.placeTrade.useMutation({
     onSuccess: async () => {
       await Promise.all([
-        utils.capital.allDays.invalidate(),
-        utils.capital.currentDay.invalidate(),
-        utils.capital.state.invalidate(),
-        utils.capital.futureDays.invalidate(),
+        utils.portfolio.allDays.invalidate(),
+        utils.portfolio.currentDay.invalidate(),
+        utils.portfolio.state.invalidate(),
+        utils.portfolio.futureDays.invalidate(),
       ]);
       toast.success('Order placed');
       setQuickOrderOpen(false);

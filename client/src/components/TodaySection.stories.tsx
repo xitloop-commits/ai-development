@@ -48,7 +48,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "The today-day section of the TradingDesk table — renders trade rows, the new-trade form, and the summary row. Pulls `trpc.capital.updateTrade` for TP/SL edits (provider wired via Storybook preview decorator).",
+          "The today-day section of the TradingDesk table — renders trade rows, the new-trade form, and the summary row. Pulls `trpc.portfolio.updateTrade` for TP/SL edits (provider wired via Storybook preview decorator).",
       },
     },
   },

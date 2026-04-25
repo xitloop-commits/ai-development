@@ -58,12 +58,12 @@ export function TodaySection({
   allDays,
 }: TodaySectionProps) {
   const [showNewTradeForm, setShowNewTradeForm] = useState(false);
-  const updateTradeMutation = trpc.capital.updateTrade.useMutation();
+  const updateTradeMutation = trpc.portfolio.updateTrade.useMutation();
   const utils = trpc.useUtils();
   const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
     updateTradeMutation.mutate(
       { channel, tradeId, ...patch },
-      { onSuccess: () => utils.capital.allDays.invalidate() }
+      { onSuccess: () => utils.portfolio.allDays.invalidate() }
     );
   }, [updateTradeMutation, channel, utils]);
 

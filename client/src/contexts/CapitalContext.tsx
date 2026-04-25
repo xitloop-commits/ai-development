@@ -158,13 +158,13 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   const utils = trpc.useUtils();
 
   // ─── Single shared query for capital state ──────────────────
-  const stateQuery = trpc.capital.state.useQuery(
+  const stateQuery = trpc.portfolio.state.useQuery(
     { channel },
     { refetchInterval: 3000, retry: 1 }
   );
 
   // ─── Single shared query for all days ───────────────────────
-  const allDaysQuery = trpc.capital.allDays.useQuery(
+  const allDaysQuery = trpc.portfolio.allDays.useQuery(
     { channel, futureCount: 250 },
     { refetchInterval: 2000, retry: 1 }
   );
@@ -172,15 +172,15 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   // ─── Invalidate all capital queries ─────────────────────────
   const invalidateAll = useCallback(async () => {
     await Promise.all([
-      utils.capital.state.invalidate(),
-      utils.capital.currentDay.invalidate(),
-      utils.capital.allDays.invalidate(),
-      utils.capital.futureDays.invalidate(),
+      utils.portfolio.state.invalidate(),
+      utils.portfolio.currentDay.invalidate(),
+      utils.portfolio.allDays.invalidate(),
+      utils.portfolio.futureDays.invalidate(),
     ]);
   }, [utils]);
 
   // ─── Mutations ──────────────────────────────────────────────
-  const injectMutation = trpc.capital.inject.useMutation({
+  const injectMutation = trpc.portfolio.inject.useMutation({
     onSuccess: async () => {
       await invalidateAll();
     },
@@ -189,27 +189,27 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const placeTradeMutation = trpc.capital.placeTrade.useMutation({
+  const placeTradeMutation = trpc.portfolio.placeTrade.useMutation({
     onSuccess: async () => {
       await invalidateAll();
     },
   });
 
-  const exitTradeMutation = trpc.capital.exitTrade.useMutation({
+  const exitTradeMutation = trpc.portfolio.exitTrade.useMutation({
     onSuccess: async () => {
       await invalidateAll();
     },
   });
 
-  const updateLtpMutation = trpc.capital.updateLtp.useMutation();
+  const updateLtpMutation = trpc.portfolio.updateLtp.useMutation();
 
-  const syncDailyTargetMutation = trpc.capital.syncDailyTarget.useMutation({
+  const syncDailyTargetMutation = trpc.portfolio.syncDailyTarget.useMutation({
     onSuccess: async () => {
       await invalidateAll();
     },
   });
 
-  const resetCapitalMutation = trpc.capital.resetCapital.useMutation({
+  const resetCapitalMutation = trpc.portfolio.resetCapital.useMutation({
     onSuccess: async () => {
       await invalidateAll();
     },
@@ -218,7 +218,7 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const transferFundsMutation = trpc.capital.transferFunds.useMutation({
+  const transferFundsMutation = trpc.portfolio.transferFunds.useMutation({
     onSuccess: async () => {
       await invalidateAll();
     },
@@ -269,7 +269,7 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
 
   // ─── Mutation wrappers ──────────────────────────────────────
   // Pool-affecting ops (inject/reset/transfer) target the My-Live channel as the
-  // primary; capitalRouter mirrors them to other paper channels for parity.
+  // primary; portfolioRouter mirrors them to other paper channels for parity.
   const inject = useCallback(
     (amount: number) => {
       injectMutation.mutate({ channel: 'my-live', amount });
