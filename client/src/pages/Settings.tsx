@@ -2562,11 +2562,11 @@ export default function Settings() {
   const [activeSection, setActiveSection] = useState<SettingsSection>('broker');
   const [pageActions, setPageActions] = useState<SettingsActions | null>(null);
 
-  // Reset registered actions whenever the section switches — the new
-  // section will register its own.
-  useEffect(() => {
-    setPageActions(null);
-  }, [activeSection]);
+  // (No section-change reset needed: each section's useRegisterActions
+  //  cleanup runs on unmount and clears the registration. A parent-
+  //  level reset here would race with the new section's mount effect
+  //  and clobber the freshly-registered actions, leaving the header
+  //  empty.)
 
   const renderSection = () => {
     switch (activeSection) {
