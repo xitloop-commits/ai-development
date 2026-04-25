@@ -1,17 +1,24 @@
 /**
  * Dhan Update Credentials — Store auth credentials in MongoDB
  *
- * Saves DHAN_CLIENT_ID, DHAN_PIN, and DHAN_TOTP_SECRET into the
+ * Saves DHAN_CLIENT_ID, DHAN_PIN, and DHAN_TOTP_SECRET into a
  * broker_configs document so the TokenManager can read them at runtime
- * without relying on .env being present.
+ * and run TOTP-based access-token refresh without manual paste.
  *
  * Usage:
+ *   # Primary trading account (default brokerId="dhan"):
  *   node scripts/dhan-update-credentials.mjs --totp <BASE32_SECRET>
  *   node scripts/dhan-update-credentials.mjs --totp <SECRET> --pin <PIN> --clientId <ID>
+ *
+ *   # Spouse's AI + Data account:
+ *   node scripts/dhan-update-credentials.mjs --brokerId dhan-ai-data --totp <SECRET> --pin <PIN> --clientId <ID>
+ *
+ *   # Inspect what's stored (masked):
  *   node scripts/dhan-update-credentials.mjs --show
+ *   node scripts/dhan-update-credentials.mjs --brokerId dhan-ai-data --show
  *
  * Reads MONGODB_URI, DHAN_CLIENT_ID, DHAN_PIN from .env as defaults
- * for any flag not explicitly passed.
+ * for any flag not explicitly passed (only when --brokerId is "dhan").
  */
 
 import mongoose from "mongoose";
@@ -22,8 +29,6 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
-const BROKER_ID = "dhan";
-
 // ─── Parse CLI args ─────────────────────────────────────────────
 
 const args = process.argv.slice(2);
@@ -33,10 +38,14 @@ function getArg(flag) {
   return idx !== -1 ? args[idx + 1] : null;
 }
 
-const showOnly  = args.includes("--show");
-const totpArg   = getArg("--totp");
-const pinArg    = getArg("--pin");
-const clientArg = getArg("--clientId");
+const showOnly    = args.includes("--show");
+const totpArg     = getArg("--totp");
+const pinArg      = getArg("--pin");
+const clientArg   = getArg("--clientId");
+const brokerIdArg = getArg("--brokerId");
+
+const BROKER_ID = brokerIdArg ?? "dhan";
+const isPrimary = BROKER_ID === "dhan";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -71,7 +80,7 @@ async function main() {
       process.exit(1);
     }
     const auth = doc.auth ?? {};
-    console.log("\n  Stored Dhan auth credentials:");
+    console.log(`\n  Stored auth credentials for brokerId="${BROKER_ID}":`);
     console.log(`    clientId:   ${mask(auth.clientId)}`);
     console.log(`    pin:        ${mask(auth.pin)}`);
     console.log(`    totpSecret: ${mask(auth.totpSecret)}`);
@@ -89,13 +98,20 @@ async function main() {
 
   const existing = existingDoc.auth ?? {};
 
-  const clientId   = clientArg  ?? process.env.DHAN_CLIENT_ID  ?? existing.clientId;
-  const pin        = pinArg     ?? process.env.DHAN_PIN         ?? existing.pin;
+  // .env defaults only apply to the primary trading account. The spouse's
+  // dhan-ai-data account must have its credentials passed explicitly so we
+  // never accidentally write the primary account's values into it.
+  const envClientId = isPrimary ? process.env.DHAN_CLIENT_ID : undefined;
+  const envPin      = isPrimary ? process.env.DHAN_PIN       : undefined;
+
+  const clientId   = clientArg  ?? envClientId ?? existing.clientId;
+  const pin        = pinArg     ?? envPin       ?? existing.pin;
   const totpSecret = totpArg    ?? existing.totpSecret;
 
   if (!totpArg && !pinArg && !clientArg) {
     console.error(
       "\n[ERROR] No credential flags provided.\n" +
+      "  --brokerId <ID>          Target broker config (default \"dhan\"; use \"dhan-ai-data\" for spouse account)\n" +
       "  --totp <BASE32_SECRET>   Set the TOTP secret\n" +
       "  --pin  <PIN>             Set the login PIN\n" +
       "  --clientId <ID>          Set the Dhan client ID\n" +
@@ -125,12 +141,12 @@ async function main() {
     process.exit(1);
   }
 
-  log("Credentials saved to MongoDB:");
+  log(`Credentials saved to MongoDB (brokerId="${BROKER_ID}"):`);
   if (clientId)   log(`  clientId:   ${mask(clientId)}`);
   if (pin)        log(`  pin:        ${mask(pin)}`);
   if (totpSecret) log(`  totpSecret: ${mask(totpSecret)}`);
 
-  console.log("\n  Done. TokenManager will use these on next refresh.\n");
+  console.log("\n  Done. TokenManager will use these on next server start / token refresh.\n");
 
   await mongoose.disconnect();
 }
