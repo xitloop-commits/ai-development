@@ -353,6 +353,7 @@ class TradeExecutorAgent {
         },
         snap.currentCapital,
         snap.openExposure,
+        req.channel,
       );
       if (!result.allowed && result.blockedBy.length > 0) {
         return result.blockedBy.join(", ");

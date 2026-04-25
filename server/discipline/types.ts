@@ -103,6 +103,10 @@ export interface StreakState {
 
 export interface DisciplineState {
   userId: string;
+  /** Per-channel partition key (e.g. "ai-paper", "my-live"). Defaults
+   *  to "my-live" for legacy callers; storage layer enforces uniqueness
+   *  on (userId, channel, date). */
+  channel?: string;
   date: string;                     // "2026-04-01" IST
   updatedAt: Date;
 

@@ -110,6 +110,9 @@ const streakSchema = new Schema(
 const disciplineStateSchema = new Schema<DisciplineState & Document>(
   {
     userId: { type: String, required: true, index: true },
+    /** Per-channel partitioning (PA Phase 4 follow-up). Default "my-live"
+     *  preserves single-channel callers' behaviour. */
+    channel: { type: String, required: true, default: "my-live", index: true },
     date: { type: String, required: true, index: true },
     updatedAt: { type: Date, default: Date.now },
 
@@ -138,8 +141,8 @@ const disciplineStateSchema = new Schema<DisciplineState & Document>(
   { timestamps: false, collection: "discipline_state" }
 );
 
-// Compound index for efficient lookup
-disciplineStateSchema.index({ userId: 1, date: -1 }, { unique: true });
+// Compound unique index — partitioned per channel.
+disciplineStateSchema.index({ userId: 1, channel: 1, date: -1 }, { unique: true });
 
 export const DisciplineStateModel = mongoose.model("DisciplineState", disciplineStateSchema);
 
@@ -214,14 +217,25 @@ export async function updateDisciplineSettings(
   return doc as unknown as DisciplineEngineSettings;
 }
 
-/** Get or create today's discipline state */
-export async function getDisciplineState(userId: string, date?: string): Promise<DisciplineState> {
+const DEFAULT_CHANNEL = "my-live";
+
+/** Get or create today's discipline state for (userId, channel). */
+export async function getDisciplineState(
+  userId: string,
+  date?: string,
+  channel: string = DEFAULT_CHANNEL,
+): Promise<DisciplineState> {
   const d = date ?? getISTDateString();
-  let doc = await DisciplineStateModel.findOne({ userId, date: d }).lean();
+  let doc = await DisciplineStateModel.findOne({ userId, channel, date: d }).lean();
   if (!doc) {
-    // Check if there's a previous day's state to carry over streak
-    const prevDoc = await DisciplineStateModel.findOne({ userId, date: { $lt: d } }).sort({ date: -1 }).lean();
+    // Carry streak / consecutive-loss counters over from the most recent
+    // previous day for this same (userId, channel).
+    const prevDoc = await DisciplineStateModel
+      .findOne({ userId, channel, date: { $lt: d } })
+      .sort({ date: -1 })
+      .lean();
     const defaultState = createDefaultState(userId, d);
+    (defaultState as any).channel = channel;
     if (prevDoc) {
       defaultState.currentStreak = (prevDoc as unknown as DisciplineState).currentStreak;
       defaultState.consecutiveLosses = (prevDoc as unknown as DisciplineState).consecutiveLosses;
@@ -232,30 +246,36 @@ export async function getDisciplineState(userId: string, date?: string): Promise
   return doc as unknown as DisciplineState;
 }
 
-/** Update discipline state fields */
+/** Update discipline state fields for (userId, channel, date). */
 export async function updateDisciplineState(
   userId: string,
   date: string,
-  updates: Partial<DisciplineState>
+  updates: Partial<DisciplineState>,
+  channel: string = DEFAULT_CHANNEL,
 ): Promise<DisciplineState> {
   const setFields: Record<string, unknown> = { updatedAt: new Date() };
   for (const [key, value] of Object.entries(updates)) {
-    if (key !== "userId" && key !== "date") {
+    if (key !== "userId" && key !== "date" && key !== "channel") {
       setFields[key] = value;
     }
   }
   const doc = await DisciplineStateModel.findOneAndUpdate(
-    { userId, date },
+    { userId, channel, date },
     { $set: setFields },
     { returnDocument: "after", lean: true }
   );
   return doc as unknown as DisciplineState;
 }
 
-/** Add a violation to today's state */
-export async function addViolation(userId: string, date: string, violation: DisciplineState["violations"][0]): Promise<void> {
+/** Add a violation to today's state for (userId, channel). */
+export async function addViolation(
+  userId: string,
+  date: string,
+  violation: DisciplineState["violations"][0],
+  channel: string = DEFAULT_CHANNEL,
+): Promise<void> {
   await DisciplineStateModel.updateOne(
-    { userId, date },
+    { userId, channel, date },
     { $push: { violations: violation }, $set: { updatedAt: new Date() } }
   );
 }

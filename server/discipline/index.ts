@@ -55,17 +55,18 @@ class DisciplineEngine {
     userId: string,
     request: TradeValidationRequest,
     currentCapital: number,
-    currentExposure: number
+    currentExposure: number,
+    channel: string = "my-live",
   ): Promise<TradeValidationResult> {
     const date = getISTDateString();
     const settings = await getDisciplineSettings(userId);
-    const state = await getDisciplineState(userId, date);
+    const state = await getDisciplineState(userId, date, channel);
 
     // Apply streak adjustments before validation
     const streakAdjustments = calculateStreakAdjustments(state, settings);
     if (streakAdjustments.length > 0) {
       state.activeAdjustments = streakAdjustments;
-      await updateDisciplineState(userId, date, { activeAdjustments: streakAdjustments });
+      await updateDisciplineState(userId, date, { activeAdjustments: streakAdjustments }, channel);
     }
 
     const blockedBy: string[] = [];
@@ -132,7 +133,7 @@ class DisciplineEngine {
           description: this.getBlockReason(rule, { cbResult, clResult, tlResult, mpResult, cdResult, twResult, psResult, exResult, jResult, ptResult }),
           timestamp: new Date(),
           overridden: false,
-        });
+        }, channel);
       }
     }
 
@@ -163,30 +164,32 @@ class DisciplineEngine {
 
   /**
    * Called when a new trade is placed (after validation passes).
-   * Increments counters.
+   * Increments counters for the (userId, channel).
    */
-  async onTradePlaced(userId: string): Promise<void> {
+  async onTradePlaced(userId: string, channel: string = "my-live"): Promise<void> {
     const date = getISTDateString();
-    const state = await getDisciplineState(userId, date);
+    const state = await getDisciplineState(userId, date, channel);
     await updateDisciplineState(userId, date, {
       tradesToday: state.tradesToday + 1,
       openPositions: state.openPositions + 1,
       unjournaledTrades: [...state.unjournaledTrades, `trade_${Date.now()}`],
-    });
+    }, channel);
   }
 
   /**
-   * Called when a trade is closed. Updates P&L, cooldowns, streaks.
+   * Called when a trade is closed. Updates P&L, cooldowns, streaks for
+   * the (userId, channel) bucket.
    */
   async onTradeClosed(
     userId: string,
     pnl: number,
     openCapital: number,
-    tradeId?: string
+    tradeId?: string,
+    channel: string = "my-live",
   ): Promise<{ cooldownStarted: boolean; circuitBreakerTriggered: boolean }> {
     const date = getISTDateString();
     const settings = await getDisciplineSettings(userId);
-    const state = await getDisciplineState(userId, date);
+    const state = await getDisciplineState(userId, date, channel);
 
     const newPnl = state.dailyRealizedPnl + pnl;
     const newLossPercent = openCapital > 0 ? (Math.abs(Math.min(newPnl, 0)) / openCapital) * 100 : 0;
@@ -237,7 +240,7 @@ class DisciplineEngine {
       updates.consecutiveLosses = 0;
     }
 
-    await updateDisciplineState(userId, date, updates);
+    await updateDisciplineState(userId, date, updates, channel);
 
     return { cooldownStarted, circuitBreakerTriggered };
   }
@@ -274,7 +277,7 @@ class DisciplineEngine {
       // armed the rule. Logged for audit / Head-to-Head reporting only.
       return;
     }
-    await this.onTradeClosed("1", req.realizedPnl, req.openingCapital, req.tradeId);
+    await this.onTradeClosed("1", req.realizedPnl, req.openingCapital, req.tradeId, req.channel);
   }
 
   /**
