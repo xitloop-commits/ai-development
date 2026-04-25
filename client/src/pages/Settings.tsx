@@ -8,7 +8,7 @@
  * 5. Expiry Controls
  * 6. Charges
  */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, createContext, useContext, useRef } from 'react';
 import { trpc } from '@/lib/trpc';
 import { useCapital } from '@/contexts/CapitalContext';
 import { Link } from 'wouter';
@@ -81,6 +81,39 @@ const SECTIONS: SectionItem[] = [
   { id: 'charges', label: 'Charges', icon: Receipt, description: 'Brokerage, STT, GST, and other charge rates' },
   { id: 'capital', label: 'Capital Management', icon: Landmark, description: 'Reset initial capital, pool allocation' },
 ];
+
+// ─── Page-level Actions Context ──────────────────────────────────
+// Sections register their save / reset handlers here; the page header
+// renders them at the top-right so save/reset is always one place.
+
+interface SettingsActions {
+  onSave?: () => void;
+  onReset?: () => void;
+  saving?: boolean;
+  /** When false, Save button is disabled (no dirty state). */
+  canSave?: boolean;
+}
+
+const SettingsActionsContext = createContext<{
+  setActions: (a: SettingsActions | null) => void;
+}>({ setActions: () => {} });
+
+/**
+ * Sections call this with their save / reset handlers; the Settings page
+ * top-bar renders them at the right side. Call with `null` (or unmount)
+ * to clear. Uses a ref to avoid re-registering on every render.
+ */
+function useRegisterActions(actions: SettingsActions | null): void {
+  const { setActions } = useContext(SettingsActionsContext);
+  const ref = useRef<SettingsActions | null>(actions);
+  ref.current = actions;
+  useEffect(() => {
+    setActions(ref.current);
+    return () => setActions(null);
+    // Re-register whenever the action object identity changes — a section
+    // can pass a new object when its dirty/saving flags shift.
+  }, [actions, setActions]);
+}
 
 // ─── Helper Components ───────────────────────────────────────────
 
@@ -394,7 +427,7 @@ export function BrokerConfigSection() {
     : allConfigs.map((c) => ({ value: c.brokerId, label: c.displayName }));
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4 items-start">
       {/* Active Broker */}
       <SettingsCard title="Active Broker">
         <div className="space-y-3">
@@ -666,6 +699,16 @@ export function OrderExecutionSection() {
     }
   };
 
+  useRegisterActions(
+    config
+      ? {
+          onSave: handleSave,
+          onReset: handleReset,
+          saving: updateMutation.isPending,
+        }
+      : null,
+  );
+
   if (!config) {
     return (
       <SettingsCard>
@@ -675,7 +718,7 @@ export function OrderExecutionSection() {
   }
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4 items-start">
       {/* Daily Target */}
       <SettingsCard title="Daily Target">
         <div className="space-y-1 mb-3">
@@ -835,11 +878,6 @@ export function OrderExecutionSection() {
         </div>
       </SettingsCard>
 
-      <div className="col-span-full flex items-center gap-2 justify-end">
-        <ResetButton onClick={handleReset} />
-        <SaveButton onClick={handleSave} loading={updateMutation.isPending} />
-      </div>
-
     </div>
   );
 }
@@ -871,7 +909,7 @@ export function CapitalManagementSection() {
   };
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4 items-start">
       {/* Current Capital Overview */}
       <SettingsCard title="Current Capital" className="col-span-full">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1264,6 +1302,12 @@ export function DisciplineSection() {
     }
   };
 
+  useRegisterActions(
+    ds
+      ? { onSave: handleSave, onReset: handleReset, saving: updateMutation.isPending }
+      : null,
+  );
+
   if (!ds) {
     return (
       <SettingsCard>
@@ -1290,7 +1334,7 @@ export function DisciplineSection() {
   };
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4 items-start">
       {/* Circuit Breaker */}
       <SettingsCard title="Circuit Breaker">
         <div className="space-y-4">
@@ -1625,11 +1669,6 @@ export function DisciplineSection() {
           </DisciplineRow>
         </div>
       </SettingsCard>
-
-      <div className="col-span-full flex items-center gap-2 justify-end">
-        <ResetButton onClick={handleReset} />
-        <SaveButton onClick={handleSave} loading={updateMutation.isPending} />
-      </div>
     </div>
   );
 }
@@ -1672,6 +1711,10 @@ export function TimeWindowsSection() {
     }
   };
 
+  useRegisterActions(
+    tw ? { onSave: handleSave, onReset: handleReset, saving: updateMutation.isPending } : null,
+  );
+
   if (!tw) {
     return (
       <SettingsCard>
@@ -1684,7 +1727,7 @@ export function TimeWindowsSection() {
   }
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4 items-start">
       {/* No Trading After Open */}
       <SettingsCard title="No Trading After Market Open">
         <DisciplineRow
@@ -1780,11 +1823,6 @@ export function TimeWindowsSection() {
           Time windows are enforced by the Discipline Engine. Lunch break pause applies only to NSE. MCX has no scheduled lunch break.
         </span>
       </div>
-
-      <div className="col-span-full flex items-center gap-2 justify-end">
-        <ResetButton onClick={handleReset} />
-        <SaveButton onClick={handleSave} loading={updateMutation.isPending} />
-      </div>
     </div>
   );
 }
@@ -1818,6 +1856,10 @@ export function ExpiryControlsSection() {
     }
   };
 
+  useRegisterActions(
+    rules ? { onSave: handleSave, onReset: handleReset, saving: updateMutation.isPending } : null,
+  );
+
   if (!rules) {
     return (
       <SettingsCard>
@@ -1844,7 +1886,7 @@ export function ExpiryControlsSection() {
   };
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4 items-start">
       {rules.map((rule, idx) => (
         <SettingsCard key={rule.instrument}>
           <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
@@ -1957,11 +1999,6 @@ export function ExpiryControlsSection() {
           </div>
         </SettingsCard>
       ))}
-
-      <div className="col-span-full flex items-center gap-2 justify-end">
-        <ResetButton onClick={handleReset} />
-        <SaveButton onClick={handleSave} loading={updateMutation.isPending} />
-      </div>
     </div>
   );
 }
@@ -1995,6 +2032,10 @@ export function ChargesSection() {
     }
   };
 
+  useRegisterActions(
+    rates ? { onSave: handleSave, onReset: handleReset, saving: updateMutation.isPending } : null,
+  );
+
   if (!rates) {
     return (
       <SettingsCard>
@@ -2015,7 +2056,7 @@ export function ChargesSection() {
   };
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4 items-start">
       <SettingsCard title="Indian Standard Charges (Options)" className="col-span-full">
         <div className="space-y-1 mb-3">
           <span className="text-[0.625rem] text-muted-foreground">
@@ -2073,11 +2114,6 @@ export function ChargesSection() {
         <span className="text-[0.625rem] text-info-cyan">
           Charges are applied to all P&L calculations. Rates are based on Indian standard charges for Options trading via Dhan.
         </span>
-      </div>
-
-      <div className="col-span-full flex items-center gap-2 justify-end">
-        <ResetButton onClick={handleReset} />
-        <SaveButton onClick={handleSave} loading={updateMutation.isPending} />
       </div>
     </div>
   );
@@ -2396,6 +2432,24 @@ function ExecutorSettingsSection() {
       draft.recoveryStuckMs !== settings.recoveryStuckMs);
 
   const onSave = () => updateMutation.mutate(draft);
+  const onReset = () => {
+    if (settings) {
+      setDraft({
+        aiLiveLotCap: settings.aiLiveLotCap,
+        rcaMaxAgeMs: settings.rcaMaxAgeMs,
+        rcaStaleTickMs: settings.rcaStaleTickMs,
+        rcaVolThreshold: settings.rcaVolThreshold,
+        recoveryStuckMs: settings.recoveryStuckMs,
+      });
+    }
+  };
+
+  useRegisterActions({
+    onSave,
+    onReset,
+    saving: updateMutation.isPending,
+    canSave: !!dirty,
+  });
 
   return (
     <div className="space-y-4 font-mono">
@@ -2477,16 +2531,6 @@ function ExecutorSettingsSection() {
           />
         </div>
       </SettingsCard>
-
-      <div className="flex justify-end">
-        <button
-          disabled={!dirty || updateMutation.isPending}
-          onClick={onSave}
-          className="px-4 py-1.5 text-xs font-bold tracking-wider uppercase bg-primary text-primary-foreground rounded disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90"
-        >
-          {updateMutation.isPending ? 'Saving…' : 'Save Changes'}
-        </button>
-      </div>
     </div>
   );
 }
@@ -2495,6 +2539,13 @@ function ExecutorSettingsSection() {
 
 export default function Settings() {
   const [activeSection, setActiveSection] = useState<SettingsSection>('broker');
+  const [pageActions, setPageActions] = useState<SettingsActions | null>(null);
+
+  // Reset registered actions whenever the section switches — the new
+  // section will register its own.
+  useEffect(() => {
+    setPageActions(null);
+  }, [activeSection]);
 
   const renderSection = () => {
     switch (activeSection) {
@@ -2526,6 +2577,7 @@ export default function Settings() {
   const currentSection = SECTIONS.find((s) => s.id === activeSection);
 
   return (
+    <SettingsActionsContext.Provider value={{ setActions: setPageActions }}>
     <div className="container py-6">
       <div className="flex gap-6">
             {/* Sidebar Navigation */}
@@ -2573,17 +2625,33 @@ export default function Settings() {
 
             {/* Main Content */}
             <div className="flex-1 min-w-0">
-              {/* Section Header */}
-              <div className="mb-5">
-                <div className="flex items-center gap-2 mb-1">
-                  {currentSection && <currentSection.icon className="h-4 w-4 text-primary" />}
-                  <h2 className="font-display text-base font-bold tracking-tight text-foreground">
-                    {currentSection?.label}
-                  </h2>
+              {/* Section Header — title left, actions right */}
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    {currentSection && <currentSection.icon className="h-4 w-4 text-primary" />}
+                    <h2 className="font-display text-base font-bold tracking-tight text-foreground">
+                      {currentSection?.label}
+                    </h2>
+                  </div>
+                  <p className="text-[0.6875rem] text-muted-foreground">
+                    {currentSection?.description}
+                  </p>
                 </div>
-                <p className="text-[0.6875rem] text-muted-foreground">
-                  {currentSection?.description}
-                </p>
+                {(pageActions?.onSave || pageActions?.onReset) && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    {pageActions?.onReset && (
+                      <ResetButton onClick={pageActions.onReset} />
+                    )}
+                    {pageActions?.onSave && (
+                      <SaveButton
+                        onClick={pageActions.onSave}
+                        loading={pageActions.saving ?? false}
+                        disabled={pageActions.canSave === false}
+                      />
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Section Content */}
@@ -2593,5 +2661,6 @@ export default function Settings() {
             </div>
       </div>
     </div>
+    </SettingsActionsContext.Provider>
   );
 }
