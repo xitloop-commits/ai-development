@@ -28,7 +28,60 @@ import {
   channelToMode,
   DEFAULT_CHANNEL_FOR_WORKSPACE,
 } from '@/lib/tradeTypes';
-import { ConfirmDialog } from './ConfirmDialog';
+// Inline anchor-positioned confirm; replaces the fullscreen ConfirmDialog
+// for channel switches because they're frequent enough that a centered
+// modal feels heavy. Drops below its anchor (tabs / mode toggle) without
+// blocking the rest of the UI.
+function ConfirmPopover({
+  open,
+  message,
+  onConfirm,
+  onCancel,
+  anchor = 'center',
+}: {
+  open: boolean;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  anchor?: 'left' | 'center' | 'right';
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open, onCancel]);
+
+  if (!open) return null;
+
+  const positionClass =
+    anchor === 'left'   ? 'left-0' :
+    anchor === 'right'  ? 'right-0' :
+                          'left-1/2 -translate-x-1/2';
+
+  return (
+    <div
+      className={`absolute top-full mt-1 ${positionClass} z-50 bg-card border border-border rounded-md shadow-xl p-3 min-w-[260px] max-w-sm`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <p className="text-[0.6875rem] text-foreground mb-2 leading-snug">{message}</p>
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={onCancel}
+          className="px-2.5 py-1 rounded text-[0.625rem] font-medium bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={onConfirm}
+          className="px-2.5 py-1 rounded text-[0.625rem] font-bold bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
+        >
+          Confirm
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ── Model Status Popover ─────────────────────────────────────
 
@@ -280,38 +333,36 @@ function ChannelTabs() {
   };
 
   return (
-    <>
-      <div className="flex items-stretch self-stretch">
-        {TAB_DEFS.map(({ ws, label, tone }) => {
-          const isActive = ws === currentWs;
-          return (
-            <button
-              key={ws}
-              onClick={() => requestTabSwitch(ws)}
-              className={`px-4 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
-                isActive ? tone.active : tone.idle
-              }`}
-            >
-              {label}
-              {isActive && currentMode === 'live' && (
-                <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
-              )}
-            </button>
-          );
-        })}
-      </div>
-      <ConfirmDialog
+    <div className="relative flex items-stretch self-stretch">
+      {TAB_DEFS.map(({ ws, label, tone }) => {
+        const isActive = ws === currentWs;
+        return (
+          <button
+            key={ws}
+            onClick={() => requestTabSwitch(ws)}
+            className={`px-4 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
+              isActive ? tone.active : tone.idle
+            }`}
+          >
+            {label}
+            {isActive && currentMode === 'live' && (
+              <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
+            )}
+          </button>
+        );
+      })}
+      <ConfirmPopover
         open={!!confirmTarget}
-        title="Switch workspace"
+        anchor="center"
         message={
           confirmTarget
-            ? `Switch from ${channel} to ${confirmTarget}? Open positions on the source remain in place; new orders route to the target broker.`
+            ? `Switch from ${channel} to ${confirmTarget}? Open positions on the source remain; new orders route to the target.`
             : ''
         }
         onConfirm={onConfirmSwitch}
         onCancel={() => setConfirmTarget(null)}
       />
-    </>
+    </div>
   );
 }
 
@@ -340,50 +391,48 @@ function ChannelModeToggle() {
   const canClear = currentMode === 'paper' || currentMode === 'sandbox';
 
   return (
-    <>
-      <div className="flex items-center gap-2">
-        <div className="flex items-center rounded border border-border overflow-hidden">
-          {MODES_FOR[currentWs].map((m) => {
-            const active = m === currentMode;
-            const activeTone = m === 'live' ? 'bg-bullish/20 text-bullish' : 'bg-warning-amber/20 text-warning-amber';
-            return (
-              <button
-                key={m}
-                onClick={() => requestModeSwitch(m)}
-                className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
-                  active ? activeTone : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {MODE_LABELS[m]}
-              </button>
-            );
-          })}
-        </div>
-        {canClear && (
-          <button
-            onClick={() =>
-              clearWorkspaceMutation.mutate({ channel: channel as any, initialFunding: 100000 })
-            }
-            disabled={clearWorkspaceMutation.isPending}
-            className="px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
-            title={`Clear ${channel} pool`}
-          >
-            {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
-          </button>
-        )}
+    <div className="relative flex items-center gap-2">
+      <div className="flex items-center rounded border border-border overflow-hidden">
+        {MODES_FOR[currentWs].map((m) => {
+          const active = m === currentMode;
+          const activeTone = m === 'live' ? 'bg-bullish/20 text-bullish' : 'bg-warning-amber/20 text-warning-amber';
+          return (
+            <button
+              key={m}
+              onClick={() => requestModeSwitch(m)}
+              className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
+                active ? activeTone : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {MODE_LABELS[m]}
+            </button>
+          );
+        })}
       </div>
-      <ConfirmDialog
+      {canClear && (
+        <button
+          onClick={() =>
+            clearWorkspaceMutation.mutate({ channel: channel as any, initialFunding: 100000 })
+          }
+          disabled={clearWorkspaceMutation.isPending}
+          className="px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
+          title={`Clear ${channel} pool`}
+        >
+          {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
+        </button>
+      )}
+      <ConfirmPopover
         open={!!confirmTarget}
-        title="Switch trading mode"
+        anchor="right"
         message={
           confirmTarget
-            ? `Switch from ${channel} to ${confirmTarget}? New orders will route to the target broker; any open positions on the source remain.`
+            ? `Switch from ${channel} to ${confirmTarget}? New orders route to the target broker; open positions on the source remain.`
             : ''
         }
         onConfirm={onConfirmSwitch}
         onCancel={() => setConfirmTarget(null)}
       />
-    </>
+    </div>
   );
 }
 
