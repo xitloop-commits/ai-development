@@ -69,7 +69,7 @@ import type {
   DailyPnlReport,
 } from "./types";
 
-const log = createLogger("PortfolioAgent");
+const log = createLogger("PA", "Agent");
 
 // ─── Helpers ────────────────────────────────────────────────────
 

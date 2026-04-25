@@ -25,7 +25,7 @@ import { getOpenPositions } from "../portfolio/storage";
 import type { Channel } from "../portfolio/state";
 import { getExecutorSettings } from "./settings";
 
-const log = createLogger("RecoveryEngine");
+const log = createLogger("TEA", "Recovery");
 
 const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live"];
 

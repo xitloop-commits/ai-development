@@ -15,7 +15,7 @@
 
 import { createLogger } from "../../logger";
 
-const log = createLogger("Mock");
+const log = createLogger("BSA", "Mock");
 
 import type {
   BrokerAdapter,

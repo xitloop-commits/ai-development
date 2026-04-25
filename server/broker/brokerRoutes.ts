@@ -28,7 +28,7 @@ import type { OrderParams, ModifyParams } from "./types";
 import { transformCandleData } from "./types";
 import { createLogger } from "./logger";
 
-const log = createLogger("REST");
+const log = createLogger("BSA", "REST");
 
 // ─── Helpers ────────────────────────────────────────────────────
 

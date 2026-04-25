@@ -36,7 +36,7 @@ import { resolveLotSize } from "./tradeResolution";
 import { tradeExecutor } from "./tradeExecutor";
 import type { Channel } from "../portfolio/state";
 
-const log = createLogger("SeaBridge");
+const log = createLogger("TEA", "SeaBridge");
 
 const POLL_INTERVAL_MS = 5_000;
 

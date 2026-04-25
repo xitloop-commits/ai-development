@@ -20,7 +20,7 @@ import {
 } from "./constants.js";
 
 import { createLogger } from "../../logger.js";
-const log = createLogger("SubManager");
+const log = createLogger("BSA", "SubManager");
 
 // ─── Types ─────────────────────────────────────────────────────
 

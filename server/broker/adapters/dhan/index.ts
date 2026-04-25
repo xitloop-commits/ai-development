@@ -136,7 +136,7 @@ export class DhanAdapter implements BrokerAdapter {
     // Friendly log tag: "dhan" → "primary", "dhan-ai-data" → "ai-data",
     // "dhan-sandbox" → "sandbox". Falls back to raw brokerId for any other.
     const logTag = brokerId === "dhan" ? "primary" : brokerId.replace(/^dhan-/, "");
-    this.log = createLogger(`Dhan/${logTag}`);
+    this.log = createLogger("BSA", `Dhan/${logTag}`);
   }
 
   // ── Token Auto-Refresh ────────────────────────────────────────

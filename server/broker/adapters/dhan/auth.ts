@@ -10,7 +10,7 @@
 
 import { createLogger } from "../../logger";
 
-const log = createLogger("DhanAuth");
+const log = createLogger("BSA", "DhanAuth");
 
 import {
   DHAN_API_BASE,

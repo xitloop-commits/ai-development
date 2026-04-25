@@ -18,6 +18,9 @@ import { tradeExecutor } from "../executor";
 import { setupTickWebSocket } from "../broker/tickWs";
 import { seedDefaultInstruments, getAllInstruments } from "../instruments";
 import { setConfiguredInstruments } from "../tradingStore";
+import { printAgentLegend, createLogger } from "../broker/logger";
+
+const bootLog = createLogger("BOOT", "Server");
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -39,6 +42,10 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  // Print the agent color legend up-front so log-tail watchers know
+  // how to read the color-coded prefixes that follow.
+  printAgentLegend();
+
   const app = express();
   const server = createServer(app);
 
@@ -54,7 +61,7 @@ async function startServer() {
       // Idempotent — once migrated, this is a no-op on every subsequent boot.
       const { wipeLegacyCapitalDocs } = await import("../portfolio/state");
       try { await wipeLegacyCapitalDocs(); } catch (err) {
-        console.warn("[MongoDB] Capital legacy wipe failed (non-fatal):", err);
+        bootLog.warn(`MongoDB Capital legacy wipe failed (non-fatal): ${(err as Error)?.message ?? err}`);
       }
 
       // Register broker adapters and initialize broker service after MongoDB is ready
@@ -66,7 +73,7 @@ async function startServer() {
       tradeExecutor.start();
     })
     .catch((err) =>
-      console.error("[MongoDB] Initial connection failed:", err)
+      bootLog.error(`MongoDB initial connection failed: ${(err as Error)?.message ?? err}`)
     );
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
@@ -103,11 +110,11 @@ async function startServer() {
   const port = await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
+    bootLog.info(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
   server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+    bootLog.info(`Server running on http://localhost:${port}/`);
   });
 }
 

@@ -30,7 +30,7 @@ import {
 } from "./constants.js";
 
 import { createLogger } from "../../logger.js";
-const log = createLogger("DhanWS");
+const log = createLogger("BSA", "DhanWS");
 
 // ─── Types ─────────────────────────────────────────────────────
 

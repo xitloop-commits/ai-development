@@ -52,7 +52,7 @@ import type {
   RecordAutoExitRequest,
 } from "./types";
 
-const log = createLogger("TradeExecutor");
+const log = createLogger("TEA", "Executor");
 
 const PAPER_CHANNELS: Channel[] = ["my-paper", "ai-paper", "testing-sandbox"];
 const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live"];

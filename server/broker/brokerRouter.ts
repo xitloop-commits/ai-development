@@ -36,7 +36,7 @@ import { tickBus } from "./tickBus";
 import type { OrderParams, ModifyParams, TickData } from "./types";
 import { createLogger } from "./logger";
 
-const log = createLogger("Router");
+const log = createLogger("BSA", "Router");
 import { transformCandleData } from "./types";
 
 // ─── Helpers ────────────────────────────────────────────────────

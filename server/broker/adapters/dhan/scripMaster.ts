@@ -19,7 +19,7 @@
 
 import { DHAN_ENDPOINTS } from "./constants";
 import { createLogger } from "../../logger";
-const log = createLogger("ScripMaster");
+const log = createLogger("BSA", "ScripMaster");
 
 const DHAN_SCRIP_MASTER_URL = DHAN_ENDPOINTS.SCRIP_MASTER;
 

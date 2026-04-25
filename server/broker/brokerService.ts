@@ -25,7 +25,7 @@ import { DhanAdapter } from "./adapters/dhan/index";
 import { MockAdapter } from "./adapters/mock/index";
 import { createLogger } from "./logger";
 
-const log = createLogger("Service");
+const log = createLogger("BSA", "Service");
 
 // ─── Types ──────────────────────────────────────────────────────
 

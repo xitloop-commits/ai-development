@@ -14,7 +14,7 @@ import WebSocket from "ws";
 import { EventEmitter } from "events";
 
 import { createLogger } from "../../logger";
-const log = createLogger("DhanOrderWS");
+const log = createLogger("BSA", "DhanOrderWS");
 
 const ORDER_UPDATE_URL = "wss://api-order-update.dhan.co";
 const RECONNECT_DELAY_MS = 5000;

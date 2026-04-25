@@ -15,7 +15,7 @@ import type { Socket } from "net";
 import { tickBus, type ChainUpdate } from "./tickBus";
 
 import { createLogger } from "./logger";
-const log = createLogger("TickWS");
+const log = createLogger("BSA", "TickWS");
 
 /**
  * Reduce a ChainUpdate to the fields the browser actually needs. Strips

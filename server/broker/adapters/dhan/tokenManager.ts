@@ -14,7 +14,7 @@ import crypto from "crypto";
 import { getBrokerConfig } from "../../brokerConfig";
 import { createLogger } from "../../logger";
 
-const log = createLogger("DhanAuth");
+const log = createLogger("BSA", "DhanAuth");
 
 const DHAN_GENERATE_TOKEN_URL = "https://auth.dhan.co/app/generateAccessToken";
 

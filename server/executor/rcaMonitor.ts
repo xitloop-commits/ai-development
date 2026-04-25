@@ -35,7 +35,7 @@ import type { Channel, TradeRecord } from "../portfolio/state";
 import type { ExitTradeReason } from "./types";
 import { getExecutorSettings } from "./settings";
 
-const log = createLogger("RcaMonitor");
+const log = createLogger("RCA", "Monitor");
 
 const DEFAULT_MAX_AGE_MS = 30 * 60 * 1000;          // 30 min — Phase 1 trigger
 const DEFAULT_STALE_TICK_MS = 5 * 60 * 1000;         // 5 min — Phase 2 trigger

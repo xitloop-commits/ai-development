@@ -13,6 +13,7 @@
  */
 import { EventEmitter } from "events";
 import { tickBus } from "../broker/tickBus";
+import { createLogger } from "../broker/logger";
 import {
   getCapitalState,
   getDayRecord,
@@ -22,6 +23,8 @@ import type { Channel, TradeRecord } from "./state";
 import { recalculateDayAggregates } from "./compounding";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { TickData } from "../broker/types";
+
+const log = createLogger("PA", "TickHandler");
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -118,7 +121,7 @@ class TickHandler extends EventEmitter {
     if (this.running) return;
     this.running = true;
     tickBus.on("tick", this.handleTick);
-    console.log("[PortfolioAgent/TickHandler] Started — listening for ticks");
+    log.info("Started — listening for ticks");
   }
 
   /** Stop listening */
@@ -129,7 +132,7 @@ class TickHandler extends EventEmitter {
       clearTimeout(this.updateDebounce);
       this.updateDebounce = null;
     }
-    console.log("[PortfolioAgent/TickHandler] Stopped");
+    log.info("Stopped");
   }
 
   /** Handle incoming tick — debounce to batch updates */

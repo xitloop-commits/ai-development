@@ -26,6 +26,7 @@
 
 import { EventEmitter } from "events";
 import { tickBus } from "../broker/tickBus";
+import { createLogger } from "../broker/logger";
 import type { OrderUpdate } from "../broker/types";
 import {
   getCapitalState,
@@ -34,6 +35,8 @@ import {
 } from "../portfolio/state";
 import type { Channel } from "../portfolio/state";
 import { recalculateDayAggregates } from "../portfolio/compounding";
+
+const log = createLogger("TEA", "OrderSync");
 
 const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live"];
 
@@ -44,21 +47,21 @@ class OrderSync extends EventEmitter {
     if (this.running) return;
     this.running = true;
     tickBus.on("orderUpdate", this.handleOrderUpdate);
-    console.log("[TradeExecutor/OrderSync] Started — listening for broker order updates");
+    log.info("Started — listening for broker order updates");
   }
 
   stop(): void {
     if (!this.running) return;
     this.running = false;
     tickBus.off("orderUpdate", this.handleOrderUpdate);
-    console.log("[TradeExecutor/OrderSync] Stopped");
+    log.info("Stopped");
   }
 
   private handleOrderUpdate = async (update: OrderUpdate): Promise<void> => {
     try {
       await this.processUpdate(update);
     } catch (err) {
-      console.error("[TradeExecutor/OrderSync] Error processing update:", err);
+      log.error(`Error processing update: ${(err as Error)?.message ?? err}`);
     }
   };
 
@@ -95,24 +98,18 @@ class OrderSync extends EventEmitter {
         // Correct entry price + qty if the broker filled at a different
         // price than we sent (slippage on market orders, partial fills).
         if (update.averagePrice > 0 && update.averagePrice !== trade.entryPrice) {
-          console.log(
-            `[TradeExecutor/OrderSync] Trade ${trade.id}: entry adjusted ${trade.entryPrice} → ${update.averagePrice}`,
-          );
+          log.info(`Trade ${trade.id}: entry adjusted ${trade.entryPrice} → ${update.averagePrice}`);
           trade.entryPrice = update.averagePrice;
         }
         if (update.filledQuantity > 0 && update.filledQuantity !== trade.qty) {
-          console.log(
-            `[TradeExecutor/OrderSync] Trade ${trade.id}: qty adjusted ${trade.qty} → ${update.filledQuantity}`,
-          );
+          log.info(`Trade ${trade.id}: qty adjusted ${trade.qty} → ${update.filledQuantity}`);
           trade.qty = update.filledQuantity;
         }
         // Promote PENDING → OPEN once the broker confirms the fill.
         if (trade.status === "PENDING") trade.status = "OPEN";
       } else {
         // CANCELLED / REJECTED / EXPIRED — order never made it to market.
-        console.log(
-          `[TradeExecutor/OrderSync] Trade ${trade.id}: order ${update.status}, marking CANCELLED`,
-        );
+        log.info(`Trade ${trade.id}: order ${update.status}, marking CANCELLED`);
         trade.status = "CANCELLED";
         trade.exitPrice = trade.entryPrice;
         trade.pnl = 0;
@@ -132,9 +129,8 @@ class OrderSync extends EventEmitter {
     //     trade.brokerId of the entry, not the leg orderIds)
     //   - Stale events for trades closed before this server boot
     // Logged for debugging only.
-    console.log(
-      `[TradeExecutor/OrderSync] No matching open trade for orderId=${update.orderId} ` +
-        `status=${update.status} (likely a TP/SL leg or pre-restart event)`,
+    log.debug(
+      `No matching open trade for orderId=${update.orderId} status=${update.status} (likely a TP/SL leg or pre-restart event)`,
     );
   }
 }

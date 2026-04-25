@@ -7,7 +7,7 @@
  */
 
 import { createLogger } from "../../logger";
-const log = createLogger("Dhan");
+const log = createLogger("BSA", "Dhan");
 
 // ─── Trading Symbol Parser ────────────────────────────────────
 
