@@ -162,12 +162,25 @@ class RcaMonitor {
 
   /**
    * True when the latest filtered signal for the trade's instrument
-   * points opposite to the position. Only checks LONG_* vs GO_*
-   * variants — SHORT actions skip the flip check (handled by the
-   * SHORT-aware Phase-3 detector).
+   * points opposite to the position. Handles all four trade types:
+   *
+   *   CALL_BUY / CALL_SELL → bullish on the underlying
+   *   PUT_BUY  / PUT_SELL  → bearish on the underlying
+   *
+   * Wait — that's wrong. Selling options is more nuanced:
+   *
+   *   CALL_BUY  : long volatility, bullish underlying  — flip if PUT signal
+   *   CALL_SELL : long volatility decay, bearish CE premium — flip if CE premium expected to RISE (i.e., bullish underlying signal)
+   *   PUT_BUY   : long volatility, bearish underlying — flip if CALL signal
+   *   PUT_SELL  : long volatility decay, bullish PE — flip if PE premium expected to RISE (bearish underlying)
+   *
+   * Net: a LONG position flips if the signal goes the opposite direction
+   * on the underlying. A SHORT (option-write) position flips if the
+   * signal goes the SAME direction on the underlying — because the
+   * writer wins from premium decay, and a strong directional move
+   * against the strike turns the write into a loss.
    */
   private isFlippedAgainst(trade: TradeRecord, latest: Map<string, SEASignal>): boolean {
-    // Map TradeRecord.instrument → SEA instrument key
     const norm = trade.instrument.toUpperCase().replace(/\s+/g, "");
     const seaKey =
       norm === "NIFTY50" || norm === "NIFTY" ? "NIFTY"
@@ -178,18 +191,18 @@ class RcaMonitor {
     const sig = latest.get(seaKey) ?? latest.get(seaKey + "50");
     if (!sig) return false;
 
-    // Only flip-check LONG positions for now.
-    const isCall = trade.type === "CALL_BUY" || trade.type === "CALL_SELL";
-    const isPut = trade.type === "PUT_BUY" || trade.type === "PUT_SELL";
-    if (!isCall && !isPut) return false;
-
-    // Latest signal action / direction tells us the model's current
-    // bias. Disagreement = flip.
     const sigAction = sig.action ?? "";
     const sigDirection = sig.direction ?? "";
-    if (isCall && (sigAction === "LONG_PE" || sigDirection === "GO_PUT")) return true;
-    if (isPut && (sigAction === "LONG_CE" || sigDirection === "GO_CALL")) return true;
-    return false;
+    const sigBullish = sigAction === "LONG_CE" || sigAction === "SHORT_PE" || sigDirection === "GO_CALL";
+    const sigBearish = sigAction === "LONG_PE" || sigAction === "SHORT_CE" || sigDirection === "GO_PUT";
+
+    switch (trade.type) {
+      case "CALL_BUY":  return sigBearish;
+      case "PUT_BUY":   return sigBullish;
+      case "CALL_SELL": return sigBullish; // CE writer flips if model turns bullish
+      case "PUT_SELL":  return sigBearish; // PE writer flips if model turns bearish
+      default:          return false;
+    }
   }
 
   private async exit(

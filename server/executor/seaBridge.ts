@@ -11,15 +11,19 @@
  * store (keyed on `SEA-{signal.id}`) makes replay safe — if the bridge
  * restarts mid-day it can re-scan recent signals without double-placing.
  *
- * Phase 1 scope (MVP):
- *   - LONG-only (LONG_CE / LONG_PE). SHORT_CE / SHORT_PE — selling
- *     options — is deferred until margin / capital sizing is wired.
+ * Phase 2 scope:
+ *   - All four actions: LONG_CE / LONG_PE (buying) + SHORT_CE / SHORT_PE
+ *     (selling). Direction = BUY for LONG, SELL for SHORT.
  *   - One contract = one lot (resolved via tradeResolution.resolveLotSize).
- *   - Channel: ai-paper. AI Live activation requires the 1-lot cap +
- *     wife-funded canary capital + 30-day comparison gate (separate
- *     todos).
+ *   - Channel: ai-paper by default. AI Live activation requires the
+ *     1-lot cap + wife-funded canary capital + 30-day comparison gate
+ *     (separate todos). The 1-lot cap on ai-live applies equally to
+ *     short option writes — selling 2 lots is still a cap violation.
  *   - Confidence: any signal with `filtered: true` (SEA already filtered
  *     them; the score / confidence threshold is enforced upstream).
+ *   - Margin: TEA / broker handle margin sizing for SHORT writes; the
+ *     bridge stays naive about it. Failure modes (insufficient margin)
+ *     surface as broker REJECTED → portfolio_events TRADE_REJECTED.
  *
  * Lifecycle: tradeExecutor.start() boots the bridge; stop() halts it.
  * Safe to leave running off-market — getSEASignals returns [] when no
@@ -130,13 +134,15 @@ class SeaBridge {
     // explicit entry / tp / sl. Skip raw streamed signals.
     if (!signal.filtered) return;
 
-    // LONG-only for now (buying options). Selling options requires margin
-    // sizing and a higher-tier risk model; Phase 2 will enable it.
+    // Phase 2: all four actions. Direction is BUY for LONG_*, SELL for SHORT_*.
     const action = signal.action ?? "";
-    if (action !== "LONG_CE" && action !== "LONG_PE") return;
+    const isLong = action === "LONG_CE" || action === "LONG_PE";
+    const isShort = action === "SHORT_CE" || action === "SHORT_PE";
+    if (!isLong && !isShort) return;
     if (signal.entry == null || signal.sl == null || signal.tp == null) return;
 
-    const isCe = action === "LONG_CE";
+    const isCe = action === "LONG_CE" || action === "SHORT_CE";
+    const direction: "BUY" | "SELL" = isLong ? "BUY" : "SELL";
     const optLtp = isCe ? signal.atm_ce_ltp : signal.atm_pe_ltp;
     const secId = isCe ? signal.atm_ce_security_id : signal.atm_pe_security_id;
     if (!optLtp || optLtp <= 0) {
@@ -156,7 +162,7 @@ class SeaBridge {
       channel: this.channel,
       origin: "AI",
       instrument,
-      direction: "BUY",
+      direction,
       quantity: lotSize,
       entryPrice: signal.entry || optLtp,
       stopLoss: signal.sl,
