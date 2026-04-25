@@ -36,6 +36,7 @@ import type { Channel, TradeRecord, TradeStatus } from "../portfolio/state";
 import { idempotencyStore } from "./idempotency";
 import { orderSync } from "./orderSync";
 import { seaBridge } from "./seaBridge";
+import { rcaMonitor } from "./rcaMonitor";
 import type {
   SubmitTradeRequest,
   SubmitTradeResponse,
@@ -100,7 +101,10 @@ class TradeExecutorAgent {
     // channel. Phase 1 — paper only. AI Live activation is gated on the
     // 1-lot cap + canary capital + 30-day comparison.
     seaBridge.start("ai-paper");
-    log.info("Started — Trade Executor Agent v1.3 (SEA bridge online)");
+    // RCA Phase 1 monitor — age-based exits only. 30-min position cap on
+    // ai-paper. Phase 2 adds momentum / volatility / stale-price triggers.
+    rcaMonitor.start({ channels: ["ai-paper"] });
+    log.info("Started — Trade Executor Agent v1.3 (SEA bridge + RCA monitor online)");
   }
 
   stop(): void {
@@ -112,6 +116,7 @@ class TradeExecutorAgent {
     }
     orderSync.stop();
     seaBridge.stop();
+    rcaMonitor.stop();
     log.info("Stopped");
   }
 
