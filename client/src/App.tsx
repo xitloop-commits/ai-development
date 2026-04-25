@@ -8,7 +8,6 @@ import { InstrumentFilterProvider } from "./contexts/InstrumentFilterContext";
 import { CapitalProvider } from "./contexts/CapitalContext";
 import MainScreen from "./components/MainScreen";
 import { CredentialGate } from "./components/CredentialGate";
-import { SetupBrokerModal } from "./components/SetupBrokerModal";
 import TradingDeskMockupPage from "./mockups/TradingDeskMockupPage";
 import HeadToHeadPage from "./pages/HeadToHeadPage";
 
@@ -81,14 +80,11 @@ function App() {
               ) : showHeadToHead ? (
                 <HeadToHeadPage />
               ) : (
-                <>
-                  <SetupBrokerModal />
-                  <CredentialGate>
-                    <CapitalProvider>
-                      <MainScreen />
-                    </CapitalProvider>
-                  </CredentialGate>
-                </>
+                <CredentialGate>
+                  <CapitalProvider>
+                    <MainScreen />
+                  </CapitalProvider>
+                </CredentialGate>
               )}
             </TooltipProvider>
           </InstrumentFilterProvider>

@@ -16,7 +16,6 @@ import { toast } from 'sonner';
 import {
   ArrowLeft,
   Settings as SettingsIcon,
-  Wallet,
   ShieldCheck,
   Clock,
   CalendarClock,
@@ -25,12 +24,7 @@ import {
   Save,
   RotateCcw,
   ChevronRight,
-  Wifi,
-  WifiOff,
-  Key,
   AlertTriangle,
-  CheckCircle2,
-  XCircle,
   Info,
   Loader2,
   Landmark,
@@ -51,7 +45,6 @@ import {
 // ─── Types ───────────────────────────────────────────────────────
 
 type SettingsSection =
-  | 'broker'
   | 'tradingMode'
   | 'execution'
   | 'discipline'
@@ -71,7 +64,6 @@ interface SectionItem {
 
 const SECTIONS: SectionItem[] = [
   { id: 'instruments', label: 'Instruments', icon: SettingsIcon, description: 'Configure tradable instruments' },
-  { id: 'broker', label: 'Broker Config', icon: Wallet, description: 'Active broker, credentials, connection status' },
   { id: 'tradingMode', label: 'Trading Mode', icon: Layers, description: 'Workspace modes and per-workspace kill switches' },
   { id: 'execution', label: 'Order Execution', icon: Zap, description: 'Entry offset, SL/TP, targets, trailing stop' },
   { id: 'discipline', label: 'Discipline', icon: ShieldCheck, description: 'Circuit breaker, trade limits, pre-trade gate, streaks' },
@@ -318,31 +310,6 @@ function TimeInput({ value, onChange, disabled = false }: { value: string; onCha
   );
 }
 
-function StatusBadge({ status, label }: { status: 'connected' | 'disconnected' | 'error' | 'valid' | 'expired' | 'unknown'; label: string }) {
-  const colors: Record<string, string> = {
-    connected: 'bg-bullish/10 text-bullish border-bullish/20',
-    valid: 'bg-bullish/10 text-bullish border-bullish/20',
-    disconnected: 'bg-muted text-muted-foreground border-border',
-    error: 'bg-destructive/10 text-destructive border-destructive/20',
-    expired: 'bg-destructive/10 text-destructive border-destructive/20',
-    unknown: 'bg-warning-amber/10 text-warning-amber border-warning-amber/20',
-  };
-  const dotColors: Record<string, string> = {
-    connected: 'bg-bullish',
-    valid: 'bg-bullish',
-    disconnected: 'bg-muted-foreground',
-    error: 'bg-destructive',
-    expired: 'bg-destructive',
-    unknown: 'bg-warning-amber',
-  };
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[0.5625rem] font-bold tracking-wider border ${colors[status] ?? colors.unknown}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${dotColors[status] ?? dotColors.unknown} ${status === 'connected' || status === 'valid' ? 'animate-pulse-glow' : ''}`} />
-      {label}
-    </span>
-  );
-}
-
 export function SaveButton({ onClick, loading, disabled }: { onClick: () => void; loading: boolean; disabled?: boolean }) {
   return (
     <button
@@ -399,233 +366,6 @@ function DisciplineRow({
 
 // ─── Section Components ──────────────────────────────────────────
 
-export function BrokerConfigSection() {
-  const configQuery = trpc.broker.config.get.useQuery();
-  const allConfigsQuery = trpc.broker.config.list.useQuery();
-  const adaptersQuery = trpc.broker.adapters.list.useQuery();
-  const statusQuery = trpc.broker.status.useQuery();
-  const tokenQuery = trpc.broker.token.status.useQuery();
-  const switchMutation = trpc.broker.config.switchBroker.useMutation({
-    onSuccess: () => {
-      toast.success('Broker switched successfully');
-      configQuery.refetch();
-      allConfigsQuery.refetch();
-      statusQuery.refetch();
-    },
-    onError: (err) => toast.error(err.message),
-  });
-  const setupMutation = trpc.broker.setup.useMutation({
-    onSuccess: () => {
-      toast.success('Broker configured and connected');
-      configQuery.refetch();
-      allConfigsQuery.refetch();
-      statusQuery.refetch();
-    },
-    onError: (err) => toast.error(err.message),
-  });
-
-  const [tokenInput, setTokenInput] = useState('');
-  const tokenMutation = trpc.broker.token.update.useMutation({
-    onSuccess: () => {
-      toast.success('Token updated successfully');
-      setTokenInput('');
-      tokenQuery.refetch();
-      configQuery.refetch();
-      statusQuery.refetch();
-    },
-    onError: (err) => toast.error(err.message),
-  });
-
-  const config = configQuery.data;
-  const allConfigs = allConfigsQuery.data ?? [];
-  const adapters = adaptersQuery.data ?? [];
-  const status = statusQuery.data;
-  const token = tokenQuery.data;
-
-  // Use registered adapters for dropdown (always populated), fall back to DB configs
-  const brokerOptions = adapters.length > 0
-    ? adapters.map((a) => ({ value: a.brokerId, label: a.displayName }))
-    : allConfigs.map((c) => ({ value: c.brokerId, label: c.displayName }));
-
-  return (
-    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))" }}>
-      {/* Active Broker */}
-      <SettingsCard title="Active Broker">
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="Select the broker to use for trading">Active Broker</FieldLabel>
-            <SelectInput
-              value={status?.activeBrokerId ?? ''}
-              onChange={(v) => {
-                const hasConfig = allConfigs.some((c) => c.brokerId === v);
-                if (hasConfig) {
-                  switchMutation.mutate({ brokerId: v });
-                } else {
-                  setupMutation.mutate({ brokerId: v });
-                }
-              }}
-              options={brokerOptions}
-            />
-          </div>
-          {config && (
-            <div className="flex items-center gap-3 flex-wrap">
-              <StatusBadge
-                status={config.isPaperBroker ? 'connected' : (status?.apiStatus ?? 'disconnected')}
-                label={config.isPaperBroker ? 'PAPER MODE' : (status?.apiStatus?.toUpperCase() ?? 'DISCONNECTED')}
-              />
-              {!config.isPaperBroker && (
-                <>
-                  <StatusBadge
-                    status={status?.wsStatus ?? 'disconnected'}
-                    label={`WS: ${status?.wsStatus?.toUpperCase() ?? 'DISCONNECTED'}`}
-                  />
-                  <StatusBadge
-                    status={status?.tokenStatus ?? 'unknown'}
-                    label={`TOKEN: ${status?.tokenStatus?.toUpperCase() ?? 'UNKNOWN'}`}
-                  />
-                </>
-              )}
-              {/* Kill switch state is managed in Trading Mode section */}
-            </div>
-          )}
-        </div>
-      </SettingsCard>
-
-      {/* Credentials */}
-      <SettingsCard title="Credentials">
-        {config ? (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <FieldLabel>Client ID</FieldLabel>
-              {config.credentials.clientId ? (
-                <span className="text-[0.6875rem] text-foreground tabular-nums">
-                  {config.credentials.clientId}
-                </span>
-              ) : (
-                <span className="text-[0.6875rem] text-loss-red">
-                  Not set — enter below
-                </span>
-              )}
-            </div>
-            <div className="flex items-center justify-between">
-              <FieldLabel>Access Token</FieldLabel>
-              <span className="text-[0.6875rem] text-foreground tabular-nums">
-                {config.credentials.accessToken || '—'}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <FieldLabel>Token Status</FieldLabel>
-              <StatusBadge
-                status={status?.tokenStatus ?? config.credentials.status}
-                label={(status?.tokenStatus ?? config.credentials.status).toUpperCase()}
-              />
-            </div>
-            {config.credentials.updatedAt > 0 && (
-              <div className="flex items-center justify-between">
-                <FieldLabel>Last Updated</FieldLabel>
-                <span className="text-[0.625rem] text-muted-foreground">
-                  {new Date(config.credentials.updatedAt).toLocaleString('en-IN')}
-                </span>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className="text-[0.6875rem] text-muted-foreground">No broker configured</p>
-        )}
-      </SettingsCard>
-
-      {/* Token Update */}
-      {config && !config.isPaperBroker && (
-        <SettingsCard title="Update Token">
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 p-2 rounded bg-warning-amber/5 border border-warning-amber/20">
-              <AlertTriangle className="h-3.5 w-3.5 text-warning-amber shrink-0" />
-              <span className="text-[0.625rem] text-warning-amber">
-                Paste a new access token from your Dhan dashboard. Tokens expire every 24 hours.
-              </span>
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                placeholder="Paste new access token..."
-                className="flex-1 h-8 px-3 text-[0.6875rem] bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-              <button
-                onClick={() => {
-                  if (!tokenInput.trim()) {
-                    toast.error('Access token is required');
-                    return;
-                  }
-                  tokenMutation.mutate({
-                    token: tokenInput.trim(),
-                    clientId: config.credentials.clientId,
-                  });
-                }}
-                disabled={!tokenInput.trim() || tokenMutation.isPending}
-                className="flex items-center gap-1.5 px-3 h-8 rounded text-[0.625rem] font-bold tracking-wider uppercase bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-              >
-                {tokenMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Key className="h-3 w-3" />}
-                UPDATE
-              </button>
-            </div>
-          </div>
-        </SettingsCard>
-      )}
-
-      {/* Connection Details */}
-      {config && !config.isPaperBroker && (
-        <SettingsCard title="Connection Details">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <FieldLabel>API Status</FieldLabel>
-              <StatusBadge status={config.connection.apiStatus} label={config.connection.apiStatus.toUpperCase()} />
-            </div>
-            <div className="flex items-center justify-between">
-              <FieldLabel>WebSocket Status</FieldLabel>
-              <StatusBadge status={config.connection.wsStatus} label={config.connection.wsStatus.toUpperCase()} />
-            </div>
-            {config.connection.latencyMs !== null && (
-              <div className="flex items-center justify-between">
-                <FieldLabel>API Latency</FieldLabel>
-                <span className="text-[0.6875rem] text-foreground tabular-nums">{config.connection.latencyMs}ms</span>
-              </div>
-            )}
-            {config.connection.lastApiCall && (
-              <div className="flex items-center justify-between">
-                <FieldLabel>Last API Call</FieldLabel>
-                <span className="text-[0.625rem] text-muted-foreground">
-                  {new Date(config.connection.lastApiCall).toLocaleString('en-IN')}
-                </span>
-              </div>
-            )}
-          </div>
-        </SettingsCard>
-      )}
-
-      {/* Capabilities */}
-      {config && (
-        <SettingsCard title="Capabilities">
-          <div className="grid grid-cols-2 gap-2">
-            {Object.entries(config.capabilities).map(([key, val]) => (
-              <div key={key} className="flex items-center gap-2">
-                {val ? (
-                  <CheckCircle2 className="h-3 w-3 text-bullish" />
-                ) : (
-                  <XCircle className="h-3 w-3 text-muted-foreground" />
-                )}
-                <span className="text-[0.625rem] text-foreground uppercase tracking-wider">
-                  {key.replace(/([A-Z])/g, ' $1').trim()}
-                </span>
-              </div>
-            ))}
-          </div>
-        </SettingsCard>
-      )}
-    </div>
-  );
-}
 
 export function OrderExecutionSection() {
   const configQuery = trpc.broker.config.get.useQuery();
@@ -2703,7 +2443,7 @@ function ExecutorSettingsSection() {
 // ─── Main Settings Page ──────────────────────────────────────────
 
 export default function Settings() {
-  const [activeSection, setActiveSection] = useState<SettingsSection>('broker');
+  const [activeSection, setActiveSection] = useState<SettingsSection>('instruments');
   const [pageActions, setPageActions] = useState<SettingsActions | null>(null);
 
   // (No section-change reset needed: each section's useRegisterActions
@@ -2714,8 +2454,6 @@ export default function Settings() {
 
   const renderSection = () => {
     switch (activeSection) {
-      case 'broker':
-        return <BrokerConfigSection />;
       case 'tradingMode':
         return <TradingModeSection />;
       case 'execution':

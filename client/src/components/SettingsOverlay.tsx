@@ -5,7 +5,6 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Wallet,
   Zap,
   ShieldCheck,
   Clock,
@@ -18,7 +17,6 @@ import {
   Settings as SettingsIcon,
 } from 'lucide-react';
 import {
-  BrokerConfigSection,
   OrderExecutionSection,
   DisciplineSection,
   TimeWindowsSection,
@@ -33,7 +31,6 @@ import {
 } from '@/pages/Settings';
 
 type SettingsSection =
-  | 'broker'
   | 'execution'
   | 'discipline'
   | 'timeWindows'
@@ -51,7 +48,6 @@ interface SectionItem {
 
 const SECTIONS: SectionItem[] = [
   { id: 'instruments', label: 'Instruments', icon: SettingsIcon, description: 'Configure tradable instruments' },
-  { id: 'broker', label: 'Broker Config', icon: Wallet, description: 'Active broker, credentials, connection status' },
   { id: 'execution', label: 'Order Execution', icon: Zap, description: 'Entry offset, SL/TP, targets, trailing stop' },
   { id: 'discipline', label: 'Discipline', icon: ShieldCheck, description: 'Circuit breaker, trade limits, pre-trade gate, streaks' },
   { id: 'timeWindows', label: 'Time Windows', icon: Clock, description: 'NSE & MCX trading time restrictions' },
@@ -66,7 +62,7 @@ interface SettingsOverlayProps {
 }
 
 export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayProps) {
-  const [activeSection, setActiveSection] = useState<SettingsSection>('broker');
+  const [activeSection, setActiveSection] = useState<SettingsSection>('instruments');
   const [isAnimating, setIsAnimating] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   // Sections register their Save / Reset handlers via SettingsActionsContext;
@@ -123,8 +119,6 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
 
   const renderSection = () => {
     switch (activeSection) {
-      case 'broker':
-        return <BrokerConfigSection />;
       case 'execution':
         return <OrderExecutionSection />;
       case 'discipline':
