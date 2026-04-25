@@ -161,7 +161,6 @@ export default function NewTradeForm(props: NewTradeFormProps) {
   const canSelectStrike = isDerivative && optionType !== 'NONE' && !!expiry;
   const tone = getChannelTone(channel);
   const brokerConfigQuery = trpc.broker.config.get.useQuery(undefined);
-  const isPaperBroker = brokerConfigQuery.data?.isPaperBroker ?? false;
 
   // Initialize SL/TP/TSL settings from broker config on first load
   useEffect(() => {
@@ -179,12 +178,14 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     () => resolvedInstruments?.find((item) => item.name === resolvedName),
     [resolvedInstruments, resolvedName]
   );
-  const requestUnderlying = !isPaperBroker && resolvedInstrument?.securityId
-    ? resolvedInstrument.securityId
-    : (UNDERLYING_MAP[instrument] ?? resolvedName);
-  const requestExchangeSegment = !isPaperBroker && resolvedInstrument?.exchange
-    ? resolvedInstrument.exchange
-    : undefined;
+  // Read-only data calls (expiry, option chain) always go through real Dhan
+  // via getActiveBroker(); the isPaperBroker flag from broker_configs no
+  // longer applies here. Send securityId + exchangeSegment whenever the
+  // resolved instrument is available so Dhan gets a numeric UnderlyingScrip.
+  const requestUnderlying = resolvedInstrument?.securityId
+    ?? UNDERLYING_MAP[instrument]
+    ?? resolvedName;
+  const requestExchangeSegment = resolvedInstrument?.exchange ?? undefined;
 
   useEffect(() => {
     if (instrumentOptions.includes(instrument)) return;

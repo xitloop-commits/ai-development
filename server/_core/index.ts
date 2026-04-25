@@ -64,6 +64,13 @@ async function startServer() {
         bootLog.warn(`MongoDB Capital legacy wipe failed (non-fatal): ${(err as Error)?.message ?? err}`);
       }
 
+      // Drop the legacy `discipline_state` unique index `(userId, date)`,
+      // replaced by `(userId, channel, date)`. Idempotent.
+      const { migrateDisciplineStateIndexes } = await import("../discipline/disciplineModel");
+      try { await migrateDisciplineStateIndexes(); } catch (err) {
+        bootLog.warn(`MongoDB Discipline index migration failed (non-fatal): ${(err as Error)?.message ?? err}`);
+      }
+
       // Register broker adapters and initialize broker service after MongoDB is ready
       registerAdapter("mock", () => new MockAdapter(), { displayName: "Paper Trading", isPaperBroker: true });
       registerAdapter("dhan", () => new DhanAdapter("dhan", false), { displayName: "Dhan (Trading)", isPaperBroker: false });

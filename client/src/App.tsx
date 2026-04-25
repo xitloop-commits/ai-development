@@ -56,7 +56,8 @@ function App() {
             <TooltipProvider>
               <Toaster
                 theme="dark"
-                position="bottom-center"
+                position="bottom-right"
+                offset={{ bottom: 96, right: 16 }}
                 closeButton
                 toastOptions={{
                   duration: 6000,

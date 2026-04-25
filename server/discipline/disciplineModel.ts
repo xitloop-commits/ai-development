@@ -146,6 +146,26 @@ disciplineStateSchema.index({ userId: 1, channel: 1, date: -1 }, { unique: true 
 
 export const DisciplineStateModel = mongoose.model("DisciplineState", disciplineStateSchema);
 
+/**
+ * Drop the legacy unique index `userId_1_date_-1` if it still exists.
+ *
+ * Pre-channel-partitioning the unique key was just `(userId, date)`; that
+ * index has been replaced by `(userId, channel, date)` but Mongo doesn't
+ * remove the old one automatically. Leaving it in place blocks inserting
+ * a second discipline_state doc for the same user+date on a different
+ * channel — which is exactly the multi-channel use case.
+ *
+ * Idempotent: if the legacy index is gone, this is a no-op.
+ */
+export async function migrateDisciplineStateIndexes(): Promise<void> {
+  const coll = DisciplineStateModel.collection;
+  const indexes = await coll.indexes();
+  const legacy = indexes.find((idx) => idx.name === "userId_1_date_-1");
+  if (legacy) {
+    await coll.dropIndex("userId_1_date_-1");
+  }
+}
+
 // ─── Discipline Daily Score Schema ─────────────────────────────
 
 const scoreBreakdownSchema = new Schema(
@@ -226,23 +246,31 @@ export async function getDisciplineState(
   channel: string = DEFAULT_CHANNEL,
 ): Promise<DisciplineState> {
   const d = date ?? getISTDateString();
-  let doc = await DisciplineStateModel.findOne({ userId, channel, date: d }).lean();
-  if (!doc) {
-    // Carry streak / consecutive-loss counters over from the most recent
-    // previous day for this same (userId, channel).
-    const prevDoc = await DisciplineStateModel
-      .findOne({ userId, channel, date: { $lt: d } })
-      .sort({ date: -1 })
-      .lean();
-    const defaultState = createDefaultState(userId, d);
-    (defaultState as any).channel = channel;
-    if (prevDoc) {
-      defaultState.currentStreak = (prevDoc as unknown as DisciplineState).currentStreak;
-      defaultState.consecutiveLosses = (prevDoc as unknown as DisciplineState).consecutiveLosses;
-    }
-    doc = await DisciplineStateModel.create(defaultState);
-    doc = doc.toObject();
+
+  const existing = await DisciplineStateModel.findOne({ userId, channel, date: d }).lean();
+  if (existing) return existing as unknown as DisciplineState;
+
+  // Carry streak / consecutive-loss counters over from the most recent
+  // previous day for this same (userId, channel).
+  const prevDoc = await DisciplineStateModel
+    .findOne({ userId, channel, date: { $lt: d } })
+    .sort({ date: -1 })
+    .lean();
+  const defaultState = createDefaultState(userId, d);
+  (defaultState as any).channel = channel;
+  if (prevDoc) {
+    defaultState.currentStreak = (prevDoc as unknown as DisciplineState).currentStreak;
+    defaultState.consecutiveLosses = (prevDoc as unknown as DisciplineState).consecutiveLosses;
   }
+
+  // Atomic upsert: if a parallel call already inserted the doc, $setOnInsert
+  // is a no-op and we fetch the winning row. Eliminates the create-race that
+  // caused E11000 on concurrent disciplinePreCheck calls.
+  const doc = await DisciplineStateModel.findOneAndUpdate(
+    { userId, channel, date: d },
+    { $setOnInsert: defaultState },
+    { upsert: true, returnDocument: "after", lean: true }
+  );
   return doc as unknown as DisciplineState;
 }
 

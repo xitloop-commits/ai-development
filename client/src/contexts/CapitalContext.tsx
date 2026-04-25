@@ -14,6 +14,7 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
+import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { type Channel, DEFAULT_LANDING_CHANNEL } from '@/lib/tradeTypes';
 
@@ -197,11 +198,20 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
     onSuccess: async () => {
       await invalidateAll();
     },
+    onError: (err) => {
+      // TEA + Discipline rejections come back as TRPCError BAD_REQUEST with
+      // a human-readable reason (e.g. "Discipline blocked: timeWindow").
+      // Without this toast they were vanishing into the console.
+      toast.error(err.message || 'Trade rejected');
+    },
   });
 
   const exitTradeMutation = trpc.executor.exitTrade.useMutation({
     onSuccess: async () => {
       await invalidateAll();
+    },
+    onError: (err) => {
+      toast.error(err.message || 'Exit failed');
     },
   });
 

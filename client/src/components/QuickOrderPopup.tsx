@@ -75,16 +75,14 @@ export function QuickOrderPopup({
 
   // ── Remote Data ────────────────────────────────────────────────
   const configQuery = trpc.broker.config.get.useQuery(undefined);
-  const isPaperBroker = configQuery.data?.isPaperBroker ?? false;
 
-  // For live brokers use the resolved security ID (same approach as NewTradeForm)
+  // Read-only data calls always go through real Dhan via getActiveBroker();
+  // the isPaperBroker flag from broker_configs no longer applies. Send
+  // securityId + exchangeSegment whenever the resolved instrument is
+  // available so Dhan gets a numeric UnderlyingScrip.
   const resolvedInstrument = resolvedInstruments?.find((r) => r.name === instrumentKey);
-  const underlying = (!isPaperBroker && resolvedInstrument?.securityId)
-    ? resolvedInstrument.securityId
-    : symbolUnderlying;
-  const exchangeSegment = (!isPaperBroker && resolvedInstrument?.exchange)
-    ? resolvedInstrument.exchange
-    : undefined;
+  const underlying = resolvedInstrument?.securityId ?? symbolUnderlying;
+  const exchangeSegment = resolvedInstrument?.exchange ?? undefined;
 
   const marginQuery = trpc.broker.margin.useQuery({ channel: "ai-live" as const }, {
     enabled: isOpen,
