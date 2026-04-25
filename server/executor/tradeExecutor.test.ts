@@ -29,6 +29,19 @@ vi.mock("./tradeResolution", () => ({
   resolveLotSize: vi.fn(async () => 75), // NIFTY default
 }));
 
+vi.mock("./settings", () => ({
+  getExecutorSettings: vi.fn(async () => ({
+    userId: "1",
+    aiLiveLotCap: 1,
+    rcaMaxAgeMs: 30 * 60 * 1000,
+    rcaStaleTickMs: 5 * 60 * 1000,
+    rcaVolThreshold: 0.7,
+    recoveryStuckMs: 60_000,
+    updatedAt: 0,
+  })),
+  updateExecutorSettings: vi.fn(),
+}));
+
 vi.mock("../broker/tickBus", () => ({
   tickBus: { emitTick: vi.fn(), on: vi.fn(), off: vi.fn() },
 }));

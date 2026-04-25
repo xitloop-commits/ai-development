@@ -26,6 +26,7 @@ import {
   resolveLotSize,
   resolveNearestExpiry,
 } from "./tradeResolution";
+import { getExecutorSettings, updateExecutorSettings } from "./settings";
 import { getCapitalState, getDayRecord } from "../portfolio/state";
 import { calculateAvailableCapital, calculatePositionSize } from "../portfolio/compounding";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
@@ -319,6 +320,24 @@ export const executorRouter = router({
       void margin;
       return { trade, day: updatedDay };
     }),
+
+  // ── Settings (shared TEA / RCA / recovery tunables) ────────
+
+  /** Read the executor settings doc. Defaults applied when Mongo empty. */
+  getSettings: publicProcedure.query(() => getExecutorSettings()),
+
+  /** Update one or more executor settings fields. Cache invalidated. */
+  updateSettings: publicProcedure
+    .input(
+      z.object({
+        aiLiveLotCap: z.number().int().min(1).max(100).optional(),
+        rcaMaxAgeMs: z.number().int().min(60_000).max(24 * 60 * 60 * 1000).optional(),
+        rcaStaleTickMs: z.number().int().min(30_000).max(60 * 60 * 1000).optional(),
+        rcaVolThreshold: z.number().min(0).max(2).optional(),
+        recoveryStuckMs: z.number().int().min(10_000).max(10 * 60 * 1000).optional(),
+      }),
+    )
+    .mutation(({ input }) => updateExecutorSettings(input)),
 
   /**
    * UI-friendly SL / TP / TSL update. Wraps tradeExecutor.modifyOrder with

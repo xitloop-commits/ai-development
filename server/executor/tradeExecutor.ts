@@ -41,6 +41,7 @@ import { seaBridge } from "./seaBridge";
 import { rcaMonitor } from "./rcaMonitor";
 import { recoveryEngine } from "./recoveryEngine";
 import { resolveLotSize } from "./tradeResolution";
+import { getExecutorSettings } from "./settings";
 import type {
   SubmitTradeRequest,
   SubmitTradeResponse,
@@ -56,13 +57,9 @@ const log = createLogger("TradeExecutor");
 const PAPER_CHANNELS: Channel[] = ["my-paper", "ai-paper", "testing-sandbox"];
 const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live"];
 
-/**
- * Hard cap on the lot count any single ai-live trade may place. The
- * canary protocol launches at 1 lot per trade — TEA refuses anything
- * larger so a misconfigured caller can't size up unnoticed. Raised in
- * a follow-up commit once the AI Live 30-day comparison clears.
- */
-const AI_LIVE_LOT_CAP = 1;
+// AI_LIVE_LOT_CAP is now sourced from executor_settings (default 1).
+// TEA Settings page surfaces it; checkAiLiveLotCap reads through the
+// 30 s-cached settings layer.
 
 function isPaperChannel(channel: Channel): boolean {
   return PAPER_CHANNELS.includes(channel);
@@ -311,10 +308,12 @@ class TradeExecutorAgent {
    * unbounded one through.
    */
   private async checkAiLiveLotCap(req: SubmitTradeRequest): Promise<string | null> {
+    const settings = await getExecutorSettings();
+    const cap = settings.aiLiveLotCap;
     const lotSize = (await resolveLotSize(req.instrument)) ?? 1;
     const lots = req.quantity / lotSize;
-    if (lots > AI_LIVE_LOT_CAP + 0.0001 /* float tolerance */) {
-      return `AI Live lot cap violated: ${req.quantity} units / ${lotSize} lot-size = ${lots.toFixed(2)} lots > ${AI_LIVE_LOT_CAP}`;
+    if (lots > cap + 0.0001 /* float tolerance */) {
+      return `AI Live lot cap violated: ${req.quantity} units / ${lotSize} lot-size = ${lots.toFixed(2)} lots > ${cap}`;
     }
     return null;
   }

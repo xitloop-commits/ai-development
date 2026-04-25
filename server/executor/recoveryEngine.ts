@@ -23,6 +23,7 @@ import { getAdapter } from "../broker/brokerService";
 import { tickBus } from "../broker/tickBus";
 import { getOpenPositions } from "../portfolio/storage";
 import type { Channel } from "../portfolio/state";
+import { getExecutorSettings } from "./settings";
 
 const log = createLogger("RecoveryEngine");
 
@@ -75,6 +76,13 @@ class RecoveryEngine {
   private async tick(): Promise<void> {
     if (!this.running) return;
     const now = Date.now();
+    // Hot-reload threshold from executor_settings (cached 30 s).
+    try {
+      const s = await getExecutorSettings();
+      this.stuckThresholdMs = s.recoveryStuckMs;
+    } catch {
+      // Defaults already applied.
+    }
     for (const channel of this.channels) {
       const positions = await getOpenPositions(channel).catch(() => []);
       for (const p of positions) {

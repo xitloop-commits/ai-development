@@ -55,6 +55,7 @@ type SettingsSection =
   | 'tradingMode'
   | 'execution'
   | 'discipline'
+  | 'executor'
   | 'timeWindows'
   | 'expiry'
   | 'charges'
@@ -74,6 +75,7 @@ const SECTIONS: SectionItem[] = [
   { id: 'tradingMode', label: 'Trading Mode', icon: Layers, description: 'Workspace modes and per-workspace kill switches' },
   { id: 'execution', label: 'Order Execution', icon: Zap, description: 'Entry offset, SL/TP, targets, trailing stop' },
   { id: 'discipline', label: 'Discipline', icon: ShieldCheck, description: 'Circuit breaker, trade limits, pre-trade gate, streaks' },
+  { id: 'executor', label: 'Trade Executor', icon: Zap, description: 'AI Live lot cap, RCA exit thresholds, recovery polling' },
   { id: 'timeWindows', label: 'Time Windows', icon: Clock, description: 'NSE & MCX trading time restrictions' },
   { id: 'expiry', label: 'Expiry Controls', icon: CalendarClock, description: 'Per-instrument expiry day rules' },
   { id: 'charges', label: 'Charges', icon: Receipt, description: 'Brokerage, STT, GST, and other charge rates' },
@@ -2344,6 +2346,151 @@ export function InstrumentsSection() {
   );
 }
 
+// ─── Trade Executor Settings Section ────────────────────────────
+
+function ExecutorSettingsSection() {
+  const utils = trpc.useUtils();
+  const settingsQuery = trpc.executor.getSettings.useQuery();
+  const updateMutation = trpc.executor.updateSettings.useMutation({
+    onSuccess: () => {
+      toast.success('Executor settings saved');
+      utils.executor.getSettings.invalidate();
+    },
+    onError: (err: any) => toast.error(`Save failed: ${err.message}`),
+  });
+
+  const settings = settingsQuery.data;
+  const [draft, setDraft] = useState<{
+    aiLiveLotCap: number;
+    rcaMaxAgeMs: number;
+    rcaStaleTickMs: number;
+    rcaVolThreshold: number;
+    recoveryStuckMs: number;
+  } | null>(null);
+
+  // Hydrate the draft from the server response once.
+  useEffect(() => {
+    if (settings && !draft) {
+      setDraft({
+        aiLiveLotCap: settings.aiLiveLotCap,
+        rcaMaxAgeMs: settings.rcaMaxAgeMs,
+        rcaStaleTickMs: settings.rcaStaleTickMs,
+        rcaVolThreshold: settings.rcaVolThreshold,
+        recoveryStuckMs: settings.recoveryStuckMs,
+      });
+    }
+  }, [settings, draft]);
+
+  if (settingsQuery.isLoading || !draft) {
+    return (
+      <div className="text-xs text-muted-foreground font-mono">Loading executor settings…</div>
+    );
+  }
+
+  const dirty =
+    settings &&
+    (draft.aiLiveLotCap !== settings.aiLiveLotCap ||
+      draft.rcaMaxAgeMs !== settings.rcaMaxAgeMs ||
+      draft.rcaStaleTickMs !== settings.rcaStaleTickMs ||
+      draft.rcaVolThreshold !== settings.rcaVolThreshold ||
+      draft.recoveryStuckMs !== settings.recoveryStuckMs);
+
+  const onSave = () => updateMutation.mutate(draft);
+
+  return (
+    <div className="space-y-4 font-mono">
+      <SettingsCard title="AI Live Lot Cap">
+        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
+          Hard cap on the number of lots any single ai-live trade may place.
+          Canary launches at 1; raise after the 30-day comparison clears.
+        </p>
+        <div className="flex items-center gap-3">
+          <FieldLabel hint="lots">AI_LIVE_LOT_CAP</FieldLabel>
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={draft.aiLiveLotCap}
+            onChange={(e) => setDraft({ ...draft, aiLiveLotCap: Math.max(1, parseInt(e.target.value) || 1) })}
+            className="w-20 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground tabular-nums"
+          />
+        </div>
+      </SettingsCard>
+
+      <SettingsCard title="RCA Exit Triggers">
+        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
+          When the Risk Control Agent triggers an exit on AI positions.
+          Lower thresholds = more aggressive exits.
+        </p>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+          <div className="flex flex-col gap-1">
+            <FieldLabel hint="minutes">Max Position Age</FieldLabel>
+            <input
+              type="number"
+              min={1}
+              max={1440}
+              value={Math.round(draft.rcaMaxAgeMs / 60_000)}
+              onChange={(e) => setDraft({ ...draft, rcaMaxAgeMs: Math.max(1, parseInt(e.target.value) || 1) * 60_000 })}
+              className="w-24 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground tabular-nums"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <FieldLabel hint="minutes — exit if no tick">Stale-Price Window</FieldLabel>
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={Math.round(draft.rcaStaleTickMs / 60_000)}
+              onChange={(e) => setDraft({ ...draft, rcaStaleTickMs: Math.max(1, parseInt(e.target.value) || 1) * 60_000 })}
+              className="w-24 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground tabular-nums"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <FieldLabel hint="0..2 — predicted max-drawdown trigger">Volatility Threshold</FieldLabel>
+            <input
+              type="number"
+              min={0}
+              max={2}
+              step={0.05}
+              value={draft.rcaVolThreshold}
+              onChange={(e) => setDraft({ ...draft, rcaVolThreshold: parseFloat(e.target.value) || 0 })}
+              className="w-24 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground tabular-nums"
+            />
+          </div>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard title="Order Recovery">
+        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
+          When the recovery engine polls the broker for stuck PENDING
+          live orders. Lower = more polling, faster recovery, more API calls.
+        </p>
+        <div className="flex items-center gap-3">
+          <FieldLabel hint="seconds — minimum age before polling">Stuck Threshold</FieldLabel>
+          <input
+            type="number"
+            min={10}
+            max={600}
+            value={Math.round(draft.recoveryStuckMs / 1000)}
+            onChange={(e) => setDraft({ ...draft, recoveryStuckMs: Math.max(10, parseInt(e.target.value) || 10) * 1000 })}
+            className="w-24 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground tabular-nums"
+          />
+        </div>
+      </SettingsCard>
+
+      <div className="flex justify-end">
+        <button
+          disabled={!dirty || updateMutation.isPending}
+          onClick={onSave}
+          className="px-4 py-1.5 text-xs font-bold tracking-wider uppercase bg-primary text-primary-foreground rounded disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90"
+        >
+          {updateMutation.isPending ? 'Saving…' : 'Save Changes'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Settings Page ──────────────────────────────────────────
 
 export default function Settings() {
@@ -2359,6 +2506,8 @@ export default function Settings() {
         return <OrderExecutionSection />;
       case 'discipline':
         return <DisciplineSection />;
+      case 'executor':
+        return <ExecutorSettingsSection />;
       case 'timeWindows':
         return <TimeWindowsSection />;
       case 'expiry':

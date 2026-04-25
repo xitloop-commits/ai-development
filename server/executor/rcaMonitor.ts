@@ -33,6 +33,7 @@ import { tradeExecutor } from "./tradeExecutor";
 import { getSEASignals, type SEASignal } from "../seaSignals";
 import type { Channel, TradeRecord } from "../portfolio/state";
 import type { ExitTradeReason } from "./types";
+import { getExecutorSettings } from "./settings";
 
 const log = createLogger("RcaMonitor");
 
@@ -96,6 +97,17 @@ class RcaMonitor {
   private async tick(): Promise<void> {
     if (!this.running) return;
     const now = Date.now();
+
+    // Hot-reload thresholds from executor_settings (cached 30 s).
+    // Lets the TEA Settings page tune RCA without a server restart.
+    try {
+      const s = await getExecutorSettings();
+      this.maxAgeMs = s.rcaMaxAgeMs;
+      this.staleTickMs = s.rcaStaleTickMs;
+      this.volThreshold = s.rcaVolThreshold;
+    } catch {
+      // Defaults already in place; carry on.
+    }
 
     // Build a lookup of latest filtered signal per instrument so the
     // momentum-flip check is a constant-time lookup per trade. Cheaper
