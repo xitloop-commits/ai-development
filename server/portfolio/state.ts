@@ -7,6 +7,7 @@
  *   ai-live | ai-paper | my-live | my-paper | testing-live | testing-sandbox
  */
 import mongoose, { Schema } from "mongoose";
+import { PortfolioStateModel } from "./storage";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -192,40 +193,15 @@ const dayRecordSchema = new Schema(
   { _id: false, timestamps: false }
 );
 
-const profitHistorySchema = new Schema(
-  {
-    dayIndex: Number,
-    totalProfit: Number,
-    tradingPoolShare: Number,
-    reservePoolShare: Number,
-    consumed: { type: Boolean, default: false },
-  },
-  { _id: false }
-);
-
-const capitalStateSchema = new Schema(
-  {
-    channel: { type: String, required: true, unique: true },
-    tradingPool: { type: Number, required: true },
-    reservePool: { type: Number, required: true },
-    initialFunding: { type: Number, required: true },
-    currentDayIndex: { type: Number, default: 1 },
-    targetPercent: { type: Number, default: 5 },
-    profitHistory: { type: [profitHistorySchema], default: [] },
-    cumulativePnl: { type: Number, default: 0 },
-    cumulativeCharges: { type: Number, default: 0 },
-    sessionTradeCount: { type: Number, default: 0 },
-    sessionPnl: { type: Number, default: 0 },
-    sessionDate: { type: String, default: "" },
-    createdAt: { type: Number, default: () => Date.now() },
-    updatedAt: { type: Number, default: () => Date.now() },
-  },
-  { timestamps: false, collection: "capital_state" }
-);
-
 // ─── Models ──────────────────────────────────────────────────────
+//
+// PA Phase 2 commit 2: the capital_state collection has been renamed to
+// portfolio_state, and its Mongoose schema lives in `./storage` with
+// extended fields (peakCapital / drawdownPercent / peakUpdatedAt). This
+// module re-exports the model under the legacy name so callers don't
+// have to migrate yet — `getCapitalState` etc. delegate through it.
 
-export const CapitalStateModel = mongoose.model("CapitalState", capitalStateSchema);
+export const CapitalStateModel = PortfolioStateModel;
 export const DayRecordModel = mongoose.model("DayRecord", dayRecordSchema, "day_records");
 
 // ─── CRUD Helpers ────────────────────────────────────────────────
@@ -251,6 +227,12 @@ const RESERVE_SPLIT = 0.25;
  * with the legacy `workspace` field), this is a no-op.
  */
 export async function wipeLegacyCapitalDocs(): Promise<void> {
+  // (1) Phase 2 commit 2 — migrate legacy `capital_state` collection
+  // to the new `portfolio_state` collection if needed.
+  await migrateCapitalStateToPortfolioState();
+
+  // (2) Drop any pre-channel `workspace`-keyed docs that may still exist
+  // in day_records.
   for (const Model of [CapitalStateModel, DayRecordModel]) {
     try {
       const indexes = await Model.collection.indexes();
@@ -267,6 +249,62 @@ export async function wipeLegacyCapitalDocs(): Promise<void> {
         console.warn(`[portfolio.state] Wipe failed for ${Model.collection.collectionName}:`, err);
       }
     }
+  }
+}
+
+/**
+ * One-time migration: if the legacy `capital_state` collection exists
+ * with channel-keyed docs, copy them into the new `portfolio_state`
+ * collection (with the Phase 2 fields defaulted) and drop the old one.
+ *
+ * Idempotent — once `capital_state` is gone, this is a no-op.
+ */
+async function migrateCapitalStateToPortfolioState(): Promise<void> {
+  const db = mongoose.connection.db;
+  if (!db) return;
+  let legacyExists = false;
+  try {
+    const collections = await db.listCollections({ name: "capital_state" }).toArray();
+    legacyExists = collections.length > 0;
+  } catch {
+    return;
+  }
+  if (!legacyExists) return;
+
+  const legacy = db.collection("capital_state");
+  const docs = await legacy.find({ channel: { $exists: true } }).toArray();
+  if (docs.length > 0) {
+    const newCount = await PortfolioStateModel.countDocuments();
+    if (newCount === 0) {
+      const now = Date.now();
+      const seeded = docs.map((d: any) => {
+        const totalCap = (d.tradingPool ?? 0) + (d.reservePool ?? 0);
+        return {
+          ...d,
+          _id: undefined,
+          peakCapital: d.peakCapital ?? totalCap,
+          drawdownPercent: d.drawdownPercent ?? 0,
+          peakUpdatedAt: d.peakUpdatedAt ?? now,
+        };
+      });
+      try {
+        await PortfolioStateModel.insertMany(seeded, { ordered: false });
+        // eslint-disable-next-line no-console
+        console.log(
+          `[portfolio.state] Migrated ${seeded.length} docs: capital_state → portfolio_state`,
+        );
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(`[portfolio.state] Migration insert failed (continuing):`, err);
+      }
+    }
+  }
+  try {
+    await legacy.drop();
+    // eslint-disable-next-line no-console
+    console.log(`[portfolio.state] Dropped legacy capital_state collection`);
+  } catch {
+    /* may already be gone */
   }
 }
 
