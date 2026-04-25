@@ -39,6 +39,7 @@ import { idempotencyStore } from "./idempotency";
 import { orderSync } from "./orderSync";
 import { seaBridge } from "./seaBridge";
 import { rcaMonitor } from "./rcaMonitor";
+import { recoveryEngine } from "./recoveryEngine";
 import { resolveLotSize } from "./tradeResolution";
 import type {
   SubmitTradeRequest,
@@ -120,7 +121,12 @@ class TradeExecutorAgent {
     // RCA Phase 1 monitor — age-based exits only. 30-min position cap on
     // ai-paper. Phase 2 adds momentum / volatility / stale-price triggers.
     rcaMonitor.start({ channels: ["ai-paper"] });
-    log.info("Started — Trade Executor Agent v1.3 (SEA bridge + RCA monitor online)");
+    // Recovery engine — polls live brokers for PENDING orders > 60s old
+    // and emits synthetic OrderUpdate events to orderSync if the
+    // underlying broker order has reached a terminal status. Backstop
+    // for missed WS events. Live channels only.
+    recoveryEngine.start();
+    log.info("Started — Trade Executor Agent v1.3 (SEA + RCA + recovery online)");
   }
 
   stop(): void {
@@ -133,6 +139,7 @@ class TradeExecutorAgent {
     orderSync.stop();
     seaBridge.stop();
     rcaMonitor.stop();
+    recoveryEngine.stop();
     log.info("Stopped");
   }
 
