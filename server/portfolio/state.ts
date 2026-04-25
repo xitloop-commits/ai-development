@@ -56,6 +56,10 @@ export interface TradeRecord {
   brokerId: string | null;
   openedAt: number;
   closedAt: number | null;
+  /** RCA Phase 2 — epoch ms of the most recent tick that updated this trade's ltp.
+   *  Used by the stale-price exit trigger to detect broker disconnects /
+   *  illiquid contracts. Set by tickHandler on every matching tick. */
+  lastTickAt?: number;
   /** PA spec §5.2 — exit audit trail. Stamped by portfolioAgent.recordTradeClosed. */
   exitReason?: ExitReason;
   exitTriggeredBy?: ExitTriggeredBy;
@@ -168,6 +172,7 @@ const tradeRecordSchema = new Schema(
     brokerId: { type: String, default: null },
     openedAt: { type: Number, default: () => Date.now() },
     closedAt: { type: Number, default: null },
+    lastTickAt: { type: Number, default: null },
     exitReason: { type: String, default: null },
     exitTriggeredBy: { type: String, default: null },
     signalSource: { type: String, default: null },
@@ -555,6 +560,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       brokerId: t.brokerId ?? null,
       openedAt: t.openedAt ?? Date.now(),
       closedAt: t.closedAt ?? null,
+      lastTickAt: t.lastTickAt ?? undefined,
       exitReason: t.exitReason ?? undefined,
       exitTriggeredBy: t.exitTriggeredBy ?? undefined,
       signalSource: t.signalSource ?? undefined,

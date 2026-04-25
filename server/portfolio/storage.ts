@@ -92,6 +92,9 @@ export interface PositionStateDoc {
   openedAt: number;
   closedAt: number | null;
 
+  /** RCA Phase 2 — epoch ms of the most recent tick that touched this position. */
+  lastTickAt?: number;
+
   exitReason?: ExitReason;
   exitTriggeredBy?: ExitTriggeredBy;
   signalSource?: string;
@@ -233,6 +236,8 @@ const positionStateSchema = new Schema(
     brokerId: { type: String, default: null },
     openedAt: { type: Number, default: () => Date.now() },
     closedAt: { type: Number, default: null },
+
+    lastTickAt: { type: Number, default: null },
 
     exitReason: { type: String, default: null },
     exitTriggeredBy: { type: String, default: null },
@@ -468,6 +473,7 @@ function docToPositionState(doc: Record<string, any>): PositionStateDoc {
     brokerId: doc.brokerId ?? null,
     openedAt: doc.openedAt,
     closedAt: doc.closedAt ?? null,
+    lastTickAt: doc.lastTickAt ?? undefined,
     exitReason: doc.exitReason ?? undefined,
     exitTriggeredBy: doc.exitTriggeredBy ?? undefined,
     signalSource: doc.signalSource ?? undefined,

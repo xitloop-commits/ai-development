@@ -193,8 +193,10 @@ class TickHandler extends EventEmitter {
       for (const tick of ticks) {
         if (!tickMatchesTrade(tick, trade)) continue;
 
-        // Update LTP
+        // Update LTP + stamp the tick timestamp so RCA's stale-price
+        // monitor can detect broker disconnects / illiquid contracts.
         trade.ltp = tick.ltp;
+        trade.lastTickAt = Date.now();
         anyUpdated = true;
 
         // Check TP/SL triggers for paper/sandbox channels; live channels are managed by broker bracket orders
