@@ -189,13 +189,17 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const placeTradeMutation = trpc.portfolio.placeTrade.useMutation({
+  // Trade write operations route through the Trade Executor Agent
+  // (TEA spec §3 single-writer rule). UI keeps the legacy input shape via
+  // executor.placeTrade / executor.updateTrade; exit translates to the
+  // formal `executor.exitTrade` shape inline below.
+  const placeTradeMutation = trpc.executor.placeTrade.useMutation({
     onSuccess: async () => {
       await invalidateAll();
     },
   });
 
-  const exitTradeMutation = trpc.portfolio.exitTrade.useMutation({
+  const exitTradeMutation = trpc.executor.exitTrade.useMutation({
     onSuccess: async () => {
       await invalidateAll();
     },
@@ -284,9 +288,28 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
     [channel, placeTradeMutation]
   );
 
+  // Translate the UI's legacy exit shape into TEA's formal exitTrade
+  // request. UI calls with `{ tradeId, exitPrice, reason: 'MANUAL'|'TP'|'SL'|... }`;
+  // TEA expects `executionId`, `positionId`, `exitType`, `triggeredBy`, etc.
   const exitTrade = useCallback(
-    (trade: any) => {
-      exitTradeMutation.mutate({ channel, ...trade });
+    (trade: { tradeId: string; exitPrice: number; reason: 'MANUAL' | 'TP' | 'SL' | 'PARTIAL' | 'EOD' }) => {
+      const reasonMap = {
+        MANUAL: 'MANUAL',
+        TP: 'TP_HIT',
+        SL: 'SL_HIT',
+        PARTIAL: 'MANUAL',
+        EOD: 'EOD',
+      } as const;
+      exitTradeMutation.mutate({
+        executionId: `UI-EXIT-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        channel,
+        positionId: `POS-${trade.tradeId.replace(/^T/, '')}`,
+        exitType: 'MARKET',
+        exitPrice: trade.exitPrice,
+        reason: reasonMap[trade.reason] ?? 'MANUAL',
+        triggeredBy: 'USER',
+        timestamp: Date.now(),
+      });
     },
     [channel, exitTradeMutation]
   );

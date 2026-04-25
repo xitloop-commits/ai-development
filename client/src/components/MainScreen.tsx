@@ -162,7 +162,7 @@ export default function MainScreen() {
   // ─── tRPC Mutations ────────────────────────────────────────────
   const utils = trpc.useUtils();
 
-  const placeTradeM = trpc.portfolio.placeTrade.useMutation({
+  const placeTradeM = trpc.executor.placeTrade.useMutation({
     onSuccess: async () => {
       await Promise.all([
         utils.portfolio.allDays.invalidate(),

@@ -58,7 +58,7 @@ export function TodaySection({
   allDays,
 }: TodaySectionProps) {
   const [showNewTradeForm, setShowNewTradeForm] = useState(false);
-  const updateTradeMutation = trpc.portfolio.updateTrade.useMutation();
+  const updateTradeMutation = trpc.executor.updateTrade.useMutation();
   const utils = trpc.useUtils();
   const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
     updateTradeMutation.mutate(
