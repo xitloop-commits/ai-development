@@ -86,7 +86,7 @@ const SECTIONS: SectionItem[] = [
 // Sections register their save / reset handlers here; the page header
 // renders them at the top-right so save/reset is always one place.
 
-interface SettingsActions {
+export interface SettingsActions {
   onSave?: () => void;
   onReset?: () => void;
   saving?: boolean;
@@ -94,7 +94,7 @@ interface SettingsActions {
   canSave?: boolean;
 }
 
-const SettingsActionsContext = createContext<{
+export const SettingsActionsContext = createContext<{
   setActions: (a: SettingsActions | null) => void;
 }>({ setActions: () => {} });
 
@@ -108,7 +108,7 @@ const SettingsActionsContext = createContext<{
  * looping. The effect re-runs only when primitive flags (saving,
  * canSave) flip — that's when the header needs to repaint.
  */
-function useRegisterActions(actions: SettingsActions | null): void {
+export function useRegisterActions(actions: SettingsActions | null): void {
   const { setActions } = useContext(SettingsActionsContext);
   const onSaveRef = useRef(actions?.onSave);
   const onResetRef = useRef(actions?.onReset);
@@ -343,7 +343,7 @@ function StatusBadge({ status, label }: { status: 'connected' | 'disconnected' |
   );
 }
 
-function SaveButton({ onClick, loading, disabled }: { onClick: () => void; loading: boolean; disabled?: boolean }) {
+export function SaveButton({ onClick, loading, disabled }: { onClick: () => void; loading: boolean; disabled?: boolean }) {
   return (
     <button
       onClick={onClick}
@@ -356,7 +356,7 @@ function SaveButton({ onClick, loading, disabled }: { onClick: () => void; loadi
   );
 }
 
-function ResetButton({ onClick }: { onClick: () => void }) {
+export function ResetButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}

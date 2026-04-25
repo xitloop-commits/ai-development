@@ -26,6 +26,10 @@ import {
   ChargesSection,
   CapitalManagementSection,
   InstrumentsSection,
+  SettingsActionsContext,
+  SaveButton,
+  ResetButton,
+  type SettingsActions,
 } from '@/pages/Settings';
 
 type SettingsSection =
@@ -65,6 +69,9 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
   const [activeSection, setActiveSection] = useState<SettingsSection>('broker');
   const [isAnimating, setIsAnimating] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  // Sections register their Save / Reset handlers via SettingsActionsContext;
+  // we render the buttons in the section header below.
+  const [pageActions, setPageActions] = useState<SettingsActions | null>(null);
 
   // Handle open/close animation
   useEffect(() => {
@@ -142,6 +149,7 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
   if (!isVisible) return null;
 
   return (
+    <SettingsActionsContext.Provider value={{ setActions: setPageActions }}>
     <div className="fixed inset-0 z-50">
       {/* Backdrop */}
       <div
@@ -159,8 +167,8 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
             : 'opacity-0 translate-y-2'
         }`}
       >
-        {/* Header */}
-        <div className="shrink-0 px-6 py-3 border-b border-border flex items-center justify-between">
+        {/* Header — title left; section actions + close right */}
+        <div className="shrink-0 px-6 py-3 border-b border-border flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <Settings className="h-4 w-4 text-primary" />
             <h1 className="font-display text-base font-bold tracking-tight text-foreground">
@@ -170,13 +178,25 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
               F2 to toggle
             </span>
           </div>
-          <button
-            onClick={() => onOpenChange(false)}
-            className="h-7 w-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="Close settings"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {pageActions?.onReset && (
+              <ResetButton onClick={pageActions.onReset} />
+            )}
+            {pageActions?.onSave && (
+              <SaveButton
+                onClick={pageActions.onSave}
+                loading={pageActions.saving ?? false}
+                disabled={pageActions.canSave === false}
+              />
+            )}
+            <button
+              onClick={() => onOpenChange(false)}
+              className="h-7 w-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Close settings"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Body: Sidebar + Content */}
@@ -224,8 +244,8 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
 
           {/* Main Content */}
           <div className="flex-1 overflow-y-auto overflow-x-hidden p-6">
-            {/* Section Header */}
-            <div className="mb-5 max-w-3xl">
+            {/* Section Header — full-width so cards inside can flow across */}
+            <div className="mb-5">
               <div className="flex items-center gap-2 mb-1">
                 {currentSection && <currentSection.icon className="h-4 w-4 text-primary" />}
                 <h2 className="font-display text-base font-bold tracking-tight text-foreground">
@@ -237,13 +257,16 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
               </p>
             </div>
 
-            {/* Section Content */}
-            <div className="animate-fade-in-up max-w-3xl">
+            {/* Section Content — width unconstrained so the auto-fit grid
+                inside each section can fit as many cards per row as the
+                viewport allows. */}
+            <div className="animate-fade-in-up">
               {renderSection()}
             </div>
           </div>
         </div>
       </div>
     </div>
+    </SettingsActionsContext.Provider>
   );
 }
