@@ -33,8 +33,26 @@ vi.mock("../broker/tickBus", () => ({
   tickBus: { emitTick: vi.fn(), on: vi.fn(), off: vi.fn() },
 }));
 
+vi.mock("../discipline", () => ({
+  disciplineEngine: {
+    validateTrade: vi.fn(async () => ({
+      allowed: true,
+      blockedBy: [],
+      warnings: [],
+      adjustments: [],
+      details: {},
+    })),
+  },
+}));
+
 vi.mock("../portfolio", () => ({
   portfolioAgent: {
+    getState: vi.fn(async () => ({
+      currentCapital: 100000,
+      openExposure: 0,
+      tradingPool: 75000,
+      reservePool: 25000,
+    })),
     appendTrade: vi.fn(async (_channel: any, trade: any) => trade),
     closeTrade: vi.fn(async (_channel: any, _tradeId: any, exitPrice: number) => ({
       trade: {

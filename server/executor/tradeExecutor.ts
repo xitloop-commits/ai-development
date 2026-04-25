@@ -313,9 +313,17 @@ class TradeExecutorAgent {
    * blockedBy string if the trade should be rejected, or null if
    * Discipline allows it.
    *
-   * Failures (Discipline engine throws) are downgraded to allow — we
-   * don't want a transient state issue to block an otherwise-valid
-   * trade. Phase 4 fail-closes this.
+   * Phase 4 fail-closed: a thrown error from the discipline engine is
+   * now treated as a BLOCK, not a pass-through. Rationale: the gate
+   * exists to prevent capital loss during emotionally-charged or
+   * cap-breaching states. If the gate is broken we don't know the
+   * current state, and the safe default is "don't trade." Trade-offs:
+   *
+   *   - Cost of false reject: one missed signal entry, no capital impact.
+   *   - Cost of false accept: a trade that should have been blocked
+   *     gets placed (potential capital loss, especially on ai-live).
+   *
+   * Always prefer the false-reject failure mode.
    */
   private async disciplinePreCheck(req: SubmitTradeRequest): Promise<string | null> {
     try {
@@ -346,8 +354,8 @@ class TradeExecutorAgent {
       }
       return null;
     } catch (err: any) {
-      log.warn(`disciplinePreCheck failed (allowing trade): ${err?.message ?? err}`);
-      return null;
+      log.error(`disciplinePreCheck FAILED — failing closed: ${err?.message ?? err}`);
+      return `discipline engine error (fail-closed): ${err?.message ?? "unknown"}`;
     }
   }
 
