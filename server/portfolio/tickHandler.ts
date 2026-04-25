@@ -1,14 +1,15 @@
 /**
- * P&L Engine — Real-time MTM updater for open trades.
+ * Portfolio Agent — Tick Handler (was: pnlEngine)
  *
- * Listens to tickBus for live ticks and updates:
- *   - trade.ltp (last traded price)
- *   - trade.unrealizedPnl (mark-to-market)
- *   - day aggregates (totalPnl, etc.)
+ * Internal service of PortfolioAgent. Subscribes to tickBus and feeds
+ * open positions for mark-to-market + auto-exit on TP/SL.
  *
- * Also checks TP/SL triggers and auto-exits trades when hit.
+ * Lifecycle is owned by portfolioAgent.start() / stop(). Consumers should
+ * use the portfolioAgent singleton — this module's `tickHandler` export
+ * is for PA's internal use only.
  *
- * Flow: tickBus.on("tick") → match open trades → update LTP/P&L → persist → emit pnlUpdate
+ * Flow: tickBus.on("tick") → match open trades → update LTP/P&L → persist
+ *       → emit pnlUpdate (consumed by SSE / live UI)
  */
 import { EventEmitter } from "events";
 import { tickBus } from "../broker/tickBus";
@@ -83,9 +84,15 @@ export function tickMatchesTrade(tick: TickData, trade: TradeRecord): boolean {
   return false;
 }
 
-// ─── P&L Engine Class ───────────────────────────────────────────
+// ─── Tick Handler (formerly PnlEngine) ─────────────────────────
+//
+// Subscribes to tickBus and feeds open positions for MTM + auto-exit on
+// TP/SL. Owned by PortfolioAgent — see portfolioAgent.start() / stop().
+// Emits "pnlUpdate" snapshots that downstream UI consumers can subscribe
+// to for live P&L. Class kept as a self-contained service so PA can
+// orchestrate lifecycle without a circular dep.
 
-class PnlEngine extends EventEmitter {
+class TickHandler extends EventEmitter {
   private running = false;
   private updateDebounce: NodeJS.Timeout | null = null;
   private pendingUpdates = new Map<string, TickData>(); // key → latest tick
@@ -102,7 +109,7 @@ class PnlEngine extends EventEmitter {
     if (this.running) return;
     this.running = true;
     tickBus.on("tick", this.handleTick);
-    console.log("[PnlEngine] Started — listening for ticks");
+    console.log("[PortfolioAgent/TickHandler] Started — listening for ticks");
   }
 
   /** Stop listening */
@@ -113,7 +120,7 @@ class PnlEngine extends EventEmitter {
       clearTimeout(this.updateDebounce);
       this.updateDebounce = null;
     }
-    console.log("[PnlEngine] Stopped");
+    console.log("[PortfolioAgent/TickHandler] Stopped");
   }
 
   /** Handle incoming tick — debounce to batch updates */
@@ -238,7 +245,7 @@ class PnlEngine extends EventEmitter {
         await this.autoExitTrade(channel, state, day, trade, reason, exitPrice);
         anyUpdated = true;
       } catch (err) {
-        console.error(`[PnlEngine] Auto-exit failed for ${trade.id}:`, err);
+        console.error(`[PortfolioAgent/TickHandler] Auto-exit failed for ${trade.id}:`, err);
       }
     }
 
@@ -277,7 +284,7 @@ class PnlEngine extends EventEmitter {
     exitPrice: number
   ): Promise<void> {
     console.log(
-      `[PnlEngine] Auto-exit ${reason}: ${trade.instrument} ${trade.type} @ ${exitPrice} (entry: ${trade.entryPrice})`
+      `[PortfolioAgent/TickHandler] Auto-exit ${reason}: ${trade.instrument} ${trade.type} @ ${exitPrice} (entry: ${trade.entryPrice})`
     );
 
     // Send broker exit order for live channels
@@ -315,10 +322,10 @@ class PnlEngine extends EventEmitter {
 
           const result = await broker.placeOrder(exitOrder);
           console.log(
-            `[PnlEngine] Broker auto-exit order: ${result.orderId} (${result.status})`
+            `[PortfolioAgent/TickHandler] Broker auto-exit order: ${result.orderId} (${result.status})`
           );
         } catch (err) {
-          console.error("[PnlEngine] Broker auto-exit failed:", err);
+          console.error("[PortfolioAgent/TickHandler] Broker auto-exit failed:", err);
         }
       }
     }
@@ -367,4 +374,4 @@ class PnlEngine extends EventEmitter {
 
 // ─── Singleton ──────────────────────────────────────────────────
 
-export const pnlEngine = new PnlEngine();
+export const tickHandler = new TickHandler();

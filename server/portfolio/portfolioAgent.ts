@@ -27,6 +27,7 @@ import {
   upsertDayRecord,
   updateCapitalState,
 } from "./state";
+import { tickHandler } from "./tickHandler";
 import {
   TRADING_SPLIT,
   calculateAvailableCapital,
@@ -119,18 +120,31 @@ function snapshotFromState(
 class PortfolioAgentImpl {
   private started = false;
 
-  /** Lifecycle hook — called from server startup. tickHandler integration
-   *  arrives in commit 3; for now this is a no-op marker. */
+  /**
+   * Lifecycle — called from server startup. Boots the internal tickHandler
+   * (MTM + auto-exit on TP/SL) under PA's ownership. Idempotent.
+   */
   start(): void {
     if (this.started) return;
     this.started = true;
+    tickHandler.start();
     log.info("Started — Portfolio Agent v1.2 (Phase 1)");
   }
 
   stop(): void {
     if (!this.started) return;
     this.started = false;
+    tickHandler.stop();
     log.info("Stopped");
+  }
+
+  /**
+   * Subscribe to PnL snapshots emitted by the tick handler. Useful for
+   * SSE / WebSocket bridges that push live P&L updates to the UI.
+   */
+  onPnlUpdate(handler: (snapshot: import("./tickHandler").PnlSnapshot) => void): () => void {
+    tickHandler.on("pnlUpdate", handler);
+    return () => tickHandler.off("pnlUpdate", handler);
   }
 
   // ── §7.1 Query APIs ──────────────────────────────────────────
