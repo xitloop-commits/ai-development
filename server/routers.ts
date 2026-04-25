@@ -22,6 +22,7 @@ import { getSEASignals } from "./seaSignals";
 import { getInstrumentLiveState } from "./instrumentLiveState";
 import { brokerRouter } from "./broker/brokerRouter";
 import { portfolioRouter } from "./portfolio/router";
+import { executorRouter } from "./executor";
 import { disciplineRouter } from "./discipline/disciplineRouter";
 import { getUserSettings, updateUserSettings } from "./userSettings";
 import {
@@ -262,9 +263,13 @@ export const appRouter = router({
   // Broker Service (tRPC)
   broker: brokerRouter,
 
-  // Portfolio Agent (PortfolioAgent_Spec_v1.1) — canonical portfolio API.
+  // Portfolio Agent (PortfolioAgent_Spec_v1.3) — canonical portfolio API.
   // Absorbed legacy `capital.*` namespace in PA Phase 1 commit 4.
   portfolio: portfolioRouter,
+
+  // Trade Executor Agent (TradeExecutorAgent_Spec_v1.3) — single execution
+  // gateway. Phase 1 commit 1: skeleton; methods wired in subsequent commits.
+  executor: executorRouter,
 
   // Discipline Engine
   discipline: disciplineRouter,

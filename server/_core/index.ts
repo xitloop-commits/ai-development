@@ -15,6 +15,7 @@ import { DhanAdapter } from "../broker/adapters/dhan";
 import { registerBrokerRoutes } from "../broker/brokerRoutes";
 import { portfolioAgent } from "../portfolio";
 import { orderSyncEngine } from "../portfolio/orderSync";
+import { tradeExecutor } from "../executor";
 import { setupTickWebSocket } from "../broker/tickWs";
 import { seedDefaultInstruments, getAllInstruments } from "../instruments";
 import { setConfiguredInstruments } from "../tradingStore";
@@ -64,6 +65,7 @@ async function startServer() {
       await initBrokerService();
       portfolioAgent.start();
       orderSyncEngine.start();
+      tradeExecutor.start();
     })
     .catch((err) =>
       console.error("[MongoDB] Initial connection failed:", err)
