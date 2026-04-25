@@ -62,22 +62,21 @@ Write-Host "`n=== 4. Snapshot again — should STILL be 1 open position (no doub
 $snap2 = Invoke-Trpc -Procedure 'portfolio.snapshot' -Method 'GET' -Input @{ channel = 'my-paper' }
 "openPositionCount = $($snap2.result.data.openPositionCount)"
 
-Write-Host "`n=== 5. Live submit on my-live — should be REJECTED (commit 3 not landed) ===" -ForegroundColor Cyan
-$live = Invoke-Trpc -Procedure 'executor.submitTrade' -Input @{
-    executionId  = "live-$now"
-    channel      = 'my-live'
-    origin       = 'USER'
-    instrument   = 'NIFTY_50'
-    direction    = 'BUY'
-    quantity     = 75
-    entryPrice   = 100
-    stopLoss     = 90
-    takeProfit   = 120
-    orderType    = 'MARKET'
-    productType  = 'INTRADAY'
-    timestamp    = $now
+Write-Host "`n=== 5. Exit the trade via executor.exitTrade ===" -ForegroundColor Cyan
+$exit = Invoke-Trpc -Procedure 'executor.exitTrade' -Input @{
+    executionId = "smoke-exit-$now"
+    positionId  = $submit.result.data.positionId
+    channel     = 'my-paper'
+    exitType    = 'MARKET'
+    reason      = 'MANUAL'
+    triggeredBy = 'USER'
+    timestamp   = $now
 }
-"success = $($live.result.data.success)  status = $($live.result.data.status)"
-"error   = $($live.result.data.error)"
+$exit.result.data | ConvertTo-Json -Depth 8
+
+Write-Host "`n=== 6. Snapshot — should be back to 0 open positions ===" -ForegroundColor Cyan
+$snap3 = Invoke-Trpc -Procedure 'portfolio.snapshot' -Method 'GET' -Input @{ channel = 'my-paper' }
+"openPositionCount = $($snap3.result.data.openPositionCount)"
+"dailyRealizedPnl  = $($snap3.result.data.dailyRealizedPnl)"
 
 Write-Host "`nDone." -ForegroundColor Green

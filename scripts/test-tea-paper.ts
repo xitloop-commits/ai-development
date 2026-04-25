@@ -64,9 +64,24 @@ async function main() {
   const snap2 = await callTrpc<any>("portfolio.snapshot", { channel: "my-paper" }, "GET");
   console.log({ openPositionCount: snap2.openPositionCount });
 
-  console.log("\n=== 5. Live submit on my-live — should be REJECTED (commit 3 not landed) ===");
-  const live = await callTrpc<any>("executor.submitTrade", { ...tradeInput, executionId: `live-${now}`, channel: "my-live" });
-  console.log({ success: live.success, status: live.status, error: live.error });
+  console.log("\n=== 5. Exit the trade via executor.exitTrade ===");
+  const exit = await callTrpc<any>("executor.exitTrade", {
+    executionId: `smoke-exit-${now}`,
+    positionId: submit.positionId,
+    channel: "my-paper",
+    exitType: "MARKET",
+    reason: "MANUAL",
+    triggeredBy: "USER",
+    timestamp: now,
+  });
+  console.log(exit);
+
+  console.log("\n=== 6. Snapshot — should be back to 0 open positions ===");
+  const snap3 = await callTrpc<any>("portfolio.snapshot", { channel: "my-paper" }, "GET");
+  console.log({
+    openPositionCount: snap3.openPositionCount,
+    dailyRealizedPnl: snap3.dailyRealizedPnl,
+  });
 
   console.log("\nDone.");
 }

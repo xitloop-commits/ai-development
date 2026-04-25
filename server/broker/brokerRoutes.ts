@@ -205,65 +205,12 @@ export function registerBrokerRoutes(app: Express): void {
   });
 
   // ── Channel-scoped Orders / Positions / Margin / Exit-all ───
-
-  /** POST /api/broker/:channel/orders — Place order (kill switch checked) */
-  app.post("/api/broker/:channel/orders", async (req: Request, res: Response) => {
-    try {
-      const channel = req.params.channel as Channel;
-      const broker = requireChannelAdapter(channel, res);
-      if (!broker) return;
-
-      if (isChannelKillSwitchActive(channel)) {
-        sendError(res, 403, `KILL_SWITCH_ACTIVE: Trading halted for channel "${channel}".`);
-        return;
-      }
-
-      const params = req.body as OrderParams;
-      if (!params.instrument || !params.transactionType || !params.quantity) {
-        sendError(res, 400, "Missing required fields: instrument, transactionType, quantity");
-        return;
-      }
-
-      const result = await broker.placeOrder(params);
-      res.json({ success: true, data: result });
-    } catch (err: any) {
-      log.error("Error placing order:", err);
-      sendError(res, 500, err.message);
-    }
-  });
-
-  /** PUT /api/broker/:channel/orders/:id — Modify order (kill switch checked) */
-  app.put("/api/broker/:channel/orders/:id", async (req: Request, res: Response) => {
-    try {
-      const channel = req.params.channel as Channel;
-      const broker = requireChannelAdapter(channel, res);
-      if (!broker) return;
-
-      if (isChannelKillSwitchActive(channel)) {
-        sendError(res, 403, `KILL_SWITCH_ACTIVE: Trading halted for channel "${channel}".`);
-        return;
-      }
-
-      const result = await broker.modifyOrder(req.params.id, req.body as ModifyParams);
-      res.json({ success: true, data: result });
-    } catch (err: any) {
-      log.error("Error modifying order:", err);
-      sendError(res, 500, err.message);
-    }
-  });
-
-  /** DELETE /api/broker/:channel/orders/:id — Cancel order (bypasses kill switch) */
-  app.delete("/api/broker/:channel/orders/:id", async (req: Request, res: Response) => {
-    try {
-      const broker = requireChannelAdapter(req.params.channel, res);
-      if (!broker) return;
-      const result = await broker.cancelOrder(req.params.id);
-      res.json({ success: true, data: result });
-    } catch (err: any) {
-      log.error("Error cancelling order:", err);
-      sendError(res, 500, err.message);
-    }
-  });
+  //
+  // INVARIANT: TEA spec §3 — TEA is the only module allowed to call
+  // broker.placeOrder / modifyOrder / cancelOrder. The legacy
+  // POST / PUT / DELETE write endpoints under /api/broker/:channel/orders
+  // are removed; route trade intent through `executor.submitTrade /
+  // exitTrade / modifyOrder` (tRPC) instead.
 
   /** GET /api/broker/:channel/orders — Order book for channel */
   app.get("/api/broker/:channel/orders", async (req: Request, res: Response) => {
@@ -304,18 +251,8 @@ export function registerBrokerRoutes(app: Express): void {
     }
   });
 
-  /** POST /api/broker/:channel/exit-all — Exit all positions (bypasses kill switch) */
-  app.post("/api/broker/:channel/exit-all", async (req: Request, res: Response) => {
-    try {
-      const broker = requireChannelAdapter(req.params.channel, res);
-      if (!broker) return;
-      const result = await broker.exitAll();
-      res.json({ success: true, data: result });
-    } catch (err: any) {
-      log.error("Error exiting all:", err);
-      sendError(res, 500, err.message);
-    }
-  });
+  // POST /api/broker/:channel/exit-all REMOVED — route exits through
+  // executor.exitTrade with `exitAll: true` per TEA spec §3 / §4.3.
 
   // ── Kill Switch ─────────────────────────────────────────────
 

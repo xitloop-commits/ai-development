@@ -305,41 +305,14 @@ export const brokerRouter = router({
   }),
 
   // ── Orders ──────────────────────────────────────────────────
+  //
+  // INVARIANT: TEA spec §3 — broker.placeOrder / modifyOrder / cancelOrder
+  // / exitAll are TEA-only. The previous `place / modify / cancel /
+  // exitAll` mutations on this router are removed; route trade intent
+  // through `executor.submitTrade / exitTrade / modifyOrder` instead.
+  // Read-side procedures (list, get) remain.
 
   orders: router({
-    /** Place a new order. Requires channel input. */
-    place: publicProcedure
-      .input(orderParamsSchema.extend({ channel: channelSchema }))
-      .mutation(async ({ input }) => {
-        const { channel, ...params } = input;
-        checkChannelKillSwitch(channel);
-        const broker = requireChannelAdapter(channel);
-        return broker.placeOrder(params as OrderParams);
-      }),
-
-    /** Modify a pending order. Requires channel input. */
-    modify: publicProcedure
-      .input(
-        z.object({
-          channel: channelSchema,
-          orderId: z.string(),
-          params: modifyParamsSchema,
-        })
-      )
-      .mutation(async ({ input }) => {
-        checkChannelKillSwitch(input.channel);
-        const broker = requireChannelAdapter(input.channel);
-        return broker.modifyOrder(input.orderId, input.params as ModifyParams);
-      }),
-
-    /** Cancel an order. Bypasses kill switch. Requires channel input. */
-    cancel: publicProcedure
-      .input(z.object({ channel: channelSchema, orderId: z.string() }))
-      .mutation(async ({ input }) => {
-        const broker = requireChannelAdapter(input.channel);
-        return broker.cancelOrder(input.orderId);
-      }),
-
     /** Get the order book for a channel. */
     list: publicProcedure
       .input(z.object({ channel: channelSchema }))
@@ -354,14 +327,6 @@ export const brokerRouter = router({
       .query(async ({ input }) => {
         const broker = requireChannelAdapter(input.channel);
         return broker.getOrderStatus(input.orderId);
-      }),
-
-    /** Exit all open positions. Bypasses kill switch. Requires channel input. */
-    exitAll: publicProcedure
-      .input(z.object({ channel: channelSchema }))
-      .mutation(async ({ input }) => {
-        const broker = requireChannelAdapter(input.channel);
-        return broker.exitAll();
       }),
   }),
 
