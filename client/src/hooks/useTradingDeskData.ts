@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import type { ResolvedInstrument, Workspace } from '@/lib/tradeTypes';
+import type { Channel, ResolvedInstrument } from '@/lib/tradeTypes';
 import { UI_TO_RESOLVED } from '@/lib/tradeTypes';
 import { trpc } from '@/lib/trpc';
 import { useTickStream } from './useTickStream';
@@ -7,7 +7,7 @@ import { useTickStream } from './useTickStream';
 interface UseTradingDeskDataParams {
   resolvedInstruments?: ResolvedInstrument[];
   liveTicksEnabled: boolean;
-  workspace: Workspace;
+  channel: Channel;
   capitalReady: boolean;
   allDaysLength: number;
   currentDay: { trades?: Array<{ id: string; status: string; instrument: string; contractSecurityId?: string | null }> } | null | undefined;
@@ -28,7 +28,7 @@ interface UseTradingDeskDataParams {
 export function useTradingDeskData({
   resolvedInstruments,
   liveTicksEnabled,
-  workspace,
+  channel,
   capitalReady,
   allDaysLength,
   currentDay,
@@ -87,11 +87,11 @@ export function useTradingDeskData({
     });
   }, [feedSubscribeMutation]);
 
-  const prevWorkspaceRef = useRef(workspace);
+  const prevChannelRef = useRef(channel);
   useEffect(() => {
     if (!capitalReady) return;
-    const isTabSwitch = prevWorkspaceRef.current !== workspace;
-    prevWorkspaceRef.current = workspace;
+    const isTabSwitch = prevChannelRef.current !== channel;
+    prevChannelRef.current = channel;
     const frame = requestAnimationFrame(() => {
       if (todayRef.current) {
         todayRef.current.scrollIntoView({
@@ -101,7 +101,7 @@ export function useTradingDeskData({
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [capitalReady, allDaysLength, workspace, todayRef]);
+  }, [capitalReady, allDaysLength, channel, todayRef]);
 
   const subscribedOnLoadRef = useRef(false);
   useEffect(() => {
@@ -137,7 +137,7 @@ export function useTradingDeskData({
     return () => {
       if (ltpSyncRef.current) clearInterval(ltpSyncRef.current);
     };
-  }, [workspace, currentDay, getLiveLtp, updateLtp]);
+  }, [channel, currentDay, getLiveLtp, updateLtp]);
 
   return { getLiveLtp, subscribeOptionFeed };
 }

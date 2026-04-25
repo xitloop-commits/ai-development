@@ -40,7 +40,7 @@ const meta = {
     isFirst: true,
     showNet: true,
     canManageTrades: true,
-    workspace: "live" as const,
+    channel: "my-live" as const,
     onExit: () => console.log("exit"),
     onUpdateTpSl: (id: string, patch: unknown) => console.log("tp/sl", id, patch),
   },
@@ -59,9 +59,9 @@ export const TrailingStop: Story = {
 };
 export const ShortTrade: Story = { args: { trade: mockShortTrade } };
 export const SecondaryRow: Story = { args: { trade: mockOpenTrade, isFirst: false } };
-export const PaperWorkspace: Story = { args: { trade: mockOpenTrade, workspace: "paper_manual" } };
+export const PaperWorkspace: Story = { args: { trade: mockOpenTrade, channel: "my-paper" } };
 export const AiManaged: Story = {
-  args: { trade: mockOpenTrade, workspace: "paper", canManageTrades: false },
+  args: { trade: mockOpenTrade, channel: "ai-paper", canManageTrades: false },
 };
 export const Gross: Story = { args: { trade: mockClosedTpTrade, showNet: false } };
 export const ExitLoading: Story = { args: { trade: mockOpenTrade, exitLoading: true } };

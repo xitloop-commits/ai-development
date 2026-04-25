@@ -34,8 +34,8 @@ type Story = StoryObj<typeof meta>;
 
 const day250 = makeDay({ dayIndex: 250, status: "FUTURE", rating: "finish", tradeCapital: 2475000, targetAmount: 123750, projCapital: 2598750 });
 
-export const Default: Story = { args: { day: mockFutureDay, isDay250: false, workspace: "live" } };
-export const Playground: Story = { args: { day: mockFutureDay, isDay250: false, workspace: "live" } };
-export const Day250: Story = { args: { day: day250, isDay250: true, workspace: "live" } };
-export const Highlighted: Story = { args: { day: mockFutureDay, isDay250: false, workspace: "live", highlighted: true } };
-export const PaperWorkspace: Story = { args: { day: mockFutureDay, isDay250: false, workspace: "paper" } };
+export const Default: Story = { args: { day: mockFutureDay, isDay250: false, channel: "my-live" } };
+export const Playground: Story = { args: { day: mockFutureDay, isDay250: false, channel: "my-live" } };
+export const Day250: Story = { args: { day: day250, isDay250: true, channel: "my-live" } };
+export const Highlighted: Story = { args: { day: mockFutureDay, isDay250: false, channel: "my-live", highlighted: true } };
+export const PaperWorkspace: Story = { args: { day: mockFutureDay, isDay250: false, channel: "ai-paper" } };

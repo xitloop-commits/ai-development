@@ -49,6 +49,13 @@ async function startServer() {
       const instruments = await getAllInstruments();
       setConfiguredInstruments(instruments);
 
+      // Wipe legacy capital docs that still use the pre-channel `workspace` field.
+      // Idempotent — once migrated, this is a no-op on every subsequent boot.
+      const { wipeLegacyCapitalDocs } = await import("../capital/capitalModel");
+      try { await wipeLegacyCapitalDocs(); } catch (err) {
+        console.warn("[MongoDB] Capital legacy wipe failed (non-fatal):", err);
+      }
+
       // Register broker adapters and initialize broker service after MongoDB is ready
       registerAdapter("mock", () => new MockAdapter(), { displayName: "Paper Trading", isPaperBroker: true });
       registerAdapter("dhan", () => new DhanAdapter(), { displayName: "Dhan", isPaperBroker: false });

@@ -1,5 +1,6 @@
 import { memo } from 'react';
-import type { DayRecord, Workspace } from '@/lib/tradeTypes';
+import type { Channel, DayRecord } from '@/lib/tradeTypes';
+import { channelToWorkspace } from '@/lib/tradeTypes';
 import {
   fmt,
   pnlColor,
@@ -21,7 +22,7 @@ const _seenGiftDays = new Set<number>();
 export interface PastRowProps {
   day: DayRecord;
   showNet: boolean;
-  workspace: Workspace;
+  channel: Channel;
   highlighted?: boolean;
 }
 
@@ -117,7 +118,7 @@ export const PastRow = memo(_PastRow, (prev, next) => {
     d1.instruments === d2.instruments &&
     d1.trades === d2.trades &&
     prev.showNet === next.showNet &&
-    prev.workspace === next.workspace &&
+    prev.channel === next.channel &&
     prev.highlighted === next.highlighted
   );
 });

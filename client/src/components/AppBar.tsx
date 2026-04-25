@@ -19,6 +19,16 @@ import { trpc } from '@/lib/trpc';
 import { useCapital } from '@/contexts/CapitalContext';
 import { formatINR } from '@/lib/formatINR';
 import type { MarketHoliday } from '@/lib/types';
+import {
+  type Channel,
+  type Workspace,
+  type Mode,
+  channelOf,
+  channelToWorkspace,
+  channelToMode,
+  DEFAULT_CHANNEL_FOR_WORKSPACE,
+} from '@/lib/tradeTypes';
+import { ConfirmDialog } from './ConfirmDialog';
 
 // ── Model Status Popover ─────────────────────────────────────
 
@@ -215,92 +225,135 @@ function HolidayIndicator() {
   );
 }
 
-// ── Testing Controls (Live/Paper toggle + Clear) ────────────
+// ── Channel Tabs (3 workspaces × in-tab Live/Paper toggle) ───
 
-function TestingControls() {
-  const { capital, workspace, refetchAll } = useCapital() as any;
-  const [testingMode, setTestingMode] = useState<'live' | 'paper'>('paper');
+const TAB_DEFS: Array<{ ws: Workspace; label: string; tone: { active: string; idle: string } }> = [
+  { ws: 'ai',      label: 'AI Trades',  tone: { active: 'bg-violet-pulse/15 text-violet-pulse',     idle: 'text-muted-foreground hover:text-foreground hover:bg-secondary/50' } },
+  { ws: 'my',      label: 'My Trades',  tone: { active: 'bg-bullish/15 text-bullish',               idle: 'text-muted-foreground hover:text-foreground hover:bg-secondary/50' } },
+  { ws: 'testing', label: 'Testing',    tone: { active: 'bg-warning-amber/15 text-warning-amber',   idle: 'text-muted-foreground hover:text-foreground hover:bg-secondary/50' } },
+];
+
+const MODE_LABELS: Record<Mode, string> = { live: 'LIVE', paper: 'PAPER', sandbox: 'SANDBOX' };
+const MODES_FOR: Record<Workspace, [Mode, Mode]> = {
+  ai: ['paper', 'live'],
+  my: ['paper', 'live'],
+  testing: ['sandbox', 'live'],
+};
+
+function ChannelTabs() {
+  const { channel, setChannel, refetchAll } = useCapital() as any;
+  const currentWs = channelToWorkspace(channel);
+  const currentMode = channelToMode(channel);
+
+  // Per-workspace mode memory: switching tabs returns to that workspace's last-used mode.
+  const [lastModeForWs, setLastModeForWs] = useState<Record<Workspace, Mode>>(() => ({
+    ai: 'paper',
+    my: 'paper',
+    testing: 'sandbox',
+    [currentWs]: currentMode,
+  }));
+
+  const [confirmTarget, setConfirmTarget] = useState<Channel | null>(null);
+
+  const switchTab = (ws: Workspace) => {
+    if (ws === currentWs) return;
+    setChannel(channelOf(ws, lastModeForWs[ws]));
+  };
+
+  const requestModeSwitch = (mode: Mode) => {
+    if (mode === currentMode) return;
+    const target = channelOf(currentWs, mode);
+    setConfirmTarget(target);
+  };
+
+  const onConfirmSwitch = () => {
+    if (!confirmTarget) return;
+    const targetMode = channelToMode(confirmTarget);
+    setLastModeForWs((prev) => ({ ...prev, [currentWs]: targetMode }));
+    setChannel(confirmTarget);
+    setConfirmTarget(null);
+  };
+
+  // Clear-workspace mutation (only enabled on paper/sandbox channels)
   const clearWorkspaceMutation = trpc.capital.clearWorkspace.useMutation({
     onSuccess: () => refetchAll(),
   });
-
-  if (workspace !== 'paper_manual') return null;
+  const isPaperOrSandbox = currentMode === 'paper' || currentMode === 'sandbox';
+  const canClear = isPaperOrSandbox;
+  const clearableChannel = canClear ? channel : null;
 
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex items-center rounded border border-border overflow-hidden">
-        <button
-          onClick={() => setTestingMode('live')}
-          className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
-            testingMode === 'live' ? 'bg-bullish/20 text-bullish' : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          LIVE
-        </button>
-        <button
-          onClick={() => setTestingMode('paper')}
-          className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
-            testingMode === 'paper' ? 'bg-warning-amber/20 text-warning-amber' : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          PAPER
-        </button>
+    <>
+      <div className="flex items-stretch self-stretch">
+        {TAB_DEFS.map(({ ws, label, tone }) => {
+          const isActive = ws === currentWs;
+          return (
+            <div key={ws} className="flex items-stretch border-r border-border">
+              <button
+                onClick={() => switchTab(ws)}
+                className={`px-4 text-[0.625rem] font-bold tracking-wider uppercase transition-colors ${
+                  isActive ? tone.active : tone.idle
+                }`}
+              >
+                {label}
+                {isActive && currentMode === 'live' && (
+                  <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
+                )}
+              </button>
+              {/* In-tab mode toggle (only on the active tab) */}
+              {isActive && (
+                <div className="flex items-center px-2">
+                  <div className="flex items-center rounded border border-border overflow-hidden">
+                    {MODES_FOR[ws].map((m) => {
+                      const active = m === currentMode;
+                      const liveTone = m === 'live' ? 'bg-bullish/20 text-bullish' : 'bg-warning-amber/20 text-warning-amber';
+                      return (
+                        <button
+                          key={m}
+                          onClick={() => requestModeSwitch(m)}
+                          className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
+                            active ? liveTone : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          {MODE_LABELS[m]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {canClear && (
+                    <button
+                      onClick={() =>
+                        clearableChannel &&
+                        clearWorkspaceMutation.mutate({ channel: clearableChannel as any, initialFunding: 100000 })
+                      }
+                      disabled={clearWorkspaceMutation.isPending}
+                      className="ml-2 px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
+                      title={`Clear ${channel} pool`}
+                    >
+                      {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
-      <button
-        onClick={() => clearWorkspaceMutation.mutate({ workspace: 'paper_manual', initialFunding: capital.tradingPool + capital.reservePool || 100000 })}
-        disabled={clearWorkspaceMutation.isPending}
-        className="px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
-      >
-        {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
-      </button>
-    </div>
+      <ConfirmDialog
+        open={!!confirmTarget}
+        title="Switch trading mode"
+        message={
+          confirmTarget
+            ? `Switch from ${channel} to ${confirmTarget}? New orders will route to the target broker; any open positions on the source remain.`
+            : ''
+        }
+        onConfirm={onConfirmSwitch}
+        onCancel={() => setConfirmTarget(null)}
+      />
+    </>
   );
 }
 
-// ── Workspace Tabs (segmented control) ───────────────────────
-
-function WorkspaceTabs() {
-  const { workspace, setWorkspace } = useCapital() as any;
-
-  return (
-    <div className="flex items-stretch self-stretch">
-      <button
-        onClick={() => setWorkspace('paper')}
-        className={`px-4 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-x border-border ${
-          workspace === 'paper'
-            ? 'bg-violet-pulse/15 text-violet-pulse'
-            : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-        }`}
-      >
-        AI Trades
-      </button>
-      <button
-        onClick={() => setWorkspace('live')}
-        className={`px-4 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
-          workspace === 'live'
-            ? 'bg-bullish/15 text-bullish'
-            : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-        }`}
-      >
-        My Trades
-        {workspace === 'live' && (
-          <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
-        )}
-      </button>
-      <button
-        onClick={() => setWorkspace('paper_manual')}
-        className={`px-4 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
-          workspace === 'paper_manual'
-            ? 'bg-warning-amber/15 text-warning-amber'
-            : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-        }`}
-      >
-        Testing
-      </button>
-      {/* Testing controls moved to right group */}
-    </div>
-  );
-}
 
 interface AppBarProps {
   onToggleLeftDrawer: () => void;
@@ -404,14 +457,14 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
 
         {/* Center: Workspace tabs (absolute center of screen) */}
         <div className="absolute left-1/2 top-0 bottom-0 -translate-x-1/2 flex items-stretch z-10">
-          <WorkspaceTabs />
+          <ChannelTabs />
         </div>
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
         {/* Testing controls */}
         <div className="px-3 flex items-center shrink-0">
-          <TestingControls />
+          {/* Testing controls now live inside ChannelTabs (mode toggle + clear button per tab). */}
         </div>
 
         <div className="w-px self-stretch bg-border shrink-0" />

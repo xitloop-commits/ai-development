@@ -1,12 +1,12 @@
 import { memo } from 'react';
-import type { DayRecord, Workspace } from '@/lib/tradeTypes';
+import type { Channel, DayRecord } from '@/lib/tradeTypes';
 import { fmt, formatDateStr } from '@/lib/tradeFormatters';
 import { RatingIcon } from './RatingIcon';
 
 export interface FutureRowProps {
   day: DayRecord;
   isDay250: boolean;
-  workspace: Workspace;
+  channel: Channel;
   highlighted?: boolean;
 }
 
@@ -61,7 +61,7 @@ export const FutureRow = memo(_FutureRow, (prev, next) => {
     d1.targetPercent === d2.targetPercent &&
     d1.date === d2.date &&
     prev.isDay250 === next.isDay250 &&
-    prev.workspace === next.workspace &&
+    prev.channel === next.channel &&
     prev.highlighted === next.highlighted
   );
 });

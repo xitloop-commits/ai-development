@@ -1,4 +1,5 @@
-import type { Workspace } from './tradeTypes';
+import type { Channel, Workspace } from './tradeTypes';
+import { channelToWorkspace, isLiveChannel } from './tradeTypes';
 
 export const INSTRUMENT_COLORS: Record<string, { bg: string; text: string }> = {
   'NIFTY 50': { bg: 'bg-blue-500/15', text: 'text-blue-400' },
@@ -11,18 +12,29 @@ export function getInstrumentStyle(name: string) {
   return INSTRUMENT_COLORS[name] ?? { bg: 'bg-slate-500/15', text: 'text-slate-400' };
 }
 
-export function supportsManualControls(workspace: Workspace): boolean {
-  return workspace === 'live' || workspace === 'paper_manual';
+/** Manual order controls allowed on My-* and Testing-* channels (not on AI channels). */
+export function supportsManualControls(channel: Channel): boolean {
+  const ws = channelToWorkspace(channel);
+  return ws === 'my' || ws === 'testing';
 }
 
-export function getWorkspaceBadgeMeta(workspace: Workspace): { label: string; className: string } {
-  switch (workspace) {
-    case 'live':
-      return { label: 'LIVE', className: 'bg-bullish/20 text-bullish' };
-    case 'paper_manual':
-      return { label: 'MANUAL PAPER', className: 'bg-warning-amber/20 text-warning-amber' };
-    default:
-      return { label: 'AI PAPER', className: 'bg-violet-pulse/20 text-violet-pulse' };
+/** Badge label + classes for a channel (workspace × mode). */
+export function getChannelBadgeMeta(channel: Channel): { label: string; className: string } {
+  const ws = channelToWorkspace(channel);
+  const live = isLiveChannel(channel);
+  switch (ws) {
+    case 'my':
+      return live
+        ? { label: 'MY LIVE', className: 'bg-bullish/20 text-bullish' }
+        : { label: 'MY PAPER', className: 'bg-bullish/15 text-bullish/80' };
+    case 'ai':
+      return live
+        ? { label: 'AI LIVE', className: 'bg-violet-pulse/20 text-violet-pulse' }
+        : { label: 'AI PAPER', className: 'bg-violet-pulse/15 text-violet-pulse/80' };
+    case 'testing':
+      return live
+        ? { label: 'TEST LIVE', className: 'bg-warning-amber/20 text-warning-amber' }
+        : { label: 'TEST', className: 'bg-warning-amber/15 text-warning-amber/80' };
   }
 }
 
@@ -42,9 +54,10 @@ export interface WorkspaceThemeMeta {
   buttonActive: string;
 }
 
+/** Theme is keyed by workspace (color identity), not channel — Live and Paper share a tone. */
 export function getWorkspaceThemeMeta(workspace: Workspace): WorkspaceThemeMeta {
   switch (workspace) {
-    case 'live':
+    case 'my':
       return {
         text: 'text-bullish',
         textSoft: 'text-bullish/80',
@@ -60,7 +73,7 @@ export function getWorkspaceThemeMeta(workspace: Workspace): WorkspaceThemeMeta 
         button: 'bg-bullish/15 text-bullish hover:bg-bullish/25',
         buttonActive: 'bg-bullish/20 text-bullish',
       };
-    case 'paper_manual':
+    case 'testing':
       return {
         text: 'text-warning-amber',
         textSoft: 'text-warning-amber/80',
@@ -76,6 +89,7 @@ export function getWorkspaceThemeMeta(workspace: Workspace): WorkspaceThemeMeta 
         button: 'bg-warning-amber/15 text-warning-amber hover:bg-warning-amber/25',
         buttonActive: 'bg-warning-amber/20 text-warning-amber',
       };
+    case 'ai':
     default:
       return {
         text: 'text-violet-pulse',
@@ -93,4 +107,9 @@ export function getWorkspaceThemeMeta(workspace: Workspace): WorkspaceThemeMeta 
         buttonActive: 'bg-violet-pulse/20 text-violet-pulse',
       };
   }
+}
+
+/** Convenience: theme directly from a channel. */
+export function getChannelThemeMeta(channel: Channel): WorkspaceThemeMeta {
+  return getWorkspaceThemeMeta(channelToWorkspace(channel));
 }

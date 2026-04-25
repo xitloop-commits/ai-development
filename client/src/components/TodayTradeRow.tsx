@@ -2,7 +2,8 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import type { DayRecord, TradeRecord, Workspace } from '@/lib/tradeTypes';
+import type { Channel, DayRecord, TradeRecord } from '@/lib/tradeTypes';
+import { channelToWorkspace } from '@/lib/tradeTypes';
 import {
   fmt,
   pnlColor,
@@ -33,7 +34,7 @@ export interface TodayTradeRowProps {
   ) => void;
   todayRef?: React.RefObject<HTMLTableRowElement | null>;
   canManageTrades: boolean;
-  workspace: Workspace;
+  channel: Channel;
 }
 
 interface RenderProps extends TodayTradeRowProps {
@@ -50,14 +51,14 @@ function _TodayTradeRow({
   onUpdateTpSl,
   todayRef,
   canManageTrades,
-  workspace,
+  channel,
   liveLtp,
 }: RenderProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [slPrice, setSlPrice] = useState('');
   const [tpPrice, setTpPrice] = useState('');
   const [trailingStopEnabled, setTrailingStopEnabled] = useState(trade.trailingStopEnabled ?? false);
-  const theme = getWorkspaceThemeMeta(workspace);
+  const theme = getWorkspaceThemeMeta(channelToWorkspace(channel));
   const isOpen = trade.status === 'OPEN';
   const isBuy = trade.type.includes('BUY');
   const displayLtp = liveLtp ?? trade.ltp;

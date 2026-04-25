@@ -1,11 +1,12 @@
 import { useCallback, useState } from 'react';
 import type {
   CapitalState,
+  Channel,
   DayRecord,
   ResolvedInstrument,
   TradeRecord,
-  Workspace,
 } from '@/lib/tradeTypes';
+import { channelToWorkspace } from '@/lib/tradeTypes';
 import {
   fmt,
   pnlColor,
@@ -36,7 +37,7 @@ export interface TodaySectionProps {
   placeLoading?: boolean;
   getLiveLtp: (trade: TradeRecord) => number | undefined;
   todayRef: React.RefObject<HTMLTableRowElement | null>;
-  workspace: Workspace;
+  channel: Channel;
   resolvedInstruments?: ResolvedInstrument[];
   allDays: DayRecord[];
 }
@@ -52,7 +53,7 @@ export function TodaySection({
   placeLoading,
   getLiveLtp,
   todayRef,
-  workspace,
+  channel,
   resolvedInstruments,
   allDays,
 }: TodaySectionProps) {
@@ -61,17 +62,17 @@ export function TodaySection({
   const utils = trpc.useUtils();
   const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
     updateTradeMutation.mutate(
-      { workspace, tradeId, ...patch },
+      { channel, tradeId, ...patch },
       { onSuccess: () => utils.capital.allDays.invalidate() }
     );
-  }, [updateTradeMutation, workspace, utils]);
+  }, [updateTradeMutation, channel, utils]);
 
   const trades = day.trades ?? [];
   const openTrades = trades.filter(t => t.status === 'OPEN');
   const totalPnl = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
-  const canManageTrades = supportsManualControls(workspace);
+  const canManageTrades = supportsManualControls(channel);
   const cycleDateLabel = formatDateAgeLabel(formatCalendarDay(), day.openedAt);
-  const theme = getWorkspaceThemeMeta(workspace);
+  const theme = getWorkspaceThemeMeta(channelToWorkspace(channel));
 
   const getLastClosedTrade = useCallback(() => {
     for (let i = allDays.length - 1; i >= 0; i--) {
@@ -124,14 +125,14 @@ export function TodaySection({
             onUpdateTpSl={handleUpdateTpSl}
             todayRef={isFirst ? todayRef : undefined}
             canManageTrades={canManageTrades}
-            workspace={workspace}
+            channel={channel}
           />
         );
       })}
 
       {canManageTrades && showNewTradeForm && (
         <NewTradeForm
-          workspace={workspace}
+          channel={channel}
           availableCapital={capital.availableCapital}
           instruments={['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS']}
           resolvedInstruments={resolvedInstruments}

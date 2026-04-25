@@ -19,7 +19,7 @@ import {
   deleteAllDayRecords,
   replaceCapitalState,
 } from "./capitalModel";
-import type { Workspace, DayRecord, TradeRecord } from "./capitalModel";
+import type { Channel, DayRecord, TradeRecord } from "./capitalModel";
 import {
   initializeCapital,
   injectCapital,
@@ -48,8 +48,9 @@ import { tickBus } from "../broker/tickBus";
 import type { BrokerSettings, OrderParams } from "../broker/types";
 // ─── Helpers ─────────────────────────────────────────────────────
 
-const workspaceSchema = z.enum(["live", "paper_manual", "paper"]);
-const mirroredWorkspaces: Workspace[] = ["paper_manual", "paper"];
+const channelSchema = z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "testing-sandbox"]);
+/** Channels that mirror My Trades LIVE capital ops for shadow tracking. */
+const mirroredChannels: Channel[] = ["my-paper", "ai-paper", "testing-sandbox"];
 
 function generateTradeId(): string {
   return `T${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -211,15 +212,15 @@ async function resolveContract(
  * Ensure the current day record exists. Creates Day 1 if needed.
  * Reads dailyTargetPercent from broker config settings (centralized).
  */
-async function ensureCurrentDay(workspace: Workspace): Promise<DayRecord> {
-  const state = await getCapitalState(workspace);
+async function ensureCurrentDay(channel: Channel): Promise<DayRecord> {
+  const state = await getCapitalState(channel);
 
   // Check session reset
   if (checkSessionReset(state)) {
-    await updateCapitalState(workspace, resetSession(state));
+    await updateCapitalState(channel, resetSession(state));
   }
 
-  let day = await getDayRecord(workspace, state.currentDayIndex);
+  let day = await getDayRecord(channel, state.currentDayIndex);
   if (!day) {
     // Read target % from centralized settings
     const targetPercent = await getDailyTargetPercent();
@@ -229,14 +230,14 @@ async function ensureCurrentDay(workspace: Workspace): Promise<DayRecord> {
       state.tradingPool,
       targetPercent,
       origProj,
-      workspace,
+      channel,
       "ACTIVE"
     );
-    day = await upsertDayRecord(workspace, day);
+    day = await upsertDayRecord(channel, day);
 
     // Sync targetPercent to capital state if it differs
     if (state.targetPercent !== targetPercent) {
-      await updateCapitalState(workspace, { targetPercent });
+      await updateCapitalState(channel, { targetPercent });
     }
   }
   return day;
@@ -249,10 +250,10 @@ export const capitalRouter = router({
 
   /** Get current capital state for a workspace. */
   state: publicProcedure
-    .input(z.object({ workspace: workspaceSchema }))
+    .input(z.object({ channel: channelSchema }))
     .query(async ({ input }) => {
-      const state = await getCapitalState(input.workspace);
-      const day = await ensureCurrentDay(input.workspace);
+      const state = await getCapitalState(input.channel);
+      const day = await ensureCurrentDay(input.channel);
 
       // Calculate open position margin
       const openMargin = day.trades
@@ -296,25 +297,25 @@ export const capitalRouter = router({
    * (but NOT originalProjCapital — that preserves the ideal compounding path).
    */
   syncDailyTarget: publicProcedure
-    .input(z.object({ workspace: workspaceSchema }))
+    .input(z.object({ channel: channelSchema }))
     .mutation(async ({ input }) => {
       const targetPercent = await getDailyTargetPercent();
-      const state = await getCapitalState(input.workspace);
+      const state = await getCapitalState(input.channel);
 
       // 1. Update capital state
       if (state.targetPercent !== targetPercent) {
-        await updateCapitalState(input.workspace, { targetPercent });
+        await updateCapitalState(input.channel, { targetPercent });
       }
 
       // 2. Update current day record
-      const day = await getDayRecord(input.workspace, state.currentDayIndex);
+      const day = await getDayRecord(input.channel, state.currentDayIndex);
       if (day && day.targetPercent !== targetPercent) {
         day.targetPercent = targetPercent;
         day.targetAmount = Math.round(day.tradeCapital * targetPercent / 100 * 100) / 100;
         day.projCapital = Math.round((day.tradeCapital + day.targetAmount) * 100) / 100;
         // originalProjCapital is NOT changed — it preserves the ideal compounding path
         day.deviation = Math.round((day.actualCapital - day.originalProjCapital) * 100) / 100;
-        await upsertDayRecord(input.workspace, day);
+        await upsertDayRecord(input.channel, day);
       }
 
       return { success: true, targetPercent };
@@ -323,14 +324,14 @@ export const capitalRouter = router({
   /** Inject new capital (75/25 split). */
   inject: publicProcedure
     .input(z.object({
-      workspace: workspaceSchema,
+      channel: channelSchema,
       amount: z.number().positive(),
     }))
     .mutation(async ({ input }) => {
       const targetPercent = await getDailyTargetPercent();
 
       // Helper to sync a workspace's capital state and day record
-      async function syncWorkspace(ws: typeof input.workspace) {
+      async function syncWorkspace(ws: typeof input.channel) {
         const state = await getCapitalState(ws);
         const { tradingPool, reservePool } = injectCapital(state, input.amount);
         const updated = await updateCapitalState(ws, {
@@ -354,14 +355,14 @@ export const capitalRouter = router({
       }
 
       // Sync live workspace (primary — must succeed)
-      const liveResult = await syncWorkspace('live');
+      const liveResult = await syncWorkspace('my-live');
 
-      // Sync paper workspaces (best-effort — don't let them break the inject)
-      for (const workspace of mirroredWorkspaces) {
+      // Sync mirror channels (best-effort — don't let them break the inject)
+      for (const channel of mirroredChannels) {
         try {
-          await syncWorkspace(workspace);
+          await syncWorkspace(channel);
         } catch (err) {
-          console.warn(`[capital.inject] ${workspace} workspace sync failed (non-fatal):`, err);
+          console.warn(`[capital.inject] ${channel} channel sync failed (non-fatal):`, err);
         }
       }
 
@@ -371,7 +372,7 @@ export const capitalRouter = router({
   /** Transfer funds between Trading ↔ Reserve pools. */
   transferFunds: publicProcedure
     .input(z.object({
-      workspace: workspaceSchema,
+      channel: channelSchema,
       from: z.enum(['trading', 'reserve']),
       to: z.enum(['trading', 'reserve']),
       amount: z.number().positive(),
@@ -381,7 +382,7 @@ export const capitalRouter = router({
 
       const targetPercent = await getDailyTargetPercent();
 
-      async function syncWorkspace(ws: typeof input.workspace) {
+      async function syncWorkspace(ws: typeof input.channel) {
         const state = await getCapitalState(ws);
 
         // Validate sufficient balance
@@ -413,9 +414,9 @@ export const capitalRouter = router({
         return updated;
       }
 
-      const liveResult = await syncWorkspace('live');
-      for (const workspace of mirroredWorkspaces) {
-        try { await syncWorkspace(workspace); } catch {}
+      const liveResult = await syncWorkspace('my-live');
+      for (const channel of mirroredChannels) {
+        try { await syncWorkspace(channel); } catch {}
       }
       return liveResult;
     }),
@@ -425,12 +426,12 @@ export const capitalRouter = router({
   /** Get completed (past) day records. */
   pastDays: publicProcedure
     .input(z.object({
-      workspace: workspaceSchema,
+      channel: channelSchema,
       limit: z.number().min(1).max(250).default(50),
     }))
     .query(async ({ input }) => {
-      const state = await getCapitalState(input.workspace);
-      return getDayRecords(input.workspace, {
+      const state = await getCapitalState(input.channel);
+      return getDayRecords(input.channel, {
         from: 1,
         to: state.currentDayIndex - 1,
         limit: input.limit,
@@ -439,20 +440,20 @@ export const capitalRouter = router({
 
   /** Get the current active day with all trades. */
   currentDay: publicProcedure
-    .input(z.object({ workspace: workspaceSchema }))
+    .input(z.object({ channel: channelSchema }))
     .query(async ({ input }) => {
-      return ensureCurrentDay(input.workspace);
+      return ensureCurrentDay(input.channel);
     }),
 
   /** Get projected future days (computed on-the-fly, not stored). */
   futureDays: publicProcedure
     .input(z.object({
-      workspace: workspaceSchema,
+      channel: channelSchema,
       count: z.number().min(1).max(50).default(20),
     }))
     .query(async ({ input }) => {
-      const state = await getCapitalState(input.workspace);
-      const day = await ensureCurrentDay(input.workspace);
+      const state = await getCapitalState(input.channel);
+      const day = await ensureCurrentDay(input.channel);
       const startCapital = day.actualCapital > 0 ? day.actualCapital : state.tradingPool;
       const startDay = state.currentDayIndex + 1;
       const targetPercent = await getDailyTargetPercent();
@@ -462,23 +463,23 @@ export const capitalRouter = router({
         startCapital * TRADING_SPLIT, // only trading pool share compounds
         targetPercent,
         input.count,
-        input.workspace
+        input.channel
       );
     }),
 
   /** Get all days for the table view (past + current + future). */
   allDays: publicProcedure
     .input(z.object({
-      workspace: workspaceSchema,
+      channel: channelSchema,
       futureCount: z.number().min(0).max(250).default(250),
     }))
     .query(async ({ input }) => {
-      const state = await getCapitalState(input.workspace);
-      const pastDays = await getDayRecords(input.workspace, {
+      const state = await getCapitalState(input.channel);
+      const pastDays = await getDayRecords(input.channel, {
         from: 1,
         to: state.currentDayIndex - 1,
       });
-      const currentDay = await ensureCurrentDay(input.workspace);
+      const currentDay = await ensureCurrentDay(input.channel);
 
       // Project future days from current actual capital
       const startCapital = currentDay.actualCapital > 0
@@ -491,7 +492,7 @@ export const capitalRouter = router({
             startCapital,
             targetPercent,
             input.futureCount,
-            input.workspace
+            input.channel
           )
         : [];
 
@@ -508,7 +509,7 @@ export const capitalRouter = router({
   /** Place a new trade. */
   placeTrade: publicProcedure
     .input(z.object({
-      workspace: workspaceSchema,
+      channel: channelSchema,
       instrument: z.string(),
       type: z.enum(["CALL_BUY", "CALL_SELL", "PUT_BUY", "PUT_SELL", "BUY", "SELL"]),
       strike: z.number().nullable().default(null),
@@ -525,8 +526,8 @@ export const capitalRouter = router({
       trailingStopEnabled: z.boolean().optional(),  // Enable trailing stop for this trade
     }))
     .mutation(async ({ input }) => {
-      const state = await getCapitalState(input.workspace);
-      const day = await ensureCurrentDay(input.workspace);
+      const state = await getCapitalState(input.channel);
+      const day = await ensureCurrentDay(input.channel);
 
       // Resolve nearest expiry for option trades when client didn't supply one
       // (e.g. TRADE button on SignalsFeed sends empty expiry)
@@ -713,15 +714,15 @@ export const capitalRouter = router({
       };
 
       console.log(
-        `[placeTrade] ${input.workspace} ${input.instrument} ${input.type} ` +
+        `[placeTrade] ${input.channel} ${input.instrument} ${input.type} ` +
         `strike=${input.strike} expiry=${input.expiry} ` +
         `contractSecurityId=${trade.contractSecurityId} ` +
         `lotSize=${trade.lotSize} qty=${trade.qty} entry=${trade.entryPrice}`
       );
 
-      // ── Broker order placement (live workspace only) ──────────
+      // ── Broker order placement (live channels only) ──────────
       let brokerOrderId: string | null = null;
-      if (input.workspace === "live") {
+      if (input.channel === "my-live" || input.channel === "ai-live" || input.channel === "testing-live") {
         const broker = getActiveBroker();
         const config = await getActiveBrokerConfig();
         if (broker && config && !config.isPaperBroker) {
@@ -782,11 +783,11 @@ export const capitalRouter = router({
       const updated = recalculateDayAggregates(day);
 
       // Update session counter
-      await updateCapitalState(input.workspace, {
+      await updateCapitalState(input.channel, {
         sessionTradeCount: state.sessionTradeCount + 1,
       });
 
-      await upsertDayRecord(input.workspace, updated);
+      await upsertDayRecord(input.channel, updated);
 
       return { trade, day: updated };
     }),
@@ -794,14 +795,14 @@ export const capitalRouter = router({
   /** Update TP/SL on an open trade. */
   updateTrade: publicProcedure
     .input(z.object({
-      workspace: workspaceSchema,
+      channel: channelSchema,
       tradeId: z.string(),
       targetPrice: z.number().positive().optional(),
       stopLossPrice: z.number().positive().optional(),
       trailingStopEnabled: z.boolean().optional(),
     }))
     .mutation(async ({ input }) => {
-      const day = await ensureCurrentDay(input.workspace);
+      const day = await ensureCurrentDay(input.channel);
       const trade = day.trades.find((t) => t.id === input.tradeId);
       if (!trade) throw new Error(`Trade not found: ${input.tradeId}`);
       if (trade.status !== "OPEN") throw new Error(`Trade already closed: ${input.tradeId}`);
@@ -810,28 +811,28 @@ export const capitalRouter = router({
       if (input.stopLossPrice !== undefined) trade.stopLossPrice = input.stopLossPrice;
       if (input.trailingStopEnabled !== undefined) trade.trailingStopEnabled = input.trailingStopEnabled;
 
-      await upsertDayRecord(input.workspace, day);
+      await upsertDayRecord(input.channel, day);
       return { trade };
     }),
 
   /** Exit a single trade. */
   exitTrade: publicProcedure
     .input(z.object({
-      workspace: workspaceSchema,
+      channel: channelSchema,
       tradeId: z.string(),
       exitPrice: z.number().positive(),
       reason: z.enum(["MANUAL", "TP", "SL", "PARTIAL", "EOD"]).default("MANUAL"),
     }))
     .mutation(async ({ input }) => {
-      const state = await getCapitalState(input.workspace);
-      const day = await ensureCurrentDay(input.workspace);
+      const state = await getCapitalState(input.channel);
+      const day = await ensureCurrentDay(input.channel);
 
       const trade = day.trades.find((t) => t.id === input.tradeId);
       if (!trade) throw new Error(`Trade not found: ${input.tradeId}`);
       if (trade.status !== "OPEN") throw new Error(`Trade already closed: ${input.tradeId}`);
 
-      // ── Close broker position (live workspace only) ──────────
-      if (input.workspace === "live" && trade.brokerId) {
+      // ── Close broker position (live channels only) ──────────
+      if ((input.channel === "my-live" || input.channel === "ai-live" || input.channel === "testing-live") && trade.brokerId) {
         const broker = getActiveBroker();
         const config = await getActiveBrokerConfig();
         if (broker && config && !config.isPaperBroker) {
@@ -906,10 +907,10 @@ export const capitalRouter = router({
 
       // Recalculate day aggregates
       const updated = recalculateDayAggregates(day);
-      await upsertDayRecord(input.workspace, updated);
+      await upsertDayRecord(input.channel, updated);
 
       // Update session P&L
-      await updateCapitalState(input.workspace, {
+      await updateCapitalState(input.channel, {
         sessionPnl: state.sessionPnl + trade.pnl,
         cumulativePnl: state.cumulativePnl + trade.pnl,
         cumulativeCharges: state.cumulativeCharges + charges.total,
@@ -921,7 +922,7 @@ export const capitalRouter = router({
         const result = completeDayIndex(state, updated);
 
         // Update capital state
-        const newState = await updateCapitalState(input.workspace, {
+        const newState = await updateCapitalState(input.channel, {
           tradingPool: result.tradingPool,
           reservePool: result.reservePool,
           currentDayIndex: state.currentDayIndex + 1,
@@ -931,7 +932,7 @@ export const capitalRouter = router({
         // Mark day as completed
         updated.status = "COMPLETED";
         updated.rating = result.rating;
-        await upsertDayRecord(input.workspace, updated);
+        await upsertDayRecord(input.channel, updated);
 
         // Handle gift days if excess profit
         if (completion.excessProfit > 0) {
@@ -941,15 +942,15 @@ export const capitalRouter = router({
             result.tradingPool,
             state.targetPercent,
             (idx) => result.tradingPool * Math.pow(1 + state.targetPercent / 100, idx - state.currentDayIndex),
-            input.workspace
+            input.channel
           );
 
           for (const giftDay of gifts.giftDays) {
-            await upsertDayRecord(input.workspace, giftDay);
+            await upsertDayRecord(input.channel, giftDay);
           }
 
           if (gifts.giftDays.length > 0) {
-            await updateCapitalState(input.workspace, {
+            await updateCapitalState(input.channel, {
               currentDayIndex: state.currentDayIndex + 1 + gifts.giftDays.length,
               tradingPool: gifts.finalTradingPool,
             });
@@ -963,7 +964,7 @@ export const capitalRouter = router({
       if (updated.totalPnl < 0 && Math.abs(updated.totalPnl) >= updated.targetAmount) {
         const clawback = processClawback(updated.totalPnl, state);
 
-        await updateCapitalState(input.workspace, {
+        await updateCapitalState(input.channel, {
           tradingPool: clawback.newTradingPool,
           currentDayIndex: clawback.newDayIndex,
           profitHistory: clawback.updatedHistory,
@@ -972,7 +973,7 @@ export const capitalRouter = router({
         // Delete consumed day records
         if (clawback.consumedDayIndices.length > 0) {
           for (const idx of clawback.consumedDayIndices) {
-            await deleteDayRecordsFrom(input.workspace, idx);
+            await deleteDayRecordsFrom(input.channel, idx);
           }
         }
 
@@ -985,11 +986,11 @@ export const capitalRouter = router({
   /** Exit all open trades. */
   exitAll: publicProcedure
     .input(z.object({
-      workspace: workspaceSchema,
+      channel: channelSchema,
       exitPrices: z.record(z.string(), z.number()), // tradeId → exitPrice
     }))
     .mutation(async ({ input }) => {
-      const day = await ensureCurrentDay(input.workspace);
+      const day = await ensureCurrentDay(input.channel);
       const openTrades = day.trades.filter((t) => t.status === "OPEN");
       const results = [];
 
@@ -1024,13 +1025,13 @@ export const capitalRouter = router({
       }
 
       const updated = recalculateDayAggregates(day);
-      await upsertDayRecord(input.workspace, updated);
+      await upsertDayRecord(input.channel, updated);
 
       // Update cumulative state
-      const state = await getCapitalState(input.workspace);
+      const state = await getCapitalState(input.channel);
       const totalPnl = results.reduce((sum, r) => sum + r.pnl, 0);
       const totalCharges = results.reduce((sum, r) => sum + r.charges, 0);
-      await updateCapitalState(input.workspace, {
+      await updateCapitalState(input.channel, {
         sessionPnl: state.sessionPnl + totalPnl,
         cumulativePnl: state.cumulativePnl + totalPnl,
         cumulativeCharges: state.cumulativeCharges + totalCharges,
@@ -1039,10 +1040,10 @@ export const capitalRouter = router({
       // Check day completion (target hit → generate gift days if excess)
       const completion = checkDayCompletion(updated);
       if (completion.complete) {
-        const freshState = await getCapitalState(input.workspace);
+        const freshState = await getCapitalState(input.channel);
         const result = completeDayIndex(freshState, updated);
 
-        await updateCapitalState(input.workspace, {
+        await updateCapitalState(input.channel, {
           tradingPool: result.tradingPool,
           reservePool: result.reservePool,
           currentDayIndex: freshState.currentDayIndex + 1,
@@ -1051,7 +1052,7 @@ export const capitalRouter = router({
 
         updated.status = "COMPLETED";
         updated.rating = result.rating;
-        await upsertDayRecord(input.workspace, updated);
+        await upsertDayRecord(input.channel, updated);
 
         if (completion.excessProfit > 0) {
           const gifts = calculateGiftDays(
@@ -1060,15 +1061,15 @@ export const capitalRouter = router({
             result.tradingPool,
             freshState.targetPercent,
             (idx) => result.tradingPool * Math.pow(1 + freshState.targetPercent / 100, idx - freshState.currentDayIndex),
-            input.workspace
+            input.channel
           );
 
           for (const giftDay of gifts.giftDays) {
-            await upsertDayRecord(input.workspace, giftDay);
+            await upsertDayRecord(input.channel, giftDay);
           }
 
           if (gifts.giftDays.length > 0) {
-            await updateCapitalState(input.workspace, {
+            await updateCapitalState(input.channel, {
               currentDayIndex: freshState.currentDayIndex + 1 + gifts.giftDays.length,
               tradingPool: gifts.finalTradingPool,
             });
@@ -1082,15 +1083,15 @@ export const capitalRouter = router({
   /** Reset capital to initial state. Destructive: clears all day records and resets pools. */
   resetCapital: publicProcedure
     .input(z.object({
-      workspace: workspaceSchema,
+      channel: channelSchema,
       initialFunding: z.number().positive().default(100000),
       force: z.boolean().default(false),
     }))
     .mutation(async ({ input }) => {
       // Guard: warn if day cycles have started — require force=true to proceed
       if (!input.force) {
-        const state = await getCapitalState(input.workspace);
-        const day = await getDayRecord(input.workspace, state.currentDayIndex);
+        const state = await getCapitalState(input.channel);
+        const day = await getDayRecord(input.channel, state.currentDayIndex);
         const hasCompletedTrades = day?.trades?.some(
           (t) => t.status !== 'OPEN' && t.status !== 'PENDING' && t.status !== 'CANCELLED'
         ) ?? false;
@@ -1111,7 +1112,7 @@ export const capitalRouter = router({
       const today = new Date().toISOString().slice(0, 10);
 
       // Helper to reset a single workspace
-      async function resetWorkspace(ws: typeof input.workspace) {
+      async function resetWorkspace(ws: typeof input.channel) {
         // 1. Delete all day records
         const deleted = await deleteAllDayRecords(ws);
 
@@ -1137,14 +1138,14 @@ export const capitalRouter = router({
       }
 
       // Reset live workspace (primary)
-      const liveResult = await resetWorkspace('live');
+      const liveResult = await resetWorkspace('my-live');
 
       // Reset paper workspaces (best-effort)
-      for (const workspace of mirroredWorkspaces) {
+      for (const channel of mirroredChannels) {
         try {
-          await resetWorkspace(workspace);
+          await resetWorkspace(channel);
         } catch (err) {
-          console.warn(`[capital.resetCapital] ${workspace} workspace reset failed (non-fatal):`, err);
+          console.warn(`[capital.resetCapital] ${channel} channel reset failed (non-fatal):`, err);
         }
       }
 
@@ -1160,11 +1161,11 @@ export const capitalRouter = router({
   /** Update LTP for open trades (called by polling). */
   updateLtp: publicProcedure
     .input(z.object({
-      workspace: workspaceSchema,
+      channel: channelSchema,
       prices: z.record(z.string(), z.number()), // tradeId → ltp
     }))
     .mutation(async ({ input }) => {
-      const day = await ensureCurrentDay(input.workspace);
+      const day = await ensureCurrentDay(input.channel);
       let changed = false;
 
       for (const trade of day.trades) {
@@ -1176,17 +1177,17 @@ export const capitalRouter = router({
 
       if (changed) {
         const updated = recalculateDayAggregates(day);
-        await upsertDayRecord(input.workspace, updated);
+        await upsertDayRecord(input.channel, updated);
         return updated;
       }
 
       return day;
     }),
 
-  /** Clear all trades and reset a paper workspace to zero. Only allowed for paper workspaces. */
+  /** Clear all trades and reset a paper channel to zero. Only allowed for paper channels. */
   clearWorkspace: publicProcedure
     .input(z.object({
-      workspace: z.enum(['paper_manual', 'paper']),
+      channel: z.enum(['my-paper', 'ai-paper', 'testing-sandbox']),
       initialFunding: z.number().positive().default(100000),
     }))
     .mutation(async ({ input }) => {
@@ -1194,7 +1195,7 @@ export const capitalRouter = router({
       const now = Date.now();
       const today = new Date().toISOString().slice(0, 10);
 
-      const deleted = await deleteAllDayRecords(input.workspace);
+      const deleted = await deleteAllDayRecords(input.channel);
 
       const freshState = {
         tradingPool: Math.round(input.initialFunding * TRADING_SPLIT * 100) / 100,
@@ -1212,7 +1213,7 @@ export const capitalRouter = router({
         updatedAt: now,
       };
 
-      const newState = await replaceCapitalState(input.workspace, freshState);
+      const newState = await replaceCapitalState(input.channel, freshState);
       return { success: true, deletedDayRecords: deleted, newState };
     }),
 });

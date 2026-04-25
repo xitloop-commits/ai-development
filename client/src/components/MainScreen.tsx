@@ -82,8 +82,8 @@ export default function MainScreen() {
   const [quickOrderInstrument, setQuickOrderInstrument] = useState<{ key: string; name: string } | null>(null);
   const [quickOrderLoading, setQuickOrderLoading] = useState(false);
 
-  // ─── Active workspace (follows TradingDesk tab selection) ──────
-  const { workspace: activeWorkspace } = useCapital();
+  // ─── Active channel (follows TradingDesk tab selection) ──────
+  const { channel: activeChannel } = useCapital();
 
   // ─── Instrument Filter ─────────────────────────────────────────
   const { isEnabled } = useInstrumentFilter();
@@ -294,24 +294,24 @@ export default function MainScreen() {
   }, [configuredInstruments, isEnabled]);
 
   const handleHotkeyPress = useCallback((action: HotkeyAction) => {
-    if (activeWorkspace === 'paper') {
+    if (activeChannel === 'ai-live' || activeChannel === 'ai-paper') {
       toast.error('Manual orders are not allowed in AI Trades workspace');
       return;
     }
     setQuickOrderInstrument({ key: action.instrumentKey, name: action.instrumentName });
     setQuickOrderOpen(true);
-  }, [activeWorkspace]);
+  }, [activeChannel]);
 
   useHotkeyListener(hotkeyMap, handleHotkeyPress);
 
   const handleQuickOrderSubmit = (data: QuickOrderData) => {
-    if (activeWorkspace === 'paper') {
+    if (activeChannel === 'ai-live' || activeChannel === 'ai-paper') {
       toast.error('Manual orders are not allowed in AI Trades workspace');
       return;
     }
     setQuickOrderLoading(true);
     placeTradeM.mutate({
-      workspace: activeWorkspace,
+      channel: activeChannel,
       instrument: data.instrumentName ?? data.instrument,
       type: data.tradeType,
       strike: data.strike || null,

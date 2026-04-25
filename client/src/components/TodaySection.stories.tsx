@@ -60,7 +60,7 @@ const meta = {
     onExitAll: () => console.log("exit all"),
     onPlaceTrade: async (t: unknown) => console.log("place", t),
     getLiveLtp: () => undefined,
-    workspace: "live" as const,
+    channel: "my-live" as const,
     allDays: [baseDay],
   },
 } satisfies Meta<typeof Harness>;
@@ -79,9 +79,9 @@ export const WithTrades: Story = {
   args: { day: makeDay({ dayIndex: 3, trades: [mockOpenTrade, mockClosedTpTrade] }) },
 };
 
-export const PaperManual: Story = { args: { day: baseDay, workspace: "paper_manual" } };
+export const PaperManual: Story = { args: { day: baseDay, channel: "testing-sandbox" } };
 
-export const AiPaper: Story = { args: { day: baseDay, workspace: "paper" } };
+export const AiPaper: Story = { args: { day: baseDay, channel: "ai-paper" } };
 
 export const Loading: Story = {
   args: { day: baseDay, exitLoading: true, placeLoading: true },

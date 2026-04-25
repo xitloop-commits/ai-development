@@ -1,17 +1,29 @@
 /**
  * Capital Model — MongoDB persistence for capital state and day records.
  *
- * Two collections per workspace:
- *   - capital_state_{workspace}  → single document with pool balances and metadata
- *   - day_records_{workspace}    → one document per completed/active Day Index
+ * One CapitalState document per channel; one DayRecord per (channel, dayIndex).
  *
- * Workspaces: "live" (My Trades), "paper_manual" (Manual Paper), and "paper" (AI Trades)
+ * Channels (BSA v1.8):
+ *   ai-live | ai-paper | my-live | my-paper | testing-live | testing-sandbox
  */
 import mongoose, { Schema } from "mongoose";
 
 // ─── Types ───────────────────────────────────────────────────────
 
-export type Workspace = "live" | "paper_manual" | "paper";
+/**
+ * Canonical channel vocabulary — six entries, one per (workspace, mode) pair.
+ * See client/src/lib/tradeTypes.ts for the helper functions.
+ */
+export type Channel =
+  | "ai-live"
+  | "ai-paper"
+  | "my-live"
+  | "my-paper"
+  | "testing-live"
+  | "testing-sandbox";
+
+/** @deprecated Kept only to silence transitional callers; use Channel. */
+export type Workspace = Channel;
 
 export type TradeStatus = "OPEN" | "PENDING" | "CANCELLED" | "CLOSED_TP" | "CLOSED_SL" | "CLOSED_MANUAL" | "CLOSED_PARTIAL" | "CLOSED_EOD";
 
@@ -30,19 +42,19 @@ export interface TradeRecord {
   exitPrice: number | null;
   ltp: number;
   qty: number;
-  lotSize?: number;               // lot size at time of trade (from scrip master)
-  capitalPercent: number;         // % of available capital used
-  pnl: number;                    // realized P&L (0 if open)
-  unrealizedPnl: number;          // live unrealized P&L
-  charges: number;                // total charges for this trade
+  lotSize?: number;
+  capitalPercent: number;
+  pnl: number;
+  unrealizedPnl: number;
+  charges: number;
   chargesBreakdown: ChargeBreakdown[];
   status: TradeStatus;
-  targetPrice: number | null;     // bracket order TP
-  stopLossPrice: number | null;   // bracket order SL
-  trailingStopEnabled?: boolean;  // per-trade trailing stop override
-  brokerId: string | null;        // broker order ID for sync
-  openedAt: number;               // UTC ms
-  closedAt: number | null;        // UTC ms
+  targetPrice: number | null;
+  stopLossPrice: number | null;
+  trailingStopEnabled?: boolean;
+  brokerId: string | null;
+  openedAt: number;
+  closedAt: number | null;
 }
 
 export interface ChargeBreakdown {
@@ -52,48 +64,48 @@ export interface ChargeBreakdown {
 
 export interface DayRecord {
   dayIndex: number;
-  date: string;                   // ISO date string (YYYY-MM-DD)
-  dateEnd: string | null;         // end date if multi-day
-  tradeCapital: number;           // Trading Pool at start of this day
-  targetPercent: number;          // target % for this day
-  targetAmount: number;           // tradeCapital * targetPercent / 100
-  projCapital: number;            // tradeCapital + targetAmount
-  originalProjCapital: number;    // hidden — ideal compounding path value
-  actualCapital: number;          // realized + unrealized
-  deviation: number;              // actualCapital - originalProjCapital
+  date: string;
+  dateEnd: string | null;
+  tradeCapital: number;
+  targetPercent: number;
+  targetAmount: number;
+  projCapital: number;
+  originalProjCapital: number;
+  actualCapital: number;
+  deviation: number;
   trades: TradeRecord[];
-  totalPnl: number;               // net P&L for this day (after charges)
-  totalCharges: number;           // total charges for this day
-  totalQty: number;               // absolute total quantity
-  instruments: string[];          // unique instruments traded
+  totalPnl: number;
+  totalCharges: number;
+  totalQty: number;
+  instruments: string[];
   status: DayStatus;
   rating: DayRating;
-  workspace: Workspace;
+  channel: Channel;
 }
 
 export interface ProfitHistoryEntry {
   dayIndex: number;
-  totalProfit: number;            // full profit amount
-  tradingPoolShare: number;       // 75% that stayed in trading pool
-  reservePoolShare: number;       // 25% that went to reserve
-  consumed: boolean;              // true if clawback wiped this day
+  totalProfit: number;
+  tradingPoolShare: number;
+  reservePoolShare: number;
+  consumed: boolean;
 }
 
 export interface CapitalState {
-  workspace: Workspace;
+  channel: Channel;
   tradingPool: number;
   reservePool: number;
   initialFunding: number;
   currentDayIndex: number;
-  targetPercent: number;          // current target % (from settings)
+  targetPercent: number;
   profitHistory: ProfitHistoryEntry[];
-  cumulativePnl: number;          // total net P&L since Day 1
-  cumulativeCharges: number;      // total charges since Day 1
-  sessionTradeCount: number;      // trades today (calendar day)
-  sessionPnl: number;             // P&L today (calendar day)
-  sessionDate: string;            // current calendar date (ISO)
-  createdAt: number;              // UTC ms
-  updatedAt: number;              // UTC ms
+  cumulativePnl: number;
+  cumulativeCharges: number;
+  sessionTradeCount: number;
+  sessionPnl: number;
+  sessionDate: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 // ─── Mongoose Schemas ────────────────────────────────────────────
@@ -150,7 +162,7 @@ const dayRecordSchema = new Schema(
     instruments: { type: [String], default: [] },
     status: { type: String, default: "ACTIVE" },
     rating: { type: String, default: "future" },
-    workspace: { type: String, required: true, index: true },
+    channel: { type: String, required: true, index: true },
   },
   { _id: false, timestamps: false }
 );
@@ -168,7 +180,7 @@ const profitHistorySchema = new Schema(
 
 const capitalStateSchema = new Schema(
   {
-    workspace: { type: String, required: true, unique: true },
+    channel: { type: String, required: true, unique: true },
     tradingPool: { type: Number, required: true },
     reservePool: { type: Number, required: true },
     initialFunding: { type: Number, required: true },
@@ -198,15 +210,23 @@ const TRADING_SPLIT = 0.75;
 const RESERVE_SPLIT = 0.25;
 
 /**
- * Get or initialize capital state for a workspace.
+ * Drop legacy capital_state / day_records documents that still use the old
+ * `workspace` field. Idempotent — once migrated, this is a no-op.
  */
-export async function getCapitalState(workspace: Workspace): Promise<CapitalState> {
-  const doc = await CapitalStateModel.findOne({ workspace }).lean();
+export async function wipeLegacyCapitalDocs(): Promise<void> {
+  await CapitalStateModel.deleteMany({ workspace: { $exists: true }, channel: { $exists: false } });
+  await DayRecordModel.deleteMany({ workspace: { $exists: true }, channel: { $exists: false } });
+}
+
+/**
+ * Get or initialize capital state for a channel.
+ */
+export async function getCapitalState(channel: Channel): Promise<CapitalState> {
+  const doc = await CapitalStateModel.findOne({ channel }).lean();
   if (doc) return docToCapitalState(doc);
 
-  // Initialize with defaults
   const initial: CapitalState = {
-    workspace,
+    channel,
     tradingPool: DEFAULT_INITIAL_FUNDING * TRADING_SPLIT,
     reservePool: DEFAULT_INITIAL_FUNDING * RESERVE_SPLIT,
     initialFunding: DEFAULT_INITIAL_FUNDING,
@@ -226,30 +246,24 @@ export async function getCapitalState(workspace: Workspace): Promise<CapitalStat
   return initial;
 }
 
-/**
- * Update capital state (partial update).
- */
 export async function updateCapitalState(
-  workspace: Workspace,
-  updates: Partial<Omit<CapitalState, "workspace" | "createdAt">>
+  channel: Channel,
+  updates: Partial<Omit<CapitalState, "channel" | "createdAt">>
 ): Promise<CapitalState> {
   const doc = await CapitalStateModel.findOneAndUpdate(
-    { workspace },
+    { channel },
     { $set: { ...updates, updatedAt: Date.now() } },
     { returnDocument: "after", lean: true }
   );
-  if (!doc) throw new Error(`Capital state not found for workspace: ${workspace}`);
+  if (!doc) throw new Error(`Capital state not found for channel: ${channel}`);
   return docToCapitalState(doc);
 }
 
-/**
- * Get day records for a workspace, sorted by dayIndex.
- */
 export async function getDayRecords(
-  workspace: Workspace,
+  channel: Channel,
   options?: { from?: number; to?: number; limit?: number }
 ): Promise<DayRecord[]> {
-  const query: Record<string, unknown> = { workspace };
+  const query: Record<string, unknown> = { channel };
   if (options?.from !== undefined || options?.to !== undefined) {
     query.dayIndex = {};
     if (options?.from !== undefined) (query.dayIndex as Record<string, number>).$gte = options.from;
@@ -263,69 +277,52 @@ export async function getDayRecords(
   return docs.map(docToDayRecord);
 }
 
-/**
- * Get a single day record.
- */
 export async function getDayRecord(
-  workspace: Workspace,
+  channel: Channel,
   dayIndex: number
 ): Promise<DayRecord | null> {
-  const doc = await DayRecordModel.findOne({ workspace, dayIndex }).lean();
+  const doc = await DayRecordModel.findOne({ channel, dayIndex }).lean();
   return doc ? docToDayRecord(doc) : null;
 }
 
-/**
- * Upsert a day record (create or replace).
- */
 export async function upsertDayRecord(
-  workspace: Workspace,
+  channel: Channel,
   record: DayRecord
 ): Promise<DayRecord> {
   const doc = await DayRecordModel.findOneAndUpdate(
-    { workspace, dayIndex: record.dayIndex },
-    { $set: { ...record, workspace } },
+    { channel, dayIndex: record.dayIndex },
+    { $set: { ...record, channel } },
     { upsert: true, returnDocument: "after", lean: true }
   );
   return docToDayRecord(doc!);
 }
 
-/**
- * Delete day records from a given dayIndex onward (used in clawback).
- */
 export async function deleteDayRecordsFrom(
-  workspace: Workspace,
+  channel: Channel,
   fromDayIndex: number
 ): Promise<number> {
   const result = await DayRecordModel.deleteMany({
-    workspace,
+    channel,
     dayIndex: { $gte: fromDayIndex },
   });
   return result.deletedCount;
 }
 
-/**
- * Delete ALL day records for a workspace (used in capital reset).
- */
-export async function deleteAllDayRecords(
-  workspace: Workspace
-): Promise<number> {
-  const result = await DayRecordModel.deleteMany({ workspace });
+export async function deleteAllDayRecords(channel: Channel): Promise<number> {
+  const result = await DayRecordModel.deleteMany({ channel });
   return result.deletedCount;
 }
 
-/**
- * Replace the entire capital state document for a workspace (used in capital reset).
- */
 export async function replaceCapitalState(
-  workspace: Workspace,
-  state: Omit<CapitalState, 'workspace'>
+  channel: Channel,
+  state: Omit<CapitalState, "channel">
 ): Promise<CapitalState> {
   const doc = await CapitalStateModel.findOneAndUpdate(
-    { workspace },
-    { $set: { ...state, workspace, updatedAt: Date.now() } },
-    { upsert: true, returnDocument: 'after', lean: true }
+    { channel },
+    { $set: { ...state, channel, updatedAt: Date.now() } },
+    { upsert: true, returnDocument: "after", lean: true }
   );
-  if (!doc) throw new Error(`Failed to replace capital state for workspace: ${workspace}`);
+  if (!doc) throw new Error(`Failed to replace capital state for channel: ${channel}`);
   return docToCapitalState(doc);
 }
 
@@ -333,7 +330,7 @@ export async function replaceCapitalState(
 
 function docToCapitalState(doc: Record<string, any>): CapitalState {
   return {
-    workspace: doc.workspace,
+    channel: doc.channel,
     tradingPool: doc.tradingPool ?? 75000,
     reservePool: doc.reservePool ?? 25000,
     initialFunding: doc.initialFunding ?? 100000,
@@ -398,6 +395,6 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
     instruments: doc.instruments ?? [],
     status: doc.status ?? "FUTURE",
     rating: doc.rating ?? "future",
-    workspace: doc.workspace,
+    channel: doc.channel,
   };
 }

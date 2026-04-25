@@ -13,6 +13,7 @@ import { useCapital } from '@/contexts/CapitalContext';
 import { TodayPnlBar } from './TodayPnlBar';
 import { TradingDeskSkeleton, NoCapitalEmpty, ErrorState } from './LoadingStates';
 import type { ResolvedInstrument } from '@/lib/tradeTypes';
+import { channelToWorkspace } from '@/lib/tradeTypes';
 import { supportsManualControls } from '@/lib/tradeThemes';
 import { fmt } from '@/lib/tradeFormatters';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -32,7 +33,7 @@ export default function TradingDesk({
   liveTicksEnabled?: boolean;
 }) {
   const {
-    workspace,
+    channel,
     capital, capitalLoading, capitalReady,
     allDays, currentDay: ctxCurrentDay,
     placeTrade: ctxPlaceTrade, placeTradePending,
@@ -40,16 +41,17 @@ export default function TradingDesk({
     updateLtp: ctxUpdateLtp,
     refetchAll,
   } = useCapital();
+  const workspace = channelToWorkspace(channel);
 
   const [showNet] = useState(true);
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const todayRef = useRef<HTMLTableRowElement>(null);
-  const canManageTrades = supportsManualControls(workspace);
+  const canManageTrades = supportsManualControls(channel);
 
   const { getLiveLtp, subscribeOptionFeed } = useTradingDeskData({
     resolvedInstruments,
     liveTicksEnabled,
-    workspace,
+    channel,
     capitalReady,
     allDaysLength: allDays.length,
     currentDay: ctxCurrentDay,
@@ -102,8 +104,8 @@ export default function TradingDesk({
 
       <div className="flex-1 relative overflow-hidden" style={{ contentVisibility: 'auto' }}>
         <div ref={tableContainerRef} className={`h-full overflow-y-auto overflow-x-hidden scrollbar-thin transition-opacity duration-150 ${
-          workspace === 'live' ? 'scrollbar-bullish' :
-          workspace === 'paper_manual' ? 'scrollbar-amber' :
+          workspace === 'my' ? 'scrollbar-bullish' :
+          workspace === 'testing' ? 'scrollbar-amber' :
           'scrollbar-violet'
         }`}>
           {allDays.length === 0 ? (
@@ -158,7 +160,7 @@ export default function TradingDesk({
                   if (isToday) {
                     return (
                       <TodaySection
-                        key={`${workspace}-${day.dayIndex}`}
+                        key={`${channel}-${day.dayIndex}`}
                         day={day}
                         capital={capital}
                         showNet={showNet}
@@ -169,7 +171,7 @@ export default function TradingDesk({
                         placeLoading={placeTradePending}
                         getLiveLtp={getLiveLtp}
                         todayRef={todayRef}
-                        workspace={workspace}
+                        channel={channel}
                         resolvedInstruments={resolvedInstruments}
                         allDays={allDays}
                       />
@@ -182,7 +184,7 @@ export default function TradingDesk({
                         key={day.dayIndex}
                         day={day}
                         isDay250={isDay250}
-                        workspace={workspace}
+                        channel={channel}
                         highlighted={highlightedDay === day.dayIndex}
                       />
                     );
@@ -193,7 +195,7 @@ export default function TradingDesk({
                       key={day.dayIndex}
                       day={day}
                       showNet={showNet}
-                      workspace={workspace}
+                      channel={channel}
                       highlighted={highlightedDay === day.dayIndex}
                     />
                   );

@@ -18,7 +18,7 @@ import {
   getDayRecord,
   upsertDayRecord,
 } from "./capitalModel";
-import type { Workspace, DayRecord, TradeRecord } from "./capitalModel";
+import type { Channel, DayRecord, TradeRecord } from "./capitalModel";
 import { recalculateDayAggregates } from "./capitalEngine";
 import { calculateTradeCharges } from "./chargesEngine";
 import type { ChargeRate } from "./chargesEngine";
@@ -30,7 +30,7 @@ import type { OrderParams, TickData } from "../broker/types";
 // ─── Types ──────────────────────────────────────────────────────
 
 export interface PnlSnapshot {
-  workspace: Workspace;
+  channel: Channel;
   dayIndex: number;
   trades: Array<{
     id: string;
@@ -43,7 +43,8 @@ export interface PnlSnapshot {
   updatedAt: number;
 }
 
-const TICK_WORKSPACES: Workspace[] = ["live", "paper_manual", "paper"];
+/** Channels whose open trades get tick-driven MTM + auto-SL/TP. */
+const TICK_CHANNELS: Channel[] = ["my-live", "my-paper", "ai-live", "ai-paper", "testing-live", "testing-sandbox"];
 
 // ─── Instrument → Trade Mapping ─────────────────────────────────
 
@@ -136,29 +137,29 @@ class PnlEngine extends EventEmitter {
 
     if (ticks.length === 0) return;
 
-    // Update every capital workspace
-    for (const workspace of TICK_WORKSPACES) {
+    // Update every channel that gets MTM-driven updates
+    for (const channel of TICK_CHANNELS) {
       try {
-        await this.updateWorkspace(workspace, ticks);
+        await this.updateChannel(channel, ticks);
       } catch (err) {
         // Silently skip — DB might not be connected
       }
     }
   }
 
-  /** Update open trades in a workspace with new tick data */
-  private async updateWorkspace(
-    workspace: Workspace,
+  /** Update open trades in a channel with new tick data */
+  private async updateChannel(
+    channel: Channel,
     ticks: TickData[]
   ): Promise<void> {
     let state;
     try {
-      state = await getCapitalState(workspace);
+      state = await getCapitalState(channel);
     } catch {
       return; // DB not connected
     }
 
-    const day = await getDayRecord(workspace, state.currentDayIndex);
+    const day = await getDayRecord(channel, state.currentDayIndex);
     if (!day) return;
 
     const openTrades = day.trades.filter((t) => t.status === "OPEN");
@@ -180,8 +181,8 @@ class PnlEngine extends EventEmitter {
         trade.ltp = tick.ltp;
         anyUpdated = true;
 
-        // Check TP/SL triggers for all paper workspaces; live is managed by broker bracket orders
-        if (workspace === "live") continue;
+        // Check TP/SL triggers for paper/sandbox channels; live channels are managed by broker bracket orders
+        if (channel === "my-live" || channel === "ai-live" || channel === "testing-live") continue;
         const isBuy = trade.type.includes("BUY");
 
         // ── Trailing Stop Logic ──────────────────────────────
@@ -234,7 +235,7 @@ class PnlEngine extends EventEmitter {
     // Auto-exit triggered trades
     for (const { trade, reason, exitPrice } of tradesToExit) {
       try {
-        await this.autoExitTrade(workspace, state, day, trade, reason, exitPrice);
+        await this.autoExitTrade(channel, state, day, trade, reason, exitPrice);
         anyUpdated = true;
       } catch (err) {
         console.error(`[PnlEngine] Auto-exit failed for ${trade.id}:`, err);
@@ -245,11 +246,11 @@ class PnlEngine extends EventEmitter {
 
     // Recalculate day aggregates and persist
     const updated = recalculateDayAggregates(day);
-    await upsertDayRecord(workspace, updated);
+    await upsertDayRecord(channel, updated);
 
     // Emit snapshot for SSE consumers
     const snapshot: PnlSnapshot = {
-      workspace,
+      channel,
       dayIndex: state.currentDayIndex,
       trades: updated.trades
         .filter((t) => t.status === "OPEN")
@@ -268,7 +269,7 @@ class PnlEngine extends EventEmitter {
 
   /** Auto-exit a trade that hit TP or SL */
   private async autoExitTrade(
-    workspace: Workspace,
+    channel: Channel,
     state: Awaited<ReturnType<typeof getCapitalState>>,
     day: DayRecord,
     trade: TradeRecord,
@@ -279,8 +280,9 @@ class PnlEngine extends EventEmitter {
       `[PnlEngine] Auto-exit ${reason}: ${trade.instrument} ${trade.type} @ ${exitPrice} (entry: ${trade.entryPrice})`
     );
 
-    // Send broker exit order for live workspace
-    if (workspace === "live" && trade.brokerId) {
+    // Send broker exit order for live channels
+    const isLiveChannel = channel === "my-live" || channel === "ai-live" || channel === "testing-live";
+    if (isLiveChannel && trade.brokerId) {
       const broker = getActiveBroker();
       const config = await getActiveBrokerConfig();
       if (broker && config && !config.isPaperBroker) {
@@ -355,7 +357,7 @@ class PnlEngine extends EventEmitter {
     trade.status = reason === "TP" ? "CLOSED_TP" : "CLOSED_SL";
 
     // Update capital state
-    await updateCapitalState(workspace, {
+    await updateCapitalState(channel, {
       sessionPnl: state.sessionPnl + trade.pnl,
       cumulativePnl: state.cumulativePnl + trade.pnl,
       cumulativeCharges: state.cumulativeCharges + charges.total,

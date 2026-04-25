@@ -1123,24 +1123,10 @@ export function TradingModeSection() {
       {/* AI Trades Workspace */}
       <SettingsCard title="AI Trades">
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <FieldLabel hint="Switches which channel the AI model uses. Paper is safe for testing.">
-                AI Trades Mode
-              </FieldLabel>
-              <p className="text-[0.5625rem] text-muted-foreground mt-1">
-                Live → <span className="text-foreground font-mono">ai-live</span> channel (real Dhan account)
-                &nbsp;·&nbsp;
-                Paper → <span className="text-foreground font-mono">ai-paper</span> channel (MockAdapter)
-              </p>
-            </div>
-            <ModeToggle
-              value={tm?.aiTradesMode ?? 'paper'}
-              options={[{ value: 'paper', label: 'Paper' }, { value: 'live', label: 'Live' }]}
-              onChange={(v) => handleMode('aiTradesMode', v)}
-              disabled={isLoading || updateModeMutation.isPending}
-            />
-          </div>
+          <p className="text-[0.5625rem] text-muted-foreground">
+            Mode toggle moved to the AppBar tab. Use the LIVE/PAPER pill on the active AI Trades tab to switch.
+            A confirmation dialog appears on every switch.
+          </p>
 
           <div className="flex items-center justify-between pt-3 border-t border-border">
             <div>
@@ -1170,22 +1156,9 @@ export function TradingModeSection() {
       {/* My Trades Workspace */}
       <SettingsCard title="My Trades">
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <FieldLabel hint="Persists the active tab selection across page refreshes.">
-                My Trades Mode
-              </FieldLabel>
-              <p className="text-[0.5625rem] text-muted-foreground mt-1">
-                Both Live and Paper tabs are always active simultaneously.
-              </p>
-            </div>
-            <ModeToggle
-              value={tm?.myTradesMode ?? 'paper'}
-              options={[{ value: 'paper', label: 'Paper' }, { value: 'live', label: 'Live' }]}
-              onChange={(v) => handleMode('myTradesMode', v)}
-              disabled={isLoading || updateModeMutation.isPending}
-            />
-          </div>
+          <p className="text-[0.5625rem] text-muted-foreground">
+            Mode toggle moved to the AppBar tab. Use the LIVE/PAPER pill on the active My Trades tab to switch.
+          </p>
 
           <div className="flex items-center justify-between pt-3 border-t border-border">
             <div>
@@ -1215,24 +1188,9 @@ export function TradingModeSection() {
       {/* Testing Workspace */}
       <SettingsCard title="Testing">
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <FieldLabel hint="Testing has no capital pool. For code and integration validation only.">
-                Testing Mode
-              </FieldLabel>
-              <p className="text-[0.5625rem] text-muted-foreground mt-1">
-                Sandbox → <span className="text-foreground font-mono">testing-sandbox</span> (Dhan DevPortal, fills at ₹100)
-                &nbsp;·&nbsp;
-                Live → <span className="text-foreground font-mono">testing-live</span> (real Dhan, small real money)
-              </p>
-            </div>
-            <ModeToggle
-              value={tm?.testingMode ?? 'sandbox'}
-              options={[{ value: 'sandbox', label: 'Sandbox' }, { value: 'live', label: 'Live' }]}
-              onChange={(v) => handleMode('testingMode', v)}
-              disabled={isLoading || updateModeMutation.isPending}
-            />
-          </div>
+          <p className="text-[0.5625rem] text-muted-foreground">
+            Mode toggle moved to the AppBar tab. Use the LIVE/SANDBOX pill on the active Testing tab to switch.
+          </p>
 
           <div className="flex items-center justify-between pt-3 border-t border-border">
             <div>

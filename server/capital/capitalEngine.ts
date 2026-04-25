@@ -18,7 +18,7 @@ import type {
   ProfitHistoryEntry,
   DayRating,
   DayStatus,
-  Workspace,
+  Channel,
 } from "./capitalModel";
 
 // ─── Constants ───────────────────────────────────────────────────
@@ -35,13 +35,13 @@ export const DEFAULT_INITIAL_FUNDING = 100000;
  * Create the initial capital state for a workspace.
  */
 export function initializeCapital(
-  workspace: Workspace,
+  channel: Channel,
   initialFunding: number = DEFAULT_INITIAL_FUNDING,
   targetPercent: number = DEFAULT_TARGET_PERCENT
 ): CapitalState {
   const today = new Date().toISOString().slice(0, 10);
   return {
-    workspace,
+    channel,
     tradingPool: round(initialFunding * TRADING_SPLIT),
     reservePool: round(initialFunding * RESERVE_SPLIT),
     initialFunding,
@@ -83,7 +83,7 @@ export function createDayRecord(
   tradeCapital: number,
   targetPercent: number,
   originalProjCapital: number,
-  workspace: Workspace,
+  channel: Channel,
   status: DayStatus = "ACTIVE"
 ): DayRecord {
   const targetAmount = round(tradeCapital * targetPercent / 100);
@@ -108,7 +108,7 @@ export function createDayRecord(
     instruments: [],
     status,
     rating: status === "ACTIVE" ? "future" : "future",
-    workspace,
+    channel,
   };
 }
 
@@ -180,7 +180,7 @@ export function calculateGiftDays(
   currentTradingPool: number,
   targetPercent: number,
   originalProjCapitals: (dayIndex: number) => number,
-  workspace: Workspace
+  channel: Channel
 ): { giftDays: DayRecord[]; remainingExcess: number; finalTradingPool: number } {
   const giftDays: DayRecord[] = [];
   let remaining = excessProfit;
@@ -192,7 +192,7 @@ export function calculateGiftDays(
     if (remaining < target) break;
 
     const origProj = originalProjCapitals(dayIdx);
-    const day = createDayRecord(dayIdx, pool, targetPercent, origProj, workspace, "GIFT");
+    const day = createDayRecord(dayIdx, pool, targetPercent, origProj, channel, "GIFT");
     day.totalPnl = target;
     day.actualCapital = round(pool + target);
     day.deviation = 0;
@@ -316,7 +316,7 @@ export function projectFutureDays(
   startingCapital: number,
   targetPercent: number,
   count: number,
-  workspace: Workspace,
+  channel: Channel,
   holidays: Set<string> = new Set()
 ): DayRecord[] {
   const days: DayRecord[] = [];
@@ -355,7 +355,7 @@ export function projectFutureDays(
       instruments: [],
       status: "FUTURE",
       rating: dayIdx === MAX_DAY_INDEX ? "finish" : "future",
-      workspace,
+      channel,
     };
 
     days.push(day);

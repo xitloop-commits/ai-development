@@ -1,8 +1,65 @@
 /**
  * Shared types and constants for the TradingDesk table and its row components.
+ *
+ * Canonical state vocabulary (BSA v1.8):
+ *   workspace ∈ { ai, my, testing }
+ *   mode      ∈ { live, paper, sandbox }   (sandbox only on testing)
+ *   channel   = `${workspace}-${mode}`     // 6 valid combinations
+ *
+ * `channel` is the single source of truth on the wire and in storage.
  */
 
-export type Workspace = 'live' | 'paper_manual' | 'paper';
+export type Workspace = 'ai' | 'my' | 'testing';
+export type Mode = 'live' | 'paper' | 'sandbox';
+
+export type Channel =
+  | 'ai-live'
+  | 'ai-paper'
+  | 'my-live'
+  | 'my-paper'
+  | 'testing-live'
+  | 'testing-sandbox';
+
+export const ALL_CHANNELS: readonly Channel[] = [
+  'ai-live',
+  'ai-paper',
+  'my-live',
+  'my-paper',
+  'testing-live',
+  'testing-sandbox',
+] as const;
+
+/** Default mode for each workspace tab on first launch (paper/sandbox = safer side). */
+export const DEFAULT_CHANNEL_FOR_WORKSPACE: Record<Workspace, Channel> = {
+  ai: 'ai-paper',
+  my: 'my-paper',
+  testing: 'testing-sandbox',
+};
+
+/** First-launch landing channel (testing-sandbox during dev). */
+export const DEFAULT_LANDING_CHANNEL: Channel = 'testing-sandbox';
+
+export function channelToWorkspace(channel: Channel): Workspace {
+  return channel.split('-')[0] as Workspace;
+}
+
+export function channelToMode(channel: Channel): Mode {
+  return channel.split('-')[1] as Mode;
+}
+
+export function channelOf(workspace: Workspace, mode: Mode): Channel {
+  return `${workspace}-${mode}` as Channel;
+}
+
+export function isLiveChannel(channel: Channel): boolean {
+  return channelToMode(channel) === 'live';
+}
+
+export function isPaperChannel(channel: Channel): boolean {
+  const mode = channelToMode(channel);
+  return mode === 'paper' || mode === 'sandbox';
+}
+
 export type DayStatus = 'ACTIVE' | 'COMPLETED' | 'GIFT' | 'FUTURE';
 export type DayRating =
   | 'trophy'

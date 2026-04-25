@@ -8,7 +8,7 @@ import {
   type DayRecord,
 } from '@/contexts/CapitalContext';
 
-type Workspace = 'live' | 'paper_manual' | 'paper';
+import type { Channel } from '@/lib/tradeTypes';
 
 type MockTrade = {
   id: string;
@@ -50,7 +50,7 @@ const RESOLVED_INSTRUMENTS: ResolvedInstrument[] = [
 
 const NOW = new Date('2026-04-04T10:45:00+05:30').getTime();
 
-function buildWorkspaceData(): Record<Workspace, WorkspaceData> {
+function buildWorkspaceData(): Record<Channel, WorkspaceData> {
   const liveDays: MockDayRecord[] = [
     {
       dayIndex: 1,
@@ -525,21 +525,24 @@ function buildWorkspaceData(): Record<Workspace, WorkspaceData> {
   }));
 
   return {
-    live: { capital: liveCapital, allDays: liveDays },
-    paper_manual: { capital: paperManualCapital, allDays: paperManualDays },
-    paper: { capital: paperCapital, allDays: paperDays },
+    'my-live':         { capital: liveCapital, allDays: liveDays },
+    'my-paper':        { capital: paperManualCapital, allDays: paperManualDays },
+    'ai-live':         { capital: paperCapital, allDays: paperDays },
+    'ai-paper':        { capital: paperCapital, allDays: paperDays },
+    'testing-live':    { capital: paperManualCapital, allDays: paperManualDays },
+    'testing-sandbox': { capital: paperManualCapital, allDays: paperManualDays },
   };
 }
 
 export default function TradingDeskMockupPage() {
-  const [workspace, setWorkspace] = useState<Workspace>('live');
+  const [channel, setChannel] = useState<Channel>('my-live');
   const workspaceData = useMemo(() => buildWorkspaceData(), []);
-  const active = workspaceData[workspace];
+  const active = workspaceData[channel];
 
   const providerValue = useMemo<CapitalContextValue>(() => {
     return {
-      workspace,
-      setWorkspace,
+      channel,
+      setChannel,
       capital: active.capital,
       capitalLoading: false,
       capitalReady: true,
@@ -567,7 +570,7 @@ export default function TradingDeskMockupPage() {
       transferFundsPending: false,
       refetchAll: () => {},
     };
-  }, [active, workspace]);
+  }, [active, channel]);
 
   return (
     <StaticCapitalProvider value={providerValue}>

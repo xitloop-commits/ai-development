@@ -114,8 +114,8 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
   const shorts = signals.reduce((sum, s) => sum + ((s.action?.startsWith('SHORT') || s.direction === 'GO_PUT') ? 1 : 0), 0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
-  const { workspace, placeTrade } = useCapital() as any;
-  const canTrade = workspace === 'live' || workspace === 'paper_manual';
+  const { channel, placeTrade } = useCapital() as any;
+  const canTrade = channel !== 'ai-live' && channel !== 'ai-paper';
 
   const handleTrade = (signal: SEASignal) => {
     const action = signal.action ?? signal.direction?.replace('GO_', '') ?? '';

@@ -30,7 +30,7 @@ const OPTION_TYPE_LABELS: Record<'CE' | 'PE' | 'NONE', string> = {
 };
 
 interface NewTradeFormProps {
-  workspace: 'live' | 'paper_manual' | 'paper';
+  channel: import('@/lib/tradeTypes').Channel;
   availableCapital: number;
   instruments: string[];
   resolvedInstruments?: Array<{
@@ -88,20 +88,22 @@ function formatExpiry(dateStr: string) {
   }
 }
 
-function getWorkspaceTone(workspace: NewTradeFormProps['workspace']) {
-  switch (workspace) {
-    case 'live':
+function getChannelTone(channel: NewTradeFormProps['channel']) {
+  const ws = channel.split('-')[0];
+  switch (ws) {
+    case 'my':
       return {
         row: 'border-bullish/30 bg-bullish/[0.04] border-l-bullish/60',
         text: 'text-bullish',
         textSoft: 'text-bullish/80',
       };
-    case 'paper_manual':
+    case 'testing':
       return {
         row: 'border-warning-amber/30 bg-warning-amber/[0.04] border-l-warning-amber/60',
         text: 'text-warning-amber',
         textSoft: 'text-warning-amber/80',
       };
+    case 'ai':
     default:
       return {
         row: 'border-violet-pulse/30 bg-violet-pulse/[0.04] border-l-violet-pulse/60',
@@ -113,7 +115,7 @@ function getWorkspaceTone(workspace: NewTradeFormProps['workspace']) {
 
 export default function NewTradeForm(props: NewTradeFormProps) {
   const {
-    workspace,
+    channel,
     availableCapital,
     instruments,
     resolvedInstruments,
@@ -157,7 +159,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
   const isOptionTrade = optionType === 'CE' || optionType === 'PE';
   const canSelectExpiry = isDerivative && optionType !== 'NONE';
   const canSelectStrike = isDerivative && optionType !== 'NONE' && !!expiry;
-  const tone = getWorkspaceTone(workspace);
+  const tone = getChannelTone(channel);
   const brokerConfigQuery = trpc.broker.config.get.useQuery(undefined);
   const isPaperBroker = brokerConfigQuery.data?.isPaperBroker ?? false;
 

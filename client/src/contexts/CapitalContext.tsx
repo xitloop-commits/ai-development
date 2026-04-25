@@ -2,11 +2,9 @@
  * CapitalContext — Global capital state management.
  *
  * Single source of truth for capital data across the entire app.
- * Replaces duplicate trpc.capital.state / trpc.capital.allDays queries
- * in CapitalPoolsPanel, TradingDesk, SummaryBar, and MainFooter.
- *
- * Workspace-aware: provides live, manual paper, and AI paper workspace data.
- * The active workspace can be switched via setWorkspace().
+ * Channel-aware: provides per-channel capital state. The active channel can
+ * be switched via setChannel(). Six channels per BSA v1.8:
+ *   ai-live, ai-paper, my-live, my-paper, testing-live, testing-sandbox.
  */
 import {
   createContext,
@@ -17,9 +15,9 @@ import {
   type ReactNode,
 } from 'react';
 import { trpc } from '@/lib/trpc';
+import { type Channel, DEFAULT_LANDING_CHANNEL } from '@/lib/tradeTypes';
 
 // ─── Types ──────────────────────────────────────────────────────
-type Workspace = 'live' | 'paper_manual' | 'paper';
 type DayRating = 'trophy' | 'double_trophy' | 'crown' | 'jackpot' | 'gift' | 'star' | 'future' | 'finish';
 
 export interface CapitalState {
@@ -77,16 +75,16 @@ const FALLBACK_CAPITAL: CapitalState = {
 };
 
 export interface CapitalContextValue {
-  // Active workspace
-  workspace: Workspace;
-  setWorkspace: (ws: Workspace) => void;
+  // Active channel
+  channel: Channel;
+  setChannel: (ch: Channel) => void;
 
-  // Capital state for active workspace
+  // Capital state for active channel
   capital: CapitalState;
   capitalLoading: boolean;
   capitalReady: boolean;
 
-  // All days (past + current + future) for active workspace
+  // All days (past + current + future) for active channel
   allDays: DayRecord[];
   currentDay: DayRecord | null;
   allDaysLoading: boolean;
@@ -156,18 +154,18 @@ function normalizeDayRecord(day: any): DayRecord {
 
 // ─── Provider ───────────────────────────────────────────────────
 export function CapitalProvider({ children }: { children: ReactNode }) {
-  const [workspace, setWorkspace] = useState<Workspace>('paper_manual');
+  const [channel, setChannel] = useState<Channel>(DEFAULT_LANDING_CHANNEL);
   const utils = trpc.useUtils();
 
   // ─── Single shared query for capital state ──────────────────
   const stateQuery = trpc.capital.state.useQuery(
-    { workspace },
+    { channel },
     { refetchInterval: 3000, retry: 1 }
   );
 
   // ─── Single shared query for all days ───────────────────────
   const allDaysQuery = trpc.capital.allDays.useQuery(
-    { workspace, futureCount: 250 },
+    { channel, futureCount: 250 },
     { refetchInterval: 2000, retry: 1 }
   );
 
@@ -270,52 +268,54 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   }, [allDays, capital.currentDayIndex]);
 
   // ─── Mutation wrappers ──────────────────────────────────────
+  // Pool-affecting ops (inject/reset/transfer) target the My-Live channel as the
+  // primary; capitalRouter mirrors them to other paper channels for parity.
   const inject = useCallback(
     (amount: number) => {
-      injectMutation.mutate({ workspace: 'live', amount });
+      injectMutation.mutate({ channel: 'my-live', amount });
     },
     [injectMutation]
   );
 
   const placeTrade = useCallback(
     (trade: any) => {
-      placeTradeMutation.mutate({ workspace, ...trade });
+      placeTradeMutation.mutate({ channel, ...trade });
     },
-    [workspace, placeTradeMutation]
+    [channel, placeTradeMutation]
   );
 
   const exitTrade = useCallback(
     (trade: any) => {
-      exitTradeMutation.mutate({ workspace, ...trade });
+      exitTradeMutation.mutate({ channel, ...trade });
     },
-    [workspace, exitTradeMutation]
+    [channel, exitTradeMutation]
   );
 
   const updateLtp = useCallback(
     (prices: Record<string, number>) => {
-      updateLtpMutation.mutate({ workspace, prices });
+      updateLtpMutation.mutate({ channel, prices });
     },
-    [workspace, updateLtpMutation]
+    [channel, updateLtpMutation]
   );
 
   const syncDailyTarget = useCallback(
     (_targetPercent: number) => {
       // Server reads targetPercent from broker config; we just trigger the sync
-      syncDailyTargetMutation.mutate({ workspace });
+      syncDailyTargetMutation.mutate({ channel });
     },
-    [workspace, syncDailyTargetMutation]
+    [channel, syncDailyTargetMutation]
   );
 
   const resetCapital = useCallback(
     (initialFunding: number) => {
-      resetCapitalMutation.mutate({ workspace: 'live', initialFunding, force: true });
+      resetCapitalMutation.mutate({ channel: 'my-live', initialFunding, force: true });
     },
     [resetCapitalMutation]
   );
 
   const transferFunds = useCallback(
     (from: 'trading' | 'reserve', to: 'trading' | 'reserve', amount: number) => {
-      transferFundsMutation.mutate({ workspace: 'live', from, to, amount });
+      transferFundsMutation.mutate({ channel: 'my-live', from, to, amount });
     },
     [transferFundsMutation]
   );
@@ -328,8 +328,8 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   return (
     <CapitalContext.Provider
       value={{
-        workspace,
-        setWorkspace,
+        channel,
+        setChannel,
         capital,
         capitalLoading: stateQuery.isLoading && !stateQuery.data,
         capitalReady: !!stateQuery.data,
