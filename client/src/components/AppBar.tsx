@@ -573,21 +573,56 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
-        {/* Feed */}
+        {/* Feed — three visual states:
+              connected     → green Wifi + steady green pulse-dot (alive heartbeat)
+              connecting    → amber Wifi animated + amber dot (initial / between queries)
+              disconnected  → red Wifi animated + red dot (down, reconnect in progress) */}
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="px-3 flex items-center gap-1 shrink-0 cursor-default">
-              <Wifi className={`h-3 w-3 ${feedState?.wsConnected ? 'text-bullish' : 'text-muted-foreground'}`} />
-              {feedState?.wsConnected && (
-                <span className="h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
-              )}
+              {(() => {
+                // First few seconds while the query is loading and we have no
+                // data yet → render as "connecting" rather than "disconnected".
+                const status: 'connected' | 'connecting' | 'disconnected' =
+                  feedState?.wsConnected
+                    ? 'connected'
+                    : feedStateQuery.isLoading && !feedState
+                      ? 'connecting'
+                      : 'disconnected';
+                const wifiCls =
+                  status === 'connected'    ? 'text-bullish' :
+                  status === 'connecting'   ? 'text-warning-amber animate-pulse' :
+                                              'text-destructive animate-pulse';
+                const dotCls =
+                  status === 'connected'    ? 'bg-bullish animate-pulse' :
+                  status === 'connecting'   ? 'bg-warning-amber animate-ping' :
+                                              'bg-destructive animate-ping';
+                return (
+                  <>
+                    <Wifi className={`h-3 w-3 ${wifiCls}`} />
+                    <span className={`h-1.5 w-1.5 rounded-full ${dotCls}`} />
+                  </>
+                );
+              })()}
               <span className="text-[0.5625rem] text-muted-foreground tracking-wider">FEED</span>
             </div>
           </TooltipTrigger>
           <TooltipContent side="bottom">
             <div className="text-[0.625rem] space-y-0.5">
-              <div className={`font-bold ${feedState?.wsConnected ? 'text-bullish' : 'text-muted-foreground'}`}>
-                {feedState?.wsConnected ? 'Feed Connected' : 'Feed Disconnected'}
+              <div
+                className={`font-bold ${
+                  feedState?.wsConnected
+                    ? 'text-bullish'
+                    : feedStateQuery.isLoading && !feedState
+                      ? 'text-warning-amber'
+                      : 'text-destructive'
+                }`}
+              >
+                {feedState?.wsConnected
+                  ? 'Feed Connected'
+                  : feedStateQuery.isLoading && !feedState
+                    ? 'Connecting…'
+                    : 'Feed Disconnected — reconnecting'}
               </div>
               <div className="text-muted-foreground">
                 {feedState ? `${feedState.totalSubscriptions} subscriptions` : 'No feed data'}

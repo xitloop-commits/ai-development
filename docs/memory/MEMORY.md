@@ -8,4 +8,5 @@
 - [TradingDesk redesign plan](project_tradedesk_redesign.md) — Summary bar 10→6 items, table 15→10 columns, today row expands with trade details. Ready to implement.
 - [Recorder gzip corruption fix (2026-04-21)](project_recorder_corruption_fix.md) — All raw .ndjson.gz from 2026-04-14→20 were corrupt due to missing cross-process lock in NdjsonGzWriter. Writer hardened, recovery script added, 28 files partially recovered.
 - [MCX near-month rollover fix (2026-04-21)](project_mcx_rollover_fix.md) — ChainPoller was using profile's stale underlying_security_id; broke CRUDEOIL TFA after April contract expired. Fixed via override from main.py; profile ids are fallback-only for MCX.
-- [Dhan WS limit blocks runtime testing](project_dhan_ws_limit.md) — Can't run ui-refactoring branch while main's TFA holds 4 Dhan WS connections; would exceed account limit and kill the live recorder.
+- [Dhan WS limit blocks runtime testing](project_dhan_ws_limit.md) — RESOLVED 2026-04-25 by dual-account split. Kept for historical context.
+- [Dual Dhan account architecture is live](project_dual_account_live.md) — TFA + AI Live on spouse's `dhan-ai-data` account; primary `dhan` keeps trading + UI tick feed. Frees the 5-WS cap. Real-money AI Live still gated on 4 spec gaps.
