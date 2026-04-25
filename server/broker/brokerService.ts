@@ -356,17 +356,22 @@ export async function initBrokerService(): Promise<void> {
   }
 
   // 4b. Instantiate DhanAdapter (ai-data) → spouse's Dhan account for TFA + AI Live.
-  // Skip silently if no credentials present yet (first-run setup state).
+  // Pre-check the TOTP refresh INPUTS (auth.{clientId, pin, totpSecret}) rather
+  // than the access token (which is the output — empty until the first refresh).
   try {
     const aiDataConfig = await getBrokerConfig("dhan-ai-data");
-    const hasCreds = !!aiDataConfig?.credentials?.accessToken && !!aiDataConfig?.credentials?.clientId;
-    if (hasCreds) {
+    const auth = (aiDataConfig as any)?.auth ?? {};
+    const hasAuthCreds = !!auth.clientId && !!auth.pin && !!auth.totpSecret;
+    if (hasAuthCreds) {
       adapters.dhanAiData = new DhanAdapter("dhan-ai-data", false);
       await adapters.dhanAiData.connect();
       wireTickBus(adapters.dhanAiData);
       log.info("DhanAdapter (ai-data) connected");
     } else {
-      log.info("DhanAdapter (ai-data) not configured — add credentials in Settings to enable AI Live + dedicated TFA feed");
+      log.info(
+        "DhanAdapter (ai-data) auth credentials missing — set them with: " +
+        "node scripts/dhan-update-credentials.mjs --brokerId dhan-ai-data --clientId <ID> --pin <PIN> --totp <SECRET>"
+      );
     }
   } catch (err) {
     log.warn("DhanAdapter (ai-data) failed to connect:", err);
