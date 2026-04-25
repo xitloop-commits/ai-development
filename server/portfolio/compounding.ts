@@ -1,10 +1,10 @@
 /**
- * Capital Engine — Pure business logic for the 250-day compounding system.
+ * Compounding Engine — Pure business logic for the 250-day compounding system.
  *
  * All functions are stateless and operate on data passed in.
- * Persistence is handled by the caller (capitalRouter).
+ * Persistence is handled by the caller (portfolioRouter / portfolioAgent).
  *
- * Key rules (from CapitalPools_Spec_v1.4):
+ * Key rules (from PortfolioAgent_Spec_v1.3 §2.1–2.5):
  *   - 75/25 profit split (Trading Pool / Reserve Pool)
  *   - 100% of losses absorbed by Trading Pool only
  *   - Reserve is never debited automatically

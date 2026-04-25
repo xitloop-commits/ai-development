@@ -9,10 +9,11 @@
  *   - 250-day compounding (delegated to compounding.ts)
  *   - Trade outcome recording with `exitTriggeredBy` audit trail
  *
- * In Phase 1 the underlying storage (capital_state, day_records collections)
- * is reused via state.ts CRUD helpers — PA is the API/behaviour boundary,
- * storage is implementation detail. Phase 2 (separate PR) will introduce
- * PA-owned schemas (portfolio_state, position_state, etc.) per spec §6.3.
+ * In Phase 1 the underlying storage (legacy `capital_state` and `day_records`
+ * collections) is reused via state.ts CRUD helpers — PA is the API/behaviour
+ * boundary, storage is implementation detail. Phase 2 (separate PR) will
+ * introduce PA-owned schemas (portfolio_state, position_state, etc.) per
+ * spec §6.3 and migrate the underlying collection names accordingly.
  */
 
 import { createLogger } from "../broker/logger";
@@ -254,7 +255,7 @@ class PortfolioAgentImpl {
 
   /**
    * Per spec §7.1 / §10.5 — record a newly-placed trade. In Phase 1 the
-   * trade is already written to DayRecord.trades by the legacy capitalRouter
+   * trade is already written to DayRecord.trades by the portfolioRouter
    * placeTrade flow; this method exists as the PA-canonical entry point so
    * future writers (TEA) call PA directly.
    */
@@ -273,7 +274,7 @@ class PortfolioAgentImpl {
    * Phase 1 implementation:
    *   - Updates the trade record's exitReason / exitTriggeredBy fields.
    *   - Recomputes day aggregates + cumulative P&L (already happens in
-   *     capitalRouter.exitTrade; this is a converged code path).
+   *     portfolioRouter.exitTrade; this is a converged code path).
    *   - Pushes outcome to Discipline (stub in commit 5; activation Phase 3).
    */
   async recordTradeClosed(req: TradeClosedRequest): Promise<TradeClosedResponse> {

@@ -3,9 +3,9 @@
  *
  * Tests the complete flow without MongoDB or real broker:
  *   1. MockAdapter places order → returns orderId
- *   2. tickBus emits ticks → pnlEngine updates trade LTP/unrealizedPnl
+ *   2. tickBus emits ticks → tickHandler updates trade LTP/unrealizedPnl
  *   3. Paper auto-exit on TP/SL triggers
- *   4. Capital engine position sizing, charges, day aggregates
+ *   4. Compounding engine position sizing, charges, day aggregates
  *
  * All DB calls are mocked via vi.mock.
  */
@@ -389,7 +389,7 @@ describe("E2E: Full Trading Loop", () => {
       const orderResult = await adapter.placeOrder(sampleOrder());
       expect(orderResult.status).toBe("FILLED");
 
-      // Step 2: Create trade record (as capitalRouter would)
+      // Step 2: Create trade record (as portfolioRouter would)
       const trade = makeTrade({
         brokerId: orderResult.orderId,
         entryPrice: 150,
@@ -405,7 +405,7 @@ describe("E2E: Full Trading Loop", () => {
       const tick1 = makeTick({ ltp: 155 });
       tickBus.emitTick(tick1);
 
-      // Manually update trade LTP (as pnlEngine would)
+      // Manually update trade LTP (as tickHandler would)
       trade.ltp = tick1.ltp;
       const updated1 = recalculateDayAggregates(day);
       expect(updated1.trades[0].unrealizedPnl).toBe(250); // (155-150)*50
@@ -420,7 +420,7 @@ describe("E2E: Full Trading Loop", () => {
       const tpHit = isBuy && tick2.ltp >= trade.targetPrice!;
       expect(tpHit).toBe(true);
 
-      // Step 6: Exit trade (as pnlEngine autoExitTrade would)
+      // Step 6: Exit trade (as tickHandler autoExitTrade would)
       const exitPrice = tick2.ltp;
       const grossPnl = (exitPrice - trade.entryPrice) * trade.qty; // (158-150)*50 = 400
       const charges = calculateTradeCharges(

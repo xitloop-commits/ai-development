@@ -2,13 +2,13 @@
  * Order Sync Engine
  *
  * Listens to order update events from tickBus and syncs trade status
- * in the capital engine. Handles:
+ * in the Portfolio Agent's day records. Handles:
  *   - Entry order filled → confirm trade
  *   - Entry order cancelled/rejected → mark trade cancelled
  *   - TP leg filled (LegNo=3) → close trade at target
  *   - SL leg filled (LegNo=2) → close trade at stop loss
  *
- * Only active for live workspace (paper uses pnlEngine auto-exit).
+ * Only active for live channels (paper channels use the tickHandler auto-exit).
  */
 import { EventEmitter } from "events";
 import { tickBus } from "../broker/tickBus";

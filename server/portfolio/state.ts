@@ -259,12 +259,12 @@ export async function wipeLegacyCapitalDocs(): Promise<void> {
       if (hasLegacyIndex || legacyDoc) {
         await Model.collection.drop();
         // eslint-disable-next-line no-console
-        console.log(`[capitalModel] Dropped legacy collection ${Model.collection.collectionName}`);
+        console.log(`[portfolio.state] Dropped legacy collection ${Model.collection.collectionName}`);
       }
     } catch (err: any) {
       if (err?.codeName !== 'NamespaceNotFound') {
         // eslint-disable-next-line no-console
-        console.warn(`[capitalModel] Wipe failed for ${Model.collection.collectionName}:`, err);
+        console.warn(`[portfolio.state] Wipe failed for ${Model.collection.collectionName}:`, err);
       }
     }
   }

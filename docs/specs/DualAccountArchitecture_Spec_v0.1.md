@@ -439,7 +439,7 @@ v0.1 of this architecture is considered complete when:
 | `broker_configs` MongoDB collection | Schema extension (§8.1) |
 | `python_modules/tick_feature_agent/main.py` | CLI flag `--broker-id` propagation (already supported via `_fetch_credentials`) |
 | `startup/start-tfa.{bat,sh}` | Pass `--broker-id=dhan-ai-data` |
-| `server/capital/capitalRouter.ts` | Per-broker free-margin + position reconciliation |
+| `server/portfolio/router.ts` | Per-broker free-margin + position reconciliation |
 | `client/src/components/MainFooter.tsx` (or equivalent) | Per-workspace Net Worth breakdown |
 | `client/src/pages/Settings.tsx` | Broker Accounts section (§9.7) |
 | `client/src/components/AppBar.tsx` | Per-broker health indicator |
