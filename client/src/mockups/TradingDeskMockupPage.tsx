@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import TradingDesk, { type ResolvedInstrument } from '@/components/TradingDesk';
+import TradingDesk from '@/components/TradingDesk';
+import type { ResolvedInstrument } from '@/lib/tradeTypes';
 import {
   StaticCapitalProvider,
   type CapitalContextValue,
