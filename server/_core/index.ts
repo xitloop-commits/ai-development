@@ -14,7 +14,6 @@ import { MockAdapter } from "../broker/adapters/mock";
 import { DhanAdapter } from "../broker/adapters/dhan";
 import { registerBrokerRoutes } from "../broker/brokerRoutes";
 import { portfolioAgent } from "../portfolio";
-import { orderSyncEngine } from "../portfolio/orderSync";
 import { tradeExecutor } from "../executor";
 import { setupTickWebSocket } from "../broker/tickWs";
 import { seedDefaultInstruments, getAllInstruments } from "../instruments";
@@ -64,7 +63,6 @@ async function startServer() {
       registerAdapter("dhan-ai-data", () => new DhanAdapter("dhan-ai-data", false), { displayName: "Dhan (AI + Data)", isPaperBroker: false });
       await initBrokerService();
       portfolioAgent.start();
-      orderSyncEngine.start();
       tradeExecutor.start();
     })
     .catch((err) =>

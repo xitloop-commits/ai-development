@@ -34,6 +34,7 @@ import type {
 import { portfolioAgent } from "../portfolio";
 import type { Channel, TradeRecord, TradeStatus } from "../portfolio/state";
 import { idempotencyStore } from "./idempotency";
+import { orderSync } from "./orderSync";
 import type {
   SubmitTradeRequest,
   SubmitTradeResponse,
@@ -89,7 +90,11 @@ class TradeExecutorAgent {
         timestamp: event.timestamp,
       }).catch((err) => log.error(`recordAutoExit failed: ${err?.message ?? err}`));
     });
-    log.info("Started — Trade Executor Agent v1.3 (Phase 1 commit 4: full lifecycle wired)");
+    // Order lifecycle sync (broker WS events → trade record reconciliation).
+    // Lives under executor/ per spec §6.4. Paper channels never emit broker
+    // order updates; this is effectively live-only.
+    orderSync.start();
+    log.info("Started — Trade Executor Agent v1.3 (Phase 1 commit 5: order lifecycle absorbed)");
   }
 
   stop(): void {
@@ -99,6 +104,7 @@ class TradeExecutorAgent {
       this.unsubscribeAutoExit();
       this.unsubscribeAutoExit = null;
     }
+    orderSync.stop();
     log.info("Stopped");
   }
 
