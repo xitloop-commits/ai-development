@@ -90,7 +90,13 @@ fi
 # ─── Run TFA ──────────────────────────────────────────────────────
 OUTPUT_FILE="data/features/${INSTRUMENT}_live.ndjson"
 
+# Default to the spouse's Dhan account so the primary account's 5-WS
+# budget stays free for TradingDesk + order updates. Override with:
+#     BROKER_ID=dhan ./start-tfa.sh ...
+BROKER_ID="${BROKER_ID:-dhan-ai-data}"
+
 exec python python_modules/tick_feature_agent/main.py \
     --instrument-profile "$PROFILE_PATH" \
     --output-file "$OUTPUT_FILE" \
+    --broker-id "$BROKER_ID" \
     "$@"

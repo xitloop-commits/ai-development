@@ -379,12 +379,26 @@ export interface BrokerCapabilities {
   amo: boolean; // After Market Order
 }
 
+/**
+ * Role describes which slice of the system an account services. Multiple
+ * docs can share the same brokerType (e.g. two Dhan docs) but differ in role.
+ *   - "trading"      → user's live trading + UI tick feed (dhan-primary)
+ *   - "data-and-ai"  → TFA data subscriptions + AI Live execution (dhan-ai-data)
+ *   - "paper"        → mock adapters for paper-trading channels
+ *   - "sandbox"      → Dhan sandbox token-validation only
+ */
+export type BrokerRole = "trading" | "data-and-ai" | "paper" | "sandbox";
+
 export interface BrokerConfigDoc {
   brokerId: string;
   displayName: string;
   isActive: boolean;
   isPaperBroker: boolean;
   sandboxMode: boolean;
+  /** Functional role. Optional for backward compat; defaults inferred from brokerId. */
+  role?: BrokerRole;
+  /** PAN of the account holder (audit trail for two-account setups). */
+  ownerPAN?: string;
   credentials: BrokerCredentials;
   settings: BrokerSettings;
   connection: BrokerConnection;

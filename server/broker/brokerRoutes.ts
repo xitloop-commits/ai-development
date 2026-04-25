@@ -656,9 +656,12 @@ export function registerBrokerRoutes(app: Express): void {
     }
 
     try {
-      let config = await getBrokerConfig("dhan");
+      // brokerId selectable via query (?brokerId=dhan-ai-data for TFA on the
+      // spouse's account). Defaults to "dhan" for backward compatibility.
+      const brokerIdParam = String(req.query.brokerId ?? "dhan");
+      let config = await getBrokerConfig(brokerIdParam);
       if (!config) {
-        sendError(res, 404, "Dhan broker config not found");
+        sendError(res, 404, `Broker config not found for brokerId=${brokerIdParam}`);
         return;
       }
 
@@ -689,9 +692,9 @@ export function registerBrokerRoutes(app: Express): void {
           const { handleDhan401 } = await import(
             "./adapters/dhan/auth"
           );
-          await handleDhan401("dhan");
+          await handleDhan401(brokerIdParam);
           // Re-read fresh config after refresh
-          config = await getBrokerConfig("dhan");
+          config = await getBrokerConfig(brokerIdParam);
           if (config) {
             accessToken = config.credentials.accessToken;
             clientId    = config.credentials.clientId;

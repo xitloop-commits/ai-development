@@ -118,9 +118,14 @@ chcp 65001 >nul 2>&1
 
 set "OUTPUT_FILE=data\features\%INSTRUMENT%_live.ndjson"
 
+REM Default to the spouse's Dhan account for TFA so the primary account's
+REM 5-WS budget stays free for TradingDesk + order updates. Override by
+REM passing --broker-id=dhan in EXTRA_ARGS.
+if not defined BROKER_ID set "BROKER_ID=dhan-ai-data"
+
 REM --- Run TFA; exit code 75 means "restart requested" ---
 :run_loop
-%PYTHON_CMD% python_modules\tick_feature_agent\main.py --instrument-profile %PROFILE_PATH% --output-file %OUTPUT_FILE% %EXTRA_ARGS%
+%PYTHON_CMD% python_modules\tick_feature_agent\main.py --instrument-profile %PROFILE_PATH% --output-file %OUTPUT_FILE% --broker-id %BROKER_ID% %EXTRA_ARGS%
 if !errorlevel! == 75 (
     echo.
     goto run_loop

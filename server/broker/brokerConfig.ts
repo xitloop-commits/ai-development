@@ -96,6 +96,12 @@ const brokerConfigSchema = new Schema<BrokerConfigDoc & Document>(
     isActive: { type: Boolean, default: false },
     isPaperBroker: { type: Boolean, default: false },
     sandboxMode: { type: Boolean, default: false },
+    role: {
+      type: String,
+      enum: ["trading", "data-and-ai", "paper", "sandbox"],
+      default: undefined,
+    },
+    ownerPAN: { type: String, default: undefined },
     credentials: { type: credentialsSchema, default: () => ({}) },
     settings: { type: settingsSchema, default: () => ({}) },
     connection: { type: connectionSchema, default: () => ({}) },
@@ -249,6 +255,8 @@ function docToConfig(doc: Record<string, any>): BrokerConfigDoc {
     isActive: doc.isActive,
     isPaperBroker: doc.isPaperBroker ?? false,
     sandboxMode: doc.sandboxMode ?? false,
+    role: doc.role,
+    ownerPAN: doc.ownerPAN,
     credentials: {
       accessToken: doc.credentials?.accessToken ?? "",
       clientId: doc.credentials?.clientId ?? "",

@@ -53,7 +53,8 @@ export type Workspace = "ai" | "my" | "testing";
 // ─── Singleton State ────────────────────────────────────────────
 
 interface BSAAdapters {
-  dhanLive: DhanAdapter | null;       // ai-live, my-live, testing-live
+  dhanLive: DhanAdapter | null;       // my-live, testing-live  (user's primary Dhan account)
+  dhanAiData: DhanAdapter | null;     // ai-live + TFA data feed (spouse's Dhan account)
   dhanSandbox: DhanAdapter | null;    // testing-sandbox
   mockAi: MockAdapter | null;         // ai-paper
   mockMy: MockAdapter | null;         // my-paper
@@ -61,6 +62,7 @@ interface BSAAdapters {
 
 const adapters: BSAAdapters = {
   dhanLive: null,
+  dhanAiData: null,
   dhanSandbox: null,
   mockAi: null,
   mockMy: null,
@@ -90,11 +92,19 @@ const adapterMeta = new Map<string, AdapterMeta>();
  * Uses upsert — will NOT overwrite existing tokens or settings.
  */
 async function seedBrokerConfigs(): Promise<void> {
-  const seeds = [
-    { brokerId: "dhan",         displayName: "Dhan Live",         isPaperBroker: false, sandboxMode: false },
-    { brokerId: "dhan-sandbox", displayName: "Dhan Sandbox",      isPaperBroker: false, sandboxMode: true  },
-    { brokerId: "mock-ai",      displayName: "Paper (AI Trades)", isPaperBroker: true,  sandboxMode: false },
-    { brokerId: "mock-my",      displayName: "Paper (My Trades)", isPaperBroker: true,  sandboxMode: false },
+  type Seed = {
+    brokerId: string;
+    displayName: string;
+    isPaperBroker: boolean;
+    sandboxMode: boolean;
+    role: "trading" | "data-and-ai" | "paper" | "sandbox";
+  };
+  const seeds: Seed[] = [
+    { brokerId: "dhan",          displayName: "Dhan (Trading)",      isPaperBroker: false, sandboxMode: false, role: "trading"     },
+    { brokerId: "dhan-ai-data",  displayName: "Dhan (AI + Data)",    isPaperBroker: false, sandboxMode: false, role: "data-and-ai" },
+    { brokerId: "dhan-sandbox",  displayName: "Dhan Sandbox",        isPaperBroker: false, sandboxMode: true,  role: "sandbox"     },
+    { brokerId: "mock-ai",       displayName: "Paper (AI Trades)",   isPaperBroker: true,  sandboxMode: false, role: "paper"       },
+    { brokerId: "mock-my",       displayName: "Paper (My Trades)",   isPaperBroker: true,  sandboxMode: false, role: "paper"       },
   ];
 
   for (const seed of seeds) {
@@ -105,9 +115,14 @@ async function seedBrokerConfigs(): Promise<void> {
         displayName: seed.displayName,
         isPaperBroker: seed.isPaperBroker,
         sandboxMode: seed.sandboxMode,
-        isActive: seed.brokerId === "dhan", // mark dhan as the default active broker
+        role: seed.role,
+        isActive: seed.brokerId === "dhan", // primary trading account is the default active broker
       });
-      log.info(`Seeded broker config: ${seed.brokerId}`);
+      log.info(`Seeded broker config: ${seed.brokerId} (role=${seed.role})`);
+    } else if (!existing.role) {
+      // Backfill role on existing docs that pre-date this field.
+      await upsertBrokerConfig({ brokerId: seed.brokerId, role: seed.role });
+      log.info(`Backfilled role on broker config: ${seed.brokerId} (role=${seed.role})`);
     }
   }
 }
@@ -120,6 +135,12 @@ async function seedBrokerConfigs(): Promise<void> {
 export function getAdapter(channel: Channel): BrokerAdapter {
   switch (channel) {
     case "ai-live":
+      // Prefer the dedicated dhan-ai-data adapter (spouse account); fall back
+      // to dhan-primary if dhan-ai-data hasn't been configured yet (first-run
+      // before credentials are entered into Settings).
+      if (adapters.dhanAiData) return adapters.dhanAiData;
+      if (adapters.dhanLive) return adapters.dhanLive;
+      throw new Error("Neither DhanAdapter (ai-data) nor (live) is initialised");
     case "my-live":
     case "testing-live":
       if (!adapters.dhanLive) throw new Error("DhanAdapter (live) not initialised");
@@ -288,6 +309,23 @@ export async function initBrokerService(): Promise<void> {
     log.info("DhanAdapter (sandbox) connected");
   } catch (err) {
     log.warn("DhanAdapter (sandbox) failed to connect:", err);
+  }
+
+  // 4b. Instantiate DhanAdapter (ai-data) → spouse's Dhan account for TFA + AI Live.
+  // Skip silently if no credentials present yet (first-run setup state).
+  try {
+    const aiDataConfig = await getBrokerConfig("dhan-ai-data");
+    const hasCreds = !!aiDataConfig?.credentials?.accessToken && !!aiDataConfig?.credentials?.clientId;
+    if (hasCreds) {
+      adapters.dhanAiData = new DhanAdapter("dhan-ai-data", false);
+      await adapters.dhanAiData.connect();
+      wireTickBus(adapters.dhanAiData);
+      log.info("DhanAdapter (ai-data) connected");
+    } else {
+      log.info("DhanAdapter (ai-data) not configured — add credentials in Settings to enable AI Live + dedicated TFA feed");
+    }
+  } catch (err) {
+    log.warn("DhanAdapter (ai-data) failed to connect:", err);
   }
 
   // 5. Instantiate MockAdapter (mock-ai) → no-op connect

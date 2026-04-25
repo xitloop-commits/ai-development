@@ -111,13 +111,17 @@ def _fatal(msg: str) -> None:
 
 # ── Credentials helper ────────────────────────────────────────────────────────
 
-def _fetch_credentials(base_url: str) -> dict | None:
+def _fetch_credentials(base_url: str, broker_id: str = "dhan") -> dict | None:
     try:
         import requests
     except ImportError:
         return None
     try:
-        resp = requests.get(f"{base_url}/api/broker/token", timeout=5)
+        resp = requests.get(
+            f"{base_url}/api/broker/token",
+            params={"brokerId": broker_id},
+            timeout=5,
+        )
     except Exception as exc:
         return {"_error": str(exc)}
     if resp.status_code != 200:
@@ -356,7 +360,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     _cred_deadline = time.monotonic() + 30
     _cred_attempt  = 0
     while True:
-        creds = _fetch_credentials(args.broker_url)
+        creds = _fetch_credentials(args.broker_url, args.broker_id)
         if creds and "_error" not in creds:
             break
         _cred_attempt += 1
@@ -616,7 +620,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
             _h.__setitem__("retry_at", retry_at),
             _h.__setitem__("retry_attempt", attempt),
         ),
-        credential_fetcher=lambda: _fetch_credentials(args.broker_url),
+        credential_fetcher=lambda: _fetch_credentials(args.broker_url, args.broker_id),
     )
 
     # Subscribe underlying futures
@@ -1012,6 +1016,10 @@ def main() -> None:
     parser.add_argument("--output-socket", metavar="HOST:PORT", default=None)
     # Paths
     parser.add_argument("--broker-url",      default="http://localhost:3000")
+    # Broker config to authenticate against. Defaults to the user's primary
+    # account ("dhan"). Set to "dhan-ai-data" to use the spouse's account
+    # (frees the primary account's WS budget for TradingDesk + order feed).
+    parser.add_argument("--broker-id",       default="dhan")
     parser.add_argument("--data-root",       default="data/raw")
     parser.add_argument("--features-root",   default="data/features")
     parser.add_argument("--validation-root", default="data/validation")
