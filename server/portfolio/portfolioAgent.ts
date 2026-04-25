@@ -29,6 +29,7 @@ import {
   updateCapitalState,
 } from "./state";
 import { tickHandler } from "./tickHandler";
+import type { AutoExitEvent } from "./tickHandler";
 import {
   TRADING_SPLIT,
   calculateAvailableCapital,
@@ -37,7 +38,14 @@ import {
   recalculateDayAggregates,
   checkSessionReset,
   resetSession,
+  checkDayCompletion,
+  completeDayIndex,
+  calculateGiftDays,
+  processClawback,
 } from "./compounding";
+import { calculateTradeCharges } from "./charges";
+import type { ChargeRate } from "./charges";
+import { getUserSettings } from "../userSettings";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import { disciplineEngine } from "../discipline";
 import type {
@@ -154,6 +162,17 @@ class PortfolioAgentImpl {
     return () => tickHandler.off("pnlUpdate", handler);
   }
 
+  /**
+   * Subscribe to paper-channel auto-exit detections from the tick handler.
+   * tickHandler emits when a paper trade hits TP or SL on incoming ticks;
+   * TEA listens here so the close + audit + Discipline push all flow through
+   * the single-writer entry point. Returns an unsubscribe function.
+   */
+  onAutoExit(handler: (event: AutoExitEvent) => void): () => void {
+    tickHandler.on("autoExitDetected", handler);
+    return () => tickHandler.off("autoExitDetected", handler);
+  }
+
   // ── Internal helpers (used by TEA + portfolioRouter) ─────────
 
   /**
@@ -201,6 +220,182 @@ class PortfolioAgentImpl {
     const updated = recalculateDayAggregates(day);
     await upsertDayRecord(channel, updated);
     return updated;
+  }
+
+  /**
+   * Close an open trade. Single-writer storage primitive — does the full
+   * close: P&L calculation, charges, capital state update, day completion
+   * check, gift-day cascade, clawback rewind. Called by TEA.exitTrade
+   * (manual exits) and TEA.recordAutoExit (paper TP/SL detected by
+   * tickHandler).
+   *
+   * Throws if the trade is not found, already closed, or the channel has no
+   * active day.
+   */
+  async closeTrade(
+    channel: Channel,
+    tradeId: string,
+    exitPrice: number,
+    closeStatus: TradeRecord["status"],
+  ): Promise<{ trade: TradeRecord; day: DayRecord; pnl: number; charges: number }> {
+    const state = await getCapitalState(channel);
+    const day = await this.ensureCurrentDay(channel);
+
+    const trade = day.trades.find((t) => t.id === tradeId);
+    if (!trade) throw new Error(`Trade not found: ${tradeId}`);
+    if (trade.status !== "OPEN" && trade.status !== "PENDING") {
+      throw new Error(`Trade already closed: ${tradeId} (status=${trade.status})`);
+    }
+
+    // P&L
+    const isBuy = trade.type.includes("BUY");
+    const direction = isBuy ? 1 : -1;
+    const grossPnl = (exitPrice - trade.entryPrice) * trade.qty * direction;
+
+    // Charges
+    const settings = await getUserSettings(1);
+    const chargeRates = settings.charges.rates as ChargeRate[];
+    const charges = calculateTradeCharges(
+      {
+        entryPrice: trade.entryPrice,
+        exitPrice,
+        qty: trade.qty,
+        isBuy,
+        exchange:
+          trade.instrument.includes("CRUDE") || trade.instrument.includes("NATURAL")
+            ? "MCX"
+            : "NSE",
+      },
+      chargeRates,
+    );
+
+    // Stamp the close on the trade
+    trade.exitPrice = exitPrice;
+    trade.pnl = Math.round((grossPnl - charges.total) * 100) / 100;
+    trade.charges = charges.total;
+    trade.chargesBreakdown = charges.breakdown;
+    trade.unrealizedPnl = 0;
+    trade.ltp = exitPrice;
+    trade.closedAt = Date.now();
+    trade.status = closeStatus;
+
+    // Persist day record (with recalculated aggregates)
+    const updated = recalculateDayAggregates(day);
+    await upsertDayRecord(channel, updated);
+
+    // Update capital state — session + cumulative P&L counters.
+    await updateCapitalState(channel, {
+      sessionPnl: state.sessionPnl + trade.pnl,
+      cumulativePnl: state.cumulativePnl + trade.pnl,
+      cumulativeCharges: state.cumulativeCharges + charges.total,
+    });
+
+    // Day completion / gift days / clawback. These are best-effort —
+    // failures are logged but the close itself stands.
+    try {
+      await this.maybeCompleteOrClawback(channel, state, updated);
+    } catch (err) {
+      log.warn(`Day completion / clawback check failed for ${channel}: ${(err as Error).message}`);
+    }
+
+    return { trade, day: updated, pnl: trade.pnl, charges: charges.total };
+  }
+
+  /**
+   * Update SL / TP / trailing-stop on an open trade. Used by TEA.modifyOrder.
+   * Pure local state mutation — TEA handles any broker-side modify call.
+   */
+  async updateTrade(
+    channel: Channel,
+    tradeId: string,
+    modifications: {
+      stopLossPrice?: number | null;
+      targetPrice?: number | null;
+      trailingStopEnabled?: boolean;
+    },
+  ): Promise<{ trade: TradeRecord; day: DayRecord; oldSL: number | null; oldTP: number | null }> {
+    const day = await this.ensureCurrentDay(channel);
+    const trade = day.trades.find((t) => t.id === tradeId);
+    if (!trade) throw new Error(`Trade not found: ${tradeId}`);
+    if (trade.status !== "OPEN") {
+      throw new Error(`Cannot modify closed trade: ${tradeId} (status=${trade.status})`);
+    }
+    const oldSL = trade.stopLossPrice;
+    const oldTP = trade.targetPrice;
+
+    if (modifications.stopLossPrice !== undefined) trade.stopLossPrice = modifications.stopLossPrice;
+    if (modifications.targetPrice !== undefined) trade.targetPrice = modifications.targetPrice;
+    if (modifications.trailingStopEnabled !== undefined) trade.trailingStopEnabled = modifications.trailingStopEnabled;
+
+    await upsertDayRecord(channel, day);
+    return { trade, day, oldSL, oldTP };
+  }
+
+  /**
+   * Internal: after every close, evaluate whether the day's combined P&L
+   * crosses the target threshold (advance + gift-day cascade) or the
+   * clawback threshold (rewind day index, consume previous profits).
+   *
+   * Mirrors the logic that lives inline in portfolioRouter.exitTrade today.
+   * Phase 2 will have this be the only home; the legacy router is removed
+   * in TEA Phase 1 commit 6.
+   */
+  private async maybeCompleteOrClawback(
+    channel: Channel,
+    stateBeforeClose: CapitalState,
+    day: DayRecord,
+  ): Promise<void> {
+    // Re-read state since closeTrade just updated session/cumulative P&L.
+    const state = await getCapitalState(channel);
+
+    const completion = checkDayCompletion(day);
+    if (completion.complete) {
+      const result = completeDayIndex(state, day);
+      const newState = await updateCapitalState(channel, {
+        tradingPool: result.tradingPool,
+        reservePool: result.reservePool,
+        currentDayIndex: state.currentDayIndex + 1,
+        profitHistory: [...state.profitHistory, result.profitEntry],
+      });
+
+      day.status = "COMPLETED";
+      day.rating = result.rating;
+      await upsertDayRecord(channel, day);
+
+      if (completion.excessProfit > 0) {
+        const gifts = calculateGiftDays(
+          completion.excessProfit,
+          state.currentDayIndex + 1,
+          result.tradingPool,
+          state.targetPercent,
+          (idx) => result.tradingPool * Math.pow(1 + state.targetPercent / 100, idx - state.currentDayIndex),
+          channel,
+        );
+        for (const giftDay of gifts.giftDays) {
+          await upsertDayRecord(channel, giftDay);
+        }
+        if (gifts.giftDays.length > 0) {
+          await updateCapitalState(channel, {
+            currentDayIndex: state.currentDayIndex + 1 + gifts.giftDays.length,
+            tradingPool: gifts.finalTradingPool,
+          });
+        }
+      }
+      void newState;
+      return;
+    }
+
+    // Clawback path — significant loss eats previous days' profits.
+    if (day.totalPnl < 0 && Math.abs(day.totalPnl) >= day.targetAmount) {
+      const clawback = processClawback(day.totalPnl, state);
+      await updateCapitalState(channel, {
+        tradingPool: clawback.newTradingPool,
+        currentDayIndex: clawback.newDayIndex,
+        profitHistory: clawback.updatedHistory,
+      });
+      // Note: caller (router or TEA) handles deleting consumed day records;
+      // PA only updates the in-memory view here.
+    }
   }
 
   // ── §7.1 Query APIs ──────────────────────────────────────────

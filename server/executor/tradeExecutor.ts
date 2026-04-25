@@ -13,9 +13,10 @@
  * state. Reads can come from anywhere; writes (recordTradePlaced /
  * recordTradeClosed / appendTrade) flow through TEA exclusively.
  *
- * Phase 1 commit 2: paper-channel submitTrade is wired end-to-end via
- * MockAdapter + portfolioAgent.appendTrade. Live channels and the
- * modify/exit/auto-exit methods follow in commits 3–4.
+ * Phase 1 commit 4: submitTrade (paper + live), modifyOrder, exitTrade,
+ * and recordAutoExit are all wired. The single-writer invariant is now
+ * enforced for every state-mutating path including paper TP/SL hits —
+ * tickHandler emits 'autoExitDetected' and TEA owns the close.
  */
 
 import { createLogger } from "../broker/logger";
@@ -70,17 +71,34 @@ function isKillSwitchOn(channel: Channel): boolean {
 
 class TradeExecutorAgent {
   private started = false;
+  private unsubscribeAutoExit: (() => void) | null = null;
 
   /** Lifecycle — invoked by server boot in _core/index.ts. Idempotent. */
   start(): void {
     if (this.started) return;
     this.started = true;
-    log.info("Started — Trade Executor Agent v1.3 (Phase 1 commit 2: paper submit wired)");
+    // Subscribe to tickHandler's TP/SL detection events so paper auto-exits
+    // route through TEA's single-writer flow.
+    this.unsubscribeAutoExit = portfolioAgent.onAutoExit((event) => {
+      this.recordAutoExit({
+        channel: event.channel,
+        tradeId: event.tradeId,
+        reason: event.reason,
+        exitPrice: event.exitPrice,
+        triggeredBy: "PA",
+        timestamp: event.timestamp,
+      }).catch((err) => log.error(`recordAutoExit failed: ${err?.message ?? err}`));
+    });
+    log.info("Started — Trade Executor Agent v1.3 (Phase 1 commit 4: full lifecycle wired)");
   }
 
   stop(): void {
     if (!this.started) return;
     this.started = false;
+    if (this.unsubscribeAutoExit) {
+      this.unsubscribeAutoExit();
+      this.unsubscribeAutoExit = null;
+    }
     log.info("Stopped");
   }
 
@@ -209,19 +227,74 @@ class TradeExecutorAgent {
     const cached = idempotencyStore.reserve<ModifyOrderResponse>(req.executionId);
     if (cached?.status === "completed" && cached.result) return cached.result;
 
-    const response: ModifyOrderResponse = {
-      success: false,
-      positionId: req.positionId,
-      modificationId: "",
-      oldSL: null,
-      newSL: null,
-      oldTP: null,
-      newTP: null,
-      appliedAt: Date.now(),
-      error: "modifyOrder is not implemented yet (Phase 1 commit 4)",
-    };
-    idempotencyStore.fail(req.executionId, response.error!);
-    return response;
+    try {
+      const channel = req.channel;
+      const tradeId = tradeIdFromPositionId(req.positionId);
+
+      // Live: send broker.modifyOrder to update the bracket leg's SL/TP. The
+      // legacy router doesn't do this today (paper-only); TEA fixes it for
+      // live channels. modifyOrder needs the broker order id to target — we
+      // stored it on trade.brokerId at submit time.
+      if (isLiveChannel(channel)) {
+        const adapter = getAdapter(channel);
+        const day = await portfolioAgent.ensureCurrentDay(channel);
+        const trade = day.trades.find((t) => t.id === tradeId);
+        if (!trade) throw new Error(`Trade not found: ${tradeId}`);
+        if (!trade.brokerId) throw new Error(`Trade ${tradeId} has no brokerId — cannot modify`);
+
+        try {
+          const result = await adapter.modifyOrder(trade.brokerId, {
+            triggerPrice: req.modifications.stopLossPrice ?? undefined,
+            price: req.modifications.targetPrice ?? undefined,
+          });
+          log.info(
+            `modifyOrder live broker ack channel=${channel} order=${trade.brokerId} status=${result.status}`,
+          );
+        } catch (err: any) {
+          log.warn(`modifyOrder broker call failed (continuing with local update): ${err?.message ?? err}`);
+        }
+      }
+
+      // Local update — applies for paper and live alike.
+      const { trade, oldSL, oldTP } = await portfolioAgent.updateTrade(channel, tradeId, {
+        stopLossPrice: req.modifications.stopLoss ?? undefined,
+        targetPrice: req.modifications.takeProfit ?? undefined,
+        trailingStopEnabled: req.modifications.trailingStopLoss?.enabled,
+      });
+
+      const response: ModifyOrderResponse = {
+        success: true,
+        positionId: req.positionId,
+        modificationId: `MOD-${req.executionId}`,
+        oldSL,
+        newSL: trade.stopLossPrice,
+        oldTP,
+        newTP: trade.targetPrice,
+        appliedAt: Date.now(),
+      };
+      idempotencyStore.complete(req.executionId, response);
+      log.info(
+        `modifyOrder ok channel=${channel} trade=${tradeId} reason=${req.reason} ` +
+          `SL ${oldSL}→${trade.stopLossPrice} TP ${oldTP}→${trade.targetPrice}`,
+      );
+      return response;
+    } catch (err: any) {
+      const message = err?.message ?? String(err);
+      log.error(`modifyOrder failed executionId=${req.executionId}: ${message}`);
+      const response: ModifyOrderResponse = {
+        success: false,
+        positionId: req.positionId,
+        modificationId: "",
+        oldSL: null,
+        newSL: null,
+        oldTP: null,
+        newTP: null,
+        appliedAt: Date.now(),
+        error: message,
+      };
+      idempotencyStore.fail(req.executionId, message);
+      return response;
+    }
   }
 
   // ── §4.3 Exit a trade ──────────────────────────────────────
@@ -230,30 +303,170 @@ class TradeExecutorAgent {
     const cached = idempotencyStore.reserve<ExitTradeResponse>(req.executionId);
     if (cached?.status === "completed" && cached.result) return cached.result;
 
-    const response: ExitTradeResponse = {
-      success: false,
-      positionId: req.positionId,
-      exitId: "",
-      exitPrice: 0,
-      executedQuantity: 0,
-      realizedPnl: 0,
-      realizedPnlPct: 0,
-      exitTime: Date.now(),
-      error: "exitTrade is not implemented yet (Phase 1 commit 4)",
-    };
-    idempotencyStore.fail(req.executionId, response.error!);
-    return response;
+    try {
+      const tradeId = tradeIdFromPositionId(req.positionId);
+      const channel = req.channel;
+
+      // Resolve current trade so we know exit price / instrument context.
+      const day = await portfolioAgent.ensureCurrentDay(channel);
+      const trade = day.trades.find((t) => t.id === tradeId);
+      if (!trade) throw new Error(`Trade not found: ${tradeId}`);
+      if (trade.status !== "OPEN" && trade.status !== "PENDING") {
+        throw new Error(`Trade already closed: ${tradeId} (status=${trade.status})`);
+      }
+
+      // For LIMIT exits the caller supplies an exitPrice; for MARKET exits
+      // we use the trade's current LTP (which tickHandler keeps fresh).
+      const exitPrice = req.exitPrice ?? trade.ltp ?? trade.entryPrice;
+
+      // Live channels: place a reverse broker order. DISCIPLINE_EXIT is
+      // forced to MARKET per spec §4.3. Failure on broker side is logged
+      // but does NOT block the local close — the bracket may have already
+      // filled at the broker.
+      if (isLiveChannel(channel) && trade.brokerId) {
+        const adapter = getAdapter(channel);
+        const exitOrderType = req.reason === "DISCIPLINE_EXIT" ? "MARKET" : req.exitType;
+        const exitParams: OrderParams = {
+          instrument: trade.instrument,
+          exchange: resolveExchange(trade.instrument),
+          transactionType: trade.type.includes("BUY") ? "SELL" : "BUY",
+          optionType: trade.type.startsWith("CALL")
+            ? "CE"
+            : trade.type.startsWith("PUT")
+            ? "PE"
+            : "FUT",
+          strike: trade.strike ?? 0,
+          expiry: trade.expiry ?? "",
+          quantity: trade.qty,
+          price: exitPrice,
+          orderType: exitOrderType,
+          productType: "INTRADAY",
+          tag: `EXIT-${trade.id}`,
+        };
+        try {
+          const result = await adapter.placeOrder(exitParams);
+          log.info(
+            `exitTrade live broker exit channel=${channel} trade=${tradeId} ` +
+              `order=${result.orderId} status=${result.status}`,
+          );
+        } catch (err: any) {
+          log.warn(`exitTrade broker exit failed (continuing local close): ${err?.message ?? err}`);
+        }
+      }
+
+      // Local close — single-writer entry point.
+      const closeStatus = mapExitReasonToTradeStatus(req.reason);
+      const { trade: closed, pnl, charges } = await portfolioAgent.closeTrade(
+        channel,
+        tradeId,
+        exitPrice,
+        closeStatus,
+      );
+
+      // Audit + Discipline push
+      const closedAt = closed.closedAt ?? Date.now();
+      const grossEntryValue = closed.entryPrice * closed.qty;
+      await portfolioAgent.recordTradeClosed({
+        channel,
+        tradeId: closed.id,
+        instrument: closed.instrument,
+        side: closed.type.includes("BUY") ? "LONG" : "SHORT",
+        entryPrice: closed.entryPrice,
+        exitPrice,
+        quantity: closed.qty,
+        entryTime: closed.openedAt,
+        exitTime: closedAt,
+        realizedPnl: pnl,
+        realizedPnlPercent: grossEntryValue > 0 ? (pnl / grossEntryValue) * 100 : 0,
+        exitReason: mapExitReasonToPaReason(req.reason),
+        exitTriggeredBy: req.triggeredBy,
+        duration: Math.round((closedAt - closed.openedAt) / 1000),
+        pnlCategory: pnl > 0 ? "win" : pnl < 0 ? "loss" : "breakeven",
+        signalSource: req.detail,
+        timestamp: Date.now(),
+      });
+
+      void charges;
+      const response: ExitTradeResponse = {
+        success: true,
+        positionId: req.positionId,
+        exitId: `EXIT-${req.executionId}`,
+        exitPrice,
+        executedQuantity: closed.qty,
+        realizedPnl: pnl,
+        realizedPnlPct: grossEntryValue > 0 ? (pnl / grossEntryValue) * 100 : 0,
+        exitTime: closedAt,
+      };
+      idempotencyStore.complete(req.executionId, response);
+      log.info(
+        `exitTrade ok channel=${channel} trade=${tradeId} reason=${req.reason} by=${req.triggeredBy} pnl=${pnl}`,
+      );
+      return response;
+    } catch (err: any) {
+      const message = err?.message ?? String(err);
+      log.error(`exitTrade failed executionId=${req.executionId}: ${message}`);
+      const response: ExitTradeResponse = {
+        success: false,
+        positionId: req.positionId,
+        exitId: "",
+        exitPrice: 0,
+        executedQuantity: 0,
+        realizedPnl: 0,
+        realizedPnlPct: 0,
+        exitTime: Date.now(),
+        error: message,
+      };
+      idempotencyStore.fail(req.executionId, message);
+      return response;
+    }
   }
 
   // ── PA-internal: tickHandler reports a paper TP/SL hit ─────
 
   /**
-   * Server-internal call. Not exposed via tRPC. tickHandler in PortfolioAgent
-   * detects paper-channel TP / SL hits and routes the close through TEA so
-   * the single-writer invariant holds. Phase 1 commit 4 implements.
+   * Server-internal call. tickHandler in PortfolioAgent emits
+   * 'autoExitDetected' when a paper trade hits TP / SL on an incoming tick.
+   * TEA.start subscribes and routes here; we run the canonical close
+   * through portfolioAgent.closeTrade so the single-writer invariant holds.
+   *
+   * No broker call is needed — paper auto-exits never hit the broker.
    */
-  async recordAutoExit(_req: RecordAutoExitRequest): Promise<void> {
-    log.debug("recordAutoExit: not implemented yet (Phase 1 commit 4)");
+  async recordAutoExit(req: RecordAutoExitRequest): Promise<void> {
+    try {
+      const closeStatus: TradeStatus = req.reason === "TP" ? "CLOSED_TP" : "CLOSED_SL";
+      const { trade: closed, pnl } = await portfolioAgent.closeTrade(
+        req.channel,
+        req.tradeId,
+        req.exitPrice,
+        closeStatus,
+      );
+
+      const closedAt = closed.closedAt ?? Date.now();
+      const grossEntryValue = closed.entryPrice * closed.qty;
+      await portfolioAgent.recordTradeClosed({
+        channel: req.channel,
+        tradeId: closed.id,
+        instrument: closed.instrument,
+        side: closed.type.includes("BUY") ? "LONG" : "SHORT",
+        entryPrice: closed.entryPrice,
+        exitPrice: req.exitPrice,
+        quantity: closed.qty,
+        entryTime: closed.openedAt,
+        exitTime: closedAt,
+        realizedPnl: pnl,
+        realizedPnlPercent: grossEntryValue > 0 ? (pnl / grossEntryValue) * 100 : 0,
+        exitReason: req.reason === "TP" ? "TP" : "SL",
+        exitTriggeredBy: "PA",
+        duration: Math.round((closedAt - closed.openedAt) / 1000),
+        pnlCategory: pnl > 0 ? "win" : pnl < 0 ? "loss" : "breakeven",
+        timestamp: Date.now(),
+      });
+      log.info(
+        `recordAutoExit ${req.reason} channel=${req.channel} trade=${req.tradeId} pnl=${pnl}`,
+      );
+    } catch (err: any) {
+      log.error(`recordAutoExit failed channel=${req.channel} trade=${req.tradeId}: ${err?.message ?? err}`);
+    }
   }
 }
 
@@ -412,6 +625,52 @@ function ensureOptionLtpSubscription(
     );
   } catch (err: any) {
     log.warn(`subscribeLTP failed for ${req.contractSecurityId}: ${err?.message ?? err}`);
+  }
+}
+
+/** TEA generates positionId as POS-{tradeId-without-T-prefix}. Reverse it. */
+function tradeIdFromPositionId(positionId: string): string {
+  if (positionId.startsWith("POS-")) return "T" + positionId.slice(4);
+  return positionId; // caller passed the tradeId directly
+}
+
+/** Map TEA's exit-trade reason vocab to TradeRecord status values. */
+function mapExitReasonToTradeStatus(reason: ExitTradeRequest["reason"]): TradeStatus {
+  switch (reason) {
+    case "TP_HIT":
+      return "CLOSED_TP";
+    case "SL_HIT":
+      return "CLOSED_SL";
+    case "EOD":
+      return "CLOSED_EOD";
+    default:
+      return "CLOSED_MANUAL";
+  }
+}
+
+/** Map TEA's exit-trade reason vocab to PA's recordTradeClosed enum. */
+function mapExitReasonToPaReason(
+  reason: ExitTradeRequest["reason"],
+): "SL" | "TP" | "RCA_EXIT" | "DISCIPLINE_EXIT" | "AI_EXIT" | "MANUAL" | "EOD" | "EXPIRY" {
+  switch (reason) {
+    case "TP_HIT":
+      return "TP";
+    case "SL_HIT":
+      return "SL";
+    case "MOMENTUM_EXIT":
+    case "AGE_EXIT":
+      return "RCA_EXIT";
+    case "AI_EXIT":
+      return "AI_EXIT";
+    case "DISCIPLINE_EXIT":
+      return "DISCIPLINE_EXIT";
+    case "EOD":
+      return "EOD";
+    case "EXPIRY":
+      return "EXPIRY";
+    case "MANUAL":
+    default:
+      return "MANUAL";
   }
 }
 

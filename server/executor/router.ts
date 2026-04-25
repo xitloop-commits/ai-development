@@ -55,9 +55,12 @@ const submitTradeSchema = z.object({
 const modifyOrderSchema = z.object({
   executionId: z.string().min(1),
   positionId: z.string().min(1),
+  channel: channelSchema,
   modifications: z.object({
     stopLoss: z.number().nullable().optional(),
     takeProfit: z.number().nullable().optional(),
+    stopLossPrice: z.number().nullable().optional(),
+    targetPrice: z.number().nullable().optional(),
     trailingStopLoss: trailingStopSchema.optional(),
   }),
   reason: z.enum([

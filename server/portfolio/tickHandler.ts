@@ -15,18 +15,13 @@ import { EventEmitter } from "events";
 import { tickBus } from "../broker/tickBus";
 import {
   getCapitalState,
-  updateCapitalState,
   getDayRecord,
   upsertDayRecord,
 } from "./state";
-import type { Channel, DayRecord, TradeRecord } from "./state";
+import type { Channel, TradeRecord } from "./state";
 import { recalculateDayAggregates } from "./compounding";
-import { calculateTradeCharges } from "./charges";
-import type { ChargeRate } from "./charges";
-import { getUserSettings } from "../userSettings";
-import { getActiveBroker } from "../broker/brokerService";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
-import type { OrderParams, TickData } from "../broker/types";
+import type { TickData } from "../broker/types";
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -42,6 +37,20 @@ export interface PnlSnapshot {
   }>;
   totalPnl: number;
   updatedAt: number;
+}
+
+/**
+ * Fired by tickHandler when an open paper trade hits its TP or SL on an
+ * incoming tick. The actual close is the responsibility of the listener
+ * (TEA), which routes through portfolioAgent.closeTrade — preserving the
+ * single-writer invariant.
+ */
+export interface AutoExitEvent {
+  channel: Channel;
+  tradeId: string;
+  reason: "TP" | "SL";
+  exitPrice: number;
+  timestamp: number;
 }
 
 /** Channels whose open trades get tick-driven MTM + auto-SL/TP. */
@@ -239,14 +248,19 @@ class TickHandler extends EventEmitter {
       }
     }
 
-    // Auto-exit triggered trades
+    // Emit autoExitDetected for each triggered trade — TEA listens and
+    // routes the close through portfolioAgent.closeTrade so the single-
+    // writer invariant holds. tickHandler is detection-only; it does NOT
+    // mutate the trade record itself.
     for (const { trade, reason, exitPrice } of tradesToExit) {
-      try {
-        await this.autoExitTrade(channel, state, day, trade, reason, exitPrice);
-        anyUpdated = true;
-      } catch (err) {
-        console.error(`[PortfolioAgent/TickHandler] Auto-exit failed for ${trade.id}:`, err);
-      }
+      const event: AutoExitEvent = {
+        channel,
+        tradeId: trade.id,
+        reason,
+        exitPrice,
+        timestamp: Date.now(),
+      };
+      this.emit("autoExitDetected", event);
     }
 
     if (!anyUpdated) return;
@@ -274,102 +288,6 @@ class TickHandler extends EventEmitter {
     this.emit("pnlUpdate", snapshot);
   }
 
-  /** Auto-exit a trade that hit TP or SL */
-  private async autoExitTrade(
-    channel: Channel,
-    state: Awaited<ReturnType<typeof getCapitalState>>,
-    day: DayRecord,
-    trade: TradeRecord,
-    reason: "TP" | "SL",
-    exitPrice: number
-  ): Promise<void> {
-    console.log(
-      `[PortfolioAgent/TickHandler] Auto-exit ${reason}: ${trade.instrument} ${trade.type} @ ${exitPrice} (entry: ${trade.entryPrice})`
-    );
-
-    // Send broker exit order for live channels
-    const isLiveChannel = channel === "my-live" || channel === "ai-live" || channel === "testing-live";
-    if (isLiveChannel && trade.brokerId) {
-      const broker = getActiveBroker();
-      const config = await getActiveBrokerConfig();
-      if (broker && config && !config.isPaperBroker) {
-        try {
-          const isBuyTxn = trade.type.includes("BUY");
-          const optType = trade.type.startsWith("CALL")
-            ? ("CE" as const)
-            : trade.type.startsWith("PUT")
-            ? ("PE" as const)
-            : ("FUT" as const);
-          const exchange =
-            trade.instrument.includes("CRUDE") ||
-            trade.instrument.includes("NATURAL")
-              ? ("MCX_COMM" as const)
-              : ("NSE_FNO" as const);
-
-          const exitOrder: OrderParams = {
-            instrument: trade.instrument,
-            exchange,
-            transactionType: isBuyTxn ? "SELL" : "BUY",
-            optionType: optType,
-            strike: trade.strike ?? 0,
-            expiry: "",
-            quantity: trade.qty,
-            price: exitPrice,
-            orderType: "MARKET",
-            productType: config.settings.productType ?? "INTRADAY",
-            tag: `AUTO-${reason}-${trade.id}`,
-          };
-
-          const result = await broker.placeOrder(exitOrder);
-          console.log(
-            `[PortfolioAgent/TickHandler] Broker auto-exit order: ${result.orderId} (${result.status})`
-          );
-        } catch (err) {
-          console.error("[PortfolioAgent/TickHandler] Broker auto-exit failed:", err);
-        }
-      }
-    }
-
-    // Calculate P&L
-    const isBuy = trade.type.includes("BUY");
-    const direction = isBuy ? 1 : -1;
-    const grossPnl = (exitPrice - trade.entryPrice) * trade.qty * direction;
-
-    // Calculate charges
-    const settings = await getUserSettings(1);
-    const chargeRates = settings.charges.rates as ChargeRate[];
-    const charges = calculateTradeCharges(
-      {
-        entryPrice: trade.entryPrice,
-        exitPrice,
-        qty: trade.qty,
-        isBuy,
-        exchange:
-          trade.instrument.includes("CRUDE") ||
-          trade.instrument.includes("NATURAL")
-            ? "MCX"
-            : "NSE",
-      },
-      chargeRates
-    );
-
-    // Update trade record
-    trade.exitPrice = exitPrice;
-    trade.pnl = Math.round((grossPnl - charges.total) * 100) / 100;
-    trade.charges = charges.total;
-    trade.chargesBreakdown = charges.breakdown;
-    trade.unrealizedPnl = 0;
-    trade.ltp = exitPrice;
-    trade.closedAt = Date.now();
-    trade.status = reason === "TP" ? "CLOSED_TP" : "CLOSED_SL";
-
-    // Update capital state
-    await updateCapitalState(channel, {
-      sessionPnl: state.sessionPnl + trade.pnl,
-      cumulativePnl: state.cumulativePnl + trade.pnl,
-      cumulativeCharges: state.cumulativeCharges + charges.total,
-    });
-  }
 }
 
 // ─── Singleton ──────────────────────────────────────────────────

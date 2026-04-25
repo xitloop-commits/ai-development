@@ -79,9 +79,19 @@ export type ModificationReason =
 export interface ModifyOrderRequest {
   executionId: string;
   positionId: string;
+  /**
+   * Channel that owns the position. Spec §4.2 doesn't include this field;
+   * we add it because PA's day records are partitioned by channel and
+   * resolving the channel from positionId alone would require a global
+   * scan. RCA / AI know the channel of every position they hold.
+   */
+  channel: Channel;
   modifications: {
     stopLoss?: number | null;
     takeProfit?: number | null;
+    /** Alias for backward compatibility with §4.2 wire shape. */
+    stopLossPrice?: number | null;
+    targetPrice?: number | null;
     trailingStopLoss?: TrailingStopLoss;
   };
   reason: ModificationReason;
