@@ -38,6 +38,7 @@ const log = createLogger("RcaMonitor");
 
 const DEFAULT_MAX_AGE_MS = 30 * 60 * 1000;          // 30 min — Phase 1 trigger
 const DEFAULT_STALE_TICK_MS = 5 * 60 * 1000;         // 5 min — Phase 2 trigger
+const DEFAULT_VOL_THRESHOLD = 0.7;                   // max_drawdown_pred_30s above which RCA exits
 const TICK_INTERVAL_MS = 30_000;                     // 30 s monitor cadence
 
 interface RcaMonitorOptions {
@@ -45,18 +46,21 @@ interface RcaMonitorOptions {
   maxAgeMs?: number;
   /** Max time without a tick before stale-price exit. Default 5 min. */
   staleTickMs?: number;
+  /** max_drawdown_pred_30s above which RCA volatility-exits. Default 0.7. */
+  volThreshold?: number;
   /** Channels under RCA supervision. Default ai-paper. */
   channels?: Channel[];
 }
 
 /** What kind of RCA-driven exit was triggered. Logged for analytics. */
-type RcaExitKind = "AGE" | "STALE_PRICE" | "MOMENTUM_FLIP";
+type RcaExitKind = "AGE" | "STALE_PRICE" | "VOLATILITY" | "MOMENTUM_FLIP";
 
 class RcaMonitor {
   private running = false;
   private tickHandle: NodeJS.Timeout | null = null;
   private maxAgeMs: number = DEFAULT_MAX_AGE_MS;
   private staleTickMs: number = DEFAULT_STALE_TICK_MS;
+  private volThreshold: number = DEFAULT_VOL_THRESHOLD;
   private channels: Channel[] = ["ai-paper"];
   /** Trade ids we've already attempted an exit on; prevents retry storms. */
   private exitAttempted = new Set<string>();
@@ -65,6 +69,7 @@ class RcaMonitor {
     if (this.running) return;
     this.maxAgeMs = opts.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
     this.staleTickMs = opts.staleTickMs ?? DEFAULT_STALE_TICK_MS;
+    this.volThreshold = opts.volThreshold ?? DEFAULT_VOL_THRESHOLD;
     this.channels = opts.channels ?? ["ai-paper"];
     this.running = true;
     this.tickHandle = setInterval(
@@ -72,7 +77,7 @@ class RcaMonitor {
       TICK_INTERVAL_MS,
     );
     log.info(
-      `Started — age=${this.maxAgeMs}ms stale=${this.staleTickMs}ms channels=[${this.channels.join(",")}]`,
+      `Started — age=${this.maxAgeMs}ms stale=${this.staleTickMs}ms vol>${this.volThreshold} channels=[${this.channels.join(",")}]`,
     );
   }
 
@@ -130,7 +135,16 @@ class RcaMonitor {
           continue;
         }
 
-        if (this.isFlippedAgainst(trade, latestSignal)) {
+        const volSignal = this.lookupSignal(trade, latestSignal);
+        if (volSignal && (volSignal.max_drawdown_pred_30s ?? 0) >= this.volThreshold) {
+          await this.exit(channel, trade, "VOLATILITY", {
+            reason: "VOLATILITY_EXIT",
+            detail: `Predicted max-drawdown ${volSignal.max_drawdown_pred_30s?.toFixed(2)} ≥ ${this.volThreshold}`,
+          });
+          continue;
+        }
+
+        if (volSignal && this.isFlippedAgainst(trade, volSignal)) {
           await this.exit(channel, trade, "MOMENTUM_FLIP", {
             reason: "MOMENTUM_EXIT",
             detail: "Latest filtered SEA signal flipped opposite to position",
@@ -138,6 +152,18 @@ class RcaMonitor {
         }
       }
     }
+  }
+
+  /** Map trade.instrument → SEA key, return the latest filtered signal for it. */
+  private lookupSignal(trade: TradeRecord, latest: Map<string, SEASignal>): SEASignal | undefined {
+    const norm = trade.instrument.toUpperCase().replace(/\s+/g, "");
+    const seaKey =
+      norm === "NIFTY50" || norm === "NIFTY" ? "NIFTY"
+      : norm === "BANKNIFTY" ? "BANKNIFTY"
+      : norm === "CRUDEOIL" ? "CRUDEOIL"
+      : norm === "NATURALGAS" ? "NATURALGAS"
+      : norm;
+    return latest.get(seaKey) ?? latest.get(seaKey + "50");
   }
 
   /**
@@ -180,17 +206,7 @@ class RcaMonitor {
    * writer wins from premium decay, and a strong directional move
    * against the strike turns the write into a loss.
    */
-  private isFlippedAgainst(trade: TradeRecord, latest: Map<string, SEASignal>): boolean {
-    const norm = trade.instrument.toUpperCase().replace(/\s+/g, "");
-    const seaKey =
-      norm === "NIFTY50" || norm === "NIFTY" ? "NIFTY"
-      : norm === "BANKNIFTY" ? "BANKNIFTY"
-      : norm === "CRUDEOIL" ? "CRUDEOIL"
-      : norm === "NATURALGAS" ? "NATURALGAS"
-      : norm;
-    const sig = latest.get(seaKey) ?? latest.get(seaKey + "50");
-    if (!sig) return false;
-
+  private isFlippedAgainst(trade: TradeRecord, sig: SEASignal): boolean {
     const sigAction = sig.action ?? "";
     const sigDirection = sig.direction ?? "";
     const sigBullish = sigAction === "LONG_CE" || sigAction === "SHORT_PE" || sigDirection === "GO_CALL";
