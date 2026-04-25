@@ -35,6 +35,7 @@ import { portfolioAgent } from "../portfolio";
 import type { Channel, TradeRecord, TradeStatus } from "../portfolio/state";
 import { idempotencyStore } from "./idempotency";
 import { orderSync } from "./orderSync";
+import { seaBridge } from "./seaBridge";
 import type {
   SubmitTradeRequest,
   SubmitTradeResponse,
@@ -94,7 +95,12 @@ class TradeExecutorAgent {
     // Lives under executor/ per spec §6.4. Paper channels never emit broker
     // order updates; this is effectively live-only.
     orderSync.start();
-    log.info("Started — Trade Executor Agent v1.3 (Phase 1 commit 5: order lifecycle absorbed)");
+    // SEA → TEA bridge: polls filtered SEA signals every 5s and forwards
+    // LONG_CE / LONG_PE trades to executor.submitTrade on the AI paper
+    // channel. Phase 1 — paper only. AI Live activation is gated on the
+    // 1-lot cap + canary capital + 30-day comparison.
+    seaBridge.start("ai-paper");
+    log.info("Started — Trade Executor Agent v1.3 (SEA bridge online)");
   }
 
   stop(): void {
@@ -105,6 +111,7 @@ class TradeExecutorAgent {
       this.unsubscribeAutoExit = null;
     }
     orderSync.stop();
+    seaBridge.stop();
     log.info("Stopped");
   }
 
