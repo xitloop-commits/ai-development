@@ -98,13 +98,18 @@ class RcaMonitor {
     if (!this.running) return;
     const now = Date.now();
 
-    // Hot-reload thresholds from executor_settings (cached 30 s).
-    // Lets the TEA Settings page tune RCA without a server restart.
+    // Hot-reload thresholds + monitored channels from executor_settings
+    // (cached 30 s). Lets the TEA Settings page tune RCA without a
+    // server restart — including adding ai-live to the channel list
+    // when the canary launches.
     try {
       const s = await getExecutorSettings();
       this.maxAgeMs = s.rcaMaxAgeMs;
       this.staleTickMs = s.rcaStaleTickMs;
       this.volThreshold = s.rcaVolThreshold;
+      if (s.rcaChannels.length > 0) {
+        this.channels = s.rcaChannels;
+      }
     } catch {
       // Defaults already in place; carry on.
     }

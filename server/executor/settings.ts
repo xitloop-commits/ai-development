@@ -4,8 +4,10 @@
  * Single Mongo doc per userId holding tunables that today live as
  * code constants:
  *   - AI Live lot cap
- *   - RCA monitor: max-age, stale-tick window, vol threshold
- *   - Recovery engine: stuck threshold
+ *   - RCA monitor: max-age, stale-tick window, vol threshold,
+ *     channels under supervision
+ *   - Recovery engine: stuck threshold, channels polled
+ *   - SEA bridge: enabled, channel, poll cadence, direction filter
  *
  * Read paths cache the doc for 30 s so per-tick lookups in RCA /
  * recovery / TEA stay cheap. Writes invalidate the cache. Defaults
@@ -17,8 +19,11 @@
  */
 
 import mongoose, { Schema } from "mongoose";
+import type { Channel } from "../portfolio/state";
 
 // ─── Defaults ────────────────────────────────────────────────────
+
+export type SeaDirectionFilter = "LONG_ONLY" | "ALL";
 
 export const EXECUTOR_DEFAULTS = {
   aiLiveLotCap: 1,
@@ -26,6 +31,16 @@ export const EXECUTOR_DEFAULTS = {
   rcaStaleTickMs: 5 * 60 * 1000,       // 5 min
   rcaVolThreshold: 0.7,
   recoveryStuckMs: 60_000,             // 60 s
+
+  // SEA bridge — Phase 1 canary defaults
+  seaBridgeEnabled: true as boolean,
+  seaBridgeChannel: "ai-paper" as Channel,
+  seaBridgePollIntervalMs: 5_000,      // 5 s
+  seaBridgeDirectionFilter: "LONG_ONLY" as SeaDirectionFilter,
+
+  // Channels under monitoring
+  rcaChannels: ["ai-paper"] as Channel[],
+  recoveryChannels: ["my-live", "ai-live", "testing-live"] as Channel[],
 } as const;
 
 export interface ExecutorSettings {
@@ -35,6 +50,15 @@ export interface ExecutorSettings {
   rcaStaleTickMs: number;
   rcaVolThreshold: number;
   recoveryStuckMs: number;
+
+  seaBridgeEnabled: boolean;
+  seaBridgeChannel: Channel;
+  seaBridgePollIntervalMs: number;
+  seaBridgeDirectionFilter: SeaDirectionFilter;
+
+  rcaChannels: Channel[];
+  recoveryChannels: Channel[];
+
   updatedAt: number;
 }
 
@@ -48,6 +72,15 @@ const executorSettingsSchema = new Schema(
     rcaStaleTickMs: { type: Number, default: EXECUTOR_DEFAULTS.rcaStaleTickMs },
     rcaVolThreshold: { type: Number, default: EXECUTOR_DEFAULTS.rcaVolThreshold },
     recoveryStuckMs: { type: Number, default: EXECUTOR_DEFAULTS.recoveryStuckMs },
+
+    seaBridgeEnabled: { type: Boolean, default: EXECUTOR_DEFAULTS.seaBridgeEnabled },
+    seaBridgeChannel: { type: String, default: EXECUTOR_DEFAULTS.seaBridgeChannel },
+    seaBridgePollIntervalMs: { type: Number, default: EXECUTOR_DEFAULTS.seaBridgePollIntervalMs },
+    seaBridgeDirectionFilter: { type: String, default: EXECUTOR_DEFAULTS.seaBridgeDirectionFilter },
+
+    rcaChannels: { type: [String], default: () => [...EXECUTOR_DEFAULTS.rcaChannels] },
+    recoveryChannels: { type: [String], default: () => [...EXECUTOR_DEFAULTS.recoveryChannels] },
+
     updatedAt: { type: Number, default: () => Date.now() },
   },
   { timestamps: false, collection: "executor_settings" },
@@ -66,8 +99,40 @@ const DEFAULT_USER_ID = "1";
 function defaultsFor(userId: string): ExecutorSettings {
   return {
     userId,
-    ...EXECUTOR_DEFAULTS,
+    aiLiveLotCap: EXECUTOR_DEFAULTS.aiLiveLotCap,
+    rcaMaxAgeMs: EXECUTOR_DEFAULTS.rcaMaxAgeMs,
+    rcaStaleTickMs: EXECUTOR_DEFAULTS.rcaStaleTickMs,
+    rcaVolThreshold: EXECUTOR_DEFAULTS.rcaVolThreshold,
+    recoveryStuckMs: EXECUTOR_DEFAULTS.recoveryStuckMs,
+    seaBridgeEnabled: EXECUTOR_DEFAULTS.seaBridgeEnabled,
+    seaBridgeChannel: EXECUTOR_DEFAULTS.seaBridgeChannel,
+    seaBridgePollIntervalMs: EXECUTOR_DEFAULTS.seaBridgePollIntervalMs,
+    seaBridgeDirectionFilter: EXECUTOR_DEFAULTS.seaBridgeDirectionFilter,
+    rcaChannels: [...EXECUTOR_DEFAULTS.rcaChannels],
+    recoveryChannels: [...EXECUTOR_DEFAULTS.recoveryChannels],
     updatedAt: 0,
+  };
+}
+
+function docToSettings(doc: any, userId: string): ExecutorSettings {
+  return {
+    userId,
+    aiLiveLotCap: doc?.aiLiveLotCap ?? EXECUTOR_DEFAULTS.aiLiveLotCap,
+    rcaMaxAgeMs: doc?.rcaMaxAgeMs ?? EXECUTOR_DEFAULTS.rcaMaxAgeMs,
+    rcaStaleTickMs: doc?.rcaStaleTickMs ?? EXECUTOR_DEFAULTS.rcaStaleTickMs,
+    rcaVolThreshold: doc?.rcaVolThreshold ?? EXECUTOR_DEFAULTS.rcaVolThreshold,
+    recoveryStuckMs: doc?.recoveryStuckMs ?? EXECUTOR_DEFAULTS.recoveryStuckMs,
+    seaBridgeEnabled: doc?.seaBridgeEnabled ?? EXECUTOR_DEFAULTS.seaBridgeEnabled,
+    seaBridgeChannel: doc?.seaBridgeChannel ?? EXECUTOR_DEFAULTS.seaBridgeChannel,
+    seaBridgePollIntervalMs: doc?.seaBridgePollIntervalMs ?? EXECUTOR_DEFAULTS.seaBridgePollIntervalMs,
+    seaBridgeDirectionFilter: doc?.seaBridgeDirectionFilter ?? EXECUTOR_DEFAULTS.seaBridgeDirectionFilter,
+    rcaChannels: (doc?.rcaChannels && doc.rcaChannels.length > 0)
+      ? doc.rcaChannels
+      : [...EXECUTOR_DEFAULTS.rcaChannels],
+    recoveryChannels: (doc?.recoveryChannels && doc.recoveryChannels.length > 0)
+      ? doc.recoveryChannels
+      : [...EXECUTOR_DEFAULTS.recoveryChannels],
+    updatedAt: doc?.updatedAt ?? 0,
   };
 }
 
@@ -83,17 +148,7 @@ export async function getExecutorSettings(userId: string = DEFAULT_USER_ID): Pro
   }
   try {
     const doc = await ExecutorSettingsModel.findOne({ userId }).lean();
-    const value: ExecutorSettings = doc
-      ? {
-          userId: doc.userId,
-          aiLiveLotCap: doc.aiLiveLotCap ?? EXECUTOR_DEFAULTS.aiLiveLotCap,
-          rcaMaxAgeMs: doc.rcaMaxAgeMs ?? EXECUTOR_DEFAULTS.rcaMaxAgeMs,
-          rcaStaleTickMs: doc.rcaStaleTickMs ?? EXECUTOR_DEFAULTS.rcaStaleTickMs,
-          rcaVolThreshold: doc.rcaVolThreshold ?? EXECUTOR_DEFAULTS.rcaVolThreshold,
-          recoveryStuckMs: doc.recoveryStuckMs ?? EXECUTOR_DEFAULTS.recoveryStuckMs,
-          updatedAt: doc.updatedAt ?? 0,
-        }
-      : defaultsFor(userId);
+    const value = doc ? docToSettings(doc, userId) : defaultsFor(userId);
     cached = { value, cachedAt: now };
     return value;
   } catch {
@@ -112,13 +167,5 @@ export async function updateExecutorSettings(
     { upsert: true, returnDocument: "after", lean: true },
   );
   cached = null;
-  return {
-    userId,
-    aiLiveLotCap: doc?.aiLiveLotCap ?? EXECUTOR_DEFAULTS.aiLiveLotCap,
-    rcaMaxAgeMs: doc?.rcaMaxAgeMs ?? EXECUTOR_DEFAULTS.rcaMaxAgeMs,
-    rcaStaleTickMs: doc?.rcaStaleTickMs ?? EXECUTOR_DEFAULTS.rcaStaleTickMs,
-    rcaVolThreshold: doc?.rcaVolThreshold ?? EXECUTOR_DEFAULTS.rcaVolThreshold,
-    recoveryStuckMs: doc?.recoveryStuckMs ?? EXECUTOR_DEFAULTS.recoveryStuckMs,
-    updatedAt: doc?.updatedAt ?? Date.now(),
-  };
+  return doc ? docToSettings(doc, userId) : defaultsFor(userId);
 }

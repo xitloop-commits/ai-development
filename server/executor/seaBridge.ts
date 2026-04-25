@@ -34,11 +34,13 @@ import { createLogger } from "../broker/logger";
 import { getSEASignals, type SEASignal } from "../seaSignals";
 import { resolveLotSize } from "./tradeResolution";
 import { tradeExecutor } from "./tradeExecutor";
+import { getExecutorSettings } from "./settings";
 import type { Channel } from "../portfolio/state";
 
 const log = createLogger("TEA", "SeaBridge");
 
-const POLL_INTERVAL_MS = 5_000;
+/** Default poll cadence; live value comes from executor_settings. */
+const DEFAULT_POLL_INTERVAL_MS = 5_000;
 
 /**
  * Map SEA's instrument vocabulary (uppercase, no spaces) to the
@@ -63,23 +65,31 @@ function normalizeInstrument(seaInstrument: string): string {
 class SeaBridge {
   private running = false;
   private pollHandle: NodeJS.Timeout | null = null;
+  /** Active channel — re-read each poll from executor_settings. */
   private channel: Channel = "ai-paper";
+  /** Active poll interval — re-applied when settings change. */
+  private intervalMs: number = DEFAULT_POLL_INTERVAL_MS;
 
   /** Per-instrument timestamp of the most recently processed signal. */
   private highWaterMark = new Map<string, number>();
+  /** Direction filter resolved on the latest poll; read by processSignal. */
+  private activeDirectionFilter: "LONG_ONLY" | "ALL" = "LONG_ONLY";
 
-  /** Lifecycle — invoked from tradeExecutor.start(). Idempotent. */
+  /**
+   * Lifecycle — invoked from tradeExecutor.start(). Idempotent.
+   * The optional `channel` arg is the BOOT default; on each poll
+   * the bridge re-reads channel + cadence + enabled flag + direction
+   * filter from executor_settings, so the canary launch can flip
+   * `seaBridgeChannel` to "ai-live" without a server restart.
+   */
   start(channel: Channel = "ai-paper"): void {
     if (this.running) return;
     this.channel = channel;
     this.running = true;
     // First poll fires immediately so we don't wait 5s for ingest after restart.
     this.poll().catch((err) => log.error(`first poll: ${err?.message ?? err}`));
-    this.pollHandle = setInterval(
-      () => this.poll().catch((err) => log.error(`poll: ${err?.message ?? err}`)),
-      POLL_INTERVAL_MS,
-    );
-    log.info(`Started — polling SEA signals every ${POLL_INTERVAL_MS / 1000}s → channel=${channel}`);
+    this.scheduleNextPoll();
+    log.info(`Started — channel=${channel} (poll cadence reads from executor_settings)`);
   }
 
   stop(): void {
@@ -94,6 +104,18 @@ class SeaBridge {
   }
 
   /**
+   * Set up the polling timer using the current `intervalMs`. Called
+   * after each settings refresh that changed the cadence.
+   */
+  private scheduleNextPoll(): void {
+    if (this.pollHandle) clearInterval(this.pollHandle);
+    this.pollHandle = setInterval(
+      () => this.poll().catch((err) => log.error(`poll: ${err?.message ?? err}`)),
+      this.intervalMs,
+    );
+  }
+
+  /**
    * Read recent filtered signals across all instruments and forward any
    * that haven't been seen before. Idempotent at the TEA layer via
    * executionId = `SEA-{signal.id}`, so even if our high-water-mark gets
@@ -101,6 +123,32 @@ class SeaBridge {
    */
   private async poll(): Promise<void> {
     if (!this.running) return;
+
+    // Hot-reload bridge config from executor_settings (cached 30 s).
+    let enabled = true;
+    let directionFilter: "LONG_ONLY" | "ALL" = "LONG_ONLY";
+    try {
+      const s = await getExecutorSettings();
+      enabled = s.seaBridgeEnabled;
+      directionFilter = s.seaBridgeDirectionFilter;
+      // Channel switch (e.g. canary flips ai-paper → ai-live).
+      if (s.seaBridgeChannel !== this.channel) {
+        log.info(`Channel changed: ${this.channel} → ${s.seaBridgeChannel}`);
+        this.channel = s.seaBridgeChannel;
+        // Reset watermarks so the new channel processes recent signals.
+        this.highWaterMark.clear();
+      }
+      // Cadence change.
+      if (s.seaBridgePollIntervalMs !== this.intervalMs) {
+        log.info(`Poll interval changed: ${this.intervalMs}ms → ${s.seaBridgePollIntervalMs}ms`);
+        this.intervalMs = s.seaBridgePollIntervalMs;
+        this.scheduleNextPoll();
+      }
+    } catch {
+      // Defaults already applied; carry on.
+    }
+    if (!enabled) return;
+
     let signals: SEASignal[] = [];
     try {
       // Source "filtered" — only the filtered_signals.log files. SEA's raw
@@ -111,6 +159,8 @@ class SeaBridge {
       return;
     }
     if (signals.length === 0) return;
+    // Stash the filter so processSignal can read it without re-querying.
+    this.activeDirectionFilter = directionFilter;
 
     // SEA returns newest-first; iterate oldest-first so the high-water-mark
     // advances monotonically.
@@ -139,6 +189,8 @@ class SeaBridge {
     const isLong = action === "LONG_CE" || action === "LONG_PE";
     const isShort = action === "SHORT_CE" || action === "SHORT_PE";
     if (!isLong && !isShort) return;
+    // Direction filter from settings — canary launches LONG-only.
+    if (this.activeDirectionFilter === "LONG_ONLY" && isShort) return;
     if (signal.entry == null || signal.sl == null || signal.tp == null) return;
 
     const isCe = action === "LONG_CE" || action === "SHORT_CE";

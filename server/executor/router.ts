@@ -335,6 +335,12 @@ export const executorRouter = router({
         rcaStaleTickMs: z.number().int().min(30_000).max(60 * 60 * 1000).optional(),
         rcaVolThreshold: z.number().min(0).max(2).optional(),
         recoveryStuckMs: z.number().int().min(10_000).max(10 * 60 * 1000).optional(),
+        seaBridgeEnabled: z.boolean().optional(),
+        seaBridgeChannel: channelSchema.optional(),
+        seaBridgePollIntervalMs: z.number().int().min(1_000).max(5 * 60 * 1000).optional(),
+        seaBridgeDirectionFilter: z.enum(["LONG_ONLY", "ALL"]).optional(),
+        rcaChannels: z.array(channelSchema).min(0).max(6).optional(),
+        recoveryChannels: z.array(channelSchema).min(0).max(6).optional(),
       }),
     )
     .mutation(({ input }) => updateExecutorSettings(input)),

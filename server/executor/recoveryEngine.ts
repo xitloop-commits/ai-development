@@ -76,10 +76,14 @@ class RecoveryEngine {
   private async tick(): Promise<void> {
     if (!this.running) return;
     const now = Date.now();
-    // Hot-reload threshold from executor_settings (cached 30 s).
+    // Hot-reload threshold + monitored channels from executor_settings
+    // (cached 30 s).
     try {
       const s = await getExecutorSettings();
       this.stuckThresholdMs = s.recoveryStuckMs;
+      if (s.recoveryChannels.length > 0) {
+        this.channels = s.recoveryChannels;
+      }
     } catch {
       // Defaults already applied.
     }
