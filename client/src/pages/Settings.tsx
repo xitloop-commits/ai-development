@@ -2417,13 +2417,20 @@ function ExecutorSettingsSection() {
   });
 
   const settings = settingsQuery.data;
-  const [draft, setDraft] = useState<{
+  type ExecutorDraft = {
     aiLiveLotCap: number;
     rcaMaxAgeMs: number;
     rcaStaleTickMs: number;
     rcaVolThreshold: number;
     recoveryStuckMs: number;
-  } | null>(null);
+    seaBridgeEnabled: boolean;
+    seaBridgeChannel: string;
+    seaBridgePollIntervalMs: number;
+    seaBridgeDirectionFilter: 'LONG_ONLY' | 'ALL';
+    rcaChannels: string[];
+    recoveryChannels: string[];
+  };
+  const [draft, setDraft] = useState<ExecutorDraft | null>(null);
 
   // Hydrate the draft from the server response once.
   useEffect(() => {
@@ -2434,6 +2441,12 @@ function ExecutorSettingsSection() {
         rcaStaleTickMs: settings.rcaStaleTickMs,
         rcaVolThreshold: settings.rcaVolThreshold,
         recoveryStuckMs: settings.recoveryStuckMs,
+        seaBridgeEnabled: settings.seaBridgeEnabled,
+        seaBridgeChannel: settings.seaBridgeChannel,
+        seaBridgePollIntervalMs: settings.seaBridgePollIntervalMs,
+        seaBridgeDirectionFilter: settings.seaBridgeDirectionFilter,
+        rcaChannels: settings.rcaChannels,
+        recoveryChannels: settings.recoveryChannels,
       });
     }
   }, [settings, draft]);
@@ -2444,15 +2457,24 @@ function ExecutorSettingsSection() {
     );
   }
 
+  const arrayEq = (a: readonly string[], b: readonly string[]) =>
+    a.length === b.length && a.every((v, i) => v === b[i]);
+
   const dirty =
     settings &&
     (draft.aiLiveLotCap !== settings.aiLiveLotCap ||
       draft.rcaMaxAgeMs !== settings.rcaMaxAgeMs ||
       draft.rcaStaleTickMs !== settings.rcaStaleTickMs ||
       draft.rcaVolThreshold !== settings.rcaVolThreshold ||
-      draft.recoveryStuckMs !== settings.recoveryStuckMs);
+      draft.recoveryStuckMs !== settings.recoveryStuckMs ||
+      draft.seaBridgeEnabled !== settings.seaBridgeEnabled ||
+      draft.seaBridgeChannel !== settings.seaBridgeChannel ||
+      draft.seaBridgePollIntervalMs !== settings.seaBridgePollIntervalMs ||
+      draft.seaBridgeDirectionFilter !== settings.seaBridgeDirectionFilter ||
+      !arrayEq(draft.rcaChannels, settings.rcaChannels) ||
+      !arrayEq(draft.recoveryChannels, settings.recoveryChannels));
 
-  const onSave = () => updateMutation.mutate(draft);
+  const onSave = () => updateMutation.mutate(draft as any);
   const onReset = () => {
     if (settings) {
       setDraft({
@@ -2461,6 +2483,12 @@ function ExecutorSettingsSection() {
         rcaStaleTickMs: settings.rcaStaleTickMs,
         rcaVolThreshold: settings.rcaVolThreshold,
         recoveryStuckMs: settings.recoveryStuckMs,
+        seaBridgeEnabled: settings.seaBridgeEnabled,
+        seaBridgeChannel: settings.seaBridgeChannel,
+        seaBridgePollIntervalMs: settings.seaBridgePollIntervalMs,
+        seaBridgeDirectionFilter: settings.seaBridgeDirectionFilter,
+        rcaChannels: settings.rcaChannels,
+        recoveryChannels: settings.recoveryChannels,
       });
     }
   };
@@ -2472,8 +2500,19 @@ function ExecutorSettingsSection() {
     canSave: !!dirty,
   });
 
+  const allChannels: Array<{ id: string; label: string }> = [
+    { id: 'ai-paper', label: 'AI Paper' },
+    { id: 'ai-live', label: 'AI Live' },
+    { id: 'my-paper', label: 'My Paper' },
+    { id: 'my-live', label: 'My Live' },
+    { id: 'testing-sandbox', label: 'Testing Sandbox' },
+    { id: 'testing-live', label: 'Testing Live' },
+  ];
+  const toggleArr = (arr: string[], v: string): string[] =>
+    arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
+
   return (
-    <div className="space-y-4 font-mono">
+    <div className="grid gap-4 items-start font-mono" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))" }}>
       <SettingsCard title="AI Live Lot Cap">
         <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
           Hard cap on the number of lots any single ai-live trade may place.
@@ -2550,6 +2589,111 @@ function ExecutorSettingsSection() {
             onChange={(e) => setDraft({ ...draft, recoveryStuckMs: Math.max(10, parseInt(e.target.value) || 10) * 1000 })}
             className="w-24 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground tabular-nums"
           />
+        </div>
+      </SettingsCard>
+
+      <SettingsCard title="SEA Bridge">
+        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
+          The bridge polls the Signal Engine Agent's filtered log and
+          forwards each new signal to TEA. Disabling here stops AI from
+          placing new trades; existing positions remain open until exit.
+        </p>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="master kill-switch">Bridge Enabled</FieldLabel>
+            <ToggleSwitch
+              checked={draft.seaBridgeEnabled}
+              onChange={(v: boolean) => setDraft({ ...draft, seaBridgeEnabled: v })}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="canary launch flips this to ai-live">Target Channel</FieldLabel>
+            <select
+              value={draft.seaBridgeChannel}
+              onChange={(e) => setDraft({ ...draft, seaBridgeChannel: e.target.value })}
+              className="w-40 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground"
+            >
+              {allChannels.map((c) => (
+                <option key={c.id} value={c.id}>{c.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="seconds — how often the bridge looks for new signals">Poll Cadence</FieldLabel>
+            <input
+              type="number"
+              min={1}
+              max={300}
+              value={Math.round(draft.seaBridgePollIntervalMs / 1000)}
+              onChange={(e) => setDraft({ ...draft, seaBridgePollIntervalMs: Math.max(1, parseInt(e.target.value) || 1) * 1000 })}
+              className="w-24 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground tabular-nums"
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="canary spec §3 → LONG_ONLY">Direction Filter</FieldLabel>
+            <select
+              value={draft.seaBridgeDirectionFilter}
+              onChange={(e) => setDraft({ ...draft, seaBridgeDirectionFilter: e.target.value as 'LONG_ONLY' | 'ALL' })}
+              className="w-40 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground"
+            >
+              <option value="LONG_ONLY">LONG only (buying)</option>
+              <option value="ALL">All (incl. SHORT writes)</option>
+            </select>
+          </div>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard title="Monitored Channels">
+        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
+          Which channels RCA watches for risk-driven exits, and which
+          channels Recovery polls for stuck PENDING orders. Add ai-live
+          to RCA when the canary launches.
+        </p>
+        <div className="space-y-3">
+          <div>
+            <FieldLabel hint="age / stale / momentum / volatility exits">RCA Monitor</FieldLabel>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {allChannels.map((c) => {
+                const active = draft.rcaChannels.includes(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setDraft({ ...draft, rcaChannels: toggleArr(draft.rcaChannels, c.id) })}
+                    className={`px-2 py-1 text-[0.625rem] font-bold tracking-wider uppercase rounded border ${
+                      active
+                        ? 'bg-primary/15 border-primary/40 text-primary'
+                        : 'border-border text-muted-foreground hover:bg-accent'
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <FieldLabel hint="poll broker for stuck PENDING orders (live channels only matter)">Recovery Engine</FieldLabel>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {allChannels.map((c) => {
+                const active = draft.recoveryChannels.includes(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setDraft({ ...draft, recoveryChannels: toggleArr(draft.recoveryChannels, c.id) })}
+                    className={`px-2 py-1 text-[0.625rem] font-bold tracking-wider uppercase rounded border ${
+                      active
+                        ? 'bg-primary/15 border-primary/40 text-primary'
+                        : 'border-border text-muted-foreground hover:bg-accent'
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </SettingsCard>
     </div>
