@@ -70,6 +70,8 @@ export type ExitReason =
   | "SL"
   | "TP"
   | "RCA_EXIT"
+  | "STALE_PRICE_EXIT"
+  | "VOLATILITY_EXIT"
   | "DISCIPLINE_EXIT"
   | "AI_EXIT"
   | "MANUAL"

@@ -115,9 +115,11 @@ export interface ModifyOrderResponse {
 
 export type ExitTradeReason =
   | "MOMENTUM_EXIT"
+  | "VOLATILITY_EXIT"
   | "SL_HIT"
   | "TP_HIT"
   | "AGE_EXIT"
+  | "STALE_PRICE_EXIT"
   | "DISCIPLINE_EXIT"
   | "AI_EXIT"
   | "MANUAL"

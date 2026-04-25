@@ -124,7 +124,7 @@ class RcaMonitor {
         if (trade.lastTickAt && now - trade.lastTickAt >= this.staleTickMs) {
           const stillness = now - trade.lastTickAt;
           await this.exit(channel, trade, "STALE_PRICE", {
-            reason: "AGE_EXIT", // closest existing reason — full STALE_PRICE enum lands in spec v2
+            reason: "STALE_PRICE_EXIT",
             detail: `No tick for ${Math.round(stillness / 60_000)} min ≥ ${this.staleTickMs / 60_000} min`,
           });
           continue;

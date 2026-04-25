@@ -103,9 +103,11 @@ const exitTradeSchema = z.object({
   exitPrice: z.number().positive().optional(),
   reason: z.enum([
     "MOMENTUM_EXIT",
+    "VOLATILITY_EXIT",
     "SL_HIT",
     "TP_HIT",
     "AGE_EXIT",
+    "STALE_PRICE_EXIT",
     "DISCIPLINE_EXIT",
     "AI_EXIT",
     "MANUAL",
