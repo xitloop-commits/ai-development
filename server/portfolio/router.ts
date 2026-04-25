@@ -18,8 +18,8 @@ import {
   deleteDayRecordsFrom,
   deleteAllDayRecords,
   replaceCapitalState,
-} from "./capitalModel";
-import type { Channel, DayRecord, TradeRecord } from "./capitalModel";
+} from "./state";
+import type { Channel, DayRecord, TradeRecord } from "./state";
 import {
   initializeCapital,
   injectCapital,
@@ -38,9 +38,9 @@ import {
   recalculateDayAggregates,
   TRADING_SPLIT,
   MAX_DAY_INDEX,
-} from "./capitalEngine";
-import { calculateTradeCharges } from "./chargesEngine";
-import type { ChargeRate } from "./chargesEngine";
+} from "./compounding";
+import { calculateTradeCharges } from "./charges";
+import type { ChargeRate } from "./charges";
 import { getUserSettings } from "../userSettings";
 import { getActiveBroker } from "../broker/brokerService";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";

@@ -17,11 +17,11 @@ import {
   updateCapitalState,
   getDayRecord,
   upsertDayRecord,
-} from "./capitalModel";
-import type { Channel, DayRecord, TradeRecord } from "./capitalModel";
-import { recalculateDayAggregates } from "./capitalEngine";
-import { calculateTradeCharges } from "./chargesEngine";
-import type { ChargeRate } from "./chargesEngine";
+} from "./state";
+import type { Channel, DayRecord, TradeRecord } from "./state";
+import { recalculateDayAggregates } from "./compounding";
+import { calculateTradeCharges } from "./charges";
+import type { ChargeRate } from "./charges";
 import { getUserSettings } from "../userSettings";
 import { getActiveBroker } from "../broker/brokerService";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";

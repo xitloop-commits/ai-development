@@ -21,7 +21,7 @@ import { getMongoHealth, pingMongo } from "./mongo";
 import { getSEASignals } from "./seaSignals";
 import { getInstrumentLiveState } from "./instrumentLiveState";
 import { brokerRouter } from "./broker/brokerRouter";
-import { capitalRouter } from "./capital/capitalRouter";
+import { capitalRouter } from "./portfolio/router";
 import { disciplineRouter } from "./discipline/disciplineRouter";
 import { getUserSettings, updateUserSettings } from "./userSettings";
 import {

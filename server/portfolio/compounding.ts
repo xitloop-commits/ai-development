@@ -19,7 +19,7 @@ import type {
   DayRating,
   DayStatus,
   Channel,
-} from "./capitalModel";
+} from "./state";
 
 // ─── Constants ───────────────────────────────────────────────────
 

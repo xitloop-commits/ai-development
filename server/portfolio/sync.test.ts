@@ -28,8 +28,8 @@ import {
   RESERVE_SPLIT,
   DEFAULT_TARGET_PERCENT,
   DEFAULT_INITIAL_FUNDING,
-} from "./capitalEngine";
-import type { CapitalState, DayRecord } from "./capitalModel";
+} from "./compounding";
+import type { CapitalState, DayRecord } from "./state";
 
 // ─── Helpers ────────────────────────────────────────────────────
 

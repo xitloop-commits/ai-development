@@ -36,10 +36,38 @@ run alongside main without exceeding either account's limit.
 **Per-broker log tags (for grepping):**
 - `[BSA:Dhan/primary]`, `[BSA:Dhan/ai-data]`, `[BSA:Dhan/sandbox]`
 
-**Still pending before AI Live trades real money** (spec §11):
-1. Tax-clubbing decision — who funds AI capital (IT Act §64).
-2. SEA cross-workspace signal policy — combined-position cap recommended.
-3. Feed-disconnect safety — auto-flat AI positions after N seconds, or alert.
-4. Written Dhan ToS confirmation that spouse-account API pattern is permitted.
+**Decisions resolved (2026-04-25):**
+1. Tax clubbing — **wife funds AI Live from her own income/savings.** No clubbing
+   under IT Act §64; profits taxed at her slab. No gift trail from husband to her
+   account for AI capital. Document the bank source-of-funds when capital moves.
+3. Feed-disconnect safety — **alert-only.** Tri-state Feed indicator in AppBar
+   (green=connected, amber=connecting, red animated=disconnected/reconnecting).
+   No auto-flat on AI Live open positions. Operator decides what to do based on
+   the visual alert.
 
-After those: Phase 5 = fund ₹25k canary, run 2 weeks, then scale.
+2. SEA cross-workspace signal policy — **RESOLVED 2026-04-25.** Goal is pure
+   head-to-head performance comparison. Both `my-live` (user manual) and `ai-live`
+   (AI auto) consume the same SEA signals **independently**. No exclusive routing,
+   no combined-position cap. Comparison metric: % gain delta over a 30-day window
+   (user vs AI on identical signal set).
+
+**Still pending:**
+4. Written Dhan ToS confirmation that spouse-account API pattern is permitted.
+   Send-to-Dhan-support task on the user's side.
+
+**Activation runway** (revised — AI Live real-money is NOT immediate):
+- **Now → soon:** AI runs in `ai-paper` (mock broker, synthetic capital) using the
+  same SEA signals the user sees. Paper P&L recorded in the journal under
+  `channel=ai-paper`.
+- **When AI Paper looks healthy:** activate `ai-live` with a small wife-funded
+  capital pool. **1-lot cap per AI trade** — even if signals fire on liquid
+  instruments, AI never sizes beyond 1 lot. Hard ceiling, separate from the
+  position-sizing %.
+- **+30 days from AI Live activation:** compare `my-live` % gain vs `ai-live` %
+  gain on the same signal set. That delta is the head-to-head result.
+
+**Still-to-build (future, not blocking):**
+- Per-channel `maxLotsPerTrade` setting in `broker_configs.settings`, defaulting
+  to 1 for `dhan-ai-data`. Discipline Engine enforces on AI orders.
+- Head-to-Head reporting view in TradingDesk (per spec §7.1) — read-side
+  aggregation over journal records, no schema change.

@@ -26,8 +26,8 @@ import {
   MAX_DAY_INDEX,
   DEFAULT_TARGET_PERCENT,
   DEFAULT_INITIAL_FUNDING,
-} from "./capitalEngine";
-import type { CapitalState, DayRecord, TradeRecord } from "./capitalModel";
+} from "./compounding";
+import type { CapitalState, DayRecord, TradeRecord } from "./state";
 
 // ─── Helpers ────────────────────────────────────────────────────
 

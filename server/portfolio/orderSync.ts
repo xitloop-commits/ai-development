@@ -23,12 +23,12 @@ let recalculateDayAggregates: any;
 
 async function loadDeps() {
   if (getCapitalState) return;
-  const model = await import("./capitalModel");
+  const model = await import("./state");
   getCapitalState = model.getCapitalState;
   getDayRecord = model.getDayRecord;
   upsertDayRecord = model.upsertDayRecord;
   updateCapitalState = model.updateCapitalState;
-  const engine = await import("./capitalEngine");
+  const engine = await import("./compounding");
   recalculateDayAggregates = engine.recalculateDayAggregates;
 }
 

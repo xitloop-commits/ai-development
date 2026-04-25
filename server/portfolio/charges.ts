@@ -12,7 +12,7 @@
  * Reference: Settings_Spec_v1.2, DEFAULT_CHARGES in userSettings.ts
  */
 
-import type { ChargeBreakdown } from "./capitalModel";
+import type { ChargeBreakdown } from "./state";
 
 // ─── Types ───────────────────────────────────────────────────────
 

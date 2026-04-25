@@ -10,7 +10,7 @@ import {
   estimateSingleLegCharges,
   type ChargeRate,
   type TradeParams,
-} from "./chargesEngine";
+} from "./charges";
 
 // ─── Default Rates (mirrors DEFAULT_CHARGES from userSettings) ──
 

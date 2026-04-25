@@ -12,8 +12,8 @@ import { registerAdapter, initBrokerService } from "../broker";
 import { MockAdapter } from "../broker/adapters/mock";
 import { DhanAdapter } from "../broker/adapters/dhan";
 import { registerBrokerRoutes } from "../broker/brokerRoutes";
-import { pnlEngine } from "../capital/pnlEngine";
-import { orderSyncEngine } from "../capital/orderSyncEngine";
+import { pnlEngine } from "../portfolio/tickHandler";
+import { orderSyncEngine } from "../portfolio/orderSync";
 import { setupTickWebSocket } from "../broker/tickWs";
 import { seedDefaultInstruments, getAllInstruments } from "../instruments";
 import { setConfiguredInstruments } from "../tradingStore";
@@ -51,7 +51,7 @@ async function startServer() {
 
       // Wipe legacy capital docs that still use the pre-channel `workspace` field.
       // Idempotent — once migrated, this is a no-op on every subsequent boot.
-      const { wipeLegacyCapitalDocs } = await import("../capital/capitalModel");
+      const { wipeLegacyCapitalDocs } = await import("../portfolio/state");
       try { await wipeLegacyCapitalDocs(); } catch (err) {
         console.warn("[MongoDB] Capital legacy wipe failed (non-fatal):", err);
       }

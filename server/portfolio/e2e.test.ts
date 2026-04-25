@@ -12,16 +12,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MockAdapter } from "../broker/adapters/mock";
 import { tickBus } from "../broker/tickBus";
-import { tickMatchesTrade } from "./pnlEngine";
+import { tickMatchesTrade } from "./tickHandler";
 import {
   createDayRecord,
   recalculateDayAggregates,
   calculateAvailableCapital,
   calculatePositionSize,
   initializeCapital,
-} from "./capitalEngine";
-import { calculateTradeCharges } from "./chargesEngine";
-import type { TradeRecord, DayRecord } from "./capitalModel";
+} from "./compounding";
+import { calculateTradeCharges } from "./charges";
+import type { TradeRecord, DayRecord } from "./state";
 import type { TickData, OrderParams } from "../broker/types";
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -292,7 +292,7 @@ describe("E2E: Full Trading Loop", () => {
 
   describe("6. Trade Charges", () => {
     it("calculates charges for a round-trip trade", () => {
-      const rates: import("./chargesEngine").ChargeRate[] = [
+      const rates: import("./charges").ChargeRate[] = [
         { name: "Brokerage", rate: 20, unit: "flat_per_order", enabled: true },
         { name: "STT", rate: 0.0625, unit: "percent_sell", enabled: true },
       ];
@@ -305,7 +305,7 @@ describe("E2E: Full Trading Loop", () => {
     });
 
     it("charges reduce net P&L", () => {
-      const rates: import("./chargesEngine").ChargeRate[] = [
+      const rates: import("./charges").ChargeRate[] = [
         { name: "Brokerage", rate: 20, unit: "flat_per_order", enabled: true },
       ];
       const charges = calculateTradeCharges(
