@@ -127,6 +127,12 @@ export interface CapitalState {
   sessionTradeCount: number;
   sessionPnl: number;
   sessionDate: string;
+  /** PA Phase 4 — high-water mark of currentCapital (tradingPool + reservePool). */
+  peakCapital?: number;
+  /** PA Phase 4 — current drawdown from peakCapital, percent (0 if at peak). */
+  drawdownPercent?: number;
+  /** PA Phase 4 — when peakCapital last advanced. */
+  peakUpdatedAt?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -506,6 +512,9 @@ function docToCapitalState(doc: Record<string, any>): CapitalState {
     sessionTradeCount: doc.sessionTradeCount ?? 0,
     sessionPnl: doc.sessionPnl ?? 0,
     sessionDate: doc.sessionDate ?? "",
+    peakCapital: doc.peakCapital ?? undefined,
+    drawdownPercent: doc.drawdownPercent ?? undefined,
+    peakUpdatedAt: doc.peakUpdatedAt ?? undefined,
     createdAt: doc.createdAt ?? Date.now(),
     updatedAt: doc.updatedAt ?? Date.now(),
   };

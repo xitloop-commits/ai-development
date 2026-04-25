@@ -128,7 +128,7 @@ function snapshotFromState(
     realizedPnl: state.cumulativePnl,
     dailyRealizedPnl,
     dailyRealizedPnlPercent,
-    drawdownPercent: 0, // TODO — Phase 2 will track peak capital + compute drawdown
+    drawdownPercent: state.drawdownPercent ?? 0,
     winLossStreak: 0,   // TODO — Phase 3 sources this from Discipline streak counters
     currentDayIndex: state.currentDayIndex,
     targetPercent: state.targetPercent,
@@ -350,6 +350,41 @@ class PortfolioAgentImpl {
     });
   }
 
+  /**
+   * PA Phase 4: peak / drawdown live tracking. Reads the current state,
+   * advances peakCapital if currentCapital exceeds it (drawdown resets
+   * to 0), otherwise computes drawdownPercent from the peak. Persists
+   * via updateCapitalState so the next snapshot reads fresh values.
+   *
+   * Called from closeTrade. Could also be called on capital injection
+   * — reserved for follow-up.
+   */
+  private async refreshDrawdown(channel: Channel): Promise<void> {
+    const state = await getCapitalState(channel);
+    const currentCapital = (state.tradingPool ?? 0) + (state.reservePool ?? 0);
+    if (currentCapital <= 0) return;
+
+    // Seed peak from initial funding if missing — prevents the first
+    // closeTrade from reporting an artificial 100% drawdown.
+    const seedPeak = state.peakCapital ?? state.initialFunding ?? currentCapital;
+
+    if (currentCapital >= seedPeak) {
+      // New high-water mark; reset drawdown.
+      await updateCapitalState(channel, {
+        peakCapital: currentCapital,
+        drawdownPercent: 0,
+        peakUpdatedAt: Date.now(),
+      });
+      return;
+    }
+    // Below peak — compute drawdown.
+    const drawdownPercent = ((seedPeak - currentCapital) / seedPeak) * 100;
+    await updateCapitalState(channel, {
+      peakCapital: seedPeak,
+      drawdownPercent: Math.round(drawdownPercent * 100) / 100,
+    });
+  }
+
   private async mirrorPosition(channel: Channel, dayIndex: number, trade: TradeRecord): Promise<void> {
     const positionId = `POS-${trade.id.replace(/^T/, "")}`;
     const now = Date.now();
@@ -481,6 +516,10 @@ class PortfolioAgentImpl {
     });
     await this.refreshMetrics(channel).catch((err) =>
       log.warn(`refreshMetrics failed for ${channel}: ${(err as Error).message}`),
+    );
+    // Phase 4: advance peak / recompute drawdown after every close.
+    await this.refreshDrawdown(channel).catch((err) =>
+      log.warn(`refreshDrawdown failed for ${channel}: ${(err as Error).message}`),
     );
 
     return { trade, day: updated, pnl: trade.pnl, charges: charges.total };
