@@ -127,6 +127,43 @@ async function seedBrokerConfigs(): Promise<void> {
   }
 }
 
+/**
+ * One-time migration: if the primary "dhan" broker_config has no auth
+ * credentials yet but the legacy .env vars are present, copy them into
+ * MongoDB. Lets users delete the env vars after first boot. Idempotent.
+ *
+ * Only "dhan" (primary) is migrated — multi-account credentials never
+ * lived in env vars and there's no per-broker namespace for them.
+ */
+async function migrateEnvCredentialsToMongo(): Promise<void> {
+  const envClientId   = process.env.DHAN_CLIENT_ID;
+  const envPin        = process.env.DHAN_PIN;
+  const envTotpSecret = process.env.DHAN_TOTP_SECRET;
+  if (!envClientId && !envPin && !envTotpSecret) return;
+
+  const { default: mongoose } = await import("mongoose");
+  const db = mongoose.connection.db;
+  if (!db) return;
+
+  const doc = await db.collection("broker_configs").findOne({ brokerId: "dhan" });
+  if (!doc) return;
+
+  const auth = (doc as any).auth ?? {};
+  const update: Record<string, string> = {};
+
+  if (!auth.clientId   && envClientId)   update["auth.clientId"]   = envClientId;
+  if (!auth.pin        && envPin)        update["auth.pin"]        = envPin;
+  if (!auth.totpSecret && envTotpSecret) update["auth.totpSecret"] = envTotpSecret;
+
+  if (Object.keys(update).length === 0) return;
+
+  await db.collection("broker_configs").updateOne({ brokerId: "dhan" }, { $set: update });
+  log.info(
+    `Migrated env credentials to broker_configs.auth (dhan): ${Object.keys(update).join(", ")}. ` +
+    `You can now safely delete DHAN_CLIENT_ID / DHAN_PIN / DHAN_TOTP_SECRET from .env.`
+  );
+}
+
 // ─── Channel Routing ────────────────────────────────────────────
 
 /**
@@ -278,8 +315,15 @@ export function getRegisteredAdaptersMeta(): AdapterMeta[] {
 export async function initBrokerService(): Promise<void> {
   log.info("Initialising...");
 
-  // 1. Seed the 4 required broker_configs documents
+  // 1. Seed the required broker_configs documents
   await seedBrokerConfigs();
+
+  // 1b. One-time migration: env-var credentials → MongoDB (no-op once done)
+  try {
+    await migrateEnvCredentialsToMongo();
+  } catch (err) {
+    log.warn("Env→Mongo credential migration failed (non-fatal):", err);
+  }
 
   // 2. Load kill switch state from user_settings
   try {

@@ -1,24 +1,25 @@
 /**
  * Dhan Update Credentials — Store auth credentials in MongoDB
  *
- * Saves DHAN_CLIENT_ID, DHAN_PIN, and DHAN_TOTP_SECRET into a
- * broker_configs document so the TokenManager can read them at runtime
- * and run TOTP-based access-token refresh without manual paste.
+ * MongoDB (broker_configs.auth.{clientId, pin, totpSecret}) is the single
+ * source of truth for Dhan auth credentials. The server reads only these
+ * fields; .env is no longer consulted at runtime (a one-time bootstrap
+ * migration in initBrokerService() copies any leftover .env values once,
+ * after which they can be deleted from .env).
  *
  * Usage:
  *   # Primary trading account (default brokerId="dhan"):
- *   node scripts/dhan-update-credentials.mjs --totp <BASE32_SECRET>
- *   node scripts/dhan-update-credentials.mjs --totp <SECRET> --pin <PIN> --clientId <ID>
+ *   node scripts/dhan-update-credentials.mjs --clientId <ID> --pin <PIN> --totp <BASE32_SECRET>
  *
  *   # Spouse's AI + Data account:
- *   node scripts/dhan-update-credentials.mjs --brokerId dhan-ai-data --totp <SECRET> --pin <PIN> --clientId <ID>
+ *   node scripts/dhan-update-credentials.mjs --brokerId dhan-ai-data --clientId <ID> --pin <PIN> --totp <BASE32_SECRET>
  *
  *   # Inspect what's stored (masked):
  *   node scripts/dhan-update-credentials.mjs --show
  *   node scripts/dhan-update-credentials.mjs --brokerId dhan-ai-data --show
  *
- * Reads MONGODB_URI, DHAN_CLIENT_ID, DHAN_PIN from .env as defaults
- * for any flag not explicitly passed (only when --brokerId is "dhan").
+ * Reads MONGODB_URI from .env (only). All credential flags must be passed
+ * explicitly — no env-var defaults for clientId / pin / totp.
  */
 
 import mongoose from "mongoose";
@@ -98,14 +99,10 @@ async function main() {
 
   const existing = existingDoc.auth ?? {};
 
-  // .env defaults only apply to the primary trading account. The spouse's
-  // dhan-ai-data account must have its credentials passed explicitly so we
-  // never accidentally write the primary account's values into it.
-  const envClientId = isPrimary ? process.env.DHAN_CLIENT_ID : undefined;
-  const envPin      = isPrimary ? process.env.DHAN_PIN       : undefined;
-
-  const clientId   = clientArg  ?? envClientId ?? existing.clientId;
-  const pin        = pinArg     ?? envPin       ?? existing.pin;
+  // No .env defaults — credentials live in MongoDB only. Use --show to see
+  // what's stored, then pass explicit flags for any field you want to change.
+  const clientId   = clientArg  ?? existing.clientId;
+  const pin        = pinArg     ?? existing.pin;
   const totpSecret = totpArg    ?? existing.totpSecret;
 
   if (!totpArg && !pinArg && !clientArg) {

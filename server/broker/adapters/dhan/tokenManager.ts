@@ -53,21 +53,22 @@ function generateTOTP(secret: string, windowOffset = 0): string {
 
 /**
  * Generate a fresh Dhan access token using TOTP.
- * Reads credentials from broker_configs.auth in MongoDB.
- * Falls back to env vars if auth sub-doc is not populated.
+ *
+ * Single source of truth: `broker_configs.auth.{clientId, pin, totpSecret}`
+ * in MongoDB. No env-var fallback — credentials live in one place per broker.
+ * Use scripts/dhan-update-credentials.mjs to populate (or the Settings UI
+ * once it exists).
  */
 export async function generateDhanToken(brokerId: string): Promise<string> {
   const config = await getBrokerConfig(brokerId);
   const auth   = (config as any)?.auth ?? {};
 
-  const clientId   = auth.clientId   ?? process.env.DHAN_CLIENT_ID;
-  const pin        = auth.pin        ?? process.env.DHAN_PIN;
-  const totpSecret = auth.totpSecret ?? process.env.DHAN_TOTP_SECRET;
+  const { clientId, pin, totpSecret } = auth as { clientId?: string; pin?: string; totpSecret?: string };
 
   if (!clientId || !pin || !totpSecret) {
     throw new Error(
-      "Missing Dhan auth credentials (clientId / pin / totpSecret). " +
-      "Run: node scripts/dhan-update-credentials.mjs --totp <SECRET>"
+      `Missing auth credentials for brokerId="${brokerId}" (clientId / pin / totpSecret are stored in broker_configs.auth). ` +
+      `Run: node scripts/dhan-update-credentials.mjs --brokerId ${brokerId} --clientId <ID> --pin <PIN> --totp <BASE32>`
     );
   }
 
