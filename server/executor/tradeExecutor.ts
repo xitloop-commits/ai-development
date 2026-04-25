@@ -39,6 +39,7 @@ import { idempotencyStore } from "./idempotency";
 import { orderSync } from "./orderSync";
 import { seaBridge } from "./seaBridge";
 import { rcaMonitor } from "./rcaMonitor";
+import { resolveLotSize } from "./tradeResolution";
 import type {
   SubmitTradeRequest,
   SubmitTradeResponse,
@@ -53,6 +54,14 @@ const log = createLogger("TradeExecutor");
 
 const PAPER_CHANNELS: Channel[] = ["my-paper", "ai-paper", "testing-sandbox"];
 const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live"];
+
+/**
+ * Hard cap on the lot count any single ai-live trade may place. The
+ * canary protocol launches at 1 lot per trade — TEA refuses anything
+ * larger so a misconfigured caller can't size up unnoticed. Raised in
+ * a follow-up commit once the AI Live 30-day comparison clears.
+ */
+const AI_LIVE_LOT_CAP = 1;
 
 function isPaperChannel(channel: Channel): boolean {
   return PAPER_CHANNELS.includes(channel);
@@ -149,6 +158,26 @@ class TradeExecutorAgent {
           timestamp: Date.now(),
         });
         return resp;
+      }
+
+      // Pre-flight: AI Live 1-lot cap. The canary protocol launches at
+      // 1 lot per trade; bigger orders on ai-live are rejected here even
+      // if the caller (UI / future RCA / future SEA-live) tries to size
+      // up. SEA's paper bridge already sends 1 lot, so this is a backstop
+      // against accidental misconfiguration once ai-live is activated.
+      if (req.channel === "ai-live") {
+        const cap = await this.checkAiLiveLotCap(req);
+        if (cap) {
+          const resp = rejection(req.executionId, cap);
+          idempotencyStore.fail(req.executionId, resp.error!);
+          await portfolioAgent.recordTradeRejected({
+            channel: req.channel,
+            trade: { instrument: req.instrument },
+            reason: resp.error!,
+            timestamp: Date.now(),
+          });
+          return resp;
+        }
       }
 
       // Pre-flight: Discipline cap-check (PA Phase 3 §10.1). Blocks orders
@@ -257,6 +286,25 @@ class TradeExecutorAgent {
       idempotencyStore.fail(req.executionId, message);
       return resp;
     }
+  }
+
+  /**
+   * AI Live 1-lot cap enforcement. Resolves the lot size for the
+   * instrument and rejects if the request quantity translates to more
+   * than `AI_LIVE_LOT_CAP` lots. Returns a human reason on violation,
+   * null when the trade is within cap.
+   *
+   * Lot size resolution failures fall back to a strict 1-unit cap —
+   * we'd rather reject a single ambiguous trade than let an
+   * unbounded one through.
+   */
+  private async checkAiLiveLotCap(req: SubmitTradeRequest): Promise<string | null> {
+    const lotSize = (await resolveLotSize(req.instrument)) ?? 1;
+    const lots = req.quantity / lotSize;
+    if (lots > AI_LIVE_LOT_CAP + 0.0001 /* float tolerance */) {
+      return `AI Live lot cap violated: ${req.quantity} units / ${lotSize} lot-size = ${lots.toFixed(2)} lots > ${AI_LIVE_LOT_CAP}`;
+    }
+    return null;
   }
 
   /**

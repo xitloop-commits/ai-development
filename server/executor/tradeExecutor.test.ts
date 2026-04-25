@@ -25,6 +25,10 @@ vi.mock("../broker/brokerService", () => ({
   isChannelKillSwitchActive: vi.fn(() => false),
 }));
 
+vi.mock("./tradeResolution", () => ({
+  resolveLotSize: vi.fn(async () => 75), // NIFTY default
+}));
+
 vi.mock("../broker/tickBus", () => ({
   tickBus: { emitTick: vi.fn(), on: vi.fn(), off: vi.fn() },
 }));
@@ -192,6 +196,39 @@ describe("submitTrade — paper path", () => {
     // Broker must not have been called at all.
     expect(fillingAdapter.placeOrder).not.toHaveBeenCalled();
     expect(portfolioAgent.recordTradeRejected).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ai-live 1-lot cap", () => {
+  it("accepts a 1-lot order on ai-live", async () => {
+    // 75 / 75 = 1 lot. Within cap.
+    const resp = await tradeExecutor.submitTrade(
+      paperRequest({ channel: "ai-live", origin: "AI", quantity: 75 }),
+    );
+    // Will fail later (live path requires real adapter mock), but should
+    // pass the lot-cap check — error must NOT mention lot cap.
+    if (!resp.success) {
+      expect(resp.error).not.toMatch(/lot cap/i);
+    }
+  });
+
+  it("rejects a 2-lot order on ai-live with a clear error", async () => {
+    // 150 / 75 = 2 lots. Exceeds cap of 1.
+    const resp = await tradeExecutor.submitTrade(
+      paperRequest({ channel: "ai-live", origin: "AI", quantity: 150 }),
+    );
+    expect(resp.success).toBe(false);
+    expect(resp.error).toMatch(/AI Live lot cap violated/);
+    expect(fillingAdapter.placeOrder).not.toHaveBeenCalled();
+    expect(portfolioAgent.recordTradeRejected).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT apply the cap to ai-paper (paper has no lot cap)", async () => {
+    const resp = await tradeExecutor.submitTrade(
+      paperRequest({ channel: "ai-paper", origin: "AI", quantity: 1500 }),
+    );
+    // Goes through to broker (mock fills it).
+    expect(resp.success).toBe(true);
   });
 });
 
