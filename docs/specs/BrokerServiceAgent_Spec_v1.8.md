@@ -1,7 +1,7 @@
 # Broker Service Agent (BSA)
-**Version:** 1.8  
-**Date:** April 13, 2026  
-**Project:** Automatic Trading System (ATS)  
+**Version:** 1.9
+**Date:** April 24, 2026
+**Project:** Automatic Trading System (ATS)
 **Author:** Manus AI
 
 ---
@@ -19,6 +19,7 @@
 | 1.6 | April 11, 2026 | Clarifications: Testing is one tab with Live/Sandbox toggle (not two tabs). Kill switch is per-workspace and independent (ai-live, my-live, testing-live each have own switch). Two MockAdapter broker_configs documents (mock-ai, mock-my). Channel parameter added to all order/position/margin REST endpoints. Sandbox connect() is token-validation only (no WebSocket). |
 | 1.7 | April 11, 2026 | Fixed duplicate section numbers. Updated data flow diagram for 6 channels. Added channel input to tRPC procedures. Added workspace input to broker.killSwitch tRPC. Added broker_configs seed documents table. Added brokerService.ts refactor to §10 Pending. |
 | 1.8 | April 13, 2026 | Added §13 Dhan Token Management: TOTP-based headless token refresh, credentials in MongoDB broker_configs.auth, Windows Task Scheduler daily cron, two-path save logic (BSA running vs not). Merged content from deleted DhanTokenRefresh_Spec_v1.0.md. |
+| 1.9 | April 24, 2026 | **Channel normalization** — `channel` is now the single canonical wire format end-to-end (six values: ai-live, ai-paper, my-live, my-paper, testing-live, testing-sandbox). Legacy three-value `Workspace = 'live' \| 'paper_manual' \| 'paper'` retired across UI, capital, and tRPC layers. Workspace as a derived concept = `'ai' \| 'my' \| 'testing'`. AI Trades / My Trades / Testing each get an in-tab Live/Paper (or Live/Sandbox) toggle in AppBar — mode toggle previously located in Settings is removed. Every mode toggle fires a ConfirmDialog regardless of open positions, to prevent accidental flips. Tab switching is navigation only. |
 
 ---
 

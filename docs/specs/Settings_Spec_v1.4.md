@@ -1,8 +1,8 @@
 # Feature 4: Settings Page Specification
 
-**Version:** 1.4  
-**Date:** April 11, 2026  
-**Project:** Automatic Trading System (ATS)  
+**Version:** 1.5
+**Date:** April 24, 2026
+**Project:** Automatic Trading System (ATS)
 **Author:** Manus AI
 
 ---
@@ -15,6 +15,7 @@
 | 1.2 | April 2, 2026 | Cross-functionality update: established as master parameter registry, updated exposure/position defaults (40%/80%), added graduated near-expiry reduction model |
 | 1.3 | April 9, 2026 | Added Capital Protection section (Module 8) to Section 3.3 Discipline table. |
 | 1.4 | April 11, 2026 | Added §3.7 Trading Mode — workspace mode fields (`aiTradesMode`, `myTradesMode`, `testingMode`) and kill switch state per workspace. Added to schema (§4.1), defaults (§4.2), and tRPC endpoints (§5.1). Referenced from `BrokerServiceAgent_Spec_v1.6.md`. |
+| 1.5 | April 24, 2026 | **Channel normalization** — AI/My/Testing **mode toggles removed** from Settings. Mode now lives in the AppBar tab strip (in-tab Live/Paper or Live/Sandbox pill) per BSA v1.9 / TradingDesk v1.3 / MainScreen v1.3. Settings retains kill switches per workspace + a one-line note pointing to the AppBar pill. Schema fields `aiTradesMode` / `myTradesMode` / `testingMode` (§3.7) are no longer authoritative — the active channel is held in client `CapitalContext` and per-workspace last-mode memory; persistence to user_settings can be revisited if a "remember last mode" feature is desired post-dev. |
 
 ---
 

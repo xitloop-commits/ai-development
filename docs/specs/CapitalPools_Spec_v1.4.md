@@ -11,6 +11,7 @@
 | v1.2 | 31 Mar 2026 | Added **Project Target** — 250 Day Index cycles from ₹1L, with projected growth milestones |
 | v1.3 | 31 Mar 2026 | Refined multi-instrument common pool logic, position sizing, clawback mechanics, calendar session resets, and instrument-specific trade parameters based on Q&A |
 | v1.4 | 2 Apr 2026 | Cross-functionality update: removed redundant risk/execution sections (now referencing Discipline Engine and Settings specs), clarified percentage-based position sizing |
+| v1.5 | 24 Apr 2026 | **Channel normalization** — Capital state and day records are keyed by `channel` (six channels per BSA v1.9), not the legacy `'live' \| 'paper_manual' \| 'paper'` workspace. MongoDB schema field renamed: `workspace` → `channel`. Legacy docs are wiped at server boot via `wipeLegacyCapitalDocs()` (idempotent — once migrated it's a no-op). Pool-affecting ops (inject / reset / transferFunds) target `my-live` as the primary; `capitalRouter` mirrors them to `my-paper`, `ai-paper`, `testing-sandbox` for parity. Testing keeps its own pool until the testing tab is retired post-dev. |
 
 ---
 

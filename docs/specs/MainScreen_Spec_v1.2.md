@@ -1,7 +1,7 @@
 # Main Screen Specification
-**Version:** 1.2  
-**Date:** April 2, 2026  
-**Project:** Automatic Trading System (ATS)  
+**Version:** 1.3
+**Date:** April 24, 2026
+**Project:** Automatic Trading System (ATS)
 **Author:** Manus AI
 
 ---
@@ -12,6 +12,7 @@
 | 1.0 | April 1, 2026 | Initial specification for single-screen command center |
 | 1.1 | April 2, 2026 | Cross-functionality update: defined overlay hotkeys (Ctrl+D/J/S), linked TBD markers to existing specs, added gold price API source, expanded discipline score tooltip |
 | 1.2 | April 2, 2026 | Updated sidebar behavior (visible by default, push layout, fully disappear on hide). Added explicit implementation constraints to prevent unwanted UI elements (Market Status, Live/Demo pills, standalone MarketHolidays panel, extra center content). |
+| 1.3 | April 24, 2026 | **Channel normalization** — AppBar tab strip now hosts the workspace × mode model: 3 top-level tabs (AI Trades / My Trades / Testing), each with an in-tab LIVE/PAPER (or LIVE/SANDBOX) pill. Active tab carries the CLEAR button for paper/sandbox channels. The earlier hidden `testingMode` local-state toggle (under Manual Paper) is removed; mode lives in tab UI for all three workspaces uniformly. Every mode flip shows a ConfirmDialog. The standalone `<TestingControls>` component is folded into `<ChannelTabs>`. |
 
 ---
 

@@ -1,7 +1,7 @@
 # Trading Desk Specification
-**Version:** 1.2  
-**Date:** April 2, 2026  
-**Project:** Automatic Trading System (ATS)  
+**Version:** 1.3
+**Date:** April 24, 2026
+**Project:** Automatic Trading System (ATS)
 **Author:** Manus AI
 
 ---
@@ -12,6 +12,7 @@
 | 1.0 | April 1, 2026 | Initial specification for 250-day compounding table |
 | 1.1 | April 2, 2026 | Cross-functionality update: added Charges column (16 cols total), standardized capital column naming, defined quarterly projection calculation, clarified near-expiry reduction |
 | 1.2 | April 2, 2026 | Updated summary bar design, removed +NEW TRADE button, updated tabs row, added full rating table |
+| 1.3 | April 24, 2026 | **Channel normalization** — Tabs render workspace × mode: 3 top-level tabs (AI Trades / My Trades / Testing), each with an in-tab Live/Paper (or Live/Sandbox) toggle. Default mode per tab: `ai-paper`, `my-paper`, `testing-sandbox`. Default landing channel: `testing-sandbox`. Every mode toggle fires a ConfirmDialog regardless of open positions. Tab switching = navigation only. Theme is keyed by workspace via `channelToWorkspace(channel)`; live and paper share the same colour tone within a tab. Row components (PastRow, FutureRow, TodayTradeRow, TodaySection) accept `channel: Channel` prop. |
 
 ---
 
