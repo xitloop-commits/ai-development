@@ -32,7 +32,13 @@ import { tickHandler } from "./tickHandler";
 import type { AutoExitEvent } from "./tickHandler";
 import {
   upsertPosition,
+  getOpenPositions,
+  appendEvent,
+  upsertMetrics,
+  getMetrics,
   type PositionStateDoc,
+  type PortfolioMetricsDoc,
+  type PortfolioEventType,
 } from "./storage";
 import {
   TRADING_SPLIT,
@@ -232,6 +238,15 @@ class PortfolioAgentImpl {
     await this.mirrorPosition(channel, updated.dayIndex, trade).catch((err) =>
       log.warn(`mirrorPosition (append) failed for ${trade.id}: ${(err as Error).message}`),
     );
+    await this.audit("TRADE_PLACED", channel, trade.id, {
+      instrument: trade.instrument,
+      type: trade.type,
+      qty: trade.qty,
+      entryPrice: trade.entryPrice,
+      stopLoss: trade.stopLossPrice,
+      target: trade.targetPrice,
+      brokerId: trade.brokerId,
+    });
     return updated;
   }
 
@@ -239,6 +254,102 @@ class PortfolioAgentImpl {
    * Phase 2 dual-write helper: project a TradeRecord into the
    * position_state collection. Idempotent (upsert keyed on positionId).
    */
+  /**
+   * Phase 2 audit helper: append an event to portfolio_events. Failures
+   * are swallowed (audit log is best-effort; the primary write already
+   * succeeded by the time we get here).
+   */
+  private async audit(
+    eventType: PortfolioEventType,
+    channel: Channel,
+    tradeId: string | undefined,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      const positionId = tradeId ? `POS-${tradeId.replace(/^T/, "")}` : undefined;
+      await appendEvent({
+        channel,
+        eventType,
+        tradeId,
+        positionId,
+        payload,
+        timestamp: Date.now(),
+      });
+    } catch (err) {
+      log.warn(`audit ${eventType} ${channel} ${tradeId ?? "-"}: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Phase 2 metrics rollup: scan all closed positions on the channel
+   * (via position_state) and compute aggregate stats with breakdowns
+   * by exitTriggeredBy. Designed for the Head-to-Head reporting view.
+   * Single channel scan per close — bounded cost; still cheap at the
+   * scale where AI is producing < 100 trades/day.
+   */
+  private async refreshMetrics(channel: Channel): Promise<void> {
+    const { PositionStateModel } = await import("./storage");
+    const closed = await PositionStateModel.find({
+      channel,
+      status: { $nin: ["OPEN", "PENDING", "CANCELLED"] },
+    }).lean();
+
+    const init = (): PortfolioMetricsDoc["pnlByTriggeredBy"] => ({
+      USER: 0, AI: 0, RCA: 0, DISCIPLINE: 0, BROKER: 0, PA: 0,
+    });
+    const pnlByTriggeredBy = init();
+    const countByTriggeredBy = init();
+
+    let cumulativePnl = 0;
+    let cumulativeCharges = 0;
+    let winCount = 0;
+    let lossCount = 0;
+    let breakevenCount = 0;
+    let totalRr = 0;
+    let rrSamples = 0;
+
+    for (const p of closed) {
+      cumulativePnl += p.pnl ?? 0;
+      cumulativeCharges += p.charges ?? 0;
+      if ((p.pnl ?? 0) > 0) winCount += 1;
+      else if ((p.pnl ?? 0) < 0) lossCount += 1;
+      else breakevenCount += 1;
+      if (p.targetPrice && p.stopLossPrice && p.entryPrice) {
+        const reward = Math.abs(p.targetPrice - p.entryPrice);
+        const risk = Math.abs(p.entryPrice - p.stopLossPrice);
+        if (risk > 0) { totalRr += reward / risk; rrSamples += 1; }
+      }
+      const triggered = (p.exitTriggeredBy as keyof typeof pnlByTriggeredBy | undefined);
+      if (triggered && triggered in pnlByTriggeredBy) {
+        pnlByTriggeredBy[triggered] += p.pnl ?? 0;
+        countByTriggeredBy[triggered] += 1;
+      }
+    }
+    const tradeCount = winCount + lossCount + breakevenCount;
+    const winRate = tradeCount > 0 ? winCount / tradeCount : 0;
+
+    // maxDrawdown from portfolio_state.peakCapital (set up in commit 1
+    // schema; still defaulted to 0 on older docs — Phase 4 will track
+    // peak/drawdown live).
+    const existing = await getMetrics(channel);
+
+    await upsertMetrics({
+      channel,
+      cumulativePnl,
+      cumulativeCharges,
+      maxDrawdown: existing?.maxDrawdown ?? 0,
+      winRate,
+      averageRr: rrSamples > 0 ? totalRr / rrSamples : 0,
+      tradeCount,
+      winCount,
+      lossCount,
+      breakevenCount,
+      pnlByTriggeredBy,
+      countByTriggeredBy,
+      updatedAt: Date.now(),
+    });
+  }
+
   private async mirrorPosition(channel: Channel, dayIndex: number, trade: TradeRecord): Promise<void> {
     const positionId = `POS-${trade.id.replace(/^T/, "")}`;
     const now = Date.now();
@@ -359,6 +470,19 @@ class PortfolioAgentImpl {
       log.warn(`Day completion / clawback check failed for ${channel}: ${(err as Error).message}`);
     }
 
+    // Phase 2: append audit event + refresh metrics rollup.
+    await this.audit("TRADE_CLOSED", channel, trade.id, {
+      exitPrice,
+      pnl: trade.pnl,
+      charges: charges.total,
+      status: trade.status,
+      exitReason: trade.exitReason,
+      exitTriggeredBy: trade.exitTriggeredBy,
+    });
+    await this.refreshMetrics(channel).catch((err) =>
+      log.warn(`refreshMetrics failed for ${channel}: ${(err as Error).message}`),
+    );
+
     return { trade, day: updated, pnl: trade.pnl, charges: charges.total };
   }
 
@@ -392,6 +516,13 @@ class PortfolioAgentImpl {
     await this.mirrorPosition(channel, day.dayIndex, trade).catch((err) =>
       log.warn(`mirrorPosition (update) failed for ${trade.id}: ${(err as Error).message}`),
     );
+    await this.audit("TRADE_MODIFIED", channel, trade.id, {
+      oldSL,
+      newSL: trade.stopLossPrice,
+      oldTP,
+      newTP: trade.targetPrice,
+      trailingStopEnabled: trade.trailingStopEnabled,
+    });
     return { trade, day, oldSL, oldTP };
   }
 
@@ -471,11 +602,16 @@ class PortfolioAgentImpl {
     return snapshotFromState(channel, state, currentDay);
   }
 
-  /** Per spec §7.1 — open positions for a channel. */
+  /**
+   * Per spec §7.1 — open positions for a channel. Phase 2: reads from
+   * the position_state collection (not day_records.trades) so a single
+   * indexed query returns all open positions across day indices, not
+   * just the current day. Returns the data projected back into the
+   * legacy TradeRecord shape so callers don't need to migrate.
+   */
   async getPositions(channel: Channel): Promise<TradeRecord[]> {
-    const state = await getCapitalState(channel);
-    const day = await getDayRecord(channel, state.currentDayIndex);
-    return (day?.trades ?? []).filter((t) => t.status === "OPEN");
+    const positions = await getOpenPositions(channel);
+    return positions.map(positionDocToTradeRecord);
   }
 
   /**
@@ -642,12 +778,19 @@ class PortfolioAgentImpl {
     };
   }
 
-  /** Per spec §7.1 — record a rejected trade for audit. Phase 2 will
-   *  persist these; Phase 1 just logs. */
+  /**
+   * Per spec §7.1 — record a rejected trade for audit. Phase 2: writes
+   * a TRADE_REJECTED event to portfolio_events so the rejection is
+   * recoverable from the audit log (forensics + Head-to-Head reporting).
+   */
   async recordTradeRejected(event: TradeRejectedEvent): Promise<void> {
     log.warn(
       `recordTradeRejected ${event.channel} ${event.trade.instrument ?? "?"} reason="${event.reason}"`,
     );
+    await this.audit("TRADE_REJECTED", event.channel, undefined, {
+      instrument: event.trade.instrument,
+      reason: event.reason,
+    });
   }
 
   // ── §7.1 Signal APIs ────────────────────────────────────────
@@ -677,6 +820,44 @@ class PortfolioAgentImpl {
     const signals = await this.evaluateExposure(channel);
     return { score: signals.portfolioHealthScore };
   }
+}
+
+// ─── Helpers ────────────────────────────────────────────────────
+
+/**
+ * Project a position_state doc back into the legacy TradeRecord shape so
+ * existing PA consumers (TEA, RCA, UI) don't need to migrate. Phase 4
+ * will retire the TradeRecord type in favour of PositionStateDoc.
+ */
+function positionDocToTradeRecord(p: PositionStateDoc): TradeRecord {
+  return {
+    id: p.tradeId,
+    instrument: p.instrument,
+    type: p.type,
+    strike: p.strike,
+    expiry: p.expiry,
+    contractSecurityId: p.contractSecurityId,
+    entryPrice: p.entryPrice,
+    exitPrice: p.exitPrice,
+    ltp: p.ltp,
+    qty: p.qty,
+    lotSize: p.lotSize,
+    capitalPercent: p.capitalPercent,
+    pnl: p.pnl,
+    unrealizedPnl: p.unrealizedPnl,
+    charges: p.charges,
+    chargesBreakdown: p.chargesBreakdown,
+    status: p.status,
+    targetPrice: p.targetPrice,
+    stopLossPrice: p.stopLossPrice,
+    trailingStopEnabled: p.trailingStopEnabled,
+    brokerId: p.brokerId,
+    openedAt: p.openedAt,
+    closedAt: p.closedAt,
+    exitReason: p.exitReason,
+    exitTriggeredBy: p.exitTriggeredBy,
+    signalSource: p.signalSource,
+  };
 }
 
 // ─── Singleton ──────────────────────────────────────────────────
