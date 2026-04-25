@@ -96,6 +96,13 @@ export const DHAN_TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 86,400,000 ms
 /** Buffer before expiry to warn (1 hour) */
 export const DHAN_TOKEN_EXPIRY_BUFFER_MS = 60 * 60 * 1000; // 3,600,000 ms
 
+/**
+ * On server startup, only mint a fresh token via TOTP if the existing
+ * one has ≤ this much time remaining. Tokens with more headroom are
+ * reused. Avoids burning a TOTP refresh on every restart during dev.
+ */
+export const DHAN_TOKEN_STARTUP_REFRESH_THRESHOLD_MS = 12 * 60 * 60 * 1000; // 12 hours
+
 // ─── Rate Limits ───────────────────────────────────────────────
 
 export const DHAN_RATE_LIMITS = {

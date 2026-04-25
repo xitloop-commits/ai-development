@@ -37,6 +37,7 @@ import {
   DHAN_API_BASE,
   DHAN_ENDPOINTS,
   DHAN_TOKEN_EXPIRY_MS,
+  DHAN_TOKEN_STARTUP_REFRESH_THRESHOLD_MS,
   DHAN_ORDER_STATUS_MAP,
   DHAN_ORDER_TYPES,
   DHAN_PRODUCT_TYPES,
@@ -1092,16 +1093,32 @@ export class DhanAdapter implements BrokerAdapter {
       }
       // Fall through into the validation path below — already have a fresh token.
     } else {
-      // Existing-token path: refresh on startup so we get a clean 24h TTL for today.
-      this.log.info("Refreshing token on startup (fresh 24h TTL for today)...");
-      const refreshed = await this._tryAutoRefresh();
-      if (!refreshed) {
-        const expiry = calculateTokenExpiry(this.tokenUpdatedAt);
-        if (expiry.isExpired) {
-          this.log.error("Token refresh failed and existing token expired. BSA will start without a valid token.");
-          return;
+      // Existing-token path: only mint a fresh token if the current one is
+      // close to expiring. With a 24h TTL and a 12h threshold, a single
+      // refresh covers the whole trading day; restarts within 12h of the
+      // last refresh reuse the existing token (no TOTP burn per restart).
+      const expiry = calculateTokenExpiry(this.tokenUpdatedAt);
+      const needsRefresh =
+        expiry.isExpired || expiry.remainingMs <= DHAN_TOKEN_STARTUP_REFRESH_THRESHOLD_MS;
+
+      if (!needsRefresh) {
+        const hoursLeft = (expiry.remainingMs / 3_600_000).toFixed(1);
+        this.log.info(`Token has ${hoursLeft}h remaining (> 12h threshold) — skipping startup refresh.`);
+      } else {
+        const reason = expiry.isExpired
+          ? "expired"
+          : `${Math.round(expiry.remainingMs / 60_000)} min remaining (≤ 12h threshold)`;
+        this.log.info(`Refreshing token on startup (${reason})...`);
+        const refreshed = await this._tryAutoRefresh();
+        if (!refreshed) {
+          if (expiry.isExpired) {
+            this.log.error("Token refresh failed and existing token expired. BSA will start without a valid token.");
+            return;
+          }
+          this.log.warn(
+            `Token refresh failed but existing token still valid (${Math.round(expiry.remainingMs / 60_000)} min remaining). Continuing with it.`,
+          );
         }
-        this.log.warn(`Token refresh failed but existing token still valid (${Math.round(expiry.remainingMs / 60000)} min remaining). Continuing with it.`);
       }
     }
 
