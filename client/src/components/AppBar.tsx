@@ -266,31 +266,52 @@ function ChannelTabs() {
     lastModeForWs[currentWs] = currentMode;
   }, [currentWs, currentMode]);
 
-  const switchTab = (ws: Workspace) => {
+  const [confirmTarget, setConfirmTarget] = useState<Channel | null>(null);
+
+  const requestTabSwitch = (ws: Workspace) => {
     if (ws === currentWs) return;
-    setChannel(channelOf(ws, lastModeForWs[ws]));
+    setConfirmTarget(channelOf(ws, lastModeForWs[ws]));
+  };
+
+  const onConfirmSwitch = () => {
+    if (!confirmTarget) return;
+    setChannel(confirmTarget);
+    setConfirmTarget(null);
   };
 
   return (
-    <div className="flex items-stretch self-stretch">
-      {TAB_DEFS.map(({ ws, label, tone }) => {
-        const isActive = ws === currentWs;
-        return (
-          <button
-            key={ws}
-            onClick={() => switchTab(ws)}
-            className={`px-4 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
-              isActive ? tone.active : tone.idle
-            }`}
-          >
-            {label}
-            {isActive && currentMode === 'live' && (
-              <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
-            )}
-          </button>
-        );
-      })}
-    </div>
+    <>
+      <div className="flex items-stretch self-stretch">
+        {TAB_DEFS.map(({ ws, label, tone }) => {
+          const isActive = ws === currentWs;
+          return (
+            <button
+              key={ws}
+              onClick={() => requestTabSwitch(ws)}
+              className={`px-4 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
+                isActive ? tone.active : tone.idle
+              }`}
+            >
+              {label}
+              {isActive && currentMode === 'live' && (
+                <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <ConfirmDialog
+        open={!!confirmTarget}
+        title="Switch workspace"
+        message={
+          confirmTarget
+            ? `Switch from ${channel} to ${confirmTarget}? Open positions on the source remain in place; new orders route to the target broker.`
+            : ''
+        }
+        onConfirm={onConfirmSwitch}
+        onCancel={() => setConfirmTarget(null)}
+      />
+    </>
   );
 }
 
