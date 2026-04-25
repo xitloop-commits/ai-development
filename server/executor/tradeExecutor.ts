@@ -91,6 +91,11 @@ class TradeExecutorAgent {
   start(): void {
     if (this.started) return;
     this.started = true;
+    // Hydrate the idempotency cache from MongoDB so executions that
+    // landed before a restart still dedup. Fire-and-forget; if Mongo
+    // is slow the in-memory store starts cold and warms as new
+    // requests arrive.
+    idempotencyStore.loadFromMongo().catch(() => undefined);
     // Subscribe to tickHandler's TP/SL detection events so paper auto-exits
     // route through TEA's single-writer flow.
     this.unsubscribeAutoExit = portfolioAgent.onAutoExit((event) => {
