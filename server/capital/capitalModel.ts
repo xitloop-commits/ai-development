@@ -210,12 +210,39 @@ const TRADING_SPLIT = 0.75;
 const RESERVE_SPLIT = 0.25;
 
 /**
- * Drop legacy capital_state / day_records documents that still use the old
- * `workspace` field. Idempotent — once migrated, this is a no-op.
+ * Drop legacy capital_state / day_records collections if they still carry the
+ * pre-channel `workspace` field or its unique index (`workspace_1`).
+ *
+ * Why drop the whole collections (vs. deleteMany):
+ *   - The legacy schema had `unique: true` on `workspace`. Mongoose does NOT
+ *     automatically remove orphaned indexes after a schema rename, so even
+ *     after deleting legacy docs new inserts with `workspace: null` collide
+ *     on `workspace_1`. The simplest safe fix in dev is to drop the
+ *     collections; Mongoose recreates them with the current schema (and the
+ *     new `channel_1` unique index) on the next write.
+ *   - User confirmed dev-phase fresh schema is acceptable.
+ *
+ * Idempotent: once collections are clean (no `workspace_1` index, no docs
+ * with the legacy `workspace` field), this is a no-op.
  */
 export async function wipeLegacyCapitalDocs(): Promise<void> {
-  await CapitalStateModel.deleteMany({ workspace: { $exists: true }, channel: { $exists: false } });
-  await DayRecordModel.deleteMany({ workspace: { $exists: true }, channel: { $exists: false } });
+  for (const Model of [CapitalStateModel, DayRecordModel]) {
+    try {
+      const indexes = await Model.collection.indexes();
+      const hasLegacyIndex = indexes.some((idx) => idx.name === 'workspace_1');
+      const legacyDoc = await Model.collection.findOne({ workspace: { $exists: true } });
+      if (hasLegacyIndex || legacyDoc) {
+        await Model.collection.drop();
+        // eslint-disable-next-line no-console
+        console.log(`[capitalModel] Dropped legacy collection ${Model.collection.collectionName}`);
+      }
+    } catch (err: any) {
+      if (err?.codeName !== 'NamespaceNotFound') {
+        // eslint-disable-next-line no-console
+        console.warn(`[capitalModel] Wipe failed for ${Model.collection.collectionName}:`, err);
+      }
+    }
+  }
 }
 
 /**
