@@ -243,6 +243,30 @@ class DisciplineEngine {
   }
 
   /**
+   * PA spec §5.2 — receive trade-outcome push from Portfolio Agent.
+   *
+   * Phase 1 stub: forwards realized P&L into the existing onTradeClosed
+   * pipeline (single-user `userId="1"`) so streak / cooldown / circuit-breaker
+   * counters stay correct. Phase 3 will extend this to consume
+   * `exitReason` / `exitTriggeredBy` / `signalSource` for full cap-check
+   * activation (e.g., DISCIPLINE_EXIT + RCA_EXIT contribute to streaks
+   * differently than user-driven exits).
+   */
+  async recordTradeOutcome(req: {
+    channel: string;
+    tradeId: string;
+    realizedPnl: number;
+    openingCapital: number;
+    exitReason?: string;
+    exitTriggeredBy?: string;
+    signalSource?: string;
+  }): Promise<void> {
+    // Phase 1 — single-user, ignore channel partitioning. Phase 3 will
+    // partition discipline state per (userId, channel).
+    await this.onTradeClosed("1", req.realizedPnl, req.openingCapital, req.tradeId);
+  }
+
+  /**
    * Called when the user acknowledges a loss (clicks "I accept the loss").
    * Starts the actual cooldown timer.
    */

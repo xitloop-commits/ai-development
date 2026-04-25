@@ -4,6 +4,7 @@ import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerTradingRoutes } from "../tradingRoutes";
+import { registerPortfolioRoutes } from "../portfolio/portfolioRoutes";
 import { connectMongo } from "../mongo";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
@@ -77,6 +78,8 @@ async function startServer() {
   registerTradingRoutes(app);
   // Broker Service REST API (for Python modules)
   registerBrokerRoutes(app);
+  // Portfolio Agent REST API (PA spec §10.1)
+  registerPortfolioRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",

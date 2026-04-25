@@ -5,7 +5,9 @@
  * These types describe its public API and internal state model.
  */
 
-import type { Channel, TradeRecord } from "./state";
+import type { Channel, TradeRecord, ExitReason, ExitTriggeredBy } from "./state";
+
+export type { ExitReason, ExitTriggeredBy };
 
 // ─── §5.1 Portfolio Snapshot ────────────────────────────────────
 
@@ -54,24 +56,6 @@ export interface PortfolioSnapshot {
 }
 
 // ─── §5.2 Trade Outcome Recording ───────────────────────────────
-
-export type ExitReason =
-  | "SL"
-  | "TP"
-  | "RCA_EXIT"
-  | "DISCIPLINE_EXIT"
-  | "AI_EXIT"
-  | "MANUAL"
-  | "EOD"
-  | "EXPIRY";
-
-export type ExitTriggeredBy =
-  | "RCA"
-  | "BROKER"
-  | "DISCIPLINE"
-  | "AI"
-  | "USER"
-  | "PA"; // Portfolio Agent itself (e.g., paper-side auto-exit on TP/SL)
 
 /**
  * Request payload for portfolio.recordTradeClosed (spec §5.2). Captures

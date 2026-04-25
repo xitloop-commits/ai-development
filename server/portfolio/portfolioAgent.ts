@@ -33,6 +33,7 @@ import {
   calculateAvailableCapital,
   calculateQuarterlyProjection,
 } from "./compounding";
+import { disciplineEngine } from "../discipline";
 import type {
   PortfolioSnapshot,
   TradeClosedRequest,
@@ -285,9 +286,9 @@ class PortfolioAgentImpl {
     // Locate the trade in today's record + stamp exit metadata
     const trade = day.trades.find((t) => t.id === req.tradeId);
     if (trade) {
-      (trade as any).exitReason = req.exitReason;
-      (trade as any).exitTriggeredBy = req.exitTriggeredBy;
-      (trade as any).signalSource = req.signalSource;
+      trade.exitReason = req.exitReason;
+      trade.exitTriggeredBy = req.exitTriggeredBy;
+      trade.signalSource = req.signalSource;
     }
     await upsertDayRecord(req.channel, day);
 
@@ -301,8 +302,21 @@ class PortfolioAgentImpl {
       `by ${req.exitTriggeredBy} pnl=${req.realizedPnl} positions_remaining=${positionsRemaining}`,
     );
 
-    // TODO commit 5: push to /api/discipline/recordTradeOutcome
-    // TODO Phase 3: discipline cap-check activation
+    // Push outcome into Discipline so its streak / cooldown / circuit-breaker
+    // counters track this close. Phase 3 will activate full cap-check feedback.
+    try {
+      await disciplineEngine.recordTradeOutcome({
+        channel: req.channel,
+        tradeId: req.tradeId,
+        realizedPnl: req.realizedPnl,
+        openingCapital,
+        exitReason: req.exitReason,
+        exitTriggeredBy: req.exitTriggeredBy,
+        signalSource: req.signalSource,
+      });
+    } catch (err) {
+      log.warn(`recordTradeOutcome push to Discipline failed (non-fatal): ${(err as Error).message}`);
+    }
 
     return {
       success: true,

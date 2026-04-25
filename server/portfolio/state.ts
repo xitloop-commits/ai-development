@@ -55,7 +55,29 @@ export interface TradeRecord {
   brokerId: string | null;
   openedAt: number;
   closedAt: number | null;
+  /** PA spec §5.2 — exit audit trail. Stamped by portfolioAgent.recordTradeClosed. */
+  exitReason?: ExitReason;
+  exitTriggeredBy?: ExitTriggeredBy;
+  signalSource?: string;
 }
+
+export type ExitReason =
+  | "SL"
+  | "TP"
+  | "RCA_EXIT"
+  | "DISCIPLINE_EXIT"
+  | "AI_EXIT"
+  | "MANUAL"
+  | "EOD"
+  | "EXPIRY";
+
+export type ExitTriggeredBy =
+  | "RCA"
+  | "BROKER"
+  | "DISCIPLINE"
+  | "AI"
+  | "USER"
+  | "PA";
 
 export interface ChargeBreakdown {
   name: string;
@@ -139,6 +161,9 @@ const tradeRecordSchema = new Schema(
     brokerId: { type: String, default: null },
     openedAt: { type: Number, default: () => Date.now() },
     closedAt: { type: Number, default: null },
+    exitReason: { type: String, default: null },
+    exitTriggeredBy: { type: String, default: null },
+    signalSource: { type: String, default: null },
   },
   { _id: false }
 );
@@ -415,6 +440,9 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       brokerId: t.brokerId ?? null,
       openedAt: t.openedAt ?? Date.now(),
       closedAt: t.closedAt ?? null,
+      exitReason: t.exitReason ?? undefined,
+      exitTriggeredBy: t.exitTriggeredBy ?? undefined,
+      signalSource: t.signalSource ?? undefined,
     })),
     totalPnl: doc.totalPnl ?? 0,
     totalCharges: doc.totalCharges ?? 0,

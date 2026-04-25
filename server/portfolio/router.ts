@@ -910,6 +910,34 @@ export const portfolioRouter = router({
       const updated = recalculateDayAggregates(day);
       await upsertDayRecord(input.channel, updated);
 
+      // PA spec §5.2 — record outcome for audit trail + Discipline push.
+      // Phase 1 stays alongside the legacy capital flow; Phase 2 moves the
+      // canonical write here.
+      try {
+        const closedAt = trade.closedAt ?? Date.now();
+        const grossEntryValue = trade.entryPrice * trade.qty;
+        await portfolioAgent.recordTradeClosed({
+          channel: input.channel,
+          tradeId: trade.id,
+          instrument: trade.instrument,
+          side: trade.type.includes("BUY") ? "LONG" : "SHORT",
+          entryPrice: trade.entryPrice,
+          exitPrice: input.exitPrice,
+          quantity: trade.qty,
+          entryTime: trade.openedAt,
+          exitTime: closedAt,
+          realizedPnl: trade.pnl,
+          realizedPnlPercent: grossEntryValue > 0 ? (trade.pnl / grossEntryValue) * 100 : 0,
+          exitReason: input.reason === "PARTIAL" ? "MANUAL" : input.reason,
+          exitTriggeredBy: "USER",
+          duration: Math.round((closedAt - trade.openedAt) / 1000),
+          pnlCategory: trade.pnl > 0 ? "win" : trade.pnl < 0 ? "loss" : "breakeven",
+          timestamp: Date.now(),
+        });
+      } catch (err) {
+        console.warn("[portfolio.exitTrade] recordTradeClosed push failed (non-fatal):", err);
+      }
+
       // Update session P&L
       await updateCapitalState(input.channel, {
         sessionPnl: state.sessionPnl + trade.pnl,
