@@ -31,6 +31,10 @@ import {
 import { tickHandler } from "./tickHandler";
 import type { AutoExitEvent } from "./tickHandler";
 import {
+  upsertPosition,
+  type PositionStateDoc,
+} from "./storage";
+import {
   TRADING_SPLIT,
   calculateAvailableCapital,
   calculateQuarterlyProjection,
@@ -213,13 +217,65 @@ class PortfolioAgentImpl {
    * Append a TradeRecord to the current day, recalculate aggregates, and
    * persist. Returns the updated DayRecord. Single-writer entry point used
    * by TEA's submitTrade flow.
+   *
+   * Phase 2: also dual-writes the trade to the position_state collection
+   * so queries like getOpenPositions can resolve without scanning the
+   * day record's nested array. Failures on the dual-write are logged
+   * and swallowed — the day_records write is the source of truth during
+   * the migration window.
    */
   async appendTrade(channel: Channel, trade: TradeRecord): Promise<DayRecord> {
     const day = await this.ensureCurrentDay(channel);
     day.trades.push(trade);
     const updated = recalculateDayAggregates(day);
     await upsertDayRecord(channel, updated);
+    await this.mirrorPosition(channel, updated.dayIndex, trade).catch((err) =>
+      log.warn(`mirrorPosition (append) failed for ${trade.id}: ${(err as Error).message}`),
+    );
     return updated;
+  }
+
+  /**
+   * Phase 2 dual-write helper: project a TradeRecord into the
+   * position_state collection. Idempotent (upsert keyed on positionId).
+   */
+  private async mirrorPosition(channel: Channel, dayIndex: number, trade: TradeRecord): Promise<void> {
+    const positionId = `POS-${trade.id.replace(/^T/, "")}`;
+    const now = Date.now();
+    const doc: PositionStateDoc = {
+      positionId,
+      tradeId: trade.id,
+      channel,
+      dayIndex,
+      instrument: trade.instrument,
+      type: trade.type,
+      strike: trade.strike,
+      expiry: trade.expiry ?? null,
+      contractSecurityId: trade.contractSecurityId ?? null,
+      entryPrice: trade.entryPrice,
+      exitPrice: trade.exitPrice,
+      ltp: trade.ltp,
+      qty: trade.qty,
+      lotSize: trade.lotSize,
+      capitalPercent: trade.capitalPercent,
+      pnl: trade.pnl,
+      unrealizedPnl: trade.unrealizedPnl,
+      charges: trade.charges,
+      chargesBreakdown: trade.chargesBreakdown,
+      status: trade.status,
+      targetPrice: trade.targetPrice,
+      stopLossPrice: trade.stopLossPrice,
+      trailingStopEnabled: trade.trailingStopEnabled,
+      brokerId: trade.brokerId,
+      openedAt: trade.openedAt,
+      closedAt: trade.closedAt,
+      exitReason: trade.exitReason,
+      exitTriggeredBy: trade.exitTriggeredBy,
+      signalSource: trade.signalSource,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await upsertPosition(doc);
   }
 
   /**
@@ -283,6 +339,11 @@ class PortfolioAgentImpl {
     const updated = recalculateDayAggregates(day);
     await upsertDayRecord(channel, updated);
 
+    // Phase 2 dual-write: project the closed trade into position_state.
+    await this.mirrorPosition(channel, updated.dayIndex, trade).catch((err) =>
+      log.warn(`mirrorPosition (close) failed for ${trade.id}: ${(err as Error).message}`),
+    );
+
     // Update capital state — session + cumulative P&L counters.
     await updateCapitalState(channel, {
       sessionPnl: state.sessionPnl + trade.pnl,
@@ -328,6 +389,9 @@ class PortfolioAgentImpl {
     if (modifications.trailingStopEnabled !== undefined) trade.trailingStopEnabled = modifications.trailingStopEnabled;
 
     await upsertDayRecord(channel, day);
+    await this.mirrorPosition(channel, day.dayIndex, trade).catch((err) =>
+      log.warn(`mirrorPosition (update) failed for ${trade.id}: ${(err as Error).message}`),
+    );
     return { trade, day, oldSL, oldTP };
   }
 

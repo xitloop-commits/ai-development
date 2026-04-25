@@ -7,7 +7,7 @@
  *   ai-live | ai-paper | my-live | my-paper | testing-live | testing-sandbox
  */
 import mongoose, { Schema } from "mongoose";
-import { PortfolioStateModel } from "./storage";
+import { PortfolioStateModel, PositionStateModel } from "./storage";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -231,6 +231,10 @@ export async function wipeLegacyCapitalDocs(): Promise<void> {
   // to the new `portfolio_state` collection if needed.
   await migrateCapitalStateToPortfolioState();
 
+  // (1b) Phase 2 commit 3 — backfill position_state from existing
+  // day_records.trades if position_state is empty.
+  await migrateDayRecordTradesToPositionState();
+
   // (2) Drop any pre-channel `workspace`-keyed docs that may still exist
   // in day_records.
   for (const Model of [CapitalStateModel, DayRecordModel]) {
@@ -305,6 +309,70 @@ async function migrateCapitalStateToPortfolioState(): Promise<void> {
     console.log(`[portfolio.state] Dropped legacy capital_state collection`);
   } catch {
     /* may already be gone */
+  }
+}
+
+/**
+ * One-time backfill: project all existing day_records.trades into the
+ * new position_state collection. Skips if position_state already has
+ * any docs (assume migration ran). Idempotent across reruns.
+ */
+async function migrateDayRecordTradesToPositionState(): Promise<void> {
+  const existing = await PositionStateModel.estimatedDocumentCount();
+  if (existing > 0) return;
+
+  const dayRecords = await DayRecordModel.find({}).lean();
+  if (dayRecords.length === 0) return;
+
+  const now = Date.now();
+  const docs: any[] = [];
+  for (const day of dayRecords) {
+    for (const trade of (day.trades ?? []) as any[]) {
+      if (!trade?.id) continue;
+      const positionId = `POS-${String(trade.id).replace(/^T/, "")}`;
+      docs.push({
+        positionId,
+        tradeId: trade.id,
+        channel: day.channel,
+        dayIndex: day.dayIndex,
+        instrument: trade.instrument,
+        type: trade.type,
+        strike: trade.strike ?? null,
+        expiry: trade.expiry ?? null,
+        contractSecurityId: trade.contractSecurityId ?? null,
+        entryPrice: trade.entryPrice,
+        exitPrice: trade.exitPrice ?? null,
+        ltp: trade.ltp ?? 0,
+        qty: trade.qty,
+        lotSize: trade.lotSize,
+        capitalPercent: trade.capitalPercent ?? 0,
+        pnl: trade.pnl ?? 0,
+        unrealizedPnl: trade.unrealizedPnl ?? 0,
+        charges: trade.charges ?? 0,
+        chargesBreakdown: trade.chargesBreakdown ?? [],
+        status: trade.status,
+        targetPrice: trade.targetPrice ?? null,
+        stopLossPrice: trade.stopLossPrice ?? null,
+        trailingStopEnabled: trade.trailingStopEnabled ?? false,
+        brokerId: trade.brokerId ?? null,
+        openedAt: trade.openedAt ?? now,
+        closedAt: trade.closedAt ?? null,
+        exitReason: trade.exitReason,
+        exitTriggeredBy: trade.exitTriggeredBy,
+        signalSource: trade.signalSource,
+        createdAt: trade.openedAt ?? now,
+        updatedAt: now,
+      });
+    }
+  }
+  if (docs.length === 0) return;
+  try {
+    await PositionStateModel.insertMany(docs, { ordered: false });
+    // eslint-disable-next-line no-console
+    console.log(`[portfolio.state] Backfilled ${docs.length} positions from day_records`);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`[portfolio.state] Position backfill insert failed (continuing):`, err);
   }
 }
 
