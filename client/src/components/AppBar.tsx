@@ -666,6 +666,17 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
+        {/* Head-to-Head — opens AI vs My / paper vs live comparison */}
+        <button
+          onClick={() => { window.location.href = "/?view=h2h"; }}
+          className="px-2.5 flex items-center justify-center hover:bg-accent transition-colors shrink-0"
+          title="Open Head-to-Head — AI vs My, paper vs live"
+        >
+          <span className="font-display text-[0.625rem] font-bold tracking-wider text-info-cyan">H2H</span>
+        </button>
+
+        <div className="w-px self-stretch bg-border shrink-0" />
+
         {/* Drawer Toggle */}
         <button
           onClick={onToggleRightDrawer}
