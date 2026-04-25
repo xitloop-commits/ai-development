@@ -100,19 +100,40 @@ const SettingsActionsContext = createContext<{
 
 /**
  * Sections call this with their save / reset handlers; the Settings page
- * top-bar renders them at the right side. Call with `null` (or unmount)
- * to clear. Uses a ref to avoid re-registering on every render.
+ * top-bar renders them at the right side. Pass `null` to clear (or
+ * unmount).
+ *
+ * Stability: callbacks live in refs (read fresh on each invocation),
+ * so callers can pass fresh function literals every render without
+ * looping. The effect re-runs only when primitive flags (saving,
+ * canSave) flip — that's when the header needs to repaint.
  */
 function useRegisterActions(actions: SettingsActions | null): void {
   const { setActions } = useContext(SettingsActionsContext);
-  const ref = useRef<SettingsActions | null>(actions);
-  ref.current = actions;
+  const onSaveRef = useRef(actions?.onSave);
+  const onResetRef = useRef(actions?.onReset);
+  // Always sync refs to the latest callbacks.
+  onSaveRef.current = actions?.onSave;
+  onResetRef.current = actions?.onReset;
+
+  const saving = actions?.saving ?? false;
+  const canSave = actions?.canSave;
+  const hasSave = !!actions?.onSave;
+  const hasReset = !!actions?.onReset;
+
   useEffect(() => {
-    setActions(ref.current);
+    if (!hasSave && !hasReset) {
+      setActions(null);
+      return;
+    }
+    setActions({
+      onSave: hasSave ? () => onSaveRef.current?.() : undefined,
+      onReset: hasReset ? () => onResetRef.current?.() : undefined,
+      saving,
+      canSave,
+    });
     return () => setActions(null);
-    // Re-register whenever the action object identity changes — a section
-    // can pass a new object when its dirty/saving flags shift.
-  }, [actions, setActions]);
+  }, [hasSave, hasReset, saving, canSave, setActions]);
 }
 
 // ─── Helper Components ───────────────────────────────────────────
@@ -427,7 +448,7 @@ export function BrokerConfigSection() {
     : allConfigs.map((c) => ({ value: c.brokerId, label: c.displayName }));
 
   return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4 items-start">
+    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))" }}>
       {/* Active Broker */}
       <SettingsCard title="Active Broker">
         <div className="space-y-3">
@@ -718,7 +739,7 @@ export function OrderExecutionSection() {
   }
 
   return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4 items-start">
+    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))" }}>
       {/* Daily Target */}
       <SettingsCard title="Daily Target">
         <div className="space-y-1 mb-3">
@@ -909,7 +930,7 @@ export function CapitalManagementSection() {
   };
 
   return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4 items-start">
+    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))" }}>
       {/* Current Capital Overview */}
       <SettingsCard title="Current Capital" className="col-span-full">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1334,7 +1355,7 @@ export function DisciplineSection() {
   };
 
   return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4 items-start">
+    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))" }}>
       {/* Circuit Breaker */}
       <SettingsCard title="Circuit Breaker">
         <div className="space-y-4">
@@ -1727,7 +1748,7 @@ export function TimeWindowsSection() {
   }
 
   return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4 items-start">
+    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))" }}>
       {/* No Trading After Open */}
       <SettingsCard title="No Trading After Market Open">
         <DisciplineRow
@@ -1886,7 +1907,7 @@ export function ExpiryControlsSection() {
   };
 
   return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4 items-start">
+    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))" }}>
       {rules.map((rule, idx) => (
         <SettingsCard key={rule.instrument}>
           <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
@@ -2056,7 +2077,7 @@ export function ChargesSection() {
   };
 
   return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(380px,1fr))] gap-4 items-start">
+    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))" }}>
       <SettingsCard title="Indian Standard Charges (Options)" className="col-span-full">
         <div className="space-y-1 mb-3">
           <span className="text-[0.625rem] text-muted-foreground">
