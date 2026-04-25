@@ -132,7 +132,10 @@ export class DhanAdapter implements BrokerAdapter {
     this.brokerId = brokerId;
     this.sandboxMode = sandboxMode;
     this.displayName = sandboxMode ? "Dhan Sandbox" : "Dhan";
-    this.log = createLogger(`Dhan/${brokerId}`);
+    // Friendly log tag: "dhan" → "primary", "dhan-ai-data" → "ai-data",
+    // "dhan-sandbox" → "sandbox". Falls back to raw brokerId for any other.
+    const logTag = brokerId === "dhan" ? "primary" : brokerId.replace(/^dhan-/, "");
+    this.log = createLogger(`Dhan/${logTag}`);
   }
 
   // ── Token Auto-Refresh ────────────────────────────────────────
