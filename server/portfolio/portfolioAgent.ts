@@ -33,7 +33,12 @@ import {
   TRADING_SPLIT,
   calculateAvailableCapital,
   calculateQuarterlyProjection,
+  createDayRecord,
+  recalculateDayAggregates,
+  checkSessionReset,
+  resetSession,
 } from "./compounding";
+import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import { disciplineEngine } from "../discipline";
 import type {
   PortfolioSnapshot,
@@ -147,6 +152,55 @@ class PortfolioAgentImpl {
   onPnlUpdate(handler: (snapshot: import("./tickHandler").PnlSnapshot) => void): () => void {
     tickHandler.on("pnlUpdate", handler);
     return () => tickHandler.off("pnlUpdate", handler);
+  }
+
+  // ── Internal helpers (used by TEA + portfolioRouter) ─────────
+
+  /**
+   * Ensure the current Day Index has a DayRecord. Creates one with the
+   * current Trading Pool snapshot if missing, applies a session reset if
+   * the calendar day has rolled, and returns the up-to-date record.
+   *
+   * Used by TEA when it needs to append a newly-placed trade. Phase 2 will
+   * make this the single entry point for all trade writes.
+   */
+  async ensureCurrentDay(channel: Channel): Promise<DayRecord> {
+    const state = await getCapitalState(channel);
+    if (checkSessionReset(state)) {
+      await updateCapitalState(channel, resetSession(state));
+    }
+    let day = await getDayRecord(channel, state.currentDayIndex);
+    if (!day) {
+      const config = await getActiveBrokerConfig();
+      const targetPercent = config?.settings?.dailyTargetPercent ?? state.targetPercent ?? 5;
+      const origProj = state.tradingPool * (1 + targetPercent / 100);
+      day = createDayRecord(
+        state.currentDayIndex,
+        state.tradingPool,
+        targetPercent,
+        origProj,
+        channel,
+        "ACTIVE",
+      );
+      day = await upsertDayRecord(channel, day);
+      if (state.targetPercent !== targetPercent) {
+        await updateCapitalState(channel, { targetPercent });
+      }
+    }
+    return day;
+  }
+
+  /**
+   * Append a TradeRecord to the current day, recalculate aggregates, and
+   * persist. Returns the updated DayRecord. Single-writer entry point used
+   * by TEA's submitTrade flow.
+   */
+  async appendTrade(channel: Channel, trade: TradeRecord): Promise<DayRecord> {
+    const day = await this.ensureCurrentDay(channel);
+    day.trades.push(trade);
+    const updated = recalculateDayAggregates(day);
+    await upsertDayRecord(channel, updated);
+    return updated;
   }
 
   // ── §7.1 Query APIs ──────────────────────────────────────────
