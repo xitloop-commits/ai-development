@@ -19,15 +19,19 @@
  */
 
 import { createLogger } from "../broker/logger";
-import { getAdapter } from "../broker/brokerService";
+import { getAdapter, isChannelKillSwitchActive } from "../broker/brokerService";
+import { tickBus } from "../broker/tickBus";
 import type {
+  BrokerAdapter,
   ExchangeSegment,
   OptionType,
   OrderParams,
+  OrderResult,
+  OrderStatus,
   TransactionType,
 } from "../broker/types";
 import { portfolioAgent } from "../portfolio";
-import type { Channel, TradeRecord } from "../portfolio/state";
+import type { Channel, TradeRecord, TradeStatus } from "../portfolio/state";
 import { idempotencyStore } from "./idempotency";
 import type {
   SubmitTradeRequest,
@@ -42,9 +46,26 @@ import type {
 const log = createLogger("TradeExecutor");
 
 const PAPER_CHANNELS: Channel[] = ["my-paper", "ai-paper", "testing-sandbox"];
+const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live"];
 
 function isPaperChannel(channel: Channel): boolean {
   return PAPER_CHANNELS.includes(channel);
+}
+
+function isLiveChannel(channel: Channel): boolean {
+  return LIVE_CHANNELS.includes(channel);
+}
+
+/**
+ * Channels with the broker kill switch armed cannot place new trades.
+ * Returns true if the channel is currently locked.
+ */
+function isKillSwitchOn(channel: Channel): boolean {
+  try {
+    return isChannelKillSwitchActive(channel);
+  } catch {
+    return false;
+  }
 }
 
 class TradeExecutorAgent {
@@ -79,22 +100,10 @@ class TradeExecutorAgent {
     }
 
     try {
-      if (!isPaperChannel(req.channel)) {
-        // Live path lands in commit 3.
-        const resp = rejection(req.executionId, "Live submitTrade not implemented yet (Phase 1 commit 3)");
+      // Pre-flight: kill switch arms reject orders before they hit the broker.
+      if (isKillSwitchOn(req.channel)) {
+        const resp = rejection(req.executionId, `Kill switch active for channel ${req.channel}`);
         idempotencyStore.fail(req.executionId, resp.error!);
-        return resp;
-      }
-
-      // ── Paper path ─────────────────────────────────────────
-      const adapter = getAdapter(req.channel);
-      const orderParams = mapToOrderParams(req);
-      const orderResult = await adapter.placeOrder(orderParams);
-
-      if (orderResult.status === "REJECTED") {
-        const resp = rejection(req.executionId, orderResult.message ?? "Broker rejected order");
-        idempotencyStore.fail(req.executionId, resp.error!);
-        // Audit: tell PA so the rejection is captured even though no trade was created.
         await portfolioAgent.recordTradeRejected({
           channel: req.channel,
           trade: { instrument: req.instrument },
@@ -104,9 +113,59 @@ class TradeExecutorAgent {
         return resp;
       }
 
+      const adapter: BrokerAdapter = getAdapter(req.channel);
+      const orderParams = mapToOrderParams(req);
+
+      // Subscribe to the option-leg LTP feed before placing so ticks start
+      // flowing immediately. No-op for futures / non-option trades.
+      ensureOptionLtpSubscription(adapter, req);
+
+      // Place the order — this is the SINGLE point in the codebase that
+      // calls broker.placeOrder. Spec §3 rule 1 (Single Execution Point).
+      let orderResult: OrderResult;
+      try {
+        orderResult = await adapter.placeOrder(orderParams);
+      } catch (placeErr: any) {
+        const msg = placeErr?.message ?? String(placeErr);
+        log.error(`submitTrade broker.placeOrder threw channel=${req.channel}: ${msg}`);
+        const resp = rejection(req.executionId, `Broker error: ${msg}`);
+        idempotencyStore.fail(req.executionId, resp.error!);
+        await portfolioAgent.recordTradeRejected({
+          channel: req.channel,
+          trade: { instrument: req.instrument },
+          reason: resp.error!,
+          timestamp: Date.now(),
+        });
+        return resp;
+      }
+
+      // Terminal failure on the broker side — do NOT create a local trade.
+      if (
+        orderResult.status === "REJECTED" ||
+        orderResult.status === "CANCELLED" ||
+        orderResult.status === "EXPIRED"
+      ) {
+        const resp = rejection(
+          req.executionId,
+          orderResult.message ?? `Broker returned ${orderResult.status}`,
+        );
+        idempotencyStore.fail(req.executionId, resp.error!);
+        await portfolioAgent.recordTradeRejected({
+          channel: req.channel,
+          trade: { instrument: req.instrument },
+          reason: resp.error!,
+          timestamp: Date.now(),
+        });
+        return resp;
+      }
+
+      // Build + persist the trade. Status depends on whether the broker
+      // filled immediately (paper / market) or queued (live limit / partial).
       const tradeId = req.tradeId ?? generateTradeId();
       const positionId = `POS-${tradeId.replace(/^T/, "")}`;
-      const trade = buildTradeRecord(req, tradeId, orderResult.orderId);
+      const tradeStatus = mapBrokerStatusToTradeStatus(orderResult.status);
+      const submitStatus = mapBrokerStatusToSubmitStatus(orderResult.status);
+      const trade = buildTradeRecord(req, tradeId, orderResult.orderId, tradeStatus);
 
       await portfolioAgent.appendTrade(req.channel, trade);
       await portfolioAgent.recordTradePlaced({
@@ -121,13 +180,19 @@ class TradeExecutorAgent {
         tradeId,
         positionId,
         orderId: orderResult.orderId,
+        // For paper / market fills the entryPrice IS the fill price; for live
+        // limit / partial fills, the broker's order book will report the
+        // actual averagePrice via WS events (orderSync handles in commit 5).
         executedPrice: req.entryPrice,
-        executedQuantity: req.quantity,
-        status: "FILLED",
+        executedQuantity: tradeStatus === "OPEN" ? req.quantity : 0,
+        status: submitStatus,
         timestamp: Date.now(),
       };
       idempotencyStore.complete(req.executionId, response);
-      log.info(`submitTrade paper ok channel=${req.channel} trade=${tradeId} order=${orderResult.orderId}`);
+      log.info(
+        `submitTrade ok channel=${req.channel} trade=${tradeId} order=${orderResult.orderId} ` +
+          `brokerStatus=${orderResult.status} tradeStatus=${tradeStatus}`,
+      );
       return response;
     } catch (err: any) {
       const message = err?.message ?? String(err);
@@ -253,6 +318,7 @@ function buildTradeRecord(
   req: SubmitTradeRequest,
   tradeId: string,
   brokerOrderId: string,
+  status: TradeStatus,
 ): TradeRecord {
   const tradeType: TradeRecord["type"] =
     req.optionType === "CE"
@@ -277,7 +343,7 @@ function buildTradeRecord(
     unrealizedPnl: 0,
     charges: 0,
     chargesBreakdown: [],
-    status: "OPEN",
+    status,
     targetPrice: req.takeProfit ?? null,
     stopLossPrice: req.stopLoss ?? null,
     trailingStopEnabled: req.trailingStopLoss?.enabled ?? false,
@@ -285,6 +351,68 @@ function buildTradeRecord(
     openedAt: Date.now(),
     closedAt: null,
   };
+}
+
+/**
+ * Map the broker's OrderStatus to our TradeRecord.status. FILLED / OPEN
+ * (broker's "live in market") map to OPEN; PENDING / PARTIALLY_FILLED stay
+ * PENDING until orderSync (commit 5) confirms the fill.
+ */
+function mapBrokerStatusToTradeStatus(status: OrderStatus): TradeStatus {
+  switch (status) {
+    case "FILLED":
+    case "OPEN":
+      return "OPEN";
+    case "PENDING":
+    case "PARTIALLY_FILLED":
+      return "PENDING";
+    default:
+      return "PENDING";
+  }
+}
+
+/** Map broker status to the SubmitTrade response `status` field. */
+function mapBrokerStatusToSubmitStatus(
+  status: OrderStatus,
+): "PLACED" | "FILLED" | "PARTIAL" | "REJECTED" {
+  switch (status) {
+    case "FILLED":
+      return "FILLED";
+    case "PARTIALLY_FILLED":
+      return "PARTIAL";
+    case "PENDING":
+    case "OPEN":
+      return "PLACED";
+    default:
+      return "REJECTED";
+  }
+}
+
+/**
+ * For option trades on live channels, ensure the contract is on the broker's
+ * WS subscription so ticks flow into tickBus. Mock adapters treat this as a
+ * no-op. Failures are non-fatal — the trade still places, but LTP may not
+ * stream until the user subscribes manually.
+ */
+function ensureOptionLtpSubscription(
+  adapter: BrokerAdapter,
+  req: SubmitTradeRequest,
+): void {
+  if (!req.contractSecurityId) return;
+  if (!adapter.subscribeLTP) return;
+  try {
+    const exchange = resolveExchange(req.instrument);
+    const wsExchange = exchange === "MCX_COMM" ? "MCX_COMM" : "NSE_FNO";
+    adapter.subscribeLTP(
+      [{ exchange: wsExchange as any, securityId: req.contractSecurityId, mode: "full" }] as any,
+      (tick) => tickBus.emitTick(tick),
+    );
+    log.debug(
+      `Subscribed option LTP: ${wsExchange}:${req.contractSecurityId} for trade ${req.executionId}`,
+    );
+  } catch (err: any) {
+    log.warn(`subscribeLTP failed for ${req.contractSecurityId}: ${err?.message ?? err}`);
+  }
 }
 
 export const tradeExecutor = new TradeExecutorAgent();
