@@ -523,6 +523,31 @@ export const portfolioRouter = router({
     .input(z.object({ channel: channelSchema }))
     .query(({ input }) => portfolioAgent.getMetrics(input.channel)),
 
+  /**
+   * Head-to-Head comparison data — snapshot + metrics + portfolio_metrics
+   * rollup (with pnlByTriggeredBy / countByTriggeredBy breakdowns) for
+   * each requested channel. Drives the AI vs My / paper vs live view
+   * needed for the AI Live canary 30-day comparison.
+   */
+  headToHead: publicProcedure
+    .input(z.object({
+      channels: z.array(channelSchema).min(1).max(6),
+    }))
+    .query(async ({ input }) => {
+      const { getMetrics: getMetricsFromStorage } = await import("./storage");
+      const rows = await Promise.all(
+        input.channels.map(async (channel) => {
+          const [snapshot, classicMetrics, rollup] = await Promise.all([
+            portfolioAgent.getState(channel),
+            portfolioAgent.getMetrics(channel),
+            getMetricsFromStorage(channel),
+          ]);
+          return { channel, snapshot, metrics: classicMetrics, rollup };
+        }),
+      );
+      return rows;
+    }),
+
   /** Spec §7.1 — historical day records. */
   history: publicProcedure
     .input(z.object({

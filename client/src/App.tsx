@@ -10,6 +10,7 @@ import MainScreen from "./components/MainScreen";
 import { CredentialGate } from "./components/CredentialGate";
 import { SetupBrokerModal } from "./components/SetupBrokerModal";
 import TradingDeskMockupPage from "./mockups/TradingDeskMockupPage";
+import HeadToHeadPage from "./pages/HeadToHeadPage";
 
 function isTradingDeskMockupRoute() {
   if (typeof window === "undefined") return false;
@@ -21,8 +22,15 @@ function isTradingDeskMockupRoute() {
   );
 }
 
+function isHeadToHeadRoute() {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get("view") === "h2h" || window.location.pathname === "/h2h";
+}
+
 function App() {
   const showTradingDeskMockup = isTradingDeskMockupRoute();
+  const showHeadToHead = isHeadToHeadRoute();
 
   // Enter fullscreen on first user interaction
   useEffect(() => {
@@ -70,6 +78,8 @@ function App() {
               />
               {showTradingDeskMockup ? (
                 <TradingDeskMockupPage />
+              ) : showHeadToHead ? (
+                <HeadToHeadPage />
               ) : (
                 <>
                   <SetupBrokerModal />
