@@ -73,6 +73,18 @@ class DisciplineEngine {
     const warnings: string[] = [];
     const adjustments: string[] = [];
 
+    // 0. B4 — BROKER_DESYNC gate. If ANY trade on this channel is in
+    //    desync state, block new entries until the operator reconciles.
+    //    Without this, the operator can stack trades on top of an unknown
+    //    broker-side exposure.
+    try {
+      const { portfolioAgent } = await import("../portfolio");
+      const desync = await portfolioAgent.hasUnresolvedDesync(channel as never);
+      if (desync) blockedBy.push("brokerDesync");
+    } catch {
+      // PA not initialised in this context (e.g., unit test) — skip gate.
+    }
+
     // 1. Circuit Breaker
     const cbResult = checkDailyLossLimit(state, settings, currentCapital);
     if (!cbResult.passed) blockedBy.push("circuitBreaker");

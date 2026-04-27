@@ -161,6 +161,46 @@ const updateTradeUiSchema = z.object({
   trailingStopEnabled: z.boolean().optional(),
 });
 
+// ─── B4: BROKER_DESYNC reconciliation ──────────────────────────
+//
+// After exitTrade or modifyOrder fails at the broker, the trade is
+// flagged as desync'd. The operator goes to Dhan to determine TRUE
+// state, then calls reconcileDesync with the appropriate action:
+//
+//   confirm-closed   → broker confirms position gone. Close locally at
+//                      the operator-supplied exit price.
+//   confirm-still-open → broker confirms position alive. Restore status
+//                        and (optionally) overwrite local SL/TP to match
+//                        what's currently at broker.
+//   cancel-modify    → MODIFY-desync only. Keep local SL/TP unchanged;
+//                      just clear the desync flag.
+//
+const reconcileDesyncSchema = z
+  .object({
+    channel: channelSchema,
+    tradeId: z.string().min(1),
+    action: z.enum(["confirm-closed", "confirm-still-open", "cancel-modify"]),
+    /** Required when action="confirm-closed" — broker's reported exit price. */
+    exitPrice: z.number().positive().optional(),
+    /** Required when action="confirm-closed" — closure status to record. */
+    closeStatus: z
+      .enum([
+        "CLOSED_TP",
+        "CLOSED_SL",
+        "CLOSED_MANUAL",
+        "CLOSED_PARTIAL",
+        "CLOSED_EOD",
+      ])
+      .optional(),
+    /** Required when action="confirm-still-open" — broker's current SL. */
+    stopLossPrice: z.number().nullable().optional(),
+    /** Required when action="confirm-still-open" — broker's current TP. */
+    targetPrice: z.number().nullable().optional(),
+    /** Free-text operator note for the audit log. */
+    note: z.string().optional(),
+  })
+  .strict();
+
 export const executorRouter = router({
   // ── Formal API (RCA / AI / SEA) ─────────────────────────────
 
@@ -344,6 +384,81 @@ export const executorRouter = router({
       }),
     )
     .mutation(({ input }) => updateExecutorSettings(input)),
+
+  /**
+   * B4 — Reconcile a BROKER_DESYNC trade. Operator-driven; assumes the
+   * operator has verified the trade's true state at the broker (Dhan UI)
+   * before calling. This procedure mutates local state to match.
+   */
+  reconcileDesync: publicProcedure
+    .input(reconcileDesyncSchema)
+    .mutation(async ({ input }) => {
+      const day = await portfolioAgent.ensureCurrentDay(input.channel);
+      const trade = day.trades.find((t) => t.id === input.tradeId);
+      if (!trade) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Trade not found: ${input.tradeId}` });
+      }
+      if (!trade.desync) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Trade ${input.tradeId} is not in BROKER_DESYNC state`,
+        });
+      }
+
+      switch (input.action) {
+        case "confirm-closed": {
+          if (input.exitPrice == null || !input.closeStatus) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "confirm-closed requires exitPrice + closeStatus",
+            });
+          }
+          const result = await portfolioAgent.closeTrade(
+            input.channel,
+            input.tradeId,
+            input.exitPrice,
+            input.closeStatus,
+          );
+          // closeTrade already drops the desync marker on success.
+          return {
+            success: true as const,
+            action: input.action,
+            trade: result.trade,
+            pnl: result.pnl,
+          };
+        }
+
+        case "confirm-still-open": {
+          // clearTradeDesync flips BROKER_DESYNC → OPEN and removes the
+          // marker. After it runs the trade is in OPEN state, so PA's
+          // updateTrade (which guards on OPEN) can apply SL/TP corrections
+          // captured from the broker UI.
+          await portfolioAgent.clearTradeDesync(input.channel, input.tradeId);
+          if (input.stopLossPrice !== undefined || input.targetPrice !== undefined) {
+            await portfolioAgent.updateTrade(input.channel, input.tradeId, {
+              stopLossPrice: input.stopLossPrice ?? undefined,
+              targetPrice: input.targetPrice ?? undefined,
+            });
+          }
+          const refreshed = (await portfolioAgent.ensureCurrentDay(input.channel))
+            .trades.find((t) => t.id === input.tradeId);
+          return { success: true as const, action: input.action, trade: refreshed };
+        }
+
+        case "cancel-modify": {
+          if (trade.desync.kind !== "MODIFY") {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "cancel-modify only valid for MODIFY-kind desync",
+            });
+          }
+          await portfolioAgent.clearTradeDesync(input.channel, input.tradeId);
+          const refreshed = (await portfolioAgent.ensureCurrentDay(input.channel))
+            .trades.find((t) => t.id === input.tradeId);
+          return { success: true as const, action: input.action, trade: refreshed };
+        }
+      }
+    }),
 
   /**
    * UI-friendly SL / TP / TSL update. Wraps tradeExecutor.modifyOrder with

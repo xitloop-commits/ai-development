@@ -385,6 +385,12 @@ class TradeExecutorAgent {
       // legacy router doesn't do this today (paper-only); TEA fixes it for
       // live channels. modifyOrder needs the broker order id to target — we
       // stored it on trade.brokerId at submit time.
+      //
+      // B4: when the broker call fails on a LIVE channel we MUST NOT apply
+      // the local SL/TP change — the broker still has the old bracket and
+      // any local-only update would diverge silently. Instead, mark the
+      // trade desync (status stays OPEN; position is alive at broker, only
+      // the bracket differs) and fail the request so callers + UI know.
       if (isLiveChannel(channel)) {
         const adapter = getAdapter(channel);
         const day = await portfolioAgent.ensureCurrentDay(channel);
@@ -401,11 +407,29 @@ class TradeExecutorAgent {
             `modifyOrder live broker ack channel=${channel} order=${trade.brokerId} status=${result.status}`,
           );
         } catch (err: any) {
-          log.warn(`modifyOrder broker call failed (continuing with local update): ${err?.message ?? err}`);
+          const reason = err?.message ?? String(err);
+          log.error(
+            `modifyOrder BROKER_DESYNC channel=${channel} trade=${tradeId} order=${trade.brokerId} reason=${reason}`,
+          );
+          await portfolioAgent.markTradeDesync(channel, tradeId, {
+            kind: "MODIFY",
+            reason,
+            timestamp: Date.now(),
+            attempted: {
+              stopLossPrice: req.modifications.stopLossPrice ?? null,
+              targetPrice: req.modifications.targetPrice ?? null,
+            },
+          });
+          // Throw so the outer catch composes the failure response — local
+          // SL/TP must NOT be updated when broker is out of sync.
+          throw new Error(
+            `BROKER_DESYNC: modifyOrder failed at broker (${reason}). Local SL/TP unchanged. Reconcile required.`,
+          );
         }
       }
 
-      // Local update — applies for paper and live alike.
+      // Local update — applies for paper and live alike (live arrives here
+      // only when the broker call above succeeded; paper has no broker call).
       const { trade, oldSL, oldTP } = await portfolioAgent.updateTrade(channel, tradeId, {
         stopLossPrice: req.modifications.stopLoss ?? undefined,
         targetPrice: req.modifications.takeProfit ?? undefined,
@@ -470,9 +494,13 @@ class TradeExecutorAgent {
       const exitPrice = req.exitPrice ?? trade.ltp ?? trade.entryPrice;
 
       // Live channels: place a reverse broker order. DISCIPLINE_EXIT is
-      // forced to MARKET per spec §4.3. Failure on broker side is logged
-      // but does NOT block the local close — the bracket may have already
-      // filled at the broker.
+      // forced to MARKET per spec §4.3.
+      //
+      // B4: when the broker call fails on a LIVE channel we MUST NOT close
+      // the trade locally. The broker may still have the position OPEN,
+      // possibly drifting against us with no SL active. Mark the trade
+      // BROKER_DESYNC, fail the request, and let the operator reconcile
+      // (POST /api/executor/reconcile-desync) once they verify true state.
       if (isLiveChannel(channel) && trade.brokerId) {
         const adapter = getAdapter(channel);
         const exitOrderType = req.reason === "DISCIPLINE_EXIT" ? "MARKET" : req.exitType;
@@ -500,7 +528,18 @@ class TradeExecutorAgent {
               `order=${result.orderId} status=${result.status}`,
           );
         } catch (err: any) {
-          log.warn(`exitTrade broker exit failed (continuing local close): ${err?.message ?? err}`);
+          const reason = err?.message ?? String(err);
+          log.error(
+            `exitTrade BROKER_DESYNC channel=${channel} trade=${tradeId} reason=${reason}`,
+          );
+          await portfolioAgent.markTradeDesync(channel, tradeId, {
+            kind: "EXIT",
+            reason,
+            timestamp: Date.now(),
+          });
+          throw new Error(
+            `BROKER_DESYNC: exit order failed at broker (${reason}). Position state unchanged locally. Reconcile required.`,
+          );
         }
       }
 

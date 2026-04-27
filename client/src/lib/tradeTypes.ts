@@ -94,6 +94,19 @@ export interface TradeRecord {
   trailingStopEnabled?: boolean;
   openedAt: number;
   closedAt: number | null;
+  /**
+   * B4: present when a broker mutation (exitTrade / modifyOrder) failed.
+   * The TradingDesk row should render a desync indicator + a RECONCILE
+   * button that calls executor.reconcileDesync. status=='BROKER_DESYNC'
+   * means EXIT-desync (position state in limbo); for MODIFY-desync
+   * status stays OPEN but desync is set.
+   */
+  desync?: {
+    kind: 'EXIT' | 'MODIFY';
+    reason: string;
+    timestamp: number;
+    attempted?: { stopLossPrice?: number | null; targetPrice?: number | null };
+  };
 }
 
 export interface DayRecord {

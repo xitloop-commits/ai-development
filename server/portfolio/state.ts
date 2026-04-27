@@ -26,7 +26,43 @@ export type Channel =
 /** @deprecated Kept only to silence transitional callers; use Channel. */
 export type Workspace = Channel;
 
-export type TradeStatus = "OPEN" | "PENDING" | "CANCELLED" | "CLOSED_TP" | "CLOSED_SL" | "CLOSED_MANUAL" | "CLOSED_PARTIAL" | "CLOSED_EOD";
+export type TradeStatus =
+  | "OPEN"
+  | "PENDING"
+  | "CANCELLED"
+  | "CLOSED_TP"
+  | "CLOSED_SL"
+  | "CLOSED_MANUAL"
+  | "CLOSED_PARTIAL"
+  | "CLOSED_EOD"
+  /**
+   * B4: broker mutation (exitTrade / modifyOrder) failed at the broker
+   * after we had every reason to believe it would succeed. Local state
+   * is no longer guaranteed to mirror the broker; an operator must call
+   * the reconcile endpoint (POST /api/executor/reconcile-desync) to
+   * decide whether to close locally (broker confirmed) or restore SL/TP
+   * (broker still has the position open). Discipline blocks new entries
+   * while ANY trade is in this state.
+   */
+  | "BROKER_DESYNC";
+
+/**
+ * B4: rich metadata attached to a trade when broker call fails. The
+ * `kind` distinguishes whether the position is in true limbo (EXIT
+ * failed — could be open OR closed at broker) or just unsync'd at the
+ * SL/TP level (MODIFY failed — position still open, SL/TP differ).
+ *
+ * For EXIT desync, the trade's `status` is also flipped to BROKER_DESYNC.
+ * For MODIFY desync, the trade's `status` stays OPEN but `desync` is set,
+ * because the position is unambiguously alive — only the bracket diverges.
+ */
+export interface DesyncInfo {
+  kind: "EXIT" | "MODIFY";
+  reason: string;
+  timestamp: number;
+  /** For MODIFY: the SL/TP we tried to set vs what the trade has locally. */
+  attempted?: { stopLossPrice?: number | null; targetPrice?: number | null };
+}
 
 export type DayStatus = "ACTIVE" | "COMPLETED" | "GIFT" | "FUTURE";
 
@@ -64,6 +100,8 @@ export interface TradeRecord {
   exitReason?: ExitReason;
   exitTriggeredBy?: ExitTriggeredBy;
   signalSource?: string;
+  /** B4: present when a broker mutation failed. Cleared on successful reconcile. */
+  desync?: DesyncInfo;
 }
 
 export type ExitReason =

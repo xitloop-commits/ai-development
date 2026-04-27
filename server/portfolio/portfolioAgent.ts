@@ -445,7 +445,14 @@ class PortfolioAgentImpl {
 
     const trade = day.trades.find((t) => t.id === tradeId);
     if (!trade) throw new Error(`Trade not found: ${tradeId}`);
-    if (trade.status !== "OPEN" && trade.status !== "PENDING") {
+    // BROKER_DESYNC is a permitted entry state for closeTrade — the
+    // reconcile flow uses this to flip a desync'd trade to a real close
+    // once the broker confirms the position is gone.
+    if (
+      trade.status !== "OPEN" &&
+      trade.status !== "PENDING" &&
+      trade.status !== "BROKER_DESYNC"
+    ) {
       throw new Error(`Trade already closed: ${tradeId} (status=${trade.status})`);
     }
 
@@ -480,6 +487,8 @@ class PortfolioAgentImpl {
     trade.ltp = exitPrice;
     trade.closedAt = Date.now();
     trade.status = closeStatus;
+    // Reconciliation may close a previously-desync'd trade — drop the marker.
+    if (trade.desync) delete trade.desync;
 
     // Persist day record (with recalculated aggregates)
     const updated = recalculateDayAggregates(day);
@@ -563,6 +572,85 @@ class PortfolioAgentImpl {
       trailingStopEnabled: trade.trailingStopEnabled,
     });
     return { trade, day, oldSL, oldTP };
+  }
+
+  /**
+   * B4: flag a trade as desync'd from broker after a failed broker mutation.
+   *
+   * - kind="EXIT" → also flips status to BROKER_DESYNC (limbo: position
+   *   may be open OR closed at broker; reconcile must check). Discipline
+   *   blocks new entries.
+   * - kind="MODIFY" → keeps status=OPEN, only annotates the desync. The
+   *   position is alive at the broker; only the bracket SL/TP differ.
+   *   Discipline still blocks (operator must reconcile before adding).
+   */
+  async markTradeDesync(
+    channel: Channel,
+    tradeId: string,
+    info: import("./state").DesyncInfo,
+  ): Promise<{ trade: TradeRecord; day: DayRecord }> {
+    const day = await this.ensureCurrentDay(channel);
+    const trade = day.trades.find((t) => t.id === tradeId);
+    if (!trade) throw new Error(`Trade not found: ${tradeId}`);
+
+    trade.desync = info;
+    if (info.kind === "EXIT") {
+      trade.status = "BROKER_DESYNC";
+    }
+    await upsertDayRecord(channel, day);
+    await this.audit("TRADE_DESYNC", channel, trade.id, {
+      kind: info.kind,
+      reason: info.reason,
+      timestamp: info.timestamp,
+      attempted: info.attempted,
+    });
+    return { trade, day };
+  }
+
+  /**
+   * B4: clear a trade's desync flag after operator-initiated reconciliation
+   * confirmed the position is still alive at the broker.
+   *
+   * If status was BROKER_DESYNC (an EXIT-desync that the operator now
+   * confirms is still open), it's flipped back to OPEN — the position
+   * is alive at broker, so the local state should reflect that. Caller
+   * is responsible for any SL/TP correction (use updateTrade afterwards).
+   *
+   * For positions whose status is already OPEN (a MODIFY-desync), the
+   * status is left alone — only the desync marker is removed.
+   */
+  async clearTradeDesync(
+    channel: Channel,
+    tradeId: string,
+  ): Promise<{ trade: TradeRecord; day: DayRecord }> {
+    const day = await this.ensureCurrentDay(channel);
+    const trade = day.trades.find((t) => t.id === tradeId);
+    if (!trade) throw new Error(`Trade not found: ${tradeId}`);
+    if (!trade.desync) return { trade, day };
+
+    const cleared = trade.desync;
+    const previousStatus = trade.status;
+    if (trade.status === "BROKER_DESYNC") {
+      trade.status = "OPEN";
+    }
+    delete trade.desync;
+    await upsertDayRecord(channel, day);
+    await this.audit("TRADE_DESYNC_CLEARED", channel, trade.id, {
+      kind: cleared.kind,
+      previousStatus,
+      restoredStatus: trade.status,
+      reconciledAt: Date.now(),
+    });
+    return { trade, day };
+  }
+
+  /**
+   * B4: any open trade currently flagged as desync'd? Discipline uses this
+   * to block new entries until the operator reconciles.
+   */
+  async hasUnresolvedDesync(channel: Channel): Promise<boolean> {
+    const day = await this.ensureCurrentDay(channel);
+    return day.trades.some((t) => t.desync !== undefined);
   }
 
   /**
