@@ -20,6 +20,7 @@ import { seedDefaultInstruments, getAllInstruments } from "../instruments";
 import { setConfiguredInstruments } from "../tradingStore";
 import { printAgentLegend, createLogger } from "../broker/logger";
 import { registerReadyEndpoint, markReady } from "./ready";
+import { registerFatalHandlers } from "./fatalHandlers";
 
 const bootLog = createLogger("BOOT", "Server");
 
@@ -43,6 +44,10 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  // Register fatal-error handlers FIRST so any boot-time crash is logged
+  // and alerted (not silently swallowed).
+  registerFatalHandlers();
+
   // Print the agent color legend up-front so log-tail watchers know
   // how to read the color-coded prefixes that follow.
   printAgentLegend();
