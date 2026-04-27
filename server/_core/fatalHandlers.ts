@@ -17,6 +17,7 @@
  */
 
 import { createLogger } from "../broker/logger";
+import { runShutdown } from "./shutdown";
 
 const log = createLogger("BOOT", "Fatal");
 
@@ -63,12 +64,17 @@ function onUncaughtException(err: Error): void {
     "uncaught",
     `🚨 <b>uncaughtException</b>\n${err.message}\n<pre>${(err.stack ?? "").slice(0, 800)}</pre>`,
   );
-  // TODO(B5): trigger graceful shutdown hooks here before exit.
-  if (!exitTimer) {
-    exitTimer = setTimeout(() => process.exit(1), 10_000);
-    // Don't keep the event loop alive just for this timer.
-    if (typeof exitTimer.unref === "function") exitTimer.unref();
-  }
+  if (exitTimer) return; // already shutting down from a prior fatal
+
+  // Drive the same priority-ordered shutdown as SIGINT/SIGTERM, then
+  // exit(1) (vs SIGTERM's exit(0)). runShutdown enforces its own 15s
+  // total budget — we add a tiny safety margin on top so we exit even
+  // if the shutdown coordinator itself hangs catastrophically.
+  exitTimer = setTimeout(() => process.exit(1), 16_000);
+  if (typeof exitTimer.unref === "function") exitTimer.unref();
+
+  void runShutdown(`uncaughtException: ${err.message}`)
+    .finally(() => process.exit(1));
 }
 
 function onUnhandledRejection(reason: unknown): void {

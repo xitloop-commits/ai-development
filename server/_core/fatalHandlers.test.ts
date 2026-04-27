@@ -1,5 +1,5 @@
 /**
- * Tests for fatal-error handlers (B6).
+ * Tests for fatal-error handlers (B6 + B6-followup wiring B5 shutdown).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
@@ -7,15 +7,21 @@ import {
   _resetFatalHandlersForTesting,
   _getUnhandledRejectionCountForTesting,
 } from "./fatalHandlers";
+import {
+  registerShutdownHook,
+  _resetShutdownForTesting,
+} from "./shutdown";
 
 // Stub fetch so the telegram POST never actually fires during tests.
 beforeEach(() => {
   global.fetch = vi.fn().mockResolvedValue({ ok: true });
   _resetFatalHandlersForTesting();
+  _resetShutdownForTesting();
 });
 
 afterEach(() => {
   _resetFatalHandlersForTesting();
+  _resetShutdownForTesting();
   delete (global as unknown as { fetch?: typeof fetch }).fetch;
 });
 
@@ -53,23 +59,26 @@ describe("registerFatalHandlers (B6)", () => {
     exitSpy.mockRestore();
   });
 
-  it("uncaughtException schedules an exit(1) but does not exit synchronously", () => {
-    vi.useFakeTimers();
+  it("uncaughtException invokes graceful-shutdown hooks before exiting", async () => {
     registerFatalHandlers();
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
       // do nothing — don't actually exit the test runner
       return undefined as never;
     });
 
+    const hookCalls: string[] = [];
+    registerShutdownHook("agent", () => { hookCalls.push("agent"); }, 100);
+    registerShutdownHook("mongo", () => { hookCalls.push("mongo"); }, 1000);
+
     process.emit("uncaughtException", new Error("boom"));
 
-    // Synchronous: no exit yet
-    expect(exitSpy).not.toHaveBeenCalled();
-    // After 10s grace, exit(1) fires
-    vi.advanceTimersByTime(10_001);
+    // Drain microtasks so runShutdown (kicked off via void) runs to completion.
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    expect(hookCalls).toEqual(["agent", "mongo"]);
     expect(exitSpy).toHaveBeenCalledWith(1);
 
     exitSpy.mockRestore();
-    vi.useRealTimers();
   });
 });
