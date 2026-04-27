@@ -192,16 +192,16 @@ RCA monitors open positions. Scope options:
 
 TEA runs **per channel**. The `ai-live` TEA routes orders to `dhan-ai-data`; the `my-live` TEA does nothing autonomous (user-driven). No change from BSA model.
 
-### 6.5 SEA (Signal Engine Agent) and the cross-workspace signal problem
+### 6.5 SEA (Signal Engine Agent) and the cross-workspace signal policy
 
-SEA emits signals once per instrument. Both workspaces may consume the signal — user sees it in the feed and may act; AI Live auto-acts.
+**Resolved 2026-04-25:** option (a) — both workspaces consume the same SEA signals **independently**. No exclusive routing, no combined-position cap. This is intentional: the goal is a pure head-to-head performance comparison (% gain delta over a 30-day window with the user manually trading vs the AI auto-trading on the same signal set). Allowing both to act independently is a feature, not a bug.
 
-**Decision required**: is AI Live permitted to act on a signal the user is also seeing? Options:
-- (a) Yes — both act independently; they may end up on the same side of the same instrument, doubling exposure unintentionally.
-- (b) No — signal exclusive to one workspace at a time (SEA tags each signal with a target workspace).
-- (c) Coordinated — SEA emits to both, but Discipline Engine enforces "combined position per instrument ≤ X."
+Doubling exposure on the same instrument is acceptable in this architecture because:
+- AI Live runs with a hard 1-lot cap per trade (separate from position-sizing %), keeping any cross-workspace overlap small in absolute terms.
+- The capital pools are independent — AI Live capital is wife-funded, separate from user's My Live capital. Risk-of-ruin is workspace-scoped.
+- Head-to-head fairness requires identical signal exposure; combining or routing distorts the measurement.
 
-**Recommendation: (c)** — combined position cap prevents accidental doubling while still allowing honest head-to-head comparison.
+Source: `memory/project_dual_account_live.md` (operational since 2026-04-25).
 
 ### 6.6 MTA (Model Training Agent)
 
@@ -361,7 +361,7 @@ Add per-document fields to MongoDB's `broker_configs` collection:
 
 1. **5-WS cap on `dhan-ai-data` is pegged day-one.** 4 TFA + 1 order-update = 5. Zero headroom. If we ever add a 5th instrument (e.g., FINNIFTY), we're stuck. **Recommendation**: keep the master-forwarder decision (deferred todo) alive — consolidating TFA to 1 WS would drop `dhan-ai-data` usage from 5 → 2. Alternatively skip one low-priority instrument (NATURALGAS has lowest liquidity).
 
-2. **Income-tax clubbing (IT Act §64).** If the user gifts capital to spouse, profits from that capital are legally clubbed back to the user's return. Not a blocker but a deliberate choice. Options: (a) spouse funds from her own income — cleanest, (b) gift with clubbing acknowledged, (c) treat as spouse's independent trading on her own capital. **Decision required before Phase 5.**
+2. **Income-tax clubbing (IT Act §64). RESOLVED 2026-04-25.** Wife funds AI Live from her own income/savings. No gift trail from husband to her account for AI capital, so §64 clubbing does not apply; profits are taxed at her slab. Action: document the bank source-of-funds when capital moves into the AI Live account. Source: `memory/project_dual_account_live.md`.
 
 3. **SEBI algo-trading disclosure.** Retail investors placing algo orders on their own account is broadly tolerated; on someone else's account introduces ambiguity even with consent. Document: written consent from spouse, all orders tagged with `algoName` + `algoVersion`, signed CYA letter kept on file.
 
@@ -379,7 +379,7 @@ Add per-document fields to MongoDB's `broker_configs` collection:
 
 10. **Expiry rollover independence.** Both accounts may hold positions in the same option series. Rollover logic (auto-exit pre-expiry, subscribe new series) runs per account. Verify no double-accounting.
 
-11. **Cross-workspace signal duplication.** See §6.5 — SEA signal can flow to both workspaces. Without a combined-position cap, accidental doubling is a real risk. **Recommendation**: adopt option (c) — combined cap.
+11. **Cross-workspace signal policy. RESOLVED 2026-04-25.** See §6.5 — both workspaces consume the same SEA signals independently (option a). No combined cap; the 1-lot AI Live cap caps absolute overlap. This is the pure-comparison architecture chosen for head-to-head measurement. Source: `memory/project_dual_account_live.md`.
 
 12. **Tick-feed redundancy vs single-feed risk.** Today Node's own Dhan WS on `dhan-primary` feeds TradingDesk's LTP. An "Option A" refactor (make Node consume TFA's ticks instead) would free 1 more WS from `dhan-primary` but makes UI LTP entirely dependent on `dhan-ai-data` health. **Out of scope for v0.1**, flag for future spec.
 
@@ -387,7 +387,7 @@ Add per-document fields to MongoDB's `broker_configs` collection:
 
 14. **Cold-boot ordering.** `dhan-ai-data` order-update WS must be connected before AI Live's TEA accepts orders. Add health gate: TEA refuses to place AI orders until `brokerService.isReady("dhan-ai-data")` is true.
 
-15. **Disconnection + open-positions safety.** If `dhan-ai-data` WS drops mid-session and AI Live has open positions with SL/TP, monitoring halts. Policy: after configurable grace period (e.g., 60s), emergency-flat all AI positions OR escalate to user. **Must ship before Phase 5.**
+15. **Disconnection + open-positions safety. RESOLVED 2026-04-25 — alert-only.** If `dhan-ai-data` WS drops mid-session, monitoring degrades but the system does NOT auto-flat AI Live open positions. Implementation: tri-state Feed indicator in AppBar — green=connected, amber=connecting, red animated=disconnected/reconnecting. Operator decides what to do based on the visual alert. Rationale: auto-flat under transient WS hiccups creates more harm (gap-out exits at bad fills) than the no-action alternative; operator-in-the-loop is preferred. Source: `memory/project_dual_account_live.md`. (To-build, not blocking: AppBar tri-state Feed indicator wired to the WS health channel.)
 
 16. **Dhan ToS for spouse-account API usage.** Verify explicitly that:
     - A separate person may grant API access to their Dhan account for algo trading initiated by a different operator.
@@ -466,7 +466,9 @@ v0.1 of this architecture is considered complete when:
 |---|---|---|---|
 | Broker for data + AI | Dhan (second account) | Zerodha, Upstox, Angel One | Zero parser/scripmaster rewrite; cheapest engineering; existing adapter reused. |
 | Account owner | Spouse's PAN | HUF, secondary DP | Simplest KYC path; SEBI's one-DP-per-PAN rule satisfied. |
-| AI capital source | Spouse-funded OR user-gift with clubbing | — | Deferred — tax-impact decision required before Phase 5. |
+| AI capital source | Spouse-funded from her own income/savings | Husband-gift with clubbing acknowledged | Cleanest tax outcome — no §64 clubbing applies; profits taxed at her slab. Action: document bank source-of-funds when capital moves. (Resolved 2026-04-25.) |
+| SEA cross-workspace signals | Both workspaces consume signals independently | Exclusive routing per workspace; combined-position cap | Pure head-to-head comparison requires identical signal exposure; 1-lot AI cap caps absolute overlap. (Resolved 2026-04-25.) |
+| WS-disconnect open-position policy | Alert-only via tri-state Feed indicator | Auto-flat after grace period | Auto-flat under transient hiccups creates worse fills than no-action; operator-in-the-loop preferred. (Resolved 2026-04-25.) |
 | Workspace channel name | Keep `ai-live` | New channel | Already defined in BSA; only the broker binding changes. |
 | TFA process count | Keep 4 (unchanged) | Consolidate to 1 via master-forwarder | Orthogonal decision deferred; current 4-process layout is proven and fits the new account's 5-WS budget. |
 | Global kill switch | New (optional) | Per-workspace only | User requested real comparative system; a combined safety net is warranted. |
