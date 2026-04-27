@@ -155,9 +155,11 @@ export default function MainScreen() {
   const signalsQuery = trpc.trading.signals.useQuery({ limit: 50 }, {
     refetchInterval: POLL_INTERVAL,
   });
-  const positionsQuery = trpc.trading.positions.useQuery(undefined, {
-    refetchInterval: POLL_INTERVAL,
-  });
+  // TODO: migrate to channel-aware portfolio.positions query (requires
+  // selecting a workspace channel). Until then, fall through to the
+  // mockPositions fallback below — the legacy /api/trading/position REST
+  // surface and tradingStore.positions array were removed in B10.
+  const positionsQuery: { data?: typeof mockPositions } = { data: undefined };
 
   // ─── tRPC Mutations ────────────────────────────────────────────
   const utils = trpc.useUtils();

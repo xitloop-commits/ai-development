@@ -9,10 +9,7 @@ import type { Express, Request, Response } from 'express';
 import {
   pushOptionChain,
   pushAnalyzerOutput,
-  pushPosition,
   updateModuleHeartbeat,
-  setTradingMode,
-  getTradingMode,
   getActiveInstruments,
   setActiveInstruments,
 } from './tradingStore';
@@ -54,22 +51,6 @@ export function registerTradingRoutes(app: Express): void {
     }
   });
 
-  // Push position updates from the Execution Module
-  app.post('/api/trading/position', (req: Request, res: Response) => {
-    try {
-      const { position } = req.body;
-      if (!position) {
-        res.status(400).json({ error: 'Missing position data' });
-        return;
-      }
-      pushPosition(position);
-      res.json({ success: true, message: 'Position updated' });
-    } catch (err: any) {
-      console.error('[Trading API] Error pushing position:', err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
   // Module heartbeat endpoint
   app.post('/api/trading/heartbeat', (req: Request, res: Response) => {
     try {
@@ -84,26 +65,6 @@ export function registerTradingRoutes(app: Express): void {
       console.error('[Trading API] Error updating heartbeat:', err);
       res.status(500).json({ error: err.message });
     }
-  });
-
-  // Trading mode control
-  app.post('/api/trading/mode', (req: Request, res: Response) => {
-    try {
-      const { mode } = req.body;
-      if (mode !== 'LIVE' && mode !== 'PAPER') {
-        res.status(400).json({ error: 'Mode must be LIVE or PAPER' });
-        return;
-      }
-      setTradingMode(mode);
-      res.json({ success: true, mode });
-    } catch (err: any) {
-      console.error('[Trading API] Error setting trading mode:', err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.get('/api/trading/mode', (_req: Request, res: Response) => {
-    res.json({ mode: getTradingMode() });
   });
 
   // --- Active Instruments Control ---

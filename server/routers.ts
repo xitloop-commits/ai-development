@@ -5,9 +5,6 @@ import {
   getModuleStatuses,
   getInstrumentData,
   getSignals,
-  getPositions,
-  getTradingMode,
-  setTradingMode,
   getActiveInstruments,
   setActiveInstruments,
   setConfiguredInstruments,
@@ -58,23 +55,6 @@ export const appRouter = router({
       .input(z.object({ limit: z.number().min(1).max(200).optional() }).optional())
       .query(({ input }) => {
         return getSEASignals(input?.limit ?? 50);
-      }),
-
-    // Get positions
-    positions: publicProcedure.query(() => {
-      return getPositions();
-    }),
-
-    // Get/set trading mode
-    tradingMode: publicProcedure.query(() => {
-      return { mode: getTradingMode() };
-    }),
-
-    setTradingMode: publicProcedure
-      .input(z.object({ mode: z.enum(['LIVE', 'PAPER']) }))
-      .mutation(({ input }) => {
-        setTradingMode(input.mode);
-        return { success: true, mode: input.mode };
       }),
 
     // Get active instruments list
