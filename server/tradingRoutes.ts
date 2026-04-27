@@ -4,8 +4,15 @@
  * use simple HTTP POST requests to push data.
  *
  * All endpoints are under /api/trading/*
+ *
+ * B8: every body-consuming route validates with a strict zod schema
+ * before the handler runs. Unknown fields are rejected at the boundary.
+ * Body data envelopes (option-chain payloads, analyzer outputs) keep
+ * their inner shape as `z.unknown()` — Python owns those formats and
+ * the in-memory store treats them opaquely.
  */
 import type { Express, Request, Response } from 'express';
+import { z } from "zod";
 import {
   pushOptionChain,
   pushAnalyzerOutput,
@@ -17,55 +24,106 @@ import { getMongoHealth, pingMongo } from './mongo';
 import { getAllInstruments, addInstrument, removeInstrument, assignHotkey, type InstrumentConfig } from './instruments';
 import { searchByQuery, downloadScripMaster, needsRefresh } from './broker/adapters/dhan/scripMaster';
 import { setConfiguredInstruments } from './tradingStore';
+import { validateBody, validateParams } from "./_core/zodMiddleware";
+
+// ─── Schemas ────────────────────────────────────────────────────
+
+const instrumentEnvelopeSchema = z
+  .object({
+    instrument: z.string().min(1),
+    // The chain / analyzer payloads are owned by the Python pipeline; we
+    // store them opaquely. Only the envelope is strict-validated.
+    data: z.unknown(),
+  })
+  .strict();
+
+const heartbeatSchema = z
+  .object({
+    module: z.string().min(1),
+    message: z.string().optional(),
+  })
+  .strict();
+
+const activeInstrumentsSchema = z
+  .object({
+    instruments: z.array(z.string().min(1)),
+  })
+  .strict();
+
+const addInstrumentSchema = z
+  .object({
+    key: z.string().min(1),
+    displayName: z.string().min(1),
+    exchange: z.string().min(1),
+    exchangeSegment: z.string().min(1),
+    underlying: z.string().nullable().optional(),
+    autoResolve: z.boolean().optional(),
+    symbolName: z.string().nullable().optional(),
+  })
+  .strict();
+
+const instrumentKeyParamsSchema = z
+  .object({
+    key: z.string().min(1),
+  })
+  .strict();
+
+const hotkeyBodySchema = z
+  .object({
+    hotkey: z.string().nullable().optional(),
+  })
+  .strict();
+
+// ─── Routes ─────────────────────────────────────────────────────
 
 export function registerTradingRoutes(app: Express): void {
   // Push option chain data from the Fetcher module
-  app.post('/api/trading/option-chain', (req: Request, res: Response) => {
-    try {
-      const { instrument, data } = req.body;
-      if (!instrument || !data) {
-        res.status(400).json({ error: 'Missing instrument or data' });
-        return;
+  app.post(
+    '/api/trading/option-chain',
+    validateBody(instrumentEnvelopeSchema),
+    (req: Request, res: Response) => {
+      try {
+        const { instrument, data } = req.body as z.infer<typeof instrumentEnvelopeSchema>;
+        pushOptionChain(instrument, data as Parameters<typeof pushOptionChain>[1]);
+        res.json({ success: true, message: `Option chain updated for ${instrument}` });
+      } catch (err: any) {
+        console.error('[Trading API] Error pushing option chain:', err);
+        res.status(500).json({ error: err.message });
       }
-      pushOptionChain(instrument, data);
-      res.json({ success: true, message: `Option chain updated for ${instrument}` });
-    } catch (err: any) {
-      console.error('[Trading API] Error pushing option chain:', err);
-      res.status(500).json({ error: err.message });
-    }
-  });
+    },
+  );
 
   // Push analyzer output from the Analyzer module
-  app.post('/api/trading/analyzer', (req: Request, res: Response) => {
-    try {
-      const { instrument, data } = req.body;
-      if (!instrument || !data) {
-        res.status(400).json({ error: 'Missing instrument or data' });
-        return;
+  app.post(
+    '/api/trading/analyzer',
+    validateBody(instrumentEnvelopeSchema),
+    (req: Request, res: Response) => {
+      try {
+        const { instrument, data } = req.body as z.infer<typeof instrumentEnvelopeSchema>;
+        pushAnalyzerOutput(instrument, data as Parameters<typeof pushAnalyzerOutput>[1]);
+        res.json({ success: true, message: `Analyzer output updated for ${instrument}` });
+      } catch (err: any) {
+        console.error('[Trading API] Error pushing analyzer output:', err);
+        res.status(500).json({ error: err.message });
       }
-      pushAnalyzerOutput(instrument, data);
-      res.json({ success: true, message: `Analyzer output updated for ${instrument}` });
-    } catch (err: any) {
-      console.error('[Trading API] Error pushing analyzer output:', err);
-      res.status(500).json({ error: err.message });
-    }
-  });
+    },
+  );
 
   // Module heartbeat endpoint
-  app.post('/api/trading/heartbeat', (req: Request, res: Response) => {
-    try {
-      const { module, message } = req.body;
-      if (!module) {
-        res.status(400).json({ error: 'Missing module name' });
-        return;
+  app.post(
+    '/api/trading/heartbeat',
+    validateBody(heartbeatSchema),
+    (req: Request, res: Response) => {
+      try {
+        const { module, message } = req.body as z.infer<typeof heartbeatSchema>;
+        updateModuleHeartbeat(module, message ?? 'Active');
+        res.json({ success: true });
+      } catch (err: any) {
+        console.error('[Trading API] Error updating heartbeat:', err);
+        res.status(500).json({ error: err.message });
       }
-      updateModuleHeartbeat(module, message || 'Active');
-      res.json({ success: true });
-    } catch (err: any) {
-      console.error('[Trading API] Error updating heartbeat:', err);
-      res.status(500).json({ error: err.message });
-    }
-  });
+    },
+  );
 
   // --- Active Instruments Control ---
   // GET: Python modules poll this to know which instruments to process
@@ -74,20 +132,20 @@ export function registerTradingRoutes(app: Express): void {
   });
 
   // POST: Dashboard frontend sets which instruments are active
-  app.post('/api/trading/active-instruments', (req: Request, res: Response) => {
-    try {
-      const { instruments } = req.body;
-      if (!Array.isArray(instruments)) {
-        res.status(400).json({ error: 'instruments must be an array of instrument keys' });
-        return;
+  app.post(
+    '/api/trading/active-instruments',
+    validateBody(activeInstrumentsSchema),
+    (req: Request, res: Response) => {
+      try {
+        const { instruments } = req.body as z.infer<typeof activeInstrumentsSchema>;
+        setActiveInstruments(instruments);
+        res.json({ success: true, instruments: getActiveInstruments() });
+      } catch (err: any) {
+        console.error('[Trading API] Error setting active instruments:', err);
+        res.status(500).json({ error: err.message });
       }
-      setActiveInstruments(instruments);
-      res.json({ success: true, instruments: getActiveInstruments() });
-    } catch (err: any) {
-      console.error('[Trading API] Error setting active instruments:', err);
-      res.status(500).json({ error: err.message });
-    }
-  });
+    },
+  );
 
   // --- Instruments Configuration ---
   // GET: Python modules fetch all configured instruments (for dynamic INSTRUMENTS dict)
@@ -132,86 +190,79 @@ export function registerTradingRoutes(app: Express): void {
   });
 
   // POST: Add a new instrument
-  app.post('/api/trading/instruments', async (req: Request, res: Response) => {
-    try {
-      const { key, displayName, exchange, exchangeSegment, underlying, autoResolve, symbolName } = req.body;
+  app.post(
+    '/api/trading/instruments',
+    validateBody(addInstrumentSchema),
+    async (req: Request, res: Response) => {
+      try {
+        const body = req.body as z.infer<typeof addInstrumentSchema>;
+        const config: Omit<InstrumentConfig, "isDefault" | "addedAt"> = {
+          key: body.key,
+          displayName: body.displayName,
+          exchange: body.exchange,
+          exchangeSegment: body.exchangeSegment,
+          underlying: body.underlying ?? null,
+          autoResolve: body.autoResolve === true,
+          symbolName: body.symbolName ?? null,
+          hotkey: null,
+        };
+        const result = await addInstrument(config);
 
-      // Validation
-      if (!key || !displayName || !exchange || !exchangeSegment) {
-        res.status(400).json({ error: 'Missing required fields: key, displayName, exchange, exchangeSegment' });
-        return;
+        // Update in-memory store
+        const instruments = await getAllInstruments();
+        setConfiguredInstruments(instruments);
+
+        res.json({ success: true, instrument: result });
+      } catch (err: any) {
+        console.error('[Trading API] Error adding instrument:', err);
+        res.status(400).json({ error: err.message || 'Failed to add instrument' });
       }
-
-      const config: Omit<InstrumentConfig, "isDefault" | "addedAt"> = {
-        key,
-        displayName,
-        exchange,
-        exchangeSegment,
-        underlying: underlying || null,
-        autoResolve: autoResolve === true,
-        symbolName: symbolName || null,
-        hotkey: null,
-      };
-
-      const result = await addInstrument(config);
-
-      // Update in-memory store
-      const instruments = await getAllInstruments();
-      setConfiguredInstruments(instruments);
-
-      res.json({ success: true, instrument: result });
-    } catch (err: any) {
-      console.error('[Trading API] Error adding instrument:', err);
-      res.status(400).json({ error: err.message || 'Failed to add instrument' });
-    }
-  });
+    },
+  );
 
   // DELETE: Remove an instrument
-  app.delete('/api/trading/instruments/:key', async (req: Request, res: Response) => {
-    try {
-      const { key } = req.params;
+  app.delete(
+    '/api/trading/instruments/:key',
+    validateParams(instrumentKeyParamsSchema),
+    async (req: Request, res: Response) => {
+      try {
+        const { key } = req.params as z.infer<typeof instrumentKeyParamsSchema>;
+        await removeInstrument(key);
 
-      if (!key) {
-        res.status(400).json({ error: 'Missing key parameter' });
-        return;
+        // Update in-memory store
+        const instruments = await getAllInstruments();
+        setConfiguredInstruments(instruments);
+
+        res.json({ success: true });
+      } catch (err: any) {
+        console.error('[Trading API] Error removing instrument:', err);
+        res.status(400).json({ error: err.message || 'Failed to remove instrument' });
       }
-
-      await removeInstrument(key);
-
-      // Update in-memory store
-      const instruments = await getAllInstruments();
-      setConfiguredInstruments(instruments);
-
-      res.json({ success: true });
-    } catch (err: any) {
-      console.error('[Trading API] Error removing instrument:', err);
-      res.status(400).json({ error: err.message || 'Failed to remove instrument' });
-    }
-  });
+    },
+  );
 
   // PATCH: Assign hotkey to an instrument (with swap support)
-  app.patch('/api/trading/instruments/:key/hotkey', async (req: Request, res: Response) => {
-    try {
-      const { key } = req.params;
-      const { hotkey } = req.body;
+  app.patch(
+    '/api/trading/instruments/:key/hotkey',
+    validateParams(instrumentKeyParamsSchema),
+    validateBody(hotkeyBodySchema),
+    async (req: Request, res: Response) => {
+      try {
+        const { key } = req.params as z.infer<typeof instrumentKeyParamsSchema>;
+        const { hotkey } = req.body as z.infer<typeof hotkeyBodySchema>;
+        await assignHotkey(key, hotkey || null);
 
-      if (!key) {
-        res.status(400).json({ error: 'Missing key parameter' });
-        return;
+        // Update in-memory store
+        const instruments = await getAllInstruments();
+        setConfiguredInstruments(instruments);
+
+        res.json({ success: true });
+      } catch (err: any) {
+        console.error('[Trading API] Error assigning hotkey:', err);
+        res.status(400).json({ error: err.message || 'Failed to assign hotkey' });
       }
-
-      await assignHotkey(key, hotkey || null);
-
-      // Update in-memory store
-      const instruments = await getAllInstruments();
-      setConfiguredInstruments(instruments);
-
-      res.json({ success: true });
-    } catch (err: any) {
-      console.error('[Trading API] Error assigning hotkey:', err);
-      res.status(400).json({ error: err.message || 'Failed to assign hotkey' });
-    }
-  });
+    },
+  );
 
   // Health check
   app.get('/api/trading/health', (_req: Request, res: Response) => {

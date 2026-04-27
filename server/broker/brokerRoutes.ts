@@ -6,6 +6,8 @@
  */
 
 import type { Express, Request, Response } from "express";
+import { z } from "zod";
+import { validateBody } from "../_core/zodMiddleware";
 import {
   getActiveBroker,
   getAdapter,
@@ -63,6 +65,87 @@ function requireChannelAdapter(channel: string, res: Response) {
     return null;
   }
 }
+
+// ─── Schemas (B8) ───────────────────────────────────────────────
+
+// /api/broker/config: upsertBrokerConfig accepts a partial BrokerConfig
+// shape. Permissive (.passthrough) — the underlying mongoose schema is
+// the authoritative validator, and adding new optional fields shouldn't
+// require touching this layer. Required fields explicitly enumerated.
+const brokerConfigSchema = z
+  .object({
+    brokerId: z.string().min(1),
+    displayName: z.string().min(1),
+    isActive: z.boolean().optional(),
+    isPaperBroker: z.boolean().optional(),
+    capabilities: z.unknown().optional(),
+    credentials: z.unknown().optional(),
+    settings: z.unknown().optional(),
+    role: z.string().optional(),
+    auth: z.unknown().optional(),
+  })
+  .passthrough();
+
+const tokenUpdateSchema = z
+  .object({
+    token: z.string().min(1),
+    clientId: z.string().optional(),
+  })
+  .strict();
+
+const killSwitchSchema = z
+  .object({
+    workspace: z.enum(["ai", "my", "testing"]),
+    action: z.enum(["ACTIVATE", "DEACTIVATE"]),
+  })
+  .strict();
+
+const chartIntradaySchema = z
+  .object({
+    securityId: z.string().min(1),
+    exchangeSegment: z.string().min(1),
+    instrument: z.string().min(1),
+    interval: z.enum(["1", "5", "15", "25", "60"]),
+    fromDate: z.string().min(1),
+    toDate: z.string().min(1),
+    oi: z.boolean().optional(),
+    transform: z.union([z.boolean(), z.string()]).optional(),
+  })
+  .strict();
+
+const chartHistoricalSchema = z
+  .object({
+    securityId: z.string().min(1),
+    exchangeSegment: z.string().min(1),
+    instrument: z.string().min(1),
+    fromDate: z.string().min(1),
+    toDate: z.string().min(1),
+    expiryCode: z.number().int().optional(),
+    oi: z.boolean().optional(),
+    transform: z.union([z.boolean(), z.string()]).optional(),
+  })
+  .strict();
+
+const subscribeInstrumentItem = z
+  .object({
+    securityId: z.string().min(1),
+    exchange: z.string().min(1).optional(),
+    exchangeSegment: z.string().min(1).optional(),
+  })
+  .passthrough();
+
+const feedSubscribeSchema = z
+  .object({
+    instruments: z.array(subscribeInstrumentItem).min(1),
+    mode: z.enum(["ltp", "quote", "full"]).optional(),
+  })
+  .strict();
+
+const feedUnsubscribeSchema = z
+  .object({
+    instruments: z.array(subscribeInstrumentItem).min(1),
+  })
+  .strict();
 
 // ─── Route Registration ─────────────────────────────────────────
 
@@ -132,20 +215,19 @@ export function registerBrokerRoutes(app: Express): void {
   });
 
   /** POST /api/broker/config — Create/update broker config */
-  app.post("/api/broker/config", async (req: Request, res: Response) => {
-    try {
-      const config = req.body;
-      if (!config.brokerId || !config.displayName) {
-        sendError(res, 400, "Missing brokerId or displayName");
-        return;
+  app.post(
+    "/api/broker/config",
+    validateBody(brokerConfigSchema),
+    async (req: Request, res: Response) => {
+      try {
+        const result = await upsertBrokerConfig(req.body as z.infer<typeof brokerConfigSchema>);
+        res.json({ success: true, data: result });
+      } catch (err: any) {
+        log.error("Error upserting config:", err);
+        sendError(res, 500, err.message);
       }
-      const result = await upsertBrokerConfig(config);
-      res.json({ success: true, data: result });
-    } catch (err: any) {
-      log.error("Error upserting config:", err);
-      sendError(res, 500, err.message);
-    }
-  });
+    },
+  );
 
   // ── Token ───────────────────────────────────────────────────
 
@@ -173,36 +255,36 @@ export function registerBrokerRoutes(app: Express): void {
   });
 
   /** POST /api/broker/token/update — Update access token */
-  app.post("/api/broker/token/update", async (req: Request, res: Response) => {
-    try {
-      const { token, clientId } = req.body;
-      if (!token) {
-        sendError(res, 400, "Missing token");
-        return;
+  app.post(
+    "/api/broker/token/update",
+    validateBody(tokenUpdateSchema),
+    async (req: Request, res: Response) => {
+      try {
+        const { token, clientId } = req.body as z.infer<typeof tokenUpdateSchema>;
+
+        const broker = requireBrokerREST(res);
+        if (!broker) return;
+
+        await broker.updateToken(token, clientId);
+
+        // Also update in MongoDB
+        const config = await getActiveBrokerConfig();
+        if (config) {
+          await updateBrokerCredentials(config.brokerId, {
+            accessToken: token,
+            clientId: clientId ?? config.credentials.clientId,
+            updatedAt: Date.now(),
+            status: "valid",
+          });
+        }
+
+        res.json({ success: true, message: "Token updated" });
+      } catch (err: any) {
+        log.error("Error updating token:", err);
+        sendError(res, 500, err.message);
       }
-
-      const broker = requireBrokerREST(res);
-      if (!broker) return;
-
-      await broker.updateToken(token, clientId);
-
-      // Also update in MongoDB
-      const config = await getActiveBrokerConfig();
-      if (config) {
-        await updateBrokerCredentials(config.brokerId, {
-          accessToken: token,
-          clientId: clientId ?? config.credentials.clientId,
-          updatedAt: Date.now(),
-          status: "valid",
-        });
-      }
-
-      res.json({ success: true, message: "Token updated" });
-    } catch (err: any) {
-      log.error("Error updating token:", err);
-      sendError(res, 500, err.message);
-    }
-  });
+    },
+  );
 
   // ── Channel-scoped Orders / Positions / Margin / Exit-all ───
   //
@@ -260,26 +342,20 @@ export function registerBrokerRoutes(app: Express): void {
    * POST /api/broker/kill-switch
    * Body: { workspace: "ai" | "my" | "testing", action: "ACTIVATE" | "DEACTIVATE" }
    */
-  app.post("/api/broker/kill-switch", async (req: Request, res: Response) => {
-    try {
-      const { workspace, action } = req.body;
-
-      if (!workspace || !VALID_WORKSPACES.has(workspace as Workspace)) {
-        sendError(res, 400, `Missing or invalid workspace. Must be: ${Array.from(VALID_WORKSPACES).join(", ")}`);
-        return;
+  app.post(
+    "/api/broker/kill-switch",
+    validateBody(killSwitchSchema),
+    async (req: Request, res: Response) => {
+      try {
+        const { workspace, action } = req.body as z.infer<typeof killSwitchSchema>;
+        const result = await toggleWorkspaceKillSwitch(workspace as Workspace, action);
+        res.json({ success: true, data: result });
+      } catch (err: any) {
+        log.error("Error toggling kill switch:", err);
+        sendError(res, 500, err.message);
       }
-      if (!action || !["ACTIVATE", "DEACTIVATE"].includes(action)) {
-        sendError(res, 400, 'Missing or invalid action. Must be "ACTIVATE" or "DEACTIVATE".');
-        return;
-      }
-
-      const result = await toggleWorkspaceKillSwitch(workspace as Workspace, action);
-      res.json({ success: true, data: result });
-    } catch (err: any) {
-      log.error("Error toggling kill switch:", err);
-      sendError(res, 500, err.message);
-    }
-  });
+    },
+  );
 
   // ── Scrip Master ────────────────────────────────────────────
 
@@ -473,88 +549,72 @@ export function registerBrokerRoutes(app: Express): void {
   // ── Charts / Historical Data ─────────────────────────────────
 
   /** POST /api/broker/charts/intraday — Get intraday OHLCV candle data */
-  app.post("/api/broker/charts/intraday", async (req: Request, res: Response) => {
-    try {
-      const broker = requireBrokerREST(res);
-      if (!broker) return;
+  app.post(
+    "/api/broker/charts/intraday",
+    validateBody(chartIntradaySchema),
+    async (req: Request, res: Response) => {
+      try {
+        const broker = requireBrokerREST(res);
+        if (!broker) return;
+        const { securityId, exchangeSegment, instrument, interval, fromDate, toDate, oi, transform } =
+          req.body as z.infer<typeof chartIntradaySchema>;
 
-      const { securityId, exchangeSegment, instrument, interval, fromDate, toDate, oi, transform } = req.body;
+        const data = await broker.getIntradayData({
+          securityId,
+          exchangeSegment,
+          instrument,
+          interval,
+          fromDate,
+          toDate,
+          oi: oi ?? false,
+        });
 
-      if (!securityId || !exchangeSegment || !instrument || !interval || !fromDate || !toDate) {
-        sendError(
-          res,
-          400,
-          "Missing required fields: securityId, exchangeSegment, instrument, interval, fromDate, toDate"
-        );
-        return;
+        if (transform === true || transform === "true" || transform === "t") {
+          res.setHeader("Content-Type", "text/csv");
+          res.send(transformCandleData(data, "intraday"));
+        } else {
+          res.json({ success: true, data });
+        }
+      } catch (err: any) {
+        log.error("Error fetching intraday data:", err);
+        sendError(res, 500, err.message);
       }
-
-      const validIntervals = ["1", "5", "15", "25", "60"];
-      if (!validIntervals.includes(interval)) {
-        sendError(res, 400, `Invalid interval. Must be one of: ${validIntervals.join(", ")}`);
-        return;
-      }
-
-      const data = await broker.getIntradayData({
-        securityId,
-        exchangeSegment,
-        instrument,
-        interval,
-        fromDate,
-        toDate,
-        oi: oi ?? false,
-      });
-
-      if (transform === true || transform === "true" || transform === "t") {
-        res.setHeader("Content-Type", "text/csv");
-        res.send(transformCandleData(data, "intraday"));
-      } else {
-        res.json({ success: true, data });
-      }
-    } catch (err: any) {
-      log.error("Error fetching intraday data:", err);
-      sendError(res, 500, err.message);
-    }
-  });
+    },
+  );
 
   /** POST /api/broker/charts/historical — Get daily historical OHLCV candle data */
-  app.post("/api/broker/charts/historical", async (req: Request, res: Response) => {
-    try {
-      const broker = requireBrokerREST(res);
-      if (!broker) return;
+  app.post(
+    "/api/broker/charts/historical",
+    validateBody(chartHistoricalSchema),
+    async (req: Request, res: Response) => {
+      try {
+        const broker = requireBrokerREST(res);
+        if (!broker) return;
+        const { securityId, exchangeSegment, instrument, fromDate, toDate, expiryCode, oi, transform } =
+          req.body as z.infer<typeof chartHistoricalSchema>;
 
-      const { securityId, exchangeSegment, instrument, fromDate, toDate, expiryCode, oi, transform } = req.body;
+        const data = await broker.getHistoricalData({
+          securityId,
+          exchangeSegment,
+          instrument,
+          fromDate,
+          toDate,
+          expiryCode: expiryCode ?? 0,
+          oi: oi ?? false,
+        });
 
-      if (!securityId || !exchangeSegment || !instrument || !fromDate || !toDate) {
-        sendError(
-          res,
-          400,
-          "Missing required fields: securityId, exchangeSegment, instrument, fromDate, toDate"
-        );
-        return;
+        if (transform === true || transform === "true" || transform === "t") {
+          res.setHeader("Content-Type", "text/csv");
+          res.send(transformCandleData(data, "historical"));
+        } else {
+          res.json({ success: true, data });
+        }
+      } catch (err: any) {
+        log.error("Error fetching historical data:", err);
+        sendError(res, 500, err.message);
       }
-
-      const data = await broker.getHistoricalData({
-        securityId,
-        exchangeSegment,
-        instrument,
-        fromDate,
-        toDate,
-        expiryCode: expiryCode ?? 0,
-        oi: oi ?? false,
-      });
-
-      if (transform === true || transform === "true" || transform === "t") {
-        res.setHeader("Content-Type", "text/csv");
-        res.send(transformCandleData(data, "historical"));
-      } else {
-        res.json({ success: true, data });
-      }
-    } catch (err: any) {
-      log.error("Error fetching historical data:", err);
-      sendError(res, 500, err.message);
-    }
-  });
+    },
+  );
 
   // ── Trade Book ──────────────────────────────────────────────
 
@@ -674,63 +734,61 @@ export function registerBrokerRoutes(app: Express): void {
    * Allows Python consumers to subscribe security IDs to BSA's Dhan WS feed.
    * Body: { instruments: [{ securityId, exchange }], mode?: "ltp"|"quote"|"full" }
    */
-  app.post("/api/broker/feed/subscribe", async (req: Request, res: Response) => {
-    try {
-      const broker = requireBrokerREST(res);
-      if (!broker) return;
+  app.post(
+    "/api/broker/feed/subscribe",
+    validateBody(feedSubscribeSchema),
+    async (req: Request, res: Response) => {
+      try {
+        const broker = requireBrokerREST(res);
+        if (!broker) return;
 
-      const { instruments, mode } = req.body;
-      if (!Array.isArray(instruments) || instruments.length === 0) {
-        sendError(res, 400, "Missing or empty instruments array");
-        return;
+        const { instruments, mode } = req.body as z.infer<typeof feedSubscribeSchema>;
+        const feedMode = mode ?? "full";
+        broker.subscribeLTP(
+          instruments.map((i: any) => ({ ...i, mode: feedMode })),
+          () => {} // tick forwarding handled by tickBus inside the adapter
+        );
+
+        const state = broker.getSubscriptionState?.();
+        res.json({
+          success: true,
+          subscribed: instruments.length,
+          total: state?.totalSubscriptions ?? instruments.length,
+        });
+      } catch (err: any) {
+        log.error("Error subscribing feed:", err);
+        sendError(res, 500, err.message);
       }
-
-      const feedMode = mode ?? "full";
-      broker.subscribeLTP(
-        instruments.map((i: any) => ({ ...i, mode: feedMode })),
-        () => {} // tick forwarding handled by tickBus inside the adapter
-      );
-
-      const state = broker.getSubscriptionState?.();
-      res.json({
-        success: true,
-        subscribed: instruments.length,
-        total: state?.totalSubscriptions ?? instruments.length,
-      });
-    } catch (err: any) {
-      log.error("Error subscribing feed:", err);
-      sendError(res, 500, err.message);
-    }
-  });
+    },
+  );
 
   /**
    * POST /api/broker/feed/unsubscribe
    * Body: { instruments: [{ securityId, exchange }] }
    */
-  app.post("/api/broker/feed/unsubscribe", async (req: Request, res: Response) => {
-    try {
-      const broker = requireBrokerREST(res);
-      if (!broker) return;
+  app.post(
+    "/api/broker/feed/unsubscribe",
+    validateBody(feedUnsubscribeSchema),
+    async (req: Request, res: Response) => {
+      try {
+        const broker = requireBrokerREST(res);
+        if (!broker) return;
 
-      const { instruments } = req.body;
-      if (!Array.isArray(instruments) || instruments.length === 0) {
-        sendError(res, 400, "Missing or empty instruments array");
-        return;
+        const { instruments } = req.body as z.infer<typeof feedUnsubscribeSchema>;
+        broker.unsubscribeLTP(instruments);
+
+        const state = broker.getSubscriptionState?.();
+        res.json({
+          success: true,
+          unsubscribed: instruments.length,
+          total: state?.totalSubscriptions ?? 0,
+        });
+      } catch (err: any) {
+        log.error("Error unsubscribing feed:", err);
+        sendError(res, 500, err.message);
       }
-
-      broker.unsubscribeLTP(instruments);
-
-      const state = broker.getSubscriptionState?.();
-      res.json({
-        success: true,
-        unsubscribed: instruments.length,
-        total: state?.totalSubscriptions ?? 0,
-      });
-    } catch (err: any) {
-      log.error("Error unsubscribing feed:", err);
-      sendError(res, 500, err.message);
-    }
-  });
+    },
+  );
 
   /**
    * GET /api/broker/feed/state
