@@ -82,9 +82,8 @@ async function startServer() {
     .catch((err) =>
       bootLog.error(`MongoDB initial connection failed: ${(err as Error)?.message ?? err}`)
     );
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ limit: "1mb", extended: true }));
 
   // Simple health check — used by start-all.bat to wait until server is ready
   app.get("/health", (_req, res) => res.json({ ok: true }));
