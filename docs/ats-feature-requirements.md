@@ -464,8 +464,6 @@ The entire pre-trade gate can be toggled off in settings for experienced mode.
 | Enter | Confirm current action |
 | T | Jump to today's row |
 
-All visual polish from mockups applied.
-
 ---
 
 ### Feature 22: AI Trades PAPER Tab
@@ -640,14 +638,3 @@ Please refer to **`docs/specs/Settings_Spec_v1.2.md`** for the complete, authori
 - Historical data
 
 **Important:** Order placement, modification, and cancellation require static IP whitelisting on Dhan's platform.
-
----
-
-### Mockup Files Reference
-
-| File | Description |
-|------|-------------|
-| `mockups/position-tracker-mockup/index.html` | Trading Desk table design with 16 columns, row types, summary bar |
-| `mockups/discipline-mockup/index.html` | Discipline Engine standalone with 8 tabs |
-| `mockups/position-tracker-discipline-mockup/index.html` | Integrated Trading Desk + all discipline rules (11 scenarios) |
-| `mockups/instrument-card-mockup/index.html` | Instrument Card with all 10 sections |
