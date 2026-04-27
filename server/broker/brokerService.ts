@@ -477,6 +477,7 @@ function wireTickBus(adapter: BrokerAdapter): void {
 
 export function _resetForTesting(): void {
   adapters.dhanLive = null;
+  adapters.dhanAiData = null;
   adapters.dhanSandbox = null;
   adapters.mockAi = null;
   adapters.mockMy = null;
@@ -485,4 +486,24 @@ export function _resetForTesting(): void {
   killSwitch.testing = false;
   adapterFactories.clear();
   adapterMeta.clear();
+}
+
+/**
+ * Test-only — inject pre-built adapter instances directly into the BSA
+ * adapter map, bypassing initBrokerService(). Used by the channel-isolation
+ * invariant test to avoid coupling to Mongo for a pure routing check.
+ * Pass `null` for any slot that should remain unset.
+ */
+export function _setAdaptersForTesting(stubs: Partial<{
+  dhanLive: BrokerAdapter;
+  dhanAiData: BrokerAdapter;
+  dhanSandbox: BrokerAdapter;
+  mockAi: BrokerAdapter;
+  mockMy: BrokerAdapter;
+}>): void {
+  if ("dhanLive" in stubs) adapters.dhanLive = stubs.dhanLive as DhanAdapter;
+  if ("dhanAiData" in stubs) adapters.dhanAiData = stubs.dhanAiData as DhanAdapter;
+  if ("dhanSandbox" in stubs) adapters.dhanSandbox = stubs.dhanSandbox as DhanAdapter;
+  if ("mockAi" in stubs) adapters.mockAi = stubs.mockAi as MockAdapter;
+  if ("mockMy" in stubs) adapters.mockMy = stubs.mockMy as MockAdapter;
 }
