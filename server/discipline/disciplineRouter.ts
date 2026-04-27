@@ -34,6 +34,104 @@ import { getTimelineSegments } from "./timeWindows";
 
 const DEFAULT_USER_ID = "1";
 
+// ─── Settings update schema ─────────────────────────────────────────
+// Strict mirror of DisciplineEngineSettings (sans server-managed fields).
+// Each module's sub-object is `.strict()` so unknown sub-keys also reject.
+// Bounds reflect the spec — see DisciplineEngine_Spec_v1.3.
+
+const emotionalStateEnum = z.enum(["calm", "anxious", "revenge", "fomo", "greedy", "neutral"]);
+const timeHHmm = z.string().regex(/^[0-2]\d:[0-5]\d$/, "expected HH:mm");
+
+export const disciplineSettingsUpdateSchema = z.object({
+  // Module 1: Circuit Breaker
+  dailyLossLimit: z.object({
+    enabled: z.boolean(),
+    thresholdPercent: z.number().min(0).max(100),
+  }).strict().optional(),
+  maxConsecutiveLosses: z.object({
+    enabled: z.boolean(),
+    maxLosses: z.number().int().min(1).max(20),
+    cooldownMinutes: z.number().int().min(0).max(720),
+  }).strict().optional(),
+
+  // Module 2: Trade Limits
+  maxTradesPerDay: z.object({
+    enabled: z.boolean(),
+    limit: z.number().int().min(1).max(100),
+  }).strict().optional(),
+  maxOpenPositions: z.object({
+    enabled: z.boolean(),
+    limit: z.number().int().min(1).max(50),
+  }).strict().optional(),
+  revengeCooldown: z.object({
+    enabled: z.boolean(),
+    durationMinutes: z.number().int().min(0).max(720),
+    requireAcknowledgment: z.boolean(),
+  }).strict().optional(),
+
+  // Module 3: Time Windows
+  noTradingAfterOpen: z.object({
+    enabled: z.boolean(),
+    nseMinutes: z.number().int().min(0).max(60),
+    mcxMinutes: z.number().int().min(0).max(60),
+  }).strict().optional(),
+  noTradingBeforeClose: z.object({
+    enabled: z.boolean(),
+    nseMinutes: z.number().int().min(0).max(60),
+    mcxMinutes: z.number().int().min(0).max(60),
+  }).strict().optional(),
+  lunchBreakPause: z.object({
+    enabled: z.boolean(),
+    startTime: timeHHmm,
+    endTime: timeHHmm,
+  }).strict().optional(),
+
+  // Module 4: Pre-Trade Gate
+  preTradeGate: z.object({
+    enabled: z.boolean(),
+    minRiskReward: z.object({
+      enabled: z.boolean(),
+      ratio: z.number().min(0).max(20),
+    }).strict(),
+    emotionalStateCheck: z.object({
+      enabled: z.boolean(),
+      blockStates: z.array(emotionalStateEnum),
+    }).strict(),
+  }).strict().optional(),
+
+  // Module 5: Position Sizing
+  maxPositionSize: z.object({
+    enabled: z.boolean(),
+    percentOfCapital: z.number().min(0).max(100),
+  }).strict().optional(),
+  maxTotalExposure: z.object({
+    enabled: z.boolean(),
+    percentOfCapital: z.number().min(0).max(100),
+  }).strict().optional(),
+
+  // Module 6: Journal
+  journalEnforcement: z.object({
+    enabled: z.boolean(),
+    maxUnjournaled: z.number().int().min(0).max(100),
+  }).strict().optional(),
+  weeklyReview: z.object({
+    enabled: z.boolean(),
+    disciplineScoreWarning: z.number().int().min(0).max(100),
+    redWeekReduction: z.number().int().min(1).max(52),
+  }).strict().optional(),
+
+  // Module 7: Streaks
+  winningStreakReminder: z.object({
+    enabled: z.boolean(),
+    triggerAfterDays: z.number().int().min(1).max(365),
+  }).strict().optional(),
+  losingStreakAutoReduce: z.object({
+    enabled: z.boolean(),
+    triggerAfterDays: z.number().int().min(1).max(365),
+    reduceByPercent: z.number().min(0).max(100),
+  }).strict().optional(),
+}).strict();
+
 export const disciplineRouter = router({
   /**
    * Validate a trade against all discipline rules.
@@ -92,10 +190,12 @@ export const disciplineRouter = router({
   }),
 
   /**
-   * Update discipline settings.
+   * Update discipline settings. Accepts a partial of DisciplineEngineSettings
+   * (server-managed `userId`/`updatedAt`/`history` are stripped). Strict mode:
+   * unknown fields rejected with 400; per-field bounds enforced.
    */
   updateSettings: publicProcedure
-    .input(z.record(z.string(), z.unknown()))
+    .input(disciplineSettingsUpdateSchema)
     .mutation(async ({ input }) => {
       return updateDisciplineSettings(DEFAULT_USER_ID, input);
     }),
