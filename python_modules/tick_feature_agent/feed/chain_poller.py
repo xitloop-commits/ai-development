@@ -46,8 +46,18 @@ try:
 except ImportError:
     raise ImportError("requests package not installed. Run: pip install requests")
 
+import os
+
 from tick_feature_agent.instrument_profile import InstrumentProfile
 from tick_feature_agent.log.tfa_logger import get_logger
+
+
+def _authed_headers() -> dict[str, str]:
+    """B1: include X-Internal-Token from env on every Node-API call.
+    Empty string when secret unset → header omitted, server runs in
+    warn-only mode."""
+    secret = os.environ.get("INTERNAL_API_SECRET", "")
+    return {"X-Internal-Token": secret} if secret else {}
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 _ROLLOVER_HOUR = 14
@@ -274,6 +284,7 @@ class ChainPoller:
                             "underlying": self._underlying_sec_id,
                             "exchangeSegment": self._exch_seg,
                         },
+                        headers=_authed_headers(),
                         timeout=10,
                     )
                 )
@@ -288,6 +299,7 @@ class ChainPoller:
                             "symbol": self._profile.instrument_name,
                             "instrumentName": "OPTIDX",
                         },
+                        headers=_authed_headers(),
                         timeout=10,
                     )
                 )
@@ -326,6 +338,7 @@ class ChainPoller:
                         "expiry": self._active_expiry,
                         "exchangeSegment": self._exch_seg,
                     },
+                    headers=_authed_headers(),
                     timeout=8,
                 )
             )

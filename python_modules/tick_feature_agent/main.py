@@ -109,6 +109,14 @@ def _fatal(msg: str) -> None:
     sys.exit(1)
 
 
+def _authed_headers() -> dict[str, str]:
+    """B1: include X-Internal-Token from env on every Node-API call.
+    Empty string when secret unset → header omitted, server runs in
+    warn-only mode."""
+    secret = os.environ.get("INTERNAL_API_SECRET", "")
+    return {"X-Internal-Token": secret} if secret else {}
+
+
 # ── Credentials helper ────────────────────────────────────────────────────────
 
 def _fetch_credentials(base_url: str, broker_id: str = "dhan") -> dict | None:
@@ -120,6 +128,7 @@ def _fetch_credentials(base_url: str, broker_id: str = "dhan") -> dict | None:
         resp = requests.get(
             f"{base_url}/api/broker/token",
             params={"brokerId": broker_id},
+            headers=_authed_headers(),
             timeout=5,
         )
     except Exception as exc:
@@ -139,12 +148,14 @@ def _ensure_scrip_master(base_url: str, log) -> bool:
     """
     try:
         import requests as _req
-        r = _req.get(f"{base_url}/api/broker/scrip-master/status", timeout=5)
+        r = _req.get(f"{base_url}/api/broker/scrip-master/status",
+                     headers=_authed_headers(), timeout=5)
         if r.status_code == 200 and r.json().get("data", {}).get("isLoaded"):
             return True
         # Not loaded — trigger a full refresh (BSA fetches ~250k scrips from Dhan)
         log.info("SCRIP_MASTER_REFRESH", msg="Scrip master not loaded — triggering refresh")
-        r2 = _req.post(f"{base_url}/api/broker/scrip-master/refresh", timeout=60)
+        r2 = _req.post(f"{base_url}/api/broker/scrip-master/refresh",
+                       headers=_authed_headers(), timeout=60)
         if r2.status_code == 200:
             log.info("SCRIP_MASTER_REFRESH_OK", msg="Scrip master refresh complete")
             return True
@@ -182,6 +193,7 @@ def _resolve_near_month_contract(base_url: str, profile) -> tuple[str, str]:
         r = _req.get(
             f"{base_url}/api/broker/scrip-master/expiry-list",
             params={"symbol": symbol, "instrumentName": instrument_type},
+            headers=_authed_headers(),
             timeout=5,
         )
         if r.status_code != 200:
@@ -197,6 +209,7 @@ def _resolve_near_month_contract(base_url: str, profile) -> tuple[str, str]:
             f"{base_url}/api/broker/scrip-master/lookup",
             params={"symbol": symbol, "instrumentName": instrument_type,
                     "expiry": future[0]},
+            headers=_authed_headers(),
             timeout=5,
         )
         if r2.status_code != 200:
@@ -229,6 +242,7 @@ def _fetch_holiday_status(base_url: str, exchange: str) -> dict:
         r = _req.get(
             f"{base_url}/api/trpc/holidays.todayStatus",
             params={"input": input_param},
+            headers=_authed_headers(),
             timeout=5,
         )
         if r.status_code != 200:

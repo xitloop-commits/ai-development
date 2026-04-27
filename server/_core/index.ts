@@ -22,6 +22,7 @@ import { printAgentLegend, createLogger } from "../broker/logger";
 import { registerReadyEndpoint, markReady } from "./ready";
 import { registerFatalHandlers } from "./fatalHandlers";
 import { registerShutdownHook, installSignalHandlers } from "./shutdown";
+import { authMiddleware } from "./auth";
 
 const bootLog = createLogger("BOOT", "Server");
 
@@ -107,10 +108,17 @@ async function startServer() {
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ limit: "1mb", extended: true }));
 
-  // Simple liveness probe — process is up
+  // Simple liveness probe — process is up. Public (probe-friendly).
   app.get("/health", (_req, res) => res.json({ ok: true }));
-  // Readiness probe — Mongo + broker + tickWs all initialised
+  // Readiness probe — Mongo + broker + tickWs all initialised. Public.
   registerReadyEndpoint(app);
+
+  // B1 — internal-API auth: shared-secret X-Internal-Token check on
+  // every /api/* request (REST + tRPC). /health and /ready are
+  // exempt internally. During rollout the middleware runs in warn-only
+  // mode (logs but proceeds); flip REQUIRE_INTERNAL_AUTH=true to enforce.
+  app.use("/api", authMiddleware);
+
   // Trading data push API (receives data from Python modules)
   registerTradingRoutes(app);
   // Broker Service REST API (for Python modules)
