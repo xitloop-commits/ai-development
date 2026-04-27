@@ -119,8 +119,9 @@ async function startServer() {
     bootLog.info(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
-  server.listen(port, () => {
-    bootLog.important(`Server running on http://localhost:${port}/`);
+  const host = process.env.HTTP_HOST ?? "127.0.0.1";
+  server.listen(port, host, () => {
+    bootLog.important(`Server running on http://${host}:${port}/`);
   });
 }
 
