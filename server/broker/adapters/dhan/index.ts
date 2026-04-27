@@ -966,7 +966,7 @@ export class DhanAdapter implements BrokerAdapter {
       });
     });
     this.orderUpdateWs.connect();
-    this.log.info("Order update WS connected");
+    this.log.important("Order update WS connected");
   }
 
   getSubscriptionState(): SubscriptionState {
@@ -1030,7 +1030,7 @@ export class DhanAdapter implements BrokerAdapter {
     // Connect WebSocket
     try {
       await this.ws.connect();
-      this.log.info("Feed connected (WS)");
+      this.log.important("Feed connected (WS)");
     } catch (err) {
       this.log.error("Feed connection failed:", err);
       await updateBrokerConnection(this.brokerId, { wsStatus: "error" });
@@ -1093,21 +1093,31 @@ export class DhanAdapter implements BrokerAdapter {
       }
       // Fall through into the validation path below — already have a fresh token.
     } else {
-      // Existing-token path: only mint a fresh token if the current one is
-      // close to expiring. With a 24h TTL and a 12h threshold, a single
-      // refresh covers the whole trading day; restarts within 12h of the
-      // last refresh reuse the existing token (no TOTP burn per restart).
+      // Existing-token path: mint a fresh token if any of the following holds:
+      //   1. token expired or ≤12h remaining (TTL gate)
+      //   2. calendar date rolled over since the token was issued (Dhan invalidates
+      //      tokens at the day boundary even when the 24h TTL still has hours left —
+      //      e.g. a token minted 11 PM Sun is "valid for 22h" but Dhan rejects it
+      //      for Mon's market session).
+      // Server runs in IST and Dhan operates in IST, so local-date comparison is correct.
       const expiry = calculateTokenExpiry(this.tokenUpdatedAt);
+      const issuedDate = new Date(this.tokenUpdatedAt).toDateString();
+      const todayDate = new Date().toDateString();
+      const dateChanged = issuedDate !== todayDate;
       const needsRefresh =
-        expiry.isExpired || expiry.remainingMs <= DHAN_TOKEN_STARTUP_REFRESH_THRESHOLD_MS;
+        expiry.isExpired ||
+        expiry.remainingMs <= DHAN_TOKEN_STARTUP_REFRESH_THRESHOLD_MS ||
+        dateChanged;
 
       if (!needsRefresh) {
         const hoursLeft = (expiry.remainingMs / 3_600_000).toFixed(1);
-        this.log.info(`Token has ${hoursLeft}h remaining (> 12h threshold) — skipping startup refresh.`);
+        this.log.info(`Token has ${hoursLeft}h remaining (> 12h, same day) — skipping startup refresh.`);
       } else {
         const reason = expiry.isExpired
           ? "expired"
-          : `${Math.round(expiry.remainingMs / 60_000)} min remaining (≤ 12h threshold)`;
+          : dateChanged
+            ? `date rolled over (issued ${issuedDate}, today ${todayDate})`
+            : `${Math.round(expiry.remainingMs / 60_000)} min remaining (≤ 12h threshold)`;
         this.log.info(`Refreshing token on startup (${reason})...`);
         const refreshed = await this._tryAutoRefresh();
         if (!refreshed) {
@@ -1152,7 +1162,7 @@ export class DhanAdapter implements BrokerAdapter {
       apiStatus: "connected",
       lastApiCall: Date.now(),
     });
-    this.log.info(`Connected. Client: ${this.clientId}, Balance: ₹${validation.fundData?.availabelBalance ?? "N/A"}`);
+    this.log.important(`Connected. Client: ${this.clientId}, Balance: ₹${validation.fundData?.availabelBalance ?? "N/A"}`);
 
     // Sandbox mode: token validation only — no WebSocket feed
     if (!this.sandboxMode) {

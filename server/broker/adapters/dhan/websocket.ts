@@ -183,6 +183,7 @@ export class DhanWebSocket extends EventEmitter {
   private isDisconnecting = false;
   private _connected = false;
   private _cooldownUntil = 0;   // 429/auth cooldown — reject connects until this time
+  private healthyTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(config: DhanWSConfig) {
     super();
@@ -235,7 +236,16 @@ export class DhanWebSocket extends EventEmitter {
         clearTimeout(timeout);
         this._connected = true;
         this.isConnecting = false;
-        this.reconnectAttempts = 0;
+        // Don't reset reconnectAttempts here. The Dhan feed sometimes accepts the WS
+        // upgrade and then closes the TCP within ~10ms (e.g. nightly maintenance, stale
+        // token, account WS-cap exceeded — all surface as code 1006). Resetting on `open`
+        // lets that pattern loop forever, hammering Dhan into a 429 + 5-min cooldown.
+        // Only credit the connection as healthy after it has stayed open for 10s.
+        if (this.healthyTimer) clearTimeout(this.healthyTimer);
+        this.healthyTimer = setTimeout(() => {
+          this.reconnectAttempts = 0;
+          this.healthyTimer = null;
+        }, 10_000);
         // Disable Nagle for minimal latency on incoming ticks
         const sock = (this.ws as any)?._socket;
         if (sock && typeof sock.setNoDelay === "function") sock.setNoDelay(true);
@@ -257,6 +267,10 @@ export class DhanWebSocket extends EventEmitter {
 
       this.ws.on("close", (code: number, reason: Buffer) => {
         clearTimeout(timeout);
+        if (this.healthyTimer) {
+          clearTimeout(this.healthyTimer);
+          this.healthyTimer = null;
+        }
         this._connected = false;
         this.isConnecting = false;
         const reasonStr = reason.toString() || `code ${code}`;
@@ -300,6 +314,10 @@ export class DhanWebSocket extends EventEmitter {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.healthyTimer) {
+      clearTimeout(this.healthyTimer);
+      this.healthyTimer = null;
     }
 
     if (this.ws) {
