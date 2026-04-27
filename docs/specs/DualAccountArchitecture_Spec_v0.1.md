@@ -22,7 +22,7 @@
 - ATS talks to a single Dhan account (user's PAN). This account supplies:
   - User's live trading (order placement + fills).
   - Node server's market-data WebSocket (tick feed used by TradingDesk for live LTP).
-  - Dhan's per-account cap of **5 concurrent WS connections** per the Broker Service Agent spec (BSA v1.8).
+  - Dhan's per-account cap of **5 concurrent WS connections** per the Broker Service Agent spec (BSA v1.9).
 - Tick Feature Agent (TFA) runs 4 processes (NIFTY / BANKNIFTY / CRUDEOIL / NATURALGAS), each owning its own Dhan WS → 4 WS.
 - Combined: 4 TFA + 1 Node tick + 1 order-update = **6** ⇒ exceeds 5-WS limit. The ui-refactoring branch cannot run concurrently with main, and order-update subscription competes for scarce headroom. This is logged in [docs/memory/project_dhan_ws_limit.md](../memory/project_dhan_ws_limit.md).
 - The "AI Trades" workspace is **paper-only** today — an AI engine runs on top of a MockAdapter, so AI performance numbers are hypothetical, not real-money validated.
@@ -169,7 +169,7 @@ Each live workspace runs its own 250-day compounding challenge. They are not cou
 ### 6.1 Per-workspace (existing behavior)
 
 - Daily loss cap, max positions, revenge-trade cooldown, R:R gate, Circuit Breaker — all enforced independently per workspace via the Discipline Engine (v1.3).
-- Kill switches independent per workspace (BSA v1.8 §1).
+- Kill switches independent per workspace (BSA v1.9 §1).
 
 ### 6.2 New: optional global caps
 
@@ -267,7 +267,7 @@ Add per-document fields to MongoDB's `broker_configs` collection:
 
 ### 8.2 Token lifecycle
 
-- Independent refresh schedules per `brokerId` via BSA v1.8 §13 TOTP flow.
+- Independent refresh schedules per `brokerId` via BSA v1.9 §13 TOTP flow.
 - If `dhan-ai-data`'s token expires unnoticed, AI Live halts silently. Required: health check in MainScreen "AI Broker connected" indicator, identical to the existing "Dhan API Status" globe in AppBar but keyed per brokerId.
 - Token revocation flow: user can one-click revoke from Settings if account compromised.
 
@@ -330,7 +330,7 @@ Add per-document fields to MongoDB's `broker_configs` collection:
 ### Phase 2 — Multi-adapter refactor in brokerService.ts
 - Convert `brokerService.adapter: DhanAdapter` → `brokerService.adapters: Map<brokerId, DhanAdapter>`.
 - Public API: `getAdapter(brokerId) → Adapter`. All existing call sites pass `brokerId` (already present in channel metadata).
-- Update per-broker token refresh scheduling (BSA v1.8 §13) to iterate the map.
+- Update per-broker token refresh scheduling (BSA v1.9 §13) to iterate the map.
 
 ### Phase 3 — TFA swap
 - Update `startup/start-tfa.bat` / `.sh` and `launcher.py` to pass `--broker-id=dhan-ai-data`.
@@ -449,13 +449,13 @@ v0.1 of this architecture is considered complete when:
 
 ## 15. References
 
-- [BSA v1.8](BrokerServiceAgent_Spec_v1.8.md) — trading modes, multi-channel model, §13 token refresh.
+- [BSA v1.9](BrokerServiceAgent_Spec_v1.9.md) — trading modes, multi-channel model, §13 token refresh.
 - [Portfolio Agent v1.3](PortfolioAgent_Spec_v1.3.md) §2.1–2.5 — per-channel capital pool semantics.
-- [TradingDesk v1.2](TradingDesk_Spec_v1.2.md) — 250-day compounding table, workspace tabs.
+- [TradingDesk v1.3](TradingDesk_Spec_v1.3.md) — 250-day compounding table, workspace tabs.
 - [Discipline Engine v1.3](DisciplineEngine_Spec_v1.3.md) — per-workspace limits, kill switches.
 - [RCA v2.0](RiskControlAgent_Spec_v2.0.md) — position monitoring scope.
 - [SEA ImplementationPlan v0.1](SEA_ImplementationPlan_v0.1.md) — signal routing.
-- [TFA Spec v1.0](TickFeatureAgent_Spec_1.0.md) — 4-process layout, WS subscription model.
+- [TFA Spec v1.7](TickFeatureAgent_Spec_v1.7.md) — 4-process layout, WS subscription model.
 - [memory/project_dhan_ws_limit.md](../memory/project_dhan_ws_limit.md) — WS cap problem statement.
 
 ---

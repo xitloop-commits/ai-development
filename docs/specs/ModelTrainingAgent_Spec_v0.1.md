@@ -844,14 +844,14 @@ The following decisions are explicitly deferred and must be resolved before impl
 
 | Spec | Dependency |
 |------|-----------|
-| TickFeatureAgent_Spec_1.0 §9.1 | NDJSON socket contract for live inference input |
-| TickFeatureAgent_Spec_1.0 §9.2 | Feature preprocessing pipeline (authoritative) |
+| TickFeatureAgent_Spec_v1.7 §9.1 | NDJSON socket contract for live inference input |
+| TickFeatureAgent_Spec_v1.7 §9.2 | Feature preprocessing pipeline (authoritative) |
 | RiskControlAgent_Spec_v2.0 §7.1 | TradeSuggestion payload contract |
 | RiskControlAgent_Spec_v2.0 §2.5 | AI signal format expected by RCA |
-| BrokerServiceAgent_Spec_v1.8 §1 | ai-live / ai-paper channel architecture |
+| BrokerServiceAgent_Spec_v1.9 §1 | ai-live / ai-paper channel architecture |
 | PortfolioAgent_Spec_v1.3 §2.1–2.5 | AI Trades capital pool behavior |
 | DisciplineEngine_Spec_v1.3 | Discipline status check before trade submission |
-| Settings_Spec_v1.4 §3.7 | AI Trades mode switch (paper ↔ live) |
+| Settings_Spec_v1.5 §3.7 | AI Trades mode switch (paper ↔ live) |
 
 ---
 

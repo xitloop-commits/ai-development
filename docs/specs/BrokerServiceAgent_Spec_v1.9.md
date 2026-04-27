@@ -161,7 +161,7 @@ Stores: identity (`brokerId`, `displayName`, `isActive`, `isPaperBroker`, `sandb
 
 ### 3.4 Settings Reference
 
-Order execution defaults (Entry Offset, Order Type, Product Type, Default SL, Default TP, Trailing Stop) are stored in `broker_configs.settings` and managed via the Settings Page (§3.2 of `Settings_Spec_v1.4.md`). BSA reads these defaults when consumers omit optional order parameters.
+Order execution defaults (Entry Offset, Order Type, Product Type, Default SL, Default TP, Trailing Stop) are stored in `broker_configs.settings` and managed via the Settings Page (§3.2 of `Settings_Spec_v1.5.md`). BSA reads these defaults when consumers omit optional order parameters.
 
 ---
 
@@ -364,7 +364,7 @@ Kill switches are **per-workspace and independent**. Triggering the AI Trades ki
 `server/broker/adapters/dhan/greeksPoller.ts` is **deleted**.
 
 Previously polled `POST /v2/optionchain` every 60 seconds for Greeks. This is removed because:
-- TFA (`TickFeatureAgent_Spec_1.0.md`) explicitly excludes Greeks from its feature set (§2 Design Principles: "Avoid: Greeks, Implied Volatility models")
+- TFA (`TickFeatureAgent_Spec_v1.7.md`) explicitly excludes Greeks from its feature set (§2 Design Principles: "Avoid: Greeks, Implied Volatility models")
 - TFA polls `GET /api/broker/option-chain` at its own 5-second cadence for OI, volume, and delta OI
 - A BSA-internal 60-second poller duplicates the request at the wrong interval with the wrong owner
 

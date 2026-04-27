@@ -2,8 +2,7 @@
 **Version:** 1.3  
 **Date:** April 9, 2026  
 **Status:** Implementation Phase (Modules 1–8)  
-**Dependencies:** RiskControlAgent_Spec_v2.0, TradeExecutorAgent_Spec_v1.3, PortfolioAgent_Spec_v1.3  
-**Previous Version:** v1.2 (April 9, 2026)
+**Dependencies:** RiskControlAgent_Spec_v2.0, TradeExecutorAgent_Spec_v1.3, PortfolioAgent_Spec_v1.3
 
 ---
 

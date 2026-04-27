@@ -1,6 +1,6 @@
 # TickFeatureAgent (TFA) — Implementation Plan
 **Version:** 1.1  
-**Spec Reference:** TickFeatureAgent_Spec_1.0.md (v1.9)  
+**Spec Reference:** TickFeatureAgent_Spec_v1.7.md  
 **Status:** Draft
 
 ---
