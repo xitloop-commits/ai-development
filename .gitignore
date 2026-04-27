@@ -109,6 +109,22 @@ temp/
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
 __pycache__/
+.pytest_cache/
+
+# Vendor telemetry / collector logs
+.manus-logs/
+
+# Per-machine local overrides for tools (e.g. Claude Code permissions)
+.claude/settings.local.json
+
+# Recursive .env catch (e.g. tfa_bot/.env) — top-level .env already ignored above
+**/.env
+
+# pnpm is the sole package manager (see package.json packageManager field)
+package-lock.json
+
+# Stale runtime locks left behind by killed recorder processes
+*.gz.lock
 
 # Data folder
 data/
