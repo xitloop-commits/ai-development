@@ -1,3 +1,7 @@
+> **⚠ HISTORICAL — pre-refactor baseline (2026-03-30).** Kept as the originating product narrative. Live source of truth: `docs/specs/` (per-agent specs) + `docs/IMPLEMENTATION_PLAN_v2.md` (build sheet) + `docs/FINAL_VERIFICATION_TRACKER.md` (punch list). Some claims here have been overtaken by implementation.
+
+---
+
 # Automatic Trading System (ATS) — Complete Feature & Requirements Reference
 
 **Version:** 1.0  
