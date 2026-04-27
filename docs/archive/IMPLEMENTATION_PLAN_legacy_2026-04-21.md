@@ -1,3 +1,16 @@
+> **⚠ ARCHIVED 2026-04-27 — No longer the source of truth.**
+>
+> Active sources:
+> - **Build sheet:** `docs/IMPLEMENTATION_PLAN_v2.md` (phased tasks, acceptance, dependencies)
+> - **Punch list:** `docs/FINAL_VERIFICATION_TRACKER.md` (728 findings; §7 is the consolidated Definition of Done)
+> - **Architecture reference:** `docs/ARCHITECTURE_REFACTOR_PLAN.md` (kept active)
+>
+> **Why archived:** §0 completion percentages were materially wrong (claimed PA/TEA/RCA = 0%; reality PA ≈ 85%, TEA ≈ 85%, RCA ≈ 30%). §5 Locked Decisions were tied to retired branch names (`ui-refactoring`) and sequencing assumptions that the actual code state has overtaken.
+>
+> **What's still useful here:** §3 cross-cutting backlog (post-MVP polish ideas — weekly perf review, trade timer, partial-fill handling, NSE futures rollover, WS push, fb_ columns, etc.) and the §8 change log. Mine for ideas; do not treat as live commitments.
+
+---
+
 # Consolidated Implementation Plan — Single Source of Truth
 
 **Status:** Draft v1 · 2026-04-21 · supersedes [todo.md](../todo.md)
