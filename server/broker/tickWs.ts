@@ -44,7 +44,11 @@ function stripChainMeta(u: ChainUpdate) {
   };
 }
 
-export function setupTickWebSocket(server: Server): void {
+export interface TickWsHandle {
+  close: () => Promise<void>;
+}
+
+export function setupTickWebSocket(server: Server): TickWsHandle {
   const wss = new WebSocketServer({
     noServer: true,
     perMessageDeflate: false,
@@ -120,4 +124,22 @@ export function setupTickWebSocket(server: Server): void {
   });
 
   log.important("Tick WebSocket ready on /ws/ticks");
+
+  return {
+    close: () =>
+      new Promise<void>((resolve) => {
+        // Detach tickBus listeners so no late-arriving packets try to
+        // push into a closed wss (would log noisy errors).
+        tickBus.off("rawBinary", onRawBinary);
+        tickBus.off("chainUpdate", onChainUpdate);
+        // Send a clean close frame to every connected browser, then
+        // shut the server.
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            try { client.close(1001, "server shutdown"); } catch { /* ignore */ }
+          }
+        });
+        wss.close(() => resolve());
+      }),
+  };
 }

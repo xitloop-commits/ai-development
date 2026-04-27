@@ -431,6 +431,33 @@ export async function switchBroker(brokerId: string): Promise<BrokerAdapter> {
   return adapters.dhanLive;
 }
 
+// ─── Shutdown ─────────────────────────────────────────────────────
+
+/**
+ * Close every initialised adapter's WS + REST connection. Called from
+ * the graceful-shutdown coordinator (priority 500). Errors are logged
+ * but never thrown — shutdown must continue to mongo even if one
+ * adapter hangs.
+ */
+export async function disconnectAllAdapters(): Promise<void> {
+  const all: Array<[string, BrokerAdapter | null]> = [
+    ["dhanLive", adapters.dhanLive],
+    ["dhanAiData", adapters.dhanAiData],
+    ["dhanSandbox", adapters.dhanSandbox],
+    ["mockAi", adapters.mockAi],
+    ["mockMy", adapters.mockMy],
+  ];
+  for (const [name, adapter] of all) {
+    if (!adapter) continue;
+    try {
+      await adapter.disconnect();
+      log.info(`Disconnected ${name} (${adapter.brokerId})`);
+    } catch (err) {
+      log.warn(`Failed to disconnect ${name}: ${(err as Error).message}`);
+    }
+  }
+}
+
 // ─── Status ──────────────────────────────────────────────────────
 
 export async function getBrokerServiceStatus(): Promise<BrokerServiceStatus> {

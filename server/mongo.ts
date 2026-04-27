@@ -134,12 +134,7 @@ mongoose.connection.on("error", (err) => {
 });
 
 // ─── Graceful Shutdown ───────────────────────────────────────────
-process.on("SIGINT", async () => {
-  await disconnectMongo();
-  process.exit(0);
-});
-
-process.on("SIGTERM", async () => {
-  await disconnectMongo();
-  process.exit(0);
-});
+// Mongo runs LAST in the shutdown sequence (priority 1000). Other hooks
+// at lower priorities may still be flushing writes when shutdown begins.
+import { registerShutdownHook } from "./_core/shutdown";
+registerShutdownHook("mongo", disconnectMongo, 1000);

@@ -21,6 +21,7 @@ import { setConfiguredInstruments } from "../tradingStore";
 import { printAgentLegend, createLogger } from "../broker/logger";
 import { registerReadyEndpoint, markReady } from "./ready";
 import { registerFatalHandlers } from "./fatalHandlers";
+import { registerShutdownHook, installSignalHandlers } from "./shutdown";
 
 const bootLog = createLogger("BOOT", "Server");
 
@@ -47,6 +48,11 @@ async function startServer() {
   // Register fatal-error handlers FIRST so any boot-time crash is logged
   // and alerted (not silently swallowed).
   registerFatalHandlers();
+
+  // Wire SIGINT / SIGTERM into the centralised shutdown coordinator.
+  // Hooks register themselves later in boot (mongo, broker, agents,
+  // tickWs); the signal handler just dispatches.
+  installSignalHandlers();
 
   // Print the agent color legend up-front so log-tail watchers know
   // how to read the color-coded prefixes that follow.
@@ -83,8 +89,17 @@ async function startServer() {
       registerAdapter("dhan-ai-data", () => new DhanAdapter("dhan-ai-data", false), { displayName: "Dhan (AI + Data)", isPaperBroker: false });
       await initBrokerService();
       markReady("broker");
+      // Broker WS connections close via brokerService disconnect at prio 500
+      // (after agents flush at 100, before mongo at 1000).
+      registerShutdownHook("brokerService", async () => {
+        const { disconnectAllAdapters } = await import("../broker/brokerService");
+        await disconnectAllAdapters();
+      }, 500);
+
       portfolioAgent.start();
+      registerShutdownHook("portfolioAgent", () => portfolioAgent.stop(), 100);
       tradeExecutor.start();
+      registerShutdownHook("tradeExecutor", () => tradeExecutor.stop(), 100);
     })
     .catch((err) =>
       bootLog.error(`MongoDB initial connection failed: ${(err as Error)?.message ?? err}`)
@@ -119,8 +134,10 @@ async function startServer() {
 
   // Tick WebSocket AFTER Vite so we can intercept /ws/ticks upgrades
   // while letting Vite HMR handle its own WS upgrades
-  setupTickWebSocket(server);
+  const tickWsHandle = setupTickWebSocket(server);
   markReady("tickWs");
+  // tickWs closes BEFORE broker WS so browser clients don't dangle.
+  registerShutdownHook("tickWs", () => tickWsHandle.close(), 400);
 
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);
