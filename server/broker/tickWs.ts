@@ -119,5 +119,5 @@ export function setupTickWebSocket(server: Server): void {
     });
   });
 
-  log.info("Tick WebSocket ready on /ws/ticks");
+  log.important("Tick WebSocket ready on /ws/ticks");
 }

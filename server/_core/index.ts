@@ -121,7 +121,7 @@ async function startServer() {
   }
 
   server.listen(port, () => {
-    bootLog.info(`Server running on http://localhost:${port}/`);
+    bootLog.important(`Server running on http://localhost:${port}/`);
   });
 }
 

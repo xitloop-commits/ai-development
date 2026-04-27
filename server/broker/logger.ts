@@ -34,6 +34,12 @@ export interface Logger {
   info (msg: string, ...args: unknown[]): void;
   warn (msg: string, ...args: unknown[]): void;
   error(msg: string, ...args: unknown[]): void;
+  /**
+   * Emit at INFO level with a clinking-glasses marker (🥂) at the end —
+   * grep-able milestone for agent start/stop, broker connect, server up.
+   * Same semantics as Homebrew's 🍺 on `brew install` success.
+   */
+  important(msg: string, ...args: unknown[]): void;
 }
 
 /** Short agent codes used as the prefix of every tag. */
@@ -133,10 +139,11 @@ export function createLogger(agentOrModule: string, module?: string): Logger {
   }
 
   return {
-    debug: (msg, ...args) => emit("DEBUG", msg, args),
-    info:  (msg, ...args) => emit("INFO",  msg, args),
-    warn:  (msg, ...args) => emit("WARN",  msg, args),
-    error: (msg, ...args) => emit("ERROR", msg, args),
+    debug:     (msg, ...args) => emit("DEBUG", msg, args),
+    info:      (msg, ...args) => emit("INFO",  msg, args),
+    warn:      (msg, ...args) => emit("WARN",  msg, args),
+    error:     (msg, ...args) => emit("ERROR", msg, args),
+    important: (msg, ...args) => emit("INFO",  `${msg} 🥂`, args),
   };
 }
 

@@ -56,7 +56,7 @@ class RecoveryEngine {
       () => this.tick().catch((err) => log.error(`tick: ${err?.message ?? err}`)),
       TICK_INTERVAL_MS,
     );
-    log.info(
+    log.important(
       `Started — stuckThreshold=${this.stuckThresholdMs}ms channels=[${this.channels.join(",")}]`,
     );
   }
@@ -69,7 +69,7 @@ class RecoveryEngine {
       this.tickHandle = null;
     }
     this.lastPollAt.clear();
-    log.info("Stopped");
+    log.important("Stopped");
   }
 
   /** Scan every monitored live channel for stuck PENDING orders. */

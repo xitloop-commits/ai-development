@@ -123,7 +123,7 @@ class TradeExecutorAgent {
     // underlying broker order has reached a terminal status. Backstop
     // for missed WS events. Live channels only.
     recoveryEngine.start();
-    log.info("Started — Trade Executor Agent v1.3 (SEA + RCA + recovery online)");
+    log.important("Started — Trade Executor Agent v1.3 (SEA + RCA + recovery online)");
   }
 
   stop(): void {
@@ -137,7 +137,7 @@ class TradeExecutorAgent {
     seaBridge.stop();
     rcaMonitor.stop();
     recoveryEngine.stop();
-    log.info("Stopped");
+    log.important("Stopped");
   }
 
   // ── §4.1 Submit a trade ─────────────────────────────────────

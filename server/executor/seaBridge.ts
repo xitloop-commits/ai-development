@@ -89,7 +89,7 @@ class SeaBridge {
     // First poll fires immediately so we don't wait 5s for ingest after restart.
     this.poll().catch((err) => log.error(`first poll: ${err?.message ?? err}`));
     this.scheduleNextPoll();
-    log.info(`Started — channel=${channel} (poll cadence reads from executor_settings)`);
+    log.important(`Started — channel=${channel} (poll cadence reads from executor_settings)`);
   }
 
   stop(): void {
@@ -100,7 +100,7 @@ class SeaBridge {
       this.pollHandle = null;
     }
     this.highWaterMark.clear();
-    log.info("Stopped");
+    log.important("Stopped");
   }
 
   /**

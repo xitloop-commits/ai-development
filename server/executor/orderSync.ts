@@ -47,14 +47,14 @@ class OrderSync extends EventEmitter {
     if (this.running) return;
     this.running = true;
     tickBus.on("orderUpdate", this.handleOrderUpdate);
-    log.info("Started — listening for broker order updates");
+    log.important("Started — listening for broker order updates");
   }
 
   stop(): void {
     if (!this.running) return;
     this.running = false;
     tickBus.off("orderUpdate", this.handleOrderUpdate);
-    log.info("Stopped");
+    log.important("Stopped");
   }
 
   private handleOrderUpdate = async (update: OrderUpdate): Promise<void> => {

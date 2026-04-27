@@ -121,7 +121,7 @@ class TickHandler extends EventEmitter {
     if (this.running) return;
     this.running = true;
     tickBus.on("tick", this.handleTick);
-    log.info("Started — listening for ticks");
+    log.important("Started — listening for ticks");
   }
 
   /** Stop listening */
@@ -132,7 +132,7 @@ class TickHandler extends EventEmitter {
       clearTimeout(this.updateDebounce);
       this.updateDebounce = null;
     }
-    log.info("Stopped");
+    log.important("Stopped");
   }
 
   /** Handle incoming tick — debounce to batch updates */

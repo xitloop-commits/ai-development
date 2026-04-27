@@ -77,7 +77,7 @@ class RcaMonitor {
       () => this.tick().catch((err) => log.error(`tick: ${err?.message ?? err}`)),
       TICK_INTERVAL_MS,
     );
-    log.info(
+    log.important(
       `Started — age=${this.maxAgeMs}ms stale=${this.staleTickMs}ms vol>${this.volThreshold} channels=[${this.channels.join(",")}]`,
     );
   }
@@ -90,7 +90,7 @@ class RcaMonitor {
       this.tickHandle = null;
     }
     this.exitAttempted.clear();
-    log.info("Stopped");
+    log.important("Stopped");
   }
 
   /** One supervisory pass per channel: evaluate each open position. */

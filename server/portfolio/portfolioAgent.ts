@@ -153,14 +153,14 @@ class PortfolioAgentImpl {
     if (this.started) return;
     this.started = true;
     tickHandler.start();
-    log.info("Started — Portfolio Agent v1.2 (Phase 1)");
+    log.important("Started — Portfolio Agent v1.2 (Phase 1)");
   }
 
   stop(): void {
     if (!this.started) return;
     this.started = false;
     tickHandler.stop();
-    log.info("Stopped");
+    log.important("Stopped");
   }
 
   /**

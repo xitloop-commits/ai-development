@@ -341,7 +341,7 @@ export async function initBrokerService(): Promise<void> {
     adapters.dhanLive = new DhanAdapter("dhan", false);
     await adapters.dhanLive.connect();
     wireTickBus(adapters.dhanLive);
-    log.info("DhanAdapter (live) connected");
+    log.important("DhanAdapter (live) connected");
   } catch (err) {
     log.error("DhanAdapter (live) failed to connect:", err);
   }
@@ -350,7 +350,7 @@ export async function initBrokerService(): Promise<void> {
   try {
     adapters.dhanSandbox = new DhanAdapter("dhan-sandbox", true);
     await adapters.dhanSandbox.connect();
-    log.info("DhanAdapter (sandbox) connected");
+    log.important("DhanAdapter (sandbox) connected");
   } catch (err) {
     log.warn("DhanAdapter (sandbox) failed to connect:", err);
   }
@@ -370,7 +370,7 @@ export async function initBrokerService(): Promise<void> {
         await candidate.connect();
         wireTickBus(candidate);
         adapters.dhanAiData = candidate;
-        log.info("DhanAdapter (ai-data) connected");
+        log.important("DhanAdapter (ai-data) connected");
       } catch (err: any) {
         log.warn(`DhanAdapter (ai-data) NOT initialized: ${err.message}`);
       }
@@ -388,7 +388,7 @@ export async function initBrokerService(): Promise<void> {
   try {
     adapters.mockAi = new MockAdapter("mock-ai", "Paper (AI Trades)");
     await adapters.mockAi.connect();
-    log.info("MockAdapter (mock-ai) ready");
+    log.important("MockAdapter (mock-ai) ready");
   } catch (err) {
     log.warn("MockAdapter (mock-ai) failed:", err);
   }
@@ -397,7 +397,7 @@ export async function initBrokerService(): Promise<void> {
   try {
     adapters.mockMy = new MockAdapter("mock-my", "Paper (My Trades)");
     await adapters.mockMy.connect();
-    log.info("MockAdapter (mock-my) ready");
+    log.important("MockAdapter (mock-my) ready");
   } catch (err) {
     log.warn("MockAdapter (mock-my) failed:", err);
   }
