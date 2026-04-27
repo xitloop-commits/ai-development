@@ -1,3 +1,7 @@
+> **⚠ ARCHIVED 2026-04-27** — roadmap snapshot from 2026-04-21. Active sources: `docs/IMPLEMENTATION_PLAN_v2.md` (build sheet) + `docs/FINAL_VERIFICATION_TRACKER.md` (punch list) + `docs/ARCHITECTURE_REFACTOR_PLAN.md` (architecture). Kept for historical context.
+
+---
+
 # Specs Refactoring Roadmap
 
 **Date:** 2026-04-09 (original) · Revised 2026-04-21

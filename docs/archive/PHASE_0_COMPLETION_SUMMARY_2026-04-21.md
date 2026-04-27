@@ -1,3 +1,7 @@
+> **⚠ ARCHIVED 2026-04-27** — Phase 0 closure snapshot from 2026-04-21. Active source of truth: `docs/IMPLEMENTATION_PLAN_v2.md` + `docs/FINAL_VERIFICATION_TRACKER.md`. Kept for historical context.
+
+---
+
 # Phase 0: Spec Refactoring — COMPLETION SUMMARY
 
 **Date:** April 9, 2026 (revised 2026-04-21)

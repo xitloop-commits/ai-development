@@ -1,3 +1,7 @@
+> **⚠ ARCHIVED 2026-04-27** — gap-analysis snapshot from 2026-04-21. Many findings are resolved or superseded by `docs/FINAL_VERIFICATION_TRACKER.md`. Kept for historical context.
+
+---
+
 # Broker Service Agent & Capital Pools — Gap Analysis
 
 Date: 21 April 2026  

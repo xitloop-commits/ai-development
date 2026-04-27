@@ -1,3 +1,7 @@
+> **⚠ ARCHIVED 2026-04-27** — pre-consolidation TODO list (last touched 2026-04-21). Superseded by `docs/IMPLEMENTATION_PLAN_v2.md` (build sheet) and `docs/FINAL_VERIFICATION_TRACKER.md` (punch list). Per the cleanup audit, this file may still contain unmigrated granular detail (Position-Tracker UI, Charges schema, Discipline-settings rows) — mine for ideas before relying on tracker alone.
+
+---
+
 # Project TODO
 
 - [x] Basic Terminal Noir dashboard layout
