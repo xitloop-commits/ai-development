@@ -70,21 +70,28 @@ Four isolated processes run in parallel — one for each of nifty50, banknifty, 
 - Manages its own session gate, buffers, recording files, and feature output independently
 - Crashes or restarts without affecting the other three instruments
 
-**Dhan connection budget:**
+**Dhan connection budget — dual-account split (operational since 2026-04-25):**
 
-| Process | Connections |
-|---------|------------|
-| BSA (web UI via `/ws/ticks`) | 1 |
-| TFA — nifty50 | 1 |
-| TFA — banknifty | 1 |
-| TFA — crudeoil | 1 |
-| TFA — naturalgas | 1 |
-| **Total** | **5 (Dhan limit: 5)** |
+Dhan enforces 5 concurrent WebSocket connections per account. The system splits across two accounts so TFA + AI Live cannot starve the user's UI feed.
+
+| Account (`brokerId`) | Process | Connections |
+|---------|---------|------------|
+| `dhan` (primary, user) | BSA web UI tick feed (`/ws/ticks`) | 1 |
+| `dhan` (primary, user) | Order updates (my-live + testing-live) | 1 |
+| `dhan-ai-data` (spouse) | TFA — nifty50 | 1 |
+| `dhan-ai-data` (spouse) | TFA — banknifty | 1 |
+| `dhan-ai-data` (spouse) | TFA — crudeoil | 1 |
+| `dhan-ai-data` (spouse) | TFA — naturalgas | 1 |
+| `dhan-ai-data` (spouse) | Order updates (ai-live) | 1 |
+| **Total per account** | | `dhan`: 2 / 5 · `dhan-ai-data`: 5 / 5 |
+
+`dhan-ai-data` is pegged at the cap by design — adding a 5th instrument or any extra subscription requires either consolidating TFA to a master-forwarder layout, or moving a workload to the primary account (which has 3 slots free). See [DualAccountArchitecture_Spec_v0.1.md](DualAccountArchitecture_Spec_v0.1.md) §11 #1 for headroom strategy.
 
 **Connection safety rules:**
 - Stagger TFA process starts by 5 seconds each (nifty50 → banknifty → crudeoil → naturalgas) to avoid simultaneous connection bursts
 - On disconnect code 805 ("Too many connections"): log ERROR, wait 30s before reconnect attempt (give other connections time to stabilise)
 - BSA is always started before TFA processes
+- TFA processes pull `dhan-ai-data` token via `GET /api/broker/token?brokerId=dhan-ai-data` at startup; do not assume primary credentials
 
 ### 0.4.1 Session Architecture
 

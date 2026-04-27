@@ -31,12 +31,12 @@ The ATS has three independent trading workspaces. Each has its own mode, its own
 
 | Workspace | Who Trades | Purpose | Mode Switch Location |
 |-----------|-----------|---------|---------------------|
-| **AI Trades** | AI model (automatic) | Production AI trading | Settings page only |
-| **My Trades** | User (manual) | Production manual trading | On-screen toggle |
-| **Testing** | User (manual) | Code & logic validation only — not for production trading | On-screen toggle |
+| **AI Trades** | AI model (automatic) | Production AI trading | In-tab pill (AppBar) |
+| **My Trades** | User (manual) | Production manual trading | In-tab pill (AppBar) |
+| **Testing** | User (manual) | Code & logic validation only — not for production trading | In-tab pill (AppBar) |
 
-- **AI Trades** — shows only the active mode at a time (Live or Paper). Mode switched from Settings page.
-- **My Trades** — displays Live and Paper as **two independent tabs**, both always active simultaneously. Mode toggled on-screen.
+- **AI Trades** — shows only the active mode at a time (Live or Paper). Mode toggled via in-tab pill in AppBar (per `MainScreen_Spec_v1.3` and BSA v1.9 changelog: Settings-only toggle retired). Every flip fires a ConfirmDialog regardless of open positions.
+- **My Trades** — displays Live and Paper as **two independent tabs**, both always active simultaneously. Mode toggled via in-tab pill.
 - **Testing** — **one tab** with a Live/Sandbox toggle. Only one mode active at a time. No capital pool connection — purely for code and integration validation before promoting to production channels.
 
 ### 1.2 Channels
@@ -45,18 +45,25 @@ BSA routes all orders through one of six channels. Each channel has its own adap
 
 | Channel | Workspace | Mode | Adapter | `brokerId` | Capital Pool |
 |---------|-----------|------|---------|------------|--------------|
-| `ai-live` | AI Trades | Live | `DhanAdapter` | `"dhan"` | AI Live pool |
+| `ai-live` | AI Trades | Live | `DhanAdapter` | `"dhan-ai-data"` | AI Live pool |
 | `ai-paper` | AI Trades | Paper | `MockAdapter` | `"mock-ai"` | AI Paper pool |
 | `my-live` | My Trades | Live | `DhanAdapter` | `"dhan"` | My Live pool |
 | `my-paper` | My Trades | Paper | `MockAdapter` | `"mock-my"` | My Paper pool |
 | `testing-live` | Testing | Live | `DhanAdapter` | `"dhan"` | **None** |
 | `testing-sandbox` | Testing | Sandbox | `DhanAdapter` (sandboxMode) | `"dhan-sandbox"` | **None** |
 
-**Key points:**
+**Key points (dual-Dhan adapter model — operational since 2026-04-25, see [DualAccountArchitecture_Spec_v0.1.md](DualAccountArchitecture_Spec_v0.1.md)):**
 
-- `ai-live`, `my-live`, and `testing-live` all use the **same DhanAdapter** instance (`brokerId: "dhan"`) — same Dhan account, same credentials, same real order book. Orders from any of these channels are visible together in the Dhan order book.
+- `my-live` and `testing-live` use the **primary `DhanAdapter`** instance (`brokerId: "dhan"`) — the user's own Dhan account. Visible together in the user's Dhan order book.
+- `ai-live` uses a **separate `DhanAdapter`** instance (`brokerId: "dhan-ai-data"`) — spouse's Dhan account, independent credentials/token, isolated order book. Required to free WS headroom: `dhan-ai-data` carries TFA's 4 instrument WS + 1 order-update WS (5 of 5 cap); `dhan` keeps 1 tick feed + 1 order-update (2 of 5).
 - `ai-paper` and `my-paper` are **two separate MockAdapter instances** with separate `broker_configs` documents (`"mock-ai"` and `"mock-my"`) — completely isolated in-memory state; positions and P&L of one have no effect on the other.
 - `testing-sandbox` uses a separate `DhanAdapter` instance (`brokerId: "dhan-sandbox"`, `sandboxMode: true`) pointed at `sandbox.dhan.co` with separate Dhan DevPortal credentials. Fills at a fixed ₹100 regardless of order price — for API contract validation only.
+
+**Per-broker log tags** (use these in every BSA log line so a single grep can isolate one broker's traffic):
+- `[BSA:Dhan/primary]` — calls against `dhan` (my-live, testing-live, primary tick feed, primary order updates)
+- `[BSA:Dhan/ai-data]` — calls against `dhan-ai-data` (ai-live, TFA WS, AI order updates)
+- `[BSA:Dhan/sandbox]` — calls against `dhan-sandbox` (testing-sandbox)
+- `[BSA:Mock/ai]`, `[BSA:Mock/my]` — MockAdapter channels
 - `testing-live` uses real Dhan with small real money — for end-to-end logic validation before promoting to production channels.
 - **No capital pool** for Testing channels. Testing is purely for code and integration validation.
 - Capital pools for AI Trades and My Trades are independent per channel — each follows the 75/25 compounding principle (`PortfolioAgent_Spec_v1.3.md` §2.1–2.5). Pool management is owned by the Portfolio Agent — not BSA.
@@ -66,11 +73,11 @@ BSA routes all orders through one of six channels. Each channel has its own adap
 
 | Workspace | Field | Default | Stored in |
 |-----------|-------|---------|-----------|
-| AI Trades | `aiTradesMode` (`"live"` \| `"paper"`) | `"paper"` | `user_settings` (Settings page only) |
-| My Trades | `myTradesMode` (`"live"` \| `"paper"`) | `"paper"` | `user_settings` (on-screen toggle, persisted) |
-| Testing | `testingMode` (`"live"` \| `"sandbox"`) | `"sandbox"` | `user_settings` (on-screen toggle, persisted) |
+| AI Trades | `aiTradesMode` (`"live"` \| `"paper"`) | `"paper"` | `user_settings` (in-tab pill, persisted) |
+| My Trades | `myTradesMode` (`"live"` \| `"paper"`) | `"paper"` | `user_settings` (in-tab pill, persisted) |
+| Testing | `testingMode` (`"live"` \| `"sandbox"`) | `"sandbox"` | `user_settings` (in-tab pill, persisted) |
 
-> My Trades and Testing mode toggles are on-screen but persisted to `user_settings` so they survive page refresh. AI Trades mode is Settings-only — no on-screen toggle in the AI Trades workspace.
+> All three workspace mode toggles live as in-tab AppBar pills (per `MainScreen_Spec_v1.3` and BSA v1.9 changelog) and are persisted to `user_settings` so they survive page refresh. The earlier "Settings-page-only" location for AI Trades is retired. Every flip fires a ConfirmDialog regardless of open positions to prevent accidental switches.
 
 ---
 
