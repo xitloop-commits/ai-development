@@ -450,7 +450,7 @@ v0.1 of this architecture is considered complete when:
 ## 15. References
 
 - [BSA v1.8](BrokerServiceAgent_Spec_v1.8.md) — trading modes, multi-channel model, §13 token refresh.
-- [Portfolio Agent v1.3](PortfolioAgent_Spec_v1.3.md) §2.1–2.5 — per-channel capital pool semantics (absorbed CapitalPools_Spec_v1.4).
+- [Portfolio Agent v1.3](PortfolioAgent_Spec_v1.3.md) §2.1–2.5 — per-channel capital pool semantics.
 - [TradingDesk v1.2](TradingDesk_Spec_v1.2.md) — 250-day compounding table, workspace tabs.
 - [Discipline Engine v1.3](DisciplineEngine_Spec_v1.3.md) — per-workspace limits, kill switches.
 - [RCA v2.0](RiskControlAgent_Spec_v2.0.md) — position monitoring scope.
