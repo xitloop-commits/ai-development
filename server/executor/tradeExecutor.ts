@@ -38,7 +38,7 @@ import type { Exchange } from "../discipline/types";
 import { idempotencyStore } from "./idempotency";
 import { orderSync } from "./orderSync";
 import { seaBridge } from "./seaBridge";
-import { rcaMonitor } from "./rcaMonitor";
+import { rcaMonitor } from "../risk-control";
 import { recoveryEngine } from "./recoveryEngine";
 import { resolveLotSize } from "./tradeResolution";
 import { getExecutorSettings } from "./settings";
@@ -115,15 +115,15 @@ class TradeExecutorAgent {
     // channel. Phase 1 — paper only. AI Live activation is gated on the
     // 1-lot cap + canary capital + 30-day comparison.
     seaBridge.start("ai-paper");
-    // RCA Phase 1 monitor — age-based exits only. 30-min position cap on
-    // ai-paper. Phase 2 adds momentum / volatility / stale-price triggers.
-    rcaMonitor.start({ channels: ["ai-paper"] });
+    // RCA's lifecycle moved to _core/index.ts (C2) — RCA is a top-level
+    // agent now, not a TEA child. TEA still calls into rcaMonitor at
+    // runtime (signal-flip triggers, etc.) but doesn't own start/stop.
     // Recovery engine — polls live brokers for PENDING orders > 60s old
     // and emits synthetic OrderUpdate events to orderSync if the
     // underlying broker order has reached a terminal status. Backstop
     // for missed WS events. Live channels only.
     recoveryEngine.start();
-    log.important("Started — Trade Executor Agent v1.3 (SEA + RCA + recovery online)");
+    log.important("Started — Trade Executor Agent v1.3 (SEA + recovery online)");
   }
 
   stop(): void {
@@ -135,7 +135,6 @@ class TradeExecutorAgent {
     }
     orderSync.stop();
     seaBridge.stop();
-    rcaMonitor.stop();
     recoveryEngine.stop();
     log.important("Stopped");
   }

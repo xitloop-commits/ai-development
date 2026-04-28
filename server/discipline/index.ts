@@ -45,6 +45,19 @@ import { createLogger } from "../broker/logger";
 
 const log = createLogger("DA", "Agent");
 
+/**
+ * Days from today to the given ISO/YYYY-MM-DD expiry date. Local helper
+ * for the carry-forward eval (which gets the four-condition `dte` from
+ * here). Negative values clamped to 0 — an already-expired contract has
+ * 0 days to expiry, not "minus N".
+ */
+function daysToExpiry(expiry: string): number {
+  const target = new Date(expiry);
+  if (isNaN(target.getTime())) return 0;
+  const ms = target.getTime() - Date.now();
+  return Math.max(0, Math.floor(ms / 86_400_000));
+}
+
 // ─── Discipline Agent Class ───────────────────────────────────
 
 class DisciplineAgent {
@@ -93,29 +106,56 @@ class DisciplineAgent {
   private async runCarryForwardForExchange(userId: string, exchange: Exchange): Promise<void> {
     const settings = await getDisciplineSettings(userId);
     const date = getISTDateString();
-    // Channel partitioning is per-user/per-channel — for the carry-forward
-    // eval we walk every live + paper channel that could have positions on
-    // this exchange. Phase 3 will wire this through PortfolioAgent.
-    let positions: Awaited<ReturnType<typeof runCarryForwardEvaluation>>["evalRecord"]["positions"] = [];
+
+    // Walk PA's open positions and filter by exchange. PA returns
+    // TradeRecord[] per channel; we aggregate across channels and map
+    // into CarryForwardPositionInput[]. Position-level momentum + IV +
+    // DTE come from RCA / SEA enrichment in C3+; for now we use safe
+    // defaults so the eval treats every position as PASS-eligible
+    // unless its own profitPercent / DTE fail.
+    let positions: import("./capitalProtection").CarryForwardPositionInput[] = [];
+    let openTrades: Array<{ tradeId: string; channel: string }> = [];
     try {
       const { portfolioAgent } = await import("../portfolio");
-      // TODO(C3): walk PA's open positions per channel, filter by exchange,
-      // map into CarryForwardPositionInput[]. For now: emit a no-op eval
-      // so the scheduler + state-write path is exercised in production.
-      void portfolioAgent;
+      // Channels we monitor for carry-forward — same as RCA's set.
+      const channels = ["my-live", "ai-live", "ai-paper"] as const;
+      for (const channel of channels) {
+        let trades: Awaited<ReturnType<typeof portfolioAgent.getPositions>> = [];
+        try {
+          trades = await portfolioAgent.getPositions(channel);
+        } catch {
+          continue;
+        }
+        for (const t of trades) {
+          if (t.status !== "OPEN") continue;
+          const isMcx = t.instrument.includes("CRUDE") || t.instrument.includes("NATURAL");
+          const tradeExchange: Exchange = isMcx ? "MCX" : "NSE";
+          if (tradeExchange !== exchange) continue;
+          const grossEntryValue = t.entryPrice * t.qty;
+          const profitPercent = grossEntryValue > 0 ? (t.unrealizedPnl / grossEntryValue) * 100 : 0;
+          const dte = t.expiry ? daysToExpiry(t.expiry) : 0;
+          positions.push({
+            tradeId: t.id,
+            profitPercent,
+            momentumScore: 100,    // TODO(C3): pull from RCA / SEA latest signal
+            dte,
+            ivLabel: "fair",        // TODO(C3): pull from option-chain IV classification
+          });
+          openTrades.push({ tradeId: t.id, channel });
+        }
+      }
     } catch {
       log.warn(`Carry-forward eval skipped for ${exchange} — PA not initialised`);
       return;
     }
 
-    const result = runCarryForwardEvaluation([], settings); // empty until C3 wires positions
-    void positions;
+    const result = runCarryForwardEvaluation(positions, settings);
 
     // Persist the eval record on the (userId, channel="my-live", date)
-    // discipline_state doc — TODO(C3) per-channel records once positions
-    // are walked. If FAIL, halt the exchange's session.
-    const channel = "my-live";
-    const state = await getDisciplineState(userId, date, channel);
+    // discipline_state doc — separate records per channel are a Phase D
+    // concern (single per-user dashboard view today).
+    const stateChannel = "my-live";
+    const state = await getDisciplineState(userId, date, stateChannel);
     state.carryForwardEvals = state.carryForwardEvals ?? {};
     if (exchange === "NSE") state.carryForwardEvals.nse = result.evalRecord;
     if (exchange === "MCX") state.carryForwardEvals.mcx = result.evalRecord;
@@ -127,9 +167,27 @@ class DisciplineAgent {
     await updateDisciplineState(userId, date, {
       carryForwardEvals: state.carryForwardEvals,
       sessionHalts: state.sessionHalts,
-    }, channel);
+    }, stateChannel);
 
-    log.info(`${exchange} carry-forward eval: ${result.outcome} (${result.tradesToExit.length} exits queued — TODO C3 wires TEA)`);
+    // C3 wiring: when carry-forward FAILs, push MUST_EXIT to RCA
+    // (in-process call — RCA is in the same Node runtime). RCA fans
+    // out to the affected trades and exits via TEA with
+    // triggeredBy=DISCIPLINE so PA tags the audit trail correctly.
+    if (result.outcome === "FAIL" && result.tradesToExit.length > 0 && settings.capitalProtection.carryForward.autoExit) {
+      try {
+        const { rcaMonitor } = await import("../risk-control");
+        const exitRes = await rcaMonitor.disciplineRequest({
+          reason: "DISCIPLINE_EXIT",
+          detail: `Carry-forward FAIL on ${exchange} — ${result.tradesToExit.length} positions`,
+          scope: { kind: "TRADE_IDS", tradeIds: result.tradesToExit },
+        });
+        log.important(`Carry-forward FAIL → RCA exited ${exitRes.exited}/${result.tradesToExit.length}`);
+      } catch (err: any) {
+        log.error(`Carry-forward → RCA push failed: ${err?.message ?? err}`);
+      }
+    }
+
+    log.info(`${exchange} carry-forward eval: ${result.outcome} (${result.tradesToExit.length} exits)`);
   }
 
   // ─── Pre-Trade Validation Pipeline ─────────────────────────
@@ -365,11 +423,49 @@ class DisciplineAgent {
     }
     if (verdict.grace) {
       updates.capGrace = verdict.grace;
+      // Schedule the auto-EXIT_ALL ticker. When grace expires the
+      // operator never acted; we push MUST_EXIT to RCA which fans out
+      // exits via TEA. Single setTimeout per cap-fire — duplicates are
+      // harmless because the second fire sees acknowledged === true.
+      this.scheduleCapGraceDeadline(userId, channel, verdict.grace);
     }
 
     await updateDisciplineState(userId, date, updates, channel);
 
     return { cooldownStarted, circuitBreakerTriggered };
+  }
+
+  /**
+   * Wake at the cap-grace deadline. If the operator never acknowledged,
+   * fire MUST_EXIT to RCA which exits all open positions on the channel.
+   * Multiple cap fires schedule multiple timers — that's fine, they
+   * all check `acknowledged` before acting.
+   */
+  private scheduleCapGraceDeadline(
+    userId: string,
+    channel: string,
+    grace: import("./types").CapGracePeriod,
+  ): void {
+    const ms = Math.max(0, grace.deadline.getTime() - Date.now());
+    const t = setTimeout(async () => {
+      try {
+        const date = getISTDateString();
+        const state = await getDisciplineState(userId, date, channel);
+        if (!state.capGrace || state.capGrace.acknowledged) return;
+        if (state.capGrace.deadline.getTime() !== grace.deadline.getTime()) return; // a new grace replaced ours
+        log.important(`Cap-grace expired (${grace.source}) — pushing EXIT_ALL to RCA`);
+        const { rcaMonitor } = await import("../risk-control");
+        await rcaMonitor.disciplineRequest({
+          reason: "DISCIPLINE_EXIT",
+          detail: `${grace.source} grace expired without operator action`,
+          channels: [channel as any],
+          scope: { kind: "ALL" },
+        });
+      } catch (err: any) {
+        log.error(`Cap-grace auto-exit failed: ${err?.message ?? err}`);
+      }
+    }, ms);
+    if (typeof t.unref === "function") t.unref();
   }
 
   /**

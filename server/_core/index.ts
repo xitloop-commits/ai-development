@@ -110,6 +110,14 @@ async function startServer() {
       const { disciplineAgent } = await import("../discipline");
       await disciplineAgent.start();
       registerShutdownHook("disciplineAgent", () => disciplineAgent.stop(), 100);
+
+      // Risk Control Agent — top-level agent (C2). Owns the real-time
+      // monitor loop (age, stale-price, momentum-flip, volatility). The
+      // 3 inbound REST endpoints (evaluate, discipline-request, ai-signal)
+      // are registered separately below.
+      const { rcaMonitor } = await import("../risk-control");
+      rcaMonitor.start({ channels: ["ai-paper"] });
+      registerShutdownHook("riskControl", () => rcaMonitor.stop(), 100);
     })
     .catch((err) =>
       bootLog.error(`MongoDB initial connection failed: ${(err as Error)?.message ?? err}`)
@@ -140,6 +148,9 @@ async function startServer() {
   registerBrokerRoutes(app);
   // Portfolio Agent REST API (PA spec §10.1)
   registerPortfolioRoutes(app);
+  // Risk Control Agent REST API — inbound from DA + SEA (C2)
+  const { registerRiskControlRoutes } = await import("../risk-control/routes");
+  registerRiskControlRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",

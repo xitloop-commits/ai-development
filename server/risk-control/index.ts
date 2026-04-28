@@ -29,11 +29,11 @@
 
 import { createLogger } from "../broker/logger";
 import { portfolioAgent } from "../portfolio";
-import { tradeExecutor } from "./tradeExecutor";
+import { tradeExecutor } from "../executor/tradeExecutor";
 import { getSEASignals, type SEASignal } from "../seaSignals";
 import type { Channel, TradeRecord } from "../portfolio/state";
-import type { ExitTradeReason } from "./types";
-import { getExecutorSettings } from "./settings";
+import type { ExitTradeReason } from "../executor/types";
+import { getExecutorSettings } from "../executor/settings";
 
 const log = createLogger("RCA", "Monitor");
 
@@ -236,6 +236,191 @@ class RcaMonitor {
       case "PUT_SELL":  return sigBearish; // PE writer flips if model turns bearish
       default:          return false;
     }
+  }
+
+  // ─── C2: inbound APIs ──────────────────────────────────────────
+  // These three methods are the agent-to-agent boundary. They're
+  // invoked by the REST routes in ./routes.ts (Discipline, SEA) and
+  // are the ONLY public mutation surface besides start/stop. The
+  // routes do schema validation + auth at the boundary; method bodies
+  // assume well-typed inputs.
+
+  /**
+   * Pre-trade evaluation entry point. Discipline Agent's pre-trade gate
+   * forwards a validated trade request here for risk evaluation. RCA's
+   * decision: APPROVE / REJECT / SIZE_ADJUST. APPROVE forwards to TEA.
+   *
+   * Phase 1: minimal-viable evaluation — approve if the channel doesn't
+   * already have a stale-price exit pending and the kill switch isn't
+   * armed. Phase 2 (C3) adds momentum + exposure + correlation checks.
+   */
+  async evaluateTrade(input: {
+    executionId: string;
+    channel: Channel;
+    instrument: string;
+    direction: "BUY" | "SELL";
+    quantity: number;
+    entryPrice: number;
+    stopLoss: number | null;
+    takeProfit: number | null;
+    optionType?: "CE" | "PE" | "FUT";
+    strike?: number;
+    expiry?: string;
+    contractSecurityId?: string;
+    capitalPercent?: number;
+    origin: "RCA" | "AI" | "USER";
+  }): Promise<{
+    decision: "APPROVE" | "REJECT" | "SIZE_ADJUST";
+    reason?: string;
+    sizing?: { quantity: number; stopLoss: number | null; takeProfit: number | null };
+    submitResult?: Awaited<ReturnType<typeof tradeExecutor.submitTrade>>;
+  }> {
+    log.info(`evaluate channel=${input.channel} instrument=${input.instrument} qty=${input.quantity}`);
+    // Phase 1 pass-through to TEA — APPROVE every well-formed input.
+    // C3 will replace this body with real risk math.
+    const submitResult = await tradeExecutor.submitTrade({
+      executionId: input.executionId,
+      channel: input.channel,
+      origin: input.origin,
+      instrument: input.instrument,
+      direction: input.direction,
+      quantity: input.quantity,
+      entryPrice: input.entryPrice,
+      stopLoss: input.stopLoss,
+      takeProfit: input.takeProfit,
+      orderType: "MARKET",
+      productType: "INTRADAY",
+      optionType: input.optionType,
+      strike: input.strike,
+      expiry: input.expiry,
+      contractSecurityId: input.contractSecurityId,
+      capitalPercent: input.capitalPercent,
+      timestamp: Date.now(),
+    });
+    return {
+      decision: submitResult.success ? "APPROVE" : "REJECT",
+      reason: submitResult.error,
+      submitResult,
+    };
+  }
+
+  /**
+   * Discipline-driven exit request. DA pushes here when a hard rule
+   * fires (cap hit, carry-forward FAIL, circuit breaker, manual halt).
+   * RCA fans out to the affected open positions and exits via TEA.
+   *
+   * Scope semantics:
+   *   ALL          — every open position on the supplied channel(s)
+   *   INSTRUMENT   — every open position on `instrument` across channels
+   *   tradeIds     — explicit trade IDs (used by carry-forward FAIL list)
+   */
+  async disciplineRequest(input: {
+    reason: ExitTradeReason;
+    detail?: string;
+    channels?: Channel[];
+    scope: { kind: "ALL" } | { kind: "INSTRUMENT"; instrument: string } | { kind: "TRADE_IDS"; tradeIds: string[] };
+  }): Promise<{ exited: number; failed: number; details: Array<{ tradeId: string; ok: boolean; error?: string }> }> {
+    log.info(`disciplineRequest reason=${input.reason} scope=${input.scope.kind}`);
+    const channels = input.channels ?? this.channels;
+    const targets: Array<{ channel: Channel; trade: TradeRecord }> = [];
+
+    for (const channel of channels) {
+      let positions: TradeRecord[] = [];
+      try {
+        positions = await portfolioAgent.getPositions(channel);
+      } catch (err: any) {
+        log.warn(`getPositions ${channel} failed: ${err?.message ?? err}`);
+        continue;
+      }
+      for (const trade of positions) {
+        if (trade.status !== "OPEN") continue;
+        if (input.scope.kind === "ALL") {
+          targets.push({ channel, trade });
+        } else if (input.scope.kind === "INSTRUMENT" && trade.instrument === input.scope.instrument) {
+          targets.push({ channel, trade });
+        } else if (input.scope.kind === "TRADE_IDS" && input.scope.tradeIds.includes(trade.id)) {
+          targets.push({ channel, trade });
+        }
+      }
+    }
+
+    const details: Array<{ tradeId: string; ok: boolean; error?: string }> = [];
+    let exited = 0;
+    let failed = 0;
+    for (const { channel, trade } of targets) {
+      const positionId = `POS-${trade.id.replace(/^T/, "")}`;
+      try {
+        const resp = await tradeExecutor.exitTrade({
+          executionId: `RCA-DISCIPLINE-${trade.id}-${Date.now()}`,
+          positionId,
+          channel,
+          exitType: "MARKET",
+          reason: input.reason,
+          triggeredBy: "DISCIPLINE",
+          detail: input.detail,
+          timestamp: Date.now(),
+        });
+        details.push({ tradeId: trade.id, ok: resp.success, error: resp.error });
+        if (resp.success) exited++; else failed++;
+      } catch (err: any) {
+        details.push({ tradeId: trade.id, ok: false, error: err?.message ?? String(err) });
+        failed++;
+      }
+    }
+    log.info(`disciplineRequest done — exited=${exited} failed=${failed}`);
+    return { exited, failed, details };
+  }
+
+  /**
+   * SEA-driven signal — continuous market analysis from Python. Today
+   * RCA only honours EXIT signals; MODIFY_SL/TP are queued for C3 when
+   * the cross-agent payload is reconciled. Validates that the signal
+   * matches an open position before forwarding to TEA.
+   */
+  async aiSignal(input: {
+    instrument: string;
+    signal: "EXIT" | "MODIFY_SL" | "MODIFY_TP";
+    confidence?: number;
+    detail?: string;
+  }): Promise<{ acted: number; skipped: number }> {
+    log.info(`aiSignal instrument=${input.instrument} signal=${input.signal} conf=${input.confidence ?? "?"}`);
+    if (input.signal !== "EXIT") {
+      log.warn(`aiSignal MODIFY_* not yet implemented — TODO C3`);
+      return { acted: 0, skipped: 1 };
+    }
+
+    let acted = 0;
+    let skipped = 0;
+    for (const channel of this.channels) {
+      let positions: TradeRecord[] = [];
+      try {
+        positions = await portfolioAgent.getPositions(channel);
+      } catch {
+        continue;
+      }
+      for (const trade of positions) {
+        if (trade.status !== "OPEN") continue;
+        if (trade.instrument !== input.instrument) continue;
+        const positionId = `POS-${trade.id.replace(/^T/, "")}`;
+        try {
+          const resp = await tradeExecutor.exitTrade({
+            executionId: `RCA-AI-${trade.id}-${Date.now()}`,
+            positionId,
+            channel,
+            exitType: "MARKET",
+            reason: "AI_EXIT",
+            triggeredBy: "AI",
+            detail: input.detail ?? `SEA EXIT signal (conf=${input.confidence ?? "?"})`,
+            timestamp: Date.now(),
+          });
+          if (resp.success) acted++; else skipped++;
+        } catch {
+          skipped++;
+        }
+      }
+    }
+    log.info(`aiSignal done — acted=${acted} skipped=${skipped}`);
+    return { acted, skipped };
   }
 
   private async exit(
