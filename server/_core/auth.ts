@@ -21,14 +21,24 @@
  * Exemptions: /health and /ready (kube/launcher probes — must stay open).
  */
 
-import type { Request, Response, NextFunction } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createLogger } from "../broker/logger";
 
 const log = createLogger("BOOT", "Auth");
 
 const HEADER = "x-internal-token";
 
-const EXEMPT_PATHS = new Set(["/health", "/ready"]);
+/**
+ * Paths exempted from the auth check. These are matched against
+ * `req.path` *after* the /api mount-point strip, so a top-level
+ * /health probe never even reaches this middleware.
+ *
+ * `/_auth/bootstrap` is the dashboard-bootstrap endpoint: the browser
+ * fetches it on first paint to learn the secret, so it must be open
+ * to unauthenticated callers — and protected by a loopback IP guard
+ * inside its own handler instead.
+ */
+const EXEMPT_PATHS = new Set(["/health", "/ready", "/_auth/bootstrap"]);
 
 let warnedNoSecret = false;
 
@@ -94,4 +104,34 @@ function constantTimeEqual(a: string, b: string): boolean {
 /** Test-only — reset the one-shot warning flag. */
 export function _resetAuthForTesting(): void {
   warnedNoSecret = false;
+}
+
+function isLoopbackIp(ip: string | undefined): boolean {
+  if (!ip) return false;
+  return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+}
+
+/**
+ * Mount `GET /api/_auth/bootstrap` — the dashboard reads this on first
+ * paint to learn INTERNAL_API_SECRET. Loopback-only: rejects 403 to any
+ * external caller, matching the existing pattern at /api/broker/token.
+ *
+ * The request is exempted from authMiddleware (see EXEMPT_PATHS), so
+ * the browser can call it before having the token.
+ */
+export function registerAuthBootstrapEndpoint(app: Express): void {
+  app.get("/api/_auth/bootstrap", (req: Request, res: Response) => {
+    if (!isLoopbackIp(req.ip)) {
+      res.status(403).json({ error: "Forbidden — loopback only" });
+      return;
+    }
+    const secret = getInternalApiSecret();
+    if (!secret) {
+      // Server isn't configured to enforce auth yet — return empty so
+      // the client knows there's nothing to send.
+      res.json({ secret: "" });
+      return;
+    }
+    res.json({ secret });
+  });
 }

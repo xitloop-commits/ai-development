@@ -22,7 +22,7 @@ import { printAgentLegend, createLogger } from "../broker/logger";
 import { registerReadyEndpoint, markReady } from "./ready";
 import { registerFatalHandlers } from "./fatalHandlers";
 import { registerShutdownHook, installSignalHandlers } from "./shutdown";
-import { authMiddleware } from "./auth";
+import { authMiddleware, registerAuthBootstrapEndpoint } from "./auth";
 
 const bootLog = createLogger("BOOT", "Server");
 
@@ -118,6 +118,12 @@ async function startServer() {
   // exempt internally. During rollout the middleware runs in warn-only
   // mode (logs but proceeds); flip REQUIRE_INTERNAL_AUTH=true to enforce.
   app.use("/api", authMiddleware);
+
+  // B1-followup — dashboard reads INTERNAL_API_SECRET from this
+  // loopback-only endpoint on first paint, then attaches the header
+  // to every subsequent /api/* call. Lives at /api/_auth/bootstrap
+  // and is exempted from authMiddleware via EXEMPT_PATHS.
+  registerAuthBootstrapEndpoint(app);
 
   // Trading data push API (receives data from Python modules)
   registerTradingRoutes(app);

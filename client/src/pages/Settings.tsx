@@ -10,6 +10,7 @@
  */
 import { useState, useEffect, useMemo, createContext, useContext, useRef } from 'react';
 import { trpc } from '@/lib/trpc';
+import { authHeaders } from '@/lib/internalAuth';
 import { useCapital } from '@/contexts/CapitalContext';
 import { Link } from 'wouter';
 import { toast } from 'sonner';
@@ -1909,7 +1910,9 @@ export function InstrumentsSection() {
       if (searchExchange !== 'ALL') {
         params.set('exchange', searchExchange);
       }
-      const response = await fetch(`/api/trading/search-instruments?${params}`);
+      const response = await fetch(`/api/trading/search-instruments?${params}`, {
+        headers: { ...authHeaders() },
+      });
       const data = await response.json();
       if (data.results) {
         setSearchResults(data.results.slice(0, 10));
@@ -1928,7 +1931,7 @@ export function InstrumentsSection() {
     try {
       const response = await fetch('/api/trading/instruments', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
           key: result.securityId,
           displayName: result.customSymbol || result.tradingSymbol,
@@ -1960,6 +1963,7 @@ export function InstrumentsSection() {
     try {
       const response = await fetch(`/api/trading/instruments/${key}`, {
         method: 'DELETE',
+        headers: { ...authHeaders() },
       });
       const data = await response.json();
       if (data.success) {
@@ -1991,7 +1995,7 @@ export function InstrumentsSection() {
     try {
       const response = await fetch(`/api/trading/instruments/${instrumentKey}/hotkey`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ hotkey: key }),
       });
       const data = await response.json();
