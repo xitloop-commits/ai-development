@@ -61,7 +61,7 @@ vi.mock("./settings", () => ({
 }));
 
 vi.mock("../discipline", () => ({
-  disciplineEngine: {
+  disciplineAgent: {
     validateTrade: vi.fn(async () => ({
       allowed: true,
       blockedBy: [],

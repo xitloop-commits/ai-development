@@ -11,7 +11,7 @@
 | Version | Date | Description |
 |---------|------|-------------|
 | 1.0 | March 30, 2026 | Initial specification |
-| 1.1 | April 2, 2026 | Expanded Discipline section to include all 39 configurable parameters, enable/disable toggles, types, ranges, and defaults from the Discipline Engine spec. |
+| 1.1 | April 2, 2026 | Expanded Discipline section to include all 39 configurable parameters, enable/disable toggles, types, ranges, and defaults from the Discipline Agent spec. |
 | 1.2 | April 2, 2026 | Cross-functionality update: established as master parameter registry, updated exposure/position defaults (40%/80%), added graduated near-expiry reduction model |
 | 1.3 | April 9, 2026 | Added Capital Protection section (Module 8) to Section 3.3 Discipline table. |
 | 1.4 | April 11, 2026 | Added §3.7 Trading Mode — workspace mode fields (`aiTradesMode`, `myTradesMode`, `testingMode`) and kill switch state per workspace. Added to schema (§4.1), defaults (§4.2), and tRPC endpoints (§5.1). Referenced from `BrokerServiceAgent_Spec_v1.6.md`. |

@@ -33,7 +33,7 @@ import type {
 } from "../broker/types";
 import { portfolioAgent } from "../portfolio";
 import type { Channel, TradeRecord, TradeStatus } from "../portfolio/state";
-import { disciplineEngine } from "../discipline";
+import { disciplineAgent } from "../discipline";
 import type { Exchange } from "../discipline/types";
 import { idempotencyStore } from "./idempotency";
 import { orderSync } from "./orderSync";
@@ -319,7 +319,7 @@ class TradeExecutorAgent {
   }
 
   /**
-   * Discipline cap-check: query disciplineEngine.validateTrade() with
+   * Discipline cap-check: query disciplineAgent.validateTrade() with
    * the snapshot's currentCapital + openExposure. Returns a human
    * blockedBy string if the trade should be rejected, or null if
    * Discipline allows it.
@@ -343,7 +343,7 @@ class TradeExecutorAgent {
         req.instrument.toUpperCase().includes("CRUDE") || req.instrument.toUpperCase().includes("NATURAL")
           ? "MCX"
           : "NSE";
-      const result = await disciplineEngine.validateTrade(
+      const result = await disciplineAgent.validateTrade(
         "1",
         {
           instrument: req.instrument,

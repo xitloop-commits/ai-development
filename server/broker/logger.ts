@@ -68,7 +68,7 @@ const AGENT_COLORS: Record<AgentCode, string> = {
   PA:   "\x1b[92m",        // bright green — Portfolio Agent
   TEA:  "\x1b[38;5;208m",  // orange       — Trade Executor Agent
   RCA:  "\x1b[35m",        // magenta      — Risk Control Agent
-  DE:   "\x1b[33m",        // yellow       — Discipline Engine
+  DE:   "\x1b[33m",        // yellow       — Discipline Agent
   BOOT: "\x1b[37m",        // light gray   — server boot / shared
 };
 
@@ -78,7 +78,7 @@ const AGENT_DESCRIPTIONS: Record<AgentCode, string> = {
   PA:   "Portfolio Agent — capital, positions, drawdown, audit log",
   TEA:  "Trade Executor Agent — single execution gateway",
   RCA:  "Risk Control Agent — open-position monitor, exit triggers",
-  DE:   "Discipline Engine — pre-trade gate, cooldowns, circuit breaker",
+  DE:   "Discipline Agent — pre-trade gate, cooldowns, circuit breaker",
   BOOT: "Server Boot — Express + tRPC bootstrap, MongoDB, lifecycle",
 };
 

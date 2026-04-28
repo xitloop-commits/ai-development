@@ -1582,7 +1582,7 @@ export function TimeWindowsSection() {
       <div className="col-span-full flex items-center gap-2 p-2 rounded bg-info-cyan/5 border border-info-cyan/20">
         <Info className="h-3.5 w-3.5 text-info-cyan shrink-0" />
         <span className="text-[0.625rem] text-info-cyan">
-          Time windows are enforced by the Discipline Engine. Lunch break pause applies only to NSE. MCX has no scheduled lunch break.
+          Time windows are enforced by the Discipline Agent. Lunch break pause applies only to NSE. MCX has no scheduled lunch break.
         </span>
       </div>
     </div>

@@ -57,7 +57,7 @@ import { calculateTradeCharges } from "./charges";
 import type { ChargeRate } from "./charges";
 import { getUserSettings } from "../userSettings";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
-import { disciplineEngine } from "../discipline";
+import { disciplineAgent } from "../discipline";
 import type {
   PortfolioSnapshot,
   TradeClosedRequest,
@@ -882,7 +882,7 @@ class PortfolioAgentImpl {
     // Push outcome into Discipline so its streak / cooldown / circuit-breaker
     // counters track this close. Phase 3 will activate full cap-check feedback.
     try {
-      await disciplineEngine.recordTradeOutcome({
+      await disciplineAgent.recordTradeOutcome({
         channel: req.channel,
         tradeId: req.tradeId,
         realizedPnl: req.realizedPnl,

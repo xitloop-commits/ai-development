@@ -9,7 +9,7 @@
 
 The original (2026-04-08) plan introduced a separate **Decision Engine** as a fifth agent sitting between AI signal generation and RCA. That split has since been collapsed:
 
-- **No standalone Decision Engine.** Its two responsibilities — pre-trade policy validation and entry timing — are owned by the **Discipline Engine** (Module 4: Pre-Trade Gate) and, for capital protection / session halt, **Module 8**.
+- **No standalone Decision Engine.** Its two responsibilities — pre-trade policy validation and entry timing — are owned by the **Discipline Agent** (Module 4: Pre-Trade Gate) and, for capital protection / session halt, **Module 8**.
 - **SEA** (Strategy / Signal Engine Agent, Python) is the sole producer of AI trade signals. SEA posts directly to Discipline, then RCA, then TEA.
 - The Python monolith that previously bundled these concerns has been deleted. Its seven legacy responsibilities have been split across the four remaining agents (see mapping below).
 
@@ -38,7 +38,7 @@ SEA (Python, generates signals)
 1. **Single execution point** — TradeExecutorAgent is the ONLY module that calls the broker.
 2. **Single position owner** — Portfolio Agent owns all position state and trade outcomes.
 3. **Single risk owner** — RCA owns all live SL/TP/TSL and exit decisions.
-4. **Single policy owner** — Discipline Engine owns all pre-trade gating, capital caps, and session halts.
+4. **Single policy owner** — Discipline Agent owns all pre-trade gating, capital caps, and session halts.
 
 ---
 
@@ -49,11 +49,11 @@ The earlier Python monolith carried seven responsibilities. The module itself ha
 | # | Legacy responsibility | New owner | Notes |
 |---|---|---|---|
 | 1 | Read AI decisions | SEA (produces directly) | SEA writes signal; Discipline validates before it reaches RCA |
-| 2 | Check Discipline Engine | Discipline Engine — Module 4 | `POST /api/discipline/validateTrade` is the pre-trade gate |
-| 3 | Entry timing validation | Discipline Engine — Module 4 | Folded into the pre-trade gate evaluation |
+| 2 | Check Discipline Agent | Discipline Agent — Module 4 | `POST /api/discipline/validateTrade` is the pre-trade gate |
+| 3 | Entry timing validation | Discipline Agent — Module 4 | Folded into the pre-trade gate evaluation |
 | 4 | Profit exits (6%, 10%) | Risk Control Agent | RCA's own rules in continuous monitoring |
 | 5 | Position monitoring & exits | Risk Control Agent | 1–5s monitoring loop over all open positions |
-| 6 | Session management | Discipline Engine — Module 8 | Daily caps, carry forward, session halt |
+| 6 | Session management | Discipline Agent — Module 8 | Daily caps, carry forward, session halt |
 | 7 | Feedback loop tuning | FeedbackAgent (future) | Deferred |
 
 ---
@@ -207,7 +207,7 @@ RISK CONTROL AGENT (RCA) receives requests from 3 sources:
         │                                           │
         │  Sources of requests:                     │
         │  ├─ Own rules (continuous monitoring)     │
-        │  ├─ Discipline Engine (mandatory)         │
+        │  ├─ Discipline Agent (mandatory)         │
         │  └─ SEA AI signals (validated)            │
         │                                           │
         │  Decides: APPROVE / EXIT / MODIFY        │
@@ -316,7 +316,7 @@ RISK CONTROL AGENT (RCA) receives requests from 3 sources:
 **Outbound APIs:**
 - `POST /api/risk-control/discipline-request` — signals RCA to exit or modify
 
-See **DisciplineEngine_Spec_v1.3.md** for the full specification.
+See **DisciplineAgent_Spec_v1.4.md** for the full specification.
 
 ---
 
@@ -358,7 +358,7 @@ for each OPEN_POSITION:
 
 #### C. Handling External Requests
 
-**From Discipline Engine:**
+**From Discipline Agent:**
 ```typescript
 POST /api/risk-control/discipline-request
   Body: {position_id, action: 'EXIT'|'MODIFY', reason, params}
@@ -464,7 +464,7 @@ See **TradeExecutorAgent_Spec_v1.3.md** for the full specification.
 - Historical trade records
 
 **Updated By:** TradeExecutorAgent ONLY
-**Queried By:** RCA, Discipline Engine, Dashboard, FeedbackAgent (future)
+**Queried By:** RCA, Discipline Agent, Dashboard, FeedbackAgent (future)
 
 **APIs:**
 ```
@@ -498,7 +498,7 @@ See **PortfolioAgent_Spec_v1.3.md** for the full specification.
 - RCA v2.0, TEA v1.3, Discipline v1.3, Portfolio v1.1 specs written
 - Discipline Module 8 folded Session Manager in (same phase)
 
-### Phase 1: Discipline Engine (Weeks 1–2)
+### Phase 1: Discipline Agent (Weeks 1–2)
 - Add Module 4 Pre-Trade Gate `/api/discipline/validateTrade`
 - Add Module 8 Capital Protection (caps, carry forward, session halt)
 - Wire `recordTradeOutcome` receiver
@@ -542,14 +542,14 @@ See **PortfolioAgent_Spec_v1.3.md** for the full specification.
 
 ## API Contracts Summary
 
-### SEA → Discipline Engine (pre-trade gate)
+### SEA → Discipline Agent (pre-trade gate)
 ```
 POST /api/discipline/validateTrade
 Body: { instrument, trade_setup, confidence_score, entry_timing, timestamp }
 Returns: { allowed, blocked_by, warnings, approved_payload_for_rca }
 ```
 
-### Discipline Engine → Risk Control Agent (entry)
+### Discipline Agent → Risk Control Agent (entry)
 ```
 POST /api/risk-control/evaluate
 Body: { signal, discipline_status }
@@ -562,7 +562,7 @@ POST /api/risk-control/ai-signal
 Body: { position_id, action, signal, reason, params }
 ```
 
-### Discipline Engine → Risk Control Agent (hard rules)
+### Discipline Agent → Risk Control Agent (hard rules)
 ```
 POST /api/risk-control/discipline-request
 Body: { position_id, action, reason, params }
@@ -589,7 +589,7 @@ POST /api/portfolio/recordTradeUpdated
 POST /api/portfolio/recordTradeClosed
 ```
 
-### Portfolio Agent → Discipline Engine (push)
+### Portfolio Agent → Discipline Agent (push)
 ```
 POST /api/discipline/recordTradeOutcome
 ```
@@ -601,7 +601,7 @@ POST /api/discipline/recordTradeOutcome
 1. **Single Execution Point** — TradeExecutorAgent is the ONLY module calling the broker.
 2. **Single Position Owner** — Portfolio Agent owns all position state.
 3. **Single Risk Owner** — RCA owns all SL/TP/TSL and exit decisions.
-4. **Single Policy Owner** — Discipline Engine owns all pre-trade gating and capital protection.
+4. **Single Policy Owner** — Discipline Agent owns all pre-trade gating and capital protection.
 5. **Paper vs Live Aware** — RCA and TEA differentiate; broker handles SL/TP on live.
 6. **Event-Driven** — Broker events drive state transitions.
 7. **Audit Trail** — All decisions, modifications, exits logged with `exit_triggered_by`.
@@ -616,7 +616,7 @@ POST /api/discipline/recordTradeOutcome
 - ✅ Portfolio Agent is single source of position truth
 - ✅ Portfolio Agent records all trade outcomes with `exit_triggered_by`
 - ✅ RCA monitors all open positions in real-time (< 5s latency)
-- ✅ Discipline Engine can halt trading and request exits via RCA
+- ✅ Discipline Agent can halt trading and request exits via RCA
 - ✅ SEA AI signals flow through Discipline → RCA (no direct SEA → TEA path)
 - ✅ Paper trades fully managed by RCA
 - ✅ Live trades allow RCA to modify SL/TP/TSL via TEA

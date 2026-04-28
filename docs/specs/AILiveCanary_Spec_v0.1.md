@@ -172,7 +172,7 @@ If the canary aborts or 30-day window completes with FAILURE:
 - [PortfolioAgent v1.3](PortfolioAgent_Spec_v1.3.md) — capital pool semantics, single-writer rule
 - [TradeExecutorAgent v1.3](TradeExecutorAgent_Spec_v1.3.md) — execution gateway, 1-lot cap location
 - [RiskControlAgent v2.0](RiskControlAgent_Spec_v2.0.md) — exit triggers
-- [DisciplineEngine v1.3](DisciplineEngine_Spec_v1.3.md) — pre-trade cap-check
+- [DisciplineAgent v1.3](DisciplineAgent_Spec_v1.4.md) — pre-trade cap-check
 - [BrokerServiceAgent v1.9](BrokerServiceAgent_Spec_v1.9.md) — multi-channel adapter routing
 - [ModelTrainingAgent v0.1](ModelTrainingAgent_Spec_v0.1.md) — AI Trades mode (paper ↔ live)
 - [DualAccountArchitecture v0.1](DualAccountArchitecture_Spec_v0.1.md) — wife's account setup

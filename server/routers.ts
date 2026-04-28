@@ -251,7 +251,7 @@ export const appRouter = router({
   // gateway. Phase 1 commit 1: skeleton; methods wired in subsequent commits.
   executor: executorRouter,
 
-  // Discipline Engine
+  // Discipline Agent
   discipline: disciplineRouter,
 
   // MongoDB health check

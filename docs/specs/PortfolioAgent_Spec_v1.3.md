@@ -12,7 +12,7 @@
 | Version | Date | Author | Summary |
 | --- | --- | --- | --- |
 | v1.0 | 2026-04-08 | AI Team | Initial specification for a unified, centralized Portfolio Agent that manages portfolio state, capital, exposure, drawdown, and portfolio-level risk signals. |
-| v1.0.1 | 2026-04-09 | Architecture Team | **ENHANCEMENT:** Added trade outcome recording (Section 5.2), daily P&L metrics, exit_triggered_by field for tracking who initiated trade exits. Integration with Discipline Engine capital protection, RCA exit signals, and SEA (AI signals). |
+| v1.0.1 | 2026-04-09 | Architecture Team | **ENHANCEMENT:** Added trade outcome recording (Section 5.2), daily P&L metrics, exit_triggered_by field for tracking who initiated trade exits. Integration with Discipline Agent capital protection, RCA exit signals, and SEA (AI signals). |
 | v1.1 | 2026-04-09 | AI Team | **UPDATED:** Replaced 5-second polling model with push-only integration — Portfolio Agent calls discipline.recordTradeOutcome after every trade close. Defined full response contract for GET /api/portfolio/daily-pnl (7 fields). Clarified endpoint is for on-demand reads only, not cap monitoring. |
 | v1.2 | 2026-04-24 | Architecture Team | **CHANNEL NORMALIZATION:** Replaced legacy `'live' \| 'paper_manual' \| 'paper'` channel vocabulary with the six-channel canonical form per BSA v1.9 (`ai-live \| ai-paper \| my-live \| my-paper \| testing-live \| testing-sandbox`). All API signatures keyed by `channel: Channel`. |
 | v1.3 | 2026-04-25 | Architecture Team | **CONSOLIDATION:** Absorbed CapitalPools_Spec_v1.4 content into this document — Project Target, Capital Architecture (75/25 split), Day Index System (forward/backward/clawback/floor), Compounding model, and Position Sizing now live here as Sections 2.1–2.5. CapitalPools_Spec_v1.4.md is deprecated; cross-refs point here. Phase 1 implementation: PortfolioAgent owns `compounding.ts`, `state.ts`, `tickHandler.ts`, and the `portfolio.*` tRPC namespace. |
@@ -106,7 +106,7 @@ If cumulative loss ≥ −5%:
 
 - Position sizing is percentage-based. The user selects a percentage of Available Capital (5%–100%) when placing each trade.
 - There is no system-mandated fixed allocation — the user freely chooses per trade.
-- The Discipline Engine enforces configurable ceilings (default: 40% max per position, 80% max total exposure) — see DisciplineEngine_Spec_v1.3.
+- The Discipline Agent enforces configurable ceilings (default: 40% max per position, 80% max total exposure) — see DisciplineAgent_Spec_v1.4.
 - If there are not enough available funds (Trading Pool minus capital already deployed in open positions) for the selected percentage, the trade does not execute.
 
 ## 3. Goals
@@ -163,7 +163,7 @@ If cumulative loss ≥ −5%:
 
 ### 5.2 Trade Outcome Recording ✨
 
-When a trade closes, the Portfolio Agent records the outcome including P&L, duration, and who triggered the exit. This data is used by Discipline Engine to track daily P&L and by RCA to validate exit decisions.
+When a trade closes, the Portfolio Agent records the outcome including P&L, duration, and who triggered the exit. This data is used by Discipline Agent to track daily P&L and by RCA to validate exit decisions.
 
 **Endpoint:** `POST /api/portfolio/recordTradeClosed`
 
@@ -397,9 +397,9 @@ Payload shape should include:
 
 ## 10. Integration with Other Agents ✨
 
-### 10.1 Discipline Engine Integration
+### 10.1 Discipline Agent Integration
 
-The Portfolio Agent pushes P&L data to Discipline Engine after every trade close. There is no polling.
+The Portfolio Agent pushes P&L data to Discipline Agent after every trade close. There is no polling.
 
 **Push mechanism (primary):**
 
@@ -407,7 +407,7 @@ After every trade closes, Portfolio Agent calls:
 ```
 POST /api/discipline/recordTradeOutcome
 ```
-This is the trigger for Discipline Engine to run cap checks. No periodic polling exists.
+This is the trigger for Discipline Agent to run cap checks. No periodic polling exists.
 
 **Reference endpoint (available on demand):**
 
@@ -435,7 +435,7 @@ The Portfolio Agent records when RCA exits a position:
 
 - Trade outcome recorded with `exitTriggeredBy: "RCA"`
 - RCA provides `exit_reason: "RCA_EXIT"` when exiting due to momentum, volatility, or age
-- Portfolio Agent updates `dailyRealizedPnl` and triggers Discipline Engine cap checks
+- Portfolio Agent updates `dailyRealizedPnl` and triggers Discipline Agent cap checks
 
 ### 10.3 SEA (AI Signals) Integration
 
@@ -471,5 +471,5 @@ This spec is versioned as `v1.3`. Future updates must be recorded in the Change 
 - The Portfolio Agent is intended to become the authoritative portfolio state engine for the ATS.
 - It should reduce duplicate state held in Python modules and server memory stores.
 - Inputs from trade execution, market valuation, and capital updates must be kept consistent and fresh.
-- **v1.0.1 (2026-04-09):** Enhanced for new unified execution architecture. Trade outcome recording now includes `exitTriggeredBy` field to track whether exit came from RCA, Broker, Discipline Engine, or AI signals (from SEA). Daily P&L metrics now feed capital protection monitoring in Discipline Engine.
+- **v1.0.1 (2026-04-09):** Enhanced for new unified execution architecture. Trade outcome recording now includes `exitTriggeredBy` field to track whether exit came from RCA, Broker, Discipline Agent, or AI signals (from SEA). Daily P&L metrics now feed capital protection monitoring in Discipline Agent.
 - **v1.3 (2026-04-25):** CapitalPools_Spec_v1.4 fully absorbed. The Portfolio Agent is now the single document of record for capital pools, the 75/25 split, the 250-day journey, clawback mechanics, and position sizing — formerly split across two specs. Phase 1 implementation: `server/portfolio/{compounding,state,tickHandler,portfolioAgent}.ts` + the `portfolio.*` tRPC namespace + `/api/portfolio/daily-pnl` REST endpoint.

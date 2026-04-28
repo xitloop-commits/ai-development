@@ -152,7 +152,7 @@ POST /api/executor/exitTrade
 
 **`DISCIPLINE_EXIT` handling (special case):**
 
-When RCA forwards a Discipline Engine signal with `reason: "DISCIPLINE_EXIT"`, TEA applies the following rules:
+When RCA forwards a Discipline Agent signal with `reason: "DISCIPLINE_EXIT"`, TEA applies the following rules:
 
 | Rule | Behavior |
 |---|---|
@@ -1202,4 +1202,4 @@ CANCEL          Abort pending order
 **Status:** Ready for Implementation
 **Approval:** User (2026-04-09)
 **Owner:** AI Team
-**Next:** DisciplineEngine_Spec_v1.2.md
+**Next:** DisciplineAgent_Spec_v1.4.md

@@ -137,7 +137,7 @@ Secondary system views are no longer accessed via navigation tabs. They are invo
 *Note: Discipline enforcement overlays (Circuit Breaker, Cooldown, Pre-Trade Gate, etc.) are system-triggered only and appear automatically when rules are violated during trade placement.*
 
 **References:**
-- **Discipline Engine:** See `DisciplineEngine_Spec_v1.1.md`
+- **Discipline Agent:** See `DisciplineAgent_Spec_v1.4.md`
 - **Trade Journal:** See Task I in `ats-feature-requirements.md`
 - **System Settings:** See `Settings_Spec_v1.2.md`
 

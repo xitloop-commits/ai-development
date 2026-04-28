@@ -1,7 +1,7 @@
-# Discipline Engine — Technical Specification
-**Version:** 1.3  
-**Date:** April 9, 2026  
-**Status:** Implementation Phase (Modules 1–8)  
+# Discipline Agent — Technical Specification
+**Version:** 1.4
+**Date:** 2026-04-28
+**Status:** Implementation Phase (Modules 1–8)
 **Dependencies:** RiskControlAgent_Spec_v2.0, TradeExecutorAgent_Spec_v1.3, PortfolioAgent_Spec_v1.3
 
 ---
@@ -13,6 +13,7 @@
 | 1.1 | April 2, 2026 | Cross-functionality update: updated default exposure/position limits (40%/80%), renamed Position Tracker to Trading Desk, deferred settings schema to Settings spec |
 | 1.2 | April 9, 2026 | **NEW:** Added Module 8 (Capital Protection & Session Management) — daily profit/loss caps, carry forward engine, session halt flag, exit signaling to RCA |
 | 1.3 | April 9, 2026 | **UPDATED:** Resolved conflicts with PDF v2.0 — state model split (config to discipline_settings, runtime to discipline_state), added Section 11.5 Semi-Auto Intervention Flow (grace period, user actions, PARTIAL_EXIT signals), removed 5-second polling in favour of Portfolio Agent push, added `graceDeadline`/`userResponded`/`userAction`/`userActionDetail` state fields, added `discipline.submitUserAction` API endpoint |
+| 1.4 | 2026-04-28 | **RENAME:** "Discipline Engine" → "Discipline Agent" (DA). Aligns with the *Agent naming pattern of every other component (TFA, SEA, MTA, RCA, PA, TEA, BSA) and resolves the long-standing inconsistency where TFA spec already used "DisciplineAgent / DA" in its formal cross-component message contracts (e.g. `DA_PAUSE_TRADES` / `DA_RESUME_TRADES`). Code: exported singleton `disciplineEngine` → `disciplineAgent`; class `DisciplineEngine` → `DisciplineAgent`. Spec file renamed `DisciplineEngine_Spec_v1.3.md` → `DisciplineAgent_Spec_v1.4.md`. No behavioural changes. |
 
 ---
 
@@ -39,17 +40,17 @@
 
 ## 1. Purpose & Philosophy
 
-The Discipline Engine exists to protect the trader from their own worst impulses. Trading losses are inevitable, but catastrophic losses are preventable. The engine enforces a set of configurable rules that physically block dangerous trading behavior — not through advice or warnings alone, but through hard gates that prevent order placement when rules are violated.
+The Discipline Agent exists to protect the trader from their own worst impulses. Trading losses are inevitable, but catastrophic losses are preventable. The engine enforces a set of configurable rules that physically block dangerous trading behavior — not through advice or warnings alone, but through hard gates that prevent order placement when rules are violated.
 
 The core philosophy is **"guard first, trade second."** Every trade must pass through a pipeline of checks before it reaches the Broker Service. The pipeline evaluates loss limits, cooldown timers, time windows, position sizing, exposure limits, emotional state, journal compliance, and capital protection limits. If any hard check fails, the trade is rejected at the application layer before it ever reaches the broker API.
 
-**NEW in v1.2:** The Discipline Engine now also owns **Session Management** — daily profit/loss caps, carry forward evaluation, and session halt logic.
+**NEW in v1.2:** The Discipline Agent now also owns **Session Management** — daily profit/loss caps, carry forward evaluation, and session halt logic.
 
 ---
 
 ## 2. Architecture Overview
 
-The Discipline Engine sits between the frontend trade confirmation and the Risk Control Agent. It is a server-side module that evaluates every trade request against the current rule state and continuously monitors capital protection thresholds.
+The Discipline Agent sits between the frontend trade confirmation and the Risk Control Agent. It is a server-side module that evaluates every trade request against the current rule state and continuously monitors capital protection thresholds.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -177,7 +178,7 @@ interface DisciplineState {
 **Collection: `discipline_settings`** (additions for Module 8)
 
 ```typescript
-// Added to existing DisciplineEngineSettings interface
+// Added to existing DisciplineAgentSettings interface
 capitalProtection: {
   dailyProfitCap: {
     enabled: boolean;               // default: true
@@ -392,7 +393,7 @@ The carry forward check evaluates FOUR conditions. **All must pass** for positio
 
 **Evaluation logic:**
 
-At 15:15 IST, Discipline Engine:
+At 15:15 IST, Discipline Agent:
 
 1. Queries Portfolio Agent for `dailyRealizedPnl` and `dailyRealizedPnlPercent`
 2. Queries SEA or RCA for latest momentum score
@@ -443,7 +444,7 @@ If there are no open positions at 15:15, evaluation is skipped (nothing to carry
 
 ### 11.5 Semi-Auto Intervention Flow
 
-When a daily profit cap or loss cap is triggered, the system does NOT immediately send a MUST_EXIT to RCA. Instead it opens a grace period during which the user can choose how to respond. The grace timer and state are owned entirely by the Discipline Engine.
+When a daily profit cap or loss cap is triggered, the system does NOT immediately send a MUST_EXIT to RCA. Instead it opens a grace period during which the user can choose how to respond. The grace timer and state are owned entirely by the Discipline Agent.
 
 **Flow:**
 
@@ -522,13 +523,13 @@ POST /api/risk-control/discipline-request
 
 All paths result in `sessionHalted = true` and no new entries for the rest of the day.
 
-**Grace period ownership:** The Discipline Engine sets and monitors `graceDeadline`. On expiry it fires the MUST_EXIT signal without any external trigger.
+**Grace period ownership:** The Discipline Agent sets and monitors `graceDeadline`. On expiry it fires the MUST_EXIT signal without any external trigger.
 
 ---
 
 ### 11.6 Daily P&L Tracking
 
-The Discipline Engine receives P&L updates from Portfolio Agent whenever a trade closes.
+The Discipline Agent receives P&L updates from Portfolio Agent whenever a trade closes.
 
 **Real-time tracking:**
 
@@ -544,7 +545,7 @@ interface TradeOutcomeEvent {
   closedAt: Date;
 }
 
-// Discipline Engine updates:
+// Discipline Agent updates:
 disciplineState.dailyRealizedPnl += realizedPnl;
 disciplineState.dailyRealizedPnlPercent = (dailyRealizedPnl / openCapital) * 100;
 disciplineState.dailyRealizedPnlHistory.push({ timestamp, realizedPnl, tradeClosed });
@@ -664,7 +665,7 @@ POST /api/discipline/exitSignalAcknowledge
 
 ### Exit Signal Hierarchy
 
-The Discipline Engine sends "MUST_EXIT" signals to RCA. RCA must honor these signals with highest priority:
+The Discipline Agent sends "MUST_EXIT" signals to RCA. RCA must honor these signals with highest priority:
 
 ```
 Signal Precedence (highest to lowest):
@@ -738,7 +739,7 @@ On every trade close (Portfolio Agent pushes to Discipline):
   4. Log event in dailyRealizedPnlHistory
 
 At 15:15 IST (scheduled):
-  1. Discipline Engine evaluates carry forward conditions
+  1. Discipline Agent evaluates carry forward conditions
   2. Queries Portfolio Agent for dailyRealizedPnl, open positions, DTE
   3. If any condition fails: send EXIT signal to RCA
   4. RCA exits by 15:30 IST
@@ -1003,7 +1004,7 @@ describe("E2E: Loss Cap Scenario", () => {
 | Change | Type | Impact |
 |--------|------|--------|
 | Module 8: Capital Protection | NEW | Daily profit/loss caps, carry forward evaluation |
-| Session Management | MERGED | Capital protection and session halt logic consolidated in Discipline Engine |
+| Session Management | MERGED | Capital protection and session halt logic consolidated in Discipline Agent |
 | P&L Tracking | NEW | Real-time tracking from Portfolio Agent |
 | Exit Signaling to RCA | NEW | "MUST_EXIT" signals for caps and carry forward |
 | Session Halt Flag | NEW | Blocks new entries when caps triggered |
@@ -1038,7 +1039,7 @@ describe("E2E: Loss Cap Scenario", () => {
 
 - **RiskControlAgent_Spec_v2.0.md** — RCA receives and honors Discipline signals
 - **TradeExecutorAgent_Spec_v1.2.md** — TEA executes RCA's exit commands
-- **PortfolioAgent_Spec_v1.3.md** — Portfolio Agent sends P&L updates to Discipline Engine
+- **PortfolioAgent_Spec_v1.3.md** — Portfolio Agent sends P&L updates to Discipline Agent
 - **DISCIPLINE_vs_RCA_CLARITY.md** — Distinction between policy layer (Discipline) and risk layer (RCA)
 - **ARCHITECTURE_REFACTOR_PLAN.md** — Overall unified execution architecture
 

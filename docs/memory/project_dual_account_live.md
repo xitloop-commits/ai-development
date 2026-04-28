@@ -68,6 +68,6 @@ run alongside main without exceeding either account's limit.
 
 **Still-to-build (future, not blocking):**
 - Per-channel `maxLotsPerTrade` setting in `broker_configs.settings`, defaulting
-  to 1 for `dhan-ai-data`. Discipline Engine enforces on AI orders.
+  to 1 for `dhan-ai-data`. Discipline Agent enforces on AI orders.
 - Head-to-Head reporting view in TradingDesk (per spec §7.1) — read-side
   aggregation over journal records, no schema change.

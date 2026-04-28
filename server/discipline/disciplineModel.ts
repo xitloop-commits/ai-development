@@ -1,5 +1,5 @@
 /**
- * Discipline Engine — MongoDB Models
+ * Discipline Agent — MongoDB Models
  *
  * Collections:
  *   - discipline_settings: Per-user rich discipline configuration (per-rule enabled + params)

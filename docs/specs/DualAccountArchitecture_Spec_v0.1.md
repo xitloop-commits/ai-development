@@ -115,7 +115,7 @@ BSA's one-DhanAdapter assumption (`brokerService.ts`) must be lifted: a `Map<bro
 
 1. SEA (Signal Engine Agent) emits a signal.
 2. TEA (Trade Executor Agent) evaluates: is AI Live workspace active? → yes.
-3. TEA passes through RCA / Discipline Engine checks against `ai-live` limits.
+3. TEA passes through RCA / Discipline Agent checks against `ai-live` limits.
 4. Capital router selects channel `ai-live` → resolves to `dhan-ai-data` DhanAdapter.
 5. Order placed on spouse's account, fills stream back over `dhan-ai-data`'s order-update WS.
 6. Capital pool debited from `ai-live` pool.
@@ -168,7 +168,7 @@ Each live workspace runs its own 250-day compounding challenge. They are not cou
 
 ### 6.1 Per-workspace (existing behavior)
 
-- Daily loss cap, max positions, revenge-trade cooldown, R:R gate, Circuit Breaker — all enforced independently per workspace via the Discipline Engine (v1.3).
+- Daily loss cap, max positions, revenge-trade cooldown, R:R gate, Circuit Breaker — all enforced independently per workspace via the Discipline Agent (v1.3).
 - Kill switches independent per workspace (BSA v1.9 §1).
 
 ### 6.2 New: optional global caps
@@ -291,7 +291,7 @@ Add per-document fields to MongoDB's `broker_configs` collection:
 - Add a `brokerId` field to `CapitalState` so the compute layer knows which broker to query for available funds / positions.
 - Add "Source account" display in the Reserve / Trading pool tooltip.
 
-### 9.3 Discipline Engine (v1.3)
+### 9.3 Discipline Agent (v1.3)
 
 - Existing per-workspace rules unchanged.
 - Add (optional) global aggregate rules (see §6.2).
@@ -369,7 +369,7 @@ Add per-document fields to MongoDB's `broker_configs` collection:
 
 5. **Per-account margin silos.** Dhan enforces margin per account. AI Live cannot borrow unused margin from My Live. Capital Pools v1.4 must gain per-broker free-margin tracking.
 
-6. **Discipline Engine global-aggregation policy.** §6.2 introduces an optional global daily-loss cap. **Decision required**: default on or off? Recommend off in v0.1, revisit after 30 days of real AI Live data.
+6. **Discipline Agent global-aggregation policy.** §6.2 introduces an optional global daily-loss cap. **Decision required**: default on or off? Recommend off in v0.1, revisit after 30 days of real AI Live data.
 
 7. **Kill-switch scope.** Today per-workspace. Recommend adding a global panic button at AppBar (top-level) that halts both live channels atomically.
 
@@ -443,7 +443,7 @@ v0.1 of this architecture is considered complete when:
 | `client/src/components/MainFooter.tsx` (or equivalent) | Per-workspace Net Worth breakdown |
 | `client/src/pages/Settings.tsx` | Broker Accounts section (§9.7) |
 | `client/src/components/AppBar.tsx` | Per-broker health indicator |
-| Discipline Engine | Optional global-aggregate rules |
+| Discipline Agent | Optional global-aggregate rules |
 
 ---
 
@@ -452,7 +452,7 @@ v0.1 of this architecture is considered complete when:
 - [BSA v1.9](BrokerServiceAgent_Spec_v1.9.md) — trading modes, multi-channel model, §13 token refresh.
 - [Portfolio Agent v1.3](PortfolioAgent_Spec_v1.3.md) §2.1–2.5 — per-channel capital pool semantics.
 - [TradingDesk v1.3](TradingDesk_Spec_v1.3.md) — 250-day compounding table, workspace tabs.
-- [Discipline Engine v1.3](DisciplineEngine_Spec_v1.3.md) — per-workspace limits, kill switches.
+- [Discipline Agent v1.3](DisciplineAgent_Spec_v1.4.md) — per-workspace limits, kill switches.
 - [RCA v2.0](RiskControlAgent_Spec_v2.0.md) — position monitoring scope.
 - [SEA ImplementationPlan v0.1](SEA_ImplementationPlan_v0.1.md) — signal routing.
 - [TFA Spec v1.7](TickFeatureAgent_Spec_v1.7.md) — 4-process layout, WS subscription model.

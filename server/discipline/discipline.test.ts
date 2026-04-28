@@ -1,5 +1,5 @@
 /**
- * Discipline Engine — Unit Tests
+ * Discipline Agent — Unit Tests
  *
  * Tests the pure discipline module functions without MongoDB.
  * Covers: circuit breaker, trade limits, cooldowns, time windows,

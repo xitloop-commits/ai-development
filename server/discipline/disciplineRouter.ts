@@ -1,5 +1,5 @@
 /**
- * Discipline Engine — tRPC Router
+ * Discipline Agent — tRPC Router
  *
  * Endpoints:
  *   discipline.validate        — Pre-trade validation (runs full pipeline)
@@ -21,7 +21,7 @@
 
 import { z } from "zod";
 import { router, publicProcedure } from "../_core/trpc";
-import { disciplineEngine } from "./index";
+import { disciplineAgent } from "./index";
 import {
   getDisciplineSettings,
   updateDisciplineSettings,
@@ -37,7 +37,7 @@ const DEFAULT_USER_ID = "1";
 // ─── Settings update schema ─────────────────────────────────────────
 // Strict mirror of DisciplineEngineSettings (sans server-managed fields).
 // Each module's sub-object is `.strict()` so unknown sub-keys also reject.
-// Bounds reflect the spec — see DisciplineEngine_Spec_v1.3.
+// Bounds reflect the spec — see DisciplineAgent_Spec_v1.4.
 
 const emotionalStateEnum = z.enum(["calm", "anxious", "revenge", "fomo", "greedy", "neutral"]);
 const timeHHmm = z.string().regex(/^[0-2]\d:[0-5]\d$/, "expected HH:mm");
@@ -160,7 +160,7 @@ export const disciplineRouter = router({
     )
     .mutation(async ({ input }) => {
       const { currentCapital, currentExposure, ...request } = input;
-      return disciplineEngine.validateTrade(
+      return disciplineAgent.validateTrade(
         DEFAULT_USER_ID,
         request,
         currentCapital,
@@ -172,7 +172,7 @@ export const disciplineRouter = router({
    * Get the full discipline dashboard data.
    */
   getDashboard: publicProcedure.query(async () => {
-    return disciplineEngine.getDashboard(DEFAULT_USER_ID);
+    return disciplineAgent.getDashboard(DEFAULT_USER_ID);
   }),
 
   /**
@@ -204,7 +204,7 @@ export const disciplineRouter = router({
    * Acknowledge a loss to start the cooldown timer.
    */
   acknowledgeLoss: publicProcedure.mutation(async () => {
-    return disciplineEngine.acknowledgeLoss(DEFAULT_USER_ID);
+    return disciplineAgent.acknowledgeLoss(DEFAULT_USER_ID);
   }),
 
   /**
@@ -213,7 +213,7 @@ export const disciplineRouter = router({
   journalTrade: publicProcedure
     .input(z.object({ tradeId: z.string() }))
     .mutation(async ({ input }) => {
-      await disciplineEngine.journalTrade(DEFAULT_USER_ID, input.tradeId);
+      await disciplineAgent.journalTrade(DEFAULT_USER_ID, input.tradeId);
       return { success: true };
     }),
 
@@ -221,7 +221,7 @@ export const disciplineRouter = router({
    * Complete the weekly review.
    */
   completeReview: publicProcedure.mutation(async () => {
-    await disciplineEngine.completeWeeklyReview(DEFAULT_USER_ID);
+    await disciplineAgent.completeWeeklyReview(DEFAULT_USER_ID);
     return { success: true };
   }),
 
@@ -246,7 +246,7 @@ export const disciplineRouter = router({
    * Get current streak status.
    */
   getStreakStatus: publicProcedure.query(async () => {
-    const { streak } = await disciplineEngine.getDashboard(DEFAULT_USER_ID);
+    const { streak } = await disciplineAgent.getDashboard(DEFAULT_USER_ID);
     return streak;
   }),
 
@@ -266,7 +266,7 @@ export const disciplineRouter = router({
   endOfDay: publicProcedure
     .input(z.object({ dailyPnl: z.number(), openCapital: z.number() }))
     .mutation(async ({ input }) => {
-      await disciplineEngine.endOfDay(DEFAULT_USER_ID, input.dailyPnl, input.openCapital);
+      await disciplineAgent.endOfDay(DEFAULT_USER_ID, input.dailyPnl, input.openCapital);
       return { success: true };
     }),
 
@@ -274,7 +274,7 @@ export const disciplineRouter = router({
    * Notify that a trade was placed (increments counters).
    */
   onTradePlaced: publicProcedure.mutation(async () => {
-    await disciplineEngine.onTradePlaced(DEFAULT_USER_ID);
+    await disciplineAgent.onTradePlaced(DEFAULT_USER_ID);
     return { success: true };
   }),
 
@@ -290,7 +290,7 @@ export const disciplineRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const result = await disciplineEngine.onTradeClosed(
+      const result = await disciplineAgent.onTradeClosed(
         DEFAULT_USER_ID,
         input.pnl,
         input.openCapital,

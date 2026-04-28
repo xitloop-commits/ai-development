@@ -1,5 +1,5 @@
 /**
- * Discipline Engine — Type Definitions
+ * Discipline Agent — Type Definitions
  *
  * All types for the discipline pipeline: validation requests/results,
  * intraday state, daily scores, settings, violations, and streaks.

@@ -49,7 +49,7 @@ Together these components replace the deprecated AI engine modules and fulfill *
 Build Model Training Agent + Signal Engine Agent (SEA). Signal Engine Agent (SEA) outputs signals (GO_CALL / GO_PUT / WAIT + confidence + RR) to a log and dashboard only. No trade execution. User manually observes signals over multiple sessions and tracks win rate.
 
 **Phase 2 — Execution (future scope, after Phase 1 validated)**
-Only after win rate is manually verified as satisfactory: wire Signal Engine Agent (SEA) to RCA, then build RCA → TEA → Discipline Engine → Portfolio Agent. Downstream execution infrastructure is explicitly deferred until signal quality is proven.
+Only after win rate is manually verified as satisfactory: wire Signal Engine Agent (SEA) to RCA, then build RCA → TEA → Discipline Agent → Portfolio Agent. Downstream execution infrastructure is explicitly deferred until signal quality is proven.
 
 > **All RCA/TEA/Discipline/Portfolio integration described in §7 is Phase 2 design — included for completeness but not in scope for current build.**
 
@@ -79,7 +79,7 @@ TFA (live, 4 processes)
              ↓
         PortfolioAgent ← TEA (records outcome)
              ↓
-        DisciplineEngine (capital caps, circuit breaker, session halt)
+        DisciplineAgent (capital caps, circuit breaker, session halt)
 ```
 
 ### 2.2 Workspaces & Channels
@@ -694,7 +694,7 @@ Conforms to `POST /api/risk-control/evaluate` contract defined in RiskControlAge
 
 ### 7.7 Discipline Check
 
-Before posting any GO_CALL or GO_PUT signal, the Signal Engine Agent (SEA) queries the Discipline Engine to verify trading is allowed.
+Before posting any GO_CALL or GO_PUT signal, the Signal Engine Agent (SEA) queries the Discipline Agent to verify trading is allowed.
 
 ```
 GET /api/discipline/status
@@ -703,7 +703,7 @@ GET /api/discipline/status
 
 Response is cached for 5 seconds. If `trading_allowed = false`, emit WAIT and log the blocking reason.
 
-The Signal Engine Agent (SEA) does **not** enforce discipline rules itself — it defers entirely to the Discipline Engine. RCA performs its own independent discipline check as well (defense in depth).
+The Signal Engine Agent (SEA) does **not** enforce discipline rules itself — it defers entirely to the Discipline Agent. RCA performs its own independent discipline check as well (defense in depth).
 
 ### 7.8 Process Model
 
@@ -814,11 +814,11 @@ Items explicitly deferred from v1:
 - RCA may APPROVE, REJECT, REDUCE_SIZE, or REVIEW the suggestion — Signal Engine Agent (SEA) logs the response but does not retry rejected suggestions.
 - Signal Engine Agent (SEA) does **not** call TEA or BSA directly. All execution flows through RCA → TEA → BSA.
 
-### 10.3 Discipline Engine
+### 10.3 Discipline Agent
 
 - Signal Engine Agent (SEA) queries `GET /api/discipline/status` before posting any trade suggestion (cached 5s).
 - Signal Engine Agent (SEA) also attaches the discipline status in the TradeSuggestion payload so RCA has it in-band.
-- The Signal Engine Agent (SEA) **never bypasses or overrides** Discipline Engine decisions.
+- The Signal Engine Agent (SEA) **never bypasses or overrides** Discipline Agent decisions.
 
 ### 10.4 Portfolio Agent
 
@@ -850,7 +850,7 @@ The following decisions are explicitly deferred and must be resolved before impl
 | RiskControlAgent_Spec_v2.0 §2.5 | AI signal format expected by RCA |
 | BrokerServiceAgent_Spec_v1.9 §1 | ai-live / ai-paper channel architecture |
 | PortfolioAgent_Spec_v1.3 §2.1–2.5 | AI Trades capital pool behavior |
-| DisciplineEngine_Spec_v1.3 | Discipline status check before trade submission |
+| DisciplineAgent_Spec_v1.4 | Discipline status check before trade submission |
 | Settings_Spec_v1.5 §3.7 | AI Trades mode switch (paper ↔ live) |
 
 ---

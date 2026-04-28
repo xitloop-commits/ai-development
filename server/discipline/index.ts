@@ -1,5 +1,5 @@
 /**
- * Discipline Engine — Orchestrator
+ * Discipline Agent — Orchestrator
  *
  * Singleton that coordinates all discipline modules into a single validation pipeline.
  * Called before every trade placement to check all rules.
@@ -31,18 +31,18 @@ import { checkJournalCompliance, checkWeeklyReview } from "./journalCheck";
 import { getStreakStatus, calculateStreakAdjustments, updateStreak } from "./streaks";
 import { calculateScore } from "./score";
 
-// ─── Discipline Engine Class ───────────────────────────────────
+// ─── Discipline Agent Class ───────────────────────────────────
 
-class DisciplineEngine {
-  private static instance: DisciplineEngine;
+class DisciplineAgent {
+  private static instance: DisciplineAgent;
 
   private constructor() {}
 
-  static getInstance(): DisciplineEngine {
-    if (!DisciplineEngine.instance) {
-      DisciplineEngine.instance = new DisciplineEngine();
+  static getInstance(): DisciplineAgent {
+    if (!DisciplineAgent.instance) {
+      DisciplineAgent.instance = new DisciplineAgent();
     }
-    return DisciplineEngine.instance;
+    return DisciplineAgent.instance;
   }
 
   // ─── Pre-Trade Validation Pipeline ─────────────────────────
@@ -404,5 +404,5 @@ class DisciplineEngine {
   }
 }
 
-export const disciplineEngine = DisciplineEngine.getInstance();
-export { DisciplineEngine };
+export const disciplineAgent = DisciplineAgent.getInstance();
+export { DisciplineAgent };

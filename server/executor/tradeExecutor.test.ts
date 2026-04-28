@@ -47,7 +47,7 @@ vi.mock("../broker/tickBus", () => ({
 }));
 
 vi.mock("../discipline", () => ({
-  disciplineEngine: {
+  disciplineAgent: {
     validateTrade: vi.fn(async () => ({
       allowed: true,
       blockedBy: [],

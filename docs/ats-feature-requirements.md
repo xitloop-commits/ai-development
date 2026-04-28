@@ -509,7 +509,7 @@ Three standalone Python packages form the data, training, and signal pipeline. T
 |--------|---------|---------|
 | **TFA (Tick Feature Agent)** | `tick_feature_agent/` | Live tick ingestion from Dhan, option chain polling, rollover handling, feature engineering (compression, decay, time-to-move, upside percentiles, targets). Records NDJSON.gz + writes the option-chain JSON the dashboard consumes. |
 | **MTA (Model Training Agent)** | `model_training_agent/` | Trains LightGBM models from TFA-emitted Parquet features (29 models per instrument across 30s/60s/5min/15min target windows). Outputs to `models/{instrument}/LATEST/`. |
-| **SEA (Signal Engine Agent)** | `signal_engine_agent/` | Consumes model predictions, runs the 4-stage trade filter (sustained direction, confidence gate, multi-model consensus, direction change), and produces LONG/SHORT CE/PE recommendations with SL/TP. Pushes signals to Discipline Engine (pre-trade gate) and RCA (approval + sizing). |
+| **SEA (Signal Engine Agent)** | `signal_engine_agent/` | Consumes model predictions, runs the 4-stage trade filter (sustained direction, confidence gate, multi-model consensus, direction change), and produces LONG/SHORT CE/PE recommendations with SL/TP. Pushes signals to Discipline Agent (pre-trade gate) and RCA (approval + sizing). |
 
 All three packages call the Broker Service REST endpoints (never the Dhan API directly); credentials are read from MongoDB via the Broker Service.
 
