@@ -29,6 +29,16 @@ vi.mock("../executor/tradeExecutor", () => ({
       realizedPnlPct: 2,
       exitTime: 1700000000000,
     })),
+    modifyOrder: vi.fn(async () => ({
+      success: true,
+      positionId: "POS-1",
+      modificationId: "MOD-1",
+      oldSL: 90,
+      newSL: 95,
+      oldTP: 120,
+      newTP: 120,
+      appliedAt: 1700000000000,
+    })),
   },
 }));
 
@@ -43,7 +53,7 @@ vi.mock("../broker/tickBus", () => ({
 }));
 
 vi.mock("../seaSignals", () => ({
-  getSEASignals: vi.fn(async () => []),
+  getSEASignals: vi.fn(() => []),
 }));
 
 vi.mock("../executor/settings", () => ({
@@ -60,6 +70,7 @@ vi.mock("../executor/settings", () => ({
 import { rcaMonitor } from "./index";
 import { tradeExecutor } from "../executor/tradeExecutor";
 import { portfolioAgent } from "../portfolio";
+import { getSEASignals } from "../seaSignals";
 
 const sampleEvalReq = {
   executionId: "test-1",
@@ -261,7 +272,34 @@ describe("rcaMonitor.aiSignal", () => {
     expect(tradeExecutor.exitTrade).toHaveBeenCalledTimes(1);
   });
 
-  it("MODIFY_SL not yet implemented — returns skipped, no exits", async () => {
+  it("MODIFY_SL with newPrice — calls tradeExecutor.modifyOrder per matching position", async () => {
+    (portfolioAgent.getPositions as any).mockResolvedValue([openTrade("T1", "NIFTY_50")]);
+    const result = await rcaMonitor.aiSignal({
+      instrument: "NIFTY_50",
+      signal: "MODIFY_SL",
+      newPrice: 95,
+    });
+    expect(result.acted).toBe(1);
+    expect((tradeExecutor as any).modifyOrder).toHaveBeenCalledTimes(1);
+    const call = ((tradeExecutor as any).modifyOrder as any).mock.calls[0][0];
+    expect(call.modifications.stopLossPrice).toBe(95);
+    expect(call.reason).toBe("AI_SIGNAL");
+    expect(tradeExecutor.exitTrade).not.toHaveBeenCalled();
+  });
+
+  it("MODIFY_TP with newPrice — calls modifyOrder with target leg", async () => {
+    (portfolioAgent.getPositions as any).mockResolvedValue([openTrade("T1", "NIFTY_50")]);
+    const result = await rcaMonitor.aiSignal({
+      instrument: "NIFTY_50",
+      signal: "MODIFY_TP",
+      newPrice: 130,
+    });
+    expect(result.acted).toBe(1);
+    const call = ((tradeExecutor as any).modifyOrder as any).mock.calls[0][0];
+    expect(call.modifications.targetPrice).toBe(130);
+  });
+
+  it("MODIFY_SL without newPrice — skipped at the entry guard", async () => {
     (portfolioAgent.getPositions as any).mockResolvedValue([openTrade("T1", "NIFTY_50")]);
     const result = await rcaMonitor.aiSignal({
       instrument: "NIFTY_50",
@@ -269,6 +307,7 @@ describe("rcaMonitor.aiSignal", () => {
     });
     expect(result.acted).toBe(0);
     expect(result.skipped).toBe(1);
+    expect((tradeExecutor as any).modifyOrder).not.toHaveBeenCalled();
     expect(tradeExecutor.exitTrade).not.toHaveBeenCalled();
   });
 
@@ -280,5 +319,53 @@ describe("rcaMonitor.aiSignal", () => {
     });
     expect(result.acted).toBe(0);
     expect(tradeExecutor.exitTrade).not.toHaveBeenCalled();
+  });
+});
+
+// ─── getLatestMomentumScore (C3 enrichment) ──────────────────────
+
+describe("rcaMonitor.getLatestMomentumScore", () => {
+  it("returns SEASignal.momentum when present", () => {
+    (getSEASignals as any).mockReturnValueOnce([
+      {
+        id: "s1", timestamp: 0, timestamp_ist: "", instrument: "NIFTY",
+        direction: "GO_CALL", direction_prob_30s: 0.7,
+        max_upside_pred_30s: 0, max_drawdown_pred_30s: 0,
+        atm_strike: 23000, atm_ce_ltp: null, atm_pe_ltp: null,
+        spot_price: null, momentum: 78, breakout: null, model_version: "v1",
+      },
+    ]);
+    expect(rcaMonitor.getLatestMomentumScore("NIFTY_50")).toBe(78);
+  });
+
+  it("falls back to direction_prob_30s × 100 when momentum is null", () => {
+    (getSEASignals as any).mockReturnValueOnce([
+      {
+        id: "s1", timestamp: 0, timestamp_ist: "", instrument: "BANKNIFTY",
+        direction: "GO_PUT", direction_prob_30s: 0.62,
+        max_upside_pred_30s: 0, max_drawdown_pred_30s: 0,
+        atm_strike: 0, atm_ce_ltp: null, atm_pe_ltp: null,
+        spot_price: null, momentum: null, breakout: null, model_version: "v1",
+      },
+    ]);
+    expect(rcaMonitor.getLatestMomentumScore("BANKNIFTY")).toBeCloseTo(62);
+  });
+
+  it("returns null when no signal exists for the instrument", () => {
+    (getSEASignals as any).mockReturnValueOnce([]);
+    expect(rcaMonitor.getLatestMomentumScore("CRUDEOIL")).toBeNull();
+  });
+
+  it("matches NIFTY_50 → NIFTY (instrument-key normalisation)", () => {
+    (getSEASignals as any).mockReturnValueOnce([
+      {
+        id: "s1", timestamp: 0, timestamp_ist: "", instrument: "NIFTY",
+        direction: "GO_CALL", direction_prob_30s: 0.5,
+        max_upside_pred_30s: 0, max_drawdown_pred_30s: 0,
+        atm_strike: 0, atm_ce_ltp: null, atm_pe_ltp: null,
+        spot_price: null, momentum: 55, breakout: null, model_version: "v1",
+      },
+    ]);
+    expect(rcaMonitor.getLatestMomentumScore("NIFTY 50")).toBe(55);
   });
 });

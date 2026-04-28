@@ -84,9 +84,15 @@ const aiSignalSchema = z
     instrument: z.string().min(1),
     signal: z.enum(["EXIT", "MODIFY_SL", "MODIFY_TP"]),
     confidence: z.number().min(0).max(1).optional(),
+    /** Required when signal is MODIFY_SL or MODIFY_TP. */
+    newPrice: z.number().positive().optional(),
     detail: z.string().optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (v) => v.signal === "EXIT" || v.newPrice != null,
+    { message: "newPrice required for MODIFY_SL / MODIFY_TP", path: ["newPrice"] },
+  );
 
 // ─── Routes ────────────────────────────────────────────────────
 

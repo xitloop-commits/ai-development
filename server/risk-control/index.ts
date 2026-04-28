@@ -34,6 +34,12 @@ import { getSEASignals, type SEASignal } from "../seaSignals";
 import type { Channel, TradeRecord } from "../portfolio/state";
 import type { ExitTradeReason } from "../executor/types";
 import { getExecutorSettings } from "../executor/settings";
+import type {
+  DisciplineExitRequest,
+  DisciplineExitResponse,
+  AiSignalRequest,
+  AiSignalResponse,
+} from "../../shared/exitContracts";
 
 const log = createLogger("RCA", "Monitor");
 
@@ -184,6 +190,34 @@ class RcaMonitor {
   }
 
   /**
+   * Public — return the latest momentum score (0..100) for an instrument,
+   * derived from the most recent filtered SEA signal. Used by DA's
+   * carry-forward eval to score whether a position is still riding a
+   * trend strong enough to keep overnight.
+   *
+   * Returns null if no signal is available for the instrument; DA's
+   * eval treats null as "no opinion" and skips the momentum check.
+   */
+  getLatestMomentumScore(instrumentName: string): number | null {
+    const idx = this.buildLatestSignalIndex();
+    const norm = instrumentName.toUpperCase().replace(/\s+/g, "");
+    const key =
+      norm === "NIFTY50" || norm === "NIFTY" ? "NIFTY"
+      : norm === "BANKNIFTY" ? "BANKNIFTY"
+      : norm === "CRUDEOIL" ? "CRUDEOIL"
+      : norm === "NATURALGAS" ? "NATURALGAS"
+      : norm;
+    const sig = idx.get(key) ?? idx.get(key + "50");
+    if (!sig) return null;
+    // SEASignal.momentum is the model's 0..100 score on the chosen
+    // direction. When unset, fall back to direction_prob_30s scaled
+    // 0..100 — same semantics, less precise.
+    if (typeof sig.momentum === "number") return sig.momentum;
+    if (typeof sig.direction_prob_30s === "number") return sig.direction_prob_30s * 100;
+    return null;
+  }
+
+  /**
    * For each instrument we care about, find the most recent filtered
    * SEA signal. Used by the momentum-flip detector.
    */
@@ -314,12 +348,7 @@ class RcaMonitor {
    *   INSTRUMENT   — every open position on `instrument` across channels
    *   tradeIds     — explicit trade IDs (used by carry-forward FAIL list)
    */
-  async disciplineRequest(input: {
-    reason: ExitTradeReason;
-    detail?: string;
-    channels?: Channel[];
-    scope: { kind: "ALL" } | { kind: "INSTRUMENT"; instrument: string } | { kind: "TRADE_IDS"; tradeIds: string[] };
-  }): Promise<{ exited: number; failed: number; details: Array<{ tradeId: string; ok: boolean; error?: string }> }> {
+  async disciplineRequest(input: DisciplineExitRequest): Promise<DisciplineExitResponse> {
     log.info(`disciplineRequest reason=${input.reason} scope=${input.scope.kind}`);
     const channels = input.channels ?? this.channels;
     const targets: Array<{ channel: Channel; trade: TradeRecord }> = [];
@@ -372,25 +401,27 @@ class RcaMonitor {
   }
 
   /**
-   * SEA-driven signal — continuous market analysis from Python. Today
-   * RCA only honours EXIT signals; MODIFY_SL/TP are queued for C3 when
-   * the cross-agent payload is reconciled. Validates that the signal
-   * matches an open position before forwarding to TEA.
+   * SEA-driven signal — continuous market analysis from Python.
+   * EXIT closes matching open positions; MODIFY_SL / MODIFY_TP adjust
+   * the bracket on the broker via TEA.modifyOrder. Validates that the
+   * signal targets an open position before forwarding.
+   *
+   * MODIFY_* requires `newPrice` in the input (validated at the route
+   * boundary). Per-trade decision feedback returns in `details` so the
+   * dashboard can render which positions reacted to the signal.
    */
-  async aiSignal(input: {
-    instrument: string;
-    signal: "EXIT" | "MODIFY_SL" | "MODIFY_TP";
-    confidence?: number;
-    detail?: string;
-  }): Promise<{ acted: number; skipped: number }> {
+  async aiSignal(input: AiSignalRequest): Promise<AiSignalResponse> {
     log.info(`aiSignal instrument=${input.instrument} signal=${input.signal} conf=${input.confidence ?? "?"}`);
-    if (input.signal !== "EXIT") {
-      log.warn(`aiSignal MODIFY_* not yet implemented — TODO C3`);
-      return { acted: 0, skipped: 1 };
+
+    if (input.signal !== "EXIT" && input.newPrice == null) {
+      log.warn(`aiSignal ${input.signal} missing newPrice — skipping`);
+      return { acted: 0, skipped: 1, details: [{ tradeId: "*", action: "SKIPPED", reason: "newPrice required for MODIFY_*" }] };
     }
 
+    const details: NonNullable<AiSignalResponse["details"]> = [];
     let acted = 0;
     let skipped = 0;
+
     for (const channel of this.channels) {
       let positions: TradeRecord[] = [];
       try {
@@ -402,25 +433,59 @@ class RcaMonitor {
         if (trade.status !== "OPEN") continue;
         if (trade.instrument !== input.instrument) continue;
         const positionId = `POS-${trade.id.replace(/^T/, "")}`;
+
         try {
-          const resp = await tradeExecutor.exitTrade({
-            executionId: `RCA-AI-${trade.id}-${Date.now()}`,
-            positionId,
-            channel,
-            exitType: "MARKET",
-            reason: "AI_EXIT",
-            triggeredBy: "AI",
-            detail: input.detail ?? `SEA EXIT signal (conf=${input.confidence ?? "?"})`,
-            timestamp: Date.now(),
-          });
-          if (resp.success) acted++; else skipped++;
-        } catch {
+          if (input.signal === "EXIT") {
+            const resp = await tradeExecutor.exitTrade({
+              executionId: `RCA-AI-EXIT-${trade.id}-${Date.now()}`,
+              positionId,
+              channel,
+              exitType: "MARKET",
+              reason: "AI_EXIT",
+              triggeredBy: "AI",
+              detail: input.detail ?? `SEA EXIT signal (conf=${input.confidence ?? "?"})`,
+              timestamp: Date.now(),
+            });
+            if (resp.success) {
+              acted++;
+              details.push({ tradeId: trade.id, action: "EXITED" });
+            } else {
+              skipped++;
+              details.push({ tradeId: trade.id, action: "SKIPPED", reason: resp.error });
+            }
+          } else {
+            // MODIFY_SL or MODIFY_TP — adjust the bracket via TEA. The
+            // modifications object only carries the leg the signal asked
+            // about; the other leg passes through unchanged.
+            const mod = input.signal === "MODIFY_SL"
+              ? { stopLossPrice: input.newPrice, stopLoss: input.newPrice }
+              : { targetPrice: input.newPrice, takeProfit: input.newPrice };
+            const resp = await tradeExecutor.modifyOrder({
+              executionId: `RCA-AI-${input.signal}-${trade.id}-${Date.now()}`,
+              positionId,
+              channel,
+              modifications: mod,
+              reason: "AI_SIGNAL",
+              detail: input.detail ?? `SEA ${input.signal} → ${input.newPrice} (conf=${input.confidence ?? "?"})`,
+              timestamp: Date.now(),
+            });
+            if (resp.success) {
+              acted++;
+              details.push({ tradeId: trade.id, action: "MODIFIED" });
+            } else {
+              skipped++;
+              details.push({ tradeId: trade.id, action: "SKIPPED", reason: resp.error });
+            }
+          }
+        } catch (err: any) {
           skipped++;
+          details.push({ tradeId: trade.id, action: "SKIPPED", reason: err?.message ?? String(err) });
         }
       }
     }
+
     log.info(`aiSignal done — acted=${acted} skipped=${skipped}`);
-    return { acted, skipped };
+    return { acted, skipped, details };
   }
 
   private async exit(

@@ -107,16 +107,16 @@ class DisciplineAgent {
     const settings = await getDisciplineSettings(userId);
     const date = getISTDateString();
 
-    // Walk PA's open positions and filter by exchange. PA returns
-    // TradeRecord[] per channel; we aggregate across channels and map
-    // into CarryForwardPositionInput[]. Position-level momentum + IV +
-    // DTE come from RCA / SEA enrichment in C3+; for now we use safe
-    // defaults so the eval treats every position as PASS-eligible
-    // unless its own profitPercent / DTE fail.
+    // Walk PA's open positions and filter by exchange. Each position
+    // is enriched with momentum (from RCA's latest filtered SEA signal
+    // for its instrument) so the carry-forward eval has real input on
+    // the momentum dimension. ivLabel is "unknown" pending an option-
+    // chain IV classifier — DA's eval treats unknown as PASS for the
+    // IV check, so positions don't get rejected on missing data.
     let positions: import("./capitalProtection").CarryForwardPositionInput[] = [];
-    let openTrades: Array<{ tradeId: string; channel: string }> = [];
     try {
       const { portfolioAgent } = await import("../portfolio");
+      const { rcaMonitor } = await import("../risk-control");
       // Channels we monitor for carry-forward — same as RCA's set.
       const channels = ["my-live", "ai-live", "ai-paper"] as const;
       for (const channel of channels) {
@@ -134,14 +134,23 @@ class DisciplineAgent {
           const grossEntryValue = t.entryPrice * t.qty;
           const profitPercent = grossEntryValue > 0 ? (t.unrealizedPnl / grossEntryValue) * 100 : 0;
           const dte = t.expiry ? daysToExpiry(t.expiry) : 0;
+
+          // Momentum: pull from RCA's latest signal index. null when no
+          // signal exists for the instrument; eval skips the momentum
+          // check in that case (treats as "no opinion = no veto").
+          const liveMomentum = rcaMonitor.getLatestMomentumScore(t.instrument);
+          const momentumScore = liveMomentum ?? settings.capitalProtection.carryForward.minMomentumScore;
+          // ivLabel: TODO — wire the option-chain IV classifier when it
+          // exists. "unknown" is a no-veto value per the eval logic.
+          const ivLabel: "fair" | "cheap" | "expensive" | "unknown" = "unknown";
+
           positions.push({
             tradeId: t.id,
             profitPercent,
-            momentumScore: 100,    // TODO(C3): pull from RCA / SEA latest signal
+            momentumScore,
             dte,
-            ivLabel: "fair",        // TODO(C3): pull from option-chain IV classification
+            ivLabel,
           });
-          openTrades.push({ tradeId: t.id, channel });
         }
       }
     } catch {
