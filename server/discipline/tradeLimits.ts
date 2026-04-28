@@ -7,7 +7,7 @@
  * Cancelled or rejected orders do not count toward the trade limit.
  */
 
-import type { DisciplineState, DisciplineEngineSettings, ModuleCheckResult } from "./types";
+import type { DisciplineState, DisciplineAgentSettings, ModuleCheckResult } from "./types";
 
 export interface TradeLimitsResult extends ModuleCheckResult {
   tradesUsed?: number;
@@ -21,7 +21,7 @@ export interface TradeLimitsResult extends ModuleCheckResult {
  */
 export function checkMaxTrades(
   state: DisciplineState,
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): TradeLimitsResult {
   if (!settings.maxTradesPerDay.enabled) {
     return { passed: true, tradesUsed: state.tradesToday };
@@ -57,7 +57,7 @@ export function checkMaxTrades(
  */
 export function checkMaxPositions(
   state: DisciplineState,
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): TradeLimitsResult {
   if (!settings.maxOpenPositions.enabled) {
     return { passed: true, positionsOpen: state.openPositions };

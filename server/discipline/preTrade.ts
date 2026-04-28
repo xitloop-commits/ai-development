@@ -16,7 +16,7 @@
  *   7. Checklist done
  */
 
-import type { DisciplineEngineSettings, ModuleCheckResult, TradeValidationRequest } from "./types";
+import type { DisciplineAgentSettings, ModuleCheckResult, TradeValidationRequest } from "./types";
 
 export interface PreTradeResult extends ModuleCheckResult {
   failedChecks?: string[];
@@ -29,7 +29,7 @@ export interface PreTradeResult extends ModuleCheckResult {
  */
 export function evaluatePreTradeGate(
   request: TradeValidationRequest,
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): PreTradeResult {
   if (!settings.preTradeGate.enabled) {
     return { passed: true };

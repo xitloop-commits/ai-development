@@ -5,7 +5,7 @@
  * - Weekly review gate: blocks trading on Monday until review is completed
  */
 
-import type { DisciplineState, DisciplineEngineSettings, ModuleCheckResult } from "./types";
+import type { DisciplineState, DisciplineAgentSettings, ModuleCheckResult } from "./types";
 
 export interface JournalCheckResult extends ModuleCheckResult {
   unjournaledCount?: number;
@@ -17,7 +17,7 @@ export interface JournalCheckResult extends ModuleCheckResult {
  */
 export function checkJournalCompliance(
   state: DisciplineState,
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): JournalCheckResult {
   if (!settings.journalEnforcement.enabled) {
     return { passed: true, unjournaledCount: state.unjournaledTrades.length };
@@ -51,7 +51,7 @@ export interface WeeklyReviewResult extends ModuleCheckResult {
  */
 export function checkWeeklyReview(
   state: DisciplineState,
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): WeeklyReviewResult {
   if (!settings.weeklyReview.enabled) {
     return { passed: true };

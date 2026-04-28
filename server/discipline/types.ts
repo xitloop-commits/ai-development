@@ -139,6 +139,68 @@ export interface DisciplineState {
 
   // Violations
   violations: Violation[];
+
+  // Module 8: Capital Protection & Session Management
+  // Daily P&L tracking — combined NSE + MCX. The cap evaluator reads
+  // dailyRealizedPnl above (already tracked) and re-derives the percent.
+  dailyPnlPercent: number;
+
+  // Module 8: per-exchange session halt. NSE and MCX have different
+  // session windows (NSE 9:15-15:30, MCX 9:00-23:30) so an operator
+  // can halt one without the other. When a daily cap fires, BOTH are
+  // halted simultaneously by the evaluator (the cap is combined-PnL).
+  sessionHalts: {
+    nse: SessionHalt;
+    mcx: SessionHalt;
+  };
+
+  // Module 8: carry-forward eval status (per exchange, per day).
+  carryForwardEvals: {
+    nse?: CarryForwardEval;
+    mcx?: CarryForwardEval;
+  };
+
+  // Module 8: cap-trigger grace period — when a cap fires, the operator
+  // has gracePeriodSeconds to acknowledge. If they don't, MUST_EXIT
+  // auto-fires. Null when no grace period is active.
+  capGrace: CapGracePeriod | null;
+}
+
+// ─── Module 8 sub-types ─────────────────────────────────────────
+
+export interface SessionHalt {
+  triggered: boolean;
+  triggeredAt?: Date;
+  reason?: string;
+  /** "PROFIT_CAP" / "LOSS_CAP" / "MANUAL" / "CARRY_FORWARD_FAIL". */
+  source?: "PROFIT_CAP" | "LOSS_CAP" | "MANUAL" | "CARRY_FORWARD_FAIL";
+}
+
+export interface CarryForwardEval {
+  ranAt: Date;
+  /** What the eval found. PASS = all 4 conditions met → carry forward;
+   *  FAIL = at least one failed → trigger exit (subject to autoExit + delay). */
+  outcome: "PASS" | "FAIL" | "NO_OPEN_POSITIONS";
+  /** Per-position diagnostic for the dashboard. */
+  positions: Array<{
+    tradeId: string;
+    profitPercent: number;
+    momentumScore: number;
+    dte: number;
+    ivLabel: "fair" | "cheap" | "expensive" | "unknown";
+    decision: "CARRY" | "EXIT";
+    failedConditions: string[];
+  }>;
+}
+
+export interface CapGracePeriod {
+  startedAt: Date;
+  deadline: Date;
+  source: "PROFIT_CAP" | "LOSS_CAP";
+  acknowledged: boolean;
+  /** Operator-chosen action; if null when deadline expires → MUST_EXIT auto. */
+  userAction: "EXIT_ALL" | "EXIT_INSTRUMENT" | "REDUCE_EXPOSURE" | "HOLD" | null;
+  userActionDetail?: string;
 }
 
 // ─── Discipline Daily Score ────────────────────────────────────
@@ -168,7 +230,7 @@ export interface DisciplineDailyScore {
 
 // ─── Discipline Settings (richer per-rule structure) ───────────
 
-export interface DisciplineEngineSettings {
+export interface DisciplineAgentSettings {
   userId: string;
   updatedAt: Date;
 
@@ -205,13 +267,42 @@ export interface DisciplineEngineSettings {
   winningStreakReminder: { enabled: boolean; triggerAfterDays: number };
   losingStreakAutoReduce: { enabled: boolean; triggerAfterDays: number; reduceByPercent: number };
 
+  // Module 8: Capital Protection & Session Management
+  // Every threshold below is operator-tunable — nothing in code should
+  // assume specific defaults. The defaults at the bottom of this file
+  // are the spec recommendations; operators override per environment.
+  capitalProtection: {
+    profitCap: { enabled: boolean; percent: number };
+    lossCap: { enabled: boolean; percent: number };
+    /** Seconds the operator has to choose an action before the system
+     *  auto-fires MUST_EXIT. */
+    gracePeriodSeconds: number;
+    carryForward: {
+      enabled: boolean;
+      /** "HH:mm" IST. Carry-forward eval fires per-exchange because
+       *  NSE (close 15:30) and MCX (close 23:30) run different windows. */
+      nseEvalTime: string;
+      mcxEvalTime: string;
+      /** When carry-forward conditions fail, auto-fire EXIT_ALL after
+       *  exitDelayMinutes (operator gets that window to override). */
+      autoExit: boolean;
+      exitDelayMinutes: number;
+      /** Four conditions that ALL must pass for a position to carry
+       *  forward overnight. Each is operator-tunable. */
+      minProfitPercent: number;       // % gain on the position
+      minMomentumScore: number;       // 0-100 score from RCA / SEA
+      minDte: number;                 // days to expiry
+      ivCondition: "fair" | "cheap" | "any";
+    };
+  };
+
   // Change history
   history: Array<{ changedAt: Date; field: string; oldValue: unknown; newValue: unknown }>;
 }
 
 // ─── Default Settings ──────────────────────────────────────────
 
-export const DEFAULT_DISCIPLINE_ENGINE_SETTINGS: Omit<DisciplineEngineSettings, "userId" | "updatedAt" | "history"> = {
+export const DEFAULT_DISCIPLINE_AGENT_SETTINGS: Omit<DisciplineAgentSettings, "userId" | "updatedAt" | "history"> = {
   dailyLossLimit: { enabled: true, thresholdPercent: 3 },
   maxConsecutiveLosses: { enabled: true, maxLosses: 3, cooldownMinutes: 30 },
   maxTradesPerDay: { enabled: true, limit: 5 },
@@ -231,6 +322,26 @@ export const DEFAULT_DISCIPLINE_ENGINE_SETTINGS: Omit<DisciplineEngineSettings, 
   weeklyReview: { enabled: true, disciplineScoreWarning: 70, redWeekReduction: 3 },
   winningStreakReminder: { enabled: true, triggerAfterDays: 5 },
   losingStreakAutoReduce: { enabled: true, triggerAfterDays: 3, reduceByPercent: 50 },
+  // Module 8 — Capital Protection & Session Management.
+  // Caps default DISABLED so the first deploy is observation-mode;
+  // operator opts in via Settings UI. Spec-recommended values are
+  // baked into `percent` so flipping `enabled` is a one-click action.
+  capitalProtection: {
+    profitCap: { enabled: false, percent: 5 },
+    lossCap: { enabled: false, percent: 2 },
+    gracePeriodSeconds: 60,
+    carryForward: {
+      enabled: false,
+      nseEvalTime: "15:15",   // 15 min before NSE close (15:30)
+      mcxEvalTime: "23:15",   // 15 min before MCX close (23:30)
+      autoExit: true,
+      exitDelayMinutes: 5,
+      minProfitPercent: 15,
+      minMomentumScore: 70,
+      minDte: 2,
+      ivCondition: "fair",
+    },
+  },
 };
 
 // ─── Default State ─────────────────────────────────────────────
@@ -251,6 +362,14 @@ export function createDefaultState(userId: string, date: string): DisciplineStat
     activeAdjustments: [],
     weeklyReviewCompleted: false,
     violations: [],
+    // Module 8 — Capital Protection & Session Management defaults
+    dailyPnlPercent: 0,
+    sessionHalts: {
+      nse: { triggered: false },
+      mcx: { triggered: false },
+    },
+    carryForwardEvals: {},
+    capGrace: null,
   };
 }
 

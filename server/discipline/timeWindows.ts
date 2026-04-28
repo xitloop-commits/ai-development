@@ -9,7 +9,7 @@
  * All times are in IST (UTC+5:30).
  */
 
-import type { Exchange, DisciplineEngineSettings, ModuleCheckResult } from "./types";
+import type { Exchange, DisciplineAgentSettings, ModuleCheckResult } from "./types";
 import { MARKET_HOURS, parseTimeToMinutes, getISTNow } from "./types";
 
 export interface TimeWindowResult extends ModuleCheckResult {
@@ -44,7 +44,7 @@ function formatTime(totalMinutes: number): string {
  */
 export function checkTimeWindow(
   exchange: Exchange,
-  settings: DisciplineEngineSettings,
+  settings: DisciplineAgentSettings,
   now?: Date
 ): TimeWindowResult {
   const { totalMinutes } = getISTTime(now);
@@ -125,7 +125,7 @@ export function checkTimeWindow(
  */
 export function getTimelineSegments(
   exchange: Exchange,
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): Array<{ startMin: number; endMin: number; type: "blocked" | "active" | "lunch" }> {
   const mh = MARKET_HOURS[exchange];
   const marketOpenMin = mh.openHour * 60 + mh.openMin;

@@ -33,9 +33,94 @@ describe("disciplineSettingsUpdateSchema (B9)", () => {
       weeklyReview: { enabled: true, disciplineScoreWarning: 70, redWeekReduction: 3 },
       winningStreakReminder: { enabled: true, triggerAfterDays: 5 },
       losingStreakAutoReduce: { enabled: true, triggerAfterDays: 3, reduceByPercent: 50 },
+      capitalProtection: {
+        profitCap: { enabled: true, percent: 5 },
+        lossCap: { enabled: true, percent: 2 },
+        gracePeriodSeconds: 60,
+        carryForward: {
+          enabled: true,
+          nseEvalTime: "15:15",
+          mcxEvalTime: "23:15",
+          autoExit: true,
+          exitDelayMinutes: 5,
+          minProfitPercent: 15,
+          minMomentumScore: 70,
+          minDte: 2,
+          ivCondition: "fair" as const,
+        },
+      },
     };
     const result = disciplineSettingsUpdateSchema.safeParse(full);
     expect(result.success).toBe(true);
+  });
+
+  it("accepts capitalProtection partial update", () => {
+    const partial = {
+      capitalProtection: {
+        profitCap: { enabled: true, percent: 5 },
+        lossCap: { enabled: true, percent: 2 },
+        gracePeriodSeconds: 60,
+        carryForward: {
+          enabled: false,
+          nseEvalTime: "15:15",
+          mcxEvalTime: "23:15",
+          autoExit: true,
+          exitDelayMinutes: 5,
+          minProfitPercent: 15,
+          minMomentumScore: 70,
+          minDte: 2,
+          ivCondition: "fair" as const,
+        },
+      },
+    };
+    const result = disciplineSettingsUpdateSchema.safeParse(partial);
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects bad eval-time format on capitalProtection.carryForward", () => {
+    const bad = {
+      capitalProtection: {
+        profitCap: { enabled: true, percent: 5 },
+        lossCap: { enabled: true, percent: 2 },
+        gracePeriodSeconds: 60,
+        carryForward: {
+          enabled: true,
+          nseEvalTime: "3:15 PM",  // not HH:mm
+          mcxEvalTime: "23:15",
+          autoExit: true,
+          exitDelayMinutes: 5,
+          minProfitPercent: 15,
+          minMomentumScore: 70,
+          minDte: 2,
+          ivCondition: "fair" as const,
+        },
+      },
+    };
+    const result = disciplineSettingsUpdateSchema.safeParse(bad);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects unknown ivCondition value on capitalProtection.carryForward", () => {
+    const bad = {
+      capitalProtection: {
+        profitCap: { enabled: true, percent: 5 },
+        lossCap: { enabled: true, percent: 2 },
+        gracePeriodSeconds: 60,
+        carryForward: {
+          enabled: true,
+          nseEvalTime: "15:15",
+          mcxEvalTime: "23:15",
+          autoExit: true,
+          exitDelayMinutes: 5,
+          minProfitPercent: 15,
+          minMomentumScore: 70,
+          minDte: 2,
+          ivCondition: "wild",
+        },
+      },
+    };
+    const result = disciplineSettingsUpdateSchema.safeParse(bad);
+    expect(result.success).toBe(false);
   });
 
   it("rejects unknown top-level fields", () => {

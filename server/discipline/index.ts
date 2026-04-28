@@ -10,7 +10,7 @@ import type {
   TradeValidationRequest,
   TradeValidationResult,
   DisciplineState,
-  DisciplineEngineSettings,
+  DisciplineAgentSettings,
   Exchange,
 } from "./types";
 import { getISTDateString } from "./types";
@@ -30,11 +30,26 @@ import { evaluatePreTradeGate } from "./preTrade";
 import { checkJournalCompliance, checkWeeklyReview } from "./journalCheck";
 import { getStreakStatus, calculateStreakAdjustments, updateStreak } from "./streaks";
 import { calculateScore } from "./score";
+import {
+  evaluateCapitalProtection,
+  applyVerdict,
+  applySessionHalt,
+  getSessionHaltFor,
+  runCarryForwardEvaluation,
+} from "./capitalProtection";
+import {
+  startCarryForwardScheduler,
+  stopCarryForwardScheduler,
+} from "./capitalProtectionScheduler";
+import { createLogger } from "../broker/logger";
+
+const log = createLogger("DA", "Agent");
 
 // ─── Discipline Agent Class ───────────────────────────────────
 
 class DisciplineAgent {
   private static instance: DisciplineAgent;
+  private started = false;
 
   private constructor() {}
 
@@ -43,6 +58,78 @@ class DisciplineAgent {
       DisciplineAgent.instance = new DisciplineAgent();
     }
     return DisciplineAgent.instance;
+  }
+
+  /**
+   * Start lifecycle. Currently boots the per-exchange carry-forward
+   * scheduler. Idempotent — safe to call from multiple places at boot.
+   */
+  async start(userId: string = "1"): Promise<void> {
+    if (this.started) return;
+    this.started = true;
+    await startCarryForwardScheduler(userId, async (exchange) => {
+      await this.runCarryForwardForExchange(userId, exchange);
+    });
+    log.important("Started — Discipline Agent (Module 8 carry-forward scheduler online)");
+  }
+
+  stop(userId: string = "1"): void {
+    if (!this.started) return;
+    this.started = false;
+    stopCarryForwardScheduler(userId);
+    log.important("Stopped");
+  }
+
+  /**
+   * Per-exchange carry-forward evaluation handler. Called by the
+   * scheduler at the configured eval time. Resolves PA's open positions
+   * for the exchange, runs the evaluator, applies the verdict, and (TODO
+   * C3) fires MUST_EXIT to RCA when carry-forward FAILs.
+   *
+   * Position resolution is best-effort: if PA is not initialised (unit
+   * tests), we log and return — the eval simply doesn't fire. The
+   * scheduler reschedules tomorrow regardless.
+   */
+  private async runCarryForwardForExchange(userId: string, exchange: Exchange): Promise<void> {
+    const settings = await getDisciplineSettings(userId);
+    const date = getISTDateString();
+    // Channel partitioning is per-user/per-channel — for the carry-forward
+    // eval we walk every live + paper channel that could have positions on
+    // this exchange. Phase 3 will wire this through PortfolioAgent.
+    let positions: Awaited<ReturnType<typeof runCarryForwardEvaluation>>["evalRecord"]["positions"] = [];
+    try {
+      const { portfolioAgent } = await import("../portfolio");
+      // TODO(C3): walk PA's open positions per channel, filter by exchange,
+      // map into CarryForwardPositionInput[]. For now: emit a no-op eval
+      // so the scheduler + state-write path is exercised in production.
+      void portfolioAgent;
+    } catch {
+      log.warn(`Carry-forward eval skipped for ${exchange} — PA not initialised`);
+      return;
+    }
+
+    const result = runCarryForwardEvaluation([], settings); // empty until C3 wires positions
+    void positions;
+
+    // Persist the eval record on the (userId, channel="my-live", date)
+    // discipline_state doc — TODO(C3) per-channel records once positions
+    // are walked. If FAIL, halt the exchange's session.
+    const channel = "my-live";
+    const state = await getDisciplineState(userId, date, channel);
+    state.carryForwardEvals = state.carryForwardEvals ?? {};
+    if (exchange === "NSE") state.carryForwardEvals.nse = result.evalRecord;
+    if (exchange === "MCX") state.carryForwardEvals.mcx = result.evalRecord;
+
+    if (result.outcome === "FAIL") {
+      applySessionHalt(state, exchange, `Carry-forward eval failed: ${result.tradesToExit.length} position(s) failed conditions`, "CARRY_FORWARD_FAIL");
+    }
+
+    await updateDisciplineState(userId, date, {
+      carryForwardEvals: state.carryForwardEvals,
+      sessionHalts: state.sessionHalts,
+    }, channel);
+
+    log.info(`${exchange} carry-forward eval: ${result.outcome} (${result.tradesToExit.length} exits queued — TODO C3 wires TEA)`);
   }
 
   // ─── Pre-Trade Validation Pipeline ─────────────────────────
@@ -84,6 +171,14 @@ class DisciplineAgent {
     } catch {
       // PA not initialised in this context (e.g., unit test) — skip gate.
     }
+
+    // 0a. Module 8 — Capital Protection session halt (per-exchange).
+    //     Blocks new entries on the side (NSE/MCX) that's halted. Cap-
+    //     triggered halts happen in onTradeClosed when daily P&L crosses
+    //     a threshold; manual halts via Settings. Halt latches until the
+    //     next trading day or operator force-clear.
+    const halt = getSessionHaltFor(state, request.exchange);
+    if (halt) blockedBy.push("sessionHalted");
 
     // 1. Circuit Breaker
     const cbResult = checkDailyLossLimit(state, settings, currentCapital);
@@ -142,7 +237,7 @@ class DisciplineAgent {
           ruleId: rule,
           ruleName: rule,
           severity: "hard",
-          description: this.getBlockReason(rule, { cbResult, clResult, tlResult, mpResult, cdResult, twResult, psResult, exResult, jResult, ptResult }),
+          description: this.getBlockReason(rule, { cbResult, clResult, tlResult, mpResult, cdResult, twResult, psResult, exResult, jResult, ptResult, haltReason: halt?.reason }),
           timestamp: new Date(),
           overridden: false,
         }, channel);
@@ -205,10 +300,14 @@ class DisciplineAgent {
 
     const newPnl = state.dailyRealizedPnl + pnl;
     const newLossPercent = openCapital > 0 ? (Math.abs(Math.min(newPnl, 0)) / openCapital) * 100 : 0;
+    // Module 8 — combined daily P&L percent (signed). Cap evaluator
+    // uses this to decide if a profit or loss cap fires.
+    const newDailyPnlPercent = openCapital > 0 ? (newPnl / openCapital) * 100 : 0;
 
     const updates: Partial<DisciplineState> = {
       dailyRealizedPnl: newPnl,
       dailyLossPercent: newLossPercent,
+      dailyPnlPercent: newDailyPnlPercent,
       openPositions: Math.max(0, state.openPositions - 1),
     };
 
@@ -250,6 +349,22 @@ class DisciplineAgent {
     } else if (pnl > 0) {
       // Win — reset consecutive losses
       updates.consecutiveLosses = 0;
+    }
+
+    // Module 8 — re-evaluate capital protection on every close. Either
+    // direction (profit cap, loss cap) can fire. Verdict updates
+    // sessionHalts + capGrace in `updates` if a cap triggers; the
+    // halt latches until next-day reset or operator force-clear.
+    const projectedState = { ...state, ...updates } as DisciplineState;
+    const verdict = evaluateCapitalProtection(projectedState, settings, newDailyPnlPercent);
+    if (verdict.halts) {
+      updates.sessionHalts = {
+        nse: verdict.halts.nse ?? state.sessionHalts.nse,
+        mcx: verdict.halts.mcx ?? state.sessionHalts.mcx,
+      };
+    }
+    if (verdict.grace) {
+      updates.capGrace = verdict.grace;
     }
 
     await updateDisciplineState(userId, date, updates, channel);
@@ -368,7 +483,7 @@ class DisciplineAgent {
    */
   async getDashboard(userId: string): Promise<{
     state: DisciplineState;
-    settings: DisciplineEngineSettings;
+    settings: DisciplineAgentSettings;
     score: { score: number; breakdown: import("./types").ScoreBreakdown };
     streak: ReturnType<typeof getStreakStatus>;
   }> {
@@ -385,9 +500,11 @@ class DisciplineAgent {
 
   private getBlockReason(
     rule: string,
-    results: Record<string, { reason?: string }>
+    results: Record<string, any>
   ): string {
     const map: Record<string, string> = {
+      brokerDesync: "Broker desync — reconcile open trades before new entries",
+      sessionHalted: results.haltReason ?? "Session halted (cap or manual)",
       circuitBreaker: results.cbResult?.reason ?? "Circuit breaker triggered",
       consecutiveLosses: results.clResult?.reason ?? "Consecutive losses limit",
       tradeLimits: results.tlResult?.reason ?? "Trade limit reached",

@@ -101,6 +101,15 @@ async function startServer() {
       registerShutdownHook("portfolioAgent", () => portfolioAgent.stop(), 100);
       tradeExecutor.start();
       registerShutdownHook("tradeExecutor", () => tradeExecutor.stop(), 100);
+
+      // Discipline Agent — Module 8 (Capital Protection) carry-forward
+      // scheduler. Two timers (NSE 15:15, MCX 23:15 — operator-tunable)
+      // fire at the configured IST times. The cap evaluator itself runs
+      // synchronously inside onTradeClosed; this scheduler is only the
+      // end-of-session carry-forward path.
+      const { disciplineAgent } = await import("../discipline");
+      await disciplineAgent.start();
+      registerShutdownHook("disciplineAgent", () => disciplineAgent.stop(), 100);
     })
     .catch((err) =>
       bootLog.error(`MongoDB initial connection failed: ${(err as Error)?.message ?? err}`)

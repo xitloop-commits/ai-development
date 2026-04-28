@@ -17,22 +17,22 @@ import { getStreakStatus, calculateStreakAdjustments, updateStreak } from "./str
 import { calculateScore } from "./score";
 import type {
   DisciplineState,
-  DisciplineEngineSettings,
+  DisciplineAgentSettings,
   TradeValidationRequest,
   Exchange,
   CooldownState,
   StreakState,
 } from "./types";
-import { DEFAULT_DISCIPLINE_ENGINE_SETTINGS, createDefaultState } from "./types";
+import { DEFAULT_DISCIPLINE_AGENT_SETTINGS, createDefaultState } from "./types";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-function makeSettings(overrides?: Partial<DisciplineEngineSettings>): DisciplineEngineSettings {
+function makeSettings(overrides?: Partial<DisciplineAgentSettings>): DisciplineAgentSettings {
   return {
     userId: "test-user",
     updatedAt: new Date(),
     history: [],
-    ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS,
+    ...DEFAULT_DISCIPLINE_AGENT_SETTINGS,
     ...overrides,
   };
 }

@@ -35,7 +35,7 @@ import { getTimelineSegments } from "./timeWindows";
 const DEFAULT_USER_ID = "1";
 
 // ─── Settings update schema ─────────────────────────────────────────
-// Strict mirror of DisciplineEngineSettings (sans server-managed fields).
+// Strict mirror of DisciplineAgentSettings (sans server-managed fields).
 // Each module's sub-object is `.strict()` so unknown sub-keys also reject.
 // Bounds reflect the spec — see DisciplineAgent_Spec_v1.4.
 
@@ -130,6 +130,30 @@ export const disciplineSettingsUpdateSchema = z.object({
     triggerAfterDays: z.number().int().min(1).max(365),
     reduceByPercent: z.number().min(0).max(100),
   }).strict().optional(),
+
+  // Module 8: Capital Protection & Session Management
+  capitalProtection: z.object({
+    profitCap: z.object({
+      enabled: z.boolean(),
+      percent: z.number().min(0).max(100),
+    }).strict(),
+    lossCap: z.object({
+      enabled: z.boolean(),
+      percent: z.number().min(0).max(100),
+    }).strict(),
+    gracePeriodSeconds: z.number().int().min(0).max(3600),
+    carryForward: z.object({
+      enabled: z.boolean(),
+      nseEvalTime: timeHHmm,
+      mcxEvalTime: timeHHmm,
+      autoExit: z.boolean(),
+      exitDelayMinutes: z.number().int().min(0).max(120),
+      minProfitPercent: z.number().min(0).max(1000),
+      minMomentumScore: z.number().min(0).max(100),
+      minDte: z.number().int().min(0).max(365),
+      ivCondition: z.enum(["fair", "cheap", "any"]),
+    }).strict(),
+  }).strict().optional(),
 }).strict();
 
 export const disciplineRouter = router({
@@ -190,7 +214,7 @@ export const disciplineRouter = router({
   }),
 
   /**
-   * Update discipline settings. Accepts a partial of DisciplineEngineSettings
+   * Update discipline settings. Accepts a partial of DisciplineAgentSettings
    * (server-managed `userId`/`updatedAt`/`history` are stripped). Strict mode:
    * unknown fields rejected with 400; per-field bounds enforced.
    */
