@@ -20,6 +20,7 @@ import { useTickStream } from '@/hooks/useTickStream';
 import { InstrumentTag } from './InstrumentTag';
 import { StatusBadge } from './StatusBadge';
 import { TpSlMergedBody, pctFromPrice } from './TpSlMergedBody';
+import { ReconcileDesyncDialog } from './ReconcileDesyncDialog';
 
 export interface TodayTradeRowProps {
   trade: TradeRecord;
@@ -55,11 +56,16 @@ function _TodayTradeRow({
   liveLtp,
 }: RenderProps) {
   const [editOpen, setEditOpen] = useState(false);
+  const [reconcileOpen, setReconcileOpen] = useState(false);
   const [slPrice, setSlPrice] = useState('');
   const [tpPrice, setTpPrice] = useState('');
   const [trailingStopEnabled, setTrailingStopEnabled] = useState(trade.trailingStopEnabled ?? false);
   const theme = getWorkspaceThemeMeta(channelToWorkspace(channel));
   const isOpen = trade.status === 'OPEN';
+  // B4 follow-up — a trade is "desync'd" when the broker call failed but
+  // local state hasn't been confirmed. Operator must reconcile before
+  // any further actions on this trade are allowed.
+  const isDesync = trade.desync !== undefined;
   const isBuy = trade.type.includes('BUY');
   const displayLtp = liveLtp ?? trade.ltp;
 
@@ -89,6 +95,7 @@ function _TodayTradeRow({
   const expiryLabel = formatExpiryLabel(trade.expiry);
 
   return (
+    <>
     <tr
       ref={todayRef}
       className={`border-b border-border transition-colors ${
@@ -146,7 +153,16 @@ function _TodayTradeRow({
                 {formatAge(trade.openedAt)}
               </span>
             )}
-            {isOpen && canManageTrades && (
+            {isDesync && canManageTrades && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setReconcileOpen(true); }}
+                className="px-1.5 py-0.5 rounded font-bold transition-colors bg-destructive/30 text-destructive border border-destructive hover:bg-destructive/40 text-[0.5625rem] uppercase tracking-wider"
+                title={`BROKER_DESYNC (${trade.desync?.kind}): ${trade.desync?.reason ?? ''} — click to reconcile`}
+              >
+                ⚠ Reconcile
+              </button>
+            )}
+            {isOpen && !isDesync && canManageTrades && (
               <button
                 onClick={(e) => { e.stopPropagation(); onExit(); }}
                 disabled={exitLoading}
@@ -171,6 +187,7 @@ function _TodayTradeRow({
                   className={`font-bold tabular-nums cursor-pointer rounded px-1 transition-colors duration-300 ${isOpen ? (displayLtp >= trade.entryPrice ? 'text-bullish' : 'text-destructive') : pnlColor(pnl)} ${flashClass}`}
                   onClick={() => {
                     if (!isOpen || !canManageTrades) return;
+                    if (isDesync) return; // reconcile first
                     setSlPrice(trade.stopLossPrice?.toFixed(2) ?? '');
                     setTpPrice(trade.targetPrice?.toFixed(2) ?? '');
                     setTrailingStopEnabled(trade.trailingStopEnabled ?? false);
@@ -283,6 +300,13 @@ function _TodayTradeRow({
         <StatusBadge status={trade.status} />
       </td>
     </tr>
+    <ReconcileDesyncDialog
+      open={reconcileOpen}
+      trade={trade}
+      channel={channel}
+      onClose={() => setReconcileOpen(false)}
+    />
+    </>
   );
 }
 

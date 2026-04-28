@@ -48,6 +48,13 @@ export function StatusBadge({ status }: StatusBadgeProps) {
           REJECTED
         </span>
       );
+    case 'BROKER_DESYNC':
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-bold bg-destructive/30 text-destructive border border-destructive">
+          <span aria-hidden="true">⚠</span>
+          DESYNC
+        </span>
+      );
     default:
       return (
         <span className="text-[0.5rem] text-muted-foreground uppercase">
