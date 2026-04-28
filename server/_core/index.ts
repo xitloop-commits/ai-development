@@ -151,6 +151,11 @@ async function startServer() {
   // Risk Control Agent REST API — inbound from DA + SEA (C2)
   const { registerRiskControlRoutes } = await import("../risk-control/routes");
   registerRiskControlRoutes(app);
+  // Discipline Agent REST API — single chain endpoint for SEA Python
+  // (DA → RCA → TEA in one round-trip). The TS-only callers continue
+  // to use the tRPC `discipline.validate` procedure.
+  const { registerDisciplineRoutes } = await import("../discipline/routes");
+  registerDisciplineRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",

@@ -1,5 +1,18 @@
 /**
- * SEA → TEA Bridge.
+ * SEA → TEA Bridge — DEPRECATED PATH (kept as soak-period fallback).
+ *
+ * STATUS: as of Phase C8, the canonical path is SEA-Python POSTing to
+ *   POST /api/discipline/validateTrade
+ * which chains DA pre-trade gate → RCA evaluate → TEA.submitTrade in
+ * one round-trip. See server/discipline/routes.ts and
+ * python_modules/signal_engine_agent/risk_control_client.py.
+ *
+ * This bridge bypasses DA's pre-trade gate AND RCA's evaluate — it was
+ * the Phase 1 shortcut from before those agents existed. Leaving it
+ * operational for one soak cycle so log-tail consumers don't break
+ * mid-migration; idempotency by executionId means parallel emit (log +
+ * POST) double-submits as a no-op. Schedule for removal once SEA-Python
+ * is confirmed POSTing in the live environment.
  *
  * The Signal Engine Agent (SEA, Python) writes filtered trade
  * recommendations to NDJSON logs at
