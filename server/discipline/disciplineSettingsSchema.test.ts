@@ -48,6 +48,12 @@ describe("disciplineSettingsUpdateSchema (B9)", () => {
           minDte: 2,
           ivCondition: "fair" as const,
         },
+        iv: {
+          historyWindow: 500,
+          minSamples: 50,
+          cheapPercentile: 25,
+          expensivePercentile: 75,
+        },
       },
     };
     const result = disciplineSettingsUpdateSchema.safeParse(full);
@@ -70,6 +76,12 @@ describe("disciplineSettingsUpdateSchema (B9)", () => {
           minMomentumScore: 70,
           minDte: 2,
           ivCondition: "fair" as const,
+        },
+        iv: {
+          historyWindow: 500,
+          minSamples: 50,
+          cheapPercentile: 25,
+          expensivePercentile: 75,
         },
       },
     };

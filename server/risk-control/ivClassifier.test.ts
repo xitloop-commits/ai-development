@@ -19,11 +19,11 @@ import {
   classifyIv,
   recordAtmIv,
   recordAtmIvFromChain,
-  HISTORY_WINDOW,
-  MIN_SAMPLES,
-  CHEAP_PCTL,
-  EXPENSIVE_PCTL,
+  setIvTunables,
+  getIvTunables,
+  DEFAULT_IV_TUNABLES,
   _resetIvHistoryForTesting,
+  _resetIvTunablesForTesting,
   _getIvSampleCountForTesting,
 } from "./ivClassifier";
 import { pushOptionChain } from "../tradingStore";
@@ -63,6 +63,7 @@ function makeChain(spot: number, strikes: Record<string, { ce?: number; pe?: num
 
 beforeEach(() => {
   _resetIvHistoryForTesting();
+  _resetIvTunablesForTesting();
 });
 
 // ─── atmIvFromChain ──────────────────────────────────────────────
@@ -118,8 +119,8 @@ describe("classifyAtmIv", () => {
     for (const v of samples) recordAtmIv(instrument, v);
   }
 
-  it("returns null when history has fewer than MIN_SAMPLES", () => {
-    seedHistory("NIFTY_50", Array.from({ length: MIN_SAMPLES - 1 }, (_, i) => 15 + i * 0.1));
+  it("returns null when history has fewer than minSamples", () => {
+    seedHistory("NIFTY_50", Array.from({ length: DEFAULT_IV_TUNABLES.minSamples - 1 }, (_, i) => 15 + i * 0.1));
     expect(classifyAtmIv("NIFTY_50", 16)).toBeNull();
   });
 
@@ -130,18 +131,18 @@ describe("classifyAtmIv", () => {
     expect(classifyAtmIv("NIFTY_50", -1)).toBeNull();
   });
 
-  it("classifies low IV (<= CHEAP_PCTL) as cheap", () => {
+  it("classifies low IV (<= cheapPercentile) as cheap", () => {
     // Samples uniformly in [10, 30].
     const samples = Array.from({ length: 200 }, (_, i) => 10 + (i / 200) * 20);
     seedHistory("NIFTY_50", samples);
-    // 12 is at percentile ≈ 10 (≤ 25 = CHEAP_PCTL)
+    // 12 is at percentile ≈ 10 (≤ default cheapPercentile = 25)
     expect(classifyAtmIv("NIFTY_50", 12)).toBe("cheap");
   });
 
-  it("classifies high IV (>= EXPENSIVE_PCTL) as expensive", () => {
+  it("classifies high IV (>= expensivePercentile) as expensive", () => {
     const samples = Array.from({ length: 200 }, (_, i) => 10 + (i / 200) * 20);
     seedHistory("NIFTY_50", samples);
-    // 28 is at percentile ≈ 90 (≥ 75 = EXPENSIVE_PCTL)
+    // 28 is at percentile ≈ 90 (≥ default expensivePercentile = 75)
     expect(classifyAtmIv("NIFTY_50", 28)).toBe("expensive");
   });
 
@@ -160,11 +161,12 @@ describe("classifyAtmIv", () => {
     expect(classifyAtmIv("BANKNIFTY", 20)).toBeNull();
   });
 
-  it(`trims the rolling buffer to HISTORY_WINDOW (${HISTORY_WINDOW})`, () => {
-    for (let i = 0; i < HISTORY_WINDOW + 100; i++) {
+  it(`trims the rolling buffer to historyWindow (${DEFAULT_IV_TUNABLES.historyWindow})`, () => {
+    const win = DEFAULT_IV_TUNABLES.historyWindow;
+    for (let i = 0; i < win + 100; i++) {
       recordAtmIv("NIFTY_50", 15 + i * 0.001);
     }
-    expect(_getIvSampleCountForTesting("NIFTY_50")).toBe(HISTORY_WINDOW);
+    expect(_getIvSampleCountForTesting("NIFTY_50")).toBe(win);
   });
 
   it("ignores invalid samples (NaN, zero, negative) — they don't pollute history", () => {
@@ -183,7 +185,7 @@ describe("classifyIv (integrates with tradingStore)", () => {
     expect(result).toBeNull();
   });
 
-  it("returns null when history is below MIN_SAMPLES (single chain push)", async () => {
+  it("returns null when history is below minSamples (single chain push)", async () => {
     pushOptionChain("FLATCO", makeChain(100, {
       "100": { ce: 18, pe: 20 },
     }));
@@ -217,16 +219,54 @@ describe("classifyIv (integrates with tradingStore)", () => {
 
 // ─── Boundary sanity ─────────────────────────────────────────────
 
-describe("classification boundaries are operator-meaningful", () => {
-  it(`CHEAP_PCTL < EXPENSIVE_PCTL — bands don't overlap`, () => {
-    expect(CHEAP_PCTL).toBeLessThan(EXPENSIVE_PCTL);
+describe("default tunables are operator-meaningful", () => {
+  it(`cheapPercentile < expensivePercentile — bands don't overlap`, () => {
+    expect(DEFAULT_IV_TUNABLES.cheapPercentile).toBeLessThan(DEFAULT_IV_TUNABLES.expensivePercentile);
   });
 
-  it("MIN_SAMPLES is not absurdly small", () => {
-    expect(MIN_SAMPLES).toBeGreaterThanOrEqual(20);
+  it("minSamples is not absurdly small", () => {
+    expect(DEFAULT_IV_TUNABLES.minSamples).toBeGreaterThanOrEqual(20);
   });
 
-  it("HISTORY_WINDOW comfortably exceeds MIN_SAMPLES", () => {
-    expect(HISTORY_WINDOW).toBeGreaterThan(MIN_SAMPLES * 2);
+  it("historyWindow comfortably exceeds minSamples", () => {
+    expect(DEFAULT_IV_TUNABLES.historyWindow).toBeGreaterThan(DEFAULT_IV_TUNABLES.minSamples * 2);
+  });
+});
+
+// ─── Runtime tunables ────────────────────────────────────────────
+
+describe("setIvTunables — runtime configuration", () => {
+  it("merges patch into active config", () => {
+    setIvTunables({ cheapPercentile: 10 });
+    const t = getIvTunables();
+    expect(t.cheapPercentile).toBe(10);
+    expect(t.expensivePercentile).toBe(DEFAULT_IV_TUNABLES.expensivePercentile);
+  });
+
+  it("re-classification uses the new percentile bands", () => {
+    // With default cheapPercentile=25, IV at p10 → cheap.
+    // After tightening cheapPercentile to 5, the same p10 value → fair.
+    const samples = Array.from({ length: 200 }, (_, i) => 10 + (i / 200) * 20);
+    for (const v of samples) recordAtmIv("NIFTY_50", v);
+    expect(classifyAtmIv("NIFTY_50", 12)).toBe("cheap");
+    setIvTunables({ cheapPercentile: 5 });
+    expect(classifyAtmIv("NIFTY_50", 12)).toBe("fair");
+  });
+
+  it("trims existing histories when historyWindow shrinks", () => {
+    // Seed 200 samples under default window (500).
+    for (let i = 0; i < 200; i++) recordAtmIv("NIFTY_50", 15 + i * 0.01);
+    expect(_getIvSampleCountForTesting("NIFTY_50")).toBe(200);
+    // Shrink window — existing buffer should trim down.
+    setIvTunables({ historyWindow: 75 });
+    expect(_getIvSampleCountForTesting("NIFTY_50")).toBe(75);
+  });
+
+  it("minSamples threshold is settings-driven", () => {
+    // Seed 30 samples. Default minSamples=50 → null. Lower to 20 → label.
+    for (let i = 0; i < 30; i++) recordAtmIv("NIFTY_50", 15 + i * 0.1);
+    expect(classifyAtmIv("NIFTY_50", 16)).toBeNull();
+    setIvTunables({ minSamples: 20 });
+    expect(classifyAtmIv("NIFTY_50", 16)).not.toBeNull();
   });
 });

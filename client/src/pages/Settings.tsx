@@ -1431,6 +1431,62 @@ export function DisciplineSection() {
           </DisciplineRow>
         </div>
       </SettingsCard>
+
+      {/* Capital Protection — IV Classifier (Module 8 follow-up) */}
+      <SettingsCard title="IV Classifier">
+        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
+          Tunables for the option-chain IV regime classifier. RCA samples
+          ATM IV on every Fetcher push and tags it cheap / fair / expensive
+          relative to a rolling history. DA's carry-forward eval reads
+          the label to decide whether long-premium positions can stay
+          overnight. Saving here pushes the new tunables into RCA
+          immediately — no restart needed.
+        </p>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="# of recent ATM IV samples kept per instrument">History Window</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.iv?.historyWindow ?? 500}
+              onChange={(v) => upd('capitalProtection.iv.historyWindow', v)}
+              min={20}
+              max={5000}
+              step={50}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Min samples before a non-null label is returned">Min Samples</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.iv?.minSamples ?? 50}
+              onChange={(v) => upd('capitalProtection.iv.minSamples', v)}
+              min={5}
+              max={2000}
+              step={5}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Current IV at or below this percentile → cheap">Cheap Percentile</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.iv?.cheapPercentile ?? 25}
+              onChange={(v) => upd('capitalProtection.iv.cheapPercentile', v)}
+              min={0}
+              max={100}
+              step={5}
+              suffix="%"
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Current IV at or above this percentile → expensive">Expensive Percentile</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.iv?.expensivePercentile ?? 75}
+              onChange={(v) => upd('capitalProtection.iv.expensivePercentile', v)}
+              min={0}
+              max={100}
+              step={5}
+              suffix="%"
+            />
+          </div>
+        </div>
+      </SettingsCard>
     </div>
   );
 }

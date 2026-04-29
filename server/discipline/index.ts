@@ -80,10 +80,33 @@ class DisciplineAgent {
   async start(userId: string = "1"): Promise<void> {
     if (this.started) return;
     this.started = true;
+    // Push the operator-configured IV tunables into the RCA classifier
+    // so percentile bands + history window match the current settings
+    // from boot onwards. Refreshed again on every updateDisciplineSettings.
+    await this.pushIvTunables(userId);
     await startCarryForwardScheduler(userId, async (exchange) => {
       await this.runCarryForwardForExchange(userId, exchange);
     });
     log.important("Started — Discipline Agent (Module 8 carry-forward scheduler online)");
+  }
+
+  /**
+   * Read the user's IV tunables from settings and push them into the
+   * RCA option-chain classifier. Best-effort — settings read failures
+   * leave the classifier on its module defaults. Legacy settings docs
+   * that pre-date the `iv` block are tolerated; the classifier's own
+   * defaults stay in effect until the operator saves.
+   */
+  async pushIvTunables(userId: string = "1"): Promise<void> {
+    try {
+      const settings = await getDisciplineSettings(userId);
+      const iv = settings.capitalProtection?.iv;
+      if (!iv) return; // legacy doc — classifier keeps its module defaults
+      const { setIvTunables } = await import("../risk-control/ivClassifier");
+      setIvTunables(iv);
+    } catch (err: any) {
+      log.warn(`pushIvTunables skipped: ${err?.message ?? err}`);
+    }
   }
 
   stop(userId: string = "1"): void {

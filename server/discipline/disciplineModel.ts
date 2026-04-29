@@ -76,6 +76,15 @@ const disciplineSettingsSchema = new Schema<DisciplineAgentSettings & Document>(
           }, { _id: false }),
           default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.carryForward }),
         },
+        iv: {
+          type: new Schema({
+            historyWindow: { type: Number, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.iv.historyWindow },
+            minSamples: { type: Number, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.iv.minSamples },
+            cheapPercentile: { type: Number, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.iv.cheapPercentile },
+            expensivePercentile: { type: Number, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.iv.expensivePercentile },
+          }, { _id: false }),
+          default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.iv }),
+        },
       }, { _id: false }),
       default: () => JSON.parse(JSON.stringify(DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection)),
     },

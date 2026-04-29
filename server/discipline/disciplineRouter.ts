@@ -153,6 +153,12 @@ export const disciplineSettingsUpdateSchema = z.object({
       minDte: z.number().int().min(0).max(365),
       ivCondition: z.enum(["fair", "cheap", "any"]),
     }).strict(),
+    iv: z.object({
+      historyWindow: z.number().int().min(20).max(5000),
+      minSamples: z.number().int().min(5).max(2000),
+      cheapPercentile: z.number().min(0).max(100),
+      expensivePercentile: z.number().min(0).max(100),
+    }).strict(),
   }).strict().optional(),
 }).strict();
 
@@ -221,7 +227,11 @@ export const disciplineRouter = router({
   updateSettings: protectedProcedure
     .input(disciplineSettingsUpdateSchema)
     .mutation(async ({ input }) => {
-      return updateDisciplineSettings(DEFAULT_USER_ID, input);
+      const updated = await updateDisciplineSettings(DEFAULT_USER_ID, input);
+      // Refresh the IV classifier's runtime tunables so percentile bands
+      // / history window match the new settings without a server restart.
+      await disciplineAgent.pushIvTunables(DEFAULT_USER_ID);
+      return updated;
     }),
 
   /**

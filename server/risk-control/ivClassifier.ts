@@ -1,5 +1,5 @@
 /**
- * Option-chain IV regime classifier (C2/C3 stub).
+ * Option-chain IV regime classifier.
  *
  * Classifies the current ATM IV for an instrument as `cheap`, `fair`, or
  * `expensive` relative to a rolling baseline of recent observations.
@@ -17,37 +17,79 @@
  *
  * Returns `null` (callers treat as "no opinion / no veto") when:
  *   - No option chain has been pushed for the instrument yet.
- *   - History has fewer than `MIN_SAMPLES` data points (low confidence).
+ *   - History has fewer than `minSamples` data points (low confidence).
  *   - ATM strike can't be found or IV is missing on both legs.
  *
- * Defaults below are baked-in for the stub. Operators currently tune
- * `ivCondition` ("fair" | "cheap" | "any") via DisciplineAgentSettings —
- * thresholds for the classifier itself are not yet exposed to settings;
- * a follow-up will surface HISTORY_WINDOW / CHEAP_PCTL / EXPENSIVE_PCTL /
- * MIN_SAMPLES through the settings UI when operator demand exists.
+ * Tunables (history window, min-samples, percentile bands) are
+ * operator-controlled via DisciplineAgentSettings.capitalProtection.iv
+ * — DA's start() pushes them here via `setIvTunables` and refreshes on
+ * every settings update. Defaults below apply until the first refresh
+ * (test runs, before-DA-boot pushes).
  */
 
 import type { RawOptionChainData } from "../../shared/tradingTypes";
 
-export const HISTORY_WINDOW = 500;
-export const MIN_SAMPLES = 50;
-export const CHEAP_PCTL = 25;
-export const EXPENSIVE_PCTL = 75;
+export interface IvTunables {
+  /** # of recent ATM IV samples kept per instrument. Older samples are
+   *  trimmed off the front when the buffer exceeds this. */
+  historyWindow: number;
+  /** Minimum samples needed before classifyAtmIv returns a non-null
+   *  label — guards against confidence-poor calls. */
+  minSamples: number;
+  /** Current IV ≤ this percentile of recent history → "cheap". */
+  cheapPercentile: number;
+  /** Current IV ≥ this percentile of recent history → "expensive". */
+  expensivePercentile: number;
+}
+
+export const DEFAULT_IV_TUNABLES: IvTunables = {
+  historyWindow: 500,
+  minSamples: 50,
+  cheapPercentile: 25,
+  expensivePercentile: 75,
+};
 
 export type IvLabel = "cheap" | "fair" | "expensive";
+
+/** Mutable runtime config — DA refreshes via setIvTunables(). */
+let active: IvTunables = { ...DEFAULT_IV_TUNABLES };
 
 /** Per-instrument rolling history of ATM IV observations (newest last). */
 const history = new Map<string, number[]>();
 
 /**
+ * Operator-tunable config refresh. DA calls this on start() and whenever
+ * settings change. Partial input merges into current — pass only the
+ * fields you want to override.
+ */
+export function setIvTunables(patch: Partial<IvTunables>): void {
+  active = { ...active, ...patch };
+  // Re-trim every existing history to honour a smaller window if it shrank.
+  if (typeof patch.historyWindow === "number") {
+    history.forEach((arr, k) => {
+      if (arr.length > active.historyWindow) {
+        history.set(k, arr.slice(arr.length - active.historyWindow));
+      }
+    });
+  }
+}
+
+/** Inspect current runtime config — used by tests + the SettingsCard preview. */
+export function getIvTunables(): IvTunables {
+  return { ...active };
+}
+
+/**
  * Append an ATM IV sample to the per-instrument history. Trims older
- * samples beyond HISTORY_WINDOW.
+ * samples beyond the runtime `historyWindow`.
  */
 export function recordAtmIv(instrument: string, atmIv: number): void {
   if (!Number.isFinite(atmIv) || atmIv <= 0) return;
   const arr = history.get(instrument) ?? [];
   arr.push(atmIv);
-  if (arr.length > HISTORY_WINDOW) arr.splice(0, arr.length - HISTORY_WINDOW);
+  if (arr.length > active.historyWindow) {
+    arr.splice(0, arr.length - active.historyWindow);
+  }
   history.set(instrument, arr);
 }
 
@@ -99,9 +141,8 @@ export function recordAtmIvFromChain(instrument: string, chain: RawOptionChainDa
 
 /**
  * Compute the percentile of `value` against `samples` (0-100). Linear
- * rank-based — same direction as classification (low = cheap, high =
- * expensive). Returns 50 when samples is empty (caller should guard
- * with MIN_SAMPLES first).
+ * rank-based — low IV = cheap, high IV = expensive. Returns 50 when
+ * samples is empty (caller guards with `minSamples` first).
  */
 function percentile(value: number, samples: number[]): number {
   if (samples.length === 0) return 50;
@@ -113,15 +154,16 @@ function percentile(value: number, samples: number[]): number {
 /**
  * Classify the current ATM IV for `instrument` against its history.
  * Returns null when `currentIv` is undefined or history has too few
- * samples for a confident call. Pure function — no side effects.
+ * samples (per runtime `minSamples`) for a confident call. Pure function
+ * — no side effects.
  */
 export function classifyAtmIv(instrument: string, currentIv: number | null | undefined): IvLabel | null {
   if (currentIv == null || !Number.isFinite(currentIv) || currentIv <= 0) return null;
   const samples = history.get(instrument) ?? [];
-  if (samples.length < MIN_SAMPLES) return null;
+  if (samples.length < active.minSamples) return null;
   const p = percentile(currentIv, samples);
-  if (p <= CHEAP_PCTL) return "cheap";
-  if (p >= EXPENSIVE_PCTL) return "expensive";
+  if (p <= active.cheapPercentile) return "cheap";
+  if (p >= active.expensivePercentile) return "expensive";
   return "fair";
 }
 
@@ -131,7 +173,7 @@ export function classifyAtmIv(instrument: string, currentIv: number | null | und
  * current ATM IV, and classifies. Returns null when:
  *   - No chain available for the instrument.
  *   - ATM IV can't be derived from the chain.
- *   - History below MIN_SAMPLES.
+ *   - History below the runtime `minSamples`.
  *
  * Caller maps null → "unknown" (the eval's no-veto sentinel).
  *
@@ -155,6 +197,11 @@ export async function classifyIv(instrument: string): Promise<IvLabel | null> {
 export function _resetIvHistoryForTesting(instrument?: string): void {
   if (instrument) history.delete(instrument);
   else history.clear();
+}
+
+/** Test-only — reset runtime tunables back to defaults. */
+export function _resetIvTunablesForTesting(): void {
+  active = { ...DEFAULT_IV_TUNABLES };
 }
 
 /** Test-only — peek at the current sample count. */

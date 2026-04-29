@@ -294,6 +294,22 @@ export interface DisciplineAgentSettings {
       minDte: number;                 // days to expiry
       ivCondition: "fair" | "cheap" | "any";
     };
+    /** Tunables for the option-chain IV regime classifier (RCA's
+     *  ivClassifier). Push to risk-control via setIvTunables() at DA
+     *  boot and on every settings update so the classifier always
+     *  reflects operator policy. */
+    iv: {
+      /** # of recent ATM IV samples retained per instrument. Older ones
+       *  trim off the front. */
+      historyWindow: number;
+      /** Minimum samples required before a non-null label is returned
+       *  (low-confidence guard). */
+      minSamples: number;
+      /** Current IV at or below this percentile of recent history → "cheap". */
+      cheapPercentile: number;
+      /** Current IV at or above this percentile of recent history → "expensive". */
+      expensivePercentile: number;
+    };
   };
 
   // Change history
@@ -340,6 +356,15 @@ export const DEFAULT_DISCIPLINE_AGENT_SETTINGS: Omit<DisciplineAgentSettings, "u
       minMomentumScore: 70,
       minDte: 2,
       ivCondition: "fair",
+    },
+    // IV-classifier tunables — defaults match the classifier's
+    // module-level fallbacks; DA pushes them via setIvTunables() on
+    // start + on every updateSettings.
+    iv: {
+      historyWindow: 500,
+      minSamples: 50,
+      cheapPercentile: 25,
+      expensivePercentile: 75,
     },
   },
 };
