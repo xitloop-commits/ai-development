@@ -1432,6 +1432,167 @@ export function DisciplineSection() {
         </div>
       </SettingsCard>
 
+      {/* Capital Protection — Daily Caps (Module 8) */}
+      <SettingsCard title="Daily Capital Caps">
+        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
+          Combined NSE+MCX P&L vs % of opening capital. When breached,
+          DA halts both exchanges and starts a grace timer for an operator
+          decision. Disable each cap individually for observation-only mode.
+        </p>
+        <div className="space-y-4">
+          <DisciplineRow
+            label="Profit Cap"
+            hint="Halt new trades once daily realized profit reaches this %"
+            enabled={ds.capitalProtection?.profitCap?.enabled ?? false}
+            onToggle={(v) => upd('capitalProtection.profitCap.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="% of opening capital (combined NSE + MCX)">Threshold</FieldLabel>
+              <NumberInput
+                value={ds.capitalProtection?.profitCap?.percent ?? 5}
+                onChange={(v) => upd('capitalProtection.profitCap.percent', v)}
+                min={0}
+                max={100}
+                step={0.5}
+                suffix="%"
+              />
+            </div>
+          </DisciplineRow>
+
+          <DisciplineRow
+            label="Loss Cap"
+            hint="Halt new trades once daily realized loss reaches this %"
+            enabled={ds.capitalProtection?.lossCap?.enabled ?? false}
+            onToggle={(v) => upd('capitalProtection.lossCap.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="% of opening capital (combined NSE + MCX)">Threshold</FieldLabel>
+              <NumberInput
+                value={ds.capitalProtection?.lossCap?.percent ?? 2}
+                onChange={(v) => upd('capitalProtection.lossCap.percent', v)}
+                min={0}
+                max={100}
+                step={0.5}
+                suffix="%"
+              />
+            </div>
+          </DisciplineRow>
+
+          <div className="flex items-center justify-between pt-2 border-t border-border/40">
+            <FieldLabel hint="Seconds operator has to choose an action before MUST_EXIT auto-fires">Grace Period</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.gracePeriodSeconds ?? 60}
+              onChange={(v) => upd('capitalProtection.gracePeriodSeconds', v)}
+              min={0}
+              max={3600}
+              step={5}
+              suffix="s"
+            />
+          </div>
+        </div>
+      </SettingsCard>
+
+      {/* Capital Protection — Carry-Forward Schedule (Module 8) */}
+      <SettingsCard title="Carry-Forward Schedule">
+        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
+          Per-exchange cron at the configured eval times. NSE closes 15:30,
+          MCX closes 23:30 — DA evaluates each exchange's open positions
+          against the carry-forward conditions below at its eval time.
+          autoExit fires EXIT_ALL after exitDelayMinutes if conditions fail.
+        </p>
+        <DisciplineRow
+          label="Carry-Forward Eval"
+          hint="Master enable for the per-exchange overnight-position check"
+          enabled={ds.capitalProtection?.carryForward?.enabled ?? false}
+          onToggle={(v) => upd('capitalProtection.carryForward.enabled', v)}
+        >
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="HH:mm IST — typically 15 min before NSE close (15:30)">NSE Eval Time</FieldLabel>
+            <TimeInput
+              value={ds.capitalProtection?.carryForward?.nseEvalTime ?? '15:15'}
+              onChange={(v) => upd('capitalProtection.carryForward.nseEvalTime', v)}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="HH:mm IST — typically 15 min before MCX close (23:30)">MCX Eval Time</FieldLabel>
+            <TimeInput
+              value={ds.capitalProtection?.carryForward?.mcxEvalTime ?? '23:15'}
+              onChange={(v) => upd('capitalProtection.carryForward.mcxEvalTime', v)}
+            />
+          </div>
+          <div className="flex items-center justify-between pt-2 border-t border-border/40">
+            <FieldLabel hint="Auto-fire EXIT_ALL when conditions fail">Auto-Exit on Fail</FieldLabel>
+            <ToggleSwitch
+              checked={ds.capitalProtection?.carryForward?.autoExit ?? true}
+              onChange={(v) => upd('capitalProtection.carryForward.autoExit', v)}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Operator's window to override the auto-exit">Exit Delay</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.carryForward?.exitDelayMinutes ?? 5}
+              onChange={(v) => upd('capitalProtection.carryForward.exitDelayMinutes', v)}
+              min={0}
+              max={120}
+              suffix="min"
+            />
+          </div>
+        </DisciplineRow>
+      </SettingsCard>
+
+      {/* Capital Protection — Carry-Forward Conditions (Module 8) */}
+      <SettingsCard title="Carry-Forward Conditions">
+        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
+          Four conditions a position must satisfy to carry forward
+          overnight. ALL must pass — even one failure triggers exit
+          (auto or manual per the schedule above).
+        </p>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Minimum unrealized P&L on the position">Min Profit %</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.carryForward?.minProfitPercent ?? 15}
+              onChange={(v) => upd('capitalProtection.carryForward.minProfitPercent', v)}
+              min={0}
+              max={1000}
+              step={0.5}
+              suffix="%"
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Minimum 0–100 score from RCA's latest filtered SEA signal">Min Momentum</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.carryForward?.minMomentumScore ?? 70}
+              onChange={(v) => upd('capitalProtection.carryForward.minMomentumScore', v)}
+              min={0}
+              max={100}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Minimum days to expiry — too close = forced exit">Min DTE</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.carryForward?.minDte ?? 2}
+              onChange={(v) => upd('capitalProtection.carryForward.minDte', v)}
+              min={0}
+              max={365}
+              suffix="days"
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Required IV regime (or `any` to skip the check)">IV Condition</FieldLabel>
+            <SelectInput
+              value={ds.capitalProtection?.carryForward?.ivCondition ?? 'fair'}
+              onChange={(v) => upd('capitalProtection.carryForward.ivCondition', v)}
+              options={[
+                { value: 'fair', label: 'fair (default)' },
+                { value: 'cheap', label: 'cheap (long-friendly)' },
+                { value: 'any', label: 'any (skip check)' },
+              ]}
+            />
+          </div>
+        </div>
+      </SettingsCard>
+
       {/* Capital Protection — IV Classifier (Module 8 follow-up) */}
       <SettingsCard title="IV Classifier">
         <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
