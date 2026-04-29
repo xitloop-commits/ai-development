@@ -24,7 +24,7 @@ import { getMongoHealth, pingMongo } from './mongo';
 import { getAllInstruments, addInstrument, removeInstrument, assignHotkey, type InstrumentConfig } from './instruments';
 import { searchByQuery, downloadScripMaster, needsRefresh } from './broker/adapters/dhan/scripMaster';
 import { setConfiguredInstruments } from './tradingStore';
-import { validateBody, validateParams } from "./_core/zodMiddleware";
+import { validateBody, validateParams, validateQuery } from "./_core/zodMiddleware";
 
 // ─── Schemas ────────────────────────────────────────────────────
 
@@ -71,6 +71,13 @@ const instrumentKeyParamsSchema = z
 const hotkeyBodySchema = z
   .object({
     hotkey: z.string().nullable().optional(),
+  })
+  .strict();
+
+const searchInstrumentsQuerySchema = z
+  .object({
+    query: z.string().min(1),
+    exchange: z.string().min(1).optional(),
   })
   .strict();
 
@@ -161,33 +168,34 @@ export function registerTradingRoutes(app: Express): void {
 
   // --- Scrip Master Search ---
   // GET: Search Dhan scrip master for instruments
-  app.get('/api/trading/search-instruments', async (req: Request, res: Response) => {
-    try {
-      const { query, exchange } = req.query;
-      if (!query || typeof query !== 'string') {
-        res.status(400).json({ error: 'Missing query parameter' });
-        return;
-      }
+  app.get(
+    '/api/trading/search-instruments',
+    validateQuery(searchInstrumentsQuerySchema),
+    async (req: Request, res: Response) => {
+      try {
+        const { query, exchange } =
+          req.query as unknown as z.infer<typeof searchInstrumentsQuerySchema>;
 
-      // Ensure scrip master is loaded
-      if (needsRefresh(24)) {
-        try {
-          console.log('[Scrip Master] Downloading for search request...');
-          await downloadScripMaster();
-        } catch (err: any) {
-          console.warn('[Scrip Master] Download failed:', err.message);
-          // Continue with cached data
+        // Ensure scrip master is loaded
+        if (needsRefresh(24)) {
+          try {
+            console.log('[Scrip Master] Downloading for search request...');
+            await downloadScripMaster();
+          } catch (err: any) {
+            console.warn('[Scrip Master] Download failed:', err.message);
+            // Continue with cached data
+          }
         }
-      }
 
-      const exchangeFilter = (exchange && exchange !== 'ALL') ? (exchange as string) : undefined;
-      const results = searchByQuery(query, exchangeFilter, 20);
-      res.json({ results });
-    } catch (err: any) {
-      console.error('[Trading API] Error searching instruments:', err);
-      res.status(500).json({ error: err.message });
-    }
-  });
+        const exchangeFilter = exchange && exchange !== 'ALL' ? exchange : undefined;
+        const results = searchByQuery(query, exchangeFilter, 20);
+        res.json({ results });
+      } catch (err: any) {
+        console.error('[Trading API] Error searching instruments:', err);
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
 
   // POST: Add a new instrument
   app.post(

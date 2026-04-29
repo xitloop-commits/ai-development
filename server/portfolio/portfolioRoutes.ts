@@ -10,22 +10,25 @@
  */
 
 import type { Express, Request, Response } from "express";
+import { z } from "zod";
+import { validateQuery } from "../_core/zodMiddleware";
 import { portfolioAgent } from "./portfolioAgent";
 import type { Channel } from "./state";
 
-const VALID_CHANNELS: Channel[] = [
+const channelSchema = z.enum([
   "ai-live",
   "ai-paper",
   "my-live",
   "my-paper",
   "testing-live",
   "testing-sandbox",
-];
+]);
 
-function parseChannel(raw: unknown): Channel | null {
-  if (typeof raw !== "string") return null;
-  return (VALID_CHANNELS as string[]).includes(raw) ? (raw as Channel) : null;
-}
+const dailyPnlQuerySchema = z
+  .object({
+    channel: channelSchema,
+  })
+  .strict();
 
 export function registerPortfolioRoutes(app: Express): void {
   /**
@@ -34,20 +37,18 @@ export function registerPortfolioRoutes(app: Express): void {
    * Spec §10.1 — daily P&L pull endpoint. Returns the same payload as the
    * tRPC `portfolio.dailyPnl` query for callers that prefer REST.
    */
-  app.get("/api/portfolio/daily-pnl", async (req: Request, res: Response) => {
-    try {
-      const channel = parseChannel(req.query.channel);
-      if (!channel) {
-        res
-          .status(400)
-          .json({ error: `Missing or invalid channel. Expected one of: ${VALID_CHANNELS.join(", ")}` });
-        return;
+  app.get(
+    "/api/portfolio/daily-pnl",
+    validateQuery(dailyPnlQuerySchema),
+    async (req: Request, res: Response) => {
+      try {
+        const { channel } = req.query as unknown as z.infer<typeof dailyPnlQuerySchema>;
+        const report = await portfolioAgent.getDailyPnl(channel as Channel);
+        res.json(report);
+      } catch (err: any) {
+        console.error("[portfolio REST] daily-pnl failed:", err);
+        res.status(500).json({ error: err.message });
       }
-      const report = await portfolioAgent.getDailyPnl(channel);
-      res.json(report);
-    } catch (err: any) {
-      console.error("[portfolio REST] daily-pnl failed:", err);
-      res.status(500).json({ error: err.message });
-    }
-  });
+    },
+  );
 }

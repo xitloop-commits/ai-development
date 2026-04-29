@@ -7,7 +7,7 @@
 
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
-import { validateBody } from "../_core/zodMiddleware";
+import { validateBody, validateQuery } from "../_core/zodMiddleware";
 import {
   getActiveBroker,
   getAdapter,
@@ -144,6 +144,59 @@ const feedSubscribeSchema = z
 const feedUnsubscribeSchema = z
   .object({
     instruments: z.array(subscribeInstrumentItem).min(1),
+  })
+  .strict();
+
+// ─── GET query-string schemas (B8-followup) ──────────────────────
+//
+// Express delivers req.query as Record<string, string | string[]>; zod
+// .coerce on numerics + .strict() rejects unknown keys (e.g. typo'd
+// `instument` instead of `instrument`). Empty-string strikes get filtered
+// out by the lookup helper, so we accept undefined.
+
+const scripLookupQuerySchema = z
+  .object({
+    symbol: z.string().min(1),
+    expiry: z.string().optional(),
+    strike: z.coerce.number().optional(),
+    optionType: z.string().optional(),
+    exchange: z.string().optional(),
+    instrumentName: z.string().optional(),
+  })
+  .strict();
+
+const scripExpiryListQuerySchema = z
+  .object({
+    symbol: z.string().min(1),
+    exchange: z.string().optional(),
+    instrumentName: z.string().optional(),
+  })
+  .strict();
+
+const mcxFutcomQuerySchema = z
+  .object({
+    symbol: z.string().min(1),
+  })
+  .strict();
+
+const optionChainExpiryListQuerySchema = z
+  .object({
+    underlying: z.string().min(1),
+    exchangeSegment: z.string().optional(),
+  })
+  .strict();
+
+const optionChainQuerySchema = z
+  .object({
+    underlying: z.string().min(1),
+    expiry: z.string().min(1),
+    exchangeSegment: z.string().optional(),
+  })
+  .strict();
+
+const tokenQuerySchema = z
+  .object({
+    brokerId: z.string().min(1).default("dhan"),
   })
   .strict();
 
@@ -403,148 +456,138 @@ export function registerBrokerRoutes(app: Express): void {
   });
 
   /** GET /api/broker/scrip-master/lookup — Lookup security ID */
-  app.get("/api/broker/scrip-master/lookup", async (req: Request, res: Response) => {
-    try {
-      const broker = requireBrokerREST(res);
-      if (!broker) return;
+  app.get(
+    "/api/broker/scrip-master/lookup",
+    validateQuery(scripLookupQuerySchema),
+    async (req: Request, res: Response) => {
+      try {
+        const broker = requireBrokerREST(res);
+        if (!broker) return;
 
-      const { symbol, expiry, strike, optionType, exchange, instrumentName } = req.query;
+        const { symbol, expiry, strike, optionType, exchange, instrumentName } =
+          req.query as unknown as z.infer<typeof scripLookupQuerySchema>;
 
-      if (!symbol) {
-        sendError(res, 400, "Missing required query param: symbol");
-        return;
-      }
+        if (broker.lookupSecurity) {
+          const result = broker.lookupSecurity({
+            symbol,
+            expiry,
+            strike,
+            optionType,
+            exchange,
+            instrumentName,
+          });
 
-      if (broker.lookupSecurity) {
-        const result = broker.lookupSecurity({
-          symbol: symbol as string,
-          expiry: expiry as string | undefined,
-          strike: strike ? parseFloat(strike as string) : undefined,
-          optionType: optionType as string | undefined,
-          exchange: exchange as string | undefined,
-          instrumentName: instrumentName as string | undefined,
-        });
-
-        if (result) {
-          res.json({ success: true, data: result });
+          if (result) {
+            res.json({ success: true, data: result });
+          } else {
+            sendError(res, 404, `No match found for symbol=${symbol}`);
+          }
         } else {
-          sendError(res, 404, `No match found for symbol=${symbol}`);
+          sendError(res, 501, "Security lookup not supported by this adapter");
         }
-      } else {
-        sendError(res, 501, "Security lookup not supported by this adapter");
+      } catch (err: any) {
+        log.error("Error looking up security:", err);
+        sendError(res, 500, err.message);
       }
-    } catch (err: any) {
-      log.error("Error looking up security:", err);
-      sendError(res, 500, err.message);
-    }
-  });
+    },
+  );
 
   /** GET /api/broker/scrip-master/expiry-list — Get expiry dates from cache */
-  app.get("/api/broker/scrip-master/expiry-list", async (req: Request, res: Response) => {
-    try {
-      const broker = requireBrokerREST(res);
-      if (!broker) return;
+  app.get(
+    "/api/broker/scrip-master/expiry-list",
+    validateQuery(scripExpiryListQuerySchema),
+    async (req: Request, res: Response) => {
+      try {
+        const broker = requireBrokerREST(res);
+        if (!broker) return;
 
-      const { symbol, exchange, instrumentName } = req.query;
+        const { symbol, exchange, instrumentName } =
+          req.query as unknown as z.infer<typeof scripExpiryListQuerySchema>;
 
-      if (!symbol) {
-        sendError(res, 400, "Missing required query param: symbol");
-        return;
+        if (broker.getScripExpiryDates) {
+          const dates = broker.getScripExpiryDates(symbol, exchange, instrumentName);
+          res.json({ success: true, data: dates });
+        } else {
+          sendError(res, 501, "Expiry list from cache not supported by this adapter");
+        }
+      } catch (err: any) {
+        log.error("Error getting expiry list:", err);
+        sendError(res, 500, err.message);
       }
-
-      if (broker.getScripExpiryDates) {
-        const dates = broker.getScripExpiryDates(
-          symbol as string,
-          exchange as string | undefined,
-          instrumentName as string | undefined
-        );
-        res.json({ success: true, data: dates });
-      } else {
-        sendError(res, 501, "Expiry list from cache not supported by this adapter");
-      }
-    } catch (err: any) {
-      log.error("Error getting expiry list:", err);
-      sendError(res, 500, err.message);
-    }
-  });
+    },
+  );
 
   /** GET /api/broker/scrip-master/mcx-futcom — Resolve nearest-month MCX FUTCOM */
-  app.get("/api/broker/scrip-master/mcx-futcom", async (req: Request, res: Response) => {
-    try {
-      const broker = requireBrokerREST(res);
-      if (!broker) return;
+  app.get(
+    "/api/broker/scrip-master/mcx-futcom",
+    validateQuery(mcxFutcomQuerySchema),
+    async (req: Request, res: Response) => {
+      try {
+        const broker = requireBrokerREST(res);
+        if (!broker) return;
 
-      const { symbol } = req.query;
+        const { symbol } = req.query as unknown as z.infer<typeof mcxFutcomQuerySchema>;
 
-      if (!symbol) {
-        sendError(res, 400, "Missing required query param: symbol");
-        return;
-      }
-
-      if (broker.resolveMCXFutcom) {
-        const result = await broker.resolveMCXFutcom(symbol as string);
-        if (result) {
-          res.json({ success: true, data: result });
+        if (broker.resolveMCXFutcom) {
+          const result = await broker.resolveMCXFutcom(symbol);
+          if (result) {
+            res.json({ success: true, data: result });
+          } else {
+            sendError(res, 404, `No FUTCOM found for ${symbol}`);
+          }
         } else {
-          sendError(res, 404, `No FUTCOM found for ${symbol}`);
+          sendError(res, 501, "MCX FUTCOM resolution not supported by this adapter");
         }
-      } else {
-        sendError(res, 501, "MCX FUTCOM resolution not supported by this adapter");
+      } catch (err: any) {
+        log.error("Error resolving MCX FUTCOM:", err);
+        sendError(res, 500, err.message);
       }
-    } catch (err: any) {
-      log.error("Error resolving MCX FUTCOM:", err);
-      sendError(res, 500, err.message);
-    }
-  });
+    },
+  );
 
   // ── Option Chain (via Dhan API) ────────────────────────────
 
   /** GET /api/broker/option-chain/expiry-list — Get expiry list from Dhan API */
-  app.get("/api/broker/option-chain/expiry-list", async (req: Request, res: Response) => {
-    try {
-      const broker = requireBrokerREST(res);
-      if (!broker) return;
+  app.get(
+    "/api/broker/option-chain/expiry-list",
+    validateQuery(optionChainExpiryListQuerySchema),
+    async (req: Request, res: Response) => {
+      try {
+        const broker = requireBrokerREST(res);
+        if (!broker) return;
 
-      const { underlying, exchangeSegment } = req.query;
-      if (!underlying) {
-        sendError(res, 400, "Missing required query param: underlying");
-        return;
+        const { underlying, exchangeSegment } =
+          req.query as unknown as z.infer<typeof optionChainExpiryListQuerySchema>;
+
+        const dates = await broker.getExpiryList(underlying, exchangeSegment);
+        res.json({ success: true, data: dates });
+      } catch (err: any) {
+        log.error("Error getting expiry list:", err);
+        sendError(res, 500, err.message);
       }
-
-      const dates = await broker.getExpiryList(
-        underlying as string,
-        (exchangeSegment as string) || undefined
-      );
-      res.json({ success: true, data: dates });
-    } catch (err: any) {
-      log.error("Error getting expiry list:", err);
-      sendError(res, 500, err.message);
-    }
-  });
+    },
+  );
 
   /** GET /api/broker/option-chain — Get option chain from Dhan API */
-  app.get("/api/broker/option-chain", async (req: Request, res: Response) => {
-    try {
-      const broker = requireBrokerREST(res);
-      if (!broker) return;
+  app.get(
+    "/api/broker/option-chain",
+    validateQuery(optionChainQuerySchema),
+    async (req: Request, res: Response) => {
+      try {
+        const broker = requireBrokerREST(res);
+        if (!broker) return;
 
-      const { underlying, expiry, exchangeSegment } = req.query;
-      if (!underlying || !expiry) {
-        sendError(res, 400, "Missing required query params: underlying, expiry");
-        return;
+        const { underlying, expiry, exchangeSegment } =
+          req.query as unknown as z.infer<typeof optionChainQuerySchema>;
+
+        const chain = await broker.getOptionChain(underlying, expiry, exchangeSegment);
+        res.json({ success: true, data: chain });
+      } catch (err: any) {
+        log.error("Error getting option chain:", err);
+        sendError(res, 500, err.message);
       }
-
-      const chain = await broker.getOptionChain(
-        underlying as string,
-        expiry as string,
-        (exchangeSegment as string) || undefined
-      );
-      res.json({ success: true, data: chain });
-    } catch (err: any) {
-      log.error("Error getting option chain:", err);
-      sendError(res, 500, err.message);
-    }
-  });
+    },
+  );
 
   // ── Charts / Historical Data ─────────────────────────────────
 
@@ -640,7 +683,10 @@ export function registerBrokerRoutes(app: Express): void {
    * Dhan WebSocket connection at startup. Localhost-only — rejects all
    * external requests with 403.
    */
-  app.get("/api/broker/token", async (req: Request, res: Response) => {
+  app.get(
+    "/api/broker/token",
+    validateQuery(tokenQuerySchema),
+    async (req: Request, res: Response) => {
     // Localhost-only guard — never expose raw token externally
     const ip = req.ip ?? "";
     const isLocal =
@@ -655,7 +701,8 @@ export function registerBrokerRoutes(app: Express): void {
     try {
       // brokerId selectable via query (?brokerId=dhan-ai-data for TFA on the
       // spouse's account). Defaults to "dhan" for backward compatibility.
-      const brokerIdParam = String(req.query.brokerId ?? "dhan");
+      const { brokerId: brokerIdParam } =
+        req.query as unknown as z.infer<typeof tokenQuerySchema>;
       let config = await getBrokerConfig(brokerIdParam);
       if (!config) {
         sendError(res, 404, `Broker config not found for brokerId=${brokerIdParam}`);
