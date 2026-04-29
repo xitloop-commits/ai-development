@@ -75,6 +75,17 @@ export function pushOptionChain(instrument: string, data: RawOptionChainData): v
     lastSeen: Date.now(),
     message: `Fetched ${instrument} - ${Object.keys(data.oc || {}).length} strikes`,
   };
+  // C2/C3 — sample current ATM IV into the rolling-history baseline that
+  // DA's carry-forward eval consults. Dynamic import avoids load-order
+  // coupling during early boot.
+  void import('./risk-control/ivClassifier').then(({ recordAtmIvFromChain }) => {
+    recordAtmIvFromChain(instrument, data);
+  }).catch(() => { /* classifier unavailable — non-fatal */ });
+}
+
+/** Read-only accessor for the latest option chain pushed for an instrument. */
+export function getOptionChain(instrument: string): RawOptionChainData | null {
+  return instrumentStores[instrument]?.optionChain ?? null;
 }
 
 export function pushAnalyzerOutput(instrument: string, data: RawAnalyzerOutput): void {

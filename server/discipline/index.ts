@@ -117,6 +117,7 @@ class DisciplineAgent {
     try {
       const { portfolioAgent } = await import("../portfolio");
       const { rcaMonitor } = await import("../risk-control");
+      const { classifyIv } = await import("../risk-control/ivClassifier");
       // Channels we monitor for carry-forward — same as RCA's set.
       const channels = ["my-live", "ai-live", "ai-paper"] as const;
       for (const channel of channels) {
@@ -140,9 +141,13 @@ class DisciplineAgent {
           // check in that case (treats as "no opinion = no veto").
           const liveMomentum = rcaMonitor.getLatestMomentumScore(t.instrument);
           const momentumScore = liveMomentum ?? settings.capitalProtection.carryForward.minMomentumScore;
-          // ivLabel: TODO — wire the option-chain IV classifier when it
-          // exists. "unknown" is a no-veto value per the eval logic.
-          const ivLabel: "fair" | "cheap" | "expensive" | "unknown" = "unknown";
+          // C2/C3 — option-chain IV classifier. Returns null when:
+          //   - No chain pushed yet for the instrument.
+          //   - History below MIN_SAMPLES (low confidence).
+          //   - ATM IV can't be derived (sparse chain).
+          // Map null → "unknown", which the eval treats as a no-veto.
+          const ivClass = await classifyIv(t.instrument);
+          const ivLabel: "fair" | "cheap" | "expensive" | "unknown" = ivClass ?? "unknown";
 
           positions.push({
             tradeId: t.id,
