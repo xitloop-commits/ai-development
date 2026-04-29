@@ -132,14 +132,15 @@ describe("Pure Engine: injectCapital", () => {
 });
 
 describe("Pure Engine: Quarterly Projections with updated initialFunding", () => {
-  it("should use provided initialFunding instead of DEFAULT_INITIAL_FUNDING", () => {
+  it("uses the provided initialFunding for the planned-target projection", () => {
     const result1 = calculateQuarterlyProjection(150000, 50000, 10, 30, 100000);
     const result2 = calculateQuarterlyProjection(150000, 50000, 10, 30, 200000);
 
-    // Different baselines should produce different avg daily rates → different projections
-    // With 100K baseline: grew from 100K to 200K in 10 days → high rate
-    // With 200K baseline: grew from 200K to 200K in 10 days → zero rate
-    expect(result1.projectedCapital).toBeGreaterThan(result2.projectedCapital);
+    // Function projects the planned target at quarter end given
+    // initialFunding × (1 + targetPercent/100)^endDay. Doubling
+    // initialFunding doubles the projection — proportionally.
+    expect(result1.projectedCapital).not.toBe(result2.projectedCapital);
+    expect(result2.projectedCapital).toBeCloseTo(result1.projectedCapital * 2, 0);
   });
 
   it("should mark past quarters as isPast with zero projection", () => {

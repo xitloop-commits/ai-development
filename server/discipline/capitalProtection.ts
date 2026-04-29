@@ -288,9 +288,12 @@ export function runCarryForwardEvaluation(
  * decide if `now` matches the configured eval time. Pure helper.
  */
 export function parseHHmm(s: string): number {
-  const m = /^([0-2]\d):([0-5]\d)$/.exec(s);
+  const m = /^(\d{2}):(\d{2})$/.exec(s);
   if (!m) throw new Error(`Invalid HH:mm: ${s}`);
-  return parseInt(m[1]!, 10) * 60 + parseInt(m[2]!, 10);
+  const hh = parseInt(m[1]!, 10);
+  const mm = parseInt(m[2]!, 10);
+  if (hh > 23 || mm > 59) throw new Error(`Invalid HH:mm: ${s}`);
+  return hh * 60 + mm;
 }
 
 /**

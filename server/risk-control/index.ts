@@ -44,6 +44,21 @@ import type {
 
 const log = createLogger("RCA", "Monitor");
 
+/**
+ * Map any spelling of an instrument name to the canonical SEA-key vocab.
+ * Handles inputs like "NIFTY 50", "NIFTY_50", "BankNifty", "Crude Oil"
+ * by uppercasing then stripping both whitespace AND underscores before
+ * matching the known aliases. Unrecognized inputs pass through normalized.
+ */
+function toSeaKey(instrumentName: string): string {
+  const norm = instrumentName.toUpperCase().replace(/[\s_]+/g, "");
+  if (norm === "NIFTY50" || norm === "NIFTY") return "NIFTY";
+  if (norm === "BANKNIFTY") return "BANKNIFTY";
+  if (norm === "CRUDEOIL") return "CRUDEOIL";
+  if (norm === "NATURALGAS") return "NATURALGAS";
+  return norm;
+}
+
 const DEFAULT_MAX_AGE_MS = 30 * 60 * 1000;          // 30 min — Phase 1 trigger
 const DEFAULT_STALE_TICK_MS = 5 * 60 * 1000;         // 5 min — Phase 2 trigger
 const DEFAULT_VOL_THRESHOLD = 0.7;                   // max_drawdown_pred_30s above which RCA exits
@@ -192,13 +207,7 @@ class RcaMonitor {
 
   /** Map trade.instrument → SEA key, return the latest filtered signal for it. */
   private lookupSignal(trade: TradeRecord, latest: Map<string, SEASignal>): SEASignal | undefined {
-    const norm = trade.instrument.toUpperCase().replace(/\s+/g, "");
-    const seaKey =
-      norm === "NIFTY50" || norm === "NIFTY" ? "NIFTY"
-      : norm === "BANKNIFTY" ? "BANKNIFTY"
-      : norm === "CRUDEOIL" ? "CRUDEOIL"
-      : norm === "NATURALGAS" ? "NATURALGAS"
-      : norm;
+    const seaKey = toSeaKey(trade.instrument);
     return latest.get(seaKey) ?? latest.get(seaKey + "50");
   }
 
@@ -213,13 +222,7 @@ class RcaMonitor {
    */
   getLatestMomentumScore(instrumentName: string): number | null {
     const idx = this.buildLatestSignalIndex();
-    const norm = instrumentName.toUpperCase().replace(/\s+/g, "");
-    const key =
-      norm === "NIFTY50" || norm === "NIFTY" ? "NIFTY"
-      : norm === "BANKNIFTY" ? "BANKNIFTY"
-      : norm === "CRUDEOIL" ? "CRUDEOIL"
-      : norm === "NATURALGAS" ? "NATURALGAS"
-      : norm;
+    const key = toSeaKey(instrumentName);
     const sig = idx.get(key) ?? idx.get(key + "50");
     if (!sig) return null;
     // SEASignal.momentum is the model's 0..100 score on the chosen

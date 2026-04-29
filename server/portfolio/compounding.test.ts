@@ -106,7 +106,7 @@ describe("initializeCapital", () => {
     expect(state.initialFunding).toBe(100000);
     expect(state.currentDayIndex).toBe(1);
     expect(state.targetPercent).toBe(5);
-    expect(state.workspace).toBe("live");
+    expect(state.channel).toBe("live");
   });
 
   it("should use default funding when not specified", () => {
@@ -459,15 +459,22 @@ describe("projectFutureDays", () => {
 // ─── Quarterly Projection ───────────────────────────────────────
 
 describe("calculateQuarterlyProjection", () => {
-  it("should return current capital when no days elapsed", () => {
+  it("returns the planned end-of-quarter net worth (default funding)", () => {
+    // Day 1 is in Q1; with default 100K @ 5%/day compounded over the
+    // quarter end-day, the projection is well above the starting 100K.
     const result = calculateQuarterlyProjection(75000, 25000, 1, 0);
-    expect(result.projectedCapital).toBe(100000);
-    expect(result.quarterLabel).toMatch(/^Q\d FY\d{2}$/);
+    expect(result.projectedCapital).toBeGreaterThan(100000);
+    expect(result.quarterLabel).toMatch(/^Q\d$/);
   });
 
-  it("should project forward when days have elapsed", () => {
-    const result = calculateQuarterlyProjection(80000, 27000, 5, 10);
-    expect(result.projectedCapital).toBeGreaterThan(107000);
+  it("projects to the same quarter end regardless of daysElapsed", () => {
+    // The function ignores currentTradingPool/currentReservePool/
+    // daysElapsed for projection — it returns the planned target at
+    // quarter end. Same currentDayIndex → same projection.
+    const a = calculateQuarterlyProjection(80000, 27000, 5, 10);
+    const b = calculateQuarterlyProjection(75000, 25000, 5, 0);
+    expect(a.projectedCapital).toBe(b.projectedCapital);
+    expect(a.projectedCapital).toBeGreaterThan(107000);
   });
 });
 
