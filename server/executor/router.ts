@@ -381,6 +381,10 @@ export const executorRouter = router({
         seaBridgeDirectionFilter: z.enum(["LONG_ONLY", "ALL"]).optional(),
         rcaChannels: z.array(channelSchema).min(0).max(6).optional(),
         recoveryChannels: z.array(channelSchema).min(0).max(6).optional(),
+        // B4-followup — desync auto kill-switch
+        desyncKillSwitchEnabled: z.boolean().optional(),
+        desyncKillSwitchThreshold: z.number().int().min(1).max(50).optional(),
+        desyncKillSwitchWindowSeconds: z.number().int().min(60).max(86_400).optional(),
       }),
     )
     .mutation(({ input }) => updateExecutorSettings(input)),

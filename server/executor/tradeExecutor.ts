@@ -419,6 +419,13 @@ class TradeExecutorAgent {
               targetPrice: req.modifications.targetPrice ?? null,
             },
           });
+          // B4-followup — notify RCA so its sliding-window counter can
+          // trip the workspace kill switch on N consecutive desyncs.
+          // Dynamic import breaks the TEA↔RCA cycle; fire-and-forget so
+          // a slow notify doesn't delay the BROKER_DESYNC throw.
+          void import("../risk-control").then(({ rcaMonitor }) =>
+            rcaMonitor.notifyDesync(channel, tradeId, reason),
+          ).catch((e) => log.warn(`RCA notifyDesync failed: ${e?.message ?? e}`));
           // Throw so the outer catch composes the failure response — local
           // SL/TP must NOT be updated when broker is out of sync.
           throw new Error(
@@ -536,6 +543,10 @@ class TradeExecutorAgent {
             reason,
             timestamp: Date.now(),
           });
+          // B4-followup — see modifyOrder hook above. Same pattern.
+          void import("../risk-control").then(({ rcaMonitor }) =>
+            rcaMonitor.notifyDesync(channel, tradeId, reason),
+          ).catch((e) => log.warn(`RCA notifyDesync failed: ${e?.message ?? e}`));
           throw new Error(
             `BROKER_DESYNC: exit order failed at broker (${reason}). Position state unchanged locally. Reconcile required.`,
           );

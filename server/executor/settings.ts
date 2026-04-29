@@ -41,6 +41,16 @@ export const EXECUTOR_DEFAULTS = {
   // Channels under monitoring
   rcaChannels: ["ai-paper"] as Channel[],
   recoveryChannels: ["my-live", "ai-live", "testing-live"] as Channel[],
+
+  // B4-followup — auto kill-switch on consecutive BROKER_DESYNC events.
+  // When N desyncs happen on a single channel within `windowSeconds`,
+  // RCA flips the affected workspace's kill switch and fires a Telegram
+  // alert. Counter is in-memory (lost on restart, fresh-start = fresh
+  // counter is the right behaviour). Defaults conservative; operator
+  // can disable for paper testing.
+  desyncKillSwitchEnabled: true,
+  desyncKillSwitchThreshold: 3,
+  desyncKillSwitchWindowSeconds: 600,
 } as const;
 
 export interface ExecutorSettings {
@@ -58,6 +68,11 @@ export interface ExecutorSettings {
 
   rcaChannels: Channel[];
   recoveryChannels: Channel[];
+
+  // B4-followup — auto kill-switch on consecutive BROKER_DESYNC events.
+  desyncKillSwitchEnabled: boolean;
+  desyncKillSwitchThreshold: number;
+  desyncKillSwitchWindowSeconds: number;
 
   updatedAt: number;
 }
@@ -80,6 +95,10 @@ const executorSettingsSchema = new Schema(
 
     rcaChannels: { type: [String], default: () => [...EXECUTOR_DEFAULTS.rcaChannels] },
     recoveryChannels: { type: [String], default: () => [...EXECUTOR_DEFAULTS.recoveryChannels] },
+
+    desyncKillSwitchEnabled: { type: Boolean, default: EXECUTOR_DEFAULTS.desyncKillSwitchEnabled },
+    desyncKillSwitchThreshold: { type: Number, default: EXECUTOR_DEFAULTS.desyncKillSwitchThreshold },
+    desyncKillSwitchWindowSeconds: { type: Number, default: EXECUTOR_DEFAULTS.desyncKillSwitchWindowSeconds },
 
     updatedAt: { type: Number, default: () => Date.now() },
   },
@@ -110,6 +129,9 @@ function defaultsFor(userId: string): ExecutorSettings {
     seaBridgeDirectionFilter: EXECUTOR_DEFAULTS.seaBridgeDirectionFilter,
     rcaChannels: [...EXECUTOR_DEFAULTS.rcaChannels],
     recoveryChannels: [...EXECUTOR_DEFAULTS.recoveryChannels],
+    desyncKillSwitchEnabled: EXECUTOR_DEFAULTS.desyncKillSwitchEnabled,
+    desyncKillSwitchThreshold: EXECUTOR_DEFAULTS.desyncKillSwitchThreshold,
+    desyncKillSwitchWindowSeconds: EXECUTOR_DEFAULTS.desyncKillSwitchWindowSeconds,
     updatedAt: 0,
   };
 }
@@ -132,6 +154,9 @@ function docToSettings(doc: any, userId: string): ExecutorSettings {
     recoveryChannels: (doc?.recoveryChannels && doc.recoveryChannels.length > 0)
       ? doc.recoveryChannels
       : [...EXECUTOR_DEFAULTS.recoveryChannels],
+    desyncKillSwitchEnabled: doc?.desyncKillSwitchEnabled ?? EXECUTOR_DEFAULTS.desyncKillSwitchEnabled,
+    desyncKillSwitchThreshold: doc?.desyncKillSwitchThreshold ?? EXECUTOR_DEFAULTS.desyncKillSwitchThreshold,
+    desyncKillSwitchWindowSeconds: doc?.desyncKillSwitchWindowSeconds ?? EXECUTOR_DEFAULTS.desyncKillSwitchWindowSeconds,
     updatedAt: doc?.updatedAt ?? 0,
   };
 }

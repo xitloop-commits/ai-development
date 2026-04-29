@@ -34,6 +34,7 @@ import { getSEASignals, type SEASignal } from "../seaSignals";
 import type { Channel, TradeRecord } from "../portfolio/state";
 import type { ExitTradeReason } from "../executor/types";
 import { getExecutorSettings } from "../executor/settings";
+import { notifyTelegram } from "../_core/telegram";
 import type {
   DisciplineExitRequest,
   DisciplineExitResponse,
@@ -71,6 +72,18 @@ class RcaMonitor {
   private channels: Channel[] = ["ai-paper"];
   /** Trade ids we've already attempted an exit on; prevents retry storms. */
   private exitAttempted = new Set<string>();
+
+  /**
+   * B4-followup — per-channel BROKER_DESYNC counter. Each entry is a
+   * sliding window of timestamps; when the count of timestamps within
+   * `windowSeconds` reaches `threshold`, RCA flips the workspace's kill
+   * switch. In-memory by design: a fresh process start = a fresh
+   * counter (operator wants to be paged on the FIRST desync after a
+   * restart, not a stale count carried over).
+   */
+  private desyncTimestamps = new Map<Channel, number[]>();
+  /** Channels currently tripped — used to suppress duplicate alerts. */
+  private desyncTripped = new Set<Channel>();
 
   start(opts: RcaMonitorOptions = {}): void {
     if (this.running) return;
@@ -398,6 +411,90 @@ class RcaMonitor {
     }
     log.info(`disciplineRequest done — exited=${exited} failed=${failed}`);
     return { exited, failed, details };
+  }
+
+  /**
+   * B4-followup — TEA notifies RCA on every BROKER_DESYNC mark.
+   * RCA tracks per-channel timestamps in a sliding window; when the
+   * count within `windowSeconds` reaches `threshold`, RCA flips that
+   * channel's workspace kill switch and fires a Telegram alert.
+   *
+   * Idempotent: once a channel is tripped, further desyncs don't
+   * re-trip until the operator manually clears the kill switch (which
+   * also resets the counter via `clearDesyncCounter`).
+   */
+  async notifyDesync(channel: Channel, tradeId: string, reason: string): Promise<void> {
+    const settings = await getExecutorSettings();
+    if (!settings.desyncKillSwitchEnabled) return;
+
+    const now = Date.now();
+    const windowMs = settings.desyncKillSwitchWindowSeconds * 1_000;
+    const arr = this.desyncTimestamps.get(channel) ?? [];
+    // Keep only timestamps within the window, then append the new one.
+    const fresh = arr.filter((t) => now - t < windowMs);
+    fresh.push(now);
+    this.desyncTimestamps.set(channel, fresh);
+
+    log.info(
+      `desync notify channel=${channel} trade=${tradeId} count=${fresh.length}/${settings.desyncKillSwitchThreshold} reason=${reason}`,
+    );
+
+    if (fresh.length < settings.desyncKillSwitchThreshold) return;
+    if (this.desyncTripped.has(channel)) return; // already tripped, skip duplicate alerts
+
+    this.desyncTripped.add(channel);
+    await this.tripKillSwitchForChannel(channel, fresh.length, reason);
+  }
+
+  /**
+   * Operator-facing — clear the desync counter + tripped flag for a
+   * channel. Called from the kill-switch UI after the operator flips
+   * the switch back off, OR after manual reconcile of the desync'd
+   * trades resolves the situation. Returns the count that was cleared.
+   */
+  clearDesyncCounter(channel: Channel): number {
+    const count = (this.desyncTimestamps.get(channel) ?? []).length;
+    this.desyncTimestamps.delete(channel);
+    this.desyncTripped.delete(channel);
+    return count;
+  }
+
+  /** Test/debug — peek at current counter for a channel. */
+  getDesyncCount(channel: Channel): number {
+    return (this.desyncTimestamps.get(channel) ?? []).length;
+  }
+
+  private async tripKillSwitchForChannel(channel: Channel, count: number, reason: string): Promise<void> {
+    // Map channel → workspace. The kill switch is per-workspace ("ai" /
+    // "my" / "testing"); a desync on ai-live trips the AI workspace
+    // (which halts ai-paper too — paper trades on a broken pipeline are
+    // also untrustworthy).
+    const workspace =
+      channel === "ai-live" || channel === "ai-paper" ? "ai"
+      : channel === "my-live" || channel === "my-paper" ? "my"
+      : "testing";
+
+    log.error(
+      `BROKER_DESYNC threshold breached — tripping kill switch workspace=${workspace} channel=${channel} count=${count}`,
+    );
+
+    try {
+      const { toggleWorkspaceKillSwitch } = await import("../broker/brokerService");
+      await toggleWorkspaceKillSwitch(workspace, "ACTIVATE");
+    } catch (err: any) {
+      log.error(`Kill-switch trip failed: ${err?.message ?? err}`);
+    }
+
+    // Telegram alert — fire-and-forget, mirrors the B6 fatal-handler
+    // notify pattern. Empty creds → silent no-op.
+    void notifyTelegram(
+      `🛑 <b>BROKER_DESYNC kill switch tripped</b>\n` +
+        `Channel: ${channel}\n` +
+        `Workspace: ${workspace}\n` +
+        `Recent desyncs: ${count}\n` +
+        `Last reason: ${reason}\n` +
+        `\nReconcile open trades, clear the kill switch, then restart.`,
+    );
   }
 
   /**

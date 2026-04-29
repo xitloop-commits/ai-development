@@ -18,6 +18,7 @@
 
 import { createLogger } from "../broker/logger";
 import { runShutdown } from "./shutdown";
+import { notifyTelegram } from "./telegram";
 
 const log = createLogger("BOOT", "Fatal");
 
@@ -29,27 +30,6 @@ const lastAlertAt: Record<"uncaught" | "rejection", number> = {
 let unhandledRejectionCount = 0;
 let registered = false;
 let exitTimer: NodeJS.Timeout | null = null;
-
-async function notifyTelegram(message: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
-  try {
-    const url = `https://api.telegram.org/bot${token}/sendMessage`;
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-        parse_mode: "HTML",
-        disable_notification: false,
-      }),
-    });
-  } catch (err) {
-    log.warn(`Telegram notify failed: ${(err as Error).message}`);
-  }
-}
 
 function maybeAlert(kind: "uncaught" | "rejection", text: string): void {
   const now = Date.now();
