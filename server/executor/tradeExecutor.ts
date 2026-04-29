@@ -258,7 +258,13 @@ class TradeExecutorAgent {
       const positionId = `POS-${tradeId.replace(/^T/, "")}`;
       const tradeStatus = mapBrokerStatusToTradeStatus(orderResult.status);
       const submitStatus = mapBrokerStatusToSubmitStatus(orderResult.status);
-      const trade = buildTradeRecord(req, tradeId, orderResult.orderId, tradeStatus);
+      const trade = buildTradeRecord(
+        req,
+        tradeId,
+        orderResult.orderId,
+        adapter.brokerId,
+        tradeStatus,
+      );
 
       await portfolioAgent.appendTrade(req.channel, trade);
       await portfolioAgent.recordTradePlaced({
@@ -383,7 +389,7 @@ class TradeExecutorAgent {
       // Live: send broker.modifyOrder to update the bracket leg's SL/TP. The
       // legacy router doesn't do this today (paper-only); TEA fixes it for
       // live channels. modifyOrder needs the broker order id to target — we
-      // stored it on trade.brokerId at submit time.
+      // stored it on trade.brokerOrderId at submit time.
       //
       // B4: when the broker call fails on a LIVE channel we MUST NOT apply
       // the local SL/TP change — the broker still has the old bracket and
@@ -395,20 +401,20 @@ class TradeExecutorAgent {
         const day = await portfolioAgent.ensureCurrentDay(channel);
         const trade = day.trades.find((t) => t.id === tradeId);
         if (!trade) throw new Error(`Trade not found: ${tradeId}`);
-        if (!trade.brokerId) throw new Error(`Trade ${tradeId} has no brokerId — cannot modify`);
+        if (!trade.brokerOrderId) throw new Error(`Trade ${tradeId} has no brokerOrderId — cannot modify`);
 
         try {
-          const result = await adapter.modifyOrder(trade.brokerId, {
+          const result = await adapter.modifyOrder(trade.brokerOrderId, {
             triggerPrice: req.modifications.stopLossPrice ?? undefined,
             price: req.modifications.targetPrice ?? undefined,
           });
           log.info(
-            `modifyOrder live broker ack channel=${channel} order=${trade.brokerId} status=${result.status}`,
+            `modifyOrder live broker ack channel=${channel} order=${trade.brokerOrderId} status=${result.status}`,
           );
         } catch (err: any) {
           const reason = err?.message ?? String(err);
           log.error(
-            `modifyOrder BROKER_DESYNC channel=${channel} trade=${tradeId} order=${trade.brokerId} reason=${reason}`,
+            `modifyOrder BROKER_DESYNC channel=${channel} trade=${tradeId} order=${trade.brokerOrderId} reason=${reason}`,
           );
           await portfolioAgent.markTradeDesync(channel, tradeId, {
             kind: "MODIFY",
@@ -507,7 +513,7 @@ class TradeExecutorAgent {
       // possibly drifting against us with no SL active. Mark the trade
       // BROKER_DESYNC, fail the request, and let the operator reconcile
       // (POST /api/executor/reconcile-desync) once they verify true state.
-      if (isLiveChannel(channel) && trade.brokerId) {
+      if (isLiveChannel(channel) && trade.brokerOrderId) {
         const adapter = getAdapter(channel);
         const exitOrderType = req.reason === "DISCIPLINE_EXIT" ? "MARKET" : req.exitType;
         const exitParams: OrderParams = {
@@ -730,6 +736,7 @@ function buildTradeRecord(
   req: SubmitTradeRequest,
   tradeId: string,
   brokerOrderId: string,
+  brokerId: string,
   status: TradeStatus,
 ): TradeRecord {
   const tradeType: TradeRecord["type"] =
@@ -759,7 +766,8 @@ function buildTradeRecord(
     targetPrice: req.takeProfit ?? null,
     stopLossPrice: req.stopLoss ?? null,
     trailingStopEnabled: req.trailingStopLoss?.enabled ?? false,
-    brokerId: brokerOrderId,
+    brokerOrderId,
+    brokerId,
     openedAt: Date.now(),
     closedAt: null,
   };

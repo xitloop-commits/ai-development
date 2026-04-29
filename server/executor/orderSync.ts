@@ -89,7 +89,7 @@ class OrderSync extends EventEmitter {
 
       const trade = day.trades.find(
         (t) =>
-          t.brokerId === update.orderId &&
+          t.brokerOrderId === update.orderId &&
           (t.status === "OPEN" || t.status === "PENDING"),
       );
       if (!trade) continue;
@@ -126,7 +126,7 @@ class OrderSync extends EventEmitter {
 
     // No matching trade across any live channel. Common cases:
     //   - TP / SL leg fills (broker emits these but we track legs only via
-    //     trade.brokerId of the entry, not the leg orderIds)
+    //     trade.brokerOrderId of the entry, not the leg orderIds)
     //   - Stale events for trades closed before this server boot
     // Logged for debugging only.
     log.debug(

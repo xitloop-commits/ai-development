@@ -84,6 +84,14 @@ async function startServer() {
         bootLog.warn(`MongoDB Discipline index migration failed (non-fatal): ${(err as Error)?.message ?? err}`);
       }
 
+      // B11-followup — rename trades[].brokerId (which was the broker
+      // order ID) to brokerOrderId on legacy docs; the new brokerId
+      // field stores the broker IDENTITY going forward. Idempotent.
+      const { migrateBrokerIdToBrokerOrderId } = await import("../portfolio/state");
+      try { await migrateBrokerIdToBrokerOrderId(); } catch (err) {
+        bootLog.warn(`MongoDB brokerId rename migration failed (non-fatal): ${(err as Error)?.message ?? err}`);
+      }
+
       // Register broker adapters and initialize broker service after MongoDB is ready
       registerAdapter("mock", () => new MockAdapter(), { displayName: "Paper Trading", isPaperBroker: true });
       registerAdapter("dhan", () => new DhanAdapter("dhan", false), { displayName: "Dhan (Trading)", isPaperBroker: false });

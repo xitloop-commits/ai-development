@@ -91,13 +91,13 @@ class RecoveryEngine {
       const positions = await getOpenPositions(channel).catch(() => []);
       for (const p of positions) {
         if (p.status !== "PENDING") continue;
-        if (!p.brokerId) continue;
+        if (!p.brokerOrderId) continue;
         if (now - p.openedAt < this.stuckThresholdMs) continue;
         // Avoid polling the same orderId more than once a minute.
-        const last = this.lastPollAt.get(p.brokerId) ?? 0;
+        const last = this.lastPollAt.get(p.brokerOrderId) ?? 0;
         if (now - last < TICK_INTERVAL_MS) continue;
-        this.lastPollAt.set(p.brokerId, now);
-        await this.reconcile(channel, p.brokerId, p.tradeId);
+        this.lastPollAt.set(p.brokerOrderId, now);
+        await this.reconcile(channel, p.brokerOrderId, p.tradeId);
       }
     }
   }

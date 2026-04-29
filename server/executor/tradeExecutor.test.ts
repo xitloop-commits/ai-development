@@ -324,8 +324,8 @@ describe("modifyOrder", () => {
 // ─── B4: BROKER_DESYNC behaviour ────────────────────────────────
 
 describe("B4 — BROKER_DESYNC handling", () => {
-  // Live-channel paths require the trade to have a brokerId. Override
-  // ensureCurrentDay to return that shape just for these tests.
+  // Live-channel paths require the trade to have a brokerOrderId.
+  // Override ensureCurrentDay to return that shape just for these tests.
   beforeEach(() => {
     (portfolioAgent.ensureCurrentDay as any).mockResolvedValue({
       trades: [
@@ -337,7 +337,8 @@ describe("B4 — BROKER_DESYNC handling", () => {
           qty: 75,
           status: "OPEN",
           ltp: 105,
-          brokerId: "BROKER-ORD-1",
+          brokerOrderId: "BROKER-ORD-1",
+          brokerId: "dhan",
           openedAt: 1700000000000,
         },
       ],

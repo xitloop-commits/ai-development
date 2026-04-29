@@ -89,6 +89,15 @@ export interface TradeRecord {
   targetPrice: number | null;
   stopLossPrice: number | null;
   trailingStopEnabled?: boolean;
+  /** Broker-assigned order ID returned by placeOrder. Used by orderSync /
+   *  recoveryEngine to match broker events back to this trade.
+   *  Pre-2026-05 docs stored this on the (now-renamed) `brokerId` field;
+   *  a one-time Mongo $rename runs at boot. */
+  brokerOrderId: string | null;
+  /** Identity of the broker that placed this order (e.g. "dhan",
+   *  "dhan-ai-data", "mock"). Stamped at placeOrder time from
+   *  `adapter.brokerId`. Null for legacy / paper trades that pre-date
+   *  the field. */
   brokerId: string | null;
   openedAt: number;
   closedAt: number | null;
@@ -209,6 +218,7 @@ const tradeRecordSchema = new Schema(
     status: { type: String, default: "OPEN" },
     targetPrice: { type: Number, default: null },
     stopLossPrice: { type: Number, default: null },
+    brokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },
     openedAt: { type: Number, default: () => Date.now() },
     closedAt: { type: Number, default: null },
@@ -304,6 +314,97 @@ export async function wipeLegacyCapitalDocs(): Promise<void> {
         console.warn(`[portfolio.state] Wipe failed for ${Model.collection.collectionName}:`, err);
       }
     }
+  }
+}
+
+/**
+ * B11-followup — one-time rename of `brokerId` (which historically stored
+ * the broker-assigned order ID) to `brokerOrderId`. The new `brokerId`
+ * field stores the broker IDENTITY (e.g. "dhan", "dhan-ai-data") and is
+ * left null on legacy docs since the identity wasn't tracked before this
+ * commit.
+ *
+ * Touches two collections:
+ *   - position_state  (top-level field)
+ *   - day_records     (trades[].brokerId — array of subdocs)
+ *
+ * Idempotent: each migration filters on docs/elements that still have a
+ * string `brokerId` AND no `brokerOrderId`, so a re-run after migration
+ * is a no-op. New trades inserted post-migration store `brokerId` as the
+ * actual identity, so they do not match the migration filter.
+ */
+export async function migrateBrokerIdToBrokerOrderId(): Promise<void> {
+  // ─── position_state — top-level field ────────────────────────
+  try {
+    const result = await PositionStateModel.collection.updateMany(
+      { brokerOrderId: { $exists: false }, brokerId: { $type: "string" } },
+      [{ $set: { brokerOrderId: "$brokerId", brokerId: null } }],
+    );
+    if (result.modifiedCount > 0) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[portfolio.state] Renamed brokerId → brokerOrderId on ${result.modifiedCount} position_state docs`,
+      );
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[portfolio.state] position_state brokerId migration failed:", err);
+  }
+
+  // ─── day_records.trades[] — array of subdocs ─────────────────
+  // Aggregation pipeline update: for each trade where brokerOrderId is
+  // missing AND brokerId is a string, move brokerId → brokerOrderId and
+  // null out brokerId. The doc-level filter limits the set to documents
+  // that actually contain a legacy-shaped trade.
+  try {
+    const result = await DayRecordModel.collection.updateMany(
+      {
+        trades: {
+          $elemMatch: {
+            brokerId: { $type: "string" },
+            brokerOrderId: { $exists: false },
+          },
+        },
+      },
+      [
+        {
+          $set: {
+            trades: {
+              $map: {
+                input: "$trades",
+                as: "t",
+                in: {
+                  $cond: {
+                    if: {
+                      $and: [
+                        { $eq: [{ $type: "$$t.brokerId" }, "string"] },
+                        { $eq: [{ $type: "$$t.brokerOrderId" }, "missing"] },
+                      ],
+                    },
+                    then: {
+                      $mergeObjects: [
+                        "$$t",
+                        { brokerOrderId: "$$t.brokerId", brokerId: null },
+                      ],
+                    },
+                    else: "$$t",
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    );
+    if (result.modifiedCount > 0) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[portfolio.state] Renamed brokerId → brokerOrderId on trades in ${result.modifiedCount} day_records`,
+      );
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[portfolio.state] day_records brokerId migration failed:", err);
   }
 }
 
@@ -405,6 +506,7 @@ async function migrateDayRecordTradesToPositionState(): Promise<void> {
         targetPrice: trade.targetPrice ?? null,
         stopLossPrice: trade.stopLossPrice ?? null,
         trailingStopEnabled: trade.trailingStopEnabled ?? false,
+        brokerOrderId: trade.brokerOrderId ?? null,
         brokerId: trade.brokerId ?? null,
         openedAt: trade.openedAt ?? now,
         closedAt: trade.closedAt ?? null,
@@ -597,6 +699,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       status: t.status ?? "OPEN",
       targetPrice: t.targetPrice ?? null,
       stopLossPrice: t.stopLossPrice ?? null,
+      brokerOrderId: t.brokerOrderId ?? null,
       brokerId: t.brokerId ?? null,
       openedAt: t.openedAt ?? Date.now(),
       closedAt: t.closedAt ?? null,

@@ -88,6 +88,12 @@ export interface PositionStateDoc {
   stopLossPrice: number | null;
   trailingStopEnabled?: boolean;
 
+  /** Broker-assigned order ID (returned by placeOrder). Renamed from
+   *  the legacy `brokerId` field in 2026-05; that name now stores the
+   *  broker identity instead. */
+  brokerOrderId: string | null;
+  /** Broker identity (e.g. "dhan", "dhan-ai-data", "mock") that placed
+   *  this order. Stamped at placeOrder time. */
   brokerId: string | null;
   openedAt: number;
   closedAt: number | null;
@@ -233,6 +239,7 @@ const positionStateSchema = new Schema(
     stopLossPrice: { type: Number, default: null },
     trailingStopEnabled: { type: Boolean, default: false },
 
+    brokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },
     openedAt: { type: Number, default: () => Date.now() },
     closedAt: { type: Number, default: null },
@@ -470,6 +477,7 @@ function docToPositionState(doc: Record<string, any>): PositionStateDoc {
     targetPrice: doc.targetPrice ?? null,
     stopLossPrice: doc.stopLossPrice ?? null,
     trailingStopEnabled: doc.trailingStopEnabled ?? false,
+    brokerOrderId: doc.brokerOrderId ?? null,
     brokerId: doc.brokerId ?? null,
     openedAt: doc.openedAt,
     closedAt: doc.closedAt ?? null,

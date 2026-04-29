@@ -245,6 +245,7 @@ class PortfolioAgentImpl {
       entryPrice: trade.entryPrice,
       stopLoss: trade.stopLossPrice,
       target: trade.targetPrice,
+      brokerOrderId: trade.brokerOrderId,
       brokerId: trade.brokerId,
     });
     return updated;
@@ -412,6 +413,7 @@ class PortfolioAgentImpl {
       targetPrice: trade.targetPrice,
       stopLossPrice: trade.stopLossPrice,
       trailingStopEnabled: trade.trailingStopEnabled,
+      brokerOrderId: trade.brokerOrderId,
       brokerId: trade.brokerId,
       openedAt: trade.openedAt,
       closedAt: trade.closedAt,
@@ -978,6 +980,7 @@ function positionDocToTradeRecord(p: PositionStateDoc): TradeRecord {
     targetPrice: p.targetPrice,
     stopLossPrice: p.stopLossPrice,
     trailingStopEnabled: p.trailingStopEnabled,
+    brokerOrderId: p.brokerOrderId,
     brokerId: p.brokerId,
     openedAt: p.openedAt,
     closedAt: p.closedAt,

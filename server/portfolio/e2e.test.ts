@@ -44,6 +44,7 @@ function makeTrade(overrides?: Partial<TradeRecord>): TradeRecord {
     status: "OPEN",
     targetPrice: 157.5, // +5%
     stopLossPrice: 147,  // -2%
+    brokerOrderId: null,
     brokerId: null,
     openedAt: Date.now(),
     closedAt: null,
@@ -131,10 +132,10 @@ describe("E2E: Full Trading Loop", () => {
       expect(exit.orderId).not.toBe(entry.orderId);
     });
 
-    it("stores brokerId in trade record after placement", async () => {
+    it("stores brokerOrderId in trade record after placement", async () => {
       const result = await adapter.placeOrder(sampleOrder());
-      const trade = makeTrade({ brokerId: result.orderId });
-      expect(trade.brokerId).toBe(result.orderId);
+      const trade = makeTrade({ brokerOrderId: result.orderId });
+      expect(trade.brokerOrderId).toBe(result.orderId);
     });
   });
 
@@ -391,7 +392,7 @@ describe("E2E: Full Trading Loop", () => {
 
       // Step 2: Create trade record (as portfolioRouter would)
       const trade = makeTrade({
-        brokerId: orderResult.orderId,
+        brokerOrderId: orderResult.orderId,
         entryPrice: 150,
         targetPrice: 157.5,
         stopLossPrice: 147,
@@ -449,7 +450,7 @@ describe("E2E: Full Trading Loop", () => {
     it("simulates SL exit lifecycle", async () => {
       const orderResult = await adapter.placeOrder(sampleOrder());
       const trade = makeTrade({
-        brokerId: orderResult.orderId,
+        brokerOrderId: orderResult.orderId,
         entryPrice: 150,
         targetPrice: 157.5,
         stopLossPrice: 147,
