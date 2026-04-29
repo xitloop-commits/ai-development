@@ -20,7 +20,7 @@
  */
 
 import { z } from "zod";
-import { router, publicProcedure } from "../_core/trpc";
+import { router, publicProcedure, protectedProcedure } from "../_core/trpc";
 import { disciplineAgent } from "./index";
 import {
   getDisciplineSettings,
@@ -160,7 +160,7 @@ export const disciplineRouter = router({
   /**
    * Validate a trade against all discipline rules.
    */
-  validate: publicProcedure
+  validate: protectedProcedure
     .input(
       z.object({
         instrument: z.string(),
@@ -218,7 +218,7 @@ export const disciplineRouter = router({
    * (server-managed `userId`/`updatedAt`/`history` are stripped). Strict mode:
    * unknown fields rejected with 400; per-field bounds enforced.
    */
-  updateSettings: publicProcedure
+  updateSettings: protectedProcedure
     .input(disciplineSettingsUpdateSchema)
     .mutation(async ({ input }) => {
       return updateDisciplineSettings(DEFAULT_USER_ID, input);
@@ -227,14 +227,14 @@ export const disciplineRouter = router({
   /**
    * Acknowledge a loss to start the cooldown timer.
    */
-  acknowledgeLoss: publicProcedure.mutation(async () => {
+  acknowledgeLoss: protectedProcedure.mutation(async () => {
     return disciplineAgent.acknowledgeLoss(DEFAULT_USER_ID);
   }),
 
   /**
    * Mark a trade as journaled.
    */
-  journalTrade: publicProcedure
+  journalTrade: protectedProcedure
     .input(z.object({ tradeId: z.string() }))
     .mutation(async ({ input }) => {
       await disciplineAgent.journalTrade(DEFAULT_USER_ID, input.tradeId);
@@ -244,7 +244,7 @@ export const disciplineRouter = router({
   /**
    * Complete the weekly review.
    */
-  completeReview: publicProcedure.mutation(async () => {
+  completeReview: protectedProcedure.mutation(async () => {
     await disciplineAgent.completeWeeklyReview(DEFAULT_USER_ID);
     return { success: true };
   }),
@@ -287,7 +287,7 @@ export const disciplineRouter = router({
   /**
    * Finalize end-of-day score. Called by cron or admin.
    */
-  endOfDay: publicProcedure
+  endOfDay: protectedProcedure
     .input(z.object({ dailyPnl: z.number(), openCapital: z.number() }))
     .mutation(async ({ input }) => {
       await disciplineAgent.endOfDay(DEFAULT_USER_ID, input.dailyPnl, input.openCapital);
@@ -297,7 +297,7 @@ export const disciplineRouter = router({
   /**
    * Notify that a trade was placed (increments counters).
    */
-  onTradePlaced: publicProcedure.mutation(async () => {
+  onTradePlaced: protectedProcedure.mutation(async () => {
     await disciplineAgent.onTradePlaced(DEFAULT_USER_ID);
     return { success: true };
   }),
@@ -305,7 +305,7 @@ export const disciplineRouter = router({
   /**
    * Notify that a trade was closed (updates P&L, cooldowns, streaks).
    */
-  onTradeClosed: publicProcedure
+  onTradeClosed: protectedProcedure
     .input(
       z.object({
         pnl: z.number(),
@@ -326,7 +326,7 @@ export const disciplineRouter = router({
   /**
    * Reset daily state (for testing).
    */
-  resetDailyState: publicProcedure.mutation(async () => {
+  resetDailyState: protectedProcedure.mutation(async () => {
     const date = getISTDateString();
     await DisciplineStateModel.deleteOne({ userId: DEFAULT_USER_ID, date });
     return { success: true, date };

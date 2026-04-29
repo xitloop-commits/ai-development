@@ -17,7 +17,7 @@
 
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { publicProcedure, router } from "../_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { tradeExecutor } from "./tradeExecutor";
 import {
   getDailyTargetPercent,
@@ -205,17 +205,17 @@ export const executorRouter = router({
   // ── Formal API (RCA / AI / SEA) ─────────────────────────────
 
   /** Spec §4.1 — submit an approved trade for execution. */
-  submitTrade: publicProcedure
+  submitTrade: protectedProcedure
     .input(submitTradeSchema)
     .mutation(({ input }) => tradeExecutor.submitTrade(input)),
 
   /** Spec §4.2 — modify SL / TP / TSL on an open position (live only). */
-  modifyOrder: publicProcedure
+  modifyOrder: protectedProcedure
     .input(modifyOrderSchema)
     .mutation(({ input }) => tradeExecutor.modifyOrder(input)),
 
   /** Spec §4.3 — exit a position (paper or live). */
-  exitTrade: publicProcedure
+  exitTrade: protectedProcedure
     .input(exitTradeSchema)
     .mutation(({ input }) => tradeExecutor.exitTrade(input)),
 
@@ -228,7 +228,7 @@ export const executorRouter = router({
    * delegates to tradeExecutor.submitTrade. Single writer is preserved —
    * this procedure is just an input adapter.
    */
-  placeTrade: publicProcedure
+  placeTrade: protectedProcedure
     .input(placeTradeUiSchema)
     .mutation(async ({ input }) => {
       // ── 1. Resolve nearest expiry for option trades when missing ──
@@ -367,7 +367,7 @@ export const executorRouter = router({
   getSettings: publicProcedure.query(() => getExecutorSettings()),
 
   /** Update one or more executor settings fields. Cache invalidated. */
-  updateSettings: publicProcedure
+  updateSettings: protectedProcedure
     .input(
       z.object({
         aiLiveLotCap: z.number().int().min(1).max(100).optional(),
@@ -394,7 +394,7 @@ export const executorRouter = router({
    * operator has verified the trade's true state at the broker (Dhan UI)
    * before calling. This procedure mutates local state to match.
    */
-  reconcileDesync: publicProcedure
+  reconcileDesync: protectedProcedure
     .input(reconcileDesyncSchema)
     .mutation(async ({ input }) => {
       const day = await portfolioAgent.ensureCurrentDay(input.channel);
@@ -468,7 +468,7 @@ export const executorRouter = router({
    * UI-friendly SL / TP / TSL update. Wraps tradeExecutor.modifyOrder with
    * the legacy `portfolio.updateTrade` input shape.
    */
-  updateTrade: publicProcedure
+  updateTrade: protectedProcedure
     .input(updateTradeUiSchema)
     .mutation(async ({ input }) => {
       const positionId = `POS-${input.tradeId.replace(/^T/, "")}`;

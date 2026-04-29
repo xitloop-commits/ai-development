@@ -1,4 +1,4 @@
-import { publicProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
@@ -63,7 +63,7 @@ export const appRouter = router({
     }),
 
     // Set active instruments (syncs frontend filter to backend for Python modules)
-    setActiveInstruments: publicProcedure
+    setActiveInstruments: protectedProcedure
       .input(z.object({ instruments: z.array(z.string()) }))
       .mutation(({ input }) => {
         setActiveInstruments(input.instruments);
@@ -139,7 +139,7 @@ export const appRouter = router({
       }),
 
     // Add a new instrument
-    add: publicProcedure
+    add: protectedProcedure
       .input(
         z.object({
           key: z.string().regex(/^[A-Z0-9_]+$/),
@@ -170,7 +170,7 @@ export const appRouter = router({
       }),
 
     // Remove a non-default instrument
-    remove: publicProcedure
+    remove: protectedProcedure
       .input(z.object({ key: z.string() }))
       .mutation(async ({ input }) => {
         await removeInstrument(input.key);
@@ -189,7 +189,7 @@ export const appRouter = router({
     }),
 
     // Update expiry control settings
-    updateExpiryControls: publicProcedure
+    updateExpiryControls: protectedProcedure
       .input(z.object({
         rules: z.array(z.object({
           instrument: z.string(),
@@ -209,7 +209,7 @@ export const appRouter = router({
       }),
 
     // Update charge rates
-    updateCharges: publicProcedure
+    updateCharges: protectedProcedure
       .input(z.object({
         rates: z.array(z.object({
           name: z.string(),
@@ -225,7 +225,7 @@ export const appRouter = router({
       }),
 
     // Update trading mode — workspace modes and kill switch states
-    updateTradingMode: publicProcedure
+    updateTradingMode: protectedProcedure
       .input(z.object({
         aiTradesMode: z.enum(["live", "paper"]).optional(),
         myTradesMode: z.enum(["live", "paper"]).optional(),

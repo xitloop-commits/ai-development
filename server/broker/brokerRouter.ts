@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { tracked } from "@trpc/server";
-import { publicProcedure, router } from "../_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import {
   getActiveBroker,
   getAdapter,
@@ -149,7 +149,7 @@ export const brokerRouter = router({
   }),
 
   // ── Setup (create initial broker config) ───────────────────
-  setup: publicProcedure
+  setup: protectedProcedure
     .input(
       z.object({
         brokerId: z.string(),
@@ -222,7 +222,7 @@ export const brokerRouter = router({
     }),
 
     /** Update broker settings (SL, TP, order type, etc.). */
-    updateSettings: publicProcedure
+    updateSettings: protectedProcedure
       .input(
         z.object({
           brokerId: z.string(),
@@ -244,7 +244,7 @@ export const brokerRouter = router({
       }),
 
     /** Switch the active broker. */
-    switchBroker: publicProcedure
+    switchBroker: protectedProcedure
       .input(z.object({ brokerId: z.string() }))
       .mutation(async ({ input }) => {
         await switchBroker(input.brokerId);
@@ -277,7 +277,7 @@ export const brokerRouter = router({
     }),
 
     /** Update the access token. */
-    update: publicProcedure
+    update: protectedProcedure
       .input(
         z.object({
           token: z.string().min(1),
@@ -353,7 +353,7 @@ export const brokerRouter = router({
   // ── Kill Switch ─────────────────────────────────────────────
 
   /** Activate or deactivate kill switch for a workspace. */
-  killSwitch: publicProcedure
+  killSwitch: protectedProcedure
     .input(z.object({
       workspace: workspaceSchema,
       action: z.enum(["ACTIVATE", "DEACTIVATE"]),
@@ -475,7 +475,7 @@ export const brokerRouter = router({
 
   feed: router({
     /** Subscribe instruments to the broker's WebSocket feed. */
-    subscribe: publicProcedure
+    subscribe: protectedProcedure
       .input(subscribeParamsSchema)
       .mutation(({ input }) => {
         const broker = requireBroker();
@@ -490,7 +490,7 @@ export const brokerRouter = router({
       }),
 
     /** Unsubscribe instruments from the broker's WebSocket feed. */
-    unsubscribe: publicProcedure
+    unsubscribe: protectedProcedure
       .input(subscribeParamsSchema)
       .mutation(({ input }) => {
         const broker = requireBroker();

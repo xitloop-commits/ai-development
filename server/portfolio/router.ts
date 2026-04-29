@@ -8,7 +8,7 @@
  *   - Capital injection mutation
  */
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import {
   getCapitalState,
   updateCapitalState,
@@ -160,7 +160,7 @@ export const portfolioRouter = router({
    * Updates the current day's targetPercent, targetAmount, and projCapital immediately
    * (but NOT originalProjCapital — that preserves the ideal compounding path).
    */
-  syncDailyTarget: publicProcedure
+  syncDailyTarget: protectedProcedure
     .input(z.object({ channel: channelSchema }))
     .mutation(async ({ input }) => {
       const targetPercent = await getDailyTargetPercent();
@@ -186,7 +186,7 @@ export const portfolioRouter = router({
     }),
 
   /** Inject new capital (75/25 split). */
-  inject: publicProcedure
+  inject: protectedProcedure
     .input(z.object({
       channel: channelSchema,
       amount: z.number().positive(),
@@ -234,7 +234,7 @@ export const portfolioRouter = router({
     }),
 
   /** Transfer funds between Trading ↔ Reserve pools. */
-  transferFunds: publicProcedure
+  transferFunds: protectedProcedure
     .input(z.object({
       channel: channelSchema,
       from: z.enum(['trading', 'reserve']),
@@ -370,7 +370,7 @@ export const portfolioRouter = router({
 
 
   /** Reset capital to initial state. Destructive: clears all day records and resets pools. */
-  resetCapital: publicProcedure
+  resetCapital: protectedProcedure
     .input(z.object({
       channel: channelSchema,
       initialFunding: z.number().positive().default(100000),
@@ -448,7 +448,7 @@ export const portfolioRouter = router({
     }),
 
   /** Update LTP for open trades (called by polling). */
-  updateLtp: publicProcedure
+  updateLtp: protectedProcedure
     .input(z.object({
       channel: channelSchema,
       prices: z.record(z.string(), z.number()), // tradeId → ltp
@@ -474,7 +474,7 @@ export const portfolioRouter = router({
     }),
 
   /** Clear all trades and reset a paper channel to zero. Only allowed for paper channels. */
-  clearWorkspace: publicProcedure
+  clearWorkspace: protectedProcedure
     .input(z.object({
       channel: z.enum(['my-paper', 'ai-paper', 'testing-sandbox']),
       initialFunding: z.number().positive().default(100000),
@@ -584,7 +584,7 @@ export const portfolioRouter = router({
   // ─── Portfolio Agent Spec §7.1 — Mutation APIs ─────────────────
 
   /** Spec §5.2 — record trade close with full outcome metadata. */
-  recordTradeClosed: publicProcedure
+  recordTradeClosed: protectedProcedure
     .input(z.object({
       channel: channelSchema,
       tradeId: z.string(),
@@ -607,7 +607,7 @@ export const portfolioRouter = router({
     .mutation(({ input }) => portfolioAgent.recordTradeClosed(input)),
 
   /** Spec §7.1 — audit trail for rejected trades. */
-  recordTradeRejected: publicProcedure
+  recordTradeRejected: protectedProcedure
     .input(z.object({
       channel: channelSchema,
       reason: z.string(),
