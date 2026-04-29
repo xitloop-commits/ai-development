@@ -2167,10 +2167,6 @@ function ExecutorSettingsSection() {
     rcaStaleTickMs: number;
     rcaVolThreshold: number;
     recoveryStuckMs: number;
-    seaBridgeEnabled: boolean;
-    seaBridgeChannel: string;
-    seaBridgePollIntervalMs: number;
-    seaBridgeDirectionFilter: 'LONG_ONLY' | 'ALL';
     rcaChannels: string[];
     recoveryChannels: string[];
   };
@@ -2185,10 +2181,6 @@ function ExecutorSettingsSection() {
         rcaStaleTickMs: settings.rcaStaleTickMs,
         rcaVolThreshold: settings.rcaVolThreshold,
         recoveryStuckMs: settings.recoveryStuckMs,
-        seaBridgeEnabled: settings.seaBridgeEnabled,
-        seaBridgeChannel: settings.seaBridgeChannel,
-        seaBridgePollIntervalMs: settings.seaBridgePollIntervalMs,
-        seaBridgeDirectionFilter: settings.seaBridgeDirectionFilter,
         rcaChannels: settings.rcaChannels,
         recoveryChannels: settings.recoveryChannels,
       });
@@ -2211,10 +2203,6 @@ function ExecutorSettingsSection() {
       draft.rcaStaleTickMs !== settings.rcaStaleTickMs ||
       draft.rcaVolThreshold !== settings.rcaVolThreshold ||
       draft.recoveryStuckMs !== settings.recoveryStuckMs ||
-      draft.seaBridgeEnabled !== settings.seaBridgeEnabled ||
-      draft.seaBridgeChannel !== settings.seaBridgeChannel ||
-      draft.seaBridgePollIntervalMs !== settings.seaBridgePollIntervalMs ||
-      draft.seaBridgeDirectionFilter !== settings.seaBridgeDirectionFilter ||
       !arrayEq(draft.rcaChannels, settings.rcaChannels) ||
       !arrayEq(draft.recoveryChannels, settings.recoveryChannels));
 
@@ -2227,10 +2215,6 @@ function ExecutorSettingsSection() {
         rcaStaleTickMs: settings.rcaStaleTickMs,
         rcaVolThreshold: settings.rcaVolThreshold,
         recoveryStuckMs: settings.recoveryStuckMs,
-        seaBridgeEnabled: settings.seaBridgeEnabled,
-        seaBridgeChannel: settings.seaBridgeChannel,
-        seaBridgePollIntervalMs: settings.seaBridgePollIntervalMs,
-        seaBridgeDirectionFilter: settings.seaBridgeDirectionFilter,
         rcaChannels: settings.rcaChannels,
         recoveryChannels: settings.recoveryChannels,
       });
@@ -2333,57 +2317,6 @@ function ExecutorSettingsSection() {
             onChange={(e) => setDraft({ ...draft, recoveryStuckMs: Math.max(10, parseInt(e.target.value) || 10) * 1000 })}
             className="w-24 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground tabular-nums"
           />
-        </div>
-      </SettingsCard>
-
-      <SettingsCard title="SEA Bridge">
-        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
-          The bridge polls the Signal Engine Agent's filtered log and
-          forwards each new signal to TEA. Disabling here stops AI from
-          placing new trades; existing positions remain open until exit.
-        </p>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="master kill-switch">Bridge Enabled</FieldLabel>
-            <ToggleSwitch
-              checked={draft.seaBridgeEnabled}
-              onChange={(v: boolean) => setDraft({ ...draft, seaBridgeEnabled: v })}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="canary launch flips this to ai-live">Target Channel</FieldLabel>
-            <select
-              value={draft.seaBridgeChannel}
-              onChange={(e) => setDraft({ ...draft, seaBridgeChannel: e.target.value })}
-              className="w-40 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground"
-            >
-              {allChannels.map((c) => (
-                <option key={c.id} value={c.id}>{c.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="seconds — how often the bridge looks for new signals">Poll Cadence</FieldLabel>
-            <input
-              type="number"
-              min={1}
-              max={300}
-              value={Math.round(draft.seaBridgePollIntervalMs / 1000)}
-              onChange={(e) => setDraft({ ...draft, seaBridgePollIntervalMs: Math.max(1, parseInt(e.target.value) || 1) * 1000 })}
-              className="w-24 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground tabular-nums"
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="canary spec §3 → LONG_ONLY">Direction Filter</FieldLabel>
-            <select
-              value={draft.seaBridgeDirectionFilter}
-              onChange={(e) => setDraft({ ...draft, seaBridgeDirectionFilter: e.target.value as 'LONG_ONLY' | 'ALL' })}
-              className="w-40 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground"
-            >
-              <option value="LONG_ONLY">LONG only (buying)</option>
-              <option value="ALL">All (incl. SHORT writes)</option>
-            </select>
-          </div>
         </div>
       </SettingsCard>
 

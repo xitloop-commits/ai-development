@@ -3,7 +3,7 @@
  *
  * Format:
  *   2026-04-25 10:15:23.456 [INFO ] [PA:TickHandler] Started — listening for ticks
- *   2026-04-25 10:15:23.500 [INFO ] [TEA:SeaBridge] placed LONG_CE BANKNIFTY signal=...
+ *   2026-04-25 10:15:23.500 [INFO ] [TEA:Executor] submitted LONG_CE BANKNIFTY exec=...
  *   2026-04-25 10:15:23.700 [INFO ] [BSA:Mock] Connected (paper trading mode)
  *
  * Goals:

@@ -37,7 +37,6 @@ import { disciplineAgent } from "../discipline";
 import type { Exchange } from "../discipline/types";
 import { idempotencyStore } from "./idempotency";
 import { orderSync } from "./orderSync";
-import { seaBridge } from "./seaBridge";
 import { rcaMonitor } from "../risk-control";
 import { recoveryEngine } from "./recoveryEngine";
 import { resolveLotSize } from "./tradeResolution";
@@ -110,11 +109,9 @@ class TradeExecutorAgent {
     // Lives under executor/ per spec §6.4. Paper channels never emit broker
     // order updates; this is effectively live-only.
     orderSync.start();
-    // SEA → TEA bridge: polls filtered SEA signals every 5s and forwards
-    // LONG_CE / LONG_PE trades to executor.submitTrade on the AI paper
-    // channel. Phase 1 — paper only. AI Live activation is gated on the
-    // 1-lot cap + canary capital + 30-day comparison.
-    seaBridge.start("ai-paper");
+    // SEA → TEA path is now the DA→RCA→TEA REST chain (C8); the legacy
+    // log-tail bridge was retired in C8-followup. SEA-Python POSTs to
+    // /api/discipline/validateTrade.
     // RCA's lifecycle moved to _core/index.ts (C2) — RCA is a top-level
     // agent now, not a TEA child. TEA still calls into rcaMonitor at
     // runtime (signal-flip triggers, etc.) but doesn't own start/stop.
@@ -134,7 +131,6 @@ class TradeExecutorAgent {
       this.unsubscribeAutoExit = null;
     }
     orderSync.stop();
-    seaBridge.stop();
     recoveryEngine.stop();
     log.important("Stopped");
   }

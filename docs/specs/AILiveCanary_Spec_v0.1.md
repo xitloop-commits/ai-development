@@ -77,12 +77,9 @@ revise the spec.
    rcaMonitor.start({ channels: ["ai-paper", "ai-live"] });
    ```
 
-4. **Switch SEA bridge to `ai-live`** — in
-   `server/executor/tradeExecutor.ts:start()`, change:
-   ```ts
-   seaBridge.start("ai-paper");          // before
-   seaBridge.start("ai-live");           // after
-   ```
+4. **Switch SEA-Python target channel to `ai-live`** — SEA-Python POSTs
+   to `/api/discipline/validateTrade` with `channel` in the request body.
+   Update its config so the field is `"ai-live"` instead of `"ai-paper"`.
    *(Note: this routes all filtered SEA signals to live. The
    `ai-paper` channel is no longer fed — Phase 2 of the canary will
    re-introduce parallel paper/live for direct comparison.)*
@@ -112,7 +109,7 @@ Every market day at end-of-day:
 
 ## 6. Abort Criteria
 
-The canary aborts (manually disable SEA bridge for `ai-live`) on **any**:
+The canary aborts (flip SEA-Python's target channel back to `ai-paper`) on **any**:
 
 | Trigger | Threshold |
 |---|---|
@@ -124,11 +121,11 @@ The canary aborts (manually disable SEA bridge for `ai-live`) on **any**:
 | Model drift signal | SEA's `score` distribution shifts > 2σ from training baseline |
 
 **To abort:**
-```ts
-seaBridge.stop();        // halts new trade entries on ai-live
-// existing open trades will be auto-exited by RCA on age, or manually
-// via the UI's exit button.
-```
+- Flip SEA-Python's `channel` field back to `"ai-paper"` (or stop SEA-Python entirely).
+- Optionally arm the AI workspace kill switch (`broker.killSwitch` →
+  `ACTIVATE`) to block any in-flight signal from landing on `ai-live`.
+- Existing open trades will be auto-exited by RCA on age, or manually
+  via the UI's exit button.
 
 ---
 
@@ -191,7 +188,7 @@ If the canary aborts or 30-day window completes with FAILURE:
 4. **Concurrent paper run** — Section 4 step 4 currently routes SEA
    to `ai-live` exclusively. Should we add a side-channel that
    duplicates every signal to `ai-paper` for direct execution-parity
-   comparison? (Adds complexity to seaBridge.)
+   comparison? (SEA-Python would need to fire two POSTs per signal.)
 
 ---
 

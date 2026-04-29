@@ -7,9 +7,9 @@
  *     DA.validateTrade → RCA.evaluate → TEA.submitTrade so the full
  *     gate sequence fires server-side from a single round-trip.
  *
- * The legacy seaBridge.ts log-tail bridge stays operational alongside
- * this endpoint during the migration soak — bridge uses idempotency
- * by executionId so duplicate submission is a no-op.
+ * This is the canonical SEA → ATS path. The legacy log-tail bridge
+ * (seaBridge.ts) was retired in C8-followup once the soak confirmed
+ * SEA-Python was POSTing in production.
  *
  * Auth via B1 (X-Internal-Token); body validated via B8 (.strict()).
  */

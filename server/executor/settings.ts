@@ -7,7 +7,6 @@
  *   - RCA monitor: max-age, stale-tick window, vol threshold,
  *     channels under supervision
  *   - Recovery engine: stuck threshold, channels polled
- *   - SEA bridge: enabled, channel, poll cadence, direction filter
  *
  * Read paths cache the doc for 30 s so per-tick lookups in RCA /
  * recovery / TEA stay cheap. Writes invalidate the cache. Defaults
@@ -23,20 +22,12 @@ import type { Channel } from "../portfolio/state";
 
 // ─── Defaults ────────────────────────────────────────────────────
 
-export type SeaDirectionFilter = "LONG_ONLY" | "ALL";
-
 export const EXECUTOR_DEFAULTS = {
   aiLiveLotCap: 1,
   rcaMaxAgeMs: 30 * 60 * 1000,        // 30 min
   rcaStaleTickMs: 5 * 60 * 1000,       // 5 min
   rcaVolThreshold: 0.7,
   recoveryStuckMs: 60_000,             // 60 s
-
-  // SEA bridge — Phase 1 canary defaults
-  seaBridgeEnabled: true as boolean,
-  seaBridgeChannel: "ai-paper" as Channel,
-  seaBridgePollIntervalMs: 5_000,      // 5 s
-  seaBridgeDirectionFilter: "LONG_ONLY" as SeaDirectionFilter,
 
   // Channels under monitoring
   rcaChannels: ["ai-paper"] as Channel[],
@@ -61,11 +52,6 @@ export interface ExecutorSettings {
   rcaVolThreshold: number;
   recoveryStuckMs: number;
 
-  seaBridgeEnabled: boolean;
-  seaBridgeChannel: Channel;
-  seaBridgePollIntervalMs: number;
-  seaBridgeDirectionFilter: SeaDirectionFilter;
-
   rcaChannels: Channel[];
   recoveryChannels: Channel[];
 
@@ -87,11 +73,6 @@ const executorSettingsSchema = new Schema(
     rcaStaleTickMs: { type: Number, default: EXECUTOR_DEFAULTS.rcaStaleTickMs },
     rcaVolThreshold: { type: Number, default: EXECUTOR_DEFAULTS.rcaVolThreshold },
     recoveryStuckMs: { type: Number, default: EXECUTOR_DEFAULTS.recoveryStuckMs },
-
-    seaBridgeEnabled: { type: Boolean, default: EXECUTOR_DEFAULTS.seaBridgeEnabled },
-    seaBridgeChannel: { type: String, default: EXECUTOR_DEFAULTS.seaBridgeChannel },
-    seaBridgePollIntervalMs: { type: Number, default: EXECUTOR_DEFAULTS.seaBridgePollIntervalMs },
-    seaBridgeDirectionFilter: { type: String, default: EXECUTOR_DEFAULTS.seaBridgeDirectionFilter },
 
     rcaChannels: { type: [String], default: () => [...EXECUTOR_DEFAULTS.rcaChannels] },
     recoveryChannels: { type: [String], default: () => [...EXECUTOR_DEFAULTS.recoveryChannels] },
@@ -123,10 +104,6 @@ function defaultsFor(userId: string): ExecutorSettings {
     rcaStaleTickMs: EXECUTOR_DEFAULTS.rcaStaleTickMs,
     rcaVolThreshold: EXECUTOR_DEFAULTS.rcaVolThreshold,
     recoveryStuckMs: EXECUTOR_DEFAULTS.recoveryStuckMs,
-    seaBridgeEnabled: EXECUTOR_DEFAULTS.seaBridgeEnabled,
-    seaBridgeChannel: EXECUTOR_DEFAULTS.seaBridgeChannel,
-    seaBridgePollIntervalMs: EXECUTOR_DEFAULTS.seaBridgePollIntervalMs,
-    seaBridgeDirectionFilter: EXECUTOR_DEFAULTS.seaBridgeDirectionFilter,
     rcaChannels: [...EXECUTOR_DEFAULTS.rcaChannels],
     recoveryChannels: [...EXECUTOR_DEFAULTS.recoveryChannels],
     desyncKillSwitchEnabled: EXECUTOR_DEFAULTS.desyncKillSwitchEnabled,
@@ -144,10 +121,6 @@ function docToSettings(doc: any, userId: string): ExecutorSettings {
     rcaStaleTickMs: doc?.rcaStaleTickMs ?? EXECUTOR_DEFAULTS.rcaStaleTickMs,
     rcaVolThreshold: doc?.rcaVolThreshold ?? EXECUTOR_DEFAULTS.rcaVolThreshold,
     recoveryStuckMs: doc?.recoveryStuckMs ?? EXECUTOR_DEFAULTS.recoveryStuckMs,
-    seaBridgeEnabled: doc?.seaBridgeEnabled ?? EXECUTOR_DEFAULTS.seaBridgeEnabled,
-    seaBridgeChannel: doc?.seaBridgeChannel ?? EXECUTOR_DEFAULTS.seaBridgeChannel,
-    seaBridgePollIntervalMs: doc?.seaBridgePollIntervalMs ?? EXECUTOR_DEFAULTS.seaBridgePollIntervalMs,
-    seaBridgeDirectionFilter: doc?.seaBridgeDirectionFilter ?? EXECUTOR_DEFAULTS.seaBridgeDirectionFilter,
     rcaChannels: (doc?.rcaChannels && doc.rcaChannels.length > 0)
       ? doc.rcaChannels
       : [...EXECUTOR_DEFAULTS.rcaChannels],
