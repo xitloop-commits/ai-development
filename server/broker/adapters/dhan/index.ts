@@ -958,6 +958,7 @@ export class DhanAdapter implements BrokerAdapter {
         EXPIRED: "CANCELLED",
       };
       this.orderUpdateCb({
+        brokerId: this.brokerId,
         orderId: update.orderId,
         status: (statusMap[update.status] || "PENDING") as import("../../types").OrderStatus,
         filledQuantity: update.tradedQty,

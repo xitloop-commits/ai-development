@@ -320,6 +320,11 @@ export interface TickData {
 export type TickCallback = (data: TickData) => void;
 
 export interface OrderUpdate {
+  /** Identity of the broker that emitted this update ("dhan",
+   *  "dhan-ai-data", "mock"). Stamped by `wireTickBus` from the source
+   *  adapter; consumers pair it with `orderId` to disambiguate events
+   *  when multiple adapters are wired. (B11-followup 2/3) */
+  brokerId: string;
   orderId: string;
   status: OrderStatus;
   filledQuantity: number;

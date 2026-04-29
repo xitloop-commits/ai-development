@@ -66,7 +66,7 @@ export class MockAdapter implements BrokerAdapter {
   ) {
     this.brokerId = brokerId;
     this.displayName = displayName;
-    this.orderBook = new MockOrderBook(initialMargin);
+    this.orderBook = new MockOrderBook(brokerId, initialMargin);
   }
 
   // ── Auth ──────────────────────────────────────────────────────

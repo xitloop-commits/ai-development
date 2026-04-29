@@ -124,7 +124,10 @@ class RecoveryEngine {
         `recover orderId=${orderId} trade=${tradeId} channel=${channel} ` +
           `status=${order.status} filled=${order.filledQuantity} avg=${order.averagePrice} — emitting`,
       );
+      // B11-followup 2/3 — stamp broker identity so orderSync's
+      // (brokerId, orderId) match works on synthetic recovery events too.
       tickBus.emitOrderUpdate({
+        brokerId: adapter.brokerId,
         orderId,
         status: order.status,
         filledQuantity: order.filledQuantity ?? 0,

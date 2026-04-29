@@ -494,8 +494,12 @@ export async function getBrokerServiceStatus(): Promise<BrokerServiceStatus> {
 // ─── Tick Bus Wiring ─────────────────────────────────────────────
 
 function wireTickBus(adapter: BrokerAdapter): void {
+  // B11-followup 2/3 — stamp the source broker on every emitted event
+  // so multi-adapter setups (dhan + dhan-ai-data) don't collide on
+  // orderId-only matching downstream. Adapters themselves don't need
+  // to know about the bus shape; the wire layer owns the tag.
   adapter.onOrderUpdate((update) => {
-    tickBus.emitOrderUpdate(update);
+    tickBus.emitOrderUpdate({ ...update, brokerId: adapter.brokerId });
   });
   log.info(`TickBus wired for ${adapter.brokerId}`);
 }

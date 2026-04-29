@@ -90,6 +90,11 @@ class OrderSync extends EventEmitter {
       const trade = day.trades.find(
         (t) =>
           t.brokerOrderId === update.orderId &&
+          // B11-followup 2/3 — also match broker identity. Trades placed
+          // before this commit have brokerId=null; for those we fall back
+          // to orderId-only (legacy behaviour) so existing OPEN positions
+          // continue to reconcile.
+          (t.brokerId === null || t.brokerId === update.brokerId) &&
           (t.status === "OPEN" || t.status === "PENDING"),
       );
       if (!trade) continue;
