@@ -25,7 +25,13 @@ const ALLOWED_PREFIXES = [
   "broker/adapters/",   // Adapters define placeOrder; calling within is fine
 ];
 
+// Method names guarded by the invariant.
 const FORBIDDEN_PATTERN = /\.(placeOrder|modifyOrder|cancelOrder)\s*\(/;
+// TEA's tradeExecutor exposes its own modifyOrder / exitTrade as the
+// canonical pass-through. Calls of the form `tradeExecutor.modifyOrder(`
+// are explicitly the recommended path (RCA, UI, etc.) and must NOT be
+// flagged. The invariant targets *broker-level* receivers only.
+const TEA_PASSTHROUGH_PATTERN = /\btradeExecutor\.(placeOrder|modifyOrder|cancelOrder)\s*\(/;
 
 function* walkTsFiles(dir: string): Generator<string> {
   for (const entry of readdirSync(dir)) {
@@ -62,6 +68,7 @@ describe("invariant: single-broker-caller", () => {
         // Skip comment lines (best-effort — single-line // comments)
         const trimmed = line.trim();
         if (trimmed.startsWith("//") || trimmed.startsWith("*")) return;
+        if (TEA_PASSTHROUGH_PATTERN.test(line)) return;
         if (FORBIDDEN_PATTERN.test(line)) {
           violations.push({
             file: rel.replace(/\\/g, "/"),
