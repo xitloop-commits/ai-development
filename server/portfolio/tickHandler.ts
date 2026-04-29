@@ -51,7 +51,7 @@ export interface PnlSnapshot {
 export interface AutoExitEvent {
   channel: Channel;
   tradeId: string;
-  reason: "TP" | "SL";
+  reason: "TP_HIT" | "SL_HIT";
   exitPrice: number;
   timestamp: number;
 }
@@ -190,7 +190,7 @@ class TickHandler extends EventEmitter {
     const trailingStopPercent = brokerConfig?.settings?.trailingStopPercent ?? 1.0;
 
     let anyUpdated = false;
-    const tradesToExit: Array<{ trade: TradeRecord; reason: "TP" | "SL"; exitPrice: number }> = [];
+    const tradesToExit: Array<{ trade: TradeRecord; reason: "TP_HIT" | "SL_HIT"; exitPrice: number }> = [];
 
     for (const trade of openTrades) {
       for (const tick of ticks) {
@@ -237,7 +237,7 @@ class TickHandler extends EventEmitter {
             : tick.ltp <= trade.targetPrice;
           if (tpHit) {
             this.peakPrices.delete(peakKey); // cleanup
-            tradesToExit.push({ trade, reason: "TP", exitPrice: tick.ltp });
+            tradesToExit.push({ trade, reason: "TP_HIT", exitPrice: tick.ltp });
             continue; // Don't check SL if TP hit
           }
         }
@@ -247,7 +247,7 @@ class TickHandler extends EventEmitter {
             : tick.ltp >= trade.stopLossPrice;
           if (slHit) {
             this.peakPrices.delete(peakKey); // cleanup
-            tradesToExit.push({ trade, reason: "SL", exitPrice: tick.ltp });
+            tradesToExit.push({ trade, reason: "SL_HIT", exitPrice: tick.ltp });
           }
         }
       }

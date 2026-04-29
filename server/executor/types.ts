@@ -171,7 +171,7 @@ export interface ExitTradeResponse {
 export interface RecordAutoExitRequest {
   channel: Channel;
   tradeId: string;
-  reason: "TP" | "SL";
+  reason: "TP_HIT" | "SL_HIT";
   exitPrice: number;
   /** Always "PA" for tickHandler-driven auto-exits. */
   triggeredBy: Extract<ExitTriggeredBy, "PA">;

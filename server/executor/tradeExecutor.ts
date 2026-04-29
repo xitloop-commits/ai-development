@@ -579,7 +579,7 @@ class TradeExecutorAgent {
         exitTime: closedAt,
         realizedPnl: pnl,
         realizedPnlPercent: grossEntryValue > 0 ? (pnl / grossEntryValue) * 100 : 0,
-        exitReason: mapExitReasonToPaReason(req.reason),
+        exitReason: req.reason,
         exitTriggeredBy: req.triggeredBy,
         duration: Math.round((closedAt - closed.openedAt) / 1000),
         pnlCategory: pnl > 0 ? "win" : pnl < 0 ? "loss" : "breakeven",
@@ -634,7 +634,7 @@ class TradeExecutorAgent {
    */
   async recordAutoExit(req: RecordAutoExitRequest): Promise<void> {
     try {
-      const closeStatus: TradeStatus = req.reason === "TP" ? "CLOSED_TP" : "CLOSED_SL";
+      const closeStatus: TradeStatus = req.reason === "TP_HIT" ? "CLOSED_TP" : "CLOSED_SL";
       const { trade: closed, pnl } = await portfolioAgent.closeTrade(
         req.channel,
         req.tradeId,
@@ -656,7 +656,7 @@ class TradeExecutorAgent {
         exitTime: closedAt,
         realizedPnl: pnl,
         realizedPnlPercent: grossEntryValue > 0 ? (pnl / grossEntryValue) * 100 : 0,
-        exitReason: req.reason === "TP" ? "TP" : "SL",
+        exitReason: req.reason,
         exitTriggeredBy: "PA",
         duration: Math.round((closedAt - closed.openedAt) / 1000),
         pnlCategory: pnl > 0 ? "win" : pnl < 0 ? "loss" : "breakeven",
@@ -851,44 +851,5 @@ function mapExitReasonToTradeStatus(reason: ExitTradeRequest["reason"]): TradeSt
   }
 }
 
-/** Map TEA's exit-trade reason vocab to PA's recordTradeClosed enum. */
-function mapExitReasonToPaReason(
-  reason: ExitTradeRequest["reason"],
-):
-  | "SL"
-  | "TP"
-  | "RCA_EXIT"
-  | "STALE_PRICE_EXIT"
-  | "VOLATILITY_EXIT"
-  | "DISCIPLINE_EXIT"
-  | "AI_EXIT"
-  | "MANUAL"
-  | "EOD"
-  | "EXPIRY" {
-  switch (reason) {
-    case "TP_HIT":
-      return "TP";
-    case "SL_HIT":
-      return "SL";
-    case "STALE_PRICE_EXIT":
-      return "STALE_PRICE_EXIT";
-    case "VOLATILITY_EXIT":
-      return "VOLATILITY_EXIT";
-    case "MOMENTUM_EXIT":
-    case "AGE_EXIT":
-      return "RCA_EXIT";
-    case "AI_EXIT":
-      return "AI_EXIT";
-    case "DISCIPLINE_EXIT":
-      return "DISCIPLINE_EXIT";
-    case "EOD":
-      return "EOD";
-    case "EXPIRY":
-      return "EXPIRY";
-    case "MANUAL":
-    default:
-      return "MANUAL";
-  }
-}
 
 export const tradeExecutor = new TradeExecutorAgent();

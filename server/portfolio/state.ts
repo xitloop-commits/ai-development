@@ -113,12 +113,20 @@ export interface TradeRecord {
   desync?: DesyncInfo;
 }
 
+/**
+ * PA storage vocabulary for exit reasons. Aligned with
+ * `shared/exitContracts.ts ExitReasonCode` so DA → RCA → TEA → PA passes
+ * the same code through without per-hop translation. Unified in
+ * C2/C3-followup; legacy "SL"/"TP" docs are migrated at boot via
+ * `migrateExitReasonsToHit`.
+ */
 export type ExitReason =
-  | "SL"
-  | "TP"
-  | "RCA_EXIT"
-  | "STALE_PRICE_EXIT"
+  | "SL_HIT"
+  | "TP_HIT"
+  | "MOMENTUM_EXIT"
   | "VOLATILITY_EXIT"
+  | "AGE_EXIT"
+  | "STALE_PRICE_EXIT"
   | "DISCIPLINE_EXIT"
   | "AI_EXIT"
   | "MANUAL"
@@ -405,6 +413,74 @@ export async function migrateBrokerIdToBrokerOrderId(): Promise<void> {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn("[portfolio.state] day_records brokerId migration failed:", err);
+  }
+}
+
+/**
+ * C2/C3-followup — one-time rename of legacy exit reasons "SL"/"TP" to
+ * "SL_HIT"/"TP_HIT" so PA storage matches `shared/exitContracts.ts`
+ * ExitReasonCode. Touches:
+ *   - day_records.trades[].exitReason (array of subdocs)
+ *   - position_state.exitReason (top-level)
+ *
+ * Idempotent: filters on docs whose exitReason is still the legacy
+ * value, so re-runs find no matches.
+ */
+export async function migrateExitReasonsToHit(): Promise<void> {
+  // ─── position_state — top-level field ────────────────────────
+  for (const [legacy, modern] of [["SL", "SL_HIT"], ["TP", "TP_HIT"]] as const) {
+    try {
+      const result = await PositionStateModel.collection.updateMany(
+        { exitReason: legacy },
+        { $set: { exitReason: modern } },
+      );
+      if (result.modifiedCount > 0) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[portfolio.state] Renamed exitReason "${legacy}" → "${modern}" on ${result.modifiedCount} position_state docs`,
+        );
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[portfolio.state] position_state exitReason "${legacy}" migration failed:`, err);
+    }
+  }
+
+  // ─── day_records.trades[].exitReason — subdoc field ──────────
+  for (const [legacy, modern] of [["SL", "SL_HIT"], ["TP", "TP_HIT"]] as const) {
+    try {
+      const result = await DayRecordModel.collection.updateMany(
+        { "trades.exitReason": legacy },
+        [
+          {
+            $set: {
+              trades: {
+                $map: {
+                  input: "$trades",
+                  as: "t",
+                  in: {
+                    $cond: {
+                      if: { $eq: ["$$t.exitReason", legacy] },
+                      then: { $mergeObjects: ["$$t", { exitReason: modern }] },
+                      else: "$$t",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      );
+      if (result.modifiedCount > 0) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[portfolio.state] Renamed exitReason "${legacy}" → "${modern}" on trades in ${result.modifiedCount} day_records`,
+        );
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[portfolio.state] day_records exitReason "${legacy}" migration failed:`, err);
+    }
   }
 }
 

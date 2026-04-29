@@ -87,9 +87,16 @@ async function startServer() {
       // B11-followup — rename trades[].brokerId (which was the broker
       // order ID) to brokerOrderId on legacy docs; the new brokerId
       // field stores the broker IDENTITY going forward. Idempotent.
-      const { migrateBrokerIdToBrokerOrderId } = await import("../portfolio/state");
+      const { migrateBrokerIdToBrokerOrderId, migrateExitReasonsToHit } = await import("../portfolio/state");
       try { await migrateBrokerIdToBrokerOrderId(); } catch (err) {
         bootLog.warn(`MongoDB brokerId rename migration failed (non-fatal): ${(err as Error)?.message ?? err}`);
+      }
+
+      // C2/C3-followup — rename legacy exit reasons "SL"/"TP" →
+      // "SL_HIT"/"TP_HIT" so PA storage matches the shared contract
+      // vocabulary. Idempotent.
+      try { await migrateExitReasonsToHit(); } catch (err) {
+        bootLog.warn(`MongoDB exitReason rename migration failed (non-fatal): ${(err as Error)?.message ?? err}`);
       }
 
       // Register broker adapters and initialize broker service after MongoDB is ready
