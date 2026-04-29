@@ -7,11 +7,6 @@
  * footgun B10 closed when it removed tradingStore.pushPosition. This
  * test prevents new writers creeping back in.
  *
- * KNOWN VIOLATION (allowlisted, NOT a regression):
- *   server/executor/orderSync.ts — writes via upsertDayRecord directly
- *   per its own NOTE comment. Migrating to a PA event/API is a separate
- *   tracker row (TODO: file under TEA cleanup, not B11 scope).
- *
  * If this test fails: route the write through PA. Only extend the
  * allowlist with explicit architectural approval + a tracker row.
  */
@@ -26,9 +21,8 @@ const ALLOWED_PREFIXES = [
 ];
 
 const ALLOWED_FILES = new Set<string>([
-  // Known violation pending migration to a PA event/API.
+  // Empty — every former violation has migrated to a PA event/API.
   // Do NOT extend without approval + tracker row.
-  "executor/orderSync.ts",
 ]);
 
 const FORBIDDEN_PATTERN = /\bupsertDayRecord\s*\(/;
