@@ -5,7 +5,7 @@
  * These types describe its public API and internal state model.
  */
 
-import type { Channel, TradeRecord, ExitReason, ExitTriggeredBy } from "./state";
+import type { Channel, TradeRecord, TradeStatus, ExitReason, ExitTriggeredBy } from "./state";
 
 export type { ExitReason, ExitTriggeredBy };
 
@@ -139,4 +139,37 @@ export interface TradeRejectedEvent {
   trade: Partial<TradeRecord>;
   reason: string;
   timestamp: number;
+}
+
+/**
+ * B11-followup 3/3 — broker-emitted lifecycle event applied to local
+ * trade state via portfolioAgent.applyBrokerOrderEvent. Same shape as
+ * the broker's OrderUpdate; declared here to avoid PA depending on
+ * `broker/types`.
+ */
+export interface BrokerOrderEvent {
+  brokerId: string;
+  orderId: string;
+  /** Mirrors broker/types.OrderStatus. Declared inline to keep PA from
+   *  depending on the broker package. Only terminal-ish statuses
+   *  (FILLED, CANCELLED, REJECTED, EXPIRED) drive state mutation;
+   *  intermediate ones (PENDING, OPEN, PARTIALLY_FILLED) are no-ops. */
+  status:
+    | "PENDING"
+    | "OPEN"
+    | "FILLED"
+    | "PARTIALLY_FILLED"
+    | "CANCELLED"
+    | "REJECTED"
+    | "EXPIRED";
+  filledQuantity: number;
+  averagePrice: number;
+  timestamp: number;
+}
+
+export interface BrokerOrderEventResult {
+  matched: boolean;
+  channel?: Channel;
+  tradeId?: string;
+  newStatus?: TradeStatus;
 }

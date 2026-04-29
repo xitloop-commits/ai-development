@@ -67,6 +67,8 @@ import type {
   RiskSignals,
   PortfolioMetrics,
   DailyPnlReport,
+  BrokerOrderEvent,
+  BrokerOrderEventResult,
 } from "./types";
 
 const log = createLogger("PA", "Agent");
@@ -653,6 +655,104 @@ class PortfolioAgentImpl {
   async hasUnresolvedDesync(channel: Channel): Promise<boolean> {
     const day = await this.ensureCurrentDay(channel);
     return day.trades.some((t) => t.desync !== undefined);
+  }
+
+  /**
+   * B11-followup 3/3 — apply a broker-emitted OrderUpdate to the local
+   * trade state. This is the single-writer entry point for broker
+   * lifecycle reconciliation; orderSync used to write directly via
+   * upsertDayRecord (PA single-writer-invariant violation), now it just
+   * forwards events here.
+   *
+   * Lookup: trades are identified by (brokerOrderId, brokerId). The
+   * brokerId pair-match disambiguates orderId collisions across adapters
+   * (commit 2/3 stamped brokerId on every event). Legacy trades that
+   * pre-date the brokerId field have brokerId=null and fall back to
+   * orderId-only matching.
+   *
+   * Only terminal-ish statuses mutate state (FILLED, CANCELLED, REJECTED,
+   * EXPIRED). Intermediate PENDING/OPEN events are no-ops — the trade is
+   * already in the matching state locally.
+   *
+   * Returns `{ matched, channel, tradeId }` for the caller (orderSync's
+   * "sync" emit + tests).
+   */
+  async applyBrokerOrderEvent(
+    update: BrokerOrderEvent,
+  ): Promise<BrokerOrderEventResult> {
+    if (
+      update.status !== "FILLED" &&
+      update.status !== "CANCELLED" &&
+      update.status !== "REJECTED" &&
+      update.status !== "EXPIRED"
+    ) {
+      return { matched: false };
+    }
+
+    // Brokers don't tell us which channel the order belongs to. Each live
+    // channel could have placed it — scan and stop at the first match.
+    const liveChannels: Channel[] = ["my-live", "ai-live", "testing-live"];
+    for (const channel of liveChannels) {
+      const state = await getCapitalState(channel).catch(() => null);
+      if (!state) continue;
+      const day = await getDayRecord(channel, state.currentDayIndex).catch(() => null);
+      if (!day) continue;
+
+      const trade = day.trades.find(
+        (t) =>
+          t.brokerOrderId === update.orderId &&
+          // Legacy trades (pre-2026-05) have brokerId=null on the trade
+          // record; for those we fall back to orderId-only matching.
+          (t.brokerId === null || t.brokerId === update.brokerId) &&
+          (t.status === "OPEN" || t.status === "PENDING"),
+      );
+      if (!trade) continue;
+
+      const previousStatus = trade.status;
+      let entryAdjusted = false;
+      let qtyAdjusted = false;
+
+      if (update.status === "FILLED") {
+        // Correct entry price + qty if the broker filled at a different
+        // value than we sent (slippage on market orders, partial fills).
+        if (update.averagePrice > 0 && update.averagePrice !== trade.entryPrice) {
+          trade.entryPrice = update.averagePrice;
+          entryAdjusted = true;
+        }
+        if (update.filledQuantity > 0 && update.filledQuantity !== trade.qty) {
+          trade.qty = update.filledQuantity;
+          qtyAdjusted = true;
+        }
+        // Promote PENDING → OPEN once the broker confirms the fill.
+        if (trade.status === "PENDING") trade.status = "OPEN";
+      } else {
+        // CANCELLED / REJECTED / EXPIRED — order never made it to market.
+        trade.status = "CANCELLED";
+        trade.exitPrice = trade.entryPrice;
+        trade.pnl = 0;
+        trade.unrealizedPnl = 0;
+        trade.closedAt = Date.now();
+      }
+
+      const updated = recalculateDayAggregates(day);
+      await upsertDayRecord(channel, updated);
+
+      await this.audit("BROKER_ORDER_EVENT", channel, trade.id, {
+        brokerId: update.brokerId,
+        brokerOrderId: update.orderId,
+        brokerStatus: update.status,
+        previousStatus,
+        newStatus: trade.status,
+        entryAdjusted,
+        qtyAdjusted,
+        averagePrice: update.averagePrice,
+        filledQuantity: update.filledQuantity,
+      });
+
+      return { matched: true, channel, tradeId: trade.id, newStatus: trade.status };
+    }
+
+    return { matched: false };
   }
 
   /**
