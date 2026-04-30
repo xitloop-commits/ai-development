@@ -629,6 +629,54 @@ class DisciplineAgent {
     return { state, settings, score: { score, breakdown }, streak };
   }
 
+  /**
+   * Per Phase D2: thin "is the operator allowed to trade right now?"
+   * snapshot. Both `discipline.getSessionStatus` (tRPC) and
+   * `GET /api/discipline/status` (REST) call this so the UI and the
+   * Python pipeline see identical shape.
+   *
+   * `channel` is informational today (per-channel partitioning is
+   * pending — see `recordTradeOutcome` note); the answer is currently
+   * the same for every channel of a given user.
+   */
+  async getSessionStatus(
+    userId: string,
+    channel: string,
+  ): Promise<{
+    channel: string;
+    date: string;
+    sessionHalts: {
+      nse: import("./types").SessionHalt | null;
+      mcx: import("./types").SessionHalt | null;
+    };
+    capGrace: import("./types").CapGracePeriod | null;
+    activeCooldown: boolean;
+    cooldownEndsAt: number | null;
+    unjournaledCount: number;
+    weeklyReviewDue: boolean;
+    todayPnlPercent: number;
+  }> {
+    const date = getISTDateString();
+    const state = await getDisciplineState(userId, date);
+    const settings = await getDisciplineSettings(userId);
+    return {
+      channel,
+      date,
+      sessionHalts: {
+        nse: state.sessionHalts?.nse ?? null,
+        mcx: state.sessionHalts?.mcx ?? null,
+      },
+      capGrace: state.capGrace ?? null,
+      activeCooldown: !!state.activeCooldown,
+      cooldownEndsAt: state.activeCooldown?.endsAt
+        ? new Date(state.activeCooldown.endsAt).getTime()
+        : null,
+      unjournaledCount: (state.unjournaledTrades ?? []).length,
+      weeklyReviewDue: settings.weeklyReview?.enabled === true && !state.weeklyReviewCompleted,
+      todayPnlPercent: state.dailyPnlPercent ?? 0,
+    };
+  }
+
   // ─── Private Helpers ───────────────────────────────────────
 
   private getBlockReason(

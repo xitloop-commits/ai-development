@@ -235,6 +235,40 @@ export const disciplineRouter = router({
     }),
 
   /**
+   * Phase D2 — tRPC alias for the internal `disciplineAgent.recordTradeOutcome`
+   * pipeline. Kept symmetric with the REST endpoint at
+   * POST /api/discipline/recordTradeOutcome (Python callers) so both
+   * surfaces share one handler internal.
+   */
+  recordTradeOutcome: protectedProcedure
+    .input(
+      z.object({
+        channel: z.string().min(1),
+        tradeId: z.string().min(1),
+        realizedPnl: z.number(),
+        openingCapital: z.number().nonnegative(),
+        exitReason: z.string().optional(),
+        exitTriggeredBy: z.string().optional(),
+        signalSource: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      await disciplineAgent.recordTradeOutcome(input);
+      return { success: true };
+    }),
+
+  /**
+   * Phase D2 — lightweight "is the operator allowed to trade now?"
+   * snapshot. The REST endpoint at GET /api/discipline/status returns
+   * the exact same shape; both delegate to disciplineAgent.getSessionStatus.
+   */
+  getSessionStatus: publicProcedure
+    .input(z.object({ channel: z.string().min(1) }))
+    .query(async ({ input }) => {
+      return disciplineAgent.getSessionStatus(DEFAULT_USER_ID, input.channel);
+    }),
+
+  /**
    * Acknowledge a loss to start the cooldown timer.
    */
   acknowledgeLoss: protectedProcedure.mutation(async () => {

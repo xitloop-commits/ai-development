@@ -20,6 +20,18 @@ vi.mock("./index", () => ({
       adjustments: [],
       details: {},
     })),
+    recordTradeOutcome: vi.fn(async () => undefined),
+    getSessionStatus: vi.fn(async (_user: string, channel: string) => ({
+      channel,
+      date: "2026-04-30",
+      sessionHalts: { nse: null, mcx: null },
+      capGrace: null,
+      activeCooldown: false,
+      cooldownEndsAt: null,
+      unjournaledCount: 0,
+      weeklyReviewDue: false,
+      todayPnlPercent: 0,
+    })),
   },
 }));
 
@@ -48,15 +60,24 @@ import { disciplineAgent } from "./index";
 
 type Handler = (req: Request, res: Response) => Promise<void> | void;
 
-function captureRoute(): { app: any; pipeline: () => Handler[] } {
-  const handlers: Handler[] = [];
+function captureRoute(): {
+  app: any;
+  pipelineFor: (method: "post" | "get", path: string) => Handler[];
+} {
+  const captured: Array<{ method: "post" | "get"; path: string; handlers: Handler[] }> = [];
   const app: any = {
-    post: vi.fn((_path: string, ...rest: Handler[]) => {
-      // The route is registered with [middleware..., handler] — store all
-      handlers.push(...rest);
+    post: vi.fn((path: string, ...rest: Handler[]) => {
+      captured.push({ method: "post", path, handlers: rest });
+    }),
+    get: vi.fn((path: string, ...rest: Handler[]) => {
+      captured.push({ method: "get", path, handlers: rest });
     }),
   };
-  return { app, pipeline: () => handlers };
+  return {
+    app,
+    pipelineFor: (method, path) =>
+      captured.find((c) => c.method === method && c.path === path)?.handlers ?? [],
+  };
 }
 
 function makeReq(body: Record<string, unknown>): Request {
@@ -117,10 +138,10 @@ beforeEach(() => {
 
 describe("POST /api/discipline/validateTrade", () => {
   it("happy path — DA pass + RCA approve → 200 with tradeId", async () => {
-    const { app, pipeline } = captureRoute();
+    const { app, pipelineFor } = captureRoute();
     registerDisciplineRoutes(app);
     const { res, json } = makeRes();
-    await runPipeline(pipeline(), makeReq(validBody), res);
+    await runPipeline(pipelineFor("post", "/api/discipline/validateTrade"), makeReq(validBody), res);
 
     expect(json).toHaveBeenCalled();
     const body = (json as any).mock.calls[0][0];
@@ -141,10 +162,10 @@ describe("POST /api/discipline/validateTrade", () => {
     });
     const { rcaMonitor } = await import("../risk-control");
 
-    const { app, pipeline } = captureRoute();
+    const { app, pipelineFor } = captureRoute();
     registerDisciplineRoutes(app);
     const { res, json } = makeRes();
-    await runPipeline(pipeline(), makeReq(validBody), res);
+    await runPipeline(pipelineFor("post", "/api/discipline/validateTrade"), makeReq(validBody), res);
 
     const body = (json as any).mock.calls[0][0];
     expect(body.success).toBe(false);
@@ -169,10 +190,10 @@ describe("POST /api/discipline/validateTrade", () => {
       },
     });
 
-    const { app, pipeline } = captureRoute();
+    const { app, pipelineFor } = captureRoute();
     registerDisciplineRoutes(app);
     const { res, json } = makeRes();
-    await runPipeline(pipeline(), makeReq(validBody), res);
+    await runPipeline(pipelineFor("post", "/api/discipline/validateTrade"), makeReq(validBody), res);
 
     const body = (json as any).mock.calls[0][0];
     expect(body.success).toBe(false);
@@ -184,10 +205,10 @@ describe("POST /api/discipline/validateTrade", () => {
   it("server error — handler returns 500 with shape", async () => {
     (disciplineAgent.validateTrade as any).mockRejectedValueOnce(new Error("Mongo down"));
 
-    const { app, pipeline } = captureRoute();
+    const { app, pipelineFor } = captureRoute();
     registerDisciplineRoutes(app);
     const { res, status, json } = makeRes();
-    await runPipeline(pipeline(), makeReq(validBody), res);
+    await runPipeline(pipelineFor("post", "/api/discipline/validateTrade"), makeReq(validBody), res);
 
     expect(status).toHaveBeenCalledWith(500);
     const body = (json as any).mock.calls[0][0];
@@ -197,11 +218,11 @@ describe("POST /api/discipline/validateTrade", () => {
   });
 
   it("body schema rejection — missing required field returns 400", async () => {
-    const { app, pipeline } = captureRoute();
+    const { app, pipelineFor } = captureRoute();
     registerDisciplineRoutes(app);
     const incomplete = { ...validBody, executionId: undefined };
     const { res, status, json } = makeRes();
-    await runPipeline(pipeline(), makeReq(incomplete as any), res);
+    await runPipeline(pipelineFor("post", "/api/discipline/validateTrade"), makeReq(incomplete as any), res);
 
     expect(status).toHaveBeenCalledWith(400);
     const body = (json as any).mock.calls[0][0];
@@ -210,13 +231,101 @@ describe("POST /api/discipline/validateTrade", () => {
   });
 
   it("body schema rejection — extra unknown field returns 400 (strict mode)", async () => {
-    const { app, pipeline } = captureRoute();
+    const { app, pipelineFor } = captureRoute();
     registerDisciplineRoutes(app);
     const extra = { ...validBody, sneaky: "x" };
     const { res, status } = makeRes();
-    await runPipeline(pipeline(), makeReq(extra as any), res);
+    await runPipeline(pipelineFor("post", "/api/discipline/validateTrade"), makeReq(extra as any), res);
 
     expect(status).toHaveBeenCalledWith(400);
     expect(disciplineAgent.validateTrade).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Phase D2 — recordTradeOutcome (REST symmetry with tRPC) ─────
+
+describe("POST /api/discipline/recordTradeOutcome", () => {
+  const validOutcome = {
+    channel: "ai-paper",
+    tradeId: "T-1",
+    realizedPnl: -250,
+    openingCapital: 100000,
+    exitReason: "SL_HIT",
+    exitTriggeredBy: "USER",
+  };
+
+  it("forwards to disciplineAgent.recordTradeOutcome and returns success", async () => {
+    const { app, pipelineFor } = captureRoute();
+    registerDisciplineRoutes(app);
+    const { res, json } = makeRes();
+    await runPipeline(
+      pipelineFor("post", "/api/discipline/recordTradeOutcome"),
+      makeReq(validOutcome),
+      res,
+    );
+
+    expect(json).toHaveBeenCalledWith({ success: true });
+    expect(disciplineAgent.recordTradeOutcome).toHaveBeenCalledTimes(1);
+    expect((disciplineAgent.recordTradeOutcome as any).mock.calls[0][0]).toMatchObject({
+      channel: "ai-paper",
+      tradeId: "T-1",
+      realizedPnl: -250,
+      exitReason: "SL_HIT",
+    });
+  });
+
+  it("rejects missing required field with 400", async () => {
+    const { app, pipelineFor } = captureRoute();
+    registerDisciplineRoutes(app);
+    const incomplete = { ...validOutcome, channel: undefined };
+    const { res, status } = makeRes();
+    await runPipeline(
+      pipelineFor("post", "/api/discipline/recordTradeOutcome"),
+      makeReq(incomplete as any),
+      res,
+    );
+
+    expect(status).toHaveBeenCalledWith(400);
+    expect(disciplineAgent.recordTradeOutcome).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Phase D2 — GET /api/discipline/status ───────────────────────
+
+describe("GET /api/discipline/status", () => {
+  function makeQueryReq(query: Record<string, string>): Request {
+    return { query, header: () => undefined, ip: "127.0.0.1" } as unknown as Request;
+  }
+
+  it("returns the session-status snapshot with the requested channel", async () => {
+    const { app, pipelineFor } = captureRoute();
+    registerDisciplineRoutes(app);
+    const { res, json } = makeRes();
+    await runPipeline(
+      pipelineFor("get", "/api/discipline/status"),
+      makeQueryReq({ channel: "ai-paper" }),
+      res,
+    );
+
+    expect(json).toHaveBeenCalled();
+    const body = (json as any).mock.calls[0][0];
+    expect(body.channel).toBe("ai-paper");
+    expect(body.sessionHalts).toEqual({ nse: null, mcx: null });
+    expect(body.activeCooldown).toBe(false);
+    expect(disciplineAgent.getSessionStatus).toHaveBeenCalledWith("1", "ai-paper");
+  });
+
+  it("rejects missing channel query param with 400", async () => {
+    const { app, pipelineFor } = captureRoute();
+    registerDisciplineRoutes(app);
+    const { res, status } = makeRes();
+    await runPipeline(
+      pipelineFor("get", "/api/discipline/status"),
+      makeQueryReq({}),
+      res,
+    );
+
+    expect(status).toHaveBeenCalledWith(400);
+    expect(disciplineAgent.getSessionStatus).not.toHaveBeenCalled();
   });
 });

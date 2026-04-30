@@ -1,22 +1,33 @@
 /**
- * Discipline Agent — REST endpoint (Phase C — SEA integration).
+ * Discipline Agent — REST endpoints.
  *
- * One endpoint:
+ * Three endpoints:
  *   POST /api/discipline/validateTrade
  *     Python SEA POSTs new-trade signals here. The handler chains
  *     DA.validateTrade → RCA.evaluate → TEA.submitTrade so the full
  *     gate sequence fires server-side from a single round-trip.
  *
- * This is the canonical SEA → ATS path. The legacy log-tail bridge
- * (seaBridge.ts) was retired in C8-followup once the soak confirmed
- * SEA-Python was POSTing in production.
+ *   POST /api/discipline/recordTradeOutcome   (Phase D2)
+ *     Symmetric REST surface for the existing tRPC mutation. Python
+ *     callers POST trade-close events here so DA can update its
+ *     emotional-state counters / cooldowns / streaks.
  *
- * Auth via B1 (X-Internal-Token); body validated via B8 (.strict()).
+ *   GET  /api/discipline/status?channel=...   (Phase D2)
+ *     Lightweight "am I allowed to trade?" snapshot. Same shape as
+ *     tRPC `discipline.getSessionStatus`; both delegate to
+ *     `disciplineAgent.getSessionStatus` so UI and Python see one
+ *     source of truth.
+ *
+ * The legacy log-tail bridge (seaBridge.ts) was retired in C8-followup
+ * once the soak confirmed SEA-Python was POSTing in production.
+ *
+ * Auth via B1 (X-Internal-Token); bodies / queries validated via B8
+ * (.strict()).
  */
 
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
-import { validateBody } from "../_core/zodMiddleware";
+import { validateBody, validateQuery } from "../_core/zodMiddleware";
 import { disciplineAgent } from "./index";
 import { createLogger } from "../broker/logger";
 
@@ -70,6 +81,24 @@ const validateTradeSchema = z
     checklistDone: z.boolean().optional(),
     currentCapital: z.number().nonnegative(),
     currentExposure: z.number().nonnegative(),
+  })
+  .strict();
+
+const recordTradeOutcomeSchema = z
+  .object({
+    channel: z.string().min(1),
+    tradeId: z.string().min(1),
+    realizedPnl: z.number(),
+    openingCapital: z.number().nonnegative(),
+    exitReason: z.string().optional(),
+    exitTriggeredBy: z.string().optional(),
+    signalSource: z.string().optional(),
+  })
+  .strict();
+
+const sessionStatusQuerySchema = z
+  .object({
+    channel: z.string().min(1),
   })
   .strict();
 
@@ -159,6 +188,38 @@ export function registerDisciplineRoutes(app: Express): void {
       } catch (err: any) {
         log.error(`/validateTrade failed: ${err?.message ?? err}`);
         res.status(500).json({ success: false, stage: "ERROR", error: err?.message ?? String(err) });
+      }
+    },
+  );
+
+  // Phase D2 — POST /api/discipline/recordTradeOutcome
+  app.post(
+    "/api/discipline/recordTradeOutcome",
+    validateBody(recordTradeOutcomeSchema),
+    async (req: Request, res: Response) => {
+      const body = req.body as z.infer<typeof recordTradeOutcomeSchema>;
+      try {
+        await disciplineAgent.recordTradeOutcome(body);
+        res.json({ success: true });
+      } catch (err: any) {
+        log.error(`/recordTradeOutcome failed: ${err?.message ?? err}`);
+        res.status(500).json({ success: false, error: err?.message ?? String(err) });
+      }
+    },
+  );
+
+  // Phase D2 — GET /api/discipline/status?channel=ai-paper
+  app.get(
+    "/api/discipline/status",
+    validateQuery(sessionStatusQuerySchema),
+    async (req: Request, res: Response) => {
+      const { channel } = req.query as unknown as z.infer<typeof sessionStatusQuerySchema>;
+      try {
+        const status = await disciplineAgent.getSessionStatus(DEFAULT_USER_ID, channel);
+        res.json(status);
+      } catch (err: any) {
+        log.error(`/status failed: ${err?.message ?? err}`);
+        res.status(500).json({ error: err?.message ?? String(err) });
       }
     },
   );
