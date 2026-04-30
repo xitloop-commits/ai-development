@@ -34,7 +34,12 @@ import pyarrow.parquet as pq
 
 from model_training_agent.preprocessor import preprocess_live_tick
 from signal_engine_agent.model_loader import load_models, LoadedModels
-from signal_engine_agent.engine import _decide, DIRECTION_PROB_CALL, DIRECTION_PROB_PUT
+from signal_engine_agent.thresholds import (
+    Thresholds,
+    decide_action,
+    load_thresholds,
+)
+from signal_engine_agent import legacy_filter
 from signal_engine_agent.trade_filter import TradeFilter, TickDecision
 
 _IST = timezone(timedelta(hours=5, minutes=30))
@@ -74,8 +79,9 @@ def run_scored_backtest(
     models: LoadedModels | None = None,
     features_root: Path = Path("data/features"),
     output_root: Path = Path("data/backtests"),
-    call_thresh: float = DIRECTION_PROB_CALL,
-    put_thresh: float = DIRECTION_PROB_PUT,
+    config_dir: Path = Path("config/sea_thresholds"),
+    filter_mode: str = "gate",
+    # Legacy-only knobs
     sustained_n: int = 5,
     avg_prob_thresh: float = 0.65,
     filter_cooldown_sec: float = 60.0,
@@ -93,16 +99,23 @@ def run_scored_backtest(
 
     model_version = models.version
 
-    # Output directory
-    out_dir = output_root / instrument / model_version / date_str
+    # Output directory — segment by filter so gate vs legacy A/B sit
+    # in distinct dirs and downstream tools can compare scorecards.
+    out_dir = output_root / instrument / model_version / date_str / filter_mode
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Trade filter
-    trade_filter = TradeFilter(
-        sustained_n=sustained_n,
-        avg_prob_threshold=avg_prob_thresh,
-        cooldown_sec=filter_cooldown_sec,
-    )
+    if filter_mode == "gate":
+        thresholds = load_thresholds(instrument, config_dir)
+        trade_filter = None
+    elif filter_mode == "legacy":
+        thresholds = None
+        trade_filter = TradeFilter(
+            sustained_n=sustained_n,
+            avg_prob_threshold=avg_prob_thresh,
+            cooldown_sec=filter_cooldown_sec,
+        )
+    else:
+        raise ValueError(f"filter_mode must be 'gate' or 'legacy', got {filter_mode!r}")
 
     print()
     print(f"  ═══════════════════════════════════════════════════════════")
@@ -194,18 +207,48 @@ def run_scored_backtest(
             ce_ltp = row.get("opt_0_ce_ltp")
             pe_ltp = row.get("opt_0_pe_ltp")
 
-            # Prefer 15min for TP/SL, fallback to 5min, then 30s
-            up_swing = up_pred_900 if not np.isnan(up_pred_900) else up_pred_300
-            dn_swing = dn_pred_900 if not np.isnan(dn_pred_900) else dn_pred_300
+            # Per E9: upside_percentile_30s is a TFA-emitted live feature
+            # column (session rank), not a model target. Read it from the
+            # parquet row directly.
+            pctile_live = row.get("upside_percentile_30s")
+            try:
+                pctile_live_f = float(pctile_live) if pctile_live is not None else float("nan")
+            except (TypeError, ValueError):
+                pctile_live_f = float("nan")
 
-            result = _decide(
-                dir_prob_30, up_pred_30, dn_pred_30,
-                regime, ce_ltp, pe_ltp,
-                call_thresh, put_thresh,
-                up_pred_swing=up_swing,
-                dn_pred_swing=dn_swing,
-            )
-            action = result["action"]
+            if filter_mode == "gate":
+                preds = {
+                    "direction_prob_30s":     dir_prob_30,
+                    "risk_reward_ratio_30s":  rr_pred_30,
+                    "upside_percentile_30s":  pctile_live_f,
+                    "max_upside_30s":         up_pred_30,
+                    "max_drawdown_30s":       dn_pred_30,
+                    "max_upside_300s":        up_pred_300,
+                    "max_drawdown_300s":      dn_pred_300,
+                    "max_upside_900s":        up_pred_900,
+                    "max_drawdown_900s":      dn_pred_900,
+                }
+                sig = decide_action(preds, thresholds, ce_ltp=ce_ltp, pe_ltp=pe_ltp)
+                action = sig.action
+                result = {
+                    "entry": sig.entry, "tp": sig.tp, "sl": sig.sl, "rr": sig.rr,
+                    "gate_reasons": sig.gate_reasons,
+                }
+            else:
+                # Prefer 15min for TP/SL, fallback to 5min, then 30s
+                up_swing = up_pred_900 if not np.isnan(up_pred_900) else up_pred_300
+                dn_swing = dn_pred_900 if not np.isnan(dn_pred_900) else dn_pred_300
+                legacy = legacy_filter.legacy_decide(
+                    dir_prob_30, up_pred_30, dn_pred_30,
+                    regime, ce_ltp, pe_ltp,
+                    up_pred_swing=up_swing, dn_pred_swing=dn_swing,
+                )
+                action = legacy.action
+                result = {
+                    "entry": legacy.entry, "tp": legacy.tp,
+                    "sl": legacy.sl, "rr": legacy.rr,
+                    "gate_reasons": [],
+                }
             processed += 1
 
             # Build prediction record with ground truth
@@ -269,33 +312,57 @@ def run_scored_backtest(
                 sig_f.write(json.dumps(pred_rec) + "\n")
                 signals_emitted += 1
 
-            # ── Filtered trade recommendation (3-stage filter) ──
-            tick_decision = TickDecision(
-                timestamp=row.get("timestamp") or 0,
-                action=action,
-                direction_prob=dir_prob_30,
-                max_upside_pred=up_pred_30,
-                max_drawdown_pred=dn_pred_30,
-                risk_reward_pred=rr_pred_30,
-                magnitude_pred=mag_pred_30,
-                regime=regime,
-                entry=result["entry"],
-                tp=result["tp"],
-                sl=result["sl"],
-                rr=result["rr"],
-            )
-            rec = trade_filter.evaluate(tick_decision)
-            if rec is not None:
-                filtered_emitted += 1
-                filt_rec = {**pred_rec,
-                            "filter_action": rec.action,
-                            "filter_confidence": rec.confidence,
-                            "filter_score": rec.score,
-                            "filter_sustained": rec.sustained_ticks,
-                            "filter_avg_prob": rec.avg_prob,
-                            "filter_reasoning": rec.reasoning}
-                filtered_list.append(filt_rec)
-                filt_f.write(json.dumps(filt_rec) + "\n")
+            # ── Filtered output ──
+            if filter_mode == "gate":
+                # Gate path: write the per-spec diagnostic line for each
+                # tick whose gate failed (`fail_reasons` non-empty), so we
+                # can tune thresholds offline. Mirrors the live engine's
+                # `_filtered_signals.log` schema.
+                gate_reasons = result.get("gate_reasons") or []
+                if not np.isnan(dir_prob_30) and gate_reasons:
+                    filtered_emitted += 1
+                    would_be = "GO_CALL" if dir_prob_30 > 0.5 else "GO_PUT"
+                    filt_rec = {
+                        "tick":                  i,
+                        "timestamp":             _safe(row.get("timestamp")),
+                        "instrument":            instrument.upper(),
+                        "would_be_direction":    would_be,
+                        "fail_reasons":          gate_reasons,
+                        "direction_prob_30s":    _safe(dir_prob_30),
+                        "risk_reward_ratio_30s": _safe(rr_pred_30),
+                        "upside_percentile_30s": _safe(pctile_live_f),
+                        "model_version":         model_version,
+                    }
+                    filtered_list.append(filt_rec)
+                    filt_f.write(json.dumps(filt_rec) + "\n")
+            else:
+                # Legacy path: 4-stage TradeFilter
+                tick_decision = TickDecision(
+                    timestamp=row.get("timestamp") or 0,
+                    action=action,
+                    direction_prob=dir_prob_30,
+                    max_upside_pred=up_pred_30,
+                    max_drawdown_pred=dn_pred_30,
+                    risk_reward_pred=rr_pred_30,
+                    magnitude_pred=mag_pred_30,
+                    regime=regime,
+                    entry=result["entry"],
+                    tp=result["tp"],
+                    sl=result["sl"],
+                    rr=result["rr"],
+                )
+                rec = trade_filter.evaluate(tick_decision)
+                if rec is not None:
+                    filtered_emitted += 1
+                    filt_rec = {**pred_rec,
+                                "filter_action": rec.action,
+                                "filter_confidence": rec.confidence,
+                                "filter_score": rec.score,
+                                "filter_sustained": rec.sustained_ticks,
+                                "filter_avg_prob": rec.avg_prob,
+                                "filter_reasoning": rec.reasoning}
+                    filtered_list.append(filt_rec)
+                    filt_f.write(json.dumps(filt_rec) + "\n")
 
             # Progress
             if processed % 2000 == 0:
@@ -320,9 +387,15 @@ def run_scored_backtest(
     scorecard = _compute_scorecard(predictions_list, signals_list, instrument,
                                    date_str, model_version, processed, skipped)
 
-    # Add filtered signal metrics
-    scorecard["filtered"] = _compute_filtered_metrics(
-        filtered_list, trade_filter.stats())
+    scorecard["filter_mode"] = filter_mode
+    if filter_mode == "gate":
+        # Gate path: filtered_list is the diagnostic stream of failed-gate
+        # ticks. Tally the fail-reason histogram so the PR body has
+        # something concrete to compare against the legacy run.
+        scorecard["filtered"] = _compute_gate_diagnostics(filtered_list)
+    else:
+        scorecard["filtered"] = _compute_filtered_metrics(
+            filtered_list, trade_filter.stats())
 
     (out_dir / "scorecard.json").write_text(
         json.dumps(scorecard, indent=2, default=str), encoding="utf-8")
@@ -331,8 +404,28 @@ def run_scored_backtest(
     return scorecard
 
 
+def _compute_gate_diagnostics(filtered_signals: list[dict]) -> dict:
+    """3-condition gate diagnostic histogram.
+
+    `filtered_signals` here is the stream of ticks that **failed** the
+    gate (one record per failed tick). Reports per-condition fail
+    counts so the PR body / scorecard can show where most ticks were
+    rejected. There's no precision computation in this path because
+    no trade was emitted.
+    """
+    fail_counts: dict[str, int] = {"C1_prob": 0, "C2_rr": 0, "C3_pct": 0}
+    for s in filtered_signals:
+        for r in s.get("fail_reasons", []) or []:
+            if r in fail_counts:
+                fail_counts[r] += 1
+    return {
+        "count": len(filtered_signals),
+        "fail_counts": fail_counts,
+    }
+
+
 def _compute_filtered_metrics(filtered_signals: list[dict], filter_stats: dict) -> dict:
-    """Compute metrics for filtered trade recommendations."""
+    """Compute metrics for filtered trade recommendations (legacy path)."""
     fm: dict = {
         "count": len(filtered_signals),
         "filter_stats": filter_stats,
@@ -586,31 +679,42 @@ def _print_scorecard(sc: dict) -> None:
         pct = count / max(sc["total_ticks"], 1) * 100
         print(f"      {r:<10}  {count:>6,}  ({pct:.1f}%)")
 
-    # Filtered trade recommendations
+    # Filter diagnostics — gate vs legacy summarised differently
     filt = sc.get("filtered", {})
-    filt_count = filt.get("count", 0)
-    filt_prec = filt.get("precision")
+    filter_mode = sc.get("filter_mode", "legacy")
     raw_count = sc.get("total_signals", 0)
     print()
-    print(f"    ─── Filtered Trade Recommendations ───")
-    print(f"      Raw signals:      {raw_count}")
-    print(f"      Filtered trades:  {filt_count}")
-    if raw_count > 0:
-        print(f"      Pass rate:        {filt_count / raw_count * 100:.1f}%")
-    if filt_prec is not None:
-        print(f"      Precision:        {filt_prec:.1f}%")
-    for action, data in filt.get("action_breakdown", {}).items():
-        prec = data.get("precision")
-        n = data.get("count", 0)
-        prec_str = f"{prec:.1f}%" if prec is not None else "—"
-        print(f"        {action:<10}  {n:>4} trades  →  {prec_str} correct")
-    fstats = filt.get("filter_stats", {})
-    if fstats:
-        print(f"      Stage 1 (sustained):  {fstats.get('stage1_passed', 0)} passed")
-        print(f"      Stage 2 (confidence): {fstats.get('stage2_passed', 0)} passed")
-        print(f"      Stage 3 (consensus):  {fstats.get('stage3_passed', 0)} passed")
-        print(f"      Stage 4 (dir change): {fstats.get('stage4_blocked', 0)} blocked (same direction)")
-        print(f"      Cooldown blocked:     {fstats.get('cooldown_blocked', 0)}")
+    if filter_mode == "gate":
+        fail_counts = filt.get("fail_counts", {})
+        print(f"    ─── 3-Condition Gate Diagnostics ───")
+        print(f"      Raw signals (gate-passed):  {raw_count}")
+        print(f"      Gate-failed ticks:          {filt.get('count', 0)}")
+        if filt.get("count"):
+            print(f"      C1_prob fails:  {fail_counts.get('C1_prob', 0)}")
+            print(f"      C2_rr   fails:  {fail_counts.get('C2_rr', 0)}")
+            print(f"      C3_pct  fails:  {fail_counts.get('C3_pct', 0)}")
+    else:
+        filt_count = filt.get("count", 0)
+        filt_prec = filt.get("precision")
+        print(f"    ─── Filtered Trade Recommendations (LEGACY) ───")
+        print(f"      Raw signals:      {raw_count}")
+        print(f"      Filtered trades:  {filt_count}")
+        if raw_count > 0:
+            print(f"      Pass rate:        {filt_count / raw_count * 100:.1f}%")
+        if filt_prec is not None:
+            print(f"      Precision:        {filt_prec:.1f}%")
+        for action, data in filt.get("action_breakdown", {}).items():
+            prec = data.get("precision")
+            n = data.get("count", 0)
+            prec_str = f"{prec:.1f}%" if prec is not None else "—"
+            print(f"        {action:<10}  {n:>4} trades  →  {prec_str} correct")
+        fstats = filt.get("filter_stats", {})
+        if fstats:
+            print(f"      Stage 1 (sustained):  {fstats.get('stage1_passed', 0)} passed")
+            print(f"      Stage 2 (confidence): {fstats.get('stage2_passed', 0)} passed")
+            print(f"      Stage 3 (consensus):  {fstats.get('stage3_passed', 0)} passed")
+            print(f"      Stage 4 (dir change): {fstats.get('stage4_blocked', 0)} blocked (same direction)")
+            print(f"      Cooldown blocked:     {fstats.get('cooldown_blocked', 0)}")
 
     print()
     print(f"  ═══════════════════════════════════════════════════════════")
@@ -629,14 +733,17 @@ def main() -> int:
     p.add_argument("date", help="YYYY-MM-DD (parquet date to backtest)")
     p.add_argument("--features-root", default="data/features")
     p.add_argument("--output-root", default="data/backtests")
-    p.add_argument("--call-thresh", type=float, default=DIRECTION_PROB_CALL)
-    p.add_argument("--put-thresh", type=float, default=DIRECTION_PROB_PUT)
+    p.add_argument("--config-dir", default="config/sea_thresholds",
+                   help="Per-instrument SEA thresholds JSON dir")
+    p.add_argument("--filter", choices=("gate", "legacy"), default="gate",
+                   help="'gate' = canonical 3-condition gate (Phase D4); "
+                        "'legacy' = pre-E5 4-stage filter (DEPRECATED)")
     p.add_argument("--sustained-n", type=int, default=5,
-                   help="Consecutive ticks for sustained direction (default 5)")
+                   help="(legacy only) Consecutive ticks for sustained direction")
     p.add_argument("--avg-prob-thresh", type=float, default=0.65,
-                   help="Avg conviction probability threshold (default 0.65)")
+                   help="(legacy only) Avg conviction probability threshold")
     p.add_argument("--filter-cooldown", type=float, default=60.0,
-                   help="Min seconds between filtered recommendations (default 60)")
+                   help="(legacy only) Min seconds between filtered recommendations")
     args = p.parse_args()
 
     try:
@@ -645,8 +752,8 @@ def main() -> int:
             date_str=args.date,
             features_root=Path(args.features_root),
             output_root=Path(args.output_root),
-            call_thresh=args.call_thresh,
-            put_thresh=args.put_thresh,
+            config_dir=Path(args.config_dir),
+            filter_mode=args.filter,
             sustained_n=args.sustained_n,
             avg_prob_thresh=args.avg_prob_thresh,
             filter_cooldown_sec=args.filter_cooldown,
