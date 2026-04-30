@@ -6,8 +6,20 @@ import {
   getModuleStatuses,
   getInstrumentData,
   getSignals,
+  setConfiguredInstruments,
 } from './tradingStore';
 import type { RawOptionChainData, RawAnalyzerOutput } from '../shared/tradingTypes';
+
+// Configured instruments are loaded from MongoDB at server startup —
+// seed them in tests so getInstrumentData() returns the expected slots.
+beforeEach(() => {
+  setConfiguredInstruments([
+    { key: 'NIFTY_50',   displayName: 'NIFTY 50',    exchange: 'NSE_FNO' },
+    { key: 'BANKNIFTY',  displayName: 'BANK NIFTY',  exchange: 'NSE_FNO' },
+    { key: 'CRUDEOIL',   displayName: 'CRUDE OIL',   exchange: 'MCX_COMM' },
+    { key: 'NATURALGAS', displayName: 'NATURAL GAS', exchange: 'MCX_COMM' },
+  ]);
+});
 
 // Sample test data
 const sampleOptionChain: RawOptionChainData = {

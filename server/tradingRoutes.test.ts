@@ -10,7 +10,7 @@
  * These endpoints are called by Python callers: TFA, SEA, MTA.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   pushOptionChain,
   pushAnalyzerOutput,
@@ -20,11 +20,24 @@ import {
   getModuleStatuses,
   getInstrumentData,
   getSignals,
+  setConfiguredInstruments,
 } from "./tradingStore";
 import type {
   RawOptionChainData,
   RawAnalyzerOutput,
 } from "../shared/tradingTypes";
+
+// configuredInstrumentKeys is loaded from MongoDB at server startup —
+// seed before each test so getInstrumentData() / setActiveInstruments()
+// have the same 4 default instruments to work against.
+beforeEach(() => {
+  setConfiguredInstruments([
+    { key: "NIFTY_50",   displayName: "NIFTY 50",    exchange: "NSE_FNO" },
+    { key: "BANKNIFTY",  displayName: "BANK NIFTY",  exchange: "NSE_FNO" },
+    { key: "CRUDEOIL",   displayName: "CRUDE OIL",   exchange: "MCX_COMM" },
+    { key: "NATURALGAS", displayName: "NATURAL GAS", exchange: "MCX_COMM" },
+  ]);
+});
 
 // ─── Sample Data ────────────────────────────────────────────────
 

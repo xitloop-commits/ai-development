@@ -8,11 +8,22 @@ import {
   getActiveInstruments,
   setActiveInstruments,
   isInstrumentActive,
+  setConfiguredInstruments,
 } from './tradingStore';
+
+const DEFAULT_INSTRUMENTS = [
+  { key: 'NIFTY_50',   displayName: 'NIFTY 50',    exchange: 'NSE_FNO' },
+  { key: 'BANKNIFTY',  displayName: 'BANK NIFTY',  exchange: 'NSE_FNO' },
+  { key: 'CRUDEOIL',   displayName: 'CRUDE OIL',   exchange: 'MCX_COMM' },
+  { key: 'NATURALGAS', displayName: 'NATURAL GAS', exchange: 'MCX_COMM' },
+];
 
 describe('Active Instruments Management', () => {
   beforeEach(() => {
-    // Reset to all instruments active before each test
+    // setActiveInstruments validates against configuredInstrumentKeys —
+    // load them from Mongo at server startup in production. Tests must
+    // seed them explicitly first.
+    setConfiguredInstruments(DEFAULT_INSTRUMENTS);
     setActiveInstruments(['NIFTY_50', 'BANKNIFTY', 'CRUDEOIL', 'NATURALGAS']);
   });
 
