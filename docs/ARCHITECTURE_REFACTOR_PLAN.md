@@ -625,6 +625,62 @@ POST /api/discipline/recordTradeOutcome
 
 ---
 
+## Spec Inventory
+
+The authoritative specs for the system live under `docs/specs/`. The
+table below tracks every spec referenced from this architecture
+document, plus the v0.1 stubs introduced in Phase D8 (2026-04-30) per
+`IMPLEMENTATION_PLAN_v2.md` §6.D8.
+
+### Active specs (full)
+
+| Spec | File | Owner area |
+|---|---|---|
+| Discipline Agent | `docs/specs/DisciplineAgent_Spec_v1.4.md` | Policy / pre-trade gate / Module 8 |
+| Risk Control Agent | `docs/specs/RiskControlAgent_Spec_v2.0.md` | Risk hub, monitoring, exits |
+| Trade Executor Agent | `docs/specs/TradeExecutorAgent_Spec_v1.3.md` | Sole broker caller |
+| Portfolio Agent | `docs/specs/PortfolioAgent_Spec_v1.3.md` | Position state + outcomes |
+| Tick Feature Agent | `docs/specs/TickFeatureAgent_Spec_v1.7.md` | Live feature stream |
+| Model Training Agent | `docs/specs/ModelTrainingAgent_Spec_v0.1.md` | Offline trainer |
+| Broker Service Agent | `docs/specs/BrokerServiceAgent_Spec_v1.9.md` | Broker SDK wrapper |
+| Strategy / Signal Engine Agent (SEA) | `docs/specs/SEA_ImplementationPlan_v0.1.md` | Python signal producer |
+| MTA implementation plan | `docs/specs/MTA_ImplementationPlan_v0.1.md` | Trainer rollout |
+| Tick Feature Agent implementation plan | `docs/specs/TickFeatureAgent_ImplementationPlan_v1.0.md` | TFA rollout |
+| Main Screen | `docs/specs/MainScreen_Spec_v1.3.md` | UI shell |
+| Trading Desk | `docs/specs/TradingDesk_Spec_v1.3.md` | UI panel |
+| Settings | `docs/specs/Settings_Spec_v1.5.md` | UI panel |
+| Dual Account Architecture | `docs/specs/DualAccountArchitecture_Spec_v0.1.md` | Account model |
+| AI Live Canary | `docs/specs/AILiveCanary_Spec_v0.1.md` | Live promotion |
+
+### Phase D8 stubs (v0.1, created 2026-04-30)
+
+These are 1-3 page placeholders that lock the minimum required
+decisions and flag remaining design questions as Open Items. They
+must be expanded to full specs before the corresponding feature
+ships.
+
+| Stub | File | Notes |
+|---|---|---|
+| Journal | `docs/specs/Journal_Spec_v0.1.md` | Trade journal + weekly review surface (Discipline Module 6 consumer) |
+| Head-to-Head | `docs/specs/HeadToHead_Spec_v0.1.md` | AI-paper vs. AI-live comparison view; may fold into TradingDesk (open) |
+| Instrument Card v2 | `docs/specs/InstrumentCard_v2_Spec_v0.1.md` | Per-instrument card on TradingDesk / MainScreen |
+| Broker Charges | `docs/specs/Charges_Spec_v0.1.md` | All-in cost model for accurate P&L |
+| Notifications | `docs/specs/Notifications_Spec_v0.1.md` | Alert routing (in-app + Telegram + email) |
+| Disconnect Safety | `docs/specs/Disconnect_Safety_Spec_v0.1.md` | Kill-switch when broker WS / SEA / RCA stalls |
+
+### Deferred specs (no stub created)
+
+The following specs were identified during Phase D8 but explicitly
+deferred. Tracked in `IMPLEMENTATION_PLAN_v2.md` §13 Risks &
+dependencies.
+
+- `FeedbackLoop_Spec` — deferred per Phase 7 (FeedbackAgent future, out of scope)
+- `Backtest_Spec` — deferred to vNext
+- `Observability_Spec` — deferred to vNext
+- `Model_Registry_Spec` — deferred to vNext
+
+---
+
 ## Risks & Mitigations
 
 | Risk | Mitigation |

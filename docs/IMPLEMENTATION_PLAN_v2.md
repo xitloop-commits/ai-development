@@ -2030,6 +2030,15 @@ A (1-2d) ──▶ B (4-6d) ──▶ C (1.5-2w) ──▶ I (1d + 3 trading day
 
 **Hard dependencies between phases:** A2.1 → all (decisions correct); B1 → all post-B (auth in place); B4 → I3 (no live without desync fix); C1 → I3 (no live without Module 8); E2 → automated training cycle; G4 → Phase I sign-off (CI gate)
 
+### Deferred specs (Phase D8, 2026-04-30)
+
+The following specs were identified during D8 but explicitly deferred — no stub was created. Tracked here so future planning surfaces them. See `ARCHITECTURE_REFACTOR_PLAN.md` §Spec Inventory for the matching active + stubbed spec list.
+
+- `FeedbackLoop_Spec` — deferred per Phase 7 (FeedbackAgent future, out of scope)
+- `Backtest_Spec` — deferred to vNext
+- `Observability_Spec` — deferred to vNext
+- `Model_Registry_Spec` — deferred to vNext
+
 ---
 
 ## 14. Rollback strategy
@@ -2051,6 +2060,7 @@ If a regression goes undetected past 24 hours and into live: stop AI Live (set `
 |---|---|
 | 2026-04-26 | v2.0 — Initial build sheet covering all 9 phases (A-I). Companion to `FINAL_VERIFICATION_TRACKER.md`. Each task carries Effort · Depends-on · Branch · Acceptance · Tests · Risk. |
 | 2026-04-26 | v2.1 — **A1.1 + A1.3 removed**, A1.X deferred to owner. Owner clarified that `data/features/*_live.ndjson` are training/backtest data, not transient sinks. The cleanup agent's `data/` and `models/` recommendations were inferred from filename patterns and were not safe. Phase A no longer touches data; all such cleanup moved to owner-led review. ~62 GB disk-savings claim withdrawn. |
+| 2026-04-30 | v2.2 — **Phase D8 executed.** Created v0.1 stubs for `Journal_Spec`, `HeadToHead_Spec`, `InstrumentCard_v2_Spec`, `Charges_Spec`, `Notifications_Spec`, `Disconnect_Safety_Spec`. Formally deferred `FeedbackLoop_Spec`, `Backtest_Spec`, `Observability_Spec`, `Model_Registry_Spec` (see §13 Deferred specs). Added Spec Inventory section to `ARCHITECTURE_REFACTOR_PLAN.md`. |
 
 ---
 
