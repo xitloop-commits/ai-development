@@ -167,9 +167,25 @@ def _ensure_scrip_master(base_url: str, log) -> bool:
         return False
 
 
-def _resolve_near_month_contract(base_url: str, profile) -> tuple[str, str]:
-    """
-    Resolve (ws_security_id, underlying_symbol) for the near-month futures contract.
+def _resolve_near_month_contract(base_url: str, profile) -> tuple[str, str, str]:
+    """Resolve the near-month futures contract for a TFA instrument.
+
+    Returns a 3-tuple `(security_id, underlying_symbol, source)` where
+    `source` is one of:
+
+        "scrip_master"  — fresh resolution from Dhan's scrip-master endpoint
+        "fallback"      — every resolution attempt failed; values come
+                          from the profile JSON. The caller must treat
+                          this as a startup-blocking error per Phase E7
+                          (PY-119): on NSE the fallback id is the SPOT
+                          index (e.g. 13 for NIFTY) which is wrong for
+                          the WS feed subscription; on MCX the fallback
+                          id is last month's expired FUTCOM contract
+                          which fails at chain-poller startup anyway
+                          (the original 2026-04-21 CRUDEOIL halt
+                          symptom). Either way, surfacing the failure
+                          early with a clear message beats silently
+                          subscribing to the wrong instrument.
 
     NSE instruments (NIFTY, BANKNIFTY):
       - Queries scrip master for nearest FUTIDX expiry
@@ -177,9 +193,6 @@ def _resolve_near_month_contract(base_url: str, profile) -> tuple[str, str]:
     MCX instruments (CRUDEOIL, NATURALGAS):
       - Queries scrip master for nearest FUTCOM expiry
       - Same structure, different instrument type
-
-    Falls back to (profile.ws_security_id or profile.underlying_security_id,
-                   profile.underlying_symbol) on any error.
     """
     fallback_id  = profile.ws_security_id or profile.underlying_security_id
     fallback_sym = profile.underlying_symbol
@@ -197,13 +210,13 @@ def _resolve_near_month_contract(base_url: str, profile) -> tuple[str, str]:
             timeout=5,
         )
         if r.status_code != 200:
-            return fallback_id, fallback_sym
+            return fallback_id, fallback_sym, "fallback"
 
         expiries = r.json().get("data", [])
         today = _date.today().isoformat()
         future = sorted(e for e in expiries if e >= today)
         if not future:
-            return fallback_id, fallback_sym
+            return fallback_id, fallback_sym, "fallback"
 
         r2 = _req.get(
             f"{base_url}/api/broker/scrip-master/lookup",
@@ -213,21 +226,21 @@ def _resolve_near_month_contract(base_url: str, profile) -> tuple[str, str]:
             timeout=5,
         )
         if r2.status_code != 200:
-            return fallback_id, fallback_sym
+            return fallback_id, fallback_sym, "fallback"
 
         body = r2.json()
         if not body.get("success"):
-            return fallback_id, fallback_sym
+            return fallback_id, fallback_sym, "fallback"
 
         data  = body.get("data", {})
         sec_id = str(data.get("securityId", "")).strip()
         symbol_str = str(data.get("tradingSymbol", "")).strip()
         if not sec_id:
-            return fallback_id, fallback_sym
+            return fallback_id, fallback_sym, "fallback"
 
-        return sec_id, symbol_str or fallback_sym
+        return sec_id, symbol_str or fallback_sym, "scrip_master"
     except Exception:
-        return fallback_id, fallback_sym
+        return fallback_id, fallback_sym, "fallback"
 
 
 def _fetch_holiday_status(base_url: str, exchange: str) -> dict:
@@ -397,10 +410,37 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     # ── Scrip master + near-month contract resolution ─────────────────────────
     print(f"  {PEND}  Resolving near-month contract …")
     _ensure_scrip_master(args.broker_url, log)
-    ws_security_id, underlying_symbol = _resolve_near_month_contract(args.broker_url, profile)
+    ws_security_id, underlying_symbol, _resolve_source = (
+        _resolve_near_month_contract(args.broker_url, profile)
+    )
+    if _resolve_source == "fallback":
+        # Phase E7 / PY-119: silently using the profile's static value as a
+        # WS-feed subscription id is dangerous. On NSE it's the SPOT index
+        # (id=13/25), so the WS would subscribe to spot ticks instead of
+        # FUT ticks. On MCX it's the prior-month expired FUTCOM contract,
+        # which would have failed at chain-poller startup anyway (the
+        # original 2026-04-21 CRUDEOIL halt symptom). Halt now with a
+        # clear message rather than letting the data pipeline run on the
+        # wrong subscription.
+        log.warn("RESOLVER_FALLBACK_RISKY",
+                 msg=f"Scrip-master resolution failed for {profile.instrument_name}; "
+                     f"profile fallback id={ws_security_id} would subscribe to the "
+                     f"wrong contract. Halting startup.",
+                 instrument=profile.instrument_name,
+                 exchange=profile.exchange,
+                 fallback_id=ws_security_id,
+                 fallback_symbol=underlying_symbol)
+        _fatal(
+            f"Could not resolve near-month contract for {profile.instrument_name}. "
+            f"Scrip-master endpoint unreachable or returned no future expiries. "
+            f"Refusing to fall back to the profile's static id={ws_security_id} "
+            f"(it's the {'spot index' if profile.exchange == 'NSE' else 'last expired FUTCOM contract'} "
+            f"and would silently mis-subscribe). Check broker connectivity and retry."
+        )
     log.info("CONTRACT_RESOLVED",
              msg=f"Near-month contract: {underlying_symbol}  id={ws_security_id}",
-             ws_security_id=ws_security_id, underlying_symbol=underlying_symbol)
+             ws_security_id=ws_security_id, underlying_symbol=underlying_symbol,
+             source=_resolve_source)
     _step(TICK, "Near-month contract", f"{underlying_symbol}  (id={ws_security_id})")
 
     # ── Holiday status (fetch both exchanges up-front) ────────────────────────

@@ -1,4 +1,5 @@
 {
+  "_comment": "FALLBACK ONLY — DO NOT EDIT TO CHASE MONTHLY ROLLOVERS. The fields `underlying_symbol` and `underlying_security_id` (the FUT contract symbol + security id) are demoted to fallback values per Phase E7 / PY-119. At TFA startup `main._resolve_near_month_contract` queries Dhan's scrip-master for the nearest FUTIDX expiry and overrides these. The static value here is only used if scrip-master is unreachable. For NSE, the chain-poller correctly continues to use `underlying_security_id` as the SPOT INDEX id (NIFTY=13, BANKNIFTY=25), which is stable and never expires; for the WS feed the runtime-resolved FUTIDX id wins. Editing the FUT symbol string each month is unnecessary and confuses readers — leave it alone.",
   "exchange": "NSE",
   "instrument_name": "BANKNIFTY",
   "underlying_symbol": "BANKNIFTY25APRFUT",
