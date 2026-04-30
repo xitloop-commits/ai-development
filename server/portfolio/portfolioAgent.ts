@@ -442,7 +442,11 @@ class PortfolioAgentImpl {
     channel: Channel,
     tradeId: string,
     exitPrice: number,
-    closeStatus: TradeRecord["status"],
+    /** Optional — stamp the operator-known exit reason on the trade
+     *  alongside the close. The follow-up recordTradeClosed event also
+     *  sets exitReason; this parameter exists for callers (e.g.
+     *  reconcileDesync) that close out without going through that path. */
+    exitReason?: import("./state").ExitReason,
   ): Promise<{ trade: TradeRecord; day: DayRecord; pnl: number; charges: number }> {
     const state = await getCapitalState(channel);
     const day = await this.ensureCurrentDay(channel);
@@ -490,7 +494,8 @@ class PortfolioAgentImpl {
     trade.unrealizedPnl = 0;
     trade.ltp = exitPrice;
     trade.closedAt = Date.now();
-    trade.status = closeStatus;
+    trade.status = "CLOSED";
+    if (exitReason) trade.exitReason = exitReason;
     // Reconciliation may close a previously-desync'd trade — drop the marker.
     if (trade.desync) delete trade.desync;
 

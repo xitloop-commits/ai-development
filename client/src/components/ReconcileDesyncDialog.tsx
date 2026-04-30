@@ -29,19 +29,28 @@ export interface ReconcileDesyncDialogProps {
 
 type Action = 'confirm-closed' | 'confirm-still-open' | 'cancel-modify';
 
-const CLOSE_STATUSES = [
-  'CLOSED_TP',
-  'CLOSED_SL',
-  'CLOSED_MANUAL',
-  'CLOSED_PARTIAL',
-  'CLOSED_EOD',
+// Operator picks the broker-side close reason — server stamps it on
+// trade.exitReason. Status is always "CLOSED" (the granular CLOSED_TP /
+// CLOSED_SL / CLOSED_MANUAL vocabulary was collapsed in Phase D).
+const EXIT_REASONS = [
+  'TP_HIT',
+  'SL_HIT',
+  'MOMENTUM_EXIT',
+  'VOLATILITY_EXIT',
+  'AGE_EXIT',
+  'STALE_PRICE_EXIT',
+  'DISCIPLINE_EXIT',
+  'AI_EXIT',
+  'MANUAL',
+  'EOD',
+  'EXPIRY',
 ] as const;
 
 export function ReconcileDesyncDialog({ open, trade, channel, onClose }: ReconcileDesyncDialogProps) {
   const [action, setAction] = useState<Action>('confirm-closed');
   // confirm-closed inputs
   const [exitPriceStr, setExitPriceStr] = useState(String(trade.ltp ?? trade.entryPrice));
-  const [closeStatus, setCloseStatus] = useState<typeof CLOSE_STATUSES[number]>('CLOSED_MANUAL');
+  const [exitReason, setExitReason] = useState<typeof EXIT_REASONS[number]>('MANUAL');
   // confirm-still-open inputs (optional — leave blank to keep local values)
   const [slStr, setSlStr] = useState('');
   const [tpStr, setTpStr] = useState('');
@@ -83,7 +92,7 @@ export function ReconcileDesyncDialog({ open, trade, channel, onClose }: Reconci
         tradeId: trade.id,
         action: 'confirm-closed',
         exitPrice,
-        closeStatus,
+        exitReason,
       });
       return;
     }
@@ -193,13 +202,13 @@ export function ReconcileDesyncDialog({ open, trade, channel, onClose }: Reconci
               />
             </div>
             <div>
-              <label className="text-[0.625rem] text-muted-foreground block mb-0.5">Close status</label>
+              <label className="text-[0.625rem] text-muted-foreground block mb-0.5">Exit reason</label>
               <select
-                value={closeStatus}
-                onChange={(e) => setCloseStatus(e.target.value as typeof CLOSE_STATUSES[number])}
+                value={exitReason}
+                onChange={(e) => setExitReason(e.target.value as typeof EXIT_REASONS[number])}
                 className="w-full px-2 py-1 rounded bg-background border border-border text-[0.6875rem]"
               >
-                {CLOSE_STATUSES.map((s) => (
+                {EXIT_REASONS.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>

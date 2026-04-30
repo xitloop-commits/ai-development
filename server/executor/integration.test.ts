@@ -263,12 +263,13 @@ describe("AI loop integration — paper trade lifecycle", () => {
 
     // Day record's trade now closed
     const dayAfter = dayRecordsStore.get(dayKey("ai-paper", 1));
-    expect(dayAfter.trades[0].status).toBe("CLOSED_MANUAL");
+    expect(dayAfter.trades[0].status).toBe("CLOSED");
+    expect(dayAfter.trades[0].exitReason).toBe("MANUAL");
     expect(dayAfter.trades[0].exitPrice).toBe(105);
 
     // position_state mirrored the close
     const posAfter = positionsStore.get(submit.positionId);
-    expect(posAfter.status).toBe("CLOSED_MANUAL");
+    expect(posAfter.status).toBe("CLOSED");
 
     // portfolio_events has TRADE_CLOSED
     const closedEvents = eventsStore.filter((e) => e.eventType === "TRADE_CLOSED");

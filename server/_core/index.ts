@@ -99,6 +99,14 @@ async function startServer() {
         bootLog.warn(`MongoDB exitReason rename migration failed (non-fatal): ${(err as Error)?.message ?? err}`);
       }
 
+      // Phase D — collapse legacy CLOSED_TP/SL/MANUAL/PARTIAL/EOD
+      // statuses into canonical "CLOSED" + backfill exitReason where
+      // missing. Idempotent.
+      const { migrateClosedStatusToCanonical } = await import("../portfolio/state");
+      try { await migrateClosedStatusToCanonical(); } catch (err) {
+        bootLog.warn(`MongoDB CLOSED_* status collapse migration failed (non-fatal): ${(err as Error)?.message ?? err}`);
+      }
+
       // Register broker adapters and initialize broker service after MongoDB is ready
       registerAdapter("mock", () => new MockAdapter(), { displayName: "Paper Trading", isPaperBroker: true });
       registerAdapter("dhan", () => new DhanAdapter("dhan", false), { displayName: "Dhan (Trading)", isPaperBroker: false });

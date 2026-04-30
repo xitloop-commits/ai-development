@@ -182,14 +182,22 @@ const reconcileDesyncSchema = z
     action: z.enum(["confirm-closed", "confirm-still-open", "cancel-modify"]),
     /** Required when action="confirm-closed" — broker's reported exit price. */
     exitPrice: z.number().positive().optional(),
-    /** Required when action="confirm-closed" — closure status to record. */
-    closeStatus: z
+    /** Required when action="confirm-closed" — operator's chosen reason
+     *  for the broker-side close. Stamped on trade.exitReason; status
+     *  is always "CLOSED". */
+    exitReason: z
       .enum([
-        "CLOSED_TP",
-        "CLOSED_SL",
-        "CLOSED_MANUAL",
-        "CLOSED_PARTIAL",
-        "CLOSED_EOD",
+        "SL_HIT",
+        "TP_HIT",
+        "MOMENTUM_EXIT",
+        "VOLATILITY_EXIT",
+        "AGE_EXIT",
+        "STALE_PRICE_EXIT",
+        "DISCIPLINE_EXIT",
+        "AI_EXIT",
+        "MANUAL",
+        "EOD",
+        "EXPIRY",
       ])
       .optional(),
     /** Required when action="confirm-still-open" — broker's current SL. */
@@ -407,17 +415,17 @@ export const executorRouter = router({
 
       switch (input.action) {
         case "confirm-closed": {
-          if (input.exitPrice == null || !input.closeStatus) {
+          if (input.exitPrice == null || !input.exitReason) {
             throw new TRPCError({
               code: "BAD_REQUEST",
-              message: "confirm-closed requires exitPrice + closeStatus",
+              message: "confirm-closed requires exitPrice + exitReason",
             });
           }
           const result = await portfolioAgent.closeTrade(
             input.channel,
             input.tradeId,
             input.exitPrice,
-            input.closeStatus,
+            input.exitReason,
           );
           // closeTrade already drops the desync marker on success.
           return {

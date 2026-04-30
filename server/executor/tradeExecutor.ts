@@ -555,13 +555,14 @@ class TradeExecutorAgent {
         }
       }
 
-      // Local close — single-writer entry point.
-      const closeStatus = mapExitReasonToTradeStatus(req.reason);
+      // Local close — single-writer entry point. Status is always
+      // "CLOSED"; the reason flows through req.reason → exitReason on
+      // the trade (also set by recordTradeClosed below).
       const { trade: closed, pnl, charges } = await portfolioAgent.closeTrade(
         channel,
         tradeId,
         exitPrice,
-        closeStatus,
+        req.reason,
       );
 
       // Audit + Discipline push
@@ -634,12 +635,11 @@ class TradeExecutorAgent {
    */
   async recordAutoExit(req: RecordAutoExitRequest): Promise<void> {
     try {
-      const closeStatus: TradeStatus = req.reason === "TP_HIT" ? "CLOSED_TP" : "CLOSED_SL";
       const { trade: closed, pnl } = await portfolioAgent.closeTrade(
         req.channel,
         req.tradeId,
         req.exitPrice,
-        closeStatus,
+        req.reason,
       );
 
       const closedAt = closed.closedAt ?? Date.now();
@@ -836,20 +836,5 @@ function tradeIdFromPositionId(positionId: string): string {
   if (positionId.startsWith("POS-")) return "T" + positionId.slice(4);
   return positionId; // caller passed the tradeId directly
 }
-
-/** Map TEA's exit-trade reason vocab to TradeRecord status values. */
-function mapExitReasonToTradeStatus(reason: ExitTradeRequest["reason"]): TradeStatus {
-  switch (reason) {
-    case "TP_HIT":
-      return "CLOSED_TP";
-    case "SL_HIT":
-      return "CLOSED_SL";
-    case "EOD":
-      return "CLOSED_EOD";
-    default:
-      return "CLOSED_MANUAL";
-  }
-}
-
 
 export const tradeExecutor = new TradeExecutorAgent();

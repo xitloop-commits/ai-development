@@ -433,12 +433,14 @@ describe("E2E: Full Trading Loop", () => {
       trade.pnl = Math.round((grossPnl - charges.total) * 100) / 100;
       trade.charges = charges.total;
       trade.unrealizedPnl = 0;
-      trade.status = "CLOSED_TP";
+      trade.status = "CLOSED";
+      trade.exitReason = "TP_HIT";
       trade.closedAt = Date.now();
 
       // Step 7: Verify final state
       const updated2 = recalculateDayAggregates(day);
-      expect(updated2.trades[0].status).toBe("CLOSED_TP");
+      expect(updated2.trades[0].status).toBe("CLOSED");
+      expect(updated2.trades[0].exitReason).toBe("TP_HIT");
       expect(updated2.trades[0].exitPrice).toBe(158);
       expect(updated2.trades[0].pnl).toBe(trade.pnl);
       expect(updated2.trades[0].unrealizedPnl).toBe(0);
@@ -472,11 +474,13 @@ describe("E2E: Full Trading Loop", () => {
       trade.exitPrice = 146;
       trade.pnl = grossPnl;
       trade.unrealizedPnl = 0;
-      trade.status = "CLOSED_SL";
+      trade.status = "CLOSED";
+      trade.exitReason = "SL_HIT";
       trade.closedAt = Date.now();
 
       const updated = recalculateDayAggregates(day);
-      expect(updated.trades[0].status).toBe("CLOSED_SL");
+      expect(updated.trades[0].status).toBe("CLOSED");
+      expect(updated.trades[0].exitReason).toBe("SL_HIT");
       expect(updated.trades[0].pnl).toBe(-200);
       expect(updated.totalPnl).toBe(-200);
     });

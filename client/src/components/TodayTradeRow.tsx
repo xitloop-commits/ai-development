@@ -297,7 +297,7 @@ function _TodayTradeRow({
       <td className="px-2 py-1.5 border-r border-border" />
       <td className="px-2 py-1.5 border-r border-border" />
       <td className="px-2 py-1.5 text-center">
-        <StatusBadge status={trade.status} />
+        <StatusBadge status={trade.status} exitReason={trade.exitReason} />
       </td>
     </tr>
     <ReconcileDesyncDialog

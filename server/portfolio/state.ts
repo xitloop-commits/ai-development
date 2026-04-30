@@ -30,11 +30,13 @@ export type TradeStatus =
   | "OPEN"
   | "PENDING"
   | "CANCELLED"
-  | "CLOSED_TP"
-  | "CLOSED_SL"
-  | "CLOSED_MANUAL"
-  | "CLOSED_PARTIAL"
-  | "CLOSED_EOD"
+  /** Single closed state. The reason for the close lives on
+   *  `exitReason` (TP_HIT / SL_HIT / MOMENTUM_EXIT / ...) — pre-2026-05
+   *  the close vocabulary was duplicated as CLOSED_TP / CLOSED_SL /
+   *  CLOSED_MANUAL / CLOSED_PARTIAL / CLOSED_EOD which collapsed 7
+   *  distinct close reasons into "manual". One source of truth now;
+   *  legacy docs are migrated at boot via migrateClosedStatusToCanonical. */
+  | "CLOSED"
   /**
    * B4: broker mutation (exitTrade / modifyOrder) failed at the broker
    * after we had every reason to believe it would succeed. Local state
@@ -480,6 +482,113 @@ export async function migrateExitReasonsToHit(): Promise<void> {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn(`[portfolio.state] day_records exitReason "${legacy}" migration failed:`, err);
+    }
+  }
+}
+
+/**
+ * Phase D — collapse the overloaded `CLOSED_TP / CLOSED_SL /
+ * CLOSED_MANUAL / CLOSED_PARTIAL / CLOSED_EOD` status vocab into a
+ * single `CLOSED`. The granular reason now lives on `exitReason` only.
+ * For trades that have a CLOSED_TP/SL/EOD status but no exitReason,
+ * backfill the reason from the legacy status before flipping it.
+ *
+ * Idempotent: filters on docs whose status is still CLOSED_*; re-runs
+ * find no matches.
+ */
+export async function migrateClosedStatusToCanonical(): Promise<void> {
+  const statusReasonMap: Record<string, string> = {
+    CLOSED_TP: "TP_HIT",
+    CLOSED_SL: "SL_HIT",
+    CLOSED_EOD: "EOD",
+    CLOSED_PARTIAL: "MANUAL",
+    CLOSED_MANUAL: "MANUAL",
+  };
+
+  // ─── position_state — top-level status ─────────────────────────
+  for (const [legacyStatus, fallbackReason] of Object.entries(statusReasonMap)) {
+    try {
+      // Backfill exitReason where missing AND status was the legacy one.
+      const reasonResult = await PositionStateModel.collection.updateMany(
+        { status: legacyStatus, $or: [{ exitReason: { $exists: false } }, { exitReason: null }] },
+        { $set: { exitReason: fallbackReason } },
+      );
+      if (reasonResult.modifiedCount > 0) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[portfolio.state] Backfilled exitReason "${fallbackReason}" on ${reasonResult.modifiedCount} position_state docs (was ${legacyStatus})`,
+        );
+      }
+      // Then collapse the status.
+      const statusResult = await PositionStateModel.collection.updateMany(
+        { status: legacyStatus },
+        { $set: { status: "CLOSED" } },
+      );
+      if (statusResult.modifiedCount > 0) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[portfolio.state] Renamed status "${legacyStatus}" → "CLOSED" on ${statusResult.modifiedCount} position_state docs`,
+        );
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[portfolio.state] position_state status "${legacyStatus}" migration failed:`, err);
+    }
+  }
+
+  // ─── day_records.trades[].status — array of subdocs ────────────
+  for (const [legacyStatus, fallbackReason] of Object.entries(statusReasonMap)) {
+    try {
+      const result = await DayRecordModel.collection.updateMany(
+        { "trades.status": legacyStatus },
+        [
+          {
+            $set: {
+              trades: {
+                $map: {
+                  input: "$trades",
+                  as: "t",
+                  in: {
+                    $cond: {
+                      if: { $eq: ["$$t.status", legacyStatus] },
+                      then: {
+                        $mergeObjects: [
+                          "$$t",
+                          {
+                            status: "CLOSED",
+                            exitReason: {
+                              $cond: {
+                                if: {
+                                  $or: [
+                                    { $eq: [{ $type: "$$t.exitReason" }, "missing"] },
+                                    { $eq: ["$$t.exitReason", null] },
+                                  ],
+                                },
+                                then: fallbackReason,
+                                else: "$$t.exitReason",
+                              },
+                            },
+                          },
+                        ],
+                      },
+                      else: "$$t",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      );
+      if (result.modifiedCount > 0) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[portfolio.state] Collapsed status "${legacyStatus}" → "CLOSED" on trades in ${result.modifiedCount} day_records (exitReason backfilled when missing)`,
+        );
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[portfolio.state] day_records status "${legacyStatus}" migration failed:`, err);
     }
   }
 }
