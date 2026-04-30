@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { loadEnv } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -6,19 +7,30 @@ import { fileURLToPath } from "url";
 const __dirname = import.meta.dirname ?? path.dirname(fileURLToPath(import.meta.url));
 const templateRoot = path.resolve(__dirname);
 
-export default defineConfig({
-  root: templateRoot,
-  resolve: {
-    alias: {
-      "@": path.resolve(templateRoot, "client", "src"),
-      "@shared": path.resolve(templateRoot, "shared"),
-      "@assets": path.resolve(templateRoot, "attached_assets"),
+export default defineConfig(({ mode }) => {
+  // Load .env (and .env.test if present) into process.env so tests
+  // that read MONGODB_URI / INTERNAL_API_SECRET / etc. behave like the
+  // server boot path (which uses `dotenv/config`). loadEnv only returns
+  // VITE_-prefixed vars by default; passing "" as the prefix grabs all.
+  const env = loadEnv(mode, templateRoot, "");
+  for (const [k, v] of Object.entries(env)) {
+    if (process.env[k] === undefined) process.env[k] = v;
+  }
+
+  return {
+    root: templateRoot,
+    resolve: {
+      alias: {
+        "@": path.resolve(templateRoot, "client", "src"),
+        "@shared": path.resolve(templateRoot, "shared"),
+        "@assets": path.resolve(templateRoot, "attached_assets"),
+      },
     },
-  },
-  test: {
-    environment: "node",
-    include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
-    fileParallelism: false,
-    testTimeout: 15000,
-  },
+    test: {
+      environment: "node",
+      include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
+      fileParallelism: false,
+      testTimeout: 15000,
+    },
+  };
 });

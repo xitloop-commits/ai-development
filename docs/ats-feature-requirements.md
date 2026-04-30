@@ -41,7 +41,7 @@ The UI follows the **"Terminal Noir"** aesthetic — a dark, information-dense t
 |-------|-----------|
 | **Frontend** | React 19 (SPA) + Vite + Tailwind CSS 4 + shadcn/ui + wouter routing |
 | **Backend** | Express 4 + tRPC 11 + Mongoose (MongoDB) + Drizzle ORM (MySQL/TiDB) |
-| **Databases** | MongoDB Atlas (database: `100cr`) for all new data; MySQL/TiDB for legacy data |
+| **Databases** | Local MongoDB Community Server (database: `lucky_baskar`) for all new data; MySQL/TiDB for legacy data. Migrated from Atlas on 2026-04-30. |
 | **Testing** | Vitest (263 tests passing as of last checkpoint) |
 | **Python Pipeline** | 6 standalone modules for market data fetching, analysis, AI decisions, execution, and data pushing |
 | **Broker** | Dhan API v2 (REST + WebSocket) via Broker Service abstraction layer |
@@ -137,7 +137,7 @@ Rate limiter enforcing 10 requests/second and 250 requests/minute for all Dhan A
 
 ### 3.13 Feature 1: MongoDB Setup & Connection ✅
 
-Mongoose connection to MongoDB Atlas with retry logic, health checks (ping), and graceful shutdown. tRPC and REST health endpoints. Six vitest tests covering env, connect, ping, CRUD, health, and latency.
+Mongoose connection to local MongoDB (was Atlas pre-2026-04-30) with retry logic, health checks (ping), and graceful shutdown. tRPC and REST health endpoints. Six vitest tests covering env, connect, ping, CRUD, health, and latency.
 
 ---
 
@@ -526,7 +526,7 @@ These decisions are **locked** and should not be revisited without explicit user
 | Active broker for LIVE | Dhan adapter (first implementation) |
 | Active broker for PAPER | Mock adapter (in-memory simulation) |
 | Language split | Python (fetcher, analyzer, AI engine) + Node.js (dashboard + API + Broker Service) |
-| Database | MongoDB Atlas for all new data; existing MySQL/TiDB untouched until user says to migrate |
+| Database | Local MongoDB (Community Server, database `lucky_baskar`) for all new data; migrated from Atlas 2026-04-30; existing MySQL/TiDB untouched until user says to migrate |
 | Trade execution | Via Broker Service → Dhan adapter → LIMIT order at configurable % below LTP (default 1%) |
 | SL/TP handling | Dhan bracket orders (server-side triggers), not in-memory monitoring |
 | Real-time data | Via Broker Service → Dhan WebSocket, every tick pushed to frontend |
