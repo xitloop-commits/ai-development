@@ -836,7 +836,7 @@ The following decisions are explicitly deferred and must be resolved before impl
 |---|------|---------|--------|
 | **E** | **Model promotion threshold** | What val AUC/RMSE is "good enough" to update LATEST and activate for paper trading? Options: (a) fixed floor e.g. `direction_30s AUC > 0.55`; (b) must beat previous LATEST metrics; (c) manual review only | Without a floor, any model — even a harmful one — could be promoted |
 | **F** | **Strike selection** | Which strike to trade: (a) always ATM; (b) ATM-1 (slightly ITM, better delta but more expensive); (c) best predicted RR across ATM±1; (d) user-configurable | Affects entry price, position sizing, and expected P&L profile |
-| **G** | **SEA socket connection** | ~~RESOLVED~~ Unix Domain Socket (AF_UNIX). SEA is the server (listens on a socket file). TFA connects as client via `--output-socket /tmp/sea_{instrument}.sock`. No TCP stack, no ports. No TFA changes needed — AF_UNIX already supported in TFA emitter. Socket files: `/tmp/sea_nifty50.sock`, `/tmp/sea_banknifty.sock`, `/tmp/sea_crudeoil.sock`, `/tmp/sea_naturalgas.sock`. Start SEA before TFA. | — |
+| **G** | **SEA transport** | **RESOLVED — file-tail polling** (decision committed 2026-04-30 per Phase D6). SEA tails TFA's existing `data/features/{instrument}_live.ndjson` at 200ms cadence. Portable across Win/Linux, doubles as backtest-replay input, no order-of-launch dependency. UDS (AF_UNIX) documented as Future / Optional in `SEA_ImplementationPlan §5` for a post-MVP latency-driven optimisation; deferred. | — |
 
 ---
 

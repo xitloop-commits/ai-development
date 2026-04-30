@@ -281,38 +281,49 @@ class SEAEngine:
         """
 ```
 
-**Socket architecture:**
-- SEA opens a **Unix Domain Socket** server (`socket.AF_UNIX`, `socket.bind` + `socket.listen` + `socket.accept`)
-- TFA connects as **client** via `--output-socket /tmp/sea_{instrument}.sock` at launch
-- No TCP stack, no ports — kernel pipe on same machine
-- Read lines from accepted connection line-by-line (each line = one NDJSON row)
-- On startup: delete stale socket file if it exists from previous run
-- If TFA disconnects: go back to `accept()` and wait for reconnect
-- TFA silently drops socket sends if SEA is not yet listening — **start SEA before TFA**
+**Transport architecture (canonical — file-tail polling, MVP):**
+- TFA writes ticks to its existing NDJSON live log:
+  `data/features/{instrument}_live.ndjson` (one JSON object per line).
+- SEA tails the file: `seek` to EOF on startup, then poll for new lines
+  every 200ms. Each new line = one NDJSON row.
+- Malformed JSON lines: log warning, skip, continue.
+- File rotation / truncation: on `stat.st_size < lastPos`, reset `lastPos`
+  to 0 and re-read from the top.
+- If TFA isn't running yet: poll loop simply sees no new lines until it
+  starts. No order-of-launch dependency.
 
-**No changes needed to TFA** — `AF_UNIX` already supported in TFA's emitter via `socket_family` parameter.
-
-**Socket file paths:**
-```
-nifty50    → /tmp/sea_nifty50.sock
-banknifty  → /tmp/sea_banknifty.sock
-crudeoil   → /tmp/sea_crudeoil.sock
-naturalgas → /tmp/sea_naturalgas.sock
-```
-
-**TFA launch command (with SEA):**
-```
-python -m tick_feature_agent.main \
-  --instrument crudeoil \
-  --output-socket /tmp/sea_crudeoil.sock
-```
+**Why file-tail and not UDS:**
+1. **Portable across Win/Linux** — UDS is POSIX-only; file-tail works on
+   the operator's Windows dev box without WSL.
+2. **Backtest replay path** — the same `_live.ndjson` file is the input
+   format for backtest replay; file-tail makes SEA's live and replay
+   paths identical.
+3. **No order-of-launch trap** — UDS requires SEA to be listening before
+   TFA starts. File-tail is order-independent.
 
 **Tests:** `test_engine.py`
 - `_process_tick` skips filtered rows (preprocess returns None)
 - `_process_tick` logs GO_CALL when thresholds pass
 - `_process_tick` does not log WAIT
 - Malformed JSON line handled gracefully (log warning, continue)
-- Stale socket file cleaned up on startup
+- File rotation: `_live.ndjson` truncated mid-run → SEA resumes from byte 0
+
+**Future / Optional — Unix Domain Socket transport (post-MVP):**
+
+If file-tail polling latency becomes a bottleneck (target: < 250ms
+end-to-end tick → signal), a UDS path is available as a drop-in. SEA
+would open `socket.AF_UNIX` server at `/tmp/sea_{instrument}.sock`;
+TFA connects as a client via `--output-socket`. TFA already supports
+`AF_UNIX` via its `socket_family` parameter — no TFA changes needed.
+This is **deferred**; not in MVP scope. Decision committed
+2026-04-30 per Phase D6.
+
+```
+nifty50    → /tmp/sea_nifty50.sock
+banknifty  → /tmp/sea_banknifty.sock
+crudeoil   → /tmp/sea_crudeoil.sock
+naturalgas → /tmp/sea_naturalgas.sock
+```
 
 ---
 
@@ -323,11 +334,15 @@ python -m tick_feature_agent.main \
 ```
 python -m signal_engine_agent.cli \
   --instrument crudeoil \
-  [--socket-path /tmp/sea_crudeoil.sock]
+  [--live-log data/features/crudeoil_live.ndjson]
 
 Options:
   --instrument    One of: nifty50, banknifty, crudeoil, naturalgas
-  --socket-path   Unix socket file path (default: /tmp/sea_{instrument}.sock)
+  --live-log      NDJSON path SEA tails for ticks
+                  (default: data/features/{instrument}_live.ndjson)
+
+Future / post-MVP:
+  --socket-path   Unix socket file path (UDS transport, deferred)
 ```
 
 **Startup checks (fail fast with clear messages):**
@@ -385,21 +400,19 @@ No additional dependencies beyond what MTA already requires.
 - [ ] All 6 modules implemented
 - [ ] All tests passing
 - [ ] Imports `preprocess_live_tick` from MTA successfully
-- [ ] End-to-end: starts up, listens on Unix socket, TFA connects, processes ticks, writes signal log
+- [ ] End-to-end: starts up, tails `_live.ndjson`, processes ticks, writes signal log
 - [ ] Signal log file readable and valid NDJSON
-- [ ] Re-accepts TFA connection automatically after disconnect
-- [ ] Stale socket file cleaned up on startup
+- [ ] File rotation handled (truncation → resume from byte 0)
+- [ ] Order-of-launch independent (TFA can start before or after SEA)
 - [ ] Clear error message if models not found (MTA not run yet)
 
 ---
 
-## Appendix: Implementation Deviations (as of 2026-04-17)
+## Appendix: Implementation Deviations
 
-> This section tracks differences between the spec and the actual implementation.
-> It will be merged into the spec body when the code stabilises.
+> This section tracks differences between the spec body and actual code.
+> When a spec body has been updated to match code, the deviation is removed.
 
-- **MVP subset implemented (2026-04-16).** Full spec deferred.
-- Transport: MVP uses **NDJSON file tail** (`data/features/{instrument}_live.ndjson`) instead of Unix Domain Socket. SEA polls the file every 200ms for new lines.
 - Thresholds: MVP uses `direction_prob` only for GO_CALL (≥0.55) / GO_PUT (≤0.45) decision. Full spec rule (prob + risk_reward + upside_percentile) deferred until regression models are reliable.
 - Thresholds configurable via CLI: `--call-thresh` and `--put-thresh`.
 - Signal output: WAIT signals not logged (per spec). GO_CALL/GO_PUT written to `logs/signals/{instrument}/YYYY-MM-DD_signals.log` as NDJSON.
