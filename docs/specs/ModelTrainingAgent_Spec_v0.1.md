@@ -196,51 +196,60 @@ ERROR: No trained model found for crudeoil. Run MTA first.
 
 ## 4. Target Variables
 
-TFA produces 15 target columns per tick across two lookahead windows (30s and 60s). The model trains a separate LightGBM estimator for each target.
+> **Decision committed 2026-04-30 per Phase D4** — MTA target set is locked at **28 targets = 7 target types × 4 lookahead windows**. This is the single source of truth across this spec, the `training_manifest.json` example (§6.9), and SEA `model_loader.py`.
 
-### 4.1 Target Tiers
+TFA produces 28 target columns per tick: 7 target types evaluated across 4 lookahead windows (30s, 60s, 300s, 900s). MTA trains a separate LightGBM estimator for each target — 28 `.lgbm` files per instrument per training run.
 
-**Tier 1 — Trade entry signals (primary)**
+### 4.1 The 7 Target Types
 
-| Column | Type | Meaning |
-|--------|------|---------|
-| `direction_30s` | Binary (0/1) | Spot moved up (1) or down (0) in next 30s |
-| `direction_60s` | Binary (0/1) | Spot direction over next 60s |
-| `risk_reward_ratio_30s` | Regression | Predicted upside / drawdown over 30s |
-| `risk_reward_ratio_60s` | Regression | Predicted upside / drawdown over 60s |
+| # | Target Type | Type | Meaning |
+|---|-------------|------|---------|
+| 1 | `direction` | Binary (0/1) | Spot moved up (1) or down (0) over the window |
+| 2 | `direction_magnitude` | Regression | % magnitude of spot move over the window |
+| 3 | `risk_reward_ratio` | Regression | Predicted upside / drawdown over the window |
+| 4 | `max_upside` | Regression | Max CE premium gain across active strikes over the window (₹) |
+| 5 | `max_drawdown` | Regression | Max CE premium loss across active strikes over the window (₹) |
+| 6 | `total_premium_decay` | Regression | Total theta decay across active strikes over the window (₹) |
+| 7 | `avg_decay_per_strike` | Regression | Average decay per active strike over the window (₹) |
 
-**Tier 2 — Sizing and confidence**
+### 4.2 The 4 Lookahead Windows
 
-| Column | Type | Meaning |
-|--------|------|---------|
-| `max_upside_30s` | Regression | Max CE premium gain across active strikes in 30s (₹) |
-| `max_upside_60s` | Regression | Max CE premium gain in 60s (₹) |
-| `max_drawdown_30s` | Regression | Max CE premium loss in 30s (₹) |
-| `max_drawdown_60s` | Regression | Max CE premium loss in 60s (₹) |
-| `direction_30s_magnitude` | Regression | % magnitude of spot move in 30s |
-| `direction_60s_magnitude` | Regression | % magnitude of spot move in 60s |
-| `upside_percentile_30s` | Regression | Session rank of max upside (0–100) |
+| Window | Suffix | Purpose |
+|--------|--------|---------|
+| 30 seconds | `_30s` | Fast-direction scalping signal |
+| 60 seconds | `_60s` | Confirmation horizon |
+| 300 seconds (5 min) | `_300s` | Short swing |
+| 900 seconds (15 min) | `_900s` | Medium swing |
 
-**Tier 3 — Premium seller signal**
+### 4.3 Full 28-Target Matrix
 
-| Column | Type | Meaning |
-|--------|------|---------|
-| `total_premium_decay_30s` | Regression | Total theta decay across active strikes in 30s (₹) |
-| `total_premium_decay_60s` | Regression | Total theta decay in 60s (₹) |
-| `avg_decay_per_strike_30s` | Regression | Average decay per active strike in 30s (₹) |
-| `avg_decay_per_strike_60s` | Regression | Average decay per active strike in 60s (₹) |
+```
+                    _30s   _60s   _300s  _900s
+direction              ✓      ✓      ✓      ✓
+direction_magnitude    ✓      ✓      ✓      ✓
+risk_reward_ratio      ✓      ✓      ✓      ✓
+max_upside             ✓      ✓      ✓      ✓
+max_drawdown           ✓      ✓      ✓      ✓
+total_premium_decay    ✓      ✓      ✓      ✓
+avg_decay_per_strike   ✓      ✓      ✓      ✓
+                       7  ×  4  =  28 targets
+```
 
-### 4.2 LightGBM Objective per Target
+Concrete column names follow the pattern `{target_type}{window_suffix}`, e.g.:
+`direction_30s`, `direction_60s`, `direction_300s`, `direction_900s`,
+`max_upside_30s`, …, `avg_decay_per_strike_900s`.
 
-| Target | Objective | Eval Metric |
-|--------|-----------|-------------|
-| `direction_30s`, `direction_60s` | `binary` | AUC-ROC |
-| All others | `regression` | RMSE |
+### 4.4 LightGBM Objective per Target
 
-### 4.3 NaN Handling for Targets
+| Target Type | Objective | Eval Metric |
+|-------------|-----------|-------------|
+| `direction_*` (all 4 windows) | `binary` | AUC-ROC |
+| All other 6 target types (24 targets) | `regression` | RMSE |
+
+### 4.5 NaN Handling for Targets
 
 Rows where a specific target column = NaN are dropped **per target** during training. This occurs for:
-- Ticks near session end where T+30 or T+60 crosses the session close boundary
+- Ticks near session end where T+30 / T+60 / T+300 / T+900 crosses the session close boundary (longer windows drop more rows)
 - Early warm-up ticks before sufficient active strike data
 
 Different targets will have slightly different training row counts — this is expected and acceptable.
@@ -448,7 +457,7 @@ The training agent maintains its own checkpoint at `models/{instrument}/training
 
 ### 6.7 Output (per instrument, per training run)
 
-All artifacts written to a timestamp-versioned folder:
+All artifacts written to a timestamp-versioned folder. Per §4 the canonical target set is **28 targets** (7 target types × 4 windows), so 28 `.lgbm` files are written per run.
 
 ```
 models/
@@ -456,22 +465,35 @@ models/
     {timestamp}/                  e.g. 20260413_143022/
       direction_30s.lgbm
       direction_60s.lgbm
+      direction_300s.lgbm
+      direction_900s.lgbm
       direction_30s_magnitude.lgbm
       direction_60s_magnitude.lgbm
-      max_upside_30s.lgbm
-      max_upside_60s.lgbm
-      max_drawdown_30s.lgbm
-      max_drawdown_60s.lgbm
+      direction_300s_magnitude.lgbm
+      direction_900s_magnitude.lgbm
       risk_reward_ratio_30s.lgbm
       risk_reward_ratio_60s.lgbm
+      risk_reward_ratio_300s.lgbm
+      risk_reward_ratio_900s.lgbm
+      max_upside_30s.lgbm
+      max_upside_60s.lgbm
+      max_upside_300s.lgbm
+      max_upside_900s.lgbm
+      max_drawdown_30s.lgbm
+      max_drawdown_60s.lgbm
+      max_drawdown_300s.lgbm
+      max_drawdown_900s.lgbm
       total_premium_decay_30s.lgbm
       total_premium_decay_60s.lgbm
+      total_premium_decay_300s.lgbm
+      total_premium_decay_900s.lgbm
       avg_decay_per_strike_30s.lgbm
       avg_decay_per_strike_60s.lgbm
-      upside_percentile_30s.lgbm
-      metrics.json
+      avg_decay_per_strike_300s.lgbm
+      avg_decay_per_strike_900s.lgbm
+      metrics.json                  ← contains entries for all 28 targets
       shap_importance.json
-      training_manifest.json
+      training_manifest.json        ← target_count: 28
     training_checkpoint.json
     LATEST                        ← text file: name of active version folder
 ```
@@ -503,6 +525,8 @@ models/
 
 ### 6.9 `training_manifest.json` schema
 
+The manifest's `target_count` is the canonical 28 (= 7 target types × 4 windows) per §4 (Decision committed 2026-04-30 per Phase D4). MTA, the manifest, and SEA `model_loader.MVP_TARGETS` must agree on this count.
+
 ```json
 {
   "version": "20260413_143022",
@@ -511,6 +535,17 @@ models/
   "feature_config_version": "1.0",
   "feature_config_path": "config/model_feature_config/crudeoil_feature_config.json",
   "final_feature_count": 97,
+  "target_count": 28,
+  "target_types": [
+    "direction",
+    "direction_magnitude",
+    "risk_reward_ratio",
+    "max_upside",
+    "max_drawdown",
+    "total_premium_decay",
+    "avg_decay_per_strike"
+  ],
+  "lookahead_windows_seconds": [30, 60, 300, 900],
   "parquet_files_used": [
     "data/features/2026-04-07/crudeoil_features.parquet",
     "..."
