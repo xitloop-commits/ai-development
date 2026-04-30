@@ -53,6 +53,26 @@ def _stream_recover(path: Path) -> bytes:
     return bytes(buf[: last_nl + 1])
 
 
+def _count_lines_gz(path: Path) -> int | None:
+    """Count newlines in a `.ndjson.gz` file, returning None if the gzip
+    stream is unreadable. Used by the PY-128 'recovered ≥ existing'
+    guard so we never overwrite a higher-water-mark recovered file with
+    a smaller one (e.g. when source corruption worsens between runs)."""
+    if not path.exists():
+        return None
+    try:
+        n = 0
+        with gzip.open(path, "rb") as g:
+            while True:
+                chunk = g.read(4 * 1024 * 1024)
+                if not chunk:
+                    break
+                n += chunk.count(b"\n")
+        return n
+    except Exception:
+        return None
+
+
 def _recover_one(path: Path, force: bool) -> dict:
     out_path = path.with_name(path.stem.replace(".ndjson", "") + ".recovered.ndjson.gz")
     if out_path.exists() and not force:
@@ -63,6 +83,26 @@ def _recover_one(path: Path, force: bool) -> dict:
     lines = data.count(b"\n")
     if not data:
         return {"path": path, "status": "empty", "lines": 0, "out": None}
+
+    # PY-128: never overwrite an existing recovered file with one that
+    # has fewer lines. If the prior recovery captured more data (because
+    # the source was less corrupt at that time, or earlier recovery logic
+    # was better), keeping it is strictly safer than the new attempt.
+    if out_path.exists():
+        existing_lines = _count_lines_gz(out_path)
+        if existing_lines is not None and lines < existing_lines:
+            print(
+                f"  WARN  {path.name}: new recovery has {lines:,} lines, "
+                f"existing has {existing_lines:,}; keeping existing.",
+                file=sys.stderr,
+            )
+            return {
+                "path": path,
+                "status": "kept_existing",
+                "lines": lines,
+                "existing_lines": existing_lines,
+                "out": out_path,
+            }
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(out_path, "wb") as g:
@@ -95,7 +135,8 @@ def main() -> int:
         d for d in root.iterdir() if d.is_dir()
     )
 
-    totals = {"ok": 0, "recovered": 0, "skipped": 0, "empty": 0, "files": 0}
+    totals = {"ok": 0, "recovered": 0, "skipped": 0, "empty": 0,
+              "kept_existing": 0, "files": 0}
     for d in date_dirs:
         if not d.exists():
             continue
@@ -120,6 +161,10 @@ def main() -> int:
             elif result["status"] == "empty":
                 print(f"  EMPTY {p.name}  (no recoverable lines)")
                 totals["empty"] += 1
+            elif result["status"] == "kept_existing":
+                # Already printed a WARN to stderr inside _recover_one;
+                # nothing extra here, just count it.
+                totals["kept_existing"] += 1
             else:
                 in_mb  = result["in_size"] / 1e6
                 out_mb = result["out_size"] / 1e6
@@ -137,6 +182,7 @@ def main() -> int:
     print(
         f"files={totals['files']}  ok={totals['ok']}  "
         f"recovered={totals['recovered']}  skipped={totals['skipped']}  "
+        f"kept_existing={totals['kept_existing']}  "
         f"empty={totals['empty']}"
     )
     return 0
