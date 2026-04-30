@@ -508,10 +508,13 @@ class DisciplineAgent {
   /**
    * PA spec §5.2 — receive trade-outcome push from Portfolio Agent.
    *
-   * Phase 3: cap-check activation. The exit metadata
-   * (`exitReason` / `exitTriggeredBy`) now drives whether the close
-   * contributes to streak / cooldown / circuit-breaker counters:
+   * Accepts the canonical `TradeClosedEvent` (Phase D3, see
+   * `shared/tradeClosedEvent.ts`) plus an `openingCapital` extra that
+   * PA computes from the day's state — Discipline needs it for the
+   * dailyPnl% calculation and it isn't naturally on the canonical
+   * event. Wider-than-required shape is fine; DA pulls what it uses.
    *
+   * Behaviour:
    *   - exitTriggeredBy === "DISCIPLINE" → SKIP. A discipline-driven
    *     exit was forced by the rule engine itself; counting it as a
    *     "loss" would punish the rules for working and double-tax the
@@ -522,15 +525,14 @@ class DisciplineAgent {
    * Per-channel partitioning is still pending — single-user `userId="1"`
    * for now.
    */
-  async recordTradeOutcome(req: {
-    channel: string;
-    tradeId: string;
-    realizedPnl: number;
-    openingCapital: number;
-    exitReason?: string;
-    exitTriggeredBy?: string;
-    signalSource?: string;
-  }): Promise<void> {
+  async recordTradeOutcome(
+    req: Partial<import("../../shared/tradeClosedEvent").TradeClosedEvent> & {
+      channel: string;
+      tradeId: string;
+      realizedPnl: number;
+      openingCapital: number;
+    },
+  ): Promise<void> {
     if (req.exitTriggeredBy === "DISCIPLINE") {
       // Cap-check-driven exit. Don't feed it back into the cap-check
       // counters; the system already accounted for the loss when it

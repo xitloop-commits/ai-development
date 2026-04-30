@@ -86,12 +86,29 @@ const validateTradeSchema = z
 
 const recordTradeOutcomeSchema = z
   .object({
-    channel: z.string().min(1),
+    channel: channelSchema,
     tradeId: z.string().min(1),
     realizedPnl: z.number(),
     openingCapital: z.number().nonnegative(),
-    exitReason: z.string().optional(),
-    exitTriggeredBy: z.string().optional(),
+    // Canonical ExitReasonCode union — see shared/exitContracts.ts.
+    exitReason: z
+      .enum([
+        "MOMENTUM_EXIT",
+        "VOLATILITY_EXIT",
+        "SL_HIT",
+        "TP_HIT",
+        "AGE_EXIT",
+        "STALE_PRICE_EXIT",
+        "DISCIPLINE_EXIT",
+        "AI_EXIT",
+        "MANUAL",
+        "EOD",
+        "EXPIRY",
+      ])
+      .optional(),
+    exitTriggeredBy: z
+      .enum(["RCA", "BROKER", "DISCIPLINE", "AI", "USER", "PA"])
+      .optional(),
     signalSource: z.string().optional(),
   })
   .strict();

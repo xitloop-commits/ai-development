@@ -167,33 +167,41 @@ When a trade closes, the Portfolio Agent records the outcome including P&L, dura
 
 **Endpoint:** `POST /api/portfolio/recordTradeClosed`
 
+**Canonical type:** `shared/tradeClosedEvent.ts → TradeClosedEvent` (Phase D3, 2026-04-30). Same shape is consumed by `DisciplineAgent.recordTradeOutcome` (DA spec §11.6) — single source of truth across the agent boundary.
+
 **Request Body:**
 ```typescript
-interface TradeClosedRequest {
-  tradeId: string;                // Unique trade identifier
+import type { TradeClosedEvent } from "shared/tradeClosedEvent";
+
+// PA's POST body is structurally identical to TradeClosedEvent. The
+// in-code alias `TradeClosedRequest` re-exports it from
+// server/portfolio/types.ts for backward compatibility.
+interface TradeClosedRequest extends TradeClosedEvent {
+  channel: ChannelCode;          // ai-live | ai-paper | my-live | …
+  tradeId: string;
   instrument: string;             // "NIFTY_50_CE_24500" etc
   side: "LONG" | "SHORT";
   entryPrice: number;
   exitPrice: number;
   quantity: number;
-  entryTime: Date;
-  exitTime: Date;
-  
+  entryTime: number;              // epoch ms (UTC)
+  exitTime: number;
+
   // P&L Details
-  realizedPnl: number;            // Absolute P&L (e.g., +5000 or -2500)
-  realizedPnlPercent: number;     // As % of entry capital for this trade
-  
-  // Exit Information
-  exitReason: string;             // "SL" | "TP" | "RCA_EXIT" | "AI_EXIT" | "DISCIPLINE_EXIT" | "MANUAL"
-  exitTriggeredBy: "RCA" | "BROKER" | "DISCIPLINE" | "AI" | "USER";  // ✨ KEY FIELD
-  
+  realizedPnl: number;            // Absolute P&L, after charges
+  realizedPnlPercent: number;     // % of entry capital for this trade
+
+  // Exit Information — codes match shared/exitContracts.ts
+  exitReason: ExitReasonCode;     // TP_HIT | SL_HIT | MOMENTUM_EXIT | …
+  exitTriggeredBy: ExitTriggeredBy; // RCA | BROKER | DISCIPLINE | AI | USER | PA
+
   // Trade Duration & Context
-  duration: number;               // In seconds
+  duration: number;               // seconds
   pnlCategory: "win" | "loss" | "breakeven";
-  
+
   // Additional Context
-  signalSource?: string;          // If AI-triggered or RCA-triggered, source of signal
-  timestamp: Date;                // When trade closed
+  signalSource?: string;          // SEA signal id / RCA exit kind / etc.
+  timestamp: number;              // epoch ms (UTC) — when the event fired
 }
 ```
 

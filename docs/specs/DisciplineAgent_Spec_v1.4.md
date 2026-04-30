@@ -531,18 +531,22 @@ All paths result in `sessionHalted = true` and no new entries for the rest of th
 
 The Discipline Agent receives P&L updates from Portfolio Agent whenever a trade closes.
 
+**Canonical type:** `shared/tradeClosedEvent.ts → TradeClosedEvent` (Phase D3, 2026-04-30). Same shape that PortfolioAgent emits (PA spec §5.2). DA accepts the full event so no fields drop at the boundary; an extra `openingCapital` field is added by PA at emit time so DA can compute dailyPnl%.
+
 **Real-time tracking:**
 
 ```typescript
 // When Portfolio Agent calls: POST /api/discipline/recordTradeOutcome
-interface TradeOutcomeEvent {
-  tradeId: string;
-  instrument: string;
-  exitReason: string;               // "SL" | "TP" | "RCA_EXIT" | "AI_EXIT" | "DISCIPLINE_EXIT" | "MANUAL"
-  realizedPnl: number;              // Absolute P&L (e.g., -2500, +5000)
-  realizedPnlPercent: number;       // As % of entry capital
-  duration: number;                 // Trade duration in seconds
-  closedAt: Date;
+import type { TradeClosedEvent } from "shared/tradeClosedEvent";
+
+// DA's accepted shape — full TradeClosedEvent + openingCapital extra.
+// Codes match shared/exitContracts.ts (TP_HIT | SL_HIT | MOMENTUM_EXIT | ...).
+interface TradeOutcomeEvent extends TradeClosedEvent {
+  // ...all canonical fields: channel, tradeId, instrument, side,
+  // entryPrice, exitPrice, quantity, entryTime, exitTime, realizedPnl,
+  // realizedPnlPercent, exitReason, exitTriggeredBy, duration,
+  // pnlCategory, signalSource?, timestamp.
+  openingCapital: number;  // PA-injected; DA needs it for dailyPnl%
 }
 
 // Discipline Agent updates:

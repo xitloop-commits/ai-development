@@ -61,26 +61,14 @@ export interface PortfolioSnapshot {
  * Request payload for portfolio.recordTradeClosed (spec §5.2). Captures
  * who triggered the exit and why — drives Discipline cap-checks +
  * 30-day head-to-head reporting.
+ *
+ * Canonical shape lives in `shared/tradeClosedEvent.ts` (Phase D3).
+ * This alias keeps existing imports working without a rename sweep
+ * across the codebase. Same fields, same types — `Channel` is
+ * structurally identical to `ChannelCode` (both are the same string
+ * union, declared twice for the server-only / shared-by-all split).
  */
-export interface TradeClosedRequest {
-  channel: Channel;
-  tradeId: string;
-  instrument: string;
-  side: "LONG" | "SHORT";
-  entryPrice: number;
-  exitPrice: number;
-  quantity: number;
-  entryTime: number; // epoch ms
-  exitTime: number;
-  realizedPnl: number;
-  realizedPnlPercent: number;   // % of entry capital for this trade
-  exitReason: ExitReason;
-  exitTriggeredBy: ExitTriggeredBy;
-  duration: number;             // seconds
-  pnlCategory: "win" | "loss" | "breakeven";
-  signalSource?: string;        // for AI/RCA-triggered exits
-  timestamp: number;
-}
+export type TradeClosedRequest = import("../../shared/tradeClosedEvent").TradeClosedEvent;
 
 export interface TradeClosedResponse {
   success: boolean;

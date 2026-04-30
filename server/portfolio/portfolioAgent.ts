@@ -988,15 +988,13 @@ class PortfolioAgentImpl {
 
     // Push outcome into Discipline so its streak / cooldown / circuit-breaker
     // counters track this close. Phase 3 will activate full cap-check feedback.
+    // Pass the full canonical TradeClosedEvent (Phase D3) — DA accepts
+    // wider shape than it strictly uses, so adding fields here is safe
+    // and prevents the historical "subset drop" bug.
     try {
       await disciplineAgent.recordTradeOutcome({
-        channel: req.channel,
-        tradeId: req.tradeId,
-        realizedPnl: req.realizedPnl,
+        ...req,
         openingCapital,
-        exitReason: req.exitReason,
-        exitTriggeredBy: req.exitTriggeredBy,
-        signalSource: req.signalSource,
       });
     } catch (err) {
       log.warn(`recordTradeOutcome push to Discipline failed (non-fatal): ${(err as Error).message}`);
