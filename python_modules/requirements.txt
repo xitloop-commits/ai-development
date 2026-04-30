@@ -1,3 +1,19 @@
-requests>=2.28.0
-python-dotenv>=1.0.0
-websockets>=12.0
+# Phase E1 — pinned 2026-04-30 against the live dev box (Python 3.14.3,
+# Windows 11 x64). Anyone reproducing this stack must use these exact
+# versions; bumping requires re-running MTA training and validating
+# against `metrics.json` deltas.
+#
+# Networking / config
+requests==2.32.5
+python-dotenv==1.2.2
+websockets==16.0
+#
+# Imaging (used by startup/make_icons.py)
+Pillow==12.2.0
+#
+# ML pipeline (MTA + SEA)
+lightgbm==4.6.0
+pandas==3.0.1
+numpy==2.4.3
+pyarrow==23.0.1
+scikit-learn==1.8.0

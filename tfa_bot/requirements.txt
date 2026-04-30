@@ -1,2 +1,5 @@
-python-telegram-bot[job-queue]>=20.0
-python-dotenv>=1.0
+# Phase E1 — pinned 2026-04-30. PTB v21+ has breaking API changes for
+# the JobQueue / Application lifecycle, so the upper bound `<21` is
+# load-bearing — do NOT relax it without porting bot.py first.
+python-telegram-bot[job-queue]==20.8
+python-dotenv==1.2.2
