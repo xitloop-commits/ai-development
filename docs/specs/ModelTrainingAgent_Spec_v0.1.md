@@ -498,7 +498,7 @@ models/
     LATEST                        ← text file: name of active version folder
 ```
 
-`LATEST` is only updated after a complete, validated training run. The Signal Engine Agent (SEA) reads `LATEST` at startup to determine which version to load.
+`LATEST` is only updated after a complete, validated training run (see §6.10 Promotion Validator). The Signal Engine Agent (SEA) reads `LATEST` at startup to determine which version to load.
 
 **`models/` directory is gitignored** (large binary artifacts). `config/model_feature_config/` is git-tracked.
 
@@ -563,6 +563,63 @@ The manifest's `target_count` is the canonical 28 (= 7 target types × 4 windows
   }
 }
 ```
+
+### 6.10 Promotion Validator
+
+> **Decision committed 2026-04-30 per Phase D5** — gates promotion of a freshly-trained model set to `LATEST` based on per-target validation-metric delta vs the current `LATEST`. Resolves Open Item E (§11).
+
+After a training run completes (all 28 targets trained, `metrics.json` written), the validator decides whether the new `{timestamp}` folder should be promoted to `LATEST`. Promotion is an atomic update of the `models/{instrument}/LATEST` pointer file.
+
+#### Algorithm
+
+For each target in the new run:
+
+1. Read the new run's validation metric from `models/{instrument}/{new_timestamp}/metrics.json`:
+   - **AUC** for the 4 binary `direction_*` targets (`val_auc`).
+   - **R²** for the 24 regression targets (`val_r2`, derived from RMSE + variance during training; falls back to `-val_rmse` normalised against the previous run if R² is unavailable). Pass criterion is documented per metric type; the unifying contract is "higher is better".
+2. Read the current `LATEST`'s metric for the same target from `models/{instrument}/{current_latest}/metrics.json`. If no current `LATEST` exists (first-ever training run), promotion always succeeds — no baseline to regress against.
+3. Compute `val_metric_delta = new_metric - current_latest_metric` per target, expressed in **percentage points** for AUC (e.g. `0.572 - 0.581 = -0.9` percentage points) and as a **relative percentage** for R² (e.g. `(new_r2 - old_r2) / |old_r2| × 100`). Both are reported as a percentage delta in `metrics.json` under `promotion_check.targets[*].delta_pct`.
+4. **Reject promotion** if **any** target's delta is below `--min-metric-delta` (default `-2.0`, meaning the new model must be no worse than 2 percentage points / 2 percent below the current `LATEST` per target).
+5. **Accept promotion** if **all** targets meet the floor.
+
+#### CLI flags
+
+Added to `python -m model_training_agent.cli`:
+
+| Flag | Type | Default | Behaviour |
+|------|------|---------|-----------|
+| `--min-metric-delta <float>` | float | `-2.0` | Per-target minimum allowed delta vs current `LATEST`, expressed as a percentage. Any target below this floor rejects the promotion. |
+| `--force-promote` | flag | off | Bypasses the validator. Promotes the new run to `LATEST` even if one or more targets regress. **Logs a WARNING** with the list of regressing targets and their deltas, and records `promotion_check.forced = true` in the new run's `metrics.json`. |
+
+#### Behaviour on rejection
+
+- The `LATEST` pointer is **NOT updated** — the previous version remains active for SEA.
+- The new `models/{instrument}/{new_timestamp}/` folder is **kept on disk**, so the operator can:
+  - Inspect `metrics.json` to see which targets regressed and by how much.
+  - Re-run the CLI with `--force-promote` to override and promote the rejected run manually.
+  - Delete the folder if it is genuinely a bad run.
+- The CLI exits with code `3` (validator rejected) so automated wrappers can distinguish promotion-rejection from training failure (`1`) or startup-check failure (`2`).
+- A `promotion_check` block is appended to the new run's `metrics.json`:
+
+```json
+"promotion_check": {
+  "outcome": "rejected",
+  "min_metric_delta_pct": -2.0,
+  "forced": false,
+  "compared_against_latest": "20260413_143022",
+  "targets": [
+    { "target": "direction_30s",  "metric": "auc", "old": 0.581, "new": 0.572, "delta_pct": -0.9, "passed": true },
+    { "target": "max_upside_60s", "metric": "r2",  "old": 0.142, "new": 0.090, "delta_pct": -36.6, "passed": false }
+  ],
+  "rejected_targets": ["max_upside_60s"]
+}
+```
+
+On acceptance the same block is written with `"outcome": "accepted"` and `"rejected_targets": []`, and the `LATEST` file is rewritten to the new timestamp folder name.
+
+#### Force-promote audit trail
+
+When `--force-promote` is used, the WARNING line is also appended to `models/{instrument}/promotion_audit.log` (one JSON line per forced promotion) so the operator's overrides are traceable across training runs.
 
 ---
 
@@ -869,8 +926,8 @@ The following decisions are explicitly deferred and must be resolved before impl
 
 | # | Item | Options | Impact |
 |---|------|---------|--------|
-| **E** | **Model promotion threshold** | What val AUC/RMSE is "good enough" to update LATEST and activate for paper trading? Options: (a) fixed floor e.g. `direction_30s AUC > 0.55`; (b) must beat previous LATEST metrics; (c) manual review only | Without a floor, any model — even a harmful one — could be promoted |
-| **F** | **Strike selection** | Which strike to trade: (a) always ATM; (b) ATM-1 (slightly ITM, better delta but more expensive); (c) best predicted RR across ATM±1; (d) user-configurable | Affects entry price, position sizing, and expected P&L profile |
+| **E** | **Model promotion threshold** | **RESOLVED — see §6.10 Promotion Validator** (decision committed 2026-04-30 per Phase D5). Default per-target delta floor = **-2% AUC/R²** vs current `LATEST` (configurable via `--min-metric-delta`). `--force-promote` bypasses the check with a logged WARNING and a `promotion_audit.log` entry. Rejected runs leave `LATEST` unchanged and keep the new artifacts on disk for inspection. | — |
+| **F** | **Strike selection** | **RESOLVED — ATM CE/PE only** (decision committed 2026-04-30 per Phase D5). SEA selects the ATM strike for both legs (current behaviour). Auto-strike-roving (ATM±1, best-RR, user-configurable) is **deferred post-MVP** — see `SEA_ImplementationPlan_v0.1 §3 Phase 2` "Strike selection" note. | — |
 | **G** | **SEA transport** | **RESOLVED — file-tail polling** (decision committed 2026-04-30 per Phase D6). SEA tails TFA's existing `data/features/{instrument}_live.ndjson` at 200ms cadence. Portable across Win/Linux, doubles as backtest-replay input, no order-of-launch dependency. UDS (AF_UNIX) documented as Future / Optional in `SEA_ImplementationPlan §5` for a post-MVP latency-driven optimisation; deferred. | — |
 
 ---
@@ -890,5 +947,5 @@ The following decisions are explicitly deferred and must be resolved before impl
 
 ---
 
-**Status:** Draft — 3 open items (§11) must be resolved before implementation spec is written.
-**Next step:** Resolve open items E, F, G → promote to v1.0 implementation-ready spec.
+**Status:** Draft — all 3 open items (§11 E/F/G) RESOLVED per Phase D5 (E, F) and Phase D6 (G), 2026-04-30. Ready for promotion to v1.0 implementation-ready spec.
+**Next step:** Promote to v1.0 implementation-ready spec.

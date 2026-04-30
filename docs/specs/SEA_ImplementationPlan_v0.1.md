@@ -149,6 +149,16 @@ def build_signal_packet(
 - Pass-through fields correctly extracted from tick_row
 - Direction prob in [0, 1] range
 
+#### Strike selection (final for MVP)
+
+> **Decision committed 2026-04-30 per Phase D5** — resolves the SEA strike-selection open item.
+
+**SEA selects the ATM strike for both CE and PE legs (current behaviour).** The `atm_strike`, `atm_ce_ltp`, and `atm_pe_ltp` fields on `SignalPacket` come straight from the corresponding TFA tick columns; SEA does not search ATM±1, weight by predicted RR, or expose a per-instrument override. GO_CALL → trade ATM CE; GO_PUT → trade ATM PE.
+
+**Auto-strike-roving is deferred post-MVP.** Selecting between ATM±1 strikes based on predicted risk_reward / max_upside per leg, or exposing a user-configurable strike preference, is **out of scope for MVP**. It is recorded as potential post-MVP work in §9 Future Roadmap of the MTA spec (under "ATM±2 strike tier in feature set" / "Individual active strike slots") and is gated on (a) sufficient ATM±1 active-strike feature coverage in the model and (b) Phase 1 win-rate validation completing on the canonical ATM-only signal.
+
+Until that work happens, both the live signal log and the future RCA TradeSuggestion payload (MTA Spec §7.6) consume `atm_strike` / `atm_ce_ltp` / `atm_pe_ltp` directly with no roving logic in between.
+
 ---
 
 ### Phase 3 — Thresholds
