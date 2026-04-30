@@ -34,18 +34,27 @@ The Main Screen is divided into four vertical layers, with two sidebars that pus
 ## 3. Component Specifications
 
 ### 3.1 App Bar (Sticky Top)
-The App Bar serves as the global system status indicator and sidebar control center.
+The App Bar serves as the global system status indicator, the channel (workspace × mode) selector, and the sidebar control center.
 
 **Layout Structure:**
 - **Left Edge:** Left Sidebar Toggle Button `[☰]`
 - **Left Group:** ATS Brand Mark (Cyan square + "ATS" + "Automatic Trading System" label)
-- **Center Group:** Module Heartbeats
-  - Four modules: FETCHER, ANALYZER, AI ENGINE, EXECUTOR
-  - Each displays a pulsing status dot (Green=Active, Amber=Warning, Red=Error, Grey=Idle), an icon, and a label.
-  - Hovering reveals a tooltip with the full module name and current status message.
+- **Center Group — Channel Tab Strip (workspace × mode):**
+  The center slot of the AppBar hosts a 3-tab top-level strip plus an in-tab mode pill. This is the single source of truth for the active channel; there is no separate "AI Trades mode toggle" anywhere else in the app (it is **not** in Settings).
+  - **Top-level tabs (3):**
+    - `AI Trades` — workspace `ai`, supports modes `LIVE` / `PAPER`
+    - `My Trades` — workspace `my`, supports modes `LIVE` / `PAPER`
+    - `Testing`   — workspace `testing`, supports modes `LIVE` / `SANDBOX`
+  - **In-tab mode pill:** the active tab carries a two-segment pill (`LIVE` | `PAPER` for `ai`/`my`, `LIVE` | `SANDBOX` for `testing`). Inactive tabs do not show the pill.
+  - **CLEAR button:** when the active tab's pill is on a non-live mode (`PAPER` or `SANDBOX`), a `CLEAR` action appears next to the pill and resets that workspace's paper/sandbox pool. `CLEAR` is hidden in `LIVE`.
+  - **Per-workspace mode memory:** switching tabs lands on each workspace's last-used mode (e.g. flipping from `My Trades / LIVE` to `AI Trades` returns to whatever mode `AI Trades` was last on).
+  - **Confirm dialog:** every mode flip and every cross-workspace tab switch shows a `ConfirmDialog` (or anchor-positioned `ConfirmPopover`) before committing. New orders route to the target channel; open positions on the source remain.
 - **Right Group:** Service Indicators
-  - Dhan API Status (Globe icon)
-  - WebSocket Status (WiFi icon)
+  - **Broker Connectivity — two dots (one per Dhan account), keyed by `brokerId`:**
+    - **Dot 1 — `brokerId="dhan"`** — primary trading account (order placement, positions, funds).
+    - **Dot 2 — `brokerId="dhan-ai-data"`** — secondary "data / spouse" account used by the AI for tick feed and historical data (no order placement).
+    - Each dot is independently colored (Green=Connected, Amber=Connecting/Degraded, Red=Disconnected, Grey=Disabled). Hovering each dot reveals a tooltip with that account's `brokerId`, mode, login state, and last error. The two dots are explicitly **not** merged into a single aggregate indicator — they replace the prior single-broker dot wording.
+  - WebSocket / Feed Status (WiFi icon, separate from broker connectivity)
   - Discipline Score (Shield icon + "100")
   - Live IST Clock (HH:MM:SS format)
 - **Right Edge:** Right Sidebar Toggle Button `[☰]`
@@ -84,7 +93,7 @@ The Footer provides historical context, upcoming events, and total net worth.
   - **Current Month:** Fund value and growth percentage (e.g., `₹X,XX,XXX +X.X%`).
   - *Hover Behavior:* Tooltip displays the breakdown between Trading Pool and Reserve Pool for that specific month, including the growth percentage for each pool.
 - **Center Group (Elastic): Events & Discipline**
-  - **Holiday Info:** Displays the next upcoming market holiday (e.g., `In 3 days: Holi`). If no holidays exist in the current month, displays "No holidays this month".
+  - **`HolidayIndicator` (Holiday Info):** The `HolidayIndicator` component lives in the **footer center group, immediately to the left of the Discipline Score** (i.e. just to the left of the clock/discipline cluster on the bottom-right side of the elastic center). It is rendered exactly once on the Main Screen — it must **not** also appear in the AppBar. Displays the next upcoming market holiday (e.g., `In 3 days: Holi`). If no holidays exist in the current month, displays "No holidays this month".
     - *Click Behavior:* Opens a dialog listing all upcoming NSE and MCX holidays and settlement holidays.
   - **Discipline Score:** Displays the current score (e.g., `🛡 95/100`).
     - *Hover Behavior:* Tooltip displays the detailed breakdown of the discipline score across all 7 categories:
