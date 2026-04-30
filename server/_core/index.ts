@@ -23,6 +23,7 @@ import { registerReadyEndpoint, markReady } from "./ready";
 import { registerFatalHandlers } from "./fatalHandlers";
 import { registerShutdownHook, installSignalHandlers } from "./shutdown";
 import { authMiddleware, registerAuthBootstrapEndpoint } from "./auth";
+import { validateEnv } from "./validateEnv";
 
 const bootLog = createLogger("BOOT", "Server");
 
@@ -58,6 +59,12 @@ async function startServer() {
   // Print the agent color legend up-front so log-tail watchers know
   // how to read the color-coded prefixes that follow.
   printAgentLegend();
+
+  // Boot-time env summary — loud, not silent. Every known env var is
+  // classified (ok / warn / fatal) and logged with the consequence of
+  // missing config. Server still tolerates anything; this is purely
+  // operator visibility.
+  validateEnv();
 
   const app = express();
   const server = createServer(app);
