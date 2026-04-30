@@ -12,30 +12,13 @@ from pathlib import Path
 
 import lightgbm as lgb
 
-
-MVP_TARGETS: tuple[str, ...] = (
-    # Tier 1 — fast direction (30s/60s)
-    "direction_30s", "direction_60s",
-    "risk_reward_ratio_30s", "risk_reward_ratio_60s",
-    # Tier 2 — sizing (30s/60s)
-    "max_upside_30s", "max_upside_60s",
-    "max_drawdown_30s", "max_drawdown_60s",
-    "direction_30s_magnitude", "direction_60s_magnitude",
-    "upside_percentile_30s",
-    # Tier 3 — premium decay (30s/60s)
-    "total_premium_decay_30s", "total_premium_decay_60s",
-    "avg_decay_per_strike_30s", "avg_decay_per_strike_60s",
-    # Tier 4 — 5min swing
-    "direction_300s",
-    "max_upside_300s", "max_drawdown_300s",
-    "risk_reward_ratio_300s", "direction_300s_magnitude",
-    "total_premium_decay_300s", "avg_decay_per_strike_300s",
-    # Tier 5 — 15min swing
-    "direction_900s",
-    "max_upside_900s", "max_drawdown_900s",
-    "risk_reward_ratio_900s", "direction_900s_magnitude",
-    "total_premium_decay_900s", "avg_decay_per_strike_900s",
-)
+# Single source of truth — the 28 canonical targets (7 types × 4 windows)
+# locked Phase D4, surfaced through `_shared.targets` per Phase E9 so the
+# trainer + SEA loader can never drift again. Old local 29-entry tuple
+# dropped 2026-04-30; the orphan `upside_percentile_30s` (which never fit
+# the 7×4 matrix) is no longer trained — it remains a TFA-emitted live
+# session-rank feature column on parquet rows, which is correct.
+from _shared.targets import MVP_TARGET_NAMES as MVP_TARGETS
 
 
 @dataclass
