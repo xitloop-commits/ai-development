@@ -218,8 +218,13 @@ class ReplayAdapter:
         )
         self._upside_pct   = UpsidePercentileTracker()
 
-        # Output emitter in replay mode (accumulates rows in memory)
-        self._emitter = Emitter(mode="replay")
+        # Output emitter in replay mode (accumulates rows in memory).
+        # Phase E8: pass profile windows so the parquet schema picks up
+        # 4-window direction columns as int32 instead of float32.
+        self._emitter = Emitter(
+            mode="replay",
+            target_windows_sec=profile.target_windows_sec,
+        )
 
         # ── Session boundary (Unix epoch seconds) ─────────────────────────────
         self._session_start_sec = _session_boundary_sec(

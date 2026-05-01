@@ -348,7 +348,7 @@ def validate(
     except ImportError as exc:
         raise ImportError("pyarrow required for validation") from exc
 
-    from tick_feature_agent.output.emitter import _build_column_names
+    from tick_feature_agent.output.emitter import column_names_for
 
     parquet_path = Path(parquet_path)
     table = pq.read_table(parquet_path)
@@ -362,7 +362,7 @@ def validate(
         and not c.endswith("magnitude") and c != "direction_30s_magnitude"
         and c.split("_")[-1].rstrip("s").isdigit()
     }) or [30, 60]
-    COLUMN_NAMES = _build_column_names(tuple(windows))
+    COLUMN_NAMES = column_names_for(tuple(windows))
 
     # Extract column data as Python lists for validation
     def _col(name: str) -> list:

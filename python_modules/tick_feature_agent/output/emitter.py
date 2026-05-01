@@ -1,10 +1,27 @@
 """
-emitter.py — §9 Flat 370-column vector assembly + NDJSON output.
+emitter.py — Flat per-tick feature vector assembly + NDJSON / Parquet output.
 
-Assembles all per-tick feature groups into a single ordered 370-column dict
+The output column count is **dynamic per instrument profile**: the
+target-variable block contributes `len(target_windows_sec) * 7 + 1`
+columns, so a profile with `[30, 60]` windows lands at 370 columns
+total and a profile with `[30, 60, 300, 900]` windows lands at 384.
+Per Phase E8 / D4 the canonical live profile uses 4 windows = 384
+columns; the 2-window legacy layout is still supported (replay of
+pre-D4 data, tests).
+
+Use `column_names_for(target_windows_sec)` to get the ordered tuple
+for any profile, and `int_columns_for(target_windows_sec)` to get the
+matching `direction_<W>s` int-typed-column set. The module-level
+`COLUMN_NAMES` and `_INT_COLUMNS` exports default to the 2-window
+layout for backward compat with pre-E8 callers and exist primarily
+for tests; production code should pass the actual profile windows
+through `Emitter(target_windows_sec=profile.target_windows_sec, ...)`.
+
+Assembles all per-tick feature groups into a single ordered flat dict
 matching the wire format defined in spec §9.1, then serialises to NDJSON.
 
-Column groups (370 total):
+Column groups (counts shown for the 2-window default profile = 370 total;
+4-window canonical profile lands at 384):
     1        timestamp
     2–13     Underlying Base (12)
     14–33    Underlying Extended: OFI + Realized Vol + Multi-Window (20)
@@ -23,10 +40,12 @@ Column groups (370 total):
     362–370  Metadata (9)
 
 Public API:
-    COLUMN_NAMES    Tuple of 370 column name strings in spec order.
-    assemble_flat_vector(**kwargs) → dict   Build ordered 370-column flat dict.
-    serialize_row(row)             → str    NaN/None → JSON null, no trailing newline.
-    Emitter                        Class managing file + socket output sinks.
+    column_names_for(windows)       → tuple[str, ...]   Ordered column names for any profile windows
+    int_columns_for(windows)        → frozenset[str]    Int32-typed parquet columns for those windows
+    COLUMN_NAMES                    Tuple of column name strings for the 2-window default (legacy)
+    assemble_flat_vector(**kwargs)  → dict              Build ordered flat dict
+    serialize_row(row)              → str               NaN/None → JSON null, no trailing newline
+    Emitter(target_windows_sec=...) Class managing file + socket + parquet output sinks
 
 NaN encoding:
     Python float('nan') and Python None both become JSON null in wire output.
@@ -260,8 +279,17 @@ def _build_column_names(
     return tuple(cols)
 
 
+def column_names_for(target_windows_sec: tuple[int, ...]) -> tuple[str, ...]:
+    """Return the ordered tuple of column names for a profile with these
+    target windows. Public, dynamic alternative to the module-level
+    `COLUMN_NAMES` global. Phase E8 / PY-15. The function is a thin
+    public alias over `_build_column_names`."""
+    return _build_column_names(tuple(target_windows_sec))
+
+
 #: Ordered column names for the default 2-window (30s, 60s) configuration.
-#: Used as a fallback; replay/live use profile-specific windows.
+#: Kept as a backward-compat export — pre-E8 callers reference this
+#: directly. Production code should prefer `column_names_for(windows)`.
 COLUMN_NAMES: tuple[str, ...] = _build_column_names((30, 60))
 
 assert len(set(COLUMN_NAMES)) == len(COLUMN_NAMES), "Duplicate column name detected in COLUMN_NAMES"
@@ -469,8 +497,9 @@ def serialize_row(row: dict) -> str:
 # Parquet schema helpers (replay mode)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Column names that hold integer values (spec data-type column)
-_INT_COLUMNS = frozenset({
+# Window-independent int columns. The window-dependent ones (the
+# `direction_<W>s` set) are added by `int_columns_for(windows)`.
+_INT_COLUMNS_BASE: frozenset[str] = frozenset({
     # ATM context
     "atm_strike", "strike_step",
     # Option tick: tick_available (0/1), volume
@@ -486,9 +515,28 @@ _INT_COLUMNS = frozenset({
     "trading_allowed",
     # Meta flags
     "chain_available", "data_quality_flag", "is_market_open",
-    # Direction targets
-    *(f"direction_{x}s" for x in (30, 60, 90, 120, 150, 180, 300)),
 })
+
+
+def int_columns_for(target_windows_sec: tuple[int, ...]) -> frozenset[str]:
+    """Return the set of int-typed parquet columns for a profile with
+    these target windows. Phase E8 / PY-15.
+
+    Pre-E8 the int-column set was a hardcoded frozenset that included
+    `direction_{30,60,90,120,150,180,300}s` — the 90/120/150/180 entries
+    were stale (no profile uses them) and the canonical 4-window
+    profile's `direction_900s` was missing entirely, causing 4-window
+    replay parquets to cast direction targets as float32 rather than
+    int32. Deriving from the actual windows fixes both halves.
+    """
+    return _INT_COLUMNS_BASE | frozenset(
+        f"direction_{w}s" for w in target_windows_sec
+    )
+
+
+#: Backward-compat: int columns for the default 2-window profile. New
+#: code should call `int_columns_for(profile.target_windows_sec)`.
+_INT_COLUMNS: frozenset[str] = int_columns_for((30, 60))
 
 # Column names that hold string values
 _STRING_COLUMNS = frozenset({
@@ -501,22 +549,29 @@ _STRING_COLUMNS = frozenset({
 _FLOAT64_COLUMNS = frozenset({"timestamp"})   # needs full epoch precision
 
 
-def _parquet_type(col: str):
-    """Return the pyarrow type for a given column name."""
+def _parquet_type(col: str, int_columns: frozenset[str] = _INT_COLUMNS):
+    """Return the pyarrow type for a given column name. `int_columns`
+    defaults to the 2-window legacy set; pass the result of
+    `int_columns_for(profile.target_windows_sec)` to type 4-window
+    direction targets correctly."""
     import pyarrow as pa
     if col in _FLOAT64_COLUMNS:
         return pa.float64()
     if col in _STRING_COLUMNS:
         return pa.large_string()
-    if col in _INT_COLUMNS or col.endswith("_count"):
+    if col in int_columns or col.endswith("_count"):
         return pa.int32()
     return pa.float32()
 
 
-def _build_parquet_schema():
-    """Return a pyarrow schema for the 370 COLUMN_NAMES."""
+def _build_parquet_schema(target_windows_sec: tuple[int, ...] = (30, 60)):
+    """Return a pyarrow schema for the column names of the given
+    profile windows. Defaults to the 2-window legacy schema for
+    backward compat with pre-E8 callers."""
     import pyarrow as pa
-    return pa.schema([(col, _parquet_type(col)) for col in COLUMN_NAMES])
+    cols = column_names_for(target_windows_sec)
+    int_cols = int_columns_for(target_windows_sec)
+    return pa.schema([(col, _parquet_type(col, int_cols)) for col in cols])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -562,15 +617,22 @@ class Emitter:
         socket_addr: str | int | None = None,
         socket_family: int = socket.AF_INET,
         mode: str = "live",
+        target_windows_sec: tuple[int, ...] = (30, 60),
     ) -> None:
         """
         Args:
-            file_path:     Path to output NDJSON file. None = no file sink.
-            socket_addr:   Socket address. Unix socket: path string
-                           (socket_family=AF_UNIX). TCP: (host, port) tuple or
-                           int port (binds to localhost). None = no socket sink.
-            socket_family: socket.AF_UNIX or socket.AF_INET (default INET).
-            mode:          "live" (NDJSON + socket) or "replay" (Parquet accumulation).
+            file_path:           Path to output NDJSON file. None = no file sink.
+            socket_addr:         Socket address. Unix socket: path string
+                                 (socket_family=AF_UNIX). TCP: (host, port) tuple or
+                                 int port (binds to localhost). None = no socket sink.
+            socket_family:       socket.AF_UNIX or socket.AF_INET (default INET).
+            mode:                "live" (NDJSON + socket) or "replay" (Parquet accumulation).
+            target_windows_sec:  Profile target windows used to derive the parquet
+                                 schema in replay mode (Phase E8). Defaults to the
+                                 2-window legacy layout; production callers (main.py,
+                                 replay_adapter.py) pass `profile.target_windows_sec`
+                                 so 4-window profiles produce 384-column parquets
+                                 with `direction_<W>s` correctly typed as int32.
         """
         self._lock = threading.Lock()
         self._file: IO[str] | None = None
@@ -578,6 +640,7 @@ class Emitter:
         self.socket_drops: int = 0
         self._mode = mode
         self._parquet_rows: list[dict] | None = [] if mode == "replay" else None
+        self._target_windows_sec: tuple[int, ...] = tuple(target_windows_sec)
 
         if mode == "replay":
             # Replay mode — disable live sinks
@@ -684,9 +747,12 @@ class Emitter:
         """
         Flush accumulated rows to a Parquet file (replay mode only).
 
-        Schema: all 370 columns.  Column types:
+        Schema is derived from `self._target_windows_sec` (Phase E8):
+        2-window profiles → 370 columns, 4-window profiles → 384.
+        Column types:
           - Numeric float columns → float32
-          - Numeric int columns   → int32
+          - Numeric int columns   → int32 (incl. `direction_<W>s` for
+                                    every window in the profile)
           - String/None columns   → large_string (nullable)
 
         Creates parent directories as needed.  Clears the row buffer after
@@ -718,20 +784,24 @@ class Emitter:
             rows = list(self._parquet_rows or [])
             self._parquet_rows = []
 
+        # Phase E8: every parquet write uses the schema derived from
+        # this emitter's profile windows, not the legacy 2-window default.
+        windows = self._target_windows_sec
+        cols = column_names_for(windows)
+        int_cols = int_columns_for(windows)
+
         if not rows:
             # Write empty Parquet with correct schema
-            schema = _build_parquet_schema()
-            table = pa.table({col: pa.array([], type=_parquet_type(col))
-                              for col in COLUMN_NAMES})
+            table = pa.table({col: pa.array([], type=_parquet_type(col, int_cols))
+                              for col in cols})
             pq.write_table(table, path)
             return
 
         table = pa.Table.from_pylist(rows)
         # Cast columns to spec types
-        fields = []
-        for col in COLUMN_NAMES:
+        for col in cols:
             if col in table.schema.names:
-                target_type = _parquet_type(col)
+                target_type = _parquet_type(col, int_cols)
                 try:
                     table = table.set_column(
                         table.schema.get_field_index(col),

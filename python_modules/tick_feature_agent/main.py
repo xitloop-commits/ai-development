@@ -465,6 +465,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     emitter    = Emitter(
         file_path=args.output_file,
         socket_addr=_parse_socket(args.output_socket),
+        target_windows_sec=profile.target_windows_sec,
     )
     recorder   = SessionRecorder(
         instrument=instrument_key,

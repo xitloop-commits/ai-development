@@ -1,8 +1,12 @@
 """
 tick_processor.py — Live tick processing hot path.
 
-Phase 7 integration: wires all feature modules together and emits 370-column
-rows on every underlying tick received from DhanFeed.
+Phase 7 integration: wires all feature modules together and emits flat
+feature-vector rows on every underlying tick received from DhanFeed.
+Per Phase E8 the row width is **dynamic per profile** — the canonical
+4-window profile (target_windows_sec = [30, 60, 300, 900]) emits 384
+columns; the legacy 2-window profile emits 370. See
+`tick_feature_agent.output.emitter.column_names_for(windows)`.
 
 Called from the asyncio event loop (single-threaded). No locks needed for the
 feature computation path; the Emitter and SessionRecorder have their own locks

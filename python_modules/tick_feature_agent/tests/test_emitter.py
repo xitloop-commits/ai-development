@@ -22,11 +22,16 @@ import pytest
 
 from tick_feature_agent.output.emitter import (
     COLUMN_NAMES,
+    _INT_COLUMNS,
+    _INT_COLUMNS_BASE,
     assemble_flat_vector,
+    column_names_for,
+    int_columns_for,
     serialize_row,
     Emitter,
     _build_column_names,
     _build_target_columns,
+    _parquet_type,
 )
 
 _NAN = float("nan")
@@ -206,6 +211,175 @@ class TestBuildTargetColumns:
         # Total with 4 windows: 15 + 14 + 4 = 33 target cols (vs 15 for 2 windows)
         # But total row count changes — just check no duplicates and count is consistent
         assert len(set(cols_4w)) == len(cols_4w)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase E8 — Dynamic column count + int-column derivation
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestDynamicColumnCount:
+    """Lock the column-count contract for both the legacy 2-window
+    profile (370 columns) and the canonical 4-window profile (384).
+    Per Phase E8 / D4 the live profile uses 4 windows = 384 cols; the
+    2-window count is preserved for backward compat with replay of
+    pre-D4 parquets."""
+
+    def test_count_is_370_for_2window_profile(self):
+        cols = column_names_for((30, 60))
+        assert len(cols) == 370
+        assert len(set(cols)) == 370, "duplicate column names in 2-window profile"
+
+    def test_count_is_384_for_4window_profile(self):
+        """Canonical Phase D4 layout."""
+        cols = column_names_for((30, 60, 300, 900))
+        assert len(cols) == 384
+        assert len(set(cols)) == 384, "duplicate column names in 4-window profile"
+
+    @pytest.mark.parametrize("windows,expected_count", [
+        ((30,),                     363),  # single-window minimum
+        ((30, 60),                  370),  # legacy MVP
+        ((30, 60, 300),             377),  # 3-window
+        ((30, 60, 300, 900),        384),  # canonical D4
+        ((30, 60, 120, 300, 900),   391),  # hypothetical 5-window profile
+    ])
+    def test_count_formula(self, windows, expected_count):
+        """Total = 355 (window-independent base) + 7 × len(windows) + 1
+        (one upside_percentile_<min(windows)>s). Each extra window adds
+        exactly 7 columns: max_upside, max_drawdown, risk_reward_ratio,
+        total_premium_decay, avg_decay_per_strike, direction,
+        direction_magnitude."""
+        assert len(column_names_for(windows)) == expected_count
+
+    def test_legacy_module_global_is_2window_default(self):
+        """`COLUMN_NAMES` exists as backward-compat for pre-E8 callers
+        and resolves to the 2-window default."""
+        assert len(COLUMN_NAMES) == 370
+        assert COLUMN_NAMES == column_names_for((30, 60))
+
+    def test_4window_includes_300s_and_900s_target_cols(self):
+        cols = set(column_names_for((30, 60, 300, 900)))
+        for w in (30, 60, 300, 900):
+            for prefix in ("max_upside", "max_drawdown", "risk_reward_ratio",
+                           "total_premium_decay", "avg_decay_per_strike",
+                           "direction", "direction"):
+                # direction / direction_magnitude both checked below explicitly
+                pass
+            assert f"max_upside_{w}s" in cols
+            assert f"max_drawdown_{w}s" in cols
+            assert f"risk_reward_ratio_{w}s" in cols
+            assert f"total_premium_decay_{w}s" in cols
+            assert f"avg_decay_per_strike_{w}s" in cols
+            assert f"direction_{w}s" in cols
+            assert f"direction_{w}s_magnitude" in cols
+
+
+class TestDynamicIntColumns:
+    """Phase E8 / PY-15 / PY-46 regression tests.
+
+    Pre-E8 the int-typed parquet column set was a hardcoded frozenset
+    that included `direction_{30,60,90,120,150,180,300}s`. Two bugs:
+      1. 4-window profiles include `direction_900s` which was missing,
+         so the column landed as float32 instead of int32.
+      2. 90/120/150/180 entries are stale — no profile uses them.
+    `int_columns_for(windows)` derives the set from the actual profile.
+    """
+
+    def test_2window_int_columns_include_30s_and_60s_direction(self):
+        ic = int_columns_for((30, 60))
+        assert "direction_30s" in ic
+        assert "direction_60s" in ic
+
+    def test_4window_int_columns_include_900s_direction(self):
+        """The bug: pre-E8 `direction_900s` was missing from `_INT_COLUMNS`
+        for canonical 4-window profiles, causing int32 → float32 mis-typing
+        in replay parquets."""
+        ic = int_columns_for((30, 60, 300, 900))
+        assert "direction_30s" in ic
+        assert "direction_60s" in ic
+        assert "direction_300s" in ic
+        assert "direction_900s" in ic
+
+    def test_int_columns_drop_stale_90_120_150_180(self):
+        """The 90s/120s/150s/180s direction entries from pre-E8 _INT_COLUMNS
+        were never matched by any real profile. Confirm they're not in
+        the 2-window set (and the base set from which it's derived)."""
+        for stale in ("direction_90s", "direction_120s",
+                      "direction_150s", "direction_180s"):
+            assert stale not in _INT_COLUMNS_BASE, (
+                f"{stale} leaked into _INT_COLUMNS_BASE"
+            )
+            assert stale not in int_columns_for((30, 60)), (
+                f"{stale} in 2-window int set"
+            )
+            assert stale not in int_columns_for((30, 60, 300, 900)), (
+                f"{stale} in 4-window int set"
+            )
+
+    def test_int_columns_base_window_independent_keys_preserved(self):
+        """Window-independent int columns (atm_strike, opt_*_volume,
+        active_*_strike, etc.) must be present in every profile."""
+        for windows in [(30, 60), (30, 60, 300, 900), (30,)]:
+            ic = int_columns_for(windows)
+            assert "atm_strike" in ic
+            assert "strike_step" in ic
+            assert "trading_allowed" in ic
+            assert "data_quality_flag" in ic
+            assert "is_market_open" in ic
+            # Spot-check option tick + active strike int fields
+            assert "opt_0_ce_volume" in ic
+            assert "active_0_strike" in ic
+            assert "active_5_tick_available" in ic
+
+    def test_int_columns_4window_has_correct_direction_cardinality(self):
+        """Exactly len(windows) direction_<W>s entries — nothing else."""
+        ic = int_columns_for((30, 60, 300, 900))
+        direction_cols = {c for c in ic if c.startswith("direction_")}
+        assert direction_cols == {
+            "direction_30s", "direction_60s",
+            "direction_300s", "direction_900s",
+        }
+
+    def test_legacy_module_global_int_columns_2window(self):
+        """Backward-compat: `_INT_COLUMNS` global == 2-window default set."""
+        assert _INT_COLUMNS == int_columns_for((30, 60))
+
+
+class TestParquetTypeForDirectionTargets:
+    """Verify the actual parquet-type dispatch for direction columns
+    across both 2-window and 4-window profiles. This is the bug E8
+    closes: in 4-window mode `direction_900s` previously dispatched to
+    float32 because it wasn't in the hardcoded `_INT_COLUMNS` set."""
+
+    def test_direction_900s_is_int32_in_4window_mode(self):
+        import pyarrow as pa
+        ic = int_columns_for((30, 60, 300, 900))
+        assert _parquet_type("direction_900s", ic) == pa.int32()
+
+    def test_direction_900s_is_float32_in_2window_mode(self):
+        """In a 2-window profile `direction_900s` is not a target column
+        at all; if such a name appeared it would default to float32 —
+        which is the right behaviour."""
+        import pyarrow as pa
+        ic = int_columns_for((30, 60))
+        assert _parquet_type("direction_900s", ic) == pa.float32()
+
+    @pytest.mark.parametrize("col", [
+        "direction_30s", "direction_60s",
+        "direction_300s", "direction_900s",
+    ])
+    def test_all_4window_directions_are_int32(self, col):
+        import pyarrow as pa
+        ic = int_columns_for((30, 60, 300, 900))
+        assert _parquet_type(col, ic) == pa.int32()
+
+    def test_direction_magnitude_stays_float32(self):
+        """`direction_<W>s_magnitude` is a regression target → float32,
+        regardless of window count."""
+        import pyarrow as pa
+        for windows in [(30, 60), (30, 60, 300, 900)]:
+            ic = int_columns_for(windows)
+            for w in windows:
+                assert _parquet_type(f"direction_{w}s_magnitude", ic) == pa.float32()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
