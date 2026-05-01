@@ -107,11 +107,60 @@ const INSTRUMENT_MAP: Record<string, string> = {
   naturalgas: "naturalgas",
 };
 
+// Mtime-keyed memo. With four InstrumentCards open polling every 5s, the
+// raw read is 4 × (1 ndjson + 1 signal file + 3 model files) = 20 disk
+// reads/sec; with this cache it drops to ~0/s while files are stable.
+type LiveStateCacheEntry = {
+  mtimes: [number, number, number]; // [ndjson, signal_log, model_LATEST]
+  value: LiveState;
+};
+const liveStateCache = new Map<string, LiveStateCacheEntry>();
+
+function safeMtime(p: string): number {
+  try { return statSync(p).mtimeMs; } catch { return -1; }
+}
+
+/** Test/shutdown hook — drop the per-instrument live-state cache. */
+export function clearLiveStateCache(): void {
+  liveStateCache.clear();
+}
+
 export function getInstrumentLiveState(instrument: string): LiveState {
   const inst = INSTRUMENT_MAP[instrument.toLowerCase()] ?? instrument.toLowerCase();
+  const today = todayIST();
+
+  // Fingerprint the three files this call would read. Cheap statSync each
+  // time, but the heavy reads (ndjson, signal log, model metrics) only run
+  // on a real mtime change.
+  const ndjsonPath = path.resolve(`data/features/${inst}_live.ndjson`);
+  const sigPath = path.resolve(`logs/signals/${inst}/${today}_signals.log`);
+  const latestPath = path.resolve(`models/${inst}/LATEST`);
+  const mtimes: [number, number, number] = [
+    safeMtime(ndjsonPath),
+    safeMtime(sigPath),
+    safeMtime(latestPath),
+  ];
+
+  const cached = liveStateCache.get(inst);
+  if (
+    cached &&
+    cached.mtimes[0] === mtimes[0] &&
+    cached.mtimes[1] === mtimes[1] &&
+    cached.mtimes[2] === mtimes[2]
+  ) {
+    // file_age_sec is "now − ndjson mtime" — must be recomputed each call
+    // so the UI sees the age advancing while the file is idle.
+    if (cached.value.live && mtimes[0] >= 0) {
+      const fresh: LiveState = {
+        ...cached.value,
+        live: { ...cached.value.live, file_age_sec: Math.round((Date.now() - mtimes[0]) / 1000) },
+      };
+      return fresh;
+    }
+    return cached.value;
+  }
 
   // 1. Live tick from ndjson
-  const ndjsonPath = path.resolve(`data/features/${inst}_live.ndjson`);
   const row = readLastJsonLine(ndjsonPath);
   let live: LiveTick | null = null;
   if (row) {
@@ -146,8 +195,6 @@ export function getInstrumentLiveState(instrument: string): LiveState {
   }
 
   // 2. Latest signal
-  const today = todayIST();
-  const sigPath = path.resolve(`logs/signals/${inst}/${today}_signals.log`);
   const sigRow = readLastJsonLine(sigPath);
   let signal: LatestSignal | null = null;
   if (sigRow) {
@@ -172,7 +219,6 @@ export function getInstrumentLiveState(instrument: string): LiveState {
   }
 
   // 3. Model info
-  const latestPath = path.resolve(`models/${inst}/LATEST`);
   let model: ModelInfo | null = null;
   if (existsSync(latestPath)) {
     try {
@@ -196,5 +242,7 @@ export function getInstrumentLiveState(instrument: string): LiveState {
     }
   }
 
-  return { live, signal, model };
+  const value: LiveState = { live, signal, model };
+  liveStateCache.set(inst, { mtimes, value });
+  return value;
 }
