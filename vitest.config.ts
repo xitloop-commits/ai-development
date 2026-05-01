@@ -28,7 +28,14 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       environment: "node",
-      include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
+      include: [
+        "server/**/*.test.ts",
+        "server/**/*.spec.ts",
+        // Client-side tests are allowed only for pure logic (helpers,
+        // memo equality fns, etc.) — DOM-rendering tests need jsdom and
+        // @testing-library/react which are not installed.
+        "client/src/**/*.test.ts",
+      ],
       fileParallelism: false,
       testTimeout: 15000,
     },

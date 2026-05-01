@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -8,8 +8,11 @@ import { InstrumentFilterProvider } from "./contexts/InstrumentFilterContext";
 import { CapitalProvider } from "./contexts/CapitalContext";
 import MainScreen from "./components/MainScreen";
 import { CredentialGate } from "./components/CredentialGate";
-import TradingDeskMockupPage from "./mockups/TradingDeskMockupPage";
-import HeadToHeadPage from "./pages/HeadToHeadPage";
+
+// Mockup + H2H pages are reached only via specific URL params (?mockup=…, ?view=h2h),
+// so they shouldn't be in the main bundle. Lazy-load them.
+const TradingDeskMockupPage = lazy(() => import("./mockups/TradingDeskMockupPage"));
+const HeadToHeadPage = lazy(() => import("./pages/HeadToHeadPage"));
 
 function isTradingDeskMockupRoute() {
   if (typeof window === "undefined") return false;
@@ -77,9 +80,13 @@ function App() {
                 }}
               />
               {showTradingDeskMockup ? (
-                <TradingDeskMockupPage />
+                <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading mockup…</div>}>
+                  <TradingDeskMockupPage />
+                </Suspense>
               ) : showHeadToHead ? (
-                <HeadToHeadPage />
+                <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading…</div>}>
+                  <HeadToHeadPage />
+                </Suspense>
               ) : (
                 <CredentialGate>
                   <CapitalProvider>

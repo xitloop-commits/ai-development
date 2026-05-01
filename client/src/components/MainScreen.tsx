@@ -22,7 +22,7 @@
  *
  * Data: All components fetch their own data via tRPC with mock fallbacks.
  */
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { useAlertMonitor } from '@/hooks/useAlertMonitor';
@@ -41,9 +41,10 @@ import MainFooter from '@/components/MainFooter';
 import LeftSidebar from '@/components/LeftDrawer';
 import RightSidebar from '@/components/RightDrawer';
 
-// Overlays
-import SettingsOverlay from '@/components/SettingsOverlay';
-import DisciplineOverlay from '@/components/DisciplineOverlay';
+// Overlays — lazy-loaded since they're only mounted when the user opens
+// Settings (F2) or Discipline (Ctrl+D). Saves them from the main bundle.
+const SettingsOverlay = lazy(() => import('@/components/SettingsOverlay'));
+const DisciplineOverlay = lazy(() => import('@/components/DisciplineOverlay'));
 
 // Center content
 import TradingDesk from '@/components/TradingDesk';
@@ -55,16 +56,9 @@ import CircuitBreakerOverlay from '@/components/CircuitBreakerOverlay';
 // Quick Order Popup (hotkey-triggered)
 import { QuickOrderPopup, type QuickOrderData } from '@/components/QuickOrderPopup';
 
-// Mock data fallbacks
-import {
-  moduleStatuses as mockModules,
-  niftyData,
-  bankNiftyData,
-  crudeOilData,
-  naturalGasData,
-  // recentSignals removed — SEA signals come from server now
-  openPositions as mockPositions,
-} from '@/lib/mockData';
+// Mock data fallbacks — loaded via dynamic import() so the (large) mock
+// objects live in their own chunk and don't bloat the main bundle. While
+// the chunk is in flight, fallbacks render as empty arrays.
 
 const POLL_INTERVAL = 3000;
 
@@ -159,7 +153,18 @@ export default function MainScreen() {
   // selecting a workspace channel). Until then, fall through to the
   // mockPositions fallback below — the legacy /api/trading/position REST
   // surface and tradingStore.positions array were removed in B10.
-  const positionsQuery: { data?: typeof mockPositions } = { data: undefined };
+  const positionsQuery: { data?: any[] } = { data: undefined };
+
+  // Lazy-loaded mock data (separate chunk). Stays null until the import
+  // resolves; consumers fall back to empty arrays in the interim.
+  const [mockData, setMockData] = useState<typeof import('@/lib/mockData') | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    import('@/lib/mockData').then((mod) => {
+      if (!cancelled) setMockData(mod);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // ─── tRPC Mutations ────────────────────────────────────────────
   const utils = trpc.useUtils();
@@ -189,7 +194,7 @@ export default function MainScreen() {
   });
 
   // ─── Data with Mock Fallbacks ──────────────────────────────────
-  const modules = modulesQuery.data ?? mockModules;
+  const modules = modulesQuery.data ?? mockData?.moduleStatuses ?? [];
   // Configured instruments with hotkeys (for hotkey map)
   const configuredInstruments = configuredInstrumentsQuery.data ?? [
     { key: 'NIFTY_50', displayName: 'NIFTY 50', exchange: 'NSE', hotkey: '1' },
@@ -198,9 +203,10 @@ export default function MainScreen() {
     { key: 'NATURALGAS', displayName: 'NATURAL GAS', exchange: 'MCX', hotkey: '4' },
   ];
   // Full instrument analysis data (for left sidebar display)
-  const allInstruments = instrumentAnalysisQuery.data ?? [niftyData, bankNiftyData, crudeOilData, naturalGasData];
+  const allInstruments = instrumentAnalysisQuery.data
+    ?? (mockData ? [mockData.niftyData, mockData.bankNiftyData, mockData.crudeOilData, mockData.naturalGasData] : []);
   const allSignals = signalsQuery.data ?? [];
-  const allPositions = positionsQuery.data ?? mockPositions;
+  const allPositions = positionsQuery.data ?? mockData?.openPositions ?? [];
 
   // Discipline data with fallbacks
   const disciplineData = disciplineQuery.data as any;
@@ -369,18 +375,22 @@ export default function MainScreen() {
       {/* Sticky Footer */}
       <MainFooter />
 
-      {/* ─── Overlays (keyboard-triggered) ───────────────────────── */}
+      {/* ─── Overlays (keyboard-triggered, lazy-loaded chunks) ───── */}
       <ErrorBoundary section="Settings" compact>
-        <SettingsOverlay
-          open={settingsOpen}
-          onOpenChange={setSettingsOpen}
-        />
+        <Suspense fallback={null}>
+          <SettingsOverlay
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+          />
+        </Suspense>
       </ErrorBoundary>
       <ErrorBoundary section="Discipline" compact>
-        <DisciplineOverlay
-          open={disciplineOpen}
-          onOpenChange={setDisciplineOpen}
-        />
+        <Suspense fallback={null}>
+          <DisciplineOverlay
+            open={disciplineOpen}
+            onOpenChange={setDisciplineOpen}
+          />
+        </Suspense>
       </ErrorBoundary>
       {/* ─── Circuit Breaker Full-Screen Block (system-triggered) ── */}
       <CircuitBreakerOverlay

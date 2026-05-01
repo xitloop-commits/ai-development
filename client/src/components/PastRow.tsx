@@ -105,7 +105,7 @@ function _PastRow({ day, showNet, highlighted = false }: PastRowProps) {
   );
 }
 
-export const PastRow = memo(_PastRow, (prev, next) => {
+export function pastRowPropsEqual(prev: PastRowProps, next: PastRowProps): boolean {
   const d1 = prev.day;
   const d2 = next.day;
   return (
@@ -121,4 +121,6 @@ export const PastRow = memo(_PastRow, (prev, next) => {
     prev.channel === next.channel &&
     prev.highlighted === next.highlighted
   );
-});
+}
+
+export const PastRow = memo(_PastRow, pastRowPropsEqual);
