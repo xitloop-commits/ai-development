@@ -19,7 +19,7 @@ import {
   getDayRecord,
   upsertDayRecord,
 } from "./state";
-import type { Channel, TradeRecord } from "./state";
+import type { Channel, TradeRecord, CapitalState, DayRecord } from "./state";
 import { recalculateDayAggregates } from "./compounding";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { TickData } from "../broker/types";
@@ -104,16 +104,56 @@ export function tickMatchesTrade(tick: TickData, trade: TradeRecord): boolean {
 // to for live P&L. Class kept as a self-contained service so PA can
 // orchestrate lifecycle without a circular dep.
 
+/**
+ * Per-channel snapshot cached by `processPendingUpdates` so a 500ms tick
+ * batch on a quiet channel (no open trades, or no tick→trade match) does
+ * not hit Mongo on every call. Invalidated on TTL expiry or whenever a
+ * trade matched in the last batch (so persisted state is re-read fresh).
+ */
+interface ChannelStateCache {
+  state: CapitalState;
+  day: DayRecord | null;
+  brokerConfig: Awaited<ReturnType<typeof getActiveBrokerConfig>>;
+  expiresAt: number;
+}
+
+const STATE_CACHE_TTL_MS = 2000;
+
 class TickHandler extends EventEmitter {
   private running = false;
   private updateDebounce: NodeJS.Timeout | null = null;
   private pendingUpdates = new Map<string, TickData>(); // key → latest tick
   /** Track peak price per trade for trailing stop logic. Key = tradeId */
   private peakPrices = new Map<string, number>();
+  /** Per-channel cache of (capital, day, broker config). See ChannelStateCache. */
+  private readonly stateCache = new Map<Channel, ChannelStateCache>();
 
   constructor() {
     super();
     this.setMaxListeners(50);
+  }
+
+  /** Test/shutdown hook — drop the per-channel state cache. */
+  clearStateCache(): void {
+    this.stateCache.clear();
+  }
+
+  private async getChannelStateCached(channel: Channel): Promise<ChannelStateCache | null> {
+    const now = Date.now();
+    const cached = this.stateCache.get(channel);
+    if (cached && cached.expiresAt > now) return cached;
+
+    let state: CapitalState;
+    try {
+      state = await getCapitalState(channel);
+    } catch {
+      return null; // DB not connected
+    }
+    const day = await getDayRecord(channel, state.currentDayIndex);
+    const brokerConfig = await getActiveBrokerConfig();
+    const entry: ChannelStateCache = { state, day, brokerConfig, expiresAt: now + STATE_CACHE_TTL_MS };
+    this.stateCache.set(channel, entry);
+    return entry;
   }
 
   /** Start listening to tick bus */
@@ -171,21 +211,15 @@ class TickHandler extends EventEmitter {
     channel: Channel,
     ticks: TickData[]
   ): Promise<void> {
-    let state;
-    try {
-      state = await getCapitalState(channel);
-    } catch {
-      return; // DB not connected
-    }
-
-    const day = await getDayRecord(channel, state.currentDayIndex);
+    const cached = await this.getChannelStateCached(channel);
+    if (!cached) return; // DB not connected
+    const { state, day, brokerConfig } = cached;
     if (!day) return;
 
     const openTrades = day.trades.filter((t) => t.status === "OPEN");
     if (openTrades.length === 0) return;
 
     // Read trailing stop config from broker settings (centralized)
-    const brokerConfig = await getActiveBrokerConfig();
     const trailingStopEnabled = brokerConfig?.settings?.trailingStopEnabled ?? false;
     const trailingStopPercent = brokerConfig?.settings?.trailingStopPercent ?? 1.0;
 
@@ -273,6 +307,11 @@ class TickHandler extends EventEmitter {
     // Recalculate day aggregates and persist
     const updated = recalculateDayAggregates(day);
     await upsertDayRecord(channel, updated);
+
+    // A tick matched an open trade and we just persisted. Drop the cached
+    // snapshot so the next batch re-reads fresh state from Mongo (TEA may
+    // have closed the trade in response to autoExitDetected, etc.).
+    this.stateCache.delete(channel);
 
     // Emit snapshot for SSE consumers
     const snapshot: PnlSnapshot = {

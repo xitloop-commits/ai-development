@@ -44,6 +44,33 @@ function stripChainMeta(u: ChainUpdate) {
   };
 }
 
+/**
+ * Drop a client whose outbound buffer is over 1 MB — the browser is too
+ * slow to drain ticks and is just adding RAM pressure to the server. The
+ * client will reconnect and resync from the snapshot.
+ */
+const SLOW_CLIENT_BUFFER_LIMIT = 1_000_000;
+
+/**
+ * Send `data` to every OPEN client in `wss`, dropping any client whose
+ * outbound buffer is over the slow-client limit. Exported for unit tests.
+ * Returns the count of clients that were closed as slow.
+ */
+export function sendToAllClients(wss: WebSocketServer, data: string | Buffer): number {
+  let droppedSlow = 0;
+  if (wss.clients.size === 0) return 0;
+  wss.clients.forEach((client) => {
+    if (client.readyState !== WebSocket.OPEN) return;
+    if (client.bufferedAmount > SLOW_CLIENT_BUFFER_LIMIT) {
+      try { client.close(1011, "slow-client"); } catch { /* ignore */ }
+      droppedSlow++;
+      return;
+    }
+    client.send(data);
+  });
+  return droppedSlow;
+}
+
 export interface TickWsHandle {
   close: () => Promise<void>;
 }
@@ -64,27 +91,19 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
     }
   });
 
-  // Forward raw binary from Dhan WS directly to all browser clients
+  // Forward raw binary from Dhan WS directly to all browser clients.
   const onRawBinary = (data: Buffer) => {
-    if (wss.clients.size === 0) return;
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(data);
-      }
-    });
+    sendToAllClients(wss, data);
   };
 
   tickBus.on("rawBinary", onRawBinary);
 
-  // Forward option-chain updates as JSON text frames.
+  // Forward option-chain updates as JSON text frames. Skip the stringify +
+  // strip work entirely when no client is connected.
   const onChainUpdate = (update: ChainUpdate) => {
     if (wss.clients.size === 0) return;
     const msg = JSON.stringify({ type: "chainUpdate", chain: stripChainMeta(update) });
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(msg);
-      }
-    });
+    sendToAllClients(wss, msg);
   };
 
   tickBus.on("chainUpdate", onChainUpdate);

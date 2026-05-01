@@ -8,7 +8,7 @@
  * and returns them as typed SEASignal objects.
  */
 
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, statSync } from "fs";
 import path from "path";
 
 export interface SEASignal {
@@ -74,6 +74,21 @@ function readLastLines(filePath: string, maxLines: number): string[] {
 
 const DEDUP_WINDOW_SEC = 30;
 
+// Mtime-keyed cache shared by tRPC, seaBridge, and rcaMonitor consumers.
+// Same (limit, instrument, source) inputs return the cached array as long
+// as none of the underlying log files have been written since.
+type CacheEntry = { result: SEASignal[]; mtimeKey: string };
+const seaSignalsCache = new Map<string, CacheEntry>();
+
+function safeMtime(p: string): number {
+  try { return statSync(p).mtimeMs; } catch { return -1; }
+}
+
+/** Clear the in-memory cache (called by tests + on shutdown). */
+export function clearSEASignalsCache(): void {
+  seaSignalsCache.clear();
+}
+
 export function getSEASignals(
   limit: number = 50,
   instrument?: string,
@@ -83,6 +98,19 @@ export function getSEASignals(
   const instruments = instrument
     ? [instrument.toLowerCase()]
     : INSTRUMENTS;
+
+  // Build mtime fingerprint across every candidate file the call would read.
+  // Cheaper than reading the files; cache hits avoid all readFileSync work.
+  const mtimeParts: string[] = [];
+  for (const inst of instruments) {
+    const filteredPath = path.resolve(`logs/signals/${inst}/${today}_filtered_signals.log`);
+    const rawPath = path.resolve(`logs/signals/${inst}/${today}_signals.log`);
+    mtimeParts.push(`${inst}:${safeMtime(filteredPath)}:${safeMtime(rawPath)}`);
+  }
+  const mtimeKey = mtimeParts.join("|");
+  const cacheKey = `${today}|${instrument ?? ""}|${source}|${limit}`;
+  const cached = seaSignalsCache.get(cacheKey);
+  if (cached && cached.mtimeKey === mtimeKey) return cached.result;
 
   const raw: SEASignal[] = [];
   let counter = 0;
@@ -184,7 +212,9 @@ export function getSEASignals(
 
   // Sort newest-first for display
   merged.sort((a, b) => b.timestamp - a.timestamp);
-  return merged.slice(0, limit);
+  const result = merged.slice(0, limit);
+  seaSignalsCache.set(cacheKey, { result, mtimeKey });
+  return result;
 }
 
 /**
