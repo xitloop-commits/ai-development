@@ -25,6 +25,9 @@ import { getAllInstruments, addInstrument, removeInstrument, assignHotkey, type 
 import { searchByQuery, downloadScripMaster, needsRefresh } from './broker/adapters/dhan/scripMaster';
 import { setConfiguredInstruments } from './tradingStore';
 import { validateBody, validateParams, validateQuery } from "./_core/zodMiddleware";
+import { createLogger } from "./broker/logger";
+
+const log = createLogger("BSA", "TradingAPI");
 
 // ─── Schemas ────────────────────────────────────────────────────
 
@@ -94,7 +97,7 @@ export function registerTradingRoutes(app: Express): void {
         pushOptionChain(instrument, data as Parameters<typeof pushOptionChain>[1]);
         res.json({ success: true, message: `Option chain updated for ${instrument}` });
       } catch (err: any) {
-        console.error('[Trading API] Error pushing option chain:', err);
+        log.error('Error pushing option chain', err);
         res.status(500).json({ error: err.message });
       }
     },
@@ -110,7 +113,7 @@ export function registerTradingRoutes(app: Express): void {
         pushAnalyzerOutput(instrument, data as Parameters<typeof pushAnalyzerOutput>[1]);
         res.json({ success: true, message: `Analyzer output updated for ${instrument}` });
       } catch (err: any) {
-        console.error('[Trading API] Error pushing analyzer output:', err);
+        log.error('Error pushing analyzer output', err);
         res.status(500).json({ error: err.message });
       }
     },
@@ -126,7 +129,7 @@ export function registerTradingRoutes(app: Express): void {
         updateModuleHeartbeat(module, message ?? 'Active');
         res.json({ success: true });
       } catch (err: any) {
-        console.error('[Trading API] Error updating heartbeat:', err);
+        log.error('Error updating heartbeat', err);
         res.status(500).json({ error: err.message });
       }
     },
@@ -148,7 +151,7 @@ export function registerTradingRoutes(app: Express): void {
         setActiveInstruments(instruments);
         res.json({ success: true, instruments: getActiveInstruments() });
       } catch (err: any) {
-        console.error('[Trading API] Error setting active instruments:', err);
+        log.error('Error setting active instruments', err);
         res.status(500).json({ error: err.message });
       }
     },
@@ -161,7 +164,7 @@ export function registerTradingRoutes(app: Express): void {
       const instruments = await getAllInstruments();
       res.json({ instruments });
     } catch (err: any) {
-      console.error('[Trading API] Error fetching instruments:', err);
+      log.error('Error fetching instruments', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -179,10 +182,10 @@ export function registerTradingRoutes(app: Express): void {
         // Ensure scrip master is loaded
         if (needsRefresh(24)) {
           try {
-            console.log('[Scrip Master] Downloading for search request...');
+            log.info('[Scrip Master] Downloading for search request...');
             await downloadScripMaster();
           } catch (err: any) {
-            console.warn('[Scrip Master] Download failed:', err.message);
+            log.warn(`[Scrip Master] Download failed: ${err.message}`);
             // Continue with cached data
           }
         }
@@ -191,7 +194,7 @@ export function registerTradingRoutes(app: Express): void {
         const results = searchByQuery(query, exchangeFilter, 20);
         res.json({ results });
       } catch (err: any) {
-        console.error('[Trading API] Error searching instruments:', err);
+        log.error('Error searching instruments', err);
         res.status(500).json({ error: err.message });
       }
     },
@@ -222,7 +225,7 @@ export function registerTradingRoutes(app: Express): void {
 
         res.json({ success: true, instrument: result });
       } catch (err: any) {
-        console.error('[Trading API] Error adding instrument:', err);
+        log.error('Error adding instrument', err);
         res.status(400).json({ error: err.message || 'Failed to add instrument' });
       }
     },
@@ -243,7 +246,7 @@ export function registerTradingRoutes(app: Express): void {
 
         res.json({ success: true });
       } catch (err: any) {
-        console.error('[Trading API] Error removing instrument:', err);
+        log.error('Error removing instrument', err);
         res.status(400).json({ error: err.message || 'Failed to remove instrument' });
       }
     },
@@ -266,7 +269,7 @@ export function registerTradingRoutes(app: Express): void {
 
         res.json({ success: true });
       } catch (err: any) {
-        console.error('[Trading API] Error assigning hotkey:', err);
+        log.error('Error assigning hotkey', err);
         res.status(400).json({ error: err.message || 'Failed to assign hotkey' });
       }
     },
@@ -289,5 +292,5 @@ export function registerTradingRoutes(app: Express): void {
     }
   });
 
-  console.log('[Trading API] REST routes registered under /api/trading/*');
+  log.info('REST routes registered under /api/trading/*');
 }

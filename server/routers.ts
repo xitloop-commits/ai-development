@@ -1,6 +1,9 @@
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { createLogger } from "./broker/logger";
+
+const searchLog = createLogger("BSA", "InstrumentsSearch");
 import {
   getModuleStatuses,
   getInstrumentData,
@@ -88,32 +91,32 @@ export const appRouter = router({
       )
       .query(async ({ input }) => {
         try {
-          console.log("[Instruments Search] Search called with input:", input);
+          searchLog.debug(`Search called: ${JSON.stringify(input ?? {})}`);
 
           // Return empty results if no input
           if (!input?.query) {
-            console.log("[Instruments Search] No query provided");
+            searchLog.debug("No query provided");
             return [];
           }
 
           // Ensure scrip master is loaded (download if stale or empty)
-          console.log("[Instruments Search] Checking if scrip master needs refresh...");
+          searchLog.debug("Checking if scrip master needs refresh...");
           if (needsRefresh(24)) {
             try {
-              console.log("[Instruments Search] Downloading scrip master...");
+              searchLog.info("Downloading scrip master...");
               const count = await downloadScripMaster();
-              console.log(`[Instruments Search] Scrip master loaded successfully with ${count} records`);
+              searchLog.info(`Scrip master loaded successfully with ${count} records`);
             } catch (downloadErr: any) {
-              console.error("[Instruments Search] Scrip master download failed:", downloadErr.message || downloadErr);
+              searchLog.error(`Scrip master download failed: ${downloadErr?.message ?? downloadErr}`);
               // Continue with whatever data we have (may be empty on first run)
             }
           } else {
-            console.log("[Instruments Search] Scrip master is fresh, not downloading");
+            searchLog.debug("Scrip master is fresh, not downloading");
           }
 
           const exchange = input.exchange === "ALL" ? undefined : input.exchange;
           const results = searchByQuery(input.query, exchange, 20);
-          console.log(`[Instruments Search] Query '${input.query}' returned ${results.length} results`);
+          searchLog.debug(`Query '${input.query}' returned ${results.length} results`);
 
           // Transform to a simpler format for frontend
           return results.map(r => ({
@@ -130,7 +133,7 @@ export const appRouter = router({
             lotSize: r.lotSize,
           }));
         } catch (err: any) {
-          console.error("[Instruments Search] Unexpected error:", err);
+          searchLog.error("Unexpected error", err);
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: `Search failed: ${err.message}`,

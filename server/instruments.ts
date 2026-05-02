@@ -6,6 +6,9 @@
  */
 
 import mongoose, { Schema, Document } from "mongoose";
+import { createLogger } from "./broker/logger";
+
+const log = createLogger("BOOT", "Instruments");
 
 export interface InstrumentConfig {
   key: string;              // 'NIFTY_50' — unique identifier
@@ -194,7 +197,7 @@ export async function seedDefaultInstruments(): Promise<void> {
           throw err;
         }
       });
-      console.log("[Instruments] Seeded 4 default instruments");
+      log.important("Seeded 4 default instruments");
     } else {
       // Subsequent runs: ensure defaults exist, upsert any missing
       for (const defaultInst of DEFAULT_INSTRUMENTS) {
@@ -206,7 +209,7 @@ export async function seedDefaultInstruments(): Promise<void> {
       }
     }
   } catch (err) {
-    console.error("[Instruments] Error seeding default instruments:", err);
+    log.error("Error seeding default instruments", err as Error);
     throw err;
   }
 }

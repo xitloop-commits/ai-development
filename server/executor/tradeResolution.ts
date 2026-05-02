@@ -16,6 +16,9 @@
 
 import { getActiveBroker } from "../broker/brokerService";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
+import { createLogger } from "../broker/logger";
+
+const log = createLogger("TEA", "Resolution");
 
 // ─── Daily / per-trade target settings ─────────────────────────
 
@@ -129,12 +132,12 @@ export async function resolveContract(
 ): Promise<{ secId: string; ltp: number; strike: number } | null> {
   const broker = getActiveBroker();
   if (!broker) {
-    console.warn(`[resolveContract] No active broker for ${instrument}`);
+    log.warn(`No active broker for ${instrument}`);
     return null;
   }
   const resolved = await resolveUnderlyingForExpiry(instrument);
   if (!resolved) {
-    console.warn(`[resolveContract] Could not resolve underlying for ${instrument}`);
+    log.warn(`Could not resolve underlying for ${instrument}`);
     return null;
   }
   try {
@@ -145,7 +148,7 @@ export async function resolveContract(
     );
     const rows = chain.rows ?? [];
     if (rows.length === 0) {
-      console.warn(`[resolveContract] Empty option chain for ${instrument} ${expiry}`);
+      log.warn(`Empty option chain for ${instrument} ${expiry}`);
       return null;
     }
     let row = rows.find((r: any) => r.strike === strike);
@@ -153,21 +156,17 @@ export async function resolveContract(
       row = rows.reduce((best: any, r: any) =>
         Math.abs(r.strike - strike) < Math.abs(best.strike - strike) ? r : best,
       );
-      console.warn(
-        `[resolveContract] Strike ${strike} not in chain for ${instrument}; using nearest ${row.strike}`,
-      );
+      log.warn(`Strike ${strike} not in chain for ${instrument}; using nearest ${row.strike}`);
     }
     const secId = isCall ? row.callSecurityId : row.putSecurityId;
     const ltp = isCall ? row.callLTP : row.putLTP;
     if (!secId || !ltp || ltp <= 0) {
-      console.warn(
-        `[resolveContract] Missing secId/ltp for ${instrument} ${row.strike} ${isCall ? "CE" : "PE"}: secId=${secId}, ltp=${ltp}`,
-      );
+      log.warn(`Missing secId/ltp for ${instrument} ${row.strike} ${isCall ? "CE" : "PE"}: secId=${secId}, ltp=${ltp}`);
       return null;
     }
     return { secId, ltp, strike: row.strike };
   } catch (err: any) {
-    console.warn(`[resolveContract] getOptionChain failed for ${instrument} ${expiry}: ${err?.message}`);
+    log.warn(`getOptionChain failed for ${instrument} ${expiry}: ${err?.message}`);
     return null;
   }
 }

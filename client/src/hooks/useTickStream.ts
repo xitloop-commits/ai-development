@@ -260,7 +260,7 @@ function connectWs() {
   wsInstance = ws;
 
   ws.onopen = () => {
-    console.log("[TickWS] Connected");
+    if (import.meta.env.DEV) console.log("[TickWS] Connected");
     wsConnected = true;
   };
 
@@ -301,7 +301,7 @@ function connectWs() {
   };
 
   ws.onclose = () => {
-    console.log("[TickWS] Disconnected, reconnecting in 1s...");
+    if (import.meta.env.DEV) console.log("[TickWS] Disconnected, reconnecting in 1s...");
     wsConnected = false;
     wsInstance = null;
     if (wsReconnectTimer) clearTimeout(wsReconnectTimer);

@@ -119,7 +119,7 @@ export default function MainScreen() {
     if (feedSubscribedRef.current && resolvedInstruments.length === subscribedCountRef.current) return;
     feedSubscribedRef.current = true;
     subscribedCountRef.current = resolvedInstruments.length;
-    console.log('[Feed] Auto-subscribing resolved instruments:', resolvedInstruments.map(i => `${i.exchange}:${i.securityId}`));
+    if (import.meta.env.DEV) console.log('[Feed] Auto-subscribing resolved instruments:', resolvedInstruments.map(i => `${i.exchange}:${i.securityId}`));
     feedSubscribe(
       resolvedInstruments.map((i) => ({
         securityId: i.securityId,
@@ -127,9 +127,9 @@ export default function MainScreen() {
         mode: i.mode as "ticker" | "quote" | "full",
       }))
     ).then(() => {
-      console.log('[Feed] Auto-subscribe success');
+      if (import.meta.env.DEV) console.log('[Feed] Auto-subscribe success');
     }).catch((err) => {
-      console.warn('[Feed] Auto-subscribe failed:', err);
+      if (import.meta.env.DEV) console.warn('[Feed] Auto-subscribe failed:', err);
       feedSubscribedRef.current = false;
     });
   }, [activeBrokerId, resolvedInstruments, feedSubscribe]);

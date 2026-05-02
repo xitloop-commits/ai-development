@@ -47,6 +47,10 @@ import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import { tickBus } from "../broker/tickBus";
 import type { BrokerSettings, OrderParams } from "../broker/types";
 import { portfolioAgent } from "./portfolioAgent";
+import { createLogger } from "../broker/logger";
+
+const log = createLogger("PA", "Router");
+
 // ─── Helpers ─────────────────────────────────────────────────────
 
 const channelSchema = z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "testing-sandbox"]);
@@ -226,7 +230,7 @@ export const portfolioRouter = router({
         try {
           await syncWorkspace(channel);
         } catch (err) {
-          console.warn(`[portfolio.inject] ${channel} channel sync failed (non-fatal):`, err);
+          log.warn(`inject ${channel} channel sync failed (non-fatal): ${(err as Error)?.message ?? err}`);
         }
       }
 
@@ -527,7 +531,7 @@ export const portfolioRouter = router({
         try {
           await resetWorkspace(channel);
         } catch (err) {
-          console.warn(`[portfolio.resetCapital] ${channel} channel reset failed (non-fatal):`, err);
+          log.warn(`resetCapital ${channel} channel reset failed (non-fatal): ${(err as Error)?.message ?? err}`);
         }
       }
 

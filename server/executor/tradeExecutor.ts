@@ -20,6 +20,7 @@
  */
 
 import { createLogger } from "../broker/logger";
+import { withTrade } from "../_core/correlationContext";
 import { getAdapter, isChannelKillSwitchActive } from "../broker/brokerService";
 import { tickBus } from "../broker/tickBus";
 import type {
@@ -138,6 +139,13 @@ class TradeExecutorAgent {
   // ── §4.1 Submit a trade ─────────────────────────────────────
 
   async submitTrade(req: SubmitTradeRequest): Promise<SubmitTradeResponse> {
+    // Wrap the entire submission flow in a correlation scope so every
+    // log line emitted (across kill-switch, discipline, broker, and PA
+    // state writes) carries the executionId as `tradeId` for grep-ability.
+    return withTrade(req.executionId, () => this._submitTradeImpl(req));
+  }
+
+  private async _submitTradeImpl(req: SubmitTradeRequest): Promise<SubmitTradeResponse> {
     // Idempotency — duplicate executionIds replay the cached response.
     const cached = idempotencyStore.reserve<SubmitTradeResponse>(req.executionId);
     if (cached) {

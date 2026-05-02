@@ -14,6 +14,9 @@ import { z } from "zod";
 import { validateQuery } from "../_core/zodMiddleware";
 import { portfolioAgent } from "./portfolioAgent";
 import type { Channel } from "./state";
+import { createLogger } from "../broker/logger";
+
+const log = createLogger("PA", "REST");
 
 const channelSchema = z.enum([
   "ai-live",
@@ -46,7 +49,7 @@ export function registerPortfolioRoutes(app: Express): void {
         const report = await portfolioAgent.getDailyPnl(channel as Channel);
         res.json(report);
       } catch (err: any) {
-        console.error("[portfolio REST] daily-pnl failed:", err);
+        log.error("daily-pnl failed", err);
         res.status(500).json({ error: err.message });
       }
     },

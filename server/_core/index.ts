@@ -24,6 +24,7 @@ import { registerFatalHandlers } from "./fatalHandlers";
 import { registerShutdownHook, installSignalHandlers } from "./shutdown";
 import { authMiddleware, registerAuthBootstrapEndpoint } from "./auth";
 import { validateEnv } from "./validateEnv";
+import { requestIdMiddleware } from "./correlationContext";
 
 const bootLog = createLogger("BOOT", "Server");
 
@@ -152,6 +153,13 @@ async function startServer() {
     .catch((err) =>
       bootLog.error(`MongoDB initial connection failed: ${(err as Error)?.message ?? err}`)
     );
+  // Correlation ID — assign one requestId per HTTP request and propagate
+  // it through the async tree so every log line emitted while serving the
+  // request carries the same id. Mounted before any other middleware so
+  // even error-path logs (auth rejection, body-parser failure, etc.) are
+  // tagged.
+  app.use(requestIdMiddleware);
+
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ limit: "1mb", extended: true }));
 
@@ -221,4 +229,4 @@ async function startServer() {
   });
 }
 
-startServer().catch(console.error);
+startServer().catch((err) => bootLog.error("startServer failed", err));

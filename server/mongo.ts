@@ -1,4 +1,7 @@
 import mongoose from "mongoose";
+import { createLogger } from "./broker/logger";
+
+const log = createLogger("BOOT", "MongoDB");
 
 // ─── Configuration ───────────────────────────────────────────────
 const MONGODB_URI = process.env.MONGODB_URI ?? "";
@@ -19,7 +22,7 @@ export async function connectMongo(): Promise<void> {
 
   if (!MONGODB_URI) {
     connectionError = "MONGODB_URI environment variable is not set";
-    console.error(`[MongoDB] ${connectionError}`);
+    log.error(connectionError);
     return;
   }
 
@@ -28,28 +31,24 @@ export async function connectMongo(): Promise<void> {
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      console.log(
-        `[MongoDB] Connecting (attempt ${attempt}/${MAX_RETRIES})...`
-      );
+      log.info(`Connecting (attempt ${attempt}/${MAX_RETRIES})...`);
       await mongoose.connect(MONGODB_URI, {
         serverSelectionTimeoutMS: 5000,
         connectTimeoutMS: 10000,
       });
-      console.log(
-        `[MongoDB] Connected successfully to ${mongoose.connection.name}`
-      );
+      log.important(`Connected successfully to ${mongoose.connection.name}`);
       isConnecting = false;
       return;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[MongoDB] Attempt ${attempt} failed: ${message}`);
+      log.error(`Attempt ${attempt} failed: ${message}`);
 
       if (attempt < MAX_RETRIES) {
-        console.log(`[MongoDB] Retrying in ${RETRY_DELAY_MS}ms...`);
+        log.info(`Retrying in ${RETRY_DELAY_MS}ms...`);
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
       } else {
         connectionError = `Failed after ${MAX_RETRIES} attempts: ${message}`;
-        console.error(`[MongoDB] ${connectionError}`);
+        log.error(connectionError);
       }
     }
   }
@@ -64,9 +63,9 @@ export async function disconnectMongo(): Promise<void> {
   if (mongoose.connection.readyState === 0) return; // already disconnected
   try {
     await mongoose.disconnect();
-    console.log("[MongoDB] Disconnected");
+    log.important("Disconnected");
   } catch (err) {
-    console.error("[MongoDB] Error disconnecting:", err);
+    log.error("Error disconnecting", err as Error);
   }
 }
 
@@ -121,15 +120,15 @@ export async function pingMongo(): Promise<number> {
 
 // ─── Mongoose Event Listeners ────────────────────────────────────
 mongoose.connection.on("connected", () => {
-  console.log("[MongoDB] Connection established");
+  log.info("Connection established");
 });
 
 mongoose.connection.on("disconnected", () => {
-  console.log("[MongoDB] Connection lost");
+  log.warn("Connection lost");
 });
 
 mongoose.connection.on("error", (err) => {
-  console.error("[MongoDB] Connection error:", err.message);
+  log.error(`Connection error: ${err.message}`);
   connectionError = err.message;
 });
 
