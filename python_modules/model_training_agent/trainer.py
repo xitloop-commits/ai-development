@@ -26,7 +26,11 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
-from model_training_agent.preprocessor import preprocess_for_training
+from model_training_agent.preprocessor import (
+    preprocess_for_training,
+    preprocess_for_training_base,
+    extract_target_subset,
+)
 
 # Single source of truth — the 28 canonical targets (7 types × 4 windows)
 # locked Phase D4, surfaced through `_shared.targets` per Phase E9 so the
@@ -195,12 +199,25 @@ def train_instrument(
     output_dir = models_root / instrument / ts
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # F4: compute the row-filtered DataFrame + float32 feature matrix ONCE
+    # per (instrument, run). Pre-F4 the trainer ran the full preprocessor
+    # ~26 times (once per target) — most of that work was identical
+    # (Step 1 row filter, feature extraction, dtype cast). With the
+    # split, the per-target work is just `extract_target_subset`, which
+    # is a boolean mask + reset_index on already-built X_base.
+    df_train_filt, X_train_base, feature_config = preprocess_for_training_base(
+        df_train, feature_config,
+    )
+    df_val_filt, X_val_base, _ = preprocess_for_training_base(
+        df_val, feature_config,
+    )
+
     all_metrics: dict = {}
     skipped_targets: list[str] = []
     for target, objective in MVP_TARGETS.items():
         print(f"\n  >> Training {target} ({objective}) ...")
-        X_tr, y_tr, _ = preprocess_for_training(df_train, feature_config, target)
-        X_va, y_va, _ = preprocess_for_training(df_val,   feature_config, target)
+        X_tr, y_tr = extract_target_subset(df_train_filt, X_train_base, target)
+        X_va, y_va = extract_target_subset(df_val_filt,   X_val_base,   target)
 
         if len(X_tr) == 0 or len(X_va) == 0:
             reason = f"no data after preprocess (train={len(X_tr)}, val={len(X_va)})"

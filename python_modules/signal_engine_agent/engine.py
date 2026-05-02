@@ -37,7 +37,7 @@ if str(_PYTHON_MODULES) not in sys.path:
 
 import numpy as np
 
-from model_training_agent.preprocessor import preprocess_live_tick
+from model_training_agent.preprocessor import LiveTickPreprocessor
 from signal_engine_agent.model_loader import load_models
 from signal_engine_agent.signal_logger import SignalLogger
 from signal_engine_agent.thresholds import (
@@ -149,6 +149,12 @@ def run(instrument: str,
     raw_logger = SignalLogger(instrument)
     filtered_logger = SignalLogger(instrument, root=Path("logs/signals"),
                                    suffix="_filtered")
+    # F4 hot-path optimisation: pre-allocate the feature vector buffer
+    # once per SEA instance and reuse it on every tick. The returned
+    # array is the same buffer each call — `vec` must be consumed before
+    # the next `process()` call. SEA reshapes-and-predicts immediately,
+    # which is safe (LightGBM copies inputs internally for prediction).
+    live_preprocessor = LiveTickPreprocessor(models.feature_config)
     processed = 0
     raw_signals = 0
     filtered_signals = 0
@@ -168,7 +174,7 @@ def run(instrument: str,
             except json.JSONDecodeError:
                 continue
 
-            vec = preprocess_live_tick(row, models.feature_config)
+            vec = live_preprocessor.process(row)
             if vec is None:
                 continue
             X = vec.reshape(1, -1)

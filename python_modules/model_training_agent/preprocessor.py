@@ -92,30 +92,32 @@ def _derive_feature_columns(df: pd.DataFrame) -> list[str]:
     return kept
 
 
-def preprocess_for_training(
+def preprocess_for_training_base(
     df: pd.DataFrame,
     feature_config: dict | None,
-    target_col: str,
-) -> tuple[pd.DataFrame, pd.Series, dict]:
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """
-    Apply MVP pipeline (Steps 1-3) for training.
+    Steps 1 + 2 (row filter + feature column extraction) — the heavy work,
+    target-independent. Returns the filtered DataFrame plus a float32
+    feature matrix that can be sliced per-target by `extract_target_subset`.
+
+    F4 introduced this split so the trainer computes X_train / X_val once
+    per (instrument, run) instead of once per target. The float32 cast
+    halves memory vs the prior float64 path; LightGBM accepts float32
+    natively.
 
     Args:
         df:              Raw Parquet DataFrame (one instrument, one or more days)
         feature_config:  Locked config dict with "final_features" list, or None
                          on first run (columns will be derived from df).
-        target_col:      Name of target column, e.g. "direction_30s"
 
     Returns:
-        X_features:     DataFrame of feature columns, same order as
-                        feature_config["final_features"]
-        y_labels:       Series with the target column (NaN rows already dropped)
-        feature_config: Locked config dict. If input was None, this is newly
-                        derived and should be saved by caller.
+        filtered_df:    Row-filtered DataFrame (still has all columns including
+                        targets) — pass to `extract_target_subset` for per-target
+                        slicing.
+        X_base:         Feature DataFrame, dtype=float32, aligned with filtered_df.
+        feature_config: Locked config dict.
     """
-    if target_col not in df.columns:
-        raise KeyError(f"Target column {target_col!r} not in DataFrame")
-
     df = _row_filter(df)
 
     if feature_config is None:
@@ -127,19 +129,96 @@ def preprocess_for_training(
         if missing:
             raise KeyError(f"Features in config missing from DataFrame: {missing[:5]}")
 
-    # Drop rows where target is NaN or the int32 sentinel (-2147483648 is pandas'
-    # "missing" marker for int32 columns that can't store np.nan natively)
-    y = df[target_col]
+    # F4: float32 instead of float64 — halves the memory footprint of the
+    # full feature matrix on multi-day training runs. LightGBM accepts
+    # float32 inputs natively and produces identical models given the
+    # same seed, since it bins features into uint8/uint16 histograms
+    # internally before training.
+    X_base = df[feature_cols].copy().astype("float32")
+
+    return df, X_base, feature_config
+
+
+def extract_target_subset(
+    filtered_df: pd.DataFrame,
+    X_base: pd.DataFrame,
+    target_col: str,
+) -> tuple[pd.DataFrame, pd.Series]:
+    """
+    Pair function with `preprocess_for_training_base`. Drops rows where
+    the target is NaN / int32-sentinel from both X and y. Cheap — a
+    single boolean mask + reset_index per target.
+    """
+    if target_col not in filtered_df.columns:
+        raise KeyError(f"Target column {target_col!r} not in DataFrame")
+
+    y = filtered_df[target_col]
     INT32_SENTINEL = -2147483648
     valid_mask = y.notna() & (y != INT32_SENTINEL)
-    df = df[valid_mask].reset_index(drop=True)
-    y = y[valid_mask].reset_index(drop=True).astype("float64")
+    X = X_base[valid_mask].reset_index(drop=True)
+    y = y[valid_mask].reset_index(drop=True).astype("float32")
+    return X, y
 
-    X = df[feature_cols].copy()
-    # Cast to float64 for LightGBM; NaN in features is handled natively
-    X = X.astype("float64")
 
+def preprocess_for_training(
+    df: pd.DataFrame,
+    feature_config: dict | None,
+    target_col: str,
+) -> tuple[pd.DataFrame, pd.Series, dict]:
+    """
+    Apply MVP pipeline (Steps 1-3) for training. Backward-compatible
+    composition of `preprocess_for_training_base` + `extract_target_subset`.
+
+    Returns:
+        X_features:     DataFrame of feature columns (float32), same order as
+                        feature_config["final_features"]
+        y_labels:       Series with the target column (float32, NaN rows dropped)
+        feature_config: Locked config dict. If input was None, newly derived.
+    """
+    if target_col not in df.columns:
+        raise KeyError(f"Target column {target_col!r} not in DataFrame")
+
+    filtered_df, X_base, feature_config = preprocess_for_training_base(df, feature_config)
+    X, y = extract_target_subset(filtered_df, X_base, target_col)
     return X, y, feature_config
+
+
+# F4: in-place live-tick preprocessor for the SEA hot path. SEA used to
+# allocate a fresh np.array per tick (~30 ticks/sec across 4 instruments
+# = a lot of churn). With this class, the buffer is allocated once at
+# instance construction and reused; the returned array IS the buffer,
+# so callers must consume it before the next `process()` call.
+class LiveTickPreprocessor:
+    """
+    Stateful in-place version of `preprocess_live_tick`. Instantiate once
+    per (SEA instance, feature_config) and call `process(row)` per tick.
+
+    Returns the SAME ndarray each call (mutated in place); valid only
+    until the next `process()` call. Suitable for SEA's predict-and-go
+    flow where the vector is consumed immediately.
+    """
+
+    def __init__(self, feature_config: dict) -> None:
+        self.feature_cols: list[str] = list(feature_config["final_features"])
+        self.n_features: int = len(self.feature_cols)
+        # F4 dtype change — LightGBM accepts float32 natively.
+        self._buf: np.ndarray = np.empty(self.n_features, dtype=np.float32)
+
+    def process(self, row: dict) -> np.ndarray | None:
+        """Return the cached buffer with this row's values, or None if
+        the row should be filtered out (non-trading / bad data)."""
+        if row.get("is_market_open") != 1:
+            return None
+        if row.get("data_quality_flag") != 1:
+            return None
+        if row.get("trading_state") != "TRADING":
+            return None
+
+        buf = self._buf
+        for i, c in enumerate(self.feature_cols):
+            v = row.get(c)
+            buf[i] = np.float32("nan") if v is None else np.float32(v)
+        return buf
 
 
 def preprocess_live_tick(
@@ -147,14 +226,14 @@ def preprocess_live_tick(
     feature_config: dict,
 ) -> np.ndarray | None:
     """
-    Apply Steps 1-2 to a single live tick dict.
+    Apply Steps 1-2 to a single live tick dict. Allocates a fresh ndarray
+    per call — for the SEA hot path use `LiveTickPreprocessor` instead.
 
     Returns:
-        np.ndarray of shape (n_features,) in the same order as
-        feature_config["final_features"], or None if the row should be
-        filtered out (non-trading / bad data).
+        np.ndarray of shape (n_features,), dtype=float32, in the same
+        order as feature_config["final_features"], or None if the row
+        should be filtered out.
     """
-    # Step 1 filter
     if row.get("is_market_open") != 1:
         return None
     if row.get("data_quality_flag") != 1:
@@ -163,9 +242,9 @@ def preprocess_live_tick(
         return None
 
     feature_cols = feature_config["final_features"]
-    # np.nan for missing keys — LightGBM handles NaN natively
+    # np.nan for missing keys — LightGBM handles NaN natively.
     vec = np.array(
         [row.get(c) if row.get(c) is not None else np.nan for c in feature_cols],
-        dtype=np.float64,
+        dtype=np.float32,
     )
     return vec

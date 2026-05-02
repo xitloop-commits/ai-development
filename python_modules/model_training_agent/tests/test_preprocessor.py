@@ -32,7 +32,10 @@ from model_training_agent.preprocessor import (
     IDENTIFIER_COLS,
     REDUNDANT_COLS,
     TARGET_COLS,
+    LiveTickPreprocessor,
+    extract_target_subset,
     preprocess_for_training,
+    preprocess_for_training_base,
     preprocess_live_tick,
 )
 
@@ -190,21 +193,26 @@ def test_missing_target_column_raises_keyerror() -> None:
         preprocess_for_training(df, None, "direction_30s")
 
 
-# ── Output dtypes ─────────────────────────────────────────────────────────
+# ── Output dtypes (F4 — float32 to halve memory) ─────────────────────────
 
-def test_output_X_is_float64() -> None:
+def test_output_X_is_float32() -> None:
+    """F4 — feature matrix dtype changed from float64 to float32. LightGBM
+    accepts float32 natively and produces identical models given the same
+    seed (it bins features into uint8/uint16 histograms internally)."""
     df = _build_df()
     X, _y, _cfg = preprocess_for_training(df, None, "direction_30s")
     for col in X.columns:
-        assert str(X[col].dtype) == "float64", (
-            f"{col} is {X[col].dtype}, expected float64"
+        assert str(X[col].dtype) == "float32", (
+            f"{col} is {X[col].dtype}, expected float32 (F4)"
         )
 
 
-def test_output_y_is_float64() -> None:
+def test_output_y_is_float32() -> None:
+    """F4 — target dtype matches feature dtype to keep LightGBM internal
+    casts cheap."""
     df = _build_df()
     _X, y, _cfg = preprocess_for_training(df, None, "direction_30s")
-    assert str(y.dtype) == "float64"
+    assert str(y.dtype) == "float32"
 
 
 # ── Step 1 row filter ─────────────────────────────────────────────────────
@@ -262,7 +270,8 @@ def test_live_tick_returns_numpy_vector_when_valid() -> None:
     cfg = {"final_features": ["feature_a", "feature_b"]}
     vec = preprocess_live_tick(_trading_row(), cfg)
     assert isinstance(vec, np.ndarray)
-    assert vec.dtype == np.float64
+    # F4 — dtype changed from float64 to float32.
+    assert vec.dtype == np.float32
     assert vec.shape == (2,)
     assert vec[0] == pytest.approx(1.5)
     assert vec[1] == pytest.approx(-0.25)
@@ -323,3 +332,97 @@ def test_train_and_live_produce_same_column_order() -> None:
     # Column-by-column the live vector matches the training row's values
     train_first_row = X_train.iloc[0].to_numpy()
     assert np.allclose(vec, train_first_row, equal_nan=True)
+
+
+# ── F4 — preprocess_for_training_base + extract_target_subset ────────────
+
+def test_base_returns_filtered_df_and_float32_X() -> None:
+    """F4 — preprocess_for_training_base does Steps 1+2 with no target
+    drop, so the trainer can compute X_train / X_val once per run and
+    slice per target with extract_target_subset."""
+    df = _build_df(n_rows=10)
+    df.loc[[0, 1], "is_market_open"] = 0  # filter these out
+    filt, X_base, cfg = preprocess_for_training_base(df, None)
+    assert len(filt) == 8  # row filter applied
+    assert len(X_base) == 8
+    assert set(cfg["final_features"]) == {"feature_a", "feature_b"}
+    for col in X_base.columns:
+        assert str(X_base[col].dtype) == "float32"
+
+
+def test_extract_target_subset_drops_nan_target_rows() -> None:
+    """extract_target_subset drops NaN target rows from both X and y."""
+    df = _build_df(n_rows=10)
+    df["max_upside_30s"] = df["max_upside_30s"].astype("float64")
+    df.loc[[2, 5, 9], "max_upside_30s"] = np.nan
+    filt, X_base, _cfg = preprocess_for_training_base(df, None)
+    X, y = extract_target_subset(filt, X_base, "max_upside_30s")
+    assert len(X) == 7
+    assert len(y) == 7
+    assert y.notna().all()
+    assert str(y.dtype) == "float32"
+
+
+def test_base_then_extract_matches_legacy_path() -> None:
+    """Composition contract: preprocess_for_training_base + extract_target_subset
+    must produce the same (X, y) as the all-in-one preprocess_for_training."""
+    df = _build_df(n_rows=20)
+    X1, y1, _cfg1 = preprocess_for_training(df, None, "direction_30s")
+
+    filt, X_base, _cfg2 = preprocess_for_training_base(df, None)
+    X2, y2 = extract_target_subset(filt, X_base, "direction_30s")
+
+    pd.testing.assert_frame_equal(X1.reset_index(drop=True), X2.reset_index(drop=True))
+    pd.testing.assert_series_equal(y1.reset_index(drop=True), y2.reset_index(drop=True))
+
+
+# ── F4 — LiveTickPreprocessor (in-place buffer, hot path) ─────────────────
+
+def test_live_tick_preprocessor_returns_same_buffer_each_call() -> None:
+    """The in-place version reuses one buffer for every call. Caller MUST
+    consume it before the next process() call."""
+    cfg = {"final_features": ["feature_a", "feature_b"]}
+    pp = LiveTickPreprocessor(cfg)
+    vec1 = pp.process(_trading_row(feature_a=1.0, feature_b=2.0))
+    vec2 = pp.process(_trading_row(feature_a=3.0, feature_b=4.0))
+    # Same buffer object — id() / np.shares_memory both confirm.
+    assert vec1 is vec2
+    # Buffer now reflects the second row's values.
+    assert vec2[0] == pytest.approx(3.0)
+    assert vec2[1] == pytest.approx(4.0)
+
+
+def test_live_tick_preprocessor_dtype_is_float32() -> None:
+    cfg = {"final_features": ["feature_a", "feature_b"]}
+    pp = LiveTickPreprocessor(cfg)
+    vec = pp.process(_trading_row())
+    assert vec is not None
+    assert vec.dtype == np.float32
+
+
+def test_live_tick_preprocessor_filters_non_trading_rows() -> None:
+    cfg = {"final_features": ["feature_a"]}
+    pp = LiveTickPreprocessor(cfg)
+    assert pp.process(_trading_row(is_market_open=0)) is None
+    assert pp.process(_trading_row(data_quality_flag=0)) is None
+    assert pp.process(_trading_row(trading_state="PRE_OPEN")) is None
+
+
+def test_live_tick_preprocessor_treats_none_as_nan() -> None:
+    cfg = {"final_features": ["feature_a", "feature_b"]}
+    pp = LiveTickPreprocessor(cfg)
+    vec = pp.process(_trading_row(feature_a=None))
+    assert vec is not None
+    assert np.isnan(vec[0])
+    assert vec[1] == pytest.approx(-0.25)
+
+
+def test_live_tick_preprocessor_respects_feature_config_ordering() -> None:
+    """Same column-order contract as preprocess_live_tick — the SEA model
+    loader feeds this directly into LightGBM."""
+    cfg = {"final_features": ["feature_b", "feature_a"]}
+    pp = LiveTickPreprocessor(cfg)
+    vec = pp.process(_trading_row())
+    assert vec is not None
+    assert vec[0] == pytest.approx(-0.25)  # feature_b
+    assert vec[1] == pytest.approx(1.5)    # feature_a
