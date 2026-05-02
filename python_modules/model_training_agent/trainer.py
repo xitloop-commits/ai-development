@@ -18,6 +18,7 @@ Flow:
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, date as _date
 from pathlib import Path
@@ -25,6 +26,7 @@ from pathlib import Path
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+from joblib import Parallel, delayed
 
 from model_training_agent.preprocessor import (
     preprocess_for_training,
@@ -105,9 +107,16 @@ def _load_or_derive_feature_config(instrument: str, config_dir: Path,
 
 
 def _fit_one(target: str, objective: str,
-             X_train, y_train, X_val, y_val) -> tuple[lgb.Booster, dict]:
-    """Train one model, return (booster, metrics)."""
-    params = LGBM_PARAMS_BINARY if objective == "binary" else LGBM_PARAMS_REGRESSION
+             X_train, y_train, X_val, y_val,
+             *, lgbm_n_jobs: int = -1) -> tuple[lgb.Booster, dict]:
+    """Train one model, return (booster, metrics).
+
+    F5: `lgbm_n_jobs` controls LightGBM's internal thread count. The
+    parallel-mode caller pins this to 1 so joblib outer parallelism +
+    LightGBM inner parallelism don't oversubscribe CPU cores.
+    """
+    base = LGBM_PARAMS_BINARY if objective == "binary" else LGBM_PARAMS_REGRESSION
+    params = {**base, "n_jobs": lgbm_n_jobs}
     model_class = lgb.LGBMClassifier if objective == "binary" else lgb.LGBMRegressor
 
     model = model_class(**params)
@@ -131,6 +140,43 @@ def _fit_one(target: str, objective: str,
     return model.booster_, metrics
 
 
+def _train_and_save_target(
+    target: str,
+    objective: str,
+    X_train, y_train,
+    X_val, y_val,
+    output_path: Path,
+    *,
+    lgbm_n_jobs: int,
+) -> tuple[str, dict | None, str | None]:
+    """Fit one target and persist the booster to `output_path`.
+
+    Designed to run in either the main process (serial mode) or a joblib
+    worker (parallel mode); the booster is saved to disk inside this
+    function so we don't have to pickle a fully-built booster across
+    process boundaries on the way back.
+
+    Returns (target, metrics, error_or_None). Exceptions are caught and
+    returned as the error string so a single bad target doesn't kill the
+    whole batch in parallel mode.
+    """
+    try:
+        booster, metrics = _fit_one(
+            target, objective, X_train, y_train, X_val, y_val,
+            lgbm_n_jobs=lgbm_n_jobs,
+        )
+        booster.save_model(str(output_path))
+        return target, metrics, None
+    except Exception as e:
+        return target, None, f"{type(e).__name__}: {e}"
+
+
+def _default_n_jobs() -> int:
+    """Plan §F5: `min(4, cpu_count() - 1)` capped at the host's logical CPU count."""
+    cores = os.cpu_count() or 1
+    return max(1, min(4, cores - 1))
+
+
 def train_instrument(
     instrument: str,
     date_from: str,
@@ -139,6 +185,7 @@ def train_instrument(
     models_root: Path = Path("models"),
     config_dir: Path = Path("config/model_feature_config"),
     val_days: int = 3,
+    n_jobs: int = 1,
 ) -> TrainResult:
     """Train all MVP targets for one instrument across a date range.
 
@@ -214,14 +261,18 @@ def train_instrument(
 
     all_metrics: dict = {}
     skipped_targets: list[str] = []
+
+    # F5 — pre-flight: build the list of fit-able targets and apply the
+    # cheap skip rules (no data, single-class val) here so the parallel
+    # path doesn't pay subprocess startup cost just to skip.
+    fit_jobs: list[tuple[str, str, pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]] = []
     for target, objective in MVP_TARGETS.items():
-        print(f"\n  >> Training {target} ({objective}) ...")
         X_tr, y_tr = extract_target_subset(df_train_filt, X_train_base, target)
         X_va, y_va = extract_target_subset(df_val_filt,   X_val_base,   target)
 
         if len(X_tr) == 0 or len(X_va) == 0:
             reason = f"no data after preprocess (train={len(X_tr)}, val={len(X_va)})"
-            print(f"     SKIP: {reason}")
+            print(f"  >> SKIP {target}: {reason}")
             all_metrics[target] = {
                 "n_train": len(X_tr), "n_val": len(X_va),
                 "skipped": True, "reason": reason,
@@ -229,15 +280,12 @@ def train_instrument(
             skipped_targets.append(target)
             continue
 
-        # Degenerate-val guard: AUC is undefined when y_val has one class.
-        # Happens for long-lookahead direction targets when val days all trend
-        # one way. Skip training that target; do not save a .lgbm file.
         if objective == "binary":
             unique_classes = np.unique(y_va)
             if len(unique_classes) < 2:
                 reason = (f"val has only one class ({unique_classes.tolist()}); "
                           f"AUC undefined. Widen --val-days or wait for more data.")
-                print(f"     SKIP: {reason}")
+                print(f"  >> SKIP {target}: {reason}")
                 all_metrics[target] = {
                     "n_train": len(X_tr), "n_val": len(X_va),
                     "skipped": True, "reason": reason,
@@ -245,12 +293,52 @@ def train_instrument(
                 skipped_targets.append(target)
                 continue
 
-        booster, metrics = _fit_one(target, objective, X_tr, y_tr, X_va, y_va)
-        booster.save_model(str(output_dir / f"{target}.lgbm"))
-        all_metrics[target] = metrics
-        metric_key = "val_auc" if objective == "binary" else "val_rmse"
-        print(f"     {metric_key} = {metrics[metric_key]:.4f}  "
-              f"(train={metrics['n_train']:,}, val={metrics['n_val']:,})")
+        fit_jobs.append((target, objective, X_tr, y_tr, X_va, y_va))
+
+    # F5 — execute: serial when n_jobs<=1 (preserves the original log
+    # cadence and is what tests rely on), parallel otherwise. In parallel
+    # mode LightGBM's internal thread count is pinned to 1 so the outer
+    # joblib workers don't oversubscribe.
+    if n_jobs <= 1:
+        for target, objective, X_tr, y_tr, X_va, y_va in fit_jobs:
+            print(f"\n  >> Training {target} ({objective}) ...")
+            _, metrics, err = _train_and_save_target(
+                target, objective, X_tr, y_tr, X_va, y_va,
+                output_dir / f"{target}.lgbm", lgbm_n_jobs=-1,
+            )
+            if err is not None:
+                print(f"     FAILED: {err}")
+                all_metrics[target] = {"n_train": len(X_tr), "n_val": len(X_va),
+                                       "failed": True, "error": err}
+                skipped_targets.append(target)
+                continue
+            all_metrics[target] = metrics
+            metric_key = "val_auc" if objective == "binary" else "val_rmse"
+            print(f"     {metric_key} = {metrics[metric_key]:.4f}  "
+                  f"(train={metrics['n_train']:,}, val={metrics['n_val']:,})")
+    else:
+        print(f"\n  >> Training {len(fit_jobs)} targets in parallel "
+              f"(n_jobs={n_jobs}, lgbm_n_jobs=1) ...")
+        results = Parallel(n_jobs=n_jobs)(
+            delayed(_train_and_save_target)(
+                target, objective, X_tr, y_tr, X_va, y_va,
+                output_dir / f"{target}.lgbm", lgbm_n_jobs=1,
+            )
+            for target, objective, X_tr, y_tr, X_va, y_va in fit_jobs
+        )
+        # Re-attach objective / sizes from the input job list so the
+        # post-loop print uses the right metric label and counts.
+        for (target_ret, metrics, err), (target_in, objective, X_tr, _yt, X_va, _yv) in zip(results, fit_jobs):
+            if err is not None:
+                print(f"     FAILED {target_in}: {err}")
+                all_metrics[target_in] = {"n_train": len(X_tr), "n_val": len(X_va),
+                                          "failed": True, "error": err}
+                skipped_targets.append(target_in)
+                continue
+            all_metrics[target_in] = metrics
+            metric_key = "val_auc" if objective == "binary" else "val_rmse"
+            print(f"     {target_in}: {metric_key} = {metrics[metric_key]:.4f}  "
+                  f"(train={metrics['n_train']:,}, val={metrics['n_val']:,})")
 
     # 5. Artifacts
     manifest = {

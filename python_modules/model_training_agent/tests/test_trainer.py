@@ -405,3 +405,117 @@ def test_no_data_in_range_raises_runtimeerror(tmp_path: Path) -> None:
             models_root=tmp_path / "models",
             config_dir=tmp_path / "feature_config",
         )
+
+
+# ── F5 — joblib parallel trainer ──────────────────────────────────────────
+
+from model_training_agent.trainer import (
+    _default_n_jobs,
+    _train_and_save_target,
+)
+
+
+def test_default_n_jobs_returns_positive_int() -> None:
+    """Plan §F5: default is min(4, cpu_count() - 1), at least 1."""
+    n = _default_n_jobs()
+    assert isinstance(n, int)
+    assert n >= 1
+    assert n <= 4
+
+
+def test_train_and_save_target_wraps_errors_for_parallel_safety() -> None:
+    """In parallel mode a single bad target must not crash the batch.
+    `_train_and_save_target` returns the error string instead of raising."""
+    # Empty X — LightGBM will refuse to fit. Verify the wrapper catches.
+    X_empty = pd.DataFrame({"feature_a": [], "feature_b": []}, dtype="float32")
+    y_empty = pd.Series([], dtype="float32")
+    target, metrics, err = _train_and_save_target(
+        "direction_30s", "binary",
+        X_empty, y_empty, X_empty, y_empty,
+        Path("/tmp/should_not_be_written.lgbm"),
+        lgbm_n_jobs=1,
+    )
+    assert target == "direction_30s"
+    assert metrics is None
+    assert err is not None
+    assert isinstance(err, str)
+
+
+def test_n_jobs_default_is_serial(tmp_path: Path) -> None:
+    """Default n_jobs=1 keeps the original serial path. Smoke test that
+    the kwarg flows through and produces the expected artifacts."""
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    _write_day_parquet(features_root, instrument, "2026-04-01",
+                       _build_day_df(seed=1, date_str="2026-04-01"))
+    _write_day_parquet(features_root, instrument, "2026-04-02",
+                       _build_day_df(seed=2, date_str="2026-04-02"))
+
+    result = train_instrument(
+        instrument=instrument,
+        date_from="2026-04-01",
+        date_to="2026-04-02",
+        features_root=features_root,
+        models_root=tmp_path / "models",
+        config_dir=tmp_path / "feature_config",
+        val_days=1,
+        # n_jobs intentionally omitted — must default to 1
+    )
+    # All MVP targets attempted (some may skip due to single-class val,
+    # which is fine — we just want the run to complete cleanly).
+    assert set(result.metrics.keys()) == set(MVP_TARGET_NAMES)
+
+
+def test_parallel_n_jobs_2_produces_same_target_set(tmp_path: Path) -> None:
+    """n_jobs=2 must train every fit-able target the serial path would,
+    and emit a .lgbm file plus a metrics entry for each. We don't compare
+    metric *values* — LightGBM doesn't seed `feature_fraction` /
+    `bagging_fraction` so AUC isn't bit-identical across runs."""
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    for i, ds in enumerate(["2026-04-01", "2026-04-02", "2026-04-03"]):
+        _write_day_parquet(features_root, instrument, ds,
+                           _build_day_df(seed=i + 1, date_str=ds))
+
+    # Serial run
+    serial_root = tmp_path / "serial_models"
+    serial_result = train_instrument(
+        instrument=instrument,
+        date_from="2026-04-01",
+        date_to="2026-04-03",
+        features_root=features_root,
+        models_root=serial_root,
+        config_dir=tmp_path / "feature_config",
+        val_days=1,
+        n_jobs=1,
+    )
+
+    # Parallel run — fresh feature config dir so the second run derives
+    # its own (avoids any cross-contamination between the two configs).
+    parallel_root = tmp_path / "parallel_models"
+    parallel_result = train_instrument(
+        instrument=instrument,
+        date_from="2026-04-01",
+        date_to="2026-04-03",
+        features_root=features_root,
+        models_root=parallel_root,
+        config_dir=tmp_path / "feature_config_parallel",
+        val_days=1,
+        n_jobs=2,
+    )
+
+    # Both runs cover the full target set.
+    assert set(serial_result.metrics.keys()) == set(MVP_TARGET_NAMES)
+    assert set(parallel_result.metrics.keys()) == set(MVP_TARGET_NAMES)
+
+    # And they agree on which targets ran vs were skipped (the skip
+    # rules are deterministic — they only depend on the val data).
+    serial_ran = {t for t, m in serial_result.metrics.items() if not m.get("skipped")}
+    parallel_ran = {t for t, m in parallel_result.metrics.items() if not m.get("skipped")}
+    assert serial_ran == parallel_ran
+
+    # Every non-skipped target in the parallel run wrote a .lgbm file.
+    for target in parallel_ran:
+        assert (parallel_result.output_dir / f"{target}.lgbm").exists(), (
+            f"parallel run missing model file for {target}"
+        )

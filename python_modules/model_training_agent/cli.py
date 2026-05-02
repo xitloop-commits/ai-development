@@ -39,7 +39,18 @@ def main() -> int:
     p.add_argument("--val-days",      type=int, default=3,
                    help="Number of most recent days to hold out as validation "
                         "(capped at total_days // 2). Default 3.")
+    p.add_argument("--n-jobs",        type=int, default=1,
+                   help="Per-target parallelism via joblib. 1 = serial (default, "
+                        "preserves log cadence and deterministic ordering). >1 "
+                        "fits N targets in parallel and pins LightGBM internal "
+                        "threads to 1 to avoid CPU oversubscription. Use 0 for "
+                        "auto: min(4, cpu_count() - 1).")
     args = p.parse_args()
+    n_jobs = args.n_jobs
+    if n_jobs == 0:
+        from model_training_agent.trainer import _default_n_jobs
+        n_jobs = _default_n_jobs()
+        print(f"  --n-jobs=auto resolved to {n_jobs}")
 
     print()
     print("  " + "=" * 56)
@@ -56,6 +67,7 @@ def main() -> int:
             models_root=Path(args.models_root),
             config_dir=Path(args.config_dir),
             val_days=args.val_days,
+            n_jobs=n_jobs,
         )
     except RuntimeError as e:
         print(f"\n  ERROR: {e}\n")
