@@ -21,6 +21,7 @@
 
 import { createLogger } from "../broker/logger";
 import { withTrade } from "../_core/correlationContext";
+import { teaSubmitTradeTotal, teaExitTotal } from "../_core/metrics";
 import { getAdapter, isChannelKillSwitchActive } from "../broker/brokerService";
 import { tickBus } from "../broker/tickBus";
 import type {
@@ -142,7 +143,12 @@ class TradeExecutorAgent {
     // Wrap the entire submission flow in a correlation scope so every
     // log line emitted (across kill-switch, discipline, broker, and PA
     // state writes) carries the executionId as `tradeId` for grep-ability.
-    return withTrade(req.executionId, () => this._submitTradeImpl(req));
+    const resp = await withTrade(req.executionId, () => this._submitTradeImpl(req));
+    teaSubmitTradeTotal.labels({
+      channel: req.channel,
+      status: resp.success ? "success" : "rejected",
+    }).inc();
+    return resp;
   }
 
   private async _submitTradeImpl(req: SubmitTradeRequest): Promise<SubmitTradeResponse> {
@@ -611,6 +617,7 @@ class TradeExecutorAgent {
       log.info(
         `exitTrade ok channel=${channel} trade=${tradeId} reason=${req.reason} by=${req.triggeredBy} pnl=${pnl}`,
       );
+      teaExitTotal.labels({ channel, trigger: req.reason }).inc();
       return response;
     } catch (err: any) {
       const message = err?.message ?? String(err);
@@ -673,6 +680,7 @@ class TradeExecutorAgent {
       log.info(
         `recordAutoExit ${req.reason} channel=${req.channel} trade=${req.tradeId} pnl=${pnl}`,
       );
+      teaExitTotal.labels({ channel: req.channel, trigger: req.reason }).inc();
     } catch (err: any) {
       log.error(`recordAutoExit failed channel=${req.channel} trade=${req.tradeId}: ${err?.message ?? err}`);
     }

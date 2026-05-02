@@ -94,6 +94,7 @@ import { DhanOrderUpdateWs } from "./orderUpdateWs";
 import { generateDhanToken } from "./tokenManager";
 import type { SubscriptionState, TickData, FeedMode } from "../../types";
 import { createLogger, type Logger } from "../../logger";
+import { dhanApiLatencyMs } from "../../../_core/metrics";
 
 // ─── DhanAdapter ───────────────────────────────────────────────
 
@@ -232,6 +233,19 @@ export class DhanAdapter implements BrokerAdapter {
   // ── Orders ────────────────────────────────────────────────────
 
   async placeOrder(params: OrderParams): Promise<OrderResult> {
+    const _t0 = Date.now();
+    let _status: "success" | "error" = "success";
+    try {
+      return await this._placeOrderImpl(params);
+    } catch (err) {
+      _status = "error";
+      throw err;
+    } finally {
+      dhanApiLatencyMs.labels({ endpoint: "placeOrder", status: _status }).observe(Date.now() - _t0);
+    }
+  }
+
+  private async _placeOrderImpl(params: OrderParams): Promise<OrderResult> {
     this._ensureToken();
     this._ensureNotKilled();
 

@@ -19,6 +19,7 @@
 import { createLogger } from "../broker/logger";
 import { runShutdown } from "./shutdown";
 import { notifyTelegram } from "./telegram";
+import { unhandledRejectionTotal } from "./metrics";
 
 const log = createLogger("BOOT", "Fatal");
 
@@ -59,6 +60,7 @@ function onUncaughtException(err: Error): void {
 
 function onUnhandledRejection(reason: unknown): void {
   unhandledRejectionCount++;
+  unhandledRejectionTotal.inc();
   const msg =
     reason instanceof Error
       ? `${reason.message}\n${reason.stack ?? "(no stack)"}`

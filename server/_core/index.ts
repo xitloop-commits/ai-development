@@ -25,6 +25,7 @@ import { registerShutdownHook, installSignalHandlers } from "./shutdown";
 import { authMiddleware, registerAuthBootstrapEndpoint } from "./auth";
 import { validateEnv } from "./validateEnv";
 import { requestIdMiddleware } from "./correlationContext";
+import { metricsHandler } from "./metrics";
 
 const bootLog = createLogger("BOOT", "Server");
 
@@ -179,6 +180,12 @@ async function startServer() {
   // to every subsequent /api/* call. Lives at /api/_auth/bootstrap
   // and is exempted from authMiddleware via EXEMPT_PATHS.
   registerAuthBootstrapEndpoint(app);
+
+  // F7 — Prometheus metrics. Mounted under /api/_metrics so the global
+  // /api authMiddleware gates it (no public scrape). A scraper that
+  // wants to pull this endpoint must present X-Internal-Token like any
+  // other internal caller.
+  app.get("/api/_metrics", metricsHandler);
 
   // Trading data push API (receives data from Python modules)
   registerTradingRoutes(app);

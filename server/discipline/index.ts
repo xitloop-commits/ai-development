@@ -42,6 +42,7 @@ import {
   stopCarryForwardScheduler,
 } from "./capitalProtectionScheduler";
 import { createLogger } from "../broker/logger";
+import { disciplineValidateTotal } from "../_core/metrics";
 
 const log = createLogger("DA", "Agent");
 
@@ -338,6 +339,14 @@ class DisciplineAgent {
         }, channel);
       }
     }
+
+    // Metric: how often does the gate allow vs block, and on what reason.
+    // `reason` is the FIRST blocking rule when blocked, or "ok" when
+    // passed. This keeps label cardinality bounded (one row per rule).
+    disciplineValidateTotal.labels({
+      decision: blockedBy.length === 0 ? "allow" : "block",
+      reason: blockedBy[0] ?? "ok",
+    }).inc();
 
     return {
       allowed: blockedBy.length === 0,

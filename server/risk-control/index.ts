@@ -28,6 +28,7 @@
  */
 
 import { createLogger } from "../broker/logger";
+import { rcaEvalTotal } from "../_core/metrics";
 import { portfolioAgent } from "../portfolio";
 import { tradeExecutor } from "../executor/tradeExecutor";
 import { getSEASignals, type SEASignal } from "../seaSignals";
@@ -347,8 +348,10 @@ class RcaMonitor {
       capitalPercent: input.capitalPercent,
       timestamp: Date.now(),
     });
+    const decision = submitResult.success ? "APPROVE" : "REJECT";
+    rcaEvalTotal.labels({ decision }).inc();
     return {
-      decision: submitResult.success ? "APPROVE" : "REJECT",
+      decision,
       reason: submitResult.error,
       submitResult,
     };
