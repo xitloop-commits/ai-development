@@ -33,7 +33,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Optional, TypedDict
+from typing import Any, TypedDict
 
 try:
     import requests
@@ -53,16 +53,16 @@ class ValidateTradeResponse(TypedDict, total=False):
     decision: str
     blockedBy: list[str]
     warnings: list[str]
-    reason: Optional[str]
-    tradeId: Optional[str]
-    orderId: Optional[str]
-    status: Optional[str]
+    reason: str | None
+    tradeId: str | None
+    orderId: str | None
+    status: str | None
 
 
 class AiSignalResponse(TypedDict, total=False):
     success: bool
     data: dict[str, Any]
-    error: Optional[str]
+    error: str | None
 
 
 # ─── Helpers ─────────────────────────────────────────────────────
@@ -116,7 +116,9 @@ def submit_new_trade(payload: dict[str, Any], timeout: float = 10.0) -> Validate
         resp = requests.post(url, headers=_headers(), data=json.dumps(payload), timeout=timeout)
     except requests.RequestException as exc:
         dt = (time.monotonic() - t0) * 1000.0
-        logger.error("validateTrade connect failed request_id=%s dt_ms=%.1f exc=%s", request_id, dt, exc)
+        logger.error(
+            "validateTrade connect failed request_id=%s dt_ms=%.1f exc=%s", request_id, dt, exc
+        )
         raise
 
     dt = (time.monotonic() - t0) * 1000.0
@@ -124,7 +126,10 @@ def submit_new_trade(payload: dict[str, Any], timeout: float = 10.0) -> Validate
     if resp.status_code >= 500:
         logger.error(
             "validateTrade server-error status=%s request_id=%s dt_ms=%.1f body=%s",
-            resp.status_code, request_id, dt, resp.text[:300],
+            resp.status_code,
+            request_id,
+            dt,
+            resp.text[:300],
         )
         return {"success": False, "stage": "ERROR", "decision": "ERROR", "reason": resp.text[:200]}
 
@@ -132,9 +137,17 @@ def submit_new_trade(payload: dict[str, Any], timeout: float = 10.0) -> Validate
         # zod validation rejection from B8 — body shape didn't match
         logger.warning(
             "validateTrade bad-request status=%s request_id=%s dt_ms=%.1f body=%s",
-            resp.status_code, request_id, dt, resp.text[:300],
+            resp.status_code,
+            request_id,
+            dt,
+            resp.text[:300],
         )
-        return {"success": False, "stage": "BAD_REQUEST", "decision": "REJECT", "reason": resp.text[:200]}
+        return {
+            "success": False,
+            "stage": "BAD_REQUEST",
+            "decision": "REJECT",
+            "reason": resp.text[:200],
+        }
 
     body: ValidateTradeResponse = resp.json()
     decision = body.get("decision", "?")
@@ -154,9 +167,9 @@ def send_ai_signal(
     instrument: str,
     signal: str,
     *,
-    new_price: Optional[float] = None,
-    confidence: Optional[float] = None,
-    detail: Optional[str] = None,
+    new_price: float | None = None,
+    confidence: float | None = None,
+    detail: str | None = None,
     timeout: float = 5.0,
 ) -> AiSignalResponse:
     """
@@ -189,7 +202,9 @@ def send_ai_signal(
         resp = requests.post(url, headers=_headers(), data=json.dumps(payload), timeout=timeout)
     except requests.RequestException as exc:
         dt = (time.monotonic() - t0) * 1000.0
-        logger.error("ai-signal connect failed request_id=%s dt_ms=%.1f exc=%s", request_id, dt, exc)
+        logger.error(
+            "ai-signal connect failed request_id=%s dt_ms=%.1f exc=%s", request_id, dt, exc
+        )
         raise
 
     dt = (time.monotonic() - t0) * 1000.0
@@ -198,7 +213,10 @@ def send_ai_signal(
         body_text = resp.text[:300]
         logger.warning(
             "ai-signal status=%s request_id=%s dt_ms=%.1f body=%s",
-            resp.status_code, request_id, dt, body_text,
+            resp.status_code,
+            request_id,
+            dt,
+            body_text,
         )
         return {"success": False, "data": {}, "error": body_text}
 

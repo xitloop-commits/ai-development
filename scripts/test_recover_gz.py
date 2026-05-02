@@ -4,6 +4,7 @@ line-count guard in `scripts/recover_gz.py`.
 
 Run: python -m pytest scripts/test_recover_gz.py -v
 """
+
 from __future__ import annotations
 
 import gzip
@@ -15,7 +16,6 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import pytest
-
 import recover_gz
 
 
@@ -67,7 +67,9 @@ def test_recovery_keeps_existing_when_new_has_fewer_lines(
     # New "source" only carries 50 lines.
     _make_source_with_lines(src, 50)
     # Bump src mtime so the up-to-date skip doesn't short-circuit.
-    import os, time
+    import os
+    import time
+
     os.utime(src, (time.time(), time.time() + 10))
 
     result = recover_gz._recover_one(src, force=False)
@@ -90,9 +92,11 @@ def test_recovery_overwrites_when_new_has_more_lines(tmp_path: Path):
     src = tmp_path / "nifty50_option_ticks.ndjson.gz"
     out = tmp_path / "nifty50_option_ticks.recovered.ndjson.gz"
 
-    _make_source_with_lines(out, 10)    # existing low-water file
-    _make_source_with_lines(src, 100)   # new run captures more
-    import os, time
+    _make_source_with_lines(out, 10)  # existing low-water file
+    _make_source_with_lines(src, 100)  # new run captures more
+    import os
+    import time
+
     os.utime(src, (time.time(), time.time() + 10))
 
     result = recover_gz._recover_one(src, force=False)

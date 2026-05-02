@@ -26,7 +26,7 @@ import logging.handlers
 import queue
 import sys
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -34,22 +34,22 @@ from typing import Any
 _IST = timezone(timedelta(hours=5, minutes=30))
 
 # ── Log level constants (mirrors Python logging but with TFA names) ──────────
-ERROR = logging.ERROR   # 40 — FATAL: halts process after logging
-WARN  = logging.WARNING # 30 — WARN: data quality / feed gaps
-INFO  = logging.INFO    # 20 — INFO: lifecycle events
-DEBUG = logging.DEBUG   # 10 — DEBUG: per-tick internals (off in production)
+ERROR = logging.ERROR  # 40 — FATAL: halts process after logging
+WARN = logging.WARNING  # 30 — WARN: data quality / feed gaps
+INFO = logging.INFO  # 20 — INFO: lifecycle events
+DEBUG = logging.DEBUG  # 10 — DEBUG: per-tick internals (off in production)
 
 _LEVEL_NAMES = {ERROR: "ERROR", WARN: "WARN", INFO: "INFO", DEBUG: "DEBUG"}
 
 # ── Module-level registry so get_logger() returns the same object per name ──
-_registry: dict[str, "TFALogger"] = {}
+_registry: dict[str, TFALogger] = {}
 _initialized = False
 _operational_handler: logging.handlers.QueueListener | None = None
 _perf_handler: logging.handlers.QueueListener | None = None
 
 # ── Internal Python logger roots ─────────────────────────────────────────────
 _OPER_ROOT = "tfa.operational"
-_PERF_ROOT  = "tfa.perf"
+_PERF_ROOT = "tfa.perf"
 
 
 def _now_ist_str() -> str:
@@ -173,7 +173,7 @@ def shutdown_logging() -> None:
     _initialized = False
 
 
-def get_logger(name: str, instrument: str = "") -> "TFALogger":
+def get_logger(name: str, instrument: str = "") -> TFALogger:
     """
     Return a TFALogger for the given module name.
 
@@ -189,6 +189,7 @@ def get_logger(name: str, instrument: str = "") -> "TFALogger":
 
 
 # ── Rolling performance tracker ──────────────────────────────────────────────
+
 
 class _PerfTracker:
     """Rolling 1000-tick average for PERFORMANCE_DEGRADED detection."""
@@ -230,6 +231,7 @@ _perf_tracker = _PerfTracker()
 
 # ── Main TFALogger class ──────────────────────────────────────────────────────
 
+
 class TFALogger:
     """
     Structured logger for one TFA module. Wraps Python logging with a clean
@@ -259,9 +261,7 @@ class TFALogger:
         entry.update(kwargs)
         line = json.dumps(entry, default=str)
         # Pass the dict as args so StderrFormatter can read it
-        record = self._oper.makeRecord(
-            self._name, level, "", 0, line, entry, None
-        )
+        record = self._oper.makeRecord(self._name, level, "", 0, line, entry, None)
         self._oper.handle(record)
 
     # ── Public log methods ────────────────────────────────────────────────────
@@ -316,9 +316,7 @@ class TFALogger:
             entry["opt_type"] = opt_type
 
         line = json.dumps(entry, default=str)
-        record = self._perf.makeRecord(
-            self._name, DEBUG, "", 0, line, entry, None
-        )
+        record = self._perf.makeRecord(self._name, DEBUG, "", 0, line, entry, None)
         self._perf.handle(record)
 
     def tick_done(
@@ -363,9 +361,7 @@ class TFALogger:
             entry["phase_emit_us"] = round(phase_emit_us, 2)
 
         line = json.dumps(entry, default=str)
-        record = self._perf.makeRecord(
-            self._name, INFO, "", 0, line, entry, None
-        )
+        record = self._perf.makeRecord(self._name, INFO, "", 0, line, entry, None)
         self._perf.handle(record)
 
         _perf_tracker.record(elapsed_us)
@@ -382,6 +378,7 @@ class TFALogger:
 
 
 # ── Module-level shorthand (optional) ────────────────────────────────────────
+
 
 def configure_perf_budget(budget_us: float, on_degraded: Any) -> None:
     """

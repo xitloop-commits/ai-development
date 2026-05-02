@@ -13,6 +13,7 @@ Locks the train/live preprocessing contract shared by `model_training_agent`
 
 Run: python -m pytest python_modules/model_training_agent/tests/test_preprocessor.py -v
 """
+
 from __future__ import annotations
 
 import sys
@@ -39,8 +40,8 @@ from model_training_agent.preprocessor import (
     preprocess_live_tick,
 )
 
-
 # ── Synthetic-data helpers ────────────────────────────────────────────────
+
 
 def _build_df(n_rows: int = 50, all_trading: bool = True) -> pd.DataFrame:
     """Build a synthetic feature-frame mirroring TFA Parquet schema.
@@ -55,31 +56,34 @@ def _build_df(n_rows: int = 50, all_trading: bool = True) -> pd.DataFrame:
       - Two target columns (`direction_30s` binary, `max_upside_30s` regression)
     """
     rng = np.random.default_rng(42)
-    return pd.DataFrame({
-        # Step 1 filter cols
-        "is_market_open":     [1] * n_rows if all_trading else [0] * n_rows,
-        "data_quality_flag":  [1] * n_rows,
-        "trading_state":      ["TRADING"] * n_rows,
-        # Identifier cols (must be dropped from features)
-        "timestamp":          pd.date_range("2026-04-01 09:15", periods=n_rows, freq="s"),
-        "instrument":         ["nifty50"] * n_rows,
-        "underlying_symbol":  ["NIFTY"] * n_rows,
-        # Redundant col (must be dropped)
-        "underlying_ofi_20":  rng.normal(size=n_rows),
-        # String non-feature col (must be dropped)
-        "regime":             ["BULLISH"] * n_rows,
-        # Trainer helper col (string, dropped at the string-filter step)
-        "__date":             ["2026-04-01"] * n_rows,
-        # Real numeric features (kept)
-        "feature_a":          rng.normal(size=n_rows),
-        "feature_b":          rng.normal(size=n_rows),
-        # Target columns (must be dropped from features but available as y)
-        "direction_30s":      rng.integers(0, 2, size=n_rows).astype("int64"),
-        "max_upside_30s":     rng.normal(size=n_rows),
-    })
+    return pd.DataFrame(
+        {
+            # Step 1 filter cols
+            "is_market_open": [1] * n_rows if all_trading else [0] * n_rows,
+            "data_quality_flag": [1] * n_rows,
+            "trading_state": ["TRADING"] * n_rows,
+            # Identifier cols (must be dropped from features)
+            "timestamp": pd.date_range("2026-04-01 09:15", periods=n_rows, freq="s"),
+            "instrument": ["nifty50"] * n_rows,
+            "underlying_symbol": ["NIFTY"] * n_rows,
+            # Redundant col (must be dropped)
+            "underlying_ofi_20": rng.normal(size=n_rows),
+            # String non-feature col (must be dropped)
+            "regime": ["BULLISH"] * n_rows,
+            # Trainer helper col (string, dropped at the string-filter step)
+            "__date": ["2026-04-01"] * n_rows,
+            # Real numeric features (kept)
+            "feature_a": rng.normal(size=n_rows),
+            "feature_b": rng.normal(size=n_rows),
+            # Target columns (must be dropped from features but available as y)
+            "direction_30s": rng.integers(0, 2, size=n_rows).astype("int64"),
+            "max_upside_30s": rng.normal(size=n_rows),
+        }
+    )
 
 
 # ── feature_config derivation (first call) ────────────────────────────────
+
 
 def test_derives_feature_config_when_none() -> None:
     df = _build_df()
@@ -95,9 +99,7 @@ def test_derived_config_strips_target_columns() -> None:
     df = _build_df()
     _X, _y, cfg = preprocess_for_training(df, None, "direction_30s")
     for tcol in TARGET_COLS:
-        assert tcol not in cfg["final_features"], (
-            f"target column {tcol!r} leaked into feature list"
-        )
+        assert tcol not in cfg["final_features"], f"target column {tcol!r} leaked into feature list"
 
 
 def test_derived_config_strips_identifier_columns() -> None:
@@ -132,6 +134,7 @@ def test_derived_config_strips_string_helper_columns() -> None:
 
 # ── feature_config reuse (second call) ────────────────────────────────────
 
+
 def test_reuses_existing_feature_config() -> None:
     """When a config is supplied, preprocess_for_training must use it
     verbatim and not re-derive."""
@@ -160,6 +163,7 @@ def test_missing_feature_in_config_raises_keyerror() -> None:
 
 # ── NaN target handling ───────────────────────────────────────────────────
 
+
 def test_drops_rows_with_nan_target() -> None:
     df = _build_df(n_rows=10)
     df["max_upside_30s"] = df["max_upside_30s"].astype("float64")
@@ -183,6 +187,7 @@ def test_drops_rows_with_int32_sentinel_target() -> None:
 
 # ── Missing target column ─────────────────────────────────────────────────
 
+
 def test_missing_target_column_raises_keyerror() -> None:
     """LOCKED CONTRACT: preprocess_for_training raises KeyError when the
     target column isn't in the DataFrame. (Locked because trainer relies
@@ -195,6 +200,7 @@ def test_missing_target_column_raises_keyerror() -> None:
 
 # ── Output dtypes (F4 — float32 to halve memory) ─────────────────────────
 
+
 def test_output_X_is_float32() -> None:
     """F4 — feature matrix dtype changed from float64 to float32. LightGBM
     accepts float32 natively and produces identical models given the same
@@ -202,9 +208,7 @@ def test_output_X_is_float32() -> None:
     df = _build_df()
     X, _y, _cfg = preprocess_for_training(df, None, "direction_30s")
     for col in X.columns:
-        assert str(X[col].dtype) == "float32", (
-            f"{col} is {X[col].dtype}, expected float32 (F4)"
-        )
+        assert str(X[col].dtype) == "float32", f"{col} is {X[col].dtype}, expected float32 (F4)"
 
 
 def test_output_y_is_float32() -> None:
@@ -217,11 +221,12 @@ def test_output_y_is_float32() -> None:
 
 # ── Step 1 row filter ─────────────────────────────────────────────────────
 
+
 def test_row_filter_drops_non_trading_rows() -> None:
     df = _build_df(n_rows=10)
     df.loc[[0, 1, 2], "is_market_open"] = 0
-    df.loc[[3, 4],     "data_quality_flag"] = 0
-    df.loc[[5],        "trading_state"] = "PRE_OPEN"
+    df.loc[[3, 4], "data_quality_flag"] = 0
+    df.loc[[5], "trading_state"] = "PRE_OPEN"
     X, y, _cfg = preprocess_for_training(df, None, "direction_30s")
     assert len(X) == 4  # rows 6, 7, 8, 9 survive
     assert len(y) == 4
@@ -236,13 +241,14 @@ def test_row_filter_when_all_rows_non_trading_yields_empty() -> None:
 
 # ── preprocess_live_tick ──────────────────────────────────────────────────
 
+
 def _trading_row(**overrides) -> dict:
     base = {
-        "is_market_open":    1,
+        "is_market_open": 1,
         "data_quality_flag": 1,
-        "trading_state":     "TRADING",
-        "feature_a":         1.5,
-        "feature_b":         -0.25,
+        "trading_state": "TRADING",
+        "feature_a": 1.5,
+        "feature_b": -0.25,
     }
     base.update(overrides)
     return base
@@ -284,7 +290,7 @@ def test_live_tick_respects_feature_config_ordering() -> None:
     cfg = {"final_features": ["feature_b", "feature_a"]}  # reversed
     vec = preprocess_live_tick(_trading_row(), cfg)
     assert vec[0] == pytest.approx(-0.25)  # feature_b
-    assert vec[1] == pytest.approx(1.5)    # feature_a
+    assert vec[1] == pytest.approx(1.5)  # feature_a
 
 
 def test_live_tick_fills_missing_features_with_nan() -> None:
@@ -309,6 +315,7 @@ def test_live_tick_treats_explicit_none_as_nan() -> None:
 
 # ── Train↔live consistency contract ───────────────────────────────────────
 
+
 def test_train_and_live_produce_same_column_order() -> None:
     """Critical contract: with the SAME feature_config, training-frame
     column order MUST match live-vector index order. SEA's predictor
@@ -318,11 +325,11 @@ def test_train_and_live_produce_same_column_order() -> None:
 
     # Pull a single row from the source df and emit it as a live tick
     row_dict = {
-        "is_market_open":    1,
+        "is_market_open": 1,
         "data_quality_flag": 1,
-        "trading_state":     "TRADING",
-        "feature_a":         float(df["feature_a"].iloc[0]),
-        "feature_b":         float(df["feature_b"].iloc[0]),
+        "trading_state": "TRADING",
+        "feature_a": float(df["feature_a"].iloc[0]),
+        "feature_b": float(df["feature_b"].iloc[0]),
     }
     vec = preprocess_live_tick(row_dict, cfg)
 
@@ -335,6 +342,7 @@ def test_train_and_live_produce_same_column_order() -> None:
 
 
 # ── F4 — preprocess_for_training_base + extract_target_subset ────────────
+
 
 def test_base_returns_filtered_df_and_float32_X() -> None:
     """F4 — preprocess_for_training_base does Steps 1+2 with no target
@@ -377,6 +385,7 @@ def test_base_then_extract_matches_legacy_path() -> None:
 
 
 # ── F4 — LiveTickPreprocessor (in-place buffer, hot path) ─────────────────
+
 
 def test_live_tick_preprocessor_returns_same_buffer_each_call() -> None:
     """The in-place version reuses one buffer for every call. Caller MUST
@@ -425,4 +434,4 @@ def test_live_tick_preprocessor_respects_feature_config_ordering() -> None:
     vec = pp.process(_trading_row())
     assert vec is not None
     assert vec[0] == pytest.approx(-0.25)  # feature_b
-    assert vec[1] == pytest.approx(1.5)    # feature_a
+    assert vec[1] == pytest.approx(1.5)  # feature_a

@@ -32,12 +32,11 @@ from __future__ import annotations
 
 import math
 import statistics
-from typing import Any
 
 from tick_feature_agent.buffers.tick_buffer import CircularBuffer
 
 _NAN = float("nan")
-_FREEZE_TICK = 100   # freeze vol_session_median after this many ticks
+_FREEZE_TICK = 100  # freeze vol_session_median after this many ticks
 
 
 class CompressionState:
@@ -50,7 +49,7 @@ class CompressionState:
 
     __slots__ = (
         "_tick_count",
-        "_std_history",   # rolling_std_20 values seen so far (up to tick 100)
+        "_std_history",  # rolling_std_20 values seen so far (up to tick 100)
         "_vol_session_median",
         "_median_frozen",
     )
@@ -90,14 +89,14 @@ class CompressionState:
         n = len(buffer)
 
         out: dict = {
-            "range_20ticks":           _NAN,
-            "range_percent_20ticks":   _NAN,
-            "volatility_compression":  _NAN,
-            "spread_tightening_atm":   _NAN,
+            "range_20ticks": _NAN,
+            "range_percent_20ticks": _NAN,
+            "volatility_compression": _NAN,
+            "spread_tightening_atm": _NAN,
         }
 
         if n < 20:
-            return out   # all NaN — buffer too small
+            return out  # all NaN — buffer too small
 
         ticks = buffer.get_last(20)
         prices = [float(t.ltp) for t in ticks]
@@ -105,7 +104,7 @@ class CompressionState:
         # ── range_20ticks ──────────────────────────────────────────────────────
         price_max = max(prices)
         price_min = min(prices)
-        range_20  = price_max - price_min
+        range_20 = price_max - price_min
         out["range_20ticks"] = range_20
 
         # ── range_percent_20ticks ──────────────────────────────────────────────
@@ -115,7 +114,7 @@ class CompressionState:
         # else stays NaN (feed error — prices ≤ 0)
 
         # ── rolling_std_20 ─────────────────────────────────────────────────────
-        rolling_std = statistics.stdev(prices)   # sample std (ddof=1)
+        rolling_std = statistics.stdev(prices)  # sample std (ddof=1)
 
         # ── Update vol_session_median accumulator ─────────────────────────────
         if not self._median_frozen:
@@ -127,7 +126,7 @@ class CompressionState:
                 if self._std_history:
                     self._vol_session_median = max(
                         statistics.median(self._std_history),
-                        0.01,   # floor: 1 price-unit cent — prevents zero-division in flat markets
+                        0.01,  # floor: 1 price-unit cent — prevents zero-division in flat markets
                     )
                 self._median_frozen = True
 
@@ -135,7 +134,7 @@ class CompressionState:
         if self._median_frozen:
             vsm = self._vol_session_median
             if math.isnan(vsm) or vsm == 0.0:
-                pass   # stays NaN (zero guard)
+                pass  # stays NaN (zero guard)
             else:
                 out["volatility_compression"] = rolling_std / vsm
         # else: still bootstrapping → stays NaN
@@ -148,7 +147,7 @@ class CompressionState:
                 spread = feat.get("spread", _NAN)
                 # Unticked strikes contribute 0.0 (tick_available=0 → spread=NaN → 0.0)
                 total_spread += 0.0 if math.isnan(spread) else spread
-            out["spread_tightening_atm"] = total_spread / 7.0   # denominator always 7
+            out["spread_tightening_atm"] = total_spread / 7.0  # denominator always 7
         # else chain not yet available → stays NaN
 
         return out

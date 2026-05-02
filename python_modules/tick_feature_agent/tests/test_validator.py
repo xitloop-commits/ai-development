@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
@@ -24,13 +24,12 @@ from tick_feature_agent.output.emitter import (
     assemble_flat_vector,
 )
 from tick_feature_agent.validation.feature_validator import (
-    validate,
     _layer1_structural,
     _layer2_null_rates,
     _layer3_statistical,
     _null_rate,
+    validate,
 )
-
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -41,6 +40,7 @@ def _make_parquet(tmp_path: Path, rows: list[dict], filename="nifty50_features.p
     """Write a minimal Parquet file with the given rows."""
     import pyarrow as pa
     import pyarrow.parquet as pq
+
     path = tmp_path / filename
     if rows:
         table = pa.Table.from_pylist(rows)
@@ -76,6 +76,7 @@ def _rows_with_increasing_ts(n: int) -> list[dict]:
 # TestNullRate
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestNullRate:
 
     def test_all_null(self):
@@ -94,6 +95,7 @@ class TestNullRate:
 # ══════════════════════════════════════════════════════════════════════════════
 # TestLayer1Structural
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestLayer1Structural:
 
@@ -144,8 +146,8 @@ class TestLayer1Structural:
         result = _layer1_structural(
             df_cols=list(COLUMN_NAMES),
             n_rows=3,
-            ts_col=[1.0, 1.0, 2.0],           # duplicate timestamp
-            security_ids=["13", "13", "13"],   # + same security_id → duplicate pair
+            ts_col=[1.0, 1.0, 2.0],  # duplicate timestamp
+            security_ids=["13", "13", "13"],  # + same security_id → duplicate pair
             expected_cols=COLUMN_NAMES,
         )
         assert result["verdict"] == "FAIL"
@@ -160,13 +162,15 @@ class TestLayer1Structural:
             expected_cols=COLUMN_NAMES,
         )
         # Should not fail for duplicates (though may fail for ordering)
-        assert "no_duplicates" not in result["checks"] or \
-               result["checks"].get("no_duplicates", "PASS").startswith("PASS")
+        assert "no_duplicates" not in result["checks"] or result["checks"].get(
+            "no_duplicates", "PASS"
+        ).startswith("PASS")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TestLayer2NullRates
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestLayer2NullRates:
 
@@ -200,6 +204,7 @@ class TestLayer2NullRates:
 # TestLayer3Statistical
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestLayer3Statistical:
 
     def test_pcr_always_1_fail(self):
@@ -213,21 +218,15 @@ class TestLayer3Statistical:
         assert result["verdict"] in ("WARN", "FAIL")
 
     def test_data_quality_flag_mostly_zero_fail(self):
-        result = _layer3_statistical(
-            {"data_quality_flag": [0] * 70 + [1] * 30}, 100
-        )
+        result = _layer3_statistical({"data_quality_flag": [0] * 70 + [1] * 30}, 100)
         assert result["verdict"] == "FAIL"
 
     def test_breakout_readiness_out_of_range_fail(self):
-        result = _layer3_statistical(
-            {"breakout_readiness": [1.5] * 10 + [0.5] * 90}, 100
-        )
+        result = _layer3_statistical({"breakout_readiness": [1.5] * 10 + [0.5] * 90}, 100)
         assert result["verdict"] == "FAIL"
 
     def test_underlying_trade_direction_always_zero_fail(self):
-        result = _layer3_statistical(
-            {"underlying_trade_direction": [0] * 100}, 100
-        )
+        result = _layer3_statistical({"underlying_trade_direction": [0] * 100}, 100)
         assert result["verdict"] == "FAIL"
 
     def test_pass_for_clean_data(self):
@@ -247,6 +246,7 @@ class TestLayer3Statistical:
 # ══════════════════════════════════════════════════════════════════════════════
 # TestEmitterReplayMode
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestEmitterReplayMode:
 
@@ -280,6 +280,7 @@ class TestEmitterReplayMode:
 
     def test_write_parquet_correct_row_count(self, tmp_path):
         import pyarrow.parquet as pq
+
         em = Emitter(mode="replay")
         for i in range(3):
             em.emit(_minimal_row(ts=float(i)))
@@ -302,6 +303,7 @@ class TestEmitterReplayMode:
 
     def test_write_parquet_empty_is_ok(self, tmp_path):
         import pyarrow.parquet as pq
+
         em = Emitter(mode="replay")
         path = tmp_path / "empty.parquet"
         em.write_parquet(path)
@@ -311,6 +313,7 @@ class TestEmitterReplayMode:
 # ══════════════════════════════════════════════════════════════════════════════
 # TestValidateEndToEnd
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestValidateEndToEnd:
 
@@ -353,6 +356,7 @@ class TestValidateEndToEnd:
     def test_fail_on_missing_columns(self, tmp_path):
         import pyarrow as pa
         import pyarrow.parquet as pq
+
         # Write only 5 columns — clearly wrong schema
         table = pa.table({"col1": [1.0], "col2": [2.0]})
         path = tmp_path / "bad.parquet"

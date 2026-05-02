@@ -72,13 +72,13 @@ class DecayState:
 
     def reset(self) -> None:
         """Reset to session-start state."""
-        self._tick_count:               int   = 0
-        self._momentum_history:         list  = []
+        self._tick_count: int = 0
+        self._momentum_history: list = []
         self._historical_median_momentum: float = _NAN
-        self._median_frozen:            bool  = False
-        self._vol_sum:                  float = 0.0
-        self._vol_count:                int   = 0
-        self._session_volume_avg_atm:   float = _NAN
+        self._median_frozen: bool = False
+        self._vol_sum: float = 0.0
+        self._vol_count: int = 0
+        self._session_volume_avg_atm: float = _NAN
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -105,23 +105,23 @@ class DecayState:
 
         active_count = len(cache.active_strikes)
         out: dict = {
-            "total_premium_decay_atm":    _NAN,
+            "total_premium_decay_atm": _NAN,
             "momentum_decay_20ticks_atm": _NAN,
-            "volume_drought_atm":         _NAN,
-            "active_strike_count":        float(active_count),
-            "dead_market_score":          _NAN,
+            "volume_drought_atm": _NAN,
+            "active_strike_count": float(active_count),
+            "dead_market_score": _NAN,
         }
 
         # ── total_premium_decay_atm ────────────────────────────────────────────
         # ltp_prev = second-to-last tick in option buffer; ltp_now = latest
         # Only pairs with ≥2 ticks contribute; others excluded from denominator
-        decay_sum   = 0.0
+        decay_sum = 0.0
         contributing = 0
         for strike in atm_window:
             for opt_type in _OPT_TYPES:
                 ticks = option_store.get_last(strike, opt_type, n=2)
                 if len(ticks) >= 2:
-                    decay_sum  += float(ticks[-2].ltp) - float(ticks[-1].ltp)
+                    decay_sum += float(ticks[-2].ltp) - float(ticks[-1].ltp)
                     contributing += 1
         if contributing > 0:
             out["total_premium_decay_atm"] = decay_sum / contributing
@@ -144,7 +144,7 @@ class DecayState:
                 vda = (cdv + pdv) / 2.0
                 out["volume_drought_atm"] = vda
                 # Running mean: snapshot_count counts only post-first-snapshot entries
-                self._vol_sum   += vda
+                self._vol_sum += vda
                 self._vol_count += 1
                 self._session_volume_avg_atm = self._vol_sum / self._vol_count
 
@@ -155,17 +155,14 @@ class DecayState:
 
         if not self._median_frozen and self._tick_count >= _FREEZE_TICK:
             self._historical_median_momentum = (
-                statistics.median(self._momentum_history)
-                if self._momentum_history else 0.0
+                statistics.median(self._momentum_history) if self._momentum_history else 0.0
             )
             self._median_frozen = True
 
         # ── dead_market_score ─────────────────────────────────────────────────
         vda = out["volume_drought_atm"]
         if self._median_frozen and not math.isnan(vda):
-            out["dead_market_score"] = self._dead_score(
-                active_count, mom_decay, vda
-            )
+            out["dead_market_score"] = self._dead_score(active_count, mom_decay, vda)
 
         return out
 
@@ -186,7 +183,7 @@ class DecayState:
         if hmm > 0.0 and not math.isnan(momentum_decay):
             momentum_term = 1.0 - min(momentum_decay / hmm, 1.0)
         else:
-            momentum_term = 0.0   # zero/NaN baseline → no signal from this term
+            momentum_term = 0.0  # zero/NaN baseline → no signal from this term
 
         # Term 3: low volume vs session average → dead
         sva = self._session_volume_avg_atm
@@ -194,9 +191,9 @@ class DecayState:
             v_ratio = volume_drought / sva
             volume_term = max(0.0, 1.0 - v_ratio / _VOL_DROUGHT_THRESH)
         elif volume_drought <= 0.0:
-            volume_term = 1.0   # zero volume = maximum dead signal
+            volume_term = 1.0  # zero volume = maximum dead signal
         else:
-            volume_term = 0.0   # no session baseline yet → no signal
+            volume_term = 0.0  # no session baseline yet → no signal
 
         return max(0.0, min(1.0, activity_term * momentum_term * volume_term))
 

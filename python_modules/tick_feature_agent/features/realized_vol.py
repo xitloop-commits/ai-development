@@ -45,7 +45,7 @@ def compute_realized_vol_features(buffer: CircularBuffer) -> dict:
     n = len(buffer)
 
     out: dict = {
-        "underlying_realized_vol_5":  _NAN,
+        "underlying_realized_vol_5": _NAN,
         "underlying_realized_vol_20": _NAN,
         "underlying_realized_vol_50": _NAN,
     }
@@ -53,24 +53,21 @@ def compute_realized_vol_features(buffer: CircularBuffer) -> dict:
     if n == 0:
         return out
 
-    ticks = buffer.get_last(n)   # list[UnderlyingTick], oldest → newest
+    ticks = buffer.get_last(n)  # list[UnderlyingTick], oldest → newest
 
     for w in _VOL_WINDOWS:
         if n < w:
-            continue   # leaves NaN
+            continue  # leaves NaN
 
-        window = ticks[-w:]   # length == w, oldest first
+        window = ticks[-w:]  # length == w, oldest first
         prices = [float(t.ltp) for t in window]
 
         # Guard: NaN if any price is zero or negative (log undefined)
         if any(p <= 0.0 for p in prices):
-            continue   # leaves NaN
+            continue  # leaves NaN
 
         # N prices → N-1 log returns (no tick before the window needed)
-        log_returns = [
-            math.log(prices[i] / prices[i - 1])
-            for i in range(1, w)
-        ]
+        log_returns = [math.log(prices[i] / prices[i - 1]) for i in range(1, w)]
         # len(log_returns) == w - 1 >= 4 for w >= 5 → stdev is always valid
 
         out[f"underlying_realized_vol_{w}"] = statistics.stdev(log_returns)

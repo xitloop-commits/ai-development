@@ -55,9 +55,11 @@ _NAN = float("nan")
 
 # ── Internal tick snapshot ─────────────────────────────────────────────────────
 
+
 @dataclass
 class _TickEntry:
     """One observation stored in TargetBuffer."""
+
     timestamp_sec: float
     spot: float
     # {strike: (ce_ltp, pe_ltp)} — NaN for any unavailable price
@@ -65,6 +67,7 @@ class _TickEntry:
 
 
 # ── TargetBuffer ───────────────────────────────────────────────────────────────
+
 
 class TargetBuffer:
     """
@@ -140,10 +143,7 @@ class TargetBuffer:
             has_active = active_count > 0
 
             # Lookahead entries in (t0, t0+x]
-            lookahead = [
-                e for e in self._entries
-                if t0 < e.timestamp_sec <= t0 + x
-            ]
+            lookahead = [e for e in self._entries if t0 < e.timestamp_sec <= t0 + x]
 
             # ── Upside ────────────────────────────────────────────────────────
             if past_boundary or not has_active:
@@ -154,8 +154,7 @@ class TargetBuffer:
                     fut_ces = [
                         e.strike_ltps[strike][0]
                         for e in lookahead
-                        if strike in e.strike_ltps
-                        and not math.isnan(e.strike_ltps[strike][0])
+                        if strike in e.strike_ltps and not math.isnan(e.strike_ltps[strike][0])
                     ]
                     if fut_ces:
                         upsides.append(max(fut_ces) - ce_now)
@@ -170,15 +169,14 @@ class TargetBuffer:
                     fut_ces = [
                         e.strike_ltps[strike][0]
                         for e in lookahead
-                        if strike in e.strike_ltps
-                        and not math.isnan(e.strike_ltps[strike][0])
+                        if strike in e.strike_ltps and not math.isnan(e.strike_ltps[strike][0])
                     ]
                     if fut_ces:
                         drawdowns.append(ce_now - min(fut_ces))
                 out[f"max_drawdown_{x}s"] = max(drawdowns) if drawdowns else _NAN
 
             # ── Risk-reward ratio ─────────────────────────────────────────────
-            upside_x   = out[f"max_upside_{x}s"]
+            upside_x = out[f"max_upside_{x}s"]
             drawdown_x = out[f"max_drawdown_{x}s"]
             if math.isnan(upside_x) or math.isnan(drawdown_x):
                 out[f"risk_reward_ratio_{x}s"] = _NAN
@@ -206,15 +204,13 @@ class TargetBuffer:
 
             # ── Direction target ──────────────────────────────────────────────
             if past_boundary or not lookahead:
-                out[f"direction_{x}s"]           = _NAN
+                out[f"direction_{x}s"] = _NAN
                 out[f"direction_{x}s_magnitude"] = _NAN
             else:
                 future_spot = lookahead[-1].spot
                 out[f"direction_{x}s"] = 1 if future_spot > spot_at_t0 else 0
                 if spot_at_t0 > 0:
-                    out[f"direction_{x}s_magnitude"] = (
-                        abs(future_spot - spot_at_t0) / spot_at_t0
-                    )
+                    out[f"direction_{x}s_magnitude"] = abs(future_spot - spot_at_t0) / spot_at_t0
                 else:
                     out[f"direction_{x}s_magnitude"] = _NAN
 
@@ -222,6 +218,7 @@ class TargetBuffer:
 
 
 # ── UpsidePercentileTracker ────────────────────────────────────────────────────
+
 
 class UpsidePercentileTracker:
     """
@@ -265,6 +262,7 @@ class UpsidePercentileTracker:
 
 # ── Public helpers ─────────────────────────────────────────────────────────────
 
+
 def null_target_features(
     target_windows_sec: tuple[int, ...] = (30, 60),
 ) -> dict[str, float]:
@@ -278,18 +276,18 @@ def null_target_features(
     windows = sorted(target_windows_sec)
     out: dict[str, float] = {}
     for x in windows:
-        out[f"max_upside_{x}s"]           = _NAN
+        out[f"max_upside_{x}s"] = _NAN
     for x in windows:
-        out[f"max_drawdown_{x}s"]          = _NAN
+        out[f"max_drawdown_{x}s"] = _NAN
     for x in windows:
-        out[f"risk_reward_ratio_{x}s"]     = _NAN
+        out[f"risk_reward_ratio_{x}s"] = _NAN
     for x in windows:
-        out[f"total_premium_decay_{x}s"]   = _NAN
+        out[f"total_premium_decay_{x}s"] = _NAN
     for x in windows:
-        out[f"avg_decay_per_strike_{x}s"]  = _NAN
+        out[f"avg_decay_per_strike_{x}s"] = _NAN
     for x in windows:
-        out[f"direction_{x}s"]             = _NAN
-        out[f"direction_{x}s_magnitude"]   = _NAN
+        out[f"direction_{x}s"] = _NAN
+        out[f"direction_{x}s_magnitude"] = _NAN
     min_w = min(windows)
-    out[f"upside_percentile_{min_w}s"]     = _NAN
+    out[f"upside_percentile_{min_w}s"] = _NAN
     return out

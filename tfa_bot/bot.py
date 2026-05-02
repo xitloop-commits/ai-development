@@ -20,6 +20,7 @@ Health (from /<inst>_status) includes: process state + pid + uptime,
 session open/closed, feed connected/disconnected, last log activity,
 today's WARN/ERROR counts, and the most recent WARN/ERROR message.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,7 +28,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -39,10 +40,10 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 _HERE = Path(__file__).resolve().parent
 load_dotenv(_HERE / ".env")
 
-BOT_TOKEN       = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 ALLOWED_USER_ID = int(os.environ.get("ALLOWED_USER_ID", "0"))
-ROOT            = _HERE.parent
-IST             = timezone(timedelta(hours=5, minutes=30))
+ROOT = _HERE.parent
+IST = timezone(timedelta(hours=5, minutes=30))
 
 # Use the same Python that is running the bot (guaranteed correct interpreter)
 _PYTHON = sys.executable
@@ -52,9 +53,9 @@ INSTRUMENTS = ["nifty50", "banknifty", "crudeoil", "naturalgas"]
 # Log filenames use a different key for nifty50 (historical "nifty/nifty50" mismatch —
 # logger writes tfa_NIFTY_YYYY-MM-DD.log, not tfa_NIFTY50_...).
 _LOG_KEY = {
-    "nifty50":    "NIFTY",
-    "banknifty":  "BANKNIFTY",
-    "crudeoil":   "CRUDEOIL",
+    "nifty50": "NIFTY",
+    "banknifty": "BANKNIFTY",
+    "crudeoil": "CRUDEOIL",
     "naturalgas": "NATURALGAS",
 }
 
@@ -63,6 +64,7 @@ _procs: dict[str, subprocess.Popen] = {}
 
 
 # ── General helpers ────────────────────────────────────────────────────────────
+
 
 def _now_ist() -> datetime:
     return datetime.now(IST)
@@ -114,12 +116,14 @@ def _perf_log_file(inst: str, date: str | None = None) -> Path:
 
 def _tfa_cmd(inst: str) -> list[str]:
     profile = ROOT / "config" / "instrument_profiles" / f"{inst}_profile.json"
-    output  = ROOT / "data" / "features" / f"{inst}_live.ndjson"
+    output = ROOT / "data" / "features" / f"{inst}_live.ndjson"
     return [
         _PYTHON,
         str(ROOT / "python_modules" / "tick_feature_agent" / "main.py"),
-        "--instrument-profile", str(profile),
-        "--output-file", str(output),
+        "--instrument-profile",
+        str(profile),
+        "--output-file",
+        str(output),
     ]
 
 
@@ -129,6 +133,7 @@ def _is_running(inst: str) -> bool:
 
 
 # ── Log parsing ────────────────────────────────────────────────────────────────
+
 
 def _tail_log(inst: str, n: int = 20, levels: list[str] | None = None) -> str:
     """Return last N log lines, formatted as human-readable text."""
@@ -159,10 +164,10 @@ def _tail_log(inst: str, n: int = 20, levels: list[str] | None = None) -> str:
     for line in lines:
         try:
             e = json.loads(line.strip())
-            ts    = e.get("ts", "")[:19].replace("T", " ")
+            ts = e.get("ts", "")[:19].replace("T", " ")
             level = e.get("level", "")[:4]
             alert = e.get("alert") or e.get("event", "")
-            msg   = e.get("msg", "")
+            msg = e.get("msg", "")
             out.append(f"[{ts}] {level} {alert}: {msg}" if msg else f"[{ts}] {level} {alert}")
         except Exception:
             out.append(line.strip())
@@ -176,19 +181,19 @@ def _compute_health(inst: str) -> dict:
     restarted runs of the process).
     """
     health: dict = {
-        "inst":            inst,
-        "bot_tracked":     _is_running(inst),
-        "pid":             _procs[inst].pid if _is_running(inst) else None,
-        "last_tfa_start":  None,
-        "session_open":    False,
+        "inst": inst,
+        "bot_tracked": _is_running(inst),
+        "pid": _procs[inst].pid if _is_running(inst) else None,
+        "last_tfa_start": None,
+        "session_open": False,
         "session_open_ts": None,
-        "feed_connected":  False,
-        "log_mtime":       None,
-        "perf_log_mtime":  None,
-        "warn_count":      0,
-        "error_count":     0,
-        "last_issue":      None,      # {"level", "alert", "msg", "ts"}
-        "log_exists":      False,
+        "feed_connected": False,
+        "log_mtime": None,
+        "perf_log_mtime": None,
+        "warn_count": 0,
+        "error_count": 0,
+        "last_issue": None,  # {"level", "alert", "msg", "ts"}
+        "log_exists": False,
     }
 
     lf = _log_file(inst)
@@ -229,10 +234,10 @@ def _compute_health(inst: str) -> dict:
     scope = all_lines[latest_start_idx:] if latest_start_idx >= 0 else all_lines
 
     # Second pass: aggregate state over relevant scope
-    last_session_open_ts:  str | None = None
+    last_session_open_ts: str | None = None
     last_session_close_ts: str | None = None
-    last_feed_conn_ts:     str | None = None
-    last_feed_disc_ts:     str | None = None
+    last_feed_conn_ts: str | None = None
+    last_feed_disc_ts: str | None = None
 
     for line in scope:
         try:
@@ -242,7 +247,7 @@ def _compute_health(inst: str) -> dict:
 
         alert = e.get("alert") or ""
         level = e.get("level") or ""
-        ts    = e.get("ts") or ""
+        ts = e.get("ts") or ""
 
         if alert == "TFA_START":
             health["last_tfa_start"] = ts
@@ -264,8 +269,8 @@ def _compute_health(inst: str) -> dict:
             health["last_issue"] = {
                 "level": level,
                 "alert": alert,
-                "msg":   (e.get("msg") or "")[:120],
-                "ts":    ts[:19].replace("T", " "),
+                "msg": (e.get("msg") or "")[:120],
+                "ts": ts[:19].replace("T", " "),
             }
 
     # Derive booleans by comparing latest open vs close (string ISO compare works)
@@ -282,10 +287,11 @@ def _compute_health(inst: str) -> dict:
 
 # ── Process control ────────────────────────────────────────────────────────────
 
+
 def _start_inst(inst: str) -> str:
     if _is_running(inst):
         return f"⚪ {inst} already running  (pid={_procs[inst].pid})"
-    _procs.pop(inst, None)   # remove dead entry if any
+    _procs.pop(inst, None)  # remove dead entry if any
     try:
         flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
         p = subprocess.Popen(
@@ -316,6 +322,7 @@ def _stop_inst(inst: str) -> str:
 
 # ── Health formatting ──────────────────────────────────────────────────────────
 
+
 def _is_alive(h: dict) -> bool:
     """Is TFA actually running? Primary signal is log-file freshness — works
     whether the bot launched the process or it was started externally via
@@ -329,7 +336,7 @@ def _is_alive(h: dict) -> bool:
             return True
     if h["log_mtime"]:
         age = (now - h["log_mtime"]).total_seconds()
-        if age < 300:        # 5-min main-log grace (events aren't per-tick)
+        if age < 300:  # 5-min main-log grace (events aren't per-tick)
             return True
     return False
 
@@ -338,13 +345,13 @@ def _health_status_icon(h: dict) -> str:
     """Traffic-light summary of health."""
     alive = _is_alive(h)
     if not alive:
-        return "🔴"           # no recent log activity — process is not running
+        return "🔴"  # no recent log activity — process is not running
     if h["error_count"] > 0:
-        return "🔴"           # running but hit hard errors today
+        return "🔴"  # running but hit hard errors today
     if not h["feed_connected"] or not h["session_open"]:
-        return "🟡"           # partial — feed down or outside session
+        return "🟡"  # partial — feed down or outside session
     if h["warn_count"] > 0:
-        return "🟡"           # running with warnings
+        return "🟡"  # running with warnings
     return "🟢"
 
 
@@ -364,7 +371,7 @@ def _compact_health_line(inst: str) -> str:
     underscores that V1 would otherwise parse as italic markers.
     """
     h = _compute_health(inst)
-    icon  = _health_status_icon(h)
+    icon = _health_status_icon(h)
     state = _health_state_label(h)
 
     # Uptime comes from the TFA_START timestamp in the log — works whether
@@ -390,7 +397,7 @@ def _compact_health_line(inst: str) -> str:
 def _format_detailed_health(inst: str) -> str:
     """Full health readout for /<inst>_status. Returns Telegram markdown."""
     h = _compute_health(inst)
-    icon  = _health_status_icon(h)
+    icon = _health_status_icon(h)
     state = _health_state_label(h)
 
     lines = [
@@ -428,15 +435,13 @@ def _format_detailed_health(inst: str) -> str:
         lines.append("Last log:  `—`")
 
     # Today's issues
-    lines.append(
-        f"Today:     `{h['warn_count']} warnings, {h['error_count']} errors`"
-    )
+    lines.append(f"Today:     `{h['warn_count']} warnings, {h['error_count']} errors`")
 
     if h["last_issue"]:
-        lvl   = h["last_issue"]["level"]
+        lvl = h["last_issue"]["level"]
         alert = h["last_issue"]["alert"]
-        msg   = h["last_issue"]["msg"]
-        ts    = h["last_issue"]["ts"]
+        msg = h["last_issue"]["msg"]
+        ts = h["last_issue"]["ts"]
         lines.append("")
         lines.append(f"Last {lvl.lower()}:  `[{ts}] {alert}`")
         if msg:
@@ -451,6 +456,7 @@ def _format_detailed_health(inst: str) -> str:
 
 # ── Auth guard ─────────────────────────────────────────────────────────────────
 
+
 def _guard(func):
     async def wrapper(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if not update.effective_user or update.effective_user.id != ALLOWED_USER_ID:
@@ -458,10 +464,12 @@ def _guard(func):
                 await update.message.reply_text("⛔ Unauthorized")
             return
         await func(update, ctx)
+
     return wrapper
 
 
 # ── Global command handlers ────────────────────────────────────────────────────
+
 
 @_guard
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -556,7 +564,7 @@ async def cmd_errors(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 @_guard
 async def cmd_files(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    date        = ctx.args[0] if ctx.args else _now_ist().strftime("%Y-%m-%d")
+    date = ctx.args[0] if ctx.args else _now_ist().strftime("%Y-%m-%d")
     date_folder = ROOT / "data" / "raw" / date
     if not date_folder.exists():
         await update.message.reply_text(f"No data folder for {date}")
@@ -577,11 +585,13 @@ async def cmd_files(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 # ── Per-instrument command factories ───────────────────────────────────────────
 
+
 def _make_status_cmd(inst: str):
     @_guard
     async def handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         msg = _format_detailed_health(inst)
         await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
     return handler
 
 
@@ -589,6 +599,7 @@ def _make_start_cmd(inst: str):
     @_guard
     async def handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(_start_inst(inst))
+
     return handler
 
 
@@ -596,6 +607,7 @@ def _make_stop_cmd(inst: str):
     @_guard
     async def handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(_stop_inst(inst))
+
     return handler
 
 
@@ -606,15 +618,17 @@ def _make_restart_cmd(inst: str):
         await asyncio.sleep(2)
         start_msg = _start_inst(inst)
         await update.message.reply_text(f"{stop_msg}\n{start_msg}")
+
     return handler
 
 
 # ── Crash monitor (PTB job, runs every 30 s) ───────────────────────────────────
 
+
 async def _check_crashes(ctx: ContextTypes.DEFAULT_TYPE) -> None:
     for inst in list(_procs.keys()):
         p = _procs[inst]
-        if p.poll() is not None:                          # process has exited
+        if p.poll() is not None:  # process has exited
             alert_key = f"alerted_{inst}"
             if not ctx.bot_data.get(alert_key):
                 ctx.bot_data[alert_key] = True
@@ -629,10 +643,11 @@ async def _check_crashes(ctx: ContextTypes.DEFAULT_TYPE) -> None:
                     ),
                 )
         else:
-            ctx.bot_data.pop(f"alerted_{inst}", None)    # clear alert once back up
+            ctx.bot_data.pop(f"alerted_{inst}", None)  # clear alert once back up
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     if not BOT_TOKEN:
@@ -645,20 +660,20 @@ def main() -> None:
     app = Application.builder().token(BOT_TOKEN).build()
 
     # Global
-    app.add_handler(CommandHandler("start",     cmd_help))
-    app.add_handler(CommandHandler("help",      cmd_help))
-    app.add_handler(CommandHandler("status",    cmd_status))
+    app.add_handler(CommandHandler("start", cmd_help))
+    app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("start_all", cmd_start_all))
-    app.add_handler(CommandHandler("stop_all",  cmd_stop_all))
-    app.add_handler(CommandHandler("logs",      cmd_logs))
-    app.add_handler(CommandHandler("errors",    cmd_errors))
-    app.add_handler(CommandHandler("files",     cmd_files))
+    app.add_handler(CommandHandler("stop_all", cmd_stop_all))
+    app.add_handler(CommandHandler("logs", cmd_logs))
+    app.add_handler(CommandHandler("errors", cmd_errors))
+    app.add_handler(CommandHandler("files", cmd_files))
 
     # Per-instrument (4 × 4 = 16 handlers)
     for inst in INSTRUMENTS:
-        app.add_handler(CommandHandler(f"{inst}_status",  _make_status_cmd(inst)))
-        app.add_handler(CommandHandler(f"start_{inst}",   _make_start_cmd(inst)))
-        app.add_handler(CommandHandler(f"stop_{inst}",    _make_stop_cmd(inst)))
+        app.add_handler(CommandHandler(f"{inst}_status", _make_status_cmd(inst)))
+        app.add_handler(CommandHandler(f"start_{inst}", _make_start_cmd(inst)))
+        app.add_handler(CommandHandler(f"stop_{inst}", _make_stop_cmd(inst)))
         app.add_handler(CommandHandler(f"restart_{inst}", _make_restart_cmd(inst)))
 
     app.job_queue.run_repeating(_check_crashes, interval=30, first=15)

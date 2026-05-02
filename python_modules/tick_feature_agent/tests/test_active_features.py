@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
@@ -21,12 +21,12 @@ import pytest
 
 from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
 from tick_feature_agent.chain_cache import ChainCache
-from tick_feature_agent.feed.chain_poller import ChainSnapshot
-from tick_feature_agent.features.active_strikes import StrikeScore
 from tick_feature_agent.features.active_features import (
-    compute_side_strengths,
     compute_active_features,
+    compute_side_strengths,
 )
+from tick_feature_agent.features.active_strikes import StrikeScore
+from tick_feature_agent.feed.chain_poller import ChainSnapshot
 
 _NAN = float("nan")
 
@@ -37,19 +37,28 @@ def _nan(v) -> bool:
 
 # ── Snapshot / cache helpers ──────────────────────────────────────────────────
 
-ALL_STRIKES = list(range(23800, 24400, 50))   # 12 strikes, step 50
+ALL_STRIKES = list(range(23800, 24400, 50))  # 12 strikes, step 50
 
 
-def _row(strike: int, call_oi_chg: float = 0.0, put_oi_chg: float = 0.0,
-         call_vol: float = 0.0, put_vol: float = 0.0) -> dict:
+def _row(
+    strike: int,
+    call_oi_chg: float = 0.0,
+    put_oi_chg: float = 0.0,
+    call_vol: float = 0.0,
+    put_vol: float = 0.0,
+) -> dict:
     return {
-        "strike":         strike,
-        "callOI":         1000,      "putOI":        1000,
-        "callOIChange":   call_oi_chg, "putOIChange": put_oi_chg,
-        "callVolume":     call_vol,   "putVolume":   put_vol,
+        "strike": strike,
+        "callOI": 1000,
+        "putOI": 1000,
+        "callOIChange": call_oi_chg,
+        "putOIChange": put_oi_chg,
+        "callVolume": call_vol,
+        "putVolume": put_vol,
         "callSecurityId": str(strike * 2),
-        "putSecurityId":  str(strike * 2 + 1),
-        "callLTP": 100.0, "putLTP": 100.0,
+        "putSecurityId": str(strike * 2 + 1),
+        "callLTP": 100.0,
+        "putLTP": 100.0,
     }
 
 
@@ -57,9 +66,12 @@ def _make_snapshot(rows: list[dict], spot: float = 24100.0) -> ChainSnapshot:
     sec_id_map = {str(r["callSecurityId"]): (int(r["strike"]), "CE") for r in rows}
     sec_id_map.update({str(r["putSecurityId"]): (int(r["strike"]), "PE") for r in rows})
     return ChainSnapshot(
-        spot_price=spot, expiry="2026-04-24",
-        timestamp_sec=time.time(), rows=rows,
-        strike_step=50, sec_id_map=sec_id_map,
+        spot_price=spot,
+        expiry="2026-04-24",
+        timestamp_sec=time.time(),
+        rows=rows,
+        strike_step=50,
+        sec_id_map=sec_id_map,
     )
 
 
@@ -83,18 +95,27 @@ def _empty_store() -> OptionBufferStore:
     return OptionBufferStore(maxlen=10)
 
 
-def _tick(ts: float, ltp: float = 100.0, bid: float = 99.0,
-          ask: float = 101.0, bid_size: int = 10, ask_size: int = 10,
-          volume: int = 1000) -> OptionTick:
+def _tick(
+    ts: float,
+    ltp: float = 100.0,
+    bid: float = 99.0,
+    ask: float = 101.0,
+    bid_size: int = 10,
+    ask_size: int = 10,
+    volume: int = 1000,
+) -> OptionTick:
     return OptionTick(
-        timestamp=ts, ltp=ltp, bid=bid, ask=ask,
-        bid_size=bid_size, ask_size=ask_size, volume=volume,
+        timestamp=ts,
+        ltp=ltp,
+        bid=bid,
+        ask=ask,
+        bid_size=bid_size,
+        ask_size=ask_size,
+        volume=volume,
     )
 
 
-def _store_with_tick(
-    strike: int, opt_type: str, tick: OptionTick
-) -> OptionBufferStore:
+def _store_with_tick(strike: int, opt_type: str, tick: OptionTick) -> OptionBufferStore:
     store = OptionBufferStore(maxlen=10)
     store.push(strike, opt_type, tick)
     return store
@@ -103,6 +124,7 @@ def _store_with_tick(
 # ══════════════════════════════════════════════════════════════════════════════
 # compute_side_strengths
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestComputeSideStrengths:
 
@@ -117,33 +139,30 @@ class TestComputeSideStrengths:
 
     def test_no_prev_rows_vol_scores_are_zero(self):
         """prev_rows=None → all vol_diffs=0 → call_sv=put_sv=0.0."""
-        rows = [_row(24100, call_oi_chg=10.0, put_oi_chg=5.0,
-                     call_vol=500.0, put_vol=300.0)]
+        rows = [_row(24100, call_oi_chg=10.0, put_oi_chg=5.0, call_vol=500.0, put_vol=300.0)]
         result = compute_side_strengths(rows, None)
         call_sv, call_soi, call_str, put_sv, put_soi, put_str = result[24100]
         assert call_sv == pytest.approx(0.0)
-        assert put_sv  == pytest.approx(0.0)
+        assert put_sv == pytest.approx(0.0)
 
     def test_all_zero_oi_returns_zero_strengths(self):
-        rows = [_row(s, call_oi_chg=0.0, put_oi_chg=0.0)
-                for s in [24050, 24100, 24150]]
+        rows = [_row(s, call_oi_chg=0.0, put_oi_chg=0.0) for s in [24050, 24100, 24150]]
         result = compute_side_strengths(rows, None)
         for strike in [24050, 24100, 24150]:
             _, call_soi, call_str, _, put_soi, put_str = result[strike]
             assert call_soi == pytest.approx(0.0)
-            assert put_soi  == pytest.approx(0.0)
+            assert put_soi == pytest.approx(0.0)
             assert call_str == pytest.approx(0.0)
-            assert put_str  == pytest.approx(0.0)
+            assert put_str == pytest.approx(0.0)
 
     def test_all_equal_nonzero_oi_returns_1_0(self):
         """All-equal non-zero OI → each strike normalized to 1.0."""
-        rows = [_row(s, call_oi_chg=50.0, put_oi_chg=50.0)
-                for s in [24050, 24100, 24150]]
+        rows = [_row(s, call_oi_chg=50.0, put_oi_chg=50.0) for s in [24050, 24100, 24150]]
         result = compute_side_strengths(rows, None)
         for strike in [24050, 24100, 24150]:
             _, call_soi, _, _, put_soi, _ = result[strike]
             assert call_soi == pytest.approx(1.0)
-            assert put_soi  == pytest.approx(1.0)
+            assert put_soi == pytest.approx(1.0)
 
     def test_min_max_normalization_oi(self):
         """High-OI strike → 1.0, low-OI strike → 0.0, mid-OI interpolates."""
@@ -153,12 +172,12 @@ class TestComputeSideStrengths:
             _row(24150, call_oi_chg=100.0),
         ]
         result = compute_side_strengths(rows, None)
-        _, soi_low,  _, _, _, _ = result[24050]
-        _, soi_mid,  _, _, _, _ = result[24100]
+        _, soi_low, _, _, _, _ = result[24050]
+        _, soi_mid, _, _, _, _ = result[24100]
         _, soi_high, _, _, _, _ = result[24150]
         assert soi_high == pytest.approx(1.0)
-        assert soi_low  == pytest.approx(0.0)
-        assert soi_mid  == pytest.approx(0.5)
+        assert soi_low == pytest.approx(0.0)
+        assert soi_mid == pytest.approx(0.5)
 
     def test_call_strength_is_average_of_sv_and_soi(self):
         rows = [_row(24100, call_oi_chg=100.0)]
@@ -169,7 +188,7 @@ class TestComputeSideStrengths:
     def test_vol_diff_clamped_to_zero(self):
         """Vol decreases (prev > curr) → clamped to 0 (intraday vol is non-decreasing)."""
         curr_rows = [_row(24100, call_vol=50.0)]
-        prev_rows = [_row(24100, call_vol=200.0)]   # prev > curr
+        prev_rows = [_row(24100, call_vol=200.0)]  # prev > curr
         result = compute_side_strengths(curr_rows, prev_rows)
         call_sv, _, _, _, _, _ = result[24100]
         assert call_sv == pytest.approx(0.0)
@@ -187,9 +206,9 @@ class TestComputeSideStrengths:
         result = compute_side_strengths(curr_rows, prev_rows)
         # diffs: 24050=100, 24100=300 → min=100, max=300, span=200
         # 24050: (100-100)/200 = 0.0,  24100: (300-100)/200 = 1.0
-        call_sv_low,  _, _, _, _, _ = result[24050]
+        call_sv_low, _, _, _, _, _ = result[24050]
         call_sv_high, _, _, _, _, _ = result[24100]
-        assert call_sv_low  == pytest.approx(0.0)
+        assert call_sv_low == pytest.approx(0.0)
         assert call_sv_high == pytest.approx(1.0)
 
     def test_all_strikes_in_snapshot_present_in_result(self):
@@ -202,6 +221,7 @@ class TestComputeSideStrengths:
 # compute_active_features: output structure
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestActiveFeatureKeys:
 
     def test_key_count_is_148(self):
@@ -213,20 +233,36 @@ class TestActiveFeatureKeys:
         cache = _make_cache()
         out = compute_active_features(cache, _empty_store(), 1000.0, 24100.0)
         for slot in range(6):
-            assert f"active_{slot}_strike"        in out
+            assert f"active_{slot}_strike" in out
             assert f"active_{slot}_tick_available" in out
-            assert f"active_{slot}_call_strength"  in out
-            assert f"active_{slot}_put_strength"   in out
+            assert f"active_{slot}_call_strength" in out
+            assert f"active_{slot}_put_strength" in out
 
     def test_all_24_per_slot_keys_present(self):
         slot_keys = (
-            "strike", "distance_from_spot", "tick_available",
-            "call_strength_volume", "call_strength_oi", "call_strength",
-            "call_ltp", "call_bid", "call_ask", "call_spread",
-            "call_volume", "call_bid_ask_imbalance", "call_premium_momentum",
-            "put_strength_volume", "put_strength_oi", "put_strength",
-            "put_ltp", "put_bid", "put_ask", "put_spread",
-            "put_volume", "put_bid_ask_imbalance", "put_premium_momentum",
+            "strike",
+            "distance_from_spot",
+            "tick_available",
+            "call_strength_volume",
+            "call_strength_oi",
+            "call_strength",
+            "call_ltp",
+            "call_bid",
+            "call_ask",
+            "call_spread",
+            "call_volume",
+            "call_bid_ask_imbalance",
+            "call_premium_momentum",
+            "put_strength_volume",
+            "put_strength_oi",
+            "put_strength",
+            "put_ltp",
+            "put_bid",
+            "put_ask",
+            "put_spread",
+            "put_volume",
+            "put_bid_ask_imbalance",
+            "put_premium_momentum",
             "tick_age_sec",
         )
         cache = _make_cache()
@@ -238,8 +274,12 @@ class TestActiveFeatureKeys:
     def test_cross_feature_keys_present(self):
         cache = _make_cache()
         out = compute_active_features(cache, _empty_store(), 1000.0, 24100.0)
-        for k in ("call_put_strength_diff", "call_put_volume_diff",
-                  "call_put_oi_diff", "premium_divergence"):
+        for k in (
+            "call_put_strength_diff",
+            "call_put_volume_diff",
+            "call_put_oi_diff",
+            "premium_divergence",
+        ):
             assert k in out
 
 
@@ -247,10 +287,11 @@ class TestActiveFeatureKeys:
 # Chain unavailable
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestChainUnavailable:
 
     def test_all_slots_tick_available_zero(self):
-        cache = ChainCache()    # no snapshot
+        cache = ChainCache()  # no snapshot
         out = compute_active_features(cache, _empty_store(), 1000.0, 24100.0)
         for slot in range(6):
             assert out[f"active_{slot}_tick_available"] == 0
@@ -264,14 +305,19 @@ class TestChainUnavailable:
     def test_cross_features_nan_when_no_chain(self):
         cache = ChainCache()
         out = compute_active_features(cache, _empty_store(), 1000.0, 24100.0)
-        for k in ("call_put_strength_diff", "call_put_volume_diff",
-                  "call_put_oi_diff", "premium_divergence"):
+        for k in (
+            "call_put_strength_diff",
+            "call_put_volume_diff",
+            "call_put_oi_diff",
+            "premium_divergence",
+        ):
             assert _nan(out[k])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Empty slots
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestEmptySlots:
 
@@ -313,12 +359,12 @@ class TestEmptySlots:
 # Per-slot features
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestPerSlotFeatures:
 
     def _cache_one_active(self, strike: int = 24100) -> ChainCache:
         """Cache with one active strike that has a dominant call side."""
-        rows = [_row(s, call_oi_chg=100.0 if s == strike else 0.0)
-                for s in ALL_STRIKES]
+        rows = [_row(s, call_oi_chg=100.0 if s == strike else 0.0) for s in ALL_STRIKES]
         cache = _make_cache(rows)
         cache.active_strikes = [
             StrikeScore(strike=strike, vol_score=0.0, oi_score=1.0, strength=1.0)
@@ -390,8 +436,8 @@ class TestPerSlotFeatures:
         """tick_age = min(age_call, age_put) — uses the freshest side."""
         cache = self._cache_one_active(24100)
         store = OptionBufferStore(maxlen=10)
-        store.push(24100, "CE", _tick(ts=980.0))   # older call
-        store.push(24100, "PE", _tick(ts=995.0))   # fresher put
+        store.push(24100, "CE", _tick(ts=980.0))  # older call
+        store.push(24100, "PE", _tick(ts=995.0))  # fresher put
         out = compute_active_features(cache, store, 1000.0, 24100.0)
         assert out["active_0_tick_age_sec"] == pytest.approx(5.0)
 
@@ -406,20 +452,18 @@ class TestPerSlotFeatures:
         No prev_rows → call_sv=0.0.
         call_strength = (0.0 + 1.0) / 2 = 0.5.
         """
-        rows = [_row(s, call_oi_chg=100.0 if s == 24100 else 0.0)
-                for s in ALL_STRIKES]
+        rows = [_row(s, call_oi_chg=100.0 if s == 24100 else 0.0) for s in ALL_STRIKES]
         cache = _make_cache(rows)
         cache.active_strikes = [
             StrikeScore(strike=24100, vol_score=0.0, oi_score=1.0, strength=1.0)
         ]
         out = compute_active_features(cache, _empty_store(), 1000.0, 24100.0)
-        assert out["active_0_call_strength"]        == pytest.approx(0.5)
-        assert out["active_0_call_strength_oi"]     == pytest.approx(1.0)
+        assert out["active_0_call_strength"] == pytest.approx(0.5)
+        assert out["active_0_call_strength_oi"] == pytest.approx(1.0)
         assert out["active_0_call_strength_volume"] == pytest.approx(0.0)
 
     def test_put_strength_zero_when_no_put_oi_change(self):
-        rows = [_row(s, call_oi_chg=100.0 if s == 24100 else 0.0)
-                for s in ALL_STRIKES]
+        rows = [_row(s, call_oi_chg=100.0 if s == 24100 else 0.0) for s in ALL_STRIKES]
         cache = _make_cache(rows)
         cache.active_strikes = [
             StrikeScore(strike=24100, vol_score=0.0, oi_score=1.0, strength=1.0)
@@ -430,16 +474,14 @@ class TestPerSlotFeatures:
     def test_call_bid_ask_imbalance_balanced(self):
         """bid_size == ask_size → imbalance = 0.0."""
         cache = self._cache_one_active(24100)
-        store = _store_with_tick(24100, "CE",
-                                 _tick(ts=999.0, bid_size=10, ask_size=10))
+        store = _store_with_tick(24100, "CE", _tick(ts=999.0, bid_size=10, ask_size=10))
         out = compute_active_features(cache, store, 1000.0, 24100.0)
         assert out["active_0_call_bid_ask_imbalance"] == pytest.approx(0.0)
 
     def test_call_bid_ask_imbalance_bid_dominant(self):
         """(bid_size - ask_size) / (bid_size + ask_size)."""
         cache = self._cache_one_active(24100)
-        store = _store_with_tick(24100, "CE",
-                                 _tick(ts=999.0, bid_size=30, ask_size=10))
+        store = _store_with_tick(24100, "CE", _tick(ts=999.0, bid_size=30, ask_size=10))
         out = compute_active_features(cache, store, 1000.0, 24100.0)
         # (30-10) / (30+10) = 20/40 = 0.5
         assert out["active_0_call_bid_ask_imbalance"] == pytest.approx(0.5)
@@ -448,6 +490,7 @@ class TestPerSlotFeatures:
 # ══════════════════════════════════════════════════════════════════════════════
 # Slot ordering
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestSlotOrdering:
 
@@ -484,6 +527,7 @@ class TestSlotOrdering:
 # Cross-features
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestCrossFeatures:
 
     def _cache_two_active(self) -> ChainCache:
@@ -492,9 +536,9 @@ class TestCrossFeatures:
         24050: callOIChange=0,   putOIChange=100 → call_str=0.0, put_str=0.5
         """
         rows = [
-            _row(s,
-                 call_oi_chg=100.0 if s == 24100 else 0.0,
-                 put_oi_chg=100.0  if s == 24050 else 0.0)
+            _row(
+                s, call_oi_chg=100.0 if s == 24100 else 0.0, put_oi_chg=100.0 if s == 24050 else 0.0
+            )
             for s in ALL_STRIKES
         ]
         cache = _make_cache(rows)
@@ -516,8 +560,7 @@ class TestCrossFeatures:
 
     def test_call_put_strength_diff_call_dominant(self):
         """One call-dominant active strike → positive diff."""
-        rows = [_row(s, call_oi_chg=100.0 if s == 24100 else 0.0)
-                for s in ALL_STRIKES]
+        rows = [_row(s, call_oi_chg=100.0 if s == 24100 else 0.0) for s in ALL_STRIKES]
         cache = _make_cache(rows)
         cache.active_strikes = [
             StrikeScore(strike=24100, vol_score=0.0, oi_score=1.0, strength=1.0)
@@ -544,8 +587,11 @@ class TestCrossFeatures:
         """call_put_oi_diff = cache.oi_change_call_atm − cache.oi_change_put_atm."""
         atm_window = [23950, 24000, 24050, 24100, 24150, 24200, 24250]
         rows = [
-            _row(s, call_oi_chg=10.0 if s in atm_window else 0.0,
-                    put_oi_chg=3.0  if s in atm_window else 0.0)
+            _row(
+                s,
+                call_oi_chg=10.0 if s in atm_window else 0.0,
+                put_oi_chg=3.0 if s in atm_window else 0.0,
+            )
             for s in ALL_STRIKES
         ]
         cache = _make_cache(rows)

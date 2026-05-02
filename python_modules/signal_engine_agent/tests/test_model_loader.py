@@ -9,6 +9,7 @@ surfaces actionable error messages on the three breakage modes.
 
 Run: python -m pytest python_modules/signal_engine_agent/tests/test_model_loader.py -v
 """
+
 from __future__ import annotations
 
 import json
@@ -20,16 +21,15 @@ _PKG = _HERE.parent.parent  # python_modules/
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
+import lightgbm as lgb
 import numpy as np
 import pytest
 
-import lightgbm as lgb
-
-from signal_engine_agent.model_loader import LoadedModels, load_models
 from _shared.targets import MVP_TARGET_NAMES
-
+from signal_engine_agent.model_loader import LoadedModels, load_models
 
 # ── helpers ───────────────────────────────────────────────────────────────
+
 
 def _make_dummy_lgbm(path: Path, n_features: int = 3) -> None:
     """Train a 2-tree LightGBM on synthetic data and save its booster."""
@@ -62,7 +62,7 @@ def _build_layout(
         feature_names = ["f0", "f1", "f2"]
 
     models_root = tmp_path / "models"
-    inst_dir    = models_root / instrument
+    inst_dir = models_root / instrument
     version_dir = inst_dir / version
     version_dir.mkdir(parents=True)
 
@@ -84,6 +84,7 @@ def _build_layout(
 
 
 # ── happy path ────────────────────────────────────────────────────────────
+
 
 def test_load_models_returns_loaded_models_dataclass(tmp_path):
     models_root, config_dir = _build_layout(tmp_path)
@@ -152,7 +153,8 @@ def test_load_models_loads_only_canonical_target_names(tmp_path):
 
 def test_load_models_feature_names_match_config(tmp_path):
     models_root, config_dir = _build_layout(
-        tmp_path, feature_names=["alpha", "beta", "gamma"],
+        tmp_path,
+        feature_names=["alpha", "beta", "gamma"],
     )
     loaded = load_models("nifty50", models_root=models_root, config_dir=config_dir)
     assert loaded.feature_names == ["alpha", "beta", "gamma"]
@@ -162,13 +164,15 @@ def test_load_models_feature_names_match_config(tmp_path):
 def test_load_models_feature_names_preserve_order(tmp_path):
     """Loader returns final_features verbatim — order must round-trip."""
     models_root, config_dir = _build_layout(
-        tmp_path, feature_names=["z", "a", "m", "b"],
+        tmp_path,
+        feature_names=["z", "a", "m", "b"],
     )
     loaded = load_models("nifty50", models_root=models_root, config_dir=config_dir)
     assert loaded.feature_names == ["z", "a", "m", "b"]
 
 
 # ── error paths ───────────────────────────────────────────────────────────
+
 
 def test_missing_latest_raises_actionable_error(tmp_path):
     """No LATEST pointer → FileNotFoundError naming the instrument and
@@ -212,6 +216,7 @@ def test_unknown_instrument_uses_its_own_path(tmp_path):
 
 
 # ── E9 regression: target source-of-truth ─────────────────────────────────
+
 
 def test_loader_uses_shared_mvp_target_names(tmp_path):
     """Phase E9 lock: the loader walks `_shared.targets.MVP_TARGET_NAMES`,

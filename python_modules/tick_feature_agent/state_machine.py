@@ -19,14 +19,14 @@ See transition table in spec §4 and implementation plan Phase 4.
 from __future__ import annotations
 
 import time
-from enum import Enum
-from typing import Callable
+from collections.abc import Callable
+from enum import StrEnum
 
 
-class TradingState(str, Enum):
-    WARMING_UP  = "WARMING_UP"
-    TRADING     = "TRADING"
-    FEED_STALE  = "FEED_STALE"
+class TradingState(StrEnum):
+    WARMING_UP = "WARMING_UP"
+    TRADING = "TRADING"
+    FEED_STALE = "FEED_STALE"
     CHAIN_STALE = "CHAIN_STALE"
 
 
@@ -108,7 +108,7 @@ class StateMachine:
         Aborts any in-progress warm-up timer.
         """
         if self._state == TradingState.FEED_STALE:
-            return   # already stale, no transition needed
+            return  # already stale, no transition needed
         self._abort_warm_up()
         self._transition(TradingState.FEED_STALE, "feed_disconnect")
 
@@ -165,7 +165,7 @@ class StateMachine:
         Aborts warm-up timer.
         """
         self._abort_warm_up()
-        self._chain_stale = False   # chain will be refreshed after rollover
+        self._chain_stale = False  # chain will be refreshed after rollover
         if self._state != TradingState.FEED_STALE:
             self._transition(TradingState.FEED_STALE, "expiry_rollover")
 
@@ -178,10 +178,7 @@ class StateMachine:
         This avoids needing a separate asyncio timer task — the tick dispatcher
         calls this naturally at the tick rate.
         """
-        if (
-            self._state == TradingState.WARMING_UP
-            and self._warm_up_started_at is not None
-        ):
+        if self._state == TradingState.WARMING_UP and self._warm_up_started_at is not None:
             elapsed = time.monotonic() - self._warm_up_started_at
             if elapsed >= self._warm_up_duration_sec:
                 self.on_warm_up_complete()
@@ -191,7 +188,7 @@ class StateMachine:
     def _transition(self, new_state: TradingState, reason: str) -> None:
         old_state = self._state
         self._state = new_state
-        self._trading_allowed = (new_state == TradingState.TRADING)
+        self._trading_allowed = new_state == TradingState.TRADING
         if self._on_state_change is not None:
             self._on_state_change(old_state, new_state, reason)
 

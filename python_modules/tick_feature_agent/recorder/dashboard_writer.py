@@ -34,10 +34,10 @@ class DashboardWriter:
         output_dir: str | Path = "python_modules/output",
         logger: Any = None,
     ) -> None:
-        self.instrument  = instrument
+        self.instrument = instrument
         self._output_dir = Path(output_dir)
-        self._logger     = logger
-        self._lock       = threading.Lock()
+        self._logger = logger
+        self._lock = threading.Lock()
 
     @property
     def path(self) -> Path:

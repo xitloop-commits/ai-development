@@ -15,13 +15,14 @@ IST = UTC+5:30
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone, timedelta, date as _date
-from typing import Callable
+from collections.abc import Callable
+from datetime import date as _date
+from datetime import datetime, timedelta, timezone
 
-from tick_feature_agent.buffers.tick_buffer import CircularBuffer
 from tick_feature_agent.buffers.option_buffer import OptionBufferStore
-from tick_feature_agent.state_machine import StateMachine
+from tick_feature_agent.buffers.tick_buffer import CircularBuffer
 from tick_feature_agent.instrument_profile import InstrumentProfile
+from tick_feature_agent.state_machine import StateMachine
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -81,13 +82,13 @@ class SessionManager:
         self._on_rollover = on_rollover
 
         # Session state
-        self._session_date: _date | None = None    # calendar day of last session start
+        self._session_date: _date | None = None  # calendar day of last session start
         self._market_open: bool = False
         self._session_ended: bool = False
 
         # Rollover state
         self._rolled_over: bool = False
-        self._rollover_grace_until: float | None = None   # monotonic time
+        self._rollover_grace_until: float | None = None  # monotonic time
 
     # ── Public properties ─────────────────────────────────────────────────────
 
@@ -125,7 +126,7 @@ class SessionManager:
         today = now.date()
 
         t_start = self._profile.session_start_time()
-        t_end   = self._profile.session_end_time()
+        t_end = self._profile.session_end_time()
 
         # ── Session START edge trigger ────────────────────────────────────────
         # Fires exactly once per calendar day when we first cross session_start.
@@ -141,11 +142,7 @@ class SessionManager:
             self._on_session_open()
 
         # ── Session END edge trigger ──────────────────────────────────────────
-        elif (
-            self._market_open
-            and not self._session_ended
-            and now_time >= t_end
-        ):
+        elif self._market_open and not self._session_ended and now_time >= t_end:
             self._market_open = False
             self._session_ended = True
             self._on_session_close()
@@ -168,7 +165,7 @@ class SessionManager:
           6. Fire on_rollover callback.
         """
         if self._rolled_over:
-            return   # guard: fire once per session
+            return  # guard: fire once per session
 
         self._opt_buf.clear_all()
         self._sm.on_expiry_rollover()
@@ -190,7 +187,7 @@ class SessionManager:
         self._opt_buf.clear_all()
         # Ensure we start from a known FEED_STALE so the first tick after
         # open drives the WARMING_UP transition correctly.
-        self._sm.on_feed_disconnect()   # idempotent if already FEED_STALE
+        self._sm.on_feed_disconnect()  # idempotent if already FEED_STALE
 
         if self._on_session_start:
             self._on_session_start()

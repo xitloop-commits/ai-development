@@ -21,6 +21,7 @@ features per day, so each test runs in seconds.
 
 Run: python -m pytest python_modules/model_training_agent/tests/test_trainer.py -v
 """
+
 from __future__ import annotations
 
 import json
@@ -43,7 +44,6 @@ from model_training_agent.trainer import (
     _load_parquets,
     train_instrument,
 )
-
 
 # ── Synthetic-data helpers ────────────────────────────────────────────────
 
@@ -76,11 +76,11 @@ def _build_day_df(
     n = n_rows
 
     data: dict[str, object] = {
-        "is_market_open":    np.ones(n, dtype="int64"),
+        "is_market_open": np.ones(n, dtype="int64"),
         "data_quality_flag": np.ones(n, dtype="int64"),
-        "trading_state":     ["TRADING"] * n,
-        "timestamp":         pd.date_range(f"{date_str} 09:15", periods=n, freq="s"),
-        "instrument":        [instrument] * n,
+        "trading_state": ["TRADING"] * n,
+        "timestamp": pd.date_range(f"{date_str} 09:15", periods=n, freq="s"),
+        "instrument": [instrument] * n,
     }
     # Numeric features
     for col in _FEATURE_COLS:
@@ -103,8 +103,9 @@ def _build_day_df(
     return df
 
 
-def _write_day_parquet(features_root: Path, instrument: str, date_str: str,
-                       df: pd.DataFrame) -> Path:
+def _write_day_parquet(
+    features_root: Path, instrument: str, date_str: str, df: pd.DataFrame
+) -> Path:
     day_dir = features_root / date_str
     day_dir.mkdir(parents=True, exist_ok=True)
     p = day_dir / f"{instrument}_features.parquet"
@@ -114,14 +115,17 @@ def _write_day_parquet(features_root: Path, instrument: str, date_str: str,
 
 # ── _load_parquets ────────────────────────────────────────────────────────
 
+
 def test_load_parquets_returns_only_existing_dates(tmp_path: Path) -> None:
     features_root = tmp_path / "features"
     instrument = "nifty50"
     # Two days exist, one day in the middle is missing
-    _write_day_parquet(features_root, instrument, "2026-04-01",
-                       _build_day_df(seed=1, date_str="2026-04-01"))
-    _write_day_parquet(features_root, instrument, "2026-04-03",
-                       _build_day_df(seed=3, date_str="2026-04-03"))
+    _write_day_parquet(
+        features_root, instrument, "2026-04-01", _build_day_df(seed=1, date_str="2026-04-01")
+    )
+    _write_day_parquet(
+        features_root, instrument, "2026-04-03", _build_day_df(seed=3, date_str="2026-04-03")
+    )
 
     loaded = _load_parquets(instrument, "2026-04-01", "2026-04-03", features_root)
     dates = [d for d, _ in loaded]
@@ -130,8 +134,9 @@ def test_load_parquets_returns_only_existing_dates(tmp_path: Path) -> None:
 
 def test_load_parquets_attaches_date_column(tmp_path: Path) -> None:
     features_root = tmp_path / "features"
-    _write_day_parquet(features_root, "nifty50", "2026-04-01",
-                       _build_day_df(seed=1, date_str="2026-04-01"))
+    _write_day_parquet(
+        features_root, "nifty50", "2026-04-01", _build_day_df(seed=1, date_str="2026-04-01")
+    )
     loaded = _load_parquets("nifty50", "2026-04-01", "2026-04-01", features_root)
     assert len(loaded) == 1
     _date_str, df = loaded[0]
@@ -140,6 +145,7 @@ def test_load_parquets_attaches_date_column(tmp_path: Path) -> None:
 
 
 # ── _load_or_derive_feature_config ────────────────────────────────────────
+
 
 def test_feature_config_is_derived_on_first_call(tmp_path: Path) -> None:
     config_dir = tmp_path / "feature_config"
@@ -175,15 +181,17 @@ def test_feature_config_is_loaded_on_second_call(tmp_path: Path) -> None:
 
 # ── Single-day mode ───────────────────────────────────────────────────────
 
-def test_single_day_mode_runs_random_80_20_split(tmp_path: Path,
-                                                  capsys: pytest.CaptureFixture,
-                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_single_day_mode_runs_random_80_20_split(
+    tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """1 parquet in date range → fallback to random 80/20 split, with the
     'Single-day mode' diagnostic in stdout."""
     features_root = tmp_path / "features"
     instrument = "nifty50"
-    _write_day_parquet(features_root, instrument, "2026-04-01",
-                       _build_day_df(seed=42, date_str="2026-04-01"))
+    _write_day_parquet(
+        features_root, instrument, "2026-04-01", _build_day_df(seed=42, date_str="2026-04-01")
+    )
 
     result = train_instrument(
         instrument=instrument,
@@ -208,13 +216,13 @@ def test_single_day_mode_runs_random_80_20_split(tmp_path: Path,
 
 # ── Multi-day mode + val_days cap ─────────────────────────────────────────
 
+
 def test_multi_day_mode_uses_walk_forward_split(tmp_path: Path) -> None:
     """4 days, val_days=1: train = first 3 days, val = last 1 day."""
     features_root = tmp_path / "features"
     instrument = "nifty50"
     for i, ds in enumerate(["2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04"]):
-        _write_day_parquet(features_root, instrument, ds,
-                           _build_day_df(seed=i, date_str=ds))
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=i, date_str=ds))
 
     result = train_instrument(
         instrument=instrument,
@@ -238,8 +246,7 @@ def test_val_days_capped_at_half_of_total(tmp_path: Path) -> None:
     features_root = tmp_path / "features"
     instrument = "nifty50"
     for i, ds in enumerate(["2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04"]):
-        _write_day_parquet(features_root, instrument, ds,
-                           _build_day_df(seed=i, date_str=ds))
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=i, date_str=ds))
 
     result = train_instrument(
         instrument=instrument,
@@ -254,10 +261,11 @@ def test_val_days_capped_at_half_of_total(tmp_path: Path) -> None:
         (result.output_dir / "training_manifest.json").read_text(encoding="utf-8")
     )
     assert manifest["train_dates"] == ["2026-04-01", "2026-04-02"]
-    assert manifest["val_dates"]   == ["2026-04-03", "2026-04-04"]
+    assert manifest["val_dates"] == ["2026-04-03", "2026-04-04"]
 
 
 # ── PY-5 val-split guard (THE most important test) ───────────────────────
+
 
 def test_single_class_val_skips_binary_target(tmp_path: Path) -> None:
     """PY-5 val-split guard: when val day's `direction_900s` is all-1, the
@@ -273,14 +281,13 @@ def test_single_class_val_skips_binary_target(tmp_path: Path) -> None:
         is well-defined even on 200 rows).
     """
     features_root = tmp_path / "features"
-    models_root   = tmp_path / "models"
-    config_dir    = tmp_path / "feature_config"
-    instrument    = "nifty50"
+    models_root = tmp_path / "models"
+    config_dir = tmp_path / "feature_config"
+    instrument = "nifty50"
 
     # Train days: balanced
     for i, ds in enumerate(["2026-04-01", "2026-04-02", "2026-04-03"]):
-        _write_day_parquet(features_root, instrument, ds,
-                           _build_day_df(seed=10 + i, date_str=ds))
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=10 + i, date_str=ds))
 
     # Val day: direction_900s forced single-class
     val_df = _build_day_df(
@@ -300,33 +307,30 @@ def test_single_class_val_skips_binary_target(tmp_path: Path) -> None:
         val_days=1,
     )
 
-    metrics = json.loads(
-        (result.output_dir / "metrics.json").read_text(encoding="utf-8")
-    )
+    metrics = json.loads((result.output_dir / "metrics.json").read_text(encoding="utf-8"))
 
     # 1) direction_900s must be flagged skipped + reason mentions one class
     assert "direction_900s" in metrics
-    assert metrics["direction_900s"].get("skipped") is True, (
-        f"direction_900s must be skipped, got {metrics['direction_900s']}"
-    )
+    assert (
+        metrics["direction_900s"].get("skipped") is True
+    ), f"direction_900s must be skipped, got {metrics['direction_900s']}"
     assert "one class" in metrics["direction_900s"].get("reason", "").lower(), (
-        f"reason should mention 'one class', got "
-        f"{metrics['direction_900s'].get('reason')!r}"
+        f"reason should mention 'one class', got " f"{metrics['direction_900s'].get('reason')!r}"
     )
 
     # 2) No .lgbm file written for the skipped target
-    assert not (result.output_dir / "direction_900s.lgbm").exists(), (
-        "direction_900s.lgbm must NOT be written when skipped"
-    )
+    assert not (
+        result.output_dir / "direction_900s.lgbm"
+    ).exists(), "direction_900s.lgbm must NOT be written when skipped"
 
     # 3) Other binary targets with balanced val data DID train successfully
     #    (at least one — we don't insist on all four because the random seed
     #    could theoretically push another window to single-class on 200 rows;
     #    direction_30s is the canonical guard).
     assert "direction_30s" in metrics
-    assert metrics["direction_30s"].get("skipped") is not True, (
-        f"direction_30s should have trained, got {metrics['direction_30s']}"
-    )
+    assert (
+        metrics["direction_30s"].get("skipped") is not True
+    ), f"direction_30s should have trained, got {metrics['direction_30s']}"
     assert "val_auc" in metrics["direction_30s"]
     assert (result.output_dir / "direction_30s.lgbm").exists()
 
@@ -339,12 +343,12 @@ def test_single_class_val_skips_binary_target(tmp_path: Path) -> None:
 
 # ── Manifest + LATEST pointer ─────────────────────────────────────────────
 
+
 def test_training_manifest_has_required_keys(tmp_path: Path) -> None:
     features_root = tmp_path / "features"
     instrument = "nifty50"
     for i, ds in enumerate(["2026-04-01", "2026-04-02"]):
-        _write_day_parquet(features_root, instrument, ds,
-                           _build_day_df(seed=20 + i, date_str=ds))
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=20 + i, date_str=ds))
 
     result = train_instrument(
         instrument=instrument,
@@ -358,25 +362,31 @@ def test_training_manifest_has_required_keys(tmp_path: Path) -> None:
     manifest = json.loads(
         (result.output_dir / "training_manifest.json").read_text(encoding="utf-8")
     )
-    for key in ("instrument", "timestamp", "targets", "trained_count",
-                "skipped_targets", "feature_count"):
+    for key in (
+        "instrument",
+        "timestamp",
+        "targets",
+        "trained_count",
+        "skipped_targets",
+        "feature_count",
+    ):
         assert key in manifest, f"manifest missing required key {key!r}"
     assert manifest["instrument"] == "nifty50"
     assert manifest["targets"] == list(MVP_TARGET_OBJECTIVES.keys())
     assert isinstance(manifest["trained_count"], int)
     assert isinstance(manifest["skipped_targets"], list)
-    assert manifest["trained_count"] + len(manifest["skipped_targets"]) == \
-        len(MVP_TARGET_OBJECTIVES)
+    assert manifest["trained_count"] + len(manifest["skipped_targets"]) == len(
+        MVP_TARGET_OBJECTIVES
+    )
     assert manifest["feature_count"] == result.feature_count
 
 
 def test_latest_pointer_updates_to_new_timestamp(tmp_path: Path) -> None:
     features_root = tmp_path / "features"
-    models_root   = tmp_path / "models"
+    models_root = tmp_path / "models"
     instrument = "nifty50"
     for i, ds in enumerate(["2026-04-01", "2026-04-02"]):
-        _write_day_parquet(features_root, instrument, ds,
-                           _build_day_df(seed=30 + i, date_str=ds))
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=30 + i, date_str=ds))
 
     result = train_instrument(
         instrument=instrument,
@@ -430,8 +440,12 @@ def test_train_and_save_target_wraps_errors_for_parallel_safety() -> None:
     X_empty = pd.DataFrame({"feature_a": [], "feature_b": []}, dtype="float32")
     y_empty = pd.Series([], dtype="float32")
     target, metrics, err = _train_and_save_target(
-        "direction_30s", "binary",
-        X_empty, y_empty, X_empty, y_empty,
+        "direction_30s",
+        "binary",
+        X_empty,
+        y_empty,
+        X_empty,
+        y_empty,
         Path("/tmp/should_not_be_written.lgbm"),
         lgbm_n_jobs=1,
     )
@@ -446,10 +460,12 @@ def test_n_jobs_default_is_serial(tmp_path: Path) -> None:
     the kwarg flows through and produces the expected artifacts."""
     features_root = tmp_path / "features"
     instrument = "nifty50"
-    _write_day_parquet(features_root, instrument, "2026-04-01",
-                       _build_day_df(seed=1, date_str="2026-04-01"))
-    _write_day_parquet(features_root, instrument, "2026-04-02",
-                       _build_day_df(seed=2, date_str="2026-04-02"))
+    _write_day_parquet(
+        features_root, instrument, "2026-04-01", _build_day_df(seed=1, date_str="2026-04-01")
+    )
+    _write_day_parquet(
+        features_root, instrument, "2026-04-02", _build_day_df(seed=2, date_str="2026-04-02")
+    )
 
     result = train_instrument(
         instrument=instrument,
@@ -474,8 +490,7 @@ def test_parallel_n_jobs_2_produces_same_target_set(tmp_path: Path) -> None:
     features_root = tmp_path / "features"
     instrument = "nifty50"
     for i, ds in enumerate(["2026-04-01", "2026-04-02", "2026-04-03"]):
-        _write_day_parquet(features_root, instrument, ds,
-                           _build_day_df(seed=i + 1, date_str=ds))
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=i + 1, date_str=ds))
 
     # Serial run
     serial_root = tmp_path / "serial_models"
@@ -516,6 +531,6 @@ def test_parallel_n_jobs_2_produces_same_target_set(tmp_path: Path) -> None:
 
     # Every non-skipped target in the parallel run wrote a .lgbm file.
     for target in parallel_ran:
-        assert (parallel_result.output_dir / f"{target}.lgbm").exists(), (
-            f"parallel run missing model file for {target}"
-        )
+        assert (
+            parallel_result.output_dir / f"{target}.lgbm"
+        ).exists(), f"parallel run missing model file for {target}"

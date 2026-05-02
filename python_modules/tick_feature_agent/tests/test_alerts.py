@@ -16,21 +16,24 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
 import pytest
 
 from tick_feature_agent.output.alerts import (
-    INFO, WARN, CRITICAL, FATAL,
+    _DA_SEVERITIES,
+    CRITICAL,
+    FATAL,
+    INFO,
+    WARN,
     AlertEmitter,
     _build_envelope,
-    _DA_SEVERITIES,
 )
 
-
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
 
 def _emitter(da_url=None, logger=None):
     return AlertEmitter(
@@ -45,12 +48,19 @@ def _emitter(da_url=None, logger=None):
 # TestBuildEnvelope
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestBuildEnvelope:
 
     def test_keys_present(self):
         env = _build_envelope("TEST", INFO, "NIFTY", "NSE", {})
-        assert set(env.keys()) == {"event_type", "severity", "timestamp",
-                                   "instrument", "exchange", "payload"}
+        assert set(env.keys()) == {
+            "event_type",
+            "severity",
+            "timestamp",
+            "instrument",
+            "exchange",
+            "payload",
+        }
 
     def test_event_type(self):
         env = _build_envelope("FOO", WARN, "NIFTY", "NSE", {})
@@ -68,12 +78,13 @@ class TestBuildEnvelope:
         env = _build_envelope("FOO", INFO, "NIFTY", "NSE", {})
         ts = env["timestamp"]
         assert isinstance(ts, str)
-        assert "T" in ts and "+" in ts   # ISO format with timezone
+        assert "T" in ts and "+" in ts  # ISO format with timezone
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TestDASeverities
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestDASeverities:
 
@@ -94,18 +105,22 @@ class TestDASeverities:
 # TestAlertEnvelopes
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestAlertEnvelopes:
 
     def test_expiry_rollover_severity(self):
         env = _emitter().expiry_rollover(
-            old_expiry="2026-04-17", new_expiry="2026-04-24",
+            old_expiry="2026-04-17",
+            new_expiry="2026-04-24",
         )
         assert env["severity"] == CRITICAL
 
     def test_expiry_rollover_payload(self):
         env = _emitter().expiry_rollover(
-            old_expiry="2026-04-17", new_expiry="2026-04-24",
-            unsubscribed_strikes=98, subscribed_strikes=102,
+            old_expiry="2026-04-17",
+            new_expiry="2026-04-24",
+            unsubscribed_strikes=98,
+            subscribed_strikes=102,
             buffers_cleared=True,
         )
         p = env["payload"]
@@ -157,9 +172,7 @@ class TestAlertEnvelopes:
         assert p["strike_count"] == 5
 
     def test_security_id_mismatch_severity(self):
-        env = _emitter().security_id_mismatch(
-            profile_security_id="1001", api_security_id="9999"
-        )
+        env = _emitter().security_id_mismatch(profile_security_id="1001", api_security_id="9999")
         assert env["severity"] == FATAL
 
     def test_chain_stale_severity(self):
@@ -237,14 +250,13 @@ class TestAlertEnvelopes:
 # TestLogging
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestLogging:
 
     def test_warn_alert_calls_log_warn(self):
         mock_log = MagicMock()
         em = _emitter(logger=mock_log)
-        em.clock_skew_detected(
-            chain_timestamp="ts", tick_time="ts", skew_sec=3.0
-        )
+        em.clock_skew_detected(chain_timestamp="ts", tick_time="ts", skew_sec=3.0)
         mock_log.warn.assert_called_once()
 
     def test_critical_alert_calls_log_warn(self):
@@ -271,15 +283,14 @@ class TestLogging:
     def test_no_log_no_error(self):
         """AlertEmitter without logger should not raise."""
         em = _emitter(logger=None)
-        env = em.chain_stale(
-            last_chain_timestamp="ts", time_since_chain_sec=31.0
-        )
+        env = em.chain_stale(last_chain_timestamp="ts", time_since_chain_sec=31.0)
         assert env["event_type"] == "CHAIN_STALE"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TestDAHandshake
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestDAHandshake:
 
@@ -322,7 +333,6 @@ class TestDAHandshake:
     def test_da_thread_is_daemon(self):
         """Thread must be a daemon so it doesn't block process exit."""
         spawned_kwargs = {}
-        original_thread = threading.Thread
 
         def capture_thread(*args, **kwargs):
             spawned_kwargs.update(kwargs)
@@ -330,8 +340,7 @@ class TestDAHandshake:
             t.start = MagicMock()
             return t
 
-        with patch("tick_feature_agent.output.alerts.threading.Thread",
-                   side_effect=capture_thread):
+        with patch("tick_feature_agent.output.alerts.threading.Thread", side_effect=capture_thread):
             em = _emitter(da_url="http://localhost:9999/alert")
             em.chain_unavailable()
 
@@ -343,6 +352,7 @@ class TestDAHandshake:
         We run the actual post function in a thread against a bad URL.
         """
         from tick_feature_agent.output.alerts import _post_to_da
+
         envelope = {"event_type": "TEST"}
         # Should not raise — swallowed internally
         _post_to_da("http://localhost:1/nonexistent", envelope)
@@ -353,7 +363,7 @@ class TestDAHandshake:
         and verify the envelope arrives with correct content.
         """
         received: list[dict] = []
-        ready = threading.Event()
+        threading.Event()
 
         class _Handler(BaseHTTPRequestHandler):
             def do_POST(self):  # noqa: N802
@@ -373,7 +383,8 @@ class TestDAHandshake:
 
         try:
             em = AlertEmitter(
-                instrument="NIFTY", exchange="NSE",
+                instrument="NIFTY",
+                exchange="NSE",
                 da_url=f"http://127.0.0.1:{port}/alert",
             )
             em.chain_unavailable()

@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
@@ -62,7 +62,7 @@ class TestChainPollerUnderlyingId:
         With override, the fresh resolved id is used - even when the profile
         carries a stale one. This is the MCX rollover path.
         """
-        p = _mcx_profile(security_id="486502")   # stale April contract
+        p = _mcx_profile(security_id="486502")  # stale April contract
         poller = ChainPoller(profile=p, underlying_security_id="488290")  # fresh May
         assert poller._underlying_sec_id == "488290"
 

@@ -12,17 +12,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+
 from tick_feature_agent.features.atm import (
-    detect_strike_step,
+    atm_shifted,
     compute_atm,
     compute_atm_window,
-    atm_shifted,
+    detect_strike_step,
 )
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # detect_strike_step
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestDetectStrikeStep:
 
@@ -75,6 +76,7 @@ class TestDetectStrikeStep:
 # compute_atm
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestComputeAtm:
 
     def test_spot_below_midpoint_rounds_down(self):
@@ -117,6 +119,7 @@ class TestComputeAtm:
 # compute_atm_window
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestComputeAtmWindow:
 
     def test_returns_7_elements(self):
@@ -154,6 +157,7 @@ class TestComputeAtmWindow:
 # ══════════════════════════════════════════════════════════════════════════════
 # atm_shifted
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestAtmShifted:
 

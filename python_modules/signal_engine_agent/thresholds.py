@@ -33,28 +33,29 @@ router formerly in `engine._decide`) is retained behind a CLI
 `--filter=legacy` switch in `legacy_filter.py` for one cycle and will
 be removed once the gate is validated on a full backtest cycle.
 """
+
 from __future__ import annotations
 
 import json
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping
-
 
 # ── Defaults locked Phase D4 ──────────────────────────────────────────────
 DEFAULT_DIRECTION_PROB_THRESHOLD = 0.65
-DEFAULT_MIN_RISK_REWARD          = 1.5
-DEFAULT_MIN_UPSIDE_PERCENTILE    = 60.0
+DEFAULT_MIN_RISK_REWARD = 1.5
+DEFAULT_MIN_UPSIDE_PERCENTILE = 60.0
 
 
 @dataclass(frozen=True)
 class Thresholds:
     """Per-instrument gate configuration. Keep field names stable —
     the JSON config file maps directly onto these names via **kwargs."""
-    prob_min: float                = DEFAULT_DIRECTION_PROB_THRESHOLD
-    rr_min: float                  = DEFAULT_MIN_RISK_REWARD
-    upside_percentile_min: float   = DEFAULT_MIN_UPSIDE_PERCENTILE
+
+    prob_min: float = DEFAULT_DIRECTION_PROB_THRESHOLD
+    rr_min: float = DEFAULT_MIN_RISK_REWARD
+    upside_percentile_min: float = DEFAULT_MIN_UPSIDE_PERCENTILE
 
 
 @dataclass
@@ -72,6 +73,7 @@ class SignalAction:
     populated, even when the action is non-WAIT, so callers can log
     near-miss diagnostics uniformly.
     """
+
     action: str
     direction: str
     entry: float
@@ -123,37 +125,48 @@ def decide_action(
     Returns a fully-populated `SignalAction`; never raises.
     """
     dir_prob = predictions.get("direction_prob_30s")
-    rr_pred  = predictions.get("risk_reward_ratio_30s")
-    pctile   = predictions.get("upside_percentile_30s")
+    rr_pred = predictions.get("risk_reward_ratio_30s")
+    pctile = predictions.get("upside_percentile_30s")
 
     # If any required prediction is missing/NaN we cannot evaluate the
     # gate at all — fail closed (WAIT) with a sentinel reason. This is
     # distinct from "gate evaluated and failed".
     if not (_is_finite(dir_prob) and _is_finite(rr_pred) and _is_finite(pctile)):
         return SignalAction(
-            action="WAIT", direction="WAIT",
-            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+            action="WAIT",
+            direction="WAIT",
+            entry=0.0,
+            tp=0.0,
+            sl=0.0,
+            rr=0.0,
             gate_passed=False,
             gate_reasons=["MISSING_PREDICTION"],
         )
 
     dir_prob = float(dir_prob)
-    rr_pred  = float(rr_pred)
-    pctile   = float(pctile)
+    rr_pred = float(rr_pred)
+    pctile = float(pctile)
 
     # `prob` is the conviction in the chosen side, regardless of which
     # side that is — so the gate is symmetric for GO_CALL and GO_PUT.
     prob = max(dir_prob, 1.0 - dir_prob)
 
     reasons: list[str] = []
-    if prob   < thresholds.prob_min:              reasons.append("C1_prob")
-    if rr_pred < thresholds.rr_min:               reasons.append("C2_rr")
-    if pctile  < thresholds.upside_percentile_min: reasons.append("C3_pct")
+    if prob < thresholds.prob_min:
+        reasons.append("C1_prob")
+    if rr_pred < thresholds.rr_min:
+        reasons.append("C2_rr")
+    if pctile < thresholds.upside_percentile_min:
+        reasons.append("C3_pct")
 
     if reasons:
         return SignalAction(
-            action="WAIT", direction="WAIT",
-            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+            action="WAIT",
+            direction="WAIT",
+            entry=0.0,
+            tp=0.0,
+            sl=0.0,
+            rr=0.0,
             gate_passed=False,
             gate_reasons=reasons,
         )
@@ -162,27 +175,34 @@ def decide_action(
     # which is consistent with the SEA spec's `> 0.5` / `≤ 0.5` split.
     is_call = dir_prob > 0.5
     direction = "GO_CALL" if is_call else "GO_PUT"
-    action    = "LONG_CE" if is_call else "LONG_PE"
-    leg_ltp   = ce_ltp if is_call else pe_ltp
+    action = "LONG_CE" if is_call else "LONG_PE"
+    leg_ltp = ce_ltp if is_call else pe_ltp
 
     # Build TP/SL using the longest swing window with a finite prediction;
     # fall back through 300s → 30s. Magnitudes are signed in the model
     # output (drawdown is negative) but TP/SL distances must be absolute.
-    up_pred = _first_finite(predictions, ("max_upside_900s",
-                                          "max_upside_300s",
-                                          "max_upside_30s"))
-    dn_pred = _first_finite(predictions, ("max_drawdown_900s",
-                                          "max_drawdown_300s",
-                                          "max_drawdown_30s"))
+    up_pred = _first_finite(predictions, ("max_upside_900s", "max_upside_300s", "max_upside_30s"))
+    dn_pred = _first_finite(
+        predictions, ("max_drawdown_900s", "max_drawdown_300s", "max_drawdown_30s")
+    )
 
-    if not _is_finite(leg_ltp) or leg_ltp is None or leg_ltp <= 0 \
-            or up_pred is None or dn_pred is None:
+    if (
+        not _is_finite(leg_ltp)
+        or leg_ltp is None
+        or leg_ltp <= 0
+        or up_pred is None
+        or dn_pred is None
+    ):
         # Gate passed but we cannot price the trade. Caller still gets
         # gate_passed=True so it can log the near-miss; entry/TP/SL=0
         # signals "no executable trade".
         return SignalAction(
-            action="WAIT", direction=direction,
-            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+            action="WAIT",
+            direction=direction,
+            entry=0.0,
+            tp=0.0,
+            sl=0.0,
+            rr=0.0,
             gate_passed=True,
             gate_reasons=[],
         )
@@ -190,13 +210,14 @@ def decide_action(
     leg_ltp_f = float(leg_ltp)
     tp_dist = abs(up_pred)
     sl_dist = abs(dn_pred)
-    entry   = leg_ltp_f
-    tp      = leg_ltp_f + tp_dist
-    sl      = leg_ltp_f - sl_dist
+    entry = leg_ltp_f
+    tp = leg_ltp_f + tp_dist
+    sl = leg_ltp_f - sl_dist
     actual_rr = round(tp_dist / sl_dist, 2) if sl_dist > 0 else 0.0
 
     return SignalAction(
-        action=action, direction=direction,
+        action=action,
+        direction=direction,
         entry=round(entry, 2),
         tp=round(tp, 2),
         sl=round(sl, 2),
@@ -206,8 +227,7 @@ def decide_action(
     )
 
 
-def _first_finite(predictions: Mapping[str, float],
-                  keys: tuple[str, ...]) -> float | None:
+def _first_finite(predictions: Mapping[str, float], keys: tuple[str, ...]) -> float | None:
     """Return the first finite prediction in `keys` order, or None."""
     for k in keys:
         v = predictions.get(k)
@@ -217,6 +237,7 @@ def _first_finite(predictions: Mapping[str, float],
 
 
 # ── Per-instrument config loader ──────────────────────────────────────────
+
 
 def load_thresholds(
     instrument: str,

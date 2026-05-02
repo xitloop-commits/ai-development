@@ -11,11 +11,12 @@ intentional, not accidental.
 
 Run: python -m pytest python_modules/signal_engine_agent/tests/test_signal_logger.py -v
 """
+
 from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,7 +30,6 @@ import pytest
 import signal_engine_agent.signal_logger as sl_module
 from signal_engine_agent.signal_logger import SignalLogger
 
-
 _IST = timezone(timedelta(hours=5, minutes=30))
 
 
@@ -39,6 +39,7 @@ def _read_lines(path: Path) -> list[dict]:
 
 
 # ── creation ──────────────────────────────────────────────────────────────
+
 
 def test_constructor_creates_instrument_directory(tmp_path):
     log_root = tmp_path / "logs" / "signals"
@@ -55,6 +56,7 @@ def test_constructor_handles_existing_directory(tmp_path):
 
 
 # ── log() basic behaviour ─────────────────────────────────────────────────
+
 
 def test_log_writes_one_jsonline_per_call(tmp_path):
     log_root = tmp_path / "logs" / "signals"
@@ -75,7 +77,7 @@ def test_log_appends_does_not_overwrite(tmp_path):
     log_root = tmp_path / "logs" / "signals"
     logger = SignalLogger("nifty50", root=log_root)
     logger.log({"direction": "GO_CALL", "i": 1})
-    logger.log({"direction": "GO_PUT",  "i": 2})
+    logger.log({"direction": "GO_PUT", "i": 2})
     logger.log({"direction": "GO_CALL", "i": 3})
     logger.close()
 
@@ -105,11 +107,13 @@ def test_log_serialises_unknown_types_via_default_str(tmp_path):
     """`json.dumps(..., default=str)` lets datetime / Path / etc. through."""
     log_root = tmp_path / "logs" / "signals"
     logger = SignalLogger("nifty50", root=log_root)
-    logger.log({
-        "direction": "GO_CALL",
-        "ts": datetime(2026, 5, 1, tzinfo=_IST),
-        "where": Path("/tmp/foo"),
-    })
+    logger.log(
+        {
+            "direction": "GO_CALL",
+            "ts": datetime(2026, 5, 1, tzinfo=_IST),
+            "where": Path("/tmp/foo"),
+        }
+    )
     logger.close()
 
     today = datetime.now(_IST).strftime("%Y-%m-%d")
@@ -122,6 +126,7 @@ def test_log_serialises_unknown_types_via_default_str(tmp_path):
 
 
 # ── filename scheme ───────────────────────────────────────────────────────
+
 
 def test_log_filename_uses_today_in_ist(tmp_path):
     log_root = tmp_path / "logs" / "signals"
@@ -156,7 +161,7 @@ def test_two_loggers_different_suffix_different_files(tmp_path):
     filt.close()
 
     today = datetime.now(_IST).strftime("%Y-%m-%d")
-    raw_path  = log_root / "nifty50" / f"{today}_signals.log"
+    raw_path = log_root / "nifty50" / f"{today}_signals.log"
     filt_path = log_root / "nifty50" / f"{today}_filtered_signals.log"
     assert raw_path.exists() and filt_path.exists()
     assert _read_lines(raw_path)[0]["kind"] == "raw"
@@ -165,8 +170,10 @@ def test_two_loggers_different_suffix_different_files(tmp_path):
 
 # ── date rollover ─────────────────────────────────────────────────────────
 
+
 class _FakeDateTime:
     """Datetime stub whose `now(_IST)` returns a value we can advance."""
+
     _current: datetime
 
     @classmethod
@@ -187,9 +194,7 @@ def test_log_rotates_to_new_file_on_new_day(tmp_path):
     day2 = datetime(2026, 5, 2, 10, 0, 0, tzinfo=_IST)
 
     with patch.object(sl_module, "datetime") as mock_dt:
-        mock_dt.now.side_effect = lambda tz=None: (
-            day1.astimezone(tz) if tz else day1
-        )
+        mock_dt.now.side_effect = lambda tz=None: (day1.astimezone(tz) if tz else day1)
         # Re-export for the strftime() call inside the module
         mock_dt.side_effect = datetime
 
@@ -197,9 +202,7 @@ def test_log_rotates_to_new_file_on_new_day(tmp_path):
         logger.log({"direction": "GO_CALL", "i": 1})
 
         # Advance to next day
-        mock_dt.now.side_effect = lambda tz=None: (
-            day2.astimezone(tz) if tz else day2
-        )
+        mock_dt.now.side_effect = lambda tz=None: (day2.astimezone(tz) if tz else day2)
         logger.log({"direction": "GO_CALL", "i": 2})
         logger.close()
 
@@ -211,6 +214,7 @@ def test_log_rotates_to_new_file_on_new_day(tmp_path):
 
 
 # ── close() semantics ─────────────────────────────────────────────────────
+
 
 def test_close_is_idempotent(tmp_path):
     log_root = tmp_path / "logs" / "signals"

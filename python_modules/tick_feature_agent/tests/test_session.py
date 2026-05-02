@@ -8,23 +8,25 @@ from __future__ import annotations
 
 import sys
 import time
-from datetime import datetime, timezone, timedelta, date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+
+from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
+from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
+from tick_feature_agent.instrument_profile import load_profile
 from tick_feature_agent.session import SessionManager, _now_ist
 from tick_feature_agent.state_machine import StateMachine, TradingState
-from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
-from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
-from tick_feature_agent.instrument_profile import load_profile
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _load_nifty_profile():
     path = Path(__file__).resolve().parents[3] / "config/instrument_profiles/nifty50_profile.json"
@@ -50,13 +52,15 @@ def _utick() -> UnderlyingTick:
 
 
 def _otick() -> OptionTick:
-    return OptionTick(timestamp=time.time(), ltp=100.0, bid=99.9, ask=100.1,
-                      bid_size=50, ask_size=60, volume=200)
+    return OptionTick(
+        timestamp=time.time(), ltp=100.0, bid=99.9, ask=100.1, bid_size=50, ask_size=60, volume=200
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Session start edge trigger
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestSessionStartEdgeTrigger:
 
@@ -78,19 +82,17 @@ class TestSessionStartEdgeTrigger:
     def test_session_start_fires_only_once_per_day(self):
         profile, sm, tbuf, obuf = _make_components()
         calls: list[int] = []
-        sess = SessionManager(profile, sm, tbuf, obuf,
-                              on_session_start=lambda: calls.append(1))
+        sess = SessionManager(profile, sm, tbuf, obuf, on_session_start=lambda: calls.append(1))
         with patch("tick_feature_agent.session._now_ist", return_value=_ist_dt(9, 15)):
             sess.on_tick()
             sess.on_tick()
             sess.on_tick()
-        assert len(calls) == 1   # fired exactly once
+        assert len(calls) == 1  # fired exactly once
 
     def test_session_start_fires_again_next_day(self):
         profile, sm, tbuf, obuf = _make_components()
         calls: list[int] = []
-        sess = SessionManager(profile, sm, tbuf, obuf,
-                              on_session_start=lambda: calls.append(1))
+        sess = SessionManager(profile, sm, tbuf, obuf, on_session_start=lambda: calls.append(1))
         day1 = date(2026, 4, 13)
         day2 = date(2026, 4, 14)
         with patch("tick_feature_agent.session._now_ist", return_value=_ist_dt(9, 15, day=day1)):
@@ -110,6 +112,7 @@ class TestSessionStartEdgeTrigger:
 # Session end
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestSessionEnd:
 
     def test_market_closes_at_session_end(self):
@@ -125,8 +128,7 @@ class TestSessionEnd:
     def test_session_end_callback_fires_once(self):
         profile, sm, tbuf, obuf = _make_components()
         calls: list[int] = []
-        sess = SessionManager(profile, sm, tbuf, obuf,
-                              on_session_end=lambda: calls.append(1))
+        sess = SessionManager(profile, sm, tbuf, obuf, on_session_end=lambda: calls.append(1))
         with patch("tick_feature_agent.session._now_ist", return_value=_ist_dt(9, 15)):
             sess.on_tick()
         with patch("tick_feature_agent.session._now_ist", return_value=_ist_dt(15, 30)):
@@ -138,6 +140,7 @@ class TestSessionEnd:
 # ══════════════════════════════════════════════════════════════════════════════
 # Buffer clearing on session start
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestBufferClearOnSessionStart:
 
@@ -185,6 +188,7 @@ class TestBufferClearOnSessionStart:
 # Expiry rollover
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestExpiryRollover:
 
     def _open_session(self, sess):
@@ -199,7 +203,7 @@ class TestExpiryRollover:
 
         sess = SessionManager(profile, sm, tbuf, obuf)
         self._open_session(sess)
-        obuf.push(21800, "CE", _otick())   # re-populate after session start clear
+        obuf.push(21800, "CE", _otick())  # re-populate after session start clear
 
         sess.trigger_expiry_rollover()
         assert not obuf.tick_available(21800, "CE")
@@ -218,11 +222,10 @@ class TestExpiryRollover:
     def test_rollover_fires_once(self):
         profile, sm, tbuf, obuf = _make_components()
         calls: list[int] = []
-        sess = SessionManager(profile, sm, tbuf, obuf,
-                              on_rollover=lambda: calls.append(1))
+        sess = SessionManager(profile, sm, tbuf, obuf, on_rollover=lambda: calls.append(1))
         self._open_session(sess)
         sess.trigger_expiry_rollover()
-        sess.trigger_expiry_rollover()   # second call is a no-op
+        sess.trigger_expiry_rollover()  # second call is a no-op
         assert len(calls) == 1
 
     def test_rollover_sets_rolled_over_flag(self):
@@ -246,7 +249,7 @@ class TestExpiryRollover:
 
         with patch("tick_feature_agent.session._now_ist", return_value=_ist_dt(9, 15, day=day2)):
             sess.on_tick()
-        assert not sess.rolled_over   # reset by new session start
+        assert not sess.rolled_over  # reset by new session start
 
     def test_in_rollover_grace_true_immediately_after_rollover(self):
         profile, sm, tbuf, obuf = _make_components()
@@ -269,8 +272,7 @@ class TestExpiryRollover:
     def test_rollover_callback_fired(self):
         profile, sm, tbuf, obuf = _make_components()
         calls: list[int] = []
-        sess = SessionManager(profile, sm, tbuf, obuf,
-                              on_rollover=lambda: calls.append(1))
+        sess = SessionManager(profile, sm, tbuf, obuf, on_rollover=lambda: calls.append(1))
         self._open_session(sess)
         sess.trigger_expiry_rollover()
         assert len(calls) == 1
@@ -279,6 +281,7 @@ class TestExpiryRollover:
 # ══════════════════════════════════════════════════════════════════════════════
 # Pre-session tick handling
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestPreSessionTicks:
 

@@ -29,7 +29,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 # ── Spec constants ─────────────────────────────────────────────────────────────
 
 # Dynamic: 355 base + 7 per target window + 1 percentile
@@ -37,24 +36,29 @@ from typing import Any
 _EXPECTED_COLUMNS = None  # Set dynamically from parquet; see validate()
 
 # Null rate thresholds (outside warm-up)
-_NULL_WARN_THRESHOLD = 0.02   # 2%
-_NULL_FAIL_THRESHOLD = 0.10   # 10%
+_NULL_WARN_THRESHOLD = 0.02  # 2%
+_NULL_FAIL_THRESHOLD = 0.10  # 10%
 
 # Statistical sanity ranges
 _STAT_RANGES: dict[str, tuple[float | None, float | None]] = {
-    "bid_ask_imbalance":      (-1.0, 1.0),
-    "chain_pcr_global":       (0.0, 15.0),
-    "breakout_readiness":     (0.0, 1.0),
+    "bid_ask_imbalance": (-1.0, 1.0),
+    "chain_pcr_global": (0.0, 15.0),
+    "breakout_readiness": (0.0, 1.0),
     "call_put_strength_diff": (-1.0, 1.0),
-    "return_5ticks":          (-0.05, 0.05),
+    "return_5ticks": (-0.05, 0.05),
 }
 
 
 # ── Layer 1: Structural checks ────────────────────────────────────────────────
 
-def _layer1_structural(df_cols: list[str], n_rows: int,
-                       ts_col: list, security_ids: list,
-                       expected_cols: tuple[str, ...]) -> dict[str, Any]:
+
+def _layer1_structural(
+    df_cols: list[str],
+    n_rows: int,
+    ts_col: list,
+    security_ids: list,
+    expected_cols: tuple[str, ...],
+) -> dict[str, Any]:
     """Return layer 1 result dict."""
     checks: dict[str, str] = {}
     verdict = "PASS"
@@ -69,7 +73,7 @@ def _layer1_structural(df_cols: list[str], n_rows: int,
 
     # Column names match
     missing = set(expected_cols) - set(df_cols)
-    extra   = set(df_cols) - set(expected_cols)
+    extra = set(df_cols) - set(expected_cols)
     if missing or extra:
         checks["column_names"] = (
             f"FAIL — missing: {sorted(missing)[:5]}, extra: {sorted(extra)[:5]}"
@@ -87,7 +91,7 @@ def _layer1_structural(df_cols: list[str], n_rows: int,
 
     # Timestamp ordering (strictly increasing)
     if ts_col and len(ts_col) > 1:
-        out_of_order = sum(1 for i in range(1, len(ts_col)) if ts_col[i] <= ts_col[i-1])
+        out_of_order = sum(1 for i in range(1, len(ts_col)) if ts_col[i] <= ts_col[i - 1])
         if out_of_order:
             checks["timestamp_ordering"] = f"FAIL — {out_of_order} out-of-order timestamps"
             verdict = "FAIL"
@@ -96,7 +100,7 @@ def _layer1_structural(df_cols: list[str], n_rows: int,
 
     # No duplicate rows
     if ts_col and security_ids:
-        pairs = list(zip(ts_col, security_ids))
+        pairs = list(zip(ts_col, security_ids, strict=False))
         if len(pairs) != len(set(pairs)):
             checks["no_duplicates"] = "FAIL — duplicate (recv_ts, security_id) rows found"
             verdict = "FAIL"
@@ -108,14 +112,12 @@ def _layer1_structural(df_cols: list[str], n_rows: int,
 
 # ── Layer 2: Null rate checks ─────────────────────────────────────────────────
 
+
 def _null_rate(col_values: list) -> float:
     """Fraction of NaN or None values in a list."""
     if not col_values:
         return 0.0
-    n_null = sum(
-        1 for v in col_values
-        if v is None or (isinstance(v, float) and math.isnan(v))
-    )
+    n_null = sum(1 for v in col_values if v is None or (isinstance(v, float) and math.isnan(v)))
     return n_null / len(col_values)
 
 
@@ -131,10 +133,7 @@ def _filter_post_warmup(
     if not ts_col:
         return columns
     indices = [i for i, s in enumerate(ts_col) if s != "WARMING_UP"]
-    return {
-        col: [vals[i] for i in indices]
-        for col, vals in columns.items()
-    }
+    return {col: [vals[i] for i in indices] for col, vals in columns.items()}
 
 
 def _layer2_null_rates(
@@ -156,9 +155,15 @@ def _layer2_null_rates(
 
     # Key feature columns to check
     check_cols = [
-        "underlying_ltp", "underlying_momentum", "underlying_ofi_5",
-        "chain_pcr_global", "chain_pcr_atm", "regime", "breakout_readiness",
-        "zone_activity_score", "data_quality_flag",
+        "underlying_ltp",
+        "underlying_momentum",
+        "underlying_ofi_5",
+        "chain_pcr_global",
+        "chain_pcr_atm",
+        "regime",
+        "breakout_readiness",
+        "zone_activity_score",
+        "data_quality_flag",
     ]
 
     for col in check_cols:
@@ -179,6 +184,7 @@ def _layer2_null_rates(
 
 # ── Layer 3: Statistical sanity checks ────────────────────────────────────────
 
+
 def _stat_check(
     col: str,
     values: list,
@@ -191,8 +197,7 @@ def _stat_check(
     if not valid:
         return f"WARN — all NaN ('{col}' not populated)"
     out_of_range = sum(
-        1 for v in valid
-        if (lo is not None and v < lo) or (hi is not None and v > hi)
+        1 for v in valid if (lo is not None and v < lo) or (hi is not None and v > hi)
     )
     pct = out_of_range / len(valid)
     if pct > pct_threshold:
@@ -268,25 +273,32 @@ def _layer3_statistical(columns: dict[str, list], n_rows: int) -> dict[str, Any]
 
     # breakout_readiness range [0, 1]
     if "breakout_readiness" in columns:
-        _record("breakout_readiness",
-                _stat_check("breakout_readiness", columns["breakout_readiness"], 0.0, 1.0))
+        _record(
+            "breakout_readiness",
+            _stat_check("breakout_readiness", columns["breakout_readiness"], 0.0, 1.0),
+        )
 
     # call_put_strength_diff range [-1, 1]
     if "call_put_strength_diff" in columns:
-        _record("call_put_strength_diff",
-                _stat_check("call_put_strength_diff",
-                            columns["call_put_strength_diff"], -1.0, 1.0))
+        _record(
+            "call_put_strength_diff",
+            _stat_check("call_put_strength_diff", columns["call_put_strength_diff"], -1.0, 1.0),
+        )
 
     # return_5ticks — typical range
     if "underlying_return_5ticks" in columns:
-        _record("underlying_return_5ticks",
-                _stat_check("underlying_return_5ticks",
-                            columns["underlying_return_5ticks"], -0.05, 0.05))
+        _record(
+            "underlying_return_5ticks",
+            _stat_check(
+                "underlying_return_5ticks", columns["underlying_return_5ticks"], -0.05, 0.05
+            ),
+        )
 
     return {"verdict": layer_verdict, "checks": checks}
 
 
 # ── Daily stats ────────────────────────────────────────────────────────────────
+
 
 def _daily_stats(columns: dict[str, list], stat_cols: list[str]) -> dict[str, Any]:
     """Compute mean, std, null_pct for key columns."""
@@ -294,21 +306,28 @@ def _daily_stats(columns: dict[str, list], stat_cols: list[str]) -> dict[str, An
     for col in stat_cols:
         if col not in columns:
             continue
-        vals = [v for v in columns[col]
-                if v is not None and not (isinstance(v, float) and math.isnan(v))]
+        vals = [
+            v
+            for v in columns[col]
+            if v is not None and not (isinstance(v, float) and math.isnan(v))
+        ]
         all_vals = columns[col]
         null_pct = 1 - (len(vals) / len(all_vals)) if all_vals else 0.0
         if vals:
             mean = sum(vals) / len(vals)
-            std  = (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5
+            std = (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5
         else:
             mean, std = float("nan"), float("nan")
-        result[col] = {"mean": round(mean, 6), "std": round(std, 6),
-                       "null_pct": round(null_pct * 100, 2)}
+        result[col] = {
+            "mean": round(mean, 6),
+            "std": round(std, 6),
+            "null_pct": round(null_pct * 100, 2),
+        }
     return result
 
 
 # ── Overall verdict ────────────────────────────────────────────────────────────
+
 
 def _overall_verdict(layers: dict[str, dict]) -> str:
     verdicts = {v["verdict"] for v in layers.values()}
@@ -320,6 +339,7 @@ def _overall_verdict(layers: dict[str, dict]) -> str:
 
 
 # ── Main validation entry point ────────────────────────────────────────────────
+
 
 def validate(
     parquet_path: str | Path,
@@ -356,12 +376,17 @@ def validate(
     df_cols = table.schema.names
 
     # Infer target windows from parquet columns
-    windows = sorted({
-        int(c.split("_")[-1].rstrip("s"))
-        for c in df_cols if c.startswith("direction_") and c.endswith("s")
-        and not c.endswith("magnitude") and c != "direction_30s_magnitude"
-        and c.split("_")[-1].rstrip("s").isdigit()
-    }) or [30, 60]
+    windows = sorted(
+        {
+            int(c.split("_")[-1].rstrip("s"))
+            for c in df_cols
+            if c.startswith("direction_")
+            and c.endswith("s")
+            and not c.endswith("magnitude")
+            and c != "direction_30s_magnitude"
+            and c.split("_")[-1].rstrip("s").isdigit()
+        }
+    ) or [30, 60]
     COLUMN_NAMES = column_names_for(tuple(windows))
 
     # Extract column data as Python lists for validation
@@ -385,8 +410,11 @@ def validate(
     verdict = _overall_verdict(layers)
 
     daily_stats_cols = [
-        "underlying_return_5ticks", "chain_pcr_global", "underlying_realized_vol_5",
-        "zone_activity_score", "breakout_readiness",
+        "underlying_return_5ticks",
+        "chain_pcr_global",
+        "underlying_realized_vol_5",
+        "zone_activity_score",
+        "breakout_readiness",
     ]
 
     result: dict[str, Any] = {
@@ -412,17 +440,17 @@ def validate(
 
 # ── CLI entry ─────────────────────────────────────────────────────────────────
 
+
 def _cli():
     import argparse
-    parser = argparse.ArgumentParser(
-        description="TFA Feature Quality Validator — §17"
-    )
+
+    parser = argparse.ArgumentParser(description="TFA Feature Quality Validator — §17")
     parser.add_argument("--instrument", required=True, help="Instrument key, e.g. nifty50")
     parser.add_argument("--date", required=True, help="ISO date YYYY-MM-DD")
-    parser.add_argument("--features-dir", default="data/features",
-                        help="Root directory for feature Parquet files")
-    parser.add_argument("--output-dir", default=None,
-                        help="Directory for validation JSON output")
+    parser.add_argument(
+        "--features-dir", default="data/features", help="Root directory for feature Parquet files"
+    )
+    parser.add_argument("--output-dir", default=None, help="Directory for validation JSON output")
     args = parser.parse_args()
 
     parquet_path = Path(args.features_dir) / args.date / f"{args.instrument}_features.parquet"

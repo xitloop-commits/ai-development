@@ -14,17 +14,17 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
 import pytest
 
-from tick_feature_agent.replay.stream_merger import merge_streams
 from tick_feature_agent.replay.checkpoint import ReplayCheckpoint
-
+from tick_feature_agent.replay.stream_merger import merge_streams
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
 
 def _write_gz(path: Path, records: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,15 +56,17 @@ def _ts(h, m, s, ms=0) -> str:
 # TestStreamMerger
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestStreamMerger:
 
     def test_single_stream_ordered(self, tmp_path):
         records = [
-            {"recv_ts": _ts(9,15,1), "ltp": 100.0},
-            {"recv_ts": _ts(9,15,2), "ltp": 101.0},
+            {"recv_ts": _ts(9, 15, 1), "ltp": 100.0},
+            {"recv_ts": _ts(9, 15, 2), "ltp": 101.0},
         ]
-        folder = _make_date_folder(tmp_path, "nifty50",
-            underlying_ticks=records, option_ticks=[], chain_snapshots=[])
+        folder = _make_date_folder(
+            tmp_path, "nifty50", underlying_ticks=records, option_ticks=[], chain_snapshots=[]
+        )
         events = list(merge_streams(folder, "nifty50"))
         assert len(events) == 2
         assert all(e["type"] == "underlying_tick" for e in events)
@@ -75,10 +77,11 @@ class TestStreamMerger:
         After merge: [underlying, option, chain].
         """
         folder = _make_date_folder(
-            tmp_path, "nifty50",
-            underlying_ticks=[{"recv_ts": _ts(9,15,1), "ltp": 100.0}],
-            option_ticks=[{"recv_ts": _ts(9,15,2), "ltp": 50.0}],
-            chain_snapshots=[{"recv_ts": _ts(9,15,3), "spot": 24100.0}],
+            tmp_path,
+            "nifty50",
+            underlying_ticks=[{"recv_ts": _ts(9, 15, 1), "ltp": 100.0}],
+            option_ticks=[{"recv_ts": _ts(9, 15, 2), "ltp": 50.0}],
+            chain_snapshots=[{"recv_ts": _ts(9, 15, 3), "spot": 24100.0}],
         )
         events = list(merge_streams(folder, "nifty50"))
         assert len(events) == 3
@@ -90,16 +93,17 @@ class TestStreamMerger:
         U1 at T=1, O1 at T=1.5, U2 at T=2, C1 at T=2.5.
         """
         folder = _make_date_folder(
-            tmp_path, "nifty50",
+            tmp_path,
+            "nifty50",
             underlying_ticks=[
-                {"recv_ts": _ts(9,15,1,0), "ltp": 100.0},
-                {"recv_ts": _ts(9,15,2,0), "ltp": 101.0},
+                {"recv_ts": _ts(9, 15, 1, 0), "ltp": 100.0},
+                {"recv_ts": _ts(9, 15, 2, 0), "ltp": 101.0},
             ],
             option_ticks=[
-                {"recv_ts": _ts(9,15,1,500), "ltp": 50.0},
+                {"recv_ts": _ts(9, 15, 1, 500), "ltp": 50.0},
             ],
             chain_snapshots=[
-                {"recv_ts": _ts(9,15,2,500), "spot": 24100.0},
+                {"recv_ts": _ts(9, 15, 2, 500), "spot": 24100.0},
             ],
         )
         events = list(merge_streams(folder, "nifty50"))
@@ -116,7 +120,7 @@ class TestStreamMerger:
         # Only write underlying ticks
         _write_gz(
             folder / "nifty50_underlying_ticks.ndjson.gz",
-            [{"recv_ts": _ts(9,15,1), "ltp": 100.0}]
+            [{"recv_ts": _ts(9, 15, 1), "ltp": 100.0}],
         )
         # option_ticks and chain_snapshots are missing
         events = list(merge_streams(folder, "nifty50"))
@@ -124,15 +128,17 @@ class TestStreamMerger:
         assert events[0]["type"] == "underlying_tick"
 
     def test_empty_streams_return_empty(self, tmp_path):
-        folder = _make_date_folder(tmp_path, "nifty50",
-            underlying_ticks=[], option_ticks=[], chain_snapshots=[])
+        folder = _make_date_folder(
+            tmp_path, "nifty50", underlying_ticks=[], option_ticks=[], chain_snapshots=[]
+        )
         events = list(merge_streams(folder, "nifty50"))
         assert events == []
 
     def test_event_data_preserved(self, tmp_path):
-        record = {"recv_ts": _ts(9,15,1), "ltp": 24100.5, "bid": 24100.0}
-        folder = _make_date_folder(tmp_path, "nifty50",
-            underlying_ticks=[record], option_ticks=[], chain_snapshots=[])
+        record = {"recv_ts": _ts(9, 15, 1), "ltp": 24100.5, "bid": 24100.0}
+        folder = _make_date_folder(
+            tmp_path, "nifty50", underlying_ticks=[record], option_ticks=[], chain_snapshots=[]
+        )
         events = list(merge_streams(folder, "nifty50"))
         assert events[0]["data"]["ltp"] == 24100.5
         assert events[0]["data"]["bid"] == 24100.0
@@ -142,9 +148,11 @@ class TestStreamMerger:
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / "nifty50_underlying_ticks.ndjson.gz"
         with gzip.open(path, "wt") as f:
-            f.write("{valid}\n".replace("{valid}", json.dumps({"recv_ts": _ts(9,15,1), "ltp": 1.0})))
+            f.write(
+                "{valid}\n".replace("{valid}", json.dumps({"recv_ts": _ts(9, 15, 1), "ltp": 1.0}))
+            )
             f.write("MALFORMED LINE\n")
-            f.write(json.dumps({"recv_ts": _ts(9,15,2), "ltp": 2.0}) + "\n")
+            f.write(json.dumps({"recv_ts": _ts(9, 15, 2), "ltp": 2.0}) + "\n")
         _write_gz(folder / "nifty50_option_ticks.ndjson.gz", [])
         _write_gz(folder / "nifty50_chain_snapshots.ndjson.gz", [])
         events = list(merge_streams(folder, "nifty50"))
@@ -154,14 +162,20 @@ class TestStreamMerger:
     def test_large_multi_stream_ordering(self, tmp_path):
         """50 underlying + 50 option ticks interleaved — verify strict ordering."""
         import bisect
-        underlying = [{"recv_ts": _ts(9,15,i,0), "seq": f"u{i}", "ltp": float(i)}
-                      for i in range(1, 51)]
-        options = [{"recv_ts": _ts(9,15,i,500), "seq": f"o{i}", "ltp": float(i)}
-                   for i in range(1, 51)]
-        folder = _make_date_folder(tmp_path, "nifty50",
+
+        underlying = [
+            {"recv_ts": _ts(9, 15, i, 0), "seq": f"u{i}", "ltp": float(i)} for i in range(1, 51)
+        ]
+        options = [
+            {"recv_ts": _ts(9, 15, i, 500), "seq": f"o{i}", "ltp": float(i)} for i in range(1, 51)
+        ]
+        folder = _make_date_folder(
+            tmp_path,
+            "nifty50",
             underlying_ticks=underlying,
             option_ticks=options,
-            chain_snapshots=[])
+            chain_snapshots=[],
+        )
         events = list(merge_streams(folder, "nifty50"))
         assert len(events) == 100
         # Verify timestamps are non-decreasing
@@ -172,6 +186,7 @@ class TestStreamMerger:
 # ══════════════════════════════════════════════════════════════════════════════
 # TestReplayCheckpoint
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestReplayCheckpoint:
 
@@ -263,4 +278,4 @@ class TestReplayCheckpoint:
         cp.mark_complete("nifty50", "2026-04-05")  # older date
         entry = cp.get_entry("nifty50")
         assert entry["last_completed_date"] == "2026-04-10"  # unchanged
-        assert entry["sessions_completed"] == 2              # counter still increments
+        assert entry["sessions_completed"] == 2  # counter still increments

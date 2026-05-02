@@ -18,23 +18,19 @@ import asyncio
 import json
 import socket
 import time
-from typing import Callable, Awaitable
+from collections.abc import Awaitable, Callable
 
 try:
     import websockets
     import websockets.asyncio.client as ws_client
 except ImportError:
-    raise ImportError(
-        "websockets package not installed.\n"
-        "Run: pip install 'websockets>=12.0'"
-    )
+    raise ImportError("websockets package not installed.\n" "Run: pip install 'websockets>=12.0'")
 
 from tick_feature_agent.feed.binary_parser import (
-    dispatch,
-    ResponseCode,
-    RequestCode,
-    EXCHANGE_SEGMENT_CODE,
     EXCHANGE_SEGMENT_NAME,
+    RequestCode,
+    ResponseCode,
+    dispatch,
 )
 from tick_feature_agent.log.tfa_logger import get_logger
 
@@ -80,7 +76,7 @@ class DhanFeed:
         self,
         access_token: str,
         client_id: str,
-        exchange: str,                           # "NSE" or "MCX"
+        exchange: str,  # "NSE" or "MCX"
         underlying_security_id: str,
         on_underlying_tick: Callable[[dict], Awaitable[None] | None],
         on_option_tick: Callable[[int, str, dict], Awaitable[None] | None],
@@ -200,15 +196,14 @@ class DhanFeed:
             retry_at = time.time() + delay
             self._log.info(
                 "FEED_RECONNECTING",
-                msg=f"Reconnecting in {delay:.1f}s "
-                    f"(attempt {self._reconnect_attempts})",
+                msg=f"Reconnecting in {delay:.1f}s " f"(attempt {self._reconnect_attempts})",
             )
             if self._on_reconnecting:
                 self._on_reconnecting(retry_at, self._reconnect_attempts)
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
                 break  # stop() was called during backoff
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     async def stop(self) -> None:
@@ -229,10 +224,10 @@ class DhanFeed:
             try:
                 fresh = self._credential_fetcher()
                 if fresh and "_error" not in fresh:
-                    new_token     = fresh.get("accessToken") or fresh.get("access_token", "")
-                    new_client_id = fresh.get("clientId")    or fresh.get("client_id",    "")
+                    new_token = fresh.get("accessToken") or fresh.get("access_token", "")
+                    new_client_id = fresh.get("clientId") or fresh.get("client_id", "")
                     if new_token and new_client_id:
-                        self._token     = new_token
+                        self._token = new_token
                         self._client_id = new_client_id
                         self._log.info("CREDS_REFRESHED", msg="Credentials refreshed for reconnect")
             except Exception as exc:
@@ -248,10 +243,10 @@ class DhanFeed:
             async with ws_client.connect(
                 url,
                 open_timeout=_CONNECT_TIMEOUT_SEC,
-                ping_interval=None,    # Don't send WS pings — Dhan doesn't pong them
-                ping_timeout=None,     # Disable client-side ping timeout entirely
-                                       # Dhan sends its own pings every 10s; websockets
-                                       # auto-responds with pongs to keep connection alive
+                ping_interval=None,  # Don't send WS pings — Dhan doesn't pong them
+                ping_timeout=None,  # Disable client-side ping timeout entirely
+                # Dhan sends its own pings every 10s; websockets
+                # auto-responds with pongs to keep connection alive
             ) as ws:
                 self._ws = ws
                 self._connected = True
@@ -261,9 +256,7 @@ class DhanFeed:
                 try:
                     raw_sock = ws.socket
                     if raw_sock:
-                        raw_sock.setsockopt(
-                            socket.IPPROTO_TCP, socket.TCP_NODELAY, 1
-                        )
+                        raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 except Exception:
                     pass
 
@@ -282,15 +275,19 @@ class DhanFeed:
                         await self._handle_message(raw_msg)
                     # text messages are not expected but silently ignored
 
-        except (websockets.exceptions.ConnectionClosedError,
-                websockets.exceptions.ConnectionClosedOK):
+        except (
+            websockets.exceptions.ConnectionClosedError,
+            websockets.exceptions.ConnectionClosedOK,
+        ):
             pass
         except (OSError, websockets.exceptions.WebSocketException) as exc:
             msg = str(exc)
             if "429" in msg:
                 self._last_was_429 = True
-                self._log.warn("FEED_RATE_LIMITED",
-                               msg="Dhan rate-limited connection (HTTP 429) — backing off 60s")
+                self._log.warn(
+                    "FEED_RATE_LIMITED",
+                    msg="Dhan rate-limited connection (HTTP 429) — backing off 60s",
+                )
             else:
                 self._log.warn("FEED_CONNECT_FAILED", msg=msg)
         finally:
@@ -305,7 +302,7 @@ class DhanFeed:
         header, payload = dispatch(buf)
         if payload is None:
             if header.response_code == ResponseCode.MARKET_STATUS:
-                pass   # ignore
+                pass  # ignore
             elif header.response_code not in (0,):
                 self._log.debug(
                     "UNKNOWN_PACKET",
@@ -318,8 +315,9 @@ class DhanFeed:
             reason = payload.get("reason", "")
             self._log.warn("SERVER_DISCONNECT", msg=f"Server disconnected: {reason}", code=code)
             # Always print to terminal so it is visible regardless of log level
-            print(f"\n  \033[31m✗ DHAN DISCONNECT\033[0m  code={code}  reason={reason}\n",
-                  flush=True)
+            print(
+                f"\n  \033[31m✗ DHAN DISCONNECT\033[0m  code={code}  reason={reason}\n", flush=True
+            )
             if self._on_disconnect_code:
                 self._on_disconnect_code(code, reason)
             return
@@ -363,7 +361,7 @@ class DhanFeed:
         if not self._ws or not self._connected:
             return
         for i in range(0, len(entries), _MAX_INSTRUMENTS_PER_MSG):
-            batch = entries[i: i + _MAX_INSTRUMENTS_PER_MSG]
+            batch = entries[i : i + _MAX_INSTRUMENTS_PER_MSG]
             msg = {
                 "RequestCode": request_code,
                 "InstrumentCount": len(batch),

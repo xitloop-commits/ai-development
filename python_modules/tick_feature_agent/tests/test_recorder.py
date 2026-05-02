@@ -15,19 +15,19 @@ import time
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
 import pytest
 
-from tick_feature_agent.recorder.writer import NdjsonGzWriter, WriterLockError
+from tick_feature_agent.recorder.dashboard_writer import DashboardWriter
 from tick_feature_agent.recorder.metadata_writer import read_metadata, write_metadata
 from tick_feature_agent.recorder.session_recorder import SessionRecorder
-from tick_feature_agent.recorder.dashboard_writer import DashboardWriter
-
+from tick_feature_agent.recorder.writer import NdjsonGzWriter, WriterLockError
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
 
 def _read_gz(path: Path) -> list[dict]:
     """Read all NDJSON records from a .ndjson.gz file."""
@@ -43,6 +43,7 @@ def _read_gz(path: Path) -> list[dict]:
 # ══════════════════════════════════════════════════════════════════════════════
 # TestNdjsonGzWriter
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestNdjsonGzWriter:
 
@@ -155,12 +156,13 @@ class TestNdjsonGzWriter:
 
         assert not errors
         records = _read_gz(path)
-        assert len(records) == 100   # 5 threads × 20 records
+        assert len(records) == 100  # 5 threads × 20 records
 
     def test_non_serializable_uses_default_str(self, tmp_path):
         """Non-JSON-serializable values are converted to str via default=str."""
         path = tmp_path / "test.ndjson.gz"
         from datetime import datetime
+
         with NdjsonGzWriter(path) as w:
             w.write({"ts": datetime(2026, 4, 14, 9, 15)})
         records = _read_gz(path)
@@ -194,7 +196,7 @@ class TestNdjsonGzWriter:
         w1.write({"seq": 1})
         w1.close()
 
-        w2 = NdjsonGzWriter(path)   # must not raise
+        w2 = NdjsonGzWriter(path)  # must not raise
         w2.write({"seq": 2})
         w2.close()
 
@@ -236,14 +238,15 @@ class TestNdjsonGzWriter:
 # TestMetadataWriter
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestMetadataWriter:
 
     def _instruments(self):
         return {
             "nifty50": {
-                "underlying_symbol":      "NIFTY25MAYFUT",
+                "underlying_symbol": "NIFTY25MAYFUT",
                 "underlying_security_id": "13",
-                "expiry":                 "2026-04-17",
+                "expiry": "2026-04-17",
             }
         }
 
@@ -260,11 +263,13 @@ class TestMetadataWriter:
 
     def test_overwrite_on_rollover(self, tmp_path):
         write_metadata(tmp_path, "2026-04-14", self._instruments())
-        updated = {"nifty50": {
-            "underlying_symbol":      "NIFTY25MAYFUT",
-            "underlying_security_id": "13",
-            "expiry":                 "2026-04-24",  # new expiry
-        }}
+        updated = {
+            "nifty50": {
+                "underlying_symbol": "NIFTY25MAYFUT",
+                "underlying_security_id": "13",
+                "expiry": "2026-04-24",  # new expiry
+            }
+        }
         write_metadata(tmp_path, "2026-04-14", updated)
         meta = read_metadata(tmp_path)
         assert meta["instruments"]["nifty50"]["expiry"] == "2026-04-24"
@@ -281,8 +286,16 @@ class TestMetadataWriter:
 
     def test_multi_instrument_metadata(self, tmp_path):
         instruments = {
-            "nifty50":   {"underlying_symbol": "NIFTY25MAYFUT",     "underlying_security_id": "13",  "expiry": "2026-04-17"},
-            "crudeoil":  {"underlying_symbol": "CRUDEOIL25MAYFUT",  "underlying_security_id": "486502", "expiry": "2026-04-16"},
+            "nifty50": {
+                "underlying_symbol": "NIFTY25MAYFUT",
+                "underlying_security_id": "13",
+                "expiry": "2026-04-17",
+            },
+            "crudeoil": {
+                "underlying_symbol": "CRUDEOIL25MAYFUT",
+                "underlying_security_id": "486502",
+                "expiry": "2026-04-16",
+            },
         }
         write_metadata(tmp_path, "2026-04-14", instruments)
         meta = read_metadata(tmp_path)
@@ -298,29 +311,46 @@ _INSTRUMENT = "nifty50"
 
 _UNDERLYING_TICK = {
     "security_id": "13",
-    "ltp": 24100.0, "bid": 24099.5, "ask": 24100.5,
-    "bid_qty": 120, "ask_qty": 85,
-    "volume": 3, "cumulative_volume": 1245300,
-    "oi": 0, "ltt": 1744342501,
+    "ltp": 24100.0,
+    "bid": 24099.5,
+    "ask": 24100.5,
+    "bid_qty": 120,
+    "ask_qty": 85,
+    "volume": 3,
+    "cumulative_volume": 1245300,
+    "oi": 0,
+    "ltt": 1744342501,
 }
 
 _OPTION_TICK = {
     "security_id": "100123",
     "expiry": "2026-04-17",
-    "strike": 24100, "opt_type": "CE",
-    "ltp": 85.5, "bid": 85.0, "ask": 86.0,
-    "bid_qty": 50, "ask_qty": 40,
-    "volume": 2, "cumulative_volume": 48200,
-    "oi": 12000, "ltt": 1744342501,
+    "strike": 24100,
+    "opt_type": "CE",
+    "ltp": 85.5,
+    "bid": 85.0,
+    "ask": 86.0,
+    "bid_qty": 50,
+    "ask_qty": 40,
+    "volume": 2,
+    "cumulative_volume": 48200,
+    "oi": 12000,
+    "ltt": 1744342501,
 }
 
 _CHAIN_SNAPSHOT = {
     "expiry": "2026-04-17",
     "spot": 24100.0,
     "strikes": [
-        {"strike": 24100, "call_oi": 45000, "put_oi": 38000,
-         "call_delta_oi": 200, "put_delta_oi": -150,
-         "call_ltp": 85.5, "put_ltp": 78.0}
+        {
+            "strike": 24100,
+            "call_oi": 45000,
+            "put_oi": 38000,
+            "call_delta_oi": 200,
+            "put_delta_oi": -150,
+            "call_ltp": 85.5,
+            "put_ltp": 78.0,
+        }
     ],
 }
 
@@ -450,6 +480,7 @@ class TestSessionRecorder:
 # ══════════════════════════════════════════════════════════════════════════════
 # TestDashboardWriter
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestDashboardWriter:
 

@@ -19,20 +19,21 @@ from __future__ import annotations
 from collections import deque
 from typing import NamedTuple
 
-
 # ── Option tick structure ─────────────────────────────────────────────────────
 
+
 class OptionTick(NamedTuple):
-    timestamp: float   # Unix epoch seconds (recv_ts from feed)
-    ltp: float         # Last traded price
-    bid: float         # Best bid
-    ask: float         # Best ask
-    bid_size: int      # Total bid quantity at best bid
-    ask_size: int      # Total ask quantity at best ask
-    volume: int        # Cumulative day volume at this tick
+    timestamp: float  # Unix epoch seconds (recv_ts from feed)
+    ltp: float  # Last traded price
+    bid: float  # Best bid
+    ask: float  # Best ask
+    bid_size: int  # Total bid quantity at best bid
+    ask_size: int  # Total ask quantity at best ask
+    volume: int  # Cumulative day volume at this tick
 
 
 # ── Per-strike buffer ─────────────────────────────────────────────────────────
+
 
 class _StrikeBuffer:
     """Internal — one circular buffer + availability flag per (strike, opt_type)."""
@@ -41,11 +42,11 @@ class _StrikeBuffer:
 
     def __init__(self, maxlen: int) -> None:
         self._buf: deque[OptionTick] = deque(maxlen=maxlen)
-        self.tick_available: bool = False   # False until first tick received
+        self.tick_available: bool = False  # False until first tick received
 
     def push(self, tick: OptionTick) -> None:
         self._buf.append(tick)
-        self.tick_available = True          # latches True on first tick, never resets
+        self.tick_available = True  # latches True on first tick, never resets
 
     def get_last(self, n: int) -> list[OptionTick]:
         buf = self._buf
@@ -54,7 +55,7 @@ class _StrikeBuffer:
             return []
         if n >= length:
             return list(buf)
-        return list(buf)[length - n:]
+        return list(buf)[length - n :]
 
     def latest(self) -> OptionTick | None:
         return self._buf[-1] if self._buf else None
@@ -68,6 +69,7 @@ class _StrikeBuffer:
 
 
 # ── OptionBufferStore ─────────────────────────────────────────────────────────
+
 
 class OptionBufferStore:
     """

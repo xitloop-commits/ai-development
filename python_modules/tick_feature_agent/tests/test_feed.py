@@ -16,34 +16,35 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+
 from tick_feature_agent.feed.binary_parser import (
-    parse_header,
-    parse_ticker_packet,
-    parse_quote_packet,
-    parse_oi_packet,
-    parse_prev_close_packet,
-    parse_full_packet,
-    parse_depth_levels,
-    parse_disconnect_packet,
-    dispatch,
-    ResponseCode,
-    RequestCode,
     EXCHANGE_SEGMENT_CODE,
     EXCHANGE_SEGMENT_NAME,
     PacketHeader,
+    RequestCode,
+    ResponseCode,
+    dispatch,
+    parse_depth_levels,
+    parse_disconnect_packet,
+    parse_full_packet,
+    parse_header,
+    parse_oi_packet,
+    parse_prev_close_packet,
+    parse_quote_packet,
+    parse_ticker_packet,
 )
-
 
 # ── Synthetic buffer builders ──────────────────────────────────────────────────
 
-def _make_header(response_code: int, exchange_segment: int, security_id: int,
-                 msg_len: int = 0) -> bytes:
+
+def _make_header(
+    response_code: int, exchange_segment: int, security_id: int, msg_len: int = 0
+) -> bytes:
     """Build an 8-byte Dhan WS packet header."""
     return struct.pack("<BhBi", response_code, msg_len, exchange_segment, security_id)
 
 
-def _make_ticker_buf(response_code: int, exch_seg: int, sec_id: int,
-                     ltp: float, ltt: int) -> bytes:
+def _make_ticker_buf(response_code: int, exch_seg: int, sec_id: int, ltp: float, ltt: int) -> bytes:
     header = _make_header(response_code, exch_seg, sec_id, 16)
     return header + struct.pack("<fi", ltp, ltt)
 
@@ -73,8 +74,20 @@ def _make_full_buf(
     header = _make_header(ResponseCode.FULL, exch_seg, sec_id, 162)
     data = struct.pack(
         "<fhifiiiiiiffff",
-        ltp, ltq, ltt, atp, volume, total_sell, total_buy,
-        oi, high_oi, low_oi, day_open, day_close, day_high, day_low,
+        ltp,
+        ltq,
+        ltt,
+        atp,
+        volume,
+        total_sell,
+        total_buy,
+        oi,
+        high_oi,
+        low_oi,
+        day_open,
+        day_close,
+        day_high,
+        day_low,
     )
     # Level 0: real bid/ask data
     level0 = struct.pack("<iihh2f", bid_qty, ask_qty, 5, 3, bid_price, ask_price)
@@ -86,6 +99,7 @@ def _make_full_buf(
 # ══════════════════════════════════════════════════════════════════════════════
 # parse_header
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestParseHeader:
 
@@ -123,11 +137,13 @@ class TestParseHeader:
 # parse_ticker_packet (code 2 / code 1 INDEX)
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestTickerPacket:
 
     def test_ltp_and_ltt_extracted(self):
-        buf = _make_ticker_buf(ResponseCode.TICKER, exch_seg=2, sec_id=52175,
-                               ltp=245.5, ltt=1744512345)
+        buf = _make_ticker_buf(
+            ResponseCode.TICKER, exch_seg=2, sec_id=52175, ltp=245.5, ltt=1744512345
+        )
         result = parse_ticker_packet(buf)
         assert abs(result["ltp"] - 245.5) < 0.001
         assert result["ltt"] == 1744512345
@@ -143,8 +159,7 @@ class TestTickerPacket:
             parse_ticker_packet(b"\x02" * 10)
 
     def test_index_packet_parses_correctly(self):
-        buf = _make_ticker_buf(ResponseCode.INDEX, exch_seg=0, sec_id=13,
-                               ltp=24150.0, ltt=1000)
+        buf = _make_ticker_buf(ResponseCode.INDEX, exch_seg=0, sec_id=13, ltp=24150.0, ltt=1000)
         result = parse_ticker_packet(buf)
         assert abs(result["ltp"] - 24150.0) < 0.01
 
@@ -159,21 +174,38 @@ class TestTickerPacket:
 # parse_quote_packet (code 4)
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestQuotePacket:
 
     def _make_buf(self, **kwargs) -> bytes:
         d = dict(
-            ltp=24000.0, ltq=5, ltt=1744512000, atp=24001.0,
-            volume=12000, total_sell=5000, total_buy=7000,
-            day_open=23900.0, day_close=23950.0, day_high=24100.0, day_low=23800.0,
+            ltp=24000.0,
+            ltq=5,
+            ltt=1744512000,
+            atp=24001.0,
+            volume=12000,
+            total_sell=5000,
+            total_buy=7000,
+            day_open=23900.0,
+            day_close=23950.0,
+            day_high=24100.0,
+            day_low=23800.0,
         )
         d.update(kwargs)
         header = _make_header(ResponseCode.QUOTE, 2, 52175, 50)
         payload = struct.pack(
             "<fhifiiiffff",
-            d["ltp"], d["ltq"], d["ltt"], d["atp"],
-            d["volume"], d["total_sell"], d["total_buy"],
-            d["day_open"], d["day_close"], d["day_high"], d["day_low"],
+            d["ltp"],
+            d["ltq"],
+            d["ltt"],
+            d["atp"],
+            d["volume"],
+            d["total_sell"],
+            d["total_buy"],
+            d["day_open"],
+            d["day_close"],
+            d["day_high"],
+            d["day_low"],
         )
         return header + payload
 
@@ -202,6 +234,7 @@ class TestQuotePacket:
 # parse_oi_packet (code 5)
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestOIPacket:
 
     def test_oi_extracted(self):
@@ -225,6 +258,7 @@ class TestOIPacket:
 # parse_prev_close_packet (code 6)
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestPrevClosePacket:
 
     def test_fields_extracted(self):
@@ -242,6 +276,7 @@ class TestPrevClosePacket:
 # ══════════════════════════════════════════════════════════════════════════════
 # parse_full_packet (code 8)
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestFullPacket:
 
@@ -283,9 +318,26 @@ class TestFullPacket:
     def test_all_keys_present(self):
         result = parse_full_packet(_make_full_buf())
         expected_keys = (
-            "ltp", "ltq", "ltt", "atp", "volume", "total_sell", "total_buy",
-            "oi", "high_oi", "low_oi", "day_open", "day_close", "day_high",
-            "day_low", "bid", "ask", "bid_size", "ask_size", "depth", "recv_ts",
+            "ltp",
+            "ltq",
+            "ltt",
+            "atp",
+            "volume",
+            "total_sell",
+            "total_buy",
+            "oi",
+            "high_oi",
+            "low_oi",
+            "day_open",
+            "day_close",
+            "day_high",
+            "day_low",
+            "bid",
+            "ask",
+            "bid_size",
+            "ask_size",
+            "depth",
+            "recv_ts",
         )
         for key in expected_keys:
             assert key in result, f"Missing key: {key}"
@@ -299,13 +351,15 @@ class TestFullPacket:
 # parse_depth_levels
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestDepthLevels:
 
     def _make_depth_buf(self, levels: list[tuple]) -> bytes:
         buf = b""
         for bid_qty, ask_qty, bid_orders, ask_orders, bid_price, ask_price in levels:
-            buf += struct.pack("<iihh2f", bid_qty, ask_qty, bid_orders, ask_orders,
-                               bid_price, ask_price)
+            buf += struct.pack(
+                "<iihh2f", bid_qty, ask_qty, bid_orders, ask_orders, bid_price, ask_price
+            )
         return buf
 
     def test_single_level(self):
@@ -318,8 +372,8 @@ class TestDepthLevels:
 
     def test_five_levels(self):
         data = [
-            (100, 80,  5,  3, 23999.5, 24001.5),
-            (200, 150, 8,  6, 23998.0, 24003.0),
+            (100, 80, 5, 3, 23999.5, 24001.5),
+            (200, 150, 8, 6, 23998.0, 24003.0),
             (300, 200, 10, 8, 23996.0, 24005.0),
             (400, 250, 12, 10, 23994.0, 24007.0),
             (500, 300, 15, 12, 23992.0, 24009.0),
@@ -342,6 +396,7 @@ class TestDepthLevels:
 # ══════════════════════════════════════════════════════════════════════════════
 # parse_disconnect_packet (code 50)
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestDisconnectPacket:
 
@@ -370,19 +425,18 @@ class TestDisconnectPacket:
 # dispatch
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestDispatch:
 
     def test_dispatch_ticker_code_2(self):
-        buf = _make_ticker_buf(ResponseCode.TICKER, exch_seg=2, sec_id=52175,
-                               ltp=245.5, ltt=1000)
+        buf = _make_ticker_buf(ResponseCode.TICKER, exch_seg=2, sec_id=52175, ltp=245.5, ltt=1000)
         header, payload = dispatch(buf)
         assert header.response_code == ResponseCode.TICKER
         assert payload is not None
         assert abs(payload["ltp"] - 245.5) < 0.01
 
     def test_dispatch_index_code_1(self):
-        buf = _make_ticker_buf(ResponseCode.INDEX, exch_seg=0, sec_id=13,
-                               ltp=24150.0, ltt=2000)
+        buf = _make_ticker_buf(ResponseCode.INDEX, exch_seg=0, sec_id=13, ltp=24150.0, ltt=2000)
         header, payload = dispatch(buf)
         assert header.response_code == ResponseCode.INDEX
         assert payload is not None
@@ -439,7 +493,7 @@ class TestDispatch:
         """A parseable header followed by too-short payload returns None gracefully."""
         # Header says FULL (162 bytes) but buffer is only 20 bytes
         buf = _make_header(ResponseCode.FULL, 2, 52175, 162)
-        buf += b"\x00" * 12   # far too short for a Full packet
+        buf += b"\x00" * 12  # far too short for a Full packet
         _, payload = dispatch(buf)
         assert payload is None
 
@@ -447,6 +501,7 @@ class TestDispatch:
 # ══════════════════════════════════════════════════════════════════════════════
 # Exchange segment maps
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestExchangeSegmentMaps:
 

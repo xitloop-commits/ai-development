@@ -11,19 +11,18 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
 import pytest
 
 from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
-from tick_feature_agent.features.option_tick import (
-    compute_option_tick_features,
-    _bid_ask_imbalance,
-)
 from tick_feature_agent.features.horizon import compute_horizon_features
-
+from tick_feature_agent.features.option_tick import (
+    _bid_ask_imbalance,
+    compute_option_tick_features,
+)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -32,14 +31,15 @@ _ATM = 24150
 _ATM_WINDOW = [_ATM + i * _STRIKE_STEP for i in range(-3, 4)]  # 7 strikes
 
 
-def _otick(ltp=100.0, bid=99.0, ask=101.0, bid_size=100, ask_size=80,
-           volume=5000, ts=0.0) -> OptionTick:
-    return OptionTick(timestamp=ts, ltp=ltp, bid=bid, ask=ask,
-                      bid_size=bid_size, ask_size=ask_size, volume=volume)
+def _otick(
+    ltp=100.0, bid=99.0, ask=101.0, bid_size=100, ask_size=80, volume=5000, ts=0.0
+) -> OptionTick:
+    return OptionTick(
+        timestamp=ts, ltp=ltp, bid=bid, ask=ask, bid_size=bid_size, ask_size=ask_size, volume=volume
+    )
 
 
-def _store_with(*ticks_for_all: OptionTick,
-                strikes=None, opt_type="CE") -> OptionBufferStore:
+def _store_with(*ticks_for_all: OptionTick, strikes=None, opt_type="CE") -> OptionBufferStore:
     """Push the same tick sequence into one (strike, opt_type) pair."""
     if strikes is None:
         strikes = [_ATM]
@@ -58,6 +58,7 @@ def _nan(v) -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 # option_tick.py — _bid_ask_imbalance helper
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestBidAskImbalance:
     def test_more_bids_is_positive(self):
@@ -89,11 +90,12 @@ class TestBidAskImbalance:
 # option_tick.py — compute_option_tick_features
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestOptionTickFeatureKeys:
     def test_returns_14_pairs_for_7_strikes(self):
         store = OptionBufferStore(maxlen=10)
         result = compute_option_tick_features(_ATM_WINDOW, store)
-        assert len(result) == 14   # 7 strikes × 2 opt_types
+        assert len(result) == 14  # 7 strikes × 2 opt_types
 
     def test_all_strikes_in_window_present(self):
         store = OptionBufferStore(maxlen=10)
@@ -106,8 +108,15 @@ class TestOptionTickFeatureKeys:
         store = OptionBufferStore(maxlen=10)
         result = compute_option_tick_features(_ATM_WINDOW, store)
         expected_keys = {
-            "tick_available", "ltp", "bid", "ask", "spread",
-            "volume", "bid_ask_imbalance", "premium_momentum", "premium_momentum_10",
+            "tick_available",
+            "ltp",
+            "bid",
+            "ask",
+            "spread",
+            "volume",
+            "bid_ask_imbalance",
+            "premium_momentum",
+            "premium_momentum_10",
         }
         for key, feat in result.items():
             assert set(feat) == expected_keys, f"wrong keys for {key}"
@@ -185,7 +194,7 @@ class TestPremiumMomentum:
             store.push(_ATM, "CE", _otick(ltp=100.0 + i, ts=float(i)))
         feat = compute_option_tick_features([_ATM], store)[(_ATM, "CE")]
         assert not _nan(feat["premium_momentum"])
-        assert feat["premium_momentum"] == pytest.approx(4.0)   # 104 - 100
+        assert feat["premium_momentum"] == pytest.approx(4.0)  # 104 - 100
 
     def test_premium_momentum_uses_last_5(self):
         store = OptionBufferStore(maxlen=10)
@@ -201,8 +210,9 @@ class TestPremiumMomentum:
         store.push(_ATM, "CE", _otick(ltp=100.0, ts=0.0))
         for i in range(4):
             store.push(_ATM, "CE", _otick(ltp=105.0, ts=90.0 + i))
-        feat = compute_option_tick_features([_ATM], store,
-                                           staleness_threshold_sec=60.0)[(_ATM, "CE")]
+        feat = compute_option_tick_features([_ATM], store, staleness_threshold_sec=60.0)[
+            (_ATM, "CE")
+        ]
         assert _nan(feat["premium_momentum"])
 
     def test_premium_momentum_valid_within_threshold(self):
@@ -210,10 +220,11 @@ class TestPremiumMomentum:
         # 5 ticks spread over 30s (< default 60s threshold)
         for i in range(5):
             store.push(_ATM, "CE", _otick(ltp=100.0 + i * 2.0, ts=float(i * 7)))
-        feat = compute_option_tick_features([_ATM], store,
-                                           staleness_threshold_sec=60.0)[(_ATM, "CE")]
+        feat = compute_option_tick_features([_ATM], store, staleness_threshold_sec=60.0)[
+            (_ATM, "CE")
+        ]
         assert not _nan(feat["premium_momentum"])
-        assert feat["premium_momentum"] == pytest.approx(8.0)   # 108 - 100
+        assert feat["premium_momentum"] == pytest.approx(8.0)  # 108 - 100
 
     def test_premium_momentum_10_nan_at_9_ticks(self):
         store = OptionBufferStore(maxlen=10)
@@ -237,8 +248,9 @@ class TestPremiumMomentum:
         store.push(_ATM, "CE", _otick(ltp=100.0, ts=0.0))
         for i in range(9):
             store.push(_ATM, "CE", _otick(ltp=105.0, ts=200.0 + i))
-        feat = compute_option_tick_features([_ATM], store,
-                                           staleness_threshold_sec=60.0)[(_ATM, "CE")]
+        feat = compute_option_tick_features([_ATM], store, staleness_threshold_sec=60.0)[
+            (_ATM, "CE")
+        ]
         assert _nan(feat["premium_momentum_10"])
 
 
@@ -264,9 +276,12 @@ class TestMultipleStrikes:
 # ══════════════════════════════════════════════════════════════════════════════
 
 _NAN_DICT = {
-    "return_5ticks": math.nan, "return_50ticks": math.nan,
-    "underlying_realized_vol_5": math.nan, "underlying_realized_vol_20": math.nan,
-    "underlying_ofi_5": math.nan, "underlying_ofi_50": math.nan,
+    "return_5ticks": math.nan,
+    "return_50ticks": math.nan,
+    "underlying_realized_vol_5": math.nan,
+    "underlying_realized_vol_20": math.nan,
+    "underlying_ofi_5": math.nan,
+    "underlying_ofi_50": math.nan,
 }
 
 
@@ -292,8 +307,8 @@ class TestHorizonNullBehavior:
 
     def test_nan_when_denominator_is_zero(self):
         result = compute_horizon_features(
-            {"return_5ticks": 0.02, "return_50ticks": 0.0},   # denominator = 0
-            {"underlying_ofi_5": 100.0, "underlying_ofi_50": 0.0},   # denominator = 0
+            {"return_5ticks": 0.02, "return_50ticks": 0.0},  # denominator = 0
+            {"underlying_ofi_5": 100.0, "underlying_ofi_50": 0.0},  # denominator = 0
             {"underlying_realized_vol_5": 0.005, "underlying_realized_vol_20": 0.0},  # denom = 0
         )
         assert _nan(result["underlying_horizon_momentum_ratio"])

@@ -10,21 +10,21 @@ Three stages:
 
 Plus a cooldown gate (minimum seconds between recommendations).
 """
+
 from __future__ import annotations
 
-from collections import deque
-from dataclasses import dataclass, field
-from typing import Optional
-
 import math
+from collections import deque
+from dataclasses import dataclass
 
 
 @dataclass
 class TickDecision:
     """One tick's _decide() output plus all model predictions."""
+
     timestamp: float
-    action: str             # LONG_CE / LONG_PE / SHORT_CE / SHORT_PE / WAIT
-    direction_prob: float   # direction_30s probability (raw from model)
+    action: str  # LONG_CE / LONG_PE / SHORT_CE / SHORT_PE / WAIT
+    direction_prob: float  # direction_30s probability (raw from model)
     max_upside_pred: float
     max_drawdown_pred: float
     risk_reward_pred: float
@@ -39,10 +39,11 @@ class TickDecision:
 @dataclass
 class TradeRecommendation:
     """Output when all 3 filter stages pass."""
+
     timestamp: float
     action: str
-    confidence: str         # "HIGH" / "MEDIUM"
-    score: int              # consensus score out of 6
+    confidence: str  # "HIGH" / "MEDIUM"
+    score: int  # consensus score out of 6
     entry: float
     tp: float
     sl: float
@@ -57,8 +58,8 @@ class TradeRecommendation:
 
 _LONG_ACTIONS = {"LONG_CE", "LONG_PE"}
 _SHORT_ACTIONS = {"SHORT_CE", "SHORT_PE"}
-_BULLISH_ACTIONS = {"LONG_CE", "SHORT_PE"}   # benefit from price going up
-_BEARISH_ACTIONS = {"LONG_PE", "SHORT_CE"}   # benefit from price going down
+_BULLISH_ACTIONS = {"LONG_CE", "SHORT_PE"}  # benefit from price going up
+_BEARISH_ACTIONS = {"LONG_PE", "SHORT_CE"}  # benefit from price going down
 
 
 def _action_direction(action: str) -> str:

@@ -12,24 +12,27 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
-from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
 
+from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
+from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _utick(ts: float, ltp: float = 100.0) -> UnderlyingTick:
     return UnderlyingTick(timestamp=ts, ltp=ltp, bid=ltp - 0.05, ask=ltp + 0.05, volume=1000)
 
 
 def _otick(ts: float, ltp: float = 50.0) -> OptionTick:
-    return OptionTick(timestamp=ts, ltp=ltp, bid=ltp - 0.1, ask=ltp + 0.1,
-                      bid_size=100, ask_size=120, volume=500)
+    return OptionTick(
+        timestamp=ts, ltp=ltp, bid=ltp - 0.1, ask=ltp + 0.1, bid_size=100, ask_size=120, volume=500
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CircularBuffer
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestCircularBufferInit:
     def test_starts_empty(self):
@@ -181,6 +184,7 @@ class TestCircularBufferClear:
 # OptionBufferStore
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestOptionBufferStoreInit:
     def test_default_maxlen(self):
         store = OptionBufferStore()
@@ -203,7 +207,7 @@ class TestOptionBufferStoreRegister:
     def test_register_strikes_creates_ce_and_pe(self):
         store = OptionBufferStore()
         store.register_strikes([21800, 21850])
-        assert store.registered_count() == 4   # 2 strikes × 2 types
+        assert store.registered_count() == 4  # 2 strikes × 2 types
 
     def test_register_strikes_custom_opt_types(self):
         store = OptionBufferStore()
@@ -214,7 +218,7 @@ class TestOptionBufferStoreRegister:
         store = OptionBufferStore()
         store.register_strikes([21800])
         store.register_strikes([21800])
-        assert store.registered_count() == 2   # CE + PE, not 4
+        assert store.registered_count() == 2  # CE + PE, not 4
 
     def test_registered_strikes_sorted(self):
         store = OptionBufferStore()
@@ -236,7 +240,7 @@ class TestOptionBufferStorePush:
 
     def test_push_lazy_creates_buffer(self):
         store = OptionBufferStore()
-        store.push(21800, "CE", _otick(1.0))   # no prior register_strikes
+        store.push(21800, "CE", _otick(1.0))  # no prior register_strikes
         assert store.tick_available(21800, "CE")
 
     def test_push_overflow_wraps(self):
@@ -354,7 +358,7 @@ class TestOptionBufferStoreClearAll:
         store = OptionBufferStore()
         store.register_strikes([21800, 21850])
         store.clear_all()
-        assert store.registered_count() == 4   # CE+PE for each strike still registered
+        assert store.registered_count() == 4  # CE+PE for each strike still registered
 
     def test_push_after_clear_all(self):
         store = OptionBufferStore()
@@ -374,11 +378,11 @@ class TestOptionBufferStoreClearStrike:
         store.push(21800, "PE", _otick(2.0))
         store.clear_strike(21800, "CE")
         assert not store.tick_available(21800, "CE")
-        assert store.tick_available(21800, "PE")   # PE unaffected
+        assert store.tick_available(21800, "PE")  # PE unaffected
 
     def test_clear_unregistered_strike_no_error(self):
         store = OptionBufferStore()
-        store.clear_strike(99999, "CE")             # should not raise
+        store.clear_strike(99999, "CE")  # should not raise
 
 
 class TestOptionBufferStoreGetLast:

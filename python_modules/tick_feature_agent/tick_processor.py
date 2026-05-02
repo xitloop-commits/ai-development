@@ -45,10 +45,9 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
-from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
 from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
+from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
 from tick_feature_agent.chain_cache import ChainCache
-from tick_feature_agent.feed.chain_poller import ChainSnapshot
 from tick_feature_agent.features.active_features import compute_active_features
 from tick_feature_agent.features.chain import compute_chain_features
 from tick_feature_agent.features.compression import CompressionState
@@ -66,6 +65,7 @@ from tick_feature_agent.features.targets import (
 from tick_feature_agent.features.time_to_move import TimeToMoveState
 from tick_feature_agent.features.underlying import compute_underlying_features
 from tick_feature_agent.features.zone import compute_zone_features
+from tick_feature_agent.feed.chain_poller import ChainSnapshot
 from tick_feature_agent.instrument_profile import InstrumentProfile
 from tick_feature_agent.output.emitter import Emitter, assemble_flat_vector
 from tick_feature_agent.state_machine import StateMachine, TradingState
@@ -75,15 +75,17 @@ _NAN = float("nan")
 
 # ── Pending-target row (same as replay_adapter pattern) ───────────────────────
 
+
 @dataclass
 class _PendingRow:
-    row:        dict
-    t0:         float
+    row: dict
+    t0: float
     spot_at_t0: float
     ltps_at_t0: dict[int, tuple[float, float]]
 
 
 # ── TickProcessor ─────────────────────────────────────────────────────────────
+
 
 class TickProcessor:
     """
@@ -101,32 +103,30 @@ class TickProcessor:
         option_store: OptionBufferStore,
         chain_cache: ChainCache,
         emitter: Emitter,
-        session_manager: Any = None,   # SessionManager (optional, for is_market_open)
-        recorder: Any = None,          # SessionRecorder (optional)
-        alert_emitter: Any = None,     # AlertEmitter (optional)
+        session_manager: Any = None,  # SessionManager (optional, for is_market_open)
+        recorder: Any = None,  # SessionRecorder (optional)
+        alert_emitter: Any = None,  # AlertEmitter (optional)
         logger: Any = None,
     ) -> None:
-        self._profile        = profile
-        self._sm             = state_machine
-        self._tick_buf       = tick_buffer
-        self._opt_store      = option_store
-        self._cache          = chain_cache
-        self._emitter        = emitter
-        self._session_mgr    = session_manager
-        self._recorder       = recorder
-        self._alerts         = alert_emitter
-        self._log            = logger
+        self._profile = profile
+        self._sm = state_machine
+        self._tick_buf = tick_buffer
+        self._opt_store = option_store
+        self._cache = chain_cache
+        self._emitter = emitter
+        self._session_mgr = session_manager
+        self._recorder = recorder
+        self._alerts = alert_emitter
+        self._log = logger
 
         # Stateful feature modules
-        self._compression  = CompressionState()
+        self._compression = CompressionState()
         self._time_to_move = TimeToMoveState()
-        self._decay        = DecayState()
+        self._decay = DecayState()
 
         # Target modules
-        self._target_buf  = TargetBuffer(
-            target_windows_sec=profile.target_windows_sec
-        )
-        self._upside_pct  = UpsidePercentileTracker()
+        self._target_buf = TargetBuffer(target_windows_sec=profile.target_windows_sec)
+        self._upside_pct = UpsidePercentileTracker()
 
         # Max target window for backfill decisions
         self._max_window_sec = float(
@@ -135,9 +135,9 @@ class TickProcessor:
 
         # Session-level counters and state
         self._underlying_tick_count = 0
-        self._prev_ltp:       float | None = None
-        self._prev_tick_ts:   float | None = None
-        self._last_tick_time: float        = 0.0   # monotonic — for feed-stale detection
+        self._prev_ltp: float | None = None
+        self._prev_tick_ts: float | None = None
+        self._last_tick_time: float = 0.0  # monotonic — for feed-stale detection
 
         # Target backfill queue
         self._pending: deque[_PendingRow] = deque()
@@ -157,16 +157,16 @@ class TickProcessor:
         Args:
             session_end_sec: Unix epoch seconds for today's session end (IST).
         """
-        self._session_end_sec      = session_end_sec
+        self._session_end_sec = session_end_sec
         self._underlying_tick_count = 0
-        self._prev_ltp             = None
-        self._prev_tick_ts         = None
-        self._last_tick_time       = 0.0
-        self.symbol_mismatch       = False
+        self._prev_ltp = None
+        self._prev_tick_ts = None
+        self._last_tick_time = 0.0
+        self.symbol_mismatch = False
 
-        self._compression  = CompressionState()
+        self._compression = CompressionState()
         self._time_to_move = TimeToMoveState()
-        self._decay        = DecayState()
+        self._decay = DecayState()
         self._target_buf.reset()
         self._upside_pct.reset()
         self._pending.clear()
@@ -195,11 +195,11 @@ class TickProcessor:
         Args:
             data: Parsed tick dict with keys: ltp, bid, ask, ltq, recv_ts, etc.
         """
-        ts  = float(data.get("recv_ts") or time.time())
+        ts = float(data.get("recv_ts") or time.time())
         ltp = float(data.get("ltp") or 0)
         bid = float(data.get("bid") or 0)
         ask = float(data.get("ask") or 0)
-        vol = int(  data.get("ltq") or data.get("volume") or 0)
+        vol = int(data.get("ltq") or data.get("volume") or 0)
 
         self._last_tick_time = time.monotonic()
 
@@ -216,11 +216,7 @@ class TickProcessor:
         self._underlying_tick_count += 1
 
         # ── Market-open check ─────────────────────────────────────────────────
-        is_open = (
-            self._session_mgr.is_market_open
-            if self._session_mgr is not None
-            else True
-        )
+        is_open = self._session_mgr.is_market_open if self._session_mgr is not None else True
 
         # ── Push to target buffer ─────────────────────────────────────────────
         strike_ltps = self._get_atm_strike_ltps()
@@ -237,15 +233,17 @@ class TickProcessor:
         row = self._compute_row(ts, ltp, bid, ask, is_open)
 
         # ── Queue for target backfill ─────────────────────────────────────────
-        self._pending.append(_PendingRow(
-            row=row,
-            t0=ts,
-            spot_at_t0=ltp,
-            ltps_at_t0=strike_ltps,
-        ))
+        self._pending.append(
+            _PendingRow(
+                row=row,
+                t0=ts,
+                spot_at_t0=ltp,
+                ltps_at_t0=strike_ltps,
+            )
+        )
 
         # Update prev-tick state
-        self._prev_ltp    = ltp
+        self._prev_ltp = ltp
         self._prev_tick_ts = ts
 
     def on_option_tick(self, strike: int, opt_type: str, data: dict) -> None:
@@ -257,13 +255,13 @@ class TickProcessor:
             opt_type: "CE" or "PE".
             data:     Parsed tick dict (ltp, bid, ask, bid_size, ask_size, ltq, recv_ts).
         """
-        ts       = float(data.get("recv_ts") or time.time())
-        ltp      = float(data.get("ltp")      or 0)
-        bid      = float(data.get("bid")      or 0)
-        ask      = float(data.get("ask")      or 0)
-        bid_size = int(  data.get("bid_size") or 0)
-        ask_size = int(  data.get("ask_size") or 0)
-        vol      = int(  data.get("ltq")      or data.get("volume") or 0)
+        ts = float(data.get("recv_ts") or time.time())
+        ltp = float(data.get("ltp") or 0)
+        bid = float(data.get("bid") or 0)
+        ask = float(data.get("ask") or 0)
+        bid_size = int(data.get("bid_size") or 0)
+        ask_size = int(data.get("ask_size") or 0)
+        vol = int(data.get("ltq") or data.get("volume") or 0)
 
         tick = OptionTick(
             timestamp=ts,
@@ -279,7 +277,7 @@ class TickProcessor:
         # Record raw option tick
         if self._recorder is not None:
             record = dict(data)
-            record.setdefault("strike",   strike)
+            record.setdefault("strike", strike)
             record.setdefault("opt_type", opt_type)
             self._recorder.record_option_tick(record)
 
@@ -297,14 +295,13 @@ class TickProcessor:
         # Record raw snapshot
         if self._recorder is not None:
             raw = {
-                "recv_ts":   snapshot.recv_ts,
-                "underlying": snapshot.sec_id_map and next(
-                    (sid for sid, _ in snapshot.sec_id_map.items()), ""
-                ),
-                "expiry":    snapshot.expiry,
+                "recv_ts": snapshot.recv_ts,
+                "underlying": snapshot.sec_id_map
+                and next((sid for sid, _ in snapshot.sec_id_map.items()), ""),
+                "expiry": snapshot.expiry,
                 "spotPrice": snapshot.spot_price,
                 "timestamp": int(snapshot.timestamp_sec * 1000),
-                "rows":      snapshot.rows,
+                "rows": snapshot.rows,
             }
             self._recorder.record_chain_snapshot(raw)
 
@@ -356,19 +353,19 @@ class TickProcessor:
     ) -> dict:
         """Compute all features (excluding targets) and return the flat row dict."""
         profile = self._profile
-        cache   = self._cache
+        cache = self._cache
 
         # Underlying features
-        uf  = compute_underlying_features(self._tick_buf)
+        uf = compute_underlying_features(self._tick_buf)
         ofi = compute_ofi_features(self._tick_buf)
-        rv  = compute_realized_vol_features(self._tick_buf)
-        hf  = compute_horizon_features(uf, ofi, rv)
+        rv = compute_realized_vol_features(self._tick_buf)
+        hf = compute_horizon_features(uf, ofi, rv)
 
         # ATM context (partial refresh if spot moved)
         cache.refresh_atm_zone(ltp)
-        atm_strike  = cache.atm
+        atm_strike = cache.atm
         strike_step = cache.strike_step
-        atm_window  = cache.atm_window
+        atm_window = cache.atm_window
 
         # Option tick features
         opt_tf = compute_option_tick_features(
@@ -401,7 +398,7 @@ class TickProcessor:
         )
 
         # Chain / active / decay / zone features
-        chain_f  = compute_chain_features(cache)
+        chain_f = compute_chain_features(cache)
         active_f = compute_active_features(
             cache=cache,
             option_store=self._opt_store,
@@ -431,8 +428,8 @@ class TickProcessor:
 
         # Re-compute time-to-move with real zone and decay data
         zone_call_p = float(zone_f.get("atm_zone_call_pressure", _NAN))
-        zone_put_p  = float(zone_f.get("atm_zone_put_pressure",  _NAN))
-        dead_mkt    = float(decay_f.get("dead_market_score", _NAN))
+        zone_put_p = float(zone_f.get("atm_zone_put_pressure", _NAN))
+        dead_mkt = float(decay_f.get("dead_market_score", _NAN))
         if not (math.isnan(zone_call_p) and math.isnan(zone_put_p)):
             ttm_f = self._time_to_move.compute(
                 ltp=ltp,
@@ -463,10 +460,10 @@ class TickProcessor:
         )
 
         # Trading state
-        sm_state    = self._sm.state
-        t_allowed   = 1 if self._sm.trading_allowed else 0
+        sm_state = self._sm.state
+        t_allowed = 1 if self._sm.trading_allowed else 0
         warm_remain = self._sm.warm_up_remaining_sec or 0.0
-        stale_rsn   = sm_state.value if sm_state != TradingState.TRADING else None
+        stale_rsn = sm_state.value if sm_state != TradingState.TRADING else None
 
         row = assemble_flat_vector(
             timestamp=ts,
@@ -486,7 +483,7 @@ class TickProcessor:
             decay_feats=decay_f,
             regime_feats=regime_f,
             zone_feats=zone_f,
-            target_feats=None,        # backfilled later
+            target_feats=None,  # backfilled later
             trading_state=sm_state.value,
             trading_allowed=t_allowed,
             warm_up_remaining_sec=warm_remain,
@@ -519,7 +516,7 @@ class TickProcessor:
                 active_strike_ltps_at_t0=p.ltps_at_t0,
                 session_end_sec=self._session_end_sec,
             )
-            min_w  = min(self._profile.target_windows_sec)
+            min_w = min(self._profile.target_windows_sec)
             upside = targets.get(f"max_upside_{min_w}s", _NAN)
             targets[f"upside_percentile_{min_w}s"] = self._upside_pct.add_and_query(upside)
             p.row.update(targets)
@@ -560,9 +557,7 @@ class TickProcessor:
             )
         return out
 
-    def _check_option_feed_stale(
-        self, atm_window: list[int], current_ts: float
-    ) -> bool:
+    def _check_option_feed_stale(self, atm_window: list[int], current_ts: float) -> bool:
         """
         True if any ATM ±3 CE/PE has not been ticked within option_tick_timeout_sec.
         Returns False when chain is not yet available (no ATM window yet).
@@ -582,13 +577,13 @@ class TickProcessor:
     def _regime_thresholds(self) -> dict:
         p = self._profile
         return {
-            "trend_volatility_min":  p.regime_trend_volatility_min,
-            "trend_imbalance_min":   p.regime_trend_imbalance_min,
-            "trend_momentum_min":    p.regime_trend_momentum_min,
-            "trend_activity_min":    p.regime_trend_activity_min,
-            "range_volatility_max":  p.regime_range_volatility_max,
-            "range_imbalance_max":   p.regime_range_imbalance_max,
-            "range_activity_min":    p.regime_range_activity_min,
-            "dead_activity_max":     p.regime_dead_activity_max,
-            "dead_vol_drought_max":  p.regime_dead_vol_drought_max,
+            "trend_volatility_min": p.regime_trend_volatility_min,
+            "trend_imbalance_min": p.regime_trend_imbalance_min,
+            "trend_momentum_min": p.regime_trend_momentum_min,
+            "trend_activity_min": p.regime_trend_activity_min,
+            "range_volatility_max": p.regime_range_volatility_max,
+            "range_imbalance_max": p.regime_range_imbalance_max,
+            "range_activity_min": p.regime_range_activity_min,
+            "dead_activity_max": p.regime_dead_activity_max,
+            "dead_vol_drought_max": p.regime_dead_vol_drought_max,
         }

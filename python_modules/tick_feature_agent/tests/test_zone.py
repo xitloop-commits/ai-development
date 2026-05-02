@@ -12,40 +12,53 @@ import time
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
 import pytest
 
 from tick_feature_agent.chain_cache import ChainCache
-from tick_feature_agent.feed.chain_poller import ChainSnapshot
-from tick_feature_agent.features.active_strikes import StrikeScore, compute_strike_scores, select_active_strikes
+from tick_feature_agent.features.active_strikes import (
+    StrikeScore,
+    compute_strike_scores,
+    select_active_strikes,
+)
 from tick_feature_agent.features.zone import compute_zone_features
-
+from tick_feature_agent.feed.chain_poller import ChainSnapshot
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _NAN = float("nan")
 
+
 def _nan(v) -> bool:
     return isinstance(v, float) and math.isnan(v)
 
 
-ALL_STRIKES = list(range(23800, 24400, 50))   # 12 strikes in chain
-ATM_WINDOW  = [23950, 24000, 24050, 24100, 24150, 24200, 24250]  # 7 ATM±3
+ALL_STRIKES = list(range(23800, 24400, 50))  # 12 strikes in chain
+ATM_WINDOW = [23950, 24000, 24050, 24100, 24150, 24200, 24250]  # 7 ATM±3
 
 
-def _row(strike: int, call_oi_chg: float = 0.0, put_oi_chg: float = 0.0,
-         call_vol: float = 0.0, put_vol: float = 0.0) -> dict:
+def _row(
+    strike: int,
+    call_oi_chg: float = 0.0,
+    put_oi_chg: float = 0.0,
+    call_vol: float = 0.0,
+    put_vol: float = 0.0,
+) -> dict:
     return {
-        "strike":         strike,
-        "callOI":         1000,     "putOI":        1000,
-        "callOIChange":   call_oi_chg, "putOIChange": put_oi_chg,
-        "callVolume":     call_vol,  "putVolume":   put_vol,
+        "strike": strike,
+        "callOI": 1000,
+        "putOI": 1000,
+        "callOIChange": call_oi_chg,
+        "putOIChange": put_oi_chg,
+        "callVolume": call_vol,
+        "putVolume": put_vol,
         "callSecurityId": str(strike * 2),
-        "putSecurityId":  str(strike * 2 + 1),
-        "callLTP": 100.0, "putLTP": 100.0,
+        "putSecurityId": str(strike * 2 + 1),
+        "callLTP": 100.0,
+        "putLTP": 100.0,
     }
 
 
@@ -53,9 +66,12 @@ def _make_snapshot(rows: list[dict], spot: float = 24100.0) -> ChainSnapshot:
     sec_id_map = {str(r["callSecurityId"]): (int(r["strike"]), "CE") for r in rows}
     sec_id_map.update({str(r["putSecurityId"]): (int(r["strike"]), "PE") for r in rows})
     return ChainSnapshot(
-        spot_price=spot, expiry="2026-04-24",
-        timestamp_sec=time.time(), rows=rows,
-        strike_step=50, sec_id_map=sec_id_map,
+        spot_price=spot,
+        expiry="2026-04-24",
+        timestamp_sec=time.time(),
+        rows=rows,
+        strike_step=50,
+        sec_id_map=sec_id_map,
     )
 
 
@@ -127,13 +143,12 @@ def _cache_mixed_strengths() -> ChainCache:
     # Inject active strikes (only 3 for these tests)
     prev_rows = None
     scores = compute_strike_scores(snap.rows, prev_rows)
-    c.active_strikes = [
-        s for s in scores if s.strike in (24100, 24050, 24150)
-    ]
+    c.active_strikes = [s for s in scores if s.strike in (24100, 24050, 24150)]
     return c
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestZoneFeatureKeys:
 
@@ -240,7 +255,7 @@ class TestPressureComputation:
         """
         # Strike 23800 (outside ATM_WINDOW) has high callOIChange, ATM strikes have 0
         rows = [_row(s) for s in ALL_STRIKES]
-        rows[0] = _row(23800, call_oi_chg=1000.0)   # non-ATM strike
+        rows[0] = _row(23800, call_oi_chg=1000.0)  # non-ATM strike
         cache = ChainCache()
         cache.update_from_snapshot(_make_snapshot(rows))
         out = compute_zone_features(cache, ATM_WINDOW)

@@ -14,6 +14,7 @@ Two public functions shared with SEA:
 Both functions produce feature columns in the same order.
 feature_config["final_features"] is the authoritative column list.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,42 +23,66 @@ import pandas as pd
 # ── All target columns — these are the y labels, never features ───────────
 TARGET_COLS: tuple[str, ...] = (
     # 30s / 60s
-    "direction_30s", "direction_60s",
-    "direction_30s_magnitude", "direction_60s_magnitude",
-    "max_upside_30s", "max_upside_60s",
-    "max_drawdown_30s", "max_drawdown_60s",
-    "risk_reward_ratio_30s", "risk_reward_ratio_60s",
+    "direction_30s",
+    "direction_60s",
+    "direction_30s_magnitude",
+    "direction_60s_magnitude",
+    "max_upside_30s",
+    "max_upside_60s",
+    "max_drawdown_30s",
+    "max_drawdown_60s",
+    "risk_reward_ratio_30s",
+    "risk_reward_ratio_60s",
     "upside_percentile_30s",
-    "total_premium_decay_30s", "total_premium_decay_60s",
-    "avg_decay_per_strike_30s", "avg_decay_per_strike_60s",
+    "total_premium_decay_30s",
+    "total_premium_decay_60s",
+    "avg_decay_per_strike_30s",
+    "avg_decay_per_strike_60s",
     # 300s (5 min)
-    "direction_300s", "direction_300s_magnitude",
-    "max_upside_300s", "max_drawdown_300s",
+    "direction_300s",
+    "direction_300s_magnitude",
+    "max_upside_300s",
+    "max_drawdown_300s",
     "risk_reward_ratio_300s",
-    "total_premium_decay_300s", "avg_decay_per_strike_300s",
+    "total_premium_decay_300s",
+    "avg_decay_per_strike_300s",
     # 900s (15 min)
-    "direction_900s", "direction_900s_magnitude",
-    "max_upside_900s", "max_drawdown_900s",
+    "direction_900s",
+    "direction_900s_magnitude",
+    "max_upside_900s",
+    "max_drawdown_900s",
     "risk_reward_ratio_900s",
-    "total_premium_decay_900s", "avg_decay_per_strike_900s",
+    "total_premium_decay_900s",
+    "avg_decay_per_strike_900s",
 )
 
 # ── Identifier / metadata columns — drop from features ────────────────────
 IDENTIFIER_COLS: tuple[str, ...] = (
-    "timestamp", "chain_timestamp",
-    "exchange", "instrument", "underlying_symbol", "underlying_security_id",
+    "timestamp",
+    "chain_timestamp",
+    "exchange",
+    "instrument",
+    "underlying_symbol",
+    "underlying_security_id",
 )
 
 # ── Filter / state columns — drop from features after row filter ──────────
 FILTER_COLS: tuple[str, ...] = (
-    "is_market_open", "data_quality_flag", "trading_state", "trading_allowed",
-    "chain_available", "warm_up_remaining_sec", "stale_reason",
+    "is_market_open",
+    "data_quality_flag",
+    "trading_state",
+    "trading_allowed",
+    "chain_available",
+    "warm_up_remaining_sec",
+    "stale_reason",
 )
 
 # ── Step 3: redundancy — drop these in favour of shorter-window equivalents ──
 REDUNDANT_COLS: tuple[str, ...] = (
-    "underlying_ofi_20", "underlying_realized_vol_20",
-    "underlying_tick_up_count_20", "underlying_tick_down_count_20",
+    "underlying_ofi_20",
+    "underlying_realized_vol_20",
+    "underlying_tick_up_count_20",
+    "underlying_tick_down_count_20",
 )
 
 

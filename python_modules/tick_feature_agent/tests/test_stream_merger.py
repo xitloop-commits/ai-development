@@ -10,6 +10,7 @@ file when it exists and fall back to the original otherwise.
 
 Run: python -m pytest python_modules/tick_feature_agent/tests/test_stream_merger.py -v
 """
+
 from __future__ import annotations
 
 import gzip
@@ -30,7 +31,6 @@ from tick_feature_agent.replay.stream_merger import (
     merge_streams,
 )
 
-
 _INSTRUMENT = "nifty50"
 
 
@@ -44,12 +44,13 @@ def _write_gz_lines(path: Path, lines: list[dict]) -> None:
 
 # ── Resolver: prefer-recovered logic ──────────────────────────────────────
 
+
 def test_resolver_prefers_recovered_over_original(tmp_path: Path):
     """When both files exist, the resolver must return the recovered one."""
     suffix = "underlying_ticks.ndjson.gz"
-    original  = tmp_path / f"{_INSTRUMENT}_{suffix}"
+    original = tmp_path / f"{_INSTRUMENT}_{suffix}"
     recovered = tmp_path / f"{_INSTRUMENT}_underlying_ticks.recovered.ndjson.gz"
-    _write_gz_lines(original,  [{"recv_ts": "2026-04-14T09:15:00", "src": "original"}])
+    _write_gz_lines(original, [{"recv_ts": "2026-04-14T09:15:00", "src": "original"}])
     _write_gz_lines(recovered, [{"recv_ts": "2026-04-14T09:15:00", "src": "recovered"}])
     assert _resolve_stream_path(tmp_path, _INSTRUMENT, suffix) == recovered
 
@@ -90,6 +91,7 @@ def test_resolver_works_for_each_canonical_suffix(tmp_path: Path, suffix: str):
 
 # ── End-to-end merge_streams: recovered file is read ──────────────────────
 
+
 class _FakeLogger:
     def __init__(self):
         self.events: list[tuple[str, str]] = []
@@ -110,17 +112,15 @@ def test_merge_streams_uses_recovered_and_logs_audit_event(tmp_path: Path):
     confirm `merge_streams` yields the recovered content and emits the
     `REPLAY_USING_RECOVERED` audit log."""
     suffix = "underlying_ticks.ndjson.gz"
-    original  = tmp_path / f"{_INSTRUMENT}_{suffix}"
+    original = tmp_path / f"{_INSTRUMENT}_{suffix}"
     recovered = tmp_path / f"{_INSTRUMENT}_underlying_ticks.recovered.ndjson.gz"
-    _write_gz_lines(original,  [{"recv_ts": "T1", "src": "original"}])
+    _write_gz_lines(original, [{"recv_ts": "T1", "src": "original"}])
     _write_gz_lines(recovered, [{"recv_ts": "T1", "src": "recovered"}])
 
     # Other two streams: only originals so we don't over-trigger the
     # audit log; the test asserts exactly one REPLAY_USING_RECOVERED.
-    _write_gz_lines(tmp_path / f"{_INSTRUMENT}_option_ticks.ndjson.gz",
-                    [{"recv_ts": "T2"}])
-    _write_gz_lines(tmp_path / f"{_INSTRUMENT}_chain_snapshots.ndjson.gz",
-                    [{"recv_ts": "T3"}])
+    _write_gz_lines(tmp_path / f"{_INSTRUMENT}_option_ticks.ndjson.gz", [{"recv_ts": "T2"}])
+    _write_gz_lines(tmp_path / f"{_INSTRUMENT}_chain_snapshots.ndjson.gz", [{"recv_ts": "T3"}])
 
     logger = _FakeLogger()
     events = list(merge_streams(tmp_path, _INSTRUMENT, logger=logger))
@@ -139,8 +139,7 @@ def test_merge_streams_no_audit_event_when_only_originals(tmp_path: Path):
     """Clean date — every stream is the canonical original. No
     audit-log noise should be emitted."""
     for suffix, ts in zip(_FILE_SUFFIXES, ("T1", "T2", "T3")):
-        _write_gz_lines(tmp_path / f"{_INSTRUMENT}_{suffix}",
-                        [{"recv_ts": ts}])
+        _write_gz_lines(tmp_path / f"{_INSTRUMENT}_{suffix}", [{"recv_ts": ts}])
 
     logger = _FakeLogger()
     events = list(merge_streams(tmp_path, _INSTRUMENT, logger=logger))

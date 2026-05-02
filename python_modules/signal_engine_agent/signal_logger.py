@@ -3,18 +3,20 @@ signal_logger.py — Append GO_CALL / GO_PUT signals to a daily NDJSON file.
 
 File path: logs/signals/{instrument}/YYYY-MM-DD_signals.log
 """
+
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 
 
 class SignalLogger:
-    def __init__(self, instrument: str, root: Path = Path("logs/signals"),
-                 suffix: str = "") -> None:
+    def __init__(
+        self, instrument: str, root: Path = Path("logs/signals"), suffix: str = ""
+    ) -> None:
         self._instrument = instrument
         self._suffix = suffix  # e.g. "_filtered" → YYYY-MM-DD_filtered.log
         self._dir = root / instrument

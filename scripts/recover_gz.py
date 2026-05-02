@@ -131,18 +131,13 @@ def main() -> int:
         print(f"ERROR: {root} does not exist", file=sys.stderr)
         return 1
 
-    date_dirs = [root / args.date] if args.date else sorted(
-        d for d in root.iterdir() if d.is_dir()
-    )
+    date_dirs = [root / args.date] if args.date else sorted(d for d in root.iterdir() if d.is_dir())
 
-    totals = {"ok": 0, "recovered": 0, "skipped": 0, "empty": 0,
-              "kept_existing": 0, "files": 0}
+    totals = {"ok": 0, "recovered": 0, "skipped": 0, "empty": 0, "kept_existing": 0, "files": 0}
     for d in date_dirs:
         if not d.exists():
             continue
-        gz_files = sorted(
-            p for p in d.glob("*.ndjson.gz") if ".recovered." not in p.name
-        )
+        gz_files = sorted(p for p in d.glob("*.ndjson.gz") if ".recovered." not in p.name)
         if not gz_files:
             continue
 
@@ -166,7 +161,7 @@ def main() -> int:
                 # nothing extra here, just count it.
                 totals["kept_existing"] += 1
             else:
-                in_mb  = result["in_size"] / 1e6
+                in_mb = result["in_size"] / 1e6
                 out_mb = result["out_size"] / 1e6
                 print(
                     f"  REC   {p.name}"

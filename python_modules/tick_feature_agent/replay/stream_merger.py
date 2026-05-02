@@ -20,9 +20,9 @@ from __future__ import annotations
 import gzip
 import heapq
 import json
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Generator
-
+from typing import Any
 
 _EVENT_TYPES = ("underlying_tick", "option_tick", "chain_snapshot")
 _FILE_SUFFIXES = (
@@ -32,8 +32,7 @@ _FILE_SUFFIXES = (
 )
 
 
-def _resolve_stream_path(date_folder: Path, instrument: str,
-                         suffix: str) -> Path | None:
+def _resolve_stream_path(date_folder: Path, instrument: str, suffix: str) -> Path | None:
     """Resolve one stream file, **preferring `.recovered.ndjson.gz`**
     over the original (Phase E6).
 
@@ -52,7 +51,7 @@ def _resolve_stream_path(date_folder: Path, instrument: str,
     # ".ndjson.gz" tail to splice in `.recovered`.
     stem = suffix[: -len(".ndjson.gz")]
     recovered = date_folder / f"{instrument}_{stem}.recovered.ndjson.gz"
-    original  = date_folder / f"{instrument}_{suffix}"
+    original = date_folder / f"{instrument}_{suffix}"
     if recovered.exists():
         return recovered
     if original.exists():
@@ -114,7 +113,7 @@ def merge_streams(
     date_folder = Path(date_folder)
     iterators = []
 
-    for suffix, event_type in zip(_FILE_SUFFIXES, _EVENT_TYPES):
+    for suffix, event_type in zip(_FILE_SUFFIXES, _EVENT_TYPES, strict=False):
         path = _resolve_stream_path(date_folder, instrument, suffix)
         if path is None:
             if logger:

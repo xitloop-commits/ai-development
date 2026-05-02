@@ -9,11 +9,11 @@ Usage:
 import gzip
 import json
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 instrument = sys.argv[1] if len(sys.argv) > 1 else "crudeoil"
-date       = sys.argv[2] if len(sys.argv) > 2 else "2026-04-13"
+date = sys.argv[2] if len(sys.argv) > 2 else "2026-04-13"
 
 path = Path(f"data/raw/{date}/{instrument}_chain_snapshots.ndjson.gz")
 
@@ -23,11 +23,13 @@ if not path.exists():
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 
+
 def fmt_ts(recv_ts):
     try:
         return datetime.fromtimestamp(recv_ts, tz=_IST).strftime("%H:%M:%S")
     except Exception:
         return str(recv_ts)
+
 
 print(f"Reading: {path}\n")
 print(f"{'Time (IST)':<12} {'Spot':>10} {'Strikes':>8}  {'Expiry'}")
@@ -37,11 +39,11 @@ count = 0
 try:
     with gzip.open(path, "rt", encoding="utf-8") as f:
         for line in f:
-            row     = json.loads(line)
-            ts      = fmt_ts(row.get("recv_ts", 0))
-            spot    = row.get("spotPrice", "?")
+            row = json.loads(line)
+            ts = fmt_ts(row.get("recv_ts", 0))
+            spot = row.get("spotPrice", "?")
             strikes = len(row.get("rows", []))
-            expiry  = row.get("expiry", "?")
+            expiry = row.get("expiry", "?")
             print(f"{ts:<12} {spot:>10} {strikes:>8}  {expiry}")
             count += 1
 except Exception:

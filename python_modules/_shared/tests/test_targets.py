@@ -9,6 +9,7 @@ before the trainer or loader can ship a bad target list.
 
 Run: python -m pytest python_modules/_shared/tests/test_targets.py -v
 """
+
 from __future__ import annotations
 
 import sys
@@ -23,14 +24,14 @@ import pytest
 
 from _shared.targets import (
     LOOKAHEAD_WINDOWS_SECONDS,
-    MVP_TARGETS,
     MVP_TARGET_NAMES,
     MVP_TARGET_OBJECTIVES,
+    MVP_TARGETS,
     TargetSpec,
 )
 
-
 # ── Cardinality (the 7×4 = 28 invariant) ──────────────────────────────────
+
 
 def test_mvp_targets_has_exactly_28_entries() -> None:
     assert len(MVP_TARGETS) == 28
@@ -46,6 +47,7 @@ def test_mvp_target_objectives_has_28_entries() -> None:
 
 
 # ── Window coverage ───────────────────────────────────────────────────────
+
 
 def test_lookahead_windows_are_30_60_300_900() -> None:
     assert LOOKAHEAD_WINDOWS_SECONDS == (30, 60, 300, 900)
@@ -92,16 +94,17 @@ def test_each_window_contains_all_seven_target_types() -> None:
 def test_direction_targets_are_binary_others_regression() -> None:
     for spec in MVP_TARGETS:
         if spec.name.startswith("direction_") and not spec.name.endswith("_magnitude"):
-            assert spec.target_type == "binary", (
-                f"{spec.name} should be binary, got {spec.target_type}"
-            )
+            assert (
+                spec.target_type == "binary"
+            ), f"{spec.name} should be binary, got {spec.target_type}"
         else:
-            assert spec.target_type == "regression", (
-                f"{spec.name} should be regression, got {spec.target_type}"
-            )
+            assert (
+                spec.target_type == "regression"
+            ), f"{spec.name} should be regression, got {spec.target_type}"
 
 
 # ── Negative guard: orphans must not creep back in ────────────────────────
+
 
 def test_orphan_upside_percentile_is_not_a_training_target() -> None:
     # `upside_percentile_30s` is a TFA-emitted live feature column (computed
@@ -112,6 +115,7 @@ def test_orphan_upside_percentile_is_not_a_training_target() -> None:
 
 
 # ── Convenience-view consistency ──────────────────────────────────────────
+
 
 def test_target_names_view_matches_mvp_targets() -> None:
     assert MVP_TARGET_NAMES == tuple(s.name for s in MVP_TARGETS)
@@ -129,9 +133,11 @@ def test_target_spec_is_frozen_dataclass() -> None:
 
 # ── Trainer + loader consume the same source ──────────────────────────────
 
+
 def test_trainer_imports_shared_targets() -> None:
     """Regression test for the D4 29-vs-28 drift: trainer must use _shared.targets."""
     from model_training_agent import trainer
+
     # trainer aliases MVP_TARGET_OBJECTIVES → MVP_TARGETS; both must agree.
     assert trainer.MVP_TARGETS == MVP_TARGET_OBJECTIVES
     assert len(trainer.MVP_TARGETS) == 28
@@ -140,5 +146,6 @@ def test_trainer_imports_shared_targets() -> None:
 def test_model_loader_imports_shared_targets() -> None:
     """Regression test: SEA loader must use _shared.targets MVP_TARGET_NAMES."""
     from signal_engine_agent import model_loader
+
     assert model_loader.MVP_TARGETS == MVP_TARGET_NAMES
     assert len(model_loader.MVP_TARGETS) == 28

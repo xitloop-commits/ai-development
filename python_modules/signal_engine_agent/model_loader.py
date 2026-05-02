@@ -4,6 +4,7 @@ model_loader.py — Load trained LightGBM models for one instrument.
 Reads models/{instrument}/LATEST pointer → loads {target}.lgbm files and
 the associated feature_config.
 """
+
 from __future__ import annotations
 
 import json
@@ -25,7 +26,7 @@ from _shared.targets import MVP_TARGET_NAMES as MVP_TARGETS
 class LoadedModels:
     instrument: str
     version: str
-    models: dict                 # {target_name: lgb.Booster}
+    models: dict  # {target_name: lgb.Booster}
     feature_config: dict
     feature_names: list[str]
 

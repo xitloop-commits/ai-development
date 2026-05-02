@@ -40,6 +40,7 @@ Naming convention:
 This naming is preserved verbatim from the previous local copies so
 no .lgbm files on disk need renaming.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -55,6 +56,7 @@ class TargetSpec:
         target_type       LightGBM objective family (binary / regression)
         lookahead_seconds the window this target predicts forward
     """
+
     name: str
     target_type: Literal["binary", "regression"]
     lookahead_seconds: int
@@ -76,13 +78,13 @@ def _build_mvp_targets() -> tuple[TargetSpec, ...]:
     """
     out: list[TargetSpec] = []
     for w in LOOKAHEAD_WINDOWS_SECONDS:
-        out.append(TargetSpec(f"direction_{w}s",                "binary",     w))
-        out.append(TargetSpec(f"direction_{w}s_magnitude",      "regression", w))
-        out.append(TargetSpec(f"risk_reward_ratio_{w}s",        "regression", w))
-        out.append(TargetSpec(f"max_upside_{w}s",               "regression", w))
-        out.append(TargetSpec(f"max_drawdown_{w}s",             "regression", w))
-        out.append(TargetSpec(f"total_premium_decay_{w}s",      "regression", w))
-        out.append(TargetSpec(f"avg_decay_per_strike_{w}s",     "regression", w))
+        out.append(TargetSpec(f"direction_{w}s", "binary", w))
+        out.append(TargetSpec(f"direction_{w}s_magnitude", "regression", w))
+        out.append(TargetSpec(f"risk_reward_ratio_{w}s", "regression", w))
+        out.append(TargetSpec(f"max_upside_{w}s", "regression", w))
+        out.append(TargetSpec(f"max_drawdown_{w}s", "regression", w))
+        out.append(TargetSpec(f"total_premium_decay_{w}s", "regression", w))
+        out.append(TargetSpec(f"avg_decay_per_strike_{w}s", "regression", w))
     return tuple(out)
 
 
@@ -106,6 +108,6 @@ MVP_TARGET_OBJECTIVES: dict[str, str] = {t.name: t.target_type for t in MVP_TARG
 # trainer/loader run with a malformed target set.
 assert len(MVP_TARGETS) == 28, f"MVP_TARGETS must be 28, got {len(MVP_TARGETS)}"
 assert len(set(MVP_TARGET_NAMES)) == 28, "MVP_TARGETS contains duplicates"
-assert {t.lookahead_seconds for t in MVP_TARGETS} == set(LOOKAHEAD_WINDOWS_SECONDS), (
-    "MVP_TARGETS missing one or more lookahead windows"
-)
+assert {t.lookahead_seconds for t in MVP_TARGETS} == set(
+    LOOKAHEAD_WINDOWS_SECONDS
+), "MVP_TARGETS missing one or more lookahead windows"

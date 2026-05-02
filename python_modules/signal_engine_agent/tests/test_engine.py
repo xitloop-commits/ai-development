@@ -20,6 +20,7 @@ truncation, or `run()`'s infinite loop:
 
 Run: python -m pytest python_modules/signal_engine_agent/tests/test_engine.py -v
 """
+
 from __future__ import annotations
 
 import math
@@ -46,8 +47,8 @@ from signal_engine_agent.engine import (
 )
 from signal_engine_agent.thresholds import SignalAction, Thresholds
 
-
 # ── helpers ───────────────────────────────────────────────────────────────
+
 
 def _stub_models(predictions: dict) -> MagicMock:
     """Build a fake `LoadedModels` whose `.models[name].predict(X)` returns
@@ -62,6 +63,7 @@ def _stub_models(predictions: dict) -> MagicMock:
 
 
 # ── _pred ─────────────────────────────────────────────────────────────────
+
 
 def test_pred_returns_float_when_model_exists():
     models = _stub_models({"direction_30s": 0.72})
@@ -128,16 +130,18 @@ def test_gather_predictions_all_nan_when_no_models():
 
 
 def test_gather_predictions_uses_models_for_present_targets():
-    models = _stub_models({
-        "direction_30s":         0.72,
-        "risk_reward_ratio_30s": 2.5,
-        "max_upside_30s":        4.0,
-    })
+    models = _stub_models(
+        {
+            "direction_30s": 0.72,
+            "risk_reward_ratio_30s": 2.5,
+            "max_upside_30s": 4.0,
+        }
+    )
     X = np.zeros((1, 3))
     out = _gather_predictions(models, X)
-    assert out["direction_prob_30s"]    == pytest.approx(0.72)
+    assert out["direction_prob_30s"] == pytest.approx(0.72)
     assert out["risk_reward_ratio_30s"] == pytest.approx(2.5)
-    assert out["max_upside_30s"]        == pytest.approx(4.0)
+    assert out["max_upside_30s"] == pytest.approx(4.0)
     # Others remain NaN
     assert math.isnan(out["max_drawdown_30s"])
     assert math.isnan(out["max_upside_900s"])
@@ -155,15 +159,20 @@ def test_gather_predictions_remaps_direction_to_direction_prob_30s():
 
 # ── _decide_via_gate ──────────────────────────────────────────────────────
 
+
 def test_decide_via_gate_delegates_to_decide_action():
     """Wrapper must forward predictions, thresholds, and LTPs verbatim."""
     fake_sig = SignalAction(
-        action="LONG_CE", direction="GO_CALL",
-        entry=100.0, tp=105.0, sl=98.0, rr=2.0,
-        gate_passed=True, gate_reasons=[],
+        action="LONG_CE",
+        direction="GO_CALL",
+        entry=100.0,
+        tp=105.0,
+        sl=98.0,
+        rr=2.0,
+        gate_passed=True,
+        gate_reasons=[],
     )
-    preds = {"direction_prob_30s": 0.8, "risk_reward_ratio_30s": 2.0,
-             "upside_percentile_30s": 70.0}
+    preds = {"direction_prob_30s": 0.8, "risk_reward_ratio_30s": 2.0, "upside_percentile_30s": 70.0}
     th = Thresholds()
 
     with patch.object(sea_engine, "decide_action", return_value=fake_sig) as mock_da:
@@ -176,15 +185,26 @@ def test_decide_via_gate_delegates_to_decide_action():
 def test_decide_via_gate_passes_through_none_ltps():
     """LTPs may be None when the leg is missing — wrapper must not coerce."""
     fake_sig = SignalAction(
-        action="WAIT", direction="GO_CALL",
-        entry=0.0, tp=0.0, sl=0.0, rr=0.0,
-        gate_passed=True, gate_reasons=[],
+        action="WAIT",
+        direction="GO_CALL",
+        entry=0.0,
+        tp=0.0,
+        sl=0.0,
+        rr=0.0,
+        gate_passed=True,
+        gate_reasons=[],
     )
     with patch.object(sea_engine, "decide_action", return_value=fake_sig) as mock_da:
-        _decide_via_gate({"direction_prob_30s": 0.8,
-                          "risk_reward_ratio_30s": 2.0,
-                          "upside_percentile_30s": 70.0},
-                         Thresholds(), ce_ltp=None, pe_ltp=None)
+        _decide_via_gate(
+            {
+                "direction_prob_30s": 0.8,
+                "risk_reward_ratio_30s": 2.0,
+                "upside_percentile_30s": 70.0,
+            },
+            Thresholds(),
+            ce_ltp=None,
+            pe_ltp=None,
+        )
     mock_da.assert_called_once()
     kwargs = mock_da.call_args.kwargs
     assert kwargs["ce_ltp"] is None
@@ -195,9 +215,14 @@ def test_decide_via_gate_returns_decide_action_result_unmodified():
     """Wrapper is a thin pass-through — nothing fancy should happen to
     the SignalAction on its way back."""
     expected = SignalAction(
-        action="LONG_PE", direction="GO_PUT",
-        entry=50.0, tp=55.0, sl=48.0, rr=2.5,
-        gate_passed=True, gate_reasons=[],
+        action="LONG_PE",
+        direction="GO_PUT",
+        entry=50.0,
+        tp=55.0,
+        sl=48.0,
+        rr=2.5,
+        gate_passed=True,
+        gate_reasons=[],
     )
     with patch.object(sea_engine, "decide_action", return_value=expected):
         out = _decide_via_gate({}, Thresholds(), ce_ltp=None, pe_ltp=None)
@@ -213,6 +238,7 @@ def test_decide_via_gate_returns_decide_action_result_unmodified():
 # legacy_filter.legacy_decide) are independently mockable and have the
 # right shape. This is the closest the test suite can get without
 # refactoring run() itself.
+
 
 def test_decide_via_gate_is_a_module_attribute():
     """Both dispatch entry points must exist as module attrs so run()
@@ -232,6 +258,7 @@ def test_engine_imports_thresholds_and_legacy_filter():
 
 
 # ── _tail happy path (single-thread, no rotation, no truncation) ──────────
+
 
 def test_tail_consumes_initial_lines_then_appended_lines(tmp_path):
     """Write 3 lines, consume 3 via next(); append 2 more, consume 2.

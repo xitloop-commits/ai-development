@@ -12,13 +12,14 @@ Usage:
     py backtest.py crudeoil 2026-04-15 --speed 0    # as fast as possible
     py backtest.py crudeoil 2026-04-15 --no-truncate # append to existing live file
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import sys
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Force UTF-8 on Windows so box-drawing characters print cleanly
@@ -33,7 +34,7 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 def stream_parquet(
     instrument: str,
     date_str: str,
-    speed: float = 1.0,            # 1.0 = real-time; 0 = no sleep
+    speed: float = 1.0,  # 1.0 = real-time; 0 = no sleep
     truncate: bool = True,
     features_root: Path = Path("data/features"),
 ) -> None:
@@ -45,14 +46,14 @@ def stream_parquet(
     live_path = features_root / f"{instrument}_live.ndjson"
 
     print()
-    print(f"  ═══════════════════════════════════════════════════════════")
+    print("  ═══════════════════════════════════════════════════════════")
     print(f"    BACKTEST — {instrument} {date_str}")
-    print(f"  ═══════════════════════════════════════════════════════════")
+    print("  ═══════════════════════════════════════════════════════════")
     print(f"    Source:   {parquet_path}")
     print(f"    Target:   {live_path}")
     print(f"    Speed:    {speed}x" if speed > 0 else "    Speed:    no-sleep (max rate)")
     print(f"    Mode:     {'truncate + overwrite' if truncate else 'append'}")
-    print(f"  ═══════════════════════════════════════════════════════════")
+    print("  ═══════════════════════════════════════════════════════════")
     print()
 
     df = pd.read_parquet(parquet_path)
@@ -71,15 +72,17 @@ def stream_parquet(
     live_path.parent.mkdir(parents=True, exist_ok=True)
     mode = "w" if truncate else "a"
 
-    print(f"\n  Streaming (Ctrl+C to stop)...\n")
+    print("\n  Streaming (Ctrl+C to stop)...\n")
 
     prev_ts: float | None = None
     started = time.time()
     wrote = 0
     with open(live_path, mode, encoding="utf-8") as f:
         for _, row in df.iterrows():
-            d = {k: (None if pd.isna(v) else (v.item() if hasattr(v, "item") else v))
-                 for k, v in row.to_dict().items()}
+            d = {
+                k: (None if pd.isna(v) else (v.item() if hasattr(v, "item") else v))
+                for k, v in row.to_dict().items()
+            }
             f.write(json.dumps(d, default=str) + "\n")
             f.flush()
             wrote += 1
@@ -100,26 +103,33 @@ def stream_parquet(
                 rate = wrote / max(elapsed, 0.001)
                 now = datetime.now(_IST).strftime("%H:%M:%S")
                 sys.stdout.write(
-                    f"\r  [{now}]  streamed {wrote:>7,} / {len(df):,}  "
-                    f"({rate:>6.0f}/s)"
+                    f"\r  [{now}]  streamed {wrote:>7,} / {len(df):,}  " f"({rate:>6.0f}/s)"
                 )
                 sys.stdout.flush()
 
     elapsed = time.time() - started
-    print(f"\n\n  Done. {wrote:,} rows streamed in {elapsed:.1f}s "
-          f"({wrote / max(elapsed, 0.001):.0f}/s)")
+    print(
+        f"\n\n  Done. {wrote:,} rows streamed in {elapsed:.1f}s "
+        f"({wrote / max(elapsed, 0.001):.0f}/s)"
+    )
 
 
 def main() -> int:
     p = argparse.ArgumentParser(prog="backtest")
-    p.add_argument("instrument",
-                   choices=("nifty50", "banknifty", "crudeoil", "naturalgas"))
+    p.add_argument("instrument", choices=("nifty50", "banknifty", "crudeoil", "naturalgas"))
     p.add_argument("date", help="YYYY-MM-DD (folder under data/features/)")
-    p.add_argument("--speed", type=float, default=0,
-                   help="Pacing multiplier vs real-time. 0 = no sleep (fastest), "
-                        "1 = real-time, 10 = 10x faster. Default: 0")
-    p.add_argument("--no-truncate", action="store_true",
-                   help="Append to existing live ndjson instead of overwriting")
+    p.add_argument(
+        "--speed",
+        type=float,
+        default=0,
+        help="Pacing multiplier vs real-time. 0 = no sleep (fastest), "
+        "1 = real-time, 10 = 10x faster. Default: 0",
+    )
+    p.add_argument(
+        "--no-truncate",
+        action="store_true",
+        help="Append to existing live ndjson instead of overwriting",
+    )
     p.add_argument("--features-root", default="data/features")
     args = p.parse_args()
 

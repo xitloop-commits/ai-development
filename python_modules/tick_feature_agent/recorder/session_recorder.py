@@ -33,12 +33,12 @@ Restart-append behaviour:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from tick_feature_agent.recorder.writer import NdjsonGzWriter
 from tick_feature_agent.recorder.metadata_writer import write_metadata
+from tick_feature_agent.recorder.writer import NdjsonGzWriter
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -65,21 +65,21 @@ class SessionRecorder:
         expiry: str = "",
         logger: Any = None,
     ) -> None:
-        self.instrument           = instrument
-        self._data_root           = Path(data_root)
-        self._underlying_symbol   = underlying_symbol
-        self._underlying_sec_id   = underlying_security_id
-        self._expiry              = expiry
-        self._logger              = logger
+        self.instrument = instrument
+        self._data_root = Path(data_root)
+        self._underlying_symbol = underlying_symbol
+        self._underlying_sec_id = underlying_security_id
+        self._expiry = expiry
+        self._logger = logger
 
-        self._date: str | None                   = None
+        self._date: str | None = None
         self._underlying_writer: NdjsonGzWriter | None = None
-        self._option_writer: NdjsonGzWriter | None     = None
-        self._chain_writer: NdjsonGzWriter | None      = None
+        self._option_writer: NdjsonGzWriter | None = None
+        self._chain_writer: NdjsonGzWriter | None = None
 
         self._underlying_count = 0
-        self._option_count     = 0
-        self._chain_count      = 0
+        self._option_count = 0
+        self._chain_count = 0
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -110,17 +110,17 @@ class SessionRecorder:
 
         # Reset counters for this session
         self._underlying_count = 0
-        self._option_count     = 0
-        self._chain_count      = 0
+        self._option_count = 0
+        self._chain_count = 0
 
         write_metadata(
             date_folder=date_folder,
             date=date_ist,
             instruments={
                 inst: {
-                    "underlying_symbol":      self._underlying_symbol,
+                    "underlying_symbol": self._underlying_symbol,
                     "underlying_security_id": self._underlying_sec_id,
-                    "expiry":                 self._expiry,
+                    "expiry": self._expiry,
                 }
             },
         )
@@ -135,9 +135,7 @@ class SessionRecorder:
 
     def on_session_close(self) -> None:
         """Flush and close all 3 writers; log final counts."""
-        for writer in (
-            self._underlying_writer, self._option_writer, self._chain_writer
-        ):
+        for writer in (self._underlying_writer, self._option_writer, self._chain_writer):
             if writer is not None:
                 writer.close()
 
@@ -153,8 +151,8 @@ class SessionRecorder:
             )
 
         self._underlying_writer = None
-        self._option_writer     = None
-        self._chain_writer      = None
+        self._option_writer = None
+        self._chain_writer = None
 
     def on_expiry_rollover(
         self,
@@ -179,9 +177,9 @@ class SessionRecorder:
                 date=self._date,
                 instruments={
                     self.instrument: {
-                        "underlying_symbol":      self._underlying_symbol,
+                        "underlying_symbol": self._underlying_symbol,
                         "underlying_security_id": self._underlying_sec_id,
-                        "expiry":                 self._expiry,
+                        "expiry": self._expiry,
                     }
                 },
             )
@@ -235,9 +233,7 @@ class SessionRecorder:
 
     def flush(self) -> None:
         """Flush all open writers to disk (call periodically during live recording)."""
-        for writer in (
-            self._underlying_writer, self._option_writer, self._chain_writer
-        ):
+        for writer in (self._underlying_writer, self._option_writer, self._chain_writer):
             if writer is not None:
                 writer.flush()
 
@@ -247,6 +243,6 @@ class SessionRecorder:
     def counts(self) -> dict[str, int]:
         return {
             "underlying_ticks": self._underlying_count,
-            "option_ticks":     self._option_count,
-            "chain_snapshots":  self._chain_count,
+            "option_ticks": self._option_count,
+            "chain_snapshots": self._chain_count,
         }

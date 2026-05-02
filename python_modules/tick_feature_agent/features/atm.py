@@ -31,9 +31,7 @@ def detect_strike_step(strikes: list[int | float]) -> int:
     """
     unique = sorted(set(int(s) for s in strikes))
     if len(unique) < 2:
-        raise ValueError(
-            f"Need at least 2 distinct strikes to compute step, got {len(unique)}"
-        )
+        raise ValueError(f"Need at least 2 distinct strikes to compute step, got {len(unique)}")
     diffs = [unique[i + 1] - unique[i] for i in range(len(unique) - 1)]
     step = min(diffs)
     if step <= 0:
