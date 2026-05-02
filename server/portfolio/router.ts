@@ -284,7 +284,7 @@ export const portfolioRouter = router({
 
       const liveResult = await syncWorkspace('my-live');
       for (const channel of mirroredChannels) {
-        try { await syncWorkspace(channel); } catch {}
+        try { await syncWorkspace(channel); } catch { /* non-fatal — best-effort mirror */ }
       }
       return liveResult;
     }),

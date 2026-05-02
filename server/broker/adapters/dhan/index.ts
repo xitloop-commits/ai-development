@@ -257,7 +257,7 @@ export class DhanAdapter implements BrokerAdapter {
     const securityId = this._resolveSecurityId(params);
 
     // Calculate limit price with offset if order type is LIMIT and price is 0 (auto-calculate)
-    let price = params.price;
+    const price = params.price;
     if (params.orderType === "LIMIT" && price === 0 && settings) {
       // Price of 0 means "use LTP with offset" — caller should provide actual LTP as price
       // For now, keep price as-is; the frontend will calculate using LTP

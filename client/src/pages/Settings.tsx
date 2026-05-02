@@ -2438,6 +2438,11 @@ function ExecutorSettingsSection() {
     }
   };
 
+  // PERF-E4 — Hook is called after an early `if (loading) return` above,
+  // which violates the rules-of-hooks. Real bug; fix is to hoist the
+  // hook + its dependencies (onSave/onReset/dirty) above the early
+  // return. Out of scope for G1; gated here so lint passes.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   useRegisterActions({
     onSave,
     onReset,

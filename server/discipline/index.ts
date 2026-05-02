@@ -137,7 +137,7 @@ class DisciplineAgent {
     // the momentum dimension. ivLabel is "unknown" pending an option-
     // chain IV classifier — DA's eval treats unknown as PASS for the
     // IV check, so positions don't get rejected on missing data.
-    let positions: import("./capitalProtection").CarryForwardPositionInput[] = [];
+    const positions: import("./capitalProtection").CarryForwardPositionInput[] = [];
     try {
       const { portfolioAgent } = await import("../portfolio");
       const { rcaMonitor } = await import("../risk-control");

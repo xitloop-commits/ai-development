@@ -108,7 +108,7 @@ export function getNextTradingDay(exchange: 'NSE' | 'MCX'): { date: string; days
       .map(h => h.date)
   );
 
-  let checkDate = new Date(today);
+  const checkDate = new Date(today);
   checkDate.setDate(checkDate.getDate() + 1);
 
   for (let i = 1; i <= 30; i++) {

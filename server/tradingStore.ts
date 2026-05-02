@@ -32,7 +32,7 @@ const MAX_SIGNALS = 200;
 // Active instruments — controls which instruments the Python pipeline processes
 // Dynamically loaded from database at server startup
 let configuredInstrumentKeys: string[] = [];
-let configuredInstrumentMeta: Map<
+const configuredInstrumentMeta: Map<
   string,
   { displayName: string; exchange: string }
 > = new Map();

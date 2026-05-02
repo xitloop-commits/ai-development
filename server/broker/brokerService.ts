@@ -419,7 +419,7 @@ export async function switchBroker(brokerId: string): Promise<BrokerAdapter> {
     throw new Error(`No broker config found for brokerId="${brokerId}".`);
   }
   if (adapters.dhanLive) {
-    try { await adapters.dhanLive.disconnect(); } catch {}
+    try { await adapters.dhanLive.disconnect(); } catch { /* ignore */ }
   }
   await setActiveBrokerInDB(brokerId);
   adapters.dhanLive = new DhanAdapter(brokerId, false);

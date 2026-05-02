@@ -321,7 +321,7 @@ export function projectFutureDays(
 ): DayRecord[] {
   const days: DayRecord[] = [];
   let pool = startingCapital;
-  let dateObj = new Date();
+  const dateObj = new Date();
 
   for (let i = 0; i < count && fromDayIndex + i <= MAX_DAY_INDEX; i++) {
     const dayIdx = fromDayIndex + i;

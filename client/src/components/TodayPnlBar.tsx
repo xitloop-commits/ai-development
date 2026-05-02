@@ -191,7 +191,7 @@ function getVisibleMarkerIndices(
   // Clamp to valid range
   startIdx = Math.max(0, Math.min(startIdx, allMarkers.length - visibleCount));
 
-  let endIdx = startIdx + visibleCount;
+  const endIdx = startIdx + visibleCount;
 
   return { start: startIdx, end: endIdx };
 }
