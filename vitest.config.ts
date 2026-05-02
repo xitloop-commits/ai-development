@@ -36,8 +36,17 @@ export default defineConfig(({ mode }) => {
         // @testing-library/react which are not installed.
         "client/src/**/*.test.ts",
       ],
-      fileParallelism: false,
-      testTimeout: 15000,
+      // G3 — every Mongo-touching test runs against a per-file in-memory
+      // server (see setup.mongo.ts). Removes the shared-state hazard
+      // that forced fileParallelism: false. Total wall-clock now scales
+      // with worker count instead of being serial.
+      setupFiles: ["./server/__tests__/setup.mongo.ts"],
+      fileParallelism: true,
+      // First run downloads the Mongo binary (~80MB). Bump default
+      // 15s timeout so the very first test file in a fresh checkout
+      // doesn't fail at the MongoMemoryServer.create() step.
+      testTimeout: 30000,
+      hookTimeout: 60000,
     },
   };
 });

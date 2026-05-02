@@ -4,7 +4,11 @@ import { createLogger } from "./broker/logger";
 const log = createLogger("BOOT", "MongoDB");
 
 // ─── Configuration ───────────────────────────────────────────────
-const MONGODB_URI = process.env.MONGODB_URI ?? "";
+// G3 — read MONGODB_URI lazily inside `connectMongo()` so vitest's
+// per-file in-memory Mongo setup (which sets process.env.MONGODB_URI
+// in `beforeAll`) actually takes effect. The previous module-level
+// `const` captured whatever was in env at import time, which for tests
+// is "" — meaning every Mongo-touching test silently no-op'd.
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
 
@@ -20,7 +24,8 @@ export async function connectMongo(): Promise<void> {
   if (mongoose.connection.readyState === 1) return; // already connected
   if (isConnecting) return; // connection in progress
 
-  if (!MONGODB_URI) {
+  const uri = process.env.MONGODB_URI ?? "";
+  if (!uri) {
     connectionError = "MONGODB_URI environment variable is not set";
     log.error(connectionError);
     return;
@@ -32,7 +37,7 @@ export async function connectMongo(): Promise<void> {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       log.info(`Connecting (attempt ${attempt}/${MAX_RETRIES})...`);
-      await mongoose.connect(MONGODB_URI, {
+      await mongoose.connect(uri, {
         serverSelectionTimeoutMS: 5000,
         connectTimeoutMS: 10000,
       });
