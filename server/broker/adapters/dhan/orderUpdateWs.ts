@@ -13,8 +13,7 @@
 import WebSocket from "ws";
 import { EventEmitter } from "events";
 
-import { createLogger } from "../../logger";
-const log = createLogger("BSA", "DhanOrderWS");
+import { createLogger, type Logger } from "../../logger";
 
 const ORDER_UPDATE_URL = "wss://api-order-update.dhan.co";
 const RECONNECT_DELAY_MS = 5000;
@@ -87,11 +86,18 @@ export class DhanOrderUpdateWs extends EventEmitter {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private shouldReconnect = true;
+  private readonly log: Logger;
 
-  constructor(clientId: string, accessToken: string) {
+  /**
+   * @param brokerTag — module-name suffix for the logger so multi-broker
+   *   setups disambiguate `[BSA:Dhan/ai-data-OrderWS]` vs the legacy
+   *   `[BSA:DhanOrderWS]`. Optional; defaults to `"default"`.
+   */
+  constructor(clientId: string, accessToken: string, brokerTag: string = "default") {
     super();
     this.clientId = clientId;
     this.accessToken = accessToken;
+    this.log = createLogger("BSA", `Dhan/${brokerTag}-OrderWS`);
   }
 
   get connected(): boolean {
@@ -104,11 +110,11 @@ export class DhanOrderUpdateWs extends EventEmitter {
       this.ws.close();
     }
 
-    log.info(`Connecting to ${ORDER_UPDATE_URL}`);
+    this.log.info(`Connecting to ${ORDER_UPDATE_URL}`);
     this.ws = new WebSocket(ORDER_UPDATE_URL);
 
     this.ws.on("open", () => {
-      log.info("Connected, sending auth...");
+      this.log.info("Connected, sending auth...");
       this.sendAuth();
       this.startHeartbeat();
     });
@@ -121,18 +127,18 @@ export class DhanOrderUpdateWs extends EventEmitter {
           this.emit("orderUpdate", normalized);
         }
       } catch (err) {
-        log.error("Parse error:", err);
+        this.log.error("Parse error:", err);
       }
     });
 
     this.ws.on("close", (code, reason) => {
-      log.info(`Closed: ${code} ${reason}`);
+      this.log.info(`Closed: ${code} ${reason}`);
       this.stopHeartbeat();
       if (this.shouldReconnect) this.scheduleReconnect();
     });
 
     this.ws.on("error", (err) => {
-      log.error(`Error: ${err.message}`);
+      this.log.error(`Error: ${err.message}`);
     });
   }
 
@@ -145,7 +151,7 @@ export class DhanOrderUpdateWs extends EventEmitter {
       this.ws.close();
       this.ws = null;
     }
-    log.info("Disconnected");
+    this.log.info("Disconnected");
   }
 
   updateCredentials(clientId: string, accessToken: string): void {
@@ -170,7 +176,7 @@ export class DhanOrderUpdateWs extends EventEmitter {
       UserType: "SELF",
     };
     this.ws.send(JSON.stringify(authMsg));
-    log.info("Auth sent");
+    this.log.info("Auth sent");
   }
 
   private normalize(raw: DhanOrderUpdateRaw): NormalizedOrderUpdate {
@@ -205,7 +211,7 @@ export class DhanOrderUpdateWs extends EventEmitter {
   private scheduleReconnect(): void {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => {
-      log.info("Reconnecting...");
+      this.log.info("Reconnecting...");
       this.connect();
     }, RECONNECT_DELAY_MS);
   }

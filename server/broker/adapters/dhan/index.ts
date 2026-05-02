@@ -959,7 +959,7 @@ export class DhanAdapter implements BrokerAdapter {
     if (this.orderUpdateWs) {
       this.orderUpdateWs.disconnect();
     }
-    this.orderUpdateWs = new DhanOrderUpdateWs(this.clientId, this.accessToken);
+    this.orderUpdateWs = new DhanOrderUpdateWs(this.clientId, this.accessToken, this.brokerId);
     this.orderUpdateWs.on("orderUpdate", (update: import("./orderUpdateWs").NormalizedOrderUpdate) => {
       if (!this.orderUpdateCb) return;
       // Map to generic OrderUpdate for the broker interface
@@ -1006,6 +1006,7 @@ export class DhanAdapter implements BrokerAdapter {
     this.ws = new DhanWebSocket({
       accessToken: this.accessToken,
       clientId: this.clientId,
+      brokerTag: this.brokerId,
       onTick: (tick: TickData) => {
         if (this.tickCallback) this.tickCallback(tick);
       },

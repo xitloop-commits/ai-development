@@ -29,14 +29,20 @@ import {
   DHAN_WS_DISCONNECT_CODES,
 } from "./constants.js";
 
-import { createLogger } from "../../logger.js";
-const log = createLogger("BSA", "DhanWS");
+import { createLogger, type Logger } from "../../logger.js";
 
 // ─── Types ─────────────────────────────────────────────────────
 
 interface DhanWSConfig {
   accessToken: string;
   clientId: string;
+  /**
+   * Per-broker tag used in the logger module name so multi-broker setups
+   * (`dhan` for trading, `dhan-ai-data` for AI tick feed, etc.) emit
+   * disambiguated lines: `[BSA:Dhan/ai-data-WS]` instead of generic
+   * `[BSA:DhanWS]`. Optional — defaults to `"default"`.
+   */
+  brokerTag?: string;
   onTick: (tick: TickData) => void;
   onRawMessage?: (data: Buffer) => void;
   onPrevClose: (data: {
@@ -184,10 +190,13 @@ export class DhanWebSocket extends EventEmitter {
   private _connected = false;
   private _cooldownUntil = 0;   // 429/auth cooldown — reject connects until this time
   private healthyTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly log: Logger;
 
   constructor(config: DhanWSConfig) {
     super();
     this.config = config;
+    const tag = config.brokerTag ?? "default";
+    this.log = createLogger("BSA", `Dhan/${tag}-WS`);
   }
 
   /** Update the access token used for future (re)connects. Does not reconnect. */
@@ -195,7 +204,7 @@ export class DhanWebSocket extends EventEmitter {
     this.config.accessToken = newToken;
     this._cooldownUntil = 0;       // clear cooldown so next reconnect can try
     this.reconnectAttempts = 0;    // reset attempt counter with fresh token
-    log.info("WS token updated — next reconnect will use new token");
+    this.log.info("WS token updated — next reconnect will use new token");
   }
 
   // ── Public API ─────────────────────────────────────────────────
@@ -213,7 +222,7 @@ export class DhanWebSocket extends EventEmitter {
     const now = Date.now();
     if (now < this._cooldownUntil) {
       const waitSec = Math.ceil((this._cooldownUntil - now) / 1000);
-      log.debug(`Skip connect — cooldown active, retry in ${waitSec}s`);
+      this.log.debug(`Skip connect — cooldown active, retry in ${waitSec}s`);
       return;
     }
     this.isConnecting = true;
@@ -222,7 +231,7 @@ export class DhanWebSocket extends EventEmitter {
     return new Promise((resolve, reject) => {
       const url = `${DHAN_WS_FEED_URL}?version=2&token=${this.config.accessToken}&clientId=${this.config.clientId}&authType=2`;
 
-      log.info("Connecting to Dhan Live Market Feed...");
+      this.log.info("Connecting to Dhan Live Market Feed...");
 
       this.ws = new WebSocket(url);
 
@@ -249,7 +258,7 @@ export class DhanWebSocket extends EventEmitter {
         // Disable Nagle for minimal latency on incoming ticks
         const sock = (this.ws as any)?._socket;
         if (sock && typeof sock.setNoDelay === "function") sock.setNoDelay(true);
-        log.info("Connected successfully");
+        this.log.info("Connected successfully");
         this.config.onConnected();
 
         // Re-subscribe existing instruments after reconnect
@@ -274,7 +283,7 @@ export class DhanWebSocket extends EventEmitter {
         this._connected = false;
         this.isConnecting = false;
         const reasonStr = reason.toString() || `code ${code}`;
-        log.info(`Disconnected: ${reasonStr}`);
+        this.log.info(`Disconnected: ${reasonStr}`);
 
         if (!this.isDisconnecting) {
           this.scheduleReconnect();
@@ -283,18 +292,18 @@ export class DhanWebSocket extends EventEmitter {
 
       this.ws.on("error", (err: Error) => {
         clearTimeout(timeout);
-        log.error(`Error: ${err.message}`);
+        this.log.error(`Error: ${err.message}`);
         this.config.onError(err);
 
         // Set cooldown on rate limit or auth errors to avoid hammering Dhan
         if (err.message.includes("429")) {
           this._cooldownUntil = Date.now() + 5 * 60 * 1000;  // 5 min cooldown for 429
           this.reconnectAttempts = this.maxReconnectAttempts;  // stop further retries
-          log.warn("WS 429 — 5 min cooldown active, reconnects suspended");
+          this.log.warn("WS 429 — 5 min cooldown active, reconnects suspended");
         } else if (err.message.includes("401") || err.message.includes("403")) {
           this._cooldownUntil = Date.now() + 2 * 60 * 1000;  // 2 min for auth errors
           this.reconnectAttempts = this.maxReconnectAttempts;
-          log.warn("WS auth error — 2 min cooldown active");
+          this.log.warn("WS auth error — 2 min cooldown active");
         }
 
         if (this.isConnecting) {
@@ -333,7 +342,7 @@ export class DhanWebSocket extends EventEmitter {
 
     this._connected = false;
     this.isConnecting = false;
-    log.info("Disconnected gracefully");
+    this.log.info("Disconnected gracefully");
   }
 
   subscribe(instruments: SubscriptionEntry[]): void {
@@ -445,7 +454,7 @@ export class DhanWebSocket extends EventEmitter {
         const disconnectCode = data.length >= 10 ? data.readInt16LE(8) : 0;
         const reason =
           DHAN_WS_DISCONNECT_CODES[disconnectCode] || `Unknown (${disconnectCode})`;
-        log.warn(`Server disconnect: ${reason}`);
+        this.log.warn(`Server disconnect: ${reason}`);
         this.config.onDisconnect(disconnectCode, reason);
         break;
       }
@@ -461,12 +470,12 @@ export class DhanWebSocket extends EventEmitter {
 
       case DHAN_FEED_RESPONSE.MARKET_STATUS: {
         // Market status packet — log but don't process
-        log.info("Market status update received");
+        this.log.info("Market status update received");
         break;
       }
 
       default:
-        log.warn(`Unknown response code: ${header.responseCode}`);
+        this.log.warn(`Unknown response code: ${header.responseCode}`);
     }
   }
 
@@ -539,7 +548,7 @@ export class DhanWebSocket extends EventEmitter {
       }
 
       const actionLabel = action === "subscribe" ? "Subscribed" : "Unsubscribed";
-      log.info(`${actionLabel} ${insts.length} instruments (${mode})`);
+      this.log.info(`${actionLabel} ${insts.length} instruments (${mode})`);
     }
   }
 
@@ -571,13 +580,13 @@ export class DhanWebSocket extends EventEmitter {
   private resubscribeAll(): void {
     const entries = Array.from(this.subscriptions.values());
     if (entries.length === 0) return;
-    log.info(`Re-subscribing ${entries.length} instruments after reconnect`);
+    this.log.info(`Re-subscribing ${entries.length} instruments after reconnect`);
     this.sendSubscribeBatched(entries, "subscribe");
   }
 
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      log.error(`Max reconnect attempts (${this.maxReconnectAttempts}) reached. Giving up.`);
+      this.log.error(`Max reconnect attempts (${this.maxReconnectAttempts}) reached. Giving up.`);
       this.config.onError(
         new Error("WebSocket max reconnect attempts exceeded")
       );
@@ -591,13 +600,13 @@ export class DhanWebSocket extends EventEmitter {
     );
     this.reconnectAttempts++;
 
-    log.info(`Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    this.log.info(`Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
     this.reconnectTimer = setTimeout(async () => {
       try {
         await this.connect();
       } catch (err) {
-        log.error("Reconnect failed:", err);
+        this.log.error("Reconnect failed:", err);
         this.scheduleReconnect();
       }
     }, delay);
