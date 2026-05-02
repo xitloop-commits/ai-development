@@ -81,7 +81,8 @@ type DashboardData = typeof FALLBACK_DASHBOARD;
 
 // ─── Score Gauge Component ─────────────────────────────────────
 
-function ScoreGauge({ score }: { score: number }) {
+// G5 — exported for unit testing (pure presentational helper).
+export function ScoreGauge({ score }: { score: number }) {
   const radius = 54;
   const circumference = 2 * Math.PI * radius;
   const progress = (score / 100) * circumference;
@@ -205,7 +206,8 @@ function StatusCards({ state, settings }: { state: DashboardData['state']; setti
 
 // ─── Violations List ───────────────────────────────────────────
 
-function ViolationsList({ violations }: { violations: DashboardData['state']['violations'] }) {
+// G5 — exported for unit testing (pure presentational helper).
+export function ViolationsList({ violations }: { violations: DashboardData['state']['violations'] }) {
   if (violations.length === 0) {
     return (
       <div className="flex items-center gap-2 text-[0.625rem] text-profit-green/80 py-2">
