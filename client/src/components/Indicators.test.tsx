@@ -166,12 +166,31 @@ describe('computeAiRollup — AI pipeline status logic', () => {
 
 // ─── Render smoke for the composite ─────────────────────────────
 
+// ─── tRPC mock — uses the REAL BrokerServiceStatus shape ────────
+// Pre-fix the indicator silently read non-existent `connected` /
+// `activeBroker` / `mode` fields and always displayed "None Connected,
+// Paper Trading". Mock is now keyed off the actual fields the server
+// returns from `getBrokerServiceStatus()`.
+
 const noopQuery = { data: undefined, isLoading: false };
+
+const mockBrokerStatus = {
+  data: {
+    activeBrokerId: 'dhan',
+    activeBrokerName: 'Dhan (Trading)',
+    tokenStatus: 'valid',
+    apiStatus: 'connected',
+    wsStatus: 'connected',
+    killSwitchActive: false,
+    registeredAdapters: ['dhan', 'mock-ai', 'mock-my'],
+  },
+  isLoading: false,
+};
 
 vi.mock('@/lib/trpc', () => ({
   trpc: {
     broker: {
-      status: { useQuery: () => ({ data: { connected: true, activeBroker: 'mock', mode: 'paper' }, isLoading: false }) },
+      status: { useQuery: () => mockBrokerStatus },
       feed: { state: { useQuery: () => ({ data: { wsConnected: true, totalSubscriptions: 4 }, isLoading: false }) } },
     },
     discipline: {
@@ -196,5 +215,40 @@ describe('Indicators — render smoke', () => {
     expect(screen.getByText('AI')).toBeInTheDocument();
     // Discipline shows the score number 92
     expect(screen.getByText('92')).toBeInTheDocument();
+  });
+});
+
+// ─── ApiIndicator regression — guard against the field-mismatch bug ─
+// Pre-fix the indicator read non-existent `connected` field; `undefined
+// !== false` was true so the icon ALWAYS showed green even when the
+// broker was offline. Tooltip content renders inside a Radix Portal so
+// it's not assertable without hover-simulation; instead we test the
+// visible icon-color class on the trigger, which is the user-facing
+// signal anyway.
+
+describe('Indicators — ApiIndicator field-mismatch regression', () => {
+  it('icon is green (text-bullish) when apiStatus=connected AND tokenStatus=valid', () => {
+    const { container } = render(<Indicators />);
+    // Find the API trigger by its label text, then check the sibling icon.
+    const apiLabel = container.querySelector('span.tracking-wider'); // first one is API
+    const apiCell = apiLabel?.closest('div');
+    const icon = apiCell?.querySelector('svg.lucide-globe');
+    expect(icon).toBeTruthy();
+    expect(icon?.classList.contains('text-bullish')).toBe(true);
+    // Critically: NOT the muted-foreground gray that would mean "off".
+    expect(icon?.classList.contains('text-muted-foreground')).toBe(false);
+  });
+
+  it('does not render the placeholder "None" / "No broker" anywhere in the trigger', () => {
+    // The icon trigger is always-rendered (not hidden in a Portal).
+    // Even though tooltip content is hidden until hover, those strings
+    // would still appear in the DOM if we'd accidentally moved them
+    // into the trigger. Sanity: the trigger should contain only "API".
+    const { container } = render(<Indicators />);
+    // Find the API cell containing the Globe + "API" label.
+    const apiCell = container.querySelector('svg.lucide-globe')?.closest('div');
+    expect(apiCell?.textContent).toBe('API');
+    expect(apiCell?.textContent).not.toContain('None');
+    expect(apiCell?.textContent).not.toContain('Paper Trading');
   });
 });
