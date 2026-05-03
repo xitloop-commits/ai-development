@@ -2,10 +2,9 @@
  * LoadingStates — Reusable skeleton loaders and empty state components
  * for production polish across the ATS application.
  */
-import {
-  BookOpen, BarChart3, Bot, Wifi, WifiOff,
-  AlertTriangle, RefreshCw, Inbox, Settings,
-  TrendingUp, Shield, Zap,
+import { Bot, Wifi, WifiOff,
+  AlertTriangle, RefreshCw, Inbox,
+  TrendingUp, Shield,
 } from 'lucide-react';
 import { formatINR } from '@/lib/formatINR';
 

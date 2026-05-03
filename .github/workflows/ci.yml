@@ -1,0 +1,161 @@
+# G4 — Continuous Integration (Phase G of IMPLEMENTATION_PLAN_v2).
+#
+# Runs on every PR and every push to system-refactoring / main. The merge
+# button is gated on "all jobs green" via GitHub branch protection rules
+# (configured separately in repo settings — this YAML just provides the
+# checks).
+#
+# Total wall-clock target: <5 min. Achieved by:
+#   - pnpm-store cache (avoids 30s+ npm install on warm runs)
+#   - pip cache (avoids 20s+ pip install on warm runs)
+#   - mongodb-memory-server binary cache (avoids 30s download on warm runs)
+#   - vitest fileParallelism (G3) — TS tests in ~8s
+#
+# When something fails, the failing step's log shows what broke. Re-run
+# the job from the GitHub Actions UI; transient flakes (network on
+# package install) clear with a re-run.
+
+name: CI
+
+on:
+  push:
+    branches: [main, system-refactoring]
+  pull_request:
+    branches: [main, system-refactoring]
+
+# A new push to the same branch cancels the prior in-flight run — saves
+# CI minutes when developers push rapid follow-ups.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typescript:
+    name: TypeScript (typecheck + lint + test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Cache mongodb-memory-server binary
+        # G3's vitest setup downloads a Mongo binary (~80 MB) into
+        # ~/.cache/mongodb-binaries on first run. Cache it across CI
+        # runs so the test job doesn't pay 30s of download every time.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check
+        # Plan §G1: `pnpm check` = `tsc --noEmit`. Existing `:any`
+        # warnings stay green; real type errors fail the job.
+        run: pnpm check
+
+      - name: ESLint
+        # Plan §G1: `pnpm lint`. Configured to exit 0 with warnings;
+        # any rule at `error` level fails the job.
+        run: pnpm lint
+
+      - name: Vitest (server + client)
+        # Plan §G3: file-parallel tests. ~8s wall-clock on this machine.
+        run: pnpm test
+
+  python:
+    name: Python (ruff + mypy + pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            python_modules/requirements.txt
+            python_modules/requirements-dev.txt
+            tfa_bot/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r python_modules/requirements.txt
+          pip install -r python_modules/requirements-dev.txt
+          pip install -r tfa_bot/requirements.txt
+
+      - name: Ruff (lint)
+        # Plan §G2: `ruff check .` exits 0 — gated rules under PY-44.
+        run: ruff check .
+
+      - name: Black (format check)
+        # G2's bulk reformat is committed; new code must conform.
+        run: black --check .
+
+      - name: Mypy (types)
+        # G2 currently runs with `ignore_errors = true` until tracker
+        # PY-44 is cleared. This step still gates on actual mypy
+        # config errors (invalid pyproject, missing modules, etc.).
+        run: mypy python_modules/ tfa_bot/
+
+      - name: Pytest
+        # Plan §G7: covered by E10. ~15s on this machine.
+        run: pytest python_modules/ tfa_bot/ -q
+
+  audit:
+    # Optional dependency-audit job. Warn-only — `continue-on-error`
+    # so a published advisory doesn't block your merges. The
+    # information goes into the PR check summary; you decide whether
+    # to upgrade.
+    name: Dependency audit (warn-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: pnpm audit (production deps)
+        run: pnpm audit --prod || true
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit -r python_modules/requirements.txt || true
+          pip-audit -r tfa_bot/requirements.txt || true

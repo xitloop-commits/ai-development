@@ -13,27 +13,34 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+
 from tick_feature_agent.chain_cache import ChainCache
 from tick_feature_agent.feed.chain_poller import ChainSnapshot
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _row(strike: int, call_oi: float = 1000, put_oi: float = 1000,
-         call_oi_chg: float = 0, put_oi_chg: float = 0,
-         call_vol: float = 0, put_vol: float = 0) -> dict:
+
+def _row(
+    strike: int,
+    call_oi: float = 1000,
+    put_oi: float = 1000,
+    call_oi_chg: float = 0,
+    put_oi_chg: float = 0,
+    call_vol: float = 0,
+    put_vol: float = 0,
+) -> dict:
     return {
-        "strike":       strike,
-        "callOI":       call_oi,
-        "putOI":        put_oi,
+        "strike": strike,
+        "callOI": call_oi,
+        "putOI": put_oi,
         "callOIChange": call_oi_chg,
-        "putOIChange":  put_oi_chg,
-        "callVolume":   call_vol,
-        "putVolume":    put_vol,
+        "putOIChange": put_oi_chg,
+        "callVolume": call_vol,
+        "putVolume": put_vol,
         "callSecurityId": str(strike * 2),
-        "putSecurityId":  str(strike * 2 + 1),
+        "putSecurityId": str(strike * 2 + 1),
         "callLTP": 100.0,
-        "putLTP":  100.0,
+        "putLTP": 100.0,
     }
 
 
@@ -56,7 +63,7 @@ def _make_snapshot(
     sec_id_map = {}
     for r in rows:
         sec_id_map[str(r["callSecurityId"])] = (int(r["strike"]), "CE")
-        sec_id_map[str(r["putSecurityId"])]  = (int(r["strike"]), "PE")
+        sec_id_map[str(r["putSecurityId"])] = (int(r["strike"]), "PE")
     return ChainSnapshot(
         spot_price=spot,
         expiry=expiry,
@@ -74,6 +81,7 @@ def _fresh_cache() -> ChainCache:
 # ══════════════════════════════════════════════════════════════════════════════
 # Initial state
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestInitialState:
 
@@ -115,6 +123,7 @@ class TestInitialState:
 # Availability flags
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestAvailabilityFlags:
 
     def test_chain_available_after_first_snapshot(self):
@@ -140,12 +149,13 @@ class TestAvailabilityFlags:
         assert cache.vol_diff_available is True
         # ATM shift via tick processor
         cache.refresh_atm_zone(spot=24200.0)
-        assert cache.vol_diff_available is True   # must not reset
+        assert cache.vol_diff_available is True  # must not reset
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Snapshot rotation
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestSnapshotRotation:
 
@@ -181,6 +191,7 @@ class TestSnapshotRotation:
 # ══════════════════════════════════════════════════════════════════════════════
 # ATM computation
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestAtmComputation:
 
@@ -227,6 +238,7 @@ class TestAtmComputation:
 # ══════════════════════════════════════════════════════════════════════════════
 # refresh_atm_zone
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestRefreshAtmZone:
 
@@ -279,18 +291,18 @@ class TestRefreshAtmZone:
         rows = [_row(s, call_oi_chg=100, put_oi_chg=200) for s in range(24000, 24500, 50)]
         snap = _make_snapshot(spot=24100.0, rows_override=rows, strike_step=50)
         cache.update_from_snapshot(snap)
-        pcr_atm_before = cache.pcr_atm
         # Shift ATM significantly
         cache.refresh_atm_zone(spot=24350.0)
         # pcr_atm for new window may differ (different rows, but all rows have
         # same call/put OI so it should be equal — test that it was recomputed)
         assert cache.atm == 24350
-        assert cache.oi_change_call_atm >= 0   # recomputed for new window
+        assert cache.oi_change_call_atm >= 0  # recomputed for new window
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Global chain features
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestGlobalChainFeatures:
 
@@ -344,20 +356,22 @@ class TestGlobalChainFeatures:
         cache = _fresh_cache()
         cache.update_from_snapshot(_make_snapshot(rows_override=rows, strike_step=50))
         assert cache.oi_total_call == pytest.approx(10 * 100.0)
-        assert cache.oi_total_put  == pytest.approx(10 * 150.0)
+        assert cache.oi_total_put == pytest.approx(10 * 150.0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ATM-zone chain features
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestAtmZoneFeatures:
 
     def _cache_with_atm_rows(self, atm=24100, step=50, **row_kwargs) -> ChainCache:
         """Make a cache where only the ATM window rows have non-default data."""
         window = [atm + i * step for i in range(-3, 4)]
-        rows = [_row(s, **row_kwargs) if s in window else _row(s)
-                for s in range(23800, 24500, step)]
+        rows = [
+            _row(s, **row_kwargs) if s in window else _row(s) for s in range(23800, 24500, step)
+        ]
         cache = _fresh_cache()
         cache.update_from_snapshot(
             _make_snapshot(spot=float(atm), rows_override=rows, strike_step=step)
@@ -405,12 +419,9 @@ class TestAtmZoneFeatures:
 
     def test_oi_imbalance_atm_sign_cancellation_guarded(self):
         # call_chg=100, put_chg=-100 → denominator uses abs values = 200, not 0
-        rows = [_row(s, call_oi_chg=100, put_oi_chg=-100)
-                for s in range(23800, 24500, 50)]
+        rows = [_row(s, call_oi_chg=100, put_oi_chg=-100) for s in range(23800, 24500, 50)]
         cache = _fresh_cache()
-        cache.update_from_snapshot(_make_snapshot(
-            spot=24100.0, rows_override=rows, strike_step=50
-        ))
+        cache.update_from_snapshot(_make_snapshot(spot=24100.0, rows_override=rows, strike_step=50))
         # denom = |100*7| + |-100*7| = 700 + 700 = 1400 ≠ 0
         assert cache.oi_imbalance_atm is not None
 
@@ -418,9 +429,7 @@ class TestAtmZoneFeatures:
         # ATM window may extend beyond available strikes
         rows = [_row(24050), _row(24100)]  # only 2 strikes — window is wider
         cache = _fresh_cache()
-        cache.update_from_snapshot(_make_snapshot(
-            spot=24100.0, rows_override=rows, strike_step=50
-        ))
+        cache.update_from_snapshot(_make_snapshot(spot=24100.0, rows_override=rows, strike_step=50))
         # Should not raise; ATM-zone features computed from available rows only
         assert cache.chain_available is True
 
@@ -428,6 +437,7 @@ class TestAtmZoneFeatures:
 # ══════════════════════════════════════════════════════════════════════════════
 # Active strikes
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestActiveStrikes:
 
@@ -458,6 +468,7 @@ class TestActiveStrikes:
 # ══════════════════════════════════════════════════════════════════════════════
 # reset()
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestReset:
 
@@ -503,7 +514,7 @@ class TestReset:
         cache.update_from_snapshot(_make_snapshot(strike_step=50))
         assert cache.strike_step == 50
         cache.reset()
-        assert cache.strike_step == 50   # intentionally kept
+        assert cache.strike_step == 50  # intentionally kept
 
     def test_reset_clears_active_strikes(self):
         rows = [_row(s, call_oi_chg=100) for s in range(24000, 24300, 50)]
@@ -519,12 +530,13 @@ class TestReset:
         cache.reset()
         cache.update_from_snapshot(_make_snapshot(spot=24200.0))
         assert cache.chain_available is True
-        assert cache.vol_diff_available is False   # first snapshot after reset
+        assert cache.vol_diff_available is False  # first snapshot after reset
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # last_snapshot_ts
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestLastSnapshotTs:
 

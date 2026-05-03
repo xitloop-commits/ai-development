@@ -13,23 +13,20 @@
  * Router-level tests use appRouter.createCaller() with a mock context,
  * requiring a real MongoDB connection (integration tests).
  */
-import { describe, expect, it, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import mongoose from "mongoose";
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
 import {
   injectCapital,
   createDayRecord,
-  initializeCapital,
   calculateQuarterlyProjection,
   calculateAllQuarterlyProjections,
   projectFutureDays,
   TRADING_SPLIT,
   RESERVE_SPLIT,
-  DEFAULT_TARGET_PERCENT,
-  DEFAULT_INITIAL_FUNDING,
 } from "./compounding";
-import type { CapitalState, DayRecord } from "./state";
+import type { CapitalState } from "./state";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -132,14 +129,15 @@ describe("Pure Engine: injectCapital", () => {
 });
 
 describe("Pure Engine: Quarterly Projections with updated initialFunding", () => {
-  it("should use provided initialFunding instead of DEFAULT_INITIAL_FUNDING", () => {
+  it("uses the provided initialFunding for the planned-target projection", () => {
     const result1 = calculateQuarterlyProjection(150000, 50000, 10, 30, 100000);
     const result2 = calculateQuarterlyProjection(150000, 50000, 10, 30, 200000);
 
-    // Different baselines should produce different avg daily rates → different projections
-    // With 100K baseline: grew from 100K to 200K in 10 days → high rate
-    // With 200K baseline: grew from 200K to 200K in 10 days → zero rate
-    expect(result1.projectedCapital).toBeGreaterThan(result2.projectedCapital);
+    // Function projects the planned target at quarter end given
+    // initialFunding × (1 + targetPercent/100)^endDay. Doubling
+    // initialFunding doubles the projection — proportionally.
+    expect(result1.projectedCapital).not.toBe(result2.projectedCapital);
+    expect(result2.projectedCapital).toBeCloseTo(result1.projectedCapital * 2, 0);
   });
 
   it("should mark past quarters as isPast with zero projection", () => {
@@ -285,14 +283,12 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
     await caller.portfolio.inject({ channel: "my-live", amount: injectAmount });
 
     const allDays = await caller.portfolio.allDays({ channel: "my-live", futureCount: 5 });
-    const currentDayIndex = (await caller.portfolio.state({ channel: "my-live" })).currentDayIndex;
 
-    // Find the current day in allDays
-    const currentDayRow = allDays.find((d: DayRecord) => d.dayIndex === currentDayIndex);
-    expect(currentDayRow).toBeDefined();
+    // allDays returns a structured response, not a flat array
+    expect(allDays.currentDay).toBeDefined();
 
     const expectedTradingPool = round(stateBefore.tradingPool + injectAmount * TRADING_SPLIT);
-    expect(currentDayRow!.tradeCapital).toBe(expectedTradingPool);
+    expect(allDays.currentDay.tradeCapital).toBe(expectedTradingPool);
   });
 
   // ── Test 4: Future days project from updated capital ───────────
@@ -301,20 +297,18 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
     if (!mongoConnected) return;
 
     const allDaysBefore = await caller.portfolio.allDays({ channel: "my-live", futureCount: 5 });
-    const stateBefore = await caller.portfolio.state({ channel: "my-live" });
 
     const injectAmount = 20000;
     await caller.portfolio.inject({ channel: "my-live", amount: injectAmount });
 
     const allDaysAfter = await caller.portfolio.allDays({ channel: "my-live", futureCount: 5 });
-    const stateAfter = await caller.portfolio.state({ channel: "my-live" });
 
-    // Future days should have higher tradeCapital than before
-    const futureBefore = allDaysBefore.filter((d: DayRecord) => d.status === "FUTURE");
-    const futureAfter = allDaysAfter.filter((d: DayRecord) => d.status === "FUTURE");
-
-    if (futureBefore.length > 0 && futureAfter.length > 0) {
-      expect(futureAfter[0].tradeCapital).toBeGreaterThan(futureBefore[0].tradeCapital);
+    // futureDays are FUTURE by construction (router.ts:438 — projectFutureDays
+    // emits the slice starting at currentDayIndex + 1).
+    if (allDaysBefore.futureDays.length > 0 && allDaysAfter.futureDays.length > 0) {
+      expect(allDaysAfter.futureDays[0].tradeCapital).toBeGreaterThan(
+        allDaysBefore.futureDays[0].tradeCapital,
+      );
     }
   });
 

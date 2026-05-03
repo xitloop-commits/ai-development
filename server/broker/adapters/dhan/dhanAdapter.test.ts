@@ -13,10 +13,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
-import mongoose from "mongoose";
 import { connectMongo, disconnectMongo } from "../../../mongo";
 import { DhanAdapter } from "./index";
-import { calculateTokenExpiry } from "./auth";
+import { calculateTokenExpiry, _resetAuthBackoffForTests } from "./auth";
 import { DHAN_TOKEN_EXPIRY_MS, DHAN_TOKEN_EXPIRY_BUFFER_MS } from "./constants";
 import {
   BrokerConfigModel,
@@ -50,6 +49,10 @@ beforeEach(async () => {
   await connectMongo();
   // Clean up test broker config
   await BrokerConfigModel.deleteMany({ brokerId: TEST_BROKER_ID });
+  // Clear module-level auth state — without this, the 150-s post-401
+  // backoff persists from one test to the next and `handleDhan401`
+  // returns early without writing `status: "expired"` to Mongo.
+  _resetAuthBackoffForTests();
   restoreFetch();
 });
 
@@ -504,9 +507,12 @@ describe("DhanAdapter.connect", () => {
     expect(config?.connection.apiStatus).toBe("connected");
   });
 
-  it("should handle missing config gracefully", async () => {
+  it("should throw when no config exists in Mongo", async () => {
+    // BSA's initBrokerService relies on this throw to mark the adapter
+    // unavailable; a silent no-op would let downstream code think the
+    // broker is connected.
     const adapter = new DhanAdapter();
-    await adapter.connect(); // Should not throw
+    await expect(adapter.connect()).rejects.toThrow(/No broker_config found/);
 
     const state = adapter._getInternalState();
     expect(state.accessToken).toBe("");

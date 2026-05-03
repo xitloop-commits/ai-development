@@ -1,32 +1,35 @@
 /**
- * End-to-end smoke test for the AI loop on ai-paper.
+ * End-to-end smoke test for the canonical SEA → ATS path on ai-paper.
  * Run: pnpm tsx scripts/smoke-test-ai-loop.ts
  *
  * What it does:
  *   1. Snapshot ai-paper baseline (open count + day P&L)
- *   2. Append a synthetic filtered SEA signal (LONG_CE on BANKNIFTY)
- *      to logs/signals/banknifty/<today>_filtered_signals.log
- *   3. Wait ~7s for seaBridge.poll() to fire (5s interval)
- *   4. Snapshot — expect openPositionCount += 1
- *   5. Find the newest open position via portfolio.positions
- *   6. Exit it via executor.exitTrade (reason=MANUAL, triggeredBy=USER)
- *   7. Snapshot — expect openPositionCount back to baseline; pnl bumped
+ *   2. POST /api/discipline/validateTrade — simulates SEA-Python placing
+ *      a LONG_CE on BANKNIFTY through the DA → RCA → TEA chain
+ *   3. Snapshot — expect openPositionCount += 1
+ *   4. Find the newest open position via portfolio.positions
+ *   5. Exit it via executor.exitTrade (reason=MANUAL, triggeredBy=USER)
+ *   6. Snapshot — expect openPositionCount back to baseline; pnl bumped
  *
- * Verifies wiring: SEA bridge → TEA submitTrade → MockAdapter →
- * portfolioAgent.appendTrade → position_state dual-write → TEA.exitTrade
- * → portfolioAgent.closeTrade → recordTradeClosed → discipline +
- * portfolio_metrics rollup.
+ * Verifies wiring: validateTrade REST → DA.validateTrade → RCA.evaluate
+ * → TEA.submitTrade → MockAdapter → portfolioAgent.appendTrade →
+ * position_state dual-write → TEA.exitTrade → portfolioAgent.closeTrade
+ * → recordTradeClosed → discipline + portfolio_metrics rollup.
  *
  * Prereqs:
  *   - `pnpm dev` running on http://localhost:3000
  *   - MongoDB connected
  *   - mock-ai broker configured (default at boot)
+ *   - INTERNAL_API_SECRET env set if REQUIRE_INTERNAL_AUTH=true
  */
 
-import { existsSync, mkdirSync, appendFileSync } from "fs";
-import path from "path";
-
 const BASE = "http://localhost:3000/api/trpc";
+const REST = "http://localhost:3000/api";
+
+function authHeaders(): Record<string, string> {
+  const token = process.env.INTERNAL_API_SECRET ?? "";
+  return token ? { "X-Internal-Token": token } : {};
+}
 
 async function callTrpc<T>(procedure: string, input: unknown, method: "POST" | "GET" = "POST"): Promise<T> {
   const body = JSON.stringify({ json: input });
@@ -36,8 +39,8 @@ async function callTrpc<T>(procedure: string, input: unknown, method: "POST" | "
       : `${BASE}/${procedure}`;
   const init: RequestInit =
     method === "GET"
-      ? { method: "GET" }
-      : { method: "POST", headers: { "content-type": "application/json" }, body };
+      ? { method: "GET", headers: authHeaders() }
+      : { method: "POST", headers: { "content-type": "application/json", ...authHeaders() }, body };
   const res = await fetch(url, init);
   const json = await res.json();
   if (!res.ok) throw new Error(`HTTP ${res.status} ${JSON.stringify(json)}`);
@@ -46,48 +49,15 @@ async function callTrpc<T>(procedure: string, input: unknown, method: "POST" | "
   return (wrapped?.json ?? wrapped) as T;
 }
 
-function todayIST(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-}
-
-function writeSyntheticSignal(): { signalLine: string; logPath: string } {
-  const today = todayIST();
-  const dir = path.resolve(`logs/signals/banknifty`);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const logPath = path.join(dir, `${today}_filtered_signals.log`);
-
-  const now = Date.now();
-  const signal = {
-    timestamp: now / 1000,
-    timestamp_ist: new Date(now).toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" }).replace(" ", "T") + "+05:30",
-    instrument: "BANKNIFTY",
-    direction: "GO_CALL",
-    direction_prob_30s: 0.78,
-    max_upside_pred_30s: 0.85,
-    max_drawdown_pred_30s: 0.30,
-    atm_strike: 56400,
-    atm_ce_ltp: 100.0,
-    atm_pe_ltp: 100.0,
-    atm_ce_security_id: "smoke-12345",
-    atm_pe_security_id: "smoke-67890",
-    spot_price: 56400,
-    momentum: 0.82,
-    breakout: 1.0,
-    model_version: "smoke-test",
-    // v3 / filtered fields — these are what seaBridge.processSignal gates on
-    action: "LONG_CE",
-    confidence: "HIGH",
-    score: 5,
-    entry: 100.0,
-    tp: 110.0,
-    sl: 95.0,
-    rr: 2.0,
-    sustained_ticks: 8,
-    avg_prob: 0.76,
-  };
-  const line = JSON.stringify(signal);
-  appendFileSync(logPath, line + "\n");
-  return { signalLine: line, logPath };
+async function postValidateTrade(payload: Record<string, unknown>): Promise<any> {
+  const res = await fetch(`${REST}/discipline/validateTrade`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${JSON.stringify(json)}`);
+  return json;
 }
 
 async function snapshot() {
@@ -98,12 +68,8 @@ async function getPositions() {
   return callTrpc<any[]>("portfolio.positions", { channel: "ai-paper" }, "GET");
 }
 
-async function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 async function main() {
-  console.log("=== AI loop smoke test (ai-paper) ===\n");
+  console.log("=== AI loop smoke test (ai-paper, SEA REST chain) ===\n");
 
   console.log("1. Baseline snapshot");
   const before = await snapshot();
@@ -114,14 +80,60 @@ async function main() {
   });
   const baselineOpen = before.openPositionCount;
 
-  console.log("\n2. Writing synthetic filtered SEA signal");
-  const { logPath } = writeSyntheticSignal();
-  console.log(`   wrote → ${logPath}`);
+  console.log("\n2. POST /api/discipline/validateTrade (LONG_CE on BANKNIFTY)");
+  const executionId = `smoke-${Date.now()}`;
+  const placement = await postValidateTrade({
+    executionId,
+    channel: "ai-paper",
+    origin: "AI",
+    instrument: "BANK NIFTY",
+    exchange: "NSE",
+    transactionType: "BUY",
+    optionType: "CE",
+    strike: 56400,
+    entryPrice: 100,
+    quantity: 15,
+    estimatedValue: 1500,
+    stopLoss: 95,
+    takeProfit: 110,
+    aiConfidence: 0.78,
+    aiRiskReward: 2,
+    currentCapital: before.tradingPool ?? 100000,
+    currentExposure: before.openExposure ?? 0,
+  });
+  console.log({
+    success: placement.success,
+    stage: placement.stage,
+    decision: placement.decision,
+    blockedBy: placement.blockedBy,
+    tradeId: placement.tradeId,
+  });
 
-  console.log("\n3. Waiting 7 s for seaBridge.poll()…");
-  await sleep(7_000);
+  if (!placement.success) {
+    if ((placement.blockedBy ?? []).some((r: string) => r.toLowerCase().includes("discipline"))) {
+      console.log(`\n   ✅ DA rejected (expected off-hours): ${(placement.blockedBy ?? []).join(", ")}`);
+      console.log("\n--- Pipeline trace verified (partial) ---");
+      console.log("   ✅ /api/discipline/validateTrade REST endpoint");
+      console.log("   ✅ X-Internal-Token auth (B1)");
+      console.log("   ✅ zod body validation (B8)");
+      console.log("   ✅ DA pre-trade gate (blocking as expected)");
+      console.log("");
+      console.log("   ⏸  NOT verified (DA blocks first):");
+      console.log("       RCA evaluate, TEA submitTrade, MockAdapter.placeOrder,");
+      console.log("       PA.appendTrade, position_state dual-write, TEA.exitTrade.");
+      console.log("");
+      console.log("   To verify the full loop, either:");
+      console.log("     a) Re-run during NSE market hours (09:15–15:30 IST)");
+      console.log("     b) Temporarily disable timeWindow in discipline settings");
+      console.log("");
+      console.log("=== SMOKE TEST PARTIAL PASS ===");
+      process.exit(0);
+    }
+    console.error(`   ❌ validateTrade rejected for unexpected reason: ${JSON.stringify(placement)}`);
+    process.exit(1);
+  }
 
-  console.log("\n4. Snapshot after bridge poll");
+  console.log("\n3. Snapshot after placement");
   const afterPlace = await snapshot();
   console.log({
     openPositionCount: afterPlace.openPositionCount,
@@ -129,73 +141,13 @@ async function main() {
     unrealizedPnl: afterPlace.unrealizedPnl,
   });
 
-  if (afterPlace.openPositionCount > baselineOpen) {
-    console.log("   ✅ Trade landed via SEA → TEA → PA");
-  } else {
-    // Most common off-hours case: Discipline blocks because of timeWindow
-    // and/or active cooldown. That itself proves the bridge → TEA →
-    // Discipline path is wired. We probe TEA directly to confirm the
-    // rejection reason and stop early (can't verify broker/PA/metrics
-    // without bypassing Discipline, which the smoke test doesn't do).
-    console.log("\n   No new open position. Probing TEA directly to diagnose…");
-    const probe = await callTrpc<any>("executor.submitTrade", {
-      executionId: `smoke-probe-${Date.now()}`,
-      channel: "ai-paper",
-      origin: "AI",
-      instrument: "BANK NIFTY",
-      direction: "BUY",
-      quantity: 15,
-      entryPrice: 100,
-      stopLoss: 95,
-      takeProfit: 110,
-      orderType: "MARKET",
-      productType: "INTRADAY",
-      optionType: "CE",
-      strike: 56400,
-      contractSecurityId: "smoke-12345",
-      timestamp: Date.now(),
-    });
-    if (probe.success) {
-      console.log("   ✅ Direct TEA probe placed a trade — bridge poll may have been slow.");
-      console.log("       Re-running snapshot…");
-      const after2 = await snapshot();
-      if (after2.openPositionCount > baselineOpen) {
-        console.log(`   openPositionCount = ${after2.openPositionCount}`);
-        // Continue to step 5 (find + exit the position)
-      } else {
-        console.error("   ❌ TEA reported success but no open position. Check PA.appendTrade.");
-        process.exit(1);
-      }
-    } else if (probe.error?.toLowerCase().includes("discipline blocked")) {
-      console.log(`   ✅ TEA rejected via Discipline (expected off-hours): ${probe.error}`);
-      console.log("\n--- Pipeline trace verified (partial) ---");
-      console.log("   ✅ executor.submitTrade tRPC route");
-      console.log("   ✅ idempotency store");
-      console.log("   ✅ kill-switch check");
-      console.log("   ✅ Discipline pre-check (blocking as expected)");
-      console.log("   ✅ recordTradeRejected → portfolio_events audit");
-      console.log("");
-      console.log("   ⏸  NOT verified (Discipline blocks first):");
-      console.log("       MockAdapter.placeOrder, PA.appendTrade,");
-      console.log("       position_state dual-write, portfolio_metrics rollup,");
-      console.log("       TEA.exitTrade flow.");
-      console.log("");
-      console.log("   To verify the full loop, either:");
-      console.log("     a) Re-run during NSE market hours (09:15–15:30 IST)");
-      console.log("     b) Place a paper trade through the UI (NewTradeForm");
-      console.log("        on a paper tab) — bypasses Discipline only when");
-      console.log("        testing-sandbox channel; otherwise still gated");
-      console.log("     c) Temporarily disable timeWindow in discipline settings");
-      console.log("");
-      console.log("=== SMOKE TEST PARTIAL PASS ===");
-      process.exit(0);
-    } else {
-      console.error(`   ❌ TEA rejected for unexpected reason: ${probe.error}`);
-      process.exit(1);
-    }
+  if (afterPlace.openPositionCount <= baselineOpen) {
+    console.error("   ❌ validateTrade reported success but no open position. Check PA.appendTrade.");
+    process.exit(1);
   }
+  console.log("   ✅ Trade landed via DA → RCA → TEA → PA");
 
-  console.log("\n5. Looking up the new position");
+  console.log("\n4. Looking up the new position");
   const positions = await getPositions();
   const newest = positions
     .filter((p) => p.status === "OPEN")
@@ -217,7 +169,7 @@ async function main() {
   const positionId = `POS-${String(newest.id).replace(/^T/, "")}`;
   console.log(`   positionId = ${positionId}`);
 
-  console.log("\n6. Exiting via executor.exitTrade (reason=MANUAL)");
+  console.log("\n5. Exiting via executor.exitTrade (reason=MANUAL)");
   const exit = await callTrpc<any>("executor.exitTrade", {
     executionId: `smoke-exit-${Date.now()}`,
     positionId,
@@ -238,7 +190,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("\n7. Final snapshot");
+  console.log("\n6. Final snapshot");
   const after = await snapshot();
   console.log({
     openPositionCount: after.openPositionCount,

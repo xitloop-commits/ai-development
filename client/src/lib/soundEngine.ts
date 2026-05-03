@@ -14,7 +14,7 @@ function getAudioContext(): AudioContext {
   }
   // Resume if suspended (browser autoplay policy)
   if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
+    void audioCtx.resume();
   }
   return audioCtx;
 }
@@ -27,7 +27,7 @@ export function unlockAudio(): void {
   try {
     const ctx = getAudioContext();
     if (ctx.state === 'suspended') {
-      ctx.resume();
+      void ctx.resume();
     }
     // Create a silent buffer to fully unlock
     const buffer = ctx.createBuffer(1, 1, 22050);

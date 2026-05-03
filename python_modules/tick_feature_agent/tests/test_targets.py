@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
@@ -27,18 +27,19 @@ _NAN = float("nan")
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _nan(v) -> bool:
     return isinstance(v, float) and math.isnan(v)
 
 
 # Session constants
-_SESSION_END = 1_000_000.0          # arbitrary epoch seconds
-_T0          = _SESSION_END - 120   # 2 min before session end → safe lookahead
+_SESSION_END = 1_000_000.0  # arbitrary epoch seconds
+_T0 = _SESSION_END - 120  # 2 min before session end → safe lookahead
 
 # Single active strike for simple tests
 _STRIKE = 24100
-_CE_NOW =  150.0
-_PE_NOW =   80.0
+_CE_NOW = 150.0
+_PE_NOW = 80.0
 
 _ACTIVE_ONE = {_STRIKE: (_CE_NOW, _PE_NOW)}
 
@@ -54,7 +55,7 @@ def _filled_buf(
     pe_future: float = 70.0,
     spot_future: float = 24200.0,
     windows: tuple[int, ...] = (30, 60),
-    delta_sec: float = 15.0,   # spacing between future ticks
+    delta_sec: float = 15.0,  # spacing between future ticks
 ) -> TargetBuffer:
     """
     Buffer pre-filled with ticks from t0+delta_sec … t0+max_window,
@@ -73,6 +74,7 @@ def _filled_buf(
 # TestNullTargetFeatures
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestNullTargetFeatures:
 
     def test_default_windows_15_keys(self):
@@ -86,13 +88,20 @@ class TestNullTargetFeatures:
     def test_key_names_default_windows(self):
         out = null_target_features((30, 60))
         expected = {
-            "max_upside_30s", "max_upside_60s",
-            "max_drawdown_30s", "max_drawdown_60s",
-            "risk_reward_ratio_30s", "risk_reward_ratio_60s",
-            "total_premium_decay_30s", "total_premium_decay_60s",
-            "avg_decay_per_strike_30s", "avg_decay_per_strike_60s",
-            "direction_30s", "direction_30s_magnitude",
-            "direction_60s", "direction_60s_magnitude",
+            "max_upside_30s",
+            "max_upside_60s",
+            "max_drawdown_30s",
+            "max_drawdown_60s",
+            "risk_reward_ratio_30s",
+            "risk_reward_ratio_60s",
+            "total_premium_decay_30s",
+            "total_premium_decay_60s",
+            "avg_decay_per_strike_30s",
+            "avg_decay_per_strike_60s",
+            "direction_30s",
+            "direction_30s_magnitude",
+            "direction_60s",
+            "direction_60s_magnitude",
             "upside_percentile_30s",
         }
         assert set(out.keys()) == expected
@@ -103,18 +112,19 @@ class TestNullTargetFeatures:
         assert len(out) == 8
 
     def test_upside_percentile_uses_min_window(self):
-        out = null_target_features((60, 30))   # unsorted input
+        out = null_target_features((60, 30))  # unsorted input
         assert "upside_percentile_30s" in out
         assert "upside_percentile_60s" not in out
 
     def test_three_windows_22_keys(self):
         out = null_target_features((30, 60, 120))
-        assert len(out) == 22   # 7×3 + 1
+        assert len(out) == 22  # 7×3 + 1
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TestTargetBufferPush
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestTargetBufferPush:
 
@@ -162,6 +172,7 @@ class TestTargetBufferPush:
 # ══════════════════════════════════════════════════════════════════════════════
 # TestSessionBoundaryNull
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestSessionBoundaryNull:
 
@@ -219,6 +230,7 @@ class TestSessionBoundaryNull:
 # TestNoActiveStrikes
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestNoActiveStrikes:
 
     def _result(self):
@@ -226,7 +238,7 @@ class TestNoActiveStrikes:
         return buf.compute_targets(
             t0=_T0,
             spot_at_t0=24100.0,
-            active_strike_ltps_at_t0={},   # no active strikes
+            active_strike_ltps_at_t0={},  # no active strikes
             session_end_sec=_SESSION_END,
         )
 
@@ -255,6 +267,7 @@ class TestNoActiveStrikes:
 # TestUpsideTarget
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestUpsideTarget:
 
     def test_max_upside_simple(self):
@@ -263,11 +276,12 @@ class TestUpsideTarget:
         max_upside = max(155,160,158) - 150 = 10.
         """
         buf = _buf((30,))
-        buf.push(_T0 + 5,  24100.0, {_STRIKE: (155.0, 80.0)})
+        buf.push(_T0 + 5, 24100.0, {_STRIKE: (155.0, 80.0)})
         buf.push(_T0 + 15, 24100.0, {_STRIKE: (160.0, 78.0)})
         buf.push(_T0 + 25, 24100.0, {_STRIKE: (158.0, 79.0)})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
@@ -281,7 +295,8 @@ class TestUpsideTarget:
         buf = _buf((30,))
         buf.push(_T0 + 10, 24100.0, {_STRIKE: (140.0, 80.0)})  # 140-150 = -10
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
@@ -295,12 +310,17 @@ class TestUpsideTarget:
         """
         STRIKE_A, STRIKE_B = 24100, 24050
         buf = _buf((30,))
-        buf.push(_T0 + 10, 24100.0, {
-            STRIKE_A: (170.0, 80.0),
-            STRIKE_B: (155.0, 75.0),
-        })
+        buf.push(
+            _T0 + 10,
+            24100.0,
+            {
+                STRIKE_A: (170.0, 80.0),
+                STRIKE_B: (155.0, 75.0),
+            },
+        )
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0={
                 STRIKE_A: (150.0, 80.0),
                 STRIKE_B: (145.0, 75.0),
@@ -315,7 +335,8 @@ class TestUpsideTarget:
         OTHER_STRIKE = 24200
         buf.push(_T0 + 10, 24100.0, {OTHER_STRIKE: (100.0, 50.0)})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,  # STRIKE=24100, not in buffer
             session_end_sec=_SESSION_END,
         )
@@ -327,17 +348,19 @@ class TestUpsideTarget:
         # Entry at t0+45 (in 60s window, outside 30s window)
         buf.push(_T0 + 45, 24100.0, {_STRIKE: (200.0, 80.0)})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
-        assert _nan(result["max_upside_30s"])        # entry outside 30s window
+        assert _nan(result["max_upside_30s"])  # entry outside 30s window
         assert result["max_upside_60s"] == pytest.approx(50.0)  # 200 - 150
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TestDrawdownTarget
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestDrawdownTarget:
 
@@ -347,11 +370,12 @@ class TestDrawdownTarget:
         max_drawdown = 150 - min(145,138,142) = 150 - 138 = 12.
         """
         buf = _buf((30,))
-        buf.push(_T0 + 5,  24100.0, {_STRIKE: (145.0, 80.0)})
+        buf.push(_T0 + 5, 24100.0, {_STRIKE: (145.0, 80.0)})
         buf.push(_T0 + 15, 24100.0, {_STRIKE: (138.0, 82.0)})
         buf.push(_T0 + 25, 24100.0, {_STRIKE: (142.0, 81.0)})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
@@ -365,12 +389,17 @@ class TestDrawdownTarget:
         """
         STRIKE_A, STRIKE_B = 24100, 24050
         buf = _buf((30,))
-        buf.push(_T0 + 10, 24100.0, {
-            STRIKE_A: (140.0, 80.0),
-            STRIKE_B: (80.0, 75.0),
-        })
+        buf.push(
+            _T0 + 10,
+            24100.0,
+            {
+                STRIKE_A: (140.0, 80.0),
+                STRIKE_B: (80.0, 75.0),
+            },
+        )
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0={
                 STRIKE_A: (150.0, 80.0),
                 STRIKE_B: (100.0, 75.0),
@@ -384,6 +413,7 @@ class TestDrawdownTarget:
 # TestRiskRewardRatio
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestRiskRewardRatio:
 
     def test_risk_reward_formula(self):
@@ -396,7 +426,8 @@ class TestRiskRewardRatio:
         buf.push(_T0 + 10, 24100.0, {_STRIKE: (160.0, 80.0)})  # max(160)=160 → upside=10
         buf.push(_T0 + 20, 24100.0, {_STRIKE: (145.0, 80.0)})  # min(160,145)=145 → drawdown=5
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
@@ -405,9 +436,10 @@ class TestRiskRewardRatio:
     def test_risk_reward_nan_when_upside_nan(self):
         buf = _buf((30,))
         # No future CE data → upside = NaN → rr = NaN
-        buf.push(_T0 + 10, 24100.0, {})   # no strike data
+        buf.push(_T0 + 10, 24100.0, {})  # no strike data
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
@@ -421,7 +453,8 @@ class TestRiskRewardRatio:
         # max_drawdown = max(-1) = -1; then rr = 1 / max(-1, 0.01) = 1 / 0.01 = 100
         buf.push(_T0 + 10, 24100.0, {_STRIKE: (151.0, 80.0)})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
@@ -442,6 +475,7 @@ class TestRiskRewardRatio:
 # TestDecayTarget
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestDecayTarget:
 
     def test_total_premium_decay_positive(self):
@@ -453,7 +487,8 @@ class TestDecayTarget:
         buf = _buf((30,))
         buf.push(_T0 + 25, 24100.0, {_STRIKE: (140.0, 75.0)})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
@@ -464,7 +499,8 @@ class TestDecayTarget:
         buf = _buf((30,))
         buf.push(_T0 + 25, 24100.0, {_STRIKE: (160.0, 90.0)})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
@@ -477,7 +513,8 @@ class TestDecayTarget:
         buf.push(_T0 + 10, 24100.0, {_STRIKE: (145.0, 78.0)})  # earlier
         buf.push(_T0 + 25, 24100.0, {_STRIKE: (140.0, 75.0)})  # last — used for decay
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
@@ -489,7 +526,8 @@ class TestDecayTarget:
         buf = _buf((30,))
         buf.push(_T0 + 25, 24100.0, {_STRIKE: (140.0, 75.0)})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
@@ -503,12 +541,17 @@ class TestDecayTarget:
         """
         STRIKE_A, STRIKE_B = 24100, 24050
         buf = _buf((30,))
-        buf.push(_T0 + 25, 24100.0, {
-            STRIKE_A: (140.0, 75.0),
-            STRIKE_B: (95.0,  58.0),
-        })
+        buf.push(
+            _T0 + 25,
+            24100.0,
+            {
+                STRIKE_A: (140.0, 75.0),
+                STRIKE_B: (95.0, 58.0),
+            },
+        )
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0={
                 STRIKE_A: (150.0, 80.0),
                 STRIKE_B: (100.0, 60.0),
@@ -524,7 +567,8 @@ class TestDecayTarget:
         # Only push a tick in the past (before t0)
         buf.push(_T0 - 5, 24100.0, {_STRIKE: (140.0, 75.0)})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
@@ -539,7 +583,8 @@ class TestDecayTarget:
         buf = _buf((30,))
         buf.push(_T0 + 25, 24100.0, {_STRIKE: (_CE_NOW, _PE_NOW)})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
@@ -551,13 +596,15 @@ class TestDecayTarget:
 # TestDirectionTarget
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestDirectionTarget:
 
     def test_direction_1_when_spot_rises(self):
         buf = _buf((30,))
         buf.push(_T0 + 20, 24200.0, {})  # future_spot > current_spot
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0={},
             session_end_sec=_SESSION_END,
         )
@@ -567,7 +614,8 @@ class TestDirectionTarget:
         buf = _buf((30,))
         buf.push(_T0 + 20, 24050.0, {})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0={},
             session_end_sec=_SESSION_END,
         )
@@ -578,7 +626,8 @@ class TestDirectionTarget:
         buf = _buf((30,))
         buf.push(_T0 + 20, 24100.0, {})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0={},
             session_end_sec=_SESSION_END,
         )
@@ -589,7 +638,8 @@ class TestDirectionTarget:
         buf = _buf((30,))
         buf.push(_T0 + 20, 24200.0, {})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0={},
             session_end_sec=_SESSION_END,
         )
@@ -600,7 +650,8 @@ class TestDirectionTarget:
         buf = _buf((30,))
         buf.push(_T0 + 20, 24200.0, {})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=0.0,
+            t0=_T0,
+            spot_at_t0=0.0,
             active_strike_ltps_at_t0={},
             session_end_sec=_SESSION_END,
         )
@@ -609,7 +660,8 @@ class TestDirectionTarget:
     def test_direction_nan_when_no_lookahead(self):
         buf = _buf((30,))
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0={},
             session_end_sec=_SESSION_END,
         )
@@ -621,7 +673,8 @@ class TestDirectionTarget:
         buf.push(_T0 + 10, 24200.0, {})  # up — earlier
         buf.push(_T0 + 25, 24050.0, {})  # down — last (used)
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0={},
             session_end_sec=_SESSION_END,
         )
@@ -636,17 +689,19 @@ class TestDirectionTarget:
         buf.push(_T0 + 20, 24200.0, {})
         buf.push(_T0 + 50, 24050.0, {})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0={},
             session_end_sec=_SESSION_END,
         )
-        assert result["direction_30s"] == 1   # last in 30s window = 24200
-        assert result["direction_60s"] == 0   # last in 60s window = 24050
+        assert result["direction_30s"] == 1  # last in 30s window = 24200
+        assert result["direction_60s"] == 0  # last in 60s window = 24050
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TestUpsidePercentileTracker
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestUpsidePercentileTracker:
 
@@ -753,30 +808,40 @@ class TestUpsidePercentileTracker:
 # TestMultipleWindows
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestMultipleWindows:
 
     def test_correct_keys_two_windows(self):
         buf = _buf((30, 60))
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
         expected = {
-            "max_upside_30s", "max_upside_60s",
-            "max_drawdown_30s", "max_drawdown_60s",
-            "risk_reward_ratio_30s", "risk_reward_ratio_60s",
-            "total_premium_decay_30s", "total_premium_decay_60s",
-            "avg_decay_per_strike_30s", "avg_decay_per_strike_60s",
-            "direction_30s", "direction_30s_magnitude",
-            "direction_60s", "direction_60s_magnitude",
+            "max_upside_30s",
+            "max_upside_60s",
+            "max_drawdown_30s",
+            "max_drawdown_60s",
+            "risk_reward_ratio_30s",
+            "risk_reward_ratio_60s",
+            "total_premium_decay_30s",
+            "total_premium_decay_60s",
+            "avg_decay_per_strike_30s",
+            "avg_decay_per_strike_60s",
+            "direction_30s",
+            "direction_30s_magnitude",
+            "direction_60s",
+            "direction_60s_magnitude",
         }
         assert set(result.keys()) == expected
 
     def test_correct_keys_single_window(self):
         buf = _buf((45,))
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0={},
             session_end_sec=_SESSION_END,
         )
@@ -788,11 +853,12 @@ class TestMultipleWindows:
         buf = _buf((30, 60))
         buf.push(_T0 + 45, 24200.0, {_STRIKE: (200.0, 90.0)})
         result = buf.compute_targets(
-            t0=_T0, spot_at_t0=24100.0,
+            t0=_T0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )
-        assert _nan(result["max_upside_30s"])     # t0+45 outside 30s window
+        assert _nan(result["max_upside_30s"])  # t0+45 outside 30s window
         assert result["max_upside_60s"] == pytest.approx(50.0)  # 200-150
 
     def test_30s_boundary_null_60s_not_null(self):
@@ -804,7 +870,8 @@ class TestMultipleWindows:
         t0 = _SESSION_END - 45
         buf = _filled_buf(t0=t0, windows=(30, 60))
         result = buf.compute_targets(
-            t0=t0, spot_at_t0=24100.0,
+            t0=t0,
+            spot_at_t0=24100.0,
             active_strike_ltps_at_t0=_ACTIVE_ONE,
             session_end_sec=_SESSION_END,
         )

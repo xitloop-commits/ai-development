@@ -9,7 +9,7 @@
  * Days with zero P&L (no trades) do not affect the streak.
  */
 
-import type { DisciplineState, DisciplineEngineSettings, ActiveAdjustment, StreakState } from "./types";
+import type { DisciplineState, DisciplineAgentSettings, ActiveAdjustment, StreakState } from "./types";
 
 export interface StreakInfo {
   active: boolean;
@@ -24,7 +24,7 @@ export interface StreakInfo {
  */
 export function getStreakStatus(
   state: DisciplineState,
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): StreakInfo {
   const streak = state.currentStreak;
   const adjustments: string[] = [];
@@ -73,7 +73,7 @@ export function getStreakStatus(
  */
 export function calculateStreakAdjustments(
   state: DisciplineState,
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): ActiveAdjustment[] {
   const streak = state.currentStreak;
   const adjustments: ActiveAdjustment[] = [];

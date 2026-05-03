@@ -8,28 +8,21 @@
  *   - Capital injection mutation
  */
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import {
   getCapitalState,
   updateCapitalState,
   getDayRecords,
   getDayRecord,
   upsertDayRecord,
-  deleteDayRecordsFrom,
   deleteAllDayRecords,
   replaceCapitalState,
 } from "./state";
-import type { Channel, DayRecord, TradeRecord } from "./state";
+import type { Channel, DayRecord } from "./state";
 import {
-  initializeCapital,
   injectCapital,
   createDayRecord,
-  checkDayCompletion,
-  completeDayIndex,
-  calculateGiftDays,
-  processClawback,
   calculateAvailableCapital,
-  calculatePositionSize,
   projectFutureDays,
   calculateQuarterlyProjection,
   calculateAllQuarterlyProjections,
@@ -37,27 +30,26 @@ import {
   resetSession,
   recalculateDayAggregates,
   TRADING_SPLIT,
-  MAX_DAY_INDEX,
 } from "./compounding";
-import { calculateTradeCharges } from "./charges";
 import type { ChargeRate } from "./charges";
 import { getUserSettings } from "../userSettings";
-import { getActiveBroker } from "../broker/brokerService";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
-import { tickBus } from "../broker/tickBus";
-import type { BrokerSettings, OrderParams } from "../broker/types";
 import { portfolioAgent } from "./portfolioAgent";
+import { createLogger } from "../broker/logger";
+
+const log = createLogger("PA", "Router");
+
 // ─── Helpers ─────────────────────────────────────────────────────
 
 const channelSchema = z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "testing-sandbox"]);
 /** Channels that mirror My Trades LIVE capital ops for shadow tracking. */
 const mirroredChannels: Channel[] = ["my-paper", "ai-paper", "testing-sandbox"];
 
-function generateTradeId(): string {
+function _generateTradeId(): string {
   return `T${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-async function getChargeRates(userId: number = 1): Promise<ChargeRate[]> {
+async function _getChargeRates(userId: number = 1): Promise<ChargeRate[]> {
   const settings = await getUserSettings(userId);
   return settings.charges.rates as ChargeRate[];
 }
@@ -160,7 +152,7 @@ export const portfolioRouter = router({
    * Updates the current day's targetPercent, targetAmount, and projCapital immediately
    * (but NOT originalProjCapital — that preserves the ideal compounding path).
    */
-  syncDailyTarget: publicProcedure
+  syncDailyTarget: protectedProcedure
     .input(z.object({ channel: channelSchema }))
     .mutation(async ({ input }) => {
       const targetPercent = await getDailyTargetPercent();
@@ -186,7 +178,7 @@ export const portfolioRouter = router({
     }),
 
   /** Inject new capital (75/25 split). */
-  inject: publicProcedure
+  inject: protectedProcedure
     .input(z.object({
       channel: channelSchema,
       amount: z.number().positive(),
@@ -226,7 +218,7 @@ export const portfolioRouter = router({
         try {
           await syncWorkspace(channel);
         } catch (err) {
-          console.warn(`[portfolio.inject] ${channel} channel sync failed (non-fatal):`, err);
+          log.warn(`inject ${channel} channel sync failed (non-fatal): ${(err as Error)?.message ?? err}`);
         }
       }
 
@@ -234,7 +226,7 @@ export const portfolioRouter = router({
     }),
 
   /** Transfer funds between Trading ↔ Reserve pools. */
-  transferFunds: publicProcedure
+  transferFunds: protectedProcedure
     .input(z.object({
       channel: channelSchema,
       from: z.enum(['trading', 'reserve']),
@@ -280,9 +272,102 @@ export const portfolioRouter = router({
 
       const liveResult = await syncWorkspace('my-live');
       for (const channel of mirroredChannels) {
-        try { await syncWorkspace(channel); } catch {}
+        try { await syncWorkspace(channel); } catch { /* non-fatal — best-effort mirror */ }
       }
       return liveResult;
+    }),
+
+  /**
+   * Phase D1 — cross-channel fund transfer (spec §7.1, AILiveCanary §4
+   * step 1 + §8 step 3).
+   *
+   * Moves money from one channel's trading pool to another channel's
+   * trading pool. The two writes (debit source, credit dest) are wrapped
+   * in a Mongo session + transaction so a mid-flight failure can never
+   * leave the pools diverged. Closes SRV-41.
+   *
+   * `amount: "all"` drains the source's full tradingPool. Numeric amount
+   * must be ≤ source balance.
+   *
+   * Distinct from `transferFunds` (above) — that one moves between the
+   * trading/reserve POOLS within a single channel; this one moves
+   * between two CHANNELS' trading pools. Different verb in the user's
+   * head, different signature.
+   */
+  transferFundsCrossChannel: protectedProcedure
+    .input(z.object({
+      from: channelSchema,
+      to: channelSchema,
+      amount: z.union([z.number().positive(), z.literal("all")]),
+    }))
+    .mutation(async ({ input }) => {
+      if (input.from === input.to) {
+        throw new Error("Cannot transfer to the same channel");
+      }
+      const mongoose = (await import("mongoose")).default;
+      const session = await mongoose.startSession();
+      try {
+        let result: { from: { tradingPool: number }; to: { tradingPool: number }; transferred: number } | null = null;
+        await session.withTransaction(async () => {
+          const fromState = await getCapitalState(input.from);
+          const toState = await getCapitalState(input.to);
+          const transfer =
+            input.amount === "all" ? fromState.tradingPool : input.amount;
+          if (transfer <= 0) {
+            throw new Error(`Source channel ${input.from} has no trading-pool balance to transfer`);
+          }
+          if (transfer > fromState.tradingPool) {
+            throw new Error(
+              `Insufficient balance on ${input.from}: have ${fromState.tradingPool}, asked for ${transfer}`,
+            );
+          }
+          const newFromTrading = Math.round((fromState.tradingPool - transfer) * 100) / 100;
+          const newToTrading = Math.round((toState.tradingPool + transfer) * 100) / 100;
+          const updFrom = await updateCapitalState(input.from, { tradingPool: newFromTrading });
+          const updTo = await updateCapitalState(input.to, { tradingPool: newToTrading });
+          result = {
+            from: { tradingPool: updFrom.tradingPool },
+            to: { tradingPool: updTo.tradingPool },
+            transferred: transfer,
+          };
+        });
+        if (!result) throw new Error("transferFundsCrossChannel: transaction returned no result");
+        return result;
+      } finally {
+        await session.endSession();
+      }
+    }),
+
+  /**
+   * Phase D1 — audit-only event for SL/TP modify post-fill (spec §7.1).
+   * TEA fires this after a successful broker modify; PA appends to the
+   * event log so dashboards can see the trail. Does NOT mutate the
+   * trade record — the actual fields are already updated by the
+   * upstream tradeExecutor.modifyOrder path.
+   */
+  recordTradeUpdated: protectedProcedure
+    .input(z.object({
+      channel: channelSchema,
+      tradeId: z.string().min(1),
+      modifications: z.object({
+        stopLoss: z.number().nullable().optional(),
+        takeProfit: z.number().nullable().optional(),
+        trailingStopEnabled: z.boolean().optional(),
+      }).strict(),
+      timestamp: z.number().int().nonnegative().default(() => Date.now()),
+    }))
+    .mutation(async ({ input }) => {
+      const { appendEvent } = await import("./storage");
+      await appendEvent({
+        channel: input.channel,
+        eventType: "TRADE_MODIFIED",
+        tradeId: input.tradeId,
+        payload: {
+          modifications: input.modifications,
+        },
+        timestamp: input.timestamp,
+      });
+      return { success: true };
     }),
 
   // ─── Day Record Queries ────────────────────────────────────────
@@ -370,7 +455,7 @@ export const portfolioRouter = router({
 
 
   /** Reset capital to initial state. Destructive: clears all day records and resets pools. */
-  resetCapital: publicProcedure
+  resetCapital: protectedProcedure
     .input(z.object({
       channel: channelSchema,
       initialFunding: z.number().positive().default(100000),
@@ -434,7 +519,7 @@ export const portfolioRouter = router({
         try {
           await resetWorkspace(channel);
         } catch (err) {
-          console.warn(`[portfolio.resetCapital] ${channel} channel reset failed (non-fatal):`, err);
+          log.warn(`resetCapital ${channel} channel reset failed (non-fatal): ${(err as Error)?.message ?? err}`);
         }
       }
 
@@ -448,7 +533,7 @@ export const portfolioRouter = router({
     }),
 
   /** Update LTP for open trades (called by polling). */
-  updateLtp: publicProcedure
+  updateLtp: protectedProcedure
     .input(z.object({
       channel: channelSchema,
       prices: z.record(z.string(), z.number()), // tradeId → ltp
@@ -474,7 +559,7 @@ export const portfolioRouter = router({
     }),
 
   /** Clear all trades and reset a paper channel to zero. Only allowed for paper channels. */
-  clearWorkspace: publicProcedure
+  clearWorkspace: protectedProcedure
     .input(z.object({
       channel: z.enum(['my-paper', 'ai-paper', 'testing-sandbox']),
       initialFunding: z.number().positive().default(100000),
@@ -584,7 +669,7 @@ export const portfolioRouter = router({
   // ─── Portfolio Agent Spec §7.1 — Mutation APIs ─────────────────
 
   /** Spec §5.2 — record trade close with full outcome metadata. */
-  recordTradeClosed: publicProcedure
+  recordTradeClosed: protectedProcedure
     .input(z.object({
       channel: channelSchema,
       tradeId: z.string(),
@@ -597,7 +682,7 @@ export const portfolioRouter = router({
       exitTime: z.number(),
       realizedPnl: z.number(),
       realizedPnlPercent: z.number(),
-      exitReason: z.enum(["SL", "TP", "RCA_EXIT", "STALE_PRICE_EXIT", "VOLATILITY_EXIT", "DISCIPLINE_EXIT", "AI_EXIT", "MANUAL", "EOD", "EXPIRY"]),
+      exitReason: z.enum(["SL_HIT", "TP_HIT", "MOMENTUM_EXIT", "VOLATILITY_EXIT", "AGE_EXIT", "STALE_PRICE_EXIT", "DISCIPLINE_EXIT", "AI_EXIT", "MANUAL", "EOD", "EXPIRY"]),
       exitTriggeredBy: z.enum(["RCA", "BROKER", "DISCIPLINE", "AI", "USER", "PA"]),
       duration: z.number(),
       pnlCategory: z.enum(["win", "loss", "breakeven"]),
@@ -607,7 +692,7 @@ export const portfolioRouter = router({
     .mutation(({ input }) => portfolioAgent.recordTradeClosed(input)),
 
   /** Spec §7.1 — audit trail for rejected trades. */
-  recordTradeRejected: publicProcedure
+  recordTradeRejected: protectedProcedure
     .input(z.object({
       channel: channelSchema,
       reason: z.string(),

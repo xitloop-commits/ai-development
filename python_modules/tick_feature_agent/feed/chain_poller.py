@@ -38,16 +38,28 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timezone, timedelta, date as _date
-from typing import Callable
+from collections.abc import Callable
+from datetime import date as _date
+from datetime import datetime, timedelta, timezone
 
 try:
     import requests as _requests
 except ImportError:
     raise ImportError("requests package not installed. Run: pip install requests")
 
+import os
+
 from tick_feature_agent.instrument_profile import InstrumentProfile
 from tick_feature_agent.log.tfa_logger import get_logger
+
+
+def _authed_headers() -> dict[str, str]:
+    """B1: include X-Internal-Token from env on every Node-API call.
+    Empty string when secret unset → header omitted, server runs in
+    warn-only mode."""
+    secret = os.environ.get("INTERNAL_API_SECRET", "")
+    return {"X-Internal-Token": secret} if secret else {}
+
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 _ROLLOVER_HOUR = 14
@@ -73,8 +85,13 @@ class ChainSnapshot:
     """Validated, parsed option chain snapshot."""
 
     __slots__ = (
-        "spot_price", "expiry", "timestamp_sec", "rows",
-        "strike_step", "sec_id_map", "recv_ts",
+        "spot_price",
+        "expiry",
+        "timestamp_sec",
+        "rows",
+        "strike_step",
+        "sec_id_map",
+        "recv_ts",
     )
 
     def __init__(
@@ -86,13 +103,13 @@ class ChainSnapshot:
         strike_step: int,
         sec_id_map: dict[str, tuple[int, str]],
     ) -> None:
-        self.spot_price     = spot_price
-        self.expiry         = expiry
-        self.timestamp_sec  = timestamp_sec
-        self.rows           = rows            # list of row dicts from API
-        self.strike_step    = strike_step
-        self.sec_id_map     = sec_id_map      # {security_id: (strike, opt_type)}
-        self.recv_ts        = time.time()
+        self.spot_price = spot_price
+        self.expiry = expiry
+        self.timestamp_sec = timestamp_sec
+        self.rows = rows  # list of row dicts from API
+        self.strike_step = strike_step
+        self.sec_id_map = sec_id_map  # {security_id: (strike, opt_type)}
+        self.recv_ts = time.time()
 
     @property
     def strikes(self) -> list[int]:
@@ -148,9 +165,7 @@ class ChainPoller:
 
         self._log = get_logger("tfa.chain_poller", instrument=profile.instrument_name)
 
-        self._underlying_sec_id = (
-            underlying_security_id or profile.underlying_security_id
-        )
+        self._underlying_sec_id = underlying_security_id or profile.underlying_security_id
         self._snapshot: ChainSnapshot | None = None
         self._active_expiry: str | None = None
         self._rolled_over = False
@@ -183,8 +198,11 @@ class ChainPoller:
         """
         # Step 1: resolve expiry
         self._active_expiry = await self._resolve_expiry()
-        self._log.info("EXPIRY_RESOLVED", msg=f"Active expiry: {self._active_expiry}",
-                       expiry=self._active_expiry)
+        self._log.info(
+            "EXPIRY_RESOLVED",
+            msg=f"Active expiry: {self._active_expiry}",
+            expiry=self._active_expiry,
+        )
 
         # Step 2: fetch first chain snapshot with retries
         snapshot = None
@@ -225,7 +243,7 @@ class ChainPoller:
 
             # Clock skew check
             if not self._check_clock_skew(snapshot):
-                continue   # reject this snapshot, use previous
+                continue  # reject this snapshot, use previous
 
             # Rollover detection
             self._check_rollover(snapshot)
@@ -274,8 +292,9 @@ class ChainPoller:
                             "underlying": self._underlying_sec_id,
                             "exchangeSegment": self._exch_seg,
                         },
+                        headers=_authed_headers(),
                         timeout=10,
-                    )
+                    ),
                 )
             else:
                 # NSE: use scrip-master with OPTIDX to get weekly expiries
@@ -288,8 +307,9 @@ class ChainPoller:
                             "symbol": self._profile.instrument_name,
                             "instrumentName": "OPTIDX",
                         },
+                        headers=_authed_headers(),
                         timeout=10,
-                    )
+                    ),
                 )
             if resp.status_code != 200:
                 self._log.error(
@@ -326,8 +346,9 @@ class ChainPoller:
                         "expiry": self._active_expiry,
                         "exchangeSegment": self._exch_seg,
                     },
+                    headers=_authed_headers(),
                     timeout=8,
-                )
+                ),
             )
             if resp.status_code != 200:
                 return None
@@ -345,9 +366,9 @@ class ChainPoller:
             if not rows:
                 return None
             spot_price = float(data.get("spotPrice", 0))
-            expiry     = data.get("expiry", self._active_expiry or "")
-            ts_ms      = data.get("timestamp", time.time() * 1000)
-            ts_sec     = ts_ms / 1000.0 if ts_ms > 1e9 else ts_ms
+            expiry = data.get("expiry", self._active_expiry or "")
+            ts_ms = data.get("timestamp", time.time() * 1000)
+            ts_sec = ts_ms / 1000.0 if ts_ms > 1e9 else ts_ms
 
             strike_step = self._detect_strike_step(rows)
             if strike_step == 0:
@@ -362,7 +383,7 @@ class ChainPoller:
             for row in rows:
                 strike = int(row["strike"])
                 call_id = row.get("callSecurityId")
-                put_id  = row.get("putSecurityId")
+                put_id = row.get("putSecurityId")
                 if call_id:
                     sec_id_map[str(call_id)] = (strike, "CE")
                 if put_id:
@@ -389,7 +410,7 @@ class ChainPoller:
                 "CORRUPT_CHAIN_DATA",
                 msg=f"Fewer than 2 strikes in chain ({len(strikes)}) — halting",
             )
-        diffs = [strikes[i+1] - strikes[i] for i in range(len(strikes)-1)]
+        diffs = [strikes[i + 1] - strikes[i] for i in range(len(strikes) - 1)]
         step = min(diffs)
         if step <= 0:
             return 0
@@ -428,7 +449,7 @@ class ChainPoller:
         self._log.info(
             "SECURITY_ID_OK",
             msg=f"Security ID verified — spot={snapshot.spot_price:.2f}, "
-                f"strikes={len(snapshot.rows)}, step={snapshot.strike_step}",
+            f"strikes={len(snapshot.rows)}, step={snapshot.strike_step}",
             underlying_security_id=self._underlying_sec_id,
         )
 
@@ -465,7 +486,7 @@ class ChainPoller:
         # Check if current expiry is today
         today_iso = now_ist.date().isoformat()
         if self._active_expiry != today_iso:
-            return   # expiry is not today — no rollover needed
+            return  # expiry is not today — no rollover needed
 
         self._rolled_over = True
         self._log.info(

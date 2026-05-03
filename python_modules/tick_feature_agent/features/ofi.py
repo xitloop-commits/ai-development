@@ -36,6 +36,7 @@ _OFI_WINDOWS = (5, 20, 50)
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
+
 def _trade_direction(ltp: float, bid: float, ask: float) -> float:
     """
     Classify a single tick's trade direction.
@@ -48,7 +49,7 @@ def _trade_direction(ltp: float, bid: float, ask: float) -> float:
     - ltp <= bid → -1.0
     """
     if bid == 0.0 and ask == 0.0:
-        return 0.0          # pre-depth state — no bid/ask data yet
+        return 0.0  # pre-depth state — no bid/ask data yet
     if ltp >= ask:
         return 1.0
     if ltp <= bid:
@@ -57,6 +58,7 @@ def _trade_direction(ltp: float, bid: float, ask: float) -> float:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def compute_ofi_features(buffer: CircularBuffer) -> dict:
     """
@@ -74,16 +76,16 @@ def compute_ofi_features(buffer: CircularBuffer) -> dict:
     n = len(buffer)
 
     out: dict = {
-        "underlying_trade_direction": 0.0,   # safe default for empty buffer
-        "underlying_ofi_5":           _NAN,
-        "underlying_ofi_20":          _NAN,
-        "underlying_ofi_50":          _NAN,
+        "underlying_trade_direction": 0.0,  # safe default for empty buffer
+        "underlying_ofi_5": _NAN,
+        "underlying_ofi_20": _NAN,
+        "underlying_ofi_50": _NAN,
     }
 
     if n == 0:
         return out
 
-    ticks = buffer.get_last(n)   # list[UnderlyingTick], oldest → newest
+    ticks = buffer.get_last(n)  # list[UnderlyingTick], oldest → newest
     current = ticks[-1]
 
     # ── Trade direction — per-tick, no warm-up ─────────────────────────────────
@@ -94,9 +96,9 @@ def compute_ofi_features(buffer: CircularBuffer) -> dict:
     # ── Rolling OFI windows ────────────────────────────────────────────────────
     for w in _OFI_WINDOWS:
         if n < w:
-            continue   # leaves NaN
+            continue  # leaves NaN
 
-        window = ticks[-w:]              # length == w, oldest first
+        window = ticks[-w:]  # length == w, oldest first
 
         # Predecessor for the oldest tick in the window:
         #   - If buffer holds more than w ticks, compute Δvol normally
@@ -109,7 +111,7 @@ def compute_ofi_features(buffer: CircularBuffer) -> dict:
             td = _trade_direction(float(t.ltp), float(t.bid), float(t.ask))
             if i == 0:
                 if pred_vol is None:
-                    delta_vol = 0.0   # first session tick: delta unknowable
+                    delta_vol = 0.0  # first session tick: delta unknowable
                 else:
                     delta_vol = max(0.0, float(t.volume) - pred_vol)
             else:

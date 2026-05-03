@@ -47,7 +47,6 @@ import math
 
 from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
 from tick_feature_agent.chain_cache import ChainCache
-from tick_feature_agent.feed.chain_poller import ChainSnapshot
 
 _NAN = float("nan")
 _N_SLOTS = 6
@@ -94,6 +93,7 @@ _CROSS_KEYS = (
 
 # ── Per-side strength helper ──────────────────────────────────────────────────
 
+
 def _normalize(values: list[float]) -> list[float]:
     """Min-max normalization. All-zero → 0.0; all-equal-nonzero → 1.0."""
     if not values:
@@ -102,7 +102,7 @@ def _normalize(values: list[float]) -> list[float]:
     if mx == 0.0:
         return [0.0] * len(values)
     mn = min(values)
-    if mx == mn:                      # all equal and non-zero
+    if mx == mn:  # all equal and non-zero
         return [1.0] * len(values)
     span = mx - mn
     return [(v - mn) / span for v in values]
@@ -140,9 +140,9 @@ def compute_side_strengths(
 
     strikes: list[int] = []
     call_vols: list[float] = []
-    put_vols:  list[float] = []
-    call_ois:  list[float] = []
-    put_ois:   list[float] = []
+    put_vols: list[float] = []
+    call_ois: list[float] = []
+    put_ois: list[float] = []
 
     for row in rows:
         strike = int(row["strike"])
@@ -150,27 +150,25 @@ def compute_side_strengths(
 
         if prev_rows is not None:
             prev = prev_map.get(strike, {})
-            call_vol_diff = max(0.0,
-                float(row.get("callVolume", 0) or 0)
-                - float(prev.get("callVolume", 0) or 0)
+            call_vol_diff = max(
+                0.0, float(row.get("callVolume", 0) or 0) - float(prev.get("callVolume", 0) or 0)
             )
-            put_vol_diff = max(0.0,
-                float(row.get("putVolume", 0) or 0)
-                - float(prev.get("putVolume", 0) or 0)
+            put_vol_diff = max(
+                0.0, float(row.get("putVolume", 0) or 0) - float(prev.get("putVolume", 0) or 0)
             )
         else:
             call_vol_diff = 0.0
-            put_vol_diff  = 0.0
+            put_vol_diff = 0.0
 
         call_vols.append(call_vol_diff)
         put_vols.append(put_vol_diff)
         call_ois.append(abs(float(row.get("callOIChange", 0) or 0)))
-        put_ois.append(abs(float(row.get("putOIChange",  0) or 0)))
+        put_ois.append(abs(float(row.get("putOIChange", 0) or 0)))
 
-    call_sv_norm  = _normalize(call_vols)
-    put_sv_norm   = _normalize(put_vols)
+    call_sv_norm = _normalize(call_vols)
+    put_sv_norm = _normalize(put_vols)
     call_soi_norm = _normalize(call_ois)
-    put_soi_norm  = _normalize(put_ois)
+    put_soi_norm = _normalize(put_ois)
 
     result: dict[int, tuple[float, float, float, float, float, float]] = {}
     for i, strike in enumerate(strikes):
@@ -190,6 +188,7 @@ def compute_side_strengths(
 
 
 # ── Tick feature helpers ──────────────────────────────────────────────────────
+
 
 def _bid_ask_imbalance(tick: OptionTick) -> float:
     denom = float(tick.bid_size) + float(tick.ask_size)
@@ -223,30 +222,31 @@ def _tick_features(
     """
     if not option_store.tick_available(strike, opt_type):
         return {
-            "ltp":               _NAN,
-            "bid":               _NAN,
-            "ask":               _NAN,
-            "spread":            _NAN,
-            "volume":            _NAN,
+            "ltp": _NAN,
+            "bid": _NAN,
+            "ask": _NAN,
+            "spread": _NAN,
+            "volume": _NAN,
             "bid_ask_imbalance": _NAN,
-            "premium_momentum":  _NAN,
+            "premium_momentum": _NAN,
         }
     ticks = option_store.get_last(strike, opt_type, n=10)
     current = ticks[-1]
     bid_f = float(current.bid)
     ask_f = float(current.ask)
     return {
-        "ltp":               float(current.ltp),
-        "bid":               bid_f,
-        "ask":               ask_f,
-        "spread":            ask_f - bid_f,
-        "volume":            float(current.volume),
+        "ltp": float(current.ltp),
+        "bid": bid_f,
+        "ask": ask_f,
+        "spread": ask_f - bid_f,
+        "volume": float(current.volume),
         "bid_ask_imbalance": _bid_ask_imbalance(current),
-        "premium_momentum":  _premium_momentum(ticks, staleness_sec),
+        "premium_momentum": _premium_momentum(ticks, staleness_sec),
     }
 
 
 # ── Main compute function ─────────────────────────────────────────────────────
+
 
 def compute_active_features(
     cache: ChainCache,
@@ -285,8 +285,7 @@ def compute_active_features(
     if not cache.chain_available or cache.snapshot is None:
         # Chain not yet available: all slots empty (already set), cross-features NaN
         out["call_put_oi_diff"] = (
-            cache.oi_change_call_atm - cache.oi_change_put_atm
-            if cache.chain_available else _NAN
+            cache.oi_change_call_atm - cache.oi_change_put_atm if cache.chain_available else _NAN
         )
         return out
 
@@ -296,12 +295,12 @@ def compute_active_features(
     side_str: dict[int, tuple] = compute_side_strengths(snapshot.rows, prev_rows)
 
     # ── Populate per-slot features ────────────────────────────────────────────
-    active = cache.active_strikes   # ordered by descending combined strength
+    active = cache.active_strikes  # ordered by descending combined strength
     call_strength_sum = 0.0
-    put_strength_sum  = 0.0
-    call_pm_sum       = 0.0
-    put_pm_sum        = 0.0
-    any_active        = len(active) > 0
+    put_strength_sum = 0.0
+    call_pm_sum = 0.0
+    put_pm_sum = 0.0
+    any_active = len(active) > 0
 
     for slot, score in enumerate(active[:_N_SLOTS]):
         strike = score.strike
@@ -313,13 +312,13 @@ def compute_active_features(
 
         # Tick availability
         call_avail = option_store.tick_available(strike, "CE")
-        put_avail  = option_store.tick_available(strike, "PE")
+        put_avail = option_store.tick_available(strike, "PE")
         tick_avail = 1 if (call_avail or put_avail) else 0
 
         # Tick age
         if tick_avail:
             t_call = option_store.last_tick_time(strike, "CE")
-            t_put  = option_store.last_tick_time(strike, "PE")
+            t_put = option_store.last_tick_time(strike, "PE")
             ages = []
             if t_call is not None:
                 ages.append(current_time - t_call)
@@ -331,43 +330,43 @@ def compute_active_features(
 
         # Tick-derived features per side
         call_tf = _tick_features(option_store, strike, "CE", staleness_threshold_sec)
-        put_tf  = _tick_features(option_store, strike, "PE", staleness_threshold_sec)
+        put_tf = _tick_features(option_store, strike, "PE", staleness_threshold_sec)
 
         # Accumulate cross-feature sums
         call_strength_sum += call_str
-        put_strength_sum  += put_str
+        put_strength_sum += put_str
 
         # premium_divergence: NaN pm → contributes 0
         cpm = call_tf["premium_momentum"]
         ppm = put_tf["premium_momentum"]
         call_pm_sum += 0.0 if math.isnan(cpm) else cpm
-        put_pm_sum  += 0.0 if math.isnan(ppm) else ppm
+        put_pm_sum += 0.0 if math.isnan(ppm) else ppm
 
         # Write slot
-        out[prefix + "strike"]                = float(strike)
-        out[prefix + "distance_from_spot"]    = float(strike) - spot_price
-        out[prefix + "tick_available"]        = tick_avail
-        out[prefix + "call_strength_volume"]  = call_sv
-        out[prefix + "call_strength_oi"]      = call_soi
-        out[prefix + "call_strength"]         = call_str
-        out[prefix + "call_ltp"]              = call_tf["ltp"]
-        out[prefix + "call_bid"]              = call_tf["bid"]
-        out[prefix + "call_ask"]              = call_tf["ask"]
-        out[prefix + "call_spread"]           = call_tf["spread"]
-        out[prefix + "call_volume"]           = call_tf["volume"]
-        out[prefix + "call_bid_ask_imbalance"]= call_tf["bid_ask_imbalance"]
+        out[prefix + "strike"] = float(strike)
+        out[prefix + "distance_from_spot"] = float(strike) - spot_price
+        out[prefix + "tick_available"] = tick_avail
+        out[prefix + "call_strength_volume"] = call_sv
+        out[prefix + "call_strength_oi"] = call_soi
+        out[prefix + "call_strength"] = call_str
+        out[prefix + "call_ltp"] = call_tf["ltp"]
+        out[prefix + "call_bid"] = call_tf["bid"]
+        out[prefix + "call_ask"] = call_tf["ask"]
+        out[prefix + "call_spread"] = call_tf["spread"]
+        out[prefix + "call_volume"] = call_tf["volume"]
+        out[prefix + "call_bid_ask_imbalance"] = call_tf["bid_ask_imbalance"]
         out[prefix + "call_premium_momentum"] = call_tf["premium_momentum"]
-        out[prefix + "put_strength_volume"]   = put_sv
-        out[prefix + "put_strength_oi"]       = put_soi
-        out[prefix + "put_strength"]          = put_str
-        out[prefix + "put_ltp"]               = put_tf["ltp"]
-        out[prefix + "put_bid"]               = put_tf["bid"]
-        out[prefix + "put_ask"]               = put_tf["ask"]
-        out[prefix + "put_spread"]            = put_tf["spread"]
-        out[prefix + "put_volume"]            = put_tf["volume"]
+        out[prefix + "put_strength_volume"] = put_sv
+        out[prefix + "put_strength_oi"] = put_soi
+        out[prefix + "put_strength"] = put_str
+        out[prefix + "put_ltp"] = put_tf["ltp"]
+        out[prefix + "put_bid"] = put_tf["bid"]
+        out[prefix + "put_ask"] = put_tf["ask"]
+        out[prefix + "put_spread"] = put_tf["spread"]
+        out[prefix + "put_volume"] = put_tf["volume"]
         out[prefix + "put_bid_ask_imbalance"] = put_tf["bid_ask_imbalance"]
-        out[prefix + "put_premium_momentum"]  = put_tf["premium_momentum"]
-        out[prefix + "tick_age_sec"]          = tick_age
+        out[prefix + "put_premium_momentum"] = put_tf["premium_momentum"]
+        out[prefix + "tick_age_sec"] = tick_age
 
     # ── §8.7 cross-feature aggregates ─────────────────────────────────────────
     out["call_put_strength_diff"] = max(-1.0, min(1.0, call_strength_sum - put_strength_sum))
@@ -375,9 +374,8 @@ def compute_active_features(
     if cache.vol_diff_available:
         cdv = cache.call_vol_diff_atm
         pdv = cache.put_vol_diff_atm
-        out["call_put_volume_diff"] = (
-            (cdv if cdv is not None else 0.0)
-            - (pdv if pdv is not None else 0.0)
+        out["call_put_volume_diff"] = (cdv if cdv is not None else 0.0) - (
+            pdv if pdv is not None else 0.0
         )
     # else: remains NaN
 

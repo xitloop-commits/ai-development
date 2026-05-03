@@ -29,7 +29,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Force UTF-8 output on Windows
@@ -39,14 +39,14 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # ── Path setup ────────────────────────────────────────────────────────────────
-_HERE           = Path(__file__).resolve().parent
+_HERE = Path(__file__).resolve().parent
 _PYTHON_MODULES = _HERE.parent
-_PROJECT_ROOT   = _PYTHON_MODULES.parent
+_PROJECT_ROOT = _PYTHON_MODULES.parent
 if str(_PYTHON_MODULES) not in sys.path:
     sys.path.insert(0, str(_PYTHON_MODULES))
 
-from tick_feature_agent.instrument_profile import load_profile, ProfileValidationError
-from tick_feature_agent.log.tfa_logger import setup_logging, get_logger, shutdown_logging
+from tick_feature_agent.instrument_profile import ProfileValidationError, load_profile
+from tick_feature_agent.log.tfa_logger import get_logger, setup_logging, shutdown_logging
 
 # ── ANSI colour helpers ───────────────────────────────────────────────────────
 # On Windows, explicitly enable VT (ANSI) processing so cursor-movement codes
@@ -54,35 +54,41 @@ from tick_feature_agent.log.tfa_logger import setup_logging, get_logger, shutdow
 if sys.platform == "win32":
     try:
         import ctypes as _ctypes
+
         _k32 = _ctypes.windll.kernel32
         _STDOUT_HANDLE = _k32.GetStdHandle(-11)
         _mode = _ctypes.c_ulong()
         _k32.GetConsoleMode(_STDOUT_HANDLE, _ctypes.byref(_mode))
-        _k32.SetConsoleMode(_STDOUT_HANDLE, _mode.value | 0x0004)  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        _k32.SetConsoleMode(
+            _STDOUT_HANDLE, _mode.value | 0x0004
+        )  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
     except Exception:
         pass
 
 _NO_COLOUR = bool(os.environ.get("NO_COLOR"))
-_NO_CURSOR = not sys.stdout.isatty()                   # piped/redirected — no in-place refresh
+_NO_CURSOR = not sys.stdout.isatty()  # piped/redirected — no in-place refresh
+
 
 def _c(code: str, text: str) -> str:
     return text if _NO_COLOUR else f"\033[{code}m{text}\033[0m"
 
-GREEN  = lambda t: _c("32", t)
-YELLOW = lambda t: _c("33", t)
-RED    = lambda t: _c("31", t)
-CYAN   = lambda t: _c("36", t)
-BOLD   = lambda t: _c("1",  t)
-DIM    = lambda t: _c("2",  t)
 
-TICK   = GREEN("✓")
-CROSS  = RED("✗")
-PEND   = YELLOW("○")
+GREEN = lambda t: _c("32", t)
+YELLOW = lambda t: _c("33", t)
+RED = lambda t: _c("31", t)
+CYAN = lambda t: _c("36", t)
+BOLD = lambda t: _c("1", t)
+DIM = lambda t: _c("2", t)
+
+TICK = GREEN("✓")
+CROSS = RED("✗")
+PEND = YELLOW("○")
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 
 
 # ── Console helpers ───────────────────────────────────────────────────────────
+
 
 def _banner(instrument: str, mode: str) -> None:
     width = 60
@@ -109,7 +115,16 @@ def _fatal(msg: str) -> None:
     sys.exit(1)
 
 
+def _authed_headers() -> dict[str, str]:
+    """B1: include X-Internal-Token from env on every Node-API call.
+    Empty string when secret unset → header omitted, server runs in
+    warn-only mode."""
+    secret = os.environ.get("INTERNAL_API_SECRET", "")
+    return {"X-Internal-Token": secret} if secret else {}
+
+
 # ── Credentials helper ────────────────────────────────────────────────────────
+
 
 def _fetch_credentials(base_url: str, broker_id: str = "dhan") -> dict | None:
     try:
@@ -120,6 +135,7 @@ def _fetch_credentials(base_url: str, broker_id: str = "dhan") -> dict | None:
         resp = requests.get(
             f"{base_url}/api/broker/token",
             params={"brokerId": broker_id},
+            headers=_authed_headers(),
             timeout=5,
         )
     except Exception as exc:
@@ -139,26 +155,48 @@ def _ensure_scrip_master(base_url: str, log) -> bool:
     """
     try:
         import requests as _req
-        r = _req.get(f"{base_url}/api/broker/scrip-master/status", timeout=5)
+
+        r = _req.get(
+            f"{base_url}/api/broker/scrip-master/status", headers=_authed_headers(), timeout=5
+        )
         if r.status_code == 200 and r.json().get("data", {}).get("isLoaded"):
             return True
         # Not loaded — trigger a full refresh (BSA fetches ~250k scrips from Dhan)
         log.info("SCRIP_MASTER_REFRESH", msg="Scrip master not loaded — triggering refresh")
-        r2 = _req.post(f"{base_url}/api/broker/scrip-master/refresh", timeout=60)
+        r2 = _req.post(
+            f"{base_url}/api/broker/scrip-master/refresh", headers=_authed_headers(), timeout=60
+        )
         if r2.status_code == 200:
             log.info("SCRIP_MASTER_REFRESH_OK", msg="Scrip master refresh complete")
             return True
-        log.warn("SCRIP_MASTER_REFRESH_FAIL",
-                 msg=f"Scrip master refresh failed: http_{r2.status_code}")
+        log.warn(
+            "SCRIP_MASTER_REFRESH_FAIL", msg=f"Scrip master refresh failed: http_{r2.status_code}"
+        )
         return False
     except Exception as exc:
         log.warn("SCRIP_MASTER_REFRESH_FAIL", msg=f"Scrip master check error: {exc}")
         return False
 
 
-def _resolve_near_month_contract(base_url: str, profile) -> tuple[str, str]:
-    """
-    Resolve (ws_security_id, underlying_symbol) for the near-month futures contract.
+def _resolve_near_month_contract(base_url: str, profile) -> tuple[str, str, str]:
+    """Resolve the near-month futures contract for a TFA instrument.
+
+    Returns a 3-tuple `(security_id, underlying_symbol, source)` where
+    `source` is one of:
+
+        "scrip_master"  — fresh resolution from Dhan's scrip-master endpoint
+        "fallback"      — every resolution attempt failed; values come
+                          from the profile JSON. The caller must treat
+                          this as a startup-blocking error per Phase E7
+                          (PY-119): on NSE the fallback id is the SPOT
+                          index (e.g. 13 for NIFTY) which is wrong for
+                          the WS feed subscription; on MCX the fallback
+                          id is last month's expired FUTCOM contract
+                          which fails at chain-poller startup anyway
+                          (the original 2026-04-21 CRUDEOIL halt
+                          symptom). Either way, surfacing the failure
+                          early with a clear message beats silently
+                          subscribing to the wrong instrument.
 
     NSE instruments (NIFTY, BANKNIFTY):
       - Queries scrip master for nearest FUTIDX expiry
@@ -166,55 +204,54 @@ def _resolve_near_month_contract(base_url: str, profile) -> tuple[str, str]:
     MCX instruments (CRUDEOIL, NATURALGAS):
       - Queries scrip master for nearest FUTCOM expiry
       - Same structure, different instrument type
-
-    Falls back to (profile.ws_security_id or profile.underlying_security_id,
-                   profile.underlying_symbol) on any error.
     """
-    fallback_id  = profile.ws_security_id or profile.underlying_security_id
+    fallback_id = profile.ws_security_id or profile.underlying_security_id
     fallback_sym = profile.underlying_symbol
     instrument_type = "FUTCOM" if profile.exchange == "MCX" else "FUTIDX"
     symbol = profile.instrument_name  # "NIFTY", "BANKNIFTY", "CRUDEOIL", ...
 
     try:
-        import requests as _req
         from datetime import date as _date
+
+        import requests as _req
 
         r = _req.get(
             f"{base_url}/api/broker/scrip-master/expiry-list",
             params={"symbol": symbol, "instrumentName": instrument_type},
+            headers=_authed_headers(),
             timeout=5,
         )
         if r.status_code != 200:
-            return fallback_id, fallback_sym
+            return fallback_id, fallback_sym, "fallback"
 
         expiries = r.json().get("data", [])
         today = _date.today().isoformat()
         future = sorted(e for e in expiries if e >= today)
         if not future:
-            return fallback_id, fallback_sym
+            return fallback_id, fallback_sym, "fallback"
 
         r2 = _req.get(
             f"{base_url}/api/broker/scrip-master/lookup",
-            params={"symbol": symbol, "instrumentName": instrument_type,
-                    "expiry": future[0]},
+            params={"symbol": symbol, "instrumentName": instrument_type, "expiry": future[0]},
+            headers=_authed_headers(),
             timeout=5,
         )
         if r2.status_code != 200:
-            return fallback_id, fallback_sym
+            return fallback_id, fallback_sym, "fallback"
 
         body = r2.json()
         if not body.get("success"):
-            return fallback_id, fallback_sym
+            return fallback_id, fallback_sym, "fallback"
 
-        data  = body.get("data", {})
+        data = body.get("data", {})
         sec_id = str(data.get("securityId", "")).strip()
         symbol_str = str(data.get("tradingSymbol", "")).strip()
         if not sec_id:
-            return fallback_id, fallback_sym
+            return fallback_id, fallback_sym, "fallback"
 
-        return sec_id, symbol_str or fallback_sym
+        return sec_id, symbol_str or fallback_sym, "scrip_master"
     except Exception:
-        return fallback_id, fallback_sym
+        return fallback_id, fallback_sym, "fallback"
 
 
 def _fetch_holiday_status(base_url: str, exchange: str) -> dict:
@@ -225,10 +262,12 @@ def _fetch_holiday_status(base_url: str, exchange: str) -> dict:
     """
     try:
         import requests as _req
+
         input_param = json.dumps({"json": {"exchange": exchange}})
         r = _req.get(
             f"{base_url}/api/trpc/holidays.todayStatus",
             params={"input": input_param},
+            headers=_authed_headers(),
             timeout=5,
         )
         if r.status_code != 200:
@@ -256,7 +295,7 @@ def _wait_for_server(base_url: str, log, timeout_sec: int = 120) -> None:
     try:
         import requests as _req
     except ImportError:
-        return   # requests not available — skip check, fail later at credential fetch
+        return  # requests not available — skip check, fail later at credential fetch
 
     health_url = f"{base_url}/health"
     deadline = time.monotonic() + timeout_sec
@@ -296,11 +335,16 @@ def _wait_for_server(base_url: str, log, timeout_sec: int = 120) -> None:
 
 # ── Session boundary helper ───────────────────────────────────────────────────
 
+
 def _session_boundary_sec(date_str: str, hhmm: str) -> float:
     h, m = hhmm.split(":")
     dt = datetime(
-        int(date_str[:4]), int(date_str[5:7]), int(date_str[8:10]),
-        int(h), int(m), tzinfo=_IST,
+        int(date_str[:4]),
+        int(date_str[5:7]),
+        int(date_str[8:10]),
+        int(h),
+        int(m),
+        tzinfo=_IST,
     )
     return dt.timestamp()
 
@@ -309,21 +353,22 @@ def _session_boundary_sec(date_str: str, hhmm: str) -> float:
 # LIVE MODE
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 async def _run_live(profile, args, log, _kb: dict) -> None:
     """
     Full live pipeline:
       DhanFeed (WS) + ChainPoller (REST) → TickProcessor → Emitter + SessionRecorder
     """
-    from tick_feature_agent.buffers.tick_buffer import CircularBuffer
     from tick_feature_agent.buffers.option_buffer import OptionBufferStore
+    from tick_feature_agent.buffers.tick_buffer import CircularBuffer
     from tick_feature_agent.chain_cache import ChainCache
-    from tick_feature_agent.state_machine import StateMachine
-    from tick_feature_agent.session import SessionManager
-    from tick_feature_agent.tick_processor import TickProcessor
+    from tick_feature_agent.feed.chain_poller import ChainPoller
+    from tick_feature_agent.feed.dhan_feed import DhanFeed
     from tick_feature_agent.output.emitter import Emitter
     from tick_feature_agent.recorder.session_recorder import SessionRecorder
-    from tick_feature_agent.feed.dhan_feed import DhanFeed
-    from tick_feature_agent.feed.chain_poller import ChainPoller
+    from tick_feature_agent.session import SessionManager
+    from tick_feature_agent.state_machine import StateMachine
+    from tick_feature_agent.tick_processor import TickProcessor
 
     # ── Wait until 5 minutes before market open ─────────────────────────────
     # Don't hold a Dhan WebSocket for hours pre-market — connect just before
@@ -337,17 +382,21 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     if now_ist.timestamp() < connect_at_sec:
         wait_sec = connect_at_sec - now_ist.timestamp()
         h, m = profile.session_start.split(":")
-        connect_time = f"{int(h):02d}:{int(m) - PRE_MARKET_LEAD_MIN:02d}" \
-            if int(m) >= PRE_MARKET_LEAD_MIN \
+        connect_time = (
+            f"{int(h):02d}:{int(m) - PRE_MARKET_LEAD_MIN:02d}"
+            if int(m) >= PRE_MARKET_LEAD_MIN
             else f"{int(h) - 1:02d}:{int(m) + 60 - PRE_MARKET_LEAD_MIN:02d}"
+        )
         print(
             f"\n  {YELLOW('◌')}  Market opens at {profile.session_start} IST."
             f"  Connecting at {connect_time} IST ({int(wait_sec // 60)}m away).\n",
             flush=True,
         )
-        log.info("PRE_MARKET_WAIT",
-                 msg=f"Waiting {int(wait_sec)}s until {connect_time} IST "
-                     f"({PRE_MARKET_LEAD_MIN}m before session_start)")
+        log.info(
+            "PRE_MARKET_WAIT",
+            msg=f"Waiting {int(wait_sec)}s until {connect_time} IST "
+            f"({PRE_MARKET_LEAD_MIN}m before session_start)",
+        )
         # Sleep in 30s chunks so Ctrl+C / Esc menu still works
         while time.time() < connect_at_sec:
             time.sleep(min(30, max(0, connect_at_sec - time.time())))
@@ -358,7 +407,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     # ── Fetch credentials (retry for up to 30s — server may lag after /health) ──
     creds = None
     _cred_deadline = time.monotonic() + 30
-    _cred_attempt  = 0
+    _cred_attempt = 0
     while True:
         creds = _fetch_credentials(args.broker_url, args.broker_id)
         if creds and "_error" not in creds:
@@ -366,27 +415,62 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         _cred_attempt += 1
         if time.monotonic() >= _cred_deadline:
             err = (creds or {}).get("_error", "unknown")
-            _fatal(f"Cannot fetch broker credentials after retries: {err}\n"
-                   f"       Is the Node.js server running at {args.broker_url}?")
+            _fatal(
+                f"Cannot fetch broker credentials after retries: {err}\n"
+                f"       Is the Node.js server running at {args.broker_url}?"
+            )
         if _cred_attempt == 1:
             print(f"  {YELLOW('◌')}  Waiting for broker credentials …", flush=True)
         time.sleep(2)
 
     access_token = creds.get("accessToken") or creds.get("access_token", "")
-    client_id    = creds.get("clientId")    or creds.get("client_id",    "")
+    client_id = creds.get("clientId") or creds.get("client_id", "")
     if not access_token or not client_id:
         _fatal("Broker credentials missing accessToken or clientId")
 
-    log.info("CREDENTIALS_OK", msg="Broker credentials fetched",
-             client_id_masked=_mask(str(client_id)))
+    log.info(
+        "CREDENTIALS_OK", msg="Broker credentials fetched", client_id_masked=_mask(str(client_id))
+    )
 
     # ── Scrip master + near-month contract resolution ─────────────────────────
     print(f"  {PEND}  Resolving near-month contract …")
     _ensure_scrip_master(args.broker_url, log)
-    ws_security_id, underlying_symbol = _resolve_near_month_contract(args.broker_url, profile)
-    log.info("CONTRACT_RESOLVED",
-             msg=f"Near-month contract: {underlying_symbol}  id={ws_security_id}",
-             ws_security_id=ws_security_id, underlying_symbol=underlying_symbol)
+    ws_security_id, underlying_symbol, _resolve_source = _resolve_near_month_contract(
+        args.broker_url, profile
+    )
+    if _resolve_source == "fallback":
+        # Phase E7 / PY-119: silently using the profile's static value as a
+        # WS-feed subscription id is dangerous. On NSE it's the SPOT index
+        # (id=13/25), so the WS would subscribe to spot ticks instead of
+        # FUT ticks. On MCX it's the prior-month expired FUTCOM contract,
+        # which would have failed at chain-poller startup anyway (the
+        # original 2026-04-21 CRUDEOIL halt symptom). Halt now with a
+        # clear message rather than letting the data pipeline run on the
+        # wrong subscription.
+        log.warn(
+            "RESOLVER_FALLBACK_RISKY",
+            msg=f"Scrip-master resolution failed for {profile.instrument_name}; "
+            f"profile fallback id={ws_security_id} would subscribe to the "
+            f"wrong contract. Halting startup.",
+            instrument=profile.instrument_name,
+            exchange=profile.exchange,
+            fallback_id=ws_security_id,
+            fallback_symbol=underlying_symbol,
+        )
+        _fatal(
+            f"Could not resolve near-month contract for {profile.instrument_name}. "
+            f"Scrip-master endpoint unreachable or returned no future expiries. "
+            f"Refusing to fall back to the profile's static id={ws_security_id} "
+            f"(it's the {'spot index' if profile.exchange == 'NSE' else 'last expired FUTCOM contract'} "
+            f"and would silently mis-subscribe). Check broker connectivity and retry."
+        )
+    log.info(
+        "CONTRACT_RESOLVED",
+        msg=f"Near-month contract: {underlying_symbol}  id={ws_security_id}",
+        ws_security_id=ws_security_id,
+        underlying_symbol=underlying_symbol,
+        source=_resolve_source,
+    )
     _step(TICK, "Near-month contract", f"{underlying_symbol}  (id={ws_security_id})")
 
     # ── Holiday status (fetch both exchanges up-front) ────────────────────────
@@ -404,20 +488,21 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     instrument_key = profile_path_live.stem.replace("_profile", "")
 
     # ── Instantiate pipeline components ───────────────────────────────────────
-    tick_buf   = CircularBuffer(maxlen=50)
-    opt_store  = OptionBufferStore()
-    cache      = ChainCache()
-    sm         = StateMachine(warm_up_duration_sec=profile.warm_up_duration_sec)
-    emitter    = Emitter(
+    tick_buf = CircularBuffer(maxlen=50)
+    opt_store = OptionBufferStore()
+    cache = ChainCache()
+    sm = StateMachine(warm_up_duration_sec=profile.warm_up_duration_sec)
+    emitter = Emitter(
         file_path=args.output_file,
         socket_addr=_parse_socket(args.output_socket),
+        target_windows_sec=profile.target_windows_sec,
     )
-    recorder   = SessionRecorder(
+    recorder = SessionRecorder(
         instrument=instrument_key,
         data_root=args.data_root,
-        underlying_symbol=underlying_symbol,       # resolved, not profile default
+        underlying_symbol=underlying_symbol,  # resolved, not profile default
         underlying_security_id=profile.underlying_security_id,
-        expiry="",   # set after chain_poller.startup()
+        expiry="",  # set after chain_poller.startup()
         logger=log,
     )
 
@@ -463,7 +548,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         log.warn(
             "EXPIRY_ROLLOVER_EXIT",
             msg=f"Expiry rollover on {poller.active_expiry} — restarting "
-                f"TFA on the next contract.",
+            f"TFA on the next contract.",
             old_expiry=poller.active_expiry,
         )
         print(
@@ -496,8 +581,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     # ws_security_id holds the FUTIDX contract id (e.g. 66691) which would
     # be WRONG to use here.
     chain_underlying_id = (
-        ws_security_id if profile.exchange == "MCX"
-        else profile.underlying_security_id
+        ws_security_id if profile.exchange == "MCX" else profile.underlying_security_id
     )
     poller = ChainPoller(
         profile=profile,
@@ -506,9 +590,13 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         on_snapshot=processor.on_chain_snapshot,
         on_chain_stale=processor.on_chain_stale,
         on_chain_recovered=processor.on_chain_recovered,
-        on_rollover=lambda new_expiry: recorder.on_expiry_rollover(
-            new_expiry=new_expiry,
-        ) if recorder._date else None,
+        on_rollover=lambda new_expiry: (
+            recorder.on_expiry_rollover(
+                new_expiry=new_expiry,
+            )
+            if recorder._date
+            else None
+        ),
         on_new_strikes=lambda new_sec_ids: feed.subscribe_options(new_sec_ids),
     )
 
@@ -520,14 +608,19 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         _fatal(f"Chain poller startup failed: {exc}")
 
     recorder._expiry = first_snapshot.expiry
-    log.info("CHAIN_STARTUP_OK",
-             msg=f"First chain snapshot: expiry={first_snapshot.expiry}, "
-                 f"spot={first_snapshot.spot_price}, "
-                 f"strikes={len(first_snapshot.rows)}",
-             expiry=first_snapshot.expiry)
-    _step(TICK, "Chain poller startup",
-          f"expiry={first_snapshot.expiry}  spot={first_snapshot.spot_price:.0f}  "
-          f"strikes={len(first_snapshot.rows)}")
+    log.info(
+        "CHAIN_STARTUP_OK",
+        msg=f"First chain snapshot: expiry={first_snapshot.expiry}, "
+        f"spot={first_snapshot.spot_price}, "
+        f"strikes={len(first_snapshot.rows)}",
+        expiry=first_snapshot.expiry,
+    )
+    _step(
+        TICK,
+        "Chain poller startup",
+        f"expiry={first_snapshot.expiry}  spot={first_snapshot.spot_price:.0f}  "
+        f"strikes={len(first_snapshot.rows)}",
+    )
 
     # Load the first snapshot into cache now (chain poller will keep updating)
     processor.on_chain_snapshot(first_snapshot)
@@ -539,12 +632,12 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         "session_ts": None,
         "u_ticks": 0,
         "o_ticks": 0,
-        "chain_snaps": 0,        # incremented AFTER startup snapshot
+        "chain_snaps": 0,  # incremented AFTER startup snapshot
         "last_u_ts": None,
         "last_chain_ts": None,
         "u_ticks_prev": 0,
         "u_rate": 0.0,
-        "holiday_nse": _holiday_nse,   # pre-fetched at startup
+        "holiday_nse": _holiday_nse,  # pre-fetched at startup
         "holiday_mcx": _holiday_mcx,
         "disconnect_code": None,
         "disconnect_reason": None,
@@ -552,13 +645,13 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         "retry_attempt": 0,
     }
     _HEALTH_INTERVAL = 3.0
-    _health_nlines: list[int] = [0]   # mutable cell for closure
+    _health_nlines: list[int] = [0]  # mutable cell for closure
 
     def _on_underlying_tick(data: dict) -> None:
         _h["u_ticks"] += 1
         _h["last_u_ts"] = time.monotonic()
         _h["feed_ok"] = True
-        session_mgr.on_tick()   # fires session_start edge trigger
+        session_mgr.on_tick()  # fires session_start edge trigger
         processor.on_underlying_tick(data)
 
     def _on_option_tick(strike: int, opt_type: str, data: dict) -> None:
@@ -571,7 +664,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         processor.on_chain_snapshot(snap)
 
     # Wrap session open/close to update health
-    _orig_session_open  = _on_session_open   # noqa: F821 — defined above
+    _orig_session_open = _on_session_open  # noqa: F821 — defined above
     _orig_session_close = _on_session_close  # noqa: F821 — defined above
 
     def _on_session_open_h():
@@ -589,7 +682,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
 
     # Rebuild session_mgr with wrapped callbacks (replace in-place)
     session_mgr._on_session_start = _on_session_open_h
-    session_mgr._on_session_end   = _on_session_close_h
+    session_mgr._on_session_end = _on_session_close_h
 
     feed = DhanFeed(
         access_token=str(access_token),
@@ -630,9 +723,11 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     # for the poller's subsequent snapshots
     feed.subscribe_options(first_snapshot.sec_id_map)
 
-    _step(TICK, "WebSocket subscribed",
-          f"underlying={ws_security_id}  "
-          f"options={len(first_snapshot.sec_id_map)}")
+    _step(
+        TICK,
+        "WebSocket subscribed",
+        f"underlying={ws_security_id}  " f"options={len(first_snapshot.sec_id_map)}",
+    )
 
     # Rewire poller to use wrapped snapshot callback
     poller._on_snapshot = _on_chain_snapshot
@@ -659,8 +754,8 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         On stall: log ERROR, terminate with exit code 75 so the bat
         loop relaunches the process cleanly.
         """
-        TICK_STALL_THRESHOLD_SEC = 120   # 2 minutes with no tick in open session
-        CHECK_INTERVAL_SEC       = 30
+        TICK_STALL_THRESHOLD_SEC = 120  # 2 minutes with no tick in open session
+        CHECK_INTERVAL_SEC = 30
         # Grace period after session open so we don't false-fire on slow first tick
         GRACE_AFTER_SESSION_OPEN = 60
 
@@ -675,7 +770,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
                 continue
             now = time.monotonic()
             if now - session_ts < GRACE_AFTER_SESSION_OPEN:
-                continue   # grace window — let the feed warm up
+                continue  # grace window — let the feed warm up
 
             last_u_ts = _h.get("last_u_ts")
             # No tick ever received since session open
@@ -688,7 +783,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
                 log.warn(
                     "FEED_WATCHDOG_STALL",
                     msg=f"No underlying ticks for {age:.0f}s while session open — "
-                        f"restarting via exit code 75.",
+                    f"restarting via exit code 75.",
                     tick_age_sec=round(age, 1),
                     threshold_sec=TICK_STALL_THRESHOLD_SEC,
                 )
@@ -704,7 +799,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     def _render_health() -> list[str]:
         """Build health display lines (no trailing newline on each)."""
         now = time.monotonic()
-        ts  = datetime.now(_IST).strftime("%H:%M:%S")
+        ts = datetime.now(_IST).strftime("%H:%M:%S")
 
         # Feed
         if _h["feed_ok"]:
@@ -721,9 +816,10 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         else:
             if _h.get("retry_at"):
                 secs_left = max(0.0, _h["retry_at"] - time.time())
-                feed_s = (RED("✗ DISCONNECTED") +
-                          f"  retry in {secs_left:.0f}s"
-                          f"  (attempt {_h['retry_attempt']})")
+                feed_s = (
+                    RED("✗ DISCONNECTED") + f"  retry in {secs_left:.0f}s"
+                    f"  (attempt {_h['retry_attempt']})"
+                )
             else:
                 feed_s = RED("✗ DISCONNECTED")
 
@@ -753,8 +849,8 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         for exch, key in (("NSE", "holiday_nse"), ("MCX", "holiday_mcx")):
             hdata = _h.get(key, {})
             if hdata.get("isHoliday"):
-                hol   = hdata.get("holiday") or {}
-                name  = hol.get("description", "Holiday")
+                hol = hdata.get("holiday") or {}
+                name = hol.get("description", "Holiday")
                 # For MCX show session detail if available
                 m_ses = hol.get("morningSession", "")
                 e_ses = hol.get("eveningSession", "")
@@ -790,9 +886,9 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         # Esc menu overlay
         if _kb.get("menu"):
             lines.append(f"  {YELLOW('⏸  Paused')}  —  choose an action:")
-            lines.append(f"  {BOLD('Enter')} Restart   "
-                         f"{BOLD('Esc')} Exit   "
-                         f"{BOLD('C')} Continue")
+            lines.append(
+                f"  {BOLD('Enter')} Restart   " f"{BOLD('Esc')} Exit   " f"{BOLD('C')} Continue"
+            )
             lines.append(f"  {DIM('─' * W)}")
 
         return lines
@@ -836,19 +932,20 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         if sys.platform != "win32":
             return
         import msvcrt as _msvcrt
+
         while True:
             await asyncio.sleep(0.05)
             if not _msvcrt.kbhit():
                 continue
             ch = _msvcrt.getwch()
-            if ch != "\x1b":          # ignore non-Esc keys
+            if ch != "\x1b":  # ignore non-Esc keys
                 continue
             # \x1b could be an ANSI escape sequence from terminal output.
             # A real Esc keypress is a lone \x1b — drain any following chars.
             await asyncio.sleep(0.02)
             while _msvcrt.kbhit():
                 _msvcrt.getwch()
-            if _msvcrt.kbhit():       # still more chars → ANSI sequence, ignore
+            if _msvcrt.kbhit():  # still more chars → ANSI sequence, ignore
                 continue
             # Confirmed lone Esc — show menu, TFA keeps running
             _kb["menu"] = True
@@ -857,17 +954,17 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
                 if not _msvcrt.kbhit():
                     continue
                 ch2 = _msvcrt.getwch()
-                if ch2 == "\x1b":           # Esc → exit
+                if ch2 == "\x1b":  # Esc → exit
                     _kb["menu"] = False
                     _kb["action"] = "exit"
                     raise asyncio.CancelledError
-                elif ch2 in ("\r", "\n"):   # Enter → restart
+                elif ch2 in ("\r", "\n"):  # Enter → restart
                     _kb["menu"] = False
                     _kb["action"] = "restart"
                     raise asyncio.CancelledError
-                elif ch2.lower() == "c":    # C → continue
+                elif ch2.lower() == "c":  # C → continue
                     _kb["menu"] = False
-                    break                   # back to outer loop
+                    break  # back to outer loop
 
     async def _auto_stop():
         """Wait briefly for final flushes then cancel all tasks cleanly."""
@@ -924,8 +1021,8 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     except asyncio.CancelledError:
         pass
     finally:
-        processor.on_session_close()   # flush pending target rows
-        recorder.on_session_close()    # flush + close gzip writers properly
+        processor.on_session_close()  # flush pending target rows
+        recorder.on_session_close()  # flush + close gzip writers properly
         emitter.close()
         log.info("TFA_STOPPED", msg="TFA stopped cleanly")
 
@@ -943,6 +1040,7 @@ def _parse_socket(addr: str | None):
 # ══════════════════════════════════════════════════════════════════════════════
 # REPLAY MODE
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 def _run_replay(profile, args, log) -> None:
     """Run replay for a single date or a date range."""
@@ -976,10 +1074,12 @@ def _run_replay(profile, args, log) -> None:
 
     print()
     print(f"  Replay complete  ({date_from} → {date_to})")
-    print(f"  PASS: {summary.get('pass', 0)}  "
-          f"WARN: {summary.get('warn', 0)}  "
-          f"FAIL: {summary.get('fail', 0)}  "
-          f"SKIP: {summary.get('skip', 0)}")
+    print(
+        f"  PASS: {summary.get('pass', 0)}  "
+        f"WARN: {summary.get('warn', 0)}  "
+        f"FAIL: {summary.get('fail', 0)}  "
+        f"SKIP: {summary.get('skip', 0)}"
+    )
     print()
 
     if summary.get("fail", 0):
@@ -990,52 +1090,55 @@ def _run_replay(profile, args, log) -> None:
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="tfa",
         description="TickFeatureAgent — real-time option chain feature engine",
     )
     parser.add_argument(
-        "--instrument-profile", required=True, metavar="PATH",
+        "--instrument-profile",
+        required=True,
+        metavar="PATH",
         help="Path to instrument profile JSON",
     )
     parser.add_argument(
-        "--mode", choices=["live", "replay"], default="live",
+        "--mode",
+        choices=["live", "replay"],
+        default="live",
         help="Operating mode (default: live)",
     )
     # Single-date replay
     parser.add_argument(
-        "--date", metavar="YYYY-MM-DD",
+        "--date",
+        metavar="YYYY-MM-DD",
         help="Replay date (single date)",
     )
     # Date-range replay
     parser.add_argument("--date-from", metavar="YYYY-MM-DD", help="Replay start date")
-    parser.add_argument("--date-to",   metavar="YYYY-MM-DD", help="Replay end date")
+    parser.add_argument("--date-to", metavar="YYYY-MM-DD", help="Replay end date")
     # Output
-    parser.add_argument("--output-file",   metavar="PATH",     default=None)
+    parser.add_argument("--output-file", metavar="PATH", default=None)
     parser.add_argument("--output-socket", metavar="HOST:PORT", default=None)
     # Paths
-    parser.add_argument("--broker-url",      default="http://localhost:3000")
+    parser.add_argument("--broker-url", default="http://localhost:3000")
     # Broker config to authenticate against. Defaults to the user's primary
     # account ("dhan"). Set to "dhan-ai-data" to use the spouse's account
     # (frees the primary account's WS budget for TradingDesk + order feed).
-    parser.add_argument("--broker-id",       default="dhan")
-    parser.add_argument("--data-root",       default="data/raw")
-    parser.add_argument("--features-root",   default="data/features")
+    parser.add_argument("--broker-id", default="dhan")
+    parser.add_argument("--data-root", default="data/raw")
+    parser.add_argument("--features-root", default="data/features")
     parser.add_argument("--validation-root", default="data/validation")
     # Logging
-    parser.add_argument("--log-dir",   default="logs",  metavar="DIR")
-    parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARN", "ERROR"],
-                        default="INFO")
+    parser.add_argument("--log-dir", default="logs", metavar="DIR")
+    parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARN", "ERROR"], default="INFO")
 
     args = parser.parse_args()
 
     # Validate replay args
     if args.mode == "replay":
         if not args.date and not (args.date_from and args.date_to):
-            parser.error(
-                "Replay mode requires --date  OR  --date-from + --date-to"
-            )
+            parser.error("Replay mode requires --date  OR  --date-from + --date-to")
 
     # ── Load profile ──────────────────────────────────────────────────────────
     profile_path = Path(args.instrument_profile)
@@ -1045,8 +1148,7 @@ def main() -> None:
     try:
         profile = load_profile(profile_path)
     except FileNotFoundError:
-        print(f"\n  {CROSS}  Instrument profile not found: {profile_path}\n",
-              file=sys.stderr)
+        print(f"\n  {CROSS}  Instrument profile not found: {profile_path}\n", file=sys.stderr)
         sys.exit(1)
     except ProfileValidationError as exc:
         print(f"\n  {CROSS}  Profile validation failed: {exc}\n", file=sys.stderr)
@@ -1071,14 +1173,19 @@ def main() -> None:
 
     _banner(f"{profile.instrument_name}  ({profile.exchange})", mode_str)
 
-    log.info("TFA_START", msg=f"TFA starting — {profile.instrument_name} {args.mode}",
-             instrument=profile.instrument_name, exchange=profile.exchange,
-             mode=args.mode)
+    log.info(
+        "TFA_START",
+        msg=f"TFA starting — {profile.instrument_name} {args.mode}",
+        instrument=profile.instrument_name,
+        exchange=profile.exchange,
+        mode=args.mode,
+    )
 
     # ── Dispatch ──────────────────────────────────────────────────────────────
     # Use a flag set by signal handler so Ctrl+C is reliably detected on all
     # Python/Windows versions regardless of how asyncio handles SIGINT internally.
     import signal as _signal
+
     _kb: dict = {"action": None, "menu": False}
 
     def _sigint(signum, frame):
@@ -1100,7 +1207,7 @@ def main() -> None:
     # ── Post-run action ───────────────────────────────────────────────────────
     if args.mode == "live" and _kb.get("action") == "restart":
         print(f"\n  {GREEN('↺ Restarting...')}\n", flush=True)
-        sys.exit(75)    # bat loop picks this up and re-launches
+        sys.exit(75)  # bat loop picks this up and re-launches
 
 
 if __name__ == "__main__":

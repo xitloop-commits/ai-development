@@ -1,10 +1,27 @@
 """
-emitter.py — §9 Flat 370-column vector assembly + NDJSON output.
+emitter.py — Flat per-tick feature vector assembly + NDJSON / Parquet output.
 
-Assembles all per-tick feature groups into a single ordered 370-column dict
+The output column count is **dynamic per instrument profile**: the
+target-variable block contributes `len(target_windows_sec) * 7 + 1`
+columns, so a profile with `[30, 60]` windows lands at 370 columns
+total and a profile with `[30, 60, 300, 900]` windows lands at 384.
+Per Phase E8 / D4 the canonical live profile uses 4 windows = 384
+columns; the 2-window legacy layout is still supported (replay of
+pre-D4 data, tests).
+
+Use `column_names_for(target_windows_sec)` to get the ordered tuple
+for any profile, and `int_columns_for(target_windows_sec)` to get the
+matching `direction_<W>s` int-typed-column set. The module-level
+`COLUMN_NAMES` and `_INT_COLUMNS` exports default to the 2-window
+layout for backward compat with pre-E8 callers and exist primarily
+for tests; production code should pass the actual profile windows
+through `Emitter(target_windows_sec=profile.target_windows_sec, ...)`.
+
+Assembles all per-tick feature groups into a single ordered flat dict
 matching the wire format defined in spec §9.1, then serialises to NDJSON.
 
-Column groups (370 total):
+Column groups (counts shown for the 2-window default profile = 370 total;
+4-window canonical profile lands at 384):
     1        timestamp
     2–13     Underlying Base (12)
     14–33    Underlying Extended: OFI + Realized Vol + Multi-Window (20)
@@ -23,10 +40,12 @@ Column groups (370 total):
     362–370  Metadata (9)
 
 Public API:
-    COLUMN_NAMES    Tuple of 370 column name strings in spec order.
-    assemble_flat_vector(**kwargs) → dict   Build ordered 370-column flat dict.
-    serialize_row(row)             → str    NaN/None → JSON null, no trailing newline.
-    Emitter                        Class managing file + socket output sinks.
+    column_names_for(windows)       → tuple[str, ...]   Ordered column names for any profile windows
+    int_columns_for(windows)        → frozenset[str]    Int32-typed parquet columns for those windows
+    COLUMN_NAMES                    Tuple of column name strings for the 2-window default (legacy)
+    assemble_flat_vector(**kwargs)  → dict              Build ordered flat dict
+    serialize_row(row)              → str               NaN/None → JSON null, no trailing newline
+    Emitter(target_windows_sec=...) Class managing file + socket + parquet output sinks
 
 NaN encoding:
     Python float('nan') and Python None both become JSON null in wire output.
@@ -35,10 +54,8 @@ NaN encoding:
 
 from __future__ import annotations
 
-import io
 import json
 import math
-import os
 import socket
 import threading
 from pathlib import Path
@@ -51,57 +68,88 @@ _NAN = float("nan")
 # Keys returned by compute_underlying_features() WITHOUT the underlying_ prefix.
 # Must stay in sync with features/underlying.py output.
 _UNDERLYING_BASE_BARE = (
-    "ltp", "bid", "ask", "spread",
-    "return_5ticks", "return_20ticks",
-    "momentum", "velocity",
-    "tick_up_count_20", "tick_down_count_20", "tick_flat_count_20", "tick_imbalance_20",
-)   # 12 keys
+    "ltp",
+    "bid",
+    "ask",
+    "spread",
+    "return_5ticks",
+    "return_20ticks",
+    "momentum",
+    "velocity",
+    "tick_up_count_20",
+    "tick_down_count_20",
+    "tick_flat_count_20",
+    "tick_imbalance_20",
+)  # 12 keys
 
 _UNDERLYING_EXTENDED_BARE_FROM_UF = (
     # keys from compute_underlying_features() that land in the Extended group
     "return_10ticks",
-    "tick_up_count_10", "tick_down_count_10", "tick_flat_count_10", "tick_imbalance_10",
+    "tick_up_count_10",
+    "tick_down_count_10",
+    "tick_flat_count_10",
+    "tick_imbalance_10",
     "return_50ticks",
-    "tick_up_count_50", "tick_down_count_50", "tick_flat_count_50", "tick_imbalance_50",
-)   # 10 keys
+    "tick_up_count_50",
+    "tick_down_count_50",
+    "tick_flat_count_50",
+    "tick_imbalance_50",
+)  # 10 keys
 
 # Keys already carrying the underlying_ prefix (from ofi, realized_vol, horizon)
 _UNDERLYING_EXTENDED_PREFIXED = (
     "underlying_trade_direction",
-    "underlying_ofi_5", "underlying_ofi_20", "underlying_ofi_50",
-    "underlying_realized_vol_5", "underlying_realized_vol_20", "underlying_realized_vol_50",
+    "underlying_ofi_5",
+    "underlying_ofi_20",
+    "underlying_ofi_50",
+    "underlying_realized_vol_5",
+    "underlying_realized_vol_20",
+    "underlying_realized_vol_50",
     "underlying_return_10ticks",
-    "underlying_tick_up_count_10", "underlying_tick_down_count_10",
-    "underlying_tick_flat_count_10", "underlying_tick_imbalance_10",
+    "underlying_tick_up_count_10",
+    "underlying_tick_down_count_10",
+    "underlying_tick_flat_count_10",
+    "underlying_tick_imbalance_10",
     "underlying_return_50ticks",
-    "underlying_tick_up_count_50", "underlying_tick_down_count_50",
-    "underlying_tick_flat_count_50", "underlying_tick_imbalance_50",
-    "underlying_horizon_momentum_ratio", "underlying_horizon_vol_ratio", "underlying_horizon_ofi_ratio",
-)   # 20 keys — same order as spec cols 14–33
+    "underlying_tick_up_count_50",
+    "underlying_tick_down_count_50",
+    "underlying_tick_flat_count_50",
+    "underlying_tick_imbalance_50",
+    "underlying_horizon_momentum_ratio",
+    "underlying_horizon_vol_ratio",
+    "underlying_horizon_ofi_ratio",
+)  # 20 keys — same order as spec cols 14–33
 
 # ── Internal: option tick structure ──────────────────────────────────────────
 
 # ATM offsets in the order they appear in the wire format (spec cols 46–171)
-_OPT_OFFSETS = ("m3", "m2", "m1", "0", "p1", "p2", "p3")   # 7 offsets
-_OPT_SIDES = ("ce", "pe")   # 2 sides (CE then PE within each offset)
+_OPT_OFFSETS = ("m3", "m2", "m1", "0", "p1", "p2", "p3")  # 7 offsets
+_OPT_SIDES = ("ce", "pe")  # 2 sides (CE then PE within each offset)
 _OPT_SIDE_MAP = {"ce": "CE", "pe": "PE"}
 
 # Per-side column suffixes in order (9 per side)
 _OPT_FIELD_NAMES = (
-    "tick_available", "ltp", "bid", "ask", "spread", "volume",
-    "bid_ask_imbalance", "premium_momentum", "premium_momentum_10",
+    "tick_available",
+    "ltp",
+    "bid",
+    "ask",
+    "spread",
+    "volume",
+    "bid_ask_imbalance",
+    "premium_momentum",
+    "premium_momentum_10",
 )
 
 # NaN sentinel for missing option data (used when strike absent from snapshot)
 _OPT_NULL: dict = {
-    "tick_available":      0,
-    "ltp":                 _NAN,
-    "bid":                 _NAN,
-    "ask":                 _NAN,
-    "spread":              _NAN,
-    "volume":              _NAN,
-    "bid_ask_imbalance":   _NAN,
-    "premium_momentum":    _NAN,
+    "tick_available": 0,
+    "ltp": _NAN,
+    "bid": _NAN,
+    "ask": _NAN,
+    "spread": _NAN,
+    "volume": _NAN,
+    "bid_ask_imbalance": _NAN,
+    "premium_momentum": _NAN,
     "premium_momentum_10": _NAN,
 }
 
@@ -109,49 +157,85 @@ _OPT_NULL: dict = {
 
 # 24 per-slot sub-columns in order (matches active_features.py output + spec)
 _ACTIVE_SLOT_FIELDS = (
-    "strike", "distance_from_spot", "tick_available",
-    "call_strength_volume", "call_strength_oi", "call_strength",
-    "call_ltp", "call_bid", "call_ask", "call_spread",
-    "call_volume", "call_bid_ask_imbalance", "call_premium_momentum",
-    "put_strength_volume", "put_strength_oi", "put_strength",
-    "put_ltp", "put_bid", "put_ask", "put_spread",
-    "put_volume", "put_bid_ask_imbalance", "put_premium_momentum",
+    "strike",
+    "distance_from_spot",
+    "tick_available",
+    "call_strength_volume",
+    "call_strength_oi",
+    "call_strength",
+    "call_ltp",
+    "call_bid",
+    "call_ask",
+    "call_spread",
+    "call_volume",
+    "call_bid_ask_imbalance",
+    "call_premium_momentum",
+    "put_strength_volume",
+    "put_strength_oi",
+    "put_strength",
+    "put_ltp",
+    "put_bid",
+    "put_ask",
+    "put_spread",
+    "put_volume",
+    "put_bid_ask_imbalance",
+    "put_premium_momentum",
     "tick_age_sec",
-)   # 24 fields
+)  # 24 fields
 
 _CROSS_FEATURE_KEYS = (
-    "call_put_strength_diff", "call_put_volume_diff",
-    "call_put_oi_diff", "premium_divergence",
+    "call_put_strength_diff",
+    "call_put_volume_diff",
+    "call_put_oi_diff",
+    "premium_divergence",
 )
 
 # ── Internal: remaining group keys ───────────────────────────────────────────
 
 _CHAIN_KEYS = (
-    "chain_pcr_global", "chain_pcr_atm",
-    "chain_oi_total_call", "chain_oi_total_put",
-    "chain_oi_change_call", "chain_oi_change_put",
-    "chain_oi_change_call_atm", "chain_oi_change_put_atm",
+    "chain_pcr_global",
+    "chain_pcr_atm",
+    "chain_oi_total_call",
+    "chain_oi_total_put",
+    "chain_oi_change_call",
+    "chain_oi_change_put",
+    "chain_oi_change_call_atm",
+    "chain_oi_change_put_atm",
     "chain_oi_imbalance_atm",
 )
 
 _DECAY_KEYS = (
-    "total_premium_decay_atm", "momentum_decay_20ticks_atm",
-    "volume_drought_atm", "active_strike_count", "dead_market_score",
+    "total_premium_decay_atm",
+    "momentum_decay_20ticks_atm",
+    "volume_drought_atm",
+    "active_strike_count",
+    "dead_market_score",
 )
 
 _ZONE_KEYS = (
-    "atm_zone_call_pressure", "atm_zone_put_pressure", "atm_zone_net_pressure",
-    "active_zone_call_count", "active_zone_put_count",
-    "active_zone_dominance", "zone_activity_score",
+    "atm_zone_call_pressure",
+    "atm_zone_put_pressure",
+    "atm_zone_net_pressure",
+    "active_zone_call_count",
+    "active_zone_put_count",
+    "active_zone_dominance",
+    "zone_activity_score",
 )
 
 _META_KEYS = (
-    "exchange", "instrument", "underlying_symbol", "underlying_security_id",
-    "chain_timestamp", "time_since_chain_sec", "chain_available",
-    "data_quality_flag", "is_market_open",
+    "exchange",
+    "instrument",
+    "underlying_symbol",
+    "underlying_security_id",
+    "chain_timestamp",
+    "time_since_chain_sec",
+    "chain_available",
+    "data_quality_flag",
+    "is_market_open",
 )
 
 # ── Target column generation ──────────────────────────────────────────────────
+
 
 def _build_target_columns(target_windows_sec: tuple[int, ...]) -> tuple[str, ...]:
     """
@@ -192,6 +276,7 @@ def _build_target_columns(target_windows_sec: tuple[int, ...]) -> tuple[str, ...
 
 # ── Build COLUMN_NAMES ────────────────────────────────────────────────────────
 
+
 def _build_column_names(
     target_windows_sec: tuple[int, ...] = (30, 60),
 ) -> tuple[str, ...]:
@@ -213,13 +298,25 @@ def _build_column_names(
 
     # Cols 37–41: Compression & Breakout (5)
     #   37–40 from compression module, 41 (breakout_readiness) from time_to_move
-    cols.extend(("range_20ticks", "range_percent_20ticks",
-                 "volatility_compression", "spread_tightening_atm",
-                 "breakout_readiness"))
+    cols.extend(
+        (
+            "range_20ticks",
+            "range_percent_20ticks",
+            "volatility_compression",
+            "spread_tightening_atm",
+            "breakout_readiness",
+        )
+    )
 
     # Cols 42–45: Time-to-Move (4)
-    cols.extend(("time_since_last_big_move", "stagnation_duration_sec",
-                 "momentum_persistence_ticks", "breakout_readiness_extended"))
+    cols.extend(
+        (
+            "time_since_last_big_move",
+            "stagnation_duration_sec",
+            "momentum_persistence_ticks",
+            "breakout_readiness_extended",
+        )
+    )
 
     # Cols 46–171: Option Tick (7 offsets × 9 CE + 9 PE = 126)
     for off in _OPT_OFFSETS:
@@ -251,8 +348,7 @@ def _build_column_names(
     cols.extend(_build_target_columns(target_windows_sec))
 
     # Cols 358–361: Trading State (4)
-    cols.extend(("trading_state", "trading_allowed",
-                 "warm_up_remaining_sec", "stale_reason"))
+    cols.extend(("trading_state", "trading_allowed", "warm_up_remaining_sec", "stale_reason"))
 
     # Cols 362–370: Metadata (9)
     cols.extend(_META_KEYS)
@@ -260,8 +356,17 @@ def _build_column_names(
     return tuple(cols)
 
 
+def column_names_for(target_windows_sec: tuple[int, ...]) -> tuple[str, ...]:
+    """Return the ordered tuple of column names for a profile with these
+    target windows. Public, dynamic alternative to the module-level
+    `COLUMN_NAMES` global. Phase E8 / PY-15. The function is a thin
+    public alias over `_build_column_names`."""
+    return _build_column_names(tuple(target_windows_sec))
+
+
 #: Ordered column names for the default 2-window (30s, 60s) configuration.
-#: Used as a fallback; replay/live use profile-specific windows.
+#: Kept as a backward-compat export — pre-E8 callers reference this
+#: directly. Production code should prefer `column_names_for(windows)`.
 COLUMN_NAMES: tuple[str, ...] = _build_column_names((30, 60))
 
 assert len(set(COLUMN_NAMES)) == len(COLUMN_NAMES), "Duplicate column name detected in COLUMN_NAMES"
@@ -270,6 +375,7 @@ assert len(set(COLUMN_NAMES)) == len(COLUMN_NAMES), "Duplicate column name detec
 # ══════════════════════════════════════════════════════════════════════════════
 # Flat vector assembly
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 def assemble_flat_vector(
     *,
@@ -353,35 +459,37 @@ def assemble_flat_vector(
     _ext_source = {
         **ofi_feats,
         **realized_vol_feats,
-        **{f"underlying_{k}": underlying_feats.get(k, _NAN)
-           for k in _UNDERLYING_EXTENDED_BARE_FROM_UF},
+        **{
+            f"underlying_{k}": underlying_feats.get(k, _NAN)
+            for k in _UNDERLYING_EXTENDED_BARE_FROM_UF
+        },
         **horizon_feats,
     }
     for col in _UNDERLYING_EXTENDED_PREFIXED:
         row[col] = _ext_source.get(col, _NAN)
 
     # ── Cols 34–36: ATM Context ───────────────────────────────────────────────
-    row["spot_price"]  = spot_price
-    row["atm_strike"]  = float(atm_strike) if atm_strike is not None else _NAN
+    row["spot_price"] = spot_price
+    row["atm_strike"] = float(atm_strike) if atm_strike is not None else _NAN
     row["strike_step"] = float(strike_step) if strike_step is not None else _NAN
 
     # ── Cols 37–41: Compression & Breakout ───────────────────────────────────
-    row["range_20ticks"]          = compression_feats.get("range_20ticks",        _NAN)
-    row["range_percent_20ticks"]  = compression_feats.get("range_percent_20ticks", _NAN)
+    row["range_20ticks"] = compression_feats.get("range_20ticks", _NAN)
+    row["range_percent_20ticks"] = compression_feats.get("range_percent_20ticks", _NAN)
     row["volatility_compression"] = compression_feats.get("volatility_compression", _NAN)
-    row["spread_tightening_atm"]  = compression_feats.get("spread_tightening_atm", _NAN)
+    row["spread_tightening_atm"] = compression_feats.get("spread_tightening_atm", _NAN)
     # breakout_readiness (col 41) comes from time_to_move module
-    row["breakout_readiness"]     = time_to_move_feats.get("breakout_readiness",   _NAN)
+    row["breakout_readiness"] = time_to_move_feats.get("breakout_readiness", _NAN)
 
     # ── Cols 42–45: Time-to-Move ──────────────────────────────────────────────
-    row["time_since_last_big_move"]   = time_to_move_feats.get("time_since_last_big_move",   _NAN)
-    row["stagnation_duration_sec"]    = time_to_move_feats.get("stagnation_duration_sec",    _NAN)
+    row["time_since_last_big_move"] = time_to_move_feats.get("time_since_last_big_move", _NAN)
+    row["stagnation_duration_sec"] = time_to_move_feats.get("stagnation_duration_sec", _NAN)
     row["momentum_persistence_ticks"] = time_to_move_feats.get("momentum_persistence_ticks", _NAN)
-    row["breakout_readiness_extended"]= time_to_move_feats.get("breakout_readiness_extended",_NAN)
+    row["breakout_readiness_extended"] = time_to_move_feats.get("breakout_readiness_extended", _NAN)
 
     # ── Cols 46–171: Option Tick (7 offsets × 9 CE + 9 PE = 126) ─────────────
     # Build strike → offset index mapping from atm_window
-    strike_to_idx: dict[int, int] = {s: i for i, s in enumerate(atm_window)}
+    {s: i for i, s in enumerate(atm_window)}
 
     for i, off in enumerate(_OPT_OFFSETS):
         strike = atm_window[i] if i < len(atm_window) else None
@@ -389,7 +497,8 @@ def assemble_flat_vector(
             side_upper = _OPT_SIDE_MAP[side_lower]
             feats = (
                 opt_tick_feats.get((strike, side_upper), _OPT_NULL)
-                if strike is not None else _OPT_NULL
+                if strike is not None
+                else _OPT_NULL
             )
             for fname in _OPT_FIELD_NAMES:
                 row[f"opt_{off}_{side_lower}_{fname}"] = feats.get(fname, _NAN)
@@ -412,7 +521,7 @@ def assemble_flat_vector(
         row[k] = decay_feats.get(k, _NAN)
 
     # ── Cols 334–335: Regime ─────────────────────────────────────────────────
-    row["regime"]            = regime_feats.get("regime",            None)
+    row["regime"] = regime_feats.get("regime", None)
     row["regime_confidence"] = regime_feats.get("regime_confidence", _NAN)
 
     # ── Cols 336–342: Zone ────────────────────────────────────────────────────
@@ -424,10 +533,10 @@ def assemble_flat_vector(
         row[col] = targets.get(col, _NAN)
 
     # ── Cols 358–361: Trading State ───────────────────────────────────────────
-    row["trading_state"]          = trading_state
-    row["trading_allowed"]        = trading_allowed
-    row["warm_up_remaining_sec"]  = warm_up_remaining_sec
-    row["stale_reason"]           = stale_reason  # None is valid here
+    row["trading_state"] = trading_state
+    row["trading_allowed"] = trading_allowed
+    row["warm_up_remaining_sec"] = warm_up_remaining_sec
+    row["stale_reason"] = stale_reason  # None is valid here
 
     # ── Cols 362–370: Metadata ────────────────────────────────────────────────
     for k in _META_KEYS:
@@ -439,6 +548,7 @@ def assemble_flat_vector(
 # ══════════════════════════════════════════════════════════════════════════════
 # Serialisation
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 def _nan_to_null(v: object) -> object:
     """Convert float NaN to None (JSON null). Pass all other values through."""
@@ -469,59 +579,100 @@ def serialize_row(row: dict) -> str:
 # Parquet schema helpers (replay mode)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Column names that hold integer values (spec data-type column)
-_INT_COLUMNS = frozenset({
-    # ATM context
-    "atm_strike", "strike_step",
-    # Option tick: tick_available (0/1), volume
-    *(f"opt_{off}_{side}_tick_available" for off in _OPT_OFFSETS for side in _OPT_SIDES),
-    *(f"opt_{off}_{side}_volume" for off in _OPT_OFFSETS for side in _OPT_SIDES),
-    # Chain integer fields
-    "chain_oi_change_call", "chain_oi_change_put",
-    "chain_oi_change_call_atm", "chain_oi_change_put_atm",
-    # Active strike integer fields
-    *(f"active_{i}_{f}" for i in range(6)
-      for f in ("strike", "tick_available")),
-    # Trading state
-    "trading_allowed",
-    # Meta flags
-    "chain_available", "data_quality_flag", "is_market_open",
-    # Direction targets
-    *(f"direction_{x}s" for x in (30, 60, 90, 120, 150, 180, 300)),
-})
+# Window-independent int columns. The window-dependent ones (the
+# `direction_<W>s` set) are added by `int_columns_for(windows)`.
+_INT_COLUMNS_BASE: frozenset[str] = frozenset(
+    {
+        # ATM context
+        "atm_strike",
+        "strike_step",
+        # Option tick: tick_available (0/1), volume
+        *(f"opt_{off}_{side}_tick_available" for off in _OPT_OFFSETS for side in _OPT_SIDES),
+        *(f"opt_{off}_{side}_volume" for off in _OPT_OFFSETS for side in _OPT_SIDES),
+        # Chain integer fields
+        "chain_oi_change_call",
+        "chain_oi_change_put",
+        "chain_oi_change_call_atm",
+        "chain_oi_change_put_atm",
+        # Active strike integer fields
+        *(f"active_{i}_{f}" for i in range(6) for f in ("strike", "tick_available")),
+        # Trading state
+        "trading_allowed",
+        # Meta flags
+        "chain_available",
+        "data_quality_flag",
+        "is_market_open",
+    }
+)
+
+
+def int_columns_for(target_windows_sec: tuple[int, ...]) -> frozenset[str]:
+    """Return the set of int-typed parquet columns for a profile with
+    these target windows. Phase E8 / PY-15.
+
+    Pre-E8 the int-column set was a hardcoded frozenset that included
+    `direction_{30,60,90,120,150,180,300}s` — the 90/120/150/180 entries
+    were stale (no profile uses them) and the canonical 4-window
+    profile's `direction_900s` was missing entirely, causing 4-window
+    replay parquets to cast direction targets as float32 rather than
+    int32. Deriving from the actual windows fixes both halves.
+    """
+    return _INT_COLUMNS_BASE | frozenset(f"direction_{w}s" for w in target_windows_sec)
+
+
+#: Backward-compat: int columns for the default 2-window profile. New
+#: code should call `int_columns_for(profile.target_windows_sec)`.
+_INT_COLUMNS: frozenset[str] = int_columns_for((30, 60))
 
 # Column names that hold string values
-_STRING_COLUMNS = frozenset({
-    "trading_state", "stale_reason",
-    "regime", "underlying_symbol", "underlying_security_id",
-    "exchange", "instrument", "chain_timestamp",
-})
+_STRING_COLUMNS = frozenset(
+    {
+        "trading_state",
+        "stale_reason",
+        "regime",
+        "underlying_symbol",
+        "underlying_security_id",
+        "exchange",
+        "instrument",
+        "chain_timestamp",
+    }
+)
 
 
-_FLOAT64_COLUMNS = frozenset({"timestamp"})   # needs full epoch precision
+_FLOAT64_COLUMNS = frozenset({"timestamp"})  # needs full epoch precision
 
 
-def _parquet_type(col: str):
-    """Return the pyarrow type for a given column name."""
+def _parquet_type(col: str, int_columns: frozenset[str] = _INT_COLUMNS):
+    """Return the pyarrow type for a given column name. `int_columns`
+    defaults to the 2-window legacy set; pass the result of
+    `int_columns_for(profile.target_windows_sec)` to type 4-window
+    direction targets correctly."""
     import pyarrow as pa
+
     if col in _FLOAT64_COLUMNS:
         return pa.float64()
     if col in _STRING_COLUMNS:
         return pa.large_string()
-    if col in _INT_COLUMNS or col.endswith("_count"):
+    if col in int_columns or col.endswith("_count"):
         return pa.int32()
     return pa.float32()
 
 
-def _build_parquet_schema():
-    """Return a pyarrow schema for the 370 COLUMN_NAMES."""
+def _build_parquet_schema(target_windows_sec: tuple[int, ...] = (30, 60)):
+    """Return a pyarrow schema for the column names of the given
+    profile windows. Defaults to the 2-window legacy schema for
+    backward compat with pre-E8 callers."""
     import pyarrow as pa
-    return pa.schema([(col, _parquet_type(col)) for col in COLUMN_NAMES])
+
+    cols = column_names_for(target_windows_sec)
+    int_cols = int_columns_for(target_windows_sec)
+    return pa.schema([(col, _parquet_type(col, int_cols)) for col in cols])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Emitter — manages output sinks
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class Emitter:
     """
@@ -562,15 +713,22 @@ class Emitter:
         socket_addr: str | int | None = None,
         socket_family: int = socket.AF_INET,
         mode: str = "live",
+        target_windows_sec: tuple[int, ...] = (30, 60),
     ) -> None:
         """
         Args:
-            file_path:     Path to output NDJSON file. None = no file sink.
-            socket_addr:   Socket address. Unix socket: path string
-                           (socket_family=AF_UNIX). TCP: (host, port) tuple or
-                           int port (binds to localhost). None = no socket sink.
-            socket_family: socket.AF_UNIX or socket.AF_INET (default INET).
-            mode:          "live" (NDJSON + socket) or "replay" (Parquet accumulation).
+            file_path:           Path to output NDJSON file. None = no file sink.
+            socket_addr:         Socket address. Unix socket: path string
+                                 (socket_family=AF_UNIX). TCP: (host, port) tuple or
+                                 int port (binds to localhost). None = no socket sink.
+            socket_family:       socket.AF_UNIX or socket.AF_INET (default INET).
+            mode:                "live" (NDJSON + socket) or "replay" (Parquet accumulation).
+            target_windows_sec:  Profile target windows used to derive the parquet
+                                 schema in replay mode (Phase E8). Defaults to the
+                                 2-window legacy layout; production callers (main.py,
+                                 replay_adapter.py) pass `profile.target_windows_sec`
+                                 so 4-window profiles produce 384-column parquets
+                                 with `direction_<W>s` correctly typed as int32.
         """
         self._lock = threading.Lock()
         self._file: IO[str] | None = None
@@ -578,6 +736,7 @@ class Emitter:
         self.socket_drops: int = 0
         self._mode = mode
         self._parquet_rows: list[dict] | None = [] if mode == "replay" else None
+        self._target_windows_sec: tuple[int, ...] = tuple(target_windows_sec)
 
         if mode == "replay":
             # Replay mode — disable live sinks
@@ -684,9 +843,12 @@ class Emitter:
         """
         Flush accumulated rows to a Parquet file (replay mode only).
 
-        Schema: all 370 columns.  Column types:
+        Schema is derived from `self._target_windows_sec` (Phase E8):
+        2-window profiles → 370 columns, 4-window profiles → 384.
+        Column types:
           - Numeric float columns → float32
-          - Numeric int columns   → int32
+          - Numeric int columns   → int32 (incl. `direction_<W>s` for
+                                    every window in the profile)
           - String/None columns   → large_string (nullable)
 
         Creates parent directories as needed.  Clears the row buffer after
@@ -718,20 +880,23 @@ class Emitter:
             rows = list(self._parquet_rows or [])
             self._parquet_rows = []
 
+        # Phase E8: every parquet write uses the schema derived from
+        # this emitter's profile windows, not the legacy 2-window default.
+        windows = self._target_windows_sec
+        cols = column_names_for(windows)
+        int_cols = int_columns_for(windows)
+
         if not rows:
             # Write empty Parquet with correct schema
-            schema = _build_parquet_schema()
-            table = pa.table({col: pa.array([], type=_parquet_type(col))
-                              for col in COLUMN_NAMES})
+            table = pa.table({col: pa.array([], type=_parquet_type(col, int_cols)) for col in cols})
             pq.write_table(table, path)
             return
 
         table = pa.Table.from_pylist(rows)
         # Cast columns to spec types
-        fields = []
-        for col in COLUMN_NAMES:
+        for col in cols:
             if col in table.schema.names:
-                target_type = _parquet_type(col)
+                target_type = _parquet_type(col, int_cols)
                 try:
                     table = table.set_column(
                         table.schema.get_field_index(col),

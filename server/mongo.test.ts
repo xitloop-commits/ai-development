@@ -6,7 +6,9 @@ import mongoose from "mongoose";
  *
  * These tests validate:
  * 1. MONGODB_URI env var is set
- * 2. Connection to MongoDB Atlas succeeds
+ * 2. Connection to local MongoDB succeeds (was Atlas pre-2026-04-30
+ *    migration; data was dumped + restored byte-for-byte to a local
+ *    `lucky_baskar` database installed via `winget MongoDB.Server`)
  * 3. Ping (admin command) works
  * 4. Basic CRUD operations work
  * 5. Health check returns correct shape
@@ -36,7 +38,7 @@ describe("MongoDB Connection & Operations", () => {
     await mongoose.disconnect();
   });
 
-  it("connects to MongoDB Atlas", async () => {
+  it("connects to MongoDB", async () => {
     const uri = process.env.MONGODB_URI!;
     await mongoose.connect(uri, {
       serverSelectionTimeoutMS: 10000,

@@ -1,5 +1,5 @@
 /**
- * Discipline Engine — tRPC Router
+ * Discipline Agent — tRPC Router
  *
  * Endpoints:
  *   discipline.validate        — Pre-trade validation (runs full pipeline)
@@ -20,8 +20,8 @@
  */
 
 import { z } from "zod";
-import { router, publicProcedure } from "../_core/trpc";
-import { disciplineEngine } from "./index";
+import { router, publicProcedure, protectedProcedure } from "../_core/trpc";
+import { disciplineAgent } from "./index";
 import {
   getDisciplineSettings,
   updateDisciplineSettings,
@@ -29,16 +29,144 @@ import {
   getScoreHistory,
   DisciplineStateModel,
 } from "./disciplineModel";
-import { getISTDateString, type Exchange, type EmotionalState } from "./types";
+import { getISTDateString, type Exchange } from "./types";
 import { getTimelineSegments } from "./timeWindows";
 
 const DEFAULT_USER_ID = "1";
+
+// ─── Settings update schema ─────────────────────────────────────────
+// Strict mirror of DisciplineAgentSettings (sans server-managed fields).
+// Each module's sub-object is `.strict()` so unknown sub-keys also reject.
+// Bounds reflect the spec — see DisciplineAgent_Spec_v1.4.
+
+const emotionalStateEnum = z.enum(["calm", "anxious", "revenge", "fomo", "greedy", "neutral"]);
+const timeHHmm = z.string().regex(/^[0-2]\d:[0-5]\d$/, "expected HH:mm");
+
+export const disciplineSettingsUpdateSchema = z.object({
+  // Module 1: Circuit Breaker
+  dailyLossLimit: z.object({
+    enabled: z.boolean(),
+    thresholdPercent: z.number().min(0).max(100),
+  }).strict().optional(),
+  maxConsecutiveLosses: z.object({
+    enabled: z.boolean(),
+    maxLosses: z.number().int().min(1).max(20),
+    cooldownMinutes: z.number().int().min(0).max(720),
+  }).strict().optional(),
+
+  // Module 2: Trade Limits
+  maxTradesPerDay: z.object({
+    enabled: z.boolean(),
+    limit: z.number().int().min(1).max(100),
+  }).strict().optional(),
+  maxOpenPositions: z.object({
+    enabled: z.boolean(),
+    limit: z.number().int().min(1).max(50),
+  }).strict().optional(),
+  revengeCooldown: z.object({
+    enabled: z.boolean(),
+    durationMinutes: z.number().int().min(0).max(720),
+    requireAcknowledgment: z.boolean(),
+  }).strict().optional(),
+
+  // Module 3: Time Windows
+  noTradingAfterOpen: z.object({
+    enabled: z.boolean(),
+    nseMinutes: z.number().int().min(0).max(60),
+    mcxMinutes: z.number().int().min(0).max(60),
+  }).strict().optional(),
+  noTradingBeforeClose: z.object({
+    enabled: z.boolean(),
+    nseMinutes: z.number().int().min(0).max(60),
+    mcxMinutes: z.number().int().min(0).max(60),
+  }).strict().optional(),
+  lunchBreakPause: z.object({
+    enabled: z.boolean(),
+    startTime: timeHHmm,
+    endTime: timeHHmm,
+  }).strict().optional(),
+
+  // Module 4: Pre-Trade Gate
+  preTradeGate: z.object({
+    enabled: z.boolean(),
+    minRiskReward: z.object({
+      enabled: z.boolean(),
+      ratio: z.number().min(0).max(20),
+    }).strict(),
+    emotionalStateCheck: z.object({
+      enabled: z.boolean(),
+      blockStates: z.array(emotionalStateEnum),
+    }).strict(),
+  }).strict().optional(),
+
+  // Module 5: Position Sizing
+  maxPositionSize: z.object({
+    enabled: z.boolean(),
+    percentOfCapital: z.number().min(0).max(100),
+  }).strict().optional(),
+  maxTotalExposure: z.object({
+    enabled: z.boolean(),
+    percentOfCapital: z.number().min(0).max(100),
+  }).strict().optional(),
+
+  // Module 6: Journal
+  journalEnforcement: z.object({
+    enabled: z.boolean(),
+    maxUnjournaled: z.number().int().min(0).max(100),
+  }).strict().optional(),
+  weeklyReview: z.object({
+    enabled: z.boolean(),
+    disciplineScoreWarning: z.number().int().min(0).max(100),
+    redWeekReduction: z.number().int().min(1).max(52),
+  }).strict().optional(),
+
+  // Module 7: Streaks
+  winningStreakReminder: z.object({
+    enabled: z.boolean(),
+    triggerAfterDays: z.number().int().min(1).max(365),
+  }).strict().optional(),
+  losingStreakAutoReduce: z.object({
+    enabled: z.boolean(),
+    triggerAfterDays: z.number().int().min(1).max(365),
+    reduceByPercent: z.number().min(0).max(100),
+  }).strict().optional(),
+
+  // Module 8: Capital Protection & Session Management
+  capitalProtection: z.object({
+    profitCap: z.object({
+      enabled: z.boolean(),
+      percent: z.number().min(0).max(100),
+    }).strict(),
+    lossCap: z.object({
+      enabled: z.boolean(),
+      percent: z.number().min(0).max(100),
+    }).strict(),
+    gracePeriodSeconds: z.number().int().min(0).max(3600),
+    carryForward: z.object({
+      enabled: z.boolean(),
+      nseEvalTime: timeHHmm,
+      mcxEvalTime: timeHHmm,
+      autoExit: z.boolean(),
+      exitDelayMinutes: z.number().int().min(0).max(120),
+      minProfitPercent: z.number().min(0).max(1000),
+      minMomentumScore: z.number().min(0).max(100),
+      minDte: z.number().int().min(0).max(365),
+      ivCondition: z.enum(["fair", "cheap", "any"]),
+    }).strict(),
+    iv: z.object({
+      historyWindow: z.number().int().min(20).max(5000),
+      minSamples: z.number().int().min(5).max(2000),
+      cheapPercentile: z.number().min(0).max(100),
+      expensivePercentile: z.number().min(0).max(100),
+    }).strict(),
+  }).strict().optional(),
+}).strict();
 
 export const disciplineRouter = router({
   /**
    * Validate a trade against all discipline rules.
    */
-  validate: publicProcedure
+  validate: protectedProcedure
     .input(
       z.object({
         instrument: z.string(),
@@ -62,7 +190,7 @@ export const disciplineRouter = router({
     )
     .mutation(async ({ input }) => {
       const { currentCapital, currentExposure, ...request } = input;
-      return disciplineEngine.validateTrade(
+      return disciplineAgent.validateTrade(
         DEFAULT_USER_ID,
         request,
         currentCapital,
@@ -74,7 +202,7 @@ export const disciplineRouter = router({
    * Get the full discipline dashboard data.
    */
   getDashboard: publicProcedure.query(async () => {
-    return disciplineEngine.getDashboard(DEFAULT_USER_ID);
+    return disciplineAgent.getDashboard(DEFAULT_USER_ID);
   }),
 
   /**
@@ -92,36 +220,100 @@ export const disciplineRouter = router({
   }),
 
   /**
-   * Update discipline settings.
+   * Update discipline settings. Accepts a partial of DisciplineAgentSettings
+   * (server-managed `userId`/`updatedAt`/`history` are stripped). Strict mode:
+   * unknown fields rejected with 400; per-field bounds enforced.
    */
-  updateSettings: publicProcedure
-    .input(z.record(z.string(), z.unknown()))
+  updateSettings: protectedProcedure
+    .input(disciplineSettingsUpdateSchema)
     .mutation(async ({ input }) => {
-      return updateDisciplineSettings(DEFAULT_USER_ID, input);
+      const updated = await updateDisciplineSettings(DEFAULT_USER_ID, input);
+      // Refresh the IV classifier's runtime tunables so percentile bands
+      // / history window match the new settings without a server restart.
+      await disciplineAgent.pushIvTunables(DEFAULT_USER_ID);
+      return updated;
+    }),
+
+  /**
+   * Phase D2 — tRPC alias for the internal `disciplineAgent.recordTradeOutcome`
+   * pipeline. Kept symmetric with the REST endpoint at
+   * POST /api/discipline/recordTradeOutcome (Python callers) so both
+   * surfaces share one handler internal.
+   */
+  recordTradeOutcome: protectedProcedure
+    .input(
+      z.object({
+        channel: z.enum([
+          "ai-live",
+          "ai-paper",
+          "my-live",
+          "my-paper",
+          "testing-live",
+          "testing-sandbox",
+        ]),
+        tradeId: z.string().min(1),
+        realizedPnl: z.number(),
+        openingCapital: z.number().nonnegative(),
+        // Canonical ExitReasonCode union — see shared/exitContracts.ts.
+        exitReason: z
+          .enum([
+            "MOMENTUM_EXIT",
+            "VOLATILITY_EXIT",
+            "SL_HIT",
+            "TP_HIT",
+            "AGE_EXIT",
+            "STALE_PRICE_EXIT",
+            "DISCIPLINE_EXIT",
+            "AI_EXIT",
+            "MANUAL",
+            "EOD",
+            "EXPIRY",
+          ])
+          .optional(),
+        exitTriggeredBy: z
+          .enum(["RCA", "BROKER", "DISCIPLINE", "AI", "USER", "PA"])
+          .optional(),
+        signalSource: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      await disciplineAgent.recordTradeOutcome(input);
+      return { success: true };
+    }),
+
+  /**
+   * Phase D2 — lightweight "is the operator allowed to trade now?"
+   * snapshot. The REST endpoint at GET /api/discipline/status returns
+   * the exact same shape; both delegate to disciplineAgent.getSessionStatus.
+   */
+  getSessionStatus: publicProcedure
+    .input(z.object({ channel: z.string().min(1) }))
+    .query(async ({ input }) => {
+      return disciplineAgent.getSessionStatus(DEFAULT_USER_ID, input.channel);
     }),
 
   /**
    * Acknowledge a loss to start the cooldown timer.
    */
-  acknowledgeLoss: publicProcedure.mutation(async () => {
-    return disciplineEngine.acknowledgeLoss(DEFAULT_USER_ID);
+  acknowledgeLoss: protectedProcedure.mutation(async () => {
+    return disciplineAgent.acknowledgeLoss(DEFAULT_USER_ID);
   }),
 
   /**
    * Mark a trade as journaled.
    */
-  journalTrade: publicProcedure
+  journalTrade: protectedProcedure
     .input(z.object({ tradeId: z.string() }))
     .mutation(async ({ input }) => {
-      await disciplineEngine.journalTrade(DEFAULT_USER_ID, input.tradeId);
+      await disciplineAgent.journalTrade(DEFAULT_USER_ID, input.tradeId);
       return { success: true };
     }),
 
   /**
    * Complete the weekly review.
    */
-  completeReview: publicProcedure.mutation(async () => {
-    await disciplineEngine.completeWeeklyReview(DEFAULT_USER_ID);
+  completeReview: protectedProcedure.mutation(async () => {
+    await disciplineAgent.completeWeeklyReview(DEFAULT_USER_ID);
     return { success: true };
   }),
 
@@ -146,7 +338,7 @@ export const disciplineRouter = router({
    * Get current streak status.
    */
   getStreakStatus: publicProcedure.query(async () => {
-    const { streak } = await disciplineEngine.getDashboard(DEFAULT_USER_ID);
+    const { streak } = await disciplineAgent.getDashboard(DEFAULT_USER_ID);
     return streak;
   }),
 
@@ -163,25 +355,25 @@ export const disciplineRouter = router({
   /**
    * Finalize end-of-day score. Called by cron or admin.
    */
-  endOfDay: publicProcedure
+  endOfDay: protectedProcedure
     .input(z.object({ dailyPnl: z.number(), openCapital: z.number() }))
     .mutation(async ({ input }) => {
-      await disciplineEngine.endOfDay(DEFAULT_USER_ID, input.dailyPnl, input.openCapital);
+      await disciplineAgent.endOfDay(DEFAULT_USER_ID, input.dailyPnl, input.openCapital);
       return { success: true };
     }),
 
   /**
    * Notify that a trade was placed (increments counters).
    */
-  onTradePlaced: publicProcedure.mutation(async () => {
-    await disciplineEngine.onTradePlaced(DEFAULT_USER_ID);
+  onTradePlaced: protectedProcedure.mutation(async () => {
+    await disciplineAgent.onTradePlaced(DEFAULT_USER_ID);
     return { success: true };
   }),
 
   /**
    * Notify that a trade was closed (updates P&L, cooldowns, streaks).
    */
-  onTradeClosed: publicProcedure
+  onTradeClosed: protectedProcedure
     .input(
       z.object({
         pnl: z.number(),
@@ -190,7 +382,7 @@ export const disciplineRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const result = await disciplineEngine.onTradeClosed(
+      const result = await disciplineAgent.onTradeClosed(
         DEFAULT_USER_ID,
         input.pnl,
         input.openCapital,
@@ -202,7 +394,7 @@ export const disciplineRouter = router({
   /**
    * Reset daily state (for testing).
    */
-  resetDailyState: publicProcedure.mutation(async () => {
+  resetDailyState: protectedProcedure.mutation(async () => {
     const date = getISTDateString();
     await DisciplineStateModel.deleteOne({ userId: DEFAULT_USER_ID, date });
     return { success: true, date };

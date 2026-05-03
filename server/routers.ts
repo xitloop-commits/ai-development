@@ -1,13 +1,12 @@
-import { publicProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { createLogger } from "./broker/logger";
+
+const searchLog = createLogger("BSA", "InstrumentsSearch");
 import {
   getModuleStatuses,
   getInstrumentData,
-  getSignals,
-  getPositions,
-  getTradingMode,
-  setTradingMode,
   getActiveInstruments,
   setActiveInstruments,
   setConfiguredInstruments,
@@ -29,6 +28,7 @@ import {
   getAllInstruments,
   addInstrument,
   removeInstrument,
+  assignHotkey,
   type InstrumentConfig,
 } from "./instruments";
 import { searchByQuery, downloadScripMaster, needsRefresh } from "./broker/adapters/dhan/scripMaster";
@@ -60,30 +60,13 @@ export const appRouter = router({
         return getSEASignals(input?.limit ?? 50);
       }),
 
-    // Get positions
-    positions: publicProcedure.query(() => {
-      return getPositions();
-    }),
-
-    // Get/set trading mode
-    tradingMode: publicProcedure.query(() => {
-      return { mode: getTradingMode() };
-    }),
-
-    setTradingMode: publicProcedure
-      .input(z.object({ mode: z.enum(['LIVE', 'PAPER']) }))
-      .mutation(({ input }) => {
-        setTradingMode(input.mode);
-        return { success: true, mode: input.mode };
-      }),
-
     // Get active instruments list
     activeInstruments: publicProcedure.query(() => {
       return { instruments: getActiveInstruments() };
     }),
 
     // Set active instruments (syncs frontend filter to backend for Python modules)
-    setActiveInstruments: publicProcedure
+    setActiveInstruments: protectedProcedure
       .input(z.object({ instruments: z.array(z.string()) }))
       .mutation(({ input }) => {
         setActiveInstruments(input.instruments);
@@ -108,32 +91,32 @@ export const appRouter = router({
       )
       .query(async ({ input }) => {
         try {
-          console.log("[Instruments Search] Search called with input:", input);
+          searchLog.debug(`Search called: ${JSON.stringify(input ?? {})}`);
 
           // Return empty results if no input
           if (!input?.query) {
-            console.log("[Instruments Search] No query provided");
+            searchLog.debug("No query provided");
             return [];
           }
 
           // Ensure scrip master is loaded (download if stale or empty)
-          console.log("[Instruments Search] Checking if scrip master needs refresh...");
+          searchLog.debug("Checking if scrip master needs refresh...");
           if (needsRefresh(24)) {
             try {
-              console.log("[Instruments Search] Downloading scrip master...");
+              searchLog.info("Downloading scrip master...");
               const count = await downloadScripMaster();
-              console.log(`[Instruments Search] Scrip master loaded successfully with ${count} records`);
+              searchLog.info(`Scrip master loaded successfully with ${count} records`);
             } catch (downloadErr: any) {
-              console.error("[Instruments Search] Scrip master download failed:", downloadErr.message || downloadErr);
+              searchLog.error(`Scrip master download failed: ${downloadErr?.message ?? downloadErr}`);
               // Continue with whatever data we have (may be empty on first run)
             }
           } else {
-            console.log("[Instruments Search] Scrip master is fresh, not downloading");
+            searchLog.debug("Scrip master is fresh, not downloading");
           }
 
           const exchange = input.exchange === "ALL" ? undefined : input.exchange;
           const results = searchByQuery(input.query, exchange, 20);
-          console.log(`[Instruments Search] Query '${input.query}' returned ${results.length} results`);
+          searchLog.debug(`Query '${input.query}' returned ${results.length} results`);
 
           // Transform to a simpler format for frontend
           return results.map(r => ({
@@ -150,7 +133,7 @@ export const appRouter = router({
             lotSize: r.lotSize,
           }));
         } catch (err: any) {
-          console.error("[Instruments Search] Unexpected error:", err);
+          searchLog.error("Unexpected error", err);
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: `Search failed: ${err.message}`,
@@ -159,7 +142,7 @@ export const appRouter = router({
       }),
 
     // Add a new instrument
-    add: publicProcedure
+    add: protectedProcedure
       .input(
         z.object({
           key: z.string().regex(/^[A-Z0-9_]+$/),
@@ -190,11 +173,30 @@ export const appRouter = router({
       }),
 
     // Remove a non-default instrument
-    remove: publicProcedure
+    remove: protectedProcedure
       .input(z.object({ key: z.string() }))
       .mutation(async ({ input }) => {
         await removeInstrument(input.key);
         // Update in-memory store
+        const instruments = await getAllInstruments();
+        setConfiguredInstruments(instruments);
+        return { success: true };
+      }),
+
+    // Assign / clear an instrument's hotkey. Single character (digit
+    // 1-9 or letter), or null to remove. Server-side `assignHotkey`
+    // handles the swap-with-existing-instrument case if the same key
+    // is already bound.
+    setHotkey: protectedProcedure
+      .input(
+        z.object({
+          key: z.string().min(1),
+          hotkey: z.string().regex(/^[a-z0-9]$/i, "single alphanumeric character").nullable(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        await assignHotkey(input.key, input.hotkey);
+        // Update in-memory store so the live hotkey map sees the change.
         const instruments = await getAllInstruments();
         setConfiguredInstruments(instruments);
         return { success: true };
@@ -204,12 +206,12 @@ export const appRouter = router({
   // User Settings (MongoDB)
   settings: router({
     // Get user settings (all sections)
-    get: publicProcedure.query(async ({ ctx }) => {
+    get: publicProcedure.query(async () => {
       return getUserSettings(1 /* single-user */);
     }),
 
     // Update expiry control settings
-    updateExpiryControls: publicProcedure
+    updateExpiryControls: protectedProcedure
       .input(z.object({
         rules: z.array(z.object({
           instrument: z.string(),
@@ -223,13 +225,13 @@ export const appRouter = router({
           noCarryToExpiry: z.boolean().optional(),
         })),
       }))
-      .mutation(async ({ ctx, input }) => {
+      .mutation(async ({ input }) => {
         const updated = await updateUserSettings(1 /* single-user */, { expiryControls: input as any });
         return { success: true, expiryControls: updated.expiryControls };
       }),
 
     // Update charge rates
-    updateCharges: publicProcedure
+    updateCharges: protectedProcedure
       .input(z.object({
         rates: z.array(z.object({
           name: z.string(),
@@ -239,13 +241,13 @@ export const appRouter = router({
           enabled: z.boolean().optional(),
         })),
       }))
-      .mutation(async ({ ctx, input }) => {
+      .mutation(async ({ input }) => {
         const updated = await updateUserSettings(1 /* single-user */, { charges: input as any });
         return { success: true, charges: updated.charges };
       }),
 
     // Update trading mode — workspace modes and kill switch states
-    updateTradingMode: publicProcedure
+    updateTradingMode: protectedProcedure
       .input(z.object({
         aiTradesMode: z.enum(["live", "paper"]).optional(),
         myTradesMode: z.enum(["live", "paper"]).optional(),
@@ -254,7 +256,7 @@ export const appRouter = router({
         myKillSwitch: z.boolean().optional(),
         testingKillSwitch: z.boolean().optional(),
       }))
-      .mutation(async ({ ctx, input }) => {
+      .mutation(async ({ input }) => {
         const updated = await updateUserSettings(1 /* single-user */, { tradingMode: input as any });
         return { success: true, tradingMode: updated.tradingMode };
       }),
@@ -271,7 +273,7 @@ export const appRouter = router({
   // gateway. Phase 1 commit 1: skeleton; methods wired in subsequent commits.
   executor: executorRouter,
 
-  // Discipline Engine
+  // Discipline Agent
   discipline: disciplineRouter,
 
   // MongoDB health check

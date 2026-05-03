@@ -24,13 +24,12 @@ Null rules:
 from __future__ import annotations
 
 import math
-from typing import NamedTuple
 
 from tick_feature_agent.buffers.tick_buffer import CircularBuffer
 
 _NAN = float("nan")
 _RETURN_WINDOWS = (5, 10, 20, 50)
-_COUNT_WINDOWS  = (10, 20, 50)
+_COUNT_WINDOWS = (10, 20, 50)
 
 
 def compute_underlying_features(buffer: CircularBuffer) -> dict:
@@ -49,7 +48,7 @@ def compute_underlying_features(buffer: CircularBuffer) -> dict:
     if n == 0:
         return _empty_features()
 
-    ticks = buffer.get_last(n)   # list[UnderlyingTick], oldest → newest
+    ticks = buffer.get_last(n)  # list[UnderlyingTick], oldest → newest
     current = ticks[-1]
 
     ltp = float(current.ltp)
@@ -57,9 +56,9 @@ def compute_underlying_features(buffer: CircularBuffer) -> dict:
     ask = float(current.ask)
 
     out: dict = {
-        "ltp":    ltp,
-        "bid":    bid,
-        "ask":    ask,
+        "ltp": ltp,
+        "bid": bid,
+        "ask": ask,
         "spread": ask - bid,
     }
 
@@ -86,9 +85,7 @@ def compute_underlying_features(buffer: CircularBuffer) -> dict:
         prev_mom = (p1 - p2) / p2 if p2 != 0.0 else _NAN
         curr_mom = out["momentum"]
         out["velocity"] = (
-            curr_mom - prev_mom
-            if not (math.isnan(curr_mom) or math.isnan(prev_mom))
-            else _NAN
+            curr_mom - prev_mom if not (math.isnan(curr_mom) or math.isnan(prev_mom)) else _NAN
         )
     else:
         out["velocity"] = _NAN
@@ -96,7 +93,7 @@ def compute_underlying_features(buffer: CircularBuffer) -> dict:
     # ── tick counts (10 / 20 / 50) ─────────────────────────────────────────────
     for w in _COUNT_WINDOWS:
         if n >= w:
-            window_ticks = ticks[-w:]   # length = w, oldest → newest
+            window_ticks = ticks[-w:]  # length = w, oldest → newest
             up = down = flat = 0
             for i in range(1, w):
                 diff = window_ticks[i].ltp - window_ticks[i - 1].ltp
@@ -106,19 +103,17 @@ def compute_underlying_features(buffer: CircularBuffer) -> dict:
                     down += 1
                 else:
                     flat += 1
-            out[f"tick_up_count_{w}"]   = float(up)
+            out[f"tick_up_count_{w}"] = float(up)
             out[f"tick_down_count_{w}"] = float(down)
             out[f"tick_flat_count_{w}"] = float(flat)
             # Flat ticks excluded from denominator per spec §8.2
             # All-flat window → perfectly neutral imbalance = 0.0 (not NaN)
-            out[f"tick_imbalance_{w}"]  = (
-                (up - down) / (up + down) if (up + down) > 0 else 0.0
-            )
+            out[f"tick_imbalance_{w}"] = (up - down) / (up + down) if (up + down) > 0 else 0.0
         else:
-            out[f"tick_up_count_{w}"]   = _NAN
+            out[f"tick_up_count_{w}"] = _NAN
             out[f"tick_down_count_{w}"] = _NAN
             out[f"tick_flat_count_{w}"] = _NAN
-            out[f"tick_imbalance_{w}"]  = _NAN
+            out[f"tick_imbalance_{w}"] = _NAN
 
     return out
 
@@ -129,10 +124,10 @@ def _empty_features() -> dict:
     for w in _RETURN_WINDOWS:
         out[f"return_{w}ticks"] = _NAN
     out["momentum"] = _NAN
-    out["velocity"]  = _NAN
+    out["velocity"] = _NAN
     for w in _COUNT_WINDOWS:
-        out[f"tick_up_count_{w}"]   = _NAN
+        out[f"tick_up_count_{w}"] = _NAN
         out[f"tick_down_count_{w}"] = _NAN
         out[f"tick_flat_count_{w}"] = _NAN
-        out[f"tick_imbalance_{w}"]  = _NAN
+        out[f"tick_imbalance_{w}"] = _NAN
     return out

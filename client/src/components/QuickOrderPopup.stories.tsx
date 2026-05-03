@@ -5,7 +5,7 @@
  */
 
 import type { Meta, StoryObj } from "@storybook/react";
-import { QuickOrderPopup, type QuickOrderData } from "./QuickOrderPopup";
+import { QuickOrderPopup } from "./QuickOrderPopup";
 
 const meta = {
   title: "Components/QuickOrderPopup",

@@ -20,9 +20,9 @@ from __future__ import annotations
 import gzip
 import heapq
 import json
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Generator
-
+from typing import Any
 
 _EVENT_TYPES = ("underlying_tick", "option_tick", "chain_snapshot")
 _FILE_SUFFIXES = (
@@ -30,6 +30,33 @@ _FILE_SUFFIXES = (
     "option_ticks.ndjson.gz",
     "chain_snapshots.ndjson.gz",
 )
+
+
+def _resolve_stream_path(date_folder: Path, instrument: str, suffix: str) -> Path | None:
+    """Resolve one stream file, **preferring `.recovered.ndjson.gz`**
+    over the original (Phase E6).
+
+    Recorder corruption (PY-13/PY-122/PY-123) leaves some `.ndjson.gz`
+    files that fail mid-stream during replay. `scripts/recover_gz.py`
+    salvages them by writing a `<stem>.recovered.ndjson.gz` next to the
+    original — gzip-clean, truncated to the last complete newline.
+    Replay must prefer that file when it exists, otherwise it'll keep
+    bailing on the corrupt original and silently produce zero/partial
+    parquet output for the day.
+
+    Returns None if neither file exists; callers already log a warning
+    in that case via the existing `REPLAY_STREAM_EMPTY` path.
+    """
+    # `suffix` is e.g. "underlying_ticks.ndjson.gz" — strip the
+    # ".ndjson.gz" tail to splice in `.recovered`.
+    stem = suffix[: -len(".ndjson.gz")]
+    recovered = date_folder / f"{instrument}_{stem}.recovered.ndjson.gz"
+    original = date_folder / f"{instrument}_{suffix}"
+    if recovered.exists():
+        return recovered
+    if original.exists():
+        return original
+    return None
 
 
 def _iter_gz(path: Path, event_type: str, logger: Any = None):
@@ -86,8 +113,22 @@ def merge_streams(
     date_folder = Path(date_folder)
     iterators = []
 
-    for suffix, event_type in zip(_FILE_SUFFIXES, _EVENT_TYPES):
-        path = date_folder / f"{instrument}_{suffix}"
+    for suffix, event_type in zip(_FILE_SUFFIXES, _EVENT_TYPES, strict=False):
+        path = _resolve_stream_path(date_folder, instrument, suffix)
+        if path is None:
+            if logger:
+                logger.warn(
+                    "REPLAY_STREAM_EMPTY",
+                    msg=f"Empty or missing stream: {instrument}_{suffix}",
+                )
+            continue
+        if logger and ".recovered." in path.name:
+            # Audit-trail: track which dates fell back so we can spot
+            # systemic recorder issues vs one-off corruption events.
+            logger.warn(
+                "REPLAY_USING_RECOVERED",
+                msg=f"Using recovered stream: {path.name}",
+            )
         it = _iter_gz(path, event_type, logger)
         # Peek at first record to seed the heap
         try:

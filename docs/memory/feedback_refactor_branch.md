@@ -1,22 +1,29 @@
 ---
-name: Work directly on main (effective 2026-04-24, supersedes earlier branch-only rule)
-description: The earlier "don't commit to main; use the refactor branch" rule no longer applies. ui-refactoring was merged into main and the user has confirmed work continues directly on main.
+name: Work on the refactor branch, not main (effective 2026-04-21)
+description: The user is refactoring the entire project on a dedicated branch. All future code changes in this repo must land on `refactor` (or whatever rename the user applies), not on main.
 type: feedback
+originSessionId: e9b47b10-0d15-43ee-b09b-d2492cad3bfb
 ---
-Commit refactor and feature work directly to `main`.
+Do not commit future changes to `main`. The user is doing a project-wide
+refactor on a dedicated branch — `refactor` at the time this memory was
+written.
 
-**Why:** On 2026-04-21 the user asked to keep main untouched while reshaping the
-codebase on a dedicated branch (`ui-refactoring`). On 2026-04-24 that branch was
-merged into main (commit `9fc0bf8 Merge ui-refactoring → main`), main moved
-forward with new commits, and the user explicitly confirmed: "lets continue on
-main only." The earlier branch-quarantine rule is retired.
+**Why:** The user asked explicitly on 2026-04-21 to keep main untouched
+while they reshape the codebase. Their in-progress uncommitted refactoring
+work (deletions of auth/drizzle/oauth/db stuff, client & server
+restructuring, new `client/src/stores/` folder) was moved onto the
+`refactor` branch in that session so main stayed clean.
 
 **How to apply:**
-- Default branch for new work is `main`. Don't switch off main without an
-  explicit instruction.
-- Existing feature branches on origin (`ai-model`, `bsa-refactoring`,
-  `trade-executor-agent`, `codex-manual-paper-trade`) are not part of this — do
-  not move their work onto main without the user asking.
-- If the user later asks for a new dedicated refactor branch again, follow that
-  cue. The constant is "follow the user's current branching cue," not any
-  specific branch name.
+- At the start of a session: check `git branch --show-current`. If it's
+  `main`, switch to `refactor` before making any changes.
+- If the user renames the branch or creates additional feature branches
+  off `refactor`, follow their cue — the constant is "not on main", not
+  the specific name.
+- Fixes to production bugs (like the recorder/gzip fix on 2026-04-21)
+  are the one judgement call — if the user requests a clearly-scoped
+  urgent fix, ask whether it should go to main or ride along on the
+  refactor branch. Default to the refactor branch when ambiguous.
+- When picking up an existing feature branch off origin (ai-model,
+  bsa-refactoring, trade-executor-agent, etc.), don't move that work
+  onto `refactor` without the user asking.

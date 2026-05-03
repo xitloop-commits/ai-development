@@ -1,7 +1,14 @@
 import mongoose from "mongoose";
+import { createLogger } from "./broker/logger";
+
+const log = createLogger("BOOT", "MongoDB");
 
 // ─── Configuration ───────────────────────────────────────────────
-const MONGODB_URI = process.env.MONGODB_URI ?? "";
+// G3 — read MONGODB_URI lazily inside `connectMongo()` so vitest's
+// per-file in-memory Mongo setup (which sets process.env.MONGODB_URI
+// in `beforeAll`) actually takes effect. The previous module-level
+// `const` captured whatever was in env at import time, which for tests
+// is "" — meaning every Mongo-touching test silently no-op'd.
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
 
@@ -17,9 +24,10 @@ export async function connectMongo(): Promise<void> {
   if (mongoose.connection.readyState === 1) return; // already connected
   if (isConnecting) return; // connection in progress
 
-  if (!MONGODB_URI) {
+  const uri = process.env.MONGODB_URI ?? "";
+  if (!uri) {
     connectionError = "MONGODB_URI environment variable is not set";
-    console.error(`[MongoDB] ${connectionError}`);
+    log.error(connectionError);
     return;
   }
 
@@ -28,28 +36,24 @@ export async function connectMongo(): Promise<void> {
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      console.log(
-        `[MongoDB] Connecting (attempt ${attempt}/${MAX_RETRIES})...`
-      );
-      await mongoose.connect(MONGODB_URI, {
+      log.info(`Connecting (attempt ${attempt}/${MAX_RETRIES})...`);
+      await mongoose.connect(uri, {
         serverSelectionTimeoutMS: 5000,
         connectTimeoutMS: 10000,
       });
-      console.log(
-        `[MongoDB] Connected successfully to ${mongoose.connection.name}`
-      );
+      log.important(`Connected successfully to ${mongoose.connection.name}`);
       isConnecting = false;
       return;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[MongoDB] Attempt ${attempt} failed: ${message}`);
+      log.error(`Attempt ${attempt} failed: ${message}`);
 
       if (attempt < MAX_RETRIES) {
-        console.log(`[MongoDB] Retrying in ${RETRY_DELAY_MS}ms...`);
+        log.info(`Retrying in ${RETRY_DELAY_MS}ms...`);
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
       } else {
         connectionError = `Failed after ${MAX_RETRIES} attempts: ${message}`;
-        console.error(`[MongoDB] ${connectionError}`);
+        log.error(connectionError);
       }
     }
   }
@@ -64,9 +68,9 @@ export async function disconnectMongo(): Promise<void> {
   if (mongoose.connection.readyState === 0) return; // already disconnected
   try {
     await mongoose.disconnect();
-    console.log("[MongoDB] Disconnected");
+    log.important("Disconnected");
   } catch (err) {
-    console.error("[MongoDB] Error disconnecting:", err);
+    log.error("Error disconnecting", err as Error);
   }
 }
 
@@ -121,25 +125,20 @@ export async function pingMongo(): Promise<number> {
 
 // ─── Mongoose Event Listeners ────────────────────────────────────
 mongoose.connection.on("connected", () => {
-  console.log("[MongoDB] Connection established");
+  log.info("Connection established");
 });
 
 mongoose.connection.on("disconnected", () => {
-  console.log("[MongoDB] Connection lost");
+  log.warn("Connection lost");
 });
 
 mongoose.connection.on("error", (err) => {
-  console.error("[MongoDB] Connection error:", err.message);
+  log.error(`Connection error: ${err.message}`);
   connectionError = err.message;
 });
 
 // ─── Graceful Shutdown ───────────────────────────────────────────
-process.on("SIGINT", async () => {
-  await disconnectMongo();
-  process.exit(0);
-});
-
-process.on("SIGTERM", async () => {
-  await disconnectMongo();
-  process.exit(0);
-});
+// Mongo runs LAST in the shutdown sequence (priority 1000). Other hooks
+// at lower priorities may still be flushing writes when shutdown begins.
+import { registerShutdownHook } from "./_core/shutdown";
+registerShutdownHook("mongo", disconnectMongo, 1000);

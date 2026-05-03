@@ -41,7 +41,6 @@ import {
   type PortfolioEventType,
 } from "./storage";
 import {
-  TRADING_SPLIT,
   calculateAvailableCapital,
   calculateQuarterlyProjection,
   createDayRecord,
@@ -57,7 +56,7 @@ import { calculateTradeCharges } from "./charges";
 import type { ChargeRate } from "./charges";
 import { getUserSettings } from "../userSettings";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
-import { disciplineEngine } from "../discipline";
+import { disciplineAgent } from "../discipline";
 import type {
   PortfolioSnapshot,
   TradeClosedRequest,
@@ -67,6 +66,8 @@ import type {
   RiskSignals,
   PortfolioMetrics,
   DailyPnlReport,
+  BrokerOrderEvent,
+  BrokerOrderEventResult,
 } from "./types";
 
 const log = createLogger("PA", "Agent");
@@ -245,6 +246,7 @@ class PortfolioAgentImpl {
       entryPrice: trade.entryPrice,
       stopLoss: trade.stopLossPrice,
       target: trade.targetPrice,
+      brokerOrderId: trade.brokerOrderId,
       brokerId: trade.brokerId,
     });
     return updated;
@@ -412,6 +414,7 @@ class PortfolioAgentImpl {
       targetPrice: trade.targetPrice,
       stopLossPrice: trade.stopLossPrice,
       trailingStopEnabled: trade.trailingStopEnabled,
+      brokerOrderId: trade.brokerOrderId,
       brokerId: trade.brokerId,
       openedAt: trade.openedAt,
       closedAt: trade.closedAt,
@@ -438,14 +441,25 @@ class PortfolioAgentImpl {
     channel: Channel,
     tradeId: string,
     exitPrice: number,
-    closeStatus: TradeRecord["status"],
+    /** Optional — stamp the operator-known exit reason on the trade
+     *  alongside the close. The follow-up recordTradeClosed event also
+     *  sets exitReason; this parameter exists for callers (e.g.
+     *  reconcileDesync) that close out without going through that path. */
+    exitReason?: import("./state").ExitReason,
   ): Promise<{ trade: TradeRecord; day: DayRecord; pnl: number; charges: number }> {
     const state = await getCapitalState(channel);
     const day = await this.ensureCurrentDay(channel);
 
     const trade = day.trades.find((t) => t.id === tradeId);
     if (!trade) throw new Error(`Trade not found: ${tradeId}`);
-    if (trade.status !== "OPEN" && trade.status !== "PENDING") {
+    // BROKER_DESYNC is a permitted entry state for closeTrade — the
+    // reconcile flow uses this to flip a desync'd trade to a real close
+    // once the broker confirms the position is gone.
+    if (
+      trade.status !== "OPEN" &&
+      trade.status !== "PENDING" &&
+      trade.status !== "BROKER_DESYNC"
+    ) {
       throw new Error(`Trade already closed: ${tradeId} (status=${trade.status})`);
     }
 
@@ -479,7 +493,10 @@ class PortfolioAgentImpl {
     trade.unrealizedPnl = 0;
     trade.ltp = exitPrice;
     trade.closedAt = Date.now();
-    trade.status = closeStatus;
+    trade.status = "CLOSED";
+    if (exitReason) trade.exitReason = exitReason;
+    // Reconciliation may close a previously-desync'd trade — drop the marker.
+    if (trade.desync) delete trade.desync;
 
     // Persist day record (with recalculated aggregates)
     const updated = recalculateDayAggregates(day);
@@ -563,6 +580,183 @@ class PortfolioAgentImpl {
       trailingStopEnabled: trade.trailingStopEnabled,
     });
     return { trade, day, oldSL, oldTP };
+  }
+
+  /**
+   * B4: flag a trade as desync'd from broker after a failed broker mutation.
+   *
+   * - kind="EXIT" → also flips status to BROKER_DESYNC (limbo: position
+   *   may be open OR closed at broker; reconcile must check). Discipline
+   *   blocks new entries.
+   * - kind="MODIFY" → keeps status=OPEN, only annotates the desync. The
+   *   position is alive at the broker; only the bracket SL/TP differ.
+   *   Discipline still blocks (operator must reconcile before adding).
+   */
+  async markTradeDesync(
+    channel: Channel,
+    tradeId: string,
+    info: import("./state").DesyncInfo,
+  ): Promise<{ trade: TradeRecord; day: DayRecord }> {
+    const day = await this.ensureCurrentDay(channel);
+    const trade = day.trades.find((t) => t.id === tradeId);
+    if (!trade) throw new Error(`Trade not found: ${tradeId}`);
+
+    trade.desync = info;
+    if (info.kind === "EXIT") {
+      trade.status = "BROKER_DESYNC";
+    }
+    await upsertDayRecord(channel, day);
+    await this.audit("TRADE_DESYNC", channel, trade.id, {
+      kind: info.kind,
+      reason: info.reason,
+      timestamp: info.timestamp,
+      attempted: info.attempted,
+    });
+    return { trade, day };
+  }
+
+  /**
+   * B4: clear a trade's desync flag after operator-initiated reconciliation
+   * confirmed the position is still alive at the broker.
+   *
+   * If status was BROKER_DESYNC (an EXIT-desync that the operator now
+   * confirms is still open), it's flipped back to OPEN — the position
+   * is alive at broker, so the local state should reflect that. Caller
+   * is responsible for any SL/TP correction (use updateTrade afterwards).
+   *
+   * For positions whose status is already OPEN (a MODIFY-desync), the
+   * status is left alone — only the desync marker is removed.
+   */
+  async clearTradeDesync(
+    channel: Channel,
+    tradeId: string,
+  ): Promise<{ trade: TradeRecord; day: DayRecord }> {
+    const day = await this.ensureCurrentDay(channel);
+    const trade = day.trades.find((t) => t.id === tradeId);
+    if (!trade) throw new Error(`Trade not found: ${tradeId}`);
+    if (!trade.desync) return { trade, day };
+
+    const cleared = trade.desync;
+    const previousStatus = trade.status;
+    if (trade.status === "BROKER_DESYNC") {
+      trade.status = "OPEN";
+    }
+    delete trade.desync;
+    await upsertDayRecord(channel, day);
+    await this.audit("TRADE_DESYNC_CLEARED", channel, trade.id, {
+      kind: cleared.kind,
+      previousStatus,
+      restoredStatus: trade.status,
+      reconciledAt: Date.now(),
+    });
+    return { trade, day };
+  }
+
+  /**
+   * B4: any open trade currently flagged as desync'd? Discipline uses this
+   * to block new entries until the operator reconciles.
+   */
+  async hasUnresolvedDesync(channel: Channel): Promise<boolean> {
+    const day = await this.ensureCurrentDay(channel);
+    return day.trades.some((t) => t.desync !== undefined);
+  }
+
+  /**
+   * B11-followup 3/3 — apply a broker-emitted OrderUpdate to the local
+   * trade state. This is the single-writer entry point for broker
+   * lifecycle reconciliation; orderSync used to write directly via
+   * upsertDayRecord (PA single-writer-invariant violation), now it just
+   * forwards events here.
+   *
+   * Lookup: trades are identified by (brokerOrderId, brokerId). The
+   * brokerId pair-match disambiguates orderId collisions across adapters
+   * (commit 2/3 stamped brokerId on every event). Legacy trades that
+   * pre-date the brokerId field have brokerId=null and fall back to
+   * orderId-only matching.
+   *
+   * Only terminal-ish statuses mutate state (FILLED, CANCELLED, REJECTED,
+   * EXPIRED). Intermediate PENDING/OPEN events are no-ops — the trade is
+   * already in the matching state locally.
+   *
+   * Returns `{ matched, channel, tradeId }` for the caller (orderSync's
+   * "sync" emit + tests).
+   */
+  async applyBrokerOrderEvent(
+    update: BrokerOrderEvent,
+  ): Promise<BrokerOrderEventResult> {
+    if (
+      update.status !== "FILLED" &&
+      update.status !== "CANCELLED" &&
+      update.status !== "REJECTED" &&
+      update.status !== "EXPIRED"
+    ) {
+      return { matched: false };
+    }
+
+    // Brokers don't tell us which channel the order belongs to. Each live
+    // channel could have placed it — scan and stop at the first match.
+    const liveChannels: Channel[] = ["my-live", "ai-live", "testing-live"];
+    for (const channel of liveChannels) {
+      const state = await getCapitalState(channel).catch(() => null);
+      if (!state) continue;
+      const day = await getDayRecord(channel, state.currentDayIndex).catch(() => null);
+      if (!day) continue;
+
+      const trade = day.trades.find(
+        (t) =>
+          t.brokerOrderId === update.orderId &&
+          // Legacy trades (pre-2026-05) have brokerId=null on the trade
+          // record; for those we fall back to orderId-only matching.
+          (t.brokerId === null || t.brokerId === update.brokerId) &&
+          (t.status === "OPEN" || t.status === "PENDING"),
+      );
+      if (!trade) continue;
+
+      const previousStatus = trade.status;
+      let entryAdjusted = false;
+      let qtyAdjusted = false;
+
+      if (update.status === "FILLED") {
+        // Correct entry price + qty if the broker filled at a different
+        // value than we sent (slippage on market orders, partial fills).
+        if (update.averagePrice > 0 && update.averagePrice !== trade.entryPrice) {
+          trade.entryPrice = update.averagePrice;
+          entryAdjusted = true;
+        }
+        if (update.filledQuantity > 0 && update.filledQuantity !== trade.qty) {
+          trade.qty = update.filledQuantity;
+          qtyAdjusted = true;
+        }
+        // Promote PENDING → OPEN once the broker confirms the fill.
+        if (trade.status === "PENDING") trade.status = "OPEN";
+      } else {
+        // CANCELLED / REJECTED / EXPIRED — order never made it to market.
+        trade.status = "CANCELLED";
+        trade.exitPrice = trade.entryPrice;
+        trade.pnl = 0;
+        trade.unrealizedPnl = 0;
+        trade.closedAt = Date.now();
+      }
+
+      const updated = recalculateDayAggregates(day);
+      await upsertDayRecord(channel, updated);
+
+      await this.audit("BROKER_ORDER_EVENT", channel, trade.id, {
+        brokerId: update.brokerId,
+        brokerOrderId: update.orderId,
+        brokerStatus: update.status,
+        previousStatus,
+        newStatus: trade.status,
+        entryAdjusted,
+        qtyAdjusted,
+        averagePrice: update.averagePrice,
+        filledQuantity: update.filledQuantity,
+      });
+
+      return { matched: true, channel, tradeId: trade.id, newStatus: trade.status };
+    }
+
+    return { matched: false };
   }
 
   /**
@@ -793,15 +987,13 @@ class PortfolioAgentImpl {
 
     // Push outcome into Discipline so its streak / cooldown / circuit-breaker
     // counters track this close. Phase 3 will activate full cap-check feedback.
+    // Pass the full canonical TradeClosedEvent (Phase D3) — DA accepts
+    // wider shape than it strictly uses, so adding fields here is safe
+    // and prevents the historical "subset drop" bug.
     try {
-      await disciplineEngine.recordTradeOutcome({
-        channel: req.channel,
-        tradeId: req.tradeId,
-        realizedPnl: req.realizedPnl,
+      await disciplineAgent.recordTradeOutcome({
+        ...req,
         openingCapital,
-        exitReason: req.exitReason,
-        exitTriggeredBy: req.exitTriggeredBy,
-        signalSource: req.signalSource,
       });
     } catch (err) {
       log.warn(`recordTradeOutcome push to Discipline failed (non-fatal): ${(err as Error).message}`);
@@ -890,6 +1082,7 @@ function positionDocToTradeRecord(p: PositionStateDoc): TradeRecord {
     targetPrice: p.targetPrice,
     stopLossPrice: p.stopLossPrice,
     trailingStopEnabled: p.trailingStopEnabled,
+    brokerOrderId: p.brokerOrderId,
     brokerId: p.brokerId,
     openedAt: p.openedAt,
     closedAt: p.closedAt,

@@ -24,7 +24,6 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-
 _DEFAULT_PATH = Path("data/checkpoints/replay_progress.json")
 
 
@@ -67,10 +66,7 @@ class ReplayCheckpoint:
         data = _load(self._path)
         entry = data.get(instrument, {"last_completed_date": None, "sessions_completed": 0})
         # Only advance if date_str is after last_completed_date
-        if (
-            entry["last_completed_date"] is None
-            or date_str > entry["last_completed_date"]
-        ):
+        if entry["last_completed_date"] is None or date_str > entry["last_completed_date"]:
             entry["last_completed_date"] = date_str
         entry["sessions_completed"] = entry.get("sessions_completed", 0) + 1
         data[instrument] = entry
@@ -101,9 +97,7 @@ class ReplayCheckpoint:
             return date_from
         last_done = entry["last_completed_date"]
         # Next date after last_completed
-        next_date = (
-            date.fromisoformat(last_done) + timedelta(days=1)
-        ).isoformat()
+        next_date = (date.fromisoformat(last_done) + timedelta(days=1)).isoformat()
         return max(next_date, date_from)
 
     def get_entry(self, instrument: str) -> dict[str, Any] | None:

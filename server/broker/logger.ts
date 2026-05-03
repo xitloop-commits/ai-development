@@ -1,33 +1,31 @@
 /**
- * Shared agent-aware logger.
+ * Shared agent-aware logger — pino under the hood.
  *
- * Format:
- *   2026-04-25 10:15:23.456 [INFO ] [PA:TickHandler] Started — listening for ticks
- *   2026-04-25 10:15:23.500 [INFO ] [TEA:SeaBridge] placed LONG_CE BANKNIFTY signal=...
- *   2026-04-25 10:15:23.700 [INFO ] [BSA:Mock] Connected (paper trading mode)
+ * Format examples:
+ *   dev (pino-pretty):
+ *     [10:15:23.456] INFO  (PA:TickHandler) [req=a3f1c2b9 trade=t-281]: Started — listening for ticks
+ *   prod (raw JSON, ready for Loki / Datadog / etc.):
+ *     {"level":30,"time":...,"agent":"PA","module":"TickHandler","requestId":"a3f1c2b9","tradeId":"t-281","msg":"Started — listening for ticks"}
  *
- * Goals:
+ * Goals (preserved from the prior hand-rolled formatter):
  *   1. The agent prefix (BSA / PA / TEA / RCA / DE / BOOT) is *visible* —
- *      so log readers can trace flow across agent boundaries: e.g.
- *      [TEA:Executor] submitTrade → [BSA:Mock] placeOrder → [PA:Agent] appendTrade.
- *   2. Each agent has a base color family. Submodule lines inherit the
- *      family; the eye can quickly group by agent.
- *   3. Server boot prints a one-line legend so the colors are
- *      self-documenting.
+ *      so log readers can trace flow across agent boundaries.
+ *   2. Structured: every line is JSON in prod; pretty-printed in dev.
+ *   3. Correlation: every line carries `requestId` (and `tradeId` /
+ *      `signalId` when in scope) via AsyncLocalStorage — see
+ *      `server/_core/correlationContext.ts`.
  *
- * Usage:
+ * Usage (unchanged from the previous implementation):
  *   const log = createLogger("PA", "TickHandler");
  *   const log = createLogger("TEA", "Executor");
  *   const log = createLogger("BSA", "Dhan");
  *
- * Legacy single-argument calls (`createLogger("Dhan")`) default to agent=BSA
- * for backward compatibility — every BSA submodule used to import this
- * file when it was BSA-private.
+ * Legacy single-argument calls (`createLogger("Dhan")`) default to agent=BSA.
  */
+import pino, { type Logger as PinoLogger } from "pino";
+import { getCorrelationFields } from "../_core/correlationContext";
 
 // ─── Types ─────────────────────────────────────────────────────
-
-type Level = "DEBUG" | "INFO" | "WARN" | "ERROR";
 
 export interface Logger {
   debug(msg: string, ...args: unknown[]): void;
@@ -45,32 +43,101 @@ export interface Logger {
 /** Short agent codes used as the prefix of every tag. */
 export type AgentCode = "BSA" | "PA" | "TEA" | "RCA" | "DE" | "BOOT";
 
-// ─── ANSI colors ───────────────────────────────────────────────
+const KNOWN_AGENTS: ReadonlyArray<AgentCode> = ["BSA", "PA", "TEA", "RCA", "DE", "BOOT"];
 
-const USE_COLOR = process.stdout?.isTTY === true;
+function isKnownAgent(s: string): s is AgentCode {
+  return (KNOWN_AGENTS as readonly string[]).includes(s);
+}
 
-const LEVEL_COLOR: Record<Level, string> = {
-  DEBUG: "\x1b[90m",  // dim gray
-  INFO:  "\x1b[32m",  // green
-  WARN:  "\x1b[33m",  // yellow
-  ERROR: "\x1b[31m",  // red
-};
-
-const BOLD  = "\x1b[1m";
-const RESET = "\x1b[0m";
+// ─── Pino root ─────────────────────────────────────────────────
 
 /**
- * Base color per agent. Every log line from the agent (regardless of
- * submodule) is tinted in this color, so the eye can group by agent.
+ * Whether to use pino-pretty for human-readable colored output. Auto-on
+ * when stdout is a TTY and we're not in production; can be forced off
+ * with `LOG_PRETTY=false` (e.g. when piping into a JSON log shipper in
+ * a dev container).
  */
-const AGENT_COLORS: Record<AgentCode, string> = {
-  BSA:  "\x1b[36m",        // cyan         — Broker Service
-  PA:   "\x1b[92m",        // bright green — Portfolio Agent
-  TEA:  "\x1b[38;5;208m",  // orange       — Trade Executor Agent
-  RCA:  "\x1b[35m",        // magenta      — Risk Control Agent
-  DE:   "\x1b[33m",        // yellow       — Discipline Engine
-  BOOT: "\x1b[37m",        // light gray   — server boot / shared
-};
+const usePretty =
+  process.env.LOG_PRETTY === "false"
+    ? false
+    : process.env.NODE_ENV !== "production" && process.stdout?.isTTY === true;
+
+const root: PinoLogger = pino({
+  level: process.env.LOG_LEVEL ?? "info",
+  base: undefined, // strip pid/hostname; agent+module is enough
+  // mixin is invoked on every emit and merged into the log object — this
+  // is where AsyncLocalStorage correlation IDs land.
+  mixin: () => getCorrelationFields(),
+  ...(usePretty
+    ? {
+        transport: {
+          target: "pino-pretty",
+          options: {
+            colorize: true,
+            translateTime: "SYS:HH:MM:ss.l",
+            messageFormat: "({agent}:{module}) {msg}",
+            ignore: "pid,hostname",
+          },
+        },
+      }
+    : {}),
+});
+
+// ─── Factory ───────────────────────────────────────────────────
+
+/**
+ * Create a logger. Returns a thin adapter over a pino child so the call
+ * surface (debug / info / warn / error / important) matches the prior
+ * hand-rolled API verbatim.
+ *
+ *   createLogger("PA", "TickHandler") → child{ agent:"PA", module:"TickHandler" }
+ *   createLogger("TEA", "Executor")   → child{ agent:"TEA", module:"Executor" }
+ *   createLogger("BSA", "Dhan")       → child{ agent:"BSA", module:"Dhan" }
+ *
+ * Legacy single-arg form defaults agent=BSA for backward compat:
+ *   createLogger("Mock")  → child{ agent:"BSA", module:"Mock" }
+ */
+export function createLogger(agentOrModule: string, module?: string): Logger {
+  let agent: AgentCode;
+  let mod: string;
+  if (module === undefined) {
+    agent = "BSA";
+    mod = agentOrModule;
+  } else {
+    agent = isKnownAgent(agentOrModule) ? agentOrModule : "BSA";
+    mod = module;
+  }
+
+  const child = root.child({ agent, module: mod });
+
+  // Pino accepts an object as the first arg and a message as the second;
+  // wrapper expects (msg, ...args) with `args` being arbitrary positional
+  // values that the prior shim spread into console.* . Stash them under
+  // `args` so they survive the JSON pipeline.
+  function emit(level: "debug" | "info" | "warn" | "error", msg: string, args: unknown[]): void {
+    if (args.length === 0) {
+      child[level](msg);
+    } else {
+      // Coalesce a single Error arg into a real pino `err` field so
+      // pino-pretty / log shippers serialize stack traces properly.
+      if (args.length === 1 && args[0] instanceof Error) {
+        child[level]({ err: args[0] }, msg);
+      } else {
+        child[level]({ args }, msg);
+      }
+    }
+  }
+
+  return {
+    debug:     (msg, ...args) => emit("debug", msg, args),
+    info:      (msg, ...args) => emit("info",  msg, args),
+    warn:      (msg, ...args) => emit("warn",  msg, args),
+    error:     (msg, ...args) => emit("error", msg, args),
+    important: (msg, ...args) => emit("info",  `${msg} 🥂`, args),
+  };
+}
+
+// ─── Boot legend ───────────────────────────────────────────────
 
 /** Human description shown in the boot legend. */
 const AGENT_DESCRIPTIONS: Record<AgentCode, string> = {
@@ -78,93 +145,27 @@ const AGENT_DESCRIPTIONS: Record<AgentCode, string> = {
   PA:   "Portfolio Agent — capital, positions, drawdown, audit log",
   TEA:  "Trade Executor Agent — single execution gateway",
   RCA:  "Risk Control Agent — open-position monitor, exit triggers",
-  DE:   "Discipline Engine — pre-trade gate, cooldowns, circuit breaker",
+  DE:   "Discipline Agent — pre-trade gate, cooldowns, circuit breaker",
   BOOT: "Server Boot — Express + tRPC bootstrap, MongoDB, lifecycle",
 };
 
-function isKnownAgent(s: string): s is AgentCode {
-  return s in AGENT_COLORS;
-}
-
-// ─── Timestamp ─────────────────────────────────────────────────
-
-function ts(): string {
-  return new Date().toISOString().replace("T", " ").slice(0, 23);
-}
-
-// ─── Factory ───────────────────────────────────────────────────
-
 /**
- * Create a logger.
- *
- *   createLogger("PA", "TickHandler") → [PA:TickHandler]
- *   createLogger("TEA", "Executor")   → [TEA:Executor]
- *   createLogger("BSA", "Dhan")       → [BSA:Dhan]
- *
- * Legacy single-arg form defaults agent=BSA for backward compat:
- *   createLogger("Mock")  → [BSA:Mock]
- */
-export function createLogger(agentOrModule: string, module?: string): Logger {
-  let agent: AgentCode;
-  let mod: string;
-  if (module === undefined) {
-    // Legacy single-arg call → assume BSA
-    agent = "BSA";
-    mod = agentOrModule;
-  } else {
-    agent = isKnownAgent(agentOrModule) ? agentOrModule : "BSA";
-    mod = module;
-  }
-  const tagColor = AGENT_COLORS[agent];
-
-  function emit(level: Level, msg: string, args: unknown[]): void {
-    let line: string;
-
-    if (USE_COLOR) {
-      const lc  = LEVEL_COLOR[level];
-      const lvl = `${lc}${level.padEnd(5)}${RESET}${tagColor}`;
-      const tag = `${BOLD}${agent}:${mod}${RESET}${tagColor}`;
-      line = `${tagColor}${ts()} [${lvl}] [${tag}] ${msg}${RESET}`;
-    } else {
-      line = `${ts()} [${level.padEnd(5)}] [${agent}:${mod}] ${msg}`;
-    }
-
-    const fn = level === "ERROR"
-      ? console.error
-      : level === "WARN"
-        ? console.warn
-        : console.log;
-
-    args.length > 0 ? fn(line, ...args) : fn(line);
-  }
-
-  return {
-    debug:     (msg, ...args) => emit("DEBUG", msg, args),
-    info:      (msg, ...args) => emit("INFO",  msg, args),
-    warn:      (msg, ...args) => emit("WARN",  msg, args),
-    error:     (msg, ...args) => emit("ERROR", msg, args),
-    important: (msg, ...args) => emit("INFO",  `${msg} 🥂`, args),
-  };
-}
-
-// ─── Boot legend ───────────────────────────────────────────────
-
-/**
- * Print the agent legend. Called once at server boot so log readers can
- * see "what does each color mean" without consulting docs.
+ * Print the agent legend at boot. Goes through the root pino logger so
+ * the legend lines are themselves structured (queryable for "show me
+ * everything from agent X").
  */
 export function printAgentLegend(): void {
-  const out = console.log;
-  out(""); // blank spacer
-  out(USE_COLOR ? `${BOLD}── Agent Legend ──${RESET}` : "── Agent Legend ──");
-  for (const code of Object.keys(AGENT_COLORS) as AgentCode[]) {
-    const color = AGENT_COLORS[code];
-    const desc = AGENT_DESCRIPTIONS[code];
-    if (USE_COLOR) {
-      out(`  ${color}${BOLD}${code.padEnd(4)}${RESET}${color}  ${desc}${RESET}`);
-    } else {
-      out(`  ${code.padEnd(4)}  ${desc}`);
-    }
+  const legend = root.child({ agent: "BOOT", module: "Legend" });
+  legend.info("── Agent Legend ──");
+  for (const code of KNOWN_AGENTS) {
+    legend.info(`  ${code.padEnd(4)}  ${AGENT_DESCRIPTIONS[code]}`);
   }
-  out(""); // blank spacer
 }
+
+// ─── Test/internal hooks ───────────────────────────────────────
+
+/**
+ * Exported for unit tests so they can spy on / replace pino streams
+ * without going through `createLogger`. Not intended for production code.
+ */
+export const _rootLoggerForTests: PinoLogger = root;

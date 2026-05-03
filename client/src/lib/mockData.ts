@@ -1,4 +1,4 @@
-import type { ModuleStatus, InstrumentData, Signal, Position, SRLevel } from './types';
+import type { ModuleStatus, InstrumentData, Position } from './types';
 
 export const moduleStatuses: ModuleStatus[] = [
   {
@@ -274,81 +274,6 @@ export const naturalGasData: InstrumentData = {
   },
   newsEventFlags: ['EIA Natural Gas Storage Report (Thursday)', 'Baker Hughes Rig Count (Friday)'],
 };
-
-export const recentSignals: Signal[] = [
-  {
-    id: '1',
-    timestamp: new Date(Date.now() - 5000).toISOString(),
-    instrument: 'NIFTY 50',
-    type: 'long_buildup',
-    strike: 23300,
-    description: 'Long Buildup detected: OI +23,000, Price rising. CE 23300.',
-    severity: 'high',
-  },
-  {
-    id: '2',
-    timestamp: new Date(Date.now() - 15000).toISOString(),
-    instrument: 'NIFTY 50',
-    type: 'call_writing',
-    strike: 23500,
-    description: 'Call Writing at 23500 CE: OI +67,000. Strong resistance forming.',
-    severity: 'high',
-  },
-  {
-    id: '3',
-    timestamp: new Date(Date.now() - 30000).toISOString(),
-    instrument: 'CRUDE OIL',
-    type: 'short_buildup',
-    strike: 5400,
-    description: 'Short Buildup on 5400 PE: OI +34,000. Bearish pressure increasing.',
-    severity: 'medium',
-  },
-  {
-    id: '4',
-    timestamp: new Date(Date.now() - 45000).toISOString(),
-    instrument: 'NIFTY 50',
-    type: 'short_covering',
-    strike: 23100,
-    description: 'Short Covering at 23100 PE: OI -12,000. Support weakening.',
-    severity: 'low',
-  },
-  {
-    id: '5',
-    timestamp: new Date(Date.now() - 60000).toISOString(),
-    instrument: 'NATURAL GAS',
-    type: 'long_buildup',
-    strike: 290,
-    description: 'Long Buildup on 290 CE: OI +5,000. Mild bullish sentiment.',
-    severity: 'low',
-  },
-  {
-    id: '6',
-    timestamp: new Date(Date.now() - 90000).toISOString(),
-    instrument: 'NIFTY 50',
-    type: 'put_writing',
-    strike: 23200,
-    description: 'Put Writing at 23200 PE: OI +45,000. Strong support building.',
-    severity: 'high',
-  },
-  {
-    id: '7',
-    timestamp: new Date(Date.now() - 120000).toISOString(),
-    instrument: 'CRUDE OIL',
-    type: 'long_unwinding',
-    strike: 5600,
-    description: 'Long Unwinding at 5600 CE: OI -18,000. Bulls exiting.',
-    severity: 'medium',
-  },
-  {
-    id: '8',
-    timestamp: new Date(Date.now() - 150000).toISOString(),
-    instrument: 'NATURAL GAS',
-    type: 'call_writing',
-    strike: 300,
-    description: 'Call Writing at 300 CE: OI +8,000. Resistance at 300.',
-    severity: 'medium',
-  },
-];
 
 export const openPositions: Position[] = [
   {

@@ -1,5 +1,5 @@
 /**
- * Discipline Engine — Unit Tests
+ * Discipline Agent — Unit Tests
  *
  * Tests the pure discipline module functions without MongoDB.
  * Covers: circuit breaker, trade limits, cooldowns, time windows,
@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { checkDailyLossLimit, checkConsecutiveLosses } from "./circuitBreaker";
 import { checkMaxTrades, checkMaxPositions } from "./tradeLimits";
-import { checkCooldown, createRevengeCooldown, createConsecutiveLossCooldown, acknowledgeLoss, resolveOverlappingCooldowns } from "./cooldowns";
+import { checkCooldown, createRevengeCooldown, acknowledgeLoss, resolveOverlappingCooldowns } from "./cooldowns";
 import { checkTimeWindow } from "./timeWindows";
 import { checkPositionSize, checkExposure } from "./positionSizing";
 import { evaluatePreTradeGate } from "./preTrade";
@@ -17,22 +17,22 @@ import { getStreakStatus, calculateStreakAdjustments, updateStreak } from "./str
 import { calculateScore } from "./score";
 import type {
   DisciplineState,
-  DisciplineEngineSettings,
+  DisciplineAgentSettings,
   TradeValidationRequest,
   Exchange,
   CooldownState,
   StreakState,
 } from "./types";
-import { DEFAULT_DISCIPLINE_ENGINE_SETTINGS, createDefaultState } from "./types";
+import { DEFAULT_DISCIPLINE_AGENT_SETTINGS, createDefaultState } from "./types";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-function makeSettings(overrides?: Partial<DisciplineEngineSettings>): DisciplineEngineSettings {
+function makeSettings(overrides?: Partial<DisciplineAgentSettings>): DisciplineAgentSettings {
   return {
     userId: "test-user",
     updatedAt: new Date(),
     history: [],
-    ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS,
+    ...DEFAULT_DISCIPLINE_AGENT_SETTINGS,
     ...overrides,
   };
 }

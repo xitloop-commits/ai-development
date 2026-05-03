@@ -2,16 +2,24 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import {
   pushOptionChain,
   pushAnalyzerOutput,
-  pushPosition,
   updateModuleHeartbeat,
-  setTradingMode,
-  getTradingMode,
   getModuleStatuses,
   getInstrumentData,
   getSignals,
-  getPositions,
+  setConfiguredInstruments,
 } from './tradingStore';
-import type { RawOptionChainData, RawAnalyzerOutput, Position } from '../shared/tradingTypes';
+import type { RawOptionChainData, RawAnalyzerOutput } from '../shared/tradingTypes';
+
+// Configured instruments are loaded from MongoDB at server startup —
+// seed them in tests so getInstrumentData() returns the expected slots.
+beforeEach(() => {
+  setConfiguredInstruments([
+    { key: 'NIFTY_50',   displayName: 'NIFTY 50',    exchange: 'NSE_FNO' },
+    { key: 'BANKNIFTY',  displayName: 'BANK NIFTY',  exchange: 'NSE_FNO' },
+    { key: 'CRUDEOIL',   displayName: 'CRUDE OIL',   exchange: 'MCX_COMM' },
+    { key: 'NATURALGAS', displayName: 'NATURAL GAS', exchange: 'MCX_COMM' },
+  ]);
+});
 
 // Sample test data
 const sampleOptionChain: RawOptionChainData = {
@@ -108,43 +116,12 @@ const sampleAnalyzerOutput: RawAnalyzerOutput = {
   smart_money_signals: [],
 };
 
-const samplePosition: Position = {
-  id: 'SIM_TRD-NIFTY-001',
-  instrument: 'NIFTY_50',
-  type: 'CALL_BUY',
-  strike: 23300,
-  entryPrice: 145.5,
-  currentPrice: 162.3,
-  quantity: 50,
-  pnl: 840.0,
-  pnlPercent: 11.55,
-  slPrice: 123.68,
-  tpPrice: 189.15,
-  status: 'OPEN',
-  entryTime: new Date().toISOString(),
-};
-
 describe('tradingStore', () => {
-  describe('Trading Mode', () => {
-    it('defaults to PAPER mode', () => {
-      // Note: store is a singleton, so mode may have been changed by previous tests
-      setTradingMode('PAPER');
-      expect(getTradingMode()).toBe('PAPER');
-    });
-
-    it('can be set to LIVE', () => {
-      setTradingMode('LIVE');
-      expect(getTradingMode()).toBe('LIVE');
-      // Reset
-      setTradingMode('PAPER');
-    });
-  });
-
   describe('Module Statuses', () => {
-    it('returns 4 module statuses', () => {
+    it('returns 5 module statuses (Python pipeline + TS agents)', () => {
       const statuses = getModuleStatuses();
-      expect(statuses).toHaveLength(4);
-      expect(statuses.map(s => s.shortName)).toEqual(['FETCHER', 'ANALYZER', 'AI ENGINE', 'EXECUTOR']);
+      expect(statuses).toHaveLength(5);
+      expect(statuses.map(s => s.shortName)).toEqual(['FETCHER', 'ANALYZER', 'TEA', 'RCA', 'PA']);
     });
 
     it('updates heartbeat for a module', () => {
@@ -218,28 +195,6 @@ describe('tradingStore', () => {
       // Check that at least one signal was created from the OI change signals
       const niftySignals = signals.filter(s => s.instrument === 'NIFTY_50');
       expect(niftySignals.length).toBeGreaterThan(0);
-    });
-  });
-
-  describe('Positions', () => {
-    it('pushes and retrieves positions', () => {
-      pushPosition(samplePosition);
-      const positions = getPositions();
-      expect(positions.length).toBeGreaterThan(0);
-      const pos = positions.find(p => p.id === 'SIM_TRD-NIFTY-001');
-      expect(pos).toBeDefined();
-      expect(pos!.instrument).toBe('NIFTY_50');
-      expect(pos!.status).toBe('OPEN');
-    });
-
-    it('updates existing position by id', () => {
-      const updatedPosition = { ...samplePosition, status: 'CLOSED' as const, pnl: 1200 };
-      pushPosition(updatedPosition);
-      const positions = getPositions();
-      const pos = positions.find(p => p.id === 'SIM_TRD-NIFTY-001');
-      expect(pos).toBeDefined();
-      expect(pos!.status).toBe('CLOSED');
-      expect(pos!.pnl).toBe(1200);
     });
   });
 

@@ -72,7 +72,7 @@ const INST_BG: Record<string, string> = {
   NATURALGAS: 'bg-destructive/5',
 };
 
-const INST_PILL: Record<string, string> = {
+const _INST_PILL: Record<string, string> = {
   NIFTY: 'bg-info-cyan/15 text-info-cyan border-info-cyan/30',
   BANKNIFTY: 'bg-bullish/15 text-bullish border-bullish/30',
   CRUDEOIL: 'bg-warning-amber/15 text-warning-amber border-warning-amber/30',
@@ -196,7 +196,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
             const action = signal.action ?? signal.direction?.replace('GO_', '') ?? '';
             const isLong = action.startsWith('LONG');
             const isShort = action.startsWith('SHORT');
-            const isCE = action.includes('CE');
+            const _isCE = action.includes('CE');
             const Icon = (isLong || signal.direction === 'GO_CALL') ? TrendingUp : TrendingDown;
             const accentColor = isLong ? 'text-bullish' : isShort ? 'text-warning-amber' : signal.direction === 'GO_CALL' ? 'text-bullish' : 'text-destructive';
             const borderColor = isLong ? 'border-l-bullish' : isShort ? 'border-l-warning-amber' : signal.direction === 'GO_CALL' ? 'border-l-bullish' : 'border-l-destructive';

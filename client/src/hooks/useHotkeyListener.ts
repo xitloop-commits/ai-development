@@ -26,7 +26,7 @@ export function useHotkeyListener(hotkeyMap: HotkeyMap, onHotkey: (action: Hotke
     }
 
     if (hotkeyMap[key]) {
-      console.log('[Hotkey] Triggered:', key, hotkeyMap[key]);
+      if (import.meta.env.DEV) console.log('[Hotkey] Triggered:', key, hotkeyMap[key]);
       event.preventDefault();
       onHotkey(hotkeyMap[key]);
     }

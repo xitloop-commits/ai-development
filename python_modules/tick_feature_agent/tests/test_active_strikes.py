@@ -12,24 +12,30 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
+
 from tick_feature_agent.features.active_strikes import (
     StrikeScore,
+    _normalize,
     compute_strike_scores,
     select_active_strikes,
-    _normalize,
 )
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _row(strike: int, call_vol: float = 0, put_vol: float = 0,
-         call_oi_chg: float = 0, put_oi_chg: float = 0) -> dict:
+
+def _row(
+    strike: int,
+    call_vol: float = 0,
+    put_vol: float = 0,
+    call_oi_chg: float = 0,
+    put_oi_chg: float = 0,
+) -> dict:
     return {
-        "strike":       strike,
-        "callVolume":   call_vol,
-        "putVolume":    put_vol,
+        "strike": strike,
+        "callVolume": call_vol,
+        "putVolume": put_vol,
         "callOIChange": call_oi_chg,
-        "putOIChange":  put_oi_chg,
+        "putOIChange": put_oi_chg,
     }
 
 
@@ -40,6 +46,7 @@ def _prev_row(strike: int, call_vol: float = 0, put_vol: float = 0) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 # _normalize (internal helper — tested directly for edge-case coverage)
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestNormalize:
 
@@ -76,6 +83,7 @@ class TestNormalize:
 # compute_strike_scores
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestComputeStrikeScores:
 
     def test_returns_one_score_per_row(self):
@@ -92,13 +100,13 @@ class TestComputeStrikeScores:
     def test_no_prev_rows_vol_scores_zero(self):
         rows = [
             _row(24000, call_vol=1000, put_vol=500),
-            _row(24050, call_vol=800,  put_vol=300),
+            _row(24050, call_vol=800, put_vol=300),
         ]
         scores = compute_strike_scores(rows, prev_rows=None)
         assert all(s.vol_score == 0.0 for s in scores)
 
     def test_vol_score_with_prev_rows(self):
-        rows      = [_row(24000, call_vol=1200, put_vol=600)]
+        rows = [_row(24000, call_vol=1200, put_vol=600)]
         prev_rows = [_prev_row(24000, call_vol=1000, put_vol=400)]
         scores = compute_strike_scores(rows, prev_rows)
         # vol_score = (1200-1000) + (600-400) = 400
@@ -106,7 +114,7 @@ class TestComputeStrikeScores:
 
     def test_vol_score_clamped_to_zero_on_decrease(self):
         # Volume can't decrease — guard against stale data
-        rows      = [_row(24000, call_vol=900, put_vol=400)]
+        rows = [_row(24000, call_vol=900, put_vol=400)]
         prev_rows = [_prev_row(24000, call_vol=1000, put_vol=500)]
         scores = compute_strike_scores(rows, prev_rows)
         assert scores[0].vol_score == 0.0
@@ -148,12 +156,12 @@ class TestComputeStrikeScores:
         assert strengths[24100] == pytest.approx(1.0)
 
     def test_prev_row_for_missing_strike_treated_as_zero(self):
-        rows      = [_row(24000, call_vol=500), _row(24100, call_vol=300)]
+        rows = [_row(24000, call_vol=500), _row(24100, call_vol=300)]
         prev_rows = [_prev_row(24000, call_vol=200)]  # 24100 absent from prev
         scores = compute_strike_scores(rows, prev_rows)
         score_map = {s.strike: s for s in scores}
-        assert score_map[24000].vol_score == pytest.approx(300.0)   # 500−200
-        assert score_map[24100].vol_score == pytest.approx(300.0)   # 300−0
+        assert score_map[24000].vol_score == pytest.approx(300.0)  # 500−200
+        assert score_map[24100].vol_score == pytest.approx(300.0)  # 300−0
 
     def test_returns_StrikeScore_instances(self):
         scores = compute_strike_scores([_row(24000)], prev_rows=None)
@@ -163,6 +171,7 @@ class TestComputeStrikeScores:
 # ══════════════════════════════════════════════════════════════════════════════
 # select_active_strikes
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestSelectActiveStrikes:
 
@@ -200,8 +209,7 @@ class TestSelectActiveStrikes:
     def test_first_snapshot_max_top_n_strikes(self):
         rows = [_row(s, call_oi_chg=100) for s in range(24000, 24400, 50)]  # 8 strikes
         scores = compute_strike_scores(rows, prev_rows=None)
-        result = select_active_strikes(scores, spot=24150.0,
-                                       vol_diff_available=False, top_n=3)
+        result = select_active_strikes(scores, spot=24150.0, vol_diff_available=False, top_n=3)
         assert len(result) <= 3
 
     # ── OI set selection ──────────────────────────────────────────────────────
@@ -225,7 +233,7 @@ class TestSelectActiveStrikes:
     def test_oi_nonzero_filter(self):
         rows = [
             _row(24000, call_oi_chg=100),
-            _row(24050),                    # zero OI change
+            _row(24050),  # zero OI change
             _row(24100, call_oi_chg=200),
         ]
         scores = compute_strike_scores(rows, prev_rows=None)
@@ -273,9 +281,9 @@ class TestSelectActiveStrikes:
             _row(24000, call_vol=100, call_oi_chg=0),
             _row(24050, call_vol=200, call_oi_chg=0),
             _row(24100, call_vol=300, call_oi_chg=0),
-            _row(24150, call_vol=0,   call_oi_chg=100),
-            _row(24200, call_vol=0,   call_oi_chg=200),
-            _row(24250, call_vol=0,   call_oi_chg=300),
+            _row(24150, call_vol=0, call_oi_chg=100),
+            _row(24200, call_vol=0, call_oi_chg=200),
+            _row(24250, call_vol=0, call_oi_chg=300),
         ]
         prev_rows = [_prev_row(s) for s in [24000, 24050, 24100, 24150, 24200, 24250]]
         scores = compute_strike_scores(rows, prev_rows)
@@ -288,14 +296,14 @@ class TestSelectActiveStrikes:
             _row(24000, call_vol=100, call_oi_chg=50),
             _row(24050, call_vol=200, call_oi_chg=100),
             _row(24100, call_vol=300, call_oi_chg=200),  # in both sets
-            _row(24150, call_vol=0,   call_oi_chg=300),
-            _row(24200, call_vol=0,   call_oi_chg=400),
+            _row(24150, call_vol=0, call_oi_chg=300),
+            _row(24200, call_vol=0, call_oi_chg=400),
         ]
         prev_rows = [_prev_row(s) for s in [24000, 24050, 24100, 24150, 24200]]
         scores = compute_strike_scores(rows, prev_rows)
         result = select_active_strikes(scores, spot=24100.0, vol_diff_available=True)
         strikes = [s.strike for s in result]
-        assert len(strikes) == len(set(strikes))   # no duplicates
+        assert len(strikes) == len(set(strikes))  # no duplicates
 
     # ── Tiebreaker ────────────────────────────────────────────────────────────
 
@@ -321,9 +329,9 @@ class TestSelectActiveStrikes:
         # 24050 (distance=50, below) and 24150 (distance=50, above) have equal scores.
         # With top_n=1, only 1 strike is selected: 24150 wins because it is above spot.
         rows = [
-            _row(24000, call_oi_chg=500),   # distance=100
-            _row(24050, call_oi_chg=500),   # distance=50, below
-            _row(24150, call_oi_chg=500),   # distance=50, above — beats 24050
+            _row(24000, call_oi_chg=500),  # distance=100
+            _row(24050, call_oi_chg=500),  # distance=50, below
+            _row(24150, call_oi_chg=500),  # distance=50, above — beats 24050
         ]
         scores = compute_strike_scores(rows, prev_rows=None)
         result = select_active_strikes(scores, spot=spot, vol_diff_available=False, top_n=1)
@@ -335,9 +343,9 @@ class TestSelectActiveStrikes:
 
     def test_result_ordered_by_descending_strength(self):
         rows = [
-            _row(24000, call_oi_chg=100),   # strength=low
-            _row(24050, call_oi_chg=500),   # strength=high
-            _row(24100, call_oi_chg=300),   # strength=mid
+            _row(24000, call_oi_chg=100),  # strength=low
+            _row(24050, call_oi_chg=500),  # strength=high
+            _row(24100, call_oi_chg=300),  # strength=mid
         ]
         scores = compute_strike_scores(rows, prev_rows=None)
         result = select_active_strikes(scores, spot=24050.0, vol_diff_available=False)
@@ -360,9 +368,8 @@ class TestSelectActiveStrikes:
         rows = [_row(s, call_oi_chg=100, call_vol=100) for s in range(24000, 24700, 50)]
         prev_rows = [_prev_row(s) for s in range(24000, 24700, 50)]
         scores = compute_strike_scores(rows, prev_rows)
-        result = select_active_strikes(scores, spot=24100.0,
-                                       vol_diff_available=True, top_n=1)
-        assert len(result) <= 2   # 1 from OI set + 1 from vol set (may overlap → 1)
+        result = select_active_strikes(scores, spot=24100.0, vol_diff_available=True, top_n=1)
+        assert len(result) <= 2  # 1 from OI set + 1 from vol set (may overlap → 1)
 
     def test_top_n_default_is_3(self):
         # 3+3 non-overlapping sets → 6 strikes maximum

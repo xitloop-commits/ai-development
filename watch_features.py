@@ -13,74 +13,129 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 
 # ── CLI args ──────────────────────────────────────────────────────────────────
 instrument = sys.argv[1] if len(sys.argv) > 1 else "crudeoil"
-full_mode  = "--full" in sys.argv
-interval   = float(next((sys.argv[i+1] for i, a in enumerate(sys.argv)
-                         if a == "--interval" and i+1 < len(sys.argv)), 1.0))
+full_mode = "--full" in sys.argv
+interval = float(
+    next(
+        (
+            sys.argv[i + 1]
+            for i, a in enumerate(sys.argv)
+            if a == "--interval" and i + 1 < len(sys.argv)
+        ),
+        1.0,
+    )
+)
 
 path = Path(f"data/features/{instrument}_live.ndjson")
 
 # ── Summary groups (shown in default mode — fits one screen) ─────────────────
 GROUPS = [
-    ("MARKET", [
-        "timestamp", "spot_price", "atm_strike", "strike_step",
-        "trading_state", "is_market_open", "chain_available",
-    ]),
-    ("PRICE", [
-        "underlying_ltp", "underlying_return_5ticks", "underlying_return_20ticks",
-        "underlying_momentum", "underlying_velocity", "underlying_tick_imbalance_20",
-    ]),
-    ("OFI & VOL", [
-        "underlying_ofi_5", "underlying_ofi_20",
-        "underlying_realized_vol_5", "underlying_realized_vol_20",
-    ]),
-    ("COMPRESSION", [
-        "volatility_compression", "breakout_readiness",
-        "time_since_last_big_move", "stagnation_duration_sec",
-    ]),
-    ("REGIME & CHAIN", [
-        "regime", "chain_pcr_atm", "chain_oi_imbalance_atm", "dead_market_score",
-    ]),
-    ("ATM OPTION (0 strike)", [
-        "opt_0_ce_ltp", "opt_0_ce_bid_ask_imbalance",
-        "opt_0_pe_ltp", "opt_0_pe_bid_ask_imbalance",
-    ]),
-    ("CALL SETUP", [
-        # Direction
-        "underlying_momentum",
-        "underlying_velocity",
-        "underlying_tick_imbalance_20",
-        # Order flow
-        "underlying_ofi_5",
-        "underlying_ofi_20",
-        # ATM call health
-        "opt_0_ce_ltp",
-        "opt_0_ce_bid_ask_imbalance",
-        "opt_m1_ce_bid_ask_imbalance",
-        # Chain
-        "chain_pcr_atm",
-        "chain_oi_imbalance_atm",
-        # Regime & breakout
-        "regime",
-        "volatility_compression",
-        "breakout_readiness",
-    ]),
-    ("TARGETS", [
-        "max_upside_30s", "max_drawdown_30s", "direction_30s",
-        "max_upside_60s", "max_drawdown_60s", "direction_60s",
-        "upside_percentile_30s",
-    ]),
+    (
+        "MARKET",
+        [
+            "timestamp",
+            "spot_price",
+            "atm_strike",
+            "strike_step",
+            "trading_state",
+            "is_market_open",
+            "chain_available",
+        ],
+    ),
+    (
+        "PRICE",
+        [
+            "underlying_ltp",
+            "underlying_return_5ticks",
+            "underlying_return_20ticks",
+            "underlying_momentum",
+            "underlying_velocity",
+            "underlying_tick_imbalance_20",
+        ],
+    ),
+    (
+        "OFI & VOL",
+        [
+            "underlying_ofi_5",
+            "underlying_ofi_20",
+            "underlying_realized_vol_5",
+            "underlying_realized_vol_20",
+        ],
+    ),
+    (
+        "COMPRESSION",
+        [
+            "volatility_compression",
+            "breakout_readiness",
+            "time_since_last_big_move",
+            "stagnation_duration_sec",
+        ],
+    ),
+    (
+        "REGIME & CHAIN",
+        [
+            "regime",
+            "chain_pcr_atm",
+            "chain_oi_imbalance_atm",
+            "dead_market_score",
+        ],
+    ),
+    (
+        "ATM OPTION (0 strike)",
+        [
+            "opt_0_ce_ltp",
+            "opt_0_ce_bid_ask_imbalance",
+            "opt_0_pe_ltp",
+            "opt_0_pe_bid_ask_imbalance",
+        ],
+    ),
+    (
+        "CALL SETUP",
+        [
+            # Direction
+            "underlying_momentum",
+            "underlying_velocity",
+            "underlying_tick_imbalance_20",
+            # Order flow
+            "underlying_ofi_5",
+            "underlying_ofi_20",
+            # ATM call health
+            "opt_0_ce_ltp",
+            "opt_0_ce_bid_ask_imbalance",
+            "opt_m1_ce_bid_ask_imbalance",
+            # Chain
+            "chain_pcr_atm",
+            "chain_oi_imbalance_atm",
+            # Regime & breakout
+            "regime",
+            "volatility_compression",
+            "breakout_readiness",
+        ],
+    ),
+    (
+        "TARGETS",
+        [
+            "max_upside_30s",
+            "max_drawdown_30s",
+            "direction_30s",
+            "max_upside_60s",
+            "max_drawdown_60s",
+            "direction_60s",
+            "upside_percentile_30s",
+        ],
+    ),
 ]
 
 _DIRECTION_KEYS = {"direction_30s", "direction_60s"}
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def fmt_val(k, v):
     if v is None:
@@ -100,8 +155,10 @@ def fmt_val(k, v):
 
 
 def direction_arrow(v):
-    if v == 1:  return "UP"
-    if v == -1: return "DOWN"
+    if v == 1:
+        return "UP"
+    if v == -1:
+        return "DOWN"
     return "FLAT"
 
 
@@ -113,26 +170,41 @@ def clear():
 # Each entry: (field, label, bull_fn)
 # bull_fn(v) → +1 (BULL), -1 (BEAR), 0 (NEUTRAL)
 
+
 def _sign(v, thresh=0.0):
     if v is None or (isinstance(v, float) and v != v):  # nan
         return 0
     return 1 if v > thresh else (-1 if v < -thresh else 0)
 
+
 _CALL_SIGNALS = [
     # field                         display label                  bull = ...
-    ("underlying_momentum",         "Momentum",                    lambda v: _sign(v, 0.05)),
-    ("underlying_velocity",         "Velocity",                    lambda v: _sign(v, 0.05)),
-    ("underlying_tick_imbalance_20","Tick imbalance (20)",         lambda v: _sign(v, 0.1)),
-    ("underlying_ofi_5",            "OFI short (5)",               lambda v: _sign(v, 0.0)),
-    ("underlying_ofi_20",           "OFI medium (20)",             lambda v: _sign(v, 0.0)),
-    ("opt_0_ce_bid_ask_imbalance",  "ATM call bid/ask imbal",      lambda v: _sign(v, 0.1)),
-    ("opt_m1_ce_bid_ask_imbalance", "ITM call bid/ask imbal",      lambda v: _sign(v, 0.1)),
-    ("chain_pcr_atm",               "PCR ATM  (< 0.8 = bull)",     lambda v: (1 if v is not None and v < 0.8 else (-1 if v is not None and v > 1.2 else 0))),
-    ("chain_oi_imbalance_atm",      "OI imbalance ATM",            lambda v: _sign(v, 0.05)),
-    ("regime",                      "Regime",                      lambda v: (1 if v == "TRENDING" else (-1 if v == "DEAD" else 0))),
-    ("volatility_compression",      "Vol compression (> 0.6)",     lambda v: (1 if v is not None and v > 0.6 else 0)),
-    ("breakout_readiness",          "Breakout readiness (> 0.6)",  lambda v: (1 if v is not None and v > 0.6 else 0)),
+    ("underlying_momentum", "Momentum", lambda v: _sign(v, 0.05)),
+    ("underlying_velocity", "Velocity", lambda v: _sign(v, 0.05)),
+    ("underlying_tick_imbalance_20", "Tick imbalance (20)", lambda v: _sign(v, 0.1)),
+    ("underlying_ofi_5", "OFI short (5)", lambda v: _sign(v, 0.0)),
+    ("underlying_ofi_20", "OFI medium (20)", lambda v: _sign(v, 0.0)),
+    ("opt_0_ce_bid_ask_imbalance", "ATM call bid/ask imbal", lambda v: _sign(v, 0.1)),
+    ("opt_m1_ce_bid_ask_imbalance", "ITM call bid/ask imbal", lambda v: _sign(v, 0.1)),
+    (
+        "chain_pcr_atm",
+        "PCR ATM  (< 0.8 = bull)",
+        lambda v: (1 if v is not None and v < 0.8 else (-1 if v is not None and v > 1.2 else 0)),
+    ),
+    ("chain_oi_imbalance_atm", "OI imbalance ATM", lambda v: _sign(v, 0.05)),
+    ("regime", "Regime", lambda v: (1 if v == "TRENDING" else (-1 if v == "DEAD" else 0))),
+    (
+        "volatility_compression",
+        "Vol compression (> 0.6)",
+        lambda v: (1 if v is not None and v > 0.6 else 0),
+    ),
+    (
+        "breakout_readiness",
+        "Breakout readiness (> 0.6)",
+        lambda v: (1 if v is not None and v > 0.6 else 0),
+    ),
 ]
+
 
 def _signal_str(sig: int, v) -> str:
     val = fmt_val("", v)
@@ -147,11 +219,14 @@ def print_call_setup(row):
     bull = bear = neutral = 0
     lines = []
     for field, label, fn in _CALL_SIGNALS:
-        v   = row.get(field)
+        v = row.get(field)
         sig = fn(v)
-        if sig == 1:   bull    += 1
-        elif sig == -1: bear   += 1
-        else:           neutral += 1
+        if sig == 1:
+            bull += 1
+        elif sig == -1:
+            bear += 1
+        else:
+            neutral += 1
         lines.append((label, v, sig))
 
     total = bull + bear
@@ -199,9 +274,6 @@ def print_full(row):
         prefix = k.split("_")[0] if "_" in k else k
         sections.setdefault(prefix, []).append(k)
 
-    col = 0
-    LINE_W = 48
-
     for prefix, keys in sections.items():
         print(f"\n  [{prefix.upper()}]")
         for k in keys:
@@ -212,7 +284,7 @@ def print_full(row):
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
-last_row  = None
+last_row = None
 row_count = 0
 _prev_ltp = None
 
@@ -221,17 +293,19 @@ mode_label = "FULL (all cols)" if full_mode else "SUMMARY  [--full for all cols]
 while True:
     try:
         if path.exists():
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 lines = f.readlines()
             if lines:
                 row_count = len(lines)
-                last_row  = json.loads(lines[-1])
+                last_row = json.loads(lines[-1])
     except Exception:
         pass
 
     clear()
     now_ist = datetime.now(_IST).strftime("%H:%M:%S IST")
-    print(f"  TFA Live — {instrument.upper()}   [{now_ist}]   rows: {row_count}   mode: {mode_label}")
+    print(
+        f"  TFA Live — {instrument.upper()}   [{now_ist}]   rows: {row_count}   mode: {mode_label}"
+    )
     print("  " + "─" * 64)
 
     if last_row is None:

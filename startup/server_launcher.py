@@ -20,9 +20,10 @@ import time
 if sys.platform == "win32":
     try:
         import ctypes
+
         _k32 = ctypes.windll.kernel32
-        _h   = _k32.GetStdHandle(-11)
-        _m   = ctypes.c_ulong()
+        _h = _k32.GetStdHandle(-11)
+        _m = ctypes.c_ulong()
         _k32.GetConsoleMode(_h, ctypes.byref(_m))
         _k32.SetConsoleMode(_h, _m.value | 0x0004)
     except Exception:
@@ -31,11 +32,13 @@ if sys.platform == "win32":
 # ── ANSI helpers ──────────────────────────────────────────────────────────
 _NO_COLOUR = bool(os.environ.get("NO_COLOR"))
 
+
 def _c(code, text):
     return text if _NO_COLOUR else f"\033[{code}m{text}\033[0m"
 
-BOLD   = lambda t: _c("1",  t)
-GREEN  = lambda t: _c("32", t)
+
+BOLD = lambda t: _c("1", t)
+GREEN = lambda t: _c("32", t)
 YELLOW = lambda t: _c("33", t)
 
 
@@ -54,10 +57,9 @@ def _run_once():
     # otherwise Next.js steals keypresses (e.g. Enter triggers HMR reload)
     # and only Python's msvcrt owns the keyboard for the Esc menu.
     cmd = "pnpm dev"
-    proc = subprocess.Popen(cmd, shell=True, cwd=os.getcwd(),
-                            stdin=subprocess.DEVNULL)
+    proc = subprocess.Popen(cmd, shell=True, cwd=os.getcwd(), stdin=subprocess.DEVNULL)
 
-    action = [None]   # mutable cell shared with keyboard thread
+    action = [None]  # mutable cell shared with keyboard thread
 
     def _kb_watch():
         if sys.platform != "win32":
@@ -95,19 +97,19 @@ def _run_once():
                     continue
                 ch2 = msvcrt.getwch()
 
-                if ch2 == "\x1b":           # Esc → exit
+                if ch2 == "\x1b":  # Esc → exit
                     action[0] = "exit"
                     proc.terminate()
                     return
 
-                elif ch2 in ("\r", "\n"):   # Enter → restart
+                elif ch2 in ("\r", "\n"):  # Enter → restart
                     action[0] = "restart"
                     proc.terminate()
                     return
 
-                elif ch2.lower() == "c":    # C → continue
+                elif ch2.lower() == "c":  # C → continue
                     _msg(f"\n  {GREEN('▶ Continuing...')}\n")
-                    break   # back to outer loop
+                    break  # back to outer loop
 
     kb_thread = threading.Thread(target=_kb_watch, daemon=True)
     kb_thread.start()
@@ -141,7 +143,7 @@ def main():
             _msg(f"\n  {GREEN('↺ Restarting...')}\n")
             # loop continues → pnpm dev starts again
         else:
-            _msg(f"\n  Stopped.\n")
+            _msg("\n  Stopped.\n")
             break
 
 

@@ -37,13 +37,13 @@ import math
 _NAN = float("nan")
 
 # Hardcoded spec constants
-_COMPRESSION_THRESHOLD         = 0.4
-_STAGNATION_THRESHOLD_SEC      = 10.0
+_COMPRESSION_THRESHOLD = 0.4
+_STAGNATION_THRESHOLD_SEC = 10.0
 _MOMENTUM_PERSISTENCE_THRESHOLD = 3
-_ZONE_PRESSURE_MIN             = 0.3
-_DEAD_SCORE_MAX                = 0.5
-_STAGNATION_CAP_SEC            = 300.0
-_STAGNATION_PRICE_THRESHOLD    = 0.001   # 0.1% of LTP
+_ZONE_PRESSURE_MIN = 0.3
+_DEAD_SCORE_MAX = 0.5
+_STAGNATION_CAP_SEC = 300.0
+_STAGNATION_PRICE_THRESHOLD = 0.001  # 0.1% of LTP
 
 
 class TimeToMoveState:
@@ -53,11 +53,11 @@ class TimeToMoveState:
 
     __slots__ = (
         "_tick_count",
-        "_velocity_history",       # abs(velocity) for all session ticks
-        "_last_big_move_ts",       # wall-clock ts of last big move (None = none yet)
-        "_stagnation_sec",         # current stagnation counter
-        "_persist_direction",      # current streak direction (-1, 0, +1)
-        "_persist_length",         # current streak length
+        "_velocity_history",  # abs(velocity) for all session ticks
+        "_last_big_move_ts",  # wall-clock ts of last big move (None = none yet)
+        "_stagnation_sec",  # current stagnation counter
+        "_persist_direction",  # current streak direction (-1, 0, +1)
+        "_persist_length",  # current streak length
     )
 
     def __init__(self) -> None:
@@ -65,12 +65,12 @@ class TimeToMoveState:
 
     def reset(self) -> None:
         """Reset to session-start state."""
-        self._tick_count:         int            = 0
-        self._velocity_history:   list[float]    = []
-        self._last_big_move_ts:   float | None   = None
-        self._stagnation_sec:     float          = 0.0
-        self._persist_direction:  int            = 0   # UNDEFINED on tick 1
-        self._persist_length:     int            = 1
+        self._tick_count: int = 0
+        self._velocity_history: list[float] = []
+        self._last_big_move_ts: float | None = None
+        self._stagnation_sec: float = 0.0
+        self._persist_direction: int = 0  # UNDEFINED on tick 1
+        self._persist_length: int = 1
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -108,10 +108,10 @@ class TimeToMoveState:
         self._tick_count += 1
 
         out: dict = {
-            "time_since_last_big_move":    _NAN,
-            "stagnation_duration_sec":     0.0,
-            "momentum_persistence_ticks":  1,
-            "breakout_readiness":          0.0,
+            "time_since_last_big_move": _NAN,
+            "stagnation_duration_sec": 0.0,
+            "momentum_persistence_ticks": 1,
+            "breakout_readiness": 0.0,
             "breakout_readiness_extended": 0.0,
         }
 
@@ -124,13 +124,12 @@ class TimeToMoveState:
         if len(self._velocity_history) >= 2:
             vels = sorted(self._velocity_history)
             n = len(vels)
-            median_vel = (vels[n // 2] if n % 2 == 1
-                          else (vels[n // 2 - 1] + vels[n // 2]) / 2.0)
+            median_vel = vels[n // 2] if n % 2 == 1 else (vels[n // 2 - 1] + vels[n // 2]) / 2.0
 
         # ── time_since_last_big_move ───────────────────────────────────────────
         if self._tick_count >= 3 and not math.isnan(velocity) and not math.isnan(median_vel):
             if median_vel == 0.0:
-                pass   # no threshold — stays NaN
+                pass  # no threshold — stays NaN
             else:
                 if abs(velocity) > 2.0 * median_vel:
                     self._last_big_move_ts = timestamp
@@ -155,8 +154,8 @@ class TimeToMoveState:
         # ── momentum_persistence_ticks ─────────────────────────────────────────
         if self._tick_count == 1 or prev_ltp is None:
             # Tick 1: no direction yet
-            self._persist_direction = 0   # UNDEFINED
-            self._persist_length    = 1
+            self._persist_direction = 0  # UNDEFINED
+            self._persist_length = 1
         else:
             diff = ltp - prev_ltp
             direction = 1 if diff > 0 else (-1 if diff < 0 else 0)
@@ -166,34 +165,38 @@ class TimeToMoveState:
             elif self._persist_direction == 0:
                 # First non-flat tick: set direction, length = 2 (includes tick 1)
                 self._persist_direction = direction
-                self._persist_length    = 2
+                self._persist_length = 2
             elif direction == self._persist_direction:
                 self._persist_length += 1
             else:
                 # Direction change
                 self._persist_direction = direction
-                self._persist_length    = 1
+                self._persist_length = 1
         out["momentum_persistence_ticks"] = self._persist_length
 
         # ── breakout_readiness ─────────────────────────────────────────────────
-        if (regime is not None
-                and not math.isnan(vol_compression)
-                and regime == "RANGE"
-                and vol_compression < _COMPRESSION_THRESHOLD
-                and self._stagnation_sec > _STAGNATION_THRESHOLD_SEC
-                and self._persist_length > _MOMENTUM_PERSISTENCE_THRESHOLD):
+        if (
+            regime is not None
+            and not math.isnan(vol_compression)
+            and regime == "RANGE"
+            and vol_compression < _COMPRESSION_THRESHOLD
+            and self._stagnation_sec > _STAGNATION_THRESHOLD_SEC
+            and self._persist_length > _MOMENTUM_PERSISTENCE_THRESHOLD
+        ):
             out["breakout_readiness"] = 1.0
 
         # ── breakout_readiness_extended ────────────────────────────────────────
-        if (regime is not None
-                and not math.isnan(vol_compression)
-                and not math.isnan(zone_call_pressure)
-                and not math.isnan(dead_market_score)
-                and regime in ("RANGE", "NEUTRAL")
-                and vol_compression < _COMPRESSION_THRESHOLD
-                and self._stagnation_sec > _STAGNATION_THRESHOLD_SEC
-                and max(zone_call_pressure, zone_put_pressure) > _ZONE_PRESSURE_MIN
-                and dead_market_score < _DEAD_SCORE_MAX):
+        if (
+            regime is not None
+            and not math.isnan(vol_compression)
+            and not math.isnan(zone_call_pressure)
+            and not math.isnan(dead_market_score)
+            and regime in ("RANGE", "NEUTRAL")
+            and vol_compression < _COMPRESSION_THRESHOLD
+            and self._stagnation_sec > _STAGNATION_THRESHOLD_SEC
+            and max(zone_call_pressure, zone_put_pressure) > _ZONE_PRESSURE_MIN
+            and dead_market_score < _DEAD_SCORE_MAX
+        ):
             out["breakout_readiness_extended"] = 1.0
 
         return out

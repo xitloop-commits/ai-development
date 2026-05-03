@@ -8,6 +8,7 @@ Usage:
     py backtest_compare.py nifty50 --date 2026-04-16 \\
         --run1 20260418_002808 --run2 20260420_xxxx
 """
+
 from __future__ import annotations
 
 import argparse
@@ -58,7 +59,7 @@ def compare(
         v1, v2 = versions[-2], versions[-1]
     elif len(versions) == 1:
         print(f"\n  Only 1 backtest run found for {instrument}: {versions[0]}")
-        print(f"  Need at least 2 runs to compare. Train a new model and backtest again.\n")
+        print("  Need at least 2 runs to compare. Train a new model and backtest again.\n")
         return
     else:
         print(f"\n  No backtest runs found for {instrument} in {backtests_root}\n")
@@ -75,9 +76,9 @@ def compare(
         return
 
     print()
-    print(f"  ══════════════════════════════════════════════════════════════════��════════")
+    print("  ══════════════════════════════════════════════════════════════════��════════")
     print(f"    COMPARISON — {instrument} / {date}")
-    print(f"  ═══════════════════════════════════════════════════════════════════════════")
+    print("  ═══════════════════════════════════════════════════════════════════════════")
     print()
     print(f"    {'Metric':<35} {'Model A':>12}  {'Model B':>12}  {'Delta':>10}")
     print(f"    {'Model version':<35} {v1:>12}  {v2:>12}")
@@ -123,7 +124,9 @@ def compare(
         d = _delta(a, b)
         a_str = f"{a:.1f}%" if a is not None else "—"
         b_str = f"{b:.1f}%" if b is not None else "—"
-        good = (k == "tp_hit_rate" and b and a and b > a) or (k == "sl_hit_rate" and b and a and b < a)
+        good = (k == "tp_hit_rate" and b and a and b > a) or (
+            k == "sl_hit_rate" and b and a and b < a
+        )
         improved = " ✓" if good else ""
         print(f"    {label:<35} {a_str:>12}  {b_str:>12}  {d:>10}{improved}")
 
@@ -156,16 +159,15 @@ def compare(
         print(f"    {'Corr ' + target:<35} {a_str:>12}  {b_str:>12}  {d:>10}{improved}")
 
     print()
-    print(f"    ✓ = improved    ✗ = regressed")
+    print("    ✓ = improved    ✗ = regressed")
     print()
-    print(f"  ═══════════════════════════════════════════════════════════════════════════")
+    print("  ═══════════════════════════════════════════════════════════════════════════")
     print()
 
 
 def main() -> int:
     p = argparse.ArgumentParser(prog="backtest_compare")
-    p.add_argument("instrument",
-                   choices=("nifty50", "banknifty", "crudeoil", "naturalgas"))
+    p.add_argument("instrument", choices=("nifty50", "banknifty", "crudeoil", "naturalgas"))
     p.add_argument("--date", required=True, help="Backtest date YYYY-MM-DD")
     p.add_argument("--run1", default=None, help="Model version A (older)")
     p.add_argument("--run2", default=None, help="Model version B (newer)")

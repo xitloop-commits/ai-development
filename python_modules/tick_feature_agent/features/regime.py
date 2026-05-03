@@ -43,15 +43,15 @@ _NAN = float("nan")
 
 # Default thresholds — override per instrument via compute() `thresholds` param
 _DEFAULTS: dict = {
-    "regime_trend_volatility_min":  0.8,
-    "regime_trend_imbalance_min":   0.3,
-    "regime_trend_momentum_min":    0.5,
-    "regime_trend_activity_min":    0.5,
-    "regime_range_volatility_max":  0.5,
-    "regime_range_imbalance_max":   0.3,
-    "regime_range_activity_min":    0.25,
-    "regime_dead_activity_max":     0.25,
-    "regime_dead_vol_drought_max":  0.05,
+    "regime_trend_volatility_min": 0.8,
+    "regime_trend_imbalance_min": 0.3,
+    "regime_trend_momentum_min": 0.5,
+    "regime_trend_activity_min": 0.5,
+    "regime_range_volatility_max": 0.5,
+    "regime_range_imbalance_max": 0.3,
+    "regime_range_activity_min": 0.25,
+    "regime_dead_activity_max": 0.25,
+    "regime_dead_vol_drought_max": 0.05,
 }
 
 
@@ -103,37 +103,34 @@ def compute_regime_features(
     ticks = buffer.get_last(20)
     prices = [float(tk.ltp) for tk in ticks]
     rolling_std_20 = statistics.stdev(prices)
-    price_now  = prices[-1]
+    price_now = prices[-1]
     price_20ago = prices[0]
 
     # ── Signals ───────────────────────────────────────────────────────────────
-    s_volatility = volatility_compression                       # already [0,∞]; can exceed 1
-    s_imbalance  = abs(tick_imbalance_20)                       # [0, 1]
+    s_volatility = volatility_compression  # already [0,∞]; can exceed 1
+    s_imbalance = abs(tick_imbalance_20)  # [0, 1]
     if rolling_std_20 == 0.0:
         s_momentum = 0.0
     else:
         s_momentum = abs(price_now - price_20ago) / rolling_std_20
-    s_activity   = min(active_strike_count / 4.0, 1.0)         # [0, 1]
+    s_activity = min(active_strike_count / 4.0, 1.0)  # [0, 1]
 
     # ── Threshold evaluation ──────────────────────────────────────────────────
-    is_dead = (
-        s_activity < t["regime_dead_activity_max"]
-        or (
-            not math.isnan(volume_drought_atm)
-            and volume_drought_atm < t["regime_dead_vol_drought_max"]
-            and active_strike_count == 0
-        )
+    is_dead = s_activity < t["regime_dead_activity_max"] or (
+        not math.isnan(volume_drought_atm)
+        and volume_drought_atm < t["regime_dead_vol_drought_max"]
+        and active_strike_count == 0
     )
     is_trend = (
         s_volatility > t["regime_trend_volatility_min"]
         and s_imbalance > t["regime_trend_imbalance_min"]
-        and s_momentum  > t["regime_trend_momentum_min"]
-        and s_activity  > t["regime_trend_activity_min"]
+        and s_momentum > t["regime_trend_momentum_min"]
+        and s_activity > t["regime_trend_activity_min"]
     )
     is_range = (
         s_volatility < t["regime_range_volatility_max"]
         and s_imbalance < t["regime_range_imbalance_max"]
-        and s_activity  > t["regime_range_activity_min"]
+        and s_activity > t["regime_range_activity_min"]
     )
 
     # ── Priority assignment ───────────────────────────────────────────────────
@@ -143,7 +140,7 @@ def compute_regime_features(
     elif is_trend:
         regime = "TREND"
         confidence = (s_volatility + s_imbalance + s_momentum + s_activity) / 4.0
-        confidence = min(1.0, confidence)   # clamp: s_volatility can exceed 1
+        confidence = min(1.0, confidence)  # clamp: s_volatility can exceed 1
     elif is_range:
         regime = "RANGE"
         confidence = ((1.0 - s_volatility) + (1.0 - s_imbalance) + s_activity) / 3.0

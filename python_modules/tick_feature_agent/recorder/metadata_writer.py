@@ -53,9 +53,9 @@ def write_metadata(
     merged_instruments = dict(existing.get("instruments", {}))
     for k, v in instruments.items():
         merged_instruments[k] = {
-            "underlying_symbol":      v["underlying_symbol"],
+            "underlying_symbol": v["underlying_symbol"],
             "underlying_security_id": v["underlying_security_id"],
-            "expiry":                 v["expiry"],
+            "expiry": v["expiry"],
         }
 
     metadata: dict[str, Any] = {

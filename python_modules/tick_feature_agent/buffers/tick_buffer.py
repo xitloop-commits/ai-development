@@ -15,18 +15,19 @@ from __future__ import annotations
 from collections import deque
 from typing import NamedTuple
 
-
 # ── Tick structure ────────────────────────────────────────────────────────────
 
+
 class UnderlyingTick(NamedTuple):
-    timestamp: float   # Unix epoch seconds (recv_ts from feed)
-    ltp: float         # Last traded price
-    bid: float         # Best bid
-    ask: float         # Best ask
-    volume: int        # Cumulative day volume at this tick
+    timestamp: float  # Unix epoch seconds (recv_ts from feed)
+    ltp: float  # Last traded price
+    bid: float  # Best bid
+    ask: float  # Best ask
+    volume: int  # Cumulative day volume at this tick
 
 
 # ── CircularBuffer ────────────────────────────────────────────────────────────
+
 
 class CircularBuffer:
     """
@@ -70,7 +71,7 @@ class CircularBuffer:
         if n >= length:
             return list(buf)
         # deque supports negative indexing via islice equivalent
-        return list(buf)[length - n:]
+        return list(buf)[length - n :]
 
     def latest(self) -> UnderlyingTick | None:
         """Return the most recent tick, or None if buffer is empty."""

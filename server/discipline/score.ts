@@ -14,13 +14,13 @@
  *   Pre-Trade Gate:   15%  (max 15 pts)
  */
 
-import type { DisciplineState, DisciplineEngineSettings, ScoreBreakdown } from "./types";
+import type { DisciplineState, DisciplineAgentSettings, ScoreBreakdown } from "./types";
 
 interface CategoryWeight {
   key: keyof ScoreBreakdown;
   baseWeight: number;
-  isEnabled: (s: DisciplineEngineSettings) => boolean;
-  calculate: (state: DisciplineState, settings: DisciplineEngineSettings) => number;
+  isEnabled: (s: DisciplineAgentSettings) => boolean;
+  calculate: (state: DisciplineState, settings: DisciplineAgentSettings) => number;
 }
 
 const CATEGORIES: CategoryWeight[] = [
@@ -132,7 +132,7 @@ const CATEGORIES: CategoryWeight[] = [
  */
 export function calculateScore(
   state: DisciplineState,
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): { score: number; breakdown: ScoreBreakdown } {
   // Determine which categories are enabled
   const enabledCategories = CATEGORIES.filter((c) => c.isEnabled(settings));

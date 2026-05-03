@@ -30,14 +30,13 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
 from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
+from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
 from tick_feature_agent.chain_cache import ChainCache
-from tick_feature_agent.feed.chain_poller import ChainSnapshot
 from tick_feature_agent.features.active_features import compute_active_features
 from tick_feature_agent.features.chain import compute_chain_features
 from tick_feature_agent.features.compression import CompressionState
@@ -51,11 +50,11 @@ from tick_feature_agent.features.regime import compute_regime_features
 from tick_feature_agent.features.targets import (
     TargetBuffer,
     UpsidePercentileTracker,
-    null_target_features,
 )
 from tick_feature_agent.features.time_to_move import TimeToMoveState
 from tick_feature_agent.features.underlying import compute_underlying_features
 from tick_feature_agent.features.zone import compute_zone_features
+from tick_feature_agent.feed.chain_poller import ChainSnapshot
 from tick_feature_agent.instrument_profile import InstrumentProfile
 from tick_feature_agent.output.emitter import Emitter, assemble_flat_vector
 from tick_feature_agent.state_machine import StateMachine, TradingState
@@ -65,6 +64,7 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 
 
 # ── Timestamp helpers ─────────────────────────────────────────────────────────
+
 
 def _parse_ts(ts_str: str) -> float:
     """
@@ -77,7 +77,7 @@ def _parse_ts(ts_str: str) -> float:
     if isinstance(ts_str, (int, float)):
         return float(ts_str)
     try:
-        return float(ts_str)   # Unix epoch as string
+        return float(ts_str)  # Unix epoch as string
     except (ValueError, TypeError):
         pass
     try:
@@ -103,16 +103,19 @@ def _session_boundary_sec(date_str: str, hhmm: str) -> float:
 
 # ── Pending-target row ────────────────────────────────────────────────────────
 
+
 @dataclass
 class _PendingRow:
     """A feature row whose target columns have not yet been backfilled."""
-    row:        dict                          # mutable — will be updated in-place
-    t0:         float                         # Unix seconds for this tick
-    spot_at_t0: float                         # underlying LTP at t0
+
+    row: dict  # mutable — will be updated in-place
+    t0: float  # Unix seconds for this tick
+    spot_at_t0: float  # underlying LTP at t0
     ltps_at_t0: dict[int, tuple[float, float]]  # {strike: (ce_ltp, pe_ltp)} at t0
 
 
 # ── ChainSnapshot construction ────────────────────────────────────────────────
+
 
 def _build_chain_snapshot(data: dict) -> ChainSnapshot | None:
     """
@@ -131,20 +134,18 @@ def _build_chain_snapshot(data: dict) -> ChainSnapshot | None:
     Returns None if the data is malformed.
     """
     try:
-        rows      = data.get("rows") or []
-        spot      = float(data.get("spotPrice") or data.get("spot_price") or 0)
-        expiry    = str(data.get("expiry", ""))
-        ts_ms     = data.get("timestamp") or data.get("timestamp_ms") or 0
-        ts_sec    = float(ts_ms) / 1000.0 if ts_ms else _parse_ts(
-            str(data.get("recv_ts", ""))
-        )
+        rows = data.get("rows") or []
+        spot = float(data.get("spotPrice") or data.get("spot_price") or 0)
+        expiry = str(data.get("expiry", ""))
+        ts_ms = data.get("timestamp") or data.get("timestamp_ms") or 0
+        ts_sec = float(ts_ms) / 1000.0 if ts_ms else _parse_ts(str(data.get("recv_ts", "")))
 
         # Build sec_id_map: security_id → (strike, "CE"|"PE")
         sec_id_map: dict[str, tuple[int, str]] = {}
         for row in rows:
             strike = int(row.get("strike", 0))
             cs = str(row.get("callSecurityId") or row.get("call_security_id") or "")
-            ps = str(row.get("putSecurityId")  or row.get("put_security_id")  or "")
+            ps = str(row.get("putSecurityId") or row.get("put_security_id") or "")
             if cs:
                 sec_id_map[cs] = (strike, "CE")
             if ps:
@@ -154,7 +155,7 @@ def _build_chain_snapshot(data: dict) -> ChainSnapshot | None:
         strikes = sorted(int(r.get("strike", 0)) for r in rows if r.get("strike"))
         strike_step = 50  # default
         if len(strikes) >= 2:
-            diffs = [strikes[i+1] - strikes[i] for i in range(len(strikes)-1)]
+            diffs = [strikes[i + 1] - strikes[i] for i in range(len(strikes) - 1)]
             if diffs:
                 strike_step = max(set(diffs), key=diffs.count)  # mode
 
@@ -171,6 +172,7 @@ def _build_chain_snapshot(data: dict) -> ChainSnapshot | None:
 
 
 # ── Main adapter class ────────────────────────────────────────────────────────
+
 
 class ReplayAdapter:
     """
@@ -195,39 +197,38 @@ class ReplayAdapter:
             date_str:  ISO date string (YYYY-MM-DD) for the replay session.
             logger:    Optional TFA structured logger.
         """
-        self._profile  = profile
+        self._profile = profile
         self._date_str = date_str
-        self._log      = logger
+        self._log = logger
 
         # ── Pipeline components ───────────────────────────────────────────────
-        self._tick_buf    = CircularBuffer(maxlen=50)
-        self._opt_store   = OptionBufferStore()
-        self._sm          = StateMachine(
+        self._tick_buf = CircularBuffer(maxlen=50)
+        self._opt_store = OptionBufferStore()
+        self._sm = StateMachine(
             warm_up_duration_sec=profile.warm_up_duration_sec,
         )
-        self._cache       = ChainCache()
+        self._cache = ChainCache()
 
         # Stateful feature modules
-        self._compression  = CompressionState()
+        self._compression = CompressionState()
         self._time_to_move = TimeToMoveState()
-        self._decay        = DecayState()
+        self._decay = DecayState()
 
         # Target modules
-        self._target_buf   = TargetBuffer(
-            target_windows_sec=profile.target_windows_sec
-        )
-        self._upside_pct   = UpsidePercentileTracker()
+        self._target_buf = TargetBuffer(target_windows_sec=profile.target_windows_sec)
+        self._upside_pct = UpsidePercentileTracker()
 
-        # Output emitter in replay mode (accumulates rows in memory)
-        self._emitter = Emitter(mode="replay")
+        # Output emitter in replay mode (accumulates rows in memory).
+        # Phase E8: pass profile windows so the parquet schema picks up
+        # 4-window direction columns as int32 instead of float32.
+        self._emitter = Emitter(
+            mode="replay",
+            target_windows_sec=profile.target_windows_sec,
+        )
 
         # ── Session boundary (Unix epoch seconds) ─────────────────────────────
-        self._session_start_sec = _session_boundary_sec(
-            date_str, profile.session_start
-        )
-        self._session_end_sec   = _session_boundary_sec(
-            date_str, profile.session_end
-        )
+        self._session_start_sec = _session_boundary_sec(date_str, profile.session_start)
+        self._session_end_sec = _session_boundary_sec(date_str, profile.session_end)
 
         # ── Internal replay state ─────────────────────────────────────────────
         # Security ID map from latest chain snapshot (for option tick lookup)
@@ -247,7 +248,9 @@ class ReplayAdapter:
         self._pending: deque[_PendingRow] = deque()
 
         # Maximum target window (seconds) — determines when to backfill
-        self._max_window_sec: float = max(profile.target_windows_sec) if profile.target_windows_sec else 60.0
+        self._max_window_sec: float = (
+            max(profile.target_windows_sec) if profile.target_windows_sec else 60.0
+        )
 
         # Market-open flag (derived from replay timestamps)
         self._is_market_open = False
@@ -275,7 +278,7 @@ class ReplayAdapter:
                    ``data`` (raw recorded record dict)
         """
         etype = event.get("type")
-        data  = event.get("data", {})
+        data = event.get("data", {})
         if etype == "underlying_tick":
             self._handle_underlying(data)
         elif etype == "option_tick":
@@ -326,12 +329,12 @@ class ReplayAdapter:
     def _handle_option(self, data: dict) -> None:
         """Process a recorded option_tick event."""
         ts_raw = data.get("recv_ts") or data.get("timestamp")
-        ts     = _parse_ts(str(ts_raw)) if ts_raw else _NAN
+        ts = _parse_ts(str(ts_raw)) if ts_raw else _NAN
         if math.isnan(ts):
             return
 
         # Look up (strike, opt_type) from the tick data or sec_id_map
-        strike   = data.get("strike")
+        strike = data.get("strike")
         opt_type = data.get("opt_type") or data.get("option_type")
 
         if strike is None or opt_type is None:
@@ -347,12 +350,12 @@ class ReplayAdapter:
         except (TypeError, ValueError):
             return
 
-        ltp      = float(data.get("ltp")      or 0)
-        bid      = float(data.get("bid")       or 0)
-        ask      = float(data.get("ask")       or 0)
-        bid_size = int(  data.get("bid_size")  or data.get("bidSize") or 0)
-        ask_size = int(  data.get("ask_size")  or data.get("askSize") or 0)
-        volume   = int(  data.get("ltq")       or data.get("volume") or 0)
+        ltp = float(data.get("ltp") or 0)
+        bid = float(data.get("bid") or 0)
+        ask = float(data.get("ask") or 0)
+        bid_size = int(data.get("bid_size") or data.get("bidSize") or 0)
+        ask_size = int(data.get("ask_size") or data.get("askSize") or 0)
+        volume = int(data.get("ltq") or data.get("volume") or 0)
 
         tick = OptionTick(
             timestamp=ts,
@@ -368,14 +371,14 @@ class ReplayAdapter:
     def _handle_underlying(self, data: dict) -> None:
         """Process a recorded underlying_tick event — the hot path."""
         ts_raw = data.get("recv_ts") or data.get("timestamp")
-        ts     = _parse_ts(str(ts_raw)) if ts_raw else _NAN
+        ts = _parse_ts(str(ts_raw)) if ts_raw else _NAN
         if math.isnan(ts):
             return
 
-        ltp  = float(data.get("ltp")      or 0)
-        bid  = float(data.get("bid")      or 0)
-        ask  = float(data.get("ask")      or 0)
-        vol  = int(  data.get("ltq")      or data.get("volume") or 0)
+        ltp = float(data.get("ltp") or 0)
+        bid = float(data.get("bid") or 0)
+        ask = float(data.get("ask") or 0)
+        vol = int(data.get("ltq") or data.get("volume") or 0)
 
         # ── Market-open flag ──────────────────────────────────────────────────
         self._is_market_open = self._session_start_sec <= ts < self._session_end_sec
@@ -391,11 +394,9 @@ class ReplayAdapter:
                     self._sm.on_warm_up_complete()
 
         # Also check chain staleness in replay (30s without snapshot)
-        if (
-            self._cache.chain_available
-            and self._cache.last_snapshot_ts > 0
-        ):
+        if self._cache.chain_available and self._cache.last_snapshot_ts > 0:
             import time as _time
+
             elapsed = _time.monotonic() - self._cache.last_snapshot_ts
             if elapsed > 30.0 and self._sm.state == TradingState.TRADING:
                 self._sm.on_chain_stale()
@@ -436,7 +437,7 @@ class ReplayAdapter:
         self._pending.append(pending)
 
         # Update previous tick state for TimeToMoveState
-        self._prev_ltp     = ltp
+        self._prev_ltp = ltp
         self._prev_tick_ts = ts
 
     # ── Feature computation ───────────────────────────────────────────────────
@@ -444,21 +445,21 @@ class ReplayAdapter:
     def _compute_row(self, ts: float, ltp: float, bid: float, ask: float) -> dict:
         """Compute all features (excluding targets) and assemble a flat row dict."""
         profile = self._profile
-        cache   = self._cache
+        cache = self._cache
 
         # ── Underlying features ───────────────────────────────────────────────
-        uf  = compute_underlying_features(self._tick_buf)
+        uf = compute_underlying_features(self._tick_buf)
         ofi = compute_ofi_features(self._tick_buf)
-        rv  = compute_realized_vol_features(self._tick_buf)
-        hf  = compute_horizon_features(uf, ofi, rv)
+        rv = compute_realized_vol_features(self._tick_buf)
+        hf = compute_horizon_features(uf, ofi, rv)
 
         # ── ATM context ───────────────────────────────────────────────────────
         # Refresh ATM zone when spot changes (returns True if shifted)
         cache.refresh_atm_zone(ltp)
 
-        atm_strike  = cache.atm
+        atm_strike = cache.atm
         strike_step = cache.strike_step
-        atm_window  = cache.atm_window
+        atm_window = cache.atm_window
 
         # ── Option tick features ──────────────────────────────────────────────
         opt_tf = compute_option_tick_features(
@@ -530,8 +531,8 @@ class ReplayAdapter:
         # Now update TimeToMoveState with real zone pressures (re-compute for
         # this tick if zone data is ready)
         zone_call_p = float(zone_f.get("atm_zone_call_pressure", _NAN))
-        zone_put_p  = float(zone_f.get("atm_zone_put_pressure",  _NAN))
-        dead_mkt    = float(decay_f.get("dead_market_score", _NAN))
+        zone_put_p = float(zone_f.get("atm_zone_put_pressure", _NAN))
+        dead_mkt = float(decay_f.get("dead_market_score", _NAN))
         if not math.isnan(zone_call_p) or not math.isnan(zone_put_p):
             ttm_f = self._time_to_move.compute(
                 ltp=ltp,
@@ -556,10 +557,10 @@ class ReplayAdapter:
         )
 
         # ── Trading state ─────────────────────────────────────────────────────
-        sm_state    = self._sm.state
-        t_allowed   = 1 if self._sm.trading_allowed else 0
+        sm_state = self._sm.state
+        t_allowed = 1 if self._sm.trading_allowed else 0
         warm_remain = self._sm.warm_up_remaining_sec or 0.0
-        stale_rsn   = self._sm.state.value if sm_state != TradingState.TRADING else None
+        stale_rsn = self._sm.state.value if sm_state != TradingState.TRADING else None
 
         # ── Assemble flat row (NaN targets — backfilled later) ────────────────
         row = assemble_flat_vector(
@@ -580,7 +581,7 @@ class ReplayAdapter:
             decay_feats=decay_f,
             regime_feats=regime_f,
             zone_feats=zone_f,
-            target_feats=None,        # NaN placeholders; backfilled below
+            target_feats=None,  # NaN placeholders; backfilled below
             trading_state=sm_state.value,
             trading_allowed=t_allowed,
             warm_up_remaining_sec=warm_remain,
@@ -639,13 +640,13 @@ class ReplayAdapter:
         """Extract regime threshold dict from the instrument profile."""
         p = self._profile
         return {
-            "trend_volatility_min":  p.regime_trend_volatility_min,
-            "trend_imbalance_min":   p.regime_trend_imbalance_min,
-            "trend_momentum_min":    p.regime_trend_momentum_min,
-            "trend_activity_min":    p.regime_trend_activity_min,
-            "range_volatility_max":  p.regime_range_volatility_max,
-            "range_imbalance_max":   p.regime_range_imbalance_max,
-            "range_activity_min":    p.regime_range_activity_min,
-            "dead_activity_max":     p.regime_dead_activity_max,
-            "dead_vol_drought_max":  p.regime_dead_vol_drought_max,
+            "trend_volatility_min": p.regime_trend_volatility_min,
+            "trend_imbalance_min": p.regime_trend_imbalance_min,
+            "trend_momentum_min": p.regime_trend_momentum_min,
+            "trend_activity_min": p.regime_trend_activity_min,
+            "range_volatility_max": p.regime_range_volatility_max,
+            "range_imbalance_max": p.regime_range_imbalance_max,
+            "range_activity_min": p.regime_range_activity_min,
+            "dead_activity_max": p.regime_dead_activity_max,
+            "dead_vol_drought_max": p.regime_dead_vol_drought_max,
         }

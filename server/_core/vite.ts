@@ -5,6 +5,9 @@ import { nanoid } from "nanoid";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
+import { createLogger } from "../broker/logger";
+
+const log = createLogger("BOOT", "Vite");
 
 // Node 18 compat: import.meta.dirname only exists in Node ≥ 21.2
 const __dirname = import.meta.dirname ?? path.dirname(fileURLToPath(import.meta.url));
@@ -57,9 +60,7 @@ export function serveStatic(app: Express) {
       ? path.resolve(__dirname, "../..", "dist", "public")
       : path.resolve(__dirname, "public");
   if (!fs.existsSync(distPath)) {
-    console.error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`
-    );
+    log.error(`Could not find the build directory: ${distPath}, make sure to build the client first`);
   }
 
   app.use(express.static(distPath));

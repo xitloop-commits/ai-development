@@ -18,6 +18,9 @@
  */
 
 import mongoose, { Schema } from "mongoose";
+import { createLogger } from "../broker/logger";
+
+const log = createLogger("TEA", "Idempotency");
 
 const TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -117,11 +120,9 @@ class IdempotencyStore {
         };
         this.records.set(rec.executionId, rec);
       }
-      // eslint-disable-next-line no-console
-      console.log(`[idempotency] hydrated ${docs.length} records from MongoDB`);
+      log.info(`hydrated ${docs.length} records from MongoDB`);
     } catch (err: any) {
-      // eslint-disable-next-line no-console
-      console.warn(`[idempotency] loadFromMongo failed (continuing in-memory only): ${err?.message ?? err}`);
+      log.warn(`loadFromMongo failed (continuing in-memory only): ${err?.message ?? err}`);
     }
   }
 
@@ -152,8 +153,7 @@ class IdempotencyStore {
       },
       { upsert: true },
     ).catch((err: any) => {
-      // eslint-disable-next-line no-console
-      console.warn(`[idempotency] persist ${record.executionId} failed: ${err?.message ?? err}`);
+      log.warn(`persist ${record.executionId} failed: ${err?.message ?? err}`);
     });
   }
 

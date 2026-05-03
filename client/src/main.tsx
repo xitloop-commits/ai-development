@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { bootstrapInternalAuth, authHeaders } from "@/lib/internalAuth";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   httpBatchLink,
@@ -35,10 +36,15 @@ const trpcClient = trpc.createClient({
       false: httpBatchLink({
         url: "/api/trpc",
         transformer: superjson,
+        // B1-followup — every /api/trpc/* call carries X-Internal-Token
+        // alongside the existing credentials cookie. The token comes
+        // from the bootstrap fetch in main() below.
         fetch(input, init) {
+          const initHeaders = (init?.headers ?? {}) as Record<string, string>;
           return globalThis.fetch(input, {
             ...(init ?? {}),
             credentials: "include",
+            headers: { ...initHeaders, ...authHeaders() },
           });
         },
       }),
@@ -56,10 +62,20 @@ if (analyticsEndpoint && analyticsWebsiteId) {
   document.body.appendChild(s);
 }
 
-createRoot(document.getElementById("root")!).render(
-  <trpc.Provider client={trpcClient} queryClient={queryClient}>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
-  </trpc.Provider>
-);
+// B1-followup — fetch the X-Internal-Token from the loopback-only
+// bootstrap endpoint BEFORE React renders. We swallow failures to a
+// warning + empty token (warn-only fallback); enforcement-on without a
+// reachable bootstrap would just produce 401s that surface immediately
+// in the UI.
+async function main() {
+  await bootstrapInternalAuth();
+  createRoot(document.getElementById("root")!).render(
+    <trpc.Provider client={trpcClient} queryClient={queryClient}>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </trpc.Provider>
+  );
+}
+
+void main();

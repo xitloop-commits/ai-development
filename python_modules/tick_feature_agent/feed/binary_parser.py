@@ -24,29 +24,29 @@ import struct
 import time
 from typing import NamedTuple
 
-
 # ── Response / Request codes ──────────────────────────────────────────────────
 
+
 class ResponseCode:
-    INDEX         = 1
-    TICKER        = 2
-    QUOTE         = 4
-    OI            = 5
-    PREV_CLOSE    = 6
+    INDEX = 1
+    TICKER = 2
+    QUOTE = 4
+    OI = 5
+    PREV_CLOSE = 6
     MARKET_STATUS = 7
-    FULL          = 8
-    DISCONNECT    = 50
+    FULL = 8
+    DISCONNECT = 50
 
 
 class RequestCode:
-    CONNECT            = 11
-    DISCONNECT         = 12
-    SUBSCRIBE_TICKER   = 15
+    CONNECT = 11
+    DISCONNECT = 12
+    SUBSCRIBE_TICKER = 15
     UNSUBSCRIBE_TICKER = 16
-    SUBSCRIBE_QUOTE    = 17
-    UNSUBSCRIBE_QUOTE  = 18
-    SUBSCRIBE_FULL     = 21
-    UNSUBSCRIBE_FULL   = 22
+    SUBSCRIBE_QUOTE = 17
+    UNSUBSCRIBE_QUOTE = 18
+    SUBSCRIBE_FULL = 21
+    UNSUBSCRIBE_FULL = 22
 
 
 # ── Exchange segment mapping ──────────────────────────────────────────────────
@@ -80,11 +80,13 @@ DISCONNECT_REASON: dict[int, str] = {
 
 # ── Header ────────────────────────────────────────────────────────────────────
 
+
 class PacketHeader(NamedTuple):
-    response_code:    int   # uint8  @0
-    message_length:   int   # int16  @1
-    exchange_segment: int   # uint8  @3  (numeric code)
-    security_id:      int   # int32  @4
+    response_code: int  # uint8  @0
+    message_length: int  # int16  @1
+    exchange_segment: int  # uint8  @3  (numeric code)
+    security_id: int  # int32  @4
+
 
 # Struct: uint8(1) + int16(2) + uint8(1) + int32(4) = 8 bytes
 _HDR_FMT = struct.Struct("<BhBi")
@@ -106,7 +108,7 @@ def parse_header(buf: bytes | bytearray) -> PacketHeader:
 # ── Ticker (code 2) ───────────────────────────────────────────────────────────
 # Bytes: 0-7 header | 8-11 ltp(f32) | 12-15 ltt(i32)
 
-_TICKER_FMT = struct.Struct("<fi")   # ltp, ltt
+_TICKER_FMT = struct.Struct("<fi")  # ltp, ltt
 
 
 def parse_ticker_packet(buf: bytes | bytearray) -> dict:
@@ -126,39 +128,41 @@ def parse_ticker_packet(buf: bytes | bytearray) -> dict:
 #        22-25 volume(i32) | 26-29 totalSellQty(i32) | 30-33 totalBuyQty(i32)
 #        34-37 dayOpen(f32) | 38-41 dayClose(f32) | 42-45 dayHigh(f32) | 46-49 dayLow(f32)
 
-_QUOTE_FMT = struct.Struct("<fhifiiiffff")   # 40 bytes at offset 8
+_QUOTE_FMT = struct.Struct("<fhifiiiffff")  # 40 bytes at offset 8
 
 
 def parse_quote_packet(buf: bytes | bytearray) -> dict:
     """Parse Quote packet (code 4)."""
     if len(buf) < 50:
         raise ValueError(f"Quote packet too short: {len(buf)} < 50")
-    (ltp, ltq, ltt, atp, volume, total_sell, total_buy,
-     day_open, day_close, day_high, day_low) = _QUOTE_FMT.unpack_from(buf, 8)
+    ltp, ltq, ltt, atp, volume, total_sell, total_buy, day_open, day_close, day_high, day_low = (
+        _QUOTE_FMT.unpack_from(buf, 8)
+    )
     return {
-        "ltp":          ltp,
-        "ltq":          ltq,
-        "ltt":          ltt,
-        "atp":          atp,
-        "volume":       volume,
-        "total_sell":   total_sell,
-        "total_buy":    total_buy,
-        "day_open":     day_open,
-        "day_close":    day_close,
-        "day_high":     day_high,
-        "day_low":      day_low,
-        "recv_ts":      time.time(),
+        "ltp": ltp,
+        "ltq": ltq,
+        "ltt": ltt,
+        "atp": atp,
+        "volume": volume,
+        "total_sell": total_sell,
+        "total_buy": total_buy,
+        "day_open": day_open,
+        "day_close": day_close,
+        "day_high": day_high,
+        "day_low": day_low,
+        "recv_ts": time.time(),
     }
 
 
 # ── OI (code 5) ───────────────────────────────────────────────────────────────
 # Bytes: 8-11 oi(i32)
 
+
 def parse_oi_packet(buf: bytes | bytearray) -> dict:
     """Parse OI packet (code 5). Returns open interest."""
     if len(buf) < 12:
         raise ValueError(f"OI packet too short: {len(buf)} < 12")
-    oi, = struct.unpack_from("<i", buf, 8)
+    (oi,) = struct.unpack_from("<i", buf, 8)
     return {"oi": oi, "recv_ts": time.time()}
 
 
@@ -175,15 +179,15 @@ def parse_prev_close_packet(buf: bytes | bytearray) -> dict:
     prev_close, prev_oi = _PREV_CLOSE_FMT.unpack_from(buf, 8)
     return {
         "prev_close": prev_close,
-        "prev_oi":    prev_oi,
-        "recv_ts":    time.time(),
+        "prev_oi": prev_oi,
+        "recv_ts": time.time(),
     }
 
 
 # ── Depth levels ──────────────────────────────────────────────────────────────
 # Each level: bidQty(i32) askQty(i32) bidOrders(i16) askOrders(i16) bidPrice(f32) askPrice(f32) = 20 bytes
 
-_DEPTH_LEVEL_FMT = struct.Struct("<iihh2f")   # 20 bytes per level
+_DEPTH_LEVEL_FMT = struct.Struct("<iihh2f")  # 20 bytes per level
 
 
 def parse_depth_levels(buf: bytes | bytearray, offset: int) -> list[dict]:
@@ -193,16 +197,19 @@ def parse_depth_levels(buf: bytes | bytearray, offset: int) -> list[dict]:
         base = offset + i * 20
         if base + 20 > len(buf):
             break
-        bid_qty, ask_qty, bid_orders, ask_orders, bid_price, ask_price = \
+        bid_qty, ask_qty, bid_orders, ask_orders, bid_price, ask_price = (
             _DEPTH_LEVEL_FMT.unpack_from(buf, base)
-        levels.append({
-            "bid_qty":    bid_qty,
-            "ask_qty":    ask_qty,
-            "bid_orders": bid_orders,
-            "ask_orders": ask_orders,
-            "bid_price":  bid_price,
-            "ask_price":  ask_price,
-        })
+        )
+        levels.append(
+            {
+                "bid_qty": bid_qty,
+                "ask_qty": ask_qty,
+                "bid_orders": bid_orders,
+                "ask_orders": ask_orders,
+                "bid_price": bid_price,
+                "ask_price": ask_price,
+            }
+        )
     return levels
 
 
@@ -215,7 +222,7 @@ def parse_depth_levels(buf: bytes | bytearray, offset: int) -> list[dict]:
 #        46-49 dayOpen(f32) | 50-53 dayClose(f32) | 54-57 dayHigh(f32) | 58-61 dayLow(f32)
 #        62-161 depth (5 × 20 bytes)
 
-_FULL_FMT = struct.Struct("<fhifiiiiiiffff")   # 54 bytes at offset 8
+_FULL_FMT = struct.Struct("<fhifiiiiiiffff")  # 54 bytes at offset 8
 
 
 def parse_full_packet(buf: bytes | bytearray) -> dict:
@@ -226,50 +233,65 @@ def parse_full_packet(buf: bytes | bytearray) -> dict:
     if len(buf) < 162:
         raise ValueError(f"Full packet too short: {len(buf)} < 162 bytes")
 
-    (ltp, ltq, ltt, atp, volume, total_sell, total_buy,
-     oi, high_oi, low_oi,
-     day_open, day_close, day_high, day_low) = _FULL_FMT.unpack_from(buf, 8)
+    (
+        ltp,
+        ltq,
+        ltt,
+        atp,
+        volume,
+        total_sell,
+        total_buy,
+        oi,
+        high_oi,
+        low_oi,
+        day_open,
+        day_close,
+        day_high,
+        day_low,
+    ) = _FULL_FMT.unpack_from(buf, 8)
 
     depth = parse_depth_levels(buf, 62)
     top = depth[0] if depth else {}
 
     return {
-        "ltp":          ltp,
-        "ltq":          ltq,         # per-tick traded qty — TFA uses this as 'volume'
-        "ltt":          ltt,
-        "atp":          atp,
-        "volume":       volume,      # cumulative day volume (TFA ignores for features)
-        "total_sell":   total_sell,
-        "total_buy":    total_buy,
-        "oi":           oi,
-        "high_oi":      high_oi,
-        "low_oi":       low_oi,
-        "day_open":     day_open,
-        "day_close":    day_close,
-        "day_high":     day_high,
-        "day_low":      day_low,
+        "ltp": ltp,
+        "ltq": ltq,  # per-tick traded qty — TFA uses this as 'volume'
+        "ltt": ltt,
+        "atp": atp,
+        "volume": volume,  # cumulative day volume (TFA ignores for features)
+        "total_sell": total_sell,
+        "total_buy": total_buy,
+        "oi": oi,
+        "high_oi": high_oi,
+        "low_oi": low_oi,
+        "day_open": day_open,
+        "day_close": day_close,
+        "day_high": day_high,
+        "day_low": day_low,
         # Derived from depth level 0
-        "bid":          top.get("bid_price", 0.0),
-        "ask":          top.get("ask_price", 0.0),
-        "bid_size":     top.get("bid_qty", 0),
-        "ask_size":     top.get("ask_qty", 0),
-        "depth":        depth,
-        "recv_ts":      time.time(),
+        "bid": top.get("bid_price", 0.0),
+        "ask": top.get("ask_price", 0.0),
+        "bid_size": top.get("bid_qty", 0),
+        "ask_size": top.get("ask_qty", 0),
+        "depth": depth,
+        "recv_ts": time.time(),
     }
 
 
 # ── Disconnect (code 50) ──────────────────────────────────────────────────────
 
+
 def parse_disconnect_packet(buf: bytes | bytearray) -> dict:
     """Parse server-initiated disconnect packet (code 50)."""
     code = 0
     if len(buf) >= 10:
-        code, = struct.unpack_from("<h", buf, 8)
+        (code,) = struct.unpack_from("<h", buf, 8)
     reason = DISCONNECT_REASON.get(code, f"Unknown ({code})")
     return {"disconnect_code": code, "reason": reason}
 
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
+
 
 def dispatch(buf: bytes | bytearray) -> tuple[PacketHeader, dict | None]:
     """

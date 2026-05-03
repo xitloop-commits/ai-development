@@ -26,7 +26,45 @@ export type Channel =
 /** @deprecated Kept only to silence transitional callers; use Channel. */
 export type Workspace = Channel;
 
-export type TradeStatus = "OPEN" | "PENDING" | "CANCELLED" | "CLOSED_TP" | "CLOSED_SL" | "CLOSED_MANUAL" | "CLOSED_PARTIAL" | "CLOSED_EOD";
+export type TradeStatus =
+  | "OPEN"
+  | "PENDING"
+  | "CANCELLED"
+  /** Single closed state. The reason for the close lives on
+   *  `exitReason` (TP_HIT / SL_HIT / MOMENTUM_EXIT / ...) — pre-2026-05
+   *  the close vocabulary was duplicated as CLOSED_TP / CLOSED_SL /
+   *  CLOSED_MANUAL / CLOSED_PARTIAL / CLOSED_EOD which collapsed 7
+   *  distinct close reasons into "manual". One source of truth now;
+   *  legacy docs are migrated at boot via migrateClosedStatusToCanonical. */
+  | "CLOSED"
+  /**
+   * B4: broker mutation (exitTrade / modifyOrder) failed at the broker
+   * after we had every reason to believe it would succeed. Local state
+   * is no longer guaranteed to mirror the broker; an operator must call
+   * the reconcile endpoint (POST /api/executor/reconcile-desync) to
+   * decide whether to close locally (broker confirmed) or restore SL/TP
+   * (broker still has the position open). Discipline blocks new entries
+   * while ANY trade is in this state.
+   */
+  | "BROKER_DESYNC";
+
+/**
+ * B4: rich metadata attached to a trade when broker call fails. The
+ * `kind` distinguishes whether the position is in true limbo (EXIT
+ * failed — could be open OR closed at broker) or just unsync'd at the
+ * SL/TP level (MODIFY failed — position still open, SL/TP differ).
+ *
+ * For EXIT desync, the trade's `status` is also flipped to BROKER_DESYNC.
+ * For MODIFY desync, the trade's `status` stays OPEN but `desync` is set,
+ * because the position is unambiguously alive — only the bracket diverges.
+ */
+export interface DesyncInfo {
+  kind: "EXIT" | "MODIFY";
+  reason: string;
+  timestamp: number;
+  /** For MODIFY: the SL/TP we tried to set vs what the trade has locally. */
+  attempted?: { stopLossPrice?: number | null; targetPrice?: number | null };
+}
 
 export type DayStatus = "ACTIVE" | "COMPLETED" | "GIFT" | "FUTURE";
 
@@ -53,6 +91,15 @@ export interface TradeRecord {
   targetPrice: number | null;
   stopLossPrice: number | null;
   trailingStopEnabled?: boolean;
+  /** Broker-assigned order ID returned by placeOrder. Used by orderSync /
+   *  recoveryEngine to match broker events back to this trade.
+   *  Pre-2026-05 docs stored this on the (now-renamed) `brokerId` field;
+   *  a one-time Mongo $rename runs at boot. */
+  brokerOrderId: string | null;
+  /** Identity of the broker that placed this order (e.g. "dhan",
+   *  "dhan-ai-data", "mock"). Stamped at placeOrder time from
+   *  `adapter.brokerId`. Null for legacy / paper trades that pre-date
+   *  the field. */
   brokerId: string | null;
   openedAt: number;
   closedAt: number | null;
@@ -64,14 +111,24 @@ export interface TradeRecord {
   exitReason?: ExitReason;
   exitTriggeredBy?: ExitTriggeredBy;
   signalSource?: string;
+  /** B4: present when a broker mutation failed. Cleared on successful reconcile. */
+  desync?: DesyncInfo;
 }
 
+/**
+ * PA storage vocabulary for exit reasons. Aligned with
+ * `shared/exitContracts.ts ExitReasonCode` so DA → RCA → TEA → PA passes
+ * the same code through without per-hop translation. Unified in
+ * C2/C3-followup; legacy "SL"/"TP" docs are migrated at boot via
+ * `migrateExitReasonsToHit`.
+ */
 export type ExitReason =
-  | "SL"
-  | "TP"
-  | "RCA_EXIT"
-  | "STALE_PRICE_EXIT"
+  | "SL_HIT"
+  | "TP_HIT"
+  | "MOMENTUM_EXIT"
   | "VOLATILITY_EXIT"
+  | "AGE_EXIT"
+  | "STALE_PRICE_EXIT"
   | "DISCIPLINE_EXIT"
   | "AI_EXIT"
   | "MANUAL"
@@ -171,6 +228,7 @@ const tradeRecordSchema = new Schema(
     status: { type: String, default: "OPEN" },
     targetPrice: { type: Number, default: null },
     stopLossPrice: { type: Number, default: null },
+    brokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },
     openedAt: { type: Number, default: () => Date.now() },
     closedAt: { type: Number, default: null },
@@ -265,6 +323,272 @@ export async function wipeLegacyCapitalDocs(): Promise<void> {
         // eslint-disable-next-line no-console
         console.warn(`[portfolio.state] Wipe failed for ${Model.collection.collectionName}:`, err);
       }
+    }
+  }
+}
+
+/**
+ * B11-followup — one-time rename of `brokerId` (which historically stored
+ * the broker-assigned order ID) to `brokerOrderId`. The new `brokerId`
+ * field stores the broker IDENTITY (e.g. "dhan", "dhan-ai-data") and is
+ * left null on legacy docs since the identity wasn't tracked before this
+ * commit.
+ *
+ * Touches two collections:
+ *   - position_state  (top-level field)
+ *   - day_records     (trades[].brokerId — array of subdocs)
+ *
+ * Idempotent: each migration filters on docs/elements that still have a
+ * string `brokerId` AND no `brokerOrderId`, so a re-run after migration
+ * is a no-op. New trades inserted post-migration store `brokerId` as the
+ * actual identity, so they do not match the migration filter.
+ */
+export async function migrateBrokerIdToBrokerOrderId(): Promise<void> {
+  // ─── position_state — top-level field ────────────────────────
+  try {
+    const result = await PositionStateModel.collection.updateMany(
+      { brokerOrderId: { $exists: false }, brokerId: { $type: "string" } },
+      [{ $set: { brokerOrderId: "$brokerId", brokerId: null } }],
+    );
+    if (result.modifiedCount > 0) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[portfolio.state] Renamed brokerId → brokerOrderId on ${result.modifiedCount} position_state docs`,
+      );
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[portfolio.state] position_state brokerId migration failed:", err);
+  }
+
+  // ─── day_records.trades[] — array of subdocs ─────────────────
+  // Aggregation pipeline update: for each trade where brokerOrderId is
+  // missing AND brokerId is a string, move brokerId → brokerOrderId and
+  // null out brokerId. The doc-level filter limits the set to documents
+  // that actually contain a legacy-shaped trade.
+  try {
+    const result = await DayRecordModel.collection.updateMany(
+      {
+        trades: {
+          $elemMatch: {
+            brokerId: { $type: "string" },
+            brokerOrderId: { $exists: false },
+          },
+        },
+      },
+      [
+        {
+          $set: {
+            trades: {
+              $map: {
+                input: "$trades",
+                as: "t",
+                in: {
+                  $cond: {
+                    if: {
+                      $and: [
+                        { $eq: [{ $type: "$$t.brokerId" }, "string"] },
+                        { $eq: [{ $type: "$$t.brokerOrderId" }, "missing"] },
+                      ],
+                    },
+                    then: {
+                      $mergeObjects: [
+                        "$$t",
+                        { brokerOrderId: "$$t.brokerId", brokerId: null },
+                      ],
+                    },
+                    else: "$$t",
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    );
+    if (result.modifiedCount > 0) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[portfolio.state] Renamed brokerId → brokerOrderId on trades in ${result.modifiedCount} day_records`,
+      );
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[portfolio.state] day_records brokerId migration failed:", err);
+  }
+}
+
+/**
+ * C2/C3-followup — one-time rename of legacy exit reasons "SL"/"TP" to
+ * "SL_HIT"/"TP_HIT" so PA storage matches `shared/exitContracts.ts`
+ * ExitReasonCode. Touches:
+ *   - day_records.trades[].exitReason (array of subdocs)
+ *   - position_state.exitReason (top-level)
+ *
+ * Idempotent: filters on docs whose exitReason is still the legacy
+ * value, so re-runs find no matches.
+ */
+export async function migrateExitReasonsToHit(): Promise<void> {
+  // ─── position_state — top-level field ────────────────────────
+  for (const [legacy, modern] of [["SL", "SL_HIT"], ["TP", "TP_HIT"]] as const) {
+    try {
+      const result = await PositionStateModel.collection.updateMany(
+        { exitReason: legacy },
+        { $set: { exitReason: modern } },
+      );
+      if (result.modifiedCount > 0) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[portfolio.state] Renamed exitReason "${legacy}" → "${modern}" on ${result.modifiedCount} position_state docs`,
+        );
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[portfolio.state] position_state exitReason "${legacy}" migration failed:`, err);
+    }
+  }
+
+  // ─── day_records.trades[].exitReason — subdoc field ──────────
+  for (const [legacy, modern] of [["SL", "SL_HIT"], ["TP", "TP_HIT"]] as const) {
+    try {
+      const result = await DayRecordModel.collection.updateMany(
+        { "trades.exitReason": legacy },
+        [
+          {
+            $set: {
+              trades: {
+                $map: {
+                  input: "$trades",
+                  as: "t",
+                  in: {
+                    $cond: {
+                      if: { $eq: ["$$t.exitReason", legacy] },
+                      then: { $mergeObjects: ["$$t", { exitReason: modern }] },
+                      else: "$$t",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      );
+      if (result.modifiedCount > 0) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[portfolio.state] Renamed exitReason "${legacy}" → "${modern}" on trades in ${result.modifiedCount} day_records`,
+        );
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[portfolio.state] day_records exitReason "${legacy}" migration failed:`, err);
+    }
+  }
+}
+
+/**
+ * Phase D — collapse the overloaded `CLOSED_TP / CLOSED_SL /
+ * CLOSED_MANUAL / CLOSED_PARTIAL / CLOSED_EOD` status vocab into a
+ * single `CLOSED`. The granular reason now lives on `exitReason` only.
+ * For trades that have a CLOSED_TP/SL/EOD status but no exitReason,
+ * backfill the reason from the legacy status before flipping it.
+ *
+ * Idempotent: filters on docs whose status is still CLOSED_*; re-runs
+ * find no matches.
+ */
+export async function migrateClosedStatusToCanonical(): Promise<void> {
+  const statusReasonMap: Record<string, string> = {
+    CLOSED_TP: "TP_HIT",
+    CLOSED_SL: "SL_HIT",
+    CLOSED_EOD: "EOD",
+    CLOSED_PARTIAL: "MANUAL",
+    CLOSED_MANUAL: "MANUAL",
+  };
+
+  // ─── position_state — top-level status ─────────────────────────
+  for (const [legacyStatus, fallbackReason] of Object.entries(statusReasonMap)) {
+    try {
+      // Backfill exitReason where missing AND status was the legacy one.
+      const reasonResult = await PositionStateModel.collection.updateMany(
+        { status: legacyStatus, $or: [{ exitReason: { $exists: false } }, { exitReason: null }] },
+        { $set: { exitReason: fallbackReason } },
+      );
+      if (reasonResult.modifiedCount > 0) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[portfolio.state] Backfilled exitReason "${fallbackReason}" on ${reasonResult.modifiedCount} position_state docs (was ${legacyStatus})`,
+        );
+      }
+      // Then collapse the status.
+      const statusResult = await PositionStateModel.collection.updateMany(
+        { status: legacyStatus },
+        { $set: { status: "CLOSED" } },
+      );
+      if (statusResult.modifiedCount > 0) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[portfolio.state] Renamed status "${legacyStatus}" → "CLOSED" on ${statusResult.modifiedCount} position_state docs`,
+        );
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[portfolio.state] position_state status "${legacyStatus}" migration failed:`, err);
+    }
+  }
+
+  // ─── day_records.trades[].status — array of subdocs ────────────
+  for (const [legacyStatus, fallbackReason] of Object.entries(statusReasonMap)) {
+    try {
+      const result = await DayRecordModel.collection.updateMany(
+        { "trades.status": legacyStatus },
+        [
+          {
+            $set: {
+              trades: {
+                $map: {
+                  input: "$trades",
+                  as: "t",
+                  in: {
+                    $cond: {
+                      if: { $eq: ["$$t.status", legacyStatus] },
+                      then: {
+                        $mergeObjects: [
+                          "$$t",
+                          {
+                            status: "CLOSED",
+                            exitReason: {
+                              $cond: {
+                                if: {
+                                  $or: [
+                                    { $eq: [{ $type: "$$t.exitReason" }, "missing"] },
+                                    { $eq: ["$$t.exitReason", null] },
+                                  ],
+                                },
+                                then: fallbackReason,
+                                else: "$$t.exitReason",
+                              },
+                            },
+                          },
+                        ],
+                      },
+                      else: "$$t",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      );
+      if (result.modifiedCount > 0) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[portfolio.state] Collapsed status "${legacyStatus}" → "CLOSED" on trades in ${result.modifiedCount} day_records (exitReason backfilled when missing)`,
+        );
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[portfolio.state] day_records status "${legacyStatus}" migration failed:`, err);
     }
   }
 }
@@ -367,6 +691,7 @@ async function migrateDayRecordTradesToPositionState(): Promise<void> {
         targetPrice: trade.targetPrice ?? null,
         stopLossPrice: trade.stopLossPrice ?? null,
         trailingStopEnabled: trade.trailingStopEnabled ?? false,
+        brokerOrderId: trade.brokerOrderId ?? null,
         brokerId: trade.brokerId ?? null,
         openedAt: trade.openedAt ?? now,
         closedAt: trade.closedAt ?? null,
@@ -442,7 +767,7 @@ export async function getDayRecords(
   }
 
   const cursor = DayRecordModel.find(query).sort({ dayIndex: 1 }).lean();
-  if (options?.limit) cursor.limit(options.limit);
+  if (options?.limit) void cursor.limit(options.limit);
 
   const docs = await cursor;
   return docs.map(docToDayRecord);
@@ -559,6 +884,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       status: t.status ?? "OPEN",
       targetPrice: t.targetPrice ?? null,
       stopLossPrice: t.stopLossPrice ?? null,
+      brokerOrderId: t.brokerOrderId ?? null,
       brokerId: t.brokerId ?? null,
       openedAt: t.openedAt ?? Date.now(),
       closedAt: t.closedAt ?? null,

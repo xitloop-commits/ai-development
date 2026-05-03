@@ -28,17 +28,17 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
-from tick_feature_agent.feed.chain_poller import ChainSnapshot
-from tick_feature_agent.features.atm import (
-    compute_atm,
-    compute_atm_window,
-    atm_shifted,
-)
 from tick_feature_agent.features.active_strikes import (
     StrikeScore,
     compute_strike_scores,
     select_active_strikes,
 )
+from tick_feature_agent.features.atm import (
+    atm_shifted,
+    compute_atm,
+    compute_atm_window,
+)
+from tick_feature_agent.feed.chain_poller import ChainSnapshot
 
 
 @dataclass
@@ -75,35 +75,35 @@ class ChainCache:
     """
 
     # Availability flags
-    chain_available:    bool = False
+    chain_available: bool = False
     vol_diff_available: bool = False
 
     # Snapshots (current + previous for vol_diff)
-    snapshot:      ChainSnapshot | None = None
+    snapshot: ChainSnapshot | None = None
     prev_snapshot: ChainSnapshot | None = None
 
     # ATM context
-    strike_step:    int | None          = None
-    atm:            int | None          = None
-    atm_window:     list[int]           = field(default_factory=list)
-    active_strikes: list[StrikeScore]   = field(default_factory=list)
+    strike_step: int | None = None
+    atm: int | None = None
+    atm_window: list[int] = field(default_factory=list)
+    active_strikes: list[StrikeScore] = field(default_factory=list)
 
     # Global chain features
-    pcr_global:     float | None = None
-    oi_total_call:  float        = 0.0
-    oi_total_put:   float        = 0.0
-    oi_change_call: float        = 0.0
-    oi_change_put:  float        = 0.0
+    pcr_global: float | None = None
+    oi_total_call: float = 0.0
+    oi_total_put: float = 0.0
+    oi_change_call: float = 0.0
+    oi_change_put: float = 0.0
 
     # ATM-zone chain features
-    pcr_atm:             float | None = None
-    oi_change_call_atm:  float        = 0.0
-    oi_change_put_atm:   float        = 0.0
-    oi_imbalance_atm:    float | None = None
+    pcr_atm: float | None = None
+    oi_change_call_atm: float = 0.0
+    oi_change_put_atm: float = 0.0
+    oi_imbalance_atm: float | None = None
 
     # ATM-zone volume diffs (None until second snapshot — vol_diff_available)
-    call_vol_diff_atm:   float | None = None
-    put_vol_diff_atm:    float | None = None
+    call_vol_diff_atm: float | None = None
+    put_vol_diff_atm: float | None = None
 
     # Metadata
     last_snapshot_ts: float = 0.0
@@ -180,9 +180,7 @@ class ChainCache:
         # tiebreaker changes with spot; recompute scores from stored snapshot)
         prev_rows = self.prev_snapshot.rows if self.prev_snapshot else None
         scores = compute_strike_scores(self.snapshot.rows, prev_rows)
-        self.active_strikes = select_active_strikes(
-            scores, spot, self.vol_diff_available
-        )
+        self.active_strikes = select_active_strikes(scores, spot, self.vol_diff_available)
 
         # ATM-zone features only
         self._compute_atm_zone_features(self.snapshot, self.atm_window)
@@ -199,46 +197,41 @@ class ChainCache:
         first chain snapshot and does not change during a session or across
         same-contract rollovers.
         """
-        self.chain_available    = False
+        self.chain_available = False
         self.vol_diff_available = False
-        self.snapshot           = None
-        self.prev_snapshot      = None
+        self.snapshot = None
+        self.prev_snapshot = None
         # atm/atm_window/active_strikes cleared but strike_step kept
-        self.atm            = None
-        self.atm_window     = []
+        self.atm = None
+        self.atm_window = []
         self.active_strikes = []
         # Global features
-        self.pcr_global     = None
-        self.oi_total_call  = 0.0
-        self.oi_total_put   = 0.0
+        self.pcr_global = None
+        self.oi_total_call = 0.0
+        self.oi_total_put = 0.0
         self.oi_change_call = 0.0
-        self.oi_change_put  = 0.0
+        self.oi_change_put = 0.0
         # ATM-zone features
-        self.pcr_atm              = None
-        self.oi_change_call_atm   = 0.0
-        self.oi_change_put_atm    = 0.0
-        self.oi_imbalance_atm     = None
-        self.call_vol_diff_atm    = None
-        self.put_vol_diff_atm     = None
-        self.last_snapshot_ts     = 0.0
+        self.pcr_atm = None
+        self.oi_change_call_atm = 0.0
+        self.oi_change_put_atm = 0.0
+        self.oi_imbalance_atm = None
+        self.call_vol_diff_atm = None
+        self.put_vol_diff_atm = None
+        self.last_snapshot_ts = 0.0
 
     # ── Internal ─────────────────────────────────────────────────────────────
 
     def _compute_global_features(self, snapshot: ChainSnapshot) -> None:
         """Recompute global features from all rows in the snapshot."""
         rows = snapshot.rows
-        self.oi_total_call  = sum(float(r.get("callOI",       0) or 0) for r in rows)
-        self.oi_total_put   = sum(float(r.get("putOI",        0) or 0) for r in rows)
+        self.oi_total_call = sum(float(r.get("callOI", 0) or 0) for r in rows)
+        self.oi_total_put = sum(float(r.get("putOI", 0) or 0) for r in rows)
         self.oi_change_call = sum(float(r.get("callOIChange", 0) or 0) for r in rows)
-        self.oi_change_put  = sum(float(r.get("putOIChange",  0) or 0) for r in rows)
-        self.pcr_global = (
-            self.oi_total_put / self.oi_total_call
-            if self.oi_total_call > 0 else None
-        )
+        self.oi_change_put = sum(float(r.get("putOIChange", 0) or 0) for r in rows)
+        self.pcr_global = self.oi_total_put / self.oi_total_call if self.oi_total_call > 0 else None
 
-    def _compute_atm_zone_features(
-        self, snapshot: ChainSnapshot, atm_window: list[int]
-    ) -> None:
+    def _compute_atm_zone_features(self, snapshot: ChainSnapshot, atm_window: list[int]) -> None:
         """
         Recompute ATM-zone features from rows matching the given ATM window.
 
@@ -248,25 +241,18 @@ class ChainCache:
         atm_set = set(atm_window)
         atm_rows = [r for r in snapshot.rows if int(r["strike"]) in atm_set]
 
-        oi_call_atm = sum(float(r.get("callOI",       0) or 0) for r in atm_rows)
-        oi_put_atm  = sum(float(r.get("putOI",        0) or 0) for r in atm_rows)
-        self.oi_change_call_atm = sum(
-            float(r.get("callOIChange", 0) or 0) for r in atm_rows
-        )
-        self.oi_change_put_atm = sum(
-            float(r.get("putOIChange", 0) or 0) for r in atm_rows
-        )
+        oi_call_atm = sum(float(r.get("callOI", 0) or 0) for r in atm_rows)
+        oi_put_atm = sum(float(r.get("putOI", 0) or 0) for r in atm_rows)
+        self.oi_change_call_atm = sum(float(r.get("callOIChange", 0) or 0) for r in atm_rows)
+        self.oi_change_put_atm = sum(float(r.get("putOIChange", 0) or 0) for r in atm_rows)
 
-        self.pcr_atm = (
-            oi_put_atm / oi_call_atm if oi_call_atm > 0 else None
-        )
+        self.pcr_atm = oi_put_atm / oi_call_atm if oi_call_atm > 0 else None
 
         # Imbalance: signed direction of ATM OI change.
         # Denominator uses absolute values so sign cancellation cannot zero it.
         denom = abs(self.oi_change_call_atm) + abs(self.oi_change_put_atm)
         self.oi_imbalance_atm = (
-            (self.oi_change_call_atm - self.oi_change_put_atm) / denom
-            if denom != 0 else None
+            (self.oi_change_call_atm - self.oi_change_put_atm) / denom if denom != 0 else None
         )
 
         # Volume diffs (current - previous snapshot volume per ATM ±3 strike).
@@ -285,4 +271,4 @@ class ChainCache:
             )
         else:
             self.call_vol_diff_atm = None
-            self.put_vol_diff_atm  = None
+            self.put_vol_diff_atm = None

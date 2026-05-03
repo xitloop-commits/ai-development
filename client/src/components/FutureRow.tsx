@@ -50,7 +50,7 @@ function _FutureRow({ day, isDay250, highlighted = false }: FutureRowProps) {
   );
 }
 
-export const FutureRow = memo(_FutureRow, (prev, next) => {
+export function futureRowPropsEqual(prev: FutureRowProps, next: FutureRowProps): boolean {
   const d1 = prev.day;
   const d2 = next.day;
   return (
@@ -64,4 +64,6 @@ export const FutureRow = memo(_FutureRow, (prev, next) => {
     prev.channel === next.channel &&
     prev.highlighted === next.highlighted
   );
-});
+}
+
+export const FutureRow = memo(_FutureRow, futureRowPropsEqual);

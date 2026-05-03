@@ -1,3 +1,7 @@
+> **⚠ HISTORICAL — pre-refactor baseline (2026-03-30).** Kept as the originating product narrative. Live source of truth: `docs/specs/` (per-agent specs) + `docs/IMPLEMENTATION_PLAN_v2.md` (build sheet) + `docs/FINAL_VERIFICATION_TRACKER.md` (punch list). Some claims here have been overtaken by implementation.
+
+---
+
 # Automatic Trading System (ATS) — Complete Feature & Requirements Reference
 
 **Version:** 1.0  
@@ -37,7 +41,7 @@ The UI follows the **"Terminal Noir"** aesthetic — a dark, information-dense t
 |-------|-----------|
 | **Frontend** | React 19 (SPA) + Vite + Tailwind CSS 4 + shadcn/ui + wouter routing |
 | **Backend** | Express 4 + tRPC 11 + Mongoose (MongoDB) + Drizzle ORM (MySQL/TiDB) |
-| **Databases** | MongoDB Atlas (database: `100cr`) for all new data; MySQL/TiDB for legacy data |
+| **Databases** | Local MongoDB Community Server (database: `lucky_baskar`) for all new data; MySQL/TiDB for legacy data. Migrated from Atlas on 2026-04-30. |
 | **Testing** | Vitest (263 tests passing as of last checkpoint) |
 | **Python Pipeline** | 6 standalone modules for market data fetching, analysis, AI decisions, execution, and data pushing |
 | **Broker** | Dhan API v2 (REST + WebSocket) via Broker Service abstraction layer |
@@ -133,7 +137,7 @@ Rate limiter enforcing 10 requests/second and 250 requests/minute for all Dhan A
 
 ### 3.13 Feature 1: MongoDB Setup & Connection ✅
 
-Mongoose connection to MongoDB Atlas with retry logic, health checks (ping), and graceful shutdown. tRPC and REST health endpoints. Six vitest tests covering env, connect, ping, CRUD, health, and latency.
+Mongoose connection to local MongoDB (was Atlas pre-2026-04-30) with retry logic, health checks (ping), and graceful shutdown. tRPC and REST health endpoints. Six vitest tests covering env, connect, ping, CRUD, health, and latency.
 
 ---
 
@@ -464,8 +468,6 @@ The entire pre-trade gate can be toggled off in settings for experienced mode.
 | Enter | Confirm current action |
 | T | Jump to today's row |
 
-All visual polish from mockups applied.
-
 ---
 
 ### Feature 22: AI Trades PAPER Tab
@@ -507,7 +509,7 @@ Three standalone Python packages form the data, training, and signal pipeline. T
 |--------|---------|---------|
 | **TFA (Tick Feature Agent)** | `tick_feature_agent/` | Live tick ingestion from Dhan, option chain polling, rollover handling, feature engineering (compression, decay, time-to-move, upside percentiles, targets). Records NDJSON.gz + writes the option-chain JSON the dashboard consumes. |
 | **MTA (Model Training Agent)** | `model_training_agent/` | Trains LightGBM models from TFA-emitted Parquet features (29 models per instrument across 30s/60s/5min/15min target windows). Outputs to `models/{instrument}/LATEST/`. |
-| **SEA (Signal Engine Agent)** | `signal_engine_agent/` | Consumes model predictions, runs the 4-stage trade filter (sustained direction, confidence gate, multi-model consensus, direction change), and produces LONG/SHORT CE/PE recommendations with SL/TP. Pushes signals to Discipline Engine (pre-trade gate) and RCA (approval + sizing). |
+| **SEA (Signal Engine Agent)** | `signal_engine_agent/` | Consumes model predictions, runs the 4-stage trade filter (sustained direction, confidence gate, multi-model consensus, direction change), and produces LONG/SHORT CE/PE recommendations with SL/TP. Pushes signals to Discipline Agent (pre-trade gate) and RCA (approval + sizing). |
 
 All three packages call the Broker Service REST endpoints (never the Dhan API directly); credentials are read from MongoDB via the Broker Service.
 
@@ -524,7 +526,7 @@ These decisions are **locked** and should not be revisited without explicit user
 | Active broker for LIVE | Dhan adapter (first implementation) |
 | Active broker for PAPER | Mock adapter (in-memory simulation) |
 | Language split | Python (fetcher, analyzer, AI engine) + Node.js (dashboard + API + Broker Service) |
-| Database | MongoDB Atlas for all new data; existing MySQL/TiDB untouched until user says to migrate |
+| Database | Local MongoDB (Community Server, database `lucky_baskar`) for all new data; migrated from Atlas 2026-04-30; existing MySQL/TiDB untouched until user says to migrate |
 | Trade execution | Via Broker Service → Dhan adapter → LIMIT order at configurable % below LTP (default 1%) |
 | SL/TP handling | Dhan bracket orders (server-side triggers), not in-memory monitoring |
 | Real-time data | Via Broker Service → Dhan WebSocket, every tick pushed to frontend |
@@ -640,14 +642,3 @@ Please refer to **`docs/specs/Settings_Spec_v1.2.md`** for the complete, authori
 - Historical data
 
 **Important:** Order placement, modification, and cancellation require static IP whitelisting on Dhan's platform.
-
----
-
-### Mockup Files Reference
-
-| File | Description |
-|------|-------------|
-| `mockups/position-tracker-mockup/index.html` | Trading Desk table design with 16 columns, row types, summary bar |
-| `mockups/discipline-mockup/index.html` | Discipline Engine standalone with 8 tabs |
-| `mockups/position-tracker-discipline-mockup/index.html` | Integrated Trading Desk + all discipline rules (11 scenarios) |
-| `mockups/instrument-card-mockup/index.html` | Instrument Card with all 10 sections |

@@ -43,8 +43,8 @@ export function CredentialGate({ children }: CredentialGateProps) {
     onSuccess: () => {
       toast.success("Token updated successfully");
       setToken("");
-      statusQuery.refetch();
-      configQuery.refetch();
+      void statusQuery.refetch();
+      void configQuery.refetch();
     },
     onError: (err) => {
       toast.error(`Update failed: ${err.message}`);

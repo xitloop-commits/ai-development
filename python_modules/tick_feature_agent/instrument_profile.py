@@ -24,10 +24,10 @@ class ProfileValidationError(Exception):
 @dataclass(frozen=True)
 class InstrumentProfile:
     # Identity
-    exchange: str                         # "NSE" or "MCX"
-    instrument_name: str                  # "NIFTY", "BANKNIFTY", "CRUDEOIL", "NATURALGAS"
-    underlying_symbol: str                # e.g. "NIFTY25MAYFUT"
-    underlying_security_id: str           # Dhan security ID for the underlying futures contract
+    exchange: str  # "NSE" or "MCX"
+    instrument_name: str  # "NIFTY", "BANKNIFTY", "CRUDEOIL", "NATURALGAS"
+    underlying_symbol: str  # e.g. "NIFTY25MAYFUT"
+    underlying_security_id: str  # Dhan security ID for the underlying futures contract
 
     # Session hours (HH:MM IST strings)
     session_start: str
@@ -70,7 +70,7 @@ class InstrumentProfile:
         return dtime(int(h), int(m))
 
     @classmethod
-    def for_replay_date(cls, base: "InstrumentProfile", meta: dict) -> "InstrumentProfile":
+    def for_replay_date(cls, base: InstrumentProfile, meta: dict) -> InstrumentProfile:
         """
         Return a copy of `base` with underlying_symbol and underlying_security_id
         overridden from the replay session's metadata.json. All other fields
@@ -88,9 +88,12 @@ class InstrumentProfile:
 
 # ── Validation helpers ────────────────────────────────────────────────────────
 
+
 def _require(data: dict, field: str, expected_type: type, context: str = "") -> Any:
     if field not in data:
-        raise ProfileValidationError(f"Missing required field: '{field}'{' (' + context + ')' if context else ''}")
+        raise ProfileValidationError(
+            f"Missing required field: '{field}'{' (' + context + ')' if context else ''}"
+        )
     val = data[field]
     if not isinstance(val, expected_type):
         raise ProfileValidationError(
@@ -113,6 +116,7 @@ def _parse_hhmm(value: str, field: str) -> dtime:
 
 # ── Public loader ─────────────────────────────────────────────────────────────
 
+
 def load_profile(path: str | Path) -> InstrumentProfile:
     """
     Load and validate an instrument profile JSON file.
@@ -133,28 +137,28 @@ def load_profile(path: str | Path) -> InstrumentProfile:
 
     # ── Field validation (all 20 required fields) ─────────────────────────────
 
-    exchange       = _require(data, "exchange", str)
+    exchange = _require(data, "exchange", str)
     instrument_name = _require(data, "instrument_name", str)
     underlying_symbol = _require(data, "underlying_symbol", str)
     underlying_security_id = _require(data, "underlying_security_id", (str, int))
     session_start_raw = _require(data, "session_start", str)
-    session_end_raw   = _require(data, "session_end", str)
+    session_end_raw = _require(data, "session_end", str)
 
-    underlying_tick_timeout_sec      = _require(data, "underlying_tick_timeout_sec", int)
-    option_tick_timeout_sec          = _require(data, "option_tick_timeout_sec", int)
+    underlying_tick_timeout_sec = _require(data, "underlying_tick_timeout_sec", int)
+    option_tick_timeout_sec = _require(data, "option_tick_timeout_sec", int)
     momentum_staleness_threshold_sec = _require(data, "momentum_staleness_threshold_sec", int)
-    warm_up_duration_sec             = _require(data, "warm_up_duration_sec", int)
+    warm_up_duration_sec = _require(data, "warm_up_duration_sec", int)
 
-    regime_trend_volatility_min   = _require(data, "regime_trend_volatility_min", (int, float))
-    regime_trend_imbalance_min    = _require(data, "regime_trend_imbalance_min", (int, float))
-    regime_trend_momentum_min     = _require(data, "regime_trend_momentum_min", (int, float))
-    regime_trend_activity_min     = _require(data, "regime_trend_activity_min", (int, float))
-    regime_range_volatility_max   = _require(data, "regime_range_volatility_max", (int, float))
-    regime_range_imbalance_max    = _require(data, "regime_range_imbalance_max", (int, float))
-    regime_range_activity_min     = _require(data, "regime_range_activity_min", (int, float))
-    regime_dead_activity_max      = _require(data, "regime_dead_activity_max", (int, float))
-    regime_dead_vol_drought_max   = _require(data, "regime_dead_vol_drought_max", (int, float))
-    target_windows_raw            = _require(data, "target_windows_sec", list)
+    regime_trend_volatility_min = _require(data, "regime_trend_volatility_min", (int, float))
+    regime_trend_imbalance_min = _require(data, "regime_trend_imbalance_min", (int, float))
+    regime_trend_momentum_min = _require(data, "regime_trend_momentum_min", (int, float))
+    regime_trend_activity_min = _require(data, "regime_trend_activity_min", (int, float))
+    regime_range_volatility_max = _require(data, "regime_range_volatility_max", (int, float))
+    regime_range_imbalance_max = _require(data, "regime_range_imbalance_max", (int, float))
+    regime_range_activity_min = _require(data, "regime_range_activity_min", (int, float))
+    regime_dead_activity_max = _require(data, "regime_dead_activity_max", (int, float))
+    regime_dead_vol_drought_max = _require(data, "regime_dead_vol_drought_max", (int, float))
+    target_windows_raw = _require(data, "target_windows_sec", list)
 
     # ── Value range / semantic checks ─────────────────────────────────────────
 
@@ -172,7 +176,7 @@ def load_profile(path: str | Path) -> InstrumentProfile:
         raise ProfileValidationError("'underlying_security_id' must not be empty")
 
     t_start = _parse_hhmm(session_start_raw, "session_start")
-    t_end   = _parse_hhmm(session_end_raw, "session_end")
+    t_end = _parse_hhmm(session_end_raw, "session_end")
     if t_end <= t_start:
         raise ProfileValidationError(
             f"'session_end' ({session_end_raw}) must be after 'session_start' ({session_start_raw})"
@@ -222,11 +226,15 @@ def load_profile(path: str | Path) -> InstrumentProfile:
         )
     for w in target_windows_raw:
         if not isinstance(w, int):
-            raise ProfileValidationError(f"'target_windows_sec' elements must be integers, got: {w!r}")
+            raise ProfileValidationError(
+                f"'target_windows_sec' elements must be integers, got: {w!r}"
+            )
         if not (5 <= w <= 1800):
             raise ProfileValidationError(f"'target_windows_sec' element {w} must be in [5, 1800]")
     if len(target_windows_raw) != len(set(target_windows_raw)):
-        raise ProfileValidationError(f"'target_windows_sec' must not contain duplicates: {target_windows_raw}")
+        raise ProfileValidationError(
+            f"'target_windows_sec' must not contain duplicates: {target_windows_raw}"
+        )
 
     # Optional ws_security_id override (no validation required — just store as-is)
     ws_security_id_raw = data.get("ws_security_id")

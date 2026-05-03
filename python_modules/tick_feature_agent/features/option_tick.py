@@ -31,8 +31,6 @@ Null handling:
 
 from __future__ import annotations
 
-import math
-
 from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
 
 _NAN = float("nan")
@@ -40,14 +38,14 @@ _OPT_TYPES = ("CE", "PE")
 
 # Sentinels used when tick_available = 0
 _NULL_FEATURES: dict = {
-    "tick_available":      0,
-    "ltp":                 _NAN,
-    "bid":                 _NAN,
-    "ask":                 _NAN,
-    "spread":              _NAN,
-    "volume":              _NAN,
-    "bid_ask_imbalance":   _NAN,
-    "premium_momentum":    _NAN,
+    "tick_available": 0,
+    "ltp": _NAN,
+    "bid": _NAN,
+    "ask": _NAN,
+    "spread": _NAN,
+    "volume": _NAN,
+    "bid_ask_imbalance": _NAN,
+    "premium_momentum": _NAN,
     "premium_momentum_10": _NAN,
 }
 
@@ -77,7 +75,7 @@ def _premium_momentum(
     """
     if len(ticks) < n:
         return _NAN
-    window = ticks[-n:]   # length == n, oldest first
+    window = ticks[-n:]  # length == n, oldest first
     time_span = window[-1].timestamp - window[0].timestamp
     if time_span > staleness_sec:
         return _NAN
@@ -110,7 +108,7 @@ def compute_option_tick_features(
             key = (strike, opt_type)
 
             if not option_store.tick_available(strike, opt_type):
-                result[key] = dict(_NULL_FEATURES)   # copy so callers can't mutate sentinel
+                result[key] = dict(_NULL_FEATURES)  # copy so callers can't mutate sentinel
                 continue
 
             # Retrieve full tick history (maxlen=10 for option buffers)
@@ -121,14 +119,14 @@ def compute_option_tick_features(
             ask_f = float(current.ask)
 
             features: dict = {
-                "tick_available":      1,
-                "ltp":                 float(current.ltp),
-                "bid":                 bid_f,
-                "ask":                 ask_f,
-                "spread":              ask_f - bid_f,
-                "volume":              float(current.volume),
-                "bid_ask_imbalance":   _bid_ask_imbalance(current),
-                "premium_momentum":    _premium_momentum(ticks, 5,  staleness_threshold_sec),
+                "tick_available": 1,
+                "ltp": float(current.ltp),
+                "bid": bid_f,
+                "ask": ask_f,
+                "spread": ask_f - bid_f,
+                "volume": float(current.volume),
+                "bid_ask_imbalance": _bid_ask_imbalance(current),
+                "premium_momentum": _premium_momentum(ticks, 5, staleness_threshold_sec),
                 "premium_momentum_10": _premium_momentum(ticks, 10, staleness_threshold_sec),
             }
             result[key] = features

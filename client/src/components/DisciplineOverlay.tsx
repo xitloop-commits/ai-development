@@ -1,5 +1,5 @@
 /**
- * DisciplineOverlay — Full Discipline Engine Dashboard
+ * DisciplineOverlay — Full Discipline Agent Dashboard
  *
  * Sections:
  *   1. Score Gauge — circular 0-100 gauge with color coding
@@ -81,7 +81,8 @@ type DashboardData = typeof FALLBACK_DASHBOARD;
 
 // ─── Score Gauge Component ─────────────────────────────────────
 
-function ScoreGauge({ score }: { score: number }) {
+// G5 — exported for unit testing (pure presentational helper).
+export function ScoreGauge({ score }: { score: number }) {
   const radius = 54;
   const circumference = 2 * Math.PI * radius;
   const progress = (score / 100) * circumference;
@@ -205,7 +206,8 @@ function StatusCards({ state, settings }: { state: DashboardData['state']; setti
 
 // ─── Violations List ───────────────────────────────────────────
 
-function ViolationsList({ violations }: { violations: DashboardData['state']['violations'] }) {
+// G5 — exported for unit testing (pure presentational helper).
+export function ViolationsList({ violations }: { violations: DashboardData['state']['violations'] }) {
   if (violations.length === 0) {
     return (
       <div className="flex items-center gap-2 text-[0.625rem] text-profit-green/80 py-2">
@@ -412,7 +414,7 @@ export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOver
         <DialogHeader className="px-6 pt-5 pb-3 border-b border-border flex-shrink-0">
           <DialogTitle className="flex items-center gap-2 text-base font-display font-bold tracking-tight">
             <Shield className="h-4 w-4 text-info-cyan" />
-            Discipline Engine
+            Discipline Agent
             <span className={`text-[0.5625rem] tracking-widest uppercase ml-2 ${isLive ? 'text-bullish' : 'text-warning-amber'}`}>
               {isLive ? 'LIVE' : 'OFFLINE'}
             </span>

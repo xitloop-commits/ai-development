@@ -100,13 +100,13 @@ def compute_meta_features(
         quality = 0
 
     return {
-        "exchange":               profile.exchange,
-        "instrument":             profile.instrument_name,
-        "underlying_symbol":      profile.underlying_symbol,
+        "exchange": profile.exchange,
+        "instrument": profile.instrument_name,
+        "underlying_symbol": profile.underlying_symbol,
         "underlying_security_id": profile.underlying_security_id,
-        "chain_timestamp":        chain_ts,
-        "time_since_chain_sec":   time_since_chain,
-        "chain_available":        1 if cache.chain_available else 0,
-        "data_quality_flag":      quality,
-        "is_market_open":         1 if is_market_open else 0,
+        "chain_timestamp": chain_ts,
+        "time_since_chain_sec": time_since_chain,
+        "chain_available": 1 if cache.chain_available else 0,
+        "data_quality_flag": quality,
+        "is_market_open": 1 if is_market_open else 0,
     }

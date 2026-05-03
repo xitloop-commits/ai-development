@@ -9,30 +9,31 @@ from __future__ import annotations
 import json
 import math
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
 import pytest
 
 from tick_feature_agent.instrument_profile import InstrumentProfile
+from tick_feature_agent.output.emitter import COLUMN_NAMES
 from tick_feature_agent.replay.replay_adapter import (
     ReplayAdapter,
     _build_chain_snapshot,
     _parse_ts,
     _session_boundary_sec,
 )
-from tick_feature_agent.output.emitter import COLUMN_NAMES
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 _DATE = "2026-04-14"
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
+
 
 def _make_profile(**overrides) -> InstrumentProfile:
     """Build a minimal InstrumentProfile suitable for tests."""
@@ -46,7 +47,7 @@ def _make_profile(**overrides) -> InstrumentProfile:
         underlying_tick_timeout_sec=5,
         option_tick_timeout_sec=10,
         momentum_staleness_threshold_sec=60,
-        warm_up_duration_sec=1,      # short for tests
+        warm_up_duration_sec=1,  # short for tests
         regime_trend_volatility_min=0.3,
         regime_trend_imbalance_min=0.3,
         regime_trend_momentum_min=0.3,
@@ -73,31 +74,36 @@ def _underlying_event(ltp: float, h: int, m: int, s: int, ms: int = 0) -> dict:
         "type": "underlying_tick",
         "data": {
             "recv_ts": _ts(h, m, s, ms),
-            "ltp":     ltp,
-            "bid":     ltp - 0.5,
-            "ask":     ltp + 0.5,
+            "ltp": ltp,
+            "bid": ltp - 0.5,
+            "ask": ltp + 0.5,
             "bid_size": 100,
             "ask_size": 100,
-            "ltq":     5,
+            "ltq": 5,
         },
     }
 
 
 def _option_event(
-    strike: int, opt_type: str, ltp: float,
-    h: int, m: int, s: int, ms: int = 0,
+    strike: int,
+    opt_type: str,
+    ltp: float,
+    h: int,
+    m: int,
+    s: int,
+    ms: int = 0,
 ) -> dict:
     return {
         "type": "option_tick",
         "data": {
-            "recv_ts":  _ts(h, m, s, ms),
-            "ltp":      ltp,
-            "bid":      ltp - 0.25,
-            "ask":      ltp + 0.25,
+            "recv_ts": _ts(h, m, s, ms),
+            "ltp": ltp,
+            "bid": ltp - 0.25,
+            "ask": ltp + 0.25,
             "bid_size": 50,
             "ask_size": 50,
-            "ltq":      1,
-            "strike":   strike,
+            "ltq": 1,
+            "strike": strike,
             "opt_type": opt_type,
         },
     }
@@ -109,30 +115,32 @@ def _chain_event(spot: float, h: int, m: int, s: int) -> dict:
     rows = []
     for offset in range(-3, 4):
         k = atm + offset * 50
-        rows.append({
-            "strike":          k,
-            "callOI":          10000,
-            "callOIChange":    500,
-            "callLTP":         max(0.5, spot - k + 100),
-            "callVolume":      200,
-            "callIV":          18.5,
-            "callSecurityId":  str(52000 + (k - 24000) // 50 * 2),
-            "putOI":           8000,
-            "putOIChange":     300,
-            "putLTP":          max(0.5, k - spot + 100),
-            "putVolume":       150,
-            "putIV":           17.5,
-            "putSecurityId":   str(52001 + (k - 24000) // 50 * 2),
-        })
+        rows.append(
+            {
+                "strike": k,
+                "callOI": 10000,
+                "callOIChange": 500,
+                "callLTP": max(0.5, spot - k + 100),
+                "callVolume": 200,
+                "callIV": 18.5,
+                "callSecurityId": str(52000 + (k - 24000) // 50 * 2),
+                "putOI": 8000,
+                "putOIChange": 300,
+                "putLTP": max(0.5, k - spot + 100),
+                "putVolume": 150,
+                "putIV": 17.5,
+                "putSecurityId": str(52001 + (k - 24000) // 50 * 2),
+            }
+        )
     return {
         "type": "chain_snapshot",
         "data": {
-            "recv_ts":   _ts(h, m, s),
+            "recv_ts": _ts(h, m, s),
             "underlying": "13",
-            "expiry":    "2026-04-17",
+            "expiry": "2026-04-17",
             "spotPrice": spot,
             "timestamp": int(datetime(2026, 4, 14, h, m, s, tzinfo=_IST).timestamp() * 1000),
-            "rows":      rows,
+            "rows": rows,
         },
     }
 
@@ -140,6 +148,7 @@ def _chain_event(spot: float, h: int, m: int, s: int) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 # TestTimestampHelpers
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestTimestampHelpers:
 
@@ -158,12 +167,12 @@ class TestTimestampHelpers:
 
     def test_session_boundary_sec_order(self):
         start = _session_boundary_sec(_DATE, "09:15")
-        end   = _session_boundary_sec(_DATE, "15:30")
+        end = _session_boundary_sec(_DATE, "15:30")
         assert start < end
 
     def test_session_boundary_sec_diff(self):
         start = _session_boundary_sec(_DATE, "09:15")
-        end   = _session_boundary_sec(_DATE, "15:30")
+        end = _session_boundary_sec(_DATE, "15:30")
         diff_hours = (end - start) / 3600
         assert pytest.approx(diff_hours, abs=0.01) == 6.25  # 6h15m
 
@@ -172,22 +181,32 @@ class TestTimestampHelpers:
 # TestBuildChainSnapshot
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestBuildChainSnapshot:
 
     def test_valid_data(self):
         data = {
-            "recv_ts":   "2026-04-14T09:15:05.000+05:30",
+            "recv_ts": "2026-04-14T09:15:05.000+05:30",
             "underlying": "13",
-            "expiry":    "2026-04-17",
+            "expiry": "2026-04-17",
             "spotPrice": 24150.0,
             "timestamp": 1744594505000,
             "rows": [
-                {"strike": 24100, "callOI": 1000, "callOIChange": 100,
-                 "callLTP": 150.0, "callVolume": 50, "callIV": 18.0,
-                 "callSecurityId": "52175",
-                 "putOI": 800, "putOIChange": 80,
-                 "putLTP": 95.0, "putVolume": 30, "putIV": 17.5,
-                 "putSecurityId": "52176"},
+                {
+                    "strike": 24100,
+                    "callOI": 1000,
+                    "callOIChange": 100,
+                    "callLTP": 150.0,
+                    "callVolume": 50,
+                    "callIV": 18.0,
+                    "callSecurityId": "52175",
+                    "putOI": 800,
+                    "putOIChange": 80,
+                    "putLTP": 95.0,
+                    "putVolume": 30,
+                    "putIV": 17.5,
+                    "putSecurityId": "52176",
+                },
             ],
         }
         snap = _build_chain_snapshot(data)
@@ -201,7 +220,7 @@ class TestBuildChainSnapshot:
 
     def test_missing_rows_returns_snapshot(self):
         data = {
-            "recv_ts":   "2026-04-14T09:15:05.000+05:30",
+            "recv_ts": "2026-04-14T09:15:05.000+05:30",
             "spotPrice": 24150.0,
             "timestamp": 1744594505000,
         }
@@ -219,16 +238,25 @@ class TestBuildChainSnapshot:
     def test_strike_step_detected(self):
         """With strikes 24000, 24050, 24100, strike_step should be 50."""
         data = {
-            "recv_ts":   "2026-04-14T09:15:05.000+05:30",
+            "recv_ts": "2026-04-14T09:15:05.000+05:30",
             "spotPrice": 24100.0,
             "timestamp": 0,
             "rows": [
-                {"strike": k, "callOI": 1000, "callOIChange": 100,
-                 "callLTP": 100.0, "callVolume": 50, "callIV": 18.0,
-                 "callSecurityId": str(k),
-                 "putOI": 800, "putOIChange": 80,
-                 "putLTP": 100.0, "putVolume": 30, "putIV": 17.5,
-                 "putSecurityId": str(k + 1)}
+                {
+                    "strike": k,
+                    "callOI": 1000,
+                    "callOIChange": 100,
+                    "callLTP": 100.0,
+                    "callVolume": 50,
+                    "callIV": 18.0,
+                    "callSecurityId": str(k),
+                    "putOI": 800,
+                    "putOIChange": 80,
+                    "putLTP": 100.0,
+                    "putVolume": 30,
+                    "putIV": 17.5,
+                    "putSecurityId": str(k + 1),
+                }
                 for k in (24000, 24050, 24100, 24150, 24200)
             ],
         }
@@ -240,6 +268,7 @@ class TestBuildChainSnapshot:
 # ══════════════════════════════════════════════════════════════════════════════
 # TestReplayAdapterBasic
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestReplayAdapterBasic:
 
@@ -289,6 +318,7 @@ class TestReplayAdapterBasic:
 # TestReplayAdapterWithChain
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestReplayAdapterWithChain:
 
     def _feed_session(self, n_ticks: int = 100, spot: float = 24150.0) -> ReplayAdapter:
@@ -325,6 +355,7 @@ class TestReplayAdapterWithChain:
 
     def test_parquet_has_correct_column_count(self, tmp_path):
         import pyarrow.parquet as pq
+
         adapter = self._feed_session(50)
         path = tmp_path / "test.parquet"
         adapter.emitter.write_parquet(path)
@@ -333,6 +364,7 @@ class TestReplayAdapterWithChain:
 
     def test_parquet_column_names_match_spec(self, tmp_path):
         import pyarrow.parquet as pq
+
         adapter = self._feed_session(50)
         path = tmp_path / "test.parquet"
         adapter.emitter.write_parquet(path)
@@ -341,6 +373,7 @@ class TestReplayAdapterWithChain:
 
     def test_timestamps_monotonic_in_parquet(self, tmp_path):
         import pyarrow.parquet as pq
+
         adapter = self._feed_session(50)
         path = tmp_path / "test.parquet"
         adapter.emitter.write_parquet(path)
@@ -352,6 +385,7 @@ class TestReplayAdapterWithChain:
     def test_instrument_meta_in_rows(self, tmp_path):
         """instrument and exchange columns should reflect the profile."""
         import pyarrow.parquet as pq
+
         adapter = self._feed_session(20)
         path = tmp_path / "test.parquet"
         adapter.emitter.write_parquet(path)
@@ -371,15 +405,18 @@ class TestReplayAdapterWithChain:
 # TestStateMachineReplay
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestStateMachineReplay:
 
     def test_starts_in_feed_stale(self):
         adapter = ReplayAdapter(_make_profile(), _DATE)
         from tick_feature_agent.state_machine import TradingState
+
         assert adapter._sm.state == TradingState.FEED_STALE
 
     def test_transitions_to_warming_up_on_first_tick(self):
         from tick_feature_agent.state_machine import TradingState
+
         adapter = ReplayAdapter(_make_profile(warm_up_duration_sec=300), _DATE)
         adapter.process_event(_underlying_event(24100.0, 9, 15, 1))
         assert adapter._sm.state == TradingState.WARMING_UP
@@ -388,6 +425,7 @@ class TestStateMachineReplay:
         """With warm_up_duration_sec=1, first tick starts warmup;
         second tick 2s later should complete it."""
         from tick_feature_agent.state_machine import TradingState
+
         adapter = ReplayAdapter(_make_profile(warm_up_duration_sec=1), _DATE)
         adapter.process_event(_underlying_event(24100.0, 9, 15, 1))
         adapter.process_event(_underlying_event(24100.0, 9, 15, 3))  # 2s later
@@ -404,11 +442,13 @@ class TestStateMachineReplay:
 # TestTargetBackfill
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestTargetBackfill:
 
     def test_target_columns_present_in_output(self, tmp_path):
         """After replay with enough ticks, target columns should exist in Parquet."""
         import pyarrow.parquet as pq
+
         profile = _make_profile(warm_up_duration_sec=1, target_windows_sec=(30, 60))
         adapter = ReplayAdapter(profile, _DATE)
         adapter.process_event(_chain_event(24150.0, 9, 15, 0))
@@ -460,14 +500,14 @@ class TestTargetBackfill:
         opt_event = {
             "type": "option_tick",
             "data": {
-                "recv_ts":     _ts(9, 15, 2),
+                "recv_ts": _ts(9, 15, 2),
                 "security_id": some_sec_id,
-                "ltp":         200.0,
-                "bid":         199.5,
-                "ask":         200.5,
-                "bid_size":    50,
-                "ask_size":    50,
-                "ltq":         1,
+                "ltp": 200.0,
+                "bid": 199.5,
+                "ask": 200.5,
+                "bid_size": 50,
+                "ask_size": 50,
+                "ltq": 1,
             },
         }
         adapter.process_event(opt_event)

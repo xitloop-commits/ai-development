@@ -25,7 +25,7 @@ The Risk Control Agent (RCA) is the **real-time risk decision maker** that:
 - **Decides when to exit** based on market conditions, own rules, and external signals
 - **Modifies SL/TP/TSL** for live trades to adapt to market changes
 - **Manages paper trades completely** (entry to exit)
-- **Coordinates with Discipline Engine** (honors hard rules)
+- **Coordinates with Discipline Agent** (honors hard rules)
 - **Validates AI/SEA signals** before executing
 
 RCA is the **central risk hub** — all trade decisions flow through it, and it sends commands only to TradeExecutorAgent.
@@ -33,7 +33,7 @@ RCA is the **central risk hub** — all trade decisions flow through it, and it 
 ```
 SEA (generates signal)
         ↓
-Discipline Engine.validateTrade (pre-trade gate, Module 4)
+Discipline Agent.validateTrade (pre-trade gate, Module 4)
         ↓
 RCA.evaluate (approves/sizes/sets SL/TP)
         ↓
@@ -92,7 +92,7 @@ Via WebSocket (or REST fallback):
 - Daily realized P&L
 - Win/loss streaks
 
-### 2.4 From Discipline Engine (Signals)
+### 2.4 From Discipline Agent (Signals)
 
 ```json
 {
@@ -332,7 +332,7 @@ Exit:
 ### 4.5 Handle External Requests (Discipline & AI/SEA)
 
 ```
-From Discipline Engine:
+From Discipline Agent:
   ├─ Receive: POST /api/risk-control/discipline-request
   ├─ Extract: action (EXIT|MODIFY), reason, params
   ├─ Decision: MUST honor (hard rules override RCA's decision)
@@ -619,7 +619,7 @@ VOLATILITY_SPIKE_THRESHOLD = 2.0  # 2x normal IV
   ├─ Call broker directly (TradeExecutor does)
   ├─ Track positions in-memory long-term (Portfolio Agent owns)
   ├─ Record trade outcomes (Portfolio Agent does)
-  ├─ Enforce pre-trade rules (Discipline Engine does)
+  ├─ Enforce pre-trade rules (Discipline Agent does)
   ├─ Persist state to database (Portfolio Agent does)
   └─ Generate AI signals (SEA does)
 
@@ -677,7 +677,7 @@ SEA → Discipline.validateTrade → RCA → TradeExecutor:
   - ✅ Live trade scenario
   - ✅ SL/TP modification during hold
 
-Discipline Engine → RCA → TradeExecutor:
+Discipline Agent → RCA → TradeExecutor:
   - ✅ Circuit breaker triggers exit
   - ✅ Cooldown blocks entry
   - ✅ Session halt forces close
@@ -725,7 +725,7 @@ Portfolio Agent Integration:
 - [ ] Wire from Discipline.validateTrade (SEA upstream)
 - [ ] Wire to TradeExecutorAgent
 - [ ] Wire to Portfolio Agent
-- [ ] Wire to Discipline Engine (signals in)
+- [ ] Wire to Discipline Agent (signals in)
 - [ ] Wire to SEA (AI signal channel)
 
 ### Phase 4: Testing & Hardening (Week 4)
@@ -828,7 +828,7 @@ SL_HIT              Price <= stop loss
 TP_HIT              Price >= take profit
 MOMENTUM_EXIT       Momentum < threshold
 AGE_EXIT            Trade age > max time
-DISCIPLINE_EXIT     Discipline Engine signal
+DISCIPLINE_EXIT     Discipline Agent signal
 AI_EXIT             AI/SEA signal
 VOLATILITY_EXIT     IV spike detected
 REVERSAL_EXIT       Trend reversal detected

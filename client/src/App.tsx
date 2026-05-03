@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -8,11 +8,20 @@ import { InstrumentFilterProvider } from "./contexts/InstrumentFilterContext";
 import { CapitalProvider } from "./contexts/CapitalContext";
 import MainScreen from "./components/MainScreen";
 import { CredentialGate } from "./components/CredentialGate";
-import TradingDeskMockupPage from "./mockups/TradingDeskMockupPage";
-import HeadToHeadPage from "./pages/HeadToHeadPage";
+
+// Mockup + H2H pages are reached only via specific URL params (?mockup=…, ?view=h2h),
+// so they shouldn't be in the main bundle. Lazy-load them.
+const TradingDeskMockupPage = lazy(() => import("./mockups/TradingDeskMockupPage"));
+const HeadToHeadPage = lazy(() => import("./pages/HeadToHeadPage"));
 
 function isTradingDeskMockupRoute() {
   if (typeof window === "undefined") return false;
+
+  // H6 — mockup pages are dev-only. In production builds, hitting
+  // ?mockup=… or /mockups/… redirects to "/" so the mockup tree never
+  // renders. Vite tree-shakes the lazy-import chunk too because the
+  // call to `<TradingDeskMockupPage />` is unreachable.
+  if (!import.meta.env.DEV) return false;
 
   const params = new URLSearchParams(window.location.search);
   return (
@@ -30,6 +39,21 @@ function isHeadToHeadRoute() {
 function App() {
   const showTradingDeskMockup = isTradingDeskMockupRoute();
   const showHeadToHead = isHeadToHeadRoute();
+
+  // H6 — in production, if a user lands on a mockup URL, redirect to
+  // home instead of silently rendering MainScreen at the wrong URL.
+  // Single replaceState so the mockup URL doesn't pollute history.
+  useEffect(() => {
+    if (import.meta.env.DEV) return;
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const isMockupUrl =
+      params.get("mockup") === "trading-desk-current" ||
+      window.location.pathname.startsWith("/mockups/");
+    if (isMockupUrl) {
+      window.history.replaceState({}, "", "/");
+    }
+  }, []);
 
   // Enter fullscreen on first user interaction
   useEffect(() => {
@@ -77,9 +101,13 @@ function App() {
                 }}
               />
               {showTradingDeskMockup ? (
-                <TradingDeskMockupPage />
+                <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading mockup…</div>}>
+                  <TradingDeskMockupPage />
+                </Suspense>
               ) : showHeadToHead ? (
-                <HeadToHeadPage />
+                <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading…</div>}>
+                  <HeadToHeadPage />
+                </Suspense>
               ) : (
                 <CredentialGate>
                   <CapitalProvider>

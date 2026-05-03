@@ -11,21 +11,20 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
 import pytest
 
 from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
-from tick_feature_agent.features.ofi import compute_ofi_features, _trade_direction
+from tick_feature_agent.features.ofi import _trade_direction, compute_ofi_features
 from tick_feature_agent.features.realized_vol import compute_realized_vol_features
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _tick(ltp: float, bid: float = 0.0, ask: float = 0.0,
-          volume: int = 0) -> UnderlyingTick:
+
+def _tick(ltp: float, bid: float = 0.0, ask: float = 0.0, volume: int = 0) -> UnderlyingTick:
     return UnderlyingTick(timestamp=0.0, ltp=ltp, bid=bid, ask=ask, volume=volume)
 
 
@@ -51,6 +50,7 @@ def _nan(v) -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 # §8.18 OFI — Trade Direction
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestTradeDirection:
     """Unit tests for the _trade_direction() helper."""
@@ -89,6 +89,7 @@ class TestTradeDirection:
 # §8.18 OFI — compute_ofi_features
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestOfiFeatureKeys:
     def test_exactly_4_keys(self):
         result = compute_ofi_features(CircularBuffer(maxlen=50))
@@ -106,7 +107,7 @@ class TestTradeDirectionInOutput:
         assert result["underlying_trade_direction"] == 0.0
 
     def test_first_tick_classified(self):
-        buf = _buf(_tick(24150.0, bid=24100.0, ask=24150.0))   # ltp = ask → +1
+        buf = _buf(_tick(24150.0, bid=24100.0, ask=24150.0))  # ltp = ask → +1
         result = compute_ofi_features(buf)
         assert result["underlying_trade_direction"] == 1.0
 
@@ -126,32 +127,32 @@ class TestTradeDirectionInOutput:
 
 class TestOfiNullBoundaries:
     def test_ofi_5_nan_at_4_ticks(self):
-        ticks = [_tick(100.0 + i, bid=99.0, ask=101.0, volume=1000 + i*10) for i in range(4)]
+        ticks = [_tick(100.0 + i, bid=99.0, ask=101.0, volume=1000 + i * 10) for i in range(4)]
         result = compute_ofi_features(_buf(*ticks))
         assert _nan(result["underlying_ofi_5"])
 
     def test_ofi_5_available_at_5_ticks(self):
-        ticks = [_tick(100.0 + i, bid=99.0, ask=101.0, volume=1000 + i*10) for i in range(5)]
+        ticks = [_tick(100.0 + i, bid=99.0, ask=101.0, volume=1000 + i * 10) for i in range(5)]
         result = compute_ofi_features(_buf(*ticks))
         assert not _nan(result["underlying_ofi_5"])
 
     def test_ofi_20_nan_at_19_ticks(self):
-        ticks = [_tick(100.0 + i, bid=99.0, ask=101.0, volume=1000 + i*10) for i in range(19)]
+        ticks = [_tick(100.0 + i, bid=99.0, ask=101.0, volume=1000 + i * 10) for i in range(19)]
         result = compute_ofi_features(_buf(*ticks))
         assert _nan(result["underlying_ofi_20"])
 
     def test_ofi_20_available_at_20_ticks(self):
-        ticks = [_tick(100.0 + i, bid=99.0, ask=101.0, volume=1000 + i*10) for i in range(20)]
+        ticks = [_tick(100.0 + i, bid=99.0, ask=101.0, volume=1000 + i * 10) for i in range(20)]
         result = compute_ofi_features(_buf(*ticks))
         assert not _nan(result["underlying_ofi_20"])
 
     def test_ofi_50_nan_at_49_ticks(self):
-        ticks = [_tick(100.0 + i, bid=99.0, ask=101.0, volume=1000 + i*10) for i in range(49)]
+        ticks = [_tick(100.0 + i, bid=99.0, ask=101.0, volume=1000 + i * 10) for i in range(49)]
         result = compute_ofi_features(_buf(*ticks))
         assert _nan(result["underlying_ofi_50"])
 
     def test_ofi_50_available_at_50_ticks(self):
-        ticks = [_tick(100.0 + i, bid=99.0, ask=101.0, volume=1000 + i*10) for i in range(50)]
+        ticks = [_tick(100.0 + i, bid=99.0, ask=101.0, volume=1000 + i * 10) for i in range(50)]
         result = compute_ofi_features(_buf(*ticks))
         assert not _nan(result["underlying_ofi_50"])
 
@@ -159,7 +160,7 @@ class TestOfiNullBoundaries:
 class TestOfiFormula:
     def test_all_buys_positive_ofi(self):
         # 5 ticks, all ltp >= ask → all +1; volumes 1000,1010,1020,1030,1040
-        ticks = [_tick(105.0, bid=100.0, ask=105.0, volume=1000 + i*10) for i in range(5)]
+        ticks = [_tick(105.0, bid=100.0, ask=105.0, volume=1000 + i * 10) for i in range(5)]
         result = compute_ofi_features(_buf(*ticks))
         # No predecessor; tick[0] delta = 0. Ticks 1..4 have deltas 10 each.
         # ofi_5 = 0 + 10 + 10 + 10 + 10 = 40
@@ -167,7 +168,7 @@ class TestOfiFormula:
 
     def test_all_sells_negative_ofi(self):
         # 5 ticks, all ltp <= bid → all -1; equal volumes
-        ticks = [_tick(95.0, bid=100.0, ask=105.0, volume=1000 + i*10) for i in range(5)]
+        ticks = [_tick(95.0, bid=100.0, ask=105.0, volume=1000 + i * 10) for i in range(5)]
         result = compute_ofi_features(_buf(*ticks))
         # ticks 1..4: delta=10 each, direction=-1 → ofi = -40
         assert result["underlying_ofi_5"] == pytest.approx(-40.0)
@@ -177,7 +178,7 @@ class TestOfiFormula:
         ticks = []
         vol = 1000
         for i in range(5):
-            ltp = 105.0 if i % 2 == 0 else 95.0   # buy / sell
+            ltp = 105.0 if i % 2 == 0 else 95.0  # buy / sell
             vol += 10
             ticks.append(_tick(ltp, bid=100.0, ask=105.0, volume=vol))
         result = compute_ofi_features(_buf(*ticks))
@@ -192,9 +193,9 @@ class TestOfiFormula:
         # bid=100, ask=105
         ticks = [
             _tick(105.0, bid=100.0, ask=105.0, volume=1000),  # buy, no predecessor
-            _tick(95.0,  bid=100.0, ask=105.0, volume=1020),  # sell, Δ=20
+            _tick(95.0, bid=100.0, ask=105.0, volume=1020),  # sell, Δ=20
             _tick(105.0, bid=100.0, ask=105.0, volume=1035),  # buy,  Δ=15
-            _tick(95.0,  bid=100.0, ask=105.0, volume=1050),  # sell, Δ=15
+            _tick(95.0, bid=100.0, ask=105.0, volume=1050),  # sell, Δ=15
             _tick(105.0, bid=100.0, ask=105.0, volume=1070),  # buy,  Δ=20
         ]
         result = compute_ofi_features(_buf(*ticks))
@@ -205,12 +206,12 @@ class TestOfiFormula:
         # 6 ticks: first is predecessor for window
         # tick[0]: vol=1000, tick[1..5] in window
         ticks = [
-            _tick(100.0, bid=99.0, ask=101.0, volume=1000),   # predecessor
-            _tick(102.0, bid=99.0, ask=101.0, volume=1010),   # buy, Δ=10
-            _tick(102.0, bid=99.0, ask=101.0, volume=1020),   # buy, Δ=10
-            _tick(102.0, bid=99.0, ask=101.0, volume=1035),   # buy, Δ=15
-            _tick(102.0, bid=99.0, ask=101.0, volume=1045),   # buy, Δ=10
-            _tick(102.0, bid=99.0, ask=101.0, volume=1060),   # buy, Δ=15
+            _tick(100.0, bid=99.0, ask=101.0, volume=1000),  # predecessor
+            _tick(102.0, bid=99.0, ask=101.0, volume=1010),  # buy, Δ=10
+            _tick(102.0, bid=99.0, ask=101.0, volume=1020),  # buy, Δ=10
+            _tick(102.0, bid=99.0, ask=101.0, volume=1035),  # buy, Δ=15
+            _tick(102.0, bid=99.0, ask=101.0, volume=1045),  # buy, Δ=10
+            _tick(102.0, bid=99.0, ask=101.0, volume=1060),  # buy, Δ=15
         ]
         result = compute_ofi_features(_buf(*ticks))
         # window = ticks[1..5], pred = ticks[0].vol=1000
@@ -234,7 +235,7 @@ class TestOfiFormula:
 
     def test_pre_depth_ticks_contribute_zero_direction(self):
         # bid=ask=0 → direction=0 → no contribution regardless of volume
-        ticks = [_tick(100.0, bid=0.0, ask=0.0, volume=1000 + i*10) for i in range(5)]
+        ticks = [_tick(100.0, bid=0.0, ask=0.0, volume=1000 + i * 10) for i in range(5)]
         result = compute_ofi_features(_buf(*ticks))
         assert result["underlying_ofi_5"] == pytest.approx(0.0)
 
@@ -248,6 +249,7 @@ class TestOfiFormula:
 # ══════════════════════════════════════════════════════════════════════════════
 # §8.19 Realized Volatility — compute_realized_vol_features
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestRealizedVolFeatureKeys:
     def test_exactly_3_keys(self):
@@ -332,16 +334,16 @@ class TestRealizedVolFormula:
         low_vol = _price_buf(100.0, 100.1, 100.0, 100.1, 100.0)
         # High vol: large moves
         high_vol = _price_buf(100.0, 105.0, 95.0, 108.0, 92.0)
-        r_low  = compute_realized_vol_features(low_vol)
+        r_low = compute_realized_vol_features(low_vol)
         r_high = compute_realized_vol_features(high_vol)
         assert r_high["underlying_realized_vol_5"] > r_low["underlying_realized_vol_5"]
 
     def test_uses_last_n_ticks_not_all(self):
         # Push 10 ticks; first 5 are very volatile, last 5 are flat
         volatile = [100.0, 110.0, 90.0, 115.0, 85.0]
-        flat     = [100.0, 100.0, 100.0, 100.0, 100.0]
+        flat = [100.0, 100.0, 100.0, 100.0, 100.0]
         result_mixed = compute_realized_vol_features(_price_buf(*volatile, *flat))
-        result_flat  = compute_realized_vol_features(_price_buf(*flat))
+        result_flat = compute_realized_vol_features(_price_buf(*flat))
         # vol_5 should use the flat window → near zero
         assert result_mixed["underlying_realized_vol_5"] == pytest.approx(
             result_flat["underlying_realized_vol_5"]
@@ -350,7 +352,7 @@ class TestRealizedVolFormula:
     def test_vol_20_uses_last_20_of_50_ticks(self):
         # 50 ticks: 30 volatile + 20 flat; realized_vol_20 should reflect flat window
         volatile = [100.0 + (i % 2) * 10 for i in range(30)]  # 100/110 alternating
-        flat     = [100.0] * 20
+        flat = [100.0] * 20
         buf = _price_buf(*volatile, *flat)
         result = compute_realized_vol_features(buf)
         flat_result = compute_realized_vol_features(_price_buf(*flat))
@@ -364,12 +366,12 @@ class TestRealizedVolFormula:
         result = compute_realized_vol_features(_price_buf(*prices))
         log_returns = [
             math.log(102 / 100),
-            math.log(98  / 102),
+            math.log(98 / 102),
             math.log(104 / 98),
-            math.log(96  / 104),
+            math.log(96 / 104),
         ]
-        sample_std = statistics.stdev(log_returns)       # ddof=1
-        pop_std    = statistics.pstdev(log_returns)      # ddof=0
-        assert sample_std != pop_std                     # they differ
+        sample_std = statistics.stdev(log_returns)  # ddof=1
+        pop_std = statistics.pstdev(log_returns)  # ddof=0
+        assert sample_std != pop_std  # they differ
         assert result["underlying_realized_vol_5"] == pytest.approx(sample_std)
         assert result["underlying_realized_vol_5"] != pytest.approx(pop_std, rel=1e-6)

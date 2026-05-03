@@ -11,29 +11,33 @@ import time
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
 import pytest
 
 from tick_feature_agent.chain_cache import ChainCache
+from tick_feature_agent.features.meta import compute_meta_features
 from tick_feature_agent.feed.chain_poller import ChainSnapshot
 from tick_feature_agent.instrument_profile import InstrumentProfile
-from tick_feature_agent.features.meta import compute_meta_features
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _row(strike: int) -> dict:
     return {
-        "strike":         strike,
-        "callOI":         1000, "putOI":         1000,
-        "callOIChange":   0,    "putOIChange":   0,
-        "callVolume":     100,  "putVolume":     100,
+        "strike": strike,
+        "callOI": 1000,
+        "putOI": 1000,
+        "callOIChange": 0,
+        "putOIChange": 0,
+        "callVolume": 100,
+        "putVolume": 100,
         "callSecurityId": str(strike * 2),
-        "putSecurityId":  str(strike * 2 + 1),
-        "callLTP":        100.0, "putLTP": 100.0,
+        "putSecurityId": str(strike * 2 + 1),
+        "callLTP": 100.0,
+        "putLTP": 100.0,
     }
 
 
@@ -101,6 +105,7 @@ def _cache_with_two_snapshots(ts_sec: float | None = None) -> ChainCache:
 
 # ── Test classes ──────────────────────────────────────────────────────────────
 
+
 class TestMetaFeatureKeys:
 
     def test_all_keys_present(self):
@@ -108,10 +113,15 @@ class TestMetaFeatureKeys:
         cache = _cache_with_two_snapshots()
         out = compute_meta_features(profile, cache, time.time(), 25, True)
         expected = {
-            "exchange", "instrument", "underlying_symbol",
-            "underlying_security_id", "chain_timestamp",
-            "time_since_chain_sec", "chain_available",
-            "data_quality_flag", "is_market_open",
+            "exchange",
+            "instrument",
+            "underlying_symbol",
+            "underlying_security_id",
+            "chain_timestamp",
+            "time_since_chain_sec",
+            "chain_available",
+            "data_quality_flag",
+            "is_market_open",
         }
         assert set(out.keys()) == expected
 
@@ -130,9 +140,12 @@ class TestStaticProfileFields:
         assert out["exchange"] == "NSE"
 
     def test_exchange_mcx(self):
-        profile = _make_profile(exchange="MCX", instrument_name="CRUDEOIL",
-                                underlying_symbol="CRUDEOIL25MAYFUT",
-                                underlying_security_id="486502")
+        profile = _make_profile(
+            exchange="MCX",
+            instrument_name="CRUDEOIL",
+            underlying_symbol="CRUDEOIL25MAYFUT",
+            underlying_security_id="486502",
+        )
         out = compute_meta_features(profile, ChainCache(), 1000.0, 5, True)
         assert out["exchange"] == "MCX"
 
@@ -179,7 +192,7 @@ class TestChainAvailability:
 
     def test_time_since_chain_calculated(self):
         chain_ts = 1_700_000_000.0
-        tick_time = 1_700_000_005.0   # 5s later
+        tick_time = 1_700_000_005.0  # 5s later
         cache = _cache_with_one_snapshot(ts_sec=chain_ts)
         out = compute_meta_features(_make_profile(), cache, tick_time, 25, True)
         assert out["time_since_chain_sec"] == pytest.approx(5.0, abs=0.001)
@@ -187,7 +200,7 @@ class TestChainAvailability:
     def test_time_since_chain_large_gap(self):
         """Chain 45s old — still computed, flag is lower by quality check."""
         chain_ts = 1_700_000_000.0
-        tick_time = 1_700_000_045.0   # 45s later
+        tick_time = 1_700_000_045.0  # 45s later
         cache = _cache_with_two_snapshots(ts_sec=chain_ts)
         out = compute_meta_features(_make_profile(), cache, tick_time, 25, True)
         assert out["time_since_chain_sec"] == pytest.approx(45.0, abs=0.001)
@@ -211,7 +224,7 @@ class TestDataQualityFlag:
     def _normal_out(self, **kwargs):
         """Baseline: normal conditions → flag should be 1."""
         profile = _make_profile()
-        chain_ts = time.time() - 3.0   # 3s old (fresh)
+        chain_ts = time.time() - 3.0  # 3s old (fresh)
         cache = _cache_with_two_snapshots(ts_sec=chain_ts)
         defaults = dict(
             tick_time=time.time(),
@@ -226,17 +239,13 @@ class TestDataQualityFlag:
 
     def test_flag_0_no_chain(self):
         """No chain snapshot → flag = 0."""
-        out = compute_meta_features(
-            _make_profile(), ChainCache(), time.time(), 25, True
-        )
+        out = compute_meta_features(_make_profile(), ChainCache(), time.time(), 25, True)
         assert out["data_quality_flag"] == 0
 
     def test_flag_0_only_one_snapshot(self):
         """One snapshot (vol_diff not available) → flag = 0."""
         cache = _cache_with_one_snapshot(ts_sec=time.time() - 2)
-        out = compute_meta_features(
-            _make_profile(), cache, time.time(), 25, True
-        )
+        out = compute_meta_features(_make_profile(), cache, time.time(), 25, True)
         assert out["data_quality_flag"] == 0
 
     def test_flag_0_tick_count_19(self):
@@ -254,7 +263,7 @@ class TestDataQualityFlag:
     def test_flag_0_chain_stale_31s(self):
         """Chain 31s old → time_since_chain > 30 → flag = 0."""
         chain_ts = 1_700_000_000.0
-        tick_time = chain_ts + 31.0   # 31s > 30s threshold → stale
+        tick_time = chain_ts + 31.0  # 31s > 30s threshold → stale
         cache = _cache_with_two_snapshots(ts_sec=chain_ts)
         out = compute_meta_features(_make_profile(), cache, tick_time, 25, True)
         assert out["data_quality_flag"] == 0
@@ -262,7 +271,7 @@ class TestDataQualityFlag:
     def test_flag_1_chain_exactly_30s(self):
         """Chain exactly 30s old — not stale (> 30 threshold) → flag = 1."""
         chain_ts = 1_700_000_000.0
-        tick_time = chain_ts + 30.0   # exactly 30s — threshold is > 30, so still valid
+        tick_time = chain_ts + 30.0  # exactly 30s — threshold is > 30, so still valid
         cache = _cache_with_two_snapshots(ts_sec=chain_ts)
         out = compute_meta_features(_make_profile(), cache, tick_time, 25, True)
         assert out["data_quality_flag"] == 1
@@ -279,16 +288,19 @@ class TestDataQualityFlag:
     def test_flag_0_multiple_conditions(self):
         """Multiple failure conditions all independently cause flag = 0."""
         out = compute_meta_features(
-            _make_profile(), ChainCache(), time.time(), 1, False,
-            underlying_feed_stale=True, symbol_mismatch=True,
+            _make_profile(),
+            ChainCache(),
+            time.time(),
+            1,
+            False,
+            underlying_feed_stale=True,
+            symbol_mismatch=True,
         )
         assert out["data_quality_flag"] == 0
 
     def test_chain_unavailable_still_reports_chain_available_0(self):
         """Even when flag=0 due to no chain, chain_available = 0 is reported."""
-        out = compute_meta_features(
-            _make_profile(), ChainCache(), time.time(), 25, True
-        )
+        out = compute_meta_features(_make_profile(), ChainCache(), time.time(), 25, True)
         assert out["chain_available"] == 0
         assert out["data_quality_flag"] == 0
 

@@ -8,13 +8,11 @@
  * 5. Expiry Controls
  * 6. Charges
  */
-import { useState, useEffect, useMemo, createContext, useContext, useRef } from 'react';
+import { useState, useEffect, createContext, useContext, useRef } from 'react';
 import { trpc } from '@/lib/trpc';
 import { useCapital } from '@/contexts/CapitalContext';
-import { Link } from 'wouter';
 import { toast } from 'sonner';
 import {
-  ArrowLeft,
   Settings as SettingsIcon,
   ShieldCheck,
   Clock,
@@ -23,13 +21,11 @@ import {
   Zap,
   Save,
   RotateCcw,
-  ChevronRight,
   AlertTriangle,
   Info,
   Loader2,
   Landmark,
   Layers,
-  Power,
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -62,7 +58,7 @@ interface SectionItem {
   description: string;
 }
 
-const SECTIONS: SectionItem[] = [
+const _SECTIONS: SectionItem[] = [
   { id: 'instruments', label: 'Instruments', icon: SettingsIcon, description: 'Configure tradable instruments' },
   { id: 'tradingMode', label: 'Trading Mode', icon: Layers, description: 'Workspace modes and per-workspace kill switches' },
   { id: 'execution', label: 'Order Execution', icon: Zap, description: 'Entry offset, SL/TP, targets, trailing stop' },
@@ -414,7 +410,7 @@ export function OrderExecutionSection() {
   const updateMutation = trpc.broker.config.updateSettings.useMutation({
     onSuccess: () => {
       toast.success('Order execution settings saved');
-      configQuery.refetch();
+      void configQuery.refetch();
       // Immediately sync dailyTargetPercent to capital state + current day record
       syncDailyTarget(settings.dailyTargetPercent);
       refetchAll();
@@ -857,7 +853,7 @@ export function CapitalManagementSection() {
 
 // ─── Mode Segmented Button ────────────────────────────────────────
 
-function ModeToggle<T extends string>({
+function _ModeToggle<T extends string>({
   value,
   options,
   onChange,
@@ -896,20 +892,20 @@ export function TradingModeSection() {
   const updateModeMutation = trpc.settings.updateTradingMode.useMutation({
     onSuccess: () => {
       toast.success('Trading mode updated');
-      settingsQuery.refetch();
+      void settingsQuery.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
   const killSwitchMutation = trpc.broker.killSwitch.useMutation({
     onSuccess: () => {
-      settingsQuery.refetch();
+      void settingsQuery.refetch();
     },
     onError: (err) => toast.error(`Kill switch error: ${err.message}`),
   });
 
   const tm = settingsQuery.data?.tradingMode;
 
-  const handleMode = (field: 'aiTradesMode' | 'myTradesMode' | 'testingMode', value: string) => {
+  const _handleMode = (field: 'aiTradesMode' | 'myTradesMode' | 'testingMode', value: string) => {
     updateModeMutation.mutate({ [field]: value } as any);
   };
 
@@ -1045,7 +1041,7 @@ export function DisciplineSection() {
   const updateMutation = trpc.discipline.updateSettings.useMutation({
     onSuccess: () => {
       toast.success('Discipline settings saved');
-      settingsQuery.refetch();
+      void settingsQuery.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -1053,7 +1049,7 @@ export function DisciplineSection() {
   const handleSave = () => {
     if (!ds) return;
     // Send only the settings fields, not userId/updatedAt/history
-    const { userId, updatedAt, history, _id, __v, ...settingsOnly } = ds;
+    const { userId: _userId, updatedAt: _updatedAt, history: _history, _id, __v, ...settingsOnly } = ds;
     updateMutation.mutate(settingsOnly);
   };
 
@@ -1430,6 +1426,223 @@ export function DisciplineSection() {
           </DisciplineRow>
         </div>
       </SettingsCard>
+
+      {/* Capital Protection — Daily Caps (Module 8) */}
+      <SettingsCard title="Daily Capital Caps">
+        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
+          Combined NSE+MCX P&L vs % of opening capital. When breached,
+          DA halts both exchanges and starts a grace timer for an operator
+          decision. Disable each cap individually for observation-only mode.
+        </p>
+        <div className="space-y-4">
+          <DisciplineRow
+            label="Profit Cap"
+            hint="Halt new trades once daily realized profit reaches this %"
+            enabled={ds.capitalProtection?.profitCap?.enabled ?? false}
+            onToggle={(v) => upd('capitalProtection.profitCap.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="% of opening capital (combined NSE + MCX)">Threshold</FieldLabel>
+              <NumberInput
+                value={ds.capitalProtection?.profitCap?.percent ?? 5}
+                onChange={(v) => upd('capitalProtection.profitCap.percent', v)}
+                min={0}
+                max={100}
+                step={0.5}
+                suffix="%"
+              />
+            </div>
+          </DisciplineRow>
+
+          <DisciplineRow
+            label="Loss Cap"
+            hint="Halt new trades once daily realized loss reaches this %"
+            enabled={ds.capitalProtection?.lossCap?.enabled ?? false}
+            onToggle={(v) => upd('capitalProtection.lossCap.enabled', v)}
+          >
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="% of opening capital (combined NSE + MCX)">Threshold</FieldLabel>
+              <NumberInput
+                value={ds.capitalProtection?.lossCap?.percent ?? 2}
+                onChange={(v) => upd('capitalProtection.lossCap.percent', v)}
+                min={0}
+                max={100}
+                step={0.5}
+                suffix="%"
+              />
+            </div>
+          </DisciplineRow>
+
+          <div className="flex items-center justify-between pt-2 border-t border-border/40">
+            <FieldLabel hint="Seconds operator has to choose an action before MUST_EXIT auto-fires">Grace Period</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.gracePeriodSeconds ?? 60}
+              onChange={(v) => upd('capitalProtection.gracePeriodSeconds', v)}
+              min={0}
+              max={3600}
+              step={5}
+              suffix="s"
+            />
+          </div>
+        </div>
+      </SettingsCard>
+
+      {/* Capital Protection — Carry-Forward Schedule (Module 8) */}
+      <SettingsCard title="Carry-Forward Schedule">
+        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
+          Per-exchange cron at the configured eval times. NSE closes 15:30,
+          MCX closes 23:30 — DA evaluates each exchange's open positions
+          against the carry-forward conditions below at its eval time.
+          autoExit fires EXIT_ALL after exitDelayMinutes if conditions fail.
+        </p>
+        <DisciplineRow
+          label="Carry-Forward Eval"
+          hint="Master enable for the per-exchange overnight-position check"
+          enabled={ds.capitalProtection?.carryForward?.enabled ?? false}
+          onToggle={(v) => upd('capitalProtection.carryForward.enabled', v)}
+        >
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="HH:mm IST — typically 15 min before NSE close (15:30)">NSE Eval Time</FieldLabel>
+            <TimeInput
+              value={ds.capitalProtection?.carryForward?.nseEvalTime ?? '15:15'}
+              onChange={(v) => upd('capitalProtection.carryForward.nseEvalTime', v)}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="HH:mm IST — typically 15 min before MCX close (23:30)">MCX Eval Time</FieldLabel>
+            <TimeInput
+              value={ds.capitalProtection?.carryForward?.mcxEvalTime ?? '23:15'}
+              onChange={(v) => upd('capitalProtection.carryForward.mcxEvalTime', v)}
+            />
+          </div>
+          <div className="flex items-center justify-between pt-2 border-t border-border/40">
+            <FieldLabel hint="Auto-fire EXIT_ALL when conditions fail">Auto-Exit on Fail</FieldLabel>
+            <ToggleSwitch
+              checked={ds.capitalProtection?.carryForward?.autoExit ?? true}
+              onChange={(v) => upd('capitalProtection.carryForward.autoExit', v)}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Operator's window to override the auto-exit">Exit Delay</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.carryForward?.exitDelayMinutes ?? 5}
+              onChange={(v) => upd('capitalProtection.carryForward.exitDelayMinutes', v)}
+              min={0}
+              max={120}
+              suffix="min"
+            />
+          </div>
+        </DisciplineRow>
+      </SettingsCard>
+
+      {/* Capital Protection — Carry-Forward Conditions (Module 8) */}
+      <SettingsCard title="Carry-Forward Conditions">
+        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
+          Four conditions a position must satisfy to carry forward
+          overnight. ALL must pass — even one failure triggers exit
+          (auto or manual per the schedule above).
+        </p>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Minimum unrealized P&L on the position">Min Profit %</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.carryForward?.minProfitPercent ?? 15}
+              onChange={(v) => upd('capitalProtection.carryForward.minProfitPercent', v)}
+              min={0}
+              max={1000}
+              step={0.5}
+              suffix="%"
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Minimum 0–100 score from RCA's latest filtered SEA signal">Min Momentum</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.carryForward?.minMomentumScore ?? 70}
+              onChange={(v) => upd('capitalProtection.carryForward.minMomentumScore', v)}
+              min={0}
+              max={100}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Minimum days to expiry — too close = forced exit">Min DTE</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.carryForward?.minDte ?? 2}
+              onChange={(v) => upd('capitalProtection.carryForward.minDte', v)}
+              min={0}
+              max={365}
+              suffix="days"
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Required IV regime (or `any` to skip the check)">IV Condition</FieldLabel>
+            <SelectInput
+              value={ds.capitalProtection?.carryForward?.ivCondition ?? 'fair'}
+              onChange={(v) => upd('capitalProtection.carryForward.ivCondition', v)}
+              options={[
+                { value: 'fair', label: 'fair (default)' },
+                { value: 'cheap', label: 'cheap (long-friendly)' },
+                { value: 'any', label: 'any (skip check)' },
+              ]}
+            />
+          </div>
+        </div>
+      </SettingsCard>
+
+      {/* Capital Protection — IV Classifier (Module 8 follow-up) */}
+      <SettingsCard title="IV Classifier">
+        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
+          Tunables for the option-chain IV regime classifier. RCA samples
+          ATM IV on every Fetcher push and tags it cheap / fair / expensive
+          relative to a rolling history. DA's carry-forward eval reads
+          the label to decide whether long-premium positions can stay
+          overnight. Saving here pushes the new tunables into RCA
+          immediately — no restart needed.
+        </p>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="# of recent ATM IV samples kept per instrument">History Window</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.iv?.historyWindow ?? 500}
+              onChange={(v) => upd('capitalProtection.iv.historyWindow', v)}
+              min={20}
+              max={5000}
+              step={50}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Min samples before a non-null label is returned">Min Samples</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.iv?.minSamples ?? 50}
+              onChange={(v) => upd('capitalProtection.iv.minSamples', v)}
+              min={5}
+              max={2000}
+              step={5}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Current IV at or below this percentile → cheap">Cheap Percentile</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.iv?.cheapPercentile ?? 25}
+              onChange={(v) => upd('capitalProtection.iv.cheapPercentile', v)}
+              min={0}
+              max={100}
+              step={5}
+              suffix="%"
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="Current IV at or above this percentile → expensive">Expensive Percentile</FieldLabel>
+            <NumberInput
+              value={ds.capitalProtection?.iv?.expensivePercentile ?? 75}
+              onChange={(v) => upd('capitalProtection.iv.expensivePercentile', v)}
+              min={0}
+              max={100}
+              step={5}
+              suffix="%"
+            />
+          </div>
+        </div>
+      </SettingsCard>
     </div>
   );
 }
@@ -1452,7 +1665,7 @@ export function TimeWindowsSection() {
   const updateMutation = trpc.discipline.updateSettings.useMutation({
     onSuccess: () => {
       toast.success('Time window settings saved');
-      settingsQuery.refetch();
+      void settingsQuery.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -1581,7 +1794,7 @@ export function TimeWindowsSection() {
       <div className="col-span-full flex items-center gap-2 p-2 rounded bg-info-cyan/5 border border-info-cyan/20">
         <Info className="h-3.5 w-3.5 text-info-cyan shrink-0" />
         <span className="text-[0.625rem] text-info-cyan">
-          Time windows are enforced by the Discipline Engine. Lunch break pause applies only to NSE. MCX has no scheduled lunch break.
+          Time windows are enforced by the Discipline Agent. Lunch break pause applies only to NSE. MCX has no scheduled lunch break.
         </span>
       </div>
     </div>
@@ -1601,7 +1814,7 @@ export function ExpiryControlsSection() {
   const updateMutation = trpc.settings.updateExpiryControls.useMutation({
     onSuccess: () => {
       toast.success('Expiry control settings saved');
-      settingsQuery.refetch();
+      void settingsQuery.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -1777,7 +1990,7 @@ export function ChargesSection() {
   const updateMutation = trpc.settings.updateCharges.useMutation({
     onSuccess: () => {
       toast.success('Charge rates saved');
-      settingsQuery.refetch();
+      void settingsQuery.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -1884,18 +2097,27 @@ export function ChargesSection() {
 
 export function InstrumentsSection() {
   const instrumentsQuery = trpc.instruments.list.useQuery();
+  // H5 — all four mutations + search go through tRPC. Replaces 4
+  // raw `fetch('/api/trading/...')` calls that bypassed the global
+  // X-Internal-Token header injection (broken in any environment with
+  // REQUIRE_INTERNAL_AUTH=true) and skipped server-side zod validation.
+  const utils = trpc.useUtils();
+  const addMutation = trpc.instruments.add.useMutation();
+  const removeMutation = trpc.instruments.remove.useMutation();
+  const setHotkeyMutation = trpc.instruments.setHotkey.useMutation();
 
   const [showSearch, setShowSearch] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [searchExchange, setSearchExchange] = useState<'ALL' | 'NSE' | 'MCX' | 'BSE'>('ALL');
   const [searchResults, setSearchResults] = useState<Array<any>>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [isAdding, setIsAdding] = useState(false);
-  const [isRemoving, setIsRemoving] = useState(false);
   const [hotKeyAssignMode, setHotKeyAssignMode] = useState<string | null>(null);
-  const [isAssigningHotkey, setIsAssigningHotkey] = useState(false);
 
   const instruments = instrumentsQuery.data || [];
+
+  const isAdding = addMutation.isPending;
+  const isRemoving = removeMutation.isPending;
+  const isAssigningHotkey = setHotkeyMutation.isPending;
 
   const handleSearch = async () => {
     if (!searchText.trim()) {
@@ -1904,75 +2126,45 @@ export function InstrumentsSection() {
     }
     setIsSearching(true);
     try {
-      const params = new URLSearchParams();
-      params.set('query', searchText);
-      if (searchExchange !== 'ALL') {
-        params.set('exchange', searchExchange);
-      }
-      const response = await fetch(`/api/trading/search-instruments?${params}`);
-      const data = await response.json();
-      if (data.results) {
-        setSearchResults(data.results.slice(0, 10));
-      } else if (data.error) {
-        toast.error(data.error || 'Search failed');
-      }
+      const results = await utils.instruments.search.fetch({
+        query: searchText,
+        exchange: searchExchange,
+      });
+      setSearchResults((results ?? []).slice(0, 10));
     } catch (err: any) {
-      console.error('Search failed:', err);
-      toast.error('Search failed');
+      toast.error(err?.message ?? 'Search failed');
     }
     setIsSearching(false);
   };
 
   const handleAddInstrument = async (result: any) => {
-    setIsAdding(true);
     try {
-      const response = await fetch('/api/trading/instruments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          key: result.securityId,
-          displayName: result.customSymbol || result.tradingSymbol,
-          exchange: result.exchange,
-          exchangeSegment: result.segment,
-          underlying: result.securityId,
-          autoResolve: false,
-          symbolName: result.symbolName || null,
-        }),
+      await addMutation.mutateAsync({
+        key: result.securityId,
+        displayName: result.customSymbol || result.tradingSymbol,
+        exchange: result.exchange,
+        exchangeSegment: result.segment,
+        underlying: result.securityId,
+        autoResolve: false,
+        symbolName: result.symbolName || null,
       });
-      const data = await response.json();
-      if (data.success) {
-        toast.success('Instrument added');
-        setSearchText('');
-        setSearchResults([]);
-        instrumentsQuery.refetch();
-      } else {
-        toast.error(data.error || 'Failed to add instrument');
-      }
+      toast.success('Instrument added');
+      setSearchText('');
+      setSearchResults([]);
+      void instrumentsQuery.refetch();
     } catch (err: any) {
-      console.error('Add failed:', err);
-      toast.error('Failed to add instrument');
+      toast.error(err?.message ?? 'Failed to add instrument');
     }
-    setIsAdding(false);
   };
 
   const handleRemoveInstrument = async (key: string) => {
-    setIsRemoving(true);
     try {
-      const response = await fetch(`/api/trading/instruments/${key}`, {
-        method: 'DELETE',
-      });
-      const data = await response.json();
-      if (data.success) {
-        toast.success('Instrument removed');
-        instrumentsQuery.refetch();
-      } else {
-        toast.error(data.error || 'Failed to remove instrument');
-      }
+      await removeMutation.mutateAsync({ key });
+      toast.success('Instrument removed');
+      void instrumentsQuery.refetch();
     } catch (err: any) {
-      console.error('Remove failed:', err);
-      toast.error('Failed to remove instrument');
+      toast.error(err?.message ?? 'Failed to remove instrument');
     }
-    setIsRemoving(false);
   };
 
   const handleHotKeyPress = async (e: React.KeyboardEvent, instrumentKey: string) => {
@@ -1987,26 +2179,14 @@ export function InstrumentsSection() {
       return;
     }
 
-    setIsAssigningHotkey(true);
     try {
-      const response = await fetch(`/api/trading/instruments/${instrumentKey}/hotkey`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hotkey: key }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        toast.success(`Hotkey "${key.toUpperCase()}" assigned`);
-        setHotKeyAssignMode(null);
-        instrumentsQuery.refetch();
-      } else {
-        toast.error(data.error || 'Failed to assign hotkey');
-      }
+      await setHotkeyMutation.mutateAsync({ key: instrumentKey, hotkey: key });
+      toast.success(`Hotkey "${key.toUpperCase()}" assigned`);
+      setHotKeyAssignMode(null);
+      void instrumentsQuery.refetch();
     } catch (err: any) {
-      console.error('Hotkey assignment failed:', err);
-      toast.error('Failed to assign hotkey');
+      toast.error(err?.message ?? 'Failed to assign hotkey');
     }
-    setIsAssigningHotkey(false);
   };
 
   return (
@@ -2145,13 +2325,13 @@ export function InstrumentsSection() {
 
 // ─── Trade Executor Settings Section ────────────────────────────
 
-function ExecutorSettingsSection() {
+function _ExecutorSettingsSection() {
   const utils = trpc.useUtils();
   const settingsQuery = trpc.executor.getSettings.useQuery();
   const updateMutation = trpc.executor.updateSettings.useMutation({
     onSuccess: () => {
       toast.success('Executor settings saved');
-      utils.executor.getSettings.invalidate();
+      void utils.executor.getSettings.invalidate();
     },
     onError: (err: any) => toast.error(`Save failed: ${err.message}`),
   });
@@ -2163,10 +2343,6 @@ function ExecutorSettingsSection() {
     rcaStaleTickMs: number;
     rcaVolThreshold: number;
     recoveryStuckMs: number;
-    seaBridgeEnabled: boolean;
-    seaBridgeChannel: string;
-    seaBridgePollIntervalMs: number;
-    seaBridgeDirectionFilter: 'LONG_ONLY' | 'ALL';
     rcaChannels: string[];
     recoveryChannels: string[];
   };
@@ -2181,40 +2357,34 @@ function ExecutorSettingsSection() {
         rcaStaleTickMs: settings.rcaStaleTickMs,
         rcaVolThreshold: settings.rcaVolThreshold,
         recoveryStuckMs: settings.recoveryStuckMs,
-        seaBridgeEnabled: settings.seaBridgeEnabled,
-        seaBridgeChannel: settings.seaBridgeChannel,
-        seaBridgePollIntervalMs: settings.seaBridgePollIntervalMs,
-        seaBridgeDirectionFilter: settings.seaBridgeDirectionFilter,
         rcaChannels: settings.rcaChannels,
         recoveryChannels: settings.recoveryChannels,
       });
     }
   }, [settings, draft]);
 
-  if (settingsQuery.isLoading || !draft) {
-    return (
-      <div className="text-xs text-muted-foreground font-mono">Loading executor settings…</div>
-    );
-  }
-
+  // PERF-E4 fix — `useRegisterActions` MUST be called on every render in
+  // a stable order, so its setup has to live above the loading-state
+  // early return below. Build `dirty` / `onSave` / `onReset` to tolerate
+  // a null `draft` (the gate the early return checks) so the hook can
+  // run safely during the loading phase.
   const arrayEq = (a: readonly string[], b: readonly string[]) =>
     a.length === b.length && a.every((v, i) => v === b[i]);
 
   const dirty =
-    settings &&
+    !!draft &&
+    !!settings &&
     (draft.aiLiveLotCap !== settings.aiLiveLotCap ||
       draft.rcaMaxAgeMs !== settings.rcaMaxAgeMs ||
       draft.rcaStaleTickMs !== settings.rcaStaleTickMs ||
       draft.rcaVolThreshold !== settings.rcaVolThreshold ||
       draft.recoveryStuckMs !== settings.recoveryStuckMs ||
-      draft.seaBridgeEnabled !== settings.seaBridgeEnabled ||
-      draft.seaBridgeChannel !== settings.seaBridgeChannel ||
-      draft.seaBridgePollIntervalMs !== settings.seaBridgePollIntervalMs ||
-      draft.seaBridgeDirectionFilter !== settings.seaBridgeDirectionFilter ||
       !arrayEq(draft.rcaChannels, settings.rcaChannels) ||
       !arrayEq(draft.recoveryChannels, settings.recoveryChannels));
 
-  const onSave = () => updateMutation.mutate(draft as any);
+  const onSave = () => {
+    if (draft) updateMutation.mutate(draft as any);
+  };
   const onReset = () => {
     if (settings) {
       setDraft({
@@ -2223,10 +2393,6 @@ function ExecutorSettingsSection() {
         rcaStaleTickMs: settings.rcaStaleTickMs,
         rcaVolThreshold: settings.rcaVolThreshold,
         recoveryStuckMs: settings.recoveryStuckMs,
-        seaBridgeEnabled: settings.seaBridgeEnabled,
-        seaBridgeChannel: settings.seaBridgeChannel,
-        seaBridgePollIntervalMs: settings.seaBridgePollIntervalMs,
-        seaBridgeDirectionFilter: settings.seaBridgeDirectionFilter,
         rcaChannels: settings.rcaChannels,
         recoveryChannels: settings.recoveryChannels,
       });
@@ -2237,8 +2403,14 @@ function ExecutorSettingsSection() {
     onSave,
     onReset,
     saving: updateMutation.isPending,
-    canSave: !!dirty,
+    canSave: dirty,
   });
+
+  if (settingsQuery.isLoading || !draft) {
+    return (
+      <div className="text-xs text-muted-foreground font-mono">Loading executor settings…</div>
+    );
+  }
 
   const allChannels: Array<{ id: string; label: string }> = [
     { id: 'ai-paper', label: 'AI Paper' },
@@ -2332,57 +2504,6 @@ function ExecutorSettingsSection() {
         </div>
       </SettingsCard>
 
-      <SettingsCard title="SEA Bridge">
-        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
-          The bridge polls the Signal Engine Agent's filtered log and
-          forwards each new signal to TEA. Disabling here stops AI from
-          placing new trades; existing positions remain open until exit.
-        </p>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="master kill-switch">Bridge Enabled</FieldLabel>
-            <ToggleSwitch
-              checked={draft.seaBridgeEnabled}
-              onChange={(v: boolean) => setDraft({ ...draft, seaBridgeEnabled: v })}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="canary launch flips this to ai-live">Target Channel</FieldLabel>
-            <select
-              value={draft.seaBridgeChannel}
-              onChange={(e) => setDraft({ ...draft, seaBridgeChannel: e.target.value })}
-              className="w-40 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground"
-            >
-              {allChannels.map((c) => (
-                <option key={c.id} value={c.id}>{c.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="seconds — how often the bridge looks for new signals">Poll Cadence</FieldLabel>
-            <input
-              type="number"
-              min={1}
-              max={300}
-              value={Math.round(draft.seaBridgePollIntervalMs / 1000)}
-              onChange={(e) => setDraft({ ...draft, seaBridgePollIntervalMs: Math.max(1, parseInt(e.target.value) || 1) * 1000 })}
-              className="w-24 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground tabular-nums"
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="canary spec §3 → LONG_ONLY">Direction Filter</FieldLabel>
-            <select
-              value={draft.seaBridgeDirectionFilter}
-              onChange={(e) => setDraft({ ...draft, seaBridgeDirectionFilter: e.target.value as 'LONG_ONLY' | 'ALL' })}
-              className="w-40 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground"
-            >
-              <option value="LONG_ONLY">LONG only (buying)</option>
-              <option value="ALL">All (incl. SHORT writes)</option>
-            </select>
-          </div>
-        </div>
-      </SettingsCard>
-
       <SettingsCard title="Monitored Channels">
         <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
           Which channels RCA watches for risk-driven exits, and which
@@ -2437,133 +2558,5 @@ function ExecutorSettingsSection() {
         </div>
       </SettingsCard>
     </div>
-  );
-}
-
-// ─── Main Settings Page ──────────────────────────────────────────
-
-export default function Settings() {
-  const [activeSection, setActiveSection] = useState<SettingsSection>('instruments');
-  const [pageActions, setPageActions] = useState<SettingsActions | null>(null);
-
-  // (No section-change reset needed: each section's useRegisterActions
-  //  cleanup runs on unmount and clears the registration. A parent-
-  //  level reset here would race with the new section's mount effect
-  //  and clobber the freshly-registered actions, leaving the header
-  //  empty.)
-
-  const renderSection = () => {
-    switch (activeSection) {
-      case 'tradingMode':
-        return <TradingModeSection />;
-      case 'execution':
-        return <OrderExecutionSection />;
-      case 'discipline':
-        return <DisciplineSection />;
-      case 'executor':
-        return <ExecutorSettingsSection />;
-      case 'timeWindows':
-        return <TimeWindowsSection />;
-      case 'expiry':
-        return <ExpiryControlsSection />;
-      case 'charges':
-        return <ChargesSection />;
-      case 'capital':
-        return <CapitalManagementSection />;
-      case 'instruments':
-        return <InstrumentsSection />;
-      default:
-        return null;
-    }
-  };
-
-  const currentSection = SECTIONS.find((s) => s.id === activeSection);
-
-  return (
-    <SettingsActionsContext.Provider value={{ setActions: setPageActions }}>
-    <div className="container py-6">
-      <div className="flex gap-6">
-            {/* Sidebar Navigation */}
-            <div className="w-64 shrink-0">
-              <div className="sticky top-20">
-                <nav className="space-y-1">
-                  {SECTIONS.map((section) => {
-                    const isActive = activeSection === section.id;
-                    const Icon = section.icon;
-                    return (
-                      <button
-                        key={section.id}
-                        onClick={() => setActiveSection(section.id)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left transition-all ${
-                          isActive
-                            ? 'bg-primary/10 border border-primary/20 text-foreground'
-                            : 'hover:bg-accent text-muted-foreground hover:text-foreground border border-transparent'
-                        }`}
-                      >
-                        <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-primary' : ''}`} />
-                        <div className="flex-1 min-w-0">
-                          <span className={`text-[0.6875rem] font-bold tracking-wider uppercase block ${isActive ? 'text-primary' : ''}`}>
-                            {section.label}
-                          </span>
-                          <span className="text-[0.5625rem] text-muted-foreground truncate block mt-0.5">
-                            {section.description}
-                          </span>
-                        </div>
-                        {isActive && (
-                          <ChevronRight className="h-3 w-3 text-primary shrink-0" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </nav>
-
-                {/* Last updated */}
-                <div className="mt-6 px-3">
-                  <span className="text-[0.5625rem] text-muted-foreground tracking-wider uppercase">
-                    Settings are persisted to MongoDB
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Main Content */}
-            <div className="flex-1 min-w-0">
-              {/* Section Header — title left, actions right */}
-              <div className="mb-5 flex items-start justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    {currentSection && <currentSection.icon className="h-4 w-4 text-primary" />}
-                    <h2 className="font-display text-base font-bold tracking-tight text-foreground">
-                      {currentSection?.label}
-                    </h2>
-                  </div>
-                  <p className="text-[0.6875rem] text-muted-foreground">
-                    {currentSection?.description}
-                  </p>
-                </div>
-                {(pageActions?.onSave || pageActions?.onReset) && (
-                  <div className="flex items-center gap-2 shrink-0">
-                    {pageActions?.onReset && (
-                      <ResetButton onClick={pageActions.onReset} />
-                    )}
-                    {pageActions?.onSave && (
-                      <SaveButton
-                        onClick={pageActions.onSave}
-                        loading={pageActions.saving ?? false}
-                        disabled={pageActions.canSave === false}
-                      />
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Section Content */}
-              <div className="animate-fade-in-up">
-                {renderSection()}
-              </div>
-            </div>
-      </div>
-    </div>
-    </SettingsActionsContext.Provider>
   );
 }

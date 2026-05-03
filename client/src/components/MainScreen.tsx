@@ -22,7 +22,7 @@
  *
  * Data: All components fetch their own data via tRPC with mock fallbacks.
  */
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { useAlertMonitor } from '@/hooks/useAlertMonitor';
@@ -41,9 +41,10 @@ import MainFooter from '@/components/MainFooter';
 import LeftSidebar from '@/components/LeftDrawer';
 import RightSidebar from '@/components/RightDrawer';
 
-// Overlays
-import SettingsOverlay from '@/components/SettingsOverlay';
-import DisciplineOverlay from '@/components/DisciplineOverlay';
+// Overlays — lazy-loaded since they're only mounted when the user opens
+// Settings (F2) or Discipline (Ctrl+D). Saves them from the main bundle.
+const SettingsOverlay = lazy(() => import('@/components/SettingsOverlay'));
+const DisciplineOverlay = lazy(() => import('@/components/DisciplineOverlay'));
 
 // Center content
 import TradingDesk from '@/components/TradingDesk';
@@ -55,16 +56,9 @@ import CircuitBreakerOverlay from '@/components/CircuitBreakerOverlay';
 // Quick Order Popup (hotkey-triggered)
 import { QuickOrderPopup, type QuickOrderData } from '@/components/QuickOrderPopup';
 
-// Mock data fallbacks
-import {
-  moduleStatuses as mockModules,
-  niftyData,
-  bankNiftyData,
-  crudeOilData,
-  naturalGasData,
-  // recentSignals removed — SEA signals come from server now
-  openPositions as mockPositions,
-} from '@/lib/mockData';
+// Mock data fallbacks — loaded via dynamic import() so the (large) mock
+// objects live in their own chunk and don't bloat the main bundle. While
+// the chunk is in flight, fallbacks render as empty arrays.
 
 const POLL_INTERVAL = 3000;
 
@@ -89,7 +83,7 @@ export default function MainScreen() {
   const { isEnabled } = useInstrumentFilter();
 
   // ─── Live Feed ─────────────────────────────────────────────────
-  const { getTick, isConnected: feedConnected } = useTickStream();
+  const { getTick: _getTick, isConnected: _feedConnected } = useTickStream();
   const { subscribe: feedSubscribe } = useFeedControl();
   const feedSubscribedRef = useRef(false);
 
@@ -125,7 +119,7 @@ export default function MainScreen() {
     if (feedSubscribedRef.current && resolvedInstruments.length === subscribedCountRef.current) return;
     feedSubscribedRef.current = true;
     subscribedCountRef.current = resolvedInstruments.length;
-    console.log('[Feed] Auto-subscribing resolved instruments:', resolvedInstruments.map(i => `${i.exchange}:${i.securityId}`));
+    if (import.meta.env.DEV) console.log('[Feed] Auto-subscribing resolved instruments:', resolvedInstruments.map(i => `${i.exchange}:${i.securityId}`));
     feedSubscribe(
       resolvedInstruments.map((i) => ({
         securityId: i.securityId,
@@ -133,9 +127,9 @@ export default function MainScreen() {
         mode: i.mode as "ticker" | "quote" | "full",
       }))
     ).then(() => {
-      console.log('[Feed] Auto-subscribe success');
+      if (import.meta.env.DEV) console.log('[Feed] Auto-subscribe success');
     }).catch((err) => {
-      console.warn('[Feed] Auto-subscribe failed:', err);
+      if (import.meta.env.DEV) console.warn('[Feed] Auto-subscribe failed:', err);
       feedSubscribedRef.current = false;
     });
   }, [activeBrokerId, resolvedInstruments, feedSubscribe]);
@@ -155,9 +149,16 @@ export default function MainScreen() {
   const signalsQuery = trpc.trading.signals.useQuery({ limit: 50 }, {
     refetchInterval: POLL_INTERVAL,
   });
-  const positionsQuery = trpc.trading.positions.useQuery(undefined, {
-    refetchInterval: POLL_INTERVAL,
-  });
+  // TODO: migrate to channel-aware portfolio.positions query (requires
+  // selecting a workspace channel). Until then, fall through to the
+  // mockPositions fallback below — the legacy /api/trading/position REST
+  // surface and tradingStore.positions array were removed in B10.
+  const positionsQuery: { data?: any[] } = { data: undefined };
+
+  // H6 — mockData lazy-load removed. Earlier (F3) this loaded the mock
+  // module via dynamic import as a tree-shaken chunk; H6 drops the
+  // last consumer (`allInstruments` fallback below) so even the
+  // dynamic-import code-path is gone in production builds.
 
   // ─── tRPC Mutations ────────────────────────────────────────────
   const utils = trpc.useUtils();
@@ -186,19 +187,24 @@ export default function MainScreen() {
     retry: 1,
   });
 
-  // ─── Data with Mock Fallbacks ──────────────────────────────────
-  const modules = modulesQuery.data ?? mockModules;
-  // Configured instruments with hotkeys (for hotkey map)
+  // ─── Data (real-or-empty; no fake fallbacks) ───────────────────
+  // H6 — replaced mock-data fallbacks with `[]`. Pre-fix the UI showed
+  // 4 fabricated instruments / fake module statuses / fake open
+  // positions whenever a backend query was loading or failed; users
+  // couldn't tell those apart from real data. Now the empty state
+  // stays empty until real data arrives.
+  // Configured instruments with hotkeys — the hardcoded fallback is
+  // kept here on purpose: this is the bootstrap default for first-run
+  // before the user's preferences land. Not mock data; it's the
+  // shipped default config.
   const configuredInstruments = configuredInstrumentsQuery.data ?? [
     { key: 'NIFTY_50', displayName: 'NIFTY 50', exchange: 'NSE', hotkey: '1' },
     { key: 'BANKNIFTY', displayName: 'BANK NIFTY', exchange: 'NSE', hotkey: '2' },
     { key: 'CRUDEOIL', displayName: 'CRUDE OIL', exchange: 'MCX', hotkey: '3' },
     { key: 'NATURALGAS', displayName: 'NATURAL GAS', exchange: 'MCX', hotkey: '4' },
   ];
-  // Full instrument analysis data (for left sidebar display)
-  const allInstruments = instrumentAnalysisQuery.data ?? [niftyData, bankNiftyData, crudeOilData, naturalGasData];
+  const allInstruments = instrumentAnalysisQuery.data ?? [];
   const allSignals = signalsQuery.data ?? [];
-  const allPositions = positionsQuery.data ?? mockPositions;
 
   // Discipline data with fallbacks
   const disciplineData = disciplineQuery.data as any;
@@ -268,6 +274,11 @@ export default function MainScreen() {
     if (e.key === 'Escape') {
       setSettingsOpen(false);
       setDisciplineOpen(false);
+      // H4 / UI-45 — Esc also closes QuickOrderPopup so users who
+      // trigger one via hotkey (1/2/3/4) can back out without reaching
+      // for the X. Matches the Settings / Discipline / CircuitBreaker
+      // overlay behaviour.
+      setQuickOrderOpen(false);
     }
   }, []);
 
@@ -367,18 +378,22 @@ export default function MainScreen() {
       {/* Sticky Footer */}
       <MainFooter />
 
-      {/* ─── Overlays (keyboard-triggered) ───────────────────────── */}
+      {/* ─── Overlays (keyboard-triggered, lazy-loaded chunks) ───── */}
       <ErrorBoundary section="Settings" compact>
-        <SettingsOverlay
-          open={settingsOpen}
-          onOpenChange={setSettingsOpen}
-        />
+        <Suspense fallback={null}>
+          <SettingsOverlay
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+          />
+        </Suspense>
       </ErrorBoundary>
       <ErrorBoundary section="Discipline" compact>
-        <DisciplineOverlay
-          open={disciplineOpen}
-          onOpenChange={setDisciplineOpen}
-        />
+        <Suspense fallback={null}>
+          <DisciplineOverlay
+            open={disciplineOpen}
+            onOpenChange={setDisciplineOpen}
+          />
+        </Suspense>
       </ErrorBoundary>
       {/* ─── Circuit Breaker Full-Screen Block (system-triggered) ── */}
       <CircuitBreakerOverlay

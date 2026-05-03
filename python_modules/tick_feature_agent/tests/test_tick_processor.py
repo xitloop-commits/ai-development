@@ -9,22 +9,22 @@ from __future__ import annotations
 import math
 import sys
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
 import pytest
 
-from tick_feature_agent.buffers.tick_buffer import CircularBuffer
 from tick_feature_agent.buffers.option_buffer import OptionBufferStore
+from tick_feature_agent.buffers.tick_buffer import CircularBuffer
 from tick_feature_agent.chain_cache import ChainCache
 from tick_feature_agent.feed.chain_poller import ChainSnapshot
 from tick_feature_agent.instrument_profile import InstrumentProfile
-from tick_feature_agent.output.emitter import Emitter, COLUMN_NAMES
+from tick_feature_agent.output.emitter import COLUMN_NAMES, Emitter
 from tick_feature_agent.state_machine import StateMachine, TradingState
 from tick_feature_agent.tick_processor import TickProcessor
 
@@ -33,6 +33,7 @@ _DATE = "2026-04-14"
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
+
 
 def _profile(**overrides) -> InstrumentProfile:
     defaults = dict(
@@ -63,12 +64,12 @@ def _profile(**overrides) -> InstrumentProfile:
 
 def _make_processor(warm_up=1, **profile_overrides):
     """Build a TickProcessor with minimal in-memory emitter."""
-    p   = _profile(warm_up_duration_sec=warm_up, **profile_overrides)
-    sm  = StateMachine(warm_up_duration_sec=p.warm_up_duration_sec)
+    p = _profile(warm_up_duration_sec=warm_up, **profile_overrides)
+    sm = StateMachine(warm_up_duration_sec=p.warm_up_duration_sec)
     buf = CircularBuffer(maxlen=50)
     opt = OptionBufferStore()
-    cc  = ChainCache()
-    em  = Emitter(mode="replay")
+    cc = ChainCache()
+    em = Emitter(mode="replay")
     return TickProcessor(
         profile=p,
         state_machine=sm,
@@ -86,26 +87,26 @@ def _now() -> float:
 def _tick(ltp: float, ts: float | None = None) -> dict:
     ts = ts or _now()
     return {
-        "recv_ts":  ts,
-        "ltp":      ltp,
-        "bid":      ltp - 0.5,
-        "ask":      ltp + 0.5,
+        "recv_ts": ts,
+        "ltp": ltp,
+        "bid": ltp - 0.5,
+        "ask": ltp + 0.5,
         "bid_size": 100,
         "ask_size": 100,
-        "ltq":      5,
+        "ltq": 5,
     }
 
 
 def _opt_tick(ltp: float, ts: float | None = None) -> dict:
     ts = ts or _now()
     return {
-        "recv_ts":  ts,
-        "ltp":      ltp,
-        "bid":      ltp - 0.25,
-        "ask":      ltp + 0.25,
+        "recv_ts": ts,
+        "ltp": ltp,
+        "bid": ltp - 0.25,
+        "ask": ltp + 0.25,
         "bid_size": 50,
         "ask_size": 50,
-        "ltq":      1,
+        "ltq": 1,
     }
 
 
@@ -114,13 +115,17 @@ def _make_snapshot(spot: float = 24150.0) -> ChainSnapshot:
     rows = [
         {
             "strike": atm + off * 50,
-            "callOI": 10000, "callOIChange": 500,
+            "callOI": 10000,
+            "callOIChange": 500,
             "callLTP": max(0.5, spot - (atm + off * 50) + 100),
-            "callVolume": 200, "callIV": 18.5,
+            "callVolume": 200,
+            "callIV": 18.5,
             "callSecurityId": str(52000 + off * 2),
-            "putOI": 8000, "putOIChange": 300,
+            "putOI": 8000,
+            "putOIChange": 300,
             "putLTP": max(0.5, (atm + off * 50) - spot + 100),
-            "putVolume": 150, "putIV": 17.5,
+            "putVolume": 150,
+            "putIV": 17.5,
             "putSecurityId": str(52001 + off * 2),
         }
         for off in range(-3, 4)
@@ -129,7 +134,7 @@ def _make_snapshot(spot: float = 24150.0) -> ChainSnapshot:
     for r in rows:
         strike = int(r["strike"])
         sec_id_map[r["callSecurityId"]] = (strike, "CE")
-        sec_id_map[r["putSecurityId"]]  = (strike, "PE")
+        sec_id_map[r["putSecurityId"]] = (strike, "PE")
 
     return ChainSnapshot(
         spot_price=spot,
@@ -150,6 +155,7 @@ def _session_end_sec() -> float:
 # TestStateMachineIntegration
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestStateMachineIntegration:
 
     def test_initial_state_is_feed_stale(self):
@@ -157,16 +163,16 @@ class TestStateMachineIntegration:
         assert proc._sm.state == TradingState.FEED_STALE
 
     def test_first_tick_triggers_warming_up(self):
-        proc = _make_processor(warm_up=300)   # long warm-up so it won't expire
+        proc = _make_processor(warm_up=300)  # long warm-up so it won't expire
         proc.on_underlying_tick(_tick(24100.0))
         assert proc._sm.state == TradingState.WARMING_UP
 
     def test_sm_tick_checks_warmup_expiry(self):
         """Calling on_underlying_tick after warm_up_duration_sec → TRADING."""
         proc = _make_processor(warm_up=1)
-        proc.on_underlying_tick(_tick(24100.0))           # → WARMING_UP
-        time.sleep(1.1)                                    # let timer elapse
-        proc.on_underlying_tick(_tick(24100.0))           # sm.tick() fires
+        proc.on_underlying_tick(_tick(24100.0))  # → WARMING_UP
+        time.sleep(1.1)  # let timer elapse
+        proc.on_underlying_tick(_tick(24100.0))  # sm.tick() fires
         assert proc._sm.state == TradingState.TRADING
 
     def test_chain_snapshot_sets_cache(self):
@@ -185,7 +191,7 @@ class TestStateMachineIntegration:
         proc = _make_processor(warm_up=1)
         proc.on_underlying_tick(_tick(24100.0))
         time.sleep(1.1)
-        proc.on_underlying_tick(_tick(24100.0))   # TRADING now
+        proc.on_underlying_tick(_tick(24100.0))  # TRADING now
         assert proc._sm.state == TradingState.TRADING
         proc.on_chain_stale()
         assert proc._sm.state == TradingState.CHAIN_STALE
@@ -203,6 +209,7 @@ class TestStateMachineIntegration:
 # ══════════════════════════════════════════════════════════════════════════════
 # TestTickProcessorOutput
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestTickProcessorOutput:
 
@@ -225,7 +232,7 @@ class TestTickProcessorOutput:
 
     def test_tick_count_is_correct(self):
         proc = self._run(20)
-        assert proc._underlying_tick_count == 25   # 20 + 5 flush ticks
+        assert proc._underlying_tick_count == 25  # 20 + 5 flush ticks
 
     def test_emitter_has_rows(self):
         proc = self._run(20)
@@ -238,6 +245,7 @@ class TestTickProcessorOutput:
 
     def test_parquet_has_correct_columns(self, tmp_path):
         import pyarrow.parquet as pq
+
         proc = self._run(30)
         path = tmp_path / "test.parquet"
         proc._emitter.write_parquet(path)
@@ -246,6 +254,7 @@ class TestTickProcessorOutput:
 
     def test_parquet_column_names_match_spec(self, tmp_path):
         import pyarrow.parquet as pq
+
         proc = self._run(30)
         path = tmp_path / "test.parquet"
         proc._emitter.write_parquet(path)
@@ -254,6 +263,7 @@ class TestTickProcessorOutput:
 
     def test_timestamps_increase(self, tmp_path):
         import pyarrow.parquet as pq
+
         proc = self._run(30)
         path = tmp_path / "test.parquet"
         proc._emitter.write_parquet(path)
@@ -265,6 +275,7 @@ class TestTickProcessorOutput:
 # ══════════════════════════════════════════════════════════════════════════════
 # TestOptionTickIntegration
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestOptionTickIntegration:
 
@@ -304,6 +315,7 @@ class TestOptionTickIntegration:
 # TestFeedStaleCheck
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestFeedStaleCheck:
 
     def test_not_stale_before_any_tick(self):
@@ -318,7 +330,7 @@ class TestFeedStaleCheck:
     def test_stale_after_timeout(self):
         proc = _make_processor(underlying_tick_timeout_sec=1)
         proc.on_underlying_tick(_tick(24100.0))
-        proc._last_tick_time = time.monotonic() - 2.0   # fake 2s ago
+        proc._last_tick_time = time.monotonic() - 2.0  # fake 2s ago
         assert proc.check_feed_stale() is True
         assert proc._sm.state == TradingState.FEED_STALE
 
@@ -327,6 +339,7 @@ class TestFeedStaleCheck:
 # TestSessionLifecycle
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestSessionLifecycle:
 
     def test_on_session_open_resets_tick_count(self):
@@ -334,7 +347,7 @@ class TestSessionLifecycle:
         proc.on_session_open(_session_end_sec())
         proc.on_underlying_tick(_tick(24100.0))
         assert proc._underlying_tick_count == 1
-        proc.on_session_open(_session_end_sec())   # new session
+        proc.on_session_open(_session_end_sec())  # new session
         assert proc._underlying_tick_count == 0
 
     def test_on_session_close_flushes_pending(self):
@@ -359,10 +372,12 @@ class TestSessionLifecycle:
 # TestTargetBackfillInProcessor
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestTargetBackfillInProcessor:
 
     def test_target_columns_present_after_session(self, tmp_path):
         import pyarrow.parquet as pq
+
         proc = _make_processor(warm_up=1, target_windows_sec=(30, 60))
         proc.on_session_open(_session_end_sec())
         proc.on_chain_snapshot(_make_snapshot())

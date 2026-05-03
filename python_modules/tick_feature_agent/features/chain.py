@@ -48,27 +48,27 @@ def compute_chain_features(cache: ChainCache) -> dict:
     """
     if not cache.chain_available:
         return {
-            "chain_pcr_global":         _NAN,
-            "chain_pcr_atm":            _NAN,
-            "chain_oi_total_call":      _NAN,
-            "chain_oi_total_put":       _NAN,
-            "chain_oi_change_call":     _NAN,
-            "chain_oi_change_put":      _NAN,
+            "chain_pcr_global": _NAN,
+            "chain_pcr_atm": _NAN,
+            "chain_oi_total_call": _NAN,
+            "chain_oi_total_put": _NAN,
+            "chain_oi_change_call": _NAN,
+            "chain_oi_change_put": _NAN,
             "chain_oi_change_call_atm": _NAN,
-            "chain_oi_change_put_atm":  _NAN,
-            "chain_oi_imbalance_atm":   _NAN,
+            "chain_oi_change_put_atm": _NAN,
+            "chain_oi_imbalance_atm": _NAN,
         }
 
     return {
-        "chain_pcr_global":         _opt(cache.pcr_global),
-        "chain_pcr_atm":            _opt(cache.pcr_atm),
-        "chain_oi_total_call":      float(cache.oi_total_call),
-        "chain_oi_total_put":       float(cache.oi_total_put),
-        "chain_oi_change_call":     float(cache.oi_change_call),
-        "chain_oi_change_put":      float(cache.oi_change_put),
+        "chain_pcr_global": _opt(cache.pcr_global),
+        "chain_pcr_atm": _opt(cache.pcr_atm),
+        "chain_oi_total_call": float(cache.oi_total_call),
+        "chain_oi_total_put": float(cache.oi_total_put),
+        "chain_oi_change_call": float(cache.oi_change_call),
+        "chain_oi_change_put": float(cache.oi_change_put),
         "chain_oi_change_call_atm": float(cache.oi_change_call_atm),
-        "chain_oi_change_put_atm":  float(cache.oi_change_put_atm),
-        "chain_oi_imbalance_atm":   _opt(cache.oi_imbalance_atm),
+        "chain_oi_change_put_atm": float(cache.oi_change_put_atm),
+        "chain_oi_imbalance_atm": _opt(cache.oi_imbalance_atm),
     }
 
 

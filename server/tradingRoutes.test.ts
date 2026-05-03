@@ -4,34 +4,40 @@
  * Covers the in-memory trading store functions that back the REST endpoints:
  * - pushOptionChain / getInstrumentData
  * - pushAnalyzerOutput / getInstrumentData / getSignals
- * - pushPosition / getPositions
  * - updateModuleHeartbeat / getModuleStatuses
- * - setTradingMode / getTradingMode
  * - getActiveInstruments / setActiveInstruments
  *
  * These endpoints are called by Python callers: TFA, SEA, MTA.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   pushOptionChain,
   pushAnalyzerOutput,
-  pushPosition,
   updateModuleHeartbeat,
-  setTradingMode,
-  getTradingMode,
   getActiveInstruments,
   setActiveInstruments,
   getModuleStatuses,
   getInstrumentData,
   getSignals,
-  getPositions,
+  setConfiguredInstruments,
 } from "./tradingStore";
 import type {
   RawOptionChainData,
   RawAnalyzerOutput,
-  Position,
 } from "../shared/tradingTypes";
+
+// configuredInstrumentKeys is loaded from MongoDB at server startup —
+// seed before each test so getInstrumentData() / setActiveInstruments()
+// have the same 4 default instruments to work against.
+beforeEach(() => {
+  setConfiguredInstruments([
+    { key: "NIFTY_50",   displayName: "NIFTY 50",    exchange: "NSE_FNO" },
+    { key: "BANKNIFTY",  displayName: "BANK NIFTY",  exchange: "NSE_FNO" },
+    { key: "CRUDEOIL",   displayName: "CRUDE OIL",   exchange: "MCX_COMM" },
+    { key: "NATURALGAS", displayName: "NATURAL GAS", exchange: "MCX_COMM" },
+  ]);
+});
 
 // ─── Sample Data ────────────────────────────────────────────────
 
@@ -95,21 +101,6 @@ const sampleAnalyzerOutput: RawAnalyzerOutput = {
   smart_money_signals: [],
 };
 
-const samplePosition: Position = {
-  id: "TEST-POS-001",
-  instrument: "NIFTY_50",
-  type: "CALL_BUY",
-  strike: 26000,
-  entryPrice: 150,
-  currentPrice: 160,
-  quantity: 50,
-  pnl: 500,
-  pnlPercent: 6.67,
-  slPrice: 130,
-  tpPrice: 200,
-  status: "OPEN",
-  entryTime: new Date().toISOString(),
-};
 
 // ─── Active Instruments (used by ALL Python modules) ──
 
@@ -211,35 +202,6 @@ describe("POST /api/trading/analyzer (Python: SEA)", () => {
 });
 
 
-// ─── Push Position (used by SEA) ──
-
-describe("POST /api/trading/position (Python: SEA)", () => {
-  it("stores position data", () => {
-    pushPosition(samplePosition);
-    const positions = getPositions();
-    const found = positions.find((p) => p.id === "TEST-POS-001");
-    expect(found).toBeDefined();
-    expect(found!.instrument).toBe("NIFTY_50");
-    expect(found!.status).toBe("OPEN");
-  });
-
-  it("updates existing position by id", () => {
-    pushPosition(samplePosition);
-    const updatedPosition: Position = {
-      ...samplePosition,
-      status: "CLOSED",
-      pnl: 900,
-      currentPrice: 230,
-    };
-    pushPosition(updatedPosition);
-    const positions = getPositions();
-    const found = positions.find((p) => p.id === "TEST-POS-001");
-    expect(found).toBeDefined();
-    expect(found!.status).toBe("CLOSED");
-    expect(found!.pnl).toBe(900);
-  });
-});
-
 // ─── Module Heartbeat (used by TFA / SEA / MTA) ──
 
 describe("POST /api/trading/heartbeat (Python: TFA, SEA, MTA)", () => {
@@ -252,23 +214,25 @@ describe("POST /api/trading/heartbeat (Python: TFA, SEA, MTA)", () => {
     expect(fetcher!.status).toBe("active");
   });
 
-  it("records heartbeats for multiple modules", () => {
+  it("records heartbeats for multiple modules (Python pipeline + TS agents)", () => {
     updateModuleHeartbeat("FETCHER", "Fetching NIFTY");
     updateModuleHeartbeat("ANALYZER", "Analyzing NIFTY");
-    updateModuleHeartbeat("AI ENGINE", "Processing");
+    updateModuleHeartbeat("TEA", "1 open trade");
     const statuses = getModuleStatuses();
     const shortNames = statuses.map((s) => s.shortName);
     expect(shortNames).toContain("FETCHER");
     expect(shortNames).toContain("ANALYZER");
-    expect(shortNames).toContain("AI ENGINE");
+    expect(shortNames).toContain("TEA");
+    expect(shortNames).toContain("RCA");
+    expect(shortNames).toContain("PA");
   });
 
   it("updates existing heartbeat message", () => {
-    updateModuleHeartbeat("EXECUTOR", "Starting");
-    updateModuleHeartbeat("EXECUTOR", "Running - 2 open positions");
+    updateModuleHeartbeat("PA", "Starting");
+    updateModuleHeartbeat("PA", "Running - 2 open positions");
     const statuses = getModuleStatuses();
-    const executor = statuses.find((s) => s.shortName === "EXECUTOR");
-    expect(executor!.message).toBe("Running - 2 open positions");
+    const pa = statuses.find((s) => s.shortName === "PA");
+    expect(pa!.message).toBe("Running - 2 open positions");
   });
 
   it("ignores unknown module keys", () => {
@@ -280,26 +244,15 @@ describe("POST /api/trading/heartbeat (Python: TFA, SEA, MTA)", () => {
   });
 });
 
-// ─── Trading Mode (used by SEA) ──
+// ─── Legacy tradingMode endpoint removed (B10) ──
 
-describe("Trading Mode (Python: SEA)", () => {
-  it("defaults to PAPER mode", () => {
-    setTradingMode("PAPER"); // Reset since store is singleton
-    const mode = getTradingMode();
-    expect(mode).toBe("PAPER");
-  });
-
-  it("switches to LIVE mode", () => {
-    setTradingMode("LIVE");
-    expect(getTradingMode()).toBe("LIVE");
-    // Reset
-    setTradingMode("PAPER");
-  });
-
-  it("switches back to PAPER mode", () => {
-    setTradingMode("LIVE");
-    setTradingMode("PAPER");
-    expect(getTradingMode()).toBe("PAPER");
+describe("legacy /api/trading/{position,mode} endpoints removed (B10)", () => {
+  it("tradingStore no longer exports pushPosition / getTradingMode", async () => {
+    const mod = await import("./tradingStore");
+    expect((mod as any).pushPosition).toBeUndefined();
+    expect((mod as any).getPositions).toBeUndefined();
+    expect((mod as any).getTradingMode).toBeUndefined();
+    expect((mod as any).setTradingMode).toBeUndefined();
   });
 });
 

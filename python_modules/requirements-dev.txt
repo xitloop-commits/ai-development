@@ -1,0 +1,11 @@
+# Phase E1 — dev-only tooling. Install with:
+#     pip install -r requirements.txt -r requirements-dev.txt
+#
+# These are intentionally NOT pinned hard — dev tooling rolls forward
+# faster than the ML stack and a minor bump rarely matters. The lower
+# bounds are set to the first version that supports Python 3.14.
+ruff>=0.6
+black>=24.10
+mypy>=1.13
+pytest>=8.3
+pip-audit>=2.7

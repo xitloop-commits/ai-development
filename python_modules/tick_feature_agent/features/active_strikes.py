@@ -24,10 +24,9 @@ Public API:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
-
 
 # ── Value object ──────────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class StrikeScore:
@@ -42,13 +41,15 @@ class StrikeScore:
         strength: min-max normalised oi_score across the full chain (0.0–1.0).
                   All-zero oi_scores → 0.0; all-equal non-zero → 1.0.
     """
-    strike:    int
+
+    strike: int
     vol_score: float
-    oi_score:  float
-    strength:  float
+    oi_score: float
+    strength: float
 
 
 # ── Internals ─────────────────────────────────────────────────────────────────
+
 
 def _normalize(values: list[float]) -> list[float]:
     """
@@ -65,7 +66,7 @@ def _normalize(values: list[float]) -> list[float]:
     if mx == 0.0:
         return [0.0] * len(values)
     mn = min(values)
-    if mx == mn:          # all equal non-zero
+    if mx == mn:  # all equal non-zero
         return [1.0] * len(values)
     span = mx - mn
     return [(v - mn) / span for v in values]
@@ -79,12 +80,13 @@ def _tiebreak_key(strike: int, spot: float, raw_score: float) -> tuple:
     Secondary: ascending |strike - spot|  (closer to ATM wins)
     Tertiary:  above-spot wins on equal distance  (0 < 1 in ascending sort)
     """
-    dist  = abs(strike - spot)
+    dist = abs(strike - spot)
     above = 0 if strike > spot else 1
     return (-raw_score, dist, above)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def compute_strike_scores(
     rows: list[dict],
@@ -120,24 +122,24 @@ def compute_strike_scores(
         if prev_rows is None:
             vol_score = 0.0
         else:
-            call_vol      = float(row.get("callVolume", 0) or 0)
-            put_vol       = float(row.get("putVolume",  0) or 0)
-            prev_row      = prev_map.get(strike)
+            call_vol = float(row.get("callVolume", 0) or 0)
+            put_vol = float(row.get("putVolume", 0) or 0)
+            prev_row = prev_map.get(strike)
             prev_call_vol = float(prev_row.get("callVolume", 0) or 0) if prev_row else 0.0
-            prev_put_vol  = float(prev_row.get("putVolume",  0) or 0) if prev_row else 0.0
+            prev_put_vol = float(prev_row.get("putVolume", 0) or 0) if prev_row else 0.0
             # Clamp to 0 — volume can't decrease intraday (guard against stale data)
             vol_score = max(0.0, (call_vol - prev_call_vol) + (put_vol - prev_put_vol))
 
         # ΔOI — use chain snapshot's OI-change field directly
         call_doi = abs(float(row.get("callOIChange", 0) or 0))
-        put_doi  = abs(float(row.get("putOIChange",  0) or 0))
+        put_doi = abs(float(row.get("putOIChange", 0) or 0))
         oi_score = call_doi + put_doi
 
         raw.append((strike, vol_score, oi_score))
 
     # Normalise oi_scores across all strikes
     oi_values = [r[2] for r in raw]
-    norm_oi   = _normalize(oi_values)
+    norm_oi = _normalize(oi_values)
 
     return [
         StrikeScore(strike=r[0], vol_score=r[1], oi_score=r[2], strength=norm_oi[i])

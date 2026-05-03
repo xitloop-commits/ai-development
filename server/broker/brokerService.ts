@@ -15,7 +15,6 @@ import type { BrokerAdapter, BrokerServiceStatus } from "./types";
 import {
   getBrokerConfig,
   getActiveBrokerConfig,
-  getAllBrokerConfigs,
   upsertBrokerConfig,
   setActiveBroker as setActiveBrokerInDB,
 } from "./brokerConfig";
@@ -419,7 +418,7 @@ export async function switchBroker(brokerId: string): Promise<BrokerAdapter> {
     throw new Error(`No broker config found for brokerId="${brokerId}".`);
   }
   if (adapters.dhanLive) {
-    try { await adapters.dhanLive.disconnect(); } catch {}
+    try { await adapters.dhanLive.disconnect(); } catch { /* ignore */ }
   }
   await setActiveBrokerInDB(brokerId);
   adapters.dhanLive = new DhanAdapter(brokerId, false);
@@ -429,6 +428,33 @@ export async function switchBroker(brokerId: string): Promise<BrokerAdapter> {
   killSwitch.my = false;
   killSwitch.testing = false;
   return adapters.dhanLive;
+}
+
+// ─── Shutdown ─────────────────────────────────────────────────────
+
+/**
+ * Close every initialised adapter's WS + REST connection. Called from
+ * the graceful-shutdown coordinator (priority 500). Errors are logged
+ * but never thrown — shutdown must continue to mongo even if one
+ * adapter hangs.
+ */
+export async function disconnectAllAdapters(): Promise<void> {
+  const all: Array<[string, BrokerAdapter | null]> = [
+    ["dhanLive", adapters.dhanLive],
+    ["dhanAiData", adapters.dhanAiData],
+    ["dhanSandbox", adapters.dhanSandbox],
+    ["mockAi", adapters.mockAi],
+    ["mockMy", adapters.mockMy],
+  ];
+  for (const [name, adapter] of all) {
+    if (!adapter) continue;
+    try {
+      await adapter.disconnect();
+      log.info(`Disconnected ${name} (${adapter.brokerId})`);
+    } catch (err) {
+      log.warn(`Failed to disconnect ${name}: ${(err as Error).message}`);
+    }
+  }
 }
 
 // ─── Status ──────────────────────────────────────────────────────
@@ -467,8 +493,12 @@ export async function getBrokerServiceStatus(): Promise<BrokerServiceStatus> {
 // ─── Tick Bus Wiring ─────────────────────────────────────────────
 
 function wireTickBus(adapter: BrokerAdapter): void {
+  // B11-followup 2/3 — stamp the source broker on every emitted event
+  // so multi-adapter setups (dhan + dhan-ai-data) don't collide on
+  // orderId-only matching downstream. Adapters themselves don't need
+  // to know about the bus shape; the wire layer owns the tag.
   adapter.onOrderUpdate((update) => {
-    tickBus.emitOrderUpdate(update);
+    tickBus.emitOrderUpdate({ ...update, brokerId: adapter.brokerId });
   });
   log.info(`TickBus wired for ${adapter.brokerId}`);
 }
@@ -477,6 +507,7 @@ function wireTickBus(adapter: BrokerAdapter): void {
 
 export function _resetForTesting(): void {
   adapters.dhanLive = null;
+  adapters.dhanAiData = null;
   adapters.dhanSandbox = null;
   adapters.mockAi = null;
   adapters.mockMy = null;
@@ -485,4 +516,24 @@ export function _resetForTesting(): void {
   killSwitch.testing = false;
   adapterFactories.clear();
   adapterMeta.clear();
+}
+
+/**
+ * Test-only — inject pre-built adapter instances directly into the BSA
+ * adapter map, bypassing initBrokerService(). Used by the channel-isolation
+ * invariant test to avoid coupling to Mongo for a pure routing check.
+ * Pass `null` for any slot that should remain unset.
+ */
+export function _setAdaptersForTesting(stubs: Partial<{
+  dhanLive: BrokerAdapter;
+  dhanAiData: BrokerAdapter;
+  dhanSandbox: BrokerAdapter;
+  mockAi: BrokerAdapter;
+  mockMy: BrokerAdapter;
+}>): void {
+  if ("dhanLive" in stubs) adapters.dhanLive = stubs.dhanLive as DhanAdapter;
+  if ("dhanAiData" in stubs) adapters.dhanAiData = stubs.dhanAiData as DhanAdapter;
+  if ("dhanSandbox" in stubs) adapters.dhanSandbox = stubs.dhanSandbox as DhanAdapter;
+  if ("mockAi" in stubs) adapters.mockAi = stubs.mockAi as MockAdapter;
+  if ("mockMy" in stubs) adapters.mockMy = stubs.mockMy as MockAdapter;
 }

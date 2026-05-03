@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
@@ -20,26 +20,28 @@ import pytest
 
 from tick_feature_agent.features.time_to_move import TimeToMoveState
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _NAN = float("nan")
+
 
 def _nan(v) -> bool:
     return isinstance(v, float) and math.isnan(v)
 
 
-def _call(ttm: TimeToMoveState,
-          ltp: float,
-          prev_ltp: float | None,
-          timestamp: float,
-          velocity: float = _NAN,
-          time_diff_sec: float = 1.0,
-          regime: str | None = None,
-          vol_compression: float = _NAN,
-          zone_call: float = _NAN,
-          zone_put: float = _NAN,
-          dead_score: float = _NAN) -> dict:
+def _call(
+    ttm: TimeToMoveState,
+    ltp: float,
+    prev_ltp: float | None,
+    timestamp: float,
+    velocity: float = _NAN,
+    time_diff_sec: float = 1.0,
+    regime: str | None = None,
+    vol_compression: float = _NAN,
+    zone_call: float = _NAN,
+    zone_put: float = _NAN,
+    dead_score: float = _NAN,
+) -> dict:
     return ttm.compute(
         ltp=ltp,
         prev_ltp=prev_ltp,
@@ -55,6 +57,7 @@ def _call(ttm: TimeToMoveState,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestTimeToMoveFeatureKeys:
 
@@ -108,12 +111,12 @@ class TestTimeSinceLastBigMove:
         [1, 1, 1, V], median = 1.0; V > 2.0 fires when V >= 2.01.
         Returns the timestamp of the big-move tick.
         """
-        _call(ttm, 100.0, None,  1000.0, velocity=_NAN)   # tick 1 (no vel)
-        _call(ttm, 100.1, 100.0, 1001.0, velocity=1.0)    # tick 2
-        _call(ttm, 100.2, 100.1, 1002.0, velocity=1.0)    # tick 3
-        _call(ttm, 100.3, 100.2, 1003.0, velocity=1.0)    # tick 4 (median=1.0)
+        _call(ttm, 100.0, None, 1000.0, velocity=_NAN)  # tick 1 (no vel)
+        _call(ttm, 100.1, 100.0, 1001.0, velocity=1.0)  # tick 2
+        _call(ttm, 100.2, 100.1, 1002.0, velocity=1.0)  # tick 3
+        _call(ttm, 100.3, 100.2, 1003.0, velocity=1.0)  # tick 4 (median=1.0)
         # Tick 5: velocity=5.0; history=[1,1,1,5], median=1.0; 5>2.0 → big move
-        _call(ttm, 100.4, 100.3, 1004.0, velocity=5.0)    # fires big move at ts=1004
+        _call(ttm, 100.4, 100.3, 1004.0, velocity=5.0)  # fires big move at ts=1004
         return 1004.0
 
     def test_not_nan_after_first_big_move(self):
@@ -128,7 +131,7 @@ class TestTimeSinceLastBigMove:
         """When big move fires at ts=1004, time_since at that tick = 0."""
         ttm = TimeToMoveState()
         # Replicate _setup_big_move inline to check the firing tick output
-        _call(ttm, 100.0, None,  1000.0, velocity=_NAN)
+        _call(ttm, 100.0, None, 1000.0, velocity=_NAN)
         _call(ttm, 100.1, 100.0, 1001.0, velocity=1.0)
         _call(ttm, 100.2, 100.1, 1002.0, velocity=1.0)
         _call(ttm, 100.3, 100.2, 1003.0, velocity=1.0)
@@ -154,7 +157,7 @@ class TestStagnationDuration:
         """Price change > 0.1% LTP → stagnation resets to 0."""
         ttm = TimeToMoveState()
         _call(ttm, 100.0, None, 1000.0, time_diff_sec=5.0)
-        _call(ttm, 100.0, 100.0, 1005.0, time_diff_sec=5.0)   # flat: stag=5
+        _call(ttm, 100.0, 100.0, 1005.0, time_diff_sec=5.0)  # flat: stag=5
         # 0.2% move → reset
         out = _call(ttm, 100.2, 100.0, 1010.0, time_diff_sec=5.0)
         assert out["stagnation_duration_sec"] == pytest.approx(0.0)
@@ -163,7 +166,7 @@ class TestStagnationDuration:
         """Flat price (no 0.1% move) → stagnation accumulates time_diff each tick."""
         ttm = TimeToMoveState()
         _call(ttm, 100.0, None, 1000.0, time_diff_sec=5.0)
-        _call(ttm, 100.0, 100.0, 1005.0, time_diff_sec=5.0)   # stag=5
+        _call(ttm, 100.0, 100.0, 1005.0, time_diff_sec=5.0)  # stag=5
         out = _call(ttm, 100.0, 100.0, 1010.0, time_diff_sec=5.0)  # stag=10
         assert out["stagnation_duration_sec"] == pytest.approx(10.0)
 
@@ -181,7 +184,7 @@ class TestStagnationDuration:
         """A 0.05% move (< 0.1% threshold) → stagnation continues."""
         ttm = TimeToMoveState()
         _call(ttm, 100.0, None, 1000.0, time_diff_sec=5.0)
-        _call(ttm, 100.0, 100.0, 1005.0, time_diff_sec=5.0)   # stag=5
+        _call(ttm, 100.0, 100.0, 1005.0, time_diff_sec=5.0)  # stag=5
         # 0.05% move — below threshold
         out = _call(ttm, 100.05, 100.0, 1010.0, time_diff_sec=5.0)
         assert out["stagnation_duration_sec"] == pytest.approx(10.0)
@@ -206,8 +209,8 @@ class TestMomentumPersistence:
         """Consecutive up moves → streak increments."""
         ttm = TimeToMoveState()
         _call(ttm, 100.0, None, 1000.0)
-        _call(ttm, 101.0, 100.0, 1001.0)   # streak=2
-        _call(ttm, 102.0, 101.0, 1002.0)   # streak=3
+        _call(ttm, 101.0, 100.0, 1001.0)  # streak=2
+        _call(ttm, 102.0, 101.0, 1002.0)  # streak=3
         out = _call(ttm, 103.0, 102.0, 1003.0)  # streak=4
         assert out["momentum_persistence_ticks"] == 4
 
@@ -215,8 +218,8 @@ class TestMomentumPersistence:
         """Direction reversal → streak resets to 1."""
         ttm = TimeToMoveState()
         _call(ttm, 100.0, None, 1000.0)
-        _call(ttm, 101.0, 100.0, 1001.0)   # up, streak=2
-        _call(ttm, 102.0, 101.0, 1002.0)   # up, streak=3
+        _call(ttm, 101.0, 100.0, 1001.0)  # up, streak=2
+        _call(ttm, 102.0, 101.0, 1002.0)  # up, streak=3
         out = _call(ttm, 101.5, 102.0, 1003.0)  # down: reversal, streak=1
         assert out["momentum_persistence_ticks"] == 1
 
@@ -224,8 +227,8 @@ class TestMomentumPersistence:
         """Flat tick (ltp == prev_ltp) carries forward the current streak."""
         ttm = TimeToMoveState()
         _call(ttm, 100.0, None, 1000.0)
-        _call(ttm, 101.0, 100.0, 1001.0)   # up, streak=2
-        _call(ttm, 102.0, 101.0, 1002.0)   # up, streak=3
+        _call(ttm, 101.0, 100.0, 1001.0)  # up, streak=2
+        _call(ttm, 102.0, 101.0, 1002.0)  # up, streak=3
         out = _call(ttm, 102.0, 102.0, 1003.0)  # flat: keep streak=3
         assert out["momentum_persistence_ticks"] == 3
 
@@ -233,8 +236,8 @@ class TestMomentumPersistence:
         """Consecutive down moves build a negative streak."""
         ttm = TimeToMoveState()
         _call(ttm, 100.0, None, 1000.0)
-        _call(ttm, 99.0, 100.0, 1001.0)    # down, streak=2
-        out = _call(ttm, 98.0, 99.0, 1002.0)   # down, streak=3
+        _call(ttm, 99.0, 100.0, 1001.0)  # down, streak=2
+        out = _call(ttm, 98.0, 99.0, 1002.0)  # down, streak=3
         assert out["momentum_persistence_ticks"] == 3
 
 
@@ -251,13 +254,19 @@ class TestBreakoutReadiness:
         # Build up stagnation and momentum
         _call(ttm, 100.0, None, 1000.0)
         for i in range(1, 5):
-            _call(ttm, 100.0 + i, 100.0 + i - 1, 1000.0 + i,
-                  time_diff_sec=3.0)
-        out = _call(ttm, 100.5, 100.4, 1005.0, time_diff_sec=3.0,
-                    regime="TREND",          # wrong regime
-                    vol_compression=0.2,
-                    zone_call=0.5, zone_put=0.4,
-                    dead_score=0.3)
+            _call(ttm, 100.0 + i, 100.0 + i - 1, 1000.0 + i, time_diff_sec=3.0)
+        out = _call(
+            ttm,
+            100.5,
+            100.4,
+            1005.0,
+            time_diff_sec=3.0,
+            regime="TREND",  # wrong regime
+            vol_compression=0.2,
+            zone_call=0.5,
+            zone_put=0.4,
+            dead_score=0.3,
+        )
         assert out["breakout_readiness"] == 0.0
 
     def test_fires_when_all_conditions_met(self):
@@ -280,9 +289,9 @@ class TestBreakoutReadiness:
             prev_ltp = new_ltp
             ltp = new_ltp
             ts += 1.0
-        out = _call(ttm, ltp, prev_ltp, ts, time_diff_sec=1.0,
-                    regime="RANGE",
-                    vol_compression=0.2)   # < 0.4 threshold
+        out = _call(
+            ttm, ltp, prev_ltp, ts, time_diff_sec=1.0, regime="RANGE", vol_compression=0.2
+        )  # < 0.4 threshold
         assert out["breakout_readiness"] == 1.0
 
     def test_zero_when_compression_too_high(self):
@@ -293,9 +302,9 @@ class TestBreakoutReadiness:
             _call(ttm, 100.0, 100.0, 1001.0, time_diff_sec=3.0)
         for i in range(1, 5):
             _call(ttm, 100.0 + i, 100.0 + i - 1, 1016.0 + i)
-        out = _call(ttm, 105.0, 104.0, 1021.0,
-                    regime="RANGE",
-                    vol_compression=0.5)   # >= 0.4 → no fire
+        out = _call(
+            ttm, 105.0, 104.0, 1021.0, regime="RANGE", vol_compression=0.5
+        )  # >= 0.4 → no fire
         assert out["breakout_readiness"] == 0.0
 
 
@@ -315,11 +324,18 @@ class TestBreakoutReadinessExtended:
         _call(ttm, 100.0, None, 1000.0, time_diff_sec=0.0)
         for _ in range(4):
             _call(ttm, 100.0, 100.0, 1001.0, time_diff_sec=3.0)  # stag = 12s
-        out = _call(ttm, 100.0, 100.0, 1013.0, time_diff_sec=1.0,
-                    regime="NEUTRAL",
-                    vol_compression=0.2,
-                    zone_call=0.4, zone_put=0.2,  # max=0.4 > 0.3
-                    dead_score=0.3)               # < 0.5
+        out = _call(
+            ttm,
+            100.0,
+            100.0,
+            1013.0,
+            time_diff_sec=1.0,
+            regime="NEUTRAL",
+            vol_compression=0.2,
+            zone_call=0.4,
+            zone_put=0.2,  # max=0.4 > 0.3
+            dead_score=0.3,
+        )  # < 0.5
         assert out["breakout_readiness_extended"] == 1.0
 
     def test_fires_in_range_regime_too(self):
@@ -328,11 +344,18 @@ class TestBreakoutReadinessExtended:
         _call(ttm, 100.0, None, 1000.0, time_diff_sec=0.0)
         for _ in range(4):
             _call(ttm, 100.0, 100.0, 1001.0, time_diff_sec=3.0)
-        out = _call(ttm, 100.0, 100.0, 1013.0, time_diff_sec=1.0,
-                    regime="RANGE",
-                    vol_compression=0.2,
-                    zone_call=0.4, zone_put=0.2,
-                    dead_score=0.3)
+        out = _call(
+            ttm,
+            100.0,
+            100.0,
+            1013.0,
+            time_diff_sec=1.0,
+            regime="RANGE",
+            vol_compression=0.2,
+            zone_call=0.4,
+            zone_put=0.2,
+            dead_score=0.3,
+        )
         assert out["breakout_readiness_extended"] == 1.0
 
     def test_zero_when_zone_pressure_too_low(self):
@@ -341,11 +364,18 @@ class TestBreakoutReadinessExtended:
         _call(ttm, 100.0, None, 1000.0, time_diff_sec=0.0)
         for _ in range(4):
             _call(ttm, 100.0, 100.0, 1001.0, time_diff_sec=3.0)
-        out = _call(ttm, 100.0, 100.0, 1013.0, time_diff_sec=1.0,
-                    regime="RANGE",
-                    vol_compression=0.2,
-                    zone_call=0.2, zone_put=0.2,  # max=0.2 <= 0.3
-                    dead_score=0.3)
+        out = _call(
+            ttm,
+            100.0,
+            100.0,
+            1013.0,
+            time_diff_sec=1.0,
+            regime="RANGE",
+            vol_compression=0.2,
+            zone_call=0.2,
+            zone_put=0.2,  # max=0.2 <= 0.3
+            dead_score=0.3,
+        )
         assert out["breakout_readiness_extended"] == 0.0
 
     def test_zero_when_dead_score_too_high(self):
@@ -354,11 +384,18 @@ class TestBreakoutReadinessExtended:
         _call(ttm, 100.0, None, 1000.0, time_diff_sec=0.0)
         for _ in range(4):
             _call(ttm, 100.0, 100.0, 1001.0, time_diff_sec=3.0)
-        out = _call(ttm, 100.0, 100.0, 1013.0, time_diff_sec=1.0,
-                    regime="RANGE",
-                    vol_compression=0.2,
-                    zone_call=0.4, zone_put=0.2,
-                    dead_score=0.5)   # >= 0.5 → no fire
+        out = _call(
+            ttm,
+            100.0,
+            100.0,
+            1013.0,
+            time_diff_sec=1.0,
+            regime="RANGE",
+            vol_compression=0.2,
+            zone_call=0.4,
+            zone_put=0.2,
+            dead_score=0.5,
+        )  # >= 0.5 → no fire
         assert out["breakout_readiness_extended"] == 0.0
 
     def test_zero_when_zone_pressure_nan(self):
@@ -367,11 +404,18 @@ class TestBreakoutReadinessExtended:
         _call(ttm, 100.0, None, 1000.0, time_diff_sec=0.0)
         for _ in range(4):
             _call(ttm, 100.0, 100.0, 1001.0, time_diff_sec=3.0)
-        out = _call(ttm, 100.0, 100.0, 1013.0, time_diff_sec=1.0,
-                    regime="RANGE",
-                    vol_compression=0.2,
-                    zone_call=float("nan"), zone_put=float("nan"),
-                    dead_score=0.3)
+        out = _call(
+            ttm,
+            100.0,
+            100.0,
+            1013.0,
+            time_diff_sec=1.0,
+            regime="RANGE",
+            vol_compression=0.2,
+            zone_call=float("nan"),
+            zone_put=float("nan"),
+            dead_score=0.3,
+        )
         assert out["breakout_readiness_extended"] == 0.0
 
 

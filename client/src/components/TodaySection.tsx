@@ -94,7 +94,7 @@ export function TodaySection({
     const currentLtp = getLiveLtp(lastTrade) ?? lastTrade.ltp ?? lastTrade.entryPrice;
     if (currentLtp <= 0) return;
 
-    onPlaceTrade({
+    void onPlaceTrade({
       instrument: lastTrade.instrument,
       type: lastTrade.type,
       strike: lastTrade.strike,

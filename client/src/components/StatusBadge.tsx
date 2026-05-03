@@ -1,8 +1,13 @@
 export interface StatusBadgeProps {
   status: string;
+  /** When status === "CLOSED", the exit reason picks the badge style:
+   *  TP_HIT → green ✓ TP, SL_HIT → red ✗ SL, anything else → generic
+   *  CLOSED pill. Pass through from `trade.exitReason` (B11-followup
+   *  unified vocab: TP_HIT / SL_HIT / MOMENTUM_EXIT / ...). */
+  exitReason?: string;
 }
 
-export function StatusBadge({ status }: StatusBadgeProps) {
+export function StatusBadge({ status, exitReason }: StatusBadgeProps) {
   switch (status) {
     case 'OPEN':
       return (
@@ -18,24 +23,8 @@ export function StatusBadge({ status }: StatusBadgeProps) {
           PENDING
         </span>
       );
-    case 'CLOSED_TP':
-      return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold bg-bullish/20 text-bullish">
-          ✓ TP
-        </span>
-      );
-    case 'CLOSED_SL':
-      return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold bg-destructive/20 text-destructive">
-          ✗ SL
-        </span>
-      );
-    case 'CLOSED_PARTIAL':
-      return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold bg-bullish/20 text-bullish">
-          ✓ Partial
-        </span>
-      );
+    case 'CLOSED':
+      return renderClosedPill(exitReason);
     case 'CANCELLED':
       return (
         <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold bg-muted text-muted-foreground">
@@ -48,6 +37,13 @@ export function StatusBadge({ status }: StatusBadgeProps) {
           REJECTED
         </span>
       );
+    case 'BROKER_DESYNC':
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-bold bg-destructive/30 text-destructive border border-destructive">
+          <span aria-hidden="true">⚠</span>
+          DESYNC
+        </span>
+      );
     default:
       return (
         <span className="text-[0.5rem] text-muted-foreground uppercase">
@@ -55,4 +51,29 @@ export function StatusBadge({ status }: StatusBadgeProps) {
         </span>
       );
   }
+}
+
+function renderClosedPill(exitReason?: string) {
+  if (exitReason === 'TP_HIT') {
+    return (
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold bg-bullish/20 text-bullish">
+        ✓ TP
+      </span>
+    );
+  }
+  if (exitReason === 'SL_HIT') {
+    return (
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold bg-destructive/20 text-destructive">
+        ✗ SL
+      </span>
+    );
+  }
+  // Every other ExitReason (MOMENTUM_EXIT, AGE_EXIT, VOLATILITY_EXIT,
+  // STALE_PRICE_EXIT, DISCIPLINE_EXIT, AI_EXIT, MANUAL, EOD, EXPIRY) and
+  // unknown / missing reason all render as a neutral CLOSED pill.
+  return (
+    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold bg-muted text-muted-foreground">
+      CLOSED
+    </span>
+  );
 }

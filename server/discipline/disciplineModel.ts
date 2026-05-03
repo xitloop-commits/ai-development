@@ -1,5 +1,5 @@
 /**
- * Discipline Engine — MongoDB Models
+ * Discipline Agent — MongoDB Models
  *
  * Collections:
  *   - discipline_settings: Per-user rich discipline configuration (per-rule enabled + params)
@@ -9,10 +9,10 @@
 
 import mongoose, { Schema, type Document } from "mongoose";
 import {
-  type DisciplineEngineSettings,
+  type DisciplineAgentSettings,
   type DisciplineState,
   type DisciplineDailyScore,
-  DEFAULT_DISCIPLINE_ENGINE_SETTINGS,
+  DEFAULT_DISCIPLINE_AGENT_SETTINGS,
   createDefaultState,
   getISTDateString,
 } from "./types";
@@ -29,32 +29,65 @@ const historyEntrySchema = new Schema(
   { _id: false }
 );
 
-const disciplineSettingsSchema = new Schema<DisciplineEngineSettings & Document>(
+const disciplineSettingsSchema = new Schema<DisciplineAgentSettings & Document>(
   {
     userId: { type: String, required: true, unique: true, index: true },
     updatedAt: { type: Date, default: Date.now },
-    dailyLossLimit: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.dailyLossLimit }) },
-    maxConsecutiveLosses: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.maxConsecutiveLosses }) },
-    maxTradesPerDay: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.maxTradesPerDay }) },
-    maxOpenPositions: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.maxOpenPositions }) },
-    revengeCooldown: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.revengeCooldown }) },
-    noTradingAfterOpen: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.noTradingAfterOpen }) },
-    noTradingBeforeClose: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.noTradingBeforeClose }) },
-    lunchBreakPause: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.lunchBreakPause }) },
+    dailyLossLimit: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.dailyLossLimit }) },
+    maxConsecutiveLosses: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.maxConsecutiveLosses }) },
+    maxTradesPerDay: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.maxTradesPerDay }) },
+    maxOpenPositions: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.maxOpenPositions }) },
+    revengeCooldown: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.revengeCooldown }) },
+    noTradingAfterOpen: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.noTradingAfterOpen }) },
+    noTradingBeforeClose: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.noTradingBeforeClose }) },
+    lunchBreakPause: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.lunchBreakPause }) },
     preTradeGate: {
       type: new Schema({
         enabled: { type: Boolean, default: true },
-        minRiskReward: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.preTradeGate.minRiskReward }) },
-        emotionalStateCheck: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.preTradeGate.emotionalStateCheck }) },
+        minRiskReward: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.preTradeGate.minRiskReward }) },
+        emotionalStateCheck: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.preTradeGate.emotionalStateCheck }) },
       }, { _id: false }),
-      default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.preTradeGate }),
+      default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.preTradeGate }),
     },
-    maxPositionSize: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.maxPositionSize }) },
-    maxTotalExposure: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.maxTotalExposure }) },
-    journalEnforcement: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.journalEnforcement }) },
-    weeklyReview: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.weeklyReview }) },
-    winningStreakReminder: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.winningStreakReminder }) },
-    losingStreakAutoReduce: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_ENGINE_SETTINGS.losingStreakAutoReduce }) },
+    maxPositionSize: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.maxPositionSize }) },
+    maxTotalExposure: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.maxTotalExposure }) },
+    journalEnforcement: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.journalEnforcement }) },
+    weeklyReview: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.weeklyReview }) },
+    winningStreakReminder: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.winningStreakReminder }) },
+    losingStreakAutoReduce: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.losingStreakAutoReduce }) },
+    // Module 8 — Capital Protection. Persisted as an open sub-document
+    // (strict: false on the parent) — operator-tunable per environment.
+    capitalProtection: {
+      type: new Schema({
+        profitCap: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.profitCap }) },
+        lossCap: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.lossCap }) },
+        gracePeriodSeconds: { type: Number, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.gracePeriodSeconds },
+        carryForward: {
+          type: new Schema({
+            enabled: { type: Boolean, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.carryForward.enabled },
+            nseEvalTime: { type: String, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.carryForward.nseEvalTime },
+            mcxEvalTime: { type: String, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.carryForward.mcxEvalTime },
+            autoExit: { type: Boolean, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.carryForward.autoExit },
+            exitDelayMinutes: { type: Number, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.carryForward.exitDelayMinutes },
+            minProfitPercent: { type: Number, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.carryForward.minProfitPercent },
+            minMomentumScore: { type: Number, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.carryForward.minMomentumScore },
+            minDte: { type: Number, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.carryForward.minDte },
+            ivCondition: { type: String, enum: ["fair", "cheap", "any"], default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.carryForward.ivCondition },
+          }, { _id: false }),
+          default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.carryForward }),
+        },
+        iv: {
+          type: new Schema({
+            historyWindow: { type: Number, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.iv.historyWindow },
+            minSamples: { type: Number, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.iv.minSamples },
+            cheapPercentile: { type: Number, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.iv.cheapPercentile },
+            expensivePercentile: { type: Number, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.iv.expensivePercentile },
+          }, { _id: false }),
+          default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection.iv }),
+        },
+      }, { _id: false }),
+      default: () => JSON.parse(JSON.stringify(DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection)),
+    },
     history: { type: [historyEntrySchema], default: [] },
   },
   { timestamps: false, collection: "discipline_settings", strict: false }
@@ -137,6 +170,36 @@ const disciplineStateSchema = new Schema<DisciplineState & Document>(
     weeklyReviewDueAt: Date,
 
     violations: { type: [violationSchema], default: [] },
+
+    // Module 8 — Capital Protection runtime state. Open sub-documents;
+    // the parent uses default mongoose strictness so unknown sub-fields
+    // are dropped on save.
+    dailyPnlPercent: { type: Number, default: 0 },
+    sessionHalts: {
+      type: new Schema({
+        nse: {
+          type: new Schema({
+            triggered: { type: Boolean, default: false },
+            triggeredAt: Date,
+            reason: String,
+            source: { type: String, enum: ["PROFIT_CAP", "LOSS_CAP", "MANUAL", "CARRY_FORWARD_FAIL"] },
+          }, { _id: false }),
+          default: () => ({ triggered: false }),
+        },
+        mcx: {
+          type: new Schema({
+            triggered: { type: Boolean, default: false },
+            triggeredAt: Date,
+            reason: String,
+            source: { type: String, enum: ["PROFIT_CAP", "LOSS_CAP", "MANUAL", "CARRY_FORWARD_FAIL"] },
+          }, { _id: false }),
+          default: () => ({ triggered: false }),
+        },
+      }, { _id: false }),
+      default: () => ({ nse: { triggered: false }, mcx: { triggered: false } }),
+    },
+    carryForwardEvals: { type: Schema.Types.Mixed, default: () => ({}) },
+    capGrace: { type: Schema.Types.Mixed, default: null },
   },
   { timestamps: false, collection: "discipline_state" }
 );
@@ -204,20 +267,20 @@ export const DisciplineDailyScoreModel = mongoose.model("DisciplineDailyScore", 
 // ─── CRUD Helpers ──────────────────────────────────────────────
 
 /** Get or create discipline settings for a user */
-export async function getDisciplineSettings(userId: string): Promise<DisciplineEngineSettings> {
+export async function getDisciplineSettings(userId: string): Promise<DisciplineAgentSettings> {
   let doc = await DisciplineSettingsModel.findOne({ userId }).lean();
   if (!doc) {
     doc = await DisciplineSettingsModel.create({ userId, updatedAt: new Date(), history: [] });
     doc = doc.toObject();
   }
-  return doc as unknown as DisciplineEngineSettings;
+  return doc as unknown as DisciplineAgentSettings;
 }
 
 /** Update discipline settings with history logging */
 export async function updateDisciplineSettings(
   userId: string,
   updates: Record<string, unknown>
-): Promise<DisciplineEngineSettings> {
+): Promise<DisciplineAgentSettings> {
   const current = await getDisciplineSettings(userId);
   const historyEntries: Array<{ changedAt: Date; field: string; oldValue: unknown; newValue: unknown }> = [];
 
@@ -234,7 +297,7 @@ export async function updateDisciplineSettings(
     { $set: setFields, $push: { history: { $each: historyEntries } } },
     { upsert: true, returnDocument: "after", lean: true }
   );
-  return doc as unknown as DisciplineEngineSettings;
+  return doc as unknown as DisciplineAgentSettings;
 }
 
 const DEFAULT_CHANNEL = "my-live";

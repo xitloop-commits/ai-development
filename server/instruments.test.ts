@@ -17,7 +17,6 @@ import {
   seedDefaultInstruments,
   DEFAULT_INSTRUMENTS,
   InstrumentModel,
-  type InstrumentConfig,
 } from "./instruments";
 import { searchByQuery, _loadRecordsForTesting, _resetForTesting, type ScripRecord } from "./broker/adapters/dhan/scripMaster";
 import { connectMongo, disconnectMongo } from "./mongo";

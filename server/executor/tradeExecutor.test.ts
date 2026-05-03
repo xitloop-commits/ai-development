@@ -47,7 +47,7 @@ vi.mock("../broker/tickBus", () => ({
 }));
 
 vi.mock("../discipline", () => ({
-  disciplineEngine: {
+  disciplineAgent: {
     validateTrade: vi.fn(async () => ({
       allowed: true,
       blockedBy: [],
@@ -113,6 +113,9 @@ vi.mock("../portfolio", () => ({
     recordTradeRejected: vi.fn(async () => undefined),
     recordTradeClosed: vi.fn(async () => undefined),
     onAutoExit: vi.fn(() => () => undefined),
+    markTradeDesync: vi.fn(async () => ({ trade: {} as any, day: {} as any })),
+    clearTradeDesync: vi.fn(async () => ({ trade: {} as any, day: {} as any })),
+    hasUnresolvedDesync: vi.fn(async () => false),
   },
 }));
 
@@ -254,9 +257,29 @@ describe("ai-live 1-lot cap", () => {
     expect(portfolioAgent.recordTradeRejected).toHaveBeenCalledTimes(1);
   });
 
-  it("does NOT apply the cap to ai-paper (paper has no lot cap)", async () => {
+  it("accepts a 1-lot order on ai-paper", async () => {
     const resp = await tradeExecutor.submitTrade(
-      paperRequest({ channel: "ai-paper", origin: "AI", quantity: 1500 }),
+      paperRequest({ channel: "ai-paper", origin: "AI", quantity: 75 }),
+    );
+    if (!resp.success) {
+      expect(resp.error).not.toMatch(/lot cap/i);
+    }
+  });
+
+  it("rejects a 2-lot order on ai-paper — cap applies to all dhan-ai-data channels (C5)", async () => {
+    // 150 / 75 = 2 lots. Exceeds cap of 1. Even though ai-paper is paper money,
+    // an oversized AI order would corrupt canary-validation P&L.
+    const resp = await tradeExecutor.submitTrade(
+      paperRequest({ channel: "ai-paper", origin: "AI", quantity: 150 }),
+    );
+    expect(resp.success).toBe(false);
+    expect(resp.error).toMatch(/AI Live lot cap violated/);
+    expect(fillingAdapter.placeOrder).not.toHaveBeenCalled();
+  });
+
+  it("does NOT apply the cap to my-paper / my-live (manual orders are operator-supervised)", async () => {
+    const resp = await tradeExecutor.submitTrade(
+      paperRequest({ channel: "my-paper", origin: "USER", quantity: 1500 }),
     );
     // Goes through to broker (mock fills it).
     expect(resp.success).toBe(true);
@@ -315,5 +338,113 @@ describe("modifyOrder", () => {
     expect(resp.success).toBe(true);
     expect(portfolioAgent.updateTrade).toHaveBeenCalledTimes(1);
     expect(fillingAdapter.modifyOrder).not.toHaveBeenCalled();
+  });
+});
+
+// ─── B4: BROKER_DESYNC behaviour ────────────────────────────────
+
+describe("B4 — BROKER_DESYNC handling", () => {
+  // Live-channel paths require the trade to have a brokerOrderId.
+  // Override ensureCurrentDay to return that shape just for these tests.
+  beforeEach(() => {
+    (portfolioAgent.ensureCurrentDay as any).mockResolvedValue({
+      trades: [
+        {
+          id: "T1234",
+          instrument: "NIFTY_50",
+          type: "CALL_BUY",
+          entryPrice: 100,
+          qty: 75,
+          status: "OPEN",
+          ltp: 105,
+          brokerOrderId: "BROKER-ORD-1",
+          brokerId: "dhan",
+          openedAt: 1700000000000,
+        },
+      ],
+    });
+  });
+
+  it("exitTrade — broker placeOrder failure marks BROKER_DESYNC and does NOT close locally", async () => {
+    const failingAdapter = {
+      ...fillingAdapter,
+      placeOrder: vi.fn(async () => {
+        throw new Error("Dhan timeout");
+      }),
+    };
+    (getAdapter as any).mockReturnValue(failingAdapter);
+
+    const resp = await tradeExecutor.exitTrade({
+      executionId: "exit-fail-1",
+      positionId: "POS-1234",
+      channel: "my-live",
+      exitType: "MARKET",
+      reason: "MANUAL",
+      triggeredBy: "USER",
+      timestamp: Date.now(),
+    });
+
+    // Outer catch composes the failure response.
+    expect(resp.success).toBe(false);
+    expect(resp.error).toMatch(/BROKER_DESYNC/);
+
+    // Trade is flagged desync with kind=EXIT.
+    expect(portfolioAgent.markTradeDesync).toHaveBeenCalledTimes(1);
+    expect((portfolioAgent.markTradeDesync as any).mock.calls[0][2]).toMatchObject({
+      kind: "EXIT",
+      reason: "Dhan timeout",
+    });
+
+    // The position is NOT closed locally — closeTrade must not have been called.
+    expect(portfolioAgent.closeTrade).not.toHaveBeenCalled();
+  });
+
+  it("modifyOrder — broker modifyOrder failure marks BROKER_DESYNC and does NOT update local SL/TP", async () => {
+    const failingAdapter = {
+      ...fillingAdapter,
+      modifyOrder: vi.fn(async () => {
+        throw new Error("Dhan rejected SL price");
+      }),
+    };
+    (getAdapter as any).mockReturnValue(failingAdapter);
+
+    const resp = await tradeExecutor.modifyOrder({
+      executionId: "mod-fail-1",
+      positionId: "POS-1234",
+      channel: "my-live",
+      modifications: { stopLossPrice: 92, targetPrice: 130 },
+      reason: "USER",
+      timestamp: Date.now(),
+    });
+
+    // Outer catch composes the failure response.
+    expect(resp.success).toBe(false);
+    expect(resp.error).toMatch(/BROKER_DESYNC/);
+
+    // Trade is flagged desync with kind=MODIFY + the attempted SL/TP recorded.
+    expect(portfolioAgent.markTradeDesync).toHaveBeenCalledTimes(1);
+    const desyncCall = (portfolioAgent.markTradeDesync as any).mock.calls[0][2];
+    expect(desyncCall.kind).toBe("MODIFY");
+    expect(desyncCall.attempted).toEqual({ stopLossPrice: 92, targetPrice: 130 });
+
+    // Local SL/TP MUST NOT be updated when broker is out of sync.
+    expect(portfolioAgent.updateTrade).not.toHaveBeenCalled();
+  });
+
+  it("modifyOrder — paper-channel broker error does NOT desync (no broker call to fail)", async () => {
+    // Paper channels don't call broker.modifyOrder. Confirm the desync
+    // branch is gated by isLiveChannel.
+    const resp = await tradeExecutor.modifyOrder({
+      executionId: "mod-paper-1",
+      positionId: "POS-1234",
+      channel: "my-paper",
+      modifications: { stopLoss: 88, takeProfit: 125 },
+      reason: "USER",
+      timestamp: Date.now(),
+    });
+
+    expect(resp.success).toBe(true);
+    expect(portfolioAgent.markTradeDesync).not.toHaveBeenCalled();
+    expect(portfolioAgent.updateTrade).toHaveBeenCalledTimes(1);
   });
 });

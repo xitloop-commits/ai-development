@@ -10,7 +10,7 @@
  *   const niftyTick = getTick("IDX_I", "13");
  */
 
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { trpc } from "@/lib/trpc";
 import * as chainStore from "@/stores/optionChainStore";
 
@@ -232,7 +232,7 @@ function updateTick(key: string, partial: Partial<TickData>) {
   notifyListeners();
 }
 
-function ingestTick(tick: TickData) {
+function _ingestTick(tick: TickData) {
   if (tick && tick.securityId && tick.exchange) {
     const key = `${tick.exchange}:${tick.securityId}`;
     tickStore.set(key, tick);
@@ -260,7 +260,7 @@ function connectWs() {
   wsInstance = ws;
 
   ws.onopen = () => {
-    console.log("[TickWS] Connected");
+    if (import.meta.env.DEV) console.log("[TickWS] Connected");
     wsConnected = true;
   };
 
@@ -301,7 +301,7 @@ function connectWs() {
   };
 
   ws.onclose = () => {
-    console.log("[TickWS] Disconnected, reconnecting in 1s...");
+    if (import.meta.env.DEV) console.log("[TickWS] Disconnected, reconnecting in 1s...");
     wsConnected = false;
     wsInstance = null;
     if (wsReconnectTimer) clearTimeout(wsReconnectTimer);

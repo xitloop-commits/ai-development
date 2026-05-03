@@ -34,7 +34,6 @@ import type {
 } from "../../types";
 
 import {
-  DHAN_API_BASE,
   DHAN_ENDPOINTS,
   DHAN_TOKEN_EXPIRY_MS,
   DHAN_TOKEN_STARTUP_REFRESH_THRESHOLD_MS,
@@ -76,7 +75,6 @@ import {
   needsRefresh as scripNeedsRefresh,
   getLotSizeBySecurityId,
   getLotSizeBySymbol,
-  type LookupResult,
 } from "./scripMaster";
 
 import {
@@ -84,16 +82,15 @@ import {
   RateLimiter,
   withRetry,
   isRetryableError,
-  calculateLimitPrice,
-  calculateBracketPrices,
 } from "./utils";
 
 import { DhanWebSocket } from "./websocket";
 import { SubscriptionManager } from "./subscriptionManager";
 import { DhanOrderUpdateWs } from "./orderUpdateWs";
 import { generateDhanToken } from "./tokenManager";
-import type { SubscriptionState, TickData, FeedMode } from "../../types";
+import type { SubscriptionState, TickData } from "../../types";
 import { createLogger, type Logger } from "../../logger";
+import { dhanApiLatencyMs } from "../../../_core/metrics";
 
 // ─── DhanAdapter ───────────────────────────────────────────────
 
@@ -232,6 +229,19 @@ export class DhanAdapter implements BrokerAdapter {
   // ── Orders ────────────────────────────────────────────────────
 
   async placeOrder(params: OrderParams): Promise<OrderResult> {
+    const _t0 = Date.now();
+    let _status: "success" | "error" = "success";
+    try {
+      return await this._placeOrderImpl(params);
+    } catch (err) {
+      _status = "error";
+      throw err;
+    } finally {
+      dhanApiLatencyMs.labels({ endpoint: "placeOrder", status: _status }).observe(Date.now() - _t0);
+    }
+  }
+
+  private async _placeOrderImpl(params: OrderParams): Promise<OrderResult> {
     this._ensureToken();
     this._ensureNotKilled();
 
@@ -243,7 +253,7 @@ export class DhanAdapter implements BrokerAdapter {
     const securityId = this._resolveSecurityId(params);
 
     // Calculate limit price with offset if order type is LIMIT and price is 0 (auto-calculate)
-    let price = params.price;
+    const price = params.price;
     if (params.orderType === "LIMIT" && price === 0 && settings) {
       // Price of 0 means "use LTP with offset" — caller should provide actual LTP as price
       // For now, keep price as-is; the frontend will calculate using LTP
@@ -945,7 +955,7 @@ export class DhanAdapter implements BrokerAdapter {
     if (this.orderUpdateWs) {
       this.orderUpdateWs.disconnect();
     }
-    this.orderUpdateWs = new DhanOrderUpdateWs(this.clientId, this.accessToken);
+    this.orderUpdateWs = new DhanOrderUpdateWs(this.clientId, this.accessToken, this.brokerId);
     this.orderUpdateWs.on("orderUpdate", (update: import("./orderUpdateWs").NormalizedOrderUpdate) => {
       if (!this.orderUpdateCb) return;
       // Map to generic OrderUpdate for the broker interface
@@ -958,6 +968,7 @@ export class DhanAdapter implements BrokerAdapter {
         EXPIRED: "CANCELLED",
       };
       this.orderUpdateCb({
+        brokerId: this.brokerId,
         orderId: update.orderId,
         status: (statusMap[update.status] || "PENDING") as import("../../types").OrderStatus,
         filledQuantity: update.tradedQty,
@@ -991,6 +1002,7 @@ export class DhanAdapter implements BrokerAdapter {
     this.ws = new DhanWebSocket({
       accessToken: this.accessToken,
       clientId: this.clientId,
+      brokerTag: this.brokerId,
       onTick: (tick: TickData) => {
         if (this.tickCallback) this.tickCallback(tick);
       },
@@ -1000,17 +1012,17 @@ export class DhanAdapter implements BrokerAdapter {
       onPrevClose: () => {},
       onDisconnect: (code, reason) => {
         this.log.warn(`WS disconnected: ${reason} (${code})`);
-        updateBrokerConnection(this.brokerId, { wsStatus: "disconnected" });
+        void updateBrokerConnection(this.brokerId, { wsStatus: "disconnected" });
       },
       onError: (err) => {
         // Suppress repeated "max reconnect" spam — it's already logged once by WS
         if (!err.message.includes("max reconnect attempts")) {
           this.log.error(`WS error: ${err.message}`);
         }
-        updateBrokerConnection(this.brokerId, { wsStatus: "error" });
+        void updateBrokerConnection(this.brokerId, { wsStatus: "error" });
       },
       onConnected: () => {
-        updateBrokerConnection(this.brokerId, {
+        void updateBrokerConnection(this.brokerId, {
           wsStatus: "connected",
           lastWsTick: Date.now(),
         });
@@ -1123,6 +1135,11 @@ export class DhanAdapter implements BrokerAdapter {
         if (!refreshed) {
           if (expiry.isExpired) {
             this.log.error("Token refresh failed and existing token expired. BSA will start without a valid token.");
+            // Mark Mongo state as expired/error so CredentialGate (UI) shows
+            // the "token expired" prompt. Without this, the operator sees a
+            // stale `status: "valid"` row and doesn't know the broker is down.
+            await updateBrokerCredentials(this.brokerId, { status: "expired" });
+            await updateBrokerConnection(this.brokerId, { apiStatus: "error" });
             return;
           }
           this.log.warn(

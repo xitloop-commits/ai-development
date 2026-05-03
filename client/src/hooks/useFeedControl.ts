@@ -22,13 +22,13 @@ export function useFeedControl() {
 
   const subscribeMutation = trpc.broker.feed.subscribe.useMutation({
     onSuccess: () => {
-      utils.broker.feed.state.invalidate();
+      void utils.broker.feed.state.invalidate();
     },
   });
 
   const unsubscribeMutation = trpc.broker.feed.unsubscribe.useMutation({
     onSuccess: () => {
-      utils.broker.feed.state.invalidate();
+      void utils.broker.feed.state.invalidate();
     },
   });
 

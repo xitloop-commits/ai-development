@@ -9,7 +9,7 @@
  * (if requireAcknowledgment is enabled).
  */
 
-import type { DisciplineState, DisciplineEngineSettings, ModuleCheckResult, CooldownState } from "./types";
+import type { DisciplineState, DisciplineAgentSettings, ModuleCheckResult, CooldownState } from "./types";
 
 export interface CooldownResult extends ModuleCheckResult {
   remainingSeconds?: number;
@@ -22,7 +22,7 @@ export interface CooldownResult extends ModuleCheckResult {
  */
 export function checkCooldown(
   state: DisciplineState,
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): CooldownResult {
   if (!state.activeCooldown) {
     return { passed: true };
@@ -62,7 +62,7 @@ export function checkCooldown(
  * Create a revenge cooldown state after a stop-loss hit.
  */
 export function createRevengeCooldown(
-  settings: DisciplineEngineSettings,
+  settings: DisciplineAgentSettings,
   triggerTradeId?: string
 ): CooldownState | null {
   if (!settings.revengeCooldown.enabled) return null;
@@ -89,7 +89,7 @@ export function createRevengeCooldown(
  * Create a consecutive loss cooldown.
  */
 export function createConsecutiveLossCooldown(
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): CooldownState | null {
   if (!settings.maxConsecutiveLosses.enabled) return null;
 
@@ -110,7 +110,7 @@ export function createConsecutiveLossCooldown(
  */
 export function acknowledgeLoss(
   cooldown: CooldownState,
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): CooldownState {
   const now = new Date();
   const durationMs = settings.revengeCooldown.durationMinutes * 60 * 1000;

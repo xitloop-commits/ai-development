@@ -12,19 +12,19 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
 import pytest
 
-from tick_feature_agent.chain_cache import ChainCache
 from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
+from tick_feature_agent.chain_cache import ChainCache
 from tick_feature_agent.features.chain import compute_chain_features
 from tick_feature_agent.features.compression import CompressionState
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _nan(v) -> bool:
     return isinstance(v, float) and math.isnan(v)
@@ -43,16 +43,16 @@ def _make_cache(
     oi_imbalance_atm: float | None = 0.33,
 ) -> ChainCache:
     c = ChainCache()
-    c.chain_available    = chain_available
-    c.pcr_global         = pcr_global
-    c.pcr_atm            = pcr_atm
-    c.oi_total_call      = oi_total_call
-    c.oi_total_put       = oi_total_put
-    c.oi_change_call     = oi_change_call
-    c.oi_change_put      = oi_change_put
+    c.chain_available = chain_available
+    c.pcr_global = pcr_global
+    c.pcr_atm = pcr_atm
+    c.oi_total_call = oi_total_call
+    c.oi_total_put = oi_total_put
+    c.oi_change_call = oi_change_call
+    c.oi_change_put = oi_change_put
     c.oi_change_call_atm = oi_change_call_atm
-    c.oi_change_put_atm  = oi_change_put_atm
-    c.oi_imbalance_atm   = oi_imbalance_atm
+    c.oi_change_put_atm = oi_change_put_atm
+    c.oi_imbalance_atm = oi_imbalance_atm
     return c
 
 
@@ -80,6 +80,7 @@ def _opt_feat(spread: float | None = None) -> dict:
 # §8.5 chain.py
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestChainFeatureKeys:
     def test_exactly_9_keys(self):
         result = compute_chain_features(ChainCache())
@@ -93,7 +94,7 @@ class TestChainFeatureKeys:
 
 class TestChainWhenUnavailable:
     def test_all_nan_when_not_available(self):
-        result = compute_chain_features(ChainCache())   # chain_available=False
+        result = compute_chain_features(ChainCache())  # chain_available=False
         for k, v in result.items():
             assert _nan(v), f"{k} should be NaN when chain unavailable"
 
@@ -116,16 +117,12 @@ class TestChainValues:
         assert _nan(result["chain_pcr_atm"])
 
     def test_oi_totals_extracted(self):
-        result = compute_chain_features(
-            _make_cache(oi_total_call=50_000.0, oi_total_put=75_000.0)
-        )
+        result = compute_chain_features(_make_cache(oi_total_call=50_000.0, oi_total_put=75_000.0))
         assert result["chain_oi_total_call"] == pytest.approx(50_000.0)
         assert result["chain_oi_total_put"] == pytest.approx(75_000.0)
 
     def test_oi_change_globals_extracted(self):
-        result = compute_chain_features(
-            _make_cache(oi_change_call=1_234.0, oi_change_put=5_678.0)
-        )
+        result = compute_chain_features(_make_cache(oi_change_call=1_234.0, oi_change_put=5_678.0))
         assert result["chain_oi_change_call"] == pytest.approx(1_234.0)
         assert result["chain_oi_change_put"] == pytest.approx(5_678.0)
 
@@ -171,8 +168,10 @@ class TestCompressionFeatureKeys:
         comp = CompressionState()
         result = comp.compute(_price_buf(*[100.0] * 20), {}, False, _ATM_WINDOW)
         assert set(result) == {
-            "range_20ticks", "range_percent_20ticks",
-            "volatility_compression", "spread_tightening_atm",
+            "range_20ticks",
+            "range_percent_20ticks",
+            "volatility_compression",
+            "spread_tightening_atm",
         }
 
 
@@ -191,15 +190,15 @@ class TestCompressionNullBoundaries:
         assert not _nan(result["range_20ticks"])
 
     def test_vol_compression_nan_before_tick_100(self):
-        comp = CompressionState()
+        CompressionState()
         # Feed 99 ticks (20 needed for first computation)
         prices = [100.0 + i * 0.1 for i in range(99)]
-        buf = _price_buf(*prices)
+        _price_buf(*prices)
         # Simulate calling compute 99 times
         comp2 = CompressionState()
         result = None
         for i in range(99):
-            sub_buf = _price_buf(*prices[:i + 1])
+            sub_buf = _price_buf(*prices[: i + 1])
             result = comp2.compute(sub_buf, {}, False, _ATM_WINDOW)
         assert _nan(result["volatility_compression"])
 
@@ -218,7 +217,7 @@ class TestRange20Ticks:
     def test_range_formula(self):
         comp = CompressionState()
         # 20 prices: 100 to 110 (range = 10)
-        prices = list(range(100, 120))   # 100..119, range=19
+        prices = list(range(100, 120))  # 100..119, range=19
         result = comp.compute(_price_buf(*prices), {}, False, _ATM_WINDOW)
         assert result["range_20ticks"] == pytest.approx(19.0)
 
@@ -232,14 +231,14 @@ class TestRange20Ticks:
         # 25 ticks: first 5 very volatile, last 20 flat at 100
         prices = [200.0, 50.0, 300.0, 10.0, 150.0] + [100.0] * 20
         result = comp.compute(_price_buf(*prices), {}, False, _ATM_WINDOW)
-        assert result["range_20ticks"] == pytest.approx(0.0)   # only last 20 (all 100.0)
+        assert result["range_20ticks"] == pytest.approx(0.0)  # only last 20 (all 100.0)
 
 
 class TestRangePercent20Ticks:
     def test_percent_formula(self):
         comp = CompressionState()
         # Prices: all same except two extremes; median is easy to compute
-        prices = [100.0] * 18 + [95.0, 105.0]   # range=10, median=100.0
+        prices = [100.0] * 18 + [95.0, 105.0]  # range=10, median=100.0
         result = comp.compute(_price_buf(*prices), {}, False, _ATM_WINDOW)
         assert result["range_percent_20ticks"] == pytest.approx(10.0 / 100.0)
 
@@ -312,7 +311,7 @@ class TestVolatilityCompression:
         for i in range(10):
             buf.push(_utick(200.0))
             comp.compute(buf, {}, False, _ATM_WINDOW)
-        assert comp.vol_session_median == pytest.approx(vsm1)   # unchanged
+        assert comp.vol_session_median == pytest.approx(vsm1)  # unchanged
 
     def test_reset_clears_state(self):
         comp = CompressionState()

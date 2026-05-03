@@ -169,7 +169,7 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
 
   const { data: state } = trpc.trading.instrumentLiveState.useQuery(
     { instrument: inst },
-    { refetchInterval: 1000 }
+    { refetchInterval: 5000 }
   );
 
   const live = state?.live;

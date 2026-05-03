@@ -88,6 +88,12 @@ export interface PositionStateDoc {
   stopLossPrice: number | null;
   trailingStopEnabled?: boolean;
 
+  /** Broker-assigned order ID (returned by placeOrder). Renamed from
+   *  the legacy `brokerId` field in 2026-05; that name now stores the
+   *  broker identity instead. */
+  brokerOrderId: string | null;
+  /** Broker identity (e.g. "dhan", "dhan-ai-data", "mock") that placed
+   *  this order. Stamped at placeOrder time. */
   brokerId: string | null;
   openedAt: number;
   closedAt: number | null;
@@ -144,6 +150,9 @@ export type PortfolioEventType =
   | "TRADE_CLOSED"
   | "TRADE_REJECTED"
   | "TRADE_MODIFIED"
+  | "TRADE_DESYNC"
+  | "TRADE_DESYNC_CLEARED"
+  | "BROKER_ORDER_EVENT"
   | "CAPITAL_INJECTED"
   | "DAY_COMPLETED"
   | "CLAWBACK";
@@ -233,6 +242,7 @@ const positionStateSchema = new Schema(
     stopLossPrice: { type: Number, default: null },
     trailingStopEnabled: { type: Boolean, default: false },
 
+    brokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },
     openedAt: { type: Number, default: () => Date.now() },
     closedAt: { type: Number, default: null },
@@ -410,7 +420,7 @@ export async function getEvents(
     if (options?.to !== undefined) (query.timestamp as Record<string, number>).$lte = options.to;
   }
   const cursor = PortfolioEventModel.find(query).sort({ timestamp: -1 }).lean();
-  if (options?.limit) cursor.limit(options.limit);
+  if (options?.limit) void cursor.limit(options.limit);
   const docs = await cursor;
   return docs.map((d) => d as unknown as PortfolioEventDoc);
 }
@@ -470,6 +480,7 @@ function docToPositionState(doc: Record<string, any>): PositionStateDoc {
     targetPrice: doc.targetPrice ?? null,
     stopLossPrice: doc.stopLossPrice ?? null,
     trailingStopEnabled: doc.trailingStopEnabled ?? false,
+    brokerOrderId: doc.brokerOrderId ?? null,
     brokerId: doc.brokerId ?? null,
     openedAt: doc.openedAt,
     closedAt: doc.closedAt ?? null,

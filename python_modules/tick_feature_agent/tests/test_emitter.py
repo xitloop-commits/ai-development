@@ -14,19 +14,24 @@ import tempfile
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
 import pytest
 
 from tick_feature_agent.output.emitter import (
+    _INT_COLUMNS,
+    _INT_COLUMNS_BASE,
     COLUMN_NAMES,
-    assemble_flat_vector,
-    serialize_row,
     Emitter,
     _build_column_names,
     _build_target_columns,
+    _parquet_type,
+    assemble_flat_vector,
+    column_names_for,
+    int_columns_for,
+    serialize_row,
 )
 
 _NAN = float("nan")
@@ -39,6 +44,7 @@ def _nan(v) -> bool:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _ATM_WINDOW = [23950, 24000, 24050, 24100, 24150, 24200, 24250]
+
 
 def _minimal_row(**overrides) -> dict:
     """Build the minimal kwargs dict for assemble_flat_vector."""
@@ -80,6 +86,7 @@ def _build(**overrides) -> dict:
 # COLUMN_NAMES correctness
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestColumnNames:
 
     def test_count_is_370(self):
@@ -92,7 +99,7 @@ class TestColumnNames:
         assert COLUMN_NAMES[0] == "timestamp"
 
     def test_spot_check_underlying_base(self):
-        assert COLUMN_NAMES[1]  == "underlying_ltp"
+        assert COLUMN_NAMES[1] == "underlying_ltp"
         assert COLUMN_NAMES[12] == "underlying_tick_imbalance_20"
 
     def test_spot_check_underlying_extended(self):
@@ -107,14 +114,14 @@ class TestColumnNames:
 
     def test_compression_breakout_columns(self):
         assert COLUMN_NAMES[36] == "range_20ticks"
-        assert COLUMN_NAMES[40] == "breakout_readiness"   # col 41 (1-indexed)
+        assert COLUMN_NAMES[40] == "breakout_readiness"  # col 41 (1-indexed)
 
     def test_time_to_move_columns(self):
         assert COLUMN_NAMES[41] == "time_since_last_big_move"
         assert COLUMN_NAMES[44] == "breakout_readiness_extended"
 
     def test_opt_tick_first_and_last(self):
-        assert COLUMN_NAMES[45]  == "opt_m3_ce_tick_available"   # col 46
+        assert COLUMN_NAMES[45] == "opt_m3_ce_tick_available"  # col 46
         assert COLUMN_NAMES[170] == "opt_p3_pe_premium_momentum_10"  # col 171
 
     def test_opt_tick_atm2_starts_at_col64(self):
@@ -125,15 +132,15 @@ class TestColumnNames:
         assert COLUMN_NAMES[99] == "opt_0_ce_tick_available"
 
     def test_chain_columns(self):
-        assert COLUMN_NAMES[171] == "chain_pcr_global"     # col 172
+        assert COLUMN_NAMES[171] == "chain_pcr_global"  # col 172
         assert COLUMN_NAMES[179] == "chain_oi_imbalance_atm"  # col 180
 
     def test_active_strike_first_slot(self):
-        assert COLUMN_NAMES[180] == "active_0_strike"        # col 181
+        assert COLUMN_NAMES[180] == "active_0_strike"  # col 181
         assert COLUMN_NAMES[203] == "active_0_tick_age_sec"  # col 204
 
     def test_active_strike_last_slot(self):
-        assert COLUMN_NAMES[300] == "active_5_strike"        # col 301
+        assert COLUMN_NAMES[300] == "active_5_strike"  # col 301
         assert COLUMN_NAMES[323] == "active_5_tick_age_sec"  # col 324
 
     def test_cross_feature_columns(self):
@@ -169,6 +176,7 @@ class TestColumnNames:
 # Target column generation
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestBuildTargetColumns:
 
     def test_default_windows_15_columns(self):
@@ -177,7 +185,7 @@ class TestBuildTargetColumns:
 
     def test_single_window_8_columns(self):
         cols = _build_target_columns((30,))
-        assert len(cols) == 8   # 5 per-window + 2 direction + 1 upside_percentile
+        assert len(cols) == 8  # 5 per-window + 2 direction + 1 upside_percentile
 
     def test_three_windows_22_columns(self):
         cols = _build_target_columns((30, 60, 120))
@@ -209,8 +217,192 @@ class TestBuildTargetColumns:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Phase E8 — Dynamic column count + int-column derivation
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestDynamicColumnCount:
+    """Lock the column-count contract for both the legacy 2-window
+    profile (370 columns) and the canonical 4-window profile (384).
+    Per Phase E8 / D4 the live profile uses 4 windows = 384 cols; the
+    2-window count is preserved for backward compat with replay of
+    pre-D4 parquets."""
+
+    def test_count_is_370_for_2window_profile(self):
+        cols = column_names_for((30, 60))
+        assert len(cols) == 370
+        assert len(set(cols)) == 370, "duplicate column names in 2-window profile"
+
+    def test_count_is_384_for_4window_profile(self):
+        """Canonical Phase D4 layout."""
+        cols = column_names_for((30, 60, 300, 900))
+        assert len(cols) == 384
+        assert len(set(cols)) == 384, "duplicate column names in 4-window profile"
+
+    @pytest.mark.parametrize(
+        "windows,expected_count",
+        [
+            ((30,), 363),  # single-window minimum
+            ((30, 60), 370),  # legacy MVP
+            ((30, 60, 300), 377),  # 3-window
+            ((30, 60, 300, 900), 384),  # canonical D4
+            ((30, 60, 120, 300, 900), 391),  # hypothetical 5-window profile
+        ],
+    )
+    def test_count_formula(self, windows, expected_count):
+        """Total = 355 (window-independent base) + 7 × len(windows) + 1
+        (one upside_percentile_<min(windows)>s). Each extra window adds
+        exactly 7 columns: max_upside, max_drawdown, risk_reward_ratio,
+        total_premium_decay, avg_decay_per_strike, direction,
+        direction_magnitude."""
+        assert len(column_names_for(windows)) == expected_count
+
+    def test_legacy_module_global_is_2window_default(self):
+        """`COLUMN_NAMES` exists as backward-compat for pre-E8 callers
+        and resolves to the 2-window default."""
+        assert len(COLUMN_NAMES) == 370
+        assert COLUMN_NAMES == column_names_for((30, 60))
+
+    def test_4window_includes_300s_and_900s_target_cols(self):
+        cols = set(column_names_for((30, 60, 300, 900)))
+        for w in (30, 60, 300, 900):
+            for prefix in (
+                "max_upside",
+                "max_drawdown",
+                "risk_reward_ratio",
+                "total_premium_decay",
+                "avg_decay_per_strike",
+                "direction",
+                "direction",
+            ):
+                # direction / direction_magnitude both checked below explicitly
+                pass
+            assert f"max_upside_{w}s" in cols
+            assert f"max_drawdown_{w}s" in cols
+            assert f"risk_reward_ratio_{w}s" in cols
+            assert f"total_premium_decay_{w}s" in cols
+            assert f"avg_decay_per_strike_{w}s" in cols
+            assert f"direction_{w}s" in cols
+            assert f"direction_{w}s_magnitude" in cols
+
+
+class TestDynamicIntColumns:
+    """Phase E8 / PY-15 / PY-46 regression tests.
+
+    Pre-E8 the int-typed parquet column set was a hardcoded frozenset
+    that included `direction_{30,60,90,120,150,180,300}s`. Two bugs:
+      1. 4-window profiles include `direction_900s` which was missing,
+         so the column landed as float32 instead of int32.
+      2. 90/120/150/180 entries are stale — no profile uses them.
+    `int_columns_for(windows)` derives the set from the actual profile.
+    """
+
+    def test_2window_int_columns_include_30s_and_60s_direction(self):
+        ic = int_columns_for((30, 60))
+        assert "direction_30s" in ic
+        assert "direction_60s" in ic
+
+    def test_4window_int_columns_include_900s_direction(self):
+        """The bug: pre-E8 `direction_900s` was missing from `_INT_COLUMNS`
+        for canonical 4-window profiles, causing int32 → float32 mis-typing
+        in replay parquets."""
+        ic = int_columns_for((30, 60, 300, 900))
+        assert "direction_30s" in ic
+        assert "direction_60s" in ic
+        assert "direction_300s" in ic
+        assert "direction_900s" in ic
+
+    def test_int_columns_drop_stale_90_120_150_180(self):
+        """The 90s/120s/150s/180s direction entries from pre-E8 _INT_COLUMNS
+        were never matched by any real profile. Confirm they're not in
+        the 2-window set (and the base set from which it's derived)."""
+        for stale in ("direction_90s", "direction_120s", "direction_150s", "direction_180s"):
+            assert stale not in _INT_COLUMNS_BASE, f"{stale} leaked into _INT_COLUMNS_BASE"
+            assert stale not in int_columns_for((30, 60)), f"{stale} in 2-window int set"
+            assert stale not in int_columns_for((30, 60, 300, 900)), f"{stale} in 4-window int set"
+
+    def test_int_columns_base_window_independent_keys_preserved(self):
+        """Window-independent int columns (atm_strike, opt_*_volume,
+        active_*_strike, etc.) must be present in every profile."""
+        for windows in [(30, 60), (30, 60, 300, 900), (30,)]:
+            ic = int_columns_for(windows)
+            assert "atm_strike" in ic
+            assert "strike_step" in ic
+            assert "trading_allowed" in ic
+            assert "data_quality_flag" in ic
+            assert "is_market_open" in ic
+            # Spot-check option tick + active strike int fields
+            assert "opt_0_ce_volume" in ic
+            assert "active_0_strike" in ic
+            assert "active_5_tick_available" in ic
+
+    def test_int_columns_4window_has_correct_direction_cardinality(self):
+        """Exactly len(windows) direction_<W>s entries — nothing else."""
+        ic = int_columns_for((30, 60, 300, 900))
+        direction_cols = {c for c in ic if c.startswith("direction_")}
+        assert direction_cols == {
+            "direction_30s",
+            "direction_60s",
+            "direction_300s",
+            "direction_900s",
+        }
+
+    def test_legacy_module_global_int_columns_2window(self):
+        """Backward-compat: `_INT_COLUMNS` global == 2-window default set."""
+        assert _INT_COLUMNS == int_columns_for((30, 60))
+
+
+class TestParquetTypeForDirectionTargets:
+    """Verify the actual parquet-type dispatch for direction columns
+    across both 2-window and 4-window profiles. This is the bug E8
+    closes: in 4-window mode `direction_900s` previously dispatched to
+    float32 because it wasn't in the hardcoded `_INT_COLUMNS` set."""
+
+    def test_direction_900s_is_int32_in_4window_mode(self):
+        import pyarrow as pa
+
+        ic = int_columns_for((30, 60, 300, 900))
+        assert _parquet_type("direction_900s", ic) == pa.int32()
+
+    def test_direction_900s_is_float32_in_2window_mode(self):
+        """In a 2-window profile `direction_900s` is not a target column
+        at all; if such a name appeared it would default to float32 —
+        which is the right behaviour."""
+        import pyarrow as pa
+
+        ic = int_columns_for((30, 60))
+        assert _parquet_type("direction_900s", ic) == pa.float32()
+
+    @pytest.mark.parametrize(
+        "col",
+        [
+            "direction_30s",
+            "direction_60s",
+            "direction_300s",
+            "direction_900s",
+        ],
+    )
+    def test_all_4window_directions_are_int32(self, col):
+        import pyarrow as pa
+
+        ic = int_columns_for((30, 60, 300, 900))
+        assert _parquet_type(col, ic) == pa.int32()
+
+    def test_direction_magnitude_stays_float32(self):
+        """`direction_<W>s_magnitude` is a regression target → float32,
+        regardless of window count."""
+        import pyarrow as pa
+
+        for windows in [(30, 60), (30, 60, 300, 900)]:
+            ic = int_columns_for(windows)
+            for w in windows:
+                assert _parquet_type(f"direction_{w}s_magnitude", ic) == pa.float32()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # assemble_flat_vector: output structure
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestAssembleFlatVector:
 
@@ -230,6 +422,7 @@ class TestAssembleFlatVector:
 # ══════════════════════════════════════════════════════════════════════════════
 # assemble_flat_vector: field values
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestAssemblyValues:
 
@@ -285,31 +478,35 @@ class TestAssemblyValues:
         assert row["underlying_return_10ticks"] == pytest.approx(0.001)
 
     def test_compression_feats_mapped(self):
-        row = _build(compression_feats={
-            "range_20ticks": 50.0, "volatility_compression": 0.7,
-        })
+        row = _build(
+            compression_feats={
+                "range_20ticks": 50.0,
+                "volatility_compression": 0.7,
+            }
+        )
         assert row["range_20ticks"] == pytest.approx(50.0)
         assert row["volatility_compression"] == pytest.approx(0.7)
 
     def test_breakout_readiness_from_time_to_move(self):
         """breakout_readiness (col 41) is sourced from time_to_move_feats."""
         row = _build(
-            compression_feats={},       # no breakout_readiness here
-            time_to_move_feats={"breakout_readiness": 1.0,
-                                "breakout_readiness_extended": 0.0},
+            compression_feats={},  # no breakout_readiness here
+            time_to_move_feats={"breakout_readiness": 1.0, "breakout_readiness_extended": 0.0},
         )
         assert row["breakout_readiness"] == pytest.approx(1.0)
 
     def test_time_to_move_feats_mapped(self):
-        row = _build(time_to_move_feats={
-            "time_since_last_big_move": 30.5,
-            "stagnation_duration_sec": 15.0,
-            "momentum_persistence_ticks": 3.0,
-            "breakout_readiness": 0.0,
-            "breakout_readiness_extended": 1.0,
-        })
+        row = _build(
+            time_to_move_feats={
+                "time_since_last_big_move": 30.5,
+                "stagnation_duration_sec": 15.0,
+                "momentum_persistence_ticks": 3.0,
+                "breakout_readiness": 0.0,
+                "breakout_readiness_extended": 1.0,
+            }
+        )
         assert row["time_since_last_big_move"] == pytest.approx(30.5)
-        assert row["stagnation_duration_sec"]  == pytest.approx(15.0)
+        assert row["stagnation_duration_sec"] == pytest.approx(15.0)
         assert row["breakout_readiness_extended"] == pytest.approx(1.0)
 
     def test_chain_feats_mapped(self):
@@ -350,50 +547,82 @@ class TestAssemblyValues:
         assert row["stale_reason"] == "UNDERLYING_STALE"
 
     def test_meta_feats_mapped(self):
-        row = _build(meta_feats={
-            "exchange": "NSE", "instrument": "NIFTY",
-            "chain_available": 1, "is_market_open": 1,
-        })
-        assert row["exchange"]        == "NSE"
-        assert row["instrument"]      == "NIFTY"
+        row = _build(
+            meta_feats={
+                "exchange": "NSE",
+                "instrument": "NIFTY",
+                "chain_available": 1,
+                "is_market_open": 1,
+            }
+        )
+        assert row["exchange"] == "NSE"
+        assert row["instrument"] == "NIFTY"
         assert row["chain_available"] == 1
-        assert row["is_market_open"]  == 1
+        assert row["is_market_open"] == 1
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Option tick mapping
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestOptTickMapping:
 
     def test_atm_minus3_ce_ltp_mapped(self):
         """Strike at ATM-3 (index 0) → opt_m3_ce_ltp."""
         atm_window = [23950, 24000, 24050, 24100, 24150, 24200, 24250]
-        opt_feats = {(23950, "CE"): {"ltp": 85.5, "tick_available": 1,
-                                     "bid": 85.0, "ask": 86.0, "spread": 1.0,
-                                     "volume": 5, "bid_ask_imbalance": 0.1,
-                                     "premium_momentum": 2.0, "premium_momentum_10": 3.0}}
+        opt_feats = {
+            (23950, "CE"): {
+                "ltp": 85.5,
+                "tick_available": 1,
+                "bid": 85.0,
+                "ask": 86.0,
+                "spread": 1.0,
+                "volume": 5,
+                "bid_ask_imbalance": 0.1,
+                "premium_momentum": 2.0,
+                "premium_momentum_10": 3.0,
+            }
+        }
         row = _build(atm_window=atm_window, opt_tick_feats=opt_feats)
-        assert row["opt_m3_ce_ltp"]           == pytest.approx(85.5)
+        assert row["opt_m3_ce_ltp"] == pytest.approx(85.5)
         assert row["opt_m3_ce_tick_available"] == 1
 
     def test_atm_ce_ltp_mapped(self):
         """Strike at ATM (index 3 = offset '0') → opt_0_ce_ltp."""
         atm_window = [23950, 24000, 24050, 24100, 24150, 24200, 24250]
-        opt_feats = {(24100, "CE"): {"ltp": 200.0, "tick_available": 1,
-                                     "bid": 199.0, "ask": 201.0, "spread": 2.0,
-                                     "volume": 10, "bid_ask_imbalance": 0.0,
-                                     "premium_momentum": 0.5, "premium_momentum_10": 1.0}}
+        opt_feats = {
+            (24100, "CE"): {
+                "ltp": 200.0,
+                "tick_available": 1,
+                "bid": 199.0,
+                "ask": 201.0,
+                "spread": 2.0,
+                "volume": 10,
+                "bid_ask_imbalance": 0.0,
+                "premium_momentum": 0.5,
+                "premium_momentum_10": 1.0,
+            }
+        }
         row = _build(atm_window=atm_window, opt_tick_feats=opt_feats)
         assert row["opt_0_ce_ltp"] == pytest.approx(200.0)
 
     def test_atm_plus3_pe_mapped(self):
         """Strike at ATM+3 (index 6 = offset 'p3') PE → opt_p3_pe_ltp."""
         atm_window = [23950, 24000, 24050, 24100, 24150, 24200, 24250]
-        opt_feats = {(24250, "PE"): {"ltp": 50.0, "tick_available": 1,
-                                     "bid": 49.5, "ask": 50.5, "spread": 1.0,
-                                     "volume": 2, "bid_ask_imbalance": -0.2,
-                                     "premium_momentum": -1.0, "premium_momentum_10": -2.0}}
+        opt_feats = {
+            (24250, "PE"): {
+                "ltp": 50.0,
+                "tick_available": 1,
+                "bid": 49.5,
+                "ask": 50.5,
+                "spread": 1.0,
+                "volume": 2,
+                "bid_ask_imbalance": -0.2,
+                "premium_momentum": -1.0,
+                "premium_momentum_10": -2.0,
+            }
+        }
         row = _build(atm_window=atm_window, opt_tick_feats=opt_feats)
         assert row["opt_p3_pe_ltp"] == pytest.approx(50.0)
 
@@ -415,11 +644,11 @@ class TestOptTickMapping:
 # Active strike slot mapping
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestActiveSlotMapping:
 
     def test_active_slot_0_strike(self):
-        row = _build(active_feats={"active_0_strike": 24100.0,
-                                   "active_0_tick_available": 1})
+        row = _build(active_feats={"active_0_strike": 24100.0, "active_0_tick_available": 1})
         assert row["active_0_strike"] == pytest.approx(24100.0)
         assert row["active_0_tick_available"] == 1
 
@@ -428,15 +657,15 @@ class TestActiveSlotMapping:
         assert _nan(row["active_5_strike"])
 
     def test_cross_feature_from_active_feats(self):
-        row = _build(active_feats={"call_put_strength_diff": 0.3,
-                                   "premium_divergence": -1.5})
+        row = _build(active_feats={"call_put_strength_diff": 0.3, "premium_divergence": -1.5})
         assert row["call_put_strength_diff"] == pytest.approx(0.3)
-        assert row["premium_divergence"]     == pytest.approx(-1.5)
+        assert row["premium_divergence"] == pytest.approx(-1.5)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Target variable mapping
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestTargetMapping:
 
@@ -451,19 +680,21 @@ class TestTargetMapping:
         assert _nan(row["max_upside_30s"])
 
     def test_target_feats_values_mapped(self):
-        row = _build(target_feats={
-            "max_upside_30s": 5.2, "direction_30s": 1.0,
-            "upside_percentile_30s": 87.5,
-        })
-        assert row["max_upside_30s"]       == pytest.approx(5.2)
-        assert row["direction_30s"]        == pytest.approx(1.0)
-        assert row["upside_percentile_30s"]== pytest.approx(87.5)
+        row = _build(
+            target_feats={
+                "max_upside_30s": 5.2,
+                "direction_30s": 1.0,
+                "upside_percentile_30s": 87.5,
+            }
+        )
+        assert row["max_upside_30s"] == pytest.approx(5.2)
+        assert row["direction_30s"] == pytest.approx(1.0)
+        assert row["upside_percentile_30s"] == pytest.approx(87.5)
 
     def test_custom_target_windows(self):
-        row = assemble_flat_vector(**_minimal_row(
-            target_windows_sec=(30,),
-            target_feats={"max_upside_30s": 2.0}
-        ))
+        row = assemble_flat_vector(
+            **_minimal_row(target_windows_sec=(30,), target_feats={"max_upside_30s": 2.0})
+        )
         assert row["max_upside_30s"] == pytest.approx(2.0)
         assert "max_upside_60s" not in row
 
@@ -471,6 +702,7 @@ class TestTargetMapping:
 # ══════════════════════════════════════════════════════════════════════════════
 # serialize_row
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestSerializeRow:
 
@@ -509,13 +741,15 @@ class TestSerializeRow:
         row = {k: _NAN for k in COLUMN_NAMES}
         line = serialize_row(row)
         parsed = json.loads(line)
-        assert all(v is None or isinstance(v, (int, float, str, type(None)))
-                   for v in parsed.values())
+        assert all(
+            v is None or isinstance(v, (int, float, str, type(None))) for v in parsed.values()
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Emitter file sink
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestEmitterFileSink:
 

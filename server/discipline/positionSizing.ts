@@ -6,7 +6,7 @@
  * - Streak-adjusted limits: auto-reduced when losing streak is active
  */
 
-import type { DisciplineState, DisciplineEngineSettings, ModuleCheckResult } from "./types";
+import type { DisciplineState, DisciplineAgentSettings, ModuleCheckResult } from "./types";
 
 export interface PositionSizeResult extends ModuleCheckResult {
   positionPercent?: number;
@@ -22,7 +22,7 @@ export function checkPositionSize(
   estimatedValue: number,
   currentCapital: number,
   state: DisciplineState,
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): PositionSizeResult {
   if (!settings.maxPositionSize.enabled || currentCapital <= 0) {
     return { passed: true };
@@ -62,7 +62,7 @@ export function checkExposure(
   currentExposure: number,
   currentCapital: number,
   state: DisciplineState,
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): PositionSizeResult {
   if (!settings.maxTotalExposure.enabled || currentCapital <= 0) {
     return { passed: true };

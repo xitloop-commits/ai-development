@@ -8,7 +8,7 @@
  * Only realized P&L (closed trades) counts. Combined across NSE + MCX.
  */
 
-import type { DisciplineState, DisciplineEngineSettings, ModuleCheckResult } from "./types";
+import type { DisciplineState, DisciplineAgentSettings, ModuleCheckResult } from "./types";
 
 export interface CircuitBreakerResult extends ModuleCheckResult {
   dailyLoss?: number;
@@ -23,7 +23,7 @@ export interface CircuitBreakerResult extends ModuleCheckResult {
  */
 export function checkDailyLossLimit(
   state: DisciplineState,
-  settings: DisciplineEngineSettings,
+  settings: DisciplineAgentSettings,
   openCapital: number
 ): CircuitBreakerResult {
   if (!settings.dailyLossLimit.enabled) {
@@ -70,7 +70,7 @@ export interface ConsecutiveLossResult extends ModuleCheckResult {
  */
 export function checkConsecutiveLosses(
   state: DisciplineState,
-  settings: DisciplineEngineSettings
+  settings: DisciplineAgentSettings
 ): ConsecutiveLossResult {
   if (!settings.maxConsecutiveLosses.enabled) {
     return { passed: true, consecutiveLosses: state.consecutiveLosses };

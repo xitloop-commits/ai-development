@@ -49,7 +49,7 @@ Together these components replace the deprecated AI engine modules and fulfill *
 Build Model Training Agent + Signal Engine Agent (SEA). Signal Engine Agent (SEA) outputs signals (GO_CALL / GO_PUT / WAIT + confidence + RR) to a log and dashboard only. No trade execution. User manually observes signals over multiple sessions and tracks win rate.
 
 **Phase 2 — Execution (future scope, after Phase 1 validated)**
-Only after win rate is manually verified as satisfactory: wire Signal Engine Agent (SEA) to RCA, then build RCA → TEA → Discipline Engine → Portfolio Agent. Downstream execution infrastructure is explicitly deferred until signal quality is proven.
+Only after win rate is manually verified as satisfactory: wire Signal Engine Agent (SEA) to RCA, then build RCA → TEA → Discipline Agent → Portfolio Agent. Downstream execution infrastructure is explicitly deferred until signal quality is proven.
 
 > **All RCA/TEA/Discipline/Portfolio integration described in §7 is Phase 2 design — included for completeness but not in scope for current build.**
 
@@ -79,7 +79,7 @@ TFA (live, 4 processes)
              ↓
         PortfolioAgent ← TEA (records outcome)
              ↓
-        DisciplineEngine (capital caps, circuit breaker, session halt)
+        DisciplineAgent (capital caps, circuit breaker, session halt)
 ```
 
 ### 2.2 Workspaces & Channels
@@ -196,51 +196,60 @@ ERROR: No trained model found for crudeoil. Run MTA first.
 
 ## 4. Target Variables
 
-TFA produces 15 target columns per tick across two lookahead windows (30s and 60s). The model trains a separate LightGBM estimator for each target.
+> **Decision committed 2026-04-30 per Phase D4** — MTA target set is locked at **28 targets = 7 target types × 4 lookahead windows**. This is the single source of truth across this spec, the `training_manifest.json` example (§6.9), and SEA `model_loader.py`.
 
-### 4.1 Target Tiers
+TFA produces 28 target columns per tick: 7 target types evaluated across 4 lookahead windows (30s, 60s, 300s, 900s). MTA trains a separate LightGBM estimator for each target — 28 `.lgbm` files per instrument per training run.
 
-**Tier 1 — Trade entry signals (primary)**
+### 4.1 The 7 Target Types
 
-| Column | Type | Meaning |
-|--------|------|---------|
-| `direction_30s` | Binary (0/1) | Spot moved up (1) or down (0) in next 30s |
-| `direction_60s` | Binary (0/1) | Spot direction over next 60s |
-| `risk_reward_ratio_30s` | Regression | Predicted upside / drawdown over 30s |
-| `risk_reward_ratio_60s` | Regression | Predicted upside / drawdown over 60s |
+| # | Target Type | Type | Meaning |
+|---|-------------|------|---------|
+| 1 | `direction` | Binary (0/1) | Spot moved up (1) or down (0) over the window |
+| 2 | `direction_magnitude` | Regression | % magnitude of spot move over the window |
+| 3 | `risk_reward_ratio` | Regression | Predicted upside / drawdown over the window |
+| 4 | `max_upside` | Regression | Max CE premium gain across active strikes over the window (₹) |
+| 5 | `max_drawdown` | Regression | Max CE premium loss across active strikes over the window (₹) |
+| 6 | `total_premium_decay` | Regression | Total theta decay across active strikes over the window (₹) |
+| 7 | `avg_decay_per_strike` | Regression | Average decay per active strike over the window (₹) |
 
-**Tier 2 — Sizing and confidence**
+### 4.2 The 4 Lookahead Windows
 
-| Column | Type | Meaning |
-|--------|------|---------|
-| `max_upside_30s` | Regression | Max CE premium gain across active strikes in 30s (₹) |
-| `max_upside_60s` | Regression | Max CE premium gain in 60s (₹) |
-| `max_drawdown_30s` | Regression | Max CE premium loss in 30s (₹) |
-| `max_drawdown_60s` | Regression | Max CE premium loss in 60s (₹) |
-| `direction_30s_magnitude` | Regression | % magnitude of spot move in 30s |
-| `direction_60s_magnitude` | Regression | % magnitude of spot move in 60s |
-| `upside_percentile_30s` | Regression | Session rank of max upside (0–100) |
+| Window | Suffix | Purpose |
+|--------|--------|---------|
+| 30 seconds | `_30s` | Fast-direction scalping signal |
+| 60 seconds | `_60s` | Confirmation horizon |
+| 300 seconds (5 min) | `_300s` | Short swing |
+| 900 seconds (15 min) | `_900s` | Medium swing |
 
-**Tier 3 — Premium seller signal**
+### 4.3 Full 28-Target Matrix
 
-| Column | Type | Meaning |
-|--------|------|---------|
-| `total_premium_decay_30s` | Regression | Total theta decay across active strikes in 30s (₹) |
-| `total_premium_decay_60s` | Regression | Total theta decay in 60s (₹) |
-| `avg_decay_per_strike_30s` | Regression | Average decay per active strike in 30s (₹) |
-| `avg_decay_per_strike_60s` | Regression | Average decay per active strike in 60s (₹) |
+```
+                    _30s   _60s   _300s  _900s
+direction              ✓      ✓      ✓      ✓
+direction_magnitude    ✓      ✓      ✓      ✓
+risk_reward_ratio      ✓      ✓      ✓      ✓
+max_upside             ✓      ✓      ✓      ✓
+max_drawdown           ✓      ✓      ✓      ✓
+total_premium_decay    ✓      ✓      ✓      ✓
+avg_decay_per_strike   ✓      ✓      ✓      ✓
+                       7  ×  4  =  28 targets
+```
 
-### 4.2 LightGBM Objective per Target
+Concrete column names follow the pattern `{target_type}{window_suffix}`, e.g.:
+`direction_30s`, `direction_60s`, `direction_300s`, `direction_900s`,
+`max_upside_30s`, …, `avg_decay_per_strike_900s`.
 
-| Target | Objective | Eval Metric |
-|--------|-----------|-------------|
-| `direction_30s`, `direction_60s` | `binary` | AUC-ROC |
-| All others | `regression` | RMSE |
+### 4.4 LightGBM Objective per Target
 
-### 4.3 NaN Handling for Targets
+| Target Type | Objective | Eval Metric |
+|-------------|-----------|-------------|
+| `direction_*` (all 4 windows) | `binary` | AUC-ROC |
+| All other 6 target types (24 targets) | `regression` | RMSE |
+
+### 4.5 NaN Handling for Targets
 
 Rows where a specific target column = NaN are dropped **per target** during training. This occurs for:
-- Ticks near session end where T+30 or T+60 crosses the session close boundary
+- Ticks near session end where T+30 / T+60 / T+300 / T+900 crosses the session close boundary (longer windows drop more rows)
 - Early warm-up ticks before sufficient active strike data
 
 Different targets will have slightly different training row counts — this is expected and acceptable.
@@ -448,7 +457,7 @@ The training agent maintains its own checkpoint at `models/{instrument}/training
 
 ### 6.7 Output (per instrument, per training run)
 
-All artifacts written to a timestamp-versioned folder:
+All artifacts written to a timestamp-versioned folder. Per §4 the canonical target set is **28 targets** (7 target types × 4 windows), so 28 `.lgbm` files are written per run.
 
 ```
 models/
@@ -456,27 +465,40 @@ models/
     {timestamp}/                  e.g. 20260413_143022/
       direction_30s.lgbm
       direction_60s.lgbm
+      direction_300s.lgbm
+      direction_900s.lgbm
       direction_30s_magnitude.lgbm
       direction_60s_magnitude.lgbm
-      max_upside_30s.lgbm
-      max_upside_60s.lgbm
-      max_drawdown_30s.lgbm
-      max_drawdown_60s.lgbm
+      direction_300s_magnitude.lgbm
+      direction_900s_magnitude.lgbm
       risk_reward_ratio_30s.lgbm
       risk_reward_ratio_60s.lgbm
+      risk_reward_ratio_300s.lgbm
+      risk_reward_ratio_900s.lgbm
+      max_upside_30s.lgbm
+      max_upside_60s.lgbm
+      max_upside_300s.lgbm
+      max_upside_900s.lgbm
+      max_drawdown_30s.lgbm
+      max_drawdown_60s.lgbm
+      max_drawdown_300s.lgbm
+      max_drawdown_900s.lgbm
       total_premium_decay_30s.lgbm
       total_premium_decay_60s.lgbm
+      total_premium_decay_300s.lgbm
+      total_premium_decay_900s.lgbm
       avg_decay_per_strike_30s.lgbm
       avg_decay_per_strike_60s.lgbm
-      upside_percentile_30s.lgbm
-      metrics.json
+      avg_decay_per_strike_300s.lgbm
+      avg_decay_per_strike_900s.lgbm
+      metrics.json                  ← contains entries for all 28 targets
       shap_importance.json
-      training_manifest.json
+      training_manifest.json        ← target_count: 28
     training_checkpoint.json
     LATEST                        ← text file: name of active version folder
 ```
 
-`LATEST` is only updated after a complete, validated training run. The Signal Engine Agent (SEA) reads `LATEST` at startup to determine which version to load.
+`LATEST` is only updated after a complete, validated training run (see §6.10 Promotion Validator). The Signal Engine Agent (SEA) reads `LATEST` at startup to determine which version to load.
 
 **`models/` directory is gitignored** (large binary artifacts). `config/model_feature_config/` is git-tracked.
 
@@ -503,6 +525,8 @@ models/
 
 ### 6.9 `training_manifest.json` schema
 
+The manifest's `target_count` is the canonical 28 (= 7 target types × 4 windows) per §4 (Decision committed 2026-04-30 per Phase D4). MTA, the manifest, and SEA `model_loader.MVP_TARGETS` must agree on this count.
+
 ```json
 {
   "version": "20260413_143022",
@@ -511,6 +535,17 @@ models/
   "feature_config_version": "1.0",
   "feature_config_path": "config/model_feature_config/crudeoil_feature_config.json",
   "final_feature_count": 97,
+  "target_count": 28,
+  "target_types": [
+    "direction",
+    "direction_magnitude",
+    "risk_reward_ratio",
+    "max_upside",
+    "max_drawdown",
+    "total_premium_decay",
+    "avg_decay_per_strike"
+  ],
+  "lookahead_windows_seconds": [30, 60, 300, 900],
   "parquet_files_used": [
     "data/features/2026-04-07/crudeoil_features.parquet",
     "..."
@@ -528,6 +563,63 @@ models/
   }
 }
 ```
+
+### 6.10 Promotion Validator
+
+> **Decision committed 2026-04-30 per Phase D5** — gates promotion of a freshly-trained model set to `LATEST` based on per-target validation-metric delta vs the current `LATEST`. Resolves Open Item E (§11).
+
+After a training run completes (all 28 targets trained, `metrics.json` written), the validator decides whether the new `{timestamp}` folder should be promoted to `LATEST`. Promotion is an atomic update of the `models/{instrument}/LATEST` pointer file.
+
+#### Algorithm
+
+For each target in the new run:
+
+1. Read the new run's validation metric from `models/{instrument}/{new_timestamp}/metrics.json`:
+   - **AUC** for the 4 binary `direction_*` targets (`val_auc`).
+   - **R²** for the 24 regression targets (`val_r2`, derived from RMSE + variance during training; falls back to `-val_rmse` normalised against the previous run if R² is unavailable). Pass criterion is documented per metric type; the unifying contract is "higher is better".
+2. Read the current `LATEST`'s metric for the same target from `models/{instrument}/{current_latest}/metrics.json`. If no current `LATEST` exists (first-ever training run), promotion always succeeds — no baseline to regress against.
+3. Compute `val_metric_delta = new_metric - current_latest_metric` per target, expressed in **percentage points** for AUC (e.g. `0.572 - 0.581 = -0.9` percentage points) and as a **relative percentage** for R² (e.g. `(new_r2 - old_r2) / |old_r2| × 100`). Both are reported as a percentage delta in `metrics.json` under `promotion_check.targets[*].delta_pct`.
+4. **Reject promotion** if **any** target's delta is below `--min-metric-delta` (default `-2.0`, meaning the new model must be no worse than 2 percentage points / 2 percent below the current `LATEST` per target).
+5. **Accept promotion** if **all** targets meet the floor.
+
+#### CLI flags
+
+Added to `python -m model_training_agent.cli`:
+
+| Flag | Type | Default | Behaviour |
+|------|------|---------|-----------|
+| `--min-metric-delta <float>` | float | `-2.0` | Per-target minimum allowed delta vs current `LATEST`, expressed as a percentage. Any target below this floor rejects the promotion. |
+| `--force-promote` | flag | off | Bypasses the validator. Promotes the new run to `LATEST` even if one or more targets regress. **Logs a WARNING** with the list of regressing targets and their deltas, and records `promotion_check.forced = true` in the new run's `metrics.json`. |
+
+#### Behaviour on rejection
+
+- The `LATEST` pointer is **NOT updated** — the previous version remains active for SEA.
+- The new `models/{instrument}/{new_timestamp}/` folder is **kept on disk**, so the operator can:
+  - Inspect `metrics.json` to see which targets regressed and by how much.
+  - Re-run the CLI with `--force-promote` to override and promote the rejected run manually.
+  - Delete the folder if it is genuinely a bad run.
+- The CLI exits with code `3` (validator rejected) so automated wrappers can distinguish promotion-rejection from training failure (`1`) or startup-check failure (`2`).
+- A `promotion_check` block is appended to the new run's `metrics.json`:
+
+```json
+"promotion_check": {
+  "outcome": "rejected",
+  "min_metric_delta_pct": -2.0,
+  "forced": false,
+  "compared_against_latest": "20260413_143022",
+  "targets": [
+    { "target": "direction_30s",  "metric": "auc", "old": 0.581, "new": 0.572, "delta_pct": -0.9, "passed": true },
+    { "target": "max_upside_60s", "metric": "r2",  "old": 0.142, "new": 0.090, "delta_pct": -36.6, "passed": false }
+  ],
+  "rejected_targets": ["max_upside_60s"]
+}
+```
+
+On acceptance the same block is written with `"outcome": "accepted"` and `"rejected_targets": []`, and the `LATEST` file is rewritten to the new timestamp folder name.
+
+#### Force-promote audit trail
+
+When `--force-promote` is used, the WARNING line is also appended to `models/{instrument}/promotion_audit.log` (one JSON line per forced promotion) so the operator's overrides are traceable across training runs.
 
 ---
 
@@ -694,7 +786,7 @@ Conforms to `POST /api/risk-control/evaluate` contract defined in RiskControlAge
 
 ### 7.7 Discipline Check
 
-Before posting any GO_CALL or GO_PUT signal, the Signal Engine Agent (SEA) queries the Discipline Engine to verify trading is allowed.
+Before posting any GO_CALL or GO_PUT signal, the Signal Engine Agent (SEA) queries the Discipline Agent to verify trading is allowed.
 
 ```
 GET /api/discipline/status
@@ -703,7 +795,7 @@ GET /api/discipline/status
 
 Response is cached for 5 seconds. If `trading_allowed = false`, emit WAIT and log the blocking reason.
 
-The Signal Engine Agent (SEA) does **not** enforce discipline rules itself — it defers entirely to the Discipline Engine. RCA performs its own independent discipline check as well (defense in depth).
+The Signal Engine Agent (SEA) does **not** enforce discipline rules itself — it defers entirely to the Discipline Agent. RCA performs its own independent discipline check as well (defense in depth).
 
 ### 7.8 Process Model
 
@@ -814,11 +906,11 @@ Items explicitly deferred from v1:
 - RCA may APPROVE, REJECT, REDUCE_SIZE, or REVIEW the suggestion — Signal Engine Agent (SEA) logs the response but does not retry rejected suggestions.
 - Signal Engine Agent (SEA) does **not** call TEA or BSA directly. All execution flows through RCA → TEA → BSA.
 
-### 10.3 Discipline Engine
+### 10.3 Discipline Agent
 
 - Signal Engine Agent (SEA) queries `GET /api/discipline/status` before posting any trade suggestion (cached 5s).
 - Signal Engine Agent (SEA) also attaches the discipline status in the TradeSuggestion payload so RCA has it in-band.
-- The Signal Engine Agent (SEA) **never bypasses or overrides** Discipline Engine decisions.
+- The Signal Engine Agent (SEA) **never bypasses or overrides** Discipline Agent decisions.
 
 ### 10.4 Portfolio Agent
 
@@ -834,9 +926,9 @@ The following decisions are explicitly deferred and must be resolved before impl
 
 | # | Item | Options | Impact |
 |---|------|---------|--------|
-| **E** | **Model promotion threshold** | What val AUC/RMSE is "good enough" to update LATEST and activate for paper trading? Options: (a) fixed floor e.g. `direction_30s AUC > 0.55`; (b) must beat previous LATEST metrics; (c) manual review only | Without a floor, any model — even a harmful one — could be promoted |
-| **F** | **Strike selection** | Which strike to trade: (a) always ATM; (b) ATM-1 (slightly ITM, better delta but more expensive); (c) best predicted RR across ATM±1; (d) user-configurable | Affects entry price, position sizing, and expected P&L profile |
-| **G** | **SEA socket connection** | ~~RESOLVED~~ Unix Domain Socket (AF_UNIX). SEA is the server (listens on a socket file). TFA connects as client via `--output-socket /tmp/sea_{instrument}.sock`. No TCP stack, no ports. No TFA changes needed — AF_UNIX already supported in TFA emitter. Socket files: `/tmp/sea_nifty50.sock`, `/tmp/sea_banknifty.sock`, `/tmp/sea_crudeoil.sock`, `/tmp/sea_naturalgas.sock`. Start SEA before TFA. | — |
+| **E** | **Model promotion threshold** | **RESOLVED — see §6.10 Promotion Validator** (decision committed 2026-04-30 per Phase D5). Default per-target delta floor = **-2% AUC/R²** vs current `LATEST` (configurable via `--min-metric-delta`). `--force-promote` bypasses the check with a logged WARNING and a `promotion_audit.log` entry. Rejected runs leave `LATEST` unchanged and keep the new artifacts on disk for inspection. | — |
+| **F** | **Strike selection** | **RESOLVED — ATM CE/PE only** (decision committed 2026-04-30 per Phase D5). SEA selects the ATM strike for both legs (current behaviour). Auto-strike-roving (ATM±1, best-RR, user-configurable) is **deferred post-MVP** — see `SEA_ImplementationPlan_v0.1 §3 Phase 2` "Strike selection" note. | — |
+| **G** | **SEA transport** | **RESOLVED — file-tail polling** (decision committed 2026-04-30 per Phase D6). SEA tails TFA's existing `data/features/{instrument}_live.ndjson` at 200ms cadence. Portable across Win/Linux, doubles as backtest-replay input, no order-of-launch dependency. UDS (AF_UNIX) documented as Future / Optional in `SEA_ImplementationPlan §5` for a post-MVP latency-driven optimisation; deferred. | — |
 
 ---
 
@@ -844,16 +936,16 @@ The following decisions are explicitly deferred and must be resolved before impl
 
 | Spec | Dependency |
 |------|-----------|
-| TickFeatureAgent_Spec_1.0 §9.1 | NDJSON socket contract for live inference input |
-| TickFeatureAgent_Spec_1.0 §9.2 | Feature preprocessing pipeline (authoritative) |
+| TickFeatureAgent_Spec_v1.7 §9.1 | NDJSON socket contract for live inference input |
+| TickFeatureAgent_Spec_v1.7 §9.2 | Feature preprocessing pipeline (authoritative) |
 | RiskControlAgent_Spec_v2.0 §7.1 | TradeSuggestion payload contract |
 | RiskControlAgent_Spec_v2.0 §2.5 | AI signal format expected by RCA |
-| BrokerServiceAgent_Spec_v1.8 §1 | ai-live / ai-paper channel architecture |
-| PortfolioAgent_Spec_v1.3 §2.1–2.5 | AI Trades capital pool behavior (absorbed CapitalPools_Spec_v1.4) |
-| DisciplineEngine_Spec_v1.3 | Discipline status check before trade submission |
-| Settings_Spec_v1.4 §3.7 | AI Trades mode switch (paper ↔ live) |
+| BrokerServiceAgent_Spec_v1.9 §1 | ai-live / ai-paper channel architecture |
+| PortfolioAgent_Spec_v1.3 §2.1–2.5 | AI Trades capital pool behavior |
+| DisciplineAgent_Spec_v1.4 | Discipline status check before trade submission |
+| Settings_Spec_v1.5 §3.7 | AI Trades mode switch (paper ↔ live) |
 
 ---
 
-**Status:** Draft — 3 open items (§11) must be resolved before implementation spec is written.
-**Next step:** Resolve open items E, F, G → promote to v1.0 implementation-ready spec.
+**Status:** Draft — all 3 open items (§11 E/F/G) RESOLVED per Phase D5 (E, F) and Phase D6 (G), 2026-04-30. Ready for promotion to v1.0 implementation-ready spec.
+**Next step:** Promote to v1.0 implementation-ready spec.

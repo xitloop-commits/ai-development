@@ -1,5 +1,5 @@
 /**
- * Discipline Engine — Orchestrator
+ * Discipline Agent — Orchestrator
  *
  * Singleton that coordinates all discipline modules into a single validation pipeline.
  * Called before every trade placement to check all rules.
@@ -10,7 +10,7 @@ import type {
   TradeValidationRequest,
   TradeValidationResult,
   DisciplineState,
-  DisciplineEngineSettings,
+  DisciplineAgentSettings,
   Exchange,
 } from "./types";
 import { getISTDateString } from "./types";
@@ -30,19 +30,201 @@ import { evaluatePreTradeGate } from "./preTrade";
 import { checkJournalCompliance, checkWeeklyReview } from "./journalCheck";
 import { getStreakStatus, calculateStreakAdjustments, updateStreak } from "./streaks";
 import { calculateScore } from "./score";
+import {
+  evaluateCapitalProtection,
+  applySessionHalt,
+  getSessionHaltFor,
+  runCarryForwardEvaluation,
+} from "./capitalProtection";
+import {
+  startCarryForwardScheduler,
+  stopCarryForwardScheduler,
+} from "./capitalProtectionScheduler";
+import { createLogger } from "../broker/logger";
+import { disciplineValidateTotal } from "../_core/metrics";
 
-// ─── Discipline Engine Class ───────────────────────────────────
+const log = createLogger("DA", "Agent");
 
-class DisciplineEngine {
-  private static instance: DisciplineEngine;
+/**
+ * Days from today to the given ISO/YYYY-MM-DD expiry date. Local helper
+ * for the carry-forward eval (which gets the four-condition `dte` from
+ * here). Negative values clamped to 0 — an already-expired contract has
+ * 0 days to expiry, not "minus N".
+ */
+function daysToExpiry(expiry: string): number {
+  const target = new Date(expiry);
+  if (isNaN(target.getTime())) return 0;
+  const ms = target.getTime() - Date.now();
+  return Math.max(0, Math.floor(ms / 86_400_000));
+}
+
+// ─── Discipline Agent Class ───────────────────────────────────
+
+class DisciplineAgent {
+  private static instance: DisciplineAgent;
+  private started = false;
 
   private constructor() {}
 
-  static getInstance(): DisciplineEngine {
-    if (!DisciplineEngine.instance) {
-      DisciplineEngine.instance = new DisciplineEngine();
+  static getInstance(): DisciplineAgent {
+    if (!DisciplineAgent.instance) {
+      DisciplineAgent.instance = new DisciplineAgent();
     }
-    return DisciplineEngine.instance;
+    return DisciplineAgent.instance;
+  }
+
+  /**
+   * Start lifecycle. Currently boots the per-exchange carry-forward
+   * scheduler. Idempotent — safe to call from multiple places at boot.
+   */
+  async start(userId: string = "1"): Promise<void> {
+    if (this.started) return;
+    this.started = true;
+    // Push the operator-configured IV tunables into the RCA classifier
+    // so percentile bands + history window match the current settings
+    // from boot onwards. Refreshed again on every updateDisciplineSettings.
+    await this.pushIvTunables(userId);
+    await startCarryForwardScheduler(userId, async (exchange) => {
+      await this.runCarryForwardForExchange(userId, exchange);
+    });
+    log.important("Started — Discipline Agent (Module 8 carry-forward scheduler online)");
+  }
+
+  /**
+   * Read the user's IV tunables from settings and push them into the
+   * RCA option-chain classifier. Best-effort — settings read failures
+   * leave the classifier on its module defaults. Legacy settings docs
+   * that pre-date the `iv` block are tolerated; the classifier's own
+   * defaults stay in effect until the operator saves.
+   */
+  async pushIvTunables(userId: string = "1"): Promise<void> {
+    try {
+      const settings = await getDisciplineSettings(userId);
+      const iv = settings.capitalProtection?.iv;
+      if (!iv) return; // legacy doc — classifier keeps its module defaults
+      const { setIvTunables } = await import("../risk-control/ivClassifier");
+      setIvTunables(iv);
+    } catch (err: any) {
+      log.warn(`pushIvTunables skipped: ${err?.message ?? err}`);
+    }
+  }
+
+  stop(userId: string = "1"): void {
+    if (!this.started) return;
+    this.started = false;
+    stopCarryForwardScheduler(userId);
+    log.important("Stopped");
+  }
+
+  /**
+   * Per-exchange carry-forward evaluation handler. Called by the
+   * scheduler at the configured eval time. Resolves PA's open positions
+   * for the exchange, runs the evaluator, applies the verdict, and (TODO
+   * C3) fires MUST_EXIT to RCA when carry-forward FAILs.
+   *
+   * Position resolution is best-effort: if PA is not initialised (unit
+   * tests), we log and return — the eval simply doesn't fire. The
+   * scheduler reschedules tomorrow regardless.
+   */
+  private async runCarryForwardForExchange(userId: string, exchange: Exchange): Promise<void> {
+    const settings = await getDisciplineSettings(userId);
+    const date = getISTDateString();
+
+    // Walk PA's open positions and filter by exchange. Each position
+    // is enriched with momentum (from RCA's latest filtered SEA signal
+    // for its instrument) so the carry-forward eval has real input on
+    // the momentum dimension. ivLabel is "unknown" pending an option-
+    // chain IV classifier — DA's eval treats unknown as PASS for the
+    // IV check, so positions don't get rejected on missing data.
+    const positions: import("./capitalProtection").CarryForwardPositionInput[] = [];
+    try {
+      const { portfolioAgent } = await import("../portfolio");
+      const { rcaMonitor } = await import("../risk-control");
+      const { classifyIv } = await import("../risk-control/ivClassifier");
+      // Channels we monitor for carry-forward — same as RCA's set.
+      const channels = ["my-live", "ai-live", "ai-paper"] as const;
+      for (const channel of channels) {
+        let trades: Awaited<ReturnType<typeof portfolioAgent.getPositions>> = [];
+        try {
+          trades = await portfolioAgent.getPositions(channel);
+        } catch {
+          continue;
+        }
+        for (const t of trades) {
+          if (t.status !== "OPEN") continue;
+          const isMcx = t.instrument.includes("CRUDE") || t.instrument.includes("NATURAL");
+          const tradeExchange: Exchange = isMcx ? "MCX" : "NSE";
+          if (tradeExchange !== exchange) continue;
+          const grossEntryValue = t.entryPrice * t.qty;
+          const profitPercent = grossEntryValue > 0 ? (t.unrealizedPnl / grossEntryValue) * 100 : 0;
+          const dte = t.expiry ? daysToExpiry(t.expiry) : 0;
+
+          // Momentum: pull from RCA's latest signal index. null when no
+          // signal exists for the instrument; eval skips the momentum
+          // check in that case (treats as "no opinion = no veto").
+          const liveMomentum = rcaMonitor.getLatestMomentumScore(t.instrument);
+          const momentumScore = liveMomentum ?? settings.capitalProtection.carryForward.minMomentumScore;
+          // C2/C3 — option-chain IV classifier. Returns null when:
+          //   - No chain pushed yet for the instrument.
+          //   - History below MIN_SAMPLES (low confidence).
+          //   - ATM IV can't be derived (sparse chain).
+          // Map null → "unknown", which the eval treats as a no-veto.
+          const ivClass = await classifyIv(t.instrument);
+          const ivLabel: "fair" | "cheap" | "expensive" | "unknown" = ivClass ?? "unknown";
+
+          positions.push({
+            tradeId: t.id,
+            profitPercent,
+            momentumScore,
+            dte,
+            ivLabel,
+          });
+        }
+      }
+    } catch {
+      log.warn(`Carry-forward eval skipped for ${exchange} — PA not initialised`);
+      return;
+    }
+
+    const result = runCarryForwardEvaluation(positions, settings);
+
+    // Persist the eval record on the (userId, channel="my-live", date)
+    // discipline_state doc — separate records per channel are a Phase D
+    // concern (single per-user dashboard view today).
+    const stateChannel = "my-live";
+    const state = await getDisciplineState(userId, date, stateChannel);
+    state.carryForwardEvals = state.carryForwardEvals ?? {};
+    if (exchange === "NSE") state.carryForwardEvals.nse = result.evalRecord;
+    if (exchange === "MCX") state.carryForwardEvals.mcx = result.evalRecord;
+
+    if (result.outcome === "FAIL") {
+      applySessionHalt(state, exchange, `Carry-forward eval failed: ${result.tradesToExit.length} position(s) failed conditions`, "CARRY_FORWARD_FAIL");
+    }
+
+    await updateDisciplineState(userId, date, {
+      carryForwardEvals: state.carryForwardEvals,
+      sessionHalts: state.sessionHalts,
+    }, stateChannel);
+
+    // C3 wiring: when carry-forward FAILs, push MUST_EXIT to RCA
+    // (in-process call — RCA is in the same Node runtime). RCA fans
+    // out to the affected trades and exits via TEA with
+    // triggeredBy=DISCIPLINE so PA tags the audit trail correctly.
+    if (result.outcome === "FAIL" && result.tradesToExit.length > 0 && settings.capitalProtection.carryForward.autoExit) {
+      try {
+        const { rcaMonitor } = await import("../risk-control");
+        const exitRes = await rcaMonitor.disciplineRequest({
+          reason: "DISCIPLINE_EXIT",
+          detail: `Carry-forward FAIL on ${exchange} — ${result.tradesToExit.length} positions`,
+          scope: { kind: "TRADE_IDS", tradeIds: result.tradesToExit },
+        });
+        log.important(`Carry-forward FAIL → RCA exited ${exitRes.exited}/${result.tradesToExit.length}`);
+      } catch (err: any) {
+        log.error(`Carry-forward → RCA push failed: ${err?.message ?? err}`);
+      }
+    }
+
+    log.info(`${exchange} carry-forward eval: ${result.outcome} (${result.tradesToExit.length} exits)`);
   }
 
   // ─── Pre-Trade Validation Pipeline ─────────────────────────
@@ -72,6 +254,26 @@ class DisciplineEngine {
     const blockedBy: string[] = [];
     const warnings: string[] = [];
     const adjustments: string[] = [];
+
+    // 0. B4 — BROKER_DESYNC gate. If ANY trade on this channel is in
+    //    desync state, block new entries until the operator reconciles.
+    //    Without this, the operator can stack trades on top of an unknown
+    //    broker-side exposure.
+    try {
+      const { portfolioAgent } = await import("../portfolio");
+      const desync = await portfolioAgent.hasUnresolvedDesync(channel as never);
+      if (desync) blockedBy.push("brokerDesync");
+    } catch {
+      // PA not initialised in this context (e.g., unit test) — skip gate.
+    }
+
+    // 0a. Module 8 — Capital Protection session halt (per-exchange).
+    //     Blocks new entries on the side (NSE/MCX) that's halted. Cap-
+    //     triggered halts happen in onTradeClosed when daily P&L crosses
+    //     a threshold; manual halts via Settings. Halt latches until the
+    //     next trading day or operator force-clear.
+    const halt = getSessionHaltFor(state, request.exchange);
+    if (halt) blockedBy.push("sessionHalted");
 
     // 1. Circuit Breaker
     const cbResult = checkDailyLossLimit(state, settings, currentCapital);
@@ -130,12 +332,20 @@ class DisciplineEngine {
           ruleId: rule,
           ruleName: rule,
           severity: "hard",
-          description: this.getBlockReason(rule, { cbResult, clResult, tlResult, mpResult, cdResult, twResult, psResult, exResult, jResult, ptResult }),
+          description: this.getBlockReason(rule, { cbResult, clResult, tlResult, mpResult, cdResult, twResult, psResult, exResult, jResult, ptResult, haltReason: halt?.reason }),
           timestamp: new Date(),
           overridden: false,
         }, channel);
       }
     }
+
+    // Metric: how often does the gate allow vs block, and on what reason.
+    // `reason` is the FIRST blocking rule when blocked, or "ok" when
+    // passed. This keeps label cardinality bounded (one row per rule).
+    disciplineValidateTotal.labels({
+      decision: blockedBy.length === 0 ? "allow" : "block",
+      reason: blockedBy[0] ?? "ok",
+    }).inc();
 
     return {
       allowed: blockedBy.length === 0,
@@ -193,10 +403,14 @@ class DisciplineEngine {
 
     const newPnl = state.dailyRealizedPnl + pnl;
     const newLossPercent = openCapital > 0 ? (Math.abs(Math.min(newPnl, 0)) / openCapital) * 100 : 0;
+    // Module 8 — combined daily P&L percent (signed). Cap evaluator
+    // uses this to decide if a profit or loss cap fires.
+    const newDailyPnlPercent = openCapital > 0 ? (newPnl / openCapital) * 100 : 0;
 
     const updates: Partial<DisciplineState> = {
       dailyRealizedPnl: newPnl,
       dailyLossPercent: newLossPercent,
+      dailyPnlPercent: newDailyPnlPercent,
       openPositions: Math.max(0, state.openPositions - 1),
     };
 
@@ -240,18 +454,75 @@ class DisciplineEngine {
       updates.consecutiveLosses = 0;
     }
 
+    // Module 8 — re-evaluate capital protection on every close. Either
+    // direction (profit cap, loss cap) can fire. Verdict updates
+    // sessionHalts + capGrace in `updates` if a cap triggers; the
+    // halt latches until next-day reset or operator force-clear.
+    const projectedState = { ...state, ...updates } as DisciplineState;
+    const verdict = evaluateCapitalProtection(projectedState, settings, newDailyPnlPercent);
+    if (verdict.halts) {
+      updates.sessionHalts = {
+        nse: verdict.halts.nse ?? state.sessionHalts.nse,
+        mcx: verdict.halts.mcx ?? state.sessionHalts.mcx,
+      };
+    }
+    if (verdict.grace) {
+      updates.capGrace = verdict.grace;
+      // Schedule the auto-EXIT_ALL ticker. When grace expires the
+      // operator never acted; we push MUST_EXIT to RCA which fans out
+      // exits via TEA. Single setTimeout per cap-fire — duplicates are
+      // harmless because the second fire sees acknowledged === true.
+      this.scheduleCapGraceDeadline(userId, channel, verdict.grace);
+    }
+
     await updateDisciplineState(userId, date, updates, channel);
 
     return { cooldownStarted, circuitBreakerTriggered };
   }
 
   /**
+   * Wake at the cap-grace deadline. If the operator never acknowledged,
+   * fire MUST_EXIT to RCA which exits all open positions on the channel.
+   * Multiple cap fires schedule multiple timers — that's fine, they
+   * all check `acknowledged` before acting.
+   */
+  private scheduleCapGraceDeadline(
+    userId: string,
+    channel: string,
+    grace: import("./types").CapGracePeriod,
+  ): void {
+    const ms = Math.max(0, grace.deadline.getTime() - Date.now());
+    const t = setTimeout(async () => {
+      try {
+        const date = getISTDateString();
+        const state = await getDisciplineState(userId, date, channel);
+        if (!state.capGrace || state.capGrace.acknowledged) return;
+        if (state.capGrace.deadline.getTime() !== grace.deadline.getTime()) return; // a new grace replaced ours
+        log.important(`Cap-grace expired (${grace.source}) — pushing EXIT_ALL to RCA`);
+        const { rcaMonitor } = await import("../risk-control");
+        await rcaMonitor.disciplineRequest({
+          reason: "DISCIPLINE_EXIT",
+          detail: `${grace.source} grace expired without operator action`,
+          channels: [channel as any],
+          scope: { kind: "ALL" },
+        });
+      } catch (err: any) {
+        log.error(`Cap-grace auto-exit failed: ${err?.message ?? err}`);
+      }
+    }, ms);
+    if (typeof t.unref === "function") t.unref();
+  }
+
+  /**
    * PA spec §5.2 — receive trade-outcome push from Portfolio Agent.
    *
-   * Phase 3: cap-check activation. The exit metadata
-   * (`exitReason` / `exitTriggeredBy`) now drives whether the close
-   * contributes to streak / cooldown / circuit-breaker counters:
+   * Accepts the canonical `TradeClosedEvent` (Phase D3, see
+   * `shared/tradeClosedEvent.ts`) plus an `openingCapital` extra that
+   * PA computes from the day's state — Discipline needs it for the
+   * dailyPnl% calculation and it isn't naturally on the canonical
+   * event. Wider-than-required shape is fine; DA pulls what it uses.
    *
+   * Behaviour:
    *   - exitTriggeredBy === "DISCIPLINE" → SKIP. A discipline-driven
    *     exit was forced by the rule engine itself; counting it as a
    *     "loss" would punish the rules for working and double-tax the
@@ -262,15 +533,14 @@ class DisciplineEngine {
    * Per-channel partitioning is still pending — single-user `userId="1"`
    * for now.
    */
-  async recordTradeOutcome(req: {
-    channel: string;
-    tradeId: string;
-    realizedPnl: number;
-    openingCapital: number;
-    exitReason?: string;
-    exitTriggeredBy?: string;
-    signalSource?: string;
-  }): Promise<void> {
+  async recordTradeOutcome(
+    req: Partial<import("../../shared/tradeClosedEvent").TradeClosedEvent> & {
+      channel: string;
+      tradeId: string;
+      realizedPnl: number;
+      openingCapital: number;
+    },
+  ): Promise<void> {
     if (req.exitTriggeredBy === "DISCIPLINE") {
       // Cap-check-driven exit. Don't feed it back into the cap-check
       // counters; the system already accounted for the loss when it
@@ -356,7 +626,7 @@ class DisciplineEngine {
    */
   async getDashboard(userId: string): Promise<{
     state: DisciplineState;
-    settings: DisciplineEngineSettings;
+    settings: DisciplineAgentSettings;
     score: { score: number; breakdown: import("./types").ScoreBreakdown };
     streak: ReturnType<typeof getStreakStatus>;
   }> {
@@ -369,13 +639,63 @@ class DisciplineEngine {
     return { state, settings, score: { score, breakdown }, streak };
   }
 
+  /**
+   * Per Phase D2: thin "is the operator allowed to trade right now?"
+   * snapshot. Both `discipline.getSessionStatus` (tRPC) and
+   * `GET /api/discipline/status` (REST) call this so the UI and the
+   * Python pipeline see identical shape.
+   *
+   * `channel` is informational today (per-channel partitioning is
+   * pending — see `recordTradeOutcome` note); the answer is currently
+   * the same for every channel of a given user.
+   */
+  async getSessionStatus(
+    userId: string,
+    channel: string,
+  ): Promise<{
+    channel: string;
+    date: string;
+    sessionHalts: {
+      nse: import("./types").SessionHalt | null;
+      mcx: import("./types").SessionHalt | null;
+    };
+    capGrace: import("./types").CapGracePeriod | null;
+    activeCooldown: boolean;
+    cooldownEndsAt: number | null;
+    unjournaledCount: number;
+    weeklyReviewDue: boolean;
+    todayPnlPercent: number;
+  }> {
+    const date = getISTDateString();
+    const state = await getDisciplineState(userId, date);
+    const settings = await getDisciplineSettings(userId);
+    return {
+      channel,
+      date,
+      sessionHalts: {
+        nse: state.sessionHalts?.nse ?? null,
+        mcx: state.sessionHalts?.mcx ?? null,
+      },
+      capGrace: state.capGrace ?? null,
+      activeCooldown: !!state.activeCooldown,
+      cooldownEndsAt: state.activeCooldown?.endsAt
+        ? new Date(state.activeCooldown.endsAt).getTime()
+        : null,
+      unjournaledCount: (state.unjournaledTrades ?? []).length,
+      weeklyReviewDue: settings.weeklyReview?.enabled === true && !state.weeklyReviewCompleted,
+      todayPnlPercent: state.dailyPnlPercent ?? 0,
+    };
+  }
+
   // ─── Private Helpers ───────────────────────────────────────
 
   private getBlockReason(
     rule: string,
-    results: Record<string, { reason?: string }>
+    results: Record<string, any>
   ): string {
     const map: Record<string, string> = {
+      brokerDesync: "Broker desync — reconcile open trades before new entries",
+      sessionHalted: results.haltReason ?? "Session halted (cap or manual)",
       circuitBreaker: results.cbResult?.reason ?? "Circuit breaker triggered",
       consecutiveLosses: results.clResult?.reason ?? "Consecutive losses limit",
       tradeLimits: results.tlResult?.reason ?? "Trade limit reached",
@@ -392,5 +712,5 @@ class DisciplineEngine {
   }
 }
 
-export const disciplineEngine = DisciplineEngine.getInstance();
-export { DisciplineEngine };
+export const disciplineAgent = DisciplineAgent.getInstance();
+export { DisciplineAgent };

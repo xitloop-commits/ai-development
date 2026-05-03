@@ -23,8 +23,6 @@ Null rules:
 
 from __future__ import annotations
 
-import math
-
 from tick_feature_agent.chain_cache import ChainCache
 from tick_feature_agent.features.active_features import compute_side_strengths
 
@@ -52,13 +50,13 @@ def compute_zone_features(
     """
     if not cache.chain_available:
         return {
-            "atm_zone_call_pressure":  _NAN,
-            "atm_zone_put_pressure":   _NAN,
-            "atm_zone_net_pressure":   _NAN,
-            "active_zone_call_count":  0,
-            "active_zone_put_count":   0,
-            "active_zone_dominance":   0.0,
-            "zone_activity_score":     _NAN,
+            "atm_zone_call_pressure": _NAN,
+            "atm_zone_put_pressure": _NAN,
+            "atm_zone_net_pressure": _NAN,
+            "active_zone_call_count": 0,
+            "active_zone_put_count": 0,
+            "active_zone_dominance": 0.0,
+            "zone_activity_score": _NAN,
         }
 
     # ── Compute per-side strengths from snapshot (§8.6) ──────────────────────
@@ -70,29 +68,29 @@ def compute_zone_features(
     # ── ATM ±3 zone pressure ──────────────────────────────────────────────────
     # Strikes not in snapshot contribute 0.0 (per spec null rule).
     call_sum = 0.0
-    put_sum  = 0.0
+    put_sum = 0.0
     for strike in atm_window:
         sv = side_str.get(strike)
         if sv is not None:
-            call_sum += sv[2]   # call_strength
-            put_sum  += sv[5]   # put_strength
+            call_sum += sv[2]  # call_strength
+            put_sum += sv[5]  # put_strength
         # else: strike absent from snapshot → contributes 0.0
 
     call_pressure = call_sum / _ATM_STRIKE_COUNT
-    put_pressure  = put_sum  / _ATM_STRIKE_COUNT
+    put_pressure = put_sum / _ATM_STRIKE_COUNT
 
     # ── Active zone counts ────────────────────────────────────────────────────
     # call_count: active strikes where call.strength > put.strength
     # put_count:  active strikes where put.strength > call.strength
     # Ties excluded from both counts.
     call_count = 0
-    put_count  = 0
+    put_count = 0
     for score in cache.active_strikes:
         sv = side_str.get(score.strike)
         if sv is None:
             continue
-        cs = sv[2]   # call_strength
-        ps = sv[5]   # put_strength
+        cs = sv[2]  # call_strength
+        ps = sv[5]  # put_strength
         if cs > ps:
             call_count += 1
         elif ps > cs:
@@ -103,11 +101,11 @@ def compute_zone_features(
     dominance = (call_count - put_count) / denom if (call_count + put_count) > 0 else 0.0
 
     return {
-        "atm_zone_call_pressure":  call_pressure,
-        "atm_zone_put_pressure":   put_pressure,
-        "atm_zone_net_pressure":   call_pressure - put_pressure,
-        "active_zone_call_count":  call_count,
-        "active_zone_put_count":   put_count,
-        "active_zone_dominance":   dominance,
-        "zone_activity_score":     (call_pressure + put_pressure) / 2.0,
+        "atm_zone_call_pressure": call_pressure,
+        "atm_zone_put_pressure": put_pressure,
+        "atm_zone_net_pressure": call_pressure - put_pressure,
+        "active_zone_call_count": call_count,
+        "active_zone_put_count": put_count,
+        "active_zone_dominance": dominance,
+        "zone_activity_score": (call_pressure + put_pressure) / 2.0,
     }

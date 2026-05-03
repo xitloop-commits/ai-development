@@ -14,7 +14,6 @@ import type {
   OrderParams,
   ModifyParams,
   OrderResult,
-  OrderStatus,
   Trade,
   Position,
   MarginInfo,
@@ -68,8 +67,10 @@ export class MockOrderBook {
 
   private totalMargin: number;
   private usedMargin: number = 0;
+  private brokerId: string;
 
-  constructor(initialMargin: number = 500000) {
+  constructor(brokerId: string = "mock", initialMargin: number = 500000) {
+    this.brokerId = brokerId;
     this.totalMargin = initialMargin;
   }
 
@@ -132,6 +133,7 @@ export class MockOrderBook {
 
     // Notify callbacks
     this._notifyOrderUpdate({
+      brokerId: this.brokerId,
       orderId,
       status: "FILLED",
       filledQuantity: params.quantity,
@@ -218,6 +220,7 @@ export class MockOrderBook {
     order.updatedAt = now;
 
     this._notifyOrderUpdate({
+      brokerId: this.brokerId,
       orderId,
       status: "CANCELLED",
       filledQuantity: order.filledQuantity,

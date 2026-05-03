@@ -149,47 +149,107 @@ def build_signal_packet(
 - Pass-through fields correctly extracted from tick_row
 - Direction prob in [0, 1] range
 
+#### Strike selection (final for MVP)
+
+> **Decision committed 2026-04-30 per Phase D5** — resolves the SEA strike-selection open item.
+
+**SEA selects the ATM strike for both CE and PE legs (current behaviour).** The `atm_strike`, `atm_ce_ltp`, and `atm_pe_ltp` fields on `SignalPacket` come straight from the corresponding TFA tick columns; SEA does not search ATM±1, weight by predicted RR, or expose a per-instrument override. GO_CALL → trade ATM CE; GO_PUT → trade ATM PE.
+
+**Auto-strike-roving is deferred post-MVP.** Selecting between ATM±1 strikes based on predicted risk_reward / max_upside per leg, or exposing a user-configurable strike preference, is **out of scope for MVP**. It is recorded as potential post-MVP work in §9 Future Roadmap of the MTA spec (under "ATM±2 strike tier in feature set" / "Individual active strike slots") and is gated on (a) sufficient ATM±1 active-strike feature coverage in the model and (b) Phase 1 win-rate validation completing on the canonical ATM-only signal.
+
+Until that work happens, both the live signal log and the future RCA TradeSuggestion payload (MTA Spec §7.6) consume `atm_strike` / `atm_ce_ltp` / `atm_pe_ltp` directly with no roving logic in between.
+
 ---
 
 ### Phase 3 — Thresholds
 
 **File:** `thresholds.py`
 
-Applies entry conditions to produce a direction string.
+> **Decision committed 2026-04-30 per Phase D4** — the canonical SEA filter pipeline is the **3-condition gate** below. The 4-stage MVP-deviation filter (`direction_prob` only, configurable via `--call-thresh` / `--put-thresh`) is **DEPRECATED** and will be removed once the 3-condition gate ships in **Phase E5**. See "Deprecated MVP filter" note in the Appendix.
+
+#### Canonical: 3-Condition Gate
+
+A signal passes only if **all three conditions** hold simultaneously. Otherwise the signal is suppressed (WAIT) and routed to `_filtered_signals.log` (see below) for diagnostic review.
+
+```
+prob              ≥ 0.65        # P(direction_30s) confidence floor
+RR                ≥ 1.5         # predicted risk_reward_ratio_30s
+upside_percentile ≥ 60          # session-rank floor (0–100)
+```
+
+Direction (GO_CALL vs GO_PUT) is selected by the side of `direction_prob_30s` relative to 0.5 once the gate passes.
 
 ```python
-# Defaults — configurable via constructor
+# Defaults — configurable via constructor / CLI
 DEFAULT_DIRECTION_PROB_THRESHOLD = 0.65
 DEFAULT_MIN_RISK_REWARD          = 1.5
 DEFAULT_MIN_UPSIDE_PERCENTILE    = 60.0
 
-def decide_direction(packet: SignalPacket) -> str:
+def decide_direction(packet: SignalPacket) -> tuple[str, list[str]]:
     """
-    Returns "GO_CALL", "GO_PUT", or "WAIT".
+    Returns (decision, fail_reasons).
 
-    GO_CALL conditions (all must pass):
-      - direction_prob_30s > DIRECTION_PROB_THRESHOLD (e.g. 0.65)
-      - direction_prob_30s > 0.5  (bullish)
-      - risk_reward_30s >= MIN_RISK_REWARD
-      - upside_percentile_30s >= MIN_UPSIDE_PERCENTILE
+    3-condition gate (all must pass):
+      C1: prob              ≥ DEFAULT_DIRECTION_PROB_THRESHOLD (0.65)
+      C2: RR                ≥ DEFAULT_MIN_RISK_REWARD          (1.5)
+      C3: upside_percentile ≥ DEFAULT_MIN_UPSIDE_PERCENTILE    (60.0)
 
-    GO_PUT conditions (all must pass):
-      - direction_prob_30s > DIRECTION_PROB_THRESHOLD (e.g. 0.65)
-      - direction_prob_30s <= 0.5  (bearish — model predicts spot goes down)
-      - risk_reward_30s >= MIN_RISK_REWARD
-      - upside_percentile_30s >= MIN_UPSIDE_PERCENTILE
+    where:
+      prob              = max(direction_prob_30s, 1 - direction_prob_30s)
+      RR                = risk_reward_30s
+      upside_percentile = upside_percentile_30s
 
-    Otherwise: WAIT
+    If gate passes:
+      decision = "GO_CALL"  if direction_prob_30s >  0.5
+      decision = "GO_PUT"   if direction_prob_30s <= 0.5
+      fail_reasons = []
+
+    If gate fails:
+      decision = "WAIT"
+      fail_reasons = list of failed condition codes, e.g. ["C1_prob", "C3_pct"]
+      (used to populate _filtered_signals.log)
     """
 ```
 
 **Tests:** `test_thresholds.py`
-- Returns GO_CALL when all conditions pass + bullish
-- Returns GO_PUT when all conditions pass + bearish
-- Returns WAIT when direction_prob below threshold
-- Returns WAIT when RR below minimum
-- Returns WAIT when upside_percentile below minimum
-- Edge cases: exactly at threshold values
+- Returns GO_CALL when all 3 conditions pass + bullish
+- Returns GO_PUT  when all 3 conditions pass + bearish
+- Returns WAIT with `["C1_prob"]` when prob below 0.65
+- Returns WAIT with `["C2_rr"]`   when RR below 1.5
+- Returns WAIT with `["C3_pct"]`  when upside_percentile below 60
+- Returns WAIT with multiple reasons when more than one condition fails
+- Edge cases: exactly at threshold values (≥ semantics, not >)
+
+#### Filtered-signals diagnostic stream
+
+Every tick that runs inference but fails the 3-condition gate is written as one NDJSON line to a separate stream:
+
+```
+logs/signals/{instrument}/{date}_filtered_signals.log
+```
+
+This file lives **alongside** the canonical raw signals log (`logs/signals/{instrument}/{date}_signals.log`, see Phase 4) — it is not a replacement and not interleaved. Two streams, same directory:
+
+| Stream | File | Contents |
+|--------|------|----------|
+| Raw signals (canonical) | `{date}_signals.log` | One NDJSON line per **GO_CALL / GO_PUT** signal that **passed** the gate |
+| Filtered signals (diagnostic) | `{date}_filtered_signals.log` | One NDJSON line per tick that **failed** the gate, including which conditions failed (`fail_reasons`) and the underlying values |
+
+Filtered-stream schema (one line per filtered tick):
+```json
+{
+  "timestamp": 1744531200.123,
+  "instrument": "CRUDEOIL",
+  "would_be_direction": "GO_CALL",
+  "fail_reasons": ["C2_rr", "C3_pct"],
+  "direction_prob_30s": 0.71,
+  "risk_reward_30s": 1.12,
+  "upside_percentile_30s": 41.7,
+  "model_version": "20260414_093022"
+}
+```
+
+Use this stream to tune thresholds and to diagnose "why is SEA quiet?" — without polluting the canonical raw signals log.
 
 ---
 
@@ -281,38 +341,49 @@ class SEAEngine:
         """
 ```
 
-**Socket architecture:**
-- SEA opens a **Unix Domain Socket** server (`socket.AF_UNIX`, `socket.bind` + `socket.listen` + `socket.accept`)
-- TFA connects as **client** via `--output-socket /tmp/sea_{instrument}.sock` at launch
-- No TCP stack, no ports — kernel pipe on same machine
-- Read lines from accepted connection line-by-line (each line = one NDJSON row)
-- On startup: delete stale socket file if it exists from previous run
-- If TFA disconnects: go back to `accept()` and wait for reconnect
-- TFA silently drops socket sends if SEA is not yet listening — **start SEA before TFA**
+**Transport architecture (canonical — file-tail polling, MVP):**
+- TFA writes ticks to its existing NDJSON live log:
+  `data/features/{instrument}_live.ndjson` (one JSON object per line).
+- SEA tails the file: `seek` to EOF on startup, then poll for new lines
+  every 200ms. Each new line = one NDJSON row.
+- Malformed JSON lines: log warning, skip, continue.
+- File rotation / truncation: on `stat.st_size < lastPos`, reset `lastPos`
+  to 0 and re-read from the top.
+- If TFA isn't running yet: poll loop simply sees no new lines until it
+  starts. No order-of-launch dependency.
 
-**No changes needed to TFA** — `AF_UNIX` already supported in TFA's emitter via `socket_family` parameter.
-
-**Socket file paths:**
-```
-nifty50    → /tmp/sea_nifty50.sock
-banknifty  → /tmp/sea_banknifty.sock
-crudeoil   → /tmp/sea_crudeoil.sock
-naturalgas → /tmp/sea_naturalgas.sock
-```
-
-**TFA launch command (with SEA):**
-```
-python -m tick_feature_agent.main \
-  --instrument crudeoil \
-  --output-socket /tmp/sea_crudeoil.sock
-```
+**Why file-tail and not UDS:**
+1. **Portable across Win/Linux** — UDS is POSIX-only; file-tail works on
+   the operator's Windows dev box without WSL.
+2. **Backtest replay path** — the same `_live.ndjson` file is the input
+   format for backtest replay; file-tail makes SEA's live and replay
+   paths identical.
+3. **No order-of-launch trap** — UDS requires SEA to be listening before
+   TFA starts. File-tail is order-independent.
 
 **Tests:** `test_engine.py`
 - `_process_tick` skips filtered rows (preprocess returns None)
 - `_process_tick` logs GO_CALL when thresholds pass
 - `_process_tick` does not log WAIT
 - Malformed JSON line handled gracefully (log warning, continue)
-- Stale socket file cleaned up on startup
+- File rotation: `_live.ndjson` truncated mid-run → SEA resumes from byte 0
+
+**Future / Optional — Unix Domain Socket transport (post-MVP):**
+
+If file-tail polling latency becomes a bottleneck (target: < 250ms
+end-to-end tick → signal), a UDS path is available as a drop-in. SEA
+would open `socket.AF_UNIX` server at `/tmp/sea_{instrument}.sock`;
+TFA connects as a client via `--output-socket`. TFA already supports
+`AF_UNIX` via its `socket_family` parameter — no TFA changes needed.
+This is **deferred**; not in MVP scope. Decision committed
+2026-04-30 per Phase D6.
+
+```
+nifty50    → /tmp/sea_nifty50.sock
+banknifty  → /tmp/sea_banknifty.sock
+crudeoil   → /tmp/sea_crudeoil.sock
+naturalgas → /tmp/sea_naturalgas.sock
+```
 
 ---
 
@@ -323,11 +394,15 @@ python -m tick_feature_agent.main \
 ```
 python -m signal_engine_agent.cli \
   --instrument crudeoil \
-  [--socket-path /tmp/sea_crudeoil.sock]
+  [--live-log data/features/crudeoil_live.ndjson]
 
 Options:
   --instrument    One of: nifty50, banknifty, crudeoil, naturalgas
-  --socket-path   Unix socket file path (default: /tmp/sea_{instrument}.sock)
+  --live-log      NDJSON path SEA tails for ticks
+                  (default: data/features/{instrument}_live.ndjson)
+
+Future / post-MVP:
+  --socket-path   Unix socket file path (UDS transport, deferred)
 ```
 
 **Startup checks (fail fast with clear messages):**
@@ -385,25 +460,22 @@ No additional dependencies beyond what MTA already requires.
 - [ ] All 6 modules implemented
 - [ ] All tests passing
 - [ ] Imports `preprocess_live_tick` from MTA successfully
-- [ ] End-to-end: starts up, listens on Unix socket, TFA connects, processes ticks, writes signal log
+- [ ] End-to-end: starts up, tails `_live.ndjson`, processes ticks, writes signal log
 - [ ] Signal log file readable and valid NDJSON
-- [ ] Re-accepts TFA connection automatically after disconnect
-- [ ] Stale socket file cleaned up on startup
+- [ ] File rotation handled (truncation → resume from byte 0)
+- [ ] Order-of-launch independent (TFA can start before or after SEA)
 - [ ] Clear error message if models not found (MTA not run yet)
 
 ---
 
-## Appendix: Implementation Deviations (as of 2026-04-17)
+## Appendix: Implementation Deviations
 
-> This section tracks differences between the spec and the actual implementation.
-> It will be merged into the spec body when the code stabilises.
+> This section tracks differences between the spec body and actual code.
+> When a spec body has been updated to match code, the deviation is removed.
 
-- **MVP subset implemented (2026-04-16).** Full spec deferred.
-- Transport: MVP uses **NDJSON file tail** (`data/features/{instrument}_live.ndjson`) instead of Unix Domain Socket. SEA polls the file every 200ms for new lines.
-- Thresholds: MVP uses `direction_prob` only for GO_CALL (≥0.55) / GO_PUT (≤0.45) decision. Full spec rule (prob + risk_reward + upside_percentile) deferred until regression models are reliable.
-- Thresholds configurable via CLI: `--call-thresh` and `--put-thresh`.
-- Signal output: WAIT signals not logged (per spec). GO_CALL/GO_PUT written to `logs/signals/{instrument}/YYYY-MM-DD_signals.log` as NDJSON.
-- `watch_signals.py` dashboard: live terminal display tailing the signal log, showing last 25 signals + daily totals.
+- **Thresholds (DEPRECATED — to be removed in Phase E5):** The current MVP code path uses `direction_prob` only for GO_CALL (≥0.55) / GO_PUT (≤0.45), configurable via `--call-thresh` and `--put-thresh`. **This is deprecated.** Per Phase D4 (Decision committed 2026-04-30), the canonical filter is the 3-condition gate documented in §3 (Phase 3 — Thresholds): `prob ≥ 0.65 AND RR ≥ 1.5 AND upside_percentile ≥ 60`. The deprecated 4-stage MVP filter and the `--call-thresh` / `--put-thresh` CLI flags will be removed once the 3-condition gate ships in Phase E5. Until then, code may still reference the MVP filter but new spec language MUST treat the 3-condition gate as canonical.
+- Signal output: WAIT signals are not written to the raw `_signals.log` (per spec). GO_CALL / GO_PUT are written to `logs/signals/{instrument}/YYYY-MM-DD_signals.log` as NDJSON. Filtered (gated-out) ticks are written to the separate diagnostic stream `logs/signals/{instrument}/YYYY-MM-DD_filtered_signals.log` (see §3 — Phase 3 — Thresholds, "Filtered-signals diagnostic stream").
+- `watch_signals.py` dashboard: live terminal display tailing the raw signal log, showing last 25 signals + daily totals.
 - `backtest.py`: streams Parquet feature rows into the live ndjson file for end-to-end pipeline testing.
 - Launcher wrappers: `startup/start-sea.bat`, `startup/watch-signals.bat`, `startup/backtest.bat`.
 - Location: `python_modules/signal_engine_agent/` with `model_loader.py`, `engine.py`, `signal_logger.py`.

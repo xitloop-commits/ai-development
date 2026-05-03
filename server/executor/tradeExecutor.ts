@@ -20,6 +20,8 @@
  */
 
 import { createLogger } from "../broker/logger";
+import { withTrade } from "../_core/correlationContext";
+import { teaSubmitTradeTotal, teaExitTotal } from "../_core/metrics";
 import { getAdapter, isChannelKillSwitchActive } from "../broker/brokerService";
 import { tickBus } from "../broker/tickBus";
 import type {
@@ -33,12 +35,10 @@ import type {
 } from "../broker/types";
 import { portfolioAgent } from "../portfolio";
 import type { Channel, TradeRecord, TradeStatus } from "../portfolio/state";
-import { disciplineEngine } from "../discipline";
+import { disciplineAgent } from "../discipline";
 import type { Exchange } from "../discipline/types";
 import { idempotencyStore } from "./idempotency";
 import { orderSync } from "./orderSync";
-import { seaBridge } from "./seaBridge";
-import { rcaMonitor } from "./rcaMonitor";
 import { recoveryEngine } from "./recoveryEngine";
 import { resolveLotSize } from "./tradeResolution";
 import { getExecutorSettings } from "./settings";
@@ -61,7 +61,7 @@ const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live"];
 // TEA Settings page surfaces it; checkAiLiveLotCap reads through the
 // 30 s-cached settings layer.
 
-function isPaperChannel(channel: Channel): boolean {
+function _isPaperChannel(channel: Channel): boolean {
   return PAPER_CHANNELS.includes(channel);
 }
 
@@ -110,20 +110,18 @@ class TradeExecutorAgent {
     // Lives under executor/ per spec §6.4. Paper channels never emit broker
     // order updates; this is effectively live-only.
     orderSync.start();
-    // SEA → TEA bridge: polls filtered SEA signals every 5s and forwards
-    // LONG_CE / LONG_PE trades to executor.submitTrade on the AI paper
-    // channel. Phase 1 — paper only. AI Live activation is gated on the
-    // 1-lot cap + canary capital + 30-day comparison.
-    seaBridge.start("ai-paper");
-    // RCA Phase 1 monitor — age-based exits only. 30-min position cap on
-    // ai-paper. Phase 2 adds momentum / volatility / stale-price triggers.
-    rcaMonitor.start({ channels: ["ai-paper"] });
+    // SEA → TEA path is now the DA→RCA→TEA REST chain (C8); the legacy
+    // log-tail bridge was retired in C8-followup. SEA-Python POSTs to
+    // /api/discipline/validateTrade.
+    // RCA's lifecycle moved to _core/index.ts (C2) — RCA is a top-level
+    // agent now, not a TEA child. TEA still calls into rcaMonitor at
+    // runtime (signal-flip triggers, etc.) but doesn't own start/stop.
     // Recovery engine — polls live brokers for PENDING orders > 60s old
     // and emits synthetic OrderUpdate events to orderSync if the
     // underlying broker order has reached a terminal status. Backstop
     // for missed WS events. Live channels only.
     recoveryEngine.start();
-    log.important("Started — Trade Executor Agent v1.3 (SEA + RCA + recovery online)");
+    log.important("Started — Trade Executor Agent v1.3 (SEA + recovery online)");
   }
 
   stop(): void {
@@ -134,8 +132,6 @@ class TradeExecutorAgent {
       this.unsubscribeAutoExit = null;
     }
     orderSync.stop();
-    seaBridge.stop();
-    rcaMonitor.stop();
     recoveryEngine.stop();
     log.important("Stopped");
   }
@@ -143,6 +139,18 @@ class TradeExecutorAgent {
   // ── §4.1 Submit a trade ─────────────────────────────────────
 
   async submitTrade(req: SubmitTradeRequest): Promise<SubmitTradeResponse> {
+    // Wrap the entire submission flow in a correlation scope so every
+    // log line emitted (across kill-switch, discipline, broker, and PA
+    // state writes) carries the executionId as `tradeId` for grep-ability.
+    const resp = await withTrade(req.executionId, () => this._submitTradeImpl(req));
+    teaSubmitTradeTotal.labels({
+      channel: req.channel,
+      status: resp.success ? "success" : "rejected",
+    }).inc();
+    return resp;
+  }
+
+  private async _submitTradeImpl(req: SubmitTradeRequest): Promise<SubmitTradeResponse> {
     // Idempotency — duplicate executionIds replay the cached response.
     const cached = idempotencyStore.reserve<SubmitTradeResponse>(req.executionId);
     if (cached) {
@@ -169,12 +177,13 @@ class TradeExecutorAgent {
         return resp;
       }
 
-      // Pre-flight: AI Live 1-lot cap. The canary protocol launches at
-      // 1 lot per trade; bigger orders on ai-live are rejected here even
-      // if the caller (UI / future RCA / future SEA-live) tries to size
-      // up. SEA's paper bridge already sends 1 lot, so this is a backstop
-      // against accidental misconfiguration once ai-live is activated.
-      if (req.channel === "ai-live") {
+      // Pre-flight: AI Live 1-lot cap. Applies to both ai-live and
+      // ai-paper — the dhan-ai-data broker fans out to both, and an
+      // accidentally-oversized order on ai-paper would still corrupt the
+      // canary's paper-P&L validation. The canary protocol launches at
+      // 1 lot per trade; bigger orders on either AI channel are rejected
+      // here even if the caller (UI / RCA / SEA-live) tries to size up.
+      if (req.channel === "ai-live" || req.channel === "ai-paper") {
         const cap = await this.checkAiLiveLotCap(req);
         if (cap) {
           const resp = rejection(req.executionId, cap);
@@ -259,7 +268,13 @@ class TradeExecutorAgent {
       const positionId = `POS-${tradeId.replace(/^T/, "")}`;
       const tradeStatus = mapBrokerStatusToTradeStatus(orderResult.status);
       const submitStatus = mapBrokerStatusToSubmitStatus(orderResult.status);
-      const trade = buildTradeRecord(req, tradeId, orderResult.orderId, tradeStatus);
+      const trade = buildTradeRecord(
+        req,
+        tradeId,
+        orderResult.orderId,
+        adapter.brokerId,
+        tradeStatus,
+      );
 
       await portfolioAgent.appendTrade(req.channel, trade);
       await portfolioAgent.recordTradePlaced({
@@ -319,7 +334,7 @@ class TradeExecutorAgent {
   }
 
   /**
-   * Discipline cap-check: query disciplineEngine.validateTrade() with
+   * Discipline cap-check: query disciplineAgent.validateTrade() with
    * the snapshot's currentCapital + openExposure. Returns a human
    * blockedBy string if the trade should be rejected, or null if
    * Discipline allows it.
@@ -343,7 +358,7 @@ class TradeExecutorAgent {
         req.instrument.toUpperCase().includes("CRUDE") || req.instrument.toUpperCase().includes("NATURAL")
           ? "MCX"
           : "NSE";
-      const result = await disciplineEngine.validateTrade(
+      const result = await disciplineAgent.validateTrade(
         "1",
         {
           instrument: req.instrument,
@@ -384,28 +399,59 @@ class TradeExecutorAgent {
       // Live: send broker.modifyOrder to update the bracket leg's SL/TP. The
       // legacy router doesn't do this today (paper-only); TEA fixes it for
       // live channels. modifyOrder needs the broker order id to target — we
-      // stored it on trade.brokerId at submit time.
+      // stored it on trade.brokerOrderId at submit time.
+      //
+      // B4: when the broker call fails on a LIVE channel we MUST NOT apply
+      // the local SL/TP change — the broker still has the old bracket and
+      // any local-only update would diverge silently. Instead, mark the
+      // trade desync (status stays OPEN; position is alive at broker, only
+      // the bracket differs) and fail the request so callers + UI know.
       if (isLiveChannel(channel)) {
         const adapter = getAdapter(channel);
         const day = await portfolioAgent.ensureCurrentDay(channel);
         const trade = day.trades.find((t) => t.id === tradeId);
         if (!trade) throw new Error(`Trade not found: ${tradeId}`);
-        if (!trade.brokerId) throw new Error(`Trade ${tradeId} has no brokerId — cannot modify`);
+        if (!trade.brokerOrderId) throw new Error(`Trade ${tradeId} has no brokerOrderId — cannot modify`);
 
         try {
-          const result = await adapter.modifyOrder(trade.brokerId, {
+          const result = await adapter.modifyOrder(trade.brokerOrderId, {
             triggerPrice: req.modifications.stopLossPrice ?? undefined,
             price: req.modifications.targetPrice ?? undefined,
           });
           log.info(
-            `modifyOrder live broker ack channel=${channel} order=${trade.brokerId} status=${result.status}`,
+            `modifyOrder live broker ack channel=${channel} order=${trade.brokerOrderId} status=${result.status}`,
           );
         } catch (err: any) {
-          log.warn(`modifyOrder broker call failed (continuing with local update): ${err?.message ?? err}`);
+          const reason = err?.message ?? String(err);
+          log.error(
+            `modifyOrder BROKER_DESYNC channel=${channel} trade=${tradeId} order=${trade.brokerOrderId} reason=${reason}`,
+          );
+          await portfolioAgent.markTradeDesync(channel, tradeId, {
+            kind: "MODIFY",
+            reason,
+            timestamp: Date.now(),
+            attempted: {
+              stopLossPrice: req.modifications.stopLossPrice ?? null,
+              targetPrice: req.modifications.targetPrice ?? null,
+            },
+          });
+          // B4-followup — notify RCA so its sliding-window counter can
+          // trip the workspace kill switch on N consecutive desyncs.
+          // Dynamic import breaks the TEA↔RCA cycle; fire-and-forget so
+          // a slow notify doesn't delay the BROKER_DESYNC throw.
+          void import("../risk-control").then(({ rcaMonitor }) =>
+            rcaMonitor.notifyDesync(channel, tradeId, reason),
+          ).catch((e) => log.warn(`RCA notifyDesync failed: ${e?.message ?? e}`));
+          // Throw so the outer catch composes the failure response — local
+          // SL/TP must NOT be updated when broker is out of sync.
+          throw new Error(
+            `BROKER_DESYNC: modifyOrder failed at broker (${reason}). Local SL/TP unchanged. Reconcile required.`,
+          );
         }
       }
 
-      // Local update — applies for paper and live alike.
+      // Local update — applies for paper and live alike (live arrives here
+      // only when the broker call above succeeded; paper has no broker call).
       const { trade, oldSL, oldTP } = await portfolioAgent.updateTrade(channel, tradeId, {
         stopLossPrice: req.modifications.stopLoss ?? undefined,
         targetPrice: req.modifications.takeProfit ?? undefined,
@@ -470,10 +516,14 @@ class TradeExecutorAgent {
       const exitPrice = req.exitPrice ?? trade.ltp ?? trade.entryPrice;
 
       // Live channels: place a reverse broker order. DISCIPLINE_EXIT is
-      // forced to MARKET per spec §4.3. Failure on broker side is logged
-      // but does NOT block the local close — the bracket may have already
-      // filled at the broker.
-      if (isLiveChannel(channel) && trade.brokerId) {
+      // forced to MARKET per spec §4.3.
+      //
+      // B4: when the broker call fails on a LIVE channel we MUST NOT close
+      // the trade locally. The broker may still have the position OPEN,
+      // possibly drifting against us with no SL active. Mark the trade
+      // BROKER_DESYNC, fail the request, and let the operator reconcile
+      // (POST /api/executor/reconcile-desync) once they verify true state.
+      if (isLiveChannel(channel) && trade.brokerOrderId) {
         const adapter = getAdapter(channel);
         const exitOrderType = req.reason === "DISCIPLINE_EXIT" ? "MARKET" : req.exitType;
         const exitParams: OrderParams = {
@@ -500,17 +550,33 @@ class TradeExecutorAgent {
               `order=${result.orderId} status=${result.status}`,
           );
         } catch (err: any) {
-          log.warn(`exitTrade broker exit failed (continuing local close): ${err?.message ?? err}`);
+          const reason = err?.message ?? String(err);
+          log.error(
+            `exitTrade BROKER_DESYNC channel=${channel} trade=${tradeId} reason=${reason}`,
+          );
+          await portfolioAgent.markTradeDesync(channel, tradeId, {
+            kind: "EXIT",
+            reason,
+            timestamp: Date.now(),
+          });
+          // B4-followup — see modifyOrder hook above. Same pattern.
+          void import("../risk-control").then(({ rcaMonitor }) =>
+            rcaMonitor.notifyDesync(channel, tradeId, reason),
+          ).catch((e) => log.warn(`RCA notifyDesync failed: ${e?.message ?? e}`));
+          throw new Error(
+            `BROKER_DESYNC: exit order failed at broker (${reason}). Position state unchanged locally. Reconcile required.`,
+          );
         }
       }
 
-      // Local close — single-writer entry point.
-      const closeStatus = mapExitReasonToTradeStatus(req.reason);
+      // Local close — single-writer entry point. Status is always
+      // "CLOSED"; the reason flows through req.reason → exitReason on
+      // the trade (also set by recordTradeClosed below).
       const { trade: closed, pnl, charges } = await portfolioAgent.closeTrade(
         channel,
         tradeId,
         exitPrice,
-        closeStatus,
+        req.reason,
       );
 
       // Audit + Discipline push
@@ -528,7 +594,7 @@ class TradeExecutorAgent {
         exitTime: closedAt,
         realizedPnl: pnl,
         realizedPnlPercent: grossEntryValue > 0 ? (pnl / grossEntryValue) * 100 : 0,
-        exitReason: mapExitReasonToPaReason(req.reason),
+        exitReason: req.reason,
         exitTriggeredBy: req.triggeredBy,
         duration: Math.round((closedAt - closed.openedAt) / 1000),
         pnlCategory: pnl > 0 ? "win" : pnl < 0 ? "loss" : "breakeven",
@@ -551,6 +617,7 @@ class TradeExecutorAgent {
       log.info(
         `exitTrade ok channel=${channel} trade=${tradeId} reason=${req.reason} by=${req.triggeredBy} pnl=${pnl}`,
       );
+      teaExitTotal.labels({ channel, trigger: req.reason }).inc();
       return response;
     } catch (err: any) {
       const message = err?.message ?? String(err);
@@ -583,12 +650,11 @@ class TradeExecutorAgent {
    */
   async recordAutoExit(req: RecordAutoExitRequest): Promise<void> {
     try {
-      const closeStatus: TradeStatus = req.reason === "TP" ? "CLOSED_TP" : "CLOSED_SL";
       const { trade: closed, pnl } = await portfolioAgent.closeTrade(
         req.channel,
         req.tradeId,
         req.exitPrice,
-        closeStatus,
+        req.reason,
       );
 
       const closedAt = closed.closedAt ?? Date.now();
@@ -605,7 +671,7 @@ class TradeExecutorAgent {
         exitTime: closedAt,
         realizedPnl: pnl,
         realizedPnlPercent: grossEntryValue > 0 ? (pnl / grossEntryValue) * 100 : 0,
-        exitReason: req.reason === "TP" ? "TP" : "SL",
+        exitReason: req.reason,
         exitTriggeredBy: "PA",
         duration: Math.round((closedAt - closed.openedAt) / 1000),
         pnlCategory: pnl > 0 ? "win" : pnl < 0 ? "loss" : "breakeven",
@@ -614,6 +680,7 @@ class TradeExecutorAgent {
       log.info(
         `recordAutoExit ${req.reason} channel=${req.channel} trade=${req.tradeId} pnl=${pnl}`,
       );
+      teaExitTotal.labels({ channel: req.channel, trigger: req.reason }).inc();
     } catch (err: any) {
       log.error(`recordAutoExit failed channel=${req.channel} trade=${req.tradeId}: ${err?.message ?? err}`);
     }
@@ -681,6 +748,7 @@ function buildTradeRecord(
   req: SubmitTradeRequest,
   tradeId: string,
   brokerOrderId: string,
+  brokerId: string,
   status: TradeStatus,
 ): TradeRecord {
   const tradeType: TradeRecord["type"] =
@@ -710,7 +778,8 @@ function buildTradeRecord(
     targetPrice: req.takeProfit ?? null,
     stopLossPrice: req.stopLoss ?? null,
     trailingStopEnabled: req.trailingStopLoss?.enabled ?? false,
-    brokerId: brokerOrderId,
+    brokerOrderId,
+    brokerId,
     openedAt: Date.now(),
     closedAt: null,
   };
@@ -782,60 +851,6 @@ function ensureOptionLtpSubscription(
 function tradeIdFromPositionId(positionId: string): string {
   if (positionId.startsWith("POS-")) return "T" + positionId.slice(4);
   return positionId; // caller passed the tradeId directly
-}
-
-/** Map TEA's exit-trade reason vocab to TradeRecord status values. */
-function mapExitReasonToTradeStatus(reason: ExitTradeRequest["reason"]): TradeStatus {
-  switch (reason) {
-    case "TP_HIT":
-      return "CLOSED_TP";
-    case "SL_HIT":
-      return "CLOSED_SL";
-    case "EOD":
-      return "CLOSED_EOD";
-    default:
-      return "CLOSED_MANUAL";
-  }
-}
-
-/** Map TEA's exit-trade reason vocab to PA's recordTradeClosed enum. */
-function mapExitReasonToPaReason(
-  reason: ExitTradeRequest["reason"],
-):
-  | "SL"
-  | "TP"
-  | "RCA_EXIT"
-  | "STALE_PRICE_EXIT"
-  | "VOLATILITY_EXIT"
-  | "DISCIPLINE_EXIT"
-  | "AI_EXIT"
-  | "MANUAL"
-  | "EOD"
-  | "EXPIRY" {
-  switch (reason) {
-    case "TP_HIT":
-      return "TP";
-    case "SL_HIT":
-      return "SL";
-    case "STALE_PRICE_EXIT":
-      return "STALE_PRICE_EXIT";
-    case "VOLATILITY_EXIT":
-      return "VOLATILITY_EXIT";
-    case "MOMENTUM_EXIT":
-    case "AGE_EXIT":
-      return "RCA_EXIT";
-    case "AI_EXIT":
-      return "AI_EXIT";
-    case "DISCIPLINE_EXIT":
-      return "DISCIPLINE_EXIT";
-    case "EOD":
-      return "EOD";
-    case "EXPIRY":
-      return "EXPIRY";
-    case "MANUAL":
-    default:
-      return "MANUAL";
-  }
 }
 
 export const tradeExecutor = new TradeExecutorAgent();

@@ -132,10 +132,10 @@ class NdjsonGzWriter:
         fh = self._fh
         if fh is None:
             return None
-        buf = getattr(fh, "buffer", None)          # GzipFile
+        buf = getattr(fh, "buffer", None)  # GzipFile
         if buf is None:
             return None
-        inner = getattr(buf, "fileobj", None)      # BufferedWriter (or similar)
+        inner = getattr(buf, "fileobj", None)  # BufferedWriter (or similar)
         if inner is None:
             return None
         try:
@@ -147,13 +147,13 @@ class NdjsonGzWriter:
         if self._fh is None:
             return
         try:
-            self._fh.flush()                         # TextIOWrapper -> GzipFile
+            self._fh.flush()  # TextIOWrapper -> GzipFile
             buf = getattr(self._fh, "buffer", None)  # GzipFile
             if buf is not None:
-                buf.flush()                          # Z_SYNC_FLUSH into BufferedWriter
+                buf.flush()  # Z_SYNC_FLUSH into BufferedWriter
                 inner = getattr(buf, "fileobj", None)
                 if inner is not None:
-                    inner.flush()                    # BufferedWriter -> OS
+                    inner.flush()  # BufferedWriter -> OS
             fno = self._raw_fileno()
             if fno is not None:
                 os.fsync(fno)

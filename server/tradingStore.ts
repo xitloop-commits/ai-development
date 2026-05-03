@@ -1,18 +1,17 @@
 /**
  * In-memory trading data store.
- * Python modules push data here via REST endpoints.
- * tRPC procedures read from here to serve the frontend.
+ * Python pipeline modules (Fetcher, Analyzer) push option-chain + analyzer
+ * data here via REST endpoints. tRPC procedures read from here to serve
+ * the frontend. Position/trade state is owned by PortfolioAgent — not here.
  */
 import type {
   RawOptionChainData,
   RawAnalyzerOutput,
   InstrumentData,
   Signal,
-  Position,
   ModuleStatus,
   SupportResistance,
   ActiveStrike,
-  TradingMode,
   SRLevel,
 } from '../shared/tradingTypes';
 
@@ -30,26 +29,25 @@ const instrumentStores: Record<string, InstrumentStore> = {};
 const signalsLog: Signal[] = [];
 const MAX_SIGNALS = 200;
 
-// Positions
-const positions: Position[] = [];
-
-// Trading mode
-let tradingMode: TradingMode = 'PAPER';
-
 // Active instruments — controls which instruments the Python pipeline processes
 // Dynamically loaded from database at server startup
 let configuredInstrumentKeys: string[] = [];
-let configuredInstrumentMeta: Map<
+const configuredInstrumentMeta: Map<
   string,
   { displayName: string; exchange: string }
 > = new Map();
 let activeInstruments: Set<string> = new Set();
 
-// Module heartbeats
+// Module heartbeats. FETCHER + ANALYZER are Python pipeline modules pushing
+// to /api/trading/{option-chain,analyzer}. TEA / RCA / PA are TypeScript
+// agents — slots present so the UI can render their health, even when the
+// agents haven't pushed yet (status will show 'idle').
 const moduleHeartbeats: Record<string, { lastSeen: number; message: string }> = {
   FETCHER: { lastSeen: 0, message: 'Waiting for data...' },
   ANALYZER: { lastSeen: 0, message: 'Waiting for data...' },
-  EXECUTOR: { lastSeen: 0, message: 'Waiting for data...' },
+  TEA: { lastSeen: 0, message: 'Trade Executor idle' },
+  RCA: { lastSeen: 0, message: 'Risk Control idle' },
+  PA: { lastSeen: 0, message: 'Portfolio Agent idle' },
 };
 
 // Signal ID counter
@@ -77,6 +75,17 @@ export function pushOptionChain(instrument: string, data: RawOptionChainData): v
     lastSeen: Date.now(),
     message: `Fetched ${instrument} - ${Object.keys(data.oc || {}).length} strikes`,
   };
+  // C2/C3 — sample current ATM IV into the rolling-history baseline that
+  // DA's carry-forward eval consults. Dynamic import avoids load-order
+  // coupling during early boot.
+  void import('./risk-control/ivClassifier').then(({ recordAtmIvFromChain }) => {
+    recordAtmIvFromChain(instrument, data);
+  }).catch(() => { /* classifier unavailable — non-fatal */ });
+}
+
+/** Read-only accessor for the latest option chain pushed for an instrument. */
+export function getOptionChain(instrument: string): RawOptionChainData | null {
+  return instrumentStores[instrument]?.optionChain ?? null;
 }
 
 export function pushAnalyzerOutput(instrument: string, data: RawAnalyzerOutput): void {
@@ -107,31 +116,10 @@ export function pushAnalyzerOutput(instrument: string, data: RawAnalyzerOutput):
   }
 }
 
-export function pushPosition(position: Position): void {
-  const existingIdx = positions.findIndex(p => p.id === position.id);
-  if (existingIdx >= 0) {
-    positions[existingIdx] = position;
-  } else {
-    positions.unshift(position);
-  }
-  moduleHeartbeats['EXECUTOR'] = {
-    lastSeen: Date.now(),
-    message: `${positions.filter(p => p.status === 'OPEN').length} open positions`,
-  };
-}
-
 export function updateModuleHeartbeat(module: string, message: string): void {
   if (moduleHeartbeats[module]) {
     moduleHeartbeats[module] = { lastSeen: Date.now(), message };
   }
-}
-
-export function setTradingMode(mode: TradingMode): void {
-  tradingMode = mode;
-}
-
-export function getTradingMode(): TradingMode {
-  return tradingMode;
 }
 
 // --- Active Instruments Management ---
@@ -188,34 +176,22 @@ export function getModuleStatuses(): ModuleStatus[] {
   const now = Date.now();
   const STALE_THRESHOLD = 30000; // 30 seconds
 
+  const slot = (key: string, name: string): ModuleStatus => ({
+    name,
+    shortName: key,
+    status: getModuleHealth(moduleHeartbeats[key]!.lastSeen, now, STALE_THRESHOLD),
+    lastUpdate: moduleHeartbeats[key]!.lastSeen > 0
+      ? new Date(moduleHeartbeats[key]!.lastSeen).toISOString()
+      : '',
+    message: moduleHeartbeats[key]!.message,
+  });
+
   return [
-    {
-      name: 'Option Chain Fetcher',
-      shortName: 'FETCHER',
-      status: getModuleHealth(moduleHeartbeats['FETCHER']!.lastSeen, now, STALE_THRESHOLD),
-      lastUpdate: moduleHeartbeats['FETCHER']!.lastSeen > 0
-        ? new Date(moduleHeartbeats['FETCHER']!.lastSeen).toISOString()
-        : '',
-      message: moduleHeartbeats['FETCHER']!.message,
-    },
-    {
-      name: 'Option Chain Analyzer',
-      shortName: 'ANALYZER',
-      status: getModuleHealth(moduleHeartbeats['ANALYZER']!.lastSeen, now, STALE_THRESHOLD),
-      lastUpdate: moduleHeartbeats['ANALYZER']!.lastSeen > 0
-        ? new Date(moduleHeartbeats['ANALYZER']!.lastSeen).toISOString()
-        : '',
-      message: moduleHeartbeats['ANALYZER']!.message,
-    },
-    {
-      name: 'Execution Module',
-      shortName: 'EXECUTOR',
-      status: getModuleHealth(moduleHeartbeats['EXECUTOR']!.lastSeen, now, STALE_THRESHOLD),
-      lastUpdate: moduleHeartbeats['EXECUTOR']!.lastSeen > 0
-        ? new Date(moduleHeartbeats['EXECUTOR']!.lastSeen).toISOString()
-        : '',
-      message: moduleHeartbeats['EXECUTOR']!.message,
-    },
+    slot('FETCHER', 'Option Chain Fetcher'),
+    slot('ANALYZER', 'Option Chain Analyzer'),
+    slot('TEA', 'Trade Executor Agent'),
+    slot('RCA', 'Risk Control Agent'),
+    slot('PA', 'Portfolio Agent'),
   ];
 }
 
@@ -351,10 +327,6 @@ export function getInstrumentData(): InstrumentData[] {
 
 export function getSignals(limit: number = 50): Signal[] {
   return signalsLog.slice(0, limit);
-}
-
-export function getPositions(): Position[] {
-  return positions;
 }
 
 // --- Helper Functions ---

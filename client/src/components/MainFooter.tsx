@@ -15,38 +15,34 @@
  */
 import { useState, useMemo } from 'react';
 import {
-  Shield,
-  Zap,
-  Target,
   Plus,
   Loader2,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { trpc } from '@/lib/trpc';
 import { useCapital } from '@/contexts/CapitalContext';
 import { formatINR } from '@/lib/formatINR';
 
 // ─── Holiday Helpers ────────────────────────────────────────
-function getDaysUntil(dateStr: string): number {
+function _getDaysUntil(dateStr: string): number {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const target = new Date(dateStr + 'T00:00:00');
   return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-function getDaysLabel(days: number): string {
+function _getDaysLabel(days: number): string {
   if (days === 0) return 'Today';
   if (days === 1) return 'Tomorrow';
   return `In ${days} days`;
 }
 
-function formatDateShort(dateStr: string): string {
+function _formatDateShort(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00');
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 }
 
-function isHolidayThisMonth(dateStr: string): boolean {
+function _isHolidayThisMonth(dateStr: string): boolean {
   const now = new Date();
   const d = new Date(dateStr + 'T00:00:00');
   return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
@@ -229,19 +225,13 @@ function NetWorthPopover({
 export default function MainFooter() {
   // Holiday moved to AppBar
   const [injectAmount, setInjectAmount] = useState('');
-  const [injectOpen, setInjectOpen] = useState(false);
+  const [_injectOpen, setInjectOpen] = useState(false);
 
   // ─── Global Capital Context (single source of truth) ────────
-  const { capital, stateData, allDays, inject: ctxInject, injectPending } = useCapital() as any;
-
-  // ─── Other tRPC Queries (not capital) ───────────────────────
-  const disciplineQuery = trpc.discipline.getDashboard.useQuery(undefined, {
-    refetchInterval: 30000,
-    retry: 1,
-  });
+  const { capital, stateData, allDays, inject: ctxInject, injectPending: _injectPending } = useCapital() as any;
 
   // ─── Capital Data (from global context) ─────────────────────
-  const capitalData = stateData as any;
+  const _capitalData = stateData as any;
   const tradingPool = capital.tradingPool;
   const reservePool = capital.reservePool;
   const netWorth = capital.netWorth;
@@ -253,7 +243,7 @@ export default function MainFooter() {
     : '0.0';
 
   // Day 250 progress
-  const dayProgress = (currentDay / 250) * 100;
+  const _dayProgress = (currentDay / 250) * 100;
 
   // Monthly P&L (profit only, excludes injected funds) computed from day records
   const now = new Date();
@@ -291,34 +281,17 @@ export default function MainFooter() {
     : '0.0';
 
   // Pool percentages
-  const tradingPoolPct = netWorth > 0 ? ((tradingPool / netWorth) * 100).toFixed(1) : '0.0';
-  const reservePoolPct = netWorth > 0 ? ((reservePool / netWorth) * 100).toFixed(1) : '0.0';
+  const _tradingPoolPct = netWorth > 0 ? ((tradingPool / netWorth) * 100).toFixed(1) : '0.0';
+  const _reservePoolPct = netWorth > 0 ? ((reservePool / netWorth) * 100).toFixed(1) : '0.0';
 
-  // ─── Discipline Data ────────────────────────────────────────
-  const disciplineData = disciplineQuery.data as any;
-  const scoreObj = disciplineData?.score;
-  const disciplineScore = typeof scoreObj === 'object' && scoreObj !== null ? (scoreObj as any).score ?? 100 : scoreObj ?? 100;
-  const scoreColor = disciplineScore >= 80 ? 'text-info-cyan' : disciplineScore >= 60 ? 'text-warning-amber' : 'text-loss-red';
-  const breakdown = (typeof disciplineData?.score === 'object' ? (disciplineData.score as any).breakdown : disciplineData?.breakdown) ?? {
-    circuitBreaker: 20,
-    tradeLimits: 15,
-    cooldowns: 15,
-    timeWindows: 10,
-    positionSizing: 15,
-    journal: 10,
-    preTradeGate: 15,
-  };
+  // H6 — discipline score + breakdown previously fetched here (and
+  // never displayed; the live discipline UI lives in the AppBar
+  // Indicators component now). Whole block dropped.
 
   const fmt = (n: number) => formatINR(n);
 
   // ─── Quarterly Projections (from global context) ────────────
-  const allQuarters = (capital.allQuarterlyProjections ?? []) as Array<{
-    quarterLabel: string;
-    projectedCapital: number;
-    deviation: number;
-    isCurrent: boolean;
-    isPast: boolean;
-  }>;
+  // (was `_allQuarters` — orphan dead var dropped in H6.)
 
   // ─── Projected Milestones ──────────────────────────────────
   const milestones = useMemo(() => {
@@ -335,10 +308,10 @@ export default function MainFooter() {
   }, [targetPercent, initialFunding]);
 
   // Find current milestone range
-  const currentMilestone = milestones.find(m => m.day >= currentDay) ?? milestones[milestones.length - 1];
-  const prevMilestone = milestones.filter(m => m.day < currentDay).pop();
+  const _currentMilestone = milestones.find(m => m.day >= currentDay) ?? milestones[milestones.length - 1];
+  const _prevMilestone = milestones.filter(m => m.day < currentDay).pop();
 
-  const handleInject = () => {
+  const _handleInject = () => {
     const amount = parseFloat(injectAmount);
     if (isNaN(amount) || amount <= 0) return;
     ctxInject(amount);

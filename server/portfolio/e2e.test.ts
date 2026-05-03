@@ -9,7 +9,7 @@
  *
  * All DB calls are mocked via vi.mock.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MockAdapter } from "../broker/adapters/mock";
 import { tickBus } from "../broker/tickBus";
 import { tickMatchesTrade } from "./tickHandler";
@@ -18,10 +18,9 @@ import {
   recalculateDayAggregates,
   calculateAvailableCapital,
   calculatePositionSize,
-  initializeCapital,
 } from "./compounding";
 import { calculateTradeCharges } from "./charges";
-import type { TradeRecord, DayRecord } from "./state";
+import type { TradeRecord } from "./state";
 import type { TickData, OrderParams } from "../broker/types";
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -44,6 +43,7 @@ function makeTrade(overrides?: Partial<TradeRecord>): TradeRecord {
     status: "OPEN",
     targetPrice: 157.5, // +5%
     stopLossPrice: 147,  // -2%
+    brokerOrderId: null,
     brokerId: null,
     openedAt: Date.now(),
     closedAt: null,
@@ -131,10 +131,10 @@ describe("E2E: Full Trading Loop", () => {
       expect(exit.orderId).not.toBe(entry.orderId);
     });
 
-    it("stores brokerId in trade record after placement", async () => {
+    it("stores brokerOrderId in trade record after placement", async () => {
       const result = await adapter.placeOrder(sampleOrder());
-      const trade = makeTrade({ brokerId: result.orderId });
-      expect(trade.brokerId).toBe(result.orderId);
+      const trade = makeTrade({ brokerOrderId: result.orderId });
+      expect(trade.brokerOrderId).toBe(result.orderId);
     });
   });
 
@@ -391,7 +391,7 @@ describe("E2E: Full Trading Loop", () => {
 
       // Step 2: Create trade record (as portfolioRouter would)
       const trade = makeTrade({
-        brokerId: orderResult.orderId,
+        brokerOrderId: orderResult.orderId,
         entryPrice: 150,
         targetPrice: 157.5,
         stopLossPrice: 147,
@@ -432,12 +432,14 @@ describe("E2E: Full Trading Loop", () => {
       trade.pnl = Math.round((grossPnl - charges.total) * 100) / 100;
       trade.charges = charges.total;
       trade.unrealizedPnl = 0;
-      trade.status = "CLOSED_TP";
+      trade.status = "CLOSED";
+      trade.exitReason = "TP_HIT";
       trade.closedAt = Date.now();
 
       // Step 7: Verify final state
       const updated2 = recalculateDayAggregates(day);
-      expect(updated2.trades[0].status).toBe("CLOSED_TP");
+      expect(updated2.trades[0].status).toBe("CLOSED");
+      expect(updated2.trades[0].exitReason).toBe("TP_HIT");
       expect(updated2.trades[0].exitPrice).toBe(158);
       expect(updated2.trades[0].pnl).toBe(trade.pnl);
       expect(updated2.trades[0].unrealizedPnl).toBe(0);
@@ -449,7 +451,7 @@ describe("E2E: Full Trading Loop", () => {
     it("simulates SL exit lifecycle", async () => {
       const orderResult = await adapter.placeOrder(sampleOrder());
       const trade = makeTrade({
-        brokerId: orderResult.orderId,
+        brokerOrderId: orderResult.orderId,
         entryPrice: 150,
         targetPrice: 157.5,
         stopLossPrice: 147,
@@ -471,11 +473,13 @@ describe("E2E: Full Trading Loop", () => {
       trade.exitPrice = 146;
       trade.pnl = grossPnl;
       trade.unrealizedPnl = 0;
-      trade.status = "CLOSED_SL";
+      trade.status = "CLOSED";
+      trade.exitReason = "SL_HIT";
       trade.closedAt = Date.now();
 
       const updated = recalculateDayAggregates(day);
-      expect(updated.trades[0].status).toBe("CLOSED_SL");
+      expect(updated.trades[0].status).toBe("CLOSED");
+      expect(updated.trades[0].exitReason).toBe("SL_HIT");
       expect(updated.trades[0].pnl).toBe(-200);
       expect(updated.totalPnl).toBe(-200);
     });

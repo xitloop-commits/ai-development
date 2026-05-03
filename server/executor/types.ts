@@ -113,6 +113,9 @@ export interface ModifyOrderResponse {
 
 // ─── §4.3 Exit Trade ────────────────────────────────────────────
 
+// C3: ExitTradeReason aliases shared.ExitReasonCode so DA→RCA→TEA pass
+// the same value through the pipeline without per-hop re-typing. The
+// literal-union members must stay in sync with shared/exitContracts.ts.
 export type ExitTradeReason =
   | "MOMENTUM_EXIT"
   | "VOLATILITY_EXIT"
@@ -168,7 +171,7 @@ export interface ExitTradeResponse {
 export interface RecordAutoExitRequest {
   channel: Channel;
   tradeId: string;
-  reason: "TP" | "SL";
+  reason: "TP_HIT" | "SL_HIT";
   exitPrice: number;
   /** Always "PA" for tickHandler-driven auto-exits. */
   triggeredBy: Extract<ExitTriggeredBy, "PA">;

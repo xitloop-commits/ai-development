@@ -12,44 +12,55 @@ import time
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
 import pytest
 
-from tick_feature_agent.chain_cache import ChainCache
 from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
-from tick_feature_agent.feed.chain_poller import ChainSnapshot
+from tick_feature_agent.chain_cache import ChainCache
 from tick_feature_agent.features.decay import DecayState
-
+from tick_feature_agent.feed.chain_poller import ChainSnapshot
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _nan(v) -> bool:
     return isinstance(v, float) and math.isnan(v)
 
 
 def _opt_tick(ltp: float, ts: float = 1000.0) -> OptionTick:
-    return OptionTick(timestamp=ts, ltp=ltp, bid=ltp-1, ask=ltp+1,
-                      bid_size=10, ask_size=10, volume=100)
+    return OptionTick(
+        timestamp=ts, ltp=ltp, bid=ltp - 1, ask=ltp + 1, bid_size=10, ask_size=10, volume=100
+    )
 
 
-def _row(strike: int, call_vol: float = 100.0, put_vol: float = 100.0,
-         call_oi: float = 1000.0, put_oi: float = 1000.0) -> dict:
+def _row(
+    strike: int,
+    call_vol: float = 100.0,
+    put_vol: float = 100.0,
+    call_oi: float = 1000.0,
+    put_oi: float = 1000.0,
+) -> dict:
     return {
-        "strike":         strike,
-        "callOI":         call_oi,    "putOI":        put_oi,
-        "callOIChange":   10.0,       "putOIChange":  10.0,
-        "callVolume":     call_vol,   "putVolume":    put_vol,
+        "strike": strike,
+        "callOI": call_oi,
+        "putOI": put_oi,
+        "callOIChange": 10.0,
+        "putOIChange": 10.0,
+        "callVolume": call_vol,
+        "putVolume": put_vol,
         "callSecurityId": str(strike * 2),
-        "putSecurityId":  str(strike * 2 + 1),
-        "callLTP": 100.0, "putLTP": 100.0,
+        "putSecurityId": str(strike * 2 + 1),
+        "callLTP": 100.0,
+        "putLTP": 100.0,
     }
 
 
-def _make_snapshot(spot: float = 24100.0, strikes: list[int] | None = None,
-                   ts_sec: float | None = None) -> ChainSnapshot:
+def _make_snapshot(
+    spot: float = 24100.0, strikes: list[int] | None = None, ts_sec: float | None = None
+) -> ChainSnapshot:
     if ts_sec is None:
         ts_sec = time.time()
     if strikes is None:
@@ -58,8 +69,12 @@ def _make_snapshot(spot: float = 24100.0, strikes: list[int] | None = None,
     sec_id_map = {str(r["callSecurityId"]): (int(r["strike"]), "CE") for r in rows}
     sec_id_map.update({str(r["putSecurityId"]): (int(r["strike"]), "PE") for r in rows})
     return ChainSnapshot(
-        spot_price=spot, expiry="2026-04-24",
-        timestamp_sec=ts_sec, rows=rows, strike_step=50, sec_id_map=sec_id_map,
+        spot_price=spot,
+        expiry="2026-04-24",
+        timestamp_sec=ts_sec,
+        rows=rows,
+        strike_step=50,
+        sec_id_map=sec_id_map,
     )
 
 
@@ -73,9 +88,13 @@ def _cache_one_snapshot(spot: float = 24100.0) -> ChainCache:
     return c
 
 
-def _cache_two_snapshots(spot: float = 24100.0,
-                         call_vol1: float = 50.0, put_vol1: float = 50.0,
-                         call_vol2: float = 80.0, put_vol2: float = 70.0) -> ChainCache:
+def _cache_two_snapshots(
+    spot: float = 24100.0,
+    call_vol1: float = 50.0,
+    put_vol1: float = 50.0,
+    call_vol2: float = 80.0,
+    put_vol2: float = 70.0,
+) -> ChainCache:
     """Cache with 2 snapshots; vol diff = vol2 - vol1 per ATM strike."""
     strikes = list(range(23800, 24500, 50))
     snap1_rows = [_row(s, call_vol=call_vol1, put_vol=put_vol1) for s in strikes]
@@ -85,8 +104,12 @@ def _cache_two_snapshots(spot: float = 24100.0,
         sec_id_map = {str(r["callSecurityId"]): (int(r["strike"]), "CE") for r in rows}
         sec_id_map.update({str(r["putSecurityId"]): (int(r["strike"]), "PE") for r in rows})
         return ChainSnapshot(
-            spot_price=spot, expiry="2026-04-24",
-            timestamp_sec=ts, rows=rows, strike_step=50, sec_id_map=sec_id_map,
+            spot_price=spot,
+            expiry="2026-04-24",
+            timestamp_sec=ts,
+            rows=rows,
+            strike_step=50,
+            sec_id_map=sec_id_map,
         )
 
     c = ChainCache()
@@ -104,6 +127,7 @@ def _empty_opt_features() -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestDecayFeatureKeys:
 
@@ -253,8 +277,7 @@ class TestVolumeDrought:
         # put_vol_diff_atm  = sum(70-50 for 7 strikes) = 7*20 = 140
         # volume_drought_atm = (210 + 140) / 2 = 175
         d = DecayState()
-        cache = _cache_two_snapshots(call_vol1=50, put_vol1=50,
-                                     call_vol2=80, put_vol2=70)
+        cache = _cache_two_snapshots(call_vol1=50, put_vol1=50, call_vol2=80, put_vol2=70)
         out = d.compute(OptionBufferStore(), {}, cache, ATM_WINDOW)
         assert out["volume_drought_atm"] == pytest.approx(175.0)
 
@@ -309,7 +332,7 @@ class TestDeadMarketScore:
     def test_nan_if_volume_drought_nan(self):
         """Even at tick 100+, dead_market_score is NaN if vol_drought is NaN."""
         d = DecayState()
-        cache_no_vol = _cache_one_snapshot()   # only 1 snapshot → vol_drought=NaN
+        cache_no_vol = _cache_one_snapshot()  # only 1 snapshot → vol_drought=NaN
         for _ in range(100):
             out = d.compute(OptionBufferStore(), {}, cache_no_vol, ATM_WINDOW)
         assert _nan(out["dead_market_score"])

@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
@@ -27,12 +27,28 @@ from tick_feature_agent.features.underlying import compute_underlying_features
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _EXPECTED_KEYS = {
-    "ltp", "bid", "ask", "spread",
-    "return_5ticks", "return_10ticks", "return_20ticks", "return_50ticks",
-    "momentum", "velocity",
-    "tick_up_count_10", "tick_down_count_10", "tick_flat_count_10", "tick_imbalance_10",
-    "tick_up_count_20", "tick_down_count_20", "tick_flat_count_20", "tick_imbalance_20",
-    "tick_up_count_50", "tick_down_count_50", "tick_flat_count_50", "tick_imbalance_50",
+    "ltp",
+    "bid",
+    "ask",
+    "spread",
+    "return_5ticks",
+    "return_10ticks",
+    "return_20ticks",
+    "return_50ticks",
+    "momentum",
+    "velocity",
+    "tick_up_count_10",
+    "tick_down_count_10",
+    "tick_flat_count_10",
+    "tick_imbalance_10",
+    "tick_up_count_20",
+    "tick_down_count_20",
+    "tick_flat_count_20",
+    "tick_imbalance_20",
+    "tick_up_count_50",
+    "tick_down_count_50",
+    "tick_flat_count_50",
+    "tick_imbalance_50",
 }
 
 
@@ -54,6 +70,7 @@ def _nan(v) -> bool:
 
 # ── TestFeatureKeys ───────────────────────────────────────────────────────────
 
+
 class TestFeatureKeys:
     def test_exactly_22_keys_on_empty_buffer(self):
         result = compute_underlying_features(CircularBuffer(maxlen=50))
@@ -69,6 +86,7 @@ class TestFeatureKeys:
 
 # ── TestEmptyBuffer ───────────────────────────────────────────────────────────
 
+
 class TestEmptyBuffer:
     def test_all_nan_on_empty(self):
         result = compute_underlying_features(CircularBuffer(maxlen=50))
@@ -77,6 +95,7 @@ class TestEmptyBuffer:
 
 
 # ── TestInstantFeatures ───────────────────────────────────────────────────────
+
 
 class TestInstantFeatures:
     """ltp, bid, ask, spread are always available from the first tick."""
@@ -104,11 +123,12 @@ class TestInstantFeatures:
 
 # ── TestReturnNticks ──────────────────────────────────────────────────────────
 
+
 class TestReturnNticks:
     """return_Nticks = (ltp - ltp[-N]) / ltp[-N], NaN if buffer has < N ticks."""
 
     def test_return_5ticks_nan_at_4_ticks(self):
-        result = compute_underlying_features(_buf(*range(1, 5)))   # 4 ticks
+        result = compute_underlying_features(_buf(*range(1, 5)))  # 4 ticks
         assert _nan(result["return_5ticks"])
 
     def test_return_5ticks_available_at_5_ticks(self):
@@ -132,7 +152,7 @@ class TestReturnNticks:
         assert _nan(result["return_20ticks"])
 
     def test_return_20ticks_available_at_20_ticks(self):
-        prices = [100.0 + i for i in range(20)]   # 100..119
+        prices = [100.0 + i for i in range(20)]  # 100..119
         result = compute_underlying_features(_buf(*prices))
         assert not _nan(result["return_20ticks"])
         assert result["return_20ticks"] == pytest.approx((119.0 - 100.0) / 100.0)
@@ -142,14 +162,14 @@ class TestReturnNticks:
         assert _nan(result["return_50ticks"])
 
     def test_return_50ticks_available_at_50_ticks(self):
-        prices = [100.0 + i for i in range(50)]   # 100..149
+        prices = [100.0 + i for i in range(50)]  # 100..149
         result = compute_underlying_features(_buf(*prices))
         assert not _nan(result["return_50ticks"])
         assert result["return_50ticks"] == pytest.approx((149.0 - 100.0) / 100.0)
 
     def test_return_5ticks_still_present_beyond_5(self):
         # Confirm it uses the correct window anchor beyond 5 ticks
-        prices = [100.0 + i for i in range(10)]   # 100..109; ltp=109, ref_5=105
+        prices = [100.0 + i for i in range(10)]  # 100..109; ltp=109, ref_5=105
         result = compute_underlying_features(_buf(*prices))
         assert result["return_5ticks"] == pytest.approx((109.0 - 105.0) / 105.0)
 
@@ -169,6 +189,7 @@ class TestReturnNticks:
 
 
 # ── TestMomentum ──────────────────────────────────────────────────────────────
+
 
 class TestMomentum:
     """momentum = (ltp - ltp[-2]) / ltp[-2], NaN if < 2 ticks."""
@@ -204,6 +225,7 @@ class TestMomentum:
 
 
 # ── TestVelocity ──────────────────────────────────────────────────────────────
+
 
 class TestVelocity:
     """velocity = curr_momentum - prev_momentum, NaN if < 3 ticks."""
@@ -248,6 +270,7 @@ class TestVelocity:
 
 
 # ── TestTickCounts ────────────────────────────────────────────────────────────
+
 
 class TestTickCounts:
     """tick counts and tick_imbalance for windows 10/20/50."""
@@ -310,7 +333,9 @@ class TestTickCounts:
     def test_sum_of_counts_equals_n_minus_1(self):
         prices = [100.0 + (i % 3) for i in range(10)]
         result = compute_underlying_features(_buf(*prices))
-        total = result["tick_up_count_10"] + result["tick_down_count_10"] + result["tick_flat_count_10"]
+        total = (
+            result["tick_up_count_10"] + result["tick_down_count_10"] + result["tick_flat_count_10"]
+        )
         assert total == pytest.approx(9.0)  # 10 ticks → 9 comparisons
 
     def test_window_uses_last_n_ticks(self):
@@ -336,6 +361,7 @@ class TestTickCounts:
 
 
 # ── TestTickImbalance ─────────────────────────────────────────────────────────
+
 
 class TestTickImbalance:
     """tick_imbalance_N = (up - down) / (N - 1), range [-1, +1]."""
@@ -377,17 +403,18 @@ class TestTickImbalance:
         assert result["tick_imbalance_10"] == pytest.approx((4 - 3) / (4 + 3))
 
     def test_imbalance_20_formula(self):
-        prices = [100.0 + i for i in range(20)]   # 19 up, 0 down
+        prices = [100.0 + i for i in range(20)]  # 19 up, 0 down
         result = compute_underlying_features(_buf(*prices))
         assert result["tick_imbalance_20"] == pytest.approx(19.0 / 19.0)
 
     def test_imbalance_50_formula(self):
-        prices = [100.0 - i for i in range(50)]   # 49 down, 0 up
+        prices = [100.0 - i for i in range(50)]  # 49 down, 0 up
         result = compute_underlying_features(_buf(*prices))
         assert result["tick_imbalance_50"] == pytest.approx(-49.0 / 49.0)
 
 
 # ── TestNaNPropagation ────────────────────────────────────────────────────────
+
 
 class TestNaNPropagation:
     """Confirm NaN is exactly float('nan') (not None, not 0)."""

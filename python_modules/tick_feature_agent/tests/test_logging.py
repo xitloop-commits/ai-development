@@ -48,6 +48,7 @@ def reset_state():
 
 # ── setup_logging / idempotency ───────────────────────────────────────────────
 
+
 def test_setup_creates_log_files(tmp_path):
     _mod.setup_logging("NIFTY", log_dir=str(tmp_path), level=_mod.INFO)
     assert _mod._initialized is True
@@ -68,6 +69,7 @@ def test_setup_idempotent(tmp_path):
 
 # ── get_logger registry ───────────────────────────────────────────────────────
 
+
 def test_get_logger_returns_same_instance(tmp_path):
     _mod.setup_logging("BANKNIFTY", log_dir=str(tmp_path))
     a = _mod.get_logger("mod.a", instrument="BANKNIFTY")
@@ -85,6 +87,7 @@ def test_get_logger_different_names_are_different(tmp_path):
 
 
 # ── JSON output format ────────────────────────────────────────────────────────
+
 
 def test_info_emits_valid_json(tmp_path):
     _mod.setup_logging("NIFTY", log_dir=str(tmp_path), level=_mod.DEBUG)
@@ -145,6 +148,7 @@ def test_debug_appears_at_debug_level(tmp_path):
 
 # ── error() calls sys.exit(1) ─────────────────────────────────────────────────
 
+
 def test_error_exits(tmp_path):
     _mod.setup_logging("NIFTY", log_dir=str(tmp_path))
     log = _mod.get_logger("test.fatal", instrument="NIFTY")
@@ -154,6 +158,7 @@ def test_error_exits(tmp_path):
 
 
 # ── tick timing ───────────────────────────────────────────────────────────────
+
 
 def test_tick_start_done_go_to_perf_log(tmp_path):
     _mod.setup_logging("NIFTY", log_dir=str(tmp_path), level=_mod.DEBUG)
@@ -191,11 +196,22 @@ def test_tick_done_elapsed_computed_automatically(tmp_path):
 def test_tick_done_with_explicit_elapsed(tmp_path):
     _mod.setup_logging("NIFTY", log_dir=str(tmp_path), level=_mod.DEBUG)
     log = _mod.get_logger("test.explicit", instrument="NIFTY")
-    log.tick_start(tick_seq=7, tick_ts="2026-04-11T09:15:01.000+05:30", feed="option",
-                   strike=21800, opt_type="CE")
-    log.tick_done(tick_seq=7, elapsed_us=487.3, phase_buffer_us=2.1,
-                  phase_features_us=84.5, phase_assemble_us=98.2,
-                  phase_serialize_us=291.4, phase_emit_us=11.1)
+    log.tick_start(
+        tick_seq=7,
+        tick_ts="2026-04-11T09:15:01.000+05:30",
+        feed="option",
+        strike=21800,
+        opt_type="CE",
+    )
+    log.tick_done(
+        tick_seq=7,
+        elapsed_us=487.3,
+        phase_buffer_us=2.1,
+        phase_features_us=84.5,
+        phase_assemble_us=98.2,
+        phase_serialize_us=291.4,
+        phase_emit_us=11.1,
+    )
     _mod.shutdown_logging()
 
     perf_files = list(tmp_path.glob("tfa_perf_NIFTY_*.log"))
@@ -212,6 +228,7 @@ def test_tick_done_with_explicit_elapsed(tmp_path):
 
 
 # ── perf tracker ─────────────────────────────────────────────────────────────
+
 
 def test_perf_tracker_fires_callback_on_budget_exceeded(tmp_path):
     _mod.setup_logging("NIFTY", log_dir=str(tmp_path), level=_mod.DEBUG)
@@ -248,6 +265,7 @@ def test_perf_tracker_no_callback_below_budget(tmp_path):
 
 
 # ── instrument setter ─────────────────────────────────────────────────────────
+
 
 def test_instrument_setter(tmp_path):
     _mod.setup_logging("NIFTY", log_dir=str(tmp_path))

@@ -191,7 +191,7 @@ function getVisibleMarkerIndices(
   // Clamp to valid range
   startIdx = Math.max(0, Math.min(startIdx, allMarkers.length - visibleCount));
 
-  let endIdx = startIdx + visibleCount;
+  const endIdx = startIdx + visibleCount;
 
   return { start: startIdx, end: endIdx };
 }
@@ -200,7 +200,7 @@ function getVisibleMarkerIndices(
  * Map P&L % to bar position (0-100).
  * Linear scaling from leftEdge to rightEdge.
  */
-function pctToBar(
+function _pctToBar(
   pct: number,
   leftEdge: number,
   target: number,
@@ -226,7 +226,7 @@ function _TodayPnlBar({
   const cfg = config ?? DEFAULT_BAR_CONFIG;
   const currentPct = tradingPool > 0 ? (pnl / tradingPool) * 100 : 0;
   const leftEdge = cfg.circuitBreaker ?? cfg.lossCap;
-  const barRightEdge = cfg.giftMax + 200;  // Fixed right boundary matching generateAllMarkers
+  const _barRightEdge = cfg.giftMax + 200;  // Fixed right boundary matching generateAllMarkers
   const kingMax = cfg.giftMax + 200;       // For accessibility (aria-valuemax)
 
   // Track previous window start index for sticky behavior
@@ -362,9 +362,9 @@ function _TodayPnlBar({
           const isVisible = isMarkerVisible(idx);
           const barPos = getMarkerBarPosition(idx);
 
-          // Color by zone - gradient from light to dark, black for zero
+          // Color by zone - gradient from light to dark, white for zero
           const getLabelColor = () => {
-            if (marker.pct === 0) return "#000000";  // black for zero
+            if (marker.pct === 0) return "#ffffff";  // white for zero
             switch (marker.zone) {
               case "heavyLoss":
                 return "#7f1d1d";  // dark red
@@ -474,10 +474,10 @@ function _TodayPnlBar({
           const isVisible = isMarkerVisible(idx);
           const barPos = getMarkerBarPosition(idx);
 
-          // Color based on zone - gradient from light to dark, black for zero
+          // Color based on zone - gradient from light to dark, white for zero
           const getMarkerColor = () => {
             if (marker.pct === 0) {
-              return isVisible ? "#000000" : "#00000040";  // black for zero
+              return isVisible ? "#ffffff" : "#ffffff40";  // white for zero
             }
             switch (marker.zone) {
               case "heavyLoss":
@@ -522,7 +522,7 @@ function _TodayPnlBar({
           <div
             className="w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent"
             style={{
-              borderTopColor: currentPct === 0 ? "#000000" : (markerIsPositive ? "#22c55e" : "#dc2626"),
+              borderTopColor: currentPct === 0 ? "#ffffff" : (markerIsPositive ? "#22c55e" : "#dc2626"),
             }}
           />
         </div>
@@ -572,9 +572,9 @@ function _TodayPnlBar({
           const isVisible = isMarkerVisible(idx);
           const barPos = getMarkerBarPosition(idx);
 
-          // Color by zone - same gradient as value labels, black for zero
+          // Color by zone - same gradient as value labels, white for zero
           const getPercentColor = () => {
-            if (marker.pct === 0) return "#000000";  // black for zero
+            if (marker.pct === 0) return "#ffffff";  // white for zero
             switch (marker.zone) {
               case "heavyLoss":
                 return "#7f1d1d";  // dark red

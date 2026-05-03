@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_PKG  = _HERE.parent.parent
+_PKG = _HERE.parent.parent
 if str(_PKG) not in sys.path:
     sys.path.insert(0, str(_PKG))
 
@@ -20,17 +20,17 @@ import pytest
 from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
 from tick_feature_agent.features.regime import compute_regime_features
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _NAN = float("nan")
+
 
 def _nan(v) -> bool:
     return isinstance(v, float) and math.isnan(v)
 
 
 def _tick(ltp: float, ts: float = 1000.0) -> UnderlyingTick:
-    return UnderlyingTick(timestamp=ts, ltp=ltp, bid=ltp-1, ask=ltp+1, volume=1000)
+    return UnderlyingTick(timestamp=ts, ltp=ltp, bid=ltp - 1, ask=ltp + 1, volume=1000)
 
 
 def _buf_with_prices(prices: list[float]) -> CircularBuffer:
@@ -48,9 +48,17 @@ def _full_buf(base: float = 24100.0, n: int = 20, drift: float = 0.0) -> Circula
 
 # ── Default inputs that produce each regime ───────────────────────────────────
 
-def _call(buf, vol_comp=0.1, imb=0.1, active=4,
-          vol_diff_avail=True, state="TRADING",
-          drought=_NAN, thresholds=None):
+
+def _call(
+    buf,
+    vol_comp=0.1,
+    imb=0.1,
+    active=4,
+    vol_diff_avail=True,
+    state="TRADING",
+    drought=_NAN,
+    thresholds=None,
+):
     return compute_regime_features(
         buffer=buf,
         volatility_compression=vol_comp,
@@ -64,6 +72,7 @@ def _call(buf, vol_comp=0.1, imb=0.1, active=4,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestRegimeFeatureKeys:
 
@@ -152,7 +161,7 @@ class TestTrendRegime:
     def test_trend_when_all_signals_high(self):
         """All signals above trend thresholds → TREND."""
         # Default thresholds: vol_min=0.8, imb_min=0.3, mom_min=0.5, act_min=0.5
-        buf = _full_buf(drift=100.0, n=20)   # large drift → high s_momentum
+        buf = _full_buf(drift=100.0, n=20)  # large drift → high s_momentum
         out = _call(buf, vol_comp=0.85, imb=0.4, active=4)
         assert out["regime"] == "TREND"
 
@@ -164,7 +173,7 @@ class TestTrendRegime:
             assert out["regime_confidence"] <= 1.0
 
     def test_not_trend_when_low_volatility(self):
-        buf = _full_buf(n=20)   # flat prices
+        buf = _full_buf(n=20)  # flat prices
         out = _call(buf, vol_comp=0.3, imb=0.5, active=4)
         assert out["regime"] != "TREND"
 
@@ -174,7 +183,7 @@ class TestRangeRegime:
     def test_range_when_low_vol_low_imbalance_sufficient_activity(self):
         """Low vol + low imbalance + adequate activity → RANGE."""
         # vol < 0.5, imb < 0.3, activity > 0.25
-        buf = _full_buf(n=20)   # flat → s_momentum ≈ 0
+        buf = _full_buf(n=20)  # flat → s_momentum ≈ 0
         out = _call(buf, vol_comp=0.2, imb=0.1, active=4)
         assert out["regime"] == "RANGE"
 
