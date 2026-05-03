@@ -57,8 +57,11 @@ export function msToNextIstHHmm(hhmm: string, now: Date = new Date()): number {
 
 async function scheduleNext(userId: string, exchange: Exchange, handler: EvalHandler): Promise<void> {
   const settings = await getDisciplineSettings(userId);
-  if (!settings.capitalProtection.carryForward.enabled) {
-    log.info(`Carry-forward DISABLED — not scheduling ${exchange} eval`);
+  // Tolerate legacy settings docs that pre-date `capitalProtection`. Treat
+  // a missing block as "carry-forward disabled" rather than crashing —
+  // the operator can opt in by populating the field via Settings UI.
+  if (!settings.capitalProtection?.carryForward?.enabled) {
+    log.info(`Carry-forward not configured or disabled — not scheduling ${exchange} eval`);
     return;
   }
   const hhmm = getCarryForwardEvalTime(settings, exchange);

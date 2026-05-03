@@ -152,7 +152,7 @@ async function startServer() {
       registerShutdownHook("riskControl", () => rcaMonitor.stop(), 100);
     })
     .catch((err) =>
-      bootLog.error(`MongoDB initial connection failed: ${(err as Error)?.message ?? err}`)
+      bootLog.error(`Boot init failed (post-MongoDB connect): ${(err as Error)?.message ?? err}`)
     );
   // Correlation ID — assign one requestId per HTTP request and propagate
   // it through the async tree so every log line emitted while serving the

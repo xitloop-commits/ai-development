@@ -76,7 +76,9 @@ const root: PinoLogger = pino({
             colorize: true,
             translateTime: "SYS:HH:MM:ss.l",
             messageFormat: "({agent}:{module}) {msg}",
-            ignore: "pid,hostname",
+            // agent + module are already rendered in messageFormat; suppress
+            // the data-field dump below each line so each log entry is one row.
+            ignore: "pid,hostname,agent,module",
           },
         },
       }
