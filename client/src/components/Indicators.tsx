@@ -370,17 +370,27 @@ function DisciplineIndicator() {
     retry: 1,
   });
   const data = disciplineQuery.data as any;
+  const hasData = !!data;
   const scoreObj = data?.score;
-  const score = typeof scoreObj === 'object' && scoreObj !== null
-    ? (scoreObj as any).score ?? 100
-    : (scoreObj ?? 100);
-  const scoreColor = score >= 80 ? 'text-info-cyan'
-    : score >= 60 ? 'text-warning-amber'
-    : 'text-loss-red';
-  const breakdown = (typeof data?.score === 'object' ? (data.score as any).breakdown : data?.breakdown) ?? {
-    circuitBreaker: 20, tradeLimits: 15, cooldowns: 15, timeWindows: 10,
-    positionSizing: 15, journal: 10, preTradeGate: 15,
-  };
+  // H6 — no fake-100-fallback while loading. `--` means "real number
+  // not yet known"; a fabricated 100 looked indistinguishable from a
+  // real perfect score.
+  const score: number | null = !hasData
+    ? null
+    : typeof scoreObj === 'object' && scoreObj !== null
+      ? (scoreObj as any).score ?? null
+      : (scoreObj ?? null);
+  const scoreColor = score === null
+    ? 'text-muted-foreground'
+    : score >= 80 ? 'text-info-cyan'
+      : score >= 60 ? 'text-warning-amber'
+        : 'text-loss-red';
+  // Breakdown only renders when real data exists. Pre-fix, this was a
+  // hardcoded `{ circuitBreaker: 20, tradeLimits: 15, ... }` fallback
+  // that displayed perfect-score numbers indistinguishable from real data.
+  const breakdown = hasData
+    ? (typeof data?.score === 'object' ? (data.score as any).breakdown : data?.breakdown) ?? null
+    : null;
 
   return (
     <Tooltip>
@@ -388,20 +398,28 @@ function DisciplineIndicator() {
         <div className="px-3 flex items-center gap-1 shrink-0 cursor-default">
           <Shield className={`h-3 w-3 ${scoreColor}`} />
           <span className={`text-[0.625rem] font-bold tabular-nums ${scoreColor}`}>
-            {score}
+            {score === null ? '--' : score}
           </span>
         </div>
       </TooltipTrigger>
       <TooltipContent side="bottom">
         <div className="text-[0.625rem] space-y-0.5 font-mono">
-          <div className={`font-bold mb-1 ${scoreColor}`}>Discipline: {score}/100</div>
-          <div className="text-muted-foreground">Circuit Breaker  {breakdown.circuitBreaker}/20</div>
-          <div className="text-muted-foreground">Trade Limits     {breakdown.tradeLimits}/15</div>
-          <div className="text-muted-foreground">Cooldowns        {breakdown.cooldowns}/15</div>
-          <div className="text-muted-foreground">Time Windows     {breakdown.timeWindows}/10</div>
-          <div className="text-muted-foreground">Position Sizing  {breakdown.positionSizing}/15</div>
-          <div className="text-muted-foreground">Journal          {breakdown.journal}/10</div>
-          <div className="text-muted-foreground">Pre-Trade Gate   {breakdown.preTradeGate}/15</div>
+          <div className={`font-bold mb-1 ${scoreColor}`}>
+            Discipline: {score === null ? '--' : `${score}/100`}
+          </div>
+          {breakdown ? (
+            <>
+              <div className="text-muted-foreground">Circuit Breaker  {breakdown.circuitBreaker ?? '--'}/20</div>
+              <div className="text-muted-foreground">Trade Limits     {breakdown.tradeLimits ?? '--'}/15</div>
+              <div className="text-muted-foreground">Cooldowns        {breakdown.cooldowns ?? '--'}/15</div>
+              <div className="text-muted-foreground">Time Windows     {breakdown.timeWindows ?? '--'}/10</div>
+              <div className="text-muted-foreground">Position Sizing  {breakdown.positionSizing ?? '--'}/15</div>
+              <div className="text-muted-foreground">Journal          {breakdown.journal ?? '--'}/10</div>
+              <div className="text-muted-foreground">Pre-Trade Gate   {breakdown.preTradeGate ?? '--'}/15</div>
+            </>
+          ) : (
+            <div className="text-muted-foreground/70">Loading discipline state…</div>
+          )}
         </div>
       </TooltipContent>
     </Tooltip>

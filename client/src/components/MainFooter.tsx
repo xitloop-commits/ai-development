@@ -20,7 +20,6 @@ import {
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { trpc } from '@/lib/trpc';
 import { useCapital } from '@/contexts/CapitalContext';
 import { formatINR } from '@/lib/formatINR';
 
@@ -231,12 +230,6 @@ export default function MainFooter() {
   // ─── Global Capital Context (single source of truth) ────────
   const { capital, stateData, allDays, inject: ctxInject, injectPending: _injectPending } = useCapital() as any;
 
-  // ─── Other tRPC Queries (not capital) ───────────────────────
-  const disciplineQuery = trpc.discipline.getDashboard.useQuery(undefined, {
-    refetchInterval: 30000,
-    retry: 1,
-  });
-
   // ─── Capital Data (from global context) ─────────────────────
   const _capitalData = stateData as any;
   const tradingPool = capital.tradingPool;
@@ -291,31 +284,14 @@ export default function MainFooter() {
   const _tradingPoolPct = netWorth > 0 ? ((tradingPool / netWorth) * 100).toFixed(1) : '0.0';
   const _reservePoolPct = netWorth > 0 ? ((reservePool / netWorth) * 100).toFixed(1) : '0.0';
 
-  // ─── Discipline Data ────────────────────────────────────────
-  const disciplineData = disciplineQuery.data as any;
-  const scoreObj = disciplineData?.score;
-  const disciplineScore = typeof scoreObj === 'object' && scoreObj !== null ? (scoreObj as any).score ?? 100 : scoreObj ?? 100;
-  const _scoreColor = disciplineScore >= 80 ? 'text-info-cyan' : disciplineScore >= 60 ? 'text-warning-amber' : 'text-loss-red';
-  const _breakdown = (typeof disciplineData?.score === 'object' ? (disciplineData.score as any).breakdown : disciplineData?.breakdown) ?? {
-    circuitBreaker: 20,
-    tradeLimits: 15,
-    cooldowns: 15,
-    timeWindows: 10,
-    positionSizing: 15,
-    journal: 10,
-    preTradeGate: 15,
-  };
+  // H6 — discipline score + breakdown previously fetched here (and
+  // never displayed; the live discipline UI lives in the AppBar
+  // Indicators component now). Whole block dropped.
 
   const fmt = (n: number) => formatINR(n);
 
   // ─── Quarterly Projections (from global context) ────────────
-  const _allQuarters = (capital.allQuarterlyProjections ?? []) as Array<{
-    quarterLabel: string;
-    projectedCapital: number;
-    deviation: number;
-    isCurrent: boolean;
-    isPast: boolean;
-  }>;
+  // (was `_allQuarters` — orphan dead var dropped in H6.)
 
   // ─── Projected Milestones ──────────────────────────────────
   const milestones = useMemo(() => {

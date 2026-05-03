@@ -17,6 +17,12 @@ const HeadToHeadPage = lazy(() => import("./pages/HeadToHeadPage"));
 function isTradingDeskMockupRoute() {
   if (typeof window === "undefined") return false;
 
+  // H6 — mockup pages are dev-only. In production builds, hitting
+  // ?mockup=… or /mockups/… redirects to "/" so the mockup tree never
+  // renders. Vite tree-shakes the lazy-import chunk too because the
+  // call to `<TradingDeskMockupPage />` is unreachable.
+  if (!import.meta.env.DEV) return false;
+
   const params = new URLSearchParams(window.location.search);
   return (
     params.get("mockup") === "trading-desk-current" ||
@@ -33,6 +39,21 @@ function isHeadToHeadRoute() {
 function App() {
   const showTradingDeskMockup = isTradingDeskMockupRoute();
   const showHeadToHead = isHeadToHeadRoute();
+
+  // H6 — in production, if a user lands on a mockup URL, redirect to
+  // home instead of silently rendering MainScreen at the wrong URL.
+  // Single replaceState so the mockup URL doesn't pollute history.
+  useEffect(() => {
+    if (import.meta.env.DEV) return;
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const isMockupUrl =
+      params.get("mockup") === "trading-desk-current" ||
+      window.location.pathname.startsWith("/mockups/");
+    if (isMockupUrl) {
+      window.history.replaceState({}, "", "/");
+    }
+  }, []);
 
   // Enter fullscreen on first user interaction
   useEffect(() => {

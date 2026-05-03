@@ -155,16 +155,10 @@ export default function MainScreen() {
   // surface and tradingStore.positions array were removed in B10.
   const positionsQuery: { data?: any[] } = { data: undefined };
 
-  // Lazy-loaded mock data (separate chunk). Stays null until the import
-  // resolves; consumers fall back to empty arrays in the interim.
-  const [mockData, setMockData] = useState<typeof import('@/lib/mockData') | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void import('@/lib/mockData').then((mod) => {
-      if (!cancelled) setMockData(mod);
-    });
-    return () => { cancelled = true; };
-  }, []);
+  // H6 — mockData lazy-load removed. Earlier (F3) this loaded the mock
+  // module via dynamic import as a tree-shaken chunk; H6 drops the
+  // last consumer (`allInstruments` fallback below) so even the
+  // dynamic-import code-path is gone in production builds.
 
   // ─── tRPC Mutations ────────────────────────────────────────────
   const utils = trpc.useUtils();
@@ -193,20 +187,24 @@ export default function MainScreen() {
     retry: 1,
   });
 
-  // ─── Data with Mock Fallbacks ──────────────────────────────────
-  const _modules = modulesQuery.data ?? mockData?.moduleStatuses ?? [];
-  // Configured instruments with hotkeys (for hotkey map)
+  // ─── Data (real-or-empty; no fake fallbacks) ───────────────────
+  // H6 — replaced mock-data fallbacks with `[]`. Pre-fix the UI showed
+  // 4 fabricated instruments / fake module statuses / fake open
+  // positions whenever a backend query was loading or failed; users
+  // couldn't tell those apart from real data. Now the empty state
+  // stays empty until real data arrives.
+  // Configured instruments with hotkeys — the hardcoded fallback is
+  // kept here on purpose: this is the bootstrap default for first-run
+  // before the user's preferences land. Not mock data; it's the
+  // shipped default config.
   const configuredInstruments = configuredInstrumentsQuery.data ?? [
     { key: 'NIFTY_50', displayName: 'NIFTY 50', exchange: 'NSE', hotkey: '1' },
     { key: 'BANKNIFTY', displayName: 'BANK NIFTY', exchange: 'NSE', hotkey: '2' },
     { key: 'CRUDEOIL', displayName: 'CRUDE OIL', exchange: 'MCX', hotkey: '3' },
     { key: 'NATURALGAS', displayName: 'NATURAL GAS', exchange: 'MCX', hotkey: '4' },
   ];
-  // Full instrument analysis data (for left sidebar display)
-  const allInstruments = instrumentAnalysisQuery.data
-    ?? (mockData ? [mockData.niftyData, mockData.bankNiftyData, mockData.crudeOilData, mockData.naturalGasData] : []);
+  const allInstruments = instrumentAnalysisQuery.data ?? [];
   const allSignals = signalsQuery.data ?? [];
-  const _allPositions = positionsQuery.data ?? mockData?.openPositions ?? [];
 
   // Discipline data with fallbacks
   const disciplineData = disciplineQuery.data as any;
