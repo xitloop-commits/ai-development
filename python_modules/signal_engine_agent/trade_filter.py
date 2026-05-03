@@ -110,13 +110,14 @@ class TradeFilter:
     def __init__(
         self,
         sustained_n: int = 5,
-        avg_prob_threshold: float = 0.65,
+        avg_prob_threshold: float = 0.70,
         min_prob_threshold: float = 0.55,
-        min_consensus_score: int = 4,
+        min_consensus_score: int = 5,
         min_upside_amount: float = 1.5,
         min_rr_ratio: float = 1.5,
         min_magnitude: float = 0.5,
-        cooldown_sec: float = 60.0,
+        cooldown_same_dir_sec: float = 300.0,
+        cooldown_flip_sec: float = 60.0,
     ):
         self.sustained_n = sustained_n
         self.avg_prob_threshold = avg_prob_threshold
@@ -125,13 +126,19 @@ class TradeFilter:
         self.min_upside_amount = min_upside_amount
         self.min_rr_ratio = min_rr_ratio
         self.min_magnitude = min_magnitude
-        self.cooldown_sec = cooldown_sec
+        # Two-tier cooldown: longer between same-direction trades (prevent
+        # rapid-fire pile-on), shorter on direction flips (let the system
+        # react to a real reversal without a 5-min freeze).
+        self.cooldown_same_dir_sec = cooldown_same_dir_sec
+        self.cooldown_flip_sec = cooldown_flip_sec
 
         # Internal state
         self._window: deque[TickDecision] = deque(maxlen=sustained_n)
         self._current_action: str = ""
         self._sustained_count: int = 0
         self._last_rec_ts: float = 0.0
+        # Tracked for cooldown-tier selection (same-dir vs flip), not as a
+        # block. Stage 4 (direction-flip block) was removed in P0.1.
         self._last_rec_direction: str = ""  # "BULLISH" or "BEARISH"
 
         # Stats
@@ -140,7 +147,6 @@ class TradeFilter:
         self.stage1_passed: int = 0
         self.stage2_passed: int = 0
         self.stage3_passed: int = 0
-        self.stage4_blocked: int = 0
         self.cooldown_blocked: int = 0
 
     def evaluate(self, tick: TickDecision) -> TradeRecommendation | None:
@@ -186,16 +192,13 @@ class TradeFilter:
             return None
         self.stage3_passed += 1
 
-        # ── Stage 4: Direction Change ────────────────────────────────
-        # Only emit when trade direction (BULLISH/BEARISH) changes
-        # from the last recommendation. Prevents repeated same-direction signals.
+        # ── Cooldown Gate (two-tier) ─────────────────────────────────
+        # Same-direction follow-ups are valuable (continuation trades)
+        # but should not pile on tick-by-tick. Direction flips can fire
+        # sooner — they represent a regime shift the system should be
+        # allowed to react to.
         tick_direction = _action_direction(tick.action)
-        if tick_direction == self._last_rec_direction:
-            self.stage4_blocked += 1
-            return None
-
-        # ── Cooldown Gate ────────────────────────────────────────────
-        if not self._check_cooldown(tick.timestamp):
+        if not self._check_cooldown(tick.timestamp, tick_direction):
             self.cooldown_blocked += 1
             return None
 
@@ -293,11 +296,24 @@ class TradeFilter:
         reasoning = f"score={score}/6: " + ", ".join(reasons)
         return passed, score, reasoning
 
-    def _check_cooldown(self, timestamp: float) -> bool:
-        """True if enough time since last recommendation."""
+    def _check_cooldown(self, timestamp: float, tick_direction: str) -> bool:
+        """
+        True if enough time has passed since the last emitted recommendation.
+
+        Two-tier:
+          * same direction (BULLISH→BULLISH, BEARISH→BEARISH) → cooldown_same_dir_sec
+          * opposite direction (flip) → cooldown_flip_sec
+          * first emission of session → no cooldown
+        """
         if self._last_rec_ts == 0.0:
             return True
-        return (timestamp - self._last_rec_ts) >= self.cooldown_sec
+        elapsed = timestamp - self._last_rec_ts
+        required = (
+            self.cooldown_same_dir_sec
+            if tick_direction == self._last_rec_direction
+            else self.cooldown_flip_sec
+        )
+        return elapsed >= required
 
     def reset(self) -> None:
         """Reset all state for a new session."""
@@ -311,7 +327,6 @@ class TradeFilter:
         self.stage1_passed = 0
         self.stage2_passed = 0
         self.stage3_passed = 0
-        self.stage4_blocked = 0
         self.cooldown_blocked = 0
 
     def stats(self) -> dict:
@@ -322,7 +337,6 @@ class TradeFilter:
             "stage1_passed": self.stage1_passed,
             "stage2_passed": self.stage2_passed,
             "stage3_passed": self.stage3_passed,
-            "stage4_blocked": self.stage4_blocked,
             "cooldown_blocked": self.cooldown_blocked,
             "pass_rate": round(self.total_passed / max(self.total_ticks, 1) * 100, 2),
         }
