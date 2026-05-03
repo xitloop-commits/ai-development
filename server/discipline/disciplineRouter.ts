@@ -29,7 +29,7 @@ import {
   getScoreHistory,
   DisciplineStateModel,
 } from "./disciplineModel";
-import { getISTDateString, type Exchange, type EmotionalState } from "./types";
+import { getISTDateString, type Exchange } from "./types";
 import { getTimelineSegments } from "./timeWindows";
 
 const DEFAULT_USER_ID = "1";

@@ -27,7 +27,7 @@ import {
   DEFAULT_TARGET_PERCENT,
   DEFAULT_INITIAL_FUNDING,
 } from "./compounding";
-import type { CapitalState, DayRecord, TradeRecord } from "./state";
+import type { CapitalState, TradeRecord } from "./state";
 
 // ─── Helpers ────────────────────────────────────────────────────
 

@@ -8,14 +8,12 @@
  * 5. Expiry Controls
  * 6. Charges
  */
-import { useState, useEffect, useMemo, createContext, useContext, useRef } from 'react';
+import { useState, useEffect, createContext, useContext, useRef } from 'react';
 import { trpc } from '@/lib/trpc';
 import { authHeaders } from '@/lib/internalAuth';
 import { useCapital } from '@/contexts/CapitalContext';
-import { Link } from 'wouter';
 import { toast } from 'sonner';
 import {
-  ArrowLeft,
   Settings as SettingsIcon,
   ShieldCheck,
   Clock,
@@ -24,13 +22,11 @@ import {
   Zap,
   Save,
   RotateCcw,
-  ChevronRight,
   AlertTriangle,
   Info,
   Loader2,
   Landmark,
   Layers,
-  Power,
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -63,7 +59,7 @@ interface SectionItem {
   description: string;
 }
 
-const SECTIONS: SectionItem[] = [
+const _SECTIONS: SectionItem[] = [
   { id: 'instruments', label: 'Instruments', icon: SettingsIcon, description: 'Configure tradable instruments' },
   { id: 'tradingMode', label: 'Trading Mode', icon: Layers, description: 'Workspace modes and per-workspace kill switches' },
   { id: 'execution', label: 'Order Execution', icon: Zap, description: 'Entry offset, SL/TP, targets, trailing stop' },
@@ -415,7 +411,7 @@ export function OrderExecutionSection() {
   const updateMutation = trpc.broker.config.updateSettings.useMutation({
     onSuccess: () => {
       toast.success('Order execution settings saved');
-      configQuery.refetch();
+      void configQuery.refetch();
       // Immediately sync dailyTargetPercent to capital state + current day record
       syncDailyTarget(settings.dailyTargetPercent);
       refetchAll();
@@ -858,7 +854,7 @@ export function CapitalManagementSection() {
 
 // ─── Mode Segmented Button ────────────────────────────────────────
 
-function ModeToggle<T extends string>({
+function _ModeToggle<T extends string>({
   value,
   options,
   onChange,
@@ -897,20 +893,20 @@ export function TradingModeSection() {
   const updateModeMutation = trpc.settings.updateTradingMode.useMutation({
     onSuccess: () => {
       toast.success('Trading mode updated');
-      settingsQuery.refetch();
+      void settingsQuery.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
   const killSwitchMutation = trpc.broker.killSwitch.useMutation({
     onSuccess: () => {
-      settingsQuery.refetch();
+      void settingsQuery.refetch();
     },
     onError: (err) => toast.error(`Kill switch error: ${err.message}`),
   });
 
   const tm = settingsQuery.data?.tradingMode;
 
-  const handleMode = (field: 'aiTradesMode' | 'myTradesMode' | 'testingMode', value: string) => {
+  const _handleMode = (field: 'aiTradesMode' | 'myTradesMode' | 'testingMode', value: string) => {
     updateModeMutation.mutate({ [field]: value } as any);
   };
 
@@ -1046,7 +1042,7 @@ export function DisciplineSection() {
   const updateMutation = trpc.discipline.updateSettings.useMutation({
     onSuccess: () => {
       toast.success('Discipline settings saved');
-      settingsQuery.refetch();
+      void settingsQuery.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -1054,7 +1050,7 @@ export function DisciplineSection() {
   const handleSave = () => {
     if (!ds) return;
     // Send only the settings fields, not userId/updatedAt/history
-    const { userId, updatedAt, history, _id, __v, ...settingsOnly } = ds;
+    const { userId: _userId, updatedAt: _updatedAt, history: _history, _id, __v, ...settingsOnly } = ds;
     updateMutation.mutate(settingsOnly);
   };
 
@@ -1670,7 +1666,7 @@ export function TimeWindowsSection() {
   const updateMutation = trpc.discipline.updateSettings.useMutation({
     onSuccess: () => {
       toast.success('Time window settings saved');
-      settingsQuery.refetch();
+      void settingsQuery.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -1819,7 +1815,7 @@ export function ExpiryControlsSection() {
   const updateMutation = trpc.settings.updateExpiryControls.useMutation({
     onSuccess: () => {
       toast.success('Expiry control settings saved');
-      settingsQuery.refetch();
+      void settingsQuery.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -1995,7 +1991,7 @@ export function ChargesSection() {
   const updateMutation = trpc.settings.updateCharges.useMutation({
     onSuccess: () => {
       toast.success('Charge rates saved');
-      settingsQuery.refetch();
+      void settingsQuery.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -2164,7 +2160,7 @@ export function InstrumentsSection() {
         toast.success('Instrument added');
         setSearchText('');
         setSearchResults([]);
-        instrumentsQuery.refetch();
+        void instrumentsQuery.refetch();
       } else {
         toast.error(data.error || 'Failed to add instrument');
       }
@@ -2185,7 +2181,7 @@ export function InstrumentsSection() {
       const data = await response.json();
       if (data.success) {
         toast.success('Instrument removed');
-        instrumentsQuery.refetch();
+        void instrumentsQuery.refetch();
       } else {
         toast.error(data.error || 'Failed to remove instrument');
       }
@@ -2219,7 +2215,7 @@ export function InstrumentsSection() {
       if (data.success) {
         toast.success(`Hotkey "${key.toUpperCase()}" assigned`);
         setHotKeyAssignMode(null);
-        instrumentsQuery.refetch();
+        void instrumentsQuery.refetch();
       } else {
         toast.error(data.error || 'Failed to assign hotkey');
       }
@@ -2366,13 +2362,13 @@ export function InstrumentsSection() {
 
 // ─── Trade Executor Settings Section ────────────────────────────
 
-function ExecutorSettingsSection() {
+function _ExecutorSettingsSection() {
   const utils = trpc.useUtils();
   const settingsQuery = trpc.executor.getSettings.useQuery();
   const updateMutation = trpc.executor.updateSettings.useMutation({
     onSuccess: () => {
       toast.success('Executor settings saved');
-      utils.executor.getSettings.invalidate();
+      void utils.executor.getSettings.invalidate();
     },
     onError: (err: any) => toast.error(`Save failed: ${err.message}`),
   });
@@ -2404,17 +2400,17 @@ function ExecutorSettingsSection() {
     }
   }, [settings, draft]);
 
-  if (settingsQuery.isLoading || !draft) {
-    return (
-      <div className="text-xs text-muted-foreground font-mono">Loading executor settings…</div>
-    );
-  }
-
+  // PERF-E4 fix — `useRegisterActions` MUST be called on every render in
+  // a stable order, so its setup has to live above the loading-state
+  // early return below. Build `dirty` / `onSave` / `onReset` to tolerate
+  // a null `draft` (the gate the early return checks) so the hook can
+  // run safely during the loading phase.
   const arrayEq = (a: readonly string[], b: readonly string[]) =>
     a.length === b.length && a.every((v, i) => v === b[i]);
 
   const dirty =
-    settings &&
+    !!draft &&
+    !!settings &&
     (draft.aiLiveLotCap !== settings.aiLiveLotCap ||
       draft.rcaMaxAgeMs !== settings.rcaMaxAgeMs ||
       draft.rcaStaleTickMs !== settings.rcaStaleTickMs ||
@@ -2423,7 +2419,9 @@ function ExecutorSettingsSection() {
       !arrayEq(draft.rcaChannels, settings.rcaChannels) ||
       !arrayEq(draft.recoveryChannels, settings.recoveryChannels));
 
-  const onSave = () => updateMutation.mutate(draft as any);
+  const onSave = () => {
+    if (draft) updateMutation.mutate(draft as any);
+  };
   const onReset = () => {
     if (settings) {
       setDraft({
@@ -2438,17 +2436,18 @@ function ExecutorSettingsSection() {
     }
   };
 
-  // PERF-E4 — Hook is called after an early `if (loading) return` above,
-  // which violates the rules-of-hooks. Real bug; fix is to hoist the
-  // hook + its dependencies (onSave/onReset/dirty) above the early
-  // return. Out of scope for G1; gated here so lint passes.
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   useRegisterActions({
     onSave,
     onReset,
     saving: updateMutation.isPending,
-    canSave: !!dirty,
+    canSave: dirty,
   });
+
+  if (settingsQuery.isLoading || !draft) {
+    return (
+      <div className="text-xs text-muted-foreground font-mono">Loading executor settings…</div>
+    );
+  }
 
   const allChannels: Array<{ id: string; label: string }> = [
     { id: 'ai-paper', label: 'AI Paper' },

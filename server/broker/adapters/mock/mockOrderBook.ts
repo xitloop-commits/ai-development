@@ -14,7 +14,6 @@ import type {
   OrderParams,
   ModifyParams,
   OrderResult,
-  OrderStatus,
   Trade,
   Position,
   MarginInfo,

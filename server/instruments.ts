@@ -5,7 +5,7 @@
  * Includes the 4 core instruments (seeded by default) plus any user-added instruments.
  */
 
-import mongoose, { Schema, Document } from "mongoose";
+import mongoose, { Schema } from "mongoose";
 import { createLogger } from "./broker/logger";
 
 const log = createLogger("BOOT", "Instruments");

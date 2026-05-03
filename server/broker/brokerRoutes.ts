@@ -12,9 +12,7 @@ import {
   getActiveBroker,
   getAdapter,
   getBrokerServiceStatus,
-  toggleKillSwitch,
   toggleWorkspaceKillSwitch,
-  isChannelKillSwitchActive,
   type Channel,
   type Workspace,
 } from "./brokerService";
@@ -26,7 +24,6 @@ import {
   updateBrokerCredentials,
 } from "./brokerConfig";
 import { DHAN_TOKEN_EXPIRY_MS } from "./adapters/dhan/constants";
-import type { OrderParams, ModifyParams } from "./types";
 import { transformCandleData } from "./types";
 import { createLogger } from "./logger";
 
@@ -38,7 +35,7 @@ const VALID_CHANNELS = new Set<Channel>([
   "ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "testing-sandbox",
 ]);
 
-const VALID_WORKSPACES = new Set<Workspace>(["ai", "my", "testing"]);
+const _VALID_WORKSPACES = new Set<Workspace>(["ai", "my", "testing"]);
 
 function sendError(res: Response, status: number, message: string) {
   res.status(status).json({ success: false, error: message });

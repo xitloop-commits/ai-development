@@ -9,7 +9,7 @@
  *
  * All DB calls are mocked via vi.mock.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MockAdapter } from "../broker/adapters/mock";
 import { tickBus } from "../broker/tickBus";
 import { tickMatchesTrade } from "./tickHandler";
@@ -18,10 +18,9 @@ import {
   recalculateDayAggregates,
   calculateAvailableCapital,
   calculatePositionSize,
-  initializeCapital,
 } from "./compounding";
 import { calculateTradeCharges } from "./charges";
-import type { TradeRecord, DayRecord } from "./state";
+import type { TradeRecord } from "./state";
 import type { TickData, OrderParams } from "../broker/types";
 
 // ─── Helpers ────────────────────────────────────────────────────

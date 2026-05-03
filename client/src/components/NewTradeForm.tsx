@@ -23,7 +23,7 @@ const UI_TO_RESOLVED_MAP: Record<string, string> = {
 const STRIKE_WINDOW = 10;
 const CAPITAL_PERCENT_OPTIONS = [5, 10, 15, 20, 25, 40, 50, 60, 70, 80, 90, 100];
 
-const OPTION_TYPE_LABELS: Record<'CE' | 'PE' | 'NONE', string> = {
+const _OPTION_TYPE_LABELS: Record<'CE' | 'PE' | 'NONE', string> = {
   CE: 'CE',
   PE: 'PE',
   NONE: 'DIR',
@@ -137,7 +137,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
   const [optionType, setOptionType] = useState<'CE' | 'PE' | 'NONE' | null>(null);
   const [selectedStrike, setSelectedStrike] = useState('');
   const [entryPrice, setEntryPrice] = useState('');
-  const [entryPriceEdited, setEntryPriceEdited] = useState(false);
+  const [_entryPriceEdited, setEntryPriceEdited] = useState(false);
   const [capitalPercent, setCapitalPercent] = useState(5);
   const [expiry, setExpiry] = useState('');
   const [qty, setQty] = useState(1);
@@ -390,7 +390,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
   const invested = totalUnits * parseFloat(entryPrice || '0');
 
   // Calculate estimated charges for entry leg
-  const estimatedCharges = useMemo(() => {
+  const _estimatedCharges = useMemo(() => {
     const entryPriceNum = parseFloat(entryPrice || '0');
     if (entryPriceNum <= 0 || totalUnits <= 0) return 0;
 
@@ -455,9 +455,9 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     return ageLabel ? `${dateLabel} | ${ageLabel}` : dateLabel;
   })();
 
-  const selectClass = `w-full bg-background border border-border rounded px-1.5 py-1 text-[0.625rem] ${tone.text} focus:border-primary focus:outline-none`;
+  const _selectClass = `w-full bg-background border border-border rounded px-1.5 py-1 text-[0.625rem] ${tone.text} focus:border-primary focus:outline-none`;
   const compactSelectClass = `shrink-0 bg-background border border-border rounded px-1.5 py-1 text-[0.625rem] ${tone.text} focus:border-primary focus:outline-none disabled:opacity-50`;
-  const inputClass = `w-full bg-background border border-border rounded px-1.5 py-1 text-[0.625rem] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`;
+  const _inputClass = `w-full bg-background border border-border rounded px-1.5 py-1 text-[0.625rem] ${tone.text} tabular-nums text-right focus:border-primary focus:outline-none`;
 
   return (
     <tr className={`border-b border-l-2 ${tone.row}`}>

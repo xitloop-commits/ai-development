@@ -371,7 +371,7 @@ export function projectFutureDays(
 // ─── Quarterly Projection ────────────────────────────────────────
 
 /** Quarter boundaries based on day index (not calendar). */
-const QUARTER_DAYS = 63; // ~250/4 rounded
+const _QUARTER_DAYS = 63; // ~250/4 rounded
 const QUARTER_BOUNDARIES = [
   { q: 1, startDay: 1,   endDay: 62 },
   { q: 2, startDay: 63,  endDay: 125 },
@@ -479,7 +479,7 @@ export function checkSessionReset(state: CapitalState): boolean {
 /**
  * Get a reset session state for a new calendar day.
  */
-export function resetSession(state: CapitalState): Partial<CapitalState> {
+export function resetSession(_state: CapitalState): Partial<CapitalState> {
   return {
     sessionTradeCount: 0,
     sessionPnl: 0,

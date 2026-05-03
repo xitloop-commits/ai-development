@@ -1,6 +1,5 @@
 import { memo } from 'react';
 import type { Channel, DayRecord } from '@/lib/tradeTypes';
-import { channelToWorkspace } from '@/lib/tradeTypes';
 import {
   fmt,
   pnlColor,

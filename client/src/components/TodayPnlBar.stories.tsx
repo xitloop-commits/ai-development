@@ -5,7 +5,7 @@
  */
 
 import type { Meta, StoryObj } from "@storybook/react";
-import { TodayPnlBar, DEFAULT_BAR_CONFIG, type BarConfig } from "./TodayPnlBar";
+import { TodayPnlBar, DEFAULT_BAR_CONFIG } from "./TodayPnlBar";
 
 const meta = {
   title: "Components/TodayPnlBar",

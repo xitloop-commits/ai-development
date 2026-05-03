@@ -1,4 +1,4 @@
-import type { ModuleStatus, InstrumentData, Signal, Position, SRLevel } from './types';
+import type { ModuleStatus, InstrumentData, Position } from './types';
 
 export const moduleStatuses: ModuleStatus[] = [
   {

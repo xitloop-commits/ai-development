@@ -41,7 +41,6 @@ import {
   type PortfolioEventType,
 } from "./storage";
 import {
-  TRADING_SPLIT,
   calculateAvailableCapital,
   calculateQuarterlyProjection,
   createDayRecord,

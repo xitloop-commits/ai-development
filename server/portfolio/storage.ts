@@ -420,7 +420,7 @@ export async function getEvents(
     if (options?.to !== undefined) (query.timestamp as Record<string, number>).$lte = options.to;
   }
   const cursor = PortfolioEventModel.find(query).sort({ timestamp: -1 }).lean();
-  if (options?.limit) cursor.limit(options.limit);
+  if (options?.limit) void cursor.limit(options.limit);
   const docs = await cursor;
   return docs.map((d) => d as unknown as PortfolioEventDoc);
 }

@@ -7,7 +7,6 @@ const searchLog = createLogger("BSA", "InstrumentsSearch");
 import {
   getModuleStatuses,
   getInstrumentData,
-  getSignals,
   getActiveInstruments,
   setActiveInstruments,
   setConfiguredInstruments,
@@ -187,7 +186,7 @@ export const appRouter = router({
   // User Settings (MongoDB)
   settings: router({
     // Get user settings (all sections)
-    get: publicProcedure.query(async ({ ctx }) => {
+    get: publicProcedure.query(async () => {
       return getUserSettings(1 /* single-user */);
     }),
 
@@ -206,7 +205,7 @@ export const appRouter = router({
           noCarryToExpiry: z.boolean().optional(),
         })),
       }))
-      .mutation(async ({ ctx, input }) => {
+      .mutation(async ({ input }) => {
         const updated = await updateUserSettings(1 /* single-user */, { expiryControls: input as any });
         return { success: true, expiryControls: updated.expiryControls };
       }),
@@ -222,7 +221,7 @@ export const appRouter = router({
           enabled: z.boolean().optional(),
         })),
       }))
-      .mutation(async ({ ctx, input }) => {
+      .mutation(async ({ input }) => {
         const updated = await updateUserSettings(1 /* single-user */, { charges: input as any });
         return { success: true, charges: updated.charges };
       }),
@@ -237,7 +236,7 @@ export const appRouter = router({
         myKillSwitch: z.boolean().optional(),
         testingKillSwitch: z.boolean().optional(),
       }))
-      .mutation(async ({ ctx, input }) => {
+      .mutation(async ({ input }) => {
         const updated = await updateUserSettings(1 /* single-user */, { tradingMode: input as any });
         return { success: true, tradingMode: updated.tradingMode };
       }),

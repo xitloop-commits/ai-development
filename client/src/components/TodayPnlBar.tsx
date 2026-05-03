@@ -200,7 +200,7 @@ function getVisibleMarkerIndices(
  * Map P&L % to bar position (0-100).
  * Linear scaling from leftEdge to rightEdge.
  */
-function pctToBar(
+function _pctToBar(
   pct: number,
   leftEdge: number,
   target: number,
@@ -226,7 +226,7 @@ function _TodayPnlBar({
   const cfg = config ?? DEFAULT_BAR_CONFIG;
   const currentPct = tradingPool > 0 ? (pnl / tradingPool) * 100 : 0;
   const leftEdge = cfg.circuitBreaker ?? cfg.lossCap;
-  const barRightEdge = cfg.giftMax + 200;  // Fixed right boundary matching generateAllMarkers
+  const _barRightEdge = cfg.giftMax + 200;  // Fixed right boundary matching generateAllMarkers
   const kingMax = cfg.giftMax + 200;       // For accessibility (aria-valuemax)
 
   // Track previous window start index for sticky behavior

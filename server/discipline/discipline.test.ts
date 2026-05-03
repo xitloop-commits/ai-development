@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { checkDailyLossLimit, checkConsecutiveLosses } from "./circuitBreaker";
 import { checkMaxTrades, checkMaxPositions } from "./tradeLimits";
-import { checkCooldown, createRevengeCooldown, createConsecutiveLossCooldown, acknowledgeLoss, resolveOverlappingCooldowns } from "./cooldowns";
+import { checkCooldown, createRevengeCooldown, acknowledgeLoss, resolveOverlappingCooldowns } from "./cooldowns";
 import { checkTimeWindow } from "./timeWindows";
 import { checkPositionSize, checkExposure } from "./positionSizing";
 import { evaluatePreTradeGate } from "./preTrade";

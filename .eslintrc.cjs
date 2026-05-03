@@ -23,7 +23,7 @@ module.exports = {
     tsconfigRootDir: __dirname,
     ecmaFeatures: { jsx: true },
   },
-  plugins: ["@typescript-eslint", "promise", "react", "react-hooks", "import"],
+  plugins: ["@typescript-eslint", "promise", "react", "react-hooks", "import", "unused-imports"],
   extends: [
     "eslint:recommended",
     "plugin:@typescript-eslint/recommended",
@@ -39,25 +39,21 @@ module.exports = {
     es2022: true,
   },
   rules: {
-    // Floating promises — plan §G1 calls for `error`. There are 27
-    // pre-existing violations across the codebase as of G1 ship; rather
-    // than scope-creep into per-site analysis (each is a real silent-
-    // error risk that deserves a thoughtful fix), this PR gates the
-    // rule at `warn` so lint exits 0 and the violations stay visible in
-    // CI output. Tracker PERF-E2 cleans them up; flip to `error` when
-    // the backlog hits zero. Same gradualism the plan already applies
-    // to `:any` via PERF-E1.
-    "@typescript-eslint/no-floating-promises": "warn",
+    // Floating promises — PERF-E2 cleanup landed; rule promoted to
+    // error per plan §G1. Every async call site now either awaits,
+    // catches, or explicitly marks `void` for fire-and-forget. New
+    // unawaited promises will fail CI.
+    "@typescript-eslint/no-floating-promises": "error",
 
     // Style/correctness
     "prefer-const": "error",
     "no-unused-vars": "off", // disabled in favour of the TS-aware variant below
-    // Plan §G1 calls for `error` here too. ~109 pre-existing violations,
-    // mostly unused tRPC `ctx` parameters and a handful of dead imports.
-    // Same `warn` + tracker gate as floating-promises (PERF-E3), to be
-    // flipped to `error` after cleanup. New code that introduces an
-    // unused var still surfaces in CI logs as a warning.
-    "@typescript-eslint/no-unused-vars": ["warn", {
+    // PERF-E3 cleanup — auto-fixable unused-imports rule does the
+    // import-removal sweep; the unused-vars rule below still warns on
+    // genuinely unused locals/args (which `--fix` deliberately won't
+    // remove because the side effects are unknowable).
+    "unused-imports/no-unused-imports": "error",
+    "@typescript-eslint/no-unused-vars": ["error", {
       argsIgnorePattern: "^_",
       varsIgnorePattern: "^_",
       caughtErrorsIgnorePattern: "^_",

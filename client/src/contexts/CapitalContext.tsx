@@ -354,8 +354,8 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   );
 
   const refetchAll = useCallback(() => {
-    stateQuery.refetch();
-    allDaysQuery.refetch();
+    void stateQuery.refetch();
+    void allDaysQuery.refetch();
   }, [stateQuery, allDaysQuery]);
 
   return (

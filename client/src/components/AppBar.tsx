@@ -6,7 +6,7 @@
  * Data: Broker status from tRPC broker.getStatus, discipline score from
  * tRPC discipline.getDashboard, module heartbeats from props (polling).
  */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Globe, Wifi, Shield, Calendar,
   Menu, FlaskConical, Target,
@@ -26,62 +26,12 @@ import {
   channelOf,
   channelToWorkspace,
   channelToMode,
-  DEFAULT_CHANNEL_FOR_WORKSPACE,
 } from '@/lib/tradeTypes';
-// Inline anchor-positioned confirm; replaces the fullscreen ConfirmDialog
-// for channel switches because they're frequent enough that a centered
-// modal feels heavy. Drops below its anchor (tabs / mode toggle) without
-// blocking the rest of the UI.
-function ConfirmPopover({
-  open,
-  message,
-  onConfirm,
-  onCancel,
-  anchor = 'center',
-}: {
-  open: boolean;
-  message: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-  anchor?: 'left' | 'center' | 'right';
-}) {
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [open, onCancel]);
-
-  if (!open) return null;
-
-  const positionClass =
-    anchor === 'left'   ? 'left-0' :
-    anchor === 'right'  ? 'right-0' :
-                          'left-1/2 -translate-x-1/2';
-
-  return (
-    <div
-      className={`absolute top-full mt-1 ${positionClass} z-50 bg-card border border-border rounded-md shadow-xl p-3 min-w-[260px] max-w-sm`}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <p className="text-[0.6875rem] text-foreground mb-2 leading-snug">{message}</p>
-      <div className="flex justify-end gap-2">
-        <button
-          onClick={onCancel}
-          className="px-2.5 py-1 rounded text-[0.625rem] font-medium bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={onConfirm}
-          className="px-2.5 py-1 rounded text-[0.625rem] font-bold bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
-        >
-          Confirm
-        </button>
-      </div>
-    </div>
-  );
-}
+// UI-119 — extracted to ChannelTabs.tsx + ConfirmPopover.tsx so they
+// have their own test surface. AppBar still owns ChannelModeToggle and
+// imports the shared `lastModeForWs` from ChannelTabs.
+import { ConfirmPopover } from './ConfirmPopover';
+import { ChannelTabs, lastModeForWs } from './ChannelTabs';
 
 // ── Model Status Popover ─────────────────────────────────────
 
@@ -288,83 +238,12 @@ function HolidayIndicator() {
 // components read/write it, so switching tabs lands on each workspace's
 // last-used mode without needing to hoist state into the React tree.
 
-const TAB_DEFS: Array<{ ws: Workspace; label: string; tone: { active: string; idle: string } }> = [
-  { ws: 'ai',      label: 'AI Trades',  tone: { active: 'bg-violet-pulse/15 text-violet-pulse',     idle: 'text-muted-foreground hover:text-foreground hover:bg-secondary/50' } },
-  { ws: 'my',      label: 'My Trades',  tone: { active: 'bg-bullish/15 text-bullish',               idle: 'text-muted-foreground hover:text-foreground hover:bg-secondary/50' } },
-  { ws: 'testing', label: 'Testing',    tone: { active: 'bg-warning-amber/15 text-warning-amber',   idle: 'text-muted-foreground hover:text-foreground hover:bg-secondary/50' } },
-];
-
 const MODE_LABELS: Record<Mode, string> = { live: 'LIVE', paper: 'PAPER', sandbox: 'SANDBOX' };
 const MODES_FOR: Record<Workspace, [Mode, Mode]> = {
   ai: ['paper', 'live'],
   my: ['paper', 'live'],
   testing: ['sandbox', 'live'],
 };
-
-// Module-level memory of the last-used mode per workspace. Updated whenever
-// channel changes (via useEffect in the consumers below).
-const lastModeForWs: Record<Workspace, Mode> = {
-  ai: 'paper',
-  my: 'paper',
-  testing: 'sandbox',
-};
-
-function ChannelTabs() {
-  const { channel, setChannel } = useCapital() as any;
-  const currentWs = channelToWorkspace(channel);
-  const currentMode = channelToMode(channel);
-
-  // Keep module-level memory in sync with the active channel.
-  useEffect(() => {
-    lastModeForWs[currentWs] = currentMode;
-  }, [currentWs, currentMode]);
-
-  const [confirmTarget, setConfirmTarget] = useState<Channel | null>(null);
-
-  const requestTabSwitch = (ws: Workspace) => {
-    if (ws === currentWs) return;
-    setConfirmTarget(channelOf(ws, lastModeForWs[ws]));
-  };
-
-  const onConfirmSwitch = () => {
-    if (!confirmTarget) return;
-    setChannel(confirmTarget);
-    setConfirmTarget(null);
-  };
-
-  return (
-    <div className="relative flex items-stretch self-stretch">
-      {TAB_DEFS.map(({ ws, label, tone }) => {
-        const isActive = ws === currentWs;
-        return (
-          <button
-            key={ws}
-            onClick={() => requestTabSwitch(ws)}
-            className={`px-4 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border ${
-              isActive ? tone.active : tone.idle
-            }`}
-          >
-            {label}
-            {isActive && currentMode === 'live' && (
-              <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-bullish animate-pulse" />
-            )}
-          </button>
-        );
-      })}
-      <ConfirmPopover
-        open={!!confirmTarget}
-        anchor="center"
-        message={
-          confirmTarget
-            ? `Switch from ${channel} to ${confirmTarget}? Open positions on the source remain; new orders route to the target.`
-            : ''
-        }
-        onConfirm={onConfirmSwitch}
-        onCancel={() => setConfirmTarget(null)}
-      />
-    </div>
-  );
-}
 
 function ChannelModeToggle() {
   const { channel, setChannel, refetchAll } = useCapital() as any;

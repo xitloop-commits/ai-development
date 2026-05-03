@@ -13,21 +13,18 @@
  * Router-level tests use appRouter.createCaller() with a mock context,
  * requiring a real MongoDB connection (integration tests).
  */
-import { describe, expect, it, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import mongoose from "mongoose";
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
 import {
   injectCapital,
   createDayRecord,
-  initializeCapital,
   calculateQuarterlyProjection,
   calculateAllQuarterlyProjections,
   projectFutureDays,
   TRADING_SPLIT,
   RESERVE_SPLIT,
-  DEFAULT_TARGET_PERCENT,
-  DEFAULT_INITIAL_FUNDING,
 } from "./compounding";
 import type { CapitalState, DayRecord } from "./state";
 

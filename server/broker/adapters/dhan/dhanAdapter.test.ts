@@ -13,7 +13,6 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
-import mongoose from "mongoose";
 import { connectMongo, disconnectMongo } from "../../../mongo";
 import { DhanAdapter } from "./index";
 import { calculateTokenExpiry } from "./auth";

@@ -184,7 +184,7 @@ class TickHandler extends EventEmitter {
     if (!this.updateDebounce) {
       this.updateDebounce = setTimeout(() => {
         this.updateDebounce = null;
-        this.processPendingUpdates();
+        void this.processPendingUpdates();
       }, 500);
     }
   };

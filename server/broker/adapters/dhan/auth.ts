@@ -21,7 +21,6 @@ import {
 } from "./constants";
 import type { DhanFundLimitResponse, DhanErrorResponse } from "./types";
 import {
-  getBrokerConfig,
   updateBrokerCredentials,
   updateBrokerConnection,
 } from "../../brokerConfig";

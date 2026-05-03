@@ -16,13 +16,11 @@ import {
   getBrokerServiceStatus,
   getRegisteredAdaptersMeta,
   switchBroker,
-  toggleKillSwitch,
   toggleWorkspaceKillSwitch,
   getKillSwitchState,
   isChannelKillSwitchActive,
   isKillSwitchActive,
   type Channel,
-  type Workspace,
 } from "./brokerService";
 import {
   getActiveBrokerConfig,
@@ -33,7 +31,7 @@ import {
   setActiveBroker as setActiveBrokerInDB,
 } from "./brokerConfig";
 import { tickBus } from "./tickBus";
-import type { OrderParams, ModifyParams, TickData } from "./types";
+import type { TickData } from "./types";
 import { createLogger } from "./logger";
 
 const log = createLogger("BSA", "Router");
@@ -63,7 +61,7 @@ function requireChannelAdapter(channel: Channel) {
   }
 }
 
-function checkKillSwitch() {
+function _checkKillSwitch() {
   if (isKillSwitchActive()) {
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -72,7 +70,7 @@ function checkKillSwitch() {
   }
 }
 
-function checkChannelKillSwitch(channel: Channel) {
+function _checkChannelKillSwitch(channel: Channel) {
   if (isChannelKillSwitchActive(channel)) {
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -83,7 +81,7 @@ function checkChannelKillSwitch(channel: Channel) {
 
 // ─── Zod Schemas ────────────────────────────────────────────────
 
-const orderParamsSchema = z.object({
+const _orderParamsSchema = z.object({
   instrument: z.string(),
   exchange: z.enum(["NSE_FNO", "BSE_FNO", "MCX_COMM"]),
   transactionType: z.enum(["BUY", "SELL"]),
@@ -100,7 +98,7 @@ const orderParamsSchema = z.object({
   tag: z.string().optional(),
 });
 
-const modifyParamsSchema = z.object({
+const _modifyParamsSchema = z.object({
   price: z.number().optional(),
   quantity: z.number().min(1).optional(),
   triggerPrice: z.number().optional(),

@@ -15,21 +15,14 @@ import {
   getDayRecords,
   getDayRecord,
   upsertDayRecord,
-  deleteDayRecordsFrom,
   deleteAllDayRecords,
   replaceCapitalState,
 } from "./state";
-import type { Channel, DayRecord, TradeRecord } from "./state";
+import type { Channel, DayRecord } from "./state";
 import {
-  initializeCapital,
   injectCapital,
   createDayRecord,
-  checkDayCompletion,
-  completeDayIndex,
-  calculateGiftDays,
-  processClawback,
   calculateAvailableCapital,
-  calculatePositionSize,
   projectFutureDays,
   calculateQuarterlyProjection,
   calculateAllQuarterlyProjections,
@@ -37,15 +30,10 @@ import {
   resetSession,
   recalculateDayAggregates,
   TRADING_SPLIT,
-  MAX_DAY_INDEX,
 } from "./compounding";
-import { calculateTradeCharges } from "./charges";
 import type { ChargeRate } from "./charges";
 import { getUserSettings } from "../userSettings";
-import { getActiveBroker } from "../broker/brokerService";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
-import { tickBus } from "../broker/tickBus";
-import type { BrokerSettings, OrderParams } from "../broker/types";
 import { portfolioAgent } from "./portfolioAgent";
 import { createLogger } from "../broker/logger";
 
@@ -57,11 +45,11 @@ const channelSchema = z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "tes
 /** Channels that mirror My Trades LIVE capital ops for shadow tracking. */
 const mirroredChannels: Channel[] = ["my-paper", "ai-paper", "testing-sandbox"];
 
-function generateTradeId(): string {
+function _generateTradeId(): string {
   return `T${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-async function getChargeRates(userId: number = 1): Promise<ChargeRate[]> {
+async function _getChargeRates(userId: number = 1): Promise<ChargeRate[]> {
   const settings = await getUserSettings(userId);
   return settings.charges.rates as ChargeRate[];
 }

@@ -12,8 +12,6 @@ import type {
   BrokerSettings,
   BrokerConnection,
   BrokerCapabilities,
-  TokenStatus,
-  ConnectionStatus,
 } from "./types";
 
 // ─── Mongoose Schema ────────────────────────────────────────────

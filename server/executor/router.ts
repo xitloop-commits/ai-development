@@ -20,7 +20,6 @@ import { TRPCError } from "@trpc/server";
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { tradeExecutor } from "./tradeExecutor";
 import {
-  getDailyTargetPercent,
   getTradeTargetPercent,
   resolveContract,
   resolveLotSize,

@@ -39,7 +39,6 @@ import { disciplineAgent } from "../discipline";
 import type { Exchange } from "../discipline/types";
 import { idempotencyStore } from "./idempotency";
 import { orderSync } from "./orderSync";
-import { rcaMonitor } from "../risk-control";
 import { recoveryEngine } from "./recoveryEngine";
 import { resolveLotSize } from "./tradeResolution";
 import { getExecutorSettings } from "./settings";
@@ -62,7 +61,7 @@ const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live"];
 // TEA Settings page surfaces it; checkAiLiveLotCap reads through the
 // 30 s-cached settings layer.
 
-function isPaperChannel(channel: Channel): boolean {
+function _isPaperChannel(channel: Channel): boolean {
   return PAPER_CHANNELS.includes(channel);
 }
 

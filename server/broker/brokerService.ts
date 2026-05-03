@@ -15,7 +15,6 @@ import type { BrokerAdapter, BrokerServiceStatus } from "./types";
 import {
   getBrokerConfig,
   getActiveBrokerConfig,
-  getAllBrokerConfigs,
   upsertBrokerConfig,
   setActiveBroker as setActiveBrokerInDB,
 } from "./brokerConfig";

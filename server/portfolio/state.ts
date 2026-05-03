@@ -767,7 +767,7 @@ export async function getDayRecords(
   }
 
   const cursor = DayRecordModel.find(query).sort({ dayIndex: 1 }).lean();
-  if (options?.limit) cursor.limit(options.limit);
+  if (options?.limit) void cursor.limit(options.limit);
 
   const docs = await cursor;
   return docs.map(docToDayRecord);

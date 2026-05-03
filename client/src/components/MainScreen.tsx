@@ -83,7 +83,7 @@ export default function MainScreen() {
   const { isEnabled } = useInstrumentFilter();
 
   // ─── Live Feed ─────────────────────────────────────────────────
-  const { getTick, isConnected: feedConnected } = useTickStream();
+  const { getTick: _getTick, isConnected: _feedConnected } = useTickStream();
   const { subscribe: feedSubscribe } = useFeedControl();
   const feedSubscribedRef = useRef(false);
 
@@ -160,7 +160,7 @@ export default function MainScreen() {
   const [mockData, setMockData] = useState<typeof import('@/lib/mockData') | null>(null);
   useEffect(() => {
     let cancelled = false;
-    import('@/lib/mockData').then((mod) => {
+    void import('@/lib/mockData').then((mod) => {
       if (!cancelled) setMockData(mod);
     });
     return () => { cancelled = true; };
@@ -194,7 +194,7 @@ export default function MainScreen() {
   });
 
   // ─── Data with Mock Fallbacks ──────────────────────────────────
-  const modules = modulesQuery.data ?? mockData?.moduleStatuses ?? [];
+  const _modules = modulesQuery.data ?? mockData?.moduleStatuses ?? [];
   // Configured instruments with hotkeys (for hotkey map)
   const configuredInstruments = configuredInstrumentsQuery.data ?? [
     { key: 'NIFTY_50', displayName: 'NIFTY 50', exchange: 'NSE', hotkey: '1' },
@@ -206,7 +206,7 @@ export default function MainScreen() {
   const allInstruments = instrumentAnalysisQuery.data
     ?? (mockData ? [mockData.niftyData, mockData.bankNiftyData, mockData.crudeOilData, mockData.naturalGasData] : []);
   const allSignals = signalsQuery.data ?? [];
-  const allPositions = positionsQuery.data ?? mockData?.openPositions ?? [];
+  const _allPositions = positionsQuery.data ?? mockData?.openPositions ?? [];
 
   // Discipline data with fallbacks
   const disciplineData = disciplineQuery.data as any;

@@ -32,7 +32,6 @@ import { getStreakStatus, calculateStreakAdjustments, updateStreak } from "./str
 import { calculateScore } from "./score";
 import {
   evaluateCapitalProtection,
-  applyVerdict,
   applySessionHalt,
   getSessionHaltFor,
   runCarryForwardEvaluation,

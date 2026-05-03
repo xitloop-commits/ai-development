@@ -27,7 +27,7 @@ import {
   getBrokerServiceStatus,
   _resetForTesting,
 } from "./brokerService";
-import type { BrokerAdapter, OrderParams, ModifyParams } from "./types";
+import type { BrokerAdapter } from "./types";
 
 // ─── Test Helpers ───────────────────────────────────────────────
 

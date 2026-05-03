@@ -34,7 +34,6 @@ import type {
 } from "../../types";
 
 import {
-  DHAN_API_BASE,
   DHAN_ENDPOINTS,
   DHAN_TOKEN_EXPIRY_MS,
   DHAN_TOKEN_STARTUP_REFRESH_THRESHOLD_MS,
@@ -76,7 +75,6 @@ import {
   needsRefresh as scripNeedsRefresh,
   getLotSizeBySecurityId,
   getLotSizeBySymbol,
-  type LookupResult,
 } from "./scripMaster";
 
 import {
@@ -84,15 +82,13 @@ import {
   RateLimiter,
   withRetry,
   isRetryableError,
-  calculateLimitPrice,
-  calculateBracketPrices,
 } from "./utils";
 
 import { DhanWebSocket } from "./websocket";
 import { SubscriptionManager } from "./subscriptionManager";
 import { DhanOrderUpdateWs } from "./orderUpdateWs";
 import { generateDhanToken } from "./tokenManager";
-import type { SubscriptionState, TickData, FeedMode } from "../../types";
+import type { SubscriptionState, TickData } from "../../types";
 import { createLogger, type Logger } from "../../logger";
 import { dhanApiLatencyMs } from "../../../_core/metrics";
 
@@ -1016,17 +1012,17 @@ export class DhanAdapter implements BrokerAdapter {
       onPrevClose: () => {},
       onDisconnect: (code, reason) => {
         this.log.warn(`WS disconnected: ${reason} (${code})`);
-        updateBrokerConnection(this.brokerId, { wsStatus: "disconnected" });
+        void updateBrokerConnection(this.brokerId, { wsStatus: "disconnected" });
       },
       onError: (err) => {
         // Suppress repeated "max reconnect" spam — it's already logged once by WS
         if (!err.message.includes("max reconnect attempts")) {
           this.log.error(`WS error: ${err.message}`);
         }
-        updateBrokerConnection(this.brokerId, { wsStatus: "error" });
+        void updateBrokerConnection(this.brokerId, { wsStatus: "error" });
       },
       onConnected: () => {
-        updateBrokerConnection(this.brokerId, {
+        void updateBrokerConnection(this.brokerId, {
           wsStatus: "connected",
           lastWsTick: Date.now(),
         });
