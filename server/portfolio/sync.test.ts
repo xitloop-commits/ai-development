@@ -26,7 +26,7 @@ import {
   TRADING_SPLIT,
   RESERVE_SPLIT,
 } from "./compounding";
-import type { CapitalState, DayRecord } from "./state";
+import type { CapitalState } from "./state";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
