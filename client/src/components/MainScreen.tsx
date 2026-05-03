@@ -276,6 +276,11 @@ export default function MainScreen() {
     if (e.key === 'Escape') {
       setSettingsOpen(false);
       setDisciplineOpen(false);
+      // H4 / UI-45 — Esc also closes QuickOrderPopup so users who
+      // trigger one via hotkey (1/2/3/4) can back out without reaching
+      // for the X. Matches the Settings / Discipline / CircuitBreaker
+      // overlay behaviour.
+      setQuickOrderOpen(false);
     }
   }, []);
 
