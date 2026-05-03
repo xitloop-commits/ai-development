@@ -28,6 +28,7 @@ import {
   getAllInstruments,
   addInstrument,
   removeInstrument,
+  assignHotkey,
   type InstrumentConfig,
 } from "./instruments";
 import { searchByQuery, downloadScripMaster, needsRefresh } from "./broker/adapters/dhan/scripMaster";
@@ -177,6 +178,25 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         await removeInstrument(input.key);
         // Update in-memory store
+        const instruments = await getAllInstruments();
+        setConfiguredInstruments(instruments);
+        return { success: true };
+      }),
+
+    // Assign / clear an instrument's hotkey. Single character (digit
+    // 1-9 or letter), or null to remove. Server-side `assignHotkey`
+    // handles the swap-with-existing-instrument case if the same key
+    // is already bound.
+    setHotkey: protectedProcedure
+      .input(
+        z.object({
+          key: z.string().min(1),
+          hotkey: z.string().regex(/^[a-z0-9]$/i, "single alphanumeric character").nullable(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        await assignHotkey(input.key, input.hotkey);
+        // Update in-memory store so the live hotkey map sees the change.
         const instruments = await getAllInstruments();
         setConfiguredInstruments(instruments);
         return { success: true };

@@ -10,7 +10,6 @@
  */
 import { useState, useEffect, createContext, useContext, useRef } from 'react';
 import { trpc } from '@/lib/trpc';
-import { authHeaders } from '@/lib/internalAuth';
 import { useCapital } from '@/contexts/CapitalContext';
 import { toast } from 'sonner';
 import {
@@ -2098,18 +2097,27 @@ export function ChargesSection() {
 
 export function InstrumentsSection() {
   const instrumentsQuery = trpc.instruments.list.useQuery();
+  // H5 — all four mutations + search go through tRPC. Replaces 4
+  // raw `fetch('/api/trading/...')` calls that bypassed the global
+  // X-Internal-Token header injection (broken in any environment with
+  // REQUIRE_INTERNAL_AUTH=true) and skipped server-side zod validation.
+  const utils = trpc.useUtils();
+  const addMutation = trpc.instruments.add.useMutation();
+  const removeMutation = trpc.instruments.remove.useMutation();
+  const setHotkeyMutation = trpc.instruments.setHotkey.useMutation();
 
   const [showSearch, setShowSearch] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [searchExchange, setSearchExchange] = useState<'ALL' | 'NSE' | 'MCX' | 'BSE'>('ALL');
   const [searchResults, setSearchResults] = useState<Array<any>>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [isAdding, setIsAdding] = useState(false);
-  const [isRemoving, setIsRemoving] = useState(false);
   const [hotKeyAssignMode, setHotKeyAssignMode] = useState<string | null>(null);
-  const [isAssigningHotkey, setIsAssigningHotkey] = useState(false);
 
   const instruments = instrumentsQuery.data || [];
+
+  const isAdding = addMutation.isPending;
+  const isRemoving = removeMutation.isPending;
+  const isAssigningHotkey = setHotkeyMutation.isPending;
 
   const handleSearch = async () => {
     if (!searchText.trim()) {
@@ -2118,78 +2126,45 @@ export function InstrumentsSection() {
     }
     setIsSearching(true);
     try {
-      const params = new URLSearchParams();
-      params.set('query', searchText);
-      if (searchExchange !== 'ALL') {
-        params.set('exchange', searchExchange);
-      }
-      const response = await fetch(`/api/trading/search-instruments?${params}`, {
-        headers: { ...authHeaders() },
+      const results = await utils.instruments.search.fetch({
+        query: searchText,
+        exchange: searchExchange,
       });
-      const data = await response.json();
-      if (data.results) {
-        setSearchResults(data.results.slice(0, 10));
-      } else if (data.error) {
-        toast.error(data.error || 'Search failed');
-      }
+      setSearchResults((results ?? []).slice(0, 10));
     } catch (err: any) {
-      console.error('Search failed:', err);
-      toast.error('Search failed');
+      toast.error(err?.message ?? 'Search failed');
     }
     setIsSearching(false);
   };
 
   const handleAddInstrument = async (result: any) => {
-    setIsAdding(true);
     try {
-      const response = await fetch('/api/trading/instruments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
-          key: result.securityId,
-          displayName: result.customSymbol || result.tradingSymbol,
-          exchange: result.exchange,
-          exchangeSegment: result.segment,
-          underlying: result.securityId,
-          autoResolve: false,
-          symbolName: result.symbolName || null,
-        }),
+      await addMutation.mutateAsync({
+        key: result.securityId,
+        displayName: result.customSymbol || result.tradingSymbol,
+        exchange: result.exchange,
+        exchangeSegment: result.segment,
+        underlying: result.securityId,
+        autoResolve: false,
+        symbolName: result.symbolName || null,
       });
-      const data = await response.json();
-      if (data.success) {
-        toast.success('Instrument added');
-        setSearchText('');
-        setSearchResults([]);
-        void instrumentsQuery.refetch();
-      } else {
-        toast.error(data.error || 'Failed to add instrument');
-      }
+      toast.success('Instrument added');
+      setSearchText('');
+      setSearchResults([]);
+      void instrumentsQuery.refetch();
     } catch (err: any) {
-      console.error('Add failed:', err);
-      toast.error('Failed to add instrument');
+      toast.error(err?.message ?? 'Failed to add instrument');
     }
-    setIsAdding(false);
   };
 
   const handleRemoveInstrument = async (key: string) => {
-    setIsRemoving(true);
     try {
-      const response = await fetch(`/api/trading/instruments/${key}`, {
-        method: 'DELETE',
-        headers: { ...authHeaders() },
-      });
-      const data = await response.json();
-      if (data.success) {
-        toast.success('Instrument removed');
-        void instrumentsQuery.refetch();
-      } else {
-        toast.error(data.error || 'Failed to remove instrument');
-      }
+      await removeMutation.mutateAsync({ key });
+      toast.success('Instrument removed');
+      void instrumentsQuery.refetch();
     } catch (err: any) {
-      console.error('Remove failed:', err);
-      toast.error('Failed to remove instrument');
+      toast.error(err?.message ?? 'Failed to remove instrument');
     }
-    setIsRemoving(false);
   };
 
   const handleHotKeyPress = async (e: React.KeyboardEvent, instrumentKey: string) => {
@@ -2204,26 +2179,14 @@ export function InstrumentsSection() {
       return;
     }
 
-    setIsAssigningHotkey(true);
     try {
-      const response = await fetch(`/api/trading/instruments/${instrumentKey}/hotkey`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ hotkey: key }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        toast.success(`Hotkey "${key.toUpperCase()}" assigned`);
-        setHotKeyAssignMode(null);
-        void instrumentsQuery.refetch();
-      } else {
-        toast.error(data.error || 'Failed to assign hotkey');
-      }
+      await setHotkeyMutation.mutateAsync({ key: instrumentKey, hotkey: key });
+      toast.success(`Hotkey "${key.toUpperCase()}" assigned`);
+      setHotKeyAssignMode(null);
+      void instrumentsQuery.refetch();
     } catch (err: any) {
-      console.error('Hotkey assignment failed:', err);
-      toast.error('Failed to assign hotkey');
+      toast.error(err?.message ?? 'Failed to assign hotkey');
     }
-    setIsAssigningHotkey(false);
   };
 
   return (
