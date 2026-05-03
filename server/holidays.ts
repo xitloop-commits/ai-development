@@ -113,7 +113,13 @@ export function getNextTradingDay(exchange: 'NSE' | 'MCX'): { date: string; days
 
   for (let i = 1; i <= 30; i++) {
     const dayOfWeek = checkDate.getDay();
-    const dateStr = checkDate.toISOString().split('T')[0];
+    // Local-time YYYY-MM-DD. `toISOString()` would shift to UTC and
+    // give the wrong date string for any positive-offset timezone
+    // (in IST, midnight local = previous day 18:30 UTC).
+    const dateStr =
+      `${checkDate.getFullYear()}-` +
+      `${String(checkDate.getMonth() + 1).padStart(2, "0")}-` +
+      `${String(checkDate.getDate()).padStart(2, "0")}`;
 
     // Skip weekends and holidays
     if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidayDates.has(dateStr)) {

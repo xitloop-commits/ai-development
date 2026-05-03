@@ -286,6 +286,17 @@ const _REFRESH_BACKOFF_MS = 150_000;
 const _lastRefreshFailure = new Map<string, number>();
 
 /**
+ * Test-only — clear the inflight + backoff state so tests don't leak
+ * across each other. Without this, a 401 in test N puts the broker in
+ * the 150-s cooldown and test N+1 sees `handleDhan401` return early
+ * without writing `status: "expired"` to Mongo.
+ */
+export function _resetAuthBackoffForTests(): void {
+  _inflightRefresh.clear();
+  _lastRefreshFailure.clear();
+}
+
+/**
  * Best-effort Telegram notification. Silently no-ops if credentials missing.
  * Used to alert the user on mid-day token regen events so they aren't invisible.
  */

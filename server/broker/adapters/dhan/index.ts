@@ -1135,6 +1135,11 @@ export class DhanAdapter implements BrokerAdapter {
         if (!refreshed) {
           if (expiry.isExpired) {
             this.log.error("Token refresh failed and existing token expired. BSA will start without a valid token.");
+            // Mark Mongo state as expired/error so CredentialGate (UI) shows
+            // the "token expired" prompt. Without this, the operator sees a
+            // stale `status: "valid"` row and doesn't know the broker is down.
+            await updateBrokerCredentials(this.brokerId, { status: "expired" });
+            await updateBrokerConnection(this.brokerId, { apiStatus: "error" });
             return;
           }
           this.log.warn(

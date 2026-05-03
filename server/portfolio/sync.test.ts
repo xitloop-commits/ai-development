@@ -283,14 +283,12 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
     await caller.portfolio.inject({ channel: "my-live", amount: injectAmount });
 
     const allDays = await caller.portfolio.allDays({ channel: "my-live", futureCount: 5 });
-    const currentDayIndex = (await caller.portfolio.state({ channel: "my-live" })).currentDayIndex;
 
-    // Find the current day in allDays
-    const currentDayRow = allDays.find((d: DayRecord) => d.dayIndex === currentDayIndex);
-    expect(currentDayRow).toBeDefined();
+    // allDays returns a structured response, not a flat array
+    expect(allDays.currentDay).toBeDefined();
 
     const expectedTradingPool = round(stateBefore.tradingPool + injectAmount * TRADING_SPLIT);
-    expect(currentDayRow!.tradeCapital).toBe(expectedTradingPool);
+    expect(allDays.currentDay.tradeCapital).toBe(expectedTradingPool);
   });
 
   // ── Test 4: Future days project from updated capital ───────────
@@ -299,20 +297,18 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
     if (!mongoConnected) return;
 
     const allDaysBefore = await caller.portfolio.allDays({ channel: "my-live", futureCount: 5 });
-    const stateBefore = await caller.portfolio.state({ channel: "my-live" });
 
     const injectAmount = 20000;
     await caller.portfolio.inject({ channel: "my-live", amount: injectAmount });
 
     const allDaysAfter = await caller.portfolio.allDays({ channel: "my-live", futureCount: 5 });
-    const stateAfter = await caller.portfolio.state({ channel: "my-live" });
 
-    // Future days should have higher tradeCapital than before
-    const futureBefore = allDaysBefore.filter((d: DayRecord) => d.status === "FUTURE");
-    const futureAfter = allDaysAfter.filter((d: DayRecord) => d.status === "FUTURE");
-
-    if (futureBefore.length > 0 && futureAfter.length > 0) {
-      expect(futureAfter[0].tradeCapital).toBeGreaterThan(futureBefore[0].tradeCapital);
+    // futureDays are FUTURE by construction (router.ts:438 — projectFutureDays
+    // emits the slice starting at currentDayIndex + 1).
+    if (allDaysBefore.futureDays.length > 0 && allDaysAfter.futureDays.length > 0) {
+      expect(allDaysAfter.futureDays[0].tradeCapital).toBeGreaterThan(
+        allDaysBefore.futureDays[0].tradeCapital,
+      );
     }
   });
 

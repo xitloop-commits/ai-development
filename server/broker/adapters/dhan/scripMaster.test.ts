@@ -6,7 +6,7 @@
  * Uses _loadRecordsForTesting() to inject test data without HTTP.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   lookupSecurityId,
   lookupMultiple,
@@ -175,6 +175,17 @@ describe("ScripMaster", () => {
   beforeEach(() => {
     _resetForTesting();
     _loadRecordsForTesting(ALL_RECORDS);
+    // Freeze the clock so resolveMCXFutcom (which compares fixture
+    // expiries against `new Date()`) is deterministic regardless of
+    // when the test runs. Fixtures use Apr/May 2026 expiries — clock
+    // pinned to Apr 1 keeps both months "non-expired" so the
+    // nearest-month assertion is stable.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-01T09:00:00+05:30"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // ── Status ──────────────────────────────────────────────────

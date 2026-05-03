@@ -257,9 +257,29 @@ describe("ai-live 1-lot cap", () => {
     expect(portfolioAgent.recordTradeRejected).toHaveBeenCalledTimes(1);
   });
 
-  it("does NOT apply the cap to ai-paper (paper has no lot cap)", async () => {
+  it("accepts a 1-lot order on ai-paper", async () => {
     const resp = await tradeExecutor.submitTrade(
-      paperRequest({ channel: "ai-paper", origin: "AI", quantity: 1500 }),
+      paperRequest({ channel: "ai-paper", origin: "AI", quantity: 75 }),
+    );
+    if (!resp.success) {
+      expect(resp.error).not.toMatch(/lot cap/i);
+    }
+  });
+
+  it("rejects a 2-lot order on ai-paper — cap applies to all dhan-ai-data channels (C5)", async () => {
+    // 150 / 75 = 2 lots. Exceeds cap of 1. Even though ai-paper is paper money,
+    // an oversized AI order would corrupt canary-validation P&L.
+    const resp = await tradeExecutor.submitTrade(
+      paperRequest({ channel: "ai-paper", origin: "AI", quantity: 150 }),
+    );
+    expect(resp.success).toBe(false);
+    expect(resp.error).toMatch(/AI Live lot cap violated/);
+    expect(fillingAdapter.placeOrder).not.toHaveBeenCalled();
+  });
+
+  it("does NOT apply the cap to my-paper / my-live (manual orders are operator-supervised)", async () => {
+    const resp = await tradeExecutor.submitTrade(
+      paperRequest({ channel: "my-paper", origin: "USER", quantity: 1500 }),
     );
     // Goes through to broker (mock fills it).
     expect(resp.success).toBe(true);
