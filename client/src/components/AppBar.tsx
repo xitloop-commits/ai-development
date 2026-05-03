@@ -7,9 +7,8 @@
  * tRPC discipline.getDashboard, module heartbeats from props (polling).
  */
 import { useState, useMemo } from 'react';
-import {
-  Globe, Wifi, Shield, Calendar,
-  Menu, FlaskConical, Target,
+import { Calendar,
+  Menu, Target,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -33,62 +32,10 @@ import {
 import { ConfirmPopover } from './ConfirmPopover';
 import { ChannelTabs, lastModeForWs } from './ChannelTabs';
 
-// ── Model Status Popover ─────────────────────────────────────
-
-const MODEL_INSTRUMENTS = ['nifty50', 'banknifty', 'crudeoil', 'naturalgas'];
-const MODEL_LABELS: Record<string, string> = {
-  nifty50: 'NIFTY', banknifty: 'BNIFTY', crudeoil: 'CRUDE', naturalgas: 'GAS',
-};
-const MODEL_COLORS: Record<string, string> = {
-  nifty50: 'text-info-cyan', banknifty: 'text-bullish',
-  crudeoil: 'text-warning-amber', naturalgas: 'text-destructive',
-};
-
-function ModelStatusIndicator() {
-  const queries = MODEL_INSTRUMENTS.map((inst) =>
-    trpc.trading.instrumentLiveState.useQuery({ instrument: inst }, { refetchInterval: 30000, retry: 1 })
-  );
-
-  const loaded = queries.filter((q) => q.data?.model).length;
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div className="flex items-center gap-1 cursor-default">
-          <FlaskConical className={`h-3 w-3 ${loaded > 0 ? 'text-info-cyan' : 'text-muted-foreground'}`} />
-          <span className="hidden lg:inline text-[0.5625rem] text-muted-foreground tracking-wider">
-            {loaded}/4
-          </span>
-        </div>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" className="bg-card border-border text-foreground min-w-[240px]">
-        <div className="text-[0.625rem] space-y-1.5">
-          <div className="font-bold text-info-cyan mb-1">ML Models</div>
-          {MODEL_INSTRUMENTS.map((inst, i) => {
-            const model = queries[i].data?.model as any;
-            const valAuc = model?.metrics?.direction_30s?.val_auc;
-            const label = MODEL_LABELS[inst];
-            const color = MODEL_COLORS[inst];
-            return (
-              <div key={inst} className="flex items-center justify-between gap-3">
-                <span className={`font-bold ${color}`}>{label}</span>
-                {model ? (
-                  <span className="text-muted-foreground tabular-nums">
-                    v{model.version?.slice(0, 8)}
-                    {valAuc != null && <span className="ml-1">AUC {valAuc.toFixed(3)}</span>}
-                    <span className="ml-1">{model.feature_count}f</span>
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">not trained</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </TooltipContent>
-    </Tooltip>
-  );
-}
+// ── Right-side status cluster (API · FEED · AI · Discipline) ──
+// All four indicators consolidated into a single component so AppBar
+// doesn't carry per-indicator queries / derived state. See Indicators.tsx.
+import { Indicators } from './Indicators';
 
 // ── Holiday helpers ──────────────────────────────────────────
 
@@ -331,37 +278,9 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
     ? (((netWorth - initialFunding) / initialFunding) * 100).toFixed(1)
     : '0.0';
 
-   // ─── tRPC Queries ──────────────────────────────────────────
-  const brokerStatusQuery = trpc.broker.status.useQuery(undefined, {
-    refetchInterval: 5000,
-    retry: 1,
-  });
-
-  const feedStateQuery = trpc.broker.feed.state.useQuery(undefined, {
-    refetchInterval: 10000,
-    retry: 1,
-  });
-
-  const disciplineQuery = trpc.discipline.getDashboard.useQuery(undefined, {
-    refetchInterval: 30000,
-    retry: 1,
-  });
-
-  // ─── Derived Data ──────────────────────────────────────────
-  const brokerStatus = brokerStatusQuery.data;
-  const feedState = feedStateQuery.data;
-  const brokerConnected = !!brokerStatus && (brokerStatus as any).connected !== false;
-  const brokerName = (brokerStatus as any)?.activeBroker ?? 'None';
-  const brokerMode = (brokerStatus as any)?.mode ?? 'paper';
-
-  const disciplineData = disciplineQuery.data as any;
-  const scoreObj = disciplineData?.score;
-  const disciplineScore = typeof scoreObj === 'object' && scoreObj !== null ? (scoreObj as any).score ?? 100 : scoreObj ?? 100;
-  const scoreColor = disciplineScore >= 80 ? 'text-info-cyan' : disciplineScore >= 60 ? 'text-warning-amber' : 'text-loss-red';
-  const breakdown = (typeof disciplineData?.score === 'object' ? (disciplineData.score as any).breakdown : disciplineData?.breakdown) ?? {
-    circuitBreaker: 20, tradeLimits: 15, cooldowns: 15, timeWindows: 10,
-    positionSizing: 15, journal: 10, preTradeGate: 15,
-  };
+  // The right-side indicator cluster owns all its own queries — see
+  // Indicators.tsx. AppBar no longer threads broker/feed/discipline
+  // state through this scope.
 
   return (
     <div className="sticky top-0 z-50 w-full border-b border-border bg-secondary backdrop-blur-md">
@@ -379,7 +298,6 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
 
         {/* Brand */}
         <div className="px-3 flex items-center gap-1.5 shrink-0">
-          <div className="h-2 w-2 rounded-sm bg-primary" />
           <span className="font-display text-sm font-bold tracking-wider text-primary uppercase">lubas</span>
           <span className="hidden xl:inline text-[0.5625rem] text-muted-foreground tracking-widest uppercase">Lucky Basker</span>
         </div>
@@ -430,118 +348,8 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
-        {/* API */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="px-3 flex items-center gap-1 shrink-0 cursor-default">
-              <Globe className={`h-3 w-3 ${brokerConnected ? 'text-bullish' : 'text-muted-foreground'}`} />
-              <span className="text-[0.5625rem] text-muted-foreground tracking-wider">API</span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            <div className="text-[0.625rem] space-y-0.5">
-              <div className={`font-bold ${brokerConnected ? 'text-bullish' : 'text-muted-foreground'}`}>
-                {brokerConnected ? `${brokerName} Connected` : 'Broker Disconnected'}
-              </div>
-              <div className="text-muted-foreground">
-                Mode: {brokerMode === 'live' ? 'LIVE TRADING' : 'Paper Trading'}
-              </div>
-            </div>
-          </TooltipContent>
-        </Tooltip>
-
-        <div className="w-px self-stretch bg-border shrink-0" />
-
-        {/* Feed — three visual states:
-              connected     → green Wifi + steady green pulse-dot (alive heartbeat)
-              connecting    → amber Wifi animated + amber dot (initial / between queries)
-              disconnected  → red Wifi animated + red dot (down, reconnect in progress) */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="px-3 flex items-center gap-1 shrink-0 cursor-default">
-              {(() => {
-                // First few seconds while the query is loading and we have no
-                // data yet → render as "connecting" rather than "disconnected".
-                const status: 'connected' | 'connecting' | 'disconnected' =
-                  feedState?.wsConnected
-                    ? 'connected'
-                    : feedStateQuery.isLoading && !feedState
-                      ? 'connecting'
-                      : 'disconnected';
-                const wifiCls =
-                  status === 'connected'    ? 'text-bullish' :
-                  status === 'connecting'   ? 'text-warning-amber animate-pulse' :
-                                              'text-destructive animate-pulse';
-                const dotCls =
-                  status === 'connected'    ? 'bg-bullish animate-pulse' :
-                  status === 'connecting'   ? 'bg-warning-amber animate-ping' :
-                                              'bg-destructive animate-ping';
-                return (
-                  <>
-                    <Wifi className={`h-3 w-3 ${wifiCls}`} />
-                    <span className={`h-1.5 w-1.5 rounded-full ${dotCls}`} />
-                  </>
-                );
-              })()}
-              <span className="text-[0.5625rem] text-muted-foreground tracking-wider">FEED</span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            <div className="text-[0.625rem] space-y-0.5">
-              <div
-                className={`font-bold ${
-                  feedState?.wsConnected
-                    ? 'text-bullish'
-                    : feedStateQuery.isLoading && !feedState
-                      ? 'text-warning-amber'
-                      : 'text-destructive'
-                }`}
-              >
-                {feedState?.wsConnected
-                  ? 'Feed Connected'
-                  : feedStateQuery.isLoading && !feedState
-                    ? 'Connecting…'
-                    : 'Feed Disconnected — reconnecting'}
-              </div>
-              <div className="text-muted-foreground">
-                {feedState ? `${feedState.totalSubscriptions} subscriptions` : 'No feed data'}
-              </div>
-            </div>
-          </TooltipContent>
-        </Tooltip>
-
-        <div className="w-px self-stretch bg-border shrink-0" />
-
-        {/* Model Status */}
-        <div className="px-3 flex items-center shrink-0">
-          <ModelStatusIndicator />
-        </div>
-
-        <div className="w-px self-stretch bg-border shrink-0" />
-
-        {/* Discipline Score */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="px-3 flex items-center gap-1 shrink-0 cursor-default">
-              <Shield className={`h-3 w-3 ${scoreColor}`} />
-              <span className={`text-[0.625rem] font-bold tabular-nums ${scoreColor}`}>
-                {disciplineScore}
-              </span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            <div className="text-[0.625rem] space-y-0.5 font-mono">
-              <div className={`font-bold mb-1 ${scoreColor}`}>Discipline: {disciplineScore}/100</div>
-              <div className="text-muted-foreground">Circuit Breaker  {breakdown.circuitBreaker}/20</div>
-              <div className="text-muted-foreground">Trade Limits     {breakdown.tradeLimits}/15</div>
-              <div className="text-muted-foreground">Cooldowns        {breakdown.cooldowns}/15</div>
-              <div className="text-muted-foreground">Time Windows     {breakdown.timeWindows}/10</div>
-              <div className="text-muted-foreground">Position Sizing  {breakdown.positionSizing}/15</div>
-              <div className="text-muted-foreground">Journal          {breakdown.journal}/10</div>
-              <div className="text-muted-foreground">Pre-Trade Gate   {breakdown.preTradeGate}/15</div>
-            </div>
-          </TooltipContent>
-        </Tooltip>
+        {/* Right-side status cluster: 🌐 API · 📶 FEED · 🧪 AI · 🛡 Score */}
+        <Indicators />
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
