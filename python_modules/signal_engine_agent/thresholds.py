@@ -208,8 +208,18 @@ def decide_action(
         )
 
     leg_ltp_f = float(leg_ltp)
-    tp_dist = abs(up_pred)
-    sl_dist = abs(dn_pred)
+    # The `max_upside_*` / `max_drawdown_*` models are trained on CE-leg LTP
+    # swings only (see tick_feature_agent/features/targets.py). For LONG_PE,
+    # the directional sense inverts: an underlying down-move makes CE drop
+    # AND PE rise, so the CE-drawdown magnitude is the PE-upside (TP) and
+    # the CE-upside magnitude is the PE-downside (SL). For LONG_CE the model
+    # already speaks for the leg being traded, so use the magnitudes as-is.
+    if is_call:
+        tp_dist = abs(up_pred)
+        sl_dist = abs(dn_pred)
+    else:
+        tp_dist = abs(dn_pred)
+        sl_dist = abs(up_pred)
     entry = leg_ltp_f
     tp = leg_ltp_f + tp_dist
     sl = leg_ltp_f - sl_dist
@@ -225,6 +235,93 @@ def decide_action(
         gate_passed=True,
         gate_reasons=[],
     )
+
+
+@dataclass(frozen=True)
+class V2Thresholds:
+    """Wave 1 deterministic-gate add-on thresholds.
+
+    Layered on top of the existing 3-condition gate. All deterministic —
+    no model dependency on the new fields, so works across all instruments
+    without retraining.
+    """
+
+    # C5: minimum momentum_persistence_ticks (TFA-emitted, capped at 20)
+    momentum_persistence_min: int = 5
+    # C6: skip LONG_CE if within this many percent of day high (resistance)
+    sr_clearance_pct: float = 0.05
+    # C4 forbidden regimes — entries blocked when regime ∈ this set
+    forbidden_regimes: tuple[str, ...] = ("REVERSAL",)
+
+
+def decide_action_v2(
+    predictions: Mapping[str, float],
+    thresholds: Thresholds = Thresholds(),
+    v2_thresholds: V2Thresholds = V2Thresholds(),
+    ce_ltp: float | None = None,
+    pe_ltp: float | None = None,
+    *,
+    regime: str | None = None,
+    momentum_persistence_ticks: float | None = None,
+    distance_to_day_high_pct: float | None = None,
+    distance_to_day_low_pct: float | None = None,
+) -> SignalAction:
+    """Wave 1 gate: existing 3 conditions + 3 deterministic conditions.
+
+    Adds on top of `decide_action`:
+        C4: regime not in forbidden set (skip REVERSAL)
+        C5: momentum_persistence_ticks >= threshold (direction has held)
+        C6: S/R clearance — skip LONG_CE near day high; LONG_PE near day low
+
+    All new conditions are NaN-tolerant: missing values fail-open (don't
+    block the trade), so the gate degrades gracefully when TFA hasn't
+    populated the new feature columns yet.
+
+    Returns a fully-populated SignalAction; never raises.
+    """
+    base = decide_action(predictions, thresholds, ce_ltp=ce_ltp, pe_ltp=pe_ltp)
+    if not base.gate_passed:
+        return base
+
+    extra: list[str] = []
+
+    # C4 — regime check
+    if regime is not None and regime in v2_thresholds.forbidden_regimes:
+        extra.append("C4_regime")
+
+    # C5 — momentum persistence
+    if momentum_persistence_ticks is not None and _is_finite(momentum_persistence_ticks):
+        if float(momentum_persistence_ticks) < v2_thresholds.momentum_persistence_min:
+            extra.append("C5_momentum")
+
+    # C6 — S/R clearance.
+    # distance_to_day_high_pct: negative when below high, ~0 at high, positive above.
+    # For LONG_CE near day high → reject.
+    # For LONG_PE near day low → reject (use distance_to_day_low_pct similarly).
+    is_call = base.action == "LONG_CE"
+    is_put = base.action == "LONG_PE"
+    if is_call and _is_finite(distance_to_day_high_pct):
+        # within `sr_clearance_pct` of high (≥ -clearance, since it's negative when below)
+        if float(distance_to_day_high_pct) >= -v2_thresholds.sr_clearance_pct:
+            extra.append("C6_sr_resistance")
+    if is_put and _is_finite(distance_to_day_low_pct):
+        # within clearance of low: distance is positive when above; small positive = near low
+        if float(distance_to_day_low_pct) <= v2_thresholds.sr_clearance_pct:
+            extra.append("C6_sr_support")
+
+    if extra:
+        return SignalAction(
+            action="WAIT",
+            direction=base.direction,  # preserve "would-be" direction for diagnostic
+            entry=0.0,
+            tp=0.0,
+            sl=0.0,
+            rr=0.0,
+            gate_passed=False,
+            gate_reasons=base.gate_reasons + extra,
+        )
+
+    return base
 
 
 def _first_finite(predictions: Mapping[str, float], keys: tuple[str, ...]) -> float | None:
@@ -243,12 +340,42 @@ def load_thresholds(
     instrument: str,
     config_dir: Path = Path("config/sea_thresholds"),
 ) -> Thresholds:
-    """Load `<config_dir>/<instrument>.json`, falling back to `default.json`
-    if no instrument-specific file exists. Both must be valid JSON
-    objects whose keys match `Thresholds` field names.
+    """Load `<config_dir>/<instrument>.json`, falling back to `default.json`.
+    Returns ONLY the base 3-condition Thresholds (backward-compatible API).
+    Use `load_thresholds_v2()` to get the per-instrument V2 add-on too.
+    """
+    base, _ = load_thresholds_v2(instrument, config_dir)
+    return base
 
-    Raises FileNotFoundError if neither file exists — callers should not
-    silently run with hardcoded defaults; the project ships default.json.
+
+def load_thresholds_v2(
+    instrument: str,
+    config_dir: Path = Path("config/sea_thresholds"),
+) -> tuple[Thresholds, V2Thresholds]:
+    """Load thresholds for an instrument. See `load_thresholds_full` for
+    the complete tuple including `gate_mode`."""
+    base, v2, _ = load_thresholds_full(instrument, config_dir)
+    return base, v2
+
+
+def load_thresholds_full(
+    instrument: str,
+    config_dir: Path = Path("config/sea_thresholds"),
+) -> tuple[Thresholds, V2Thresholds, str]:
+    """Load `<config_dir>/<instrument>.json`, falling back to `default.json`.
+
+    Schema:
+      {
+        "prob_min": 0.65, "rr_min": 1.5, "upside_percentile_min": 60.0,
+        "gate_mode": "wave1" | "current",          # optional, default "current"
+        "v2": {                                    # optional, only used if gate_mode == "wave1"
+          "momentum_persistence_min": 5,
+          "sr_clearance_pct": 0.05,
+          "forbidden_regimes": ["REVERSAL"]
+        }
+      }
+
+    Returns (Thresholds, V2Thresholds, gate_mode).
     """
     inst_path = config_dir / f"{instrument}.json"
     default_path = config_dir / "default.json"
@@ -261,4 +388,14 @@ def load_thresholds(
             f"  Ship a default.json with prob_min/rr_min/upside_percentile_min."
         )
     raw = json.loads(path.read_text(encoding="utf-8"))
-    return Thresholds(**raw)
+    v2_raw = raw.pop("v2", None)
+    gate_mode = raw.pop("gate_mode", "current")
+    if gate_mode not in ("current", "wave1"):
+        raise ValueError(f"gate_mode must be 'current' or 'wave1', got {gate_mode!r}")
+    base = Thresholds(**raw)
+    if v2_raw is None:
+        return base, V2Thresholds(), gate_mode
+    if "forbidden_regimes" in v2_raw and isinstance(v2_raw["forbidden_regimes"], list):
+        v2_raw["forbidden_regimes"] = tuple(v2_raw["forbidden_regimes"])
+    v2 = V2Thresholds(**v2_raw)
+    return base, v2, gate_mode

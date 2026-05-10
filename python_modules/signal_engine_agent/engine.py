@@ -42,11 +42,14 @@ from model_training_agent.preprocessor import LiveTickPreprocessor
 from signal_engine_agent import legacy_filter
 from signal_engine_agent.model_loader import load_models
 from signal_engine_agent.signal_logger import SignalLogger
+from signal_engine_agent.sustain import SustainFilter
 from signal_engine_agent.thresholds import (
     SignalAction,
     Thresholds,
+    V2Thresholds,
     decide_action,
-    load_thresholds,
+    decide_action_v2,
+    load_thresholds_full,
 )
 
 _IST = timezone(timedelta(hours=5, minutes=30))
@@ -128,16 +131,31 @@ def run(
     print(f"  Features: {len(models.feature_names)}")
 
     if filter_mode == "gate":
-        thresholds = load_thresholds(instrument, config_dir)
-        print(
-            f"  Filter: 3-condition gate  "
-            f"(prob>={thresholds.prob_min}, "
-            f"RR>={thresholds.rr_min}, "
-            f"pctile>={thresholds.upside_percentile_min})"
-        )
+        thresholds, v2_thresholds, gate_mode = load_thresholds_full(instrument, config_dir)
+        if gate_mode == "wave1":
+            sustain_filter = SustainFilter(window_n=10)
+            print(
+                f"  Filter: 3-cond gate + Wave 1 deterministic layer  "
+                f"(prob>={thresholds.prob_min}, RR>={thresholds.rr_min}, "
+                f"pctile>={thresholds.upside_percentile_min}, "
+                f"momentum>={v2_thresholds.momentum_persistence_min}, "
+                f"sr_clearance>={v2_thresholds.sr_clearance_pct}%, "
+                f"sustain_n={sustain_filter.window_n})"
+            )
+        else:
+            sustain_filter = None
+            print(
+                f"  Filter: 3-condition gate (current)  "
+                f"(prob>={thresholds.prob_min}, "
+                f"RR>={thresholds.rr_min}, "
+                f"pctile>={thresholds.upside_percentile_min})"
+            )
         trade_filter = None
     elif filter_mode == "legacy":
         thresholds = None
+        v2_thresholds = None
+        gate_mode = "current"
+        sustain_filter = None
         trade_filter = legacy_filter.TradeFilter(
             sustained_n=sustained_n,
             avg_prob_threshold=avg_prob_thresh,
@@ -188,14 +206,42 @@ def run(
             # The session-rank `upside_percentile_30s` is a TFA-emitted
             # live feature column on the parquet row, not a model target
             # (per Phase E9). Pull it from the row directly.
-            preds["upside_percentile_30s"] = float(row.get("upside_percentile_30s", float("nan")))
+            # `.get(key, default)` only returns the default when the key is
+            # MISSING. TFA may emit the column with an explicit null when the
+            # session-rank window hasn't filled yet → coerce None → nan.
+            _pct = row.get("upside_percentile_30s")
+            preds["upside_percentile_30s"] = float(_pct) if _pct is not None else float("nan")
 
             regime = row.get("regime")
             ce_ltp = row.get("opt_0_ce_ltp")
             pe_ltp = row.get("opt_0_pe_ltp")
 
             if filter_mode == "gate":
-                sig = _decide_via_gate(preds, thresholds, ce_ltp, pe_ltp)
+                if gate_mode == "wave1":
+                    # Wave 1 deterministic gate: 3-condition + regime + momentum + S/R + sustained-N
+                    raw_sig = decide_action_v2(
+                        preds, thresholds, v2_thresholds,
+                        ce_ltp=ce_ltp, pe_ltp=pe_ltp,
+                        regime=regime if isinstance(regime, str) else None,
+                        momentum_persistence_ticks=row.get("momentum_persistence_ticks"),
+                        distance_to_day_high_pct=row.get("distance_to_day_high_pct"),
+                        distance_to_day_low_pct=row.get("distance_to_day_low_pct"),
+                    )
+                    # Apply sustained-tick filter on the raw decision
+                    confirmed = sustain_filter.observe(raw_sig.action)
+                    if confirmed != "WAIT" and raw_sig.gate_passed:
+                        sig = raw_sig
+                    else:
+                        sig = SignalAction(
+                            action="WAIT", direction=raw_sig.direction,
+                            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+                            gate_passed=False,
+                            gate_reasons=raw_sig.gate_reasons + (
+                                ["C7_not_sustained"] if confirmed == "WAIT" and raw_sig.gate_passed else []
+                            ),
+                        )
+                else:
+                    sig = _decide_via_gate(preds, thresholds, ce_ltp, pe_ltp)
                 action = sig.action
                 entry, tp, sl, rr = sig.entry, sig.tp, sig.sl, sig.rr
                 gate_reasons = sig.gate_reasons
@@ -259,6 +305,7 @@ def run(
                     "breakout": row.get("breakout_readiness"),
                     "model_version": models.version,
                     "filter_mode": filter_mode,
+                    "gate_mode": gate_mode,
                     "direction": "GO_CALL" if "CE" in action else "GO_PUT",
                 }
                 raw_logger.log(signal)

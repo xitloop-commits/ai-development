@@ -1,5 +1,11 @@
 {
   "prob_min": 0.65,
   "rr_min": 1.5,
-  "upside_percentile_min": 60.0
+  "upside_percentile_min": 60.0,
+  "gate_mode": "wave1",
+  "v2": {
+    "momentum_persistence_min": 5,
+    "sr_clearance_pct": 0.05,
+    "forbidden_regimes": ["REVERSAL"]
+  }
 }

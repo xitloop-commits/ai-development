@@ -169,6 +169,37 @@ def test_swing_window_priority_900_over_300_over_30():
     assert sig.sl == pytest.approx(97.0)  # 100 - 3.0 (900s)
 
 
+def test_long_ce_uses_swing_pred_directly():
+    """LONG_CE: TP comes from CE-upside magnitude, SL from CE-drawdown.
+    Models are trained on CE-leg swings, so the prediction speaks for the
+    leg being traded — no inversion required."""
+    preds = _preds(
+        0.80, 2.0, 70.0,
+        max_upside_900s=10.0, max_drawdown_900s=-25.0,
+    )
+    sig = decide_action(preds, Thresholds(), ce_ltp=100.0, pe_ltp=200.0)
+    assert sig.action == "LONG_CE"
+    assert sig.tp == pytest.approx(110.0)   # 100 + 10 (CE upside)
+    assert sig.sl == pytest.approx(75.0)    # 100 - 25 (CE drawdown)
+    assert sig.rr == pytest.approx(0.4)     # 10 / 25
+
+
+def test_long_pe_inverts_swing_pred_for_tp_sl():
+    """LONG_PE: TP comes from CE-drawdown magnitude (underlying-down ↔
+    PE-up) and SL from CE-upside magnitude (underlying-up ↔ PE-down).
+    Without the inversion, PE trades got TP and SL swapped — the May 6
+    2026 Discipline-blocked trade landed at rr=0.57 from this bug."""
+    preds = _preds(
+        0.20, 2.0, 70.0,
+        max_upside_900s=10.0, max_drawdown_900s=-25.0,
+    )
+    sig = decide_action(preds, Thresholds(), ce_ltp=100.0, pe_ltp=200.0)
+    assert sig.action == "LONG_PE"
+    assert sig.tp == pytest.approx(225.0)   # 200 + 25 (CE drawdown → PE up)
+    assert sig.sl == pytest.approx(190.0)   # 200 - 10 (CE upside  → PE down)
+    assert sig.rr == pytest.approx(2.5)     # 25 / 10
+
+
 def test_swing_window_falls_back_when_long_window_nan():
     nan = float("nan")
     preds = _preds(
