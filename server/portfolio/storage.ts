@@ -88,6 +88,14 @@ export interface PositionStateDoc {
   stopLossPrice: number | null;
   trailingStopEnabled?: boolean;
 
+  /**
+   * Wave 1: peak ltp seen since entry — used by tickHandler's TSL
+   * ratchet. Persisting it here (vs the in-memory peakPrices Map) keeps
+   * the trail correct across server restarts. tickHandler reads + writes
+   * this on every ratchet update.
+   */
+  peakLtp?: number;
+
   /** Broker-assigned order ID (returned by placeOrder). Renamed from
    *  the legacy `brokerId` field in 2026-05; that name now stores the
    *  broker identity instead. */
@@ -241,6 +249,9 @@ const positionStateSchema = new Schema(
     targetPrice: { type: Number, default: null },
     stopLossPrice: { type: Number, default: null },
     trailingStopEnabled: { type: Boolean, default: false },
+
+    // Wave 1: peak ltp persisted for restart-safe TSL ratchet.
+    peakLtp: { type: Number, default: null },
 
     brokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },

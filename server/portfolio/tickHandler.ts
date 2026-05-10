@@ -241,13 +241,26 @@ class TickHandler extends EventEmitter {
         const isBuy = trade.type.includes("BUY");
 
         // ── Trailing Stop Logic ──────────────────────────────
-        // Track peak price and dynamically trail the stop loss
+        // Track peak price and dynamically trail the stop loss.
+        // Source priority for currentPeak (Wave 1, restart-safe):
+        //   1. Persisted `trade.peakLtp` if set (survives server restart)
+        //   2. In-memory `peakPrices` Map (fast path, current process)
+        //   3. `trade.entryPrice` (cold start)
         const peakKey = trade.id;
-        const currentPeak = this.peakPrices.get(peakKey) ?? trade.entryPrice;
+        const currentPeak =
+          trade.peakLtp ??
+          this.peakPrices.get(peakKey) ??
+          trade.entryPrice;
         const newPeak = isBuy
           ? Math.max(currentPeak, tick.ltp)
           : Math.min(currentPeak, tick.ltp);
         this.peakPrices.set(peakKey, newPeak);
+        if (newPeak !== currentPeak) {
+          // Only persist on a real ratchet event — avoids touching Mongo
+          // every tick (the upsertDayRecord call below already persists
+          // the trade record when anyUpdated is set).
+          trade.peakLtp = newPeak;
+        }
 
         // Apply trailing stop if enabled: check trade-level override first, then broker config
         const trailingStopActiveForTrade = trade.trailingStopEnabled !== undefined ? trade.trailingStopEnabled : trailingStopEnabled;

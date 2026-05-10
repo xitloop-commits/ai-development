@@ -195,6 +195,17 @@ function _TodayTradeRow({
                   }}
                 >
                   {isOpen ? displayLtp.toFixed(2) : (trade.exitPrice?.toFixed(2) ?? '')}
+                  {/* Wave 1: small TSL indicator when trailing-stop is active. SL value
+                      itself ratchets via tickHandler; this badge tells operator the
+                      stop is moving without needing to hover for the tooltip. */}
+                  {isOpen && trade.trailingStopEnabled && (
+                    <span
+                      className="ml-0.5 text-[0.5625rem] text-muted-foreground/80 align-baseline"
+                      title="Trailing Stop active"
+                    >
+                      ↗
+                    </span>
+                  )}
                 </span>
               </PopoverTrigger>
             </TooltipTrigger>

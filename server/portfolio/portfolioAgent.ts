@@ -1082,6 +1082,7 @@ function positionDocToTradeRecord(p: PositionStateDoc): TradeRecord {
     targetPrice: p.targetPrice,
     stopLossPrice: p.stopLossPrice,
     trailingStopEnabled: p.trailingStopEnabled,
+    peakLtp: p.peakLtp,
     brokerOrderId: p.brokerOrderId,
     brokerId: p.brokerId,
     openedAt: p.openedAt,
