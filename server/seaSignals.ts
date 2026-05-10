@@ -92,7 +92,7 @@ export function clearSEASignalsCache(): void {
 export function getSEASignals(
   limit: number = 50,
   instrument?: string,
-  source: "filtered" | "raw" | "auto" = "auto"
+  source: "filtered" | "raw" | "auto" = "raw"
 ): SEASignal[] {
   const today = todayIST();
   const instruments = instrument
