@@ -43,6 +43,9 @@ from tick_feature_agent.features.compression import CompressionState
 from tick_feature_agent.features.decay import DecayState
 from tick_feature_agent.features.horizon import compute_horizon_features
 from tick_feature_agent.features.meta import compute_meta_features
+from tick_feature_agent.features.expiry import compute_expiry_features
+from tick_feature_agent.features.greeks import compute_greek_features
+from tick_feature_agent.features.levels import compute_level_features
 from tick_feature_agent.features.ofi import compute_ofi_features
 from tick_feature_agent.features.option_tick import compute_option_tick_features
 from tick_feature_agent.features.realized_vol import compute_realized_vol_features
@@ -112,6 +115,11 @@ class _PendingRow:
     t0: float  # Unix seconds for this tick
     spot_at_t0: float  # underlying LTP at t0
     ltps_at_t0: dict[int, tuple[float, float]]  # {strike: (ce_ltp, pe_ltp)} at t0
+    # Wave 2: snapshotted at t0 for breakout_in_X target. Day high/low
+    # progress through the session so the value at trade-open is what
+    # determines whether a future breakout occurred.
+    day_high_at_t0: float | None = None
+    day_low_at_t0: float | None = None
 
 
 # ── ChainSnapshot construction ────────────────────────────────────────────────
@@ -244,6 +252,16 @@ class ReplayAdapter:
         # Underlying tick counter (for meta data_quality_flag)
         self._underlying_tick_count = 0
 
+        # Wave 1 / 2: session-level OHLC tracking from recorded QUOTE/FULL/PrevClose
+        # data dicts. Mirrors live tick_processor state. Required for level
+        # features (S/R distances) and breakout_in_X targets.
+        self._day_high: float | None = None
+        self._day_low: float | None = None
+        self._prev_close: float | None = None
+        # First tick's timestamp serves as session_open for the expiry
+        # session_remaining_pct feature.
+        self._session_open_replay_sec: float = 0.0
+
         # Target backfill queue
         self._pending: deque[_PendingRow] = deque()
 
@@ -301,6 +319,8 @@ class ReplayAdapter:
                 spot_at_t0=pending.spot_at_t0,
                 active_strike_ltps_at_t0=pending.ltps_at_t0,
                 session_end_sec=self._session_end_sec,
+                day_high_at_t0=pending.day_high_at_t0,
+                day_low_at_t0=pending.day_low_at_t0,
             )
             pending.row.update(targets)
             self._emitter.emit(pending.row)
@@ -380,6 +400,20 @@ class ReplayAdapter:
         ask = float(data.get("ask") or 0)
         vol = int(data.get("ltq") or data.get("volume") or 0)
 
+        # ── Wave 1/2: capture session OHLC from recorded QUOTE/FULL fields ────
+        dh = data.get("day_high")
+        if dh is not None and dh > 0:
+            self._day_high = float(dh)
+        dl = data.get("day_low")
+        if dl is not None and dl > 0:
+            self._day_low = float(dl)
+        pc = data.get("prev_close")
+        if pc is not None and pc > 0:
+            self._prev_close = float(pc)
+
+        if self._session_open_replay_sec == 0.0:
+            self._session_open_replay_sec = ts
+
         # ── Market-open flag ──────────────────────────────────────────────────
         self._is_market_open = self._session_start_sec <= ts < self._session_end_sec
 
@@ -433,6 +467,8 @@ class ReplayAdapter:
             t0=ts,
             spot_at_t0=ltp,
             ltps_at_t0=strike_ltps,
+            day_high_at_t0=self._day_high,
+            day_low_at_t0=self._day_low,
         )
         self._pending.append(pending)
 
@@ -562,6 +598,62 @@ class ReplayAdapter:
         warm_remain = self._sm.warm_up_remaining_sec or 0.0
         stale_rsn = self._sm.state.value if sm_state != TradingState.TRADING else None
 
+        # ── Wave 1 features: levels, greeks, expiry (mirror tick_processor) ───
+        chain_rows = cache.snapshot.rows if cache.snapshot is not None else None
+        level_f = compute_level_features(
+            spot=ltp,
+            day_high=self._day_high,
+            day_low=self._day_low,
+            prev_close=self._prev_close,
+            chain_rows=chain_rows,
+        )
+
+        # Find ATM-strike row from chain to extract IVs for greeks
+        atm_ce_iv_pct = None
+        atm_pe_iv_pct = None
+        if chain_rows and atm_strike is not None:
+            for r in chain_rows:
+                if r.get("strike") == atm_strike:
+                    atm_ce_iv_pct = r.get("callIV")
+                    atm_pe_iv_pct = r.get("putIV")
+                    break
+
+        # Days-to-expiry from cache.snapshot (chain_poller resolved it).
+        # In replay this is reconstructed from the recorded snapshot.
+        dte = None
+        expiry_ts: float | None = None
+        if cache.snapshot is not None and cache.snapshot.expiry:
+            try:
+                from datetime import datetime as _dt
+                from datetime import timezone as _tz
+                from datetime import timedelta as _td
+                ist = _tz(_td(hours=5, minutes=30))
+                exp_date = _dt.fromisoformat(cache.snapshot.expiry).date()
+                exp_dt = _dt.combine(
+                    exp_date,
+                    _dt.fromtimestamp(self._session_end_sec, tz=ist).time(),
+                    tzinfo=ist,
+                ) if self._session_end_sec else _dt.combine(exp_date, _dt.min.time(), tzinfo=ist)
+                expiry_ts = exp_dt.timestamp()
+                dte = (expiry_ts - ts) / 86400.0
+            except (ValueError, TypeError, OSError):
+                pass
+
+        greek_f = compute_greek_features(
+            spot=ltp,
+            atm_strike=float(atm_strike) if atm_strike is not None else None,
+            atm_ce_iv_pct=atm_ce_iv_pct,
+            atm_pe_iv_pct=atm_pe_iv_pct,
+            days_to_expiry=dte,
+        )
+        expiry_f = compute_expiry_features(
+            now_ts=ts,
+            expiry_ts=expiry_ts,
+            session_open_ts=self._session_open_replay_sec or None,
+            session_end_ts=self._session_end_sec or None,
+            is_monthly=None,
+        )
+
         # ── Assemble flat row (NaN targets — backfilled later) ────────────────
         row = assemble_flat_vector(
             timestamp=ts,
@@ -588,6 +680,9 @@ class ReplayAdapter:
             stale_reason=stale_rsn,
             meta_feats=meta_f,
             target_windows_sec=profile.target_windows_sec,
+            level_feats=level_f,
+            greek_feats=greek_f,
+            expiry_feats=expiry_f,
         )
         return row
 
@@ -610,6 +705,8 @@ class ReplayAdapter:
                 spot_at_t0=pending.spot_at_t0,
                 active_strike_ltps_at_t0=pending.ltps_at_t0,
                 session_end_sec=self._session_end_sec,
+                day_high_at_t0=pending.day_high_at_t0,
+                day_low_at_t0=pending.day_low_at_t0,
             )
             # Inject upside percentile for the shortest window
             min_window = min(self._profile.target_windows_sec)

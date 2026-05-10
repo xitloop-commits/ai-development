@@ -85,6 +85,11 @@ class _PendingRow:
     t0: float
     spot_at_t0: float
     ltps_at_t0: dict[int, tuple[float, float]]
+    # Wave 2: snapshotted at t0 for breakout_in_X target. Day high/low
+    # progress through the session, so the value at trade-open is what
+    # determines whether a future breakout occurred.
+    day_high_at_t0: float | None = None
+    day_low_at_t0: float | None = None
 
 
 # ── TickProcessor ─────────────────────────────────────────────────────────────
@@ -196,6 +201,8 @@ class TickProcessor:
                 spot_at_t0=p.spot_at_t0,
                 active_strike_ltps_at_t0=p.ltps_at_t0,
                 session_end_sec=self._session_end_sec,
+                day_high_at_t0=p.day_high_at_t0,
+                day_low_at_t0=p.day_low_at_t0,
             )
             p.row.update(targets)
             self._emitter.emit(p.row)
@@ -270,6 +277,8 @@ class TickProcessor:
                 t0=ts,
                 spot_at_t0=ltp,
                 ltps_at_t0=strike_ltps,
+                day_high_at_t0=self._day_high,
+                day_low_at_t0=self._day_low,
             )
         )
 
@@ -602,6 +611,8 @@ class TickProcessor:
                 spot_at_t0=p.spot_at_t0,
                 active_strike_ltps_at_t0=p.ltps_at_t0,
                 session_end_sec=self._session_end_sec,
+                day_high_at_t0=p.day_high_at_t0,
+                day_low_at_t0=p.day_low_at_t0,
             )
             min_w = min(self._profile.target_windows_sec)
             upside = targets.get(f"max_upside_{min_w}s", _NAN)

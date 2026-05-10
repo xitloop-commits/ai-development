@@ -117,6 +117,8 @@ class TargetBuffer:
         spot_at_t0: float,
         active_strike_ltps_at_t0: dict[int, tuple[float, float]],
         session_end_sec: float,
+        day_high_at_t0: float | None = None,
+        day_low_at_t0: float | None = None,
     ) -> dict[str, float | int]:
         """
         Compute all per-tick target variables for the tick at t0.
@@ -130,6 +132,10 @@ class TargetBuffer:
             spot_at_t0:                Underlying spot price at T.
             active_strike_ltps_at_t0:  {strike: (ce_ltp, pe_ltp)} at T.
             session_end_sec:           Session end (epoch seconds) for null-guard.
+            day_high_at_t0:            Day's high seen up to T. Required for
+                                       ``breakout_in_*`` targets; pass None
+                                       → those targets emit NaN.
+            day_low_at_t0:             Day's low seen up to T. Same as above.
 
         Returns:
             Dict of all target columns except upside_percentile.
@@ -214,6 +220,77 @@ class TargetBuffer:
                 else:
                     out[f"direction_{x}s_magnitude"] = _NAN
 
+            # ── Wave 2: direction_persists ───────────────────────────────────
+            # 1 if direction held throughout the window — no entry-line cross.
+            # 0 if path crossed back to the other side at any point. NaN if
+            # endpoint is exactly at entry (ambiguous) or no lookahead.
+            if past_boundary or not lookahead:
+                out[f"direction_persists_{x}s"] = _NAN
+            else:
+                end_spot = lookahead[-1].spot
+                if end_spot == spot_at_t0:
+                    out[f"direction_persists_{x}s"] = _NAN
+                elif end_spot > spot_at_t0:
+                    out[f"direction_persists_{x}s"] = (
+                        1 if all(e.spot >= spot_at_t0 for e in lookahead) else 0
+                    )
+                else:
+                    out[f"direction_persists_{x}s"] = (
+                        1 if all(e.spot <= spot_at_t0 for e in lookahead) else 0
+                    )
+
+            # ── Wave 2: breakout_in ──────────────────────────────────────────
+            # 1 if spot crossed day_high or day_low within the window.
+            # NaN if day_high/low not provided or no lookahead.
+            if past_boundary or not lookahead or day_high_at_t0 is None or day_low_at_t0 is None:
+                out[f"breakout_in_{x}s"] = _NAN
+            else:
+                broke_up = any(e.spot > day_high_at_t0 for e in lookahead)
+                broke_down = any(e.spot < day_low_at_t0 for e in lookahead)
+                out[f"breakout_in_{x}s"] = 1 if (broke_up or broke_down) else 0
+
+            # ── Wave 2: exit_signal ──────────────────────────────────────────
+            # 1 if any of:
+            #   - path crossed entry (direction flipped within window), OR
+            #   - max abs deviation from entry > 1% of spot_at_t0.
+            # Captures "would-want-to-close" semantics for an open position
+            # at t0, regardless of trade direction.
+            if past_boundary or not lookahead or spot_at_t0 <= 0:
+                out[f"exit_signal_{x}s"] = _NAN
+            else:
+                # Cross-detection: prepend t0 spot, then check sign flips
+                path = [spot_at_t0] + [e.spot for e in lookahead]
+                crossed = any(
+                    (path[i - 1] - spot_at_t0) * (path[i] - spot_at_t0) < 0
+                    for i in range(1, len(path))
+                )
+                max_excursion_pct = max(
+                    abs(e.spot - spot_at_t0) / spot_at_t0 for e in lookahead
+                )
+                out[f"exit_signal_{x}s"] = 1 if (crossed or max_excursion_pct > 0.01) else 0
+
+            # ── Wave 2: PE-leg max_upside / max_drawdown ────────────────────
+            # Mirrors the existing CE-leg targets but reads index 1 (PE LTP)
+            # of strike_ltps tuples. Eliminates the first-order swap hack
+            # currently used in thresholds.decide_action for LONG_PE trades.
+            if past_boundary or not has_active:
+                out[f"max_upside_pe_{x}s"] = _NAN
+                out[f"max_drawdown_pe_{x}s"] = _NAN
+            else:
+                pe_upsides: list[float] = []
+                pe_drawdowns: list[float] = []
+                for strike, (_, pe_now) in active_strike_ltps_at_t0.items():
+                    fut_pes = [
+                        e.strike_ltps[strike][1]
+                        for e in lookahead
+                        if strike in e.strike_ltps and not math.isnan(e.strike_ltps[strike][1])
+                    ]
+                    if fut_pes:
+                        pe_upsides.append(max(fut_pes) - pe_now)
+                        pe_drawdowns.append(pe_now - min(fut_pes))
+                out[f"max_upside_pe_{x}s"] = max(pe_upsides) if pe_upsides else _NAN
+                out[f"max_drawdown_pe_{x}s"] = max(pe_drawdowns) if pe_drawdowns else _NAN
+
         return out
 
 
@@ -267,11 +344,13 @@ def null_target_features(
     target_windows_sec: tuple[int, ...] = (30, 60),
 ) -> dict[str, float]:
     """
-    Return a dict with all 15 target columns set to NaN.
+    Return a dict with all target columns set to NaN.
 
     Used for Pass-1 placeholder rows emitted before lookahead data arrives.
     Key order matches the spec §9.1 column table and
     ``output.emitter._build_target_columns()``.
+
+    Wave 2: 12 target types per window (was 7) + upside_percentile.
     """
     windows = sorted(target_windows_sec)
     out: dict[str, float] = {}
@@ -288,6 +367,17 @@ def null_target_features(
     for x in windows:
         out[f"direction_{x}s"] = _NAN
         out[f"direction_{x}s_magnitude"] = _NAN
+    # Wave 2 additions
+    for x in windows:
+        out[f"direction_persists_{x}s"] = _NAN
+    for x in windows:
+        out[f"breakout_in_{x}s"] = _NAN
+    for x in windows:
+        out[f"exit_signal_{x}s"] = _NAN
+    for x in windows:
+        out[f"max_upside_pe_{x}s"] = _NAN
+    for x in windows:
+        out[f"max_drawdown_pe_{x}s"] = _NAN
     min_w = min(windows)
     out[f"upside_percentile_{min_w}s"] = _NAN
     return out

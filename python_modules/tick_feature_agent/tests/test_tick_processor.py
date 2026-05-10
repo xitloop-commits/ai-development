@@ -253,7 +253,8 @@ class TestTickProcessorOutput:
         # 392 = 370 base + 22 Wave 1 (levels/greeks/expiry).
         # +2 for atm_ce_security_id / atm_pe_security_id which the tick
         # processor appends to the row but aren't in COLUMN_NAMES.
-        assert len(table.schema.names) == 394
+        # Wave 2: 402 + 2 = 404
+        assert len(table.schema.names) == 404
 
     def test_parquet_column_names_match_spec(self, tmp_path):
         import pyarrow.parquet as pq

@@ -77,9 +77,10 @@ def _filled_buf(
 
 class TestNullTargetFeatures:
 
-    def test_default_windows_15_keys(self):
+    def test_default_windows_25_keys(self):
+        # Wave 2: 12 target types per window × 2 windows + 1 upside_percentile = 25
         out = null_target_features()
-        assert len(out) == 15
+        assert len(out) == 25
 
     def test_all_nan(self):
         out = null_target_features()
@@ -102,23 +103,34 @@ class TestNullTargetFeatures:
             "direction_30s_magnitude",
             "direction_60s",
             "direction_60s_magnitude",
+            # Wave 2 additions (5 types × 2 windows = 10)
+            "direction_persists_30s",
+            "direction_persists_60s",
+            "breakout_in_30s",
+            "breakout_in_60s",
+            "exit_signal_30s",
+            "exit_signal_60s",
+            "max_upside_pe_30s",
+            "max_upside_pe_60s",
+            "max_drawdown_pe_30s",
+            "max_drawdown_pe_60s",
             "upside_percentile_30s",
         }
         assert set(out.keys()) == expected
 
-    def test_single_window_8_keys(self):
+    def test_single_window_13_keys(self):
         out = null_target_features((45,))
-        # 7 columns per window + 1 upside_percentile = 8
-        assert len(out) == 8
+        # 12 target types per window + 1 upside_percentile = 13 (Wave 2)
+        assert len(out) == 13
 
     def test_upside_percentile_uses_min_window(self):
         out = null_target_features((60, 30))  # unsorted input
         assert "upside_percentile_30s" in out
         assert "upside_percentile_60s" not in out
 
-    def test_three_windows_22_keys(self):
+    def test_three_windows_37_keys(self):
         out = null_target_features((30, 60, 120))
-        assert len(out) == 22  # 7×3 + 1
+        assert len(out) == 37  # Wave 2: 12×3 + 1
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -834,6 +846,17 @@ class TestMultipleWindows:
             "direction_30s_magnitude",
             "direction_60s",
             "direction_60s_magnitude",
+            # Wave 2 additions
+            "direction_persists_30s",
+            "direction_persists_60s",
+            "breakout_in_30s",
+            "breakout_in_60s",
+            "exit_signal_30s",
+            "exit_signal_60s",
+            "max_upside_pe_30s",
+            "max_upside_pe_60s",
+            "max_drawdown_pe_30s",
+            "max_drawdown_pe_60s",
         }
         assert set(result.keys()) == expected
 
@@ -879,3 +902,159 @@ class TestMultipleWindows:
         assert not _nan(result["max_upside_30s"])
         # 60s window: t0+60 > session_end → NaN
         assert _nan(result["max_upside_60s"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Wave 2: direction_persists / breakout_in / exit_signal / PE-leg targets
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestDirectionPersists:
+    """direction_persists_X = 1 only if path stayed on one side of t0
+    throughout the window (no intra-window cross)."""
+
+    def test_persists_when_path_stays_above(self):
+        """All future spots > spot_at_t0 → persists=1."""
+        buf = _buf((30,))
+        for t in (_T0 + 5, _T0 + 15, _T0 + 25):
+            buf.push(t, 24105.0, _ACTIVE_ONE)
+        result = buf.compute_targets(_T0, 24100.0, _ACTIVE_ONE, _SESSION_END)
+        assert result["direction_persists_30s"] == 1
+
+    def test_persists_when_path_stays_below(self):
+        buf = _buf((30,))
+        for t in (_T0 + 5, _T0 + 15, _T0 + 25):
+            buf.push(t, 24095.0, _ACTIVE_ONE)
+        result = buf.compute_targets(_T0, 24100.0, _ACTIVE_ONE, _SESSION_END)
+        assert result["direction_persists_30s"] == 1
+
+    def test_does_not_persist_when_path_crosses(self):
+        """End up, but went below at some point → persists=0."""
+        buf = _buf((30,))
+        buf.push(_T0 + 5, 24090.0, _ACTIVE_ONE)   # crosses below
+        buf.push(_T0 + 15, 24105.0, _ACTIVE_ONE)
+        buf.push(_T0 + 25, 24110.0, _ACTIVE_ONE)  # ends up
+        result = buf.compute_targets(_T0, 24100.0, _ACTIVE_ONE, _SESSION_END)
+        assert result["direction_persists_30s"] == 0
+
+    def test_nan_when_endpoint_equals_entry(self):
+        """Path ends exactly at entry → ambiguous → NaN."""
+        buf = _buf((30,))
+        for t in (_T0 + 5, _T0 + 15, _T0 + 25):
+            buf.push(t, 24100.0, _ACTIVE_ONE)
+        result = buf.compute_targets(_T0, 24100.0, _ACTIVE_ONE, _SESSION_END)
+        assert _nan(result["direction_persists_30s"])
+
+    def test_nan_when_no_lookahead(self):
+        buf = _buf((30,))
+        result = buf.compute_targets(_T0, 24100.0, _ACTIVE_ONE, _SESSION_END)
+        assert _nan(result["direction_persists_30s"])
+
+
+class TestBreakoutIn:
+    """breakout_in_X = 1 if any lookahead spot crossed day_high or day_low."""
+
+    def test_breakout_above_day_high(self):
+        buf = _buf((30,))
+        buf.push(_T0 + 10, 24205.0, _ACTIVE_ONE)  # > day_high=24200
+        result = buf.compute_targets(
+            _T0, 24100.0, _ACTIVE_ONE, _SESSION_END,
+            day_high_at_t0=24200.0, day_low_at_t0=24000.0,
+        )
+        assert result["breakout_in_30s"] == 1
+
+    def test_breakout_below_day_low(self):
+        buf = _buf((30,))
+        buf.push(_T0 + 10, 23990.0, _ACTIVE_ONE)  # < day_low=24000
+        result = buf.compute_targets(
+            _T0, 24100.0, _ACTIVE_ONE, _SESSION_END,
+            day_high_at_t0=24200.0, day_low_at_t0=24000.0,
+        )
+        assert result["breakout_in_30s"] == 1
+
+    def test_no_breakout_within_range(self):
+        buf = _buf((30,))
+        for t in (_T0 + 10, _T0 + 20):
+            buf.push(t, 24150.0, _ACTIVE_ONE)  # stays within [24000, 24200]
+        result = buf.compute_targets(
+            _T0, 24100.0, _ACTIVE_ONE, _SESSION_END,
+            day_high_at_t0=24200.0, day_low_at_t0=24000.0,
+        )
+        assert result["breakout_in_30s"] == 0
+
+    def test_nan_when_day_bounds_missing(self):
+        buf = _buf((30,))
+        buf.push(_T0 + 10, 24205.0, _ACTIVE_ONE)
+        result = buf.compute_targets(_T0, 24100.0, _ACTIVE_ONE, _SESSION_END)
+        assert _nan(result["breakout_in_30s"])
+
+
+class TestExitSignal:
+    """exit_signal_X = 1 if path crossed entry OR max abs deviation > 1%."""
+
+    def test_fires_on_direction_flip(self):
+        """Path crosses entry → exit_signal=1 even if no big drawdown."""
+        buf = _buf((30,))
+        buf.push(_T0 + 5, 24105.0, _ACTIVE_ONE)
+        buf.push(_T0 + 15, 24095.0, _ACTIVE_ONE)  # crossed back below
+        buf.push(_T0 + 25, 24102.0, _ACTIVE_ONE)
+        result = buf.compute_targets(_T0, 24100.0, _ACTIVE_ONE, _SESSION_END)
+        assert result["exit_signal_30s"] == 1
+
+    def test_fires_on_drawdown_above_1pct(self):
+        """Path stays one side but deviates > 1%."""
+        buf = _buf((30,))
+        buf.push(_T0 + 10, 24350.0, _ACTIVE_ONE)  # > 1% above 24100
+        buf.push(_T0 + 20, 24400.0, _ACTIVE_ONE)
+        result = buf.compute_targets(_T0, 24100.0, _ACTIVE_ONE, _SESSION_END)
+        assert result["exit_signal_30s"] == 1
+
+    def test_does_not_fire_when_quiet_one_sided(self):
+        """Path stays one side, no big move → exit_signal=0."""
+        buf = _buf((30,))
+        for t, p in [(_T0 + 5, 24105), (_T0 + 15, 24108), (_T0 + 25, 24110)]:
+            buf.push(t, float(p), _ACTIVE_ONE)
+        result = buf.compute_targets(_T0, 24100.0, _ACTIVE_ONE, _SESSION_END)
+        assert result["exit_signal_30s"] == 0
+
+
+class TestPELegTargets:
+    """max_upside_pe / max_drawdown_pe — mirror of CE-leg targets on PE LTPs."""
+
+    def test_max_upside_pe_uses_pe_ltp_swings(self):
+        buf = _buf((30,))
+        # PE LTP rises from 80 (t0) to 95 in lookahead
+        buf.push(_T0 + 10, 24100.0, {_STRIKE: (150.0, 95.0)})
+        buf.push(_T0 + 20, 24100.0, {_STRIKE: (150.0, 92.0)})
+        result = buf.compute_targets(_T0, 24100.0, _ACTIVE_ONE, _SESSION_END)
+        # max_upside_pe = max(95, 92) - 80 = 15
+        assert result["max_upside_pe_30s"] == pytest.approx(15.0)
+
+    def test_max_drawdown_pe_uses_pe_ltp_swings(self):
+        buf = _buf((30,))
+        # PE LTP drops from 80 to 65
+        buf.push(_T0 + 10, 24100.0, {_STRIKE: (150.0, 70.0)})
+        buf.push(_T0 + 20, 24100.0, {_STRIKE: (150.0, 65.0)})
+        result = buf.compute_targets(_T0, 24100.0, _ACTIVE_ONE, _SESSION_END)
+        # max_drawdown_pe = 80 - min(70, 65) = 15
+        assert result["max_drawdown_pe_30s"] == pytest.approx(15.0)
+
+    def test_pe_targets_independent_of_ce(self):
+        """CE rises but PE falls — pe targets should reflect PE only."""
+        buf = _buf((30,))
+        buf.push(_T0 + 10, 24150.0, {_STRIKE: (170.0, 70.0)})  # CE up, PE down
+        buf.push(_T0 + 20, 24180.0, {_STRIKE: (185.0, 65.0)})
+        result = buf.compute_targets(_T0, 24100.0, _ACTIVE_ONE, _SESSION_END)
+        # CE: max_upside = 35 (185-150). PE: max_upside = 0 (no PE peak above 80).
+        assert result["max_upside_30s"] == pytest.approx(35.0)
+        # PE max_upside is "max over all strikes of (max future PE - PE_now)" = 0 (peak=70<80)
+        assert result["max_upside_pe_30s"] == pytest.approx(-10.0)  # max future PE = 70, 70-80 = -10
+        # PE drawdown = pe_now - min future PE = 80 - 65 = 15
+        assert result["max_drawdown_pe_30s"] == pytest.approx(15.0)
+
+    def test_nan_when_no_active_strikes(self):
+        buf = _buf((30,))
+        buf.push(_T0 + 10, 24100.0, {_STRIKE: (150.0, 80.0)})
+        result = buf.compute_targets(_T0, 24100.0, {}, _SESSION_END)
+        assert _nan(result["max_upside_pe_30s"])
+        assert _nan(result["max_drawdown_pe_30s"])

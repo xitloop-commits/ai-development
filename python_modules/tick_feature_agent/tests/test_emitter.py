@@ -89,13 +89,13 @@ def _build(**overrides) -> dict:
 
 class TestColumnNames:
 
-    def test_count_is_392(self):
-        # Wave 1 (Phase 1A Layer 1): 22 new feature cols appended after
-        # metadata — 8 levels + 9 greeks + 5 expiry. Was 370 pre-Wave 1.
-        assert len(COLUMN_NAMES) == 392
+    def test_count_is_402(self):
+        # Wave 1: +22 (8 levels + 9 greeks + 5 expiry) → 392.
+        # Wave 2: +5 target types per window × 2 default windows = +10 → 402.
+        assert len(COLUMN_NAMES) == 402
 
     def test_no_duplicates(self):
-        assert len(set(COLUMN_NAMES)) == 392
+        assert len(set(COLUMN_NAMES)) == 402
 
     def test_first_column_is_timestamp(self):
         assert COLUMN_NAMES[0] == "timestamp"
@@ -163,15 +163,19 @@ class TestColumnNames:
 
     def test_target_columns_default_windows(self):
         assert COLUMN_NAMES[342] == "max_upside_30s"
-        assert COLUMN_NAMES[356] == "upside_percentile_30s"
+        # Wave 2 added 10 target cols (5 types × 2 default windows) before
+        # upside_percentile_30s, shifting it by +10.
+        assert COLUMN_NAMES[366] == "upside_percentile_30s"
 
     def test_trading_state_columns(self):
-        assert COLUMN_NAMES[357] == "trading_state"
-        assert COLUMN_NAMES[360] == "stale_reason"
+        # Wave 2: shifted +10 from old indices.
+        assert COLUMN_NAMES[367] == "trading_state"
+        assert COLUMN_NAMES[370] == "stale_reason"
 
     def test_metadata_last_column(self):
-        assert COLUMN_NAMES[361] == "exchange"
-        assert COLUMN_NAMES[369] == "is_market_open"
+        # Wave 2: shifted +10 from old indices.
+        assert COLUMN_NAMES[371] == "exchange"
+        assert COLUMN_NAMES[379] == "is_market_open"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -181,17 +185,19 @@ class TestColumnNames:
 
 class TestBuildTargetColumns:
 
-    def test_default_windows_15_columns(self):
+    def test_default_windows_25_columns(self):
+        # Wave 2: 12 target types per window × 2 + 1 percentile = 25
         cols = _build_target_columns((30, 60))
-        assert len(cols) == 15
+        assert len(cols) == 25
 
-    def test_single_window_8_columns(self):
+    def test_single_window_13_columns(self):
         cols = _build_target_columns((30,))
-        assert len(cols) == 8  # 5 per-window + 2 direction + 1 upside_percentile
+        # 12 per-window types + 1 upside_percentile = 13 (Wave 2)
+        assert len(cols) == 13
 
-    def test_three_windows_22_columns(self):
+    def test_three_windows_37_columns(self):
         cols = _build_target_columns((30, 60, 120))
-        assert len(cols) == 22  # 5×3 + 6 direction + 1 percentile
+        assert len(cols) == 37  # Wave 2: 12×3 + 1 percentile
 
     def test_upside_percentile_uses_smallest_window(self):
         cols = _build_target_columns((60, 30))  # unsorted input
@@ -230,38 +236,39 @@ class TestDynamicColumnCount:
     2-window count is preserved for backward compat with replay of
     pre-D4 parquets."""
 
-    def test_count_is_392_for_2window_profile(self):
-        # Wave 1 added 22 fixed-position cols after metadata.
+    def test_count_is_402_for_2window_profile(self):
+        # Wave 1 +22 cols, Wave 2 +5 target types/window → 392 + 10 = 402.
         cols = column_names_for((30, 60))
-        assert len(cols) == 392
-        assert len(set(cols)) == 392, "duplicate column names in 2-window profile"
+        assert len(cols) == 402
+        assert len(set(cols)) == 402, "duplicate column names in 2-window profile"
 
-    def test_count_is_406_for_4window_profile(self):
-        """Canonical Phase D4 layout + Wave 1 22 cols."""
+    def test_count_is_426_for_4window_profile(self):
+        """Canonical Phase D4 layout + Wave 1 (22) + Wave 2 (4×5=20) = 426."""
         cols = column_names_for((30, 60, 300, 900))
-        assert len(cols) == 406
-        assert len(set(cols)) == 406, "duplicate column names in 4-window profile"
+        assert len(cols) == 426
+        assert len(set(cols)) == 426, "duplicate column names in 4-window profile"
 
     @pytest.mark.parametrize(
         "windows,expected_count",
         [
-            ((30,), 385),  # single-window minimum (was 363) + 22 Wave 1
-            ((30, 60), 392),  # legacy MVP (was 370) + 22 Wave 1
-            ((30, 60, 300), 399),  # 3-window (was 377) + 22 Wave 1
-            ((30, 60, 300, 900), 406),  # canonical D4 (was 384) + 22 Wave 1
-            ((30, 60, 120, 300, 900), 413),  # 5-window (was 391) + 22 Wave 1
+            ((30,), 390),  # single-window: 378 + 12×1 = 390 (Wave 2)
+            ((30, 60), 402),  # 2-window legacy MVP: 378 + 24 = 402
+            ((30, 60, 300), 414),  # 3-window: 378 + 36 = 414
+            ((30, 60, 300, 900), 426),  # canonical D4: 378 + 48 = 426
+            ((30, 60, 120, 300, 900), 438),  # 5-window: 378 + 60 = 438
         ],
     )
     def test_count_formula(self, windows, expected_count):
-        """Total = 355 (window-independent base) + 7 × len(windows) + 1
-        (one upside_percentile_<min(windows)>s) + 22 (Wave 1: levels +
-        greeks + expiry). Each extra window adds exactly 7 columns."""
+        """Total = 355 (window-independent base) + 12 × len(windows) + 1
+        (upside_percentile_<min(windows)>s) + 22 (Wave 1: levels + greeks
+        + expiry). Wave 2: per-window target types went 7 → 12. Each
+        extra window adds exactly 12 columns."""
         assert len(column_names_for(windows)) == expected_count
 
     def test_legacy_module_global_is_2window_default(self):
         """`COLUMN_NAMES` exists as backward-compat for pre-E8 callers
         and resolves to the 2-window default."""
-        assert len(COLUMN_NAMES) == 392
+        assert len(COLUMN_NAMES) == 402
         assert COLUMN_NAMES == column_names_for((30, 60))
 
     def test_4window_includes_300s_and_900s_target_cols(self):
@@ -407,9 +414,9 @@ class TestParquetTypeForDirectionTargets:
 
 class TestAssembleFlatVector:
 
-    def test_key_count_is_392(self):
+    def test_key_count_is_402(self):
         row = _build()
-        assert len(row) == 392
+        assert len(row) == 402
 
     def test_key_order_matches_column_names(self):
         row = _build()
@@ -735,7 +742,7 @@ class TestSerializeRow:
         row = _build()
         line = serialize_row(row)
         parsed = json.loads(line)
-        assert len(parsed) == 392
+        assert len(parsed) == 402
 
     def test_allow_nan_false_satisfied(self):
         """NaN converted to null → json.loads should not raise."""
@@ -763,7 +770,7 @@ class TestEmitterFileSink:
         lines = Path(out_file).read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 1
         parsed = json.loads(lines[0])
-        assert len(parsed) == 392
+        assert len(parsed) == 402
 
     def test_emit_multiple_rows(self, tmp_path):
         out_file = str(tmp_path / "test_multi.ndjson")

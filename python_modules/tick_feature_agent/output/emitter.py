@@ -283,6 +283,11 @@ def _build_target_columns(target_windows_sec: tuple[int, ...]) -> tuple[str, ...
         total_premium_decay_Xs for each X
         avg_decay_per_strike_Xs for each X
         direction_Xs, direction_Xs_magnitude for each X  (interleaved per window)
+        direction_persists_Xs for each X     (Wave 2)
+        breakout_in_Xs for each X            (Wave 2)
+        exit_signal_Xs for each X            (Wave 2)
+        max_upside_pe_Xs for each X          (Wave 2)
+        max_drawdown_pe_Xs for each X        (Wave 2)
         upside_percentile_{min(windows)}s  (only for smallest window)
 
     Args:
@@ -305,6 +310,17 @@ def _build_target_columns(target_windows_sec: tuple[int, ...]) -> tuple[str, ...
     for x in target_windows_sec:
         cols.append(f"direction_{x}s")
         cols.append(f"direction_{x}s_magnitude")
+    # Wave 2 additions (5 new types)
+    for x in target_windows_sec:
+        cols.append(f"direction_persists_{x}s")
+    for x in target_windows_sec:
+        cols.append(f"breakout_in_{x}s")
+    for x in target_windows_sec:
+        cols.append(f"exit_signal_{x}s")
+    for x in target_windows_sec:
+        cols.append(f"max_upside_pe_{x}s")
+    for x in target_windows_sec:
+        cols.append(f"max_drawdown_pe_{x}s")
     cols.append(f"upside_percentile_{min(target_windows_sec)}s")
     return tuple(cols)
 
