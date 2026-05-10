@@ -234,6 +234,41 @@ _META_KEYS = (
     "is_market_open",
 )
 
+# ── Wave 1 (Phase 1A Layer 1) feature blocks ──────────────────────────────
+# Appended AFTER metadata so legacy column indices (0–369) are preserved.
+# Adds 22 columns: 8 S/R + 9 IV/Greek + 5 DTE = total parquet width 392.
+
+_LEVEL_KEYS = (
+    "distance_to_day_high_pct",
+    "distance_to_day_low_pct",
+    "distance_to_prev_close_pct",
+    "day_range_position",
+    "max_call_oi_strike",
+    "max_put_oi_strike",
+    "distance_to_max_call_oi_strike_pct",
+    "distance_to_max_put_oi_strike_pct",
+)
+
+_GREEK_KEYS = (
+    "atm_ce_iv",
+    "atm_pe_iv",
+    "iv_skew_atm",
+    "atm_ce_delta",
+    "atm_pe_delta",
+    "atm_gamma",
+    "atm_ce_theta",
+    "atm_pe_theta",
+    "atm_vega",
+)
+
+_EXPIRY_KEYS = (
+    "days_to_expiry",
+    "hours_to_expiry",
+    "is_expiry_day",
+    "is_monthly_expiry",
+    "session_remaining_pct",
+)
+
 # ── Target column generation ──────────────────────────────────────────────────
 
 
@@ -353,6 +388,15 @@ def _build_column_names(
     # Cols 362–370: Metadata (9)
     cols.extend(_META_KEYS)
 
+    # Cols 371–378: Wave 1 levels (8) — S/R distances, OI walls
+    cols.extend(_LEVEL_KEYS)
+
+    # Cols 379–387: Wave 1 greeks (9) — ATM IV + Black-Scholes greeks
+    cols.extend(_GREEK_KEYS)
+
+    # Cols 388–392: Wave 1 expiry (5) — DTE + session position
+    cols.extend(_EXPIRY_KEYS)
+
     return tuple(cols)
 
 
@@ -403,6 +447,9 @@ def assemble_flat_vector(
     stale_reason: str | None,
     meta_feats: dict,
     target_windows_sec: tuple[int, ...] = (30, 60),
+    level_feats: dict | None = None,
+    greek_feats: dict | None = None,
+    expiry_feats: dict | None = None,
 ) -> dict:
     """
     Assemble all per-tick feature groups into a single ordered 370-column dict.
@@ -541,6 +588,21 @@ def assemble_flat_vector(
     # ── Cols 362–370: Metadata ────────────────────────────────────────────────
     for k in _META_KEYS:
         row[k] = meta_feats.get(k, _NAN)
+
+    # ── Cols 371–378: Wave 1 Levels (S/R, OI walls) ──────────────────────────
+    levels = level_feats or {}
+    for k in _LEVEL_KEYS:
+        row[k] = levels.get(k, _NAN)
+
+    # ── Cols 379–387: Wave 1 Greeks (IV + Black-Scholes) ─────────────────────
+    greeks = greek_feats or {}
+    for k in _GREEK_KEYS:
+        row[k] = greeks.get(k, _NAN)
+
+    # ── Cols 388–392: Wave 1 Expiry (DTE + session position) ─────────────────
+    expiry = expiry_feats or {}
+    for k in _EXPIRY_KEYS:
+        row[k] = expiry.get(k, _NAN)
 
     return row
 

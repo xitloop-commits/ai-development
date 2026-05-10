@@ -250,7 +250,10 @@ class TestTickProcessorOutput:
         path = tmp_path / "test.parquet"
         proc._emitter.write_parquet(path)
         table = pq.read_table(path)
-        assert len(table.schema.names) == 370
+        # 392 = 370 base + 22 Wave 1 (levels/greeks/expiry).
+        # +2 for atm_ce_security_id / atm_pe_security_id which the tick
+        # processor appends to the row but aren't in COLUMN_NAMES.
+        assert len(table.schema.names) == 394
 
     def test_parquet_column_names_match_spec(self, tmp_path):
         import pyarrow.parquet as pq
@@ -259,7 +262,10 @@ class TestTickProcessorOutput:
         path = tmp_path / "test.parquet"
         proc._emitter.write_parquet(path)
         table = pq.read_table(path)
-        assert set(table.schema.names) == set(COLUMN_NAMES)
+        # Tick processor appends atm_ce/pe_security_id post-assemble; these
+        # are NOT in COLUMN_NAMES (preprocessor strips object dtype).
+        extra_metadata = {"atm_ce_security_id", "atm_pe_security_id"}
+        assert set(table.schema.names) - extra_metadata == set(COLUMN_NAMES)
 
     def test_timestamps_increase(self, tmp_path):
         import pyarrow.parquet as pq

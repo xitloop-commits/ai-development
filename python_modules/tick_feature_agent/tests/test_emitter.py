@@ -89,11 +89,13 @@ def _build(**overrides) -> dict:
 
 class TestColumnNames:
 
-    def test_count_is_370(self):
-        assert len(COLUMN_NAMES) == 370
+    def test_count_is_392(self):
+        # Wave 1 (Phase 1A Layer 1): 22 new feature cols appended after
+        # metadata — 8 levels + 9 greeks + 5 expiry. Was 370 pre-Wave 1.
+        assert len(COLUMN_NAMES) == 392
 
     def test_no_duplicates(self):
-        assert len(set(COLUMN_NAMES)) == 370
+        assert len(set(COLUMN_NAMES)) == 392
 
     def test_first_column_is_timestamp(self):
         assert COLUMN_NAMES[0] == "timestamp"
@@ -228,39 +230,38 @@ class TestDynamicColumnCount:
     2-window count is preserved for backward compat with replay of
     pre-D4 parquets."""
 
-    def test_count_is_370_for_2window_profile(self):
+    def test_count_is_392_for_2window_profile(self):
+        # Wave 1 added 22 fixed-position cols after metadata.
         cols = column_names_for((30, 60))
-        assert len(cols) == 370
-        assert len(set(cols)) == 370, "duplicate column names in 2-window profile"
+        assert len(cols) == 392
+        assert len(set(cols)) == 392, "duplicate column names in 2-window profile"
 
-    def test_count_is_384_for_4window_profile(self):
-        """Canonical Phase D4 layout."""
+    def test_count_is_406_for_4window_profile(self):
+        """Canonical Phase D4 layout + Wave 1 22 cols."""
         cols = column_names_for((30, 60, 300, 900))
-        assert len(cols) == 384
-        assert len(set(cols)) == 384, "duplicate column names in 4-window profile"
+        assert len(cols) == 406
+        assert len(set(cols)) == 406, "duplicate column names in 4-window profile"
 
     @pytest.mark.parametrize(
         "windows,expected_count",
         [
-            ((30,), 363),  # single-window minimum
-            ((30, 60), 370),  # legacy MVP
-            ((30, 60, 300), 377),  # 3-window
-            ((30, 60, 300, 900), 384),  # canonical D4
-            ((30, 60, 120, 300, 900), 391),  # hypothetical 5-window profile
+            ((30,), 385),  # single-window minimum (was 363) + 22 Wave 1
+            ((30, 60), 392),  # legacy MVP (was 370) + 22 Wave 1
+            ((30, 60, 300), 399),  # 3-window (was 377) + 22 Wave 1
+            ((30, 60, 300, 900), 406),  # canonical D4 (was 384) + 22 Wave 1
+            ((30, 60, 120, 300, 900), 413),  # 5-window (was 391) + 22 Wave 1
         ],
     )
     def test_count_formula(self, windows, expected_count):
         """Total = 355 (window-independent base) + 7 × len(windows) + 1
-        (one upside_percentile_<min(windows)>s). Each extra window adds
-        exactly 7 columns: max_upside, max_drawdown, risk_reward_ratio,
-        total_premium_decay, avg_decay_per_strike, direction,
-        direction_magnitude."""
+        (one upside_percentile_<min(windows)>s) + 22 (Wave 1: levels +
+        greeks + expiry). Each extra window adds exactly 7 columns."""
         assert len(column_names_for(windows)) == expected_count
 
     def test_legacy_module_global_is_2window_default(self):
         """`COLUMN_NAMES` exists as backward-compat for pre-E8 callers
         and resolves to the 2-window default."""
-        assert len(COLUMN_NAMES) == 370
+        assert len(COLUMN_NAMES) == 392
         assert COLUMN_NAMES == column_names_for((30, 60))
 
     def test_4window_includes_300s_and_900s_target_cols(self):
@@ -406,9 +407,9 @@ class TestParquetTypeForDirectionTargets:
 
 class TestAssembleFlatVector:
 
-    def test_key_count_is_370(self):
+    def test_key_count_is_392(self):
         row = _build()
-        assert len(row) == 370
+        assert len(row) == 392
 
     def test_key_order_matches_column_names(self):
         row = _build()
@@ -734,7 +735,7 @@ class TestSerializeRow:
         row = _build()
         line = serialize_row(row)
         parsed = json.loads(line)
-        assert len(parsed) == 370
+        assert len(parsed) == 392
 
     def test_allow_nan_false_satisfied(self):
         """NaN converted to null → json.loads should not raise."""
@@ -762,7 +763,7 @@ class TestEmitterFileSink:
         lines = Path(out_file).read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 1
         parsed = json.loads(lines[0])
-        assert len(parsed) == 370
+        assert len(parsed) == 392
 
     def test_emit_multiple_rows(self, tmp_path):
         out_file = str(tmp_path / "test_multi.ndjson")

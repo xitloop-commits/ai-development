@@ -52,7 +52,10 @@ from tick_feature_agent.features.active_features import compute_active_features
 from tick_feature_agent.features.chain import compute_chain_features
 from tick_feature_agent.features.compression import CompressionState
 from tick_feature_agent.features.decay import DecayState
+from tick_feature_agent.features.expiry import compute_expiry_features
+from tick_feature_agent.features.greeks import compute_greek_features
 from tick_feature_agent.features.horizon import compute_horizon_features
+from tick_feature_agent.features.levels import compute_level_features
 from tick_feature_agent.features.meta import compute_meta_features
 from tick_feature_agent.features.ofi import compute_ofi_features
 from tick_feature_agent.features.option_tick import compute_option_tick_features
@@ -144,6 +147,13 @@ class TickProcessor:
 
         # Session-end timestamp (for flush_session)
         self._session_end_sec: float = 0.0
+        # Wave 1: session-open timestamp (set on first tick of the day)
+        self._session_open_sec: float = 0.0
+
+        # Wave 1: session-level OHLC tracking (from Dhan QUOTE/FULL/PrevClose packets)
+        self._day_high: float | None = None
+        self._day_low: float | None = None
+        self._prev_close: float | None = None
 
         # Symbol-mismatch flag (set by external caller if detected)
         self.symbol_mismatch: bool = False
@@ -158,6 +168,10 @@ class TickProcessor:
             session_end_sec: Unix epoch seconds for today's session end (IST).
         """
         self._session_end_sec = session_end_sec
+        self._session_open_sec = 0.0  # set on first tick
+        self._day_high = None
+        self._day_low = None
+        # prev_close is NOT cleared — it's yesterday's close, set once per day from PrevClose packet
         self._underlying_tick_count = 0
         self._prev_ltp = None
         self._prev_tick_ts = None
@@ -200,6 +214,23 @@ class TickProcessor:
         bid = float(data.get("bid") or 0)
         ask = float(data.get("ask") or 0)
         vol = int(data.get("ltq") or data.get("volume") or 0)
+
+        # Wave 1: capture session-OHLC from Dhan QUOTE/FULL packet fields.
+        # day_high/day_low arrive on every QUOTE/FULL tick (not just at session
+        # boundaries). prev_close arrives once via PrevClose packet (parsed
+        # separately by binary_parser); accept it from data dict if present.
+        dh = data.get("day_high")
+        if dh is not None and dh > 0:
+            self._day_high = float(dh)
+        dl = data.get("day_low")
+        if dl is not None and dl > 0:
+            self._day_low = float(dl)
+        pc = data.get("prev_close")
+        if pc is not None and pc > 0:
+            self._prev_close = float(pc)
+
+        if self._session_open_sec == 0.0:
+            self._session_open_sec = ts
 
         self._last_tick_time = time.monotonic()
 
@@ -465,6 +496,59 @@ class TickProcessor:
         warm_remain = self._sm.warm_up_remaining_sec or 0.0
         stale_rsn = sm_state.value if sm_state != TradingState.TRADING else None
 
+        # ── Wave 1 features: levels, greeks, expiry ──────────────────────────
+        chain_rows = cache.snapshot.rows if cache.snapshot is not None else None
+        level_f = compute_level_features(
+            spot=ltp,
+            day_high=self._day_high,
+            day_low=self._day_low,
+            prev_close=self._prev_close,
+            chain_rows=chain_rows,
+        )
+
+        # Find ATM-strike row from chain to extract IVs
+        atm_ce_iv_pct = None
+        atm_pe_iv_pct = None
+        if chain_rows and atm_strike is not None:
+            for r in chain_rows:
+                if r.get("strike") == atm_strike:
+                    atm_ce_iv_pct = r.get("callIV")
+                    atm_pe_iv_pct = r.get("putIV")
+                    break
+
+        # Days-to-expiry from cache.snapshot (chain_poller resolved it)
+        dte = None
+        expiry_ts: float | None = None
+        if cache.snapshot is not None and cache.snapshot.expiry:
+            try:
+                from datetime import datetime as _dt
+                from datetime import timezone as _tz
+                from datetime import timedelta as _td
+                ist = _tz(_td(hours=5, minutes=30))
+                exp_date = _dt.fromisoformat(cache.snapshot.expiry).date()
+                # Use today's session_end clock-time on the expiry date
+                exp_dt = _dt.combine(exp_date, _dt.fromtimestamp(self._session_end_sec, tz=ist).time(), tzinfo=ist) \
+                    if self._session_end_sec else _dt.combine(exp_date, _dt.min.time(), tzinfo=ist)
+                expiry_ts = exp_dt.timestamp()
+                dte = (expiry_ts - ts) / 86400.0
+            except (ValueError, TypeError, OSError):
+                pass
+
+        greek_f = compute_greek_features(
+            spot=ltp,
+            atm_strike=float(atm_strike) if atm_strike is not None else None,
+            atm_ce_iv_pct=atm_ce_iv_pct,
+            atm_pe_iv_pct=atm_pe_iv_pct,
+            days_to_expiry=dte,
+        )
+        expiry_f = compute_expiry_features(
+            now_ts=ts,
+            expiry_ts=expiry_ts,
+            session_open_ts=self._session_open_sec or None,
+            session_end_ts=self._session_end_sec or None,
+            is_monthly=None,  # Wave 1: classifier deferred — emits NaN
+        )
+
         row = assemble_flat_vector(
             timestamp=ts,
             spot_price=ltp,
@@ -490,6 +574,9 @@ class TickProcessor:
             stale_reason=stale_rsn,
             meta_feats=meta_f,
             target_windows_sec=profile.target_windows_sec,
+            level_feats=level_f,
+            greek_feats=greek_f,
+            expiry_feats=expiry_f,
         )
 
         # ── Attach ATM option security IDs (non-feature metadata) ───────────
