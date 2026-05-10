@@ -36,7 +36,6 @@ import type {
 import {
   DHAN_ENDPOINTS,
   DHAN_TOKEN_EXPIRY_MS,
-  DHAN_TOKEN_STARTUP_REFRESH_THRESHOLD_MS,
   DHAN_ORDER_STATUS_MAP,
   DHAN_ORDER_TYPES,
   DHAN_PRODUCT_TYPES,
@@ -141,37 +140,20 @@ export class DhanAdapter implements BrokerAdapter {
   /**
    * Generate a fresh token via TOTP and apply it in-memory + MongoDB.
    * Returns true on success, false on any failure.
+   *
+   * Only invoked from startup paths (first-launch mint, startup refresh
+   * decision, startup post-validation recovery). Never called mid-session
+   * after the May 6 2026 refresh-on-startup-only policy change.
    */
   private async _tryAutoRefresh(): Promise<boolean> {
     try {
-      // Coalesce with any refresh already in flight from the 401 handler.
-      // handleDhan401() may have just generated a fresh token — reuse it
-      // instead of doing a second TOTP call.
-      const { _inflightRefresh } = await import("./auth");
-      const existing = _inflightRefresh.get(this.brokerId);
-      if (existing) {
-        this.log.info("Refresh already in flight — awaiting existing result.");
-        const newToken = await existing;
-        if (newToken) {
-          // handleDhan401 already wrote to Mongo — just sync in-memory token
-          this.accessToken = newToken;
-          this.tokenUpdatedAt = Date.now();
-          // Propagate to WebSocket so next reconnect uses the new token
-          if (this.ws) this.ws.updateToken(newToken);
-          if (this.orderUpdateWs) this.orderUpdateWs.updateCredentials(this.clientId, newToken);
-          this.log.info("Token synced from in-flight refresh.");
-          return true;
-        }
-        return false;
-      }
-
-      this.log.info("Auto-refreshing Dhan token via TOTP...");
+      this.log.info("Refreshing Dhan token via TOTP...");
       const newToken = await generateDhanToken(this.brokerId);
       await this.updateToken(newToken);
-      this.log.info("Token auto-refreshed successfully.");
+      this.log.info("Token refreshed successfully.");
       return true;
     } catch (err: any) {
-      this.log.error(`Token auto-refresh failed: ${err.message}`);
+      this.log.error(`Token refresh failed: ${err.message}`);
       return false;
     }
   }
@@ -310,8 +292,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
-      await this._tryAutoRefresh();
-      throw new Error("Token expired. Please update your Dhan access token.");
+      throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
     }
 
     if (!result.ok || !result.data) {
@@ -356,8 +337,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
-      await this._tryAutoRefresh();
-      throw new Error("Token expired. Please update your Dhan access token.");
+      throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
     }
 
     if (!result.ok || !result.data) {
@@ -386,8 +366,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
-      await this._tryAutoRefresh();
-      throw new Error("Token expired. Please update your Dhan access token.");
+      throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
     }
 
     if (!result.ok || !result.data) {
@@ -473,8 +452,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
-      await this._tryAutoRefresh();
-      throw new Error("Token expired.");
+      throw new Error("Token expired. Restart BSA to refresh.");
     }
 
     if (!result.ok || !result.data) {
@@ -496,8 +474,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
-      await this._tryAutoRefresh();
-      throw new Error("Token expired.");
+      throw new Error("Token expired. Restart BSA to refresh.");
     }
 
     if (!result.ok || !result.data) {
@@ -519,8 +496,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
-      await this._tryAutoRefresh();
-      throw new Error("Token expired.");
+      throw new Error("Token expired. Restart BSA to refresh.");
     }
 
     if (!result.ok || !result.data) {
@@ -559,8 +535,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
-      await this._tryAutoRefresh();
-      throw new Error("Token expired.");
+      throw new Error("Token expired. Restart BSA to refresh.");
     }
 
     if (!result.ok || !result.data) {
@@ -605,8 +580,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
-      await this._tryAutoRefresh();
-      throw new Error("Token expired.");
+      throw new Error("Token expired. Restart BSA to refresh.");
     }
 
     if (!result.ok || !result.data) {
@@ -664,8 +638,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
-      await this._tryAutoRefresh();
-      throw new Error("Token expired.");
+      throw new Error("Token expired. Restart BSA to refresh.");
     }
 
     if (!result.ok || !result.data) {
@@ -754,8 +727,7 @@ export class DhanAdapter implements BrokerAdapter {
     if (result.isAuthError) {
       this.log.warn(`Token expired for underlying=${underlying}`);
       await handleDhan401(this.brokerId);
-      await this._tryAutoRefresh();
-      throw new Error("Token expired.");
+      throw new Error("Token expired. Restart BSA to refresh.");
     }
 
     if (!result.ok || !result.data) {
@@ -841,8 +813,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
-      await this._tryAutoRefresh();
-      throw new Error("Token expired. Please update your Dhan access token.");
+      throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
     }
 
     if (!result.ok || !result.data) {
@@ -893,8 +864,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       await handleDhan401(this.brokerId);
-      await this._tryAutoRefresh();
-      throw new Error("Token expired. Please update your Dhan access token.");
+      throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
     }
 
     if (!result.ok || !result.data) {
@@ -1112,32 +1082,30 @@ export class DhanAdapter implements BrokerAdapter {
       //      e.g. a token minted 11 PM Sun is "valid for 22h" but Dhan rejects it
       //      for Mon's market session).
       // Server runs in IST and Dhan operates in IST, so local-date comparison is correct.
+      // Refresh policy (May 6 2026): refresh ONLY at startup, and even at
+      // startup skip if the token is < 2h old. Rapid server restarts shouldn't
+      // burn TOTP refreshes (Dhan's 1-token-per-2-min rate limit), and a
+      // recently-minted token is trusted as-is.
+      const TWO_HOURS_MS = 2 * 3_600_000;
+      const ageMs = Date.now() - this.tokenUpdatedAt;
       const expiry = calculateTokenExpiry(this.tokenUpdatedAt);
       const issuedDate = new Date(this.tokenUpdatedAt).toDateString();
       const todayDate = new Date().toDateString();
       const dateChanged = issuedDate !== todayDate;
-      const needsRefresh =
-        expiry.isExpired ||
-        expiry.remainingMs <= DHAN_TOKEN_STARTUP_REFRESH_THRESHOLD_MS ||
-        dateChanged;
 
-      if (!needsRefresh) {
-        const hoursLeft = (expiry.remainingMs / 3_600_000).toFixed(1);
-        this.log.info(`Token has ${hoursLeft}h remaining (> 12h, same day) — skipping startup refresh.`);
-      } else {
+      if (ageMs < TWO_HOURS_MS) {
+        this.log.info(
+          `Token is ${Math.round(ageMs / 60_000)} min old (< 2h) — skipping startup refresh.`,
+        );
+      } else if (expiry.isExpired || dateChanged) {
         const reason = expiry.isExpired
           ? "expired"
-          : dateChanged
-            ? `date rolled over (issued ${issuedDate}, today ${todayDate})`
-            : `${Math.round(expiry.remainingMs / 60_000)} min remaining (≤ 12h threshold)`;
+          : `date rolled over (issued ${issuedDate}, today ${todayDate})`;
         this.log.info(`Refreshing token on startup (${reason})...`);
         const refreshed = await this._tryAutoRefresh();
         if (!refreshed) {
           if (expiry.isExpired) {
             this.log.error("Token refresh failed and existing token expired. BSA will start without a valid token.");
-            // Mark Mongo state as expired/error so CredentialGate (UI) shows
-            // the "token expired" prompt. Without this, the operator sees a
-            // stale `status: "valid"` row and doesn't know the broker is down.
             await updateBrokerCredentials(this.brokerId, { status: "expired" });
             await updateBrokerConnection(this.brokerId, { apiStatus: "error" });
             return;
@@ -1146,6 +1114,9 @@ export class DhanAdapter implements BrokerAdapter {
             `Token refresh failed but existing token still valid (${Math.round(expiry.remainingMs / 60_000)} min remaining). Continuing with it.`,
           );
         }
+      } else {
+        const hoursLeft = (expiry.remainingMs / 3_600_000).toFixed(1);
+        this.log.info(`Token has ${hoursLeft}h remaining, same day — skipping startup refresh.`);
       }
     }
 

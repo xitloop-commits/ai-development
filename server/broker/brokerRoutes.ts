@@ -706,49 +706,25 @@ export function registerBrokerRoutes(app: Express): void {
         return;
       }
 
-      let { accessToken, clientId, status, updatedAt, expiresIn } =
+      const { accessToken, clientId, status, updatedAt, expiresIn } =
         config.credentials;
 
-      // ── Self-healing: refresh token if expired / near-expiry / invalid ──
-      // TFA's only window into token state is this endpoint. If BSA hasn't
-      // noticed an expired token (no trading endpoint call has hit 401 yet),
-      // returning it would break TFA's WebSocket reconnect. So we proactively
-      // check + refresh here.  Coalesced via auth.ts _inflightRefresh — will
-      // NOT double-generate if BSA is also refreshing at the same moment.
+      // ── Stale-token check (no auto-refresh) ─────────────────────
+      // Refresh-on-startup-only policy (May 6 2026): this endpoint no longer
+      // self-heals. Callers (TFA) get whatever's in Mongo. If stale, we log
+      // and rely on operator restart (or upstream Telegram alert from
+      // handleDhan401 if a trading call already 401'd).
       const ageMs       = updatedAt ? Date.now() - updatedAt : Infinity;
       const expiresInMs = expiresIn || DHAN_TOKEN_EXPIRY_MS;
-      const EXPIRY_BUFFER_MS = 5 * 60 * 1000;   // refresh if < 5 min remaining
-      const isExpired     = ageMs >= expiresInMs;
+      const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
+      const isExpired      = ageMs >= expiresInMs;
       const isExpiringSoon = ageMs >= expiresInMs - EXPIRY_BUFFER_MS;
-      const isMissing     = !accessToken || status === "expired";
-
+      const isMissing      = !accessToken || status === "expired";
       if (isMissing || isExpired || isExpiringSoon) {
-        log.info(
-          `GET /api/broker/token: token stale (age=${Math.round(ageMs / 1000)}s, ` +
-          `status=${status}) — refreshing before return.`
+        log.warn(
+          `GET /api/broker/token: returning stale token (brokerId=${brokerIdParam}, ` +
+          `age=${Math.round(ageMs / 1000)}s, status=${status}) — restart BSA to refresh.`
         );
-        try {
-          // Use handleDhan401 path — it has coalescing built in and sets
-          // status + updatedAt + updates adapter via the inflight lock.
-          const { handleDhan401 } = await import(
-            "./adapters/dhan/auth"
-          );
-          await handleDhan401(brokerIdParam);
-          // Re-read fresh config after refresh
-          config = await getBrokerConfig(brokerIdParam);
-          if (config) {
-            accessToken = config.credentials.accessToken;
-            clientId    = config.credentials.clientId;
-            status      = config.credentials.status;
-            updatedAt   = config.credentials.updatedAt;
-            expiresIn   = config.credentials.expiresIn;
-          }
-        } catch (refreshErr: any) {
-          log.error(
-            `GET /api/broker/token: refresh failed — ${refreshErr.message}`
-          );
-          // Fall through and return whatever we have; caller can decide
-        }
       }
 
       const tokenExpiresIn =

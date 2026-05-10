@@ -15,7 +15,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
 import { connectMongo, disconnectMongo } from "../../../mongo";
 import { DhanAdapter } from "./index";
-import { calculateTokenExpiry, _resetAuthBackoffForTests } from "./auth";
+import { calculateTokenExpiry } from "./auth";
 import { DHAN_TOKEN_EXPIRY_MS, DHAN_TOKEN_EXPIRY_BUFFER_MS } from "./constants";
 import {
   BrokerConfigModel,
@@ -49,10 +49,6 @@ beforeEach(async () => {
   await connectMongo();
   // Clean up test broker config
   await BrokerConfigModel.deleteMany({ brokerId: TEST_BROKER_ID });
-  // Clear module-level auth state — without this, the 150-s post-401
-  // backoff persists from one test to the next and `handleDhan401`
-  // returns early without writing `status: "expired"` to Mongo.
-  _resetAuthBackoffForTests();
   restoreFetch();
 });
 

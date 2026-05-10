@@ -101,7 +101,7 @@ export const DHAN_TOKEN_EXPIRY_BUFFER_MS = 60 * 60 * 1000; // 3,600,000 ms
  * one has ≤ this much time remaining. Tokens with more headroom are
  * reused. Avoids burning a TOTP refresh on every restart during dev.
  */
-export const DHAN_TOKEN_STARTUP_REFRESH_THRESHOLD_MS = 12 * 60 * 60 * 1000; // 12 hours
+export const DHAN_TOKEN_STARTUP_REFRESH_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 // ─── Rate Limits ───────────────────────────────────────────────
 
