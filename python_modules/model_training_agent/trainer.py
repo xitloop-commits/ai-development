@@ -76,10 +76,27 @@ class TrainResult:
 
 
 def _load_parquets(
-    instrument: str, date_from: str, date_to: str, features_root: Path
+    instrument: str,
+    date_from: str,
+    date_to: str,
+    features_root: Path,
+    include_dates: list[str] | None = None,
 ) -> list[tuple[str, pd.DataFrame]]:
-    """Load Parquet files for each date in range. Returns list of (date, df)."""
+    """Load Parquet files for each date. Returns list of (date, df).
+
+    If `include_dates` is given, ONLY those dates are loaded (date_from/date_to
+    are ignored). Otherwise walks every day in [date_from, date_to] inclusive
+    and loads any parquet present.
+    """
     out: list[tuple[str, pd.DataFrame]] = []
+    if include_dates:
+        for ds in sorted(set(include_dates)):
+            p = features_root / ds / f"{instrument}_features.parquet"
+            if p.exists():
+                df = pd.read_parquet(p)
+                df["__date"] = ds
+                out.append((ds, df))
+        return out
     d = _date.fromisoformat(date_from)
     end = _date.fromisoformat(date_to)
     while d <= end:
@@ -198,6 +215,7 @@ def train_instrument(
     config_dir: Path = Path("config/model_feature_config"),
     val_days: int = 3,
     n_jobs: int = 1,
+    include_dates: list[str] | None = None,
 ) -> TrainResult:
     """Train all MVP targets for one instrument across a date range.
 
@@ -213,8 +231,17 @@ def train_instrument(
     (direction_300s / direction_900s), which caused NaN AUC in earlier runs.
     """
     # 1. Load Parquets
-    loaded = _load_parquets(instrument, date_from, date_to, features_root)
+    loaded = _load_parquets(
+        instrument, date_from, date_to, features_root,
+        include_dates=include_dates,
+    )
     if len(loaded) < 1:
+        if include_dates:
+            raise RuntimeError(
+                f"No Parquet data for {instrument} in include-dates "
+                f"{sorted(set(include_dates))}. "
+                f"Run replay first: startup\\start-replay.bat {instrument}"
+            )
         raise RuntimeError(
             f"No Parquet data for {instrument} in [{date_from}, {date_to}]. "
             f"Run replay first: startup\\start-replay.bat {instrument}"

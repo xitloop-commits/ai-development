@@ -279,3 +279,111 @@ class TestReplayCheckpoint:
         entry = cp.get_entry("nifty50")
         assert entry["last_completed_date"] == "2026-04-10"  # unchanged
         assert entry["sessions_completed"] == 2  # counter still increments
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TestReplayIncludeDates  (per-date launcher picker support)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestReplayIncludeDates:
+    """`replay(..., include_dates=[...])` should:
+      1. ONLY process the listed dates (skip date-range walk entirely).
+      2. Bypass the checkpoint — user has explicitly chosen what to (re-)run.
+      3. De-duplicate and sort the input list.
+
+    We monkey-patch `run_one_date` so we don't need real profiles/raw data —
+    the assertions live entirely in the date sequence and call count.
+    """
+
+    def _patch(self, monkeypatch, calls: list[str]):
+        from tick_feature_agent.replay import replay_runner
+
+        def _fake_run_one_date(*, date_str: str, **_kw) -> str:
+            calls.append(date_str)
+            return "pass"
+
+        def _fake_load_profile(*_a, **_kw):
+            class _P:
+                instrument_name = "stub"
+            return _P()
+
+        monkeypatch.setattr(replay_runner, "run_one_date", _fake_run_one_date)
+        monkeypatch.setattr(replay_runner, "load_profile", _fake_load_profile)
+
+    def test_include_dates_processes_only_listed_dates(self, tmp_path, monkeypatch):
+        from tick_feature_agent.replay.replay_runner import replay
+        calls: list[str] = []
+        self._patch(monkeypatch, calls)
+
+        replay(
+            profile_path="stub.json",
+            instrument="nifty50",
+            date_from="2026-04-01",  # ignored
+            date_to="2026-04-10",    # ignored
+            raw_root=tmp_path / "raw",
+            features_root=tmp_path / "features",
+            validation_root=tmp_path / "validation",
+            include_dates=["2026-04-03", "2026-04-07"],
+        )
+        assert calls == ["2026-04-03", "2026-04-07"]
+
+    def test_include_dates_bypasses_checkpoint(self, tmp_path, monkeypatch):
+        """A pre-existing checkpoint that says 'completed up to 2026-04-09'
+        must NOT cause replay() to skip earlier explicit dates."""
+        from tick_feature_agent.replay.checkpoint import ReplayCheckpoint
+        from tick_feature_agent.replay.replay_runner import replay
+        calls: list[str] = []
+        self._patch(monkeypatch, calls)
+
+        cp_path = tmp_path / "raw" / "replay_checkpoint.json"
+        cp = ReplayCheckpoint(cp_path)
+        cp.mark_complete("nifty50", "2026-04-09")
+
+        replay(
+            profile_path="stub.json",
+            instrument="nifty50",
+            date_from="2026-04-01",
+            date_to="2026-04-10",
+            raw_root=tmp_path / "raw",
+            features_root=tmp_path / "features",
+            validation_root=tmp_path / "validation",
+            include_dates=["2026-04-02", "2026-04-04"],
+        )
+        # Both pre-checkpoint dates ran despite checkpoint saying 2026-04-09 is done
+        assert calls == ["2026-04-02", "2026-04-04"]
+
+    def test_include_dates_dedupes_and_sorts(self, tmp_path, monkeypatch):
+        from tick_feature_agent.replay.replay_runner import replay
+        calls: list[str] = []
+        self._patch(monkeypatch, calls)
+
+        replay(
+            profile_path="stub.json",
+            instrument="nifty50",
+            date_from="2026-04-01",
+            date_to="2026-04-10",
+            raw_root=tmp_path / "raw",
+            features_root=tmp_path / "features",
+            validation_root=tmp_path / "validation",
+            include_dates=["2026-04-05", "2026-04-02", "2026-04-05"],
+        )
+        assert calls == ["2026-04-02", "2026-04-05"]
+
+    def test_no_include_dates_falls_back_to_range_walk(self, tmp_path, monkeypatch):
+        """Without include_dates, the existing date-range + checkpoint
+        behaviour is preserved."""
+        from tick_feature_agent.replay.replay_runner import replay
+        calls: list[str] = []
+        self._patch(monkeypatch, calls)
+
+        replay(
+            profile_path="stub.json",
+            instrument="nifty50",
+            date_from="2026-04-01",
+            date_to="2026-04-03",
+            raw_root=tmp_path / "raw",
+            features_root=tmp_path / "features",
+            validation_root=tmp_path / "validation",
+        )
+        assert calls == ["2026-04-01", "2026-04-02", "2026-04-03"]

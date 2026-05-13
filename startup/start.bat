@@ -41,4 +41,11 @@ if "!PYTHON_CMD!"=="" (
     exit /b 1
 )
 
-"%PYTHON_CMD%" startup\launcher.py
+REM Default: launcher_v2 (redesigned). Pass --legacy to fall back to v1
+REM while Pass 2 submenus (Delete / Record / SBT / Compare / SEA / Watch)
+REM are still being wired.
+if /i "%~1"=="--legacy" (
+    "%PYTHON_CMD%" startup\launcher.py
+) else (
+    "%PYTHON_CMD%" startup\launcher_v2.py
+)

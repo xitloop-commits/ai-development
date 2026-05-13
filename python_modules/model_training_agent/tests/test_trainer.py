@@ -56,7 +56,7 @@ def _build_day_df(
     *,
     n_rows: int = 200,
     seed: int = 0,
-    direction_900s_override: np.ndarray | None = None,
+    direction_300s_override: np.ndarray | None = None,
     instrument: str = "nifty50",
     date_str: str = "2026-04-01",
 ) -> pd.DataFrame:
@@ -66,11 +66,15 @@ def _build_day_df(
       - Step 1 filter cols all set to TRADING.
       - Identifier cols.
       - The 10 numeric features.
-      - All 28 MVP target columns. Binary targets get a balanced 0/1 mix;
-        regression targets get standard-normal noise.
+      - All 60 MVP target columns (12 types × 5 windows post-Wave 2).
+        Binary targets get a balanced 0/1 mix; regression targets get
+        standard-normal noise.
 
-    `direction_900s_override` lets the caller force one specific binary
+    `direction_300s_override` lets the caller force one specific binary
     target's values (used to construct the PY-5 single-class val day).
+    300s is the longest binary direction target post-Wave 2 (900s was
+    dropped) so it remains the canonical single-class-val regression
+    fixture.
     """
     rng = np.random.default_rng(seed)
     n = n_rows
@@ -86,7 +90,7 @@ def _build_day_df(
     for col in _FEATURE_COLS:
         data[col] = rng.normal(size=n).astype("float64")
 
-    # All 28 MVP targets
+    # All 60 MVP targets (Wave 2)
     for name, objective in MVP_TARGET_OBJECTIVES.items():
         if objective == "binary":
             # Balanced 0/1 to keep AUC well-defined
@@ -96,9 +100,9 @@ def _build_day_df(
 
     df = pd.DataFrame(data)
 
-    if direction_900s_override is not None:
-        assert len(direction_900s_override) == n
-        df["direction_900s"] = direction_900s_override.astype("int64")
+    if direction_300s_override is not None:
+        assert len(direction_300s_override) == n
+        df["direction_300s"] = direction_300s_override.astype("int64")
 
     return df
 
@@ -142,6 +146,99 @@ def test_load_parquets_attaches_date_column(tmp_path: Path) -> None:
     _date_str, df = loaded[0]
     assert "__date" in df.columns
     assert (df["__date"] == "2026-04-01").all()
+
+
+def test_load_parquets_include_dates_loads_only_listed_dates(tmp_path: Path) -> None:
+    """When `include_dates` is given, only the listed dates load — middle
+    dates in the date_from/date_to window are skipped even though their
+    parquet files exist. This is what powers the launcher's per-date picker."""
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    for ds in ["2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04", "2026-04-05"]:
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=0, date_str=ds))
+
+    loaded = _load_parquets(
+        instrument, "2026-04-01", "2026-04-05", features_root,
+        include_dates=["2026-04-01", "2026-04-04"],
+    )
+    dates = [d for d, _ in loaded]
+    assert dates == ["2026-04-01", "2026-04-04"]
+
+
+def test_load_parquets_include_dates_dedupes_and_sorts(tmp_path: Path) -> None:
+    """Duplicate dates in include_dates collapse to a single load and the
+    output is sorted ascending regardless of input order."""
+    features_root = tmp_path / "features"
+    for ds in ["2026-04-01", "2026-04-02", "2026-04-03"]:
+        _write_day_parquet(features_root, "nifty50", ds, _build_day_df(seed=0, date_str=ds))
+
+    loaded = _load_parquets(
+        "nifty50", "2026-04-01", "2026-04-03", features_root,
+        include_dates=["2026-04-03", "2026-04-01", "2026-04-01"],
+    )
+    dates = [d for d, _ in loaded]
+    assert dates == ["2026-04-01", "2026-04-03"]
+
+
+def test_load_parquets_include_dates_skips_missing_parquets(tmp_path: Path) -> None:
+    """include_dates referencing a non-existent parquet is silently skipped —
+    matches the existing behaviour for date-range walks."""
+    features_root = tmp_path / "features"
+    _write_day_parquet(features_root, "nifty50", "2026-04-01", _build_day_df(seed=0))
+
+    loaded = _load_parquets(
+        "nifty50", "2026-04-01", "2026-04-05", features_root,
+        include_dates=["2026-04-01", "2026-04-99-does-not-exist"],
+    )
+    assert [d for d, _ in loaded] == ["2026-04-01"]
+
+
+def test_train_instrument_include_dates_trains_only_listed_dates(tmp_path: Path) -> None:
+    """End-to-end: passing include_dates to train_instrument yields a manifest
+    whose train+val dates are a subset of the listed dates only."""
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    for ds in ["2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04", "2026-04-05"]:
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=0, date_str=ds))
+
+    result = train_instrument(
+        instrument=instrument,
+        date_from="2026-04-01",
+        date_to="2026-04-05",
+        features_root=features_root,
+        models_root=tmp_path / "models",
+        config_dir=tmp_path / "feature_config",
+        val_days=1,
+        include_dates=["2026-04-01", "2026-04-03", "2026-04-05"],
+    )
+    manifest = json.loads(
+        (result.output_dir / "training_manifest.json").read_text(encoding="utf-8")
+    )
+    used_dates = set(manifest["train_dates"] + manifest["val_dates"])
+    # No date OUTSIDE the include_dates list should appear in the manifest
+    assert used_dates.issubset({"2026-04-01", "2026-04-03", "2026-04-05"})
+    # And every listed date should be present
+    assert used_dates == {"2026-04-01", "2026-04-03", "2026-04-05"}
+
+
+def test_train_instrument_raises_when_include_dates_have_no_parquets(tmp_path: Path) -> None:
+    """include_dates that resolve to zero parquets surfaces a clear error
+    naming the dates so the user can fix their picker."""
+    features_root = tmp_path / "features"
+    _write_day_parquet(features_root, "nifty50", "2026-04-01", _build_day_df(seed=0))
+
+    with pytest.raises(RuntimeError) as exc:
+        train_instrument(
+            instrument="nifty50",
+            date_from="2026-04-01",
+            date_to="2026-04-05",
+            features_root=features_root,
+            models_root=tmp_path / "models",
+            config_dir=tmp_path / "feature_config",
+            val_days=1,
+            include_dates=["2026-04-99-bogus"],
+        )
+    assert "include-dates" in str(exc.value)
 
 
 # ── _load_or_derive_feature_config ────────────────────────────────────────
@@ -268,14 +365,14 @@ def test_val_days_capped_at_half_of_total(tmp_path: Path) -> None:
 
 
 def test_single_class_val_skips_binary_target(tmp_path: Path) -> None:
-    """PY-5 val-split guard: when val day's `direction_900s` is all-1, the
-    trainer must SKIP `direction_900s` (would yield NaN AUC) but still
+    """PY-5 val-split guard: when val day's `direction_300s` is all-1, the
+    trainer must SKIP `direction_300s` (would yield NaN AUC) but still
     train every other target whose val data is well-formed.
 
     Construction:
       - 3 train days (2026-04-01 .. 2026-04-03): every binary target has a
         balanced 0/1 mix.
-      - 1 val day (2026-04-04): `direction_900s` forced to all 1s; every
+      - 1 val day (2026-04-04): `direction_300s` forced to all 1s; every
         other binary target keeps its balanced 0/1 mix (the seed for the
         synthetic frame is well past the trivial seed 0, so AUC for those
         is well-defined even on 200 rows).
@@ -289,11 +386,11 @@ def test_single_class_val_skips_binary_target(tmp_path: Path) -> None:
     for i, ds in enumerate(["2026-04-01", "2026-04-02", "2026-04-03"]):
         _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=10 + i, date_str=ds))
 
-    # Val day: direction_900s forced single-class
+    # Val day: direction_300s forced single-class
     val_df = _build_day_df(
         seed=99,
         date_str="2026-04-04",
-        direction_900s_override=np.ones(200, dtype="int64"),
+        direction_300s_override=np.ones(200, dtype="int64"),
     )
     _write_day_parquet(features_root, instrument, "2026-04-04", val_df)
 
@@ -309,36 +406,36 @@ def test_single_class_val_skips_binary_target(tmp_path: Path) -> None:
 
     metrics = json.loads((result.output_dir / "metrics.json").read_text(encoding="utf-8"))
 
-    # 1) direction_900s must be flagged skipped + reason mentions one class
-    assert "direction_900s" in metrics
+    # 1) direction_300s must be flagged skipped + reason mentions one class
+    assert "direction_300s" in metrics
     assert (
-        metrics["direction_900s"].get("skipped") is True
-    ), f"direction_900s must be skipped, got {metrics['direction_900s']}"
-    assert "one class" in metrics["direction_900s"].get("reason", "").lower(), (
-        f"reason should mention 'one class', got " f"{metrics['direction_900s'].get('reason')!r}"
+        metrics["direction_300s"].get("skipped") is True
+    ), f"direction_300s must be skipped, got {metrics['direction_300s']}"
+    assert "one class" in metrics["direction_300s"].get("reason", "").lower(), (
+        f"reason should mention 'one class', got " f"{metrics['direction_300s'].get('reason')!r}"
     )
 
     # 2) No .lgbm file written for the skipped target
     assert not (
-        result.output_dir / "direction_900s.lgbm"
-    ).exists(), "direction_900s.lgbm must NOT be written when skipped"
+        result.output_dir / "direction_300s.lgbm"
+    ).exists(), "direction_300s.lgbm must NOT be written when skipped"
 
     # 3) Other binary targets with balanced val data DID train successfully
     #    (at least one — we don't insist on all four because the random seed
     #    could theoretically push another window to single-class on 200 rows;
-    #    direction_30s is the canonical guard).
-    assert "direction_30s" in metrics
+    #    direction_60s is the canonical guard post-Wave 2 — 30s was dropped).
+    assert "direction_60s" in metrics
     assert (
-        metrics["direction_30s"].get("skipped") is not True
-    ), f"direction_30s should have trained, got {metrics['direction_30s']}"
-    assert "val_auc" in metrics["direction_30s"]
-    assert (result.output_dir / "direction_30s.lgbm").exists()
+        metrics["direction_60s"].get("skipped") is not True
+    ), f"direction_60s should have trained, got {metrics['direction_60s']}"
+    assert "val_auc" in metrics["direction_60s"]
+    assert (result.output_dir / "direction_60s.lgbm").exists()
 
     # 4) Skipped list reflects the one we forced
     manifest = json.loads(
         (result.output_dir / "training_manifest.json").read_text(encoding="utf-8")
     )
-    assert "direction_900s" in manifest["skipped_targets"]
+    assert "direction_300s" in manifest["skipped_targets"]
 
 
 # ── Manifest + LATEST pointer ─────────────────────────────────────────────

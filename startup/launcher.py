@@ -294,6 +294,38 @@ def act_train_all():
     _pause_briefly()
 
 
+def act_train_all_full():
+    """Train all 4 instruments on every available parquet day (no D-2 holdout).
+    train-auto.bat with no date-to defaults to 2026-12-31, so the MTA loader
+    picks up every parquet date that exists. No skip-existing guard — this is
+    the explicit "retrain everything" path."""
+    for inst in _INSTRUMENTS:
+        _launch_no_pause(f"Train ALL DAYS: {inst}", f"train-auto.bat {inst}")
+    _pause_briefly()
+
+
+def _train_one_full(instrument: str) -> None:
+    """Single-instrument train across every available parquet day (no D-2 holdout).
+    No skip-existing guard — explicit retrain."""
+    _launch_new_window(f"Train ALL DAYS: {instrument}", f"train-auto.bat {instrument}")
+
+
+def act_train_nifty_full():
+    _train_one_full("nifty50")
+
+
+def act_train_banknifty_full():
+    _train_one_full("banknifty")
+
+
+def act_train_crudeoil_full():
+    _train_one_full("crudeoil")
+
+
+def act_train_natgas_full():
+    _train_one_full("naturalgas")
+
+
 # --- Walk-forward date selection ------------------------------------------
 # Convention: train on [start … D-2], hold out D-1, score on D-1.
 # Dates are picked from feature parquets that exist for all 4 instruments
@@ -558,10 +590,15 @@ def main():
             None,
         ),
         ("Train ALL  (4 instruments)", act_train_all),
+        ("Train ALL DAYS  (4 instruments, every parquet day, no D-1 holdout)", act_train_all_full),
         ("Train  nifty50   (MTA)", act_train_nifty),
         ("Train  banknifty (MTA)", act_train_banknifty),
         ("Train  crudeoil  (MTA)", act_train_crudeoil),
         ("Train  naturalgas(MTA)", act_train_natgas),
+        ("Train  nifty50    ALL DAYS  (every parquet day)", act_train_nifty_full),
+        ("Train  banknifty  ALL DAYS  (every parquet day)", act_train_banknifty_full),
+        ("Train  crudeoil   ALL DAYS  (every parquet day)", act_train_crudeoil_full),
+        ("Train  naturalgas ALL DAYS  (every parquet day)", act_train_natgas_full),
         (
             f"─── Scored Backtest ─── test day = D-1 = {_BT_DATE or '(no data)'}   (held out from training)",
             None,

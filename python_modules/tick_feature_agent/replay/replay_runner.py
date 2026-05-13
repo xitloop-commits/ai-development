@@ -203,6 +203,7 @@ def replay(
     validation_root: str | Path = "data/validation",
     checkpoint_path: str | Path | None = None,
     logger=None,
+    include_dates: list[str] | None = None,
 ) -> dict:
     """
     Replay all dates in [date_from, date_to] for the given instrument.
@@ -218,6 +219,9 @@ def replay(
         checkpoint_path:  Path for replay checkpoint JSON. Default:
                           ``{raw_root}/replay_checkpoint.json``.
         logger:           Optional TFA structured logger.
+        include_dates:    When provided, ONLY these dates are replayed
+                          (date_from / date_to and the checkpoint are
+                          ignored). Used by the launcher's per-date picker.
 
     Returns:
         Summary dict with counts of each verdict type.
@@ -241,12 +245,18 @@ def replay(
             )
         return {"error": str(exc)}
 
-    # Respect checkpoint: skip dates already completed
-    resume_date = checkpoint.get_resume_date(instrument, date_from)
+    if include_dates:
+        # Explicit per-date selection bypasses the date-range walk AND the
+        # checkpoint — the user has chosen exactly what to (re-)replay.
+        dates_iter = sorted(set(include_dates))
+    else:
+        # Respect checkpoint: skip dates already completed
+        resume_date = checkpoint.get_resume_date(instrument, date_from)
+        dates_iter = list(_iter_dates(resume_date, date_to))
 
     summary = {"pass": 0, "warn": 0, "fail": 0, "skip": 0}
 
-    for date_str in _iter_dates(resume_date, date_to):
+    for date_str in dates_iter:
         verdict = run_one_date(
             base_profile=base_profile,
             instrument=instrument,

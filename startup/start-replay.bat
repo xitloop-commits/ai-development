@@ -54,9 +54,11 @@ if not "%~1"=="" (
     goto args_loop
 )
 
-REM --- If no --date flags, use a default wide range (checkpoint resumes) ---
+REM --- If no --date / --include-dates flags, use a default wide range
+REM     (checkpoint resumes already-completed days) ---
 set HAS_DATE=0
 echo !EXTRA_ARGS! | find "--date" >nul && set HAS_DATE=1
+echo !EXTRA_ARGS! | find "--include-dates" >nul && set HAS_DATE=1
 if "!HAS_DATE!"=="0" set "EXTRA_ARGS=!EXTRA_ARGS! --date-from 2026-04-01 --date-to 2026-12-31"
 
 REM --- Detect Python (same order as start-tfa.bat: Store Python first) ---

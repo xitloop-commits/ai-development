@@ -53,7 +53,22 @@ def main() -> int:
         "threads to 1 to avoid CPU oversubscription. Use 0 for "
         "auto: min(4, cpu_count() - 1).",
     )
+    p.add_argument(
+        "--include-dates",
+        action="append",
+        default=[],
+        help="YYYY-MM-DD date to include. May be specified multiple times "
+        "(e.g. --include-dates 2026-04-13 --include-dates 2026-04-17) or "
+        "as a comma-separated list (--include-dates 2026-04-13,2026-04-17). "
+        "When set, ONLY listed dates are loaded; date-from / date-to are "
+        "ignored as a walk.",
+    )
     args = p.parse_args()
+    # Flatten: each --include-dates value may itself be a comma-separated list
+    flat: list[str] = []
+    for chunk in args.include_dates:
+        flat.extend(d.strip() for d in chunk.split(",") if d.strip())
+    include_dates = flat or None
     n_jobs = args.n_jobs
     if n_jobs == 0:
         from model_training_agent.trainer import _default_n_jobs
@@ -64,7 +79,10 @@ def main() -> int:
     print()
     print("  " + "=" * 56)
     print(f"   MTA -- training {args.instrument}")
-    print(f"   range:  {args.date_from}  ->  {args.date_to}")
+    if include_dates:
+        print(f"   include-dates ({len(include_dates)}):  {', '.join(include_dates)}")
+    else:
+        print(f"   range:  {args.date_from}  ->  {args.date_to}")
     print("  " + "=" * 56)
 
     try:
@@ -77,6 +95,7 @@ def main() -> int:
             config_dir=Path(args.config_dir),
             val_days=args.val_days,
             n_jobs=n_jobs,
+            include_dates=include_dates,
         )
     except RuntimeError as e:
         print(f"\n  ERROR: {e}\n")

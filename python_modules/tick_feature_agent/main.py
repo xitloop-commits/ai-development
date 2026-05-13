@@ -1043,15 +1043,28 @@ def _parse_socket(addr: str | None):
 
 
 def _run_replay(profile, args, log) -> None:
-    """Run replay for a single date or a date range."""
+    """Run replay for a single date, date range, or explicit date list."""
     from tick_feature_agent.replay.replay_runner import replay
 
-    if args.date:
+    # args.include_dates is a list (action='append'); each element may itself
+    # be a comma-separated list. Flatten + de-empty into one canonical list.
+    raw_chunks = getattr(args, "include_dates", []) or []
+    flat: list[str] = []
+    for chunk in raw_chunks:
+        flat.extend(d.strip() for d in str(chunk).split(",") if d.strip())
+    include_dates = flat or None
+
+    if include_dates:
+        # date_from / date_to are not used when include_dates is given, but
+        # the replay() signature still requires them — pass a wide stub range.
+        date_from = min(include_dates)
+        date_to = max(include_dates)
+    elif args.date:
         date_from = date_to = args.date
     elif args.date_from and args.date_to:
         date_from, date_to = args.date_from, args.date_to
     else:
-        _fatal("Replay mode requires --date or both --date-from and --date-to")
+        _fatal("Replay mode requires --date, --date-from + --date-to, or --include-dates")
 
     # Use the profile FILENAME key (e.g. "nifty50") instead of instrument_name
     # lowercased ("nifty"). Matches the convention used everywhere else:
@@ -1070,10 +1083,14 @@ def _run_replay(profile, args, log) -> None:
         features_root=args.features_root,
         validation_root=args.validation_root,
         logger=log,
+        include_dates=include_dates,
     )
 
     print()
-    print(f"  Replay complete  ({date_from} → {date_to})")
+    if include_dates:
+        print(f"  Replay complete  (include-dates: {', '.join(include_dates)})")
+    else:
+        print(f"  Replay complete  ({date_from} → {date_to})")
     print(
         f"  PASS: {summary.get('pass', 0)}  "
         f"WARN: {summary.get('warn', 0)}  "
@@ -1117,6 +1134,16 @@ def main() -> None:
     # Date-range replay
     parser.add_argument("--date-from", metavar="YYYY-MM-DD", help="Replay start date")
     parser.add_argument("--date-to", metavar="YYYY-MM-DD", help="Replay end date")
+    parser.add_argument(
+        "--include-dates",
+        action="append",
+        default=[],
+        metavar="YYYY-MM-DD",
+        help="Date to replay. May be specified multiple times "
+        "(--include-dates 2026-04-13 --include-dates 2026-04-17) or as a "
+        "comma-separated list. Overrides --date / --date-from / --date-to "
+        "and bypasses the replay checkpoint.",
+    )
     # Output
     parser.add_argument("--output-file", metavar="PATH", default=None)
     parser.add_argument("--output-socket", metavar="HOST:PORT", default=None)
@@ -1137,8 +1164,10 @@ def main() -> None:
 
     # Validate replay args
     if args.mode == "replay":
-        if not args.date and not (args.date_from and args.date_to):
-            parser.error("Replay mode requires --date  OR  --date-from + --date-to")
+        if not args.date and not (args.date_from and args.date_to) and not args.include_dates:
+            parser.error(
+                "Replay mode requires --date  OR  --date-from + --date-to  OR  --include-dates"
+            )
 
     # ── Load profile ──────────────────────────────────────────────────────────
     profile_path = Path(args.instrument_profile)
@@ -1166,6 +1195,11 @@ def main() -> None:
     # ── Banner ────────────────────────────────────────────────────────────────
     if args.mode == "live":
         mode_str = "live"
+    elif args.include_dates:
+        _flat: list[str] = []
+        for chunk in args.include_dates:
+            _flat.extend(d.strip() for d in str(chunk).split(",") if d.strip())
+        mode_str = f"replay  ({len(_flat)} explicit dates)"
     elif args.date:
         mode_str = f"replay  {args.date}"
     else:
