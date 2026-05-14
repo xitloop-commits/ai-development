@@ -129,6 +129,9 @@ package-lock.json
 # Data folder
 data/
 
-# Trained model artifacts (regeneratable from data/features via MTA)
+# Trained model artifacts (regeneratable from data/features via MTA).
+# `models_latest.zip` IS tracked in git so laptops can `git pull` + unzip
+# and run paper trading without copying GBs of raw data.
 models/
 models_*.zip
+!models_latest.zip

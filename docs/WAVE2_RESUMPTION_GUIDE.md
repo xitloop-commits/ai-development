@@ -118,48 +118,53 @@ The status table tells you exactly which (instrument, date) tiles are still grey
 
 ---
 
-## Getting trained models onto the laptop (smallest transfer)
+## Getting trained models onto the laptop
 
-Models are NOT in git — they're regeneratable artifacts. To run paper-trading
-end-to-end on laptop without copying GBs of raw data, transfer only the
-LATEST trained models per instrument (~5 MB compressed for all 4).
+`models_latest.zip` lives in the repo root and IS tracked in git (the
+`models/` folder itself is gitignored — only the zip is committed).
+Contains the LATEST trained model per instrument plus its `LATEST`
+pointer file. ~5 MB compressed, all 4 instruments.
 
-**On the desk machine (after W2.3 retrain finishes):**
+**On the desk machine, after every W2.3 retrain:**
 
 ```bash
-py scripts/package_latest_models.py
+# Rebuild the zip from current models/, then commit + push
+py -c "
+import zipfile
+from pathlib import Path
+out = Path('models_latest.zip')
+with zipfile.ZipFile(out, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+    for inst in ('nifty50','banknifty','crudeoil','naturalgas'):
+        latest = Path('models')/inst/'LATEST'
+        if not latest.exists(): continue
+        ver = latest.read_text().strip()
+        vdir = Path('models')/inst/ver
+        if not vdir.exists(): continue
+        zf.write(latest, f'models/{inst}/LATEST')
+        for f in vdir.rglob('*'):
+            if f.is_file():
+                zf.write(f, f'models/{inst}/{ver}/{f.relative_to(vdir).as_posix()}')
+print('wrote', out, out.stat().st_size//1024, 'KB')
+"
+git add models_latest.zip
+git commit -m "chore(models): refresh models_latest.zip"
+git push
 ```
-
-This produces `models_<YYYYMMDD_HHMMSS>.zip` in the repo root containing:
-
-```
-models/<instrument>/LATEST           # pointer file
-models/<instrument>/<version>/...    # 60 .lgbm files + manifests
-```
-
-Only the *current* version per instrument is packaged — old versions are
-skipped. Typical output: ~5 MB compressed total for all 4 instruments,
-easy to email / Drive / USB.
 
 **On the laptop:**
 
-1. `git pull origin main`
-2. Copy `models_<TS>.zip` into the repo root.
-3. Unpack:
-   ```bash
-   python -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall()"  models_<TS>.zip
-   ```
-   Or right-click → Extract All in Explorer.
-4. `startup\start.bat` — launcher should now show the same `LATEST` model
-   versions in its SEA / Backtest / Compare submenus.
+```bash
+git pull origin main
+python -c "import zipfile; zipfile.ZipFile('models_latest.zip').extractall()"
+startup\start.bat
+```
 
-You don't need `data/raw/` or `data/features/` for paper trading. SEA
-reads `data/features/<inst>_live.ndjson` which TFA generates at runtime
-from a fresh broker connection.
+That's it — launcher will see the same `LATEST` model versions in its
+SEA / Backtest / Compare submenus. No raw data needed; SEA reads
+`data/features/<inst>_live.ndjson` which TFA generates at runtime.
 
-If you want to *re-train* on laptop (vs only running inference), you also
-need to transfer `data/features/` (~5 GB). Skip `data/raw/` entirely —
-re-replay there only if you've never run replay for those dates.
+If you want to *retrain* on laptop (vs only running inference), you also
+need to transfer `data/features/` (~5 GB).
 
 ---
 
