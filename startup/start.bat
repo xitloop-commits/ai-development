@@ -41,9 +41,8 @@ if "!PYTHON_CMD!"=="" (
     exit /b 1
 )
 
-REM Default: launcher_v2 (redesigned). Pass --legacy to fall back to v1
-REM while Pass 2 submenus (Delete / Record / SBT / Compare / SEA / Watch)
-REM are still being wired.
+REM Run the launcher in the CURRENT terminal (no new window). Single window,
+REM whatever size the user already has it.
 if /i "%~1"=="--legacy" (
     "%PYTHON_CMD%" startup\launcher.py
 ) else (

@@ -23,17 +23,26 @@ from datetime import datetime
 from pathlib import Path
 
 # ── Windows VT (ANSI) mode ────────────────────────────────────────────────
+# Only enable VT escapes on the OUTPUT handle so colours render.
 if sys.platform == "win32":
     try:
         import ctypes
-
         _k32 = ctypes.windll.kernel32
-        _h = _k32.GetStdHandle(-11)
-        _m = ctypes.c_ulong()
-        _k32.GetConsoleMode(_h, ctypes.byref(_m))
-        _k32.SetConsoleMode(_h, _m.value | 0x0004)
+        _h_out = _k32.GetStdHandle(-11)
+        _m_out = ctypes.c_ulong()
+        _k32.GetConsoleMode(_h_out, ctypes.byref(_m_out))
+        _k32.SetConsoleMode(_h_out, _m_out.value | 0x0004)
     except Exception:
         pass
+
+# Disable stdout line-buffering so each `print()` does NOT flush automatically
+# at every '\n'. We flush once per frame (in `_getkey` / `_pause_briefly`) so
+# the terminal receives the whole frame in a single write — no visible flicker
+# between the screen-clear and the new content.
+try:
+    sys.stdout.reconfigure(line_buffering=False)
+except Exception:
+    pass
 
 
 # ── ANSI helpers ──────────────────────────────────────────────────────────
@@ -91,15 +100,48 @@ def scan_feature_days(instrument: str) -> list[str]:
 
 
 def scan_raw_days(instrument: str) -> list[str]:
-    """Days under data/raw/ that have an ndjson.gz for this instrument."""
+    """Days under data/raw/ that have an ndjson.gz for this instrument.
+
+    Returns only days with COMPLETED `.gz` recordings — days that have only
+    `.lock` markers (TFA started but never wrote data) are excluded so they
+    don't show up as 'replayable' in the Replay submenu."""
     raw_root = ROOT / "data" / "raw"
     out: list[str] = []
     for d in _date_dirs_under(raw_root):
         day_dir = raw_root / d
-        # Tolerate either flat *.ndjson.gz or per-instrument file
         if any(day_dir.glob(f"{instrument}*.ndjson.gz")):
             out.append(d)
     return out
+
+
+def scan_raw_artifact_days(instrument: str) -> list[str]:
+    """Days with ANY raw artifact (`.ndjson.gz`, `.lock`, partial files…).
+
+    Used by the Delete submenu so the user can clean up stale lock-only days
+    where TFA created markers but never wrote ticks."""
+    raw_root = ROOT / "data" / "raw"
+    out: list[str] = []
+    for d in _date_dirs_under(raw_root):
+        day_dir = raw_root / d
+        if any(day_dir.glob(f"{instrument}*")):
+            out.append(d)
+    return out
+
+
+def scan_backtest_days(instrument: str) -> list[str]:
+    """Days with any backtest scorecard for this instrument (across all model
+    versions). Layout: data/backtests/<instrument>/<version>/<YYYY-MM-DD>/."""
+    bt_root = ROOT / "data" / "backtests" / instrument
+    if not bt_root.exists():
+        return []
+    out: set[str] = set()
+    for vdir in bt_root.iterdir():
+        if not vdir.is_dir():
+            continue
+        for ddir in vdir.iterdir():
+            if ddir.is_dir() and re.match(r"^\d{4}-\d{2}-\d{2}$", ddir.name):
+                out.add(ddir.name)
+    return sorted(out)
 
 
 @dataclass
@@ -275,13 +317,20 @@ def compute_walk_forward_dates() -> tuple[str, str]:
 
 
 def _clear() -> None:
+    # Write the screen-clear into stdout's buffer but DO NOT flush yet.
+    # The subsequent print() calls also accumulate (we disabled line-
+    # buffering at startup). Everything for this frame is flushed in one
+    # write by `_getkey` / `_pause_briefly` just before they block on
+    # input — terminal receives the whole frame in a single syscall, so
+    # there is no visible blank-and-repaint flash between clear and
+    # content.
     sys.stdout.write("\033[2J\033[H")
-    sys.stdout.flush()
 
 
 def _getkey() -> str:
     """Return 'up' | 'down' | 'left' | 'right' | 'enter' | 'esc' | 'space' | <char>."""
     import msvcrt
+    sys.stdout.flush()  # commit the pending frame before we block on input
 
     ch = msvcrt.getwch()
     if ch in ("\xe0", "\x00"):
@@ -297,11 +346,7 @@ def _getkey() -> str:
 
 
 def _flush_keys() -> None:
-    """Drain any pending keypresses so we don't act on stale input.
-
-    Used between screen transitions where the previous screen's redraw can
-    take long enough that the user instinctively presses a key again. Without
-    this, that second Esc would cascade to the next level."""
+    """Drain any pending keypresses so we don't act on stale input."""
     import msvcrt
     while msvcrt.kbhit():
         try:
@@ -312,6 +357,7 @@ def _flush_keys() -> None:
 
 def _pause_briefly() -> None:
     print(f"  {DIM('Press any key to return…')}")
+    sys.stdout.flush()  # commit the pending frame before we block on input
     import msvcrt
     msvcrt.getwch()
 
@@ -486,6 +532,7 @@ class InstrumentDates:
     locked: set[str] = field(default_factory=set)   # Dates that must be included (e.g. already trained)
     checked: set[str] = field(default_factory=set)  # Pending dates the user has ticked
     status_hint: str = ""           # Extra text shown after the instrument name (e.g. "REPLAY pid 3360")
+    fully_done: bool = False        # All available dates are already locked (nothing left to process)
 
 
 @dataclass
@@ -587,7 +634,11 @@ def date_picker(
             it = items[inst_idx]
             if kind == "inst":
                 # Instrument header row
-                if not it.enabled:
+                if it.fully_done:
+                    # Every date already processed; row is immutable + dimmed.
+                    check = f"[{GREEN('✓')}]"
+                    name_render = DIM(f"{it.instrument:<11}")
+                elif not it.enabled:
                     check = DIM("[-]")
                     name_render = DIM(f"{it.instrument:<11}")
                 elif it.included:
@@ -783,6 +834,22 @@ def act_train() -> None:
                 continue
             locked = set(info.trained_dates) & set(avail)
             last_ver = info.version or "----"
+            # All available parquet dates are already in the last model →
+            # no pending work for this instrument. Row shows as [✓] and dim,
+            # cannot be toggled, won't fire a subprocess on Enter.
+            if locked == set(avail):
+                items.append(InstrumentDates(
+                    instrument=inst,
+                    enabled=False,
+                    included=True,
+                    available=avail,
+                    locked=locked,
+                    checked=set(),
+                    status_hint=DIM(f"all {len(avail)} dates already trained "
+                                    f"(model {last_ver})"),
+                    fully_done=True,
+                ))
+                continue
             status = f"{DIM('last:')} {DIM(last_ver)}"
             items.append(InstrumentDates(
                 instrument=inst,
@@ -1238,6 +1305,19 @@ def act_replay() -> None:
                 continue
             locked = set(parquet) & set(raw)
             pending = set(raw) - set(parquet)
+            if raw and not pending:
+                # Every raw day is already featurized → row shows [✓], dim.
+                items.append(InstrumentDates(
+                    instrument=inst,
+                    enabled=False,
+                    included=True,
+                    available=sorted(set(raw)),
+                    locked=locked,
+                    checked=set(),
+                    status_hint=DIM(f"all {len(raw)} dates already featurized"),
+                    fully_done=True,
+                ))
+                continue
             items.append(InstrumentDates(
                 instrument=inst,
                 enabled=True,
@@ -1321,6 +1401,7 @@ def _typed_confirm(token: str, lines_above: list[str]) -> bool:
               f"{_hk('Esc', 'cancel')}:")
         print(f"    {YELLOW(buf)}")
         print()
+        sys.stdout.flush()
         ch = msvcrt.getwch()
         if ch == "\x1b":  # Esc
             return False
@@ -1361,7 +1442,9 @@ def _delete_raw_or_parquet(kind: str) -> None:
     items: list[InstrumentDates] = []
     for inst in _INSTRUMENTS:
         if kind == "raw":
-            dates = scan_raw_days(inst)
+            # Include lock-only days too so the user can clean up stale state
+            # left behind by a TFA that never finished writing.
+            dates = scan_raw_artifact_days(inst)
         else:
             dates = scan_feature_days(inst)
         if not dates:
@@ -1394,10 +1477,14 @@ def _delete_raw_or_parquet(kind: str) -> None:
     for inst, dates in res.selections.items():
         for d in dates:
             if kind == "raw":
-                # Multiple raw files per instrument per date
+                # Grab every raw artifact for this instrument-day: the .gz
+                # data files AND auxiliary .lock / partial files. Lock-only
+                # days (TFA started, never wrote ticks) are the common
+                # cleanup target.
                 day_dir = ROOT / "data" / "raw" / d
-                for f in day_dir.glob(f"{inst}*.ndjson.gz"):
-                    plan.append((f, _path_size(f)))
+                for f in day_dir.glob(f"{inst}*"):
+                    if f.is_file():
+                        plan.append((f, _path_size(f)))
             else:
                 p = ROOT / "data" / "features" / d / f"{inst}_features.parquet"
                 if p.exists():
@@ -1427,8 +1514,140 @@ def _delete_raw_or_parquet(kind: str) -> None:
         return
 
     ok, err = _delete_paths([p for p, _ in plan])
+
+    # Empty-date-folder cleanup: for each (instrument, date) we touched, if no
+    # instrument-specific artifact remains in that date's directory, drop any
+    # orphan metadata.json and remove the directory itself.
+    touched_dirs: set[Path] = {p.parent for p, _ in plan}
+    pruned_dirs = 0
+    for day_dir in touched_dirs:
+        if not day_dir.exists():
+            continue
+        # Any instrument artifact still here?
+        any_inst_file = any(
+            f.is_file() and any(f.name.startswith(inst) for inst in _INSTRUMENTS)
+            for f in day_dir.iterdir()
+        )
+        if any_inst_file:
+            continue
+        # Only metadata / housekeeping left → wipe it too, then rmdir.
+        try:
+            for f in list(day_dir.iterdir()):
+                if f.is_file():
+                    f.unlink()
+            day_dir.rmdir()
+            pruned_dirs += 1
+        except OSError as e:
+            print(f"  {YELLOW('!')} could not remove {day_dir}: {e}")
+
     print()
-    print(f"  {GREEN('✓')} Deleted {ok} files" + (f", {RED(str(err) + ' failed')}" if err else ""))
+    msg = f"  {GREEN('✓')} Deleted {ok} files"
+    if err:
+        msg += f", {RED(str(err) + ' failed')}"
+    if pruned_dirs:
+        msg += f", {GREEN('✓')} pruned {pruned_dirs} empty date folder(s)"
+    print(msg)
+    _pause_briefly()
+
+
+def _delete_backtest() -> None:
+    """Delete scored-backtest output for (instrument, date) across all model
+    versions. Layout: data/backtests/<instrument>/<version>/<date>/."""
+    items: list[InstrumentDates] = []
+    for inst in _INSTRUMENTS:
+        dates = scan_backtest_days(inst)
+        if not dates:
+            items.append(InstrumentDates(
+                instrument=inst, enabled=False, included=False, available=[],
+                status_hint=DIM("(no scorecards)"),
+            ))
+            continue
+        # Count total scorecards across all versions for this instrument
+        bt_root = ROOT / "data" / "backtests" / inst
+        total = 0
+        if bt_root.exists():
+            for vdir in bt_root.iterdir():
+                if vdir.is_dir():
+                    total += sum(1 for d in vdir.iterdir() if d.is_dir())
+        items.append(InstrumentDates(
+            instrument=inst,
+            enabled=True,
+            included=False,            # default OFF for destructive ops
+            available=sorted(set(dates)),
+            locked=set(),
+            checked=set(),
+            status_hint=DIM(f"({len(dates)} dates, {total} scorecards)"),
+        ))
+
+    res = date_picker("Delete BACKTESTS  —  pick instruments + dates", items)
+    if res.cancelled:
+        return
+    if not res.selections:
+        print()
+        print(f"  {YELLOW('!')} Nothing selected.")
+        _pause_briefly()
+        return
+
+    # Resolve actual paths: for each (instrument, date) picked, sweep every
+    # version dir under data/backtests/<instrument>/ and delete the matching
+    # <date>/ folder (with its scorecard.json and any siblings).
+    plan: list[tuple[Path, int]] = []
+    for inst, dates in res.selections.items():
+        bt_root = ROOT / "data" / "backtests" / inst
+        if not bt_root.exists():
+            continue
+        for vdir in bt_root.iterdir():
+            if not vdir.is_dir():
+                continue
+            for d in dates:
+                day_dir = vdir / d
+                if day_dir.exists() and day_dir.is_dir():
+                    plan.append((day_dir, _path_size(day_dir)))
+
+    if not plan:
+        print()
+        print(f"  {YELLOW('!')} Nothing to delete.")
+        _pause_briefly()
+        return
+
+    total = sum(s for _, s in plan)
+    preview = [f"  {BOLD('About to delete:')}", ""]
+    for p, s in plan[:20]:
+        preview.append(f"    {p.relative_to(ROOT)}    {DIM(_human_bytes(s))}")
+    if len(plan) > 20:
+        preview.append(f"    {DIM(f'… +{len(plan) - 20} more dirs')}")
+    preview.append("")
+    preview.append(f"  {BOLD(f'Total: {len(plan)} backtest dirs, ~{_human_bytes(total)}')}")
+
+    if not _typed_confirm("DELETE", preview):
+        print(f"  {DIM('Cancelled.')}")
+        _pause_briefly()
+        return
+
+    ok, err = _delete_paths([p for p, _ in plan])
+
+    # Prune empty version dirs (and the per-instrument root) after deletion.
+    touched_version_dirs: set[Path] = {p.parent for p, _ in plan}
+    pruned = 0
+    for vdir in touched_version_dirs:
+        try:
+            if vdir.exists() and not any(vdir.iterdir()):
+                vdir.rmdir()
+                pruned += 1
+                inst_root = vdir.parent
+                if inst_root.exists() and not any(inst_root.iterdir()):
+                    inst_root.rmdir()
+                    pruned += 1
+        except OSError:
+            pass
+
+    print()
+    msg = f"  {GREEN('✓')} Deleted {ok} backtest dirs"
+    if err:
+        msg += f", {RED(str(err) + ' failed')}"
+    if pruned:
+        msg += f", {GREEN('✓')} pruned {pruned} empty parent dir(s)"
+    print(msg)
     _pause_briefly()
 
 
@@ -1507,7 +1726,7 @@ def _delete_model() -> None:
         latest_ptr = inst_dir / "LATEST"
         latest = latest_ptr.read_text(encoding="utf-8").strip() if latest_ptr.exists() else ""
         vlist: list[tuple[str, bool, int]] = []
-        for vdir in sorted(inst_dir.iterdir(), reverse=True):
+        for vdir in sorted(inst_dir.iterdir()):
             if not vdir.is_dir():
                 continue
             vlist.append((vdir.name, vdir.name == latest, _path_size(vdir)))
@@ -1614,6 +1833,7 @@ def act_delete() -> None:
     categories = [
         ("Raw recordings       (data/raw/<date>/<inst>*.ndjson.gz)",     "raw"),
         ("Parquet features     (data/features/<date>/<inst>_features.parquet)", "parquet"),
+        ("Backtest scorecards  (data/backtests/<inst>/<version>/<date>/)", "backtest"),
         ("Live feature stream  (data/features/<inst>_live.ndjson)",      "live"),
         ("Model versions       (models/<inst>/<version>/)",              "model"),
     ]
@@ -1636,7 +1856,7 @@ def act_delete() -> None:
         print(f"  " + _hk_line(
             ("↑↓", "move"),
             ("Enter", "select"),
-            ("1-4", "jump"),
+            ("1-5", "jump"),
             ("Esc", "cancel"),
         ))
         print()
@@ -1665,6 +1885,8 @@ def act_delete() -> None:
             _delete_raw_or_parquet("raw")
         elif kind == "parquet":
             _delete_raw_or_parquet("parquet")
+        elif kind == "backtest":
+            _delete_backtest()
         elif kind == "live":
             _delete_live()
         elif kind == "model":
@@ -1784,59 +2006,61 @@ def _render_status_table(procs: list[RunningProc] | None = None) -> list[str]:
     if not all_dates:
         return [DIM("  (no data yet — record some ticks to begin)")]
 
-    dates = sorted(all_dates, reverse=True)   # newest first
+    dates = sorted(all_dates)   # ascending: oldest first, newest at the bottom
 
-    # Layout (visual chars only; ANSI escapes added on top):
-    #   Date col:  14 chars  ("  2026-04-30  ")
-    #   Each stage cell: 4 chars wide  ("  ✓ " or "  · ")
-    #   Between stages within an instrument: 1 extra char gap (2 spaces total)
-    #   Between instruments: 4 extra chars gap
+    # Compact one-column-per-instrument layout. Each cell holds 4 tick chars
+    # in fixed positions:
+    #   pos 1 = Raw   (recorded ticks)
+    #   pos 2 = Rep   (replay → parquet features)
+    #   pos 3 = Trn   (model trained including this date)
+    #   pos 4 = SBT   (scorecard exists for this date)
+    # Each tick is green when that stage is done, yellow when a process is
+    # currently working on it, and dim grey otherwise.
     DATE_W = 14
-    CELL_W = 4
-    INTRA_GAP = "  "   # 2 spaces between Raw/Rep/Trn/SBT
-    INTER_GAP = "    "  # 4 spaces between instrument blocks
+    TICK_W = 4                                       # 4 ticks per cell
+    COL_W = max(TICK_W, max(len(i) for i in _INSTRUMENTS))   # instrument-name width
+    INTER_GAP = "    "                               # gap between instrument cells
+    # Centre offset so the 4-tick block lines up under the centred name
+    PAD_L = (COL_W - TICK_W) // 2
+    PAD_R = COL_W - TICK_W - PAD_L
 
-    def _stage_cell(v: str) -> str:
-        if v == "done":
-            return GREEN(" ✓  ")
-        if v == "loading":
-            return YELLOW(" …  ")
-        return DIM(" ·  ")
+    def _tick(v: str) -> str:
+        if v == "done":    return GREEN("✓")   # stage finished
+        if v == "loading": return YELLOW("✓")  # stage in progress
+        return DIM("✓")                        # stage not done
 
-    def _stage_hdr(label: str) -> str:
-        return f"{DIM(label)} "  # 3 chars + 1 = 4-wide visible
-
-    # instrument-block visible width = 4 stages × 4 chars + 3 intra-gaps × 2 = 16 + 6 = 22
-    inst_block_w = CELL_W * 4 + len(INTRA_GAP) * 3
-
-    # Top header row — instrument labels centred over each block
+    # Single header row — instrument labels centred over each cell
     header_top = " " * DATE_W
     for i, inst in enumerate(_INSTRUMENTS):
         if i > 0:
             header_top += INTER_GAP
-        header_top += BOLD(inst.center(inst_block_w))
+        header_top += BOLD(inst.center(COL_W))
 
-    # Sub-header row — Raw Rep Trn SBT for each instrument
-    header_cols = "  " + (" " * (DATE_W - 2))
-    for i in range(len(_INSTRUMENTS)):
-        if i > 0:
-            header_cols += INTER_GAP
-        header_cols += INTRA_GAP.join(_stage_hdr(lbl) for lbl in ("Raw", "Rep", "Trn", "SBT"))
-
-    rule_w = DATE_W + inst_block_w * len(_INSTRUMENTS) + len(INTER_GAP) * (len(_INSTRUMENTS) - 1)
+    rule_w = DATE_W + COL_W * len(_INSTRUMENTS) + len(INTER_GAP) * (len(_INSTRUMENTS) - 1)
     rule = "  " + DIM("─" * (rule_w - 2))
 
-    out: list[str] = [header_top, header_cols, rule]
+    out: list[str] = [header_top, rule]
     for d in dates:
         line = f"  {d}  "  # 14 chars total
         for i, inst in enumerate(_INSTRUMENTS):
             if i > 0:
                 line += INTER_GAP
             row = state[inst].get(d, {})
-            line += INTRA_GAP.join(
-                _stage_cell(row.get(stage, "none"))
-                for stage in ("raw", "rep", "trn", "sbt")
-            )
+            # If raw data was never collected for this instrument+date, the
+            # whole pipeline is N/A — show a single dim hyphen, not 4 ticks.
+            # .center() can't be used on coloured strings because ANSI escape
+            # bytes inflate len(), so we centre manually around the visible
+            # 1-char "-" within TICK_W visible chars.
+            if row.get("raw", "none") != "done":
+                pad_l = (TICK_W - 1) // 2
+                pad_r = TICK_W - 1 - pad_l
+                cell = " " * pad_l + DIM("-") + " " * pad_r
+            else:
+                cell = "".join(
+                    _tick(row.get(stage, "none"))
+                    for stage in ("raw", "rep", "trn", "sbt")
+                )
+            line += " " * PAD_L + cell + " " * PAD_R
         out.append(line)
     return out
 
