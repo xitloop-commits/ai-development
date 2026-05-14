@@ -131,3 +131,4 @@ data/
 
 # Trained model artifacts (regeneratable from data/features via MTA)
 models/
+models_*.zip

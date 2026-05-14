@@ -110,11 +110,56 @@ You're at the gate before paper trading. The 250-day journey target is **₹3–
 ```bash
 cd <repo-root>
 git pull origin main
-git log --oneline -5      # confirm 291f98d is at the top
+git log --oneline -5      # confirm latest commit is on top
 startup\start.bat         # launcher opens; status table shows what's pending
 ```
 
 The status table tells you exactly which (instrument, date) tiles are still grey/yellow — that's your work list.
+
+---
+
+## Getting trained models onto the laptop (smallest transfer)
+
+Models are NOT in git — they're regeneratable artifacts. To run paper-trading
+end-to-end on laptop without copying GBs of raw data, transfer only the
+LATEST trained models per instrument (~5 MB compressed for all 4).
+
+**On the desk machine (after W2.3 retrain finishes):**
+
+```bash
+py scripts/package_latest_models.py
+```
+
+This produces `models_<YYYYMMDD_HHMMSS>.zip` in the repo root containing:
+
+```
+models/<instrument>/LATEST           # pointer file
+models/<instrument>/<version>/...    # 60 .lgbm files + manifests
+```
+
+Only the *current* version per instrument is packaged — old versions are
+skipped. Typical output: ~5 MB compressed total for all 4 instruments,
+easy to email / Drive / USB.
+
+**On the laptop:**
+
+1. `git pull origin main`
+2. Copy `models_<TS>.zip` into the repo root.
+3. Unpack:
+   ```bash
+   python -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall()"  models_<TS>.zip
+   ```
+   Or right-click → Extract All in Explorer.
+4. `startup\start.bat` — launcher should now show the same `LATEST` model
+   versions in its SEA / Backtest / Compare submenus.
+
+You don't need `data/raw/` or `data/features/` for paper trading. SEA
+reads `data/features/<inst>_live.ndjson` which TFA generates at runtime
+from a fresh broker connection.
+
+If you want to *re-train* on laptop (vs only running inference), you also
+need to transfer `data/features/` (~5 GB). Skip `data/raw/` entirely —
+re-replay there only if you've never run replay for those dates.
 
 ---
 
