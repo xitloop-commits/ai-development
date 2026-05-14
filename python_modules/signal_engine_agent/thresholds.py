@@ -324,6 +324,168 @@ def decide_action_v2(
     return base
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Wave 2 — model-driven gate
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+@dataclass(frozen=True)
+class Wave2Thresholds:
+    """Wave 2 model-driven gate configuration.
+
+    Replaces Wave 1's deterministic regime / momentum_persistence / S/R rules
+    with direct consumption of the new model predictions:
+      - direction_persists_*  — model says direction holds throughout window
+      - exit_signal_*         — model says position would close in window
+      - max_upside_pe_*       — accurate PE-leg upside (replaces first-order swap)
+      - max_drawdown_pe_*     — accurate PE-leg downside
+
+    The base 3-condition gate (prob/RR/pctile) still runs first as a coarse
+    filter. Wave 2 adds 3 conditions on top.
+    """
+
+    # W1: persistence at 60s — "will direction hold for at least 1 minute?"
+    persists_60s_min: float = 0.60
+    # W2: persistence at 300s — "will direction hold for 5 minutes?"
+    persists_300s_min: float = 0.50
+    # W3: exit-signal probability cap — entry blocked if model says we'd
+    # likely close the position within 60s anyway
+    exit_signal_60s_max: float = 0.40
+
+
+def decide_action_wave2(
+    predictions: Mapping[str, float],
+    thresholds: Thresholds = Thresholds(),
+    wave2_thresholds: Wave2Thresholds = Wave2Thresholds(),
+    ce_ltp: float | None = None,
+    pe_ltp: float | None = None,
+) -> SignalAction:
+    """Wave 2 model-driven gate.
+
+    Required predictions:
+        direction_prob_60s, risk_reward_ratio_60s, upside_percentile_60s
+            (base 3-condition gate — windows shifted from 30s → 60s per
+             Wave 2 spec; 30s window was dropped)
+        direction_persists_60s    — P(direction holds throughout 60s)
+        direction_persists_300s   — P(direction holds throughout 5 min)
+        exit_signal_60s           — P(position would close within 60s)
+
+    Optional predictions (used for TP/SL when present):
+        max_upside_{60s,120s,180s,240s,300s}        — CE-leg upside
+        max_drawdown_{60s,120s,180s,240s,300s}      — CE-leg drawdown
+        max_upside_pe_{60s,...,300s}                — PE-leg upside (Wave 2)
+        max_drawdown_pe_{60s,...,300s}              — PE-leg drawdown (Wave 2)
+
+    Returns a fully-populated SignalAction; never raises. Reasons codes:
+        C1_prob, C2_rr, C3_pct       — base 3-cond failures
+        MISSING_PREDICTION           — base input missing/NaN
+        W1_persists_60s              — direction won't hold 1 min
+        W2_persists_300s             — direction won't hold 5 min
+        W3_exit_signal               — model says we'd exit shortly
+    """
+    # ── Base 3-cond gate on 60s window (was 30s pre-Wave-2) ─────────────────
+    dir_prob = predictions.get("direction_prob_60s")
+    rr_pred = predictions.get("risk_reward_ratio_60s")
+    pctile = predictions.get("upside_percentile_60s")
+
+    if not (_is_finite(dir_prob) and _is_finite(rr_pred) and _is_finite(pctile)):
+        return SignalAction(
+            action="WAIT", direction="WAIT",
+            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+            gate_passed=False, gate_reasons=["MISSING_PREDICTION"],
+        )
+
+    dir_prob_f = float(dir_prob)
+    rr_pred_f = float(rr_pred)
+    pctile_f = float(pctile)
+    prob = max(dir_prob_f, 1.0 - dir_prob_f)
+
+    reasons: list[str] = []
+    if prob < thresholds.prob_min:
+        reasons.append("C1_prob")
+    if rr_pred_f < thresholds.rr_min:
+        reasons.append("C2_rr")
+    if pctile_f < thresholds.upside_percentile_min:
+        reasons.append("C3_pct")
+
+    # ── Wave 2 conditions ───────────────────────────────────────────────────
+    persists_60 = predictions.get("direction_persists_60s")
+    persists_300 = predictions.get("direction_persists_300s")
+    exit_60 = predictions.get("exit_signal_60s")
+
+    if _is_finite(persists_60) and float(persists_60) < wave2_thresholds.persists_60s_min:
+        reasons.append("W1_persists_60s")
+    if _is_finite(persists_300) and float(persists_300) < wave2_thresholds.persists_300s_min:
+        reasons.append("W2_persists_300s")
+    if _is_finite(exit_60) and float(exit_60) > wave2_thresholds.exit_signal_60s_max:
+        reasons.append("W3_exit_signal")
+
+    is_call = dir_prob_f > 0.5
+    direction = "GO_CALL" if is_call else "GO_PUT"
+
+    if reasons:
+        return SignalAction(
+            action="WAIT", direction=direction,
+            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+            gate_passed=False, gate_reasons=reasons,
+        )
+
+    # ── Gate passed — compute entry/TP/SL using per-leg targets ────────────
+    action = "LONG_CE" if is_call else "LONG_PE"
+    leg_ltp = ce_ltp if is_call else pe_ltp
+
+    # Per-leg upside/drawdown — prefer longest finite window (300s → 60s).
+    # CE leg uses CE targets; PE leg uses Wave 2 max_upside_pe / max_drawdown_pe
+    # targets directly (no more first-order swap of CE targets).
+    if is_call:
+        up_pred = _first_finite(predictions, (
+            "max_upside_300s", "max_upside_240s", "max_upside_180s",
+            "max_upside_120s", "max_upside_60s",
+        ))
+        dn_pred = _first_finite(predictions, (
+            "max_drawdown_300s", "max_drawdown_240s", "max_drawdown_180s",
+            "max_drawdown_120s", "max_drawdown_60s",
+        ))
+    else:
+        up_pred = _first_finite(predictions, (
+            "max_upside_pe_300s", "max_upside_pe_240s", "max_upside_pe_180s",
+            "max_upside_pe_120s", "max_upside_pe_60s",
+        ))
+        dn_pred = _first_finite(predictions, (
+            "max_drawdown_pe_300s", "max_drawdown_pe_240s", "max_drawdown_pe_180s",
+            "max_drawdown_pe_120s", "max_drawdown_pe_60s",
+        ))
+
+    if (
+        not _is_finite(leg_ltp) or leg_ltp is None or leg_ltp <= 0
+        or up_pred is None or dn_pred is None
+    ):
+        return SignalAction(
+            action="WAIT", direction=direction,
+            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+            gate_passed=True, gate_reasons=[],
+        )
+
+    leg_ltp_f = float(leg_ltp)
+    tp_dist = abs(up_pred)
+    sl_dist = abs(dn_pred)
+    entry = leg_ltp_f
+    tp = leg_ltp_f + tp_dist
+    sl = leg_ltp_f - sl_dist
+    actual_rr = round(tp_dist / sl_dist, 2) if sl_dist > 0 else 0.0
+
+    return SignalAction(
+        action=action,
+        direction=direction,
+        entry=round(entry, 2),
+        tp=round(tp, 2),
+        sl=round(sl, 2),
+        rr=actual_rr,
+        gate_passed=True,
+        gate_reasons=[],
+    )
+
+
 def _first_finite(predictions: Mapping[str, float], keys: tuple[str, ...]) -> float | None:
     """Return the first finite prediction in `keys` order, or None."""
     for k in keys:
@@ -352,30 +514,35 @@ def load_thresholds_v2(
     instrument: str,
     config_dir: Path = Path("config/sea_thresholds"),
 ) -> tuple[Thresholds, V2Thresholds]:
-    """Load thresholds for an instrument. See `load_thresholds_full` for
-    the complete tuple including `gate_mode`."""
-    base, v2, _ = load_thresholds_full(instrument, config_dir)
+    """Backward-compat 3-tuple loader. Use `load_thresholds_full` for the
+    complete tuple including Wave 2 add-on + gate_mode."""
+    base, v2, _, _ = load_thresholds_full(instrument, config_dir)
     return base, v2
 
 
 def load_thresholds_full(
     instrument: str,
     config_dir: Path = Path("config/sea_thresholds"),
-) -> tuple[Thresholds, V2Thresholds, str]:
+) -> tuple[Thresholds, V2Thresholds, Wave2Thresholds, str]:
     """Load `<config_dir>/<instrument>.json`, falling back to `default.json`.
 
     Schema:
       {
         "prob_min": 0.65, "rr_min": 1.5, "upside_percentile_min": 60.0,
-        "gate_mode": "wave1" | "current",          # optional, default "current"
-        "v2": {                                    # optional, only used if gate_mode == "wave1"
+        "gate_mode": "wave2" | "wave1" | "current",   # optional, default "current"
+        "v2": {                                       # optional, used iff gate_mode == "wave1"
           "momentum_persistence_min": 5,
           "sr_clearance_pct": 0.05,
           "forbidden_regimes": ["REVERSAL"]
+        },
+        "wave2": {                                    # optional, used iff gate_mode == "wave2"
+          "persists_60s_min": 0.60,
+          "persists_300s_min": 0.50,
+          "exit_signal_60s_max": 0.40
         }
       }
 
-    Returns (Thresholds, V2Thresholds, gate_mode).
+    Returns (Thresholds, V2Thresholds, Wave2Thresholds, gate_mode).
     """
     inst_path = config_dir / f"{instrument}.json"
     default_path = config_dir / "default.json"
@@ -389,13 +556,23 @@ def load_thresholds_full(
         )
     raw = json.loads(path.read_text(encoding="utf-8"))
     v2_raw = raw.pop("v2", None)
+    wave2_raw = raw.pop("wave2", None)
     gate_mode = raw.pop("gate_mode", "current")
-    if gate_mode not in ("current", "wave1"):
-        raise ValueError(f"gate_mode must be 'current' or 'wave1', got {gate_mode!r}")
+    if gate_mode not in ("current", "wave1", "wave2"):
+        raise ValueError(
+            f"gate_mode must be 'current', 'wave1', or 'wave2', got {gate_mode!r}"
+        )
     base = Thresholds(**raw)
+
+    # V2 add-on
     if v2_raw is None:
-        return base, V2Thresholds(), gate_mode
-    if "forbidden_regimes" in v2_raw and isinstance(v2_raw["forbidden_regimes"], list):
-        v2_raw["forbidden_regimes"] = tuple(v2_raw["forbidden_regimes"])
-    v2 = V2Thresholds(**v2_raw)
-    return base, v2, gate_mode
+        v2 = V2Thresholds()
+    else:
+        if "forbidden_regimes" in v2_raw and isinstance(v2_raw["forbidden_regimes"], list):
+            v2_raw["forbidden_regimes"] = tuple(v2_raw["forbidden_regimes"])
+        v2 = V2Thresholds(**v2_raw)
+
+    # Wave 2 add-on
+    wave2 = Wave2Thresholds(**wave2_raw) if wave2_raw else Wave2Thresholds()
+
+    return base, v2, wave2, gate_mode

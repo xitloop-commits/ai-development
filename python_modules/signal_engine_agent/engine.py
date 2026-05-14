@@ -47,8 +47,10 @@ from signal_engine_agent.thresholds import (
     SignalAction,
     Thresholds,
     V2Thresholds,
+    Wave2Thresholds,
     decide_action,
     decide_action_v2,
+    decide_action_wave2,
     load_thresholds_full,
 )
 
@@ -73,9 +75,17 @@ def _pred(models, X, name: str) -> float:
 
 def _gather_predictions(models, X) -> dict[str, float]:
     """Pull the predictions the gate cares about into one dict.
-    Used for both the new gate and the legacy router (which only reads
-    a subset, but the cost of computing the rest is negligible)."""
+    Used by all gate modes — entries returning NaN cost nothing and
+    let the gates fail-open on missing models (e.g., Wave 1 models
+    without Wave 2 targets).
+
+    Wave 2 added 5 new target types per window (5 windows): direction_persists,
+    breakout_in, exit_signal, max_upside_pe, max_drawdown_pe. Plus the
+    base 3-cond moved from 30s → 60s window. Keys here cover both old
+    and new shapes so any gate path runs without code branching.
+    """
     return {
+        # Base 3-cond targets (legacy 30s)
         "direction_prob_30s": _pred(models, X, "direction_30s"),
         "risk_reward_ratio_30s": _pred(models, X, "risk_reward_ratio_30s"),
         "max_upside_30s": _pred(models, X, "max_upside_30s"),
@@ -85,6 +95,41 @@ def _gather_predictions(models, X) -> dict[str, float]:
         "max_upside_900s": _pred(models, X, "max_upside_900s"),
         "max_drawdown_900s": _pred(models, X, "max_drawdown_900s"),
         "direction_30s_magnitude": _pred(models, X, "direction_30s_magnitude"),
+        # Wave 2 base 3-cond on 60s window
+        "direction_prob_60s": _pred(models, X, "direction_60s"),
+        "risk_reward_ratio_60s": _pred(models, X, "risk_reward_ratio_60s"),
+        # Wave 2 direction_persists across windows
+        "direction_persists_60s": _pred(models, X, "direction_persists_60s"),
+        "direction_persists_120s": _pred(models, X, "direction_persists_120s"),
+        "direction_persists_180s": _pred(models, X, "direction_persists_180s"),
+        "direction_persists_240s": _pred(models, X, "direction_persists_240s"),
+        "direction_persists_300s": _pred(models, X, "direction_persists_300s"),
+        # Wave 2 breakout_in
+        "breakout_in_60s": _pred(models, X, "breakout_in_60s"),
+        "breakout_in_300s": _pred(models, X, "breakout_in_300s"),
+        # Wave 2 exit_signal
+        "exit_signal_60s": _pred(models, X, "exit_signal_60s"),
+        "exit_signal_300s": _pred(models, X, "exit_signal_300s"),
+        # Wave 2 PE-leg targets (replace first-order swap for LONG_PE)
+        "max_upside_pe_60s": _pred(models, X, "max_upside_pe_60s"),
+        "max_upside_pe_120s": _pred(models, X, "max_upside_pe_120s"),
+        "max_upside_pe_180s": _pred(models, X, "max_upside_pe_180s"),
+        "max_upside_pe_240s": _pred(models, X, "max_upside_pe_240s"),
+        "max_upside_pe_300s": _pred(models, X, "max_upside_pe_300s"),
+        "max_drawdown_pe_60s": _pred(models, X, "max_drawdown_pe_60s"),
+        "max_drawdown_pe_120s": _pred(models, X, "max_drawdown_pe_120s"),
+        "max_drawdown_pe_180s": _pred(models, X, "max_drawdown_pe_180s"),
+        "max_drawdown_pe_240s": _pred(models, X, "max_drawdown_pe_240s"),
+        "max_drawdown_pe_300s": _pred(models, X, "max_drawdown_pe_300s"),
+        # Wave 2 CE-leg 60s/120s/180s/240s (300s already in legacy list)
+        "max_upside_60s": _pred(models, X, "max_upside_60s"),
+        "max_upside_120s": _pred(models, X, "max_upside_120s"),
+        "max_upside_180s": _pred(models, X, "max_upside_180s"),
+        "max_upside_240s": _pred(models, X, "max_upside_240s"),
+        "max_drawdown_60s": _pred(models, X, "max_drawdown_60s"),
+        "max_drawdown_120s": _pred(models, X, "max_drawdown_120s"),
+        "max_drawdown_180s": _pred(models, X, "max_drawdown_180s"),
+        "max_drawdown_240s": _pred(models, X, "max_drawdown_240s"),
     }
 
 
@@ -131,8 +176,20 @@ def run(
     print(f"  Features: {len(models.feature_names)}")
 
     if filter_mode == "gate":
-        thresholds, v2_thresholds, gate_mode = load_thresholds_full(instrument, config_dir)
-        if gate_mode == "wave1":
+        thresholds, v2_thresholds, wave2_thresholds, gate_mode = load_thresholds_full(
+            instrument, config_dir,
+        )
+        if gate_mode == "wave2":
+            sustain_filter = None  # model handles persistence via direction_persists_*
+            print(
+                f"  Filter: Wave 2 model-driven gate  "
+                f"(prob>={thresholds.prob_min}, RR>={thresholds.rr_min}, "
+                f"pctile>={thresholds.upside_percentile_min}, "
+                f"persists_60s>={wave2_thresholds.persists_60s_min}, "
+                f"persists_300s>={wave2_thresholds.persists_300s_min}, "
+                f"exit_signal_60s<{wave2_thresholds.exit_signal_60s_max})"
+            )
+        elif gate_mode == "wave1":
             sustain_filter = SustainFilter(window_n=10)
             print(
                 f"  Filter: 3-cond gate + Wave 1 deterministic layer  "
@@ -154,6 +211,7 @@ def run(
     elif filter_mode == "legacy":
         thresholds = None
         v2_thresholds = None
+        wave2_thresholds = None
         gate_mode = "current"
         sustain_filter = None
         trade_filter = legacy_filter.TradeFilter(
@@ -211,13 +269,26 @@ def run(
             # session-rank window hasn't filled yet → coerce None → nan.
             _pct = row.get("upside_percentile_30s")
             preds["upside_percentile_30s"] = float(_pct) if _pct is not None else float("nan")
+            # Wave 2 base gate uses 60s window — TFA emits upside_percentile_{min_window}s
+            # where min_window is the profile's smallest target window. Post-Wave-2 that
+            # smallest is 60s, so the column is upside_percentile_60s.
+            _pct60 = row.get("upside_percentile_60s")
+            preds["upside_percentile_60s"] = float(_pct60) if _pct60 is not None else float("nan")
 
             regime = row.get("regime")
             ce_ltp = row.get("opt_0_ce_ltp")
             pe_ltp = row.get("opt_0_pe_ltp")
 
             if filter_mode == "gate":
-                if gate_mode == "wave1":
+                if gate_mode == "wave2":
+                    # Wave 2 model-driven gate: base 3-cond + direction_persists +
+                    # exit_signal + per-leg PE targets. Model handles persistence
+                    # so no sustained-tick filter needed.
+                    sig = decide_action_wave2(
+                        preds, thresholds, wave2_thresholds,
+                        ce_ltp=ce_ltp, pe_ltp=pe_ltp,
+                    )
+                elif gate_mode == "wave1":
                     # Wave 1 deterministic gate: 3-condition + regime + momentum + S/R + sustained-N
                     raw_sig = decide_action_v2(
                         preds, thresholds, v2_thresholds,

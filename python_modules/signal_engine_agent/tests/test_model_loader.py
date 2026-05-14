@@ -112,28 +112,28 @@ def test_load_models_strips_whitespace_from_latest(tmp_path):
 def test_load_models_loads_lgbm_files(tmp_path):
     models_root, config_dir = _build_layout(
         tmp_path,
-        targets=["direction_30s", "max_upside_30s"],
+        targets=["direction_60s", "max_upside_60s"],
     )
     loaded = load_models("nifty50", models_root=models_root, config_dir=config_dir)
-    assert "direction_30s" in loaded.models
-    assert "max_upside_30s" in loaded.models
+    assert "direction_60s" in loaded.models
+    assert "max_upside_60s" in loaded.models
     # Sanity: the loaded booster can run inference
     X = np.zeros((1, 3))
-    out = loaded.models["direction_30s"].predict(X)
+    out = loaded.models["direction_60s"].predict(X)
     assert out.shape == (1,)
 
 
 def test_load_models_silently_skips_missing_targets(tmp_path):
-    """Not all 28 .lgbm files need exist — missing targets are skipped
+    """Not all 60 .lgbm files need exist — missing targets are skipped
     so the engine can call `.get(target)` and treat NaN downstream."""
     models_root, config_dir = _build_layout(
         tmp_path,
-        targets=["direction_30s"],  # only one target on disk
+        targets=["direction_60s"],  # only one target on disk
     )
     loaded = load_models("nifty50", models_root=models_root, config_dir=config_dir)
-    assert "direction_30s" in loaded.models
-    assert "max_upside_30s" not in loaded.models
-    # No hard failure even with 27/28 missing
+    assert "direction_60s" in loaded.models
+    assert "max_upside_60s" not in loaded.models
+    # No hard failure even with 59/60 missing
     assert len(loaded.models) == 1
 
 
@@ -219,16 +219,17 @@ def test_unknown_instrument_uses_its_own_path(tmp_path):
 
 
 def test_loader_uses_shared_mvp_target_names(tmp_path):
-    """Phase E9 lock: the loader walks `_shared.targets.MVP_TARGET_NAMES`,
-    not a private 29-entry tuple. Verify by writing every canonical
-    target and asserting all 28 are loaded — no more, no less."""
+    """Phase E9 lock + Wave 2: the loader walks `_shared.targets.MVP_TARGET_NAMES`,
+    not a private tuple. Verify by writing every canonical target and
+    asserting all 60 are loaded — no more, no less (12 types × 5 windows
+    post-Wave 2; was 28 = 7 × 4 pre-Wave-2)."""
     models_root, config_dir = _build_layout(
         tmp_path,
         targets=list(MVP_TARGET_NAMES),
     )
     loaded = load_models("nifty50", models_root=models_root, config_dir=config_dir)
     assert set(loaded.models.keys()) == set(MVP_TARGET_NAMES)
-    assert len(loaded.models) == 28
+    assert len(loaded.models) == 60
 
 
 def test_orphan_upside_percentile_target_not_loaded(tmp_path):

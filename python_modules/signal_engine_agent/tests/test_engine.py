@@ -102,6 +102,7 @@ def test_pred_coerces_numpy_to_float():
 # ── _gather_predictions ───────────────────────────────────────────────────
 
 _GATHER_KEYS = {
+    # Base 3-cond targets (legacy 30s window — kept for backward compat)
     "direction_prob_30s",
     "risk_reward_ratio_30s",
     "max_upside_30s",
@@ -111,6 +112,41 @@ _GATHER_KEYS = {
     "max_upside_900s",
     "max_drawdown_900s",
     "direction_30s_magnitude",
+    # Wave 2 base 3-cond on 60s window
+    "direction_prob_60s",
+    "risk_reward_ratio_60s",
+    # Wave 2 direction_persists across 5 windows
+    "direction_persists_60s",
+    "direction_persists_120s",
+    "direction_persists_180s",
+    "direction_persists_240s",
+    "direction_persists_300s",
+    # Wave 2 breakout_in
+    "breakout_in_60s",
+    "breakout_in_300s",
+    # Wave 2 exit_signal
+    "exit_signal_60s",
+    "exit_signal_300s",
+    # Wave 2 PE-leg targets (eliminates first-order swap for LONG_PE)
+    "max_upside_pe_60s",
+    "max_upside_pe_120s",
+    "max_upside_pe_180s",
+    "max_upside_pe_240s",
+    "max_upside_pe_300s",
+    "max_drawdown_pe_60s",
+    "max_drawdown_pe_120s",
+    "max_drawdown_pe_180s",
+    "max_drawdown_pe_240s",
+    "max_drawdown_pe_300s",
+    # Wave 2 CE-leg 60/120/180/240s (300s already in legacy list above)
+    "max_upside_60s",
+    "max_upside_120s",
+    "max_upside_180s",
+    "max_upside_240s",
+    "max_drawdown_60s",
+    "max_drawdown_120s",
+    "max_drawdown_180s",
+    "max_drawdown_240s",
 }
 
 
