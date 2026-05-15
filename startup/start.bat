@@ -43,8 +43,7 @@ if "!PYTHON_CMD!"=="" (
 
 REM Run the launcher in the CURRENT terminal (no new window). Single window,
 REM whatever size the user already has it.
-if /i "%~1"=="--legacy" (
-    "%PYTHON_CMD%" startup\launcher.py
-) else (
-    "%PYTHON_CMD%" startup\launcher_v2.py
-)
+REM Exit code 75 means "restart requested" -- re-run loop picks up code changes.
+:run_loop
+"%PYTHON_CMD%" startup\launcher_v2.py
+if !errorlevel! == 75 goto run_loop

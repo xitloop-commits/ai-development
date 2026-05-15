@@ -21,6 +21,7 @@ if str(_PYTHON_MODULES) not in sys.path:
     sys.path.insert(0, str(_PYTHON_MODULES))
 
 from model_training_agent.trainer import train_instrument
+from holdout_utils import check_train_holdout_leak, resolve_holdout_dates
 
 VALID_INSTRUMENTS = ("nifty50", "banknifty", "crudeoil", "naturalgas")
 
@@ -63,12 +64,67 @@ def main() -> int:
         "When set, ONLY listed dates are loaded; date-from / date-to are "
         "ignored as a walk.",
     )
+    p.add_argument(
+        "--override-holdout",
+        action="store_true",
+        help="Allow training to include dates marked as reserved holdout in "
+        "config/holdout_dates.json. Default: refuse with an error. Use only "
+        "when you intentionally want to retrain on the holdout (e.g. for a "
+        "final 'production' build after backtests have validated the model).",
+    )
     args = p.parse_args()
     # Flatten: each --include-dates value may itself be a comma-separated list
     flat: list[str] = []
     for chunk in args.include_dates:
         flat.extend(d.strip() for d in chunk.split(",") if d.strip())
     include_dates = flat or None
+
+    # ── Holdout leak guard ───────────────────────────────────────────────
+    # Build the set of dates that training would actually touch and check it
+    # against the reserved holdout list. Refuse early if any overlap unless
+    # --override-holdout was passed.
+    if include_dates is not None:
+        candidate_train_dates = list(include_dates)
+    else:
+        # Approximate the walk-forward range as [date-from, date-to] inclusive.
+        # The trainer itself only loads dates that actually have parquets, but
+        # for leak-detection we just need to flag any reserved date that lies
+        # within the requested window.
+        candidate_train_dates = [args.date_from, args.date_to]  # endpoints suffice
+        holdout = resolve_holdout_dates(features_root=Path(args.features_root))
+        candidate_train_dates += [d for d in holdout
+                                  if args.date_from <= d <= args.date_to]
+
+    leaks = check_train_holdout_leak(
+        candidate_train_dates,
+        features_root=Path(args.features_root),
+    )
+    if leaks and not args.override_holdout:
+        print()
+        print("  " + "=" * 56)
+        print(f"   HOLDOUT LEAK -- training refused")
+        print("  " + "=" * 56)
+        print()
+        print(f"  Reserved date(s) overlap the train range:")
+        for d in leaks:
+            print(f"    - {d}")
+        print()
+        print("  These dates are reserved for out-of-sample backtest in")
+        print("  config/holdout_dates.json. Training on them would invalidate")
+        print("  backtest scorecards (in-sample leakage).")
+        print()
+        print("  Fix one of:")
+        print("    1. Narrow --date-from / --date-to to exclude these dates.")
+        print("    2. Remove or shrink the policy in config/holdout_dates.json.")
+        print("    3. Pass --override-holdout (use only for final builds).")
+        print()
+        return 3
+    if leaks and args.override_holdout:
+        print()
+        print(f"   WARNING: --override-holdout in effect. Training will INCLUDE")
+        print(f"   reserved date(s): {', '.join(leaks)}")
+        print()
+    # ─────────────────────────────────────────────────────────────────────
     n_jobs = args.n_jobs
     if n_jobs == 0:
         from model_training_agent.trainer import _default_n_jobs

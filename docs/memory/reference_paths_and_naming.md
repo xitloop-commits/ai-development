@@ -28,14 +28,22 @@ The other 3 instruments (banknifty, crudeoil, naturalgas) happen to match becaus
 
 ## Launcher menu structure (Option A — pipeline stages)
 
-`startup/launcher.py` organised as:
+`startup/launcher_v2.py` (entered via `startup/start.bat`) — root menu hotkeys:
 
 ```
-1. RECORD     ── ticks   → data/raw/        (start-tfa.bat)
-2. FEATURIZE  ── raw     → data/features/   (start-replay.bat)
-3. TRAIN      ── features→ models/          (train-auto.bat)
-4. INFER      ── live    → signals/         (start-sea.bat)
-5. WATCH      ── live dashboards            (watch-features.bat, watch-signals.bat)
-Tools         ── token refresh, telegram bot
-Status        ── file sizes, logs, replay checkpoint
+A  API Server   (ATS broker / tRPC server)
+Q  Record       (ticks → data/raw/)              [start-tfa.bat]
+F  Replay       (raw → data/features/)           [start-replay.bat]
+T  Train        (features → models/)             [train-auto.bat]
+B  Backtest     (scored on D-1)                  [backtest-scored.bat]
+P  Compare      (model vs prior on D-1)          [backtest-compare.bat]
+I  Run SEA      (live features → signals/)       [start-sea.bat]
+W  Watch        (live dashboards)
+.  Tools        (token / creds / status / telegram)
+L  Restart      (reload launcher code via exit 75)
+X  Delete       (raw / parquet / live / models)
 ```
+
+Each pipeline-stage row shows pending-work count or `[up to date]` based on
+the cross-instrument state table. Reserved holdout dates (`config/holdout_dates.json`)
+render with magenta `[R]` everywhere and block training via the MTA CLI guard.

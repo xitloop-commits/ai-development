@@ -937,7 +937,7 @@ The original protocol updated row Status per-row as work landed. Reality: Phases
 | PY-79 | OPEN | M | signal_logger lacks process lock — two SEAs would interleave | `python_modules/signal_engine_agent/signal_logger.py` | Apply _FileLock |
 | PY-80 | OPEN | M | `_verify_security_id(snapshot)` crashes if snapshot is None — unclear ownership | `python_modules/tick_feature_agent/feed/chain_poller.py:198-210,400-433` | Tighten typing |
 | PY-81 | OPEN | L | `metrics[metric_key]` KeyError if model raised | `python_modules/model_training_agent/trainer.py:263-265` | Use .get() |
-| PY-82 | OPEN | L | `_compute_dates()` returns ("","") if no parquet — interpolated into bat path | `startup/launcher.py:260-270` | Guard |
+| PY-82 | OPEN | L | `compute_walk_forward_dates()` returns ("","") if no parquet — caller must check before interpolating into bat args | `startup/launcher_v2.py` (compute_walk_forward_dates) | Guard at call sites |
 | PY-83 | OPEN | M | Telegram bot uses `subprocess.DEVNULL` for stdout/stderr — hides launch errors | `tfa_bot/bot.py:294-295` | Pipe to bounded buffer |
 | PY-84 | OPEN | L | `_keyboard_handler` raises CancelledError to signal restart — convoluted | `python_modules/tick_feature_agent/main.py:830-870,1100-1103` | Use asyncio.Event |
 | PY-85 | OPEN | L | `_session_end_enforcer` nested try/raise/except | `python_modules/tick_feature_agent/main.py:877-906` | Use asyncio.Event |
@@ -1156,7 +1156,7 @@ The original protocol updated row Status per-row as work landed. Reality: Phases
 | CLN-2 | OPEN | L | `/check_chain.py` (1.4K) | Inspection helper | MOVE to `scripts/inspect_chain.py` | Low |
 | CLN-3 | OPEN | L | `/backtest.py` | Used by `startup/backtest.bat` from CWD | MOVE to `scripts/`; update .bat | Low |
 | CLN-4 | OPEN | L | `/backtest_compare.py` | Used by .bat | MOVE to `scripts/` | Low |
-| CLN-5 | OPEN | L | `/backtest_scored.py` | Used by .bat + launcher.py | MOVE to `scripts/`; update launcher | Low |
+| CLN-5 | OPEN | L | `/backtest_scored.py` | Used by `startup/backtest-scored.bat` (invoked from launcher_v2.py) | MOVE to `scripts/`; update .bat | Low |
 | CLN-6 | OPEN | L | `/watch_features.py` | Used by .bat | MOVE to `scripts/` | Low |
 | CLN-7 | OPEN | L | `/watch_signals.py` | Used by .bat | MOVE to `scripts/` | Low |
 

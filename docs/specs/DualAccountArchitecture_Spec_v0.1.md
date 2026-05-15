@@ -333,7 +333,7 @@ Add per-document fields to MongoDB's `broker_configs` collection:
 - Update per-broker token refresh scheduling (BSA v1.9 §13) to iterate the map.
 
 ### Phase 3 — TFA swap
-- Update `startup/start-tfa.bat` / `.sh` and `launcher.py` to pass `--broker-id=dhan-ai-data`.
+- Update `startup/start-tfa.bat` (and any direct launcher call sites in `startup/launcher_v2.py`) to pass `--broker-id=dhan-ai-data`.
 - TFA's `_fetch_credentials(args.broker_url)` already accepts a broker parameter — existing.
 - Validate: start all 4 TFAs on the new account, confirm ticks still flow to `tickBus` and browser.
 

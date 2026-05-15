@@ -22,6 +22,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+# Allow `import holdout_utils` (the module lives in python_modules/ alongside
+# the agent packages). Safe to insert here even before ROOT is defined below.
+_PYTHON_MODULES_DIR = Path(__file__).resolve().parent.parent / "python_modules"
+if str(_PYTHON_MODULES_DIR) not in sys.path:
+    sys.path.insert(0, str(_PYTHON_MODULES_DIR))
+from holdout_utils import resolve_holdout_dates  # noqa: E402
+
 # ── Windows VT (ANSI) mode ────────────────────────────────────────────────
 # Only enable VT escapes on the OUTPUT handle so colours render.
 if sys.platform == "win32":
@@ -234,6 +241,7 @@ class RunningProc:
     instrument: str
     pid: int
     rss_mb: float
+    include_dates: list[str] = field(default_factory=list)  # parsed --include-dates args
 
 
 def running_processes() -> list[RunningProc]:
@@ -283,11 +291,19 @@ def running_processes() -> list[RunningProc]:
                 break
         if not instrument:
             continue
+        raw_cmd = entry.get("CommandLine") or ""
+        # Accept --include-dates 2026-05-10, --include-dates "2026-05-10",
+        # and --include-dates=2026-05-10 just in case any caller uses '='.
+        include_dates = re.findall(
+            r'--include-dates[=\s]+"?(\d{4}-\d{2}-\d{2})"?',
+            raw_cmd,
+        )
         out.append(RunningProc(
             kind=kind,
             instrument=instrument,
             pid=int(entry.get("ProcessId") or 0),
             rss_mb=round((entry.get("WorkingSetSize") or 0) / (1024 * 1024), 1),
+            include_dates=include_dates,
         ))
     return out
 
@@ -304,13 +320,32 @@ def _scan_complete_feature_dates() -> list[str]:
 
 
 def compute_walk_forward_dates() -> tuple[str, str]:
-    """(D-1 for backtest, D-2 for train end)."""
+    """(backtest target, train end-date).
+
+    Honours config/holdout_dates.json: the most recent reserved date becomes
+    the default backtest target; train_end is the most recent NON-reserved
+    date (so training stops before the holdout begins).
+    """
     dates = _scan_complete_feature_dates()
+    if not dates:
+        return "", ""
+    # Union across all instruments — used for the cross-instrument walk-forward
+    # default. Per-instrument leak checks happen separately at training time.
+    reserved = set(resolve_holdout_dates(
+        features_root=ROOT / "data" / "features",
+        raw_root=ROOT / "data" / "raw",
+    ))
+    if reserved:
+        # Most recent reserved date for backtest; train_end is the most recent
+        # date that is NOT reserved.
+        backtest = sorted(d for d in dates if d in reserved)[-1] if any(d in reserved for d in dates) else dates[-1]
+        non_reserved = [d for d in dates if d not in reserved]
+        train_end = non_reserved[-1] if non_reserved else ""
+        return backtest, train_end
+    # No holdout configured — fall back to the legacy D-1 / D-2 split.
     if len(dates) >= 2:
         return dates[-1], dates[-2]
-    if len(dates) == 1:
-        return dates[0], dates[0]
-    return "", ""
+    return dates[0], dates[0]
 
 
 # ── Screen / key helpers ──────────────────────────────────────────────────
@@ -533,6 +568,8 @@ class InstrumentDates:
     checked: set[str] = field(default_factory=set)  # Pending dates the user has ticked
     status_hint: str = ""           # Extra text shown after the instrument name (e.g. "REPLAY pid 3360")
     fully_done: bool = False        # All available dates are already locked (nothing left to process)
+    in_progress: set[str] = field(default_factory=set)   # Dates currently being processed by a running proc (rendered yellow ✓)
+    reserved: set[str] = field(default_factory=set)      # Holdout dates reserved for backtest (rendered magenta)
 
 
 @dataclass
@@ -623,8 +660,9 @@ def date_picker(
         print(f"    {BOLD(title)}")
         print(f"  {bar}")
         print()
-        print(f"    {GREEN('[x] green')}=locked/included   {DIM('[ ] grey')}=pending   "
-              f"{DIM('[-]')}=disabled   "
+        print(f"    {GREEN('[✓]')}=done   {YELLOW('[✓]')}=in progress   "
+              f"{YELLOW('[x]')}=selected   {MAGENTA('[R]')}=reserved   "
+              f"{DIM('[ ]')}=pending   "
               f"{DIM(f'(width={cols}, {pills_per_row}/row)')}")
         print()
 
@@ -650,19 +688,13 @@ def date_picker(
                 marker = CYAN("►") if i == cursor else " "
                 hint = f"  {it.status_hint}" if it.status_hint else ""
                 num = f"{inst_idx + 1}."
-                counter = ""
-                if it.enabled and it.available:
-                    n_locked = len(it.locked)
-                    n_checked = len(it.checked - it.locked)
-                    n_total = len(it.available)
-                    counter = f"  {DIM(f'({n_locked}+{n_checked}/{n_total})')}"
-                print(f"    {marker}  {check} {num} {name_render}{counter}{hint}")
+                print(f"    {marker}  {check} {num} {name_render}{hint}")
                 i += 1
-                # Render ALL dates for this instrument (both locked and pending).
-                # Only pending dates are in `nav`; locked are immutable and not
-                # navigable but still rendered so the user sees what's already
-                # processed (`[✓]`).
-                if it.enabled and it.available:
+                # Render ALL dates for this instrument (locked, pending, in-progress).
+                # Disabled instruments still render pills IF they have in-progress
+                # dates so the user can see what's currently being processed.
+                show_pills = it.available and (it.enabled or it.in_progress)
+                if show_pills:
                     # Map each pending date to its index in nav (for cursor checks)
                     pending_to_nav: dict[str, int] = {}
                     for k_idx in range(i, len(nav)):
@@ -676,15 +708,25 @@ def date_picker(
                         tokens: list[str] = []
                         for dstr in chunk:
                             short = dstr[5:]  # MM-DD
-                            if dstr in it.locked:
-                                # Already processed in last run: green ✓; immutable.
-                                pill = f"[{GREEN('✓')}]{short}"
-                                pill = " " + pill
+                            short_dim = DIM(short)
+                            lb, rb = DIM("["), DIM("]")
+                            is_reserved = dstr in it.reserved
+                            # Reserved takes priority over every other state so
+                            # the user can always see which dates are off-limits,
+                            # even when they are also featurized / in-progress.
+                            if is_reserved:
+                                pill = " " + f"{lb}{MAGENTA('R')}{rb}{MAGENTA(short)}"
+                            elif dstr in it.locked:
+                                # Already processed in last run: only ✓ green; immutable.
+                                pill = " " + f"{lb}{GREEN('✓')}{rb}{short_dim}"
+                            elif dstr in it.in_progress:
+                                # Currently being processed by a running proc: only ✓ yellow.
+                                pill = " " + f"{lb}{YELLOW('✓')}{rb}{short_dim}"
                             else:
                                 is_on = it.included and dstr in it.checked
                                 if is_on:
-                                    # User-picked for next run: whole pill yellow.
-                                    pill = YELLOW(f"[x]{short}")
+                                    # User-picked for next run: only x yellow.
+                                    pill = f"{lb}{YELLOW('x')}{rb}{short_dim}"
                                 else:
                                     pill = DIM(f"[ ]{short}")
                                 k_idx = pending_to_nav.get(dstr, -1)
@@ -813,6 +855,11 @@ def act_train() -> None:
         running = running_processes()
         items: list[InstrumentDates] = []
         for inst in _INSTRUMENTS:
+            reserved = set(resolve_holdout_dates(
+                features_root=ROOT / "data" / "features",
+                raw_root=ROOT / "data" / "raw",
+                instrument=inst,
+            ))
             avail = scan_feature_days(inst)
             info = last_model_info(inst)
             proc = next(
@@ -824,6 +871,7 @@ def act_train() -> None:
                 items.append(InstrumentDates(
                     instrument=inst, enabled=False, included=False, available=avail,
                     status_hint=status,
+                    reserved=reserved,
                 ))
                 continue
             if not avail:
@@ -848,6 +896,7 @@ def act_train() -> None:
                     status_hint=DIM(f"all {len(avail)} dates already trained "
                                     f"(model {last_ver})"),
                     fully_done=True,
+                    reserved=reserved,
                 ))
                 continue
             status = f"{DIM('last:')} {DIM(last_ver)}"
@@ -859,6 +908,7 @@ def act_train() -> None:
                 locked=locked,
                 checked=set(),
                 status_hint=status,
+                reserved=reserved,
             ))
 
         res = date_picker("Train  —  features → models/  (pick instruments + dates)", items)
@@ -1006,6 +1056,10 @@ def _single_date_picker(title: str, available: list[str], default: str = "") -> 
         _pause_briefly()
         return None
     dates = sorted(available)
+    reserved = set(resolve_holdout_dates(
+        features_root=ROOT / "data" / "features",
+        raw_root=ROOT / "data" / "raw",
+    ))
     selected = dates.index(default) if default in dates else len(dates) - 1
     while True:
         _clear()
@@ -1016,14 +1070,20 @@ def _single_date_picker(title: str, available: list[str], default: str = "") -> 
         print(f"    {BOLD(title)}")
         print(f"  {'═' * W}")
         print()
+        if reserved:
+            print(f"    {MAGENTA('[R]')}=reserved holdout (recommended for backtest)")
+            print()
         # Render dates in a wide grid
         ppr = max(1, min(30, (cols - 13) // 11))
         for i, d in enumerate(dates):
             short = d[5:]
+            is_reserved = d in reserved
             if i == selected:
-                tok = CYAN("▶") + GREEN(f"[{short}]")
+                inner = MAGENTA(short) if is_reserved else short
+                tok = CYAN("▶") + GREEN("[") + inner + GREEN("]")
             else:
-                tok = " " + DIM(f" {short} ")
+                inner = MAGENTA(f" {short} ") if is_reserved else DIM(f" {short} ")
+                tok = " " + inner
             end = "\n" if (i % ppr) == ppr - 1 else ""
             print(tok, end=end)
         if (len(dates) % ppr) != 0:
@@ -1073,16 +1133,68 @@ def act_sbt() -> None:
             _pause_briefly()
             continue
         available = _scan_complete_feature_dates()
+        reserved = set(resolve_holdout_dates(
+            features_root=ROOT / "data" / "features",
+            raw_root=ROOT / "data" / "raw",
+        ))
+        default_label = (f"reserved holdout = {d1}" if d1 and d1 in reserved
+                         else f"D-1 = {d1 or '--'}")
         date = _single_date_picker(
-            f"Scored Backtest  —  step 2 of 2: pick test date (default D-1 = {d1 or '--'})",
+            f"Scored Backtest  —  step 2 of 2: pick test date (default {default_label})",
             available,
             default=d1,
         )
         if not date:
             continue
+        if reserved and date not in reserved:
+            print()
+            print(f"  {YELLOW('Note:')} {date} is NOT in the reserved holdout "
+                  f"({', '.join(sorted(reserved)) or 'empty'}).")
+            print(f"  Backtest results may be in-sample. Continue anyway?  (Enter=yes, Esc=cancel)")
+            print()
+            ch = _getkey()
+            if ch == "esc":
+                continue
+
+        # Skip-if-scorecard-exists guard (ported from legacy launcher.py).
+        # Split selected instruments into (already-scored, fresh) so the user
+        # decides whether to re-score the duplicates or skip them.
+        duplicates: list[str] = [inst for inst in res.selected
+                                 if _has_scorecard(inst, date)]
+        fresh: list[str] = [inst for inst in res.selected
+                            if inst not in duplicates]
+        if duplicates:
+            print()
+            print(f"  {YELLOW('!')} Scorecard for {date} already exists for:")
+            for inst in duplicates:
+                print(f"      - {BOLD(inst)}")
+            print()
+            print(f"  {GREEN('Y')} re-score all   "
+                  f"{CYAN('S')} skip duplicates ({len(fresh)} fresh only)   "
+                  f"{DIM('N / Esc')} cancel")
+            print()
+            chosen: list[str] | None = None
+            while chosen is None:
+                k = _getkey()
+                if k in ("y", "Y", "enter"):
+                    chosen = list(res.selected)
+                elif k in ("s", "S"):
+                    chosen = fresh
+                elif k in ("n", "N", "esc"):
+                    print(f"  {DIM('Cancelled.')}")
+                    _pause_briefly()
+                    chosen = []
+            if not chosen:
+                continue
+            targets = chosen
+        else:
+            targets = list(res.selected)
+
         print()
-        for inst in res.selected:
+        for inst in targets:
             _launch_no_pause(f"SBT: {inst} on {date}", "backtest-scored.bat", inst, date)
+        if not targets:
+            print(f"  {YELLOW('!')} Nothing launched.")
         _pause_briefly()
 
 
@@ -1175,6 +1287,55 @@ def act_watch() -> None:
             if open_signals:
                 _launch_no_pause(f"Signals: {inst}", "watch-signals.bat", inst)
         _pause_briefly()
+
+
+def _read_server_port() -> int:
+    """Resolve the API server port from .env (PORT=...) with a 3000 default."""
+    env_path = ROOT / ".env"
+    if env_path.exists():
+        try:
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                s = line.strip()
+                if s.startswith("PORT="):
+                    return int(s.split("=", 1)[1].strip())
+        except (OSError, ValueError):
+            pass
+    return 3000
+
+
+def _is_api_server_running(port: int, timeout: float = 1.5) -> bool:
+    """True if the API server's /health endpoint responds 200 within timeout."""
+    import urllib.error
+    import urllib.request
+    try:
+        with urllib.request.urlopen(
+            f"http://localhost:{port}/health", timeout=timeout
+        ) as r:
+            return r.status == 200
+    except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
+        return False
+
+
+def act_api_server() -> None:
+    """Launch the ATS broker / tRPC API server in a new window — unless one
+    is already responding on /health (avoids duplicate spawns)."""
+    port = _read_server_port()
+    if _is_api_server_running(port):
+        print()
+        print(f"  {YELLOW('!')} API server already running on port {port} "
+              f"({GREEN('/health')} responding).")
+        print(f"  {DIM('Close the existing ATS-Server window first if you need to restart.')}")
+        _pause_briefly()
+        return
+    _launch_new_window("ATS: API Server", "start-api.bat")
+
+
+def act_restart_launcher() -> None:
+    """Exit with code 75 so start.bat re-launches the launcher with fresh code.
+    Clear the console so the new launcher starts on a clean screen."""
+    _clear()
+    sys.stdout.flush()
+    sys.exit(75)
 
 
 def act_tools() -> None:
@@ -1282,21 +1443,48 @@ def act_replay() -> None:
     # Stay on this submenu after each action; only Esc returns to main menu.
     while True:
         running = running_processes()
+        today = datetime.now().strftime("%Y-%m-%d")
         items: list[InstrumentDates] = []
         for inst in _INSTRUMENTS:
+            reserved = set(resolve_holdout_dates(
+                features_root=ROOT / "data" / "features",
+                raw_root=ROOT / "data" / "raw",
+                instrument=inst,
+            ))
             raw = scan_raw_days(inst)
             parquet = scan_feature_days(inst)
-            proc = next(
-                (p for p in running if p.instrument == inst and p.kind in ("replay", "tfa")),
+            # Look up replay and TFA independently — both can run for the same
+            # instrument at once (replay on past dates, TFA on today).
+            replay_proc = next(
+                (p for p in running if p.instrument == inst and p.kind == "replay"),
                 None,
             )
-            if proc:
-                status = f"{YELLOW('●' + proc.kind.upper())}  pid {proc.pid}  {proc.rss_mb:.0f} MB"
+            tfa_proc = next(
+                (p for p in running if p.instrument == inst and p.kind == "tfa"),
+                None,
+            )
+            # Replay already in flight on this instrument → block new selections
+            # but render the in-flight dates as yellow ticks so the user sees
+            # which dates are currently being processed.
+            if replay_proc is not None:
+                status = f"{YELLOW('●REPLAY')}  pid {replay_proc.pid}  {replay_proc.rss_mb:.0f} MB"
+                if tfa_proc is not None:
+                    status += f"   {YELLOW('+TFA pid ' + str(tfa_proc.pid))}"
+                locked = set(parquet) & set(raw)   # already featurized → green ✓
                 items.append(InstrumentDates(
-                    instrument=inst, enabled=False, included=False, available=raw,
+                    instrument=inst, enabled=False, included=False,
+                    available=sorted(set(raw)),
+                    locked=locked,
                     status_hint=status,
+                    in_progress=set(replay_proc.include_dates),
+                    reserved=reserved,
                 ))
                 continue
+            # TFA recording today's raw file. Today's date stays visible in the
+            # list (so the user sees raw exists) — just warn via status hint.
+            # The user decides whether to replay today's partial file.
+            tfa_hint = (f"  {YELLOW('TFA pid ' + str(tfa_proc.pid) + ' writing ' + today)}"
+                        if tfa_proc is not None else "")
             if not raw:
                 items.append(InstrumentDates(
                     instrument=inst, enabled=False, included=False, available=[],
@@ -1314,8 +1502,9 @@ def act_replay() -> None:
                     available=sorted(set(raw)),
                     locked=locked,
                     checked=set(),
-                    status_hint=DIM(f"all {len(raw)} dates already featurized"),
+                    status_hint=tfa_hint.strip(),
                     fully_done=True,
+                    reserved=reserved,
                 ))
                 continue
             items.append(InstrumentDates(
@@ -1325,7 +1514,8 @@ def act_replay() -> None:
                 available=sorted(set(raw)),
                 locked=locked,
                 checked=set(),
-                status_hint=DIM(f"({len(parquet)}/{len(raw)} featurized)"),
+                status_hint=tfa_hint.strip(),
+                reserved=reserved,
             ))
 
         res = date_picker("Replay  —  raw → data/features/  (pick instruments + dates)", items)
@@ -1439,8 +1629,18 @@ def _delete_raw_or_parquet(kind: str) -> None:
     """Shared body for the Raw and Parquet delete flows.
     `kind` ∈ {'raw', 'parquet'}."""
     label = "raw recordings" if kind == "raw" else "parquet features"
+    # Per-instrument reservations: each row colours its own dates and the
+    # post-pick safety check uses the same dict.
+    reserved_by_inst: dict[str, set[str]] = {
+        inst: set(resolve_holdout_dates(
+            features_root=ROOT / "data" / "features",
+            raw_root=ROOT / "data" / "raw",
+            instrument=inst,
+        )) for inst in _INSTRUMENTS
+    }
     items: list[InstrumentDates] = []
     for inst in _INSTRUMENTS:
+        reserved = reserved_by_inst[inst]
         if kind == "raw":
             # Include lock-only days too so the user can clean up stale state
             # left behind by a TFA that never finished writing.
@@ -1461,6 +1661,7 @@ def _delete_raw_or_parquet(kind: str) -> None:
             locked=set(),               # no locked dates for delete
             checked=set(),              # default empty selection
             status_hint=DIM(f"({len(dates)} dates)"),
+            reserved=reserved,
         ))
 
     res = date_picker(f"Delete {label.upper()}  —  pick instruments + dates", items)
@@ -1471,6 +1672,34 @@ def _delete_raw_or_parquet(kind: str) -> None:
         print(f"  {YELLOW('!')} Nothing selected.")
         _pause_briefly()
         return
+
+    # Holdout safety check: if user selected any reserved date, force a
+    # typed-token confirm with explicit warning.
+    reserved_hits: list[tuple[str, str]] = []
+    for inst, dates in res.selections.items():
+        for d in dates:
+            if d in reserved_by_inst.get(inst, set()):
+                reserved_hits.append((inst, d))
+    if reserved_hits:
+        print()
+        print(f"  {RED('!! HOLDOUT WARNING !!')}")
+        print()
+        print(f"  You are about to delete dates reserved for backtest holdout:")
+        for inst, d in reserved_hits:
+            print(f"    - {MAGENTA(inst + '  ' + d)}")
+        print()
+        print(f"  Deleting these will break out-of-sample backtest. Re-record /")
+        print(f"  re-replay would normally restore the parquets, but the holdout")
+        print(f"  policy in {DIM('config/holdout_dates.json')} would then keep")
+        print(f"  reserving them anyway, so this is mostly a wasted destructive op.")
+        print()
+        if not _typed_confirm("DELETE-HOLDOUT", [
+            "  Type this exact phrase to override the holdout protection:",
+        ]):
+            print()
+            print(f"  {YELLOW('Cancelled.')}")
+            _pause_briefly()
+            return
 
     # Resolve actual paths + sizes
     plan: list[tuple[Path, int]] = []
@@ -1555,6 +1784,11 @@ def _delete_backtest() -> None:
     versions. Layout: data/backtests/<instrument>/<version>/<date>/."""
     items: list[InstrumentDates] = []
     for inst in _INSTRUMENTS:
+        reserved = set(resolve_holdout_dates(
+            features_root=ROOT / "data" / "features",
+            raw_root=ROOT / "data" / "raw",
+            instrument=inst,
+        ))
         dates = scan_backtest_days(inst)
         if not dates:
             items.append(InstrumentDates(
@@ -1577,6 +1811,7 @@ def _delete_backtest() -> None:
             locked=set(),
             checked=set(),
             status_hint=DIM(f"({len(dates)} dates, {total} scorecards)"),
+            reserved=reserved,
         ))
 
     res = date_picker("Delete BACKTESTS  —  pick instruments + dates", items)
@@ -1922,6 +2157,67 @@ def _root_status_header(procs: list[RunningProc] | None = None) -> list[str]:
     ]
 
 
+def _compute_pending_counts(procs: list[RunningProc]) -> dict[str, int]:
+    """Pending work for each pipeline stage, summed across all instruments.
+
+    Returns a dict keyed by root-menu hotkey:
+      "F" replay   = raw days that have no parquet AND no in-flight replay
+      "T" train    = parquet days not yet trained on AND not reserved holdout
+      "B" backtest = reserved holdout days that have no scorecard yet
+      "P" compare  = reserved holdout days without a compare report
+
+    Caller passes the cached procs list so we don't re-shell PowerShell.
+    """
+    replay_in_flight: dict[str, set[str]] = {inst: set() for inst in _INSTRUMENTS}
+    for p in procs:
+        if p.kind == "replay" and p.instrument in replay_in_flight:
+            replay_in_flight[p.instrument].update(p.include_dates)
+
+    replay_pending = 0
+    train_pending = 0
+    backtest_pending = 0
+    compare_pending = 0
+    for inst in _INSTRUMENTS:
+        reserved = set(resolve_holdout_dates(
+            features_root=ROOT / "data" / "features",
+            raw_root=ROOT / "data" / "raw",
+            instrument=inst,
+        ))
+        raw = set(scan_raw_days(inst))
+        parquet = set(scan_feature_days(inst))
+        info = last_model_info(inst)
+        trained = set(info.trained_dates)
+        # F: replay pending — raw not yet featurized, not currently being
+        # replayed, and not reserved (reserved dates are tracked separately
+        # under Backtest pending).
+        replay_pending += len(raw - parquet - replay_in_flight[inst] - reserved)
+        # T: train pending — parquet not in latest model's trained_dates AND not reserved
+        train_pending  += len(parquet - trained - reserved)
+        # B: backtest pending — reserved dates missing a scorecard for THIS instrument
+        for d in reserved:
+            if d in parquet and not _has_scorecard(inst, d):
+                backtest_pending += 1
+        # P: compare pending — reserved dates without a compare report
+        for d in reserved:
+            if d in parquet and not _has_compare_report(inst, d):
+                compare_pending += 1
+    return {"F": replay_pending, "T": train_pending,
+            "B": backtest_pending, "P": compare_pending}
+
+
+def _has_compare_report(instrument: str, date: str) -> bool:
+    """True if a compare-report file exists for (instrument, date)."""
+    bt_root = ROOT / "data" / "backtests" / instrument
+    if not bt_root.exists():
+        return False
+    for vdir in bt_root.iterdir():
+        if not vdir.is_dir():
+            continue
+        if (vdir / date / "compare.json").exists():
+            return True
+    return False
+
+
 def _has_scorecard(instrument: str, date: str) -> bool:
     """True if any scorecard for `instrument` exists on `date` (any model version)."""
     bt_root = ROOT / "data" / "backtests" / instrument
@@ -1953,9 +2249,13 @@ def _render_status_table(procs: list[RunningProc] | None = None) -> list[str]:
     if procs is None:
         procs = running_processes()
     proc_kinds: dict[str, set[str]] = {inst: set() for inst in _INSTRUMENTS}
+    # Dates that an active replay is specifically processing, per instrument.
+    replay_dates: dict[str, set[str]] = {inst: set() for inst in _INSTRUMENTS}
     for p in procs:
         if p.instrument in proc_kinds:
             proc_kinds[p.instrument].add(p.kind)
+            if p.kind == "replay":
+                replay_dates[p.instrument].update(p.include_dates)
 
     today = datetime.now().strftime("%Y-%m-%d")
 
@@ -1981,10 +2281,11 @@ def _render_status_table(procs: list[RunningProc] | None = None) -> list[str]:
                 raw_state = "loading"
             else:
                 raw_state = "none"
-            # rep cell
+            # rep cell — only mark "loading" for dates the running replay was
+            # actually launched with (parsed from --include-dates args).
             if d in parquet:
                 rep_state = "done"
-            elif d in pending_rep and "replay" in proc_kinds[inst]:
+            elif d in replay_dates[inst]:
                 rep_state = "loading"
             else:
                 rep_state = "none"
@@ -2070,6 +2371,7 @@ def _draw_root(
     selected: int,
     header_lines: list[str],
     table_lines: list[str],
+    pending: dict[str, int] | None = None,
 ) -> None:
     _clear()
     cols = _term_cols()
@@ -2089,11 +2391,22 @@ def _draw_root(
     print(f"  {DIM('─' * W)}")
     print(f"    {BOLD('Main menu')}")
     print()
+    # Compute max raw-label width once so the suffix column aligns across rows.
+    label_width = max(len(it.label) for it in items)
     for i, it in enumerate(items):
         marker = CYAN("►") if i == selected else " "
         hint = f"{PINK('[' + it.hotkey + ']')}"
-        label = BOLD(it.label) if i == selected else it.label
-        print(f"    {marker}  {hint}  {label}")
+        # Pad before applying BOLD so the colour codes don't throw off width.
+        padded = it.label.ljust(label_width)
+        label = BOLD(padded) if i == selected else padded
+        suffix = ""
+        if pending is not None:
+            n = pending.get(it.hotkey, -1)
+            if n > 0:
+                suffix = f"   {YELLOW(f'[{n} pending]')}"
+            elif n == 0:
+                suffix = f"   {DIM('[up to date]')}"
+        print(f"    {marker}  {hint}  {label}{suffix}")
     print()
     print(f"  {DIM('─' * W)}")
     print(f"  " + _hk_line(
@@ -2108,30 +2421,36 @@ def _draw_root(
 
 def main() -> None:
     items = [
+        RootItem("API Server   (ATS broker / tRPC server)", "A", act_api_server),
         RootItem("Record       (ticks → data/raw/)",       "Q", act_record),
-        RootItem("Featurize    (raw → data/features/)",    "F", act_replay),
+        RootItem("Replay       (raw → data/features/)",    "F", act_replay),
         RootItem("Train        (features → models/)",      "T", act_train),
         RootItem("Backtest     (scored on D-1)",           "B", act_sbt),
         RootItem("Compare      (model vs prior on D-1)",   "P", act_compare),
         RootItem("Run SEA      (live features → signals/)", "I", act_sea),
         RootItem("Watch        (live dashboards)",         "W", act_watch),
         RootItem("Tools        (token / creds / status)",  ".", act_tools),
+        RootItem("Restart      (reload launcher code)",    "L", act_restart_launcher),
         RootItem("Delete       (raw / parquet / live / models)", "X", act_delete),
     ]
     # NOTE: `R` and `C` are reserved as global refresh / clear hotkeys; root
     # items use `Q` for Record and `P` for Compare to avoid conflicts.
     selected = 0
     hotkey_map = {it.hotkey.lower(): i for i, it in enumerate(items)}
-    # Cache the status header + table. `running_processes()` shells out to
-    # PowerShell (~300-500 ms cold start) — call it ONCE per refresh and
-    # share the result between header and table builders.
-    def _refresh() -> tuple[list[str], list[str]]:
+    # Cache the status header + table + pending counts. `running_processes()`
+    # shells out to PowerShell (~300-500 ms cold start) — call it ONCE per
+    # refresh and share the result between header, table, and counters.
+    def _refresh() -> tuple[list[str], list[str], dict[str, int]]:
         procs = running_processes()
-        return _root_status_header(procs), _render_status_table(procs)
+        return (
+            _root_status_header(procs),
+            _render_status_table(procs),
+            _compute_pending_counts(procs),
+        )
 
-    header_lines, table_lines = _refresh()
+    header_lines, table_lines, pending = _refresh()
     while True:
-        _draw_root(items, selected, header_lines, table_lines)
+        _draw_root(items, selected, header_lines, table_lines, pending)
         key = _getkey()
         if key == "esc":
             break
@@ -2142,14 +2461,14 @@ def main() -> None:
         elif key == "enter":
             items[selected].action()
             _flush_keys()
-            header_lines, table_lines = _refresh()
+            header_lines, table_lines, pending = _refresh()
         elif key.lower() == "r":
-            header_lines, table_lines = _refresh()
+            header_lines, table_lines, pending = _refresh()
         elif key.lower() in hotkey_map:
             selected = hotkey_map[key.lower()]
             items[selected].action()
             _flush_keys()
-            header_lines, table_lines = _refresh()
+            header_lines, table_lines, pending = _refresh()
 
     _clear()
     print()
