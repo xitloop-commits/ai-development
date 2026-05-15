@@ -126,6 +126,12 @@ package-lock.json
 # Stale runtime locks left behind by killed recorder processes
 *.gz.lock
 
+# Platform-specific launcher artifacts
+startup/*.app/
+startup/*.command
+startup/launcher
+startup/launcher_*.py
+
 # Data folder
 data/
 
