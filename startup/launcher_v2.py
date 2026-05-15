@@ -1528,17 +1528,36 @@ def act_replay() -> None:
             _pause_briefly()
             continue
 
+        # Build the full (instrument, date) work list. Fan each pair into its
+        # own window so dates within an instrument run in parallel — single-
+        # process replay was the bottleneck (replay_runner.py loops dates
+        # sequentially in one Python process). Cap parallelism so a careless
+        # selection doesn't open 20 windows; tail of the queue runs after.
+        MAX_PARALLEL = 8
+        work: list[tuple[str, str]] = []
+        for inst, new_dates in res.added.items():
+            for d in sorted(new_dates):
+                work.append((inst, d))
+
         print()
         launched = 0
-        for inst, new_dates in res.added.items():
-            flags: list[str] = []
-            for d in new_dates:
-                flags.extend(["--include-dates", d])
+        deferred: list[tuple[str, str]] = []
+        for inst, d in work:
+            if launched >= MAX_PARALLEL:
+                deferred.append((inst, d))
+                continue
             _launch_no_pause(
-                f"Replay: {inst} ({len(new_dates)}d)",
-                "start-replay.bat", inst, *flags,
+                f"Replay: {inst} {d}",
+                "start-replay.bat", inst, "--include-dates", d,
             )
             launched += 1
+        if deferred:
+            print()
+            print(f"  {YELLOW('!')} {len(deferred)} (inst, date) pair(s) "
+                  f"deferred (cap = {MAX_PARALLEL} parallel):")
+            for inst, d in deferred:
+                print(f"      {DIM('queued:')} {inst} {d}")
+            print(f"  {DIM('Re-run Replay after some windows finish to launch the rest.')}")
         if launched == 0:
             print(f"  {YELLOW('!')} Nothing launched.")
         _pause_briefly()
