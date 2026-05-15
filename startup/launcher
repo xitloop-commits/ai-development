@@ -1,0 +1,12 @@
+#!/bin/bash
+# launcher — ATS unified launcher (macOS)
+# Usage: ./launcher
+
+cd "$(dirname "$0")/.." || exit 1
+
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    python3 startup/launcher_v2_mac.py "$@"
+else
+    echo "Error: This is the macOS launcher. Use launcher_v2.py on Windows." >&2
+    exit 1
+fi
