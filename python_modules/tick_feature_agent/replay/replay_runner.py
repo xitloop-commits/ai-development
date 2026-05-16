@@ -85,9 +85,18 @@ PROGRESS_SAMPLE_BYTES: int = 1_048_576  # 1 MB
 
 
 def _estimate_total_events(date_folder: Path, instrument: str) -> int:
-    """Rough estimate of total events for (instrument, date) based on
-    raw file sizes. Used for percent + ETA display. ±10% precision; the
-    purpose is "are we 10% done or 90% done", not exact accounting.
+    """Rough estimate of total events for (instrument, date) based on raw
+    file sizes. Used for percent + ETA display only — never for correctness.
+
+    Method: stream a single pass through the gzip-decompressed bytes,
+    tracking (compressed_in, decompressed_out, newlines_seen). After reading
+    enough for a stable ratio (~PROGRESS_SAMPLE_BYTES decompressed), compute
+    bytes-per-event from newlines, and project total decompressed bytes from
+    the measured local compression ratio × the compressed file size.
+
+    Result is normally within ±15%. If gzip ratio varies a lot within the
+    file (rare for tick data), the live progress display will overshoot
+    100% but correctness is unaffected.
     """
     import gzip
     total = 0
@@ -98,19 +107,36 @@ def _estimate_total_events(date_folder: Path, instrument: str) -> int:
     ):
         for f in date_folder.glob(pattern):
             try:
-                file_size = f.stat().st_size
-                with gzip.open(f, "rb") as gz:
-                    sample = gz.read(PROGRESS_SAMPLE_BYTES)
-                if not sample:
+                compressed_size = f.stat().st_size
+                if compressed_size <= 0:
                     continue
-                lines_in_sample = sample.count(b"\n") or 1
-                # The .gz file_size is compressed; the in-memory sample is
-                # decompressed. Estimate decompressed_total ≈ file_size *
-                # (decompressed_sample_size / compressed_sample_size_proxy).
-                # We don't have an easy compressed-sample-size, so use a
-                # rough 5x compression ratio for gzip'd JSON.
-                est_decompressed_total = file_size * 5
-                bytes_per_event = max(len(sample) / lines_in_sample, 1)
+                decompressed_bytes = 0
+                newlines = 0
+                # Read decompressed sample up to PROGRESS_SAMPLE_BYTES,
+                # then check the underlying compressed pointer to learn the
+                # actual local ratio for THIS file.
+                with gzip.open(f, "rb") as gz:
+                    while decompressed_bytes < PROGRESS_SAMPLE_BYTES:
+                        chunk = gz.read(65536)
+                        if not chunk:
+                            break
+                        decompressed_bytes += len(chunk)
+                        newlines += chunk.count(b"\n")
+                    # underlying compressed-position lets us compute ratio
+                    try:
+                        compressed_read = gz.fileobj.tell()  # type: ignore[attr-defined]
+                    except (AttributeError, OSError):
+                        compressed_read = 0
+                if decompressed_bytes == 0 or newlines == 0:
+                    continue
+                if compressed_read > 0:
+                    ratio = decompressed_bytes / compressed_read
+                    est_decompressed_total = int(compressed_size * ratio)
+                else:
+                    # Fallback if we can't read the underlying position —
+                    # conservative 8x typical of JSON-over-gzip.
+                    est_decompressed_total = compressed_size * 8
+                bytes_per_event = max(decompressed_bytes / newlines, 1)
                 total += int(est_decompressed_total / bytes_per_event)
             except (OSError, EOFError):
                 continue
@@ -319,12 +345,16 @@ def run_one_date(
                 rate = event_idx / max(elapsed, 0.001)
                 # next_chunk_num = chunk we'll write next; completed so far = next_chunk_num-1
                 done_chunks = max(0, next_chunk_num - 1)
-                chunk_str = (
-                    f"chunk {done_chunks}/{total_chunks_est}"
-                    if total_chunks_est > 0
-                    else f"chunk {done_chunks}"
-                )
-                if total_events_est > 0:
+                # Show chunk progress; if we overshot the estimate (estimate
+                # was too low), keep showing chunk N without forcing a wrong
+                # N/M display.
+                if total_chunks_est > 0 and done_chunks <= total_chunks_est:
+                    chunk_str = f"chunk {done_chunks}/{total_chunks_est}"
+                elif total_chunks_est > 0:
+                    chunk_str = f"chunk {done_chunks} (est. ~{total_chunks_est})"
+                else:
+                    chunk_str = f"chunk {done_chunks}"
+                if total_events_est > 0 and event_idx <= total_events_est:
                     pct = 100.0 * event_idx / total_events_est
                     remaining = max(total_events_est - event_idx, 0)
                     eta_s = remaining / max(rate, 1.0)
@@ -333,6 +363,13 @@ def run_one_date(
                         f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
                         f"({rate:>7,.0f}/s)  {pct:5.1f}%  ETA {eta_min:>5.1f}m  "
                         f"{chunk_str}"
+                    )
+                elif total_events_est > 0:
+                    # Overshot the estimate — show "100%+" instead of misleading
+                    # 138.7% / negative-ETA values.
+                    sys.stdout.write(
+                        f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
+                        f"({rate:>7,.0f}/s)  100%+ (est. was off)  {chunk_str}"
                     )
                 else:
                     sys.stdout.write(
