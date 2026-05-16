@@ -64,10 +64,13 @@ from tick_feature_agent.replay.stream_merger import merge_streams
 from tick_feature_agent.validation.feature_validator import validate
 
 # ── Chunked-resume tuning constants ─────────────────────────────────────────
-# Flush a parquet chunk every CHUNK_EVENT_THRESHOLD events OR every
-# CHUNK_INTERVAL_SEC seconds — whichever fires first.
-CHUNK_EVENT_THRESHOLD: int = 50_000
-CHUNK_INTERVAL_SEC: float = 300.0  # 5 minutes
+# Target ~20 chunk files per date regardless of date size — divide estimated
+# total events by CHUNK_DIVISOR. Bounded by CHUNK_EVENT_FLOOR (so tiny
+# replays don't flush every few events) and the time-based fallback
+# CHUNK_INTERVAL_SEC (so chunks don't fall behind on dull stretches).
+CHUNK_DIVISOR: int = 20
+CHUNK_EVENT_FLOOR: int = 5_000        # don't flush more often than every 5k events
+CHUNK_INTERVAL_SEC: float = 300.0     # 5 minutes — fallback for dull stretches
 
 # On resume, re-feed events from (last_chunk_event_idx - WARMUP_EVENT_COUNT)
 # so the adapter's pending queue is rebuilt before we start writing again.
@@ -222,11 +225,14 @@ def run_one_date(
             next_chunk_num = 1
 
     total_events_est = _estimate_total_events(date_folder, instrument)
+    # Aim for ~10 chunks per date regardless of size; floor at 5k events so
+    # tiny replays don't flush every few events.
+    chunk_event_threshold = max(total_events_est // CHUNK_DIVISOR, CHUNK_EVENT_FLOOR)
 
     # ── Run replay adapter with chunked writes ──────────────────────────────
     print(
         f"  [{date_str}] processing {instrument}  "
-        f"(est. {total_events_est:,} events)",
+        f"(est. {total_events_est:,} events, chunk every {chunk_event_threshold:,})",
         flush=True,
     )
     adapter = ReplayAdapter(profile, date_str, logger=logger)
