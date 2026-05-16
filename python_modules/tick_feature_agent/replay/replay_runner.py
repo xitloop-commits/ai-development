@@ -225,14 +225,19 @@ def run_one_date(
             next_chunk_num = 1
 
     total_events_est = _estimate_total_events(date_folder, instrument)
-    # Aim for ~10 chunks per date regardless of size; floor at 5k events so
-    # tiny replays don't flush every few events.
+    # Aim for ~CHUNK_DIVISOR chunks per date regardless of size; floor at
+    # CHUNK_EVENT_FLOOR events so tiny replays don't flush every few events.
     chunk_event_threshold = max(total_events_est // CHUNK_DIVISOR, CHUNK_EVENT_FLOOR)
+    total_chunks_est = (
+        max(1, (total_events_est + chunk_event_threshold - 1) // chunk_event_threshold)
+        if total_events_est > 0 else 0
+    )
 
     # ── Run replay adapter with chunked writes ──────────────────────────────
     print(
         f"  [{date_str}] processing {instrument}  "
-        f"(est. {total_events_est:,} events, chunk every {chunk_event_threshold:,})",
+        f"(est. {total_events_est:,} events, ~{total_chunks_est} chunks, "
+        f"{chunk_event_threshold:,} ev/chunk)",
         flush=True,
     )
     adapter = ReplayAdapter(profile, date_str, logger=logger)
@@ -273,6 +278,7 @@ def run_one_date(
             "elapsed_seconds": round(time.monotonic() - t_start, 1),
             "last_chunk_event_idx": event_idx,
             "chunks_written": next_chunk_num,
+            "chunks_total_est": total_chunks_est,
             "schema_version": 1,
             "last_update": datetime.now().isoformat(timespec="seconds"),
         }
@@ -311,6 +317,13 @@ def run_one_date(
                 now = time.monotonic()
                 elapsed = now - t_start
                 rate = event_idx / max(elapsed, 0.001)
+                # next_chunk_num = chunk we'll write next; completed so far = next_chunk_num-1
+                done_chunks = max(0, next_chunk_num - 1)
+                chunk_str = (
+                    f"chunk {done_chunks}/{total_chunks_est}"
+                    if total_chunks_est > 0
+                    else f"chunk {done_chunks}"
+                )
                 if total_events_est > 0:
                     pct = 100.0 * event_idx / total_events_est
                     remaining = max(total_events_est - event_idx, 0)
@@ -318,12 +331,13 @@ def run_one_date(
                     eta_min = eta_s / 60.0
                     sys.stdout.write(
                         f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
-                        f"({rate:>7,.0f}/s)  {pct:5.1f}% done  ETA {eta_min:>5.1f}m"
+                        f"({rate:>7,.0f}/s)  {pct:5.1f}%  ETA {eta_min:>5.1f}m  "
+                        f"{chunk_str}"
                     )
                 else:
                     sys.stdout.write(
                         f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
-                        f"({rate:>7,.0f}/s)"
+                        f"({rate:>7,.0f}/s)  {chunk_str}"
                     )
                 sys.stdout.flush()
 
