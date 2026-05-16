@@ -21,7 +21,7 @@ For each date in [date_from, date_to]:
 Resumable + chunked replay (added 2026-05-16):
   During each date's processing, the in-memory parquet buffer is flushed to
   numbered chunk files (`<inst>_features_part001.parquet`, `_part002.parquet`,
-  ...) every CHUNK_EVENT_THRESHOLD events OR CHUNK_INTERVAL_SEC seconds —
+  ...) every chunk_event_threshold events OR CHUNK_INTERVAL_SEC seconds —
   whichever first. Alongside each chunk, `<inst>_features_progress.json` is
   written atomically with the resume index and progress estimate.
 
@@ -304,7 +304,7 @@ def run_one_date(
             if event_idx <= resume_from_idx:
                 adapter.process_event(event)
                 # Periodically drain duplicates emitted during warmup
-                if event_idx % CHUNK_EVENT_THRESHOLD == 0:
+                if event_idx % chunk_event_threshold == 0:
                     adapter.emitter.discard_buffer()
                 continue
 
@@ -343,10 +343,35 @@ def run_one_date(
 
             # Chunk-flush check — every N events or X seconds
             if (
-                events_since_chunk >= CHUNK_EVENT_THRESHOLD
+                events_since_chunk >= chunk_event_threshold
                 or (time.monotonic() - last_chunk_time) >= CHUNK_INTERVAL_SEC
             ):
                 _flush_chunk()
+    except KeyboardInterrupt:
+        # Graceful Ctrl+C: persist whatever's in the buffer so the next
+        # invocation resumes from here, then re-raise so the outer date loop
+        # and CLI can exit cleanly.
+        elapsed = time.monotonic() - t_start
+        print(
+            f"\n  [{date_str}] {instrument} INTERRUPTED at event "
+            f"{event_idx:,} ({elapsed:.1f}s elapsed). Flushing partial chunk...",
+            flush=True,
+        )
+        try:
+            _flush_chunk(force=True)
+        except Exception as exc:
+            print(
+                f"  [{date_str}] WARN: partial-flush failed: {exc} — "
+                f"some recent events may be re-processed on resume.",
+                flush=True,
+            )
+        done_chunks = max(0, next_chunk_num - 1)
+        print(
+            f"  [{date_str}] {instrument} state saved ({done_chunks} chunk(s) "
+            f"on disk). Re-run the same command to resume.",
+            flush=True,
+        )
+        raise
     except Exception as exc:
         if logger:
             logger.error(
@@ -502,18 +527,24 @@ def replay(
         resume_date = checkpoint.get_resume_date(instrument, date_from)
         dates_iter = list(_iter_dates(resume_date, date_to))
 
-    summary = {"pass": 0, "warn": 0, "fail": 0, "skip": 0}
+    summary = {"pass": 0, "warn": 0, "fail": 0, "skip": 0, "interrupted": False}
 
     for date_str in dates_iter:
-        verdict = run_one_date(
-            base_profile=base_profile,
-            instrument=instrument,
-            date_str=date_str,
-            raw_root=raw_root,
-            features_root=features_root,
-            validation_root=validation_root,
-            logger=logger,
-        )
+        try:
+            verdict = run_one_date(
+                base_profile=base_profile,
+                instrument=instrument,
+                date_str=date_str,
+                raw_root=raw_root,
+                features_root=features_root,
+                validation_root=validation_root,
+                logger=logger,
+            )
+        except KeyboardInterrupt:
+            # run_one_date already saved state for this date. Stop processing
+            # further dates; report interrupted summary.
+            summary["interrupted"] = True
+            return summary
         summary[verdict] = summary.get(verdict, 0) + 1
 
         if verdict in ("pass", "warn", "fail"):
@@ -614,6 +645,16 @@ def _cli():
     )
 
     # Print summary
+    if summary.get("interrupted"):
+        print(f"\nReplay INTERRUPTED for {args.instrument}  "
+              f"({args.date_from} → {args.date_to}) — partial state saved.")
+        print(f"  PASS : {summary.get('pass', 0)}")
+        print(f"  WARN : {summary.get('warn', 0)}")
+        print(f"  FAIL : {summary.get('fail', 0)}")
+        print(f"  SKIP : {summary.get('skip', 0)}")
+        print(f"  Re-run the same command to resume the interrupted date.")
+        print()
+        sys.exit(130)  # 128 + SIGINT, the standard "interrupted by Ctrl+C" exit code
     print(f"\nReplay complete for {args.instrument}  " f"({args.date_from} → {args.date_to})")
     print(f"  PASS : {summary.get('pass', 0)}")
     print(f"  WARN : {summary.get('warn', 0)}")
@@ -626,4 +667,10 @@ def _cli():
 
 
 if __name__ == "__main__":
-    _cli()
+    try:
+        _cli()
+    except KeyboardInterrupt:
+        # Outermost safety net — in case Ctrl+C lands during CLI parsing or
+        # profile loading before _cli enters the replay() try/except.
+        print("\nReplay interrupted before any date started.")
+        sys.exit(130)
