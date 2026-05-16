@@ -19,11 +19,11 @@ Stage-by-stage design of the perfect signal system. All layer designs land in th
 - **Status:** Consolidated 2026-05-16 into `docs/V2_MASTER_SPEC.md`. L1 IN-PROGRESS (candidates listed, 16 decisions pending in §9). L2/L3 LOCKED-CANDIDATE. L4-L8 SKETCH.
 - **Layers (status header in V2_MASTER_SPEC §2.0):**
   - [x] Skeleton pass — all 8 layers consolidated
-  - [ ] L1 — Input features (flip to LOCKED after §2.1.7 decisions resolved)
-  - [ ] L2 — Target labels (flip after §2.2.4 open items resolved)
-  - [ ] L3 — Model architecture (flip after §2.3.3 open items resolved)
-  - [ ] L4 — Gate logic deep dive ← **NEXT UP after L1-L3 lock**
-  - [ ] L5 — Trade management deep dive
+  - [x] L1 — Input features LOCKED 2026-05-16
+  - [x] L2 — Target labels LOCKED 2026-05-16
+  - [ ] L3 — Model architecture (LOCKED-CANDIDATE; pending separate deep-dive)
+  - [x] L4 — Gate logic LOCKED 2026-05-16
+  - [ ] L5 — Trade management deep dive ← **NEXT UP**
   - [ ] L6 — Position sizing deep dive
   - [ ] L7 — Risk controls deep dive
   - [ ] L8 — Regime / meta deep dive
@@ -69,6 +69,22 @@ Show events_done / events_total_est / rate / ETA AND survive power cuts without 
 - **What's still TODO:**
   - Launcher reads progress.json and shows e.g. `crudeoil 05-13: 43% · ETA 6m` on the replay row.
 - **Out of scope:** pre-counting events (rejected — too slow), adding to Train/Backtest (Partha excluded).
+
+### T14 — Add 8 deferred L1 features post-paper-trade
+Add 8 features deferred at L1 D2 lock (2026-05-16) if first-retrain analysis shows missing signal that these would capture.
+
+- **Status:** Deferred. Add only if needed (most can be composed by LightGBM from accepted features).
+- **Deferred features:**
+  - `rsi_14_15min` (C2)
+  - `ma_cross_event_5min` (C2)
+  - `breakout_event_5min` (C2)
+  - `momentum_deceleration` (C5)
+  - `premium_acceleration_drop` (C5)
+  - `active_strike_rotation_score` (C7)
+  - `strike_migration_persistence` (C7)
+  - `premium_vwap_cross_strength` (C8)
+- **Decision criterion:** if SHAP analysis (§5.4) shows existing features that should be capturing these patterns have low importance OR show inconsistent signals, add the explicit feature.
+- **Spec change when ready:** V2_MASTER_SPEC §2.1.4 — move row from DEFER to ACCEPT, bump L1 active count.
 
 ### T13 — Auto-generate feature catalog
 Create `scripts/generate_feature_catalog.py` that reads `python_modules/tick_feature_agent/output/emitter.py` `_build_column_names()` + module docstrings, emits `docs/FEATURE_CATALOG.md` table (name, source module, brief description). Hook into pre-commit so any TFA change auto-updates the catalog.
