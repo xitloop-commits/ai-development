@@ -16,18 +16,19 @@ Crudeoil parquets have gaps (last verified May 16: 6 dates vs naturalgas's 10). 
 ### T2 — Signal system v2 brainstorm (8 layers)
 Stage-by-stage design of the perfect signal system. One layer per session for focus.
 
-- **Status:** Architecture + locked constraints saved 2026-05-15. Layers 1-3 partially designed in `docs/TARGET_SPEC_V2_DESIGN.md`.
+- **Status:** Skeleton pass complete 2026-05-16 — see `docs/SIGNAL_SYSTEM_V2.md` (all 8 layers sketched, 1-3 ref TARGET_SPEC_V2_DESIGN.md, 4-8 sketched).
 - **Layers designed so far:**
   - [x] Architecture overview
-  - [x] Layer 1 (input features) — partial
-  - [x] Layer 2 (target labels) — partial
-  - [x] Layer 3 (model architecture) — partial
-  - [ ] Layer 4 — Gate logic ← **NEXT UP**
-  - [ ] Layer 5 — Trade management
-  - [ ] Layer 6 — Position sizing
-  - [ ] Layer 7 — Risk controls
-  - [ ] Layer 8 — Regime / meta
-  - [ ] Final integration: master `docs/SIGNAL_SYSTEM_V2.md`
+  - [x] Skeleton pass — all 8 layers (`docs/SIGNAL_SYSTEM_V2.md`, 2026-05-16)
+  - [x] Layer 1 (input features) — partial in TARGET_SPEC_V2_DESIGN.md
+  - [x] Layer 2 (target labels) — partial in TARGET_SPEC_V2_DESIGN.md
+  - [x] Layer 3 (model architecture) — partial in TARGET_SPEC_V2_DESIGN.md
+  - [ ] Layer 4 — Gate logic deep dive ← **NEXT UP** (`docs/GATE_LOGIC_DESIGN.md`)
+  - [ ] Layer 5 — Trade management deep dive (`docs/TRADE_MGMT_DESIGN.md`)
+  - [ ] Layer 6 — Position sizing deep dive (`docs/POSITION_SIZING_DESIGN.md`)
+  - [ ] Layer 7 — Risk controls deep dive (`docs/RISK_CONTROLS_DESIGN.md`)
+  - [ ] Layer 8 — Regime / meta deep dive (`docs/REGIME_META_DESIGN.md`)
+  - [ ] Final integration pass on master `docs/SIGNAL_SYSTEM_V2.md` (post deep dives)
 - **Suggested order:** Layer 4 → 5 → 7 → 6 → 8 → revisit 1-3.
 - **Constraints (do NOT re-litigate):**
   - Trades must live MINUTES (>5 min hold), not seconds. Per Partha's mandate.

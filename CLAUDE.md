@@ -11,7 +11,8 @@ This file is read automatically by Claude Code at the start of every session in 
 
 ## Important active design docs
 
-- [docs/TARGET_SPEC_V2_DESIGN.md](docs/TARGET_SPEC_V2_DESIGN.md) — v2 target spec for trend-capture retrain. **Blocks paper trading until done.**
+- [docs/SIGNAL_SYSTEM_V2.md](docs/SIGNAL_SYSTEM_V2.md) — 8-layer master design (skeleton pass 2026-05-16). Entry point for the Signal System v2 brainstorm; deep dives per layer land in sibling `docs/*_DESIGN.md` files.
+- [docs/TARGET_SPEC_V2_DESIGN.md](docs/TARGET_SPEC_V2_DESIGN.md) — v2 target spec for trend-capture retrain. **Blocks paper trading until done.** Covers Layers 1-3 of SIGNAL_SYSTEM_V2.
 - [docs/WAVE2_RESUMPTION_GUIDE.md](docs/WAVE2_RESUMPTION_GUIDE.md) — Wave 2 model state + how to resume work on it.
 
 ## What this file is NOT for
