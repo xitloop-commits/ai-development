@@ -136,7 +136,7 @@ The Wave 2 model (targets at 60–300s, magnitude ~5–9 INR) is verified to be 
 |---|---|---|---|
 | 1 | Input features | **LOCKED 2026-05-16 by Partha** (all 8 §2.1.7 decisions resolved; 436 active features locked) | §2.1 |
 | 2 | Target labels | **LOCKED 2026-05-16 by Partha** (12 trend targets locked; 600s dropped per L1 D6) | §2.2 |
-| 3 | Model architecture | LOCKED-CANDIDATE (from TARGET_SPEC §6; pending separate L3 deep-dive session for `scale_pos_weight` validation + walk-forward retrain compute) | §2.3 |
+| 3 | Model architecture | **LOCKED 2026-05-16 by Partha** (all 4 L3 decisions resolved: booster topology, hyperparameters, early stopping, per-instrument training) | §2.3 |
 | 4 | Gate logic | **LOCKED 2026-05-16 by Partha** (6 decisions resolved; L1+L2 now locked, dependency satisfied) | §2.4 |
 | 5 | Trade management | SKETCH | §2.5 |
 | 6 | Position sizing | SKETCH | §2.6 |
@@ -360,12 +360,58 @@ SEA loads each head independently per the map. Saturday retrain (§6.1) compares
 
 **Model file naming (LOCKED 2026-05-16 — Gap #23 Option D):** flat structure under `models/<inst>/<timestamp>/`. Wave 2 heads use existing names (`direction_60s.lgbm`, `max_upside_30s.lgbm`, etc.). v2 trend heads use `trend_` prefix (`trend_direction_900s.lgbm`, `trend_magnitude_1800s.lgbm`, etc.). No subfolder split — distinction lives in the filename, routing handled by `LATEST_HEADS.json`. Also written per timestamp dir: `baseline_auc.json` (drift detector input). Archived Wave 2 heads on retirement (§8.4) move to `models/<inst>/ARCHIVED/wave2_<date>/`.
 
-#### 2.3.3 Open items
+#### 2.3.3 Architecture decisions
 
-- Single multi-output booster vs 78 separate boosters (compute trade-off)
-- Feature-importance-based pruning policy (see §2.1.7)
-- Walk-forward retrain cadence (every 2 weeks once paper trading starts)
-- LightGBM at 500-feature scale: trivial (~1.5 GB train memory, sub-ms inference) — no concern
+**Booster topology (LOCKED 2026-05-16 — L3 D1 Option A):** 72 separate LightGBM boosters per instrument (288 total × 4 instruments). Multi-output booster rejected because it breaks per-head rollback (Gap #10) and per-head regression-block (Gap #7), and forces a single `scale_pos_weight` across heads with very different positive rates.
+
+LightGBM at 500-feature scale: trivial (~1.5 GB train memory, sub-ms inference) — no concern.
+
+**Hyperparameter defaults (LOCKED 2026-05-16 — L3 D2 Option D):** conservative pre-set split by head type. Library defaults rejected (overfit risk at 436 features × ~30 sessions). Hyperparameter search rejected (20-50× retrain compute for marginal gain that may not survive walk-forward variance).
+
+```
+binary heads (direction, persists, breakout, exit_signal, trend_direction_*,
+              trend_continues_*, trend_breakout_imminent_*):
+  objective:          binary
+  num_leaves:         15
+  max_depth:          5
+  min_child_samples:  50
+  learning_rate:      0.05
+  n_estimators:       500
+  early_stopping_rounds: 50
+  lambda_l1:          0.1
+  lambda_l2:          1.0
+  feature_fraction:   0.7
+  bagging_fraction:   0.8
+  scale_pos_weight:   per-target (n_neg / n_pos)  # critical for class imbalance
+
+regression heads (max_upside, max_drawdown, magnitude, decay, RR,
+                  trend_magnitude_*, trend_max_excursion_*, trend_max_drawdown_*):
+  objective:          regression
+  num_leaves:         31
+  max_depth:          6
+  min_child_samples:  30
+  learning_rate:      0.03
+  n_estimators:       800
+  early_stopping_rounds: 50
+  lambda_l1:          0.1
+  lambda_l2:          1.0
+  feature_fraction:   0.7
+  bagging_fraction:   0.8
+```
+
+Stored in `config/mta_hyperparams.json` (single file, applies to all instruments by head-type). Per-instrument override allowed but discouraged — calibrate per-instrument only if walk-forward shows systematic overfitting on one instrument. Add to D41 for post-paper-trade tuning.
+
+**Early stopping (LOCKED 2026-05-16 — L3 D3 Option C):** two-stage validation.
+- **Stage 1 (during tree building):** library-default cheap metric for early_stopping_rounds=50. AUC for binary heads, RMSE for regression heads. Selects "best tree count" per LightGBM convention.
+- **Stage 2 (final model selection):** sim_pnl (§2.3.4) across 5 walk-forward folds. Decides go/no-go for paper-trade promotion.
+
+Rationale: sim_pnl inside early-stopping inner loop is impractical (5-10× training time). AUC/RMSE is a cheap, well-calibrated proxy for ranking quality during tree building; sim_pnl gates the final decision after training completes.
+
+**Training granularity (LOCKED 2026-05-16 — L3 D4 Option A):** per-instrument independent training (288 models total = 72 heads × 4 instruments). NO cross-instrument or per-asset-class sharing.
+
+Rationale: NSE indices (NIFTY, BANKNIFTY) and MCX commodities (CRUDEOIL, NATURALGAS) have fundamentally different microstructure — different strike grids, liquidity profiles, volatility regimes, tick rates. A shared model would average over these and underperform per-instrument on each. 4× compute cost (offline Sat retrain) is acceptable trade for specialization.
+
+**All L3 open items resolved. §2.3 status promoted LOCKED-CANDIDATE → LOCKED 2026-05-16 by Partha.**
 
 #### 2.3.4 Sim-PnL formula (LOCKED 2026-05-16 — Option C)
 
@@ -1002,6 +1048,7 @@ All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`
 | D38 | Tune SL safety multiplier (currently 1.3×) | Per-instrument calibration after first month of paper trade — actual drawdown vs predicted drawdown ratio per signal informs whether 1.3 too tight/loose |
 | D39 | Recalibrate `cost_floor_buffer_pct` per instrument from real fills | After 100 paper fills per instrument. Compare actual minute-wick width vs the buffer assumption; tighten if buffer over-protects, loosen if noise wicks break "winners" |
 | D40 | Recalibrate noise-floor per instrument from accumulated data | After ≥30 sessions accumulated, compute 95th-percentile of 1-min wick size per instrument; adjust noise-floor if defaults are mis-tuned. Same recalibration triggers L2 target relabeling |
+| D41 | Per-instrument LightGBM hyperparameter override | If walk-forward shows systematic overfitting on one instrument (train AUC > holdout AUC by >0.10), tune per-instrument override of L3 D2 defaults. Only after first month of paper trade |
 | D36 | Doc role separation: V2_MASTER_SPEC vs PROJECT_TODO | **RESOLVED 2026-05-16 — Non-issue. V2_MASTER_SPEC is active design+dev plan (§2.0 layer status). PROJECT_TODO is parking lot for deferred tasks (T-list). Distinct purposes by design — no mirroring needed. During v2 design work, anything decided to be done later → add to PROJECT_TODO as new T-entry** |
 | D34 | Revisit single-pass pruning (Gap #24 D) if overfit observed | If first model's training AUC ≫ holdout AUC (e.g., gap > 0.10), pivot to Option A (post-train prune + retrain) and tighten regularization further |
 

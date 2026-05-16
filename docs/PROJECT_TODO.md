@@ -21,7 +21,7 @@ Stage-by-stage design of the perfect signal system. All layer designs land in th
   - [x] Skeleton pass — all 8 layers consolidated
   - [x] L1 — Input features LOCKED 2026-05-16
   - [x] L2 — Target labels LOCKED 2026-05-16
-  - [ ] L3 — Model architecture (LOCKED-CANDIDATE; pending separate deep-dive)
+  - [x] L3 — Model architecture LOCKED 2026-05-16
   - [x] L4 — Gate logic LOCKED 2026-05-16
   - [ ] L5 — Trade management deep dive ← **NEXT UP**
   - [ ] L6 — Position sizing deep dive
