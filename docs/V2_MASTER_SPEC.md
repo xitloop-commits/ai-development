@@ -139,7 +139,7 @@ The Wave 2 model (targets at 60–300s, magnitude ~5–9 INR) is verified to be 
 | 3 | Model architecture | **LOCKED 2026-05-16 by Partha** (all 4 L3 decisions resolved: booster topology, hyperparameters, early stopping, per-instrument training) | §2.3 |
 | 4 | Gate logic | **LOCKED 2026-05-16 by Partha** (6 decisions resolved; L1+L2 now locked, dependency satisfied) | §2.4 |
 | 5 | Trade management | **LOCKED 2026-05-16 by Partha** (4 decisions: 2-tier trail, TP/SL lock at entry, 2-stop-out lockout, market fills) | §2.5 |
-| 6 | Position sizing | SKETCH | §2.6 |
+| 6 | Position sizing | **LOCKED 2026-05-16 by Partha** (5 decisions: hybrid risk budget, equal sizing v1, portfolio cap 2.5×, uniform formula, naturalgas lot=1250) | §2.6 |
 | 7 | Risk controls | **LOCKED 2026-05-16 by Partha** (6 decisions: hooks, reset cadence, rolling DD, paper/live toggle, expiry handling, per-instrument numbers) | §2.7 |
 | 8 | Regime / meta | SKETCH | §2.8 |
 
@@ -603,11 +603,26 @@ Cap by per-instrument exposure limit (L7 config). Floor at 1 lot (skip signal if
 
 Small accounts can't trade NIFTY at low conviction (1 lot = ₹7,500–15,000 risk minimum).
 
-**Open for deep dive:**
-- `daily_risk_budget` composition with account equity (% of equity vs fixed INR)
-- Signal-confidence weighting (size up on high-prob predictions?)
-- Portfolio-level concurrent-position risk aggregation
-- Whether to size differently for `wave2` vs `trend` gate outputs
+**`daily_risk_budget` composition (LOCKED 2026-05-16 — L6 D1 Option C):** hybrid floor — `daily_risk_budget = min(L7.daily_loss_limit, channel_equity_for_instrument × 0.05)`. Scales with growth (compounding) but never exceeds L7's hard cap. Auto-defensive when equity drops (smaller trades on shrinking account).
+
+**Signal-confidence weighting (LOCKED 2026-05-16 — L6 D2 Option D):** equal sizing v1, upgrade post-calibration. All signals get `lots = floor(daily_risk_budget / max_signals_per_day / (predicted_drawdown_pts × contract_multiplier))`. Confidence-weighted sizing (multiplying by predicted_prob ratio) deferred until reliability-diagram check passes post-first-retrain (gated by same condition as Gap #1 B→D in PROJECT_TODO T8). See T16.
+
+**Portfolio-level concurrent-position risk cap (LOCKED 2026-05-16 — L6 D3 Option B):** before firing any signal, SEA computes total at-risk across all currently-open positions on that channel:
+
+```
+total_at_risk = sum(open_position_potential_loss)  // sum of SL distances × lots × multiplier
+candidate_at_risk = signal_lots × signal_SL_distance_pts × contract_multiplier
+
+block fire if (total_at_risk + candidate_at_risk) > 2.5 × max(L7.daily_loss_limit across instruments)
+```
+
+With current §7 numbers: cap = `2.5 × ₹3000 (banknifty) = ₹7,500`. Allows 2-3 concurrent instruments without exposing multi-instrument black-swan day.
+
+Correlation-aware aggregation (Option C) deferred — see D46.
+
+**Sizing per gate type (LOCKED 2026-05-16 — L6 D4 Option A):** same formula applies uniformly to scalp and trend signals. The drawdown-driven sizing self-adjusts — scalp's smaller `predicted_drawdown_pts` naturally yields more lots within the per-trade budget; trend's wider drawdown yields fewer. No per-gate split or boost. Keeps sizing logic single-path, debuggable, and free of arbitrary multipliers.
+
+**All L6 open items resolved. §2.6 promoted SKETCH → LOCKED 2026-05-16 by Partha.**
 
 ---
 
@@ -1009,7 +1024,7 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 | nifty50 | **8 pts** (LOCKED) | 75 | **₹2,500** (LOCKED) | **5** (LOCKED) | **0.3%** (LOCKED) | **20%** (LOCKED) |
 | banknifty | **25 pts** (LOCKED) | 30 | **₹3,000** (LOCKED) | **5** (LOCKED) | **0.5%** (LOCKED) | **25%** (LOCKED) |
 | crudeoil | **5 INR** (LOCKED) | 100 | **₹2,500** (LOCKED) | **4** (LOCKED) | **1.0%** (LOCKED) | **35%** (LOCKED) |
-| naturalgas | **3 INR** (LOCKED) | (TBD) | **₹2,000** (LOCKED) | **4** (LOCKED) | **1.5%** (LOCKED) | **40%** (LOCKED) |
+| naturalgas | **3 INR** (LOCKED) | **1,250** (LOCKED — MCX standard; verify against Dhan profile) | **₹2,000** (LOCKED) | **4** (LOCKED) | **1.5%** (LOCKED) | **40%** (LOCKED) |
 
 Noise-floor applies **same across all 3 trend horizons** (600s / 900s / 1800s) — minimum tradeable move doesn't scale with how long it took (L1 D1 + §2.2 decision, 2026-05-16). Recalibrate per D40 post-first-retrain.
 
@@ -1121,6 +1136,7 @@ All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`
 | D43 | Per-instrument rolling DD halt | If channel-level rolling DD halts too often due to one bad instrument dragging others, add per-instrument rolling DD tracking + per-instrument halt |
 | D44 | Always-enforced safety list (cannot be disabled by L7 D4 toggle) | Locked initial list: tier-1 event blackouts, broker WS cap, pre-market sanity-check fail, **expiry-day 14:30 IST entry cutoff (L7 D5)**. Add to list if discovered post-paper that other limits must always apply regardless of channel |
 | D45 | Recalibrate `daily_loss_limit` + `max_signals_per_day` per instrument | After first month of paper PnL: set `daily_loss_limit` to ~2× the 90th percentile of daily losses observed; set `max_signals_per_day` to 1.5× median observed |
+| D46 | Correlation-aware portfolio aggregation (upgrade L6 D3 B → C) | After 3 months of paper data, compute pairwise correlation of daily returns (NIFTY-BANKNIFTY likely high; MCX commodities lower). Adjust portfolio cap formula to weight correlated pairs |
 | D36 | Doc role separation: V2_MASTER_SPEC vs PROJECT_TODO | **RESOLVED 2026-05-16 — Non-issue. V2_MASTER_SPEC is active design+dev plan (§2.0 layer status). PROJECT_TODO is parking lot for deferred tasks (T-list). Distinct purposes by design — no mirroring needed. During v2 design work, anything decided to be done later → add to PROJECT_TODO as new T-entry** |
 | D34 | Revisit single-pass pruning (Gap #24 D) if overfit observed | If first model's training AUC ≫ holdout AUC (e.g., gap > 0.10), pivot to Option A (post-train prune + retrain) and tighten regularization further |
 

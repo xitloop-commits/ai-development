@@ -24,7 +24,7 @@ Stage-by-stage design of the perfect signal system. All layer designs land in th
   - [x] L3 — Model architecture LOCKED 2026-05-16
   - [x] L4 — Gate logic LOCKED 2026-05-16
   - [x] L5 — Trade management LOCKED 2026-05-16
-  - [ ] L6 — Position sizing deep dive
+  - [x] L6 — Position sizing LOCKED 2026-05-16
   - [x] L7 — Risk controls LOCKED 2026-05-16
   - [ ] L8 — Regime / meta deep dive
 - **User-chosen order:** L1 → L2 → L3 first (finalize before L4-L8). Per 2026-05-16 brainstorm session.
@@ -69,6 +69,14 @@ Show events_done / events_total_est / rate / ETA AND survive power cuts without 
 - **What's still TODO:**
   - Launcher reads progress.json and shows e.g. `crudeoil 05-13: 43% · ETA 6m` on the replay row.
 - **Out of scope:** pre-counting events (rejected — too slow), adding to Train/Backtest (Partha excluded).
+
+### T16 — Confidence-weighted position sizing (upgrade L6 D2)
+Promote sizing from equal allocation (L6 D2 Option D, ships with v2) to confidence-weighted (scale lots by predicted_prob / 0.5).
+
+- **Status:** Deferred. Gated by same reliability check as Gap #1 B→D (cost-floor migration).
+- **Blocked by:** first v2 retrain producing calibrated probabilities + 5-day holdout reliability-diagram check (±5% predicted-vs-actual win rate across deciles).
+- **Why upgrade:** equal sizing wastes capacity on near-threshold signals. Confidence weighting puts more capital on best signals — higher sharpe IF probabilities are reliable.
+- **Spec change when ready:** V2_MASTER_SPEC §2.6 — replace equal-sizing formula with weighted. Update D2 in §9 to RESOLVED.
 
 ### T15 — Limit-order optimization for execution
 Investigate limit-order execution to reduce slippage cost. L5 D4 locked market orders for v1 to match sim_pnl validation assumption.
