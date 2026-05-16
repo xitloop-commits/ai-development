@@ -17,15 +17,37 @@ For each date in [date_from, date_to]:
   4. Merge streams (stream_merger) → drive ReplayAdapter → write Parquet.
   5. Run feature validator on the output Parquet.
   6. Mark checkpoint on success.
+
+Resumable + chunked replay (added 2026-05-16):
+  During each date's processing, the in-memory parquet buffer is flushed to
+  numbered chunk files (`<inst>_features_part001.parquet`, `_part002.parquet`,
+  ...) every CHUNK_EVENT_THRESHOLD events OR CHUNK_INTERVAL_SEC seconds —
+  whichever first. Alongside each chunk, `<inst>_features_progress.json` is
+  written atomically with the resume index and progress estimate.
+
+  On restart after a crash, run_one_date detects the progress file, replays
+  the raw stream from the start, discards events up to a "warmup boundary"
+  earlier than the last chunk index (so the adapter's pending queue is
+  reconstructed correctly), discards emitter rows during warmup (they're
+  already in chunks), and continues writing new chunks past the last
+  saved point.
+
+  Worst-case wasted work on restart: ~CHUNK_INTERVAL_SEC of compute time.
+  Was previously: the entire date.
+
+  At successful date completion, all chunks are merged into the single
+  canonical `<inst>_features.parquet` and the chunks + progress file are
+  deleted. Downstream readers (MTA, SEA, launcher) see no layout change.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from datetime import date as _date
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # ── Path bootstrap ────────────────────────────────────────────────────────────
@@ -40,6 +62,80 @@ from tick_feature_agent.replay.checkpoint import ReplayCheckpoint
 from tick_feature_agent.replay.replay_adapter import ReplayAdapter
 from tick_feature_agent.replay.stream_merger import merge_streams
 from tick_feature_agent.validation.feature_validator import validate
+
+# ── Chunked-resume tuning constants ─────────────────────────────────────────
+# Flush a parquet chunk every CHUNK_EVENT_THRESHOLD events OR every
+# CHUNK_INTERVAL_SEC seconds — whichever fires first.
+CHUNK_EVENT_THRESHOLD: int = 50_000
+CHUNK_INTERVAL_SEC: float = 300.0  # 5 minutes
+
+# On resume, re-feed events from (last_chunk_event_idx - WARMUP_EVENT_COUNT)
+# so the adapter's pending queue is rebuilt before we start writing again.
+# Must be greater than the typical event count spanning the longest target
+# window (300s). At ~1000 ev/s typical, 10k events covers ~10 s — but our
+# longest window is 300 s, so safer is ~10x: 100k. Set conservatively:
+WARMUP_EVENT_COUNT: int = 100_000
+
+# Estimate total events from raw file size sample for progress %. Sample
+# the first SAMPLE_BYTES of each raw .ndjson.gz to get average bytes/event.
+PROGRESS_SAMPLE_BYTES: int = 1_048_576  # 1 MB
+
+
+def _estimate_total_events(date_folder: Path, instrument: str) -> int:
+    """Rough estimate of total events for (instrument, date) based on
+    raw file sizes. Used for percent + ETA display. ±10% precision; the
+    purpose is "are we 10% done or 90% done", not exact accounting.
+    """
+    import gzip
+    total = 0
+    for pattern in (
+        f"{instrument}*underlying*ticks*.ndjson.gz",
+        f"{instrument}*option*ticks*.ndjson.gz",
+        f"{instrument}*chain*snapshots*.ndjson.gz",
+    ):
+        for f in date_folder.glob(pattern):
+            try:
+                file_size = f.stat().st_size
+                with gzip.open(f, "rb") as gz:
+                    sample = gz.read(PROGRESS_SAMPLE_BYTES)
+                if not sample:
+                    continue
+                lines_in_sample = sample.count(b"\n") or 1
+                # The .gz file_size is compressed; the in-memory sample is
+                # decompressed. Estimate decompressed_total ≈ file_size *
+                # (decompressed_sample_size / compressed_sample_size_proxy).
+                # We don't have an easy compressed-sample-size, so use a
+                # rough 5x compression ratio for gzip'd JSON.
+                est_decompressed_total = file_size * 5
+                bytes_per_event = max(len(sample) / lines_in_sample, 1)
+                total += int(est_decompressed_total / bytes_per_event)
+            except (OSError, EOFError):
+                continue
+    return total
+
+
+def _write_progress_atomic(progress_path: Path, data: dict) -> None:
+    """Write progress JSON atomically (write to .tmp, rename). Survives
+    a power cut mid-write — either the old file is intact or the new
+    file is fully written."""
+    tmp = progress_path.with_suffix(progress_path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    tmp.replace(progress_path)
+
+
+def _merge_chunks_to_final(
+    chunk_files: list[Path], final_path: Path
+) -> None:
+    """Concatenate chunk parquets into one final parquet, write atomically."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    if not chunk_files:
+        return
+    tables = [pq.read_table(f) for f in chunk_files]
+    merged = pa.concat_tables(tables) if len(tables) > 1 else tables[0]
+    tmp = final_path.with_suffix(final_path.suffix + ".tmp")
+    pq.write_table(merged, tmp)
+    tmp.replace(final_path)
 
 
 def _iter_dates(date_from: str, date_to: str):
@@ -97,24 +193,140 @@ def run_one_date(
     # ── Build date-specific profile ───────────────────────────────────────────
     profile = base_profile.__class__.for_replay_date(base_profile, instrument_meta)
 
-    # ── Run replay adapter ────────────────────────────────────────────────────
-    print(f"  [{date_str}] processing {instrument} ...", flush=True)
+    # ── Chunked-resume + progress setup ──────────────────────────────────────
+    out_dir = features_root / date_str
+    out_dir.mkdir(parents=True, exist_ok=True)
+    parquet_path = out_dir / f"{instrument}_features.parquet"
+    progress_path = out_dir / f"{instrument}_features_progress.json"
+
+    resume_from_idx = 0
+    warmup_boundary = 0
+    next_chunk_num = 1
+    if progress_path.exists():
+        try:
+            prev = json.loads(progress_path.read_text(encoding="utf-8"))
+            resume_from_idx = int(prev.get("last_chunk_event_idx", 0))
+            next_chunk_num = int(prev.get("chunks_written", 0)) + 1
+            warmup_boundary = max(0, resume_from_idx - WARMUP_EVENT_COUNT)
+            print(
+                f"  [{date_str}] {instrument} RESUMING from event "
+                f"{resume_from_idx:,} (warmup re-feeds from {warmup_boundary:,}, "
+                f"next chunk #{next_chunk_num:03d})",
+                flush=True,
+            )
+        except (json.JSONDecodeError, OSError, ValueError):
+            # Corrupt progress file → fall back to fresh start, leave any
+            # stale chunks for cleanup at end.
+            resume_from_idx = 0
+            warmup_boundary = 0
+            next_chunk_num = 1
+
+    total_events_est = _estimate_total_events(date_folder, instrument)
+
+    # ── Run replay adapter with chunked writes ──────────────────────────────
+    print(
+        f"  [{date_str}] processing {instrument}  "
+        f"(est. {total_events_est:,} events)",
+        flush=True,
+    )
     adapter = ReplayAdapter(profile, date_str, logger=logger)
 
-    event_count = 0
+    event_idx = 0
+    events_since_chunk = 0
+    last_chunk_time = time.monotonic()
     t_start = time.monotonic()
+
+    def _flush_chunk(force: bool = False) -> None:
+        """Persist current emitter buffer to next chunk file + atomic progress.json."""
+        nonlocal next_chunk_num, events_since_chunk, last_chunk_time
+        chunk_path = out_dir / (
+            f"{instrument}_features_part{next_chunk_num:03d}.parquet"
+        )
+        rows = adapter.emitter.write_parquet(chunk_path)
+        if rows == 0 and not force:
+            # Empty buffer; remove empty file we just wrote and skip progress update
+            try:
+                chunk_path.unlink()
+            except OSError:
+                pass
+            events_since_chunk = 0
+            last_chunk_time = time.monotonic()
+            return
+        progress_data = {
+            "instrument": instrument,
+            "date": date_str,
+            "events_processed": event_idx,
+            "events_total_est": total_events_est,
+            "percent_est": (
+                round(100.0 * event_idx / total_events_est, 2)
+                if total_events_est else None
+            ),
+            "rate_events_per_sec": round(
+                event_idx / max(time.monotonic() - t_start, 0.001), 1
+            ),
+            "elapsed_seconds": round(time.monotonic() - t_start, 1),
+            "last_chunk_event_idx": event_idx,
+            "chunks_written": next_chunk_num,
+            "schema_version": 1,
+            "last_update": datetime.now().isoformat(timespec="seconds"),
+        }
+        _write_progress_atomic(progress_path, progress_data)
+        next_chunk_num += 1
+        events_since_chunk = 0
+        last_chunk_time = time.monotonic()
+
     try:
         for event in merge_streams(date_folder, instrument, logger=logger):
+            event_idx += 1
+
+            # Resume mode — three phases:
+            #   1. event_idx <= warmup_boundary: skip entirely (already saved
+            #      in earlier chunks; adapter doesn't need them to reconstruct
+            #      state because they're older than the longest target window).
+            #   2. warmup_boundary < event_idx <= resume_from_idx: feed adapter
+            #      to rebuild its pending queue, but DISCARD anything the
+            #      emitter outputs (those rows are in earlier chunks).
+            #   3. event_idx > resume_from_idx: process normally.
+            if event_idx <= warmup_boundary:
+                continue
+            if event_idx <= resume_from_idx:
+                adapter.process_event(event)
+                # Periodically drain duplicates emitted during warmup
+                if event_idx % CHUNK_EVENT_THRESHOLD == 0:
+                    adapter.emitter.discard_buffer()
+                continue
+
+            # Phase 3 — real processing
             adapter.process_event(event)
-            event_count += 1
-            # Heartbeat every 50k events or 5 seconds — whichever first
-            if event_count % 50_000 == 0:
+            events_since_chunk += 1
+
+            # Heartbeat every 50k events
+            if event_idx % 50_000 == 0:
                 now = time.monotonic()
-                rate = event_count / max(now - t_start, 0.001)
-                sys.stdout.write(
-                    f"\r  [{date_str}] {event_count:>10,} events  " f"({rate:>8,.0f}/s)"
-                )
+                elapsed = now - t_start
+                rate = event_idx / max(elapsed, 0.001)
+                if total_events_est > 0:
+                    pct = 100.0 * event_idx / total_events_est
+                    remaining = max(total_events_est - event_idx, 0)
+                    eta_s = remaining / max(rate, 1.0)
+                    eta_min = eta_s / 60.0
+                    sys.stdout.write(
+                        f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
+                        f"({rate:>7,.0f}/s)  {pct:5.1f}% done  ETA {eta_min:>5.1f}m"
+                    )
+                else:
+                    sys.stdout.write(
+                        f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
+                        f"({rate:>7,.0f}/s)"
+                    )
                 sys.stdout.flush()
+
+            # Chunk-flush check — every N events or X seconds
+            if (
+                events_since_chunk >= CHUNK_EVENT_THRESHOLD
+                or (time.monotonic() - last_chunk_time) >= CHUNK_INTERVAL_SEC
+            ):
+                _flush_chunk()
     except Exception as exc:
         if logger:
             logger.error(
@@ -123,12 +335,14 @@ def run_one_date(
                 instrument=instrument,
                 date=date_str,
             )
+        # Note: progress.json + chunks remain on disk → resumable on next run
         return "fail"
 
     # Final progress line, then newline before next phase
     elapsed = time.monotonic() - t_start
     print(
-        f"\r  [{date_str}] {event_count:>10,} events  " f"in {elapsed:.1f}s. Writing Parquet...",
+        f"\r  [{date_str}] {instrument} {event_idx:>10,} ev in {elapsed:.1f}s. "
+        f"Finalising parquet...",
         flush=True,
     )
 
@@ -142,20 +356,34 @@ def run_one_date(
                 instrument=instrument,
                 date=date_str,
             )
+        # Cleanup: remove any chunks + progress for this aborted attempt
+        for f in out_dir.glob(f"{instrument}_features_part*.parquet"):
+            try: f.unlink()
+            except OSError: pass
+        try: progress_path.unlink()
+        except OSError: pass
         return "skip"
 
-    # ── Write Parquet ─────────────────────────────────────────────────────────
-    out_dir = features_root / date_str
-    out_dir.mkdir(parents=True, exist_ok=True)
-    parquet_path = out_dir / f"{instrument}_features.parquet"
-
+    # ── Final chunk flush + merge ────────────────────────────────────────────
     try:
-        adapter.emitter.write_parquet(parquet_path)
+        _flush_chunk(force=True)  # write the trailing rows
+        chunk_files = sorted(out_dir.glob(f"{instrument}_features_part*.parquet"))
+        if chunk_files:
+            _merge_chunks_to_final(chunk_files, parquet_path)
+            for f in chunk_files:
+                try: f.unlink()
+                except OSError: pass
+            try: progress_path.unlink()
+            except OSError: pass
+        else:
+            # No chunks at all (shouldn't happen if we got here) — fall back
+            # to direct write of any straggler rows.
+            adapter.emitter.write_parquet(parquet_path)
     except Exception as exc:
         if logger:
             logger.error(
                 "REPLAY_PARQUET_WRITE_ERROR",
-                msg=f"Parquet write failed on {date_str}: {exc}",
+                msg=f"Parquet finalise failed on {date_str}: {exc}",
                 instrument=instrument,
                 date=date_str,
             )

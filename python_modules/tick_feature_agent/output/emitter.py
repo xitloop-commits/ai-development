@@ -917,7 +917,7 @@ class Emitter:
                     pass
                 self._sock = None
 
-    def write_parquet(self, path: str | Path) -> None:
+    def write_parquet(self, path: str | Path) -> int:
         """
         Flush accumulated rows to a Parquet file (replay mode only).
 
@@ -930,10 +930,17 @@ class Emitter:
           - String/None columns   → large_string (nullable)
 
         Creates parent directories as needed.  Clears the row buffer after
-        writing so the emitter can be reused for the next session.
+        writing so the emitter can be reused for the next session — this is
+        what makes it safe to call repeatedly for chunked / resumable replay
+        (see ``replay_runner.run_one_date``).
 
         Args:
             path: Output Parquet file path (e.g. ``data/features/2026-04-14/nifty50_features.parquet``).
+
+        Returns:
+            Number of rows written. 0 if the buffer was empty (an empty
+            parquet with the correct schema is still written so downstream
+            readers don't break).
 
         Raises:
             ImportError: if pyarrow is not installed.
@@ -968,7 +975,7 @@ class Emitter:
             # Write empty Parquet with correct schema
             table = pa.table({col: pa.array([], type=_parquet_type(col, int_cols)) for col in cols})
             pq.write_table(table, path)
-            return
+            return 0
 
         table = pa.Table.from_pylist(rows)
         # Cast columns to spec types
@@ -984,6 +991,7 @@ class Emitter:
                 except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
                     pass  # keep original type on cast failure
         pq.write_table(table, path)
+        return len(rows)
 
     @property
     def row_count(self) -> int:
@@ -992,3 +1000,22 @@ class Emitter:
             return 0
         with self._lock:
             return len(self._parquet_rows)
+
+    def discard_buffer(self) -> int:
+        """Clear the parquet row buffer WITHOUT writing to disk.
+
+        Used by chunked-resume replay during the "warmup" phase: when
+        resuming after a power cut, the adapter needs to be re-fed earlier
+        events so its internal pending queue is reconstructed, but any rows
+        the emitter receives during warmup are duplicates of rows already
+        persisted in earlier chunk files. ``discard_buffer()`` drops them
+        cleanly.
+
+        Returns the number of rows discarded.
+        """
+        if self._mode != "replay":
+            raise RuntimeError("discard_buffer() is only available in replay mode")
+        with self._lock:
+            n = len(self._parquet_rows or [])
+            self._parquet_rows = []
+            return n

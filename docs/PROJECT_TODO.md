@@ -55,14 +55,20 @@ The current Wave 2 model is a microstructure scalp predictor; doesn't satisfy "t
 
 ## P2 — parked features (small enough to wait)
 
-### T4 — Replay in-date progress indicator
-Show events_done / events_total_est / rate / ETA in launcher Replay submenu while a replay is in flight. Replay submenu **only** — not main menu, train, or backtest.
+### T4 — Replay in-date progress + chunked resume (PARTIALLY DONE 2026-05-16)
 
-- **Status:** Plan locked 2026-05-15 (Option 1 — estimated total via 1MB sample, ±10% precision).
-- **Where:**
-  - TFA writes `data/features/<date>/<inst>_progress.json` every ~2s with `{events_done, events_total_est, percent, rate, elapsed_s, eta_s}`.
-  - Launcher's `act_replay` reads the progress file for the in-flight date and extends status_hint of the running-replay row.
-- **Cost:** ~15-25 lines in `replay_runner.py`, ~15 lines in `launcher_v2.py`.
+Show events_done / events_total_est / rate / ETA AND survive power cuts without losing all in-flight work.
+
+- **Status:**
+  - [x] TFA side: chunked parquet writes every 50k events OR 5 min, atomic `<inst>_features_progress.json`, warmup-based restart logic, final merge into single `<inst>_features.parquet` (shipped 2026-05-16, see `python_modules/tick_feature_agent/replay/replay_runner.py`).
+  - [x] Replay stdout heartbeat now shows `X% done · ETA Ym` based on raw-file-size estimate.
+  - [ ] Launcher `act_replay` reads `<inst>_features_progress.json` and surfaces progress in the running-replay row's status_hint (not yet wired).
+- **What's already wired:**
+  - Worst-case wasted work on power cut / crash: ~5 minutes (was: entire date).
+  - Multi-terminal parallel replay (one terminal per (date, instrument)) — each terminal writes to its own per-date chunks, no contention.
+  - On restart, the existing terminal command picks up where it left off automatically when relaunched for the same (date, instrument).
+- **What's still TODO:**
+  - Launcher reads progress.json and shows e.g. `crudeoil 05-13: 43% · ETA 6m` on the replay row.
 - **Out of scope:** pre-counting events (rejected — too slow), adding to Train/Backtest (Partha excluded).
 
 ## INFRA — passive, no action needed
