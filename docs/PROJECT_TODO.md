@@ -41,7 +41,7 @@ Stage-by-stage design of the perfect signal system. All layer designs land in th
 The current Wave 2 model is a microstructure scalp predictor; doesn't satisfy "trades live MINUTES" mandate. Needs new target spec (10/15/30 min horizons with noise floor in labels), new multi-TF features, retrain.
 
 - **Status:** Design captured in `docs/V2_MASTER_SPEC.md`. Implementation deferred until T2 layer locks.
-- **Blocker:** Need ≥30 sessions of training data (currently ~10). Auto-recorder accumulates Mon-Fri.
+- **Blocker:** Need ≥30 sessions of training data **under v2 schema** (per V2_MASTER_SPEC §3.1 Option A: existing ~10 sessions of 402-col parquets become inaccessible when v2 schema ships). Auto-recorder accumulates Mon-Fri → ~6 weeks of recording from schema cutover to first retrain. Reversible: raw .ndjson.gz files retained, can replay later if decision changes.
 - **Phases (V2_MASTER_SPEC §6):**
   - [~] Phase 1: Design lock (V2_MASTER_SPEC — in progress, L1 not yet locked)
   - [ ] Phase 2: TFA feature additions (~1-2 days code)
@@ -69,6 +69,56 @@ Show events_done / events_total_est / rate / ETA AND survive power cuts without 
 - **What's still TODO:**
   - Launcher reads progress.json and shows e.g. `crudeoil 05-13: 43% · ETA 6m` on the replay row.
 - **Out of scope:** pre-counting events (rejected — too slow), adding to Train/Backtest (Partha excluded).
+
+### T13 — Auto-generate feature catalog
+Create `scripts/generate_feature_catalog.py` that reads `python_modules/tick_feature_agent/output/emitter.py` `_build_column_names()` + module docstrings, emits `docs/FEATURE_CATALOG.md` table (name, source module, brief description). Hook into pre-commit so any TFA change auto-updates the catalog.
+
+- **Status:** Deferred. Low priority — does not block trading.
+- **Why needed:** with 443 candidate features post-v2, no lookup tool exists today. Anyone debugging a bad signal or onboarding spends hours grepping code.
+- **Effort:** ~50 LOC script + 1 pre-commit hook line.
+- **Upgrade path:** per-feature importance + provenance (Gap #22 Option D) — see D35.
+
+### T12 — Drift-triggered auto-retrain (gated)
+Promote drift detection from alert-only (Gap #14 Option C, ships with v2) to auto-trigger retrain when drift threshold breached (Option D).
+
+- **Status:** Deferred. Risky — auto-retrain unattended could ship a worse model.
+- **Blocked by:** Need confidence in (1) walk-forward validation discipline + (2) regression test plan (Gap #7) preventing bad model deploys.
+- **Why upgrade:** alert-only requires human watching Telegram. Drift on weekends/vacations = lost weeks. Auto-retrain pipelined through regression tests = self-healing system.
+- **Spec change when ready:** V2_MASTER_SPEC §5.3 — add auto-trigger pathway gated on regression-test pass. Update D25 in §9 to consider auto-retrain gating threshold.
+
+### T11 — Upgrade slippage model Option B → C (volume-conditional)
+Promote slippage model from fixed per-strike-distance penalty (Option B, ships with v2) to volume-conditional dynamic penalty (Option C).
+
+- **Status:** Deferred. Add to design backlog only.
+- **Blocked by:** Paper-trade liquidity-pattern data — need to observe how `opt_X_volume` correlates with actual fill quality across 100+ paper fills per instrument.
+- **Why upgrade:** Option B applies a uniform per-strike-distance penalty regardless of momentary liquidity. Mornings/afternoons differ; days with news differ. Option C applies penalty only when `opt_X_volume < threshold`, capturing intraday liquidity variation.
+- **Spec change when ready:** V2_MASTER_SPEC §2.3.4 — replace strike-distance penalty with volume-conditional formula. Update D20 in §9 to RESOLVED.
+
+### T10 — Recalibrate slippage_pct_per_strike_distance from real fills
+Tune the per-instrument `slippage_pct_per_strike_distance` defaults (0.3/0.5/1.0/1.5%) using actual paper-trade fill data.
+
+- **Status:** Deferred. Calibration task, no spec rewrite.
+- **Blocked by:** 100 paper fills per instrument (T3 Phase 7).
+- **Method:** for each fill, compute `actual_slippage = abs(fill_price - mid_price) / premium`. Group by strike_distance. Set `slippage_pct_per_strike_distance` = mean across all observations for that instrument.
+- **Spec change:** update V2_MASTER_SPEC §7 numbers in place. Mark D19 in §9 RESOLVED.
+
+### T9 — Upgrade Sim-PnL metric from Option C → Option D (multi-scenario)
+Promote validation metric from single bid/ask-slippage replay (Option C, ships with v2 first retrain) to multi-scenario {best, expected, worst} reporting (Option D).
+
+- **Status:** Deferred. Add to design backlog only.
+- **Blocked by:** Paper trade ramp (T3 Phase 7) producing 50+ real broker fills across all 4 instruments.
+- **Why upgrade:** Option C uses worst-case bid/ask fills uniformly — too pessimistic for instruments/times when limit orders inside spread fill. Option D's "expected" scenario calibrates from actual fill data, "best" and "worst" frame the uncertainty envelope so decision-maker sees full picture.
+- **Validation gate:** before promoting, accumulate ≥50 paper fills per instrument; compute distribution of (actual_fill_price − mid_price) / spread; use mean/p25/p75 as expected/best/worst slippage assumptions.
+- **Spec change when ready:** V2_MASTER_SPEC §2.3.4 — extend formula to report 3 scenarios; decision threshold uses "expected" but flags if "worst" goes negative. Update D18 in §9 to RESOLVED.
+
+### T8 — Migrate gate cost-floor from TP-floor (B) to EV-floor (D)
+Promote L4 gate cost-floor from "TP must clear costs" (Option B, ships with v2 paper trade) to "expected value must clear costs" (Option D — `(P_win × TP) − ((1 − P_win) × SL) > min_expectancy`).
+
+- **Status:** Deferred. Add to design backlog only.
+- **Blocked by:** First v2 retrain (T3 Phase 5). Option D requires calibrated probabilities; Wave 2 today predicts near 0.0028 (uncalibrated). Post-retrain, `scale_pos_weight` fix should produce usable 0.40–0.60 range probabilities.
+- **Validation gate:** before promoting, confirm on 5-day holdout that predicted P_win matches actual win rate within ±5% across deciles (reliability diagram check).
+- **Why upgrade:** Option B blocks high-probability low-magnitude trades that have positive expectancy. Option D captures the real economics — allows trades like "78% win probability × 18 pts TP − 22% × 14 pts SL = +11 pts expected" which B would reject for TP < cost-floor.
+- **Spec change when ready:** V2_MASTER_SPEC §2.4 — replace the cost-floor hard veto with the EV formula. Update D17 in §9 to mark RESOLVED.
 
 ### T7 — Swing trade capability (1–3 day hold)
 Add support for swing trades held 1–3 days on the 4 traded instruments (nifty50, banknifty, crudeoil, naturalgas). Deferred until v2 intraday is paper-trading-proven (after T3 completes).

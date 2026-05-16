@@ -2,7 +2,54 @@
 
 **Status:** DRAFT (consolidation pass · 2026-05-16) · sections 1, 2.1 IN-PROGRESS · sections 2.2–2.8 SKETCH · sections 3–8 PLANNED
 **Supersedes:** `SIGNAL_SYSTEM_V2.md`, `TARGET_SPEC_V2_DESIGN.md`, `REFERENCE.md`, `LAYER1_CANDIDATES.md` (delete pending)
-**Companion (separate, kept):** `PROJECT_TODO.md` (T2/T3/T7 references this doc), `CLAUDE.md` (links updated), `PARTHA_RULES.md`, `DHAN_TOKEN_POLICY.md`, `JOURNEY_STRATEGY.md`, `WAVE2_RESUMPTION_GUIDE.md`
+**Companion (separate, kept):** `PROJECT_TODO.md` (T2/T3/T7 references this doc), `CLAUDE.md` (links updated), `PARTHA_RULES.md`, `DHAN_TOKEN_POLICY.md`, `JOURNEY_STRATEGY.md`, `WAVE2_RESUMPTION_GUIDE.md` (Wave 2 operational guide — referenced by §8.4 retirement policy)
+
+## 0. Architecture at a glance
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Live Tick (Dhan WS)                                                    │
+│  └─→ TFA (per instrument, 4 processes)                                  │
+│      ├─ Tick buffers (5/10/20/50) + Bar buffers (1m/5m/15m) + Session   │
+│      └─→ Emit row = L1 features (443 cols ceiling)                      │
+│                       │                                                 │
+│                       ├─→ data/features/<date>/<inst>_features.parquet  │
+│                       │       │                                         │
+│                       │       └─→ MTA (offline retrain Sat 02:00)       │
+│                       │           ├─ L2 targets (78 heads/inst)         │
+│                       │           ├─ L3 LightGBM training               │
+│                       │           ├─ 5-fold walk-forward holdout        │
+│                       │           ├─ Sim-PnL (§2.3.4) decision threshold│
+│                       │           └─→ models/<inst>/<ts>/<head>.lgbm    │
+│                       │                + LATEST_HEADS.json (per-head)   │
+│                       │                                                 │
+│                       └─→ data/features/<inst>_live.ndjson (live)       │
+│                               │                                         │
+│                               └─→ SEA (per-tick inference)              │
+│                                   ├─ Load each head per LATEST_HEADS    │
+│                                   ├─ L4 gate (cost-floor, position-veto)│
+│                                   │   reads L8 regime tag               │
+│                                   ├─ Emit signal → logs/signals/        │
+│                                   ├─ L5 trade mgmt (TP/SL/trail/time/   │
+│                                   │   OI exits/exhaustion/regime-flip)  │
+│                                   ├─ L6 sizing (vol-scaled)             │
+│                                   └─→ TEA → BSA → Dhan order            │
+│                                                  │                      │
+│                                                  └─→ PA (positions, P&L)│
+│                                                                         │
+│  ┌─ Cross-cutting safety / observability ──────────────────────────┐    │
+│  │  L7 risk-control: daily-loss / max-pos / blackout / event-day   │    │
+│  │  Pre-market sanity check (§5.2, Mon 08:50)                      │    │
+│  │  Drift detection (§5.3, daily 20:00, per-head AUC)              │    │
+│  │  Trade-quality scorecard (§5.1, weekly Sun)                     │    │
+│  │  SHAP per signal (§5.4) + Trade journal                         │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Data flow:** L1 features → L2 targets → L3 models → L4 gate (incorporating L8 regime + L7 risk + Charges/cost-floor) → L5 exits + L6 sizing → execution.
+
+**Cross-cutting layers (5.x):** independent monitors that don't affect signal flow but gate deployment + catch silent failures.
 
 ---
 
@@ -48,7 +95,7 @@ The Wave 2 model (targets at 60–300s, magnitude ~5–9 INR) is verified to be 
 | 3 | Multi-TF context features (~15+ new inputs) | Model sees 1m/5m/15m chart structure (MAs, ADX, VWAP dist) — what a chart-watching trader sees. | +5–15 percentage points to AUC of long-horizon targets. Probably second-biggest after labels. |
 | 4 | `scale_pos_weight` in LightGBM | With 5% positive class and default weights, model predicts near 5% for everything. `scale_pos_weight = n_neg/n_pos` pushes top predictions into actionable range. | Doesn't change AUC much, but makes predictions **usable** for fixed-threshold gates (0.054 → 0.42 same input). |
 | 5 | More training data (≥30 sessions) | 9 sessions × 25k rows = 225k → 30 sessions × 25k = 750k. ~3.3× more. | +5–10 percentage points to AUC just from sufficient positive examples. Critical for Change 2. |
-| 6 | Larger holdout (n=5 days) | Single-day holdout is noisy. 5 days covers Mon–Fri regime variation. | Doesn't improve the model — improves our verdict reliability. |
+| 6 | Walk-forward holdout (5 × 1-week rolling holdouts) + concrete Sim-PnL formula | Single-window holdout (last-5-days) gives biased verdict if those days happen to be expiry/news/dull week. 5 independent holdouts across dataset → mean verdict + worst-fold flag. Sim-PnL = replay-simulated open-to-close per signal with bid/ask slippage and Charges_Spec costs (see §2.3.4 for formula). | Doesn't improve the model — improves our verdict reliability. 5× retrain compute per validation cycle (~20 hours). Conservative-by-design (~10–15%) so we under-promise vs live. |
 | 7 | New trend gate + ensemble | `decide_action_trend` runs alongside `decide_action_wave2`. Trend gate catches 10:50–11:20 type moves; scalp gate keeps the 9/9 day-extreme captures. | Trade frequency 2–3 → 5–10/day per instrument. Per-trade capture 5 → 15–30 pts. |
 
 ### 1.5 Honest probability of hitting target outcomes
@@ -110,8 +157,8 @@ Suggested deep-dive order: **4 → 5 → 7 → 6 → 8 → revisit 1–3.** Rati
 |---|---|
 | A. Live in parquet today | **377** |
 | B. v2-plan multi-TF additions | **15** |
-| C. Brainstorm additions | **48** |
-| **All-accepted ceiling** | **440** |
+| C. Brainstorm additions | **51** |
+| **All-accepted ceiling** | **443** |
 | Realistic post-L1-lock + 40% pruning | **~265–295** |
 
 #### 2.1.2 A — Live in parquet today (377 input features)
@@ -164,8 +211,9 @@ Source: `python_modules/tick_feature_agent/output/emitter.py` `_build_column_nam
 | C8 Premium VWAP intelligence | 4 | `atm_ce_premium_vwap_dist`, `atm_pe_premium_vwap_dist`, `premium_vwap_cross_strength`, `premium_vwap_reclaim_count` | Premium VWAP diverges from spot VWAP due to IV + theta — directly relevant for option trades |
 | C9 IV expansion velocity | 4 | `iv_change_{1,5}min`, `iv_skew_velocity`, `iv_expansion_without_spot` | Current IV is snapshot only; missing time-derivative |
 | C10 Max Pain | 3 | `max_pain_strike`, `distance_to_max_pain_pct`, `max_pain_gravity_strength` | Approved 2026-05-16. Important for 4 traded instruments around expiry. L4 weights conditionally when `days_to_expiry ≤ 2` |
+| C11 Event calendar | 3 | `is_tier_2_event_day`, `event_type_categorical`, `hours_to_next_tier_1_or_2_event` | LOCKED 2026-05-16 (Sugg #12 Option D feature half). Tier-2 events (GDP, CPI, OPEC, NFP, monthly expiry) feed model as features; tier-1 events (RBI, Budget, election day, FOMC) trigger L7 blackout (§2.7). Source: `config/event_calendar.json` |
 
-**C subtotal: 48**
+**C subtotal: 51**
 
 #### 2.1.5 D — Explicitly skipped (do not implement)
 
@@ -203,8 +251,8 @@ Source: `python_modules/tick_feature_agent/output/emitter.py` `_build_column_nam
 2. Accept / defer / reject each of 48 brainstorm candidates
 3. Confirm B-block 15 features as-is or modify
 4. Scaling: `(spot − feature) / spot` ratio for prices/MAs/VWAP; raw [0,100] for ADX/RSI
-5. Replay backfill: re-replay all 10 sessions to populate new columns (hours of one-time compute)
-6. Feature-importance pruning post-retrain: drop bottom-40% by gain + SHAP clustering + correlation clustering + temporal importance stability testing (mandatory — 437-ceiling needs aggressive prune)
+5. ~~Replay backfill: re-replay all 10 sessions to populate new columns~~ → **RESOLVED §3.1 (Option A: ignore old parquets, accumulate fresh)**
+6. **Feature-importance pruning policy (LOCKED 2026-05-16 — Gap #24 Option D):** **NO pre-prune, NO post-train re-train.** Single training pass on all 443 features. Trust LightGBM regularization (`max_depth`, `min_child_samples`, `lambda_l1`, `lambda_l2`) to ignore junk features. Rationale: clean slate (no old models to derive pre-prune scores from); two-stage approach (A) would double compute cost for marginal gain. Risk accepted: at 443 features × ~30 sessions of data, regularization is the only defense against overfit — must tune LightGBM hyperparameters aggressively (`min_child_samples ≥ 50`, `lambda_l2 ≥ 1.0`). Post-paper-trade if model overfits, revisit per D34.
 7. Per-instrument config location: `config/instrument_profiles/<inst>.json` vs new `config/feature_flags/<inst>.json`
 8. Whether to drop the 10-min trend target (600s) → would reduce 13 horizons to 12
 
@@ -267,7 +315,7 @@ Current `direction_60s` labels any positive move as "1." A +2 pt and a +50 pt mo
 | LightGBM `scale_pos_weight` | not set (defaults to 1.0) | Set per target = `n_neg / n_pos` of training set |
 | Cost-aware scoring | none | Post-hoc: simulate slippage 1–2 pts per fill in training metric report |
 | Min training data | 9 sessions | ≥30 sessions (block retrain until reached) |
-| Holdout strategy | `last_n_per_instrument, n=1` | `last_n_per_instrument, n=5` (full trading week) |
+| Holdout strategy | `last_n_per_instrument, n=1` | **Walk-forward: 5 × 1-week rolling holdouts** spread across dataset (LOCKED 2026-05-16 — Sugg #5 Option B). Verdict = mean sim_pnl across 5 folds; worst-fold flagged separately. |
 | Validation metric | `val_auc` only | `val_auc + simulated-PnL` on holdout (after fees) |
 
 #### 2.3.2 Model heads
@@ -276,12 +324,89 @@ Current `direction_60s` labels any positive move as "1." A +2 pt and a +50 pt mo
 - v2 trend: 18 new heads per instrument
 - **Total: 78 heads × 4 instruments = 312 LightGBM models**
 
+**Per-head version registry (LOCKED 2026-05-16 — Gap #10 Option B):** Replace single-file `models/<inst>/LATEST` (current text pointer to one timestamp) with `models/<inst>/LATEST_HEADS.json`:
+
+```json
+{
+  "trend_direction_900s": "20260516_020000",
+  "trend_magnitude_900s": "20260509_020000",
+  "direction_60s": "20260502_020000",
+  "...": "..."
+}
+```
+
+SEA loads each head independently per the map. Saturday retrain (§6.1) compares per-head sim_pnl; only updates `LATEST_HEADS.json` entries for heads that beat current. Rollback = restore any prior `LATEST_HEADS.json` from `models/<inst>/HEADS_HISTORY/<date>.json` (auto-archived on every change).
+
+**Why B over A:** Indian markets shift one instrument at a time (e.g., OPEC change hits crude only; RBI hits indices). Per-head rollback preserves 77 good improvements when fixing 1 regression. Critical for high-iteration retrain cadence (§6.1).
+
+**Upgrade path:** audit-trail (Option C) deferred — see D30.
+
+**Model file naming (LOCKED 2026-05-16 — Gap #23 Option D):** flat structure under `models/<inst>/<timestamp>/`. Wave 2 heads use existing names (`direction_60s.lgbm`, `max_upside_30s.lgbm`, etc.). v2 trend heads use `trend_` prefix (`trend_direction_900s.lgbm`, `trend_magnitude_1800s.lgbm`, etc.). No subfolder split — distinction lives in the filename, routing handled by `LATEST_HEADS.json`. Also written per timestamp dir: `baseline_auc.json` (drift detector input). Archived Wave 2 heads on retirement (§8.4) move to `models/<inst>/ARCHIVED/wave2_<date>/`.
+
 #### 2.3.3 Open items
 
 - Single multi-output booster vs 78 separate boosters (compute trade-off)
 - Feature-importance-based pruning policy (see §2.1.7)
 - Walk-forward retrain cadence (every 2 weeks once paper trading starts)
 - LightGBM at 500-feature scale: trivial (~1.5 GB train memory, sub-ms inference) — no concern
+
+#### 2.3.4 Sim-PnL formula (LOCKED 2026-05-16 — Option C)
+
+The single number that decides "is the new model better than the old one." Implemented in `model_training_agent/validation/sim_pnl.py` (to be created).
+
+**Definition:** For each fired signal in the holdout window, replay-simulate entry and exit using actual recorded tick data with bid/ask slippage, subtract Charges_Spec costs.
+
+```
+sim_pnl_per_signal =
+    realized_exit_price - realized_entry_price - charges_total
+
+where:
+    realized_entry_price =
+        bid_at_signal_tick      if action = LONG_CE  (we buy CE at ask, but score against bid for round-trip)
+        ask_at_signal_tick      if action = LONG_PE
+        (mirror for SHORT)
+
+    Actually: we BUY at ask, SELL at bid, so:
+    For LONG (buy now, sell later):
+        entry = ask_at_signal_tick
+        exit  = bid_at_exit_tick
+    For SHORT (sell now, buy back later):
+        entry = bid_at_signal_tick
+        exit  = ask_at_exit_tick
+
+    exit_tick = first of {TP hit, SL hit, time-stop hit} based on actual realized spot/option path
+    charges_total = Charges_Spec.compute_total_cost(instrument, strike, side, qty)
+
+    + Additional slippage penalty (LOCKED 2026-05-16 — Option B):
+      strike_distance = abs(traded_strike - atm_strike) / strike_step
+      extra_slippage = strike_distance × slippage_pct_per_strike_distance × premium
+      → subtract from sim_pnl_per_signal on top of bid/ask
+      → defaults: nifty50=0.3%, banknifty=0.5%, crudeoil=1.0%, naturalgas=1.5% (see §7)
+
+sim_pnl_total = Σ(sim_pnl_per_signal across all signals in holdout)
+```
+
+**Worked example** (NIFTY long CE 24300 strike, predicted TP=30 pts on spot, predicted SL=15 pts):
+- Signal fires at t=0; spot=24280, ATM CE 24300 bid=185, ask=187
+- Entry price = 187 (we pay the ask)
+- Replay actual ticks: spot reaches 24310 at t=8min → exits at TP
+- Exit tick: ATM CE 24300 bid=212, ask=214
+- Exit price = 212 (we sell at the bid)
+- Gross PnL = 212 − 187 = 25 pts × 75 lot = ₹1875
+- Charges (Charges_Spec): ₹125 (brokerage + STT + GST + exchange + SEBI)
+- sim_pnl_per_signal = ₹1750
+
+**Properties:**
+- Deterministic — same holdout, same model, same number every time.
+- Conservative — assumes worst-case fill (ask on buy, bid on sell) every time.
+- Uses real recorded tick data — no synthetic prices.
+- Live trades may beat this metric (sometimes get inside-spread fills) — that's the desired safety margin.
+
+**Decision threshold (walk-forward, Sugg #5 Option B):** model promoted to paper trade if **mean across 5 walk-forward holdouts** satisfies `sim_pnl_total ≥ wave2_baseline_sim_pnl × 1.20` AND per-trade expectancy ≥ +8 pts (per §1.3). Worst-fold sim_pnl reported separately as a sanity check; if worst-fold < 0, escalate before promotion.
+
+**Walk-forward setup:** 5 holdout windows, each 1 trading week (5 sessions), spaced evenly across the dataset. Training set for fold N = all sessions except that week's holdout. Total compute per validation cycle: 78 heads × 4 instruments × 5 folds = 1560 LightGBM trainings (~20 hours).
+
+**Upgrade path:** Migrate to Option D (multi-scenario best/expected/worst) once paper trading produces real fill data — see PROJECT_TODO T9.
 
 ---
 
@@ -300,13 +425,19 @@ TP/SL come from predicted magnitude / max-drawdown, not fixed levels.
 
 Per-instrument config opt-in: `gate_mode: "wave2"` (legacy) / `"trend"` (v2 only) / `"wave2+trend"` (ensemble).
 
+**Cost-floor hard veto (LOCKED 2026-05-16):** Signal blocked if `predicted_TP_pts < cost_floor_pts`. SEA implements `compute_cost_floor(instrument, strike, side, qty)` which calls Charges_Spec to compute `(brokerage + STT + exchange_fee + GST + estimated_slippage) × (1 + cost_floor_buffer_pct)`. Default `cost_floor_buffer_pct = 30%`.
+
+This is "Option B" from Gap #1 fix — TP-floor with dynamic costs. Migration to "Option D" (expected-value floor) is a deferred task (see PROJECT_TODO T8) — requires calibrated probabilities from first v2 retrain.
+
+**Position-aware hard veto (LOCKED 2026-05-16 — Sugg #13 Option B):** Before fire, SEA gate calls `PortfolioAgent.has_open_position(instrument, side)`. If returns `True`, signal is blocked and logged with reason `duplicate_position`. This is independent of and stricter than the 5-min cooldown — covers the case where a fresh predicted setup appears on the same instrument+side mid-cooldown. Prevents over-positioning and capital waste especially relevant under 1-lot AI Live cap. Upgrade path to richer position-context features (Option C) deferred — see D29.
+
 **Open for deep dive:**
 - θ_dir tuning (precision-at-K vs F1 vs simulated-PnL)
 - Dwell-time (must signal persist N ticks?)
 - Priority when both Wave 2 and trend gates fire on same tick
 - What predictions feed TP/SL (point estimates vs quantile heads)
 - Max Pain weighting: only when `days_to_expiry ≤ 2`
-- Brokerage + STT cost floor must be incorporated in TP target (Charges_Spec §3.X — TP must clear cost+slippage)
+- Per-instrument `cost_floor_buffer_pct` tuning (default 30% — may relax to 20% post-paper-trade for high-confidence signals)
 
 ---
 
@@ -331,6 +462,13 @@ Per-instrument config opt-in: `gate_mode: "wave2"` (legacy) / `"trend"` (v2 only
 - Exit when `trend_age_ticks` ≥ N AND `momentum_deceleration` < threshold (trend tiring)
 - Exit when `premium_acceleration_drop` < threshold while position open
 - Exit on `volume_no_move_score` spike (absorption — likely reversal)
+
+**Regime-flip protection (LOCKED 2026-05-16 — Gap #8 Option C):** When L8 regime flips AWAY from the entry regime AND new regime has sustained ≥3 min (debounce against L8 noise), do NOT force exit. Instead:
+- Move SL to entry price (lock break-even on the trade)
+- Reduce TP to `current_price + (remaining_TP_distance × 0.5)` (take half what's left)
+- All other exit triggers (TP/SL/time/trail/OI/exhaustion) continue to compete — first wins
+
+Rationale: regime flip is partial information. Forcing exit (Option B) whipsaws on a noisy L8 classifier; ignoring it (Option A) leaves you exposed to reversal. Locking break-even + halving the target captures gains while staying in for partial follow-through.
 
 **Open for deep dive:**
 - Trail trigger formula precision
@@ -382,10 +520,15 @@ Small accounts can't trade NIFTY at low conviction (1 lot = ₹7,500–15,000 ri
 - Broker WS budget caps (already implemented — see DualAccountArchitecture_Spec)
 - N-consecutive-losers auto-pause (resume requires manual re-enable)
 
-**Event-driven blackout windows:**
-- RBI policy days (calendar-based)
-- Major macro release days (CPI, GDP, Fed FOMC, US NFP)
-- Earnings of index-heavy stocks (only if material to index — defer)
+**Event-driven blackout windows (LOCKED 2026-05-16 — Sugg #12 Option D blackout half):**
+
+| Category | Action | Examples |
+|---|---|---|
+| **Tier-1 (hard blackout)** | `trading_allowed=0` for the affected instrument(s) on the event day | RBI policy day, Union Budget day, general election counting day, Fed FOMC release day (for crude/naturalgas), index F&O lot-size change announcements |
+| **Tier-2 (feature-flag, no blackout)** | Model sees `is_tier_2_event_day`, `event_type_categorical`, `hours_to_next_tier_1_or_2_event` (§2.1.4 C11) and learns event-specific patterns | GDP/CPI release (IN), OPEC meetings (crude/naturalgas), US NFP, monthly expiry day (crude/naturalgas) |
+| Earnings of index-heavy stocks | Deferred (only if material to index — needs evidence) | — |
+
+Source: `config/event_calendar.json` (new file, manually maintained quarterly — see D28).
 
 All limits checked **before** L6 sizing → tripped limit blocks trade entirely.
 
@@ -420,6 +563,8 @@ L4 gate reads this — only emits trend signals in `trend` regime (initially). W
 
 L4 gate respects this: hard veto on counter-trend signals (no LONG when `bears_in_control`; no SHORT when `bulls_in_control`).
 
+**Regime flip definition (LOCKED 2026-05-16 — supports Gap #8 mid-trade policy):** a regime "flip" is recognized only when the new regime has been sustained for **≥3 consecutive minutes**. This debounces against momentary L8 oscillation and prevents whipsaw exits on per-tick noise.
+
 **Expiry-day regime modulator:** C4 GEX features matter most on expiry days (Thursday for NIFTY, monthly for others). L8 should up-weight GEX inputs to L4 on those days.
 
 Rule-based first because labels for a learned regime classifier are circular (you'd label them using the same trend definition).
@@ -444,6 +589,25 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 | Per-row storage | baseline | +20% |
 | LightGBM models per instrument | 60 | 78 (60 Wave 2 + 18 trend) |
 | LightGBM models total (× 4 instruments) | 240 | 312 |
+
+### 3.1 Schema evolution policy (LOCKED 2026-05-16 — Option A)
+
+**Policy:** MTA reads only parquets matching the current `LATEST_SCHEMA_VERSION`. Older-schema parquets are **ignored** at training time, not deleted.
+
+**Implications:**
+- Existing ~10 sessions of 402-col parquets become inaccessible to MTA when v2 schema ships.
+- First v2 retrain requires accumulating ≥30 sessions from scratch under new schema.
+- Calendar cost: ~6 weeks of recording (Mon–Fri × 5 sessions/week) vs ~4 weeks under Option C backfill.
+- **Reversible:** raw `.ndjson.gz` files retained. Can re-run replay later to backfill old sessions if decision changes.
+
+**Why Option A over C:** user chose simplicity over 2-week schedule acceleration on 2026-05-16. Trade-off accepted: 2 extra weeks of waiting in exchange for zero replay-pipeline complexity and no parquet bulk-rewrite.
+
+**Implementation:**
+- Emitter exposes `LATEST_SCHEMA_VERSION` constant — bump on every schema-affecting change.
+- Parquet metadata includes `schema_version` written at emit time.
+- MTA filters out parquets where `schema_version != LATEST_SCHEMA_VERSION` at training-time, logs ignored count.
+- No `--mode=schema-upgrade` replay flag needed.
+- If user later reverses decision: re-run `replay_runner.py` on old `.ndjson.gz` to regenerate parquets at current schema.
 
 ---
 
@@ -526,8 +690,118 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 | TradingDesk_Spec_v1.3 | Filtered-signals view shows `gate_mode` field per signal |
 | MainScreen_Spec_v1.3 | Show regime tag from L8 (trend/range/chop + bulls/bears/contested) |
 | InstrumentCard_v2_Spec_v0.1 | Per-instrument `gate_mode` display |
-| Journal_Spec_v0.1 | Record `gate_mode` per trade for head-to-head analysis |
+| Journal_Spec_v0.1 | Record `gate_mode` per trade for head-to-head analysis + trade-quality fields (see §5.1) |
 | HeadToHead_Spec_v0.1 | Wave2 vs trend gate vs ensemble comparison rows |
+
+### 5.1 Trade-quality scorecard (LOCKED 2026-05-16 — Sugg #7 Option C)
+
+**At every trade close, journal records these fields:**
+
+| Field | Source | Purpose |
+|---|---|---|
+| `predicted_tp_pts` | SEA signal | What model thought target was |
+| `predicted_sl_pts` | SEA signal | What model thought max risk was |
+| `actual_capture_pts` | Realized exit price − entry price | What we got |
+| `capture_ratio` | `actual_capture_pts / predicted_tp_pts` | 1.0 = TP hit; <0 = SL hit; 0–1 = partial |
+| `exit_reason` | RCA exit decision | One of: `TP`, `SL`, `time_stop`, `trail_stop`, `regime_flip`, `oi_unwind`, `oi_buildup`, `wall_break`, `exhaustion_trend_age`, `exhaustion_premium`, `volume_absorption`, `manual` |
+| `gate_mode_at_entry` | SEA gate config | `wave2` / `trend` / `wave2+trend` |
+| `regime_at_entry` | L8 snapshot | `trend` / `range` / `chop` + bull/bear/contested |
+| `regime_at_exit` | L8 snapshot | Same set |
+| `time_in_trade_sec` | RCA | Hold duration |
+| `instrument`, `strike`, `side` | TEA | For per-instrument segmentation |
+
+**Weekly batch report** (auto-generated Sunday EOD, `docs/reports/trade_quality_YYYY-MM-DD.md`):
+
+| Section | Content |
+|---|---|
+| Headline | Total trades, win rate, mean capture, mean capture ratio |
+| By gate_mode | Win rate + mean capture for `wave2` vs `trend` vs ensemble |
+| By exit_reason | Distribution: what % exit on TP / SL / regime_flip / etc. Flag any reason ≥30% of exits |
+| By regime drift | % of trades where `regime_at_entry ≠ regime_at_exit`. Of those, win rate split. Identifies "regime-flip kills us" pattern |
+| By time-in-trade bucket | <2min, 2-10min, 10-25min, >25min — which holds are profitable |
+| Worst 5 trades | Full row dump for case-by-case review |
+| Best 5 trades | Same — find patterns to amplify |
+
+**Why C and not B (single score):** a single 0–100 quality score hides WHICH dimension failed. C gives you "20% of SHORT trades exit on regime-flip" — actionable. B gives you "Tuesday score: 47/100" — not actionable.
+
+**Feedback loop:** report findings flow back into L4 gate tuning (e.g., "regime-flip exits dominate `wave2+trend` ensemble → tighten ensemble priority" → V2_MASTER_SPEC §2.4 open item θ tuning).
+
+### 5.2 Pre-market sanity check (LOCKED 2026-05-16 — Sugg #8 Option D)
+
+**Cron:** 08:50 IST Mon-Fri (scheduled via existing auto-recorder infra).
+**Script:** `scripts/pre_market_check.py` (to be created in T3 Phase 6).
+
+**Checks per run (red on any failure):**
+
+| # | Check | Pass criterion |
+|---|---|---|
+| 1 | Model file integrity (all 78 per instrument × 4) | Every `.lgbm` loads without exception; expected feature count matches LATEST_SCHEMA_VERSION |
+| 2 | Scaler / feature_config presence | `config/model_feature_config/<inst>_feature_config.json` exists for each instrument |
+| 3 | Prediction sanity | Predict on last hour of yesterday's chain snapshots. Verify per head: no all-NaN, no all-0, no all-1, prediction distribution within ±3σ of historical baseline |
+| 4 | Dhan token freshness (both accounts) | `token_age_hours < 14` for `dhan` (primary) and `dhan-ai-data` (spouse) |
+| 5 | Chain feed last-update per instrument | `last_chain_snapshot_age_hours < 24` for each of 4 instruments |
+| 6 | Last training timestamp | `models/<inst>/LATEST` timestamp < 14 days old (concept drift safety) |
+
+**Output:**
+- Telegram message (TFA bot): green ✓ "All 4 instruments ready" or red ✗ with failing check IDs and which instrument/head
+- Optional auto-disable: on red, set `ai-live` channel `trading_allowed=0` until manual reset (see D24)
+- Log to `logs/pre_market_check/<date>.log` for audit
+
+**Rationale Option D over B/C:** B+C catch the problems but require operator to check screen at 08:50. D pushes the result to phone — operator wakes up at 06:00, sees ✓ at 09:00, knows system is healthy without opening laptop. On red, hits "Disable AI Live" on the bot before market opens. Zero implementation cost over C (Telegram bot already exists per `tfa_bot/`).
+
+### 5.3 Concept drift detection (LOCKED 2026-05-16 — Gap #14 Option C)
+
+**Cron:** 20:00 IST daily (post-session, after parquet write).
+**Script:** `scripts/drift_check.py` (to be created in T3 Phase 6).
+
+**Per-head AUC tracking:**
+
+| Step | Logic |
+|---|---|
+| 1 | Load today's predictions from `logs/signals/<instrument>/YYYY-MM-DD_signals.log` and today's realized outcomes from `data/features/<date>/<instrument>_features.parquet` |
+| 2 | For each of 78 model heads × 4 instruments = 312 heads, compute today's per-head AUC vs realized target |
+| 3 | Maintain rolling 5-day mean AUC per head (state file `data/drift/per_head_auc_history.json`) |
+| 4 | Compare 5-day mean to baseline AUC recorded at last retrain (stored alongside model in `models/<inst>/<timestamp>/baseline_auc.json`) |
+| 5 | Alert (Telegram) per-head if `(baseline_auc − 5day_mean_auc) / baseline_auc > 10%` |
+
+**Why C (per-head granularity) and not B (aggregate AUC):**
+- Aggregate AUC masks: 77 heads steady + 1 head broken → average looks fine, but that 1 head firing bad signals
+- Per-head tells you which head to investigate: "trend_direction_900s for crudeoil is broken" → check if crude microstructure shifted (e.g., oil-price cap change, expiry rule change)
+- Surfaces *which* models to manually retrain in isolation vs full system retrain
+
+**Output:**
+- Telegram: `[DRIFT] crudeoil/trend_direction_900s AUC 0.61 → 0.54 (−11.5%) over 5d, baseline 0.61` per failing head
+- Log to `logs/drift_check/<date>.log`
+- Daily summary line even on green: total 312 heads, 0 drift, all clean
+
+**Auto-retrain decision (D not adopted):** keep human in loop. Auto-retrain risks shipping a worse model unattended. Alert → human reviews → manual trigger of T3 Phase 5 retrain for the affected instrument(s). See PROJECT_TODO T12 for the gated auto-retrain proposal (deferred).
+
+### 5.4 Per-trade SHAP explainability (LOCKED 2026-05-16 — Gap #15 Option C)
+
+**At every signal fire, SEA computes and logs SHAP values:**
+
+| Step | Logic |
+|---|---|
+| 1 | LightGBM has built-in SHAP via `predict(..., pred_contrib=True)`. Returns per-feature contribution to the prediction (~1ms per call). |
+| 2 | For the gating head (e.g., `trend_direction_900s`), extract top 5 features by `abs(shap_value)` |
+| 3 | Append to signal log: `top_5_shap_contributors`: `[{"feature": "net_gex", "value": +0.18, "feature_value": 4823}, ...]` |
+| 4 | Mirror to Journal_Spec on trade close — full top-5 stays with the trade record |
+| 5 | Storage: ~10 KB per signal × ~20 signals/day total × 250 days = ~50 MB/year. Trivial. |
+
+**Weekly trade-quality report extension (extends §5.1):**
+
+| Section | Content |
+|---|---|
+| SHAP-by-outcome | For winners: top 10 features by aggregated abs(SHAP) across all winning trades that week. Same for losers. |
+| SHAP-by-instrument | Per-instrument: which features dominate decisions. If e.g. `chain_pcr_atm` shows in 80% of losers and 20% of winners → flag as candidate for pruning |
+| SHAP feature stability | Compare top-10-by-SHAP this week vs last week. Big shifts indicate model relying on different features → drift indicator |
+
+**Feedback loop:**
+- Losers driven by features → those features candidate for pruning at next retrain (feeds §2.1.7 pruning policy)
+- Stable winners driven by 3-4 features consistently → that's your real edge → protect those features from pruning
+- Gives Partha a "second opinion" on every signal: "model fired because GEX = +24% over yesterday, breakout_event_5min triggered, regime trend-permissive" — debuggable, trustable
+
+**Rationale C over D:** D adds real-time UI display per signal — operator pretty UI is nice but doesn't compound into edge. C's aggregated weekly view IS where insight emerges. UI is a follow-up after paper-trade workflow stabilizes.
 
 ---
 
@@ -546,16 +820,42 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 
 **Total active work: ~6–9 days · Wall time: ~30+ days including data wait**
 
+### 6.1 Retrain cadence (LOCKED 2026-05-16 — Gap #5 Option C)
+
+**Schedule:** Weekly, Saturday 02:00 IST.
+
+**Why Saturday:** markets closed Friday EOD → fresh weekly data baked in by Sat morning. Full Sunday for human review of metrics before Monday deployment. Avoids any conflict with live trading on weekdays.
+
+**Process per cycle:**
+
+| Step | Time | Action |
+|---|---|---|
+| Sat 02:00 | Cron trigger | `scripts/retrain_v2.sh` runs |
+| Sat 02:00–22:00 | ~20 hr | 78 heads × 4 instruments × 5 walk-forward folds = 1560 LightGBM trainings |
+| Sat 22:00 | Per-head sim_pnl compare | For each of 78 heads × 4 instruments, compute `sim_pnl_delta_pct = (new − prior) / abs(prior)` |
+| Sat 22:30 | Regression block (Gap #7 Option B) | Reject any head where `sim_pnl_delta_pct < -5%` (`regression_threshold`) even if absolute new sim_pnl is positive. Emit summary: "X heads improved, Y unchanged, Z regressed (blocked)" |
+| Sat 23:00 | Stage per-head CANDIDATE | Build `models/<inst>/CANDIDATE_HEADS.json` containing entries for ONLY heads that won AND passed regression block. Non-winners and regressed heads stay on existing LATEST_HEADS entry. If zero heads qualified, log "no promotion" and exit |
+| Sun (anytime) | Human review | Trade-quality report (§5.1) + drift report (§5.3) + CANDIDATE metrics |
+| Mon 08:50 | Pre-market check (§5.2) | Runs on whichever of LATEST_HEADS/CANDIDATE_HEADS is active. If CANDIDATE_HEADS approved by human, archive current LATEST_HEADS → `HEADS_HISTORY/`, then promote CANDIDATE_HEADS → LATEST_HEADS; else keep LATEST_HEADS. |
+
+**Telegram notifications:** "Sat retrain started" / "Sat retrain CANDIDATE ready: NIFTY +18 pts vs prod, BANKNIFTY −3 pts (worst-fold negative, escalate)" / "Sat retrain no-go: all instruments below threshold."
+
+**Compute cost:** ~20 hours weekly. Acceptable on offline GPU/CPU; doesn't affect live trading.
+
+**Why C over D (event-driven):** event-driven requires confidence in drift detection (Gap #14) AND a clean automation pipeline. Start with deterministic weekly cadence — predictable, debuggable. Upgrade to D after 1 month proves drift detector is reliable (see D26).
+
 ---
 
 ## 7. Per-instrument numbers (placeholders, TBD)
 
-| Instrument | Noise floor | Lot size | Daily loss limit | Max signals/day |
-|---|---|---|---|---|
-| nifty50 | **8 pts** (LOCKED) | 75 | TBD | TBD |
-| banknifty | 25 pts (proposed) | 30 | TBD | TBD |
-| crudeoil | 5 INR (proposed) | 100 | TBD | TBD |
-| naturalgas | 3 INR (proposed) | (TBD) | TBD | TBD |
+| Instrument | Noise floor | Lot size | Daily loss limit | Max signals/day | Slippage %/strike |
+|---|---|---|---|---|---|
+| nifty50 | **8 pts** (LOCKED) | 75 | TBD | TBD | **0.3%** (LOCKED, default) |
+| banknifty | 25 pts (proposed) | 30 | TBD | TBD | **0.5%** (LOCKED, default) |
+| crudeoil | 5 INR (proposed) | 100 | TBD | TBD | **1.0%** (LOCKED, default) |
+| naturalgas | 3 INR (proposed) | (TBD) | TBD | TBD | **1.5%** (LOCKED, default) |
+
+`slippage_pct_per_strike_distance` defaults from Gap #4 fix (2026-05-16). To be recalibrated from real fill data — see PROJECT_TODO T10.
 
 To be filled during L7 lock session.
 
@@ -575,6 +875,41 @@ To be filled during L7 lock session.
 - 30-day head-to-head: ai-live % gain ≥ my-live % gain on same signal set
 - Per HeadToHead_Spec v0.1
 
+### 8.4 Scalp + Trend models coexist permanently (REVISED 2026-05-16 — supersedes Gap #18)
+
+**Decision (Gap #28 Option X):** Both Scalp model (Wave 2) and Trend model (v2) run together permanently across all 4 instruments. Neither retires regardless of relative performance.
+
+**Why:**
+- Scalp model catches day-extreme reversal opportunities (verified 9/9 directionally on tested days). Trend model misses these — different setup.
+- Trend model catches sustained moves (10-30 min). Scalp model misses these — different setup.
+- Together they cover more setups than either alone. Removing one creates a coverage gap that the other cannot fill.
+
+**Default `gate_mode`:** `wave2+trend` for every instrument, permanently. Per-instrument config can override to `wave2` or `trend` only if user explicitly opts out (e.g., for diagnostic testing); not driven by automated retirement.
+
+**Replaces:** prior Gap #18 retirement criteria (30-day 10pp win-rate gap trigger). That logic is removed. Tracking of per-gate would-have-fired decisions still useful for ensemble combinator tuning + trade-quality report (§5.1), but no longer drives retirement.
+
+**Operational reference:** see `docs/WAVE2_RESUMPTION_GUIDE.md` for Scalp model operational procedures — applies indefinitely.
+
+**Ensemble combinator design** (open): how `wave2+trend` resolves conflicts (e.g., scalp says LONG_CE, trend says SHORT_CE on same tick) is an L4 deep-dive open item — see §2.4 open items.
+
+### 8.5 AI-Live halt rule (LOCKED 2026-05-16 — Gap #28 rollback half)
+
+Since Scalp + Trend coexist permanently (§8.4), there's no "revert to Scalp" rollback. Instead the halt rule protects capital when the ensemble itself underperforms:
+
+**Trigger:** if `ai-live` channel weekly PnL is negative for **4 consecutive weeks** (rolling), automatically set `ai-live` channel `trading_allowed=0`. Telegram alert. Manual reset required after post-mortem.
+
+**Why 4 weeks, not faster:** single losing week is statistical noise. 2-3 weeks could be regime mismatch (model trained on dull period, market enters trending period). 4 weeks of consistent negative = something structural broke.
+
+**Post-mortem checklist when triggered:**
+- Check §5.1 trade-quality report — which exit_reason dominates losers?
+- Check §5.3 drift report — which heads' AUC dropped?
+- Check §5.4 SHAP — which features drove the losing trades?
+- Decide: re-tune gate thresholds / retrain immediately / disable one of Scalp/Trend / revisit L1 features
+
+### 8.6 Per-instrument decision ownership (LOCKED 2026-05-16 — Gap #28 ownership half)
+
+All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`, `max_signals/day`, `slippage_pct_per_strike_distance`, and any future additions) are owned by **Partha**. Changes require explicit decision recorded in §9 with date-stamp. No spec edit may change a §7 value without a corresponding §9 entry.
+
 ---
 
 ## 9. Pending decisions (consolidated)
@@ -592,8 +927,48 @@ To be filled during L7 lock session.
 | D9 | Daily-loss-limit per instrument | L7 lock |
 | D10 | Max concurrent positions cap | L7 lock |
 | D11 | Regime thresholds (ADX, range-compression) | L8 lock |
-| D12 | Whether to drop Wave 2 entirely after v2 proves out | Post-paper-trade |
+| D12 | ~~Whether to drop Wave 2 entirely after v2 proves out~~ | **RESOLVED 2026-05-16 — Gap #28 Option X SUPERSEDES Gap #18. Scalp + Trend coexist permanently. See §8.4. No automated retirement** |
 | D13 | Walk-forward retrain cadence | L3 lock |
 | D14 | Feature-importance pruning thresholds | Post-retrain |
 | D15 | Cross-instrument correlation features | Post-v2 (T7 swing or new task) |
 | D16 | India VIX subscription decision | L1 lock |
+| D17 | Migration trigger from TP-floor (Option B) to EV-floor (Option D) | After first v2 retrain — validate probability calibration on 5-day holdout, then promote |
+| D2 | Replay backfill policy | **RESOLVED 2026-05-16 — Option A** (throw away old parquets, accumulate 30 sessions under new schema). Raw .ndjson.gz retained; reversible if decision changes. See §3.1 |
+| D18 | Sim-PnL upgrade Option C → D (multi-scenario best/expected/worst) | After paper trading produces real fill data — calibrate "expected" slippage scenario from actual broker fills, then add best/worst envelope reporting. See PROJECT_TODO T9 |
+| D19 | Recalibrate `slippage_pct_per_strike_distance` from real fills | After 100 paper fills per instrument. See PROJECT_TODO T10 |
+| D20 | Upgrade slippage model Option B → C (volume-conditional) | After paper-trade liquidity patterns emerge. See PROJECT_TODO T11 |
+| D21 | Upgrade walk-forward to stratified-by-regime (Sugg #5 Option C) | After L8 regime classifier is locked. Stratify holdouts to ensure mix of expiry/news/dull weeks across folds rather than random temporal slicing |
+| D22 | Tune regime-flip debounce window (currently 3 min) and TP-reduction factor (currently 0.5) | After paper-trade data on how often regime flips reverse vs persist. May raise debounce to 5 min if L8 too noisy, or reduce factor to 0.3 if half-TP is too aggressive |
+| D23 | Auto-feed trade-quality findings back to L4 gate tuning (§5.1 weekly report → θ_dir adjustments) | After 4-week paper-trade data accumulates and report patterns stabilize. Could be auto-suggestion or human-reviewed change |
+| D24 | Pre-market check failure → auto-disable AI Live channel | If red on any check, should `ai-live` channel auto-set `trading_allowed=0` until manual reset, OR alert-only? Decide after paper-trade infrastructure stable |
+| D25 | Tune per-head drift threshold (currently 10% AUC drop over 5d) | Per-head may need different thresholds — `trend_direction_*` is critical (tighter, e.g. 7%), `trend_breakout_imminent_*` rarer (looser, e.g. 15%). Calibrate after first month of drift_check data |
+| D26 | Upgrade retrain cadence from weekly (C) to event-driven (D) | After 1 month of weekly retrains + drift detector proven reliable. Event-driven = retrain on (drift alarm OR major event OR weekly fallback) |
+| D27 | Add real-time SHAP UI display per signal (upgrade Gap #15 C → D) | Operator-facing UI showing top-3 SHAP contributors per fired signal in the TradingDesk filtered-signals view. Cosmetic improvement after paper-trade workflow stable |
+| D28 | `config/event_calendar.json` maintenance ownership + automation | Today maintained manually quarterly. Could auto-pull from NSE/MCX/SEBI/Fed/OPEC websites. Decide post-paper-trade based on miss rate of manual updates |
+| D29 | Upgrade position-awareness Option B → C (full position-context features in L1) | When scaling beyond 1-lot AI Live cap, model needs to see "we're long N lots at strike X for Y minutes" as features — TFA + SEA refactor to push PortfolioAgent state into the feature pipeline |
+| D30 | Upgrade model registry Option B → C (per-head audit trail) | Every promotion logged with reason, sim_pnl delta, promoter (human/auto). Weekly trade-quality report (§5.1) partially does this; promote to first-class audit log when retrain cadence stabilizes |
+| D31 | Tune per-head regression threshold (currently uniform −5%) | Per-head thresholds may need calibration — critical heads (`trend_direction_*`) tighter (e.g. −3%), noisy heads (`trend_breakout_imminent_*`) looser (e.g. −10%). Calibrate after first month of retrain data showing typical week-over-week sim_pnl variance per head |
+| D32 | Daily PnL reconciliation broker vs internal (Gap #16) | DEFERRED post-paper-trade phase. Implement after model + prediction + data collection + paper trading + retraining cycle stabilizes. Per-trade reconciliation (Option C) catches missed fills, commission errors, broker-internal drift |
+| D33 | ~~Tune Wave 2 retirement threshold~~ | **OBSOLETE 2026-05-16 — Retirement logic removed by Gap #28 Option X (§8.4 revision). Scalp + Trend coexist permanently** |
+| D34 | Revisit pruning if v2 model overfits | Gap #24 locked Option D (no pre-prune, trust regularization). If first-retrain shows train-AUC >> holdout-AUC at any head, escalate to two-stage A approach |
+| D35 | Upgrade feature catalog Option C → D (per-feature importance + provenance) | After first v2 retrain, augment auto-generated catalog with per-feature importance scores + which models use each feature. Requires `scripts/extract_feature_importance.py` parser of `.lgbm` model_dump |
+| D36 | Doc role separation: V2_MASTER_SPEC vs PROJECT_TODO | **RESOLVED 2026-05-16 — Non-issue. V2_MASTER_SPEC is active design+dev plan (§2.0 layer status). PROJECT_TODO is parking lot for deferred tasks (T-list). Distinct purposes by design — no mirroring needed. During v2 design work, anything decided to be done later → add to PROJECT_TODO as new T-entry** |
+| D34 | Revisit single-pass pruning (Gap #24 D) if overfit observed | If first model's training AUC ≫ holdout AUC (e.g., gap > 0.10), pivot to Option A (post-train prune + retrain) and tighten regularization further |
+
+---
+
+## 10. Layer lock definitions
+
+Each layer goes from sketch → IN-PROGRESS → LOCKED. **LOCKED** requires:
+
+1. **All open items resolved** — every "Open for deep dive" / "Decisions still required" bullet in the layer's section has a concrete decision recorded.
+2. **Per-instrument numbers filled** — §7 row complete for that layer's contribution (noise_floor, slippage%, daily_loss_limit, max_signals/day, etc. as applicable). No "(TBD)" or "(proposed)" placeholders.
+3. **Acceptance/defer/reject explicit** — for layers with feature candidate tables (e.g., §2.1.4 C blocks), every row tagged ACCEPT / DEFER (→ T-task ID) / REJECT (→ §2.1.5 skipped reason).
+4. **Cross-layer dependency check** — any numbers the layer borrows from sibling layers (e.g., L1 noise floors used by L2 labeling) are also at LOCKED status, not IN-PROGRESS.
+5. **Date-stamped sign-off** — layer's status header reads `Status: LOCKED YYYY-MM-DD by <approver>` (e.g., `LOCKED 2026-05-30 by Partha`). Audit trail for "what was decided when."
+
+A layer cannot ship to code implementation (T3 phases) until LOCKED.
+
+A layer can be re-opened (LOCKED → IN-PROGRESS) only by explicit decision recorded in §9 (new D-entry) with reason for re-opening.
+
+This template applies to all 8 layers identically.
