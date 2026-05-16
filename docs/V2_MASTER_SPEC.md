@@ -138,7 +138,7 @@ The Wave 2 model (targets at 60–300s, magnitude ~5–9 INR) is verified to be 
 | 2 | Target labels | **LOCKED 2026-05-16 by Partha** (12 trend targets locked; 600s dropped per L1 D6) | §2.2 |
 | 3 | Model architecture | **LOCKED 2026-05-16 by Partha** (all 4 L3 decisions resolved: booster topology, hyperparameters, early stopping, per-instrument training) | §2.3 |
 | 4 | Gate logic | **LOCKED 2026-05-16 by Partha** (6 decisions resolved; L1+L2 now locked, dependency satisfied) | §2.4 |
-| 5 | Trade management | SKETCH | §2.5 |
+| 5 | Trade management | **LOCKED 2026-05-16 by Partha** (4 decisions: 2-tier trail, TP/SL lock at entry, 2-stop-out lockout, market fills) | §2.5 |
 | 6 | Position sizing | SKETCH | §2.6 |
 | 7 | Risk controls | SKETCH | §2.7 |
 | 8 | Regime / meta | SKETCH | §2.8 |
@@ -534,11 +534,26 @@ Stored in `config/sea_thresholds/<instrument>.json` alongside θ_dir. Confidence
 
 **What it is:** what happens between signal-emit and position-close — TP/SL, trailing, time-stops, partials.
 
-**v2 sketch — Hybrid static + time + trail:**
-- Entry: static TP from `trend_magnitude_900s`, static SL from `trend_max_drawdown_900s`
+**v2 trade management — Hybrid static + time + 2-tier trail:**
+- Entry: static TP from `trend_magnitude_900s`, static SL from `trend_max_drawdown_900s × 1.3` (per L4 D4 safety multiplier)
 - Time-stop at `min(predicted_horizon, 1800s)` regardless of P&L
-- After 50% of TP distance reached, activate per-minute trailing stop at `entry + 50% × magnitude_remaining_to_TP`
-- No partial profit-taking in v1 — full position out at TP / SL / time / trail-stop
+- **2-tier trailing (LOCKED 2026-05-16 — L5 D1 Option E):**
+  - Tier 1 (break-even lock): when price reaches `entry + 0.33 × (TP − entry)`, move SL to entry
+  - Tier 2 (trailing stop): when price reaches `entry + 0.66 × (TP − entry)`, activate trail at `SL = current_price − 0.5 × (TP − current_price)`
+  - Trail updates per-minute (not per-tick — reduces compute + prevents noise-wick flipping)
+- No partial profit-taking in v1 — full position out at TP / SL / time / trail-stop / OI exits / exhaustion / regime-flip
+
+**TP/SL lock at entry (LOCKED 2026-05-16 — L5 D2 Option A):** TP and SL are computed once at entry tick from `trend_magnitude_900s` and `trend_max_drawdown_900s × 1.3`, then **never updated** for the life of the trade. Reasons: operator-trustable (screen shows the exit plan), trade-quality report (§5.1) gets clean capture-ratio data, trail already handles "signal strengthening" implicitly. Dynamic TP/SL deferred — see D42.
+
+**Re-entry rules after stop-out (LOCKED 2026-05-16 — L5 D3 Option E):** track per-instrument per-side consecutive stop-out counter (resets on session start or any winner). Rules:
+- After 1 stop-out on `(instrument, side)`: normal gate logic applies — cooldown (5 min) + dwell-time (per L4 D2) already block immediate re-fire. No additional block.
+- After 2 consecutive stop-outs on same `(instrument, side)`: **block all re-entries for that (instrument, side) for the rest of the session**. Log `consecutive_stops_lockout`.
+
+Rationale: accept that the signal isn't working for that (instrument, side) today; switch attention. Counter resets at session start (next day fresh) OR after any winning trade. Protects against serial revenge trading.
+
+**Broker fill assumptions (LOCKED 2026-05-16 — L5 D4 Option A):** market orders for both entry and all exits (TP / SL / trail / time / OI / exhaustion / regime-flip). Matches sim_pnl validation assumption (Gap #3 Option C bid/ask fills). Limit-order optimization deferred — see PROJECT_TODO T15.
+
+**All L5 open items resolved. §2.5 promoted SKETCH → LOCKED 2026-05-16 by Partha.**
 
 **OI-driven exit triggers** (genuinely new — system currently has zero OI-based exits):
 - Support-unwinding: Long + `pe_oi_change_5min_pct` ≤ −15% → exit
@@ -1049,6 +1064,7 @@ All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`
 | D39 | Recalibrate `cost_floor_buffer_pct` per instrument from real fills | After 100 paper fills per instrument. Compare actual minute-wick width vs the buffer assumption; tighten if buffer over-protects, loosen if noise wicks break "winners" |
 | D40 | Recalibrate noise-floor per instrument from accumulated data | After ≥30 sessions accumulated, compute 95th-percentile of 1-min wick size per instrument; adjust noise-floor if defaults are mis-tuned. Same recalibration triggers L2 target relabeling |
 | D41 | Per-instrument LightGBM hyperparameter override | If walk-forward shows systematic overfitting on one instrument (train AUC > holdout AUC by >0.10), tune per-instrument override of L3 D2 defaults. Only after first month of paper trade |
+| D42 | Dynamic TP/SL (recalculate from rolling predictions) | If trade-quality report (§5.1) shows static TP/SL leaves significant edge on table (e.g., trends keep running after TP hit), upgrade L5 D2 from static to hybrid (static SL + dynamic TP) |
 | D36 | Doc role separation: V2_MASTER_SPEC vs PROJECT_TODO | **RESOLVED 2026-05-16 — Non-issue. V2_MASTER_SPEC is active design+dev plan (§2.0 layer status). PROJECT_TODO is parking lot for deferred tasks (T-list). Distinct purposes by design — no mirroring needed. During v2 design work, anything decided to be done later → add to PROJECT_TODO as new T-entry** |
 | D34 | Revisit single-pass pruning (Gap #24 D) if overfit observed | If first model's training AUC ≫ holdout AUC (e.g., gap > 0.10), pivot to Option A (post-train prune + retrain) and tighten regularization further |
 

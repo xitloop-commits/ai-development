@@ -23,7 +23,7 @@ Stage-by-stage design of the perfect signal system. All layer designs land in th
   - [x] L2 — Target labels LOCKED 2026-05-16
   - [x] L3 — Model architecture LOCKED 2026-05-16
   - [x] L4 — Gate logic LOCKED 2026-05-16
-  - [ ] L5 — Trade management deep dive ← **NEXT UP**
+  - [x] L5 — Trade management LOCKED 2026-05-16
   - [ ] L6 — Position sizing deep dive
   - [ ] L7 — Risk controls deep dive
   - [ ] L8 — Regime / meta deep dive
@@ -69,6 +69,14 @@ Show events_done / events_total_est / rate / ETA AND survive power cuts without 
 - **What's still TODO:**
   - Launcher reads progress.json and shows e.g. `crudeoil 05-13: 43% · ETA 6m` on the replay row.
 - **Out of scope:** pre-counting events (rejected — too slow), adding to Train/Backtest (Partha excluded).
+
+### T15 — Limit-order optimization for execution
+Investigate limit-order execution to reduce slippage cost. L5 D4 locked market orders for v1 to match sim_pnl validation assumption.
+
+- **Status:** Deferred. Reduces real slippage by 1-3 pts/trade if fills succeed; can break sim_pnl ↔ live coherence.
+- **Blocked by:** ≥200 paper fills per instrument (T3 Phase 7). Measure: % of would-have-been-limit-orders that fill within 5s at midprice.
+- **Trigger to upgrade:** if fill-rate ≥70% across paper trades AND slippage savings ≥1 pt/trade on filled signals.
+- **Spec change when ready:** V2_MASTER_SPEC §2.5 L5 D4 — upgrade to Option B/D. Mirror change to sim_pnl §2.3.4 to assume limit fills where applicable. Re-validate with walk-forward.
 
 ### T14 — Add 8 deferred L1 features post-paper-trade
 Add 8 features deferred at L1 D2 lock (2026-05-16) if first-retrain analysis shows missing signal that these would capture.
