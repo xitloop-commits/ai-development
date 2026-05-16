@@ -34,6 +34,20 @@ Default to short, crisp answers. Skip explanations unless asked.
 - Only escalate to detailed explanation when Partha asks "why", "explain", "details", "compare options".
 - Tool-call summaries: result first, mechanics last (or omitted).
 
+## Rule 3 — Use plain strategy names, not version numbers (May 16 2026)
+
+Refer to trading strategies by their actual descriptive name, not by internal version labels (Wave 1, Wave 2, v2, Phase 1, etc.). Version labels are for git commits and design docs, not conversation.
+
+**Why:** Partha said: *"do not confuse me with wave2, v2, say actual name (trend, swing, scalping)"*. Version labels carry no meaning for him in conversation — he tracks the system by what it DOES, not what we numbered it.
+
+**How to apply:**
+- "the scalp model" / "the scalping gate" — not "Wave 2"
+- "the trend system" / "the trend targets" — not "v2" or "the new spec"
+- "the swing layer" — not "the 5-min target group"
+- In code / file names / commits, version labels are fine (`docs/TARGET_SPEC_V2_DESIGN.md` is OK as a filename).
+- In CONVERSATION, always translate: when about to type "Wave 2", stop and say "the scalp model" instead.
+- If a doc has a version-name title, refer to it by what it covers ("the trend design doc") not its version slot.
+
 ## How to add new rules
 
 Append at the bottom of this file with format:
