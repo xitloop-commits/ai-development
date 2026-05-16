@@ -1,6 +1,12 @@
 {
-  "prob_min": 0.65,
+  "prob_min": 0.60,
   "rr_min": 1.5,
   "upside_percentile_min": 60.0,
-  "gate_mode": "current"
+  "gate_mode": "wave2",
+  "wave2": {
+    "persists_60s_min": 0.0,
+    "persists_300s_min": 0.0,
+    "exit_signal_60s_max": 1.0,
+    "breakout_in_60s_min": 0.30
+  }
 }

@@ -347,10 +347,19 @@ class Wave2Thresholds:
     # W1: persistence at 60s — "will direction hold for at least 1 minute?"
     persists_60s_min: float = 0.60
     # W2: persistence at 300s — "will direction hold for 5 minutes?"
+    # NB: empirical retraining (May 2026) showed this target is near-random
+    # (val_AUC ≈ 0.57); per-instrument config typically sets this to 0.0 to
+    # effectively disable the gate while keeping the field for back-compat.
     persists_300s_min: float = 0.50
     # W3: exit-signal probability cap — entry blocked if model says we'd
     # likely close the position within 60s anyway
     exit_signal_60s_max: float = 0.40
+    # W4: breakout-imminent probability floor — only fire when model predicts
+    # a directional break (above day high OR below day low) in the next 60s
+    # is likely. Added May 2026 to leverage the AUC-0.95 breakout_in_60s head
+    # the original Wave 2 gate ignored. Only enforced when prediction is
+    # finite, so it's a no-op for legacy / Wave 1 callers.
+    breakout_in_60s_min: float = 0.50
 
 
 def decide_action_wave2(
@@ -382,6 +391,7 @@ def decide_action_wave2(
         W1_persists_60s              — direction won't hold 1 min
         W2_persists_300s             — direction won't hold 5 min
         W3_exit_signal               — model says we'd exit shortly
+        W4_breakout_in               — no directional break expected in 60s
     """
     # ── Base 3-cond gate on 60s window (was 30s pre-Wave-2) ─────────────────
     dir_prob = predictions.get("direction_prob_60s")
@@ -412,6 +422,7 @@ def decide_action_wave2(
     persists_60 = predictions.get("direction_persists_60s")
     persists_300 = predictions.get("direction_persists_300s")
     exit_60 = predictions.get("exit_signal_60s")
+    breakout_60 = predictions.get("breakout_in_60s")
 
     if _is_finite(persists_60) and float(persists_60) < wave2_thresholds.persists_60s_min:
         reasons.append("W1_persists_60s")
@@ -419,6 +430,8 @@ def decide_action_wave2(
         reasons.append("W2_persists_300s")
     if _is_finite(exit_60) and float(exit_60) > wave2_thresholds.exit_signal_60s_max:
         reasons.append("W3_exit_signal")
+    if _is_finite(breakout_60) and float(breakout_60) < wave2_thresholds.breakout_in_60s_min:
+        reasons.append("W4_breakout_in")
 
     is_call = dir_prob_f > 0.5
     direction = "GO_CALL" if is_call else "GO_PUT"
@@ -538,7 +551,8 @@ def load_thresholds_full(
         "wave2": {                                    # optional, used iff gate_mode == "wave2"
           "persists_60s_min": 0.60,
           "persists_300s_min": 0.50,
-          "exit_signal_60s_max": 0.40
+          "exit_signal_60s_max": 0.40,
+          "breakout_in_60s_min": 0.50
         }
       }
 

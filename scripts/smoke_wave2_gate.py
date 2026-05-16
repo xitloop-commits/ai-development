@@ -35,6 +35,7 @@ from signal_engine_agent.thresholds import (
     Thresholds,
     Wave2Thresholds,
     decide_action_wave2,
+    load_thresholds_full,
 )
 
 
@@ -59,9 +60,19 @@ def main() -> None:
     print(f"  Model count: {len(models.models)}")
     print(f"  Features: {len(models.feature_names)}")
 
-    # Wave 2 gate uses defaults; could read from config but smoke keeps it inline.
-    thresholds = Thresholds()
-    wave2_thresholds = Wave2Thresholds()
+    # Load per-instrument thresholds from config/sea_thresholds/<inst>.json
+    # so the smoke reflects what production SEA will use.
+    config_dir = _REPO / "config" / "sea_thresholds"
+    thresholds, _v2, wave2_thresholds, gate_mode = load_thresholds_full(
+        args.instrument, config_dir
+    )
+    print(f"  Gate mode: {gate_mode}")
+    print(f"  Base:  prob_min={thresholds.prob_min}  rr_min={thresholds.rr_min}  "
+          f"pctile_min={thresholds.upside_percentile_min}")
+    print(f"  Wave2: persists_60s_min={wave2_thresholds.persists_60s_min}  "
+          f"persists_300s_min={wave2_thresholds.persists_300s_min}  "
+          f"exit_60s_max={wave2_thresholds.exit_signal_60s_max}  "
+          f"breakout_60s_min={wave2_thresholds.breakout_in_60s_min}")
     preprocessor = LiveTickPreprocessor(models.feature_config)
 
     with open(live_path, encoding="utf-8") as f:
