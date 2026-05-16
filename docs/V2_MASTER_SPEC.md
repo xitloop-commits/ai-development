@@ -140,7 +140,7 @@ The Wave 2 model (targets at 60–300s, magnitude ~5–9 INR) is verified to be 
 | 4 | Gate logic | **LOCKED 2026-05-16 by Partha** (6 decisions resolved; L1+L2 now locked, dependency satisfied) | §2.4 |
 | 5 | Trade management | **LOCKED 2026-05-16 by Partha** (4 decisions: 2-tier trail, TP/SL lock at entry, 2-stop-out lockout, market fills) | §2.5 |
 | 6 | Position sizing | SKETCH | §2.6 |
-| 7 | Risk controls | SKETCH | §2.7 |
+| 7 | Risk controls | **LOCKED 2026-05-16 by Partha** (6 decisions: hooks, reset cadence, rolling DD, paper/live toggle, expiry handling, per-instrument numbers) | §2.7 |
 | 8 | Regime / meta | SKETCH | §2.8 |
 
 Suggested deep-dive order: **4 → 5 → 7 → 6 → 8 → revisit 1–3.** Rationale: L4 unblocks paper-trade gate; L5 defines TP/SL semantics L4 depends on; L7 (risk caps) must exist before any live capital; L6 (sizing) needs L7 caps; L8 (regime) is enhancement on working baseline; L1–L3 only revisit if L4–L8 surface a gap.
@@ -640,12 +640,64 @@ All limits checked **before** L6 sizing → tripped limit blocks trade entirely.
 - L7 risk controls must respect per-channel budgets (`my-live`, `ai-live`, `ai-paper` have separate capital pools)
 - AI live: 1-lot cap per trade until 30-day head-to-head positive vs `my-live`
 
-**Open for deep dive:**
-- Kill-switch event hooks (Slack/email on halt)
-- Reset cadence (daily / weekly / manual)
-- Max drawdown over rolling N days as halt trigger
-- Paper vs live limit divergence
-- Expiry-day special handling (dealer hedging dominates)
+**Kill-switch event hooks (LOCKED 2026-05-16 — L7 D1 Option E):** severity-tiered notifications via existing `tfa_bot` Telegram infra. No new infrastructure.
+
+| Severity | Triggers | Action |
+|---|---|---|
+| **INFO** | Per-head drift alert (§5.3), regression-block per head (§6.1) | Telegram + log to `logs/risk/INFO_YYYY-MM-DD.log` |
+| **WARN** | Consecutive-loser pause, pre-market check red on non-critical item, ensemble disagreement-skip rate spike | Telegram + log + auto-create journal entry with reason |
+| **CRITICAL** | AI-Live halt (§8.5), daily-loss-limit hit, pre-market check red on model integrity (file corrupt / scaler missing), broker WS limit exceeded, kill-switch manual trigger | Telegram with `🚨` + log + journal + sound alert (if operator UI open) |
+
+Severity is part of the alert payload; operator filters by severity in Telegram bot view. Daily green summary line ("All 4 instruments OK, 0 risk events") still fires at 20:00 IST even on quiet days.
+
+**Reset cadence (LOCKED 2026-05-16 — L7 D2 Option A):**
+
+| Counter | Reset rule |
+|---|---|
+| `daily_loss_limit` | Daily at session start (08:55 IST) |
+| `max_signals_per_day` | Daily at session start |
+| `consecutive_loser_pause` | After any winning trade OR weekly Monday AM (whichever sooner) |
+| AI-Live halt (§8.5) | **Manual only** + requires post-mortem journal entry |
+| `(instrument, side) stop_lockout` (L5 D3) | Daily at session start |
+
+Rationale: daily counters reset naturally with sessions; AI-Live halt is "something broke" — needs human review before re-arming. Consecutive-loser pause resets on first winner so a winning streak unblocks; weekly fallback prevents indefinite lockout.
+
+**Rolling drawdown halt (LOCKED 2026-05-16 — L7 D3 Option D):** two-tier rolling DD trigger to catch slow-bleed (which daily-loss-limit misses):
+
+| Window | Threshold | Action |
+|---|---|---|
+| 5-day cumulative PnL | < −2 × `daily_loss_limit` | Halt `ai-live` channel (same mechanism as §8.5) |
+| 10-day cumulative PnL | < −3 × `daily_loss_limit` | Halt `ai-live` channel |
+
+Either trigger sets `trading_allowed=0` on `ai-live`. CRITICAL severity Telegram alert. Manual reset + post-mortem required (same workflow as §8.5).
+
+Rationale: 5-day catches near-term bleed fast (regime shift, recent code change). 10-day catches sustained slow-bleed even when individual days look OK. Both are at channel level (per-instrument tracking deferred — D43).
+
+**Per-channel risk-limit toggle (LOCKED 2026-05-16 — L7 D4 Option F user-driven):** each channel has a `risk_limits_enabled` boolean. When `false`, L7 soft limits do NOT apply — model + execution behave freely so paper-trade measures raw model behavior.
+
+| Channel | `risk_limits_enabled` default | Rationale |
+|---|---|---|
+| `ai-paper` | **false** | Raw model measurement — see full P&L curve unencumbered by halts |
+| `ai-live` | **true** (always) | Capital protection mandatory |
+| `my-live` | **true** (always) | Same |
+| `testing-live`, `testing-sandbox` | configurable | Operator chooses per session |
+
+Toggle stored in channel config; DA reads at signal-evaluation time.
+
+**Always-enforced (cannot be disabled regardless of toggle):**
+- Tier-1 event blackouts (RBI, Budget, election, FOMC) — §2.7 D5
+- Broker WS connection cap — per `DualAccountArchitecture_Spec`
+- Pre-market sanity-check fail (`ai-live` only)
+
+Soft limits gated by toggle: daily_loss_limit, max_signals_per_day, consecutive_loser_pause, rolling_dd_halt (5-day, 10-day), session-warmup blackout, lunch/EOD blackout.
+
+Optional usage: enable `risk_limits_enabled=true` on `ai-paper` for the final 2 weeks before ai-live activation to dress-rehearse the full halt machinery.
+
+**Expiry-day special handling (LOCKED 2026-05-16 — L7 D5 Option C):** on any day where `is_expiry_day=1` for an instrument, new entries for that instrument blocked after **14:30 IST**. Existing positions exit via normal L5 ladder (TP/SL/trail/time/regime/OI/exhaustion). Closing 60 min before 15:30 IST avoids the last-hour gamma scramble where stops cluster and slippage spikes.
+
+Earlier hours (09:15 – 14:30) trade normally — model uses `is_expiry_day`, `days_to_expiry_bucket`, and Max Pain features (C10) to adapt. Earlier hours often have legitimate trend setups before scramble.
+
+L7 D5 also applies when `risk_limits_enabled=false` for `ai-paper` — it's safety, not soft limit. Added to D44 always-enforced list.
 
 ---
 
@@ -954,15 +1006,16 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 
 | Instrument | Noise floor | Lot size | Daily loss limit | Max signals/day | Slippage %/strike | Cost-floor buffer % |
 |---|---|---|---|---|---|---|
-| nifty50 | **8 pts** (LOCKED) | 75 | TBD | TBD | **0.3%** (LOCKED) | **20%** (LOCKED) |
-| banknifty | **25 pts** (LOCKED) | 30 | TBD | TBD | **0.5%** (LOCKED) | **25%** (LOCKED) |
-| crudeoil | **5 INR** (LOCKED) | 100 | TBD | TBD | **1.0%** (LOCKED) | **35%** (LOCKED) |
-| naturalgas | **3 INR** (LOCKED) | (TBD) | TBD | TBD | **1.5%** (LOCKED) | **40%** (LOCKED) |
+| nifty50 | **8 pts** (LOCKED) | 75 | **₹2,500** (LOCKED) | **5** (LOCKED) | **0.3%** (LOCKED) | **20%** (LOCKED) |
+| banknifty | **25 pts** (LOCKED) | 30 | **₹3,000** (LOCKED) | **5** (LOCKED) | **0.5%** (LOCKED) | **25%** (LOCKED) |
+| crudeoil | **5 INR** (LOCKED) | 100 | **₹2,500** (LOCKED) | **4** (LOCKED) | **1.0%** (LOCKED) | **35%** (LOCKED) |
+| naturalgas | **3 INR** (LOCKED) | (TBD) | **₹2,000** (LOCKED) | **4** (LOCKED) | **1.5%** (LOCKED) | **40%** (LOCKED) |
 
 Noise-floor applies **same across all 3 trend horizons** (600s / 900s / 1800s) — minimum tradeable move doesn't scale with how long it took (L1 D1 + §2.2 decision, 2026-05-16). Recalibrate per D40 post-first-retrain.
 
 `slippage_pct_per_strike_distance` defaults from Gap #4 fix (2026-05-16). To be recalibrated from real fill data — see PROJECT_TODO T10.
 `cost_floor_buffer_pct` defaults from L4 D6 fix (2026-05-16). To be recalibrated from real fill data — see D39.
+`daily_loss_limit` + `max_signals_per_day` defaults from L7 D6 fix (2026-05-16). Sized ~5% of assumed ₹50k operating capital per instrument. To be recalibrated from first month of paper PnL distributions — see D45.
 
 To be filled during L7 lock session.
 
@@ -1065,6 +1118,9 @@ All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`
 | D40 | Recalibrate noise-floor per instrument from accumulated data | After ≥30 sessions accumulated, compute 95th-percentile of 1-min wick size per instrument; adjust noise-floor if defaults are mis-tuned. Same recalibration triggers L2 target relabeling |
 | D41 | Per-instrument LightGBM hyperparameter override | If walk-forward shows systematic overfitting on one instrument (train AUC > holdout AUC by >0.10), tune per-instrument override of L3 D2 defaults. Only after first month of paper trade |
 | D42 | Dynamic TP/SL (recalculate from rolling predictions) | If trade-quality report (§5.1) shows static TP/SL leaves significant edge on table (e.g., trends keep running after TP hit), upgrade L5 D2 from static to hybrid (static SL + dynamic TP) |
+| D43 | Per-instrument rolling DD halt | If channel-level rolling DD halts too often due to one bad instrument dragging others, add per-instrument rolling DD tracking + per-instrument halt |
+| D44 | Always-enforced safety list (cannot be disabled by L7 D4 toggle) | Locked initial list: tier-1 event blackouts, broker WS cap, pre-market sanity-check fail, **expiry-day 14:30 IST entry cutoff (L7 D5)**. Add to list if discovered post-paper that other limits must always apply regardless of channel |
+| D45 | Recalibrate `daily_loss_limit` + `max_signals_per_day` per instrument | After first month of paper PnL: set `daily_loss_limit` to ~2× the 90th percentile of daily losses observed; set `max_signals_per_day` to 1.5× median observed |
 | D36 | Doc role separation: V2_MASTER_SPEC vs PROJECT_TODO | **RESOLVED 2026-05-16 — Non-issue. V2_MASTER_SPEC is active design+dev plan (§2.0 layer status). PROJECT_TODO is parking lot for deferred tasks (T-list). Distinct purposes by design — no mirroring needed. During v2 design work, anything decided to be done later → add to PROJECT_TODO as new T-entry** |
 | D34 | Revisit single-pass pruning (Gap #24 D) if overfit observed | If first model's training AUC ≫ holdout AUC (e.g., gap > 0.10), pivot to Option A (post-train prune + retrain) and tighten regularization further |
 

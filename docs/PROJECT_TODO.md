@@ -25,7 +25,7 @@ Stage-by-stage design of the perfect signal system. All layer designs land in th
   - [x] L4 — Gate logic LOCKED 2026-05-16
   - [x] L5 — Trade management LOCKED 2026-05-16
   - [ ] L6 — Position sizing deep dive
-  - [ ] L7 — Risk controls deep dive
+  - [x] L7 — Risk controls LOCKED 2026-05-16
   - [ ] L8 — Regime / meta deep dive
 - **User-chosen order:** L1 → L2 → L3 first (finalize before L4-L8). Per 2026-05-16 brainstorm session.
 - **Constraints (do NOT re-litigate — see V2_MASTER_SPEC §1.2):**
