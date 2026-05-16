@@ -137,7 +137,7 @@ The Wave 2 model (targets at 60–300s, magnitude ~5–9 INR) is verified to be 
 | 1 | Input features | IN-PROGRESS (candidates listed; decisions pending) | §2.1 |
 | 2 | Target labels | LOCKED-CANDIDATE (from TARGET_SPEC §3–4) | §2.2 |
 | 3 | Model architecture | LOCKED-CANDIDATE (from TARGET_SPEC §6) | §2.3 |
-| 4 | Gate logic | SKETCH | §2.4 |
+| 4 | Gate logic | **LOCKED-CANDIDATE** (6 decisions resolved 2026-05-16; awaits L1+L2 LOCK per §10 rule 4) | §2.4 |
 | 5 | Trade management | SKETCH | §2.5 |
 | 6 | Position sizing | SKETCH | §2.6 |
 | 7 | Risk controls | SKETCH | §2.7 |
@@ -157,8 +157,8 @@ Suggested deep-dive order: **4 → 5 → 7 → 6 → 8 → revisit 1–3.** Rati
 |---|---|
 | A. Live in parquet today | **377** |
 | B. v2-plan multi-TF additions | **15** |
-| C. Brainstorm additions | **51** |
-| **All-accepted ceiling** | **443** |
+| C. Brainstorm additions | **52** |
+| **All-accepted ceiling** | **444** |
 | Realistic post-L1-lock + 40% pruning | **~265–295** |
 
 #### 2.1.2 A — Live in parquet today (377 input features)
@@ -212,8 +212,9 @@ Source: `python_modules/tick_feature_agent/output/emitter.py` `_build_column_nam
 | C9 IV expansion velocity | 4 | `iv_change_{1,5}min`, `iv_skew_velocity`, `iv_expansion_without_spot` | Current IV is snapshot only; missing time-derivative |
 | C10 Max Pain | 3 | `max_pain_strike`, `distance_to_max_pain_pct`, `max_pain_gravity_strength` | Approved 2026-05-16. Important for 4 traded instruments around expiry. L4 weights conditionally when `days_to_expiry ≤ 2` |
 | C11 Event calendar | 3 | `is_tier_2_event_day`, `event_type_categorical`, `hours_to_next_tier_1_or_2_event` | LOCKED 2026-05-16 (Sugg #12 Option D feature half). Tier-2 events (GDP, CPI, OPEC, NFP, monthly expiry) feed model as features; tier-1 events (RBI, Budget, election day, FOMC) trigger L7 blackout (§2.7). Source: `config/event_calendar.json` |
+| C12 Expiry-bucket categorical | 1 | `days_to_expiry_bucket` ∈ `{0, 1, 2, 3+}` | LOCKED 2026-05-16 (L4 D5 Option D). Lets LightGBM apply Max-Pain features conditionally — model self-learns when Max Pain matters (last 2 days) vs when it's noise (3+ days). Existing continuous `days_to_expiry` retained alongside |
 
-**C subtotal: 51**
+**C subtotal: 52**
 
 #### 2.1.5 D — Explicitly skipped (do not implement)
 
@@ -431,13 +432,39 @@ This is "Option B" from Gap #1 fix — TP-floor with dynamic costs. Migration to
 
 **Position-aware hard veto (LOCKED 2026-05-16 — Sugg #13 Option B):** Before fire, SEA gate calls `PortfolioAgent.has_open_position(instrument, side)`. If returns `True`, signal is blocked and logged with reason `duplicate_position`. This is independent of and stricter than the 5-min cooldown — covers the case where a fresh predicted setup appears on the same instrument+side mid-cooldown. Prevents over-positioning and capital waste especially relevant under 1-lot AI Live cap. Upgrade path to richer position-context features (Option C) deferred — see D29.
 
-**Open for deep dive:**
-- θ_dir tuning (precision-at-K vs F1 vs simulated-PnL)
-- Dwell-time (must signal persist N ticks?)
-- Priority when both Wave 2 and trend gates fire on same tick
-- What predictions feed TP/SL (point estimates vs quantile heads)
-- Max Pain weighting: only when `days_to_expiry ≤ 2`
-- Per-instrument `cost_floor_buffer_pct` tuning (default 30% — may relax to 20% post-paper-trade for high-confidence signals)
+**θ_dir tuning (LOCKED 2026-05-16 — L4 D1 Option D):** at every Saturday retrain (§6.1), per instrument, sweep `θ_dir ∈ [0.55, 0.60, 0.65, 0.70, 0.75, 0.80]` on the walk-forward holdout. Pick the value maximizing sim-PnL (§2.3.4) subject to `mean_signals_per_day ≥ 2`. Stored in `config/sea_thresholds/<instrument>.json` and updated per retrain. Constraint prevents degenerate "0 signals = 0 losses" solution.
+
+**Dwell-time (LOCKED 2026-05-16 — L4 D2 Option D):** per-gate debounce requirement.
+- Scalping gate: 3 consecutive ticks above θ_dir before firing (~0.3s)
+- Trend gate: 5 consecutive ticks above θ_dir before firing (~0.5s)
+Rationale: scalping setups can be lost in 1 second, so debounce stays tight. Trend trades have minutes of room — 0.5s of confirmation removes per-tick noise without missing the move.
+
+**Ensemble combinator (LOCKED 2026-05-16 — L4 D3 Option D):** when `gate_mode=wave2+trend` (default per §8.4), per-tick logic:
+- Both gates agree on direction (e.g., both LONG_CE) → fire with parameters from the gate that fired first by dwell (smaller dwell wins → scalping)
+- Gates disagree on direction (e.g., LONG_CE vs SHORT_CE) → **skip** (both gates blocked, log as `disagreement_skip`)
+- Only one gate fires (other says WAIT) → fire on the one that fired, no veto
+
+Rationale: agreement across two independent timeframes is a stronger signal than either alone. Disagreement skip eliminates the worst losers (cases where short-term and long-term tell different stories — usually noise). Expected 30-40% reduction in total signal count, win-rate boost on remaining signals.
+
+**TP/SL prediction source (LOCKED 2026-05-16 — L4 D4 Option C):** point estimates from existing target heads, with safety multiplier on SL.
+- TP = entry + `trend_magnitude_{horizon}s` prediction
+- SL = entry − `trend_max_drawdown_{horizon}s` prediction × **1.3** (safety factor)
+Rationale: model's predicted drawdown often under-estimates worst adverse move. 1.3× buffer reduces stop-out rate (especially false stop-outs on noise wicks) at small TP-distance cost. No new model heads required. Quantile heads (Option B) deferred — see D37.
+
+**Max Pain weighting (LOCKED 2026-05-16 — L4 D5 Option D):** add 1 categorical feature `days_to_expiry_bucket` ∈ `{0, 1, 2, 3+}` to L1 §2.1.4. Existing continuous `days_to_expiry` retained. LightGBM splits on this categorical to apply Max-Pain features conditionally — model self-learns when Max Pain matters (last 2 days) vs when it's noise (3+ days). No gate-level logic; no hand-tuned boost multipliers.
+
+**Per-instrument `cost_floor_buffer_pct` (LOCKED 2026-05-16 — L4 D6 Option C):** per-instrument tuned defaults reflecting noise-wick width; recalibrate post-paper-trade from real fill data (D39).
+
+| Instrument | Buffer % | Reasoning |
+|---|---|---|
+| nifty50 | 20% | Most liquid; tight noise wicks |
+| banknifty | 25% | Liquid but ~3× nifty wick size |
+| crudeoil | 35% | MCX thinner books; wider noise |
+| naturalgas | 40% | Thinnest of the 4; widest noise wicks |
+
+Stored in `config/sea_thresholds/<instrument>.json` alongside θ_dir. Confidence-tiered tuning (Option D) deferred until probability calibration validated post-first-retrain.
+
+**All L4 open items now resolved.** Section promoted from SKETCH → LOCKED-CANDIDATE pending L1 + L2 LOCK per §10 rule 4.
 
 ---
 
@@ -848,14 +875,15 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 
 ## 7. Per-instrument numbers (placeholders, TBD)
 
-| Instrument | Noise floor | Lot size | Daily loss limit | Max signals/day | Slippage %/strike |
-|---|---|---|---|---|---|
-| nifty50 | **8 pts** (LOCKED) | 75 | TBD | TBD | **0.3%** (LOCKED, default) |
-| banknifty | 25 pts (proposed) | 30 | TBD | TBD | **0.5%** (LOCKED, default) |
-| crudeoil | 5 INR (proposed) | 100 | TBD | TBD | **1.0%** (LOCKED, default) |
-| naturalgas | 3 INR (proposed) | (TBD) | TBD | TBD | **1.5%** (LOCKED, default) |
+| Instrument | Noise floor | Lot size | Daily loss limit | Max signals/day | Slippage %/strike | Cost-floor buffer % |
+|---|---|---|---|---|---|---|
+| nifty50 | **8 pts** (LOCKED) | 75 | TBD | TBD | **0.3%** (LOCKED) | **20%** (LOCKED) |
+| banknifty | 25 pts (proposed) | 30 | TBD | TBD | **0.5%** (LOCKED) | **25%** (LOCKED) |
+| crudeoil | 5 INR (proposed) | 100 | TBD | TBD | **1.0%** (LOCKED) | **35%** (LOCKED) |
+| naturalgas | 3 INR (proposed) | (TBD) | TBD | TBD | **1.5%** (LOCKED) | **40%** (LOCKED) |
 
 `slippage_pct_per_strike_distance` defaults from Gap #4 fix (2026-05-16). To be recalibrated from real fill data — see PROJECT_TODO T10.
+`cost_floor_buffer_pct` defaults from L4 D6 fix (2026-05-16). To be recalibrated from real fill data — see D39.
 
 To be filled during L7 lock session.
 
@@ -952,6 +980,9 @@ All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`
 | D33 | ~~Tune Wave 2 retirement threshold~~ | **OBSOLETE 2026-05-16 — Retirement logic removed by Gap #28 Option X (§8.4 revision). Scalp + Trend coexist permanently** |
 | D34 | Revisit pruning if v2 model overfits | Gap #24 locked Option D (no pre-prune, trust regularization). If first-retrain shows train-AUC >> holdout-AUC at any head, escalate to two-stage A approach |
 | D35 | Upgrade feature catalog Option C → D (per-feature importance + provenance) | After first v2 retrain, augment auto-generated catalog with per-feature importance scores + which models use each feature. Requires `scripts/extract_feature_importance.py` parser of `.lgbm` model_dump |
+| D37 | Add quantile heads for TP/SL distribution (L4 D4 Option B) | If point-estimate SL × 1.3 multiplier proves insufficient or too conservative post-paper, train 15 quantile heads (25/50/75 percentile × 3 horizons) and switch SL to 25-percentile, TP to 50-percentile. Adds 60 model files (×4 instruments), ~25% more retrain compute |
+| D38 | Tune SL safety multiplier (currently 1.3×) | Per-instrument calibration after first month of paper trade — actual drawdown vs predicted drawdown ratio per signal informs whether 1.3 too tight/loose |
+| D39 | Recalibrate `cost_floor_buffer_pct` per instrument from real fills | After 100 paper fills per instrument. Compare actual minute-wick width vs the buffer assumption; tighten if buffer over-protects, loosen if noise wicks break "winners" |
 | D36 | Doc role separation: V2_MASTER_SPEC vs PROJECT_TODO | **RESOLVED 2026-05-16 — Non-issue. V2_MASTER_SPEC is active design+dev plan (§2.0 layer status). PROJECT_TODO is parking lot for deferred tasks (T-list). Distinct purposes by design — no mirroring needed. During v2 design work, anything decided to be done later → add to PROJECT_TODO as new T-entry** |
 | D34 | Revisit single-pass pruning (Gap #24 D) if overfit observed | If first model's training AUC ≫ holdout AUC (e.g., gap > 0.10), pivot to Option A (post-train prune + retrain) and tighten regularization further |
 
