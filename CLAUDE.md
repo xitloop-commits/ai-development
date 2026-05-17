@@ -13,6 +13,7 @@ This file is read automatically by Claude Code at the start of every session in 
 
 - [docs/V2_MASTER_SPEC.md](docs/V2_MASTER_SPEC.md) — Single source of truth for Signal System v2. 8 layers + schema + component spec deltas + phase plan + pending decisions. **Blocks paper trading until layers lock.** Supersedes the former `SIGNAL_SYSTEM_V2.md`, `TARGET_SPEC_V2_DESIGN.md`, `REFERENCE.md`, `LAYER1_CANDIDATES.md` (consolidated 2026-05-16).
 - [docs/FEATURE_HEAD_RECONCILIATION.md](docs/FEATURE_HEAD_RECONCILIATION.md) — Single-page reference: 446 L1 features ↔ 84 heads ↔ gate consumers ↔ runtime data flow. Read this when implementing T3 Phase 2–6; design questions still go to V2_MASTER_SPEC.
+- [docs/T3_IMPLEMENTATION_PLAN.md](docs/T3_IMPLEMENTATION_PLAN.md) — Module-by-module implementation plan for T3 Phases 2/3/5/6/7. Complete module touch list, dependency graph, parallelization opportunities, open questions per phase. Read before starting any phase.
 - [docs/WAVE2_RESUMPTION_GUIDE.md](docs/WAVE2_RESUMPTION_GUIDE.md) — Wave 2 model state + how to resume work on it.
 
 ## What this file is NOT for
