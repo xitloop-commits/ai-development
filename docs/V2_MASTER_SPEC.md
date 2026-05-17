@@ -205,7 +205,7 @@ All tagged ACCEPT / DEFER per L1 D2 review 2026-05-16 + D62 swing additions 2026
 
 | Group | Cnt | Status | Accepted features | Deferred features |
 |---|---|---|---|---|
-| C1 OI / S/R dynamics | 12 | **12 ACCEPT** (10 original + 2 added 2026-05-17 per §9 D62 for swing exits) | all 12: `oi_weighted_{ce_resistance,pe_support}_strike`, `{ce,pe}_wall_strength_rel`, `{ce,pe}_oi_change_{5,15,60}min_pct`, `oi_dominance_streak_min`, `pcr_intraday_slope_30min` | — |
+| C1 OI / S/R dynamics | 12 | **12 ACCEPT** (10 original + 2 added 2026-05-17 per §9 D62 for swing exits) | all 12: `oi_weighted_{ce_resistance,pe_support}_strike`, `{ce,pe}_wall_strength_rel`, `{ce,pe}_oi_change_{5,15,60}min_pct`, `oi_dominance_streak_min` (see W4 definition below), `pcr_intraday_slope_30min` | — |
 | C2 Classic technical | 8 | **5 ACCEPT, 3 DEFER** | `rsi_14_5min`, `macd_5min`, `macd_signal_5min`, `macd_histogram_5min`, `volume_price_divergence_5min` | `rsi_14_15min` (redundant with 5min), `ma_cross_event_5min` (LightGBM composes from MAs), `breakout_event_5min` (LightGBM composes from distance) |
 | C3 India VIX | 2 | **2 ACCEPT** | `india_vix`, `india_vix_change_5min` (Dhan subscription confirmed by user 2026-05-16) | — |
 | C4 Dealer hedging / GEX | 5 | **5 ACCEPT** | all 5: `net_gex`, `gamma_flip_distance_pct`, `dealer_net_delta`, `charm_estimate_atm`, `vanna_estimate_atm` | — |
@@ -219,6 +219,20 @@ All tagged ACCEPT / DEFER per L1 D2 review 2026-05-16 + D62 swing additions 2026
 | C12 Expiry-bucket | 1 | **1 ACCEPT** | `days_to_expiry_bucket` (locked L4 D5) | — |
 
 **C subtotal: 54 total, 46 ACCEPT, 8 DEFER → T14**
+
+**W4 — `oi_dominance_streak_min` formula (LOCKED 2026-05-17 — implementation gate):** rolling count, in MINUTES, of how long the dominant side of the option chain has been dominant continuously without a flip.
+- "Dominant side" at minute `t` = whichever of `chain_oi_total_call` vs `chain_oi_total_put` is larger.
+- Counter increments by 1 each minute that the dominant side is unchanged from the prior minute.
+- Counter RESETS to 0 the minute the dominant side flips (call > put → put > call, or vice versa).
+- Counter is signed by current dominant side: positive when calls dominate, negative when puts dominate (so LightGBM can split on sign + magnitude in one feature). Initial value 0 at session open.
+- Cap at ±240 (4 hours) to avoid runaway integer growth on extreme one-sided sessions.
+
+**W5 — `trend_age_ticks` formula (LOCKED 2026-05-17 — implementation gate):** tick counter that measures how long the current L8 regime has been `trend` or `trend_strong`.
+- Resets to 0 when L8 regime tag becomes `trend` or `trend_strong` from any other state (`range`, `chop`).
+- Increments by 1 each tick while regime stays in `trend` or `trend_strong`.
+- Held at 0 (NOT NaN) while regime is `range` or `chop`. Allows tree splits "regime=trend AND trend_age_ticks > 600" naturally.
+- Used by C5 features and §2.5 exhaustion exits ("trend tiring" trigger needs sufficient age before firing).
+- Resets across session boundary — does NOT persist overnight (intra-day signal only).
 
 #### 2.1.5 D — Explicitly skipped (do not implement)
 
@@ -276,7 +290,10 @@ All tagged ACCEPT / DEFER per L1 D2 review 2026-05-16 + D62 swing additions 2026
 8. **600s (10-min) trend target (LOCKED 2026-05-16 — L1 D6 Option B):** DROPPED. Keep only `{900s, 1800s}` for trend horizons. Rationale: 600s sits between 300s scalp and 900s trend with no distinct trade profile; LightGBM can interpolate from neighbors. Saves 33% trend-retrain compute (12 trend heads instead of 18).
 
 9. **B5 sub-decisions (LOCKED 2026-05-17 by Partha):**
-   a. **Opening range window length:** **N = 15 minutes** (NSE-traditional first quarter-hour). One value across all instruments. Resolves D51.
+   a. **Opening range window length:** **N = 15 minutes** (NSE-traditional first quarter-hour). One value across all instruments. Resolves D51. **Absolute clock window (LOCKED 2026-05-17 — implementation gate B3):** measured from each exchange's session-open clock, NOT a rolling 15-min window:
+      - **NSE (nifty50, banknifty):** opening range = max/min of underlying spot between **09:15:00 and 09:29:59 IST**.
+      - **MCX (crudeoil, naturalgas):** opening range = max/min of underlying spot between **09:00:00 and 09:14:59 IST** (MCX session opens 09:00 IST).
+      During the forming window, TFA emits `distance_to_opening_range_high_pct` and `distance_to_opening_range_low_pct` as **NaN** (model treats as missing branch via LightGBM's native NaN handling). From window-close + 1 tick onwards, both values are stable for the remainder of the session. The range never updates after the close of its 15-min window — early-session breakout-by-OR-rejection is the whole point of the feature.
    b. **Round number step per instrument:** nifty50 = **100 pts**, banknifty = **100 pts**, crudeoil = **5 INR**, naturalgas = **1 INR**. Coarser steps preferred (fewer near-round-number false positives; reduces noise on minor strike-tick boundaries). Resolves D52.
    c. **5-day swing lookback:** **simple max/min** of 5 prior session highs/lows. Faster + deterministic; revisit pivot-based per §9 D48 follow-up only if model SHAP shows the feature under-used.
    d. **State storage:** opening range computed live from session ticks (no prior-day dependency). 5-day swing state persisted to **`data/state/<inst>_levels.json`** at every session close; TFA reads on session start. Resolves restart-safety question.
@@ -365,7 +382,17 @@ Multiplier is the same across all 4 instruments; per-instrument scalp floor in �
 
 - **Method:** **isotonic regression** (stepwise monotonic). Chosen over Platt (sigmoid) because isotonic makes no parametric assumption — fits whatever shape the actual probability surface has. Cost: a few hundred bytes per head. Available out-of-the-box via `sklearn.isotonic.IsotonicRegression`.
 - **Training fold:** during the Saturday retrain (§6.1), carve a dedicated 1-week calibration fold from the most recent data (separate from the 5 walk-forward sim_pnl folds). Train the LightGBM head on weeks 1–N−2, evaluate sim_pnl on the 5 walk-forward folds, fit calibration on week N−1.
-- **Storage:** `models/<inst>/<timestamp>/<head>.calibration.json` alongside `<head>.lgbm`. Format: `{"method": "isotonic", "x_thresholds": [...], "y_calibrated": [...]}` — small lookup table.
+- **Storage:** `models/<inst>/<timestamp>/<head>.calibration.json` alongside `<head>.lgbm`. **Serialization contract (LOCKED 2026-05-17 — implementation gate B2):** after `sklearn.isotonic.IsotonicRegression().fit(raw_probs, y_true)`, extract the two numpy arrays the fitted object exposes and JSON-encode them as Python lists:
+  ```python
+  json.dump({
+      "method": "isotonic",
+      "x_thresholds":  iso.X_thresholds_.tolist(),
+      "y_calibrated":  iso.y_thresholds_.tolist(),
+      "trained_at":    "20260516_020000",
+      "n_samples":     len(raw_probs),
+  }, fp)
+  ```
+  At predict time SEA reconstructs with one numpy call — no sklearn dependency in SEA: `calibrated = numpy.interp(raw_prob, x_thresholds, y_calibrated)`. Clamp inputs to `[0.0, 1.0]` before interp (LightGBM occasionally returns 1.0000001 due to float precision).
 - **Runtime:** SEA loads the calibration map at startup. Predict path: `raw_prob = head.predict(row); calibrated_prob = calibration_map.apply(raw_prob); gate_decision = (calibrated_prob >= θ_dir)`. Threshold parameters in `config/sea_thresholds/<inst>.json` are interpreted against CALIBRATED probabilities — `θ_dir = 0.65` now means "actually 65% win-rate" not "raw score ≥ 0.65".
 - **Quality check (added to §5.2):** pre-market verifies `<head>.calibration.json` exists for every head; missing file is RED.
 - **Reliability monitoring (extends §5.1):** weekly trade-quality report adds reliability-diagram comparison — bucket signals by predicted probability (0.5–0.6, 0.6–0.7, ...) and compare actual win-rate per bucket. Expected: ±5% deviation. Larger gap signals calibration drift → trigger ad-hoc recalibration before Saturday cycle.
@@ -410,7 +437,8 @@ SEA loads each head independently per the map. Saturday retrain (§6.1) compares
 **Runtime schema reconciliation (LOCKED 2026-05-17 — D66, audit Finding #2):** at predict time SEA must reconcile the live emitter's current schema (e.g., `v7`, 446 features) with each head's recorded training schema (e.g., `v6`, 444 features). Rules:
 
 - **Additive-only schema policy:** v2 commits to forward-compatible-only schema changes — new features may be APPENDED to the L1 emitter, but existing features may NOT be removed or renamed. This guarantees any historical head can be served from any newer schema by column subsetting. Bumping `LATEST_SCHEMA_VERSION` is allowed only when the new schema is a strict superset of the prior one.
-- **Schema registry on disk:** each shipped schema version has an immutable column list at `config/schema_registry/v<N>.json` (`{"version": 7, "columns": ["timestamp", "underlying_ltp", ...]}`). Written by the retrain pipeline whenever `LATEST_SCHEMA_VERSION` is bumped; git-tracked so old versions are recoverable. Loaded by SEA at startup into an in-memory map `{version_int: column_list}`.
+- **Schema registry on disk:** each shipped schema version has an immutable column list at `config/schema_registry/v<N>.json` (`{"version": 7, "columns": ["timestamp", "underlying_ltp", ...]}`). Git-tracked so old versions are recoverable. Loaded by SEA at startup into an in-memory map `{version_int: column_list}`.
+- **Who writes the registry + when (LOCKED 2026-05-17 — implementation gate B1):** the TFA emitter is the AUTHORITATIVE writer. On every emitter startup, the emitter compares its compiled-in `LATEST_SCHEMA_VERSION` constant against the highest `v<N>.json` present in `config/schema_registry/`. If its version is HIGHER (the constant was bumped in a Phase 2/3 code change), it writes a new `v<N>.json` using `_build_column_names()` output, then continues. If its version is LOWER or EQUAL, no write. The retrain pipeline (§6.1) does NOT write the registry — it READS the emitter's already-written file via the schema_version recorded in the parquet output. **Phase 2 deliverable explicitly includes:** the first `v7.json` will be written by the emitter on its first post-Phase-2 startup. Pre-market check (§5.2) adds an implicit dependency — SEA bail-fast if no registry file exists for any head's `schema_version`.
 - **Predict-time projection:** for each head, SEA reads `head_entry["schema_version"]`, looks up the column list, and projects the live emitter's row (446 cols) down to the head's expected columns (e.g., 444). Strict ordering — column order MUST match the order in `v<N>.json` since LightGBM is positional. Order is locked at the moment a schema version is published; no reordering allowed within a published version.
 - **Refuse-and-quarantine on schema break:** if a head's recorded schema_version refers to a column that is not present in the current emitter (additive-only policy violated), SEA refuses to load that head, marks it `quarantined: true` in an in-memory state, fires CRITICAL alert via §5.2 channel, and the head stays out of prediction until retrained on a current schema. Other heads on the same instrument continue serving.
 - **Pre-market check (§5.2 #1) unchanged in intent** — it validates each head's stored binary against its recorded `feature_count` (corruption check). It does NOT validate that recorded schema == current emitter (that would defeat per-head versioning). Schema-break quarantine is a separate CRITICAL signal surfaced by SEA at load time, also visible in the §5.2 telegram.
@@ -682,11 +710,13 @@ elif trend_prob_long <= θ_bias_bearish:    # default 0.35
 
 | Layer | Entry TP source | Entry SL source | Time-stop | Trail tiers |
 |---|---|---|---|---|
-| Scalp (existing) | `max_upside_60s` | `max_drawdown_60s × 1.3` | 5 min | (legacy Wave 2 rules) |
+| Scalp (existing) | `max_upside_60s` (LOCKED — never the 300s variant — see footnote W3) | `max_drawdown_60s × 1.3` | 5 min | (legacy Wave 2 rules) |
 | Trend | `trend_magnitude_900s` | `trend_max_drawdown_900s × 1.3` | min(predicted, **1800s**) | Tier1 BE at 0.33×TP, Tier2 trail at 0.66×TP |
 | **Swing (ADDED 2026-05-17)** | `swing_magnitude_3600s` | `swing_max_drawdown_3600s × 1.4` | min(predicted, **7200s**) | Tier1 BE at 0.25×TP, Tier2 lock 50% at 0.5×TP, Tier3 trail at 0.75×TP |
 
 **Why swing differs:** 2-hour holds need wider SL safety multiplier (1.4× vs 1.3×) because intra-day mean-reversion patterns add noise over longer windows. 3-tier trail (instead of 2-tier) locks in partial gains earlier — a 60-pt swing winner that gives back 40 pts before hitting TP is worse than a partial-exit at 30 pts + ride remainder.
+
+**Footnote W3 — scalp TP/SL target horizon (LOCKED 2026-05-17 — implementation gate):** scalp gate has both 60s and 300s prediction heads (60 total: 6 types × 10 horizons in legacy Wave 2). The TP/SL inputs at entry are ALWAYS taken from the **60s** target heads — `max_upside_60s` and `max_drawdown_60s` — regardless of which scalp head fired the signal. Rationale: scalp's intended hold time is 30 sec – 2 min; 60s target is the closest match. The 300s heads are kept for model-output diagnostics (do the 60s predictions match the 300s direction?) but do NOT feed trade management. Trend/swing layers feed their own horizon's targets per the table above.
 
 **Exit-trigger precedence (LOCKED 2026-05-17 — Finding #7 → D70):** all exit conditions — TP, SL, time-stop, trail (any tier), OI exit (5-min or 60-min), exhaustion (trend-tiring / premium-decel / volume-absorption), regime-flip protection — compete on each tick; **first to fire wins, no priority ordering**. The time-stop is a hard ceiling, not a forced exit: a swing position whose OI-exit fires at minute 1:59:30 closes via OI at that tick, NOT held until 2:00:00 for the time-stop. Time-stop only fires if NO other trigger fires by then. Same rule applies to scalp's 5-min and trend's 30-min ceilings.
 
@@ -829,7 +859,7 @@ Cap by per-instrument exposure limit (L7 config). Floor at 1 lot (skip signal if
 | NIFTY | 75 |
 | BANKNIFTY | 30 |
 | CRUDEOIL | 100 |
-| NATURALGAS | (TBD — confirm current MCX lot) |
+| NATURALGAS | 1,250 (LOCKED — MCX standard; cross-ref §7) |
 
 Small accounts can't trade NIFTY at low conviction (1 lot = ₹7,500–15,000 risk minimum).
 
@@ -1192,7 +1222,7 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 
 | # | Check | Pass criterion |
 |---|---|---|
-| 1 | Model file integrity (all 84 per instrument × 4 = 336) | Every `.lgbm` loads without exception. **Per-head schema validation (LOCKED 2026-05-17 — Batch 4 I10 fix):** for each head, compare its loaded LightGBM `num_feature()` against the `feature_count` recorded in that head's `LATEST_HEADS.json` entry. The check passes if every head matches ITS OWN recorded count — heads on different schema versions are fine. RED if any head's actual feature count diverges from its registry record (indicates corruption or mis-promotion) |
+| 1 | Model file integrity (all 84 per instrument × 4 = 336) | Every `.lgbm` loads without exception. **Per-head schema validation (LOCKED 2026-05-17 — Batch 4 I10 fix; tolerance LOCKED 2026-05-17 — W1):** for each head, compare its loaded LightGBM `num_feature()` against the `feature_count` recorded in that head's `LATEST_HEADS.json` entry. **Match must be EXACT — no tolerance.** Heads on different schema versions are still fine because the comparison is per-head against its own recorded count. RED on any deviation: a 1-feature drift is never harmless and always indicates either model-file corruption, mid-training crash, or registry mis-write. Fail fast rather than predict on a head whose feature alignment is uncertain |
 | 2 | Scaler / feature_config presence | `config/model_feature_config/<inst>_feature_config.json` exists for each instrument |
 | 3 | Prediction sanity | Predict on last hour of yesterday's chain snapshots. Verify per head: no all-NaN, no all-0, no all-1, prediction distribution within ±3σ of historical baseline |
 | 4 | Dhan token freshness (both accounts) | `token_age_hours < 14` for `dhan` (primary) and `dhan-ai-data` (spouse) |
@@ -1317,7 +1347,7 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 
 ---
 
-## 7. Per-instrument numbers (placeholders, TBD)
+## 7. Per-instrument numbers (LOCKED 2026-05-16/17 — paper-trade recalibration triggers per D40 / D45)
 
 | Instrument | Noise floor (scalp/trend) | **Swing noise floor** | Lot size | Daily loss limit | Max signals/day | Slippage %/strike | Cost-floor buffer % |
 |---|---|---|---|---|---|---|---|
@@ -1469,6 +1499,7 @@ All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`
 | D71 | Trail-tier and partial-exit independence from benign regime degradation (audit Finding #8, 2026-05-17) | **RESOLVED 2026-05-17 by Partha.** §2.8 L8 Q2 said `trend_strong → trend` is benign (no regime-flip protection fires), but didn't clarify whether Tier 1/2/3 trails and Tier 2 50% partial were ALSO suppressed during benign degradation. Locked: "no protection fired" suppresses ONLY regime-flip protection (SL→BE + TP halved). All trail tiers, partial-exit, OI exits, exhaustion exits, hard TP/SL/time keep firing normally regardless of regime state. Rationale: trail/partial are price-action signals, not regime signals — they protect realized gains independent of L8 opinion. Prevents "benign degradation" from accidentally killing legitimate trail machinery |
 | D72 | Probability calibration pipeline (ChatGPT external feedback, 2026-05-17) | **RESOLVED 2026-05-17 by Partha — Option A (full pipeline in v2 lock).** Raw LightGBM `predict_proba` values are NOT real probabilities — a 0.70 output may correspond to actual 55% win rate. Gate logic against raw scores systematically mis-fires. Locked: (1) **isotonic calibration per head** fit on a dedicated 1-week calibration fold during Saturday retrain (§6.1 step at Sat 21:30); (2) **storage** `models/<inst>/<timestamp>/<head>.calibration.json` alongside `.lgbm`; (3) **runtime** SEA applies map before threshold compare — `θ_dir` now means "calibrated 65%" not "raw 0.65"; (4) **sim_pnl** computed using CALIBRATED probabilities so retrain optimization matches predict-time behavior; (5) **pre-market check #7** verifies calibration file present per head; (6) **reliability monitoring** in §5.1 weekly report (bucket signals by predicted prob, compare to actual win-rate, flag >±5% drift). Unblocks T8 (EV-floor) and T16 (confidence-weighted sizing) which had unactionable reliability-check prerequisites. **Migration:** existing Wave 2 heads ship with identity-map calibration files (no-op) so pre-market check passes during transition; isotonic fits begin on first v2 retrain |
 | D73 | Phase 7 paper-trade sub-phases (ChatGPT Simplify #1, 2026-05-17) | **RESOLVED 2026-05-17 by Partha.** Paper-trade ramp split into 7a / 7b / 7c so each exit-trigger class's contribution to P&L can be measured before permanent enable. 7a = minimum exits (TP/SL/trail/time/regime-flip), ≥50 signals/inst, promote on win-rate within ±5pp of backtest. 7b adds OI exits, ≥50 more signals, A/B vs 7a — promote only if ≥3pp win-rate lift OR ≥15% drawdown reduction. 7c adds exhaustion exits, same A/B vs 7b. Configuration-driven (`config/sea_thresholds/<inst>.json.exit_triggers_enabled`); no code deploy between sub-phases. Failure path: leave non-contributing exit class disabled in production permanently |
+| D74 | Implementation-readiness clarifications (2026-05-17, final gate before Phase 2) | **RESOLVED 2026-05-17 by Partha.** Fresh-eyes pass before code-write found 3 blockers + 6 clarifications that would trip code-writers. All locked in this commit: (B1) schema_registry/v<N>.json — TFA emitter is authoritative writer, writes on startup when its compiled LATEST_SCHEMA_VERSION exceeds highest existing v<N>.json. Phase 2 ships first v7.json automatically on first run. (B2) calibration map serialization — `iso.X_thresholds_.tolist()` + `iso.y_thresholds_.tolist()` to JSON; SEA reconstructs with `numpy.interp` (no sklearn dependency in SEA). Clamp raw probs to [0,1] before interp. (B3) opening range absolute clock window — NSE 09:15–09:29:59 IST, MCX 09:00–09:14:59 IST; features NaN during forming window then stable. (B4) naturalgas lot — §2.6 corrected from "TBD" to "1,250" matching §7. (W1) pre-market feature_count match must be EXACT, no tolerance. (W3) scalp TP/SL ALWAYS from 60s targets, never 300s (footnote added to §2.5). (W4) `oi_dominance_streak_min` formula — signed minute-count of continuous dominance, ±240 cap, resets on flip. (W5) `trend_age_ticks` formula — tick counter that resets when L8 regime enters `trend`/`trend_strong`, held at 0 in `range`/`chop`, resets per session. (W6) §7 header refreshed from "(placeholders, TBD)" to "(LOCKED — paper-trade recalibration per D40/D45)". W2 from agent report was a false positive — swing entry-cutoff is locked in §2.7 line 884, agent missed it |
 
 ---
 
