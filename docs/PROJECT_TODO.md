@@ -57,8 +57,8 @@ Current Wave 2 model is a microstructure scalp predictor; v2 adds trend (10-30 m
 - **Blocker:** Need ≥30 sessions of training data **under v2 schema** (per V2_MASTER_SPEC §3.1 Option A: existing ~10 sessions of 402-col parquets become inaccessible when v2 schema ships). Auto-recorder accumulates Mon-Fri → ~6 weeks of recording from schema cutover to first retrain. Reversible: raw .ndjson.gz files retained, can replay later if decision changes.
 - **Phases (V2_MASTER_SPEC §6):**
   - [x] Phase 1: Design lock (V2_MASTER_SPEC LOCKED 2026-05-17 — all 8 layers)
-  - [ ] Phase 2: TFA feature additions (~1-2 days code) ← **NEXT UP**
-  - [ ] Phase 3: Target additions (12 trend + 12 swing = 24 new targets, ~1.5 days code)
+  - [x] Phase 2: TFA feature additions (COMPLETE 2026-05-17 — commits `50d9bec` → `aa36c34`. 22 feature modules, 69 new L1 features, parquet schema bumped to v7 / 495 cols canonical, schema_registry/v7.json shipped, cross-day session-close writer + no-lookahead safety suite landed)
+  - [ ] Phase 3: Target additions (12 trend + 12 swing = 24 new targets, ~1.5 days code) ← **NEXT UP**
   - [ ] Phase 4: Auto-record accumulation (≥30 sessions, ~30 days passive)
   - [ ] Phase 5: Retrain all 4 with combined targets (84 heads each, ~5 hrs compute)
   - [ ] Phase 6: Trend gate + swing gate + 3-way combinator + smoke (~3-4 days code)
