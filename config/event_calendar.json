@@ -1,0 +1,26 @@
+{
+  "_note": "Tier-1/tier-2 macro events that affect Indian markets. The TFA's event_calendar.py reads this on session start (and reloads on day change). Update from: RBI policy calendar, FOMC schedule (federalreserve.gov), MoSPI for India CPI/GDP/PMI, US BLS for NFP/CPI/PCE, NSE/MCX for monthly expiries. Times must be in IST (+05:30) — release moment, not market open.",
+  "_tier_meaning": "1 = market-moving (FOMC, RBI, India CPI, US NFP, US CPI, Budget). 2 = secondary but watched (India GDP, US GDP, monthly expiry). Tier 3+ (PMI, minor data) is intentionally excluded; the model does not need it as a discrete feature.",
+  "event_types": [
+    "none",
+    "fomc",
+    "rbi_policy",
+    "india_cpi",
+    "india_gdp",
+    "us_cpi",
+    "us_nfp",
+    "us_pce",
+    "us_gdp",
+    "expiry_weekly",
+    "expiry_monthly",
+    "budget"
+  ],
+  "events": [
+    {"ts_ist": "2026-05-29T19:00:00+05:30", "type": "us_pce", "tier": 1},
+    {"ts_ist": "2026-06-04T19:30:00+05:30", "type": "us_nfp", "tier": 1},
+    {"ts_ist": "2026-06-06T11:00:00+05:30", "type": "rbi_policy", "tier": 1},
+    {"ts_ist": "2026-06-12T18:00:00+05:30", "type": "india_cpi", "tier": 1},
+    {"ts_ist": "2026-06-18T23:30:00+05:30", "type": "fomc", "tier": 1},
+    {"ts_ist": "2026-06-25T15:30:00+05:30", "type": "expiry_monthly", "tier": 2}
+  ]
+}
