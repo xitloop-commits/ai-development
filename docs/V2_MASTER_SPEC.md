@@ -328,6 +328,16 @@ Clean horizon separation — each layer's target window matches its intended hol
 
 Current `direction_60s` labels any positive move as "1." A +2 pt and a +50 pt move both train as "up" → model predicts near base rate. Adding `noise_floor=8 pts` (per instrument) labels only **economically significant** moves. Model learns "real move vs nothing" instead of "drift up vs drift down."
 
+**Per-layer floor scaling (LOCKED 2026-05-17 — Finding #6):**
+
+| Layer | Floor multiplier | Nifty50 example | Rationale |
+|---|---|---|---|
+| Scalp (60s) | 1× | 8 pts | Microstructure floor — covers spread + 1 noise tick |
+| Trend (900s / 1800s) | 3× | 24 pts | 5–30 min sustained move must clear ~one ATR-15min on liquid instruments |
+| Swing (3600s / 7200s) | 6× | 48 pts | 30 min–2 hr commitment needs ~one daily-range fraction (≈25% of nifty's typical intraday range) — anything smaller is intra-day chop, not a swing |
+
+Multiplier is the same across all 4 instruments; per-instrument scalp floor in §7 sets the absolute. Re-tunable post-paper-trade if swing trades regularly close at noise (over-tight) or sit out signals (over-loose) — see D40 / D57 / D59 follow-up triggers in §9.
+
 #### 2.2.4 Open items — all resolved
 
 - Per-instrument noise-floor calibration → **RESOLVED 2026-05-16** — all 4 in §7 (nifty/banknifty/crude/natgas = 8/25/5/3)
@@ -557,11 +567,15 @@ Rationale: scalping setups can be lost in 1 second, so debounce stays tight. Tre
 position opened by scalp at tick T with scalp_TP, scalp_SL
 window = ticks [T+1 .. T+6]
 within window:
-    if trend gate fires same direction → replace TP, SL with trend's
-    if swing gate fires same direction → replace TP, SL with swing's
-                                          (overrides trend if both fire)
+    if trend gate fires same direction AND
+       trend_direction_900s ≥ θ_upgrade_trend_dir   → replace TP, SL with trend's
+    if swing gate fires same direction AND
+       swing_direction_3600s ≥ θ_upgrade_swing_dir  → replace TP, SL with swing's
+                                                       (overrides trend if both fire)
 after T+6 ticks OR after first upgrade: NO further upgrades (one-shot)
 ```
+
+**Upgrade-activation thresholds (LOCKED 2026-05-17 — Finding #3 → D67):** the upgrade decision uses a SEPARATE conviction floor `θ_upgrade_<layer>_dir` from the gate's own firing threshold `θ_<layer>_dir`, stored in `config/sea_thresholds/<instrument>.json`. **Default: `θ_upgrade_<layer>_dir = θ_<layer>_dir`** — at lock time the upgrade is just "trend/swing gate fired same direction, no extra hurdle." This default lets the upgrade rule ship without an extra calibration step. D61 validation can then raise the upgrade knob (e.g., to `0.75` if trend gate fires at `0.65`) **without affecting normal trend-trade firing** — keeping the two decisions independently tunable.
 
 **Why one-shot + 6 ticks:** prevents oscillating exits mid-trade. 6 ticks covers worst-case trend/swing dwell completion. Without this rule, scalp's 5-min cooldown would BLOCK trend/swing from firing a follow-on signal 0.5-2s later, and the position would exit at scalp's tight TP missing the rest of the move.
 
@@ -663,6 +677,8 @@ elif trend_prob_long <= θ_bias_bearish:    # default 0.35
 
 **Why swing differs:** 2-hour holds need wider SL safety multiplier (1.4× vs 1.3×) because intra-day mean-reversion patterns add noise over longer windows. 3-tier trail (instead of 2-tier) locks in partial gains earlier — a 60-pt swing winner that gives back 40 pts before hitting TP is worse than a partial-exit at 30 pts + ride remainder.
 
+**Exit-trigger precedence (LOCKED 2026-05-17 — Finding #7 → D70):** all exit conditions — TP, SL, time-stop, trail (any tier), OI exit (5-min or 60-min), exhaustion (trend-tiring / premium-decel / volume-absorption), regime-flip protection — compete on each tick; **first to fire wins, no priority ordering**. The time-stop is a hard ceiling, not a forced exit: a swing position whose OI-exit fires at minute 1:59:30 closes via OI at that tick, NOT held until 2:00:00 for the time-stop. Time-stop only fires if NO other trigger fires by then. Same rule applies to scalp's 5-min and trend's 30-min ceilings.
+
 **Trail update frequency:**
 - Scalp / Trend: per-minute
 - Swing: **per-5-minute** (longer-horizon trade needs less reactive trail; cuts compute)
@@ -714,6 +730,61 @@ Rolling buffer (over entry-comparison) chosen because the spec text specifies "i
 Per-position state added to SEA trade-tracker: `entry_momentum`, `entry_atm_ce_premium_momentum`, `entry_atm_pe_premium_momentum`. Captured at signal-fire tick; never updated. ~3 fields × 32 bytes ≈ 100 bytes per open position.
 
 **Why inline composition (B) over un-deferring features (A):** the DEFER rationale was "LightGBM composes from existing features." That applies to model inputs (true — trees split on differences naturally). For RULE-BASED exit triggers, we manually compose the same way — same outcome, no L1 churn (L1 stays at 446 features).
+
+#### 2.5.1 Per-position state schema (LOCKED 2026-05-17 — Finding #5 → D68)
+
+The inline-composition exits and partial-fill mechanics above require per-position state in SEA. Consolidated schema (one record per open position):
+
+```json
+{
+  "position_id":      "nifty50_20260518_103245_long_scalp",
+  "instrument":       "nifty50",
+  "side":             "long",
+  "layer":            "scalp",
+  "fire_tick_ts":     1747566765.123,
+  "entry_price":      24830.50,
+  "lots":             2,
+  "tp":               24850.00,
+  "sl":               24820.00,
+  "partial_taken":    false,
+
+  "entry_snapshot": {
+    "momentum":                    0.42,
+    "atm_ce_premium_momentum":     0.81,
+    "atm_pe_premium_momentum":    -0.55,
+    "trend_age_ticks":             47,
+    "regime":                      "trend",
+    "ce_wall_strength_rel":        1.32,
+    "pe_wall_strength_rel":        0.89
+  },
+
+  "wall_strength_buffer": {
+    "ce": [...60 floats — minute samples, ring-buffer order...],
+    "pe": [...60 floats...],
+    "head_idx": 23,
+    "last_sample_ts": 1747566720.000
+  },
+
+  "upgrade_used":     false,
+  "upgrade_source":   null
+}
+```
+
+Field budget per open position: ~1.6 KB (header ~150 B + entry snapshot ~250 B + wall buffer 2 × 60 × 8 B ≈ 1 KB + flags ~50 B). With ≤8 concurrent positions (§2.7 cap), worst case ~13 KB resident. Trivial.
+
+**Persistence:** in-memory primary copy is authoritative for read/write during live session. Every state mutation also write-throughs to `data/sea_state/<instrument>/<position_id>.json` (atomic temp-write + rename). On position close, the JSON file moves to `data/sea_state/<instrument>/CLOSED/<date>/<position_id>.json` for audit.
+
+**Crash recovery on SEA restart:**
+1. Scan `data/sea_state/<instrument>/*.json` (any file not in `CLOSED/` is an unfinished position).
+2. For each unfinished position:
+   - Reload state into memory.
+   - Compare `fire_tick_ts` against current wall-clock. If position age > layer's max hold (5 min scalp / 30 min trend / 2 hr swing), **force-close at current market** with reason `recovery_age_exceeded`.
+   - Otherwise resume normal exit-evaluation. The wall-strength buffer's `last_sample_ts` may be stale — refill with NaN samples for the gap; deltas that need any NaN sample skip the wall-break trigger for that minute only (other triggers still active).
+3. Log a `position_recovered` Telegram alert per resumed position so the operator knows what came back to life.
+
+**No partial-state rollback:** the write-through-per-mutation policy ensures that any committed state mutation has hit disk before SEA returned from the operation. A crash mid-write produces an empty temp file (atomic rename hasn't fired); recovery ignores temp files. So "incomplete state" cannot exist — only "potentially stale state," which the recovery rules above handle.
+
+**Why JSON over binary:** human-readable for post-incident analysis (the most-likely use of these files). Position count is small (≤8 open at a time), so JSON parse cost is irrelevant. Binary (msgpack, protobuf) optimizes the wrong axis here.
 
 **Regime-flip protection (LOCKED 2026-05-16 — Gap #8 Option C):** When L8 regime flips AWAY from the entry regime AND new regime has sustained ≥3 min (debounce against L8 noise), do NOT force exit. Instead:
 - Move SL to entry price (lock break-even on the trade)
@@ -898,6 +969,8 @@ L7 D5 also applies when `risk_limits_enabled=false` for `ai-paper` — it's safe
 | `trend_strong → chop` | Regime-flip protection: SL→BE + TP halved |
 | `trend → range` (trend trade) | Regime-flip protection (existing behavior) |
 | `trend → chop` (trend trade) | Regime-flip protection (existing behavior) |
+
+**Trail-tier and partial-exit independence (LOCKED 2026-05-17 — Finding #8 → D71):** the "no protection fired" outcome above suppresses **only** regime-flip protection (SL→BE + TP halved). All OTHER exit machinery — Tier 1 BE move at 0.25×TP, Tier 2 50% partial at 0.5×TP, Tier 3 trail at 0.75×TP, OI exits, exhaustion exits, hard TP/SL/time — continues to fire normally regardless of regime state. Rationale: trail tiers and OI/exhaustion are price-action / order-flow signals, NOT regime signals — they protect realized gains independent of what L8 thinks. A swing trade that hits Tier 2 partial during a `trend_strong → trend` degradation still books the 50% partial; the surviving 50% rides on without regime-flip interference. This keeps "benign degradation" from accidentally suppressing legitimate trail/partial machinery.
 
 Defaults from standard literature (ADX 25 = classic trending threshold; 15 = clear ranging). Per-instrument override available if paper data shows one instrument's ADX baseline systematically differs — see D47.
 
@@ -1362,6 +1435,11 @@ All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`
 | D52 | Round number step per instrument (B5 sub-decision) | **RESOLVED 2026-05-17 by Partha.** nifty50=100 pts, banknifty=100 pts, crudeoil=5 INR, naturalgas=1 INR. Coarser steps preferred (fewer near-round-number false positives) |
 | D65 | L5 exit-trigger look-ahead test scope (audit Finding #4, 2026-05-17) | **RESOLVED 2026-05-17 by Partha.** Existing `test_no_lookahead.py` covered only L1+L8 batch features. L5 SEA-side exit triggers (OI exits, wall-strength deltas, exhaustion comparisons) compose values from rolling buffers and entry-snapshots — these can leak forward independently of the batch features they read. New `python_modules/signal_engine_agent/tests/test_exit_trigger_no_lookahead.py` added to scope (§2.8). Three sub-checks: OI exits read as-of current tick only, wall-strength buffer is append-only with timestamp ≤ `t − N min` lookup, exhaustion entry-snapshot frozen at fire tick. Failure blocks SEA exit-rule deployment (separate gate from model promotion). |
 | D66 | Runtime schema reconciliation for mixed-version heads (audit Finding #2, 2026-05-17) | **RESOLVED 2026-05-17 by Partha.** Per-head `LATEST_HEADS.json` records the schema_version each head was trained on (frozen at training time), but the runtime contract for "live emitter has more columns than the head expects" was unspecified. Locked: (1) **additive-only schema policy** — schema bumps may APPEND features only, never remove/rename; (2) **schema registry on disk** at `config/schema_registry/v<N>.json` (git-tracked, immutable, written by retrain on version bump); (3) **predict-time column projection** — SEA looks up head's schema_version, projects current emitter row down to head's expected column list; (4) **refuse-and-quarantine** on additive-policy violation — affected heads fire CRITICAL alert and stay out of prediction until retrained on current schema. See §2.3.2 "Runtime schema reconciliation". Pre-market check (§5.2 #1) intent unchanged — that's a per-head corruption check, schema-break quarantine is a separate signal |
+| D67 | Agreement-window upgrade-activation threshold (audit Finding #3, 2026-05-17) | **RESOLVED 2026-05-17 by Partha.** D61 validation implied a separate "upgrade conviction floor" could be raised independent of the trend/swing gate's normal firing threshold, but the spec didn't define where that knob lives. Locked: introduce `θ_upgrade_<layer>_dir` in `config/sea_thresholds/<instrument>.json`, defaulting to `= θ_<layer>_dir` (no extra hurdle at v2 lock). D61 follow-up can raise it independently after 2 weeks of paper data without affecting normal trend/swing firing. See §2.4 "Upgrade-activation thresholds" |
+| D68 | Per-position state schema + persistence + crash recovery (audit Finding #5, 2026-05-17) | **RESOLVED 2026-05-17 by Partha.** L5 inline-composition exits (entry-snapshot exhaustion + 60-min wall-strength buffer) and Tier-2 partial fills (`partial_taken` flag) needed a single state schema and persistence story; previously scattered across §2.5 with no recovery rule. Locked: consolidated schema added as §2.5.1; persistence = in-memory primary with write-through to `data/sea_state/<instrument>/<position_id>.json` on every mutation (atomic temp+rename); recovery on SEA restart re-reads non-CLOSED files, force-closes positions older than layer max-hold, otherwise resumes with NaN-padded buffer for the wall-strength delta gap; closed positions archived to `CLOSED/<date>/` for audit. JSON format chosen over binary for post-incident readability (≤8 concurrent positions, parse cost irrelevant) |
+| D69 | Per-layer noise-floor scaling rationale (audit Finding #6, 2026-05-17) | **RESOLVED 2026-05-17 by Partha.** §7 swing floor was "48 pts" with no documented derivation. Locked the multiplier ladder in §2.2.3: scalp=1×, trend=3× (covers ~1 ATR-15min on liquid instruments), swing=6× (≈25% of nifty's typical intraday range — anything smaller is intra-day chop, not a swing). Same multipliers across all 4 instruments; per-instrument scalp floor in §7 sets the absolute. Re-tunable post-paper-trade if swing trades close at noise (over-tight) or sit out signals (over-loose) — D40/D57/D59 already cover the recalibration trigger |
+| D70 | Exit-trigger precedence rule (audit Finding #7, 2026-05-17) | **RESOLVED 2026-05-17 by Partha.** Spec said "first wins among (TP/SL/time/trail/OI/exhaustion)" only inside the regime-flip block; the same rule for time-stop vs OI exits at minute 1:59 was implied but never stated as the top-level precedence. Locked at §2.5: ALL exit conditions compete on each tick, first to fire wins, no priority ordering. Time-stop is a hard ceiling NOT a forced exit — a swing whose OI exit fires at 1:59:30 closes via OI, not the 2:00 hard ceiling. Same rule for scalp's 5-min and trend's 30-min ceilings |
+| D71 | Trail-tier and partial-exit independence from benign regime degradation (audit Finding #8, 2026-05-17) | **RESOLVED 2026-05-17 by Partha.** §2.8 L8 Q2 said `trend_strong → trend` is benign (no regime-flip protection fires), but didn't clarify whether Tier 1/2/3 trails and Tier 2 50% partial were ALSO suppressed during benign degradation. Locked: "no protection fired" suppresses ONLY regime-flip protection (SL→BE + TP halved). All trail tiers, partial-exit, OI exits, exhaustion exits, hard TP/SL/time keep firing normally regardless of regime state. Rationale: trail/partial are price-action signals, not regime signals — they protect realized gains independent of L8 opinion. Prevents "benign degradation" from accidentally killing legitimate trail machinery |
 
 ---
 
