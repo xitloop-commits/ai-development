@@ -62,6 +62,26 @@ Partha works on this project from both a desktop and a laptop simultaneously. Se
 - **Conflict avoidance:** if both machines edit the same file, second-to-push has to pull+rebase first. Stay coordinated — pick one machine for active editing, use the other for reading/review.
 - **When in doubt:** ask "is what I just did pushed?" before stopping a session.
 
+## Rule 5 — Brief in four one-line statements: why / change / outcome / suggestion (May 17 2026)
+
+Rule 1 says "explain before implementing." Rule 5 fixes the exact format. Every briefing has four sections, each a **single plain-English statement a layman can grasp**:
+
+- **Why** — the gap or problem in the running system today.
+- **Change** — what concretely gets built / modified.
+- **Outcome** — what Partha will be able to do, see, or measure once it lands.
+- **Suggestion** — the one concrete approach I recommend taking.
+
+Then end with a single "Proceed?" question. Nothing else.
+
+**Why:** Partha said *"do not show the features in the question instead show the outcome of having this and your suggestion"* during the Phase 2 TFA rollout, then clarified *"where is the outcome - just 1 line statement is required"* and *"why, change, outcome, suggestion - all in simple statement as laymen understand"*. Feature names, formulas, NaN rules, code paths, LOC counts, and spec quotes all belong in the code and spec — not in the briefing. The briefing's job is the value decision, not the engineering recap.
+
+**How to apply:**
+- Four bold headers, each followed by one sentence. No bulleted feature lists. No formula write-outs. No spec section quotes. No multi-clause sentences hiding three points.
+- Plain trading / product language. If a non-coder couldn't follow it, rewrite.
+- Skip the rule for trivial follow-ups already approved in the current conversation (renames, lint fixes, one-line bumps) — Rule 1's existing carve-out applies.
+- Engineering detail (LOC estimate, dependencies, hot-path cost, formula choice) lives in code, docstrings, and PR descriptions — surface it only if Partha asks.
+- For decisions with a real fork in approach: state the suggestion as a single recommended path, not an A/B/C menu. Mention the alternative only as a one-clause aside if it changes the trade-off.
+
 ## How to add new rules
 
 Append at the bottom of this file with format:
