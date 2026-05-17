@@ -141,7 +141,7 @@ The Wave 2 model (targets at 60–300s, magnitude ~5–9 INR) is verified to be 
 | 5 | Trade management | **LOCKED 2026-05-16 by Partha** (4 decisions: 2-tier trail, TP/SL lock at entry, 2-stop-out lockout, market fills) | §2.5 |
 | 6 | Position sizing | **LOCKED 2026-05-16 by Partha** (5 decisions: hybrid risk budget, equal sizing v1, portfolio cap 2.5×, uniform formula, naturalgas lot=1250) | §2.6 |
 | 7 | Risk controls | **LOCKED 2026-05-16 by Partha** (6 decisions: hooks, reset cadence, rolling DD, paper/live toggle, expiry handling, per-instrument numbers) | §2.7 |
-| 8 | Regime / meta | SKETCH | §2.8 |
+| 8 | Regime / meta | **LOCKED 2026-05-16 by Partha** (4 decisions: thresholds, time-of-day via L1 features, look-ahead test, learned classifier deferred) | §2.8 |
 
 Suggested deep-dive order: **4 → 5 → 7 → 6 → 8 → revisit 1–3.** Rationale: L4 unblocks paper-trade gate; L5 defines TP/SL semantics L4 depends on; L7 (risk caps) must exist before any live capital; L6 (sizing) needs L7 caps; L8 (regime) is enhancement on working baseline; L1–L3 only revisit if L4–L8 surface a gap.
 
@@ -720,10 +720,31 @@ L7 D5 also applies when `risk_limits_enabled=false` for `ai-paper` — it's safe
 
 **What it is:** classifies current market state, gates which signals are allowed in which states.
 
-**v2 sketch — 3-state classifier `{trend, range, chop}` from rules first:**
-- `trend` if ADX-5min ≥ 25 AND `consecutive_higher_highs_5min ≥ 3` (or symmetric down)
-- `chop` if `range_compression_ratio < 0.6` AND ADX < 15
+**3-state classifier thresholds (LOCKED 2026-05-16 — L8 D1 Option A):**
+- `trend` if `adx_5min ≥ 25` AND `consecutive_higher_highs_5min ≥ 3` (or symmetric down: `consecutive_higher_lows_5min ≥ 3` reversed)
+- `chop` if `range_compression_ratio < 0.6` AND `adx_5min < 15`
 - `range` otherwise
+
+Defaults from standard literature (ADX 25 = classic trending threshold; 15 = clear ranging). Per-instrument override available if paper data shows one instrument's ADX baseline systematically differs — see D47.
+
+**Time-of-day priors (LOCKED 2026-05-16 — L8 D2 Option C):** L8 classifier uses ONE set of thresholds across the session. Time-of-day variance handled downstream by L4 gate using existing L1 time features (`minutes_from_open`, `minutes_to_close`, `lunch_session_flag` — C6). LightGBM trees in the gate compose time-aware behavior automatically — splits on time feature × regime tag combinations.
+
+Rationale: keeps L8 simple (rule produces one tag); pushes time-conditional logic to the layer that already has it (L4 gate). No L8 rule fragility from per-time-bucket threshold tables.
+
+**Look-ahead avoidance (LOCKED 2026-05-16 — L8 D3 Option C):** all L8 regime features (and by policy, every L1 feature) computed using ONLY data available at time `t` (no future bars). Enforced by:
+
+1. **Convention:** all rolling/streak features use bars ending at or before `t` — lagged by at least 1 bar.
+2. **Automated test (mandatory):** new `python_modules/model_training_agent/tests/test_no_lookahead.py` runs every retrain. For each feature in L1+L8:
+   - Build "point-in-time" version (compute at `t` using only data with timestamp ≤ `t`)
+   - Build "full-history" version (typical batch compute)
+   - Assert equal across N sample timestamps
+   - Fails the retrain pipeline if any feature peeks forward.
+
+Look-ahead leakage is the hardest ML failure mode to debug after the fact. Test is non-negotiable safety check — any failure blocks model promotion.
+
+**Learned regime classifier (LOCKED 2026-05-16 — L8 D4 Option C):** v1 ships rule-based only. Defer learned LightGBM regime classifier until paper-trade data proves rules are inadequate. **Trigger condition:** if §5.1 trade-quality report shows ≥20% of losers exit on regime-mis-tagged conditions over a 4-week window. At that point, hand-label regime windows from holdout data + train a 4th LightGBM head (alongside the 72 trade-prediction heads) to predict regime classification. See PROJECT_TODO T17.
+
+**All L8 open items resolved. §2.8 promoted SKETCH → LOCKED 2026-05-16 by Partha.**
 
 L4 gate reads this — only emits trend signals in `trend` regime (initially). Wave 2 scalp can run in `range` or `chop` as future ensemble.
 
@@ -1137,6 +1158,7 @@ All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`
 | D44 | Always-enforced safety list (cannot be disabled by L7 D4 toggle) | Locked initial list: tier-1 event blackouts, broker WS cap, pre-market sanity-check fail, **expiry-day 14:30 IST entry cutoff (L7 D5)**. Add to list if discovered post-paper that other limits must always apply regardless of channel |
 | D45 | Recalibrate `daily_loss_limit` + `max_signals_per_day` per instrument | After first month of paper PnL: set `daily_loss_limit` to ~2× the 90th percentile of daily losses observed; set `max_signals_per_day` to 1.5× median observed |
 | D46 | Correlation-aware portfolio aggregation (upgrade L6 D3 B → C) | After 3 months of paper data, compute pairwise correlation of daily returns (NIFTY-BANKNIFTY likely high; MCX commodities lower). Adjust portfolio cap formula to weight correlated pairs |
+| D47 | Per-instrument L8 threshold override + learned regime classifier | If paper data shows (a) one instrument's ADX baseline systematically differs from default 25/15 thresholds, OR (b) §5.1 trade-quality report shows ≥20% of losers exit on regime-mis-tagged conditions over 4 weeks → add per-instrument thresholds AND/OR train learned LightGBM regime head. See T17 |
 | D36 | Doc role separation: V2_MASTER_SPEC vs PROJECT_TODO | **RESOLVED 2026-05-16 — Non-issue. V2_MASTER_SPEC is active design+dev plan (§2.0 layer status). PROJECT_TODO is parking lot for deferred tasks (T-list). Distinct purposes by design — no mirroring needed. During v2 design work, anything decided to be done later → add to PROJECT_TODO as new T-entry** |
 | D34 | Revisit single-pass pruning (Gap #24 D) if overfit observed | If first model's training AUC ≫ holdout AUC (e.g., gap > 0.10), pivot to Option A (post-train prune + retrain) and tighten regularization further |
 

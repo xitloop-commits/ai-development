@@ -26,7 +26,8 @@ Stage-by-stage design of the perfect signal system. All layer designs land in th
   - [x] L5 — Trade management LOCKED 2026-05-16
   - [x] L6 — Position sizing LOCKED 2026-05-16
   - [x] L7 — Risk controls LOCKED 2026-05-16
-  - [ ] L8 — Regime / meta deep dive
+  - [x] L8 — Regime / meta LOCKED 2026-05-16
+  - **All 8 layers LOCKED.** v2 design complete.
 - **User-chosen order:** L1 → L2 → L3 first (finalize before L4-L8). Per 2026-05-16 brainstorm session.
 - **Constraints (do NOT re-litigate — see V2_MASTER_SPEC §1.2):**
   - Trades live MINUTES (>5 min hold)
@@ -69,6 +70,14 @@ Show events_done / events_total_est / rate / ETA AND survive power cuts without 
 - **What's still TODO:**
   - Launcher reads progress.json and shows e.g. `crudeoil 05-13: 43% · ETA 6m` on the replay row.
 - **Out of scope:** pre-counting events (rejected — too slow), adding to Train/Backtest (Partha excluded).
+
+### T17 — Learned regime classifier (upgrade L8 D4)
+Train LightGBM regime classifier head alongside rule-based L8 classifier when rule-based proves inadequate.
+
+- **Status:** Deferred.
+- **Trigger condition:** §5.1 trade-quality weekly report shows ≥20% of losing trades exit on regime-mis-tagged conditions (e.g., entered as `trend`, exited because regime was actually `chop`) over a 4-week rolling window. OR ADX baselines per instrument show systematic mismatch with default 25/15 thresholds.
+- **Work required:** hand-label ~100 regime windows from holdout data (estimated 8 hrs focused work) + train 4th LightGBM head per instrument + integrate into L8 classifier (rules + learned ensemble).
+- **Spec change when ready:** V2_MASTER_SPEC §2.8 — add learned classifier alongside rule-based. Update D47 in §9 to RESOLVED.
 
 ### T16 — Confidence-weighted position sizing (upgrade L6 D2)
 Promote sizing from equal allocation (L6 D2 Option D, ships with v2) to confidence-weighted (scale lots by predicted_prob / 0.5).
