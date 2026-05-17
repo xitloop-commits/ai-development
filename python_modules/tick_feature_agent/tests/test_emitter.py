@@ -23,8 +23,10 @@ import pytest
 from tick_feature_agent.output.emitter import (
     _INT_COLUMNS,
     _INT_COLUMNS_BASE,
+    _PHASE2_BC_COLUMNS,
     COLUMN_NAMES,
     Emitter,
+    LATEST_SCHEMA_VERSION,
     _build_column_names,
     _build_target_columns,
     _parquet_type,
@@ -89,13 +91,14 @@ def _build(**overrides) -> dict:
 
 class TestColumnNames:
 
-    def test_count_is_402(self):
+    def test_count_is_471(self):
         # Wave 1: +22 (8 levels + 9 greeks + 5 expiry) → 392.
         # Wave 2: +5 target types per window × 2 default windows = +10 → 402.
-        assert len(COLUMN_NAMES) == 402
+        # Phase 2 (Schema-22/23): +69 trend/swing L1 (23 B-block + 46 C-block) → 471.
+        assert len(COLUMN_NAMES) == 471
 
     def test_no_duplicates(self):
-        assert len(set(COLUMN_NAMES)) == 402
+        assert len(set(COLUMN_NAMES)) == 471
 
     def test_first_column_is_timestamp(self):
         assert COLUMN_NAMES[0] == "timestamp"
@@ -231,44 +234,43 @@ class TestBuildTargetColumns:
 
 class TestDynamicColumnCount:
     """Lock the column-count contract for both the legacy 2-window
-    profile (370 columns) and the canonical 4-window profile (384).
-    Per Phase E8 / D4 the live profile uses 4 windows = 384 cols; the
-    2-window count is preserved for backward compat with replay of
-    pre-D4 parquets."""
+    profile and the canonical 4-window profile. Phase 2 (Schema-22/23)
+    appends 69 trend/swing L1 features, lifting the totals to 471 / 495."""
 
-    def test_count_is_402_for_2window_profile(self):
-        # Wave 1 +22 cols, Wave 2 +5 target types/window → 392 + 10 = 402.
+    def test_count_is_471_for_2window_profile(self):
+        # Wave 1 +22 cols, Wave 2 +10 (5 target types × 2 windows),
+        # Phase 2 +69 trend/swing L1 → 380 + 22 + 10 + 69 = 471.
         cols = column_names_for((30, 60))
-        assert len(cols) == 402
-        assert len(set(cols)) == 402, "duplicate column names in 2-window profile"
+        assert len(cols) == 471
+        assert len(set(cols)) == 471, "duplicate column names in 2-window profile"
 
-    def test_count_is_426_for_4window_profile(self):
-        """Canonical Phase D4 layout + Wave 1 (22) + Wave 2 (4×5=20) = 426."""
+    def test_count_is_495_for_4window_profile(self):
+        """Canonical Phase D4 layout + Wave 1 (22) + Wave 2 (4×5=20)
+        + Phase 2 (69) = 495."""
         cols = column_names_for((30, 60, 300, 900))
-        assert len(cols) == 426
-        assert len(set(cols)) == 426, "duplicate column names in 4-window profile"
+        assert len(cols) == 495
+        assert len(set(cols)) == 495, "duplicate column names in 4-window profile"
 
     @pytest.mark.parametrize(
         "windows,expected_count",
         [
-            ((30,), 390),  # single-window: 378 + 12×1 = 390 (Wave 2)
-            ((30, 60), 402),  # 2-window legacy MVP: 378 + 24 = 402
-            ((30, 60, 300), 414),  # 3-window: 378 + 36 = 414
-            ((30, 60, 300, 900), 426),  # canonical D4: 378 + 48 = 426
-            ((30, 60, 120, 300, 900), 438),  # 5-window: 378 + 60 = 438
+            ((30,), 459),       # single-window: 446 + 12×1 + 1 = 459
+            ((30, 60), 471),    # 2-window legacy MVP: 446 + 24 + 1 = 471
+            ((30, 60, 300), 483),         # 3-window: 446 + 36 + 1 = 483
+            ((30, 60, 300, 900), 495),    # canonical D4: 446 + 48 + 1 = 495
+            ((30, 60, 120, 300, 900), 507),  # 5-window: 446 + 60 + 1 = 507
         ],
     )
     def test_count_formula(self, windows, expected_count):
-        """Total = 355 (window-independent base) + 12 × len(windows) + 1
-        (upside_percentile_<min(windows)>s) + 22 (Wave 1: levels + greeks
-        + expiry). Wave 2: per-window target types went 7 → 12. Each
-        extra window adds exactly 12 columns."""
+        """Total = 446 (window-independent: 355 base + 22 Wave 1 + 69
+        Phase 2) + 12 × len(windows) + 1 (upside_percentile_<min(windows)>s).
+        Each extra target window adds exactly 12 columns."""
         assert len(column_names_for(windows)) == expected_count
 
     def test_legacy_module_global_is_2window_default(self):
         """`COLUMN_NAMES` exists as backward-compat for pre-E8 callers
         and resolves to the 2-window default."""
-        assert len(COLUMN_NAMES) == 402
+        assert len(COLUMN_NAMES) == 471
         assert COLUMN_NAMES == column_names_for((30, 60))
 
     def test_4window_includes_300s_and_900s_target_cols(self):
@@ -414,9 +416,9 @@ class TestParquetTypeForDirectionTargets:
 
 class TestAssembleFlatVector:
 
-    def test_key_count_is_402(self):
+    def test_key_count_is_471(self):
         row = _build()
-        assert len(row) == 402
+        assert len(row) == 471
 
     def test_key_order_matches_column_names(self):
         row = _build()
@@ -742,7 +744,7 @@ class TestSerializeRow:
         row = _build()
         line = serialize_row(row)
         parsed = json.loads(line)
-        assert len(parsed) == 402
+        assert len(parsed) == 471
 
     def test_allow_nan_false_satisfied(self):
         """NaN converted to null → json.loads should not raise."""
@@ -763,18 +765,18 @@ class TestEmitterFileSink:
 
     def test_emit_writes_to_file(self, tmp_path):
         out_file = str(tmp_path / "test_out.ndjson")
-        emitter = Emitter(file_path=out_file)
+        emitter = Emitter(file_path=out_file, schema_registry_dir=tmp_path / "_sr")
         row = _build()
         emitter.emit(row)
         emitter.close()
         lines = Path(out_file).read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 1
         parsed = json.loads(lines[0])
-        assert len(parsed) == 402
+        assert len(parsed) == 471
 
     def test_emit_multiple_rows(self, tmp_path):
         out_file = str(tmp_path / "test_multi.ndjson")
-        emitter = Emitter(file_path=out_file)
+        emitter = Emitter(file_path=out_file, schema_registry_dir=tmp_path / "_sr")
         for i in range(5):
             emitter.emit(_build(timestamp=float(i)))
         emitter.close()
@@ -784,11 +786,11 @@ class TestEmitterFileSink:
     def test_emit_appends_on_second_open(self, tmp_path):
         """Opening an existing file appends rather than truncates."""
         out_file = str(tmp_path / "append_test.ndjson")
-        emitter = Emitter(file_path=out_file)
+        emitter = Emitter(file_path=out_file, schema_registry_dir=tmp_path / "_sr")
         emitter.emit(_build(timestamp=1.0))
         emitter.close()
 
-        emitter2 = Emitter(file_path=out_file)
+        emitter2 = Emitter(file_path=out_file, schema_registry_dir=tmp_path / "_sr")
         emitter2.emit(_build(timestamp=2.0))
         emitter2.close()
 
@@ -799,7 +801,7 @@ class TestEmitterFileSink:
         """roll_file() closes old file and opens new one."""
         file1 = str(tmp_path / "file1.ndjson")
         file2 = str(tmp_path / "file2.ndjson")
-        emitter = Emitter(file_path=file1)
+        emitter = Emitter(file_path=file1, schema_registry_dir=tmp_path / "_sr")
         emitter.emit(_build(timestamp=1.0))
         emitter.roll_file(file2)
         emitter.emit(_build(timestamp=2.0))
@@ -814,20 +816,20 @@ class TestEmitterFileSink:
 
     def test_close_idempotent(self, tmp_path):
         out_file = str(tmp_path / "idempotent.ndjson")
-        emitter = Emitter(file_path=out_file)
+        emitter = Emitter(file_path=out_file, schema_registry_dir=tmp_path / "_sr")
         emitter.close()
         emitter.close()  # should not raise
 
-    def test_no_file_sink(self):
+    def test_no_file_sink(self, tmp_path):
         """No file path → no error, rows are silently dropped."""
-        emitter = Emitter()
+        emitter = Emitter(schema_registry_dir=tmp_path / "_sr")
         emitter.emit(_build())
         emitter.close()
 
     def test_custom_target_window_370_columns(self, tmp_path):
         """Single-window config → different target columns but still valid JSON."""
         out_file = str(tmp_path / "single_window.ndjson")
-        emitter = Emitter(file_path=out_file)
+        emitter = Emitter(file_path=out_file, schema_registry_dir=tmp_path / "_sr")
         row = assemble_flat_vector(**_minimal_row(target_windows_sec=(30,)))
         emitter.emit(row)
         emitter.close()
@@ -835,3 +837,285 @@ class TestEmitterFileSink:
         parsed = json.loads(line)
         assert "max_upside_30s" in parsed
         assert "max_upside_60s" not in parsed
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 2 (Schema-22 / Schema-23) — trend/swing Layer-1 column coverage
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+# Exhaustive list of every dict key emitted by the 18 Phase 2 feature
+# modules — sourced directly from each compute_*() function. Used by the
+# tests below to detect any accidental key drift between feature module
+# and emitter column list.
+_PHASE2_EXPECTED_KEYS: frozenset[str] = frozenset({
+    # B1 multi_tf MA ratios
+    "ma_5_1min", "ma_20_1min", "ma_5_5min", "ma_20_5min", "ma_5_15min",
+    # B2 multi_tf trend strength
+    "adx_5min", "momentum_5min", "momentum_15min",
+    # B3 session.compute_session_features
+    "dist_from_session_open_pct", "dist_from_session_vwap_pct",
+    "session_high_age_min", "session_low_age_min",
+    # B4 multi_tf patterns
+    "consecutive_higher_highs_5min", "consecutive_higher_lows_5min",
+    "range_compression_ratio",
+    # B5 opening_range
+    "distance_to_opening_range_high_pct", "distance_to_opening_range_low_pct",
+    # B5 cross-day levels (levels.compute_cross_day_level_features)
+    "distance_to_prev_day_high_pct", "distance_to_prev_day_low_pct",
+    "distance_to_round_number_above_pct", "distance_to_round_number_below_pct",
+    "distance_to_5d_swing_high_pct", "distance_to_5d_swing_low_pct",
+    # C1 OI flow / dominance (oi_dominance + chain wall/delta/weighted/pcr-slope)
+    "oi_dominance_streak_min",
+    "ce_wall_strength_rel", "pe_wall_strength_rel",
+    "ce_oi_change_5min_pct", "pe_oi_change_5min_pct",
+    "ce_oi_change_15min_pct", "pe_oi_change_15min_pct",
+    "ce_oi_change_60min_pct", "pe_oi_change_60min_pct",
+    "oi_weighted_ce_resistance_strike", "oi_weighted_pe_support_strike",
+    "pcr_intraday_slope_30min",
+    # C2 technical
+    "rsi_14_5min", "macd_5min", "macd_signal_5min", "macd_histogram_5min",
+    "volume_price_divergence_5min",
+    # C3 india_vix
+    "india_vix", "india_vix_change_5min",
+    # C4 dealer_hedging
+    "net_gex", "gamma_flip_distance_pct", "dealer_net_delta",
+    "charm_estimate_atm", "vanna_estimate_atm",
+    # C5 exhaustion
+    "trend_age_ticks", "volume_no_move_score",
+    # C6 intraday_time
+    "minutes_from_open", "minutes_to_close", "lunch_session_flag",
+    # C7 active_features.compute_strike_rotation_features
+    "active_strike_shift_direction", "active_strike_shift_velocity",
+    "atm_to_otm_flow_ratio",
+    # C8 premium_vwap
+    "atm_ce_premium_vwap_dist", "atm_pe_premium_vwap_dist",
+    "premium_vwap_reclaim_count",
+    # C9 greeks.compute_iv_velocity_features
+    "iv_change_1min", "iv_change_5min", "iv_skew_velocity",
+    "iv_expansion_without_spot",
+    # C10 levels.compute_max_pain_features
+    "max_pain_strike", "distance_to_max_pain_pct", "max_pain_gravity_strength",
+    # C11 event_calendar
+    "is_tier_2_event_day", "event_type_categorical",
+    "hours_to_next_tier_1_or_2_event",
+    # C12 expiry — days_to_expiry_bucket (new key on existing module)
+    "days_to_expiry_bucket",
+})
+
+
+class TestPhase2Columns:
+    """Lock the 69 new trend/swing Layer-1 columns added in Phase 2
+    (Schema-22 + Schema-23). These tests guard against accidental
+    rename / removal of any feature module's dict key drifting away
+    from the emitter column list."""
+
+    def test_phase2_block_has_69_columns(self):
+        assert len(_PHASE2_BC_COLUMNS) == 69
+
+    def test_phase2_block_no_duplicates(self):
+        assert len(set(_PHASE2_BC_COLUMNS)) == len(_PHASE2_BC_COLUMNS)
+
+    def test_expected_keys_cover_69(self):
+        """Sanity: the hand-curated expected-keys set itself is 69."""
+        assert len(_PHASE2_EXPECTED_KEYS) == 69
+
+    def test_all_69_keys_in_default_column_list(self):
+        cols = set(column_names_for((30, 60)))
+        missing = _PHASE2_EXPECTED_KEYS - cols
+        assert not missing, f"Phase 2 keys missing from default cols: {missing}"
+
+    def test_all_69_keys_in_4window_column_list(self):
+        cols = set(column_names_for((30, 60, 300, 900)))
+        missing = _PHASE2_EXPECTED_KEYS - cols
+        assert not missing, f"Phase 2 keys missing from 4-window cols: {missing}"
+
+    @pytest.mark.parametrize(
+        "spotcheck_key",
+        [
+            "india_vix",
+            "net_gex",
+            "adx_5min",
+            "rsi_14_5min",
+            "oi_weighted_ce_resistance_strike",
+            "days_to_expiry_bucket",
+            "oi_dominance_streak_min",
+            "minutes_from_open",
+            "max_pain_strike",
+        ],
+    )
+    def test_phase2_spot_check_keys_present(self, spotcheck_key):
+        assert spotcheck_key in column_names_for((30, 60))
+
+    def test_existing_columns_still_present(self):
+        """Regression guard: appending Phase 2 must not drop any pre-existing column."""
+        cols = set(column_names_for((30, 60)))
+        # Spot-check coverage of every legacy group.
+        for legacy in (
+            "timestamp",
+            "underlying_ltp",
+            "spot_price",
+            "atm_strike",
+            "opt_0_ce_ltp",
+            "chain_pcr_global",
+            "active_0_strike",
+            "call_put_strength_diff",
+            "total_premium_decay_atm",
+            "regime",
+            "atm_zone_call_pressure",
+            "max_upside_30s",
+            "trading_state",
+            "is_market_open",
+            "distance_to_day_high_pct",  # Wave 1 level
+            "atm_ce_iv",                  # Wave 1 greek
+            "days_to_expiry",             # Wave 1 expiry
+        ):
+            assert legacy in cols, f"legacy column dropped: {legacy}"
+
+    def test_phase2_block_is_appended_after_wave1(self):
+        """Phase 2 columns must come AFTER the Wave 1 expiry block — the
+        order is contractually locked the moment we publish v7.json."""
+        cols = column_names_for((30, 60))
+        last_wave1_idx = cols.index("session_remaining_pct")
+        first_phase2_idx = cols.index(_PHASE2_BC_COLUMNS[0])
+        assert first_phase2_idx == last_wave1_idx + 1
+
+    def test_assemble_flat_vector_includes_phase2_keys_as_nan(self):
+        """When no Phase 2 dicts are passed, every Phase 2 column emits NaN."""
+        row = _build()  # all Phase 2 kwargs default to None
+        for k in _PHASE2_BC_COLUMNS:
+            assert k in row, f"Phase 2 col {k!r} missing from row"
+            assert _nan(row[k]), f"Phase 2 col {k!r} should default to NaN, got {row[k]!r}"
+
+    def test_assemble_flat_vector_wires_phase2_dicts(self):
+        """Spot-check that the new optional kwargs feed the right output keys."""
+        row = assemble_flat_vector(
+            **_minimal_row(
+                multi_tf_feats={"adx_5min": 22.5, "ma_5_1min": -0.001},
+                session_feats={"dist_from_session_open_pct": 0.42},
+                vix_feats={"india_vix": 14.7, "india_vix_change_5min": 0.3},
+                dealer_hedging_feats={"net_gex": -1.2e9},
+                technical_feats={"rsi_14_5min": 58.0},
+                oi_flow_feats={"oi_dominance_streak_min": -12.5},
+                intraday_time_feats={"minutes_from_open": 35.0},
+                max_pain_feats={"max_pain_strike": 24000.0},
+                event_calendar_feats={"is_tier_2_event_day": 1.0},
+                expiry_feats={
+                    "days_to_expiry": 2.5,
+                    "days_to_expiry_bucket": 2.0,
+                },
+            )
+        )
+        assert row["adx_5min"] == pytest.approx(22.5)
+        assert row["ma_5_1min"] == pytest.approx(-0.001)
+        assert row["dist_from_session_open_pct"] == pytest.approx(0.42)
+        assert row["india_vix"] == pytest.approx(14.7)
+        assert row["india_vix_change_5min"] == pytest.approx(0.3)
+        assert row["net_gex"] == pytest.approx(-1.2e9)
+        assert row["rsi_14_5min"] == pytest.approx(58.0)
+        assert row["oi_dominance_streak_min"] == pytest.approx(-12.5)
+        assert row["minutes_from_open"] == pytest.approx(35.0)
+        assert row["max_pain_strike"] == pytest.approx(24000.0)
+        assert row["is_tier_2_event_day"] == pytest.approx(1.0)
+        assert row["days_to_expiry"] == pytest.approx(2.5)
+        assert row["days_to_expiry_bucket"] == pytest.approx(2.0)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Schema-registry write (V2_MASTER_SPEC §2.3 D74 B1)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestSchemaRegistry:
+    """Lock the D74 B1 contract: emitter writes v<N>.json iff
+    LATEST_SCHEMA_VERSION > highest existing version on disk."""
+
+    def test_writes_v7_when_dir_empty(self, tmp_path):
+        registry = tmp_path / "schema_registry"
+        Emitter(target_windows_sec=(30, 60, 300, 900), schema_registry_dir=registry)
+        out_file = registry / f"v{LATEST_SCHEMA_VERSION}.json"
+        assert out_file.exists(), "emitter should auto-write v7.json on empty registry"
+        payload = json.loads(out_file.read_text(encoding="utf-8"))
+        assert payload["schema_version"] == LATEST_SCHEMA_VERSION
+        assert payload["feature_count"] == len(payload["columns"])
+        assert payload["feature_count"] == 495  # 4-window canonical
+        assert payload["columns"][0] == "timestamp"
+        assert "india_vix" in payload["columns"]
+        assert "days_to_expiry_bucket" in payload["columns"]
+        assert payload["written_by"] == "tick_feature_agent.emitter"
+
+    def test_no_write_when_existing_version_equal(self, tmp_path):
+        registry = tmp_path / "schema_registry"
+        registry.mkdir()
+        # Pre-place a v7.json with a deliberately wrong payload — the
+        # emitter must NOT overwrite an equal version.
+        sentinel = {"schema_version": LATEST_SCHEMA_VERSION, "columns": ["DO-NOT-OVERWRITE"]}
+        (registry / f"v{LATEST_SCHEMA_VERSION}.json").write_text(json.dumps(sentinel))
+        Emitter(schema_registry_dir=registry)
+        loaded = json.loads(
+            (registry / f"v{LATEST_SCHEMA_VERSION}.json").read_text(encoding="utf-8")
+        )
+        assert loaded == sentinel, "emitter must NOT overwrite an equal version"
+
+    def test_no_write_when_existing_version_higher(self, tmp_path):
+        registry = tmp_path / "schema_registry"
+        registry.mkdir()
+        future = {"schema_version": LATEST_SCHEMA_VERSION + 1, "columns": []}
+        (registry / f"v{LATEST_SCHEMA_VERSION + 1}.json").write_text(json.dumps(future))
+        Emitter(schema_registry_dir=registry)
+        # Our v7 must NOT have appeared.
+        assert not (registry / f"v{LATEST_SCHEMA_VERSION}.json").exists()
+        # The future file is untouched.
+        loaded = json.loads(
+            (registry / f"v{LATEST_SCHEMA_VERSION + 1}.json").read_text(encoding="utf-8")
+        )
+        assert loaded == future
+
+    def test_write_failure_does_not_block_emitter(self, tmp_path):
+        """Pass a path that resolves to a file (not a directory) — the
+        registry-write helper must swallow the error and let the emitter
+        come up clean."""
+        not_a_dir = tmp_path / "blocker.txt"
+        not_a_dir.write_text("I'm a file, not a directory")
+        # This must not raise — registry-write failure is non-fatal.
+        emitter = Emitter(schema_registry_dir=not_a_dir)
+        emitter.close()
+
+    def test_replay_mode_also_writes_registry(self, tmp_path):
+        """Replay-mode emitters share the same schema and SHOULD write
+        the registry too (the recorder is not the only thing that boots
+        the emitter — replay runs do too)."""
+        registry = tmp_path / "schema_registry"
+        Emitter(mode="replay", schema_registry_dir=registry)
+        assert (registry / f"v{LATEST_SCHEMA_VERSION}.json").exists()
+
+    def test_real_repo_registry_v7_present(self):
+        """End-to-end fixture: writes the canonical 4-window v7.json to
+        the real `config/schema_registry/` directory so the repo carries
+        a developer-readable schema-of-truth. Per V2_MASTER_SPEC §2.3
+        D74 B1 this file is autogenerated; the test fixture is the
+        authoritative producer.
+
+        The test deletes any pre-existing v7.json first so the result
+        always reflects the 4-window canonical profile (495 cols) — the
+        registry is meant to mirror the live recorder, which uses 4
+        windows per E8/D4. Other tests in this module override
+        `schema_registry_dir` to tmp paths so they don't pollute the
+        real registry."""
+        from tick_feature_agent.output.emitter import _DEFAULT_SCHEMA_REGISTRY_DIR
+        v7 = _DEFAULT_SCHEMA_REGISTRY_DIR / "v7.json"
+        if v7.exists():
+            v7.unlink()
+        Emitter(target_windows_sec=(30, 60, 300, 900))
+        assert v7.exists(), f"expected real-repo registry file at {v7}"
+        payload = json.loads(v7.read_text(encoding="utf-8"))
+        assert payload["schema_version"] == 7
+        assert payload["feature_count"] == len(payload["columns"])
+        assert payload["feature_count"] == 495, (
+            "real-repo v7.json must reflect canonical 4-window profile"
+        )
+        assert payload["columns"][0] == "timestamp"
+        # Spot-check that the 69 Phase 2 keys made it in.
+        assert "india_vix" in payload["columns"]
+        assert "net_gex" in payload["columns"]
+        assert "days_to_expiry_bucket" in payload["columns"]

@@ -96,6 +96,13 @@ class SessionState:
         ltp_v = _safe_pos(ltp)
         if ts_v is None or ltp_v is None:
             return
+        # Reject backwards-time ticks. A late-arriving tick whose ts is
+        # before the most recent forward tick would otherwise corrupt
+        # session_high / session_low / cum_value (caught by Test-24
+        # no-lookahead suite, 2026-05-17). Matches the guards in
+        # BarAggregator and OiDominanceState.
+        if self.last_ts is not None and ts_v < self.last_ts:
+            return
         vol_v = _safe_float(tick_volume) or 0.0
         if vol_v < 0:
             vol_v = 0.0

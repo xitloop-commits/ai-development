@@ -43,6 +43,8 @@ import math
 import time
 from collections import deque
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
@@ -71,9 +73,16 @@ from tick_feature_agent.features.zone import compute_zone_features
 from tick_feature_agent.feed.chain_poller import ChainSnapshot
 from tick_feature_agent.instrument_profile import InstrumentProfile
 from tick_feature_agent.output.emitter import Emitter, assemble_flat_vector
+from tick_feature_agent.state import levels_store
 from tick_feature_agent.state_machine import StateMachine, TradingState
 
 _NAN = float("nan")
+_IST = timezone(timedelta(hours=5, minutes=30))
+
+# Repo root = three levels above this file:
+#   tick_processor.py  →  tick_feature_agent/  →  python_modules/  →  <repo>
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_LEVELS_STATE_DIR = _REPO_ROOT / "data" / "state"
 
 
 # ── Pending-target row (same as replay_adapter pattern) ───────────────────────
@@ -115,6 +124,7 @@ class TickProcessor:
         recorder: Any = None,  # SessionRecorder (optional)
         alert_emitter: Any = None,  # AlertEmitter (optional)
         logger: Any = None,
+        levels_state_dir: Path | str | None = None,  # task 2c-21: cross-day H/L writer
     ) -> None:
         self._profile = profile
         self._sm = state_machine
@@ -126,6 +136,12 @@ class TickProcessor:
         self._recorder = recorder
         self._alerts = alert_emitter
         self._log = logger
+
+        # Task 2c-21: directory where per-instrument cross-day H/L JSON lives.
+        # Default to <repo>/data/state/; tests override via constructor kwarg.
+        self._levels_state_dir: Path = (
+            Path(levels_state_dir) if levels_state_dir is not None else _LEVELS_STATE_DIR
+        )
 
         # Stateful feature modules
         self._compression = CompressionState()
@@ -193,6 +209,12 @@ class TickProcessor:
     def on_session_close(self) -> None:
         """
         Call at session_end to flush any remaining pending-target rows.
+
+        Task 2c-21: also persist today's session high/low to a per-instrument
+        JSON file under ``<repo>/data/state/`` so tomorrow's cross-day level
+        features (`compute_cross_day_level_features`) can read prev-day H/L
+        and the 5-day swing window. Any failure here is logged and swallowed
+        — the writer must NEVER block the session-close flush flow.
         """
         while self._pending:
             p = self._pending.popleft()
@@ -206,6 +228,58 @@ class TickProcessor:
             )
             p.row.update(targets)
             self._emitter.emit(p.row)
+
+        # Task 2c-21 writer hook — best-effort, never raises.
+        self._persist_cross_day_levels()
+
+    def _persist_cross_day_levels(self) -> None:
+        """
+        Persist today's session high/low to ``data/state/<inst>_levels.json``.
+
+        The whole hook is wrapped in try/except so a writer failure (disk
+        full, permission denied, etc.) can NEVER block the session-close
+        flow — we log a warning and move on.
+        """
+        try:
+            hi = self._day_high
+            lo = self._day_low
+            if hi is None or lo is None:
+                # No ticks seen this session — nothing to persist.
+                return
+
+            session_date = self._infer_session_date()
+            if session_date is None:
+                # No way to date the entry — skip rather than write a bogus row.
+                if self._log is not None:
+                    self._log.warning(
+                        "levels_store: unable to infer session_date, skipping persist"
+                    )
+                return
+
+            inst = (self._profile.instrument_name or "UNKNOWN").strip() or "UNKNOWN"
+            path = self._levels_state_dir / f"{inst}_levels.json"
+
+            state = levels_store.load(path)
+            new_state = levels_store.update(state, session_date, hi, lo)
+            levels_store.save(new_state, path)
+        except Exception as exc:  # noqa: BLE001 — must never bubble up
+            if self._log is not None:
+                self._log.warning("levels_store: persist failed: %s", exc)
+
+    def _infer_session_date(self) -> str | None:
+        """
+        Return today's IST calendar date as ``YYYY-MM-DD``.
+
+        Prefer ``_session_end_sec`` (set at session_open and tied to today's
+        IST close) so the writer dates the entry correctly even if it runs
+        a hair past midnight UTC. Fall back to ``time.time()`` if no session
+        end was set (test/replay paths).
+        """
+        ts = self._session_end_sec if self._session_end_sec else time.time()
+        try:
+            return datetime.fromtimestamp(ts, tz=_IST).date().isoformat()
+        except (OverflowError, OSError, ValueError):
+            return None
 
     # ── Feed callbacks ────────────────────────────────────────────────────────
 

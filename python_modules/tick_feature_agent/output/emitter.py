@@ -2,12 +2,16 @@
 emitter.py — Flat per-tick feature vector assembly + NDJSON / Parquet output.
 
 The output column count is **dynamic per instrument profile**: the
-target-variable block contributes `len(target_windows_sec) * 7 + 1`
-columns, so a profile with `[30, 60]` windows lands at 370 columns
-total and a profile with `[30, 60, 300, 900]` windows lands at 384.
-Per Phase E8 / D4 the canonical live profile uses 4 windows = 384
-columns; the 2-window legacy layout is still supported (replay of
-pre-D4 data, tests).
+target-variable block contributes `len(target_windows_sec) * 12 + 1`
+columns (Wave 2 added 5 new target types), and Phase 2 of v2 appends
+a trend/swing Layer-1 block of 69 features (23 B-block multi-TF + 46
+C-block context features) AFTER the legacy 402-column scalp layout.
+
+So the 2-window profile now lands at 402 + 69 = 471 columns, and the
+canonical 4-window profile (`[30, 60, 300, 900]`) lands at 426 + 69 =
+495 columns. Per Phase E8 / D4 the canonical live profile uses 4 windows;
+the 2-window legacy layout is still supported (replay of pre-D4 data,
+tests).
 
 Use `column_names_for(target_windows_sec)` to get the ordered tuple
 for any profile, and `int_columns_for(target_windows_sec)` to get the
@@ -20,8 +24,8 @@ through `Emitter(target_windows_sec=profile.target_windows_sec, ...)`.
 Assembles all per-tick feature groups into a single ordered flat dict
 matching the wire format defined in spec §9.1, then serialises to NDJSON.
 
-Column groups (counts shown for the 2-window default profile = 370 total;
-4-window canonical profile lands at 384):
+Column groups (counts shown for the 2-window default profile = 471 total;
+4-window canonical profile lands at 495):
     1        timestamp
     2–13     Underlying Base (12)
     14–33    Underlying Extended: OFI + Realized Vol + Multi-Window (20)
@@ -35,9 +39,28 @@ Column groups (counts shown for the 2-window default profile = 370 total;
     329–333  Decay & Dead Market Detection (5)
     334–335  Regime Classification (2)
     336–342  Zone Aggregation (7)
-    343–357  Target Variables — 15 columns (default [30s, 60s] windows)
-    358–361  Trading State (4)
-    362–370  Metadata (9)
+    343–367  Target Variables — 25 columns (default [30s, 60s] windows, Wave 2)
+    368–371  Trading State (4)
+    372–380  Metadata (9)
+    381–388  Wave 1 Levels — S/R distances + OI walls (8)
+    389–397  Wave 1 Greeks — ATM IV + Black-Scholes Greeks (9)
+    398–402  Wave 1 Expiry — DTE + session position (5)
+    403–471  Phase 2 trend/swing Layer-1 (69) — see _PHASE2_BC_COLUMNS:
+             B1 multi-TF MAs (5), B2 trend strength (3), B3 session
+             relative (4), B4 multi-bar patterns (3), B5 opening range
+             (2) + cross-day levels (6), C1 OI flow (12), C2 technical
+             (5), C3 vol regime (2), C4 dealer hedging (5), C5 exhaustion
+             (2), C6 intraday timing (3), C7 strike rotation (3), C8
+             premium VWAP (3), C9 IV velocity (4), C10 max pain (3),
+             C11 event calendar (3), C12 expiry bucket (1).
+
+Schema registry write behaviour (V2_MASTER_SPEC §2.3 D74 B1 — LOCKED 2026-05-17):
+    The Emitter is the AUTHORITATIVE writer for `config/schema_registry/v<N>.json`.
+    On Emitter construction it compares `LATEST_SCHEMA_VERSION` against the
+    highest `v<N>.json` already on disk and only writes a fresh file if the
+    constant is strictly HIGHER. Failure to write is logged (warning) but
+    never raised — the data pipeline must never be blocked by a registry
+    bookkeeping problem.
 
 Public API:
     column_names_for(windows)       → tuple[str, ...]   Ordered column names for any profile windows
@@ -46,6 +69,7 @@ Public API:
     assemble_flat_vector(**kwargs)  → dict              Build ordered flat dict
     serialize_row(row)              → str               NaN/None → JSON null, no trailing newline
     Emitter(target_windows_sec=...) Class managing file + socket + parquet output sinks
+    LATEST_SCHEMA_VERSION           Int. Bumped on every additive schema change.
 
 NaN encoding:
     Python float('nan') and Python None both become JSON null in wire output.
@@ -55,13 +79,32 @@ NaN encoding:
 from __future__ import annotations
 
 import json
+import logging
 import math
+import os
 import socket
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO
 
 _NAN = float("nan")
+
+# ── Schema versioning ─────────────────────────────────────────────────────
+# Bump LATEST_SCHEMA_VERSION on every additive schema change. The Emitter
+# constructor writes a fresh `config/schema_registry/v<N>.json` on startup
+# if this constant exceeds the highest version currently on disk. Per
+# V2_MASTER_SPEC §2.3 D74 B1 (LOCKED 2026-05-17), the emitter is the SOLE
+# authoritative writer of the registry.
+#
+# History:
+#   v6 — Wave 2 scalp targets (5 new types × 2 windows = +10 target cols),
+#        landing 2-window profile at 402.
+#   v7 — Phase 2 trend/swing Layer-1 features (+69: 23 B-block + 46
+#        C-block), landing 2-window profile at 471, 4-window at 495.
+LATEST_SCHEMA_VERSION: int = 7
+
+_log = logging.getLogger("tick_feature_agent.emitter")
 
 # ── Internal: underlying bare-key lists ─────────────────────────────────────
 
@@ -269,6 +312,190 @@ _EXPIRY_KEYS = (
     "session_remaining_pct",
 )
 
+# ── Phase 2 (v2 trend/swing) Layer-1 feature blocks ────────────────────────
+# Appended AFTER Wave 1 so legacy column indices (0–401) are preserved.
+# 23 B-block + 46 C-block = 69 new columns. Order locked here is the
+# order published in v7.json — never reorder within a published schema.
+# Keys match the EXACT dict keys returned by each feature module's
+# compute_*() function so the assembler can blindly merge them in.
+
+# B1 — Multi-timeframe MAs (5 keys from features/multi_tf.py)
+_B1_MA_KEYS = (
+    "ma_5_1min",
+    "ma_20_1min",
+    "ma_5_5min",
+    "ma_20_5min",
+    "ma_5_15min",
+)
+
+# B2 — Trend strength (3 keys from features/multi_tf.py)
+_B2_TREND_STRENGTH_KEYS = (
+    "adx_5min",
+    "momentum_5min",
+    "momentum_15min",
+)
+
+# B3 — Session relative (4 keys from features/session.py)
+_B3_SESSION_KEYS = (
+    "dist_from_session_open_pct",
+    "dist_from_session_vwap_pct",
+    "session_high_age_min",
+    "session_low_age_min",
+)
+
+# B4 — Multi-bar patterns (3 keys from features/multi_tf.py)
+_B4_PATTERN_KEYS = (
+    "consecutive_higher_highs_5min",
+    "consecutive_higher_lows_5min",
+    "range_compression_ratio",
+)
+
+# B5 — Opening range (2 keys from features/opening_range.py)
+_B5_OPENING_RANGE_KEYS = (
+    "distance_to_opening_range_high_pct",
+    "distance_to_opening_range_low_pct",
+)
+
+# B5 — Cross-day levels (6 keys from features/levels.py compute_cross_day_level_features)
+_B5_CROSS_DAY_KEYS = (
+    "distance_to_prev_day_high_pct",
+    "distance_to_prev_day_low_pct",
+    "distance_to_round_number_above_pct",
+    "distance_to_round_number_below_pct",
+    "distance_to_5d_swing_high_pct",
+    "distance_to_5d_swing_low_pct",
+)
+
+# C1 — OI flow / dominance (12 keys spread across features/oi_dominance.py
+#      and features/chain.py {wall_strength, oi_change_deltas, oi_weighted_levels, pcr_slope})
+_C1_OI_FLOW_KEYS = (
+    "oi_dominance_streak_min",
+    "ce_wall_strength_rel",
+    "pe_wall_strength_rel",
+    "ce_oi_change_5min_pct",
+    "pe_oi_change_5min_pct",
+    "ce_oi_change_15min_pct",
+    "pe_oi_change_15min_pct",
+    "ce_oi_change_60min_pct",
+    "pe_oi_change_60min_pct",
+    "oi_weighted_ce_resistance_strike",
+    "oi_weighted_pe_support_strike",
+    "pcr_intraday_slope_30min",
+)
+
+# C2 — Technical oscillators on 5-min bars (5 keys from features/technical.py)
+_C2_TECHNICAL_KEYS = (
+    "rsi_14_5min",
+    "macd_5min",
+    "macd_signal_5min",
+    "macd_histogram_5min",
+    "volume_price_divergence_5min",
+)
+
+# C3 — Vol regime (2 keys from features/india_vix.py)
+_C3_VIX_KEYS = (
+    "india_vix",
+    "india_vix_change_5min",
+)
+
+# C4 — Dealer hedging / GEX (5 keys from features/dealer_hedging.py)
+_C4_DEALER_HEDGING_KEYS = (
+    "net_gex",
+    "gamma_flip_distance_pct",
+    "dealer_net_delta",
+    "charm_estimate_atm",
+    "vanna_estimate_atm",
+)
+
+# C5 — Trend exhaustion (2 keys from features/exhaustion.py)
+_C5_EXHAUSTION_KEYS = (
+    "trend_age_ticks",
+    "volume_no_move_score",
+)
+
+# C6 — Intraday timing (3 keys from features/intraday_time.py)
+_C6_INTRADAY_TIME_KEYS = (
+    "minutes_from_open",
+    "minutes_to_close",
+    "lunch_session_flag",
+)
+
+# C7 — Strike rotation (3 keys from features/active_features.py compute_strike_rotation_features)
+_C7_STRIKE_ROTATION_KEYS = (
+    "active_strike_shift_direction",
+    "active_strike_shift_velocity",
+    "atm_to_otm_flow_ratio",
+)
+
+# C8 — Premium VWAP (3 keys from features/premium_vwap.py)
+_C8_PREMIUM_VWAP_KEYS = (
+    "atm_ce_premium_vwap_dist",
+    "atm_pe_premium_vwap_dist",
+    "premium_vwap_reclaim_count",
+)
+
+# C9 — IV velocity (4 keys from features/greeks.py compute_iv_velocity_features)
+_C9_IV_VELOCITY_KEYS = (
+    "iv_change_1min",
+    "iv_change_5min",
+    "iv_skew_velocity",
+    "iv_expansion_without_spot",
+)
+
+# C10 — Max pain (3 keys from features/levels.py compute_max_pain_features)
+_C10_MAX_PAIN_KEYS = (
+    "max_pain_strike",
+    "distance_to_max_pain_pct",
+    "max_pain_gravity_strength",
+)
+
+# C11 — Macro-event calendar (3 keys from features/event_calendar.py)
+_C11_EVENT_CALENDAR_KEYS = (
+    "is_tier_2_event_day",
+    "event_type_categorical",
+    "hours_to_next_tier_1_or_2_event",
+)
+
+# C12 — Expiry bucket (1 new key on top of existing _EXPIRY_KEYS — added to
+#       features/expiry.py compute_expiry_features). Appended here rather
+#       than inside _EXPIRY_KEYS so the Wave 1 expiry column ordering is
+#       preserved bit-for-bit with v6.
+_C12_EXPIRY_BUCKET_KEYS = (
+    "days_to_expiry_bucket",
+)
+
+# Ordered concatenation of every Phase 2 column group. This is the
+# load-bearing source of truth — `_build_column_names` appends this
+# block verbatim after the Wave 1 columns.
+_PHASE2_BC_COLUMNS: tuple[str, ...] = (
+    *_B1_MA_KEYS,
+    *_B2_TREND_STRENGTH_KEYS,
+    *_B3_SESSION_KEYS,
+    *_B4_PATTERN_KEYS,
+    *_B5_OPENING_RANGE_KEYS,
+    *_B5_CROSS_DAY_KEYS,
+    *_C1_OI_FLOW_KEYS,
+    *_C2_TECHNICAL_KEYS,
+    *_C3_VIX_KEYS,
+    *_C4_DEALER_HEDGING_KEYS,
+    *_C5_EXHAUSTION_KEYS,
+    *_C6_INTRADAY_TIME_KEYS,
+    *_C7_STRIKE_ROTATION_KEYS,
+    *_C8_PREMIUM_VWAP_KEYS,
+    *_C9_IV_VELOCITY_KEYS,
+    *_C10_MAX_PAIN_KEYS,
+    *_C11_EVENT_CALENDAR_KEYS,
+    *_C12_EXPIRY_BUCKET_KEYS,
+)
+
+assert len(_PHASE2_BC_COLUMNS) == 69, (
+    f"_PHASE2_BC_COLUMNS expected 69 entries (23 B-block + 46 C-block), "
+    f"got {len(_PHASE2_BC_COLUMNS)}"
+)
+assert len(set(_PHASE2_BC_COLUMNS)) == len(_PHASE2_BC_COLUMNS), (
+    "Duplicate column name detected in _PHASE2_BC_COLUMNS"
+)
+
 # ── Target column generation ──────────────────────────────────────────────────
 
 
@@ -331,7 +558,13 @@ def _build_target_columns(target_windows_sec: tuple[int, ...]) -> tuple[str, ...
 def _build_column_names(
     target_windows_sec: tuple[int, ...] = (30, 60),
 ) -> tuple[str, ...]:
-    """Build the full ordered tuple of 370 column names for the given windows."""
+    """Build the full ordered column-name tuple for the given target
+    windows.
+
+    Counts: 402 for default 2-window profile + 69 Phase 2 trend/swing
+    features = 471. 4-window (`[30, 60, 300, 900]`) profile lands at
+    426 + 69 = 495.
+    """
     cols: list[str] = []
 
     # Col 1: timestamp
@@ -413,6 +646,10 @@ def _build_column_names(
     # Cols 388–392: Wave 1 expiry (5) — DTE + session position
     cols.extend(_EXPIRY_KEYS)
 
+    # Cols 403–471 (2-window) / 427–495 (4-window): Phase 2 trend/swing
+    # Layer-1 features (69) — 23 B-block + 46 C-block.
+    cols.extend(_PHASE2_BC_COLUMNS)
+
     return tuple(cols)
 
 
@@ -466,12 +703,35 @@ def assemble_flat_vector(
     level_feats: dict | None = None,
     greek_feats: dict | None = None,
     expiry_feats: dict | None = None,
+    # ── Phase 2 trend/swing Layer-1 feature dicts (all optional) ───────────
+    # Callers (tick_processor / replay_adapter) wire these in once the
+    # corresponding compute_* function is integrated upstream. Missing
+    # dicts → all keys in that group emit NaN, which is the spec-compliant
+    # cold-start behaviour for every Phase 2 feature.
+    multi_tf_feats: dict | None = None,        # multi_tf.compute_multi_tf_features (B1+B2+B4)
+    session_feats: dict | None = None,         # session.compute_session_features (B3)
+    opening_range_feats: dict | None = None,   # opening_range.compute_opening_range_features (B5)
+    cross_day_level_feats: dict | None = None, # levels.compute_cross_day_level_features (B5)
+    oi_flow_feats: dict | None = None,         # merged C1: oi_dominance + chain (wall_strength,
+                                               #   oi_change_deltas, oi_weighted_levels, pcr_slope)
+    technical_feats: dict | None = None,       # technical.compute_technical_features (C2)
+    vix_feats: dict | None = None,             # india_vix.compute_india_vix_features (C3)
+    dealer_hedging_feats: dict | None = None,  # dealer_hedging.compute_dealer_hedging_features (C4)
+    exhaustion_feats: dict | None = None,      # exhaustion.compute_exhaustion_features (C5)
+    intraday_time_feats: dict | None = None,   # intraday_time.compute_intraday_time_features (C6)
+    strike_rotation_feats: dict | None = None, # active_features.compute_strike_rotation_features (C7)
+    premium_vwap_feats: dict | None = None,    # premium_vwap.compute_premium_vwap_features (C8)
+    iv_velocity_feats: dict | None = None,     # greeks.compute_iv_velocity_features (C9)
+    max_pain_feats: dict | None = None,        # levels.compute_max_pain_features (C10)
+    event_calendar_feats: dict | None = None,  # event_calendar.compute_event_calendar_features (C11)
 ) -> dict:
     """
-    Assemble all per-tick feature groups into a single ordered 370-column dict.
+    Assemble all per-tick feature groups into a single ordered flat dict.
 
     Column order matches spec §9.1 exactly. The returned dict is ordered (Python
-    3.7+ dict insertion order) and has exactly 370 keys.
+    3.7+ dict insertion order). Default 2-window profile → 471 keys; canonical
+    4-window profile → 495 keys (includes 69 Phase 2 trend/swing Layer-1
+    features appended after the Wave 1 columns).
 
     Args:
         timestamp:            Unix timestamp of the current tick.
@@ -620,6 +880,81 @@ def assemble_flat_vector(
     for k in _EXPIRY_KEYS:
         row[k] = expiry.get(k, _NAN)
 
+    # ── Phase 2 (v2 trend/swing) Layer-1 features (69 cols) ──────────────────
+    # Each group sources from the corresponding optional kwarg dict. The
+    # one wrinkle is C12 `days_to_expiry_bucket`, which lives in the same
+    # dict that backs Wave 1 _EXPIRY_KEYS (features/expiry.py now returns
+    # 6 keys, not 5) — so we read it from `expiry_feats`, not a new dict.
+    _mt = multi_tf_feats or {}
+    for k in _B1_MA_KEYS:
+        row[k] = _mt.get(k, _NAN)
+    for k in _B2_TREND_STRENGTH_KEYS:
+        row[k] = _mt.get(k, _NAN)
+
+    _sess = session_feats or {}
+    for k in _B3_SESSION_KEYS:
+        row[k] = _sess.get(k, _NAN)
+
+    for k in _B4_PATTERN_KEYS:
+        row[k] = _mt.get(k, _NAN)
+
+    _or = opening_range_feats or {}
+    for k in _B5_OPENING_RANGE_KEYS:
+        row[k] = _or.get(k, _NAN)
+
+    _xday = cross_day_level_feats or {}
+    for k in _B5_CROSS_DAY_KEYS:
+        row[k] = _xday.get(k, _NAN)
+
+    _oif = oi_flow_feats or {}
+    for k in _C1_OI_FLOW_KEYS:
+        row[k] = _oif.get(k, _NAN)
+
+    _tech = technical_feats or {}
+    for k in _C2_TECHNICAL_KEYS:
+        row[k] = _tech.get(k, _NAN)
+
+    _vix = vix_feats or {}
+    for k in _C3_VIX_KEYS:
+        row[k] = _vix.get(k, _NAN)
+
+    _dh = dealer_hedging_feats or {}
+    for k in _C4_DEALER_HEDGING_KEYS:
+        row[k] = _dh.get(k, _NAN)
+
+    _exh = exhaustion_feats or {}
+    for k in _C5_EXHAUSTION_KEYS:
+        row[k] = _exh.get(k, _NAN)
+
+    _itime = intraday_time_feats or {}
+    for k in _C6_INTRADAY_TIME_KEYS:
+        row[k] = _itime.get(k, _NAN)
+
+    _rot = strike_rotation_feats or {}
+    for k in _C7_STRIKE_ROTATION_KEYS:
+        row[k] = _rot.get(k, _NAN)
+
+    _pvw = premium_vwap_feats or {}
+    for k in _C8_PREMIUM_VWAP_KEYS:
+        row[k] = _pvw.get(k, _NAN)
+
+    _ivv = iv_velocity_feats or {}
+    for k in _C9_IV_VELOCITY_KEYS:
+        row[k] = _ivv.get(k, _NAN)
+
+    _mp = max_pain_feats or {}
+    for k in _C10_MAX_PAIN_KEYS:
+        row[k] = _mp.get(k, _NAN)
+
+    _evt = event_calendar_feats or {}
+    for k in _C11_EVENT_CALENDAR_KEYS:
+        row[k] = _evt.get(k, _NAN)
+
+    # C12: days_to_expiry_bucket reuses expiry_feats (compute_expiry_features
+    # now returns 6 keys total, the new one appended at the end).
+    for k in _C12_EXPIRY_BUCKET_KEYS:
+        row[k] = expiry.get(k, _NAN)
+
     return row
 
 
@@ -748,6 +1083,108 @@ def _build_parquet_schema(target_windows_sec: tuple[int, ...] = (30, 60)):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Schema registry write (V2_MASTER_SPEC §2.3 D74 B1)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Repository-relative path. Resolved from this file's location so the write
+# works regardless of CWD. Tests can override `_SCHEMA_REGISTRY_DIR_OVERRIDE`
+# via the Emitter ctor to point at a tmp directory.
+_REPO_ROOT: Path = Path(__file__).resolve().parents[3]
+_DEFAULT_SCHEMA_REGISTRY_DIR: Path = _REPO_ROOT / "config" / "schema_registry"
+
+
+def _scan_existing_schema_versions(registry_dir: Path) -> int:
+    """Return the highest `v<N>.json` integer present in `registry_dir`,
+    or 0 if the directory is missing / empty / contains no matching files.
+    Malformed filenames are skipped silently.
+    """
+    if not registry_dir.exists() or not registry_dir.is_dir():
+        return 0
+    highest = 0
+    for entry in registry_dir.iterdir():
+        name = entry.name
+        if not (name.startswith("v") and name.endswith(".json")):
+            continue
+        stem = name[1:-5]  # strip "v" and ".json"
+        if not stem.isdigit():
+            continue
+        try:
+            n = int(stem)
+        except ValueError:
+            continue
+        if n > highest:
+            highest = n
+    return highest
+
+
+def _write_schema_registry(
+    registry_dir: Path,
+    schema_version: int,
+    columns: tuple[str, ...],
+) -> Path:
+    """Write `v<schema_version>.json` atomically to `registry_dir`.
+
+    Returns the final file path. Caller is responsible for try/except
+    wrapping — this function will raise on any I/O failure so unexpected
+    crashes surface in logs rather than failing silently.
+    """
+    registry_dir.mkdir(parents=True, exist_ok=True)
+    final_path = registry_dir / f"v{schema_version}.json"
+    tmp_path = final_path.with_suffix(".tmp")
+
+    payload = {
+        "schema_version": schema_version,
+        "feature_count": len(columns),
+        "columns": list(columns),
+        "written_at_utc": datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "written_by": "tick_feature_agent.emitter",
+    }
+
+    tmp_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    os.replace(tmp_path, final_path)
+    return final_path
+
+
+def _maybe_write_schema_registry(
+    target_windows_sec: tuple[int, ...],
+    registry_dir: Path | None = None,
+) -> Path | None:
+    """Idempotent schema-registry sync. Per V2_MASTER_SPEC §2.3 D74 B1:
+    write `v<LATEST_SCHEMA_VERSION>.json` ONLY when the constant is
+    strictly higher than the highest version already on disk. Equal /
+    lower → no write, no error. Any failure is logged at WARNING and
+    swallowed — emitter startup must never abort on registry trouble.
+
+    Returns the written file path, or None if no write occurred (or the
+    write failed).
+    """
+    dir_path = registry_dir if registry_dir is not None else _DEFAULT_SCHEMA_REGISTRY_DIR
+    try:
+        existing = _scan_existing_schema_versions(dir_path)
+        if LATEST_SCHEMA_VERSION <= existing:
+            return None
+        cols = column_names_for(target_windows_sec)
+        written = _write_schema_registry(dir_path, LATEST_SCHEMA_VERSION, cols)
+        _log.info(
+            "schema_registry: wrote %s (schema_version=%d, feature_count=%d)",
+            written, LATEST_SCHEMA_VERSION, len(cols),
+        )
+        return written
+    except Exception as exc:  # noqa: BLE001 — registry-write must never abort startup
+        _log.warning(
+            "schema_registry: write skipped due to error (%s: %s)",
+            type(exc).__name__, exc,
+        )
+        return None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Emitter — manages output sinks
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -792,6 +1229,7 @@ class Emitter:
         socket_family: int = socket.AF_INET,
         mode: str = "live",
         target_windows_sec: tuple[int, ...] = (30, 60),
+        schema_registry_dir: str | Path | None = None,
     ) -> None:
         """
         Args:
@@ -807,6 +1245,13 @@ class Emitter:
                                  replay_adapter.py) pass `profile.target_windows_sec`
                                  so 4-window profiles produce 384-column parquets
                                  with `direction_<W>s` correctly typed as int32.
+            schema_registry_dir: Override path for `config/schema_registry/`.
+                                 Defaults to `<repo_root>/config/schema_registry`.
+                                 Tests pass a tmp_path here to avoid touching the
+                                 real registry. Per V2_MASTER_SPEC §2.3 D74 B1
+                                 the emitter writes `v<LATEST_SCHEMA_VERSION>.json`
+                                 into this directory iff the constant exceeds the
+                                 highest version already on disk.
         """
         self._lock = threading.Lock()
         self._file: IO[str] | None = None
@@ -815,6 +1260,17 @@ class Emitter:
         self._mode = mode
         self._parquet_rows: list[dict] | None = [] if mode == "replay" else None
         self._target_windows_sec: tuple[int, ...] = tuple(target_windows_sec)
+
+        # Schema-registry sync (V2_MASTER_SPEC §2.3 D74 B1). Runs on EVERY
+        # construction (live + replay) so any process that starts the emitter
+        # — recorder, replay runner, tests — keeps the registry honest.
+        registry_dir_path: Path | None = (
+            Path(schema_registry_dir) if schema_registry_dir is not None else None
+        )
+        _maybe_write_schema_registry(
+            target_windows_sec=self._target_windows_sec,
+            registry_dir=registry_dir_path,
+        )
 
         if mode == "replay":
             # Replay mode — disable live sinks

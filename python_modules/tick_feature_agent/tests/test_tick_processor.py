@@ -250,11 +250,10 @@ class TestTickProcessorOutput:
         path = tmp_path / "test.parquet"
         proc._emitter.write_parquet(path)
         table = pq.read_table(path)
-        # 392 = 370 base + 22 Wave 1 (levels/greeks/expiry).
+        # 2-window default profile: 402 legacy + 69 Phase 2 trend/swing = 471.
         # +2 for atm_ce_security_id / atm_pe_security_id which the tick
-        # processor appends to the row but aren't in COLUMN_NAMES.
-        # Wave 2: 402 + 2 = 404
-        assert len(table.schema.names) == 404
+        # processor appends to the row but aren't in COLUMN_NAMES = 473.
+        assert len(table.schema.names) == 473
 
     def test_parquet_column_names_match_spec(self, tmp_path):
         import pyarrow.parquet as pq
