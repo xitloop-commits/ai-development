@@ -1,5 +1,5 @@
 """
-Generate sharp custom .ico files for ATS desktop shortcuts.
+Generate sharp custom .ico files for Lubas desktop shortcuts.
 
 Pipeline:
   1. Download Font Awesome 6 SVGs (done once, cached in startup/icons/)
@@ -63,7 +63,7 @@ ICONS = [
     ("tfa_crudeoil.ico", (185, 30, 30), "oil-can", "CRUDE"),
     ("tfa_naturalgas.ico", (0, 145, 135), "fire", "GAS"),
     ("tfa_bot.ico", (35, 55, 200), "paper-plane", "BOT"),
-    ("launcher.ico", (210, 145, 10), "compass", "ATS"),
+    ("launcher.ico", (210, 145, 10), "compass", "Lubas"),
 ]
 
 SIZES = [256, 48, 32, 16]  # largest first — Pillow needs this for ICO

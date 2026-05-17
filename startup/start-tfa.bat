@@ -1,6 +1,6 @@
 @echo off
 REM ================================================================
-REM   ATS -- TickFeatureAgent (TFA) launcher (Windows)
+REM   Lubas -- TickFeatureAgent (TFA) launcher (Windows)
 REM
 REM   Usage:
 REM     startup\start-tfa.bat nifty50
@@ -40,17 +40,22 @@ if "%INSTRUMENT%"=="" (
     exit /b 1
 )
 
-REM --- Validate instrument ---
-set PROFILE_PATH=
-if /i "%INSTRUMENT%"=="nifty50"    set "PROFILE_PATH=config\instrument_profiles\nifty50_profile.json"
-if /i "%INSTRUMENT%"=="banknifty"  set "PROFILE_PATH=config\instrument_profiles\banknifty_profile.json"
-if /i "%INSTRUMENT%"=="crudeoil"   set "PROFILE_PATH=config\instrument_profiles\crudeoil_profile.json"
-if /i "%INSTRUMENT%"=="naturalgas" set "PROFILE_PATH=config\instrument_profiles\naturalgas_profile.json"
-
-if "%PROFILE_PATH%"=="" (
+REM --- Resolve profile path ---
+REM Derived directly from the instrument name; an invalid name fails the
+REM file-existence check below. Adding a new instrument now requires only
+REM dropping a *_profile.json into config\instrument_profiles\.
+set "PROFILE_PATH=config\instrument_profiles\%INSTRUMENT%_profile.json"
+if not exist "%PROFILE_PATH%" (
     echo.
     echo   ERROR: Unknown instrument "%INSTRUMENT%"
-    echo   Valid values: nifty50, banknifty, crudeoil, naturalgas
+    echo   No profile at %PROFILE_PATH%.
+    echo.
+    echo   Available instruments:
+    for /f "tokens=*" %%F in ('dir /b /a:-d "config\instrument_profiles\*_profile.json" 2^>nul') do (
+        set "_NAME=%%~nF"
+        set "_NAME=!_NAME:_profile=!"
+        echo     - !_NAME!
+    )
     echo.
     exit /b 1
 )
@@ -70,7 +75,7 @@ if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.
     echo   Install Python 3.11+ from https://www.python.org/downloads/
-    if not defined ATS_HEADLESS pause
+    if not defined LUBAS_HEADLESS pause
     exit /b 1
 )
 

@@ -1,5 +1,5 @@
 """
-launcher_v2.py — ATS unified launcher (redesigned).
+launcher_v2.py — Lubas unified launcher (redesigned).
 
 Pass 1: scaffolding + Train submenu. Other action submenus to follow.
 
@@ -79,7 +79,24 @@ def _hk_line(*pairs: tuple[str, str]) -> str:
 
 
 ROOT = Path(__file__).resolve().parent.parent
-_INSTRUMENTS = ["nifty50", "banknifty", "crudeoil", "naturalgas"]
+
+# Canonical display/launch order. Membership is *derived* from the
+# config/instrument_profiles/ directory below; this list controls only the
+# order of known instruments. New profiles appear at the end alphabetically.
+_INSTRUMENT_ORDER = ["nifty50", "banknifty", "crudeoil", "naturalgas"]
+
+
+def _scan_instruments() -> list[str]:
+    profile_dir = ROOT / "config" / "instrument_profiles"
+    if not profile_dir.exists():
+        return list(_INSTRUMENT_ORDER)
+    found = {p.name.replace("_profile.json", "") for p in profile_dir.glob("*_profile.json")}
+    ordered = [n for n in _INSTRUMENT_ORDER if n in found]
+    extras = sorted(found - set(_INSTRUMENT_ORDER))
+    return ordered + extras
+
+
+_INSTRUMENTS = _scan_instruments()
 
 
 # ── Status collectors ─────────────────────────────────────────────────────
@@ -245,7 +262,7 @@ class RunningProc:
 
 
 def running_processes() -> list[RunningProc]:
-    """Best-effort enumeration of ATS python processes via PowerShell.
+    """Best-effort enumeration of Lubas python processes via PowerShell.
     Empty list on any failure (non-fatal — UI degrades to no-status)."""
     try:
         proc = subprocess.run(
@@ -413,8 +430,8 @@ def _pause_briefly() -> None:
 # ── Launch helpers ────────────────────────────────────────────────────────
 
 
-def _launch_new_window(title: str, bat_args: str) -> None:
-    _launch_no_pause(title, bat_args)
+def _launch_new_window(title: str, *bat_args: str) -> None:
+    _launch_no_pause(title, *bat_args)
     _pause_briefly()
 
 
@@ -424,11 +441,7 @@ def _launch_no_pause(title: str, *bat_args: str) -> None:
     element so Windows quotes them individually — no chained-`&` command
     string, no quote-escape mismatch between Python's C-runtime rules and
     cmd.exe's own.
-
-    Backward compat: if a single string is passed, it is split on whitespace.
     """
-    if len(bat_args) == 1 and " " in bat_args[0]:
-        bat_args = tuple(bat_args[0].split())
     if not bat_args:
         return
     bat_name = bat_args[0]
@@ -1293,16 +1306,30 @@ def act_watch() -> None:
 
 
 def _read_server_port() -> int:
-    """Resolve the API server port from .env (PORT=...) with a 3000 default."""
+    """Resolve the API server port from .env (PORT=...) with a 3000 default.
+
+    Tolerates common .env quirks: '#' comments, surrounding whitespace around
+    '=', quoted values, inline trailing comments. Any parse failure returns
+    the 3000 default so a typo doesn't crash callers.
+    """
     env_path = ROOT / ".env"
-    if env_path.exists():
-        try:
-            for line in env_path.read_text(encoding="utf-8").splitlines():
-                s = line.strip()
-                if s.startswith("PORT="):
-                    return int(s.split("=", 1)[1].strip())
-        except (OSError, ValueError):
-            pass
+    if not env_path.exists():
+        return 3000
+    try:
+        for raw in env_path.read_text(encoding="utf-8").splitlines():
+            s = raw.strip()
+            if not s or s.startswith("#") or "=" not in s:
+                continue
+            key, _, val = s.partition("=")
+            if key.strip().upper() != "PORT":
+                continue
+            val = val.split("#", 1)[0].strip().strip('"').strip("'")
+            try:
+                return int(val)
+            except ValueError:
+                return 3000
+    except OSError:
+        return 3000
     return 3000
 
 
@@ -1320,17 +1347,17 @@ def _is_api_server_running(port: int, timeout: float = 1.5) -> bool:
 
 
 def act_api_server() -> None:
-    """Launch the ATS broker / tRPC API server in a new window — unless one
+    """Launch the Lubas broker / tRPC API server in a new window — unless one
     is already responding on /health (avoids duplicate spawns)."""
     port = _read_server_port()
     if _is_api_server_running(port):
         print()
         print(f"  {YELLOW('!')} API server already running on port {port} "
               f"({GREEN('/health')} responding).")
-        print(f"  {DIM('Close the existing ATS-Server window first if you need to restart.')}")
+        print(f"  {DIM('Close the existing Lubas-Server window first if you need to restart.')}")
         _pause_briefly()
         return
-    _launch_new_window("ATS: API Server", "start-api.bat")
+    _launch_new_window("Lubas: API Server", "start-api.bat")
 
 
 def act_restart_launcher() -> None:
@@ -1536,7 +1563,12 @@ def act_replay() -> None:
         # process replay was the bottleneck (replay_runner.py loops dates
         # sequentially in one Python process). Cap parallelism so a careless
         # selection doesn't open 20 windows; tail of the queue runs after.
+        # The cap is *fleet-wide*: subtract any replay windows already running
+        # so opening the submenu twice can't exceed MAX_PARALLEL in total.
         MAX_PARALLEL = 8
+        existing_replays = sum(1 for p in running if p.kind == "replay")
+        slots_available = max(0, MAX_PARALLEL - existing_replays)
+
         work: list[tuple[str, str]] = []
         for inst, new_dates in res.added.items():
             for d in sorted(new_dates):
@@ -1546,7 +1578,7 @@ def act_replay() -> None:
         launched = 0
         deferred: list[tuple[str, str]] = []
         for inst, d in work:
-            if launched >= MAX_PARALLEL:
+            if launched >= slots_available:
                 deferred.append((inst, d))
                 continue
             _launch_no_pause(
@@ -1557,7 +1589,7 @@ def act_replay() -> None:
         if deferred:
             print()
             print(f"  {YELLOW('!')} {len(deferred)} (inst, date) pair(s) "
-                  f"deferred (cap = {MAX_PARALLEL} parallel):")
+                  f"deferred ({existing_replays} replay(s) already live, cap = {MAX_PARALLEL}):")
             for inst, d in deferred:
                 print(f"      {DIM('queued:')} {inst} {d}")
             print(f"  {DIM('Re-run Replay after some windows finish to launch the rest.')}")
@@ -2401,7 +2433,7 @@ def _draw_root(
     bar = "═" * W
     print()
     print(f"  {bar}")
-    print(f"    {BOLD('ATS Launcher')}  {DIM('(v2)')}")
+    print(f"    {BOLD('Lubas Launcher')}  {DIM('(v2)')}")
     for line in header_lines:
         print(f"    {DIM(line)}")
     print(f"  {bar}")
@@ -2443,7 +2475,7 @@ def _draw_root(
 
 def main() -> None:
     items = [
-        RootItem("API Server   (ATS broker / tRPC server)", "A", act_api_server),
+        RootItem("API Server   (Lubas broker / tRPC server)", "A", act_api_server),
         RootItem("Record       (ticks → data/raw/)",       "Q", act_record),
         RootItem("Replay       (raw → data/features/)",    "F", act_replay),
         RootItem("Train        (features → models/)",      "T", act_train),

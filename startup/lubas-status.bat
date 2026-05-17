@@ -1,8 +1,8 @@
 @echo off
 REM ================================================================
-REM   ATS -- One-screen health snapshot (wraps startup\status.py)
+REM   Lubas -- One-screen health snapshot (wraps startup\status.py)
 REM
-REM   Usage:  startup\ats-status.bat
+REM   Usage:  startup\lubas-status.bat
 REM
 REM   Exit codes:
 REM     0  - API server up AND >=1 live TFA recorder running
@@ -21,7 +21,7 @@ if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.
     echo   Install Python 3.11+ from https://www.python.org/downloads/
-    if not defined ATS_HEADLESS pause
+    if not defined LUBAS_HEADLESS pause
     exit /b 1
 )
 

@@ -1,12 +1,12 @@
 #requires -Version 5.1
 #requires -RunAsAdministrator
 <#
-  ATS -- Register Task Scheduler entries for automated daily run.
+  Lubas -- Register Task Scheduler entries for automated daily run.
 
   Tasks created:
-    ATS-Startup   At log on of the current user, Mon-Fri only
+    Lubas-Startup   At log on of the current user, Mon-Fri only
                   -> runs startup\start-all.bat
-    ATS-Shutdown  Daily at 00:00
+    Lubas-Shutdown  Daily at 00:00
                   -> runs startup\stop-all.ps1 (graceful stop + shutdown /s)
 
   Power-on at 08:55 Mon-Fri must be set in your motherboard BIOS
@@ -52,7 +52,7 @@ $commonSettings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Hours 16)
 
 # ============================================================
-#  ATS-Startup -- At log on, Mon-Fri only
+#  Lubas-Startup -- At log on, Mon-Fri only
 # ============================================================
 $startAction = New-ScheduledTaskAction `
     -Execute 'cmd.exe' `
@@ -81,17 +81,19 @@ cd /d "%ROOT%"
 REM Signal to start-all.bat (and friends) that we're running under Task
 REM Scheduler with no interactive console: skip any `pause` prompts so
 REM error paths exit cleanly instead of hanging until ExecutionTimeLimit.
-set ATS_HEADLESS=1
+set LUBAS_HEADLESS=1
 
 REM --- Weekday guard ---
 for /f %%D in ('powershell -NoProfile -Command "(Get-Date).DayOfWeek.value__"') do set DOW=%%D
 REM DayOfWeek: 0=Sun, 1=Mon, ..., 6=Sat
 if "%DOW%"=="0" (
-    echo [%date% %time%] Sunday -- skipping ATS startup.
+    echo [%date% %time%] Sunday -- skipping Lubas startup.
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event skip -Result weekend >nul 2>&1
     exit /b 0
 )
 if "%DOW%"=="6" (
-    echo [%date% %time%] Saturday -- skipping ATS startup.
+    echo [%date% %time%] Saturday -- skipping Lubas startup.
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event skip -Result weekend >nul 2>&1
     exit /b 0
 )
 
@@ -103,7 +105,8 @@ call "%~dp0_detect-python.bat"
 if not errorlevel 1 (
     "%PYTHON_CMD%" python_modules\market_calendar.py
     if !errorlevel! equ 1 (
-        echo [%date% %time%] Market holiday -- skipping ATS startup.
+        echo [%date% %time%] Market holiday -- skipping Lubas startup.
+        powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event skip -Result holiday >nul 2>&1
         exit /b 0
     )
 )
@@ -119,18 +122,18 @@ $startAction = New-ScheduledTaskAction `
     -WorkingDirectory $root
 
 Register-ScheduledTask `
-    -TaskName 'ATS-Startup' `
+    -TaskName 'Lubas-Startup' `
     -Action   $startAction `
     -Trigger  $startTrigger `
     -Settings $commonSettings `
     -RunLevel Limited `
     -User     $user `
-    -Description 'Starts ATS API server + 4 TFA recorders at logon (Mon-Fri).' `
+    -Description 'Starts Lubas API server + 4 TFA recorders at logon (Mon-Fri).' `
     -Force | Out-Null
-Write-Host "Registered: ATS-Startup  (logon trigger, weekday-guarded)"
+Write-Host "Registered: Lubas-Startup  (logon trigger, weekday-guarded)"
 
 # ============================================================
-#  ATS-Shutdown -- Daily 00:00, graceful stop + shutdown /s
+#  Lubas-Shutdown -- Daily 00:00, graceful stop + shutdown /s
 # ============================================================
 $stopAction = New-ScheduledTaskAction `
     -Execute 'powershell.exe' `
@@ -151,24 +154,24 @@ $stopSettings = New-ScheduledTaskSettingsSet `
 # elevated rights -- SYSTEM can't AttachConsole across sessions, so the
 # graceful Ctrl+C path requires same-session execution.
 Register-ScheduledTask `
-    -TaskName  'ATS-Shutdown' `
+    -TaskName  'Lubas-Shutdown' `
     -Action    $stopAction `
     -Trigger   $stopTrigger `
     -Settings  $stopSettings `
     -User      $user `
     -RunLevel  Highest `
-    -Description 'Graceful ATS stop + OS shutdown at 00:00 (no catch-up on missed runs).' `
+    -Description 'Graceful Lubas stop + OS shutdown at 00:00 (no catch-up on missed runs).' `
     -Force | Out-Null
-Write-Host "Registered: ATS-Shutdown (daily 00:00 as $user, elevated, no catch-up)"
+Write-Host "Registered: Lubas-Shutdown (daily 00:00 as $user, elevated, no catch-up)"
 
 # ============================================================
-#  ATS-Shutdown-Warning -- Daily 23:55, 5-minute heads-up popup
+#  Lubas-Shutdown-Warning -- Daily 23:55, 5-minute heads-up popup
 # ============================================================
 # msg.exe sends a popup to the interactive session. The single 60-second
 # toast at 00:00 is easy to miss when heads-down; this gives the user a
 # 5-minute window to wrap up before shutdown begins, or to disable the
-# Shutdown task entirely for the night (Disable-ScheduledTask 'ATS-Shutdown').
-$warnArgument = "$env:USERNAME `"ATS will shut down in 5 minutes (00:00). Run 'shutdown /a' within 60s after the shutdown begins, or Disable-ScheduledTask 'ATS-Shutdown' to skip it entirely tonight.`""
+# Shutdown task entirely for the night (Disable-ScheduledTask 'Lubas-Shutdown').
+$warnArgument = "$env:USERNAME `"Lubas will shut down in 5 minutes (00:00). Run 'shutdown /a' within 60s after the shutdown begins, or Disable-ScheduledTask 'Lubas-Shutdown' to skip it entirely tonight.`""
 $warnAction = New-ScheduledTaskAction `
     -Execute 'msg.exe' `
     -Argument $warnArgument
@@ -184,20 +187,26 @@ $warnSettings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
 
 Register-ScheduledTask `
-    -TaskName  'ATS-Shutdown-Warning' `
+    -TaskName  'Lubas-Shutdown-Warning' `
     -Action    $warnAction `
     -Trigger   $warnTrigger `
     -Settings  $warnSettings `
     -User      $user `
     -RunLevel  Limited `
-    -Description '5-minute heads-up popup before the daily ATS shutdown at 00:00.' `
+    -Description '5-minute heads-up popup before the daily Lubas shutdown at 00:00.' `
     -Force | Out-Null
-Write-Host "Registered: ATS-Shutdown-Warning (daily 23:55 as $user)"
+Write-Host "Registered: Lubas-Shutdown-Warning (daily 23:55 as $user)"
 
 Write-Host ""
-Write-Host "Done. Verify with:  Get-ScheduledTask -TaskName 'ATS-*' | Select TaskName,State"
+Write-Host "Done. Verify all three tasks registered:"
+Write-Host "  Get-ScheduledTask -TaskName 'Lubas-*' | Select TaskName,State"
+Write-Host ""
+Write-Host "Verify the 23:55 popup works in this session (will fire msg.exe now):"
+Write-Host "  Start-ScheduledTask -TaskName 'Lubas-Shutdown-Warning'"
+Write-Host "  (You should see a popup. If not, msg.exe may be blocked on this"
+Write-Host "  Windows edition -- consider BurntToast or another notifier.)"
 Write-Host ""
 Write-Host "REMINDERS:"
 Write-Host "  1. Set BIOS 'Resume by RTC Alarm' to 08:55 (Mon-Fri or daily)."
 Write-Host "  2. Enable Windows auto-login via 'netplwiz' so the desktop comes up unattended."
-Write-Host "  3. Test once manually:  Start-ScheduledTask -TaskName 'ATS-Startup'"
+Write-Host "  3. Test once manually:  Start-ScheduledTask -TaskName 'Lubas-Startup'"

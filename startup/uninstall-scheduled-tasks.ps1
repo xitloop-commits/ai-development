@@ -1,12 +1,15 @@
 #requires -Version 5.1
 #requires -RunAsAdministrator
 <#
-  ATS -- Companion to install-scheduled-tasks.ps1.
+  Lubas -- Companion to install-scheduled-tasks.ps1.
 
-  Removes the three ATS scheduled tasks:
-      ATS-Startup
-      ATS-Shutdown-Warning
-      ATS-Shutdown
+  Removes the three Lubas scheduled tasks:
+      Lubas-Startup
+      Lubas-Shutdown-Warning
+      Lubas-Shutdown
+
+  Also removes legacy ATS-* names from pre-rebrand installs (2026-05-17 and
+  earlier) so the migration only needs one uninstall pass.
 
   Run once from an elevated PowerShell:
       powershell -ExecutionPolicy Bypass -File startup\uninstall-scheduled-tasks.ps1
@@ -19,7 +22,13 @@
 
 $ErrorActionPreference = 'Continue'
 
-$tasks = @('ATS-Startup', 'ATS-Shutdown-Warning', 'ATS-Shutdown')
+$tasks = @(
+    'Lubas-Startup', 'Lubas-Shutdown-Warning', 'Lubas-Shutdown',
+    # Legacy names from before the ATS -> Lubas rebrand (2026-05-17).
+    # Kept here so a one-shot uninstall on a pre-rebrand machine cleans both.
+    # Remove these entries after all known installs have been migrated.
+    'ATS-Startup', 'ATS-Shutdown-Warning', 'ATS-Shutdown'
+)
 
 foreach ($name in $tasks) {
     if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
@@ -35,5 +44,5 @@ foreach ($name in $tasks) {
 }
 
 Write-Host ""
-Write-Host "Done. Verify with:  Get-ScheduledTask -TaskName 'ATS-*' | Select TaskName,State"
+Write-Host "Done. Verify with:  Get-ScheduledTask -TaskName 'Lubas-*' | Select TaskName,State"
 Write-Host "  (should return nothing)"

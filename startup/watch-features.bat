@@ -1,6 +1,6 @@
 @echo off
 REM ================================================================
-REM   ATS -- Live feature dashboard
+REM   Lubas -- Live feature dashboard
 REM
 REM   Usage:  startup\watch-features.bat crudeoil
 REM           startup\watch-features.bat nifty50 --full
@@ -34,7 +34,7 @@ if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.
     echo   Install Python 3.11+ from https://www.python.org/downloads/
-    if not defined ATS_HEADLESS pause
+    if not defined LUBAS_HEADLESS pause
     exit /b 1
 )
 

@@ -1,4 +1,4 @@
-"""market_calendar.py -- NSE + MCX holiday calendar for the ATS launcher.
+"""market_calendar.py -- NSE + MCX holiday calendar for the Lubas launcher.
 
 Used by startup\\_scheduled-start.bat to skip the morning fan-out on
 trading holidays. Pure stdlib so it works before any third-party deps

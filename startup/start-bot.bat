@@ -1,6 +1,6 @@
 @echo off
 REM ================================================================
-REM   ATS -- TFA Telegram Bot launcher
+REM   Lubas -- TFA Telegram Bot launcher
 REM
 REM   Usage:  startup\start-bot.bat
 REM   Press Ctrl+C to stop.
@@ -18,7 +18,7 @@ if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.
     echo   Install Python 3.11+ from https://www.python.org/downloads/
-    if not defined ATS_HEADLESS pause
+    if not defined LUBAS_HEADLESS pause
     exit /b 1
 )
 
@@ -31,4 +31,4 @@ echo   Press Ctrl+C to stop.
 echo.
 
 "%PYTHON_CMD%" tfa_bot\bot.py
-if not defined ATS_HEADLESS pause
+if not defined LUBAS_HEADLESS pause

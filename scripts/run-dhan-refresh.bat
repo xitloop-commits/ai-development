@@ -1,6 +1,6 @@
 @echo off
 REM ================================================================
-REM   ATS -- Dhan token refresh helper
+REM   Lubas -- Dhan token refresh helper
 REM
 REM   Per the documented token policy (refresh-on-startup-only),
 REM   BSA refreshes Dhan tokens ONLY when the API server boots.

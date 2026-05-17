@@ -1,6 +1,6 @@
 @echo off
 REM ================================================================
-REM   ATS -- Live signal dashboard
+REM   Lubas -- Live signal dashboard
 REM
 REM   Usage:
 REM     startup\watch-signals.bat crudeoil
@@ -35,7 +35,7 @@ if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.
     echo   Install Python 3.11+ from https://www.python.org/downloads/
-    if not defined ATS_HEADLESS pause
+    if not defined LUBAS_HEADLESS pause
     exit /b 1
 )
 

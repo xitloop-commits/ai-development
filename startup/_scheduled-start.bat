@@ -11,17 +11,19 @@ cd /d "%ROOT%"
 REM Signal to start-all.bat (and friends) that we're running under Task
 REM Scheduler with no interactive console: skip any `pause` prompts so
 REM error paths exit cleanly instead of hanging until ExecutionTimeLimit.
-set ATS_HEADLESS=1
+set LUBAS_HEADLESS=1
 
 REM --- Weekday guard ---
 for /f %%D in ('powershell -NoProfile -Command "(Get-Date).DayOfWeek.value__"') do set DOW=%%D
 REM DayOfWeek: 0=Sun, 1=Mon, ..., 6=Sat
 if "%DOW%"=="0" (
-    echo [%date% %time%] Sunday -- skipping ATS startup.
+    echo [%date% %time%] Sunday -- skipping Lubas startup.
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event skip -Result weekend >nul 2>&1
     exit /b 0
 )
 if "%DOW%"=="6" (
-    echo [%date% %time%] Saturday -- skipping ATS startup.
+    echo [%date% %time%] Saturday -- skipping Lubas startup.
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event skip -Result weekend >nul 2>&1
     exit /b 0
 )
 
@@ -33,7 +35,8 @@ call "%~dp0_detect-python.bat"
 if not errorlevel 1 (
     "%PYTHON_CMD%" python_modules\market_calendar.py
     if !errorlevel! equ 1 (
-        echo [%date% %time%] Market holiday -- skipping ATS startup.
+        echo [%date% %time%] Market holiday -- skipping Lubas startup.
+        powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event skip -Result holiday >nul 2>&1
         exit /b 0
     )
 )

@@ -1,6 +1,6 @@
 @echo off
 REM ================================================================
-REM   ATS -- Python interpreter detector (Windows)
+REM   Lubas -- Python interpreter detector (Windows)
 REM
 REM   Sets PYTHON_CMD in the CALLER's environment to the absolute path
 REM   of the highest-version python.exe found that responds to
@@ -64,4 +64,25 @@ if "!PYTHON_CMD!"=="" (
 )
 
 if "!PYTHON_CMD!"=="" exit /b 1
+
+REM --- Validate Python >= 3.11 ---------------------------------------
+REM Modern code uses 3.11 features (PEP 604 X|Y types, ExceptionGroup,
+REM tomllib, etc.). An older Python found first in the search order would
+REM "succeed" detection only to crash later with a cryptic SyntaxError.
+REM `python --version` prints "Python X.Y.Z" to stdout in 3.4+.
+for /f "tokens=2" %%V in ('"!PYTHON_CMD!" --version 2^>^&1') do set "_PYVER=%%V"
+for /f "tokens=1,2 delims=." %%A in ("!_PYVER!") do (
+    set "_PYMAJ=%%A"
+    set "_PYMIN=%%B"
+)
+set "_OK=0"
+if defined _PYMAJ if defined _PYMIN (
+    if !_PYMAJ! gtr 3 set "_OK=1"
+    if !_PYMAJ! equ 3 if !_PYMIN! geq 11 set "_OK=1"
+)
+if "!_OK!"=="0" (
+    1>&2 echo _detect-python: rejected !PYTHON_CMD! ^(version "!_PYVER!" ^< 3.11 required^)
+    set PYTHON_CMD=
+    exit /b 1
+)
 exit /b 0

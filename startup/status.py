@@ -1,6 +1,6 @@
-"""status.py -- one-screen ATS health snapshot.
+"""status.py -- one-screen Lubas health snapshot.
 
-Headless answer to "is ATS up right now?" without opening launcher_v2.py
+Headless answer to "is Lubas up right now?" without opening launcher_v2.py
 or eyeballing 4 cmd windows. Reuses launcher_v2's process introspection
 so this view and the interactive status table can't drift apart.
 
@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from launcher_v2 import _INSTRUMENTS, _read_server_port, running_processes  # noqa: E402
 
-_LIFECYCLE_LOG = Path(__file__).resolve().parent.parent / "logs" / "ats-lifecycle.log"
+_LIFECYCLE_LOG = Path(__file__).resolve().parent.parent / "logs" / "lubas-lifecycle.log"
 
 
 def _server_up(port: int, timeout: float = 1.5) -> bool:
@@ -84,7 +84,7 @@ def main() -> int:
         if p.instrument in by_inst:
             by_inst[p.instrument].append(p)
 
-    print(f"ATS status @ {Path.cwd()}")
+    print(f"Lubas status @ {Path.cwd()}")
     print(f"  API server  (port {port}):  {'UP' if server_up else 'DOWN'}")
     print()
     print(f"  {'instrument':<12}  {'kind':<8}  {'pid':>6}  {'rss_mb':>8}")

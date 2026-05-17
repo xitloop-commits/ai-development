@@ -1,8 +1,8 @@
 #requires -Version 5.1
 <#
-  _emit-lifecycle.ps1 -- Append one JSON line to logs\ats-lifecycle.log.
+  _emit-lifecycle.ps1 -- Append one JSON line to logs\lubas-lifecycle.log.
 
-  Single source of truth for "did ATS come up / shut down today" without
+  Single source of truth for "did Lubas come up / shut down today" without
   needing to eyeball 4 cmd windows. The file is NDJSON (one JSON object
   per line) so downstream tools like jq / pandas read_json(lines=True)
   can consume it directly.
@@ -28,7 +28,7 @@ $ErrorActionPreference = 'Continue'
 
 $logDir  = Join-Path $PSScriptRoot '..\logs'
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
-$logFile = Join-Path $logDir 'ats-lifecycle.log'
+$logFile = Join-Path $logDir 'lubas-lifecycle.log'
 
 $obj = [ordered]@{
     ts     = (Get-Date).ToString('o')

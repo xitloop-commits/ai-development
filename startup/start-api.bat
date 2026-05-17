@@ -1,6 +1,6 @@
 @echo off
 REM ================================================================
-REM   ATS -- Start API Server only (Windows)
+REM   Lubas -- Start API Server only (Windows)
 REM
 REM   Starts the Node.js broker / tRPC API server in dev mode.
 REM   Usage:  startup\start-api.bat
@@ -28,7 +28,7 @@ if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.
     echo   Install Python 3.11+ from https://www.python.org/downloads/
-    if not defined ATS_HEADLESS pause
+    if not defined LUBAS_HEADLESS pause
     exit /b 1
 )
 

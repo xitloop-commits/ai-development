@@ -153,7 +153,7 @@ def _run_once():
 def main():
     _msg(
         f"\n  {'─' * 50}\n"
-        f"  ATS — API Server\n"
+        f"  Lubas — API Server\n"
         f"  Press {BOLD('Esc')} for options  ·  {BOLD('Ctrl+C')} to force stop\n"
         f"  {'─' * 50}\n"
     )

@@ -1,6 +1,6 @@
 #requires -Version 5.1
 <#
-  ATS -- Graceful stop + OS shutdown.
+  Lubas -- Graceful stop + OS shutdown.
 
   1. Sends Ctrl+C to TFA recorder python processes so they flush ndjson cleanly.
   2. Sends Ctrl+C to the API server python launcher.
@@ -46,7 +46,7 @@ function Send-CtrlC([int]$processId) {
     }
 }
 
-# --- Find ATS python processes by command line ---------------------------
+# --- Find Lubas python processes by command line ---------------------------
 function Get-AtsPythonPids {
     $procs = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue
     $found = @()
@@ -64,13 +64,13 @@ function Get-AtsPythonPids {
     return $found
 }
 
-Log "=== ATS stop-all starting ==="
+Log "=== Lubas stop-all starting ==="
 
 $targets = Get-AtsPythonPids
 if ($targets.Count -eq 0) {
-    Log "No ATS python processes found; proceeding to shutdown."
+    Log "No Lubas python processes found; proceeding to shutdown."
 } else {
-    Log ("Found {0} ATS python process(es). Sending Ctrl+C..." -f $targets.Count)
+    Log ("Found {0} Lubas python process(es). Sending Ctrl+C..." -f $targets.Count)
     foreach ($t in $targets) {
         $tag = if ($t.CommandLine -match 'tick_feature_agent') { 'TFA' }
                elseif ($t.CommandLine -match 'server_launcher')  { 'API' }
@@ -102,18 +102,18 @@ if ($targets.Count -eq 0) {
             catch { Log ("  kill failed pid={0}: {1}" -f $s.Pid, $_.Exception.Message) }
         }
     } else {
-        Log "All ATS processes exited cleanly."
+        Log "All Lubas processes exited cleanly."
     }
 }
 
 # --- Close the launcher cmd windows so the desktop is clean on next boot
-& taskkill /FI 'WINDOWTITLE eq ATS-Server*'  /T 2>$null | Out-Null
+& taskkill /FI 'WINDOWTITLE eq Lubas-Server*'  /T 2>$null | Out-Null
 & taskkill /FI 'WINDOWTITLE eq TFA:*'        /T 2>$null | Out-Null
 
 # Clear the dup-fire lock now that we've actually stopped. Otherwise a user
 # who runs 'shutdown /a' to cancel the imminent shutdown and then tries to
-# restart the ATS would be blocked by their own recently-touched lock.
-$lockFile = Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..')).Path 'data\.ats-startup.lock'
+# restart the Lubas would be blocked by their own recently-touched lock.
+$lockFile = Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..')).Path 'data\.lubas-startup.lock'
 if (Test-Path $lockFile) {
     Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
     Log "Cleared startup lock: $lockFile"
@@ -133,5 +133,5 @@ try {
     Log ("emit-lifecycle failed: " + $_.Exception.Message)
 }
 
-& shutdown /s /f /t 60 /c "ATS auto-shutdown. Run 'shutdown /a' within 60s to cancel."
-Log "=== ATS stop-all done ==="
+& shutdown /s /f /t 60 /c "Lubas auto-shutdown. Run 'shutdown /a' within 60s to cancel."
+Log "=== Lubas stop-all done ==="

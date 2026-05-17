@@ -1,6 +1,6 @@
 @echo off
 REM ================================================================
-REM   ATS -- MTA auto-train
+REM   Lubas -- MTA auto-train
 REM   Trains on all available Parquet dates for the given instrument
 REM   (uses a wide default range; MTA skips dates without Parquet).
 REM
@@ -51,7 +51,7 @@ if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.
     echo   Install Python 3.11+ from https://www.python.org/downloads/
-    if not defined ATS_HEADLESS pause
+    if not defined LUBAS_HEADLESS pause
     exit /b 1
 )
 

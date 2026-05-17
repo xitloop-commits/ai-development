@@ -1,6 +1,6 @@
 @echo off
 REM ================================================================
-REM   ATS -- Windows Setup Script
+REM   Lubas -- Windows Setup Script
 REM   Run this once after cloning the repository.
 REM   Usage:  startup\setup.bat
 REM ================================================================
@@ -13,7 +13,7 @@ cd /d "%ROOT%"
 
 echo.
 echo ============================================================
-echo   ATS -- Automatic Trading System -- Windows Setup
+echo   Lubas -- Automatic Trading System -- Windows Setup
 echo ============================================================
 echo.
 

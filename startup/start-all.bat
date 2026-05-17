@@ -1,9 +1,9 @@
 @echo off
 REM ================================================================
-REM   ATS -- Start all 4 TFA instruments in separate windows
+REM   Lubas -- Start all 4 TFA instruments in separate windows
 REM
 REM   Pre-flight (this window, blocking):
-REM     1. Start the ATS web server in a new window
+REM     1. Start the Lubas web server in a new window
 REM     2. Wait for server to be ready (~10s)
 REM   (Server handles Dhan token: refreshes via TOTP on startup if
 REM    expired, and again on any 401 via the 401 handler. TFA reads
@@ -44,7 +44,7 @@ if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.
     echo   Install Python 3.11+ from https://www.python.org/downloads/
-    if not defined ATS_HEADLESS pause
+    if not defined LUBAS_HEADLESS pause
     exit /b 1
 )
 
@@ -55,7 +55,7 @@ REM AtLogOn triggers can fire twice on a logon hiccup; a manual re-trigger can
 REM also collide with an auto-start. A second start-all.bat would spawn another
 REM 4 TFAs on top of the existing fleet, instantly blowing the Dhan 5-WS budget
 REM on both accounts. The lock file's mtime is the source of truth.
-set "LOCK_FILE=%ROOT%data\.ats-startup.lock"
+set "LOCK_FILE=%ROOT%data\.lubas-startup.lock"
 if not exist "%ROOT%data" mkdir "%ROOT%data" >nul 2>&1
 if exist "%LOCK_FILE%" (
     powershell -NoProfile -Command "if (((Get-Date) - (Get-Item '%LOCK_FILE%').LastWriteTime).TotalSeconds -lt 300) { exit 0 } else { exit 1 }"
@@ -65,7 +65,7 @@ if exist "%LOCK_FILE%" (
         echo   Lock file: %LOCK_FILE%
         echo   If this is intentional, delete the lock file and re-run.
         echo.
-        if not defined ATS_HEADLESS pause
+        if not defined LUBAS_HEADLESS pause
         exit /b 2
     )
 )
@@ -73,17 +73,26 @@ echo %date% %time% > "%LOCK_FILE%"
 
 echo.
 echo ============================================================
-echo   ATS -- Pre-flight checks
+echo   Lubas -- Pre-flight checks
 echo ============================================================
 echo.
-
-REM ── Step 1: Start the web server and wait until it responds ──
-echo [PRE-FLIGHT 1/2] Starting ATS web server...
-start "ATS-Server" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-api.bat"
 
 REM --- Resolve port (.env PORT or default 3000) ---
 set SERVER_PORT=3000
 for /f "tokens=2 delims==" %%V in ('findstr /i "^PORT=" "%ROOT%.env" 2^>nul') do set "SERVER_PORT=%%V"
+
+REM ── Step 1: Start the web server (or reuse if already up) ──
+REM Idempotent boot: if the server is already responding to /health, don't
+REM spawn another window -- that just creates an orphan failed cmd with an
+REM "EADDRINUSE" error stacked on top of the working server.
+curl -s -o nul -w "%%{http_code}" http://localhost:!SERVER_PORT!/health 2>nul | findstr /x "200" >nul 2>&1
+if !errorlevel! equ 0 (
+    echo [PRE-FLIGHT 1/2] API server already responding on port !SERVER_PORT! -- reusing.
+    goto health_done
+)
+
+echo [PRE-FLIGHT 1/2] Starting Lubas web server...
+start "Lubas-Server" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-api.bat"
 
 REM --- Poll /health until server responds (max 60s, 2s intervals) ---
 echo   Waiting for server on http://localhost:!SERVER_PORT!/health ...
@@ -96,12 +105,12 @@ if !HEALTH_ATTEMPTS! gtr 30 (
     REM Clear the lock so a retry isn't blocked for 5 minutes -- this run is
     REM dead, the next attempt should proceed unimpeded.
     del "%LOCK_FILE%" 2>nul
-    if defined ATS_HEADLESS (
+    if defined LUBAS_HEADLESS (
         REM No one watching: kill the orphan server window so we don't leave
         REM a zombie cmd on the desktop until next midnight shutdown.
-        taskkill /FI "WINDOWTITLE eq ATS-Server*" /T >nul 2>&1
+        taskkill /FI "WINDOWTITLE eq Lubas-Server*" /T >nul 2>&1
     ) else (
-        echo   Check the ATS-Server window for errors.
+        echo   Check the Lubas-Server window for errors.
         echo.
         pause
     )
@@ -115,9 +124,11 @@ if !errorlevel! neq 0 (
 echo   Server is ready ^(attempt !HEALTH_ATTEMPTS!^).
 echo   ^(Dhan token refresh is handled by server startup ^& 401 handler.^)
 
+:health_done
+
 echo.
 echo ============================================================
-echo   ATS -- Starting all TFA instruments
+echo   Lubas -- Starting all TFA instruments
 echo   Python: !PYTHON_CMD!
 echo   Extra args: !EXTRA_ARGS!
 echo ============================================================
