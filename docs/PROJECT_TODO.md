@@ -5,26 +5,28 @@ Single source of truth for open project tasks. Top = highest priority. Add new i
 ## ACTIVE — currently in flight
 
 ### T0 — Resume point for next session (2026-05-17 EOD)
-**Spec fully implementation-ready. All audit findings closed.** Last commit `47c3b6f` on origin/main.
+**Spec fully implementation-ready. All internal audit findings closed + external ChatGPT/Gemini review integrated.** Last commit `8d75ddf` on origin/main.
 
-Today's work (8 commits):
-- Spec re-locked after 7-change audit (drift fixes + I9/I7/I8/I14/I10 design fixes)
-- **Swing layer added to v2** (was deferred T7) — 3-layer ensemble: scalp + trend + swing
-- 12 new swing target heads (3600s/7200s × 6 types) → total 84 heads/instrument
-- L1 grew 436 → 446 features (B5 S/R levels + 2 hourly-OI for swing exits)
-- L4 ensemble combinator: 3-way with "longest horizon dominates" + agreement-window upgrade rule
-- L5 swing-specific trade management (3-tier trail, 2hr time-stop, 60-min OI exits)
-- L7 layer-aware concurrent cap + swing entry cutoff
-- L8 new `trend_strong` regime tier + 5-min sustain requirement
-- §9: 64 decisions tracked (D1-D64), all resolved or scheduled for post-paper-trade tuning
+Today's work (19 commits):
+- **Morning session (commits 6004b18 → 198bc41):** finalized L8 lock, swing layer added to v2 (D55, was T7), spec re-locked across L2/L4/L5/L7/L8 after swing addition, 4-batch internal audit (drift fixes + I9/I7/I8/I14/I10 design fixes), launcher hardening bundle A+B+C+D plus Round 2 audit.
+- **Afternoon session (commits 196aacb → d0a7ef6):** fresh-eyes audit found 9 residual findings; all closed (D65–D71). Launcher Round 3 audit + Lubas rebrand (f2c0f75 — separate parallel work).
+- **Evening session (commit 8d75ddf):** ChatGPT + Gemini external feedback integrated — 3 items added to v2 lock (D72 probability calibration, D73 Phase 7 sub-phases, D56 cohort tracking extension), 5 items added to PROJECT_TODO (T18 adaptive thresholds, T19 no-trade classifier, T20 meta-ensemble, T14 + T15 extended).
 
-**Next-session entry point: T3 Phase 2 (TFA feature additions).** Spec defines exactly what to build:
-- 446-feature L1 emitter (377 base + 23 B-block + 46 C-block ACCEPT)
-- 12 trend target columns + 12 swing target columns
-- New per-position state for inline composition exits (I7/I8 fixes)
-- LATEST_HEADS.json per-head schema metadata (I10 fix)
+**Net spec state (V2_MASTER_SPEC):**
+- 8 layers all LOCKED / RE-LOCKED 2026-05-17
+- 73 decisions tracked in §9 (D1–D73), all resolved or scheduled for post-paper-trade tuning
+- 446 L1 features (377 base + 23 B-block + 46 C-block ACCEPT)
+- 84 model heads per instrument (60 scalp + 12 trend + 12 swing)
+- Probability calibration pipeline (D72) unblocks T8 + T16 future upgrades
 
-Spec sections to read first when resuming: §0 architecture diagram, §2.1 L1 features, §2.2 L2 targets, §6 phase plan.
+**Next-session entry point: T3 Phase 2 (TFA feature additions, ~1-2 days code).** Spec defines exactly what to build:
+- 446-feature L1 emitter (377 base + 23 B-block + 46 C-block ACCEPT — schema_version bumps the registry per D66)
+- 12 trend target columns + 12 swing target columns (Phase 3)
+- New per-position state schema for inline composition exits (§2.5.1, I7/I8 + D68 fixes)
+- LATEST_HEADS.json per-head schema metadata + isotonic calibration map per head (I10 + D72)
+- Schema registry at `config/schema_registry/v<N>.json` (D66 runtime reconciliation)
+
+Spec sections to read first when resuming: §0 architecture diagram, §2.1 L1 features, §2.2 L2 targets, §2.3 model architecture (calibration added), §6 phase plan (Phase 7 now has 7a/7b/7c sub-phases).
 
 ## P1 — design work while data accumulates
 
@@ -119,8 +121,8 @@ Train LightGBM regime classifier head alongside rule-based L8 classifier when ru
 ### T16 — Confidence-weighted position sizing (upgrade L6 D2)
 Promote sizing from equal allocation (L6 D2 Option D, ships with v2) to confidence-weighted (scale lots by predicted_prob / 0.5).
 
-- **Status:** Deferred. Gated by same reliability check as Gap #1 B→D (cost-floor migration).
-- **Blocked by:** first v2 retrain producing calibrated probabilities + 5-day holdout reliability-diagram check (±5% predicted-vs-actual win rate across deciles).
+- **Status:** Deferred. Gated by same reliability check as T8 (cost-floor migration).
+- **Blocked by:** first v2 retrain producing calibrated probabilities + reliability-diagram check (±5% predicted-vs-actual win rate across deciles). **Calibration mechanism added 2026-05-17 via V2_MASTER_SPEC D72** (isotonic regression per head, applied at runtime) — the reliability check is now actionable instead of being a circular gate.
 - **Why upgrade:** equal sizing wastes capacity on near-threshold signals. Confidence weighting puts more capital on best signals — higher sharpe IF probabilities are reliable.
 - **Spec change when ready:** V2_MASTER_SPEC §2.6 — replace equal-sizing formula with weighted. Update D2 in §9 to RESOLVED.
 
@@ -155,7 +157,7 @@ Add 8 features deferred at L1 D2 lock (2026-05-16) if first-retrain analysis sho
 Create `scripts/generate_feature_catalog.py` that reads `python_modules/tick_feature_agent/output/emitter.py` `_build_column_names()` + module docstrings, emits `docs/FEATURE_CATALOG.md` table (name, source module, brief description). Hook into pre-commit so any TFA change auto-updates the catalog.
 
 - **Status:** Deferred. Low priority — does not block trading.
-- **Why needed:** with 443 candidate features post-v2, no lookup tool exists today. Anyone debugging a bad signal or onboarding spends hours grepping code.
+- **Why needed:** with 446 active features post-v2 (377 base + 23 B-block + 46 C-block ACCEPT), no lookup tool exists today. Anyone debugging a bad signal or onboarding spends hours grepping code.
 - **Effort:** ~50 LOC script + 1 pre-commit hook line.
 - **Upgrade path:** per-feature importance + provenance (Gap #22 Option D) — see D35.
 
@@ -196,8 +198,8 @@ Promote validation metric from single bid/ask-slippage replay (Option C, ships w
 Promote L4 gate cost-floor from "TP must clear costs" (Option B, ships with v2 paper trade) to "expected value must clear costs" (Option D — `(P_win × TP) − ((1 − P_win) × SL) > min_expectancy`).
 
 - **Status:** Deferred. Add to design backlog only.
-- **Blocked by:** First v2 retrain (T3 Phase 5). Option D requires calibrated probabilities; Wave 2 today predicts near 0.0028 (uncalibrated). Post-retrain, `scale_pos_weight` fix should produce usable 0.40–0.60 range probabilities.
-- **Validation gate:** before promoting, confirm on 5-day holdout that predicted P_win matches actual win rate within ±5% across deciles (reliability diagram check).
+- **Blocked by:** First v2 retrain (T3 Phase 5) + reliability validation on calibrated probs. **Calibration mechanism is now spec'd** (V2_MASTER_SPEC D72, added 2026-05-17 from ChatGPT feedback): isotonic regression per head, fit on dedicated 1-week calibration fold, applied at runtime before threshold compare. `scale_pos_weight` alone does NOT calibrate — it balances training. D72 is what makes EV-floor probabilities trustable.
+- **Validation gate:** before promoting, run the §5.1 weekly reliability monitoring (bucket signals by predicted prob, compare to actual win-rate). Pass = ±5% deviation across deciles.
 - **Why upgrade:** Option B blocks high-probability low-magnitude trades that have positive expectancy. Option D captures the real economics — allows trades like "78% win probability × 18 pts TP − 22% × 14 pts SL = +11 pts expected" which B would reject for TP < cost-floor.
 - **Spec change when ready:** V2_MASTER_SPEC §2.4 — replace the cost-floor hard veto with the EV formula. Update D17 in §9 to mark RESOLVED.
 
