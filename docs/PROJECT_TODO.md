@@ -4,6 +4,17 @@ Single source of truth for open project tasks. Top = highest priority. Add new i
 
 ## ACTIVE — currently in flight
 
+### T0 — Resume point for next session (laptop→desktop handover 2026-05-17)
+All 8 layers of v2 design LOCKED + pushed (last commit `c4f059e`). v2 master spec is implementation-ready. Two next-step options when you resume:
+
+- **Option 1 — Final §2.0 integration pass:** update V2_MASTER_SPEC top-of-doc status header from "DRAFT" to "LOCKED — design phase complete, ready for T3 Phase 2 implementation." Cosmetic but signals readiness. ~5 min.
+- **Option 2 — Start T3 Phase 2 implementation:** TFA feature additions per locked L1 §2.1.4 (44 accept + 15 B-block). First code change in 2 weeks. Spec defines exactly what to build.
+- **Option 3 — Walk the 17 deferred T-tasks (T7-T17)** and decide which (if any) can advance now (most are post-paper-trade blocked, but T7 swing-trade SPEC could be drafted in parallel).
+
+Recommended order: Option 1 (5 min cleanup) → Option 2 (real work begins). Skip Option 3 until T3 Phase 7 (paper trade) starts producing data.
+
+
+
 ### T1 — Crudeoil multi-day replay
 Crudeoil parquets have gaps (last verified May 16: 6 dates vs naturalgas's 10). Replay is launched in parallel windows but not all complete.
 
