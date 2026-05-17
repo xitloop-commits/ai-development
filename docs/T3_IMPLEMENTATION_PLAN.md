@@ -11,6 +11,189 @@ Updated 2026-05-17 against V2_MASTER_SPEC commit `09e01c8`.
 
 ---
 
+## §0 — Master reference table (all phases, all layers)
+
+One row per (phase, module). Columns: Phase / Layer / Target module / Description / Status / Outcome / Priority.
+
+**Status values:** ✅ Complete · ⏳ Pending · 🚧 Active · 🕒 Wait-for-data
+**Priority values:** P1 = critical path / blocking · P2 = parallelizable within phase · P3 = defer within phase
+
+### Phase 1 — Design lock (no code)
+
+| Phase | Layer | Target module / artifact | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 1 | all | `docs/V2_MASTER_SPEC.md` | 8-layer spec, §9 D1–D75 LOCKED 2026-05-17 | ✅ | Single source of design truth | P1 |
+| 1 | all | `docs/FEATURE_HEAD_RECONCILIATION.md` | 446 features ↔ 84 heads runtime data flow | ✅ | Lookup reference for coding | P1 |
+| 1 | all | `docs/T3_IMPLEMENTATION_PLAN.md` | This document | ✅ | Engineering plan | P1 |
+| 1 | all | `docs/PARTHA_RULES.md` | Behavioral rules for Claude sessions | ✅ | Working-style protocol | P1 |
+| 1 | all | `docs/PROJECT_TODO.md` | T0–T21 open work tracker | ✅🚧 | Cross-machine work queue | P1 |
+
+### Phase 2 — TFA feature emitter (69 NEW L1 features)
+
+#### Phase 2a — Stateless features (22)
+
+| Phase | Layer | Target module | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 2a | L1 | NEW `tick_feature_agent/features/india_vix.py` | C3: `india_vix`, `india_vix_change_5min` | ⏳ | Vol-regime conditioning input to all heads | P1 |
+| 2a | L1 | NEW `tick_feature_agent/features/dealer_hedging.py` | C4: `net_gex`, `gamma_flip_distance_pct`, `dealer_net_delta`, `charm_estimate_atm`, `vanna_estimate_atm` | ⏳ | Swing convexity heads + expiry-day modulation | P1 |
+| 2a | L1 | EXTEND `tick_feature_agent/features/levels.py` (Max Pain part) | C10: `max_pain_strike`, `distance_to_max_pain_pct`, `max_pain_gravity_strength` | ⏳ | Expiry-day trend/swing heads | P1 |
+| 2a | L1 | EXTEND `tick_feature_agent/features/expiry.py` | C12: `days_to_expiry_bucket` categorical {0,1,2,3+} | ⏳ | Conditional Max-Pain learning | P1 |
+| 2a | L1 | NEW `tick_feature_agent/features/event_calendar.py` | C11: `is_tier_2_event_day`, `event_type_categorical`, `hours_to_next_tier_1_or_2_event` (reads `config/event_calendar.json`) | ⏳ | All heads event suppression | P1 |
+| 2a | L1 | NEW `tick_feature_agent/features/technical.py` | C2: `rsi_14_5min`, `macd_5min`, `macd_signal_5min`, `macd_histogram_5min`, `volume_price_divergence_5min` | ⏳ | Trend direction heads | P2 (needs 5-min bars from 2b) |
+| 2a | L1 | EXTEND `tick_feature_agent/features/chain.py` (stateless part) | C1: `oi_weighted_ce_resistance_strike`, `oi_weighted_pe_support_strike`, `pcr_intraday_slope_30min` | ⏳ | Trend/swing entry conditions | P1 |
+
+#### Phase 2b — Session-state features (39)
+
+| Phase | Layer | Target module | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 2b | L1 | NEW `tick_feature_agent/features/bars.py` | 1m/5m/15m bar aggregator (OHLCV deques) | ⏳ | Feeds B1/B2/B4/C2/technical features | P1 (foundational) |
+| 2b | L1 | NEW `tick_feature_agent/features/multi_tf.py` | B1 MAs (5 features) + B2 ADX/momentum (3) + B4 patterns (3) | ⏳ | Trend direction heads + L8 regime input | P1 |
+| 2b | L1 | NEW `tick_feature_agent/features/session.py` | B3: `dist_from_session_open_pct`, `dist_from_session_vwap_pct`, `session_high/low_age_min` | ⏳ | Swing S/R-aware heads | P1 |
+| 2b | L1 | NEW `tick_feature_agent/features/opening_range.py` | B5: `distance_to_opening_range_{high,low}_pct` (NSE 09:15–09:29, MCX 09:00–09:14 IST per D74 B3) | ⏳ | Swing breakout heads | P1 |
+| 2b | L1 | NEW `tick_feature_agent/features/intraday_time.py` | C6: `minutes_from_open`, `minutes_to_close`, `lunch_session_flag` | ⏳ | All heads time-of-day conditioning; L7 swing entry cutoff | P1 |
+| 2b | L1 | EXTEND `tick_feature_agent/features/active_features.py` | C7: `active_strike_shift_direction`, `active_strike_shift_velocity`, `atm_to_otm_flow_ratio` | ⏳ | Scalp + trend strike-rotation | P2 |
+| 2b | L1 | NEW `tick_feature_agent/features/premium_vwap.py` | C8: `atm_ce_premium_vwap_dist`, `atm_pe_premium_vwap_dist`, `premium_vwap_reclaim_count` | ⏳ | Scalp option-microstructure | P2 |
+| 2b | L1 | EXTEND `tick_feature_agent/features/greeks.py` | C9: `iv_change_1min/5min`, `iv_skew_velocity`, `iv_expansion_without_spot` | ⏳ | Swing vol-shift heads | P2 |
+| 2b | L1 | NEW `tick_feature_agent/features/exhaustion.py` | C5: `trend_age_ticks` (resets on L8 regime change per W5), `volume_no_move_score` | ⏳ | Trend exhaustion exits (§2.5) | P2 (depends on regime classifier) |
+| 2b | L1 | EXTEND `tick_feature_agent/features/chain.py` (5/15-min OI) | C1: `{ce,pe}_wall_strength_rel`, `{ce,pe}_oi_change_{5,15}min_pct` | ⏳ | Trend OI exits (D62) | P2 |
+| 2b | L1 | NEW `tick_feature_agent/features/oi_dominance.py` | C1: `oi_dominance_streak_min` (signed minute counter, ±240 cap per W4) | ⏳ | Trend/swing directional signal | P2 |
+
+#### Phase 2c — Cross-day-state features (8)
+
+| Phase | Layer | Target module | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 2c | L1 | EXTEND `tick_feature_agent/features/levels.py` (cross-day) | B5: `distance_to_prev_day_{high,low}_pct`, `distance_to_round_number_{above,below}_pct`, `distance_to_5d_swing_{high,low}_pct` | ⏳ | Swing S/R heads + trend exit triggers | P3 |
+| 2c | L1 | EXTEND `tick_feature_agent/features/chain.py` (60-min OI) | C1: `ce_oi_change_60min_pct`, `pe_oi_change_60min_pct` per D62 — 60-min ring (largest memory delta) | ⏳ | Swing OI exits (§2.5 swing table) | P3 |
+| 2c | infra | NEW `data/state/<inst>_levels.json` writer hook | Session-close hook in `tick_processor.on_session_close()` writes prev-day H/L + 5-day swing history | ⏳ | Cross-day cache for B5 features | P3 |
+
+#### Phase 2 — Schema artifacts + tests
+
+| Phase | Layer | Target module | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 2 | L1 | EXTEND `tick_feature_agent/output/emitter.py` | `_build_column_names()` → 446 cols + `LATEST_SCHEMA_VERSION = 7` + write `config/schema_registry/v7.json` on startup (D74 B1) | ⏳ | All Phase 5+6 read v7.json | P1 |
+| 2 | L1 | NEW `config/schema_registry/v7.json` (auto-written) | Immutable column list per D66 — emitter writes, SEA reads | ⏳ | D66 schema reconciliation foundation | P1 |
+| 2 | all | NEW `tick_feature_agent/tests/test_no_lookahead.py` | L1+L8 batch-feature lookahead test (per D65 — doesn't exist today) | ⏳ | Safety net for retrain pipeline | P1 |
+| 2 | all | NEW `tick_feature_agent/tests/test_schema_registry.py` | v7.json write-on-startup + exact `feature_count` (D74 W1) | ⏳ | Catch schema drift in CI | P1 |
+| 2 | all | NEW `tick_feature_agent/tests/test_<each_new_module>.py` (×12) | Unit tests per new feature module | ⏳ | Feature correctness | P2 |
+
+### Phase 3 — Trend + swing target labels (24 NEW L2 columns)
+
+| Phase | Layer | Target module | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 3 | L2 | NEW `tick_feature_agent/features/trend_swing_targets.py` | 12 trend targets (900/1800s × 6 types) + 12 swing targets (3600/7200s × 6 types) per §2.2.2. Extends `TargetBuffer._PendingRow` retention 300s → 7200s | ⏳ | Trains 12 trend + 12 swing heads (Phase 5) | P1 (blocks Phase 5) |
+| 3 | L2 | NEW `tick_feature_agent/tests/test_trend_swing_targets.py` | All 24 target computations + NaN handling at session-end + per-layer multiplier scale | ⏳ | Target correctness | P1 |
+
+### Phase 4 — Data accumulation (no code)
+
+| Phase | Layer | Target module / artifact | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 4 | infra | ATS auto-recorder (T5 in PROJECT_TODO) | Mon-Fri 08:55→00:00 records 4 instruments to `data/raw/<DATE>/` | 🚧 (already live, T5) | ≥30 sessions under v7 schema | P1 (wall-clock ~30 days) |
+
+### Phase 5 — Retrain pipeline (L3 model architecture)
+
+#### Phase 5 MTA modules
+
+| Phase | Layer | Target module | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 5.1 | L3 | EXTEND `python_modules/_shared/targets.py` | 60 → 84 `TargetSpec` rows; add `head_type: scalp\|trend\|swing` field; bump asserts | ⏳ | Trainer + SEA loader absorb 24 new heads with zero call-site change | P1 |
+| 5.2 | L3 | EXTEND `model_training_agent/trainer.py` | `train_instrument_walk_forward()` + `scale_pos_weight` + LightGBM hyperparam pinning from config | ⏳ | 1680 LightGBM fits per Saturday (84 heads × 5 folds × 4 inst) | P1 |
+| 5.2 | L3 | NEW `model_training_agent/walk_forward.py` | 5-fold + dedicated 1-week calibration-fold builder; explicit fold-isolation assertion | ⏳ | Sim_pnl folds + calibration fold disjoint | P1 |
+| 5.2 | L3 | NEW `model_training_agent/validation/sim_pnl.py` | §2.3.4 sim_pnl per head — uses CALIBRATED probabilities | ⏳ | Per-head promotion metric | P1 |
+| 5.3 | L3 | NEW `model_training_agent/calibration.py` | Isotonic per binary head; serialize `{method, x_thresholds, y_calibrated, trained_at, n_samples}` per D74 B2; identity-map writer for Wave 2 legacy | ⏳ | 128 calibration maps per retrain (D72/D75 Gap 4 scope) | P1 |
+| 5.4 | L3 | NEW `model_training_agent/promotion.py` | `apply_regression_block(deltas, threshold=-0.05)` + `stage_candidate_heads()` writing CANDIDATE_HEADS.json per D72+D64 | ⏳ | Sat → Mon promotion gate | P1 |
+| 5.2 | L3 | EXTEND `model_training_agent/cli.py` | `--mode walk-forward` flag | ⏳ | Script entry for retrain | P2 |
+
+#### Phase 5 scripts
+
+| Phase | Layer | Target module | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 5.2 | L3 | NEW `scripts/retrain_v2.sh` | Sat 02:00 IST cron wrapper; invokes `python -m model_training_agent.cli --mode walk-forward --instrument <i>` for 4 inst | ⏳ | Weekly retrain automation | P1 |
+| 5.6 | L3 | NEW `scripts/pre_market_check.py` | 7 checks per §5.2 (#7 narrowed to binary heads per D75 Gap 4) | ⏳ | Mon 08:50 IST safety gate; CRITICAL on RED → disable AI Live | P1 |
+| 5.7 | L3 | NEW `scripts/drift_check.py` | Daily 20:00 IST per-head AUC/RMSE rolling 5-day comparison | ⏳ | Drift alert via Telegram (§5.3) | P2 |
+| 5.8 | L3 | NEW `scripts/shap_report_weekly.py` | Sunday EOD aggregation; per-instrument SHAP-by-outcome report | ⏳ | Feature-importance audit; pruning input for T21 | P2 |
+| 5+7 | L3+L7 | NEW `scripts/trade_quality_report_weekly.py` | §5.1 + cohort tags (D56) + sub-phase A/B (D73) + reliability diagram (D72) | ⏳ | Weekly Sunday report for human review | P2 |
+| 5.5 | L3 | NEW `scripts/migrate_latest_to_heads.py` | One-time: legacy `LATEST` text → `LATEST_HEADS.json` (D64) | ⏳ | Pre-SEA-rewrite migration | P1 |
+| 5.5 | L3 | NEW `scripts/migrate_wave2_calibration.py` | One-time: identity-map `.calibration.json` for Wave 2 binary heads | ⏳ | Pre-market check #7 passes Wave 2 heads during transition | P1 |
+| 5.5 | L3 | NEW `scripts/promote_candidates.py` | Mon AM: CANDIDATE_HEADS.json → LATEST_HEADS.json if APPROVED.touch present | ⏳ | Human-gated model deployment | P1 |
+
+### Phase 6 — SEA gate + trade mgmt + risk + L8 (L4/L5/L6/L7/L8)
+
+#### Phase 6 SEA modules — L4 (gate logic)
+
+| Phase | Layer | Target module | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 6.1 | L4 | EXTEND `signal_engine_agent/engine.py` | Wire calibration + schema_reconciler + ensemble_combinator + SHAP capture | ⏳ | SEA runtime spine | P1 |
+| 6.1 | L4 | EXTEND `signal_engine_agent/thresholds.py` | `decide_action_trend` + `decide_action_swing` (new); side-aware scalp TP/SL (Gap 1); lock 60s window per W3 | ⏳ | 3 gate decisions (scalp/trend/swing) | P1 |
+| 6.1 | L4 | NEW `signal_engine_agent/ensemble_combinator.py` | 3-way agreement matrix (D55) + trend bias filter (D49/I14) + cohort tagging (D56) | ⏳ | Multi-layer decision unifier | P1 |
+| 6.1 | L4 | NEW `signal_engine_agent/upgrade_window.py` | 6-tick agreement-window TP/SL upgrade per D61/D67 with `θ_upgrade_<layer>_dir` knob | ⏳ | Scalp→trend/swing TP/SL upgrade | P2 |
+
+#### Phase 6 SEA modules — L5 (trade management)
+
+| Phase | Layer | Target module | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 6.4 | L5 | NEW `signal_engine_agent/position_state.py` | §2.5.1 dataclass + atomic write-through to `data/sea_state/<inst>/<position_id>.json` + crash recovery (D68) | ⏳ | Per-position state machine | P1 |
+| 6.1 | L5 | NEW `signal_engine_agent/trail_evaluator.py` | 2-tier scalp/trend trail + 3-tier swing trail with 50% partial at 0.5×TP | ⏳ | Exit ladder | P1 |
+| 6.1 | L5 | NEW `signal_engine_agent/exit_triggers.py` | All exit triggers (TP/SL/time/trail/OI/exhaustion/regime-flip); D70 first-wins precedence; inline composition for wall-strength delta + exhaustion (D63) | ⏳ | Exit decisions per tick | P1 |
+| 6.1 | L5 | NEW `signal_engine_agent/stopout_tracker.py` | Per-(inst,side,layer) consecutive stop-out counter; 2-loss session lockout per L5 D3 + Q1 | ⏳ | Revenge-trade protection | P2 |
+| 6.1 | L5 | EXTEND TEA (`python_modules/...trade_executor_agent/`) | Two sequential market orders for swing Tier 2 partial fill (L5 Q2) | ⏳ | Partial-exit mechanics | P2 |
+
+#### Phase 6 SEA modules — L6/L7/L8
+
+| Phase | Layer | Target module | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 6.1 | L6 | NEW `signal_engine_agent/sizing.py` | `daily_risk_budget` hybrid (L6 D1) + `compute_lots` (D2/D4) + `check_portfolio_cap` (D3) | ⏳ | Position sizing per signal | P1 |
+| 6.1 | L7 | NEW `signal_engine_agent/risk_gate.py` | Layer cap + swing entry cutoff (13:30 NSE / 21:30 MCX) + daily-loss + blackouts + tier-1 events + signal caps + rolling DD halt + expiry cutoff + `risk_limits_enabled` toggle | ⏳ | Hard risk vetoes | P1 |
+| 6.1 | L7 | EXTEND `signal_engine_agent/risk_control_client.py` | Consecutive-loser pause via new threshold field (L7 D2) | ⏳ | Channel-level pause | P2 |
+| 6.1 | L8 | NEW `signal_engine_agent/regime_classifier.py` | 4-state rule classifier (`trend_strong/trend/range/chop`) + 5-min sustain (L8 Q1) + market-controller categorical + 3-min flip definition | ⏳ | L4/L5 regime input | P1 |
+
+#### Phase 6 SEA modules — schema + calibration + SHAP
+
+| Phase | Layer | Target module | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 6.2 | L4 | NEW `signal_engine_agent/schema_reconciler.py` | Load `config/schema_registry/v*.json`; predict-time column projection + quarantine on schema break (D66) | ⏳ | Multi-version head coexistence | P1 |
+| 6.3 | L3 | EXTEND `signal_engine_agent/model_loader.py` | Load `LATEST_HEADS.json` + `.calibration.json` per binary head; `apply_calibration` via `numpy.interp` (no sklearn dep) | ⏳ | Calibrated probabilities at predict | P1 |
+| 5.8 | L4 | NEW `signal_engine_agent/shap_explainer.py` | `compute_top_n_shap(booster, X, feature_names, n=5)` via `pred_contrib=True` | ⏳ | Per-signal explainability | P2 |
+
+#### Phase 6 SEA tests
+
+| Phase | Layer | Target module | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 6 | L5 | NEW `signal_engine_agent/tests/test_exit_trigger_no_lookahead.py` | D65 lookahead test for L5 exit triggers (OI exits + wall-strength buffer + exhaustion snapshots) | ⏳ | Safety net for SEA exit logic | P1 |
+| 6 | L4 | NEW `signal_engine_agent/tests/test_thresholds_{trend,swing}.py` (×2) | `decide_action_trend` and `decide_action_swing` unit tests | ⏳ | Gate correctness | P2 |
+| 6 | L4 | NEW `signal_engine_agent/tests/test_ensemble_combinator.py` | Agreement matrix + bias filter + cohort tagging | ⏳ | Combinator correctness | P2 |
+| 6 | L5 | NEW `signal_engine_agent/tests/test_position_state.py` | Persistence + crash recovery + force-close | ⏳ | State machine correctness | P2 |
+| 6 | L7 | NEW `signal_engine_agent/tests/test_risk_gate.py` | Layer cap + cutoff + signal caps + DD halt | ⏳ | Risk gate correctness | P2 |
+
+#### Phase 6 configs
+
+| Phase | Layer | Target module | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 6.5 | L4 | EXTEND `config/sea_thresholds/<inst>.json` × 4 | `gate_mode="wave2+trend+swing"`, `θ_trend_dir`, `θ_swing_dir`, `θ_upgrade_<layer>_dir`, `θ_bias_*`, dwell_ticks per layer, SL multipliers, `exit_triggers_enabled` (D73) | ⏳ | Runtime parameters | P1 |
+| 6.5 | L7 | NEW dir + `config/risk_limits/<inst>.json` × 4 | L1 D5 split — daily_loss, max_signals, swing_max_signals=2, layer_concurrent_caps, swing_entry_cutoff_ist, blackout_windows, n_consecutive_loser_pause_threshold, `risk_limits_enabled` | ⏳ | DA reads risk policy | P1 |
+| 6.5 | L1+L6 | EXTEND `config/instrument_profiles/<inst>_profile.json` × 4 | `lot_size` (naturalgas=1250 per D74 B4), `round_number_step` (D52), `opening_range_window_min`, `noise_floor_{scalp,swing}_pts` | ⏳ | Instrument constants | P1 |
+| 5.2 | L3 | NEW `config/mta_hyperparams.json` | LightGBM defaults per §2.3.3 + `regression_threshold=-0.05` | ⏳ | Training config | P1 |
+| 6.5 | L7 | NEW `config/event_calendar.json` | Tier-1 + Tier-2 events per D28 | ⏳ | Risk blackouts | P1 |
+
+### Phase 7 — Paper trade ramp (config-driven sub-phases)
+
+| Phase | Layer | Target module | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 7a | L5 | (config edit) `config/sea_thresholds/<inst>.json.exit_triggers_enabled = ["tp","sl","trail","time","regime_flip"]` | Minimum exits sub-phase per D73 | 🕒 | Baseline trade behavior — ≥50 signals/inst | P1 |
+| 7b | L5 | (config edit) Add `["oi_buildup","oi_unwind","wall_break"]` | OI exits enabled sub-phase | 🕒 | A/B vs 7a — promote only if ≥3pp WR lift or ≥15% DD reduction | P1 |
+| 7c | L5 | (config edit) Add `["trend_tiring","premium_decel","volume_absorption"]` | Exhaustion exits enabled sub-phase | 🕒 | A/B vs 7b — same criterion | P1 |
+| 7.1 | L5 | NEW `scripts/exit_trigger_ab_compare.py` | Aggregates per-trigger P&L on overlapping windows; writes `docs/reports/exit_trigger_ab_<sub_phase>_<date>.md` | ⏳ | Sub-phase promotion evidence | P2 |
+| 7.2 | All | EXTEND `scripts/trade_quality_report_weekly.py` (created Phase 5) | New sections: per-cohort P&L (D56), per-trigger fire count + P&L (D73), reliability diagram per binary head (D72), SHAP stability | ⏳ | Sunday review artifact | P2 |
+
+### Phase 8 — AI Live transition (no new code)
+
+| Phase | Layer | Target module / artifact | Description | Status | Outcome | Priority |
+|---|---|---|---|---|---|---|
+| 8 | all | Per §8.2/§8.3 canary thresholds in V2_MASTER_SPEC | Small-capital then scaled deployment after 7c proves out | 🕒 | Production AI Live (small → full size) | P1 |
+
+---
+
+---
+
 ## Phase 2 — TFA feature emitter (69 NEW features)
 
 Implements L1 layer: extend live parquet schema from 377 → 446 columns.
