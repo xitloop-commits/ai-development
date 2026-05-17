@@ -254,6 +254,8 @@ Position close → write logs/signals/ + sim_pnl + trade-quality cohort tag (D56
 
 ## 5. Reconciliation findings (issues surfaced during this pass)
 
+**Status: ALL 4 gaps RESOLVED 2026-05-17 via V2_MASTER_SPEC D75.** Original findings preserved below for audit trail; resolutions noted inline.
+
 ### Gap 1 — Scalp SHORT-signal TP/SL source not specified
 
 **Context:** §2.5 row "Scalp" says TP from `max_upside_60s`, SL from `max_drawdown_60s × 1.3`. These are CE-leg targets (the underlying Wave 2 trains 12 types per horizon, including PE-leg versions `max_upside_pe_60s` and `max_drawdown_pe_60s`).
@@ -264,7 +266,7 @@ Position close → write logs/signals/ + sim_pnl + trade-quality cohort tag (D56
 - LONG scalp (BUY CE) → TP from `max_upside_60s`, SL from `max_drawdown_60s × 1.3`
 - SHORT scalp (BUY PE) → TP from `max_upside_pe_60s`, SL from `max_drawdown_pe_60s × 1.3`
 
-Severity: BLOCKER for Phase 6 if SEA gate fires SHORT scalp signals.
+Severity: BLOCKER for Phase 6 if SEA gate fires SHORT scalp signals. **RESOLVED 2026-05-17 via D75 — side-aware sources now locked in §2.5 footnote "Gap 1": LONG → CE-leg targets, SHORT → PE-leg targets.**
 
 ### Gap 2 — Trend/swing TP/SL is in spot points, traded position is options
 
@@ -278,7 +280,7 @@ Spec doesn't say which.
 
 **Suggested fix:** lock Reading A explicitly in §2.5 (simpler, no Greek model dependency). Add one sentence: "Trend and swing TP/SL trigger on underlying SPOT movement, not option premium. When spot reaches entry ± `trend_magnitude_900s`, the option position is closed at whatever premium the broker tape shows at that moment."
 
-Severity: BLOCKER for Phase 6 trade-management code.
+Severity: BLOCKER for Phase 6 trade-management code. **RESOLVED 2026-05-17 via D75 — Option A (spot-based trigger) locked in §2.5 footnote "Gap 2". TP/SL fire on underlying spot reaching predicted magnitude; option closes at whatever broker premium shows; slippage absorbed by §7 cost_floor_buffer_pct.**
 
 ### Gap 3 — Scalp has 12 target types; trend/swing have only 6
 
@@ -286,7 +288,7 @@ Severity: BLOCKER for Phase 6 trade-management code.
 
 **Is it a real gap?** No — design intent is correct asymmetry. Scalp targets the option-premium microstructure; trend/swing target the underlying. But the asymmetry should be DOCUMENTED so a future reader doesn't try to "harmonize" them.
 
-**Suggested fix:** add one-paragraph note in V2_MASTER_SPEC §2.2 explaining the asymmetry and why it stays. Not blocking — clarity only.
+**Suggested fix:** add one-paragraph note in V2_MASTER_SPEC §2.2 explaining the asymmetry and why it stays. Not blocking — clarity only. **RESOLVED 2026-05-17 via D75 — asymmetry note added to §2.2.2 immediately after the 24 new target columns total.**
 
 ### Gap 4 — Calibration applies to BINARY targets; regression heads don't need it
 
@@ -302,7 +304,7 @@ Severity: BLOCKER for Phase 6 trade-management code.
 
 **Suggested fix:** narrow D72 + §5.2 check #7 + §6.1 calibration step to BINARY heads only. Regression heads ship without calibration files (or with explicit `"method": "identity"` if uniformity required). Reduces calibration compute from 336 → 128 fits per Saturday retrain.
 
-Severity: WORTH-FIXING — would otherwise add wasted compute and likely produce code that fails on regression heads.
+Severity: WORTH-FIXING — would otherwise add wasted compute and likely produce code that fails on regression heads. **RESOLVED 2026-05-17 via D75 — D72 scope narrowed to binary heads only. Updated §2.3 calibration block, §5.2 check #7, §6.1 Sat 21:30 step. Correct count is 128 calibration maps (32 binary heads × 4 instruments), not 336.**
 
 ---
 
