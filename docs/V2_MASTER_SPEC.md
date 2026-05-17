@@ -895,16 +895,21 @@ Defaults from standard literature (ADX 25 = classic trending threshold; 15 = cle
 
 Rationale: keeps L8 simple (rule produces one tag); pushes time-conditional logic to the layer that already has it (L4 gate). No L8 rule fragility from per-time-bucket threshold tables.
 
-**Look-ahead avoidance (LOCKED 2026-05-16 — L8 D3 Option C):** all L8 regime features (and by policy, every L1 feature) computed using ONLY data available at time `t` (no future bars). Enforced by:
+**Look-ahead avoidance (LOCKED 2026-05-16 — L8 D3 Option C; SCOPE EXTENDED 2026-05-17 — audit Finding #4 → D65):** all L8 regime features (and by policy, every L1 feature, AND every SEA-side L5 exit-trigger composition) computed using ONLY data available at time `t` (no future bars). Enforced by:
 
 1. **Convention:** all rolling/streak features use bars ending at or before `t` — lagged by at least 1 bar.
-2. **Automated test (mandatory):** new `python_modules/model_training_agent/tests/test_no_lookahead.py` runs every retrain. For each feature in L1+L8:
+2. **Automated test — L1 + L8 batch features (mandatory):** `python_modules/model_training_agent/tests/test_no_lookahead.py` runs every retrain. For each feature in L1+L8:
    - Build "point-in-time" version (compute at `t` using only data with timestamp ≤ `t`)
    - Build "full-history" version (typical batch compute)
    - Assert equal across N sample timestamps
    - Fails the retrain pipeline if any feature peeks forward.
+3. **Automated test — L5 SEA exit triggers (mandatory, ADDED 2026-05-17 per D65):** `python_modules/signal_engine_agent/tests/test_exit_trigger_no_lookahead.py` runs in CI (not gated on retrain — exit logic ships independently of model retrain). For each exit trigger in §2.5:
+   - **OI exits** (`{ce,pe}_oi_change_{5,60}min_pct`, scalp/trend 5-min + swing 60-min variants): L1 feature itself is covered by test (2) above; additionally assert SEA's exit-evaluator reads the value as-of the current tick only — no buffered "latest available" that could include a tick newer than the eval timestamp.
+   - **Wall-strength deltas** (`wall_strength_{5,60}min_delta`, composed inline per §2.5): assert SEA's rolling buffer is append-only AND the "now − N-min-ago" lookup compares the newest sample against one whose timestamp is `≤ t − N min` (no forward interpolation across gaps; no peek at the *next* sample when the exact N-min-ago sample is missing).
+   - **Exhaustion exits** (entry-snapshot vs now for `trend_age_ticks`, `momentum`, `atm_premium_momentum`, `volume_no_move_score`): assert entry-snapshot is captured at signal-fire tick and frozen (never re-read from a later tick); "now" side reads only ticks with timestamp ≤ `t`.
+   - Failure blocks SEA exit-rule deployment (not just model promotion).
 
-Look-ahead leakage is the hardest ML failure mode to debug after the fact. Test is non-negotiable safety check — any failure blocks model promotion.
+Look-ahead leakage is the hardest failure mode to debug after the fact — and exit-trigger leakage is particularly dangerous because it inflates backtest pnl while being invisible to model-side validation. Both tests are non-negotiable safety checks.
 
 **Learned regime classifier (LOCKED 2026-05-16 — L8 D4 Option C):** v1 ships rule-based only. Defer learned LightGBM regime classifier until paper-trade data proves rules are inadequate. **Trigger condition:** if §5.1 trade-quality report shows ≥20% of losers exit on regime-mis-tagged conditions over a 4-week window. At that point, hand-label regime windows from holdout data + train a 4th LightGBM head (alongside the 72 trade-prediction heads) to predict regime classification. See PROJECT_TODO T17.
 
@@ -1345,6 +1350,7 @@ All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`
 | D50 | Trend bias filter sub-decisions (sub of D49) | **RESOLVED 2026-05-17 by Partha.** `θ_bias_bullish=0.65`, `θ_bias_bearish=0.35`, asymmetric (trend vetoes scalp only), no magnitude floor on activation. **Follow-up:** validate thresholds after first month of paper trade; if too restrictive raise to 0.70/0.30, if too permissive narrow to 0.60/0.40 |
 | D51 | Opening range window length (B5 sub-decision) | **RESOLVED 2026-05-17 by Partha.** N=15 minutes (NSE-traditional). One global value across all instruments |
 | D52 | Round number step per instrument (B5 sub-decision) | **RESOLVED 2026-05-17 by Partha.** nifty50=100 pts, banknifty=100 pts, crudeoil=5 INR, naturalgas=1 INR. Coarser steps preferred (fewer near-round-number false positives) |
+| D65 | L5 exit-trigger look-ahead test scope (audit Finding #4, 2026-05-17) | **RESOLVED 2026-05-17 by Partha.** Existing `test_no_lookahead.py` covered only L1+L8 batch features. L5 SEA-side exit triggers (OI exits, wall-strength deltas, exhaustion comparisons) compose values from rolling buffers and entry-snapshots — these can leak forward independently of the batch features they read. New `python_modules/signal_engine_agent/tests/test_exit_trigger_no_lookahead.py` added to scope (§2.8). Three sub-checks: OI exits read as-of current tick only, wall-strength buffer is append-only with timestamp ≤ `t − N min` lookup, exhaustion entry-snapshot frozen at fire tick. Failure blocks SEA exit-rule deployment (separate gate from model promotion). |
 
 ---
 
