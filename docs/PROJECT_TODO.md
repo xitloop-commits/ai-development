@@ -4,64 +4,63 @@ Single source of truth for open project tasks. Top = highest priority. Add new i
 
 ## ACTIVE — currently in flight
 
-### T0 — Resume point for next session (laptop→desktop handover 2026-05-17)
-All 8 layers of v2 design LOCKED + pushed (last commit `c4f059e`). v2 master spec is implementation-ready. Two next-step options when you resume:
+### T0 — Resume point for next session (2026-05-17 EOD)
+**Spec fully implementation-ready. All audit findings closed.** Last commit `47c3b6f` on origin/main.
 
-- **Option 1 — Final §2.0 integration pass:** update V2_MASTER_SPEC top-of-doc status header from "DRAFT" to "LOCKED — design phase complete, ready for T3 Phase 2 implementation." Cosmetic but signals readiness. ~5 min.
-- **Option 2 — Start T3 Phase 2 implementation:** TFA feature additions per locked L1 §2.1.4 (44 accept + 15 B-block). First code change in 2 weeks. Spec defines exactly what to build.
-- **Option 3 — Walk the 17 deferred T-tasks (T7-T17)** and decide which (if any) can advance now (most are post-paper-trade blocked, but T7 swing-trade SPEC could be drafted in parallel).
+Today's work (8 commits):
+- Spec re-locked after 7-change audit (drift fixes + I9/I7/I8/I14/I10 design fixes)
+- **Swing layer added to v2** (was deferred T7) — 3-layer ensemble: scalp + trend + swing
+- 12 new swing target heads (3600s/7200s × 6 types) → total 84 heads/instrument
+- L1 grew 436 → 446 features (B5 S/R levels + 2 hourly-OI for swing exits)
+- L4 ensemble combinator: 3-way with "longest horizon dominates" + agreement-window upgrade rule
+- L5 swing-specific trade management (3-tier trail, 2hr time-stop, 60-min OI exits)
+- L7 layer-aware concurrent cap + swing entry cutoff
+- L8 new `trend_strong` regime tier + 5-min sustain requirement
+- §9: 64 decisions tracked (D1-D64), all resolved or scheduled for post-paper-trade tuning
 
-Recommended order: Option 1 (5 min cleanup) → Option 2 (real work begins). Skip Option 3 until T3 Phase 7 (paper trade) starts producing data.
+**Next-session entry point: T3 Phase 2 (TFA feature additions).** Spec defines exactly what to build:
+- 446-feature L1 emitter (377 base + 23 B-block + 46 C-block ACCEPT)
+- 12 trend target columns + 12 swing target columns
+- New per-position state for inline composition exits (I7/I8 fixes)
+- LATEST_HEADS.json per-head schema metadata (I10 fix)
 
-
-
-### T1 — Crudeoil multi-day replay
-Crudeoil parquets have gaps (last verified May 16: 6 dates vs naturalgas's 10). Replay is launched in parallel windows but not all complete.
-
-- **Status:** In progress (replay processes running in launcher).
-- **Where to check:** Main menu Replay row in launcher — should show pending count.
-- **Blocking:** Nothing — passive wait.
+Spec sections to read first when resuming: §0 architecture diagram, §2.1 L1 features, §2.2 L2 targets, §6 phase plan.
 
 ## P1 — design work while data accumulates
 
-### T2 — Signal system v2 brainstorm (8 layers)
+### T2 — Signal system v2 brainstorm (8 layers) — **COMPLETE 2026-05-17**
 Stage-by-stage design of the perfect signal system. All layer designs land in the single source of truth `docs/V2_MASTER_SPEC.md`.
 
-- **Status:** Consolidated 2026-05-16 into `docs/V2_MASTER_SPEC.md`. L1 IN-PROGRESS (candidates listed, 16 decisions pending in §9). L2/L3 LOCKED-CANDIDATE. L4-L8 SKETCH.
+- **Status:** All 8 layers LOCKED. Audit complete (4 batches). 64 decisions tracked. Spec implementation-ready.
 - **Layers (status header in V2_MASTER_SPEC §2.0):**
-  - [x] Skeleton pass — all 8 layers consolidated
-  - [x] L1 — Input features LOCKED 2026-05-16
-  - [x] L2 — Target labels LOCKED 2026-05-16
-  - [x] L3 — Model architecture LOCKED 2026-05-16
-  - [x] L4 — Gate logic LOCKED 2026-05-16
-  - [x] L5 — Trade management LOCKED 2026-05-16
-  - [x] L6 — Position sizing LOCKED 2026-05-16
-  - [x] L7 — Risk controls LOCKED 2026-05-16
-  - [x] L8 — Regime / meta LOCKED 2026-05-16
-  - **All 8 layers LOCKED.** v2 design complete.
-- **User-chosen order:** L1 → L2 → L3 first (finalize before L4-L8). Per 2026-05-16 brainstorm session.
-- **Constraints (do NOT re-litigate — see V2_MASTER_SPEC §1.2):**
-  - Trades live MINUTES (>5 min hold)
-  - nifty50 noise floor 8 pts (TP ≥25 / SL ≥15)
-  - Trends visible only at 10-30 min horizons
-  - LightGBM stays
-  - Wave 2 scalp stays as backup
-  - Swing trades deferred to T7
-- **Per-session output:** edit `docs/V2_MASTER_SPEC.md` section(s) for that layer; flip status header; commit.
+  - [x] Skeleton pass — all 8 layers consolidated (2026-05-16)
+  - [x] L1 — Input features LOCKED 2026-05-17 (multi-touch: B5 S/R + 1hr OI for swing); 446 active features
+  - [x] L2 — Target labels RE-LOCKED 2026-05-17 (12 swing targets added)
+  - [x] L3 — Model architecture LOCKED 2026-05-16 (head count grew 60→84 per instrument for swing)
+  - [x] L4 — Gate logic RE-LOCKED 2026-05-17 (decide_action_swing + 3-way ensemble + agreement-window upgrade + bias filter magnitude guard)
+  - [x] L5 — Trade management RE-LOCKED 2026-05-17 (swing-specific exits + per-layer stop counter + inline exhaustion/wall-break composition)
+  - [x] L6 — Position sizing LOCKED 2026-05-16 (formula scales to swing naturally)
+  - [x] L7 — Risk controls RE-LOCKED 2026-05-17 (layer cap + swing entry cutoff + shared daily-loss budget)
+  - [x] L8 — Regime / meta RE-LOCKED 2026-05-17 (trend_strong tier + 5-min sustain for swing + benign degradation handling)
+- **2026-05-17 additions over 2026-05-16 baseline:**
+  - 7-change architecture brainstorm (separate `docs/REFERENCE.md` consolidated into spec)
+  - Audit pass → Batch 1 (mechanical drift) + Batch 2 (I9 ensemble fix) + Batch 3 (I7/I8/I14 real bugs) + Batch 4 (I10 per-head schema)
+  - Swing layer added to v2 (was deferred to T7)
+- **Audit findings closed:** all CRITICAL (C1-C5) + IMPORTANT (I1-I14) + DESIGN issues resolved. MINOR items folded into mechanical sweep.
 
 ### T3 — Trend-capture retrain (P1 blocker for paper trading)
-The current Wave 2 model is a microstructure scalp predictor; doesn't satisfy "trades live MINUTES" mandate. Needs new target spec (10/15/30 min horizons with noise floor in labels), new multi-TF features, retrain.
+Current Wave 2 model is a microstructure scalp predictor; v2 adds trend (10-30 min) + swing (30 min - 2 hr) layers. New target spec with noise floor in labels, new multi-TF features, retrain.
 
-- **Status:** Design captured in `docs/V2_MASTER_SPEC.md`. Implementation deferred until T2 layer locks.
+- **Status:** Design complete (V2_MASTER_SPEC LOCKED 2026-05-17). Phase 2 implementation ready to start.
 - **Blocker:** Need ≥30 sessions of training data **under v2 schema** (per V2_MASTER_SPEC §3.1 Option A: existing ~10 sessions of 402-col parquets become inaccessible when v2 schema ships). Auto-recorder accumulates Mon-Fri → ~6 weeks of recording from schema cutover to first retrain. Reversible: raw .ndjson.gz files retained, can replay later if decision changes.
 - **Phases (V2_MASTER_SPEC §6):**
-  - [~] Phase 1: Design lock (V2_MASTER_SPEC — in progress, L1 not yet locked)
-  - [ ] Phase 2: TFA feature additions (~1-2 days code)
-  - [ ] Phase 3: Target additions (~1 day code)
-  - [ ] Phase 4: Auto-record accumulation (~30 days passive)
-  - [ ] Phase 5: Retrain all 4 with combined targets (~hours of compute)
-  - [ ] Phase 6: Trend gate + smoke (~1 day code)
-  - [ ] Phase 7: Paper trade ramp
+  - [x] Phase 1: Design lock (V2_MASTER_SPEC LOCKED 2026-05-17 — all 8 layers)
+  - [ ] Phase 2: TFA feature additions (~1-2 days code) ← **NEXT UP**
+  - [ ] Phase 3: Target additions (12 trend + 12 swing = 24 new targets, ~1.5 days code)
+  - [ ] Phase 4: Auto-record accumulation (≥30 sessions, ~30 days passive)
+  - [ ] Phase 5: Retrain all 4 with combined targets (84 heads each, ~5 hrs compute)
+  - [ ] Phase 6: Trend gate + swing gate + 3-way combinator + smoke (~3-4 days code)
+  - [ ] Phase 7: Paper trade ramp (ai-paper channel, weeks)
 - **Empirical evidence the current model is scalp-only:** 9/9 nifty50 signals on 2026-04-30 / 2026-05-11 were 5-7 pt captures at day-extreme reversals; 85-pt sustained 10:50-11:20 uptrend on 2026-05-11 produced ZERO signals.
 
 ## P2 — parked features (small enough to wait)
@@ -172,15 +171,15 @@ Promote L4 gate cost-floor from "TP must clear costs" (Option B, ships with v2 p
 - **Why upgrade:** Option B blocks high-probability low-magnitude trades that have positive expectancy. Option D captures the real economics — allows trades like "78% win probability × 18 pts TP − 22% × 14 pts SL = +11 pts expected" which B would reject for TP < cost-floor.
 - **Spec change when ready:** V2_MASTER_SPEC §2.4 — replace the cost-floor hard veto with the EV formula. Update D17 in §9 to mark RESOLVED.
 
-### T7 — Swing trade capability (1–3 day hold)
-Add support for swing trades held 1–3 days on the 4 traded instruments (nifty50, banknifty, crudeoil, naturalgas). Deferred until v2 intraday is paper-trading-proven (after T3 completes).
+### T7 — Multi-day swing trade capability (1–3 day overnight hold)
+Add support for swing trades held 1–3 days (overnight) on the 4 traded instruments. **Scope narrowed 2026-05-17:** intra-session swing (30 min – 2 hr hold, square-off before close) is now part of v2 (D55). This task covers only the multi-day overnight case.
 
 - **Status:** Deferred. Add to design backlog only.
 - **Blocked by:** T3 (v2 intraday paper trade ramp). Reason: extending v2 with daily-bar targets/features now would dilute focus on the noise-floor/multi-TF label fix that's the actual critical path.
-- **Why it's hard:** different time horizon (6–72 hours vs 5–25 min), different features (daily OHLCV bars, FII/DII flows, sector rotation), different risk profile (overnight gap, higher margin, MCX physical settlement), different brokerage structure (delivery rates, STT-on-physical).
+- **Why it's hard:** different time horizon (1–3 days vs intra-session), different features (daily OHLCV bars, FII/DII flows, sector rotation), different risk profile (overnight gap, higher margin, MCX physical settlement), different brokerage structure (delivery rates, STT-on-physical).
 - **Approach when ready (Option B from 2026-05-16 brainstorm):** parallel pipeline — separate daily-bar TFA-equivalent, separate models, separate SEA loop, separate channel in BSA. Do NOT bolt 1d/2d/3d targets onto intraday v2.
-- **Data required:** 6–12 months of daily OHLCV bars per instrument (different acquisition path than your tick recorder — NSE/MCX provide free daily history).
-- **First doc to write when unblocked:** `docs/SWING_TRADE_SPEC.md`.
+- **Data required:** 6–12 months of daily OHLCV bars per instrument (different acquisition path than the tick recorder — NSE/MCX provide free daily history).
+- **First doc to write when unblocked:** `docs/SWING_OVERNIGHT_SPEC.md`.
 
 ## INFRA — passive, no action needed
 
