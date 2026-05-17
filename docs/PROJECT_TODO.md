@@ -83,6 +83,52 @@ Show events_done / events_total_est / rate / ETA AND survive power cuts without 
   - Launcher reads progress.json and shows e.g. `crudeoil 05-13: 43% · ETA 6m` on the replay row.
 - **Out of scope:** pre-counting events (rejected — too slow), adding to Train/Backtest (Partha excluded).
 
+### T21 — Feature pruning via SHAP after first retrain + paper-trade data
+Reduce L1 feature count from 446 by dropping features that SHAP analysis shows are low-importance across all 84 heads. Pairs with T14 (which ADDS deferred features if SHAP shows need); T21 is the inverse — DROP features that prove unhelpful.
+
+- **Status:** Deferred (added 2026-05-17 from user question "do we need all these features?").
+- **Why deferred:** L1 D2 + Gap #24 Option D (LOCKED 2026-05-16) commits to "no pre-prune, no post-train re-train — single training pass on all 446 features, trust LightGBM regularization to ignore junk." External review (ChatGPT) explicitly agrees: "446 features are already sufficient... gains now come from calibration, execution, risk structure, regime adaptation. NOT more indicators." Pre-pruning is guessing without SHAP evidence; LightGBM `min_child_samples ≥ 50` + `lambda_l2 ≥ 1.0` already suppress junk features at near-zero cost.
+- **Trigger condition:** AFTER first v2 retrain (T3 Phase 5) produces per-head SHAP report (§5.4 SHAP-by-instrument table) AND ≥1 month of paper-trade results exist. Decision rule:
+  - Bottom 10% of features by aggregated abs(SHAP) across all 84 heads → drop candidate.
+  - Validate: re-train without those features, compare sim_pnl + per-head AUC. If degradation ≤ 1pp per head, ship the pruned set.
+  - Iterate one prune-cycle per Saturday retrain at most (avoid over-trimming on noisy SHAP).
+
+**Pre-identified candidates from 2026-05-17 reduction analysis (verify with SHAP, do NOT drop blindly):**
+
+| Candidate | Block | Features dropped | Risk of dropping |
+|---|---|---|---|
+| **A8 deep strikes** | Drop slots 4 + 5 of active strikes (keep top 4) | 48 features | MEDIUM — may miss attention-rotation patterns |
+| **A6 far OTM offsets** | Drop m3 + p3 strikes (keep m2/m1/0/p1/p2) | 36 features | MEDIUM — far-strike behavior signals tail-risk pricing |
+| **A14 metadata as training input** | Keep in parquet for routing, exclude from training features | 9 features | LOW — these are IDs, not predictive |
+| **Momentum/velocity redundancy** | Keep only one of `momentum` vs `velocity` | 1 feature | LOW — highly correlated |
+
+Max aggressive prune: 446 → 352 (~21% reduction). Realistic SHAP-validated prune: probably 446 → 380-400.
+
+- **Concrete savings if pruned:**
+  - Storage: ~12% smaller parquet rows
+  - Training compute: ~12% faster per LightGBM fit, ~2.4 hrs/Saturday saved at full 1,680-fit cycle
+  - Inference latency: negligible (already sub-ms per head)
+  - Maintenance: smaller surface for schema drift + simpler SHAP reports
+
+- **Why pruning re-opens L1:** every locked decision downstream (target alignment, schema_version, schema_registry/v<N>.json, sim_pnl baselines) currently assumes 446. Dropping features requires:
+  - New `LATEST_SCHEMA_VERSION` bump (e.g., v7 → v8)
+  - New `config/schema_registry/v8.json` written by emitter (per D66 additive-only policy — WAIT, this VIOLATES additive-only since we'd REMOVE features)
+  - Forces FULL retrain of all 84 heads (additive-only protects from this; remove-only requires it)
+  - Wave 2 legacy heads on v7 schema get quarantined automatically per D66
+
+- **Cross-references:**
+  - L1 D2 / Gap #24 Option D — the "no pre-prune" policy this would explicitly revisit
+  - T14 — the inverse task (add deferred features post-SHAP)
+  - D66 — additive-only schema policy; T21 is the documented exception
+  - §5.4 SHAP-by-instrument report — the evidence source
+
+- **Spec change when ready:**
+  - V2_MASTER_SPEC §2.1.1 — drop feature count
+  - V2_MASTER_SPEC §2.1.2 / §2.1.3 / §2.1.4 — mark dropped rows
+  - V2_MASTER_SPEC §2.1.5 — move dropped features to "explicitly skipped" with SHAP-driven rationale
+  - V2_MASTER_SPEC §9 — add D-entry noting which features dropped, the SHAP evidence
+  - L1 D2 status: amend from "LOCKED no-prune" to "PRUNED via T21 after SHAP evidence ..."
+
 ### T20 — Meta-ensemble model (replace rule-based 3-way combinator)
 Replace current rule-based combinator (longest horizon dominates / disagreement skips / agreement-window upgrade) with a learned meta-model.
 
