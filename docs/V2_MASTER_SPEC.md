@@ -158,7 +158,7 @@ Suggested deep-dive order: **4 → 5 → 7 → 6 → 8 → revisit 1–3.** Rati
 |---|---|
 | A. Live in parquet today | **377** |
 | B. v2-plan multi-TF + S/R additions | **23** (15 original ACCEPT + **8 B5 added 2026-05-17 per §9 D48**) |
-| C. Brainstorm additions | **52** candidates → **46 ACCEPT, 8 DEFER → T14** (L1 D2 reviewed 2026-05-16; +2 added 2026-05-17 per §9 D62 — 1-hour OI for swing) |
+| C. Brainstorm additions | **54** candidates → **46 ACCEPT, 8 DEFER → T14** (L1 D2 reviewed 2026-05-16; +2 added 2026-05-17 per §9 D62 — 1-hour OI for swing) |
 | **Active L1 feature count post-lock** | **446** (= 377 + 23 + 46) |
 | Realistic post-L1-lock + LightGBM regularization | ~446 (Gap #24 D = no manual prune; trust regularization) |
 
@@ -199,9 +199,9 @@ Source: `python_modules/tick_feature_agent/output/emitter.py` `_build_column_nam
 | B4 Multi-bar pattern | 3 | `consecutive_higher_highs_5min`, `consecutive_higher_lows_5min`, `range_compression_ratio` |
 | B5 Additional S/R levels (added 2026-05-17 per §9 D48) | 8 | `distance_to_prev_day_{high,low}_pct`, `distance_to_opening_range_{high,low}_pct`, `distance_to_round_number_{above,below}_pct`, `distance_to_5d_swing_{high,low}_pct` |
 
-#### 2.1.4 C — Brainstorm additions (48, candidates)
+#### 2.1.4 C — Brainstorm additions (54, candidates)
 
-All tagged ACCEPT / DEFER per L1 D2 review 2026-05-16. 44 accept, 8 defer (→ PROJECT_TODO T14).
+All tagged ACCEPT / DEFER per L1 D2 review 2026-05-16 + D62 swing additions 2026-05-17. 46 accept, 8 defer (→ PROJECT_TODO T14).
 
 | Group | Cnt | Status | Accepted features | Deferred features |
 |---|---|---|---|---|
@@ -218,7 +218,7 @@ All tagged ACCEPT / DEFER per L1 D2 review 2026-05-16. 44 accept, 8 defer (→ P
 | C11 Event calendar | 3 | **3 ACCEPT** | all 3: `is_tier_2_event_day`, `event_type_categorical`, `hours_to_next_tier_1_or_2_event` (locked Sugg #12) | — |
 | C12 Expiry-bucket | 1 | **1 ACCEPT** | `days_to_expiry_bucket` (locked L4 D5) | — |
 
-**C subtotal: 52 total, 44 ACCEPT, 8 DEFER → T14**
+**C subtotal: 54 total, 46 ACCEPT, 8 DEFER → T14**
 
 #### 2.1.5 D — Explicitly skipped (do not implement)
 
@@ -253,7 +253,7 @@ All tagged ACCEPT / DEFER per L1 D2 review 2026-05-16. 44 accept, 8 defer (→ P
 #### 2.1.7 Decisions still required for L1 lock
 
 1. Noise-floor per instrument: **LOCKED 2026-05-16** — nifty50=8, banknifty=25, crudeoil=5, naturalgas=3 (all in §7).
-2. Accept / defer / reject each of 52 brainstorm candidates: **LOCKED 2026-05-16** — 44 ACCEPT, 8 DEFER → PROJECT_TODO T14. See §2.1.4.
+2. Accept / defer / reject each of 54 brainstorm candidates: **LOCKED 2026-05-16, EXTENDED 2026-05-17 per D62** — 46 ACCEPT, 8 DEFER → PROJECT_TODO T14. See §2.1.4.
 3. Confirm B-block 23 features (15 original + 8 B5 added 2026-05-17): **LOCKED 2026-05-17.**
 4. **Scaling convention (LOCKED 2026-05-16 — L1 D4 Option F):** LightGBM is tree-based; no global normalization helps. Apply targeted transforms only where they help split quality:
    - **Price-based** (MAs, VWAP dist, day_high/low dist, distance_to_max_pain_pct): `(spot − feature) / spot × 100` (percent)
@@ -265,7 +265,7 @@ All tagged ACCEPT / DEFER per L1 D2 review 2026-05-16. 44 accept, 8 defer (→ P
 
    Cost: trivial (one `log1p` call per affected feature; one training-time param for categoricals).
 5. ~~Replay backfill: re-replay all 10 sessions to populate new columns~~ → **RESOLVED §3.1 (Option A: ignore old parquets, accumulate fresh)**
-6. **Feature-importance pruning policy (LOCKED 2026-05-16 — Gap #24 Option D):** **NO pre-prune, NO post-train re-train.** Single training pass on all 443 features. Trust LightGBM regularization (`max_depth`, `min_child_samples`, `lambda_l1`, `lambda_l2`) to ignore junk features. Rationale: clean slate (no old models to derive pre-prune scores from); two-stage approach (A) would double compute cost for marginal gain. Risk accepted: at 443 features × ~30 sessions of data, regularization is the only defense against overfit — must tune LightGBM hyperparameters aggressively (`min_child_samples ≥ 50`, `lambda_l2 ≥ 1.0`). Post-paper-trade if model overfits, revisit per D34.
+6. **Feature-importance pruning policy (LOCKED 2026-05-16 — Gap #24 Option D):** **NO pre-prune, NO post-train re-train.** Single training pass on all 446 features. Trust LightGBM regularization (`max_depth`, `min_child_samples`, `lambda_l1`, `lambda_l2`) to ignore junk features. Rationale: clean slate (no old models to derive pre-prune scores from); two-stage approach (A) would double compute cost for marginal gain. Risk accepted: at 446 features × ~30 sessions of data, regularization is the only defense against overfit — must tune LightGBM hyperparameters aggressively (`min_child_samples ≥ 50`, `lambda_l2 ≥ 1.0`). Post-paper-trade if model overfits, revisit per D34.
 7. **Per-instrument config layout (LOCKED 2026-05-16 — L1 D5 Option B):** split by reading agent:
    - `config/instrument_profiles/<inst>_profile.json` — TFA reads (broker_id, security_ids, lot_size, exchange, target_windows_sec)
    - `config/sea_thresholds/<inst>.json` — SEA reads (θ_dir, dwell_time_ticks per gate, cost_floor_buffer_pct, slippage_pct_per_strike_distance, gate_mode, sl_safety_multiplier)
@@ -1282,7 +1282,7 @@ All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`
 | # | Decision | Resolves in |
 |---|---|---|
 | D1 | Banknifty / crudeoil / naturalgas noise floors | **RESOLVED 2026-05-17** — §7 locks all four (nifty50=8 / banknifty=25 / crude=5 / natgas=3) |
-| D2 | Accept/defer/reject each of 52 brainstorm L1 candidates | **RESOLVED 2026-05-16** — 44 ACCEPT, 8 DEFER → T14. See §2.1.4 |
+| D2 | Accept/defer/reject each of 52 brainstorm L1 candidates | **RESOLVED 2026-05-16** — 44 ACCEPT, 8 DEFER → T14. See §2.1.4. **Extended by D62 (2026-05-17)** which added 2 more to C1 → current totals 54 / 46 / 8 |
 | D3 | Drop 600s (10-min) trend target? | **RESOLVED 2026-05-16 L1 D6 Option B** — DROPPED. Keep {900s, 1800s} only. See §2.1.7 item 8 |
 | D4 | θ_dir threshold per instrument | **RESOLVED 2026-05-16 L4 D1 Option D** — swept per retrain from {0.55..0.80}. See §2.4 |
 | D5 | Dwell-time requirement for signal | **RESOLVED 2026-05-16 L4 D2** — scalp 3 ticks / trend 5 ticks. See §2.4 |
