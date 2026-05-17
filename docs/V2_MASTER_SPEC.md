@@ -595,10 +595,19 @@ Stored in `config/sea_thresholds/<instrument>.json` alongside θ_dir. Confidence
 Logic per tick:
 ```
 trend_prob_long = predictions["trend_direction_900s"]
-if trend_prob_long >= θ_bias_bullish:    # default 0.65
+trend_magnitude = abs(predictions["trend_magnitude_900s"])   # signed → use abs
+
+# REQUIRE BOTH directional confidence AND magnitude above noise floor.
+# Without the magnitude guard, bias would fire on high-confidence trivial
+# predictions (e.g. 0.70 prob but only +3pt expected move within noise) —
+# vetoing legitimate counter-direction scalp setups on a meaningless trend.
+if trend_magnitude < noise_floor[instrument]:
+    skip bias filter entirely (log reason: "bias_inactive_low_magnitude")
+
+elif trend_prob_long >= θ_bias_bullish:    # default 0.65
     block any SHORT signal from scalp regardless of scalp confidence
     (log reason: "trend_bias_veto_bullish")
-elif trend_prob_long <= θ_bias_bearish:  # default 0.35
+elif trend_prob_long <= θ_bias_bearish:    # default 0.35
     block any LONG signal from scalp regardless of scalp confidence
     (log reason: "trend_bias_veto_bearish")
 # else: neutral bias → no filtering, combinator runs as normal
@@ -611,7 +620,7 @@ elif trend_prob_long <= θ_bias_bearish:  # default 0.35
 **Sub-decisions (LOCKED 2026-05-17 by Partha — D50 resolved):**
 - a. `θ_bias_bullish = 0.65`, `θ_bias_bearish = 0.35` (symmetric around 0.5). Recalibrate per-instrument after first month of paper data — see D50 follow-up in §9.
 - b. **Asymmetric only** — trend bias vetoes scalp, scalp does NOT veto trend. Trend dominates by design.
-- c. Bias filter activated whenever `trend_direction_900s` is outside the neutral band — **no magnitude floor required**. The directional confidence threshold itself is the noise filter.
+- c. **REVISED 2026-05-17 Batch 3 Q3 Option A:** Bias filter requires BOTH `trend_direction_900s` outside neutral band AND `|trend_magnitude_900s| ≥ noise_floor[instrument]` (per §7). Without the magnitude guard, the bias would fire on high-confidence trivial predictions (e.g. 70% confident the move is +3pt — meaningless within noise) and veto legitimate scalp setups. Symmetric with the broader spec policy: noise floor in labels, in cost-floor veto, now in trend-bias activation.
 
 **Cost:** ~15 lines in SEA `decide_action_*` dispatch. No new model heads. No new features. Activates only when both scalp + trend gates exist (`gate_mode = wave2+trend`).
 
@@ -656,16 +665,32 @@ Rationale: accept that the signal isn't working for that (instrument, side) toda
 
 | Layer | OI window | Exit triggers (Long examples — symmetric for shorts) |
 |---|---|---|
-| Scalp / Trend | **5-min** OI patterns | Support unwind: `pe_oi_change_5min_pct ≤ −15%`; Resistance build: `ce_oi_change_5min_pct ≥ +20%`; Wall break: spot crosses S/R strike + wall strength drops ≥30% in 5 min |
-| **Swing** (ADDED 2026-05-17 per §9 D62) | **60-min** OI patterns | Support unwind: `pe_oi_change_60min_pct ≤ −20%` (looser threshold — bigger window absorbs noise); Resistance build: `ce_oi_change_60min_pct ≥ +25%`; Wall break unchanged (works same on any horizon) |
+| Scalp / Trend | **5-min** OI patterns | Support unwind: `pe_oi_change_5min_pct ≤ −15%`; Resistance build: `ce_oi_change_5min_pct ≥ +20%`; Wall break: spot crosses S/R strike + `wall_strength_5min_delta` ≤ −30% |
+| **Swing** (ADDED 2026-05-17 per §9 D62) | **60-min** OI patterns | Support unwind: `pe_oi_change_60min_pct ≤ −20%` (looser threshold — bigger window absorbs noise); Resistance build: `ce_oi_change_60min_pct ≥ +25%`; Wall break: spot crosses S/R strike + `wall_strength_60min_delta` ≤ −30% |
+
+**Wall-strength delta composition (LOCKED 2026-05-17 — Batch 3 Q2 Option B — inline rolling buffer):** L1 C1 emits the SNAPSHOT `{ce,pe}_wall_strength_rel` only. The "5-min delta" / "60-min delta" used by wall-break exits are composed inline in SEA per-position state, NOT as L1 features:
+
+- SEA maintains a rolling 60-min buffer (one sample per minute, ring of 60 floats per side per open position) of `{ce,pe}_wall_strength_rel` snapshots.
+- 5-min delta = `(now − sample_from_5_min_ago) / sample_from_5_min_ago`
+- 60-min delta = `(now − sample_from_60_min_ago) / sample_from_60_min_ago`
+- Buffer cost: ~12 bytes × 2 sides × 60 samples = 1.4 KB per open position. Trivial.
+
+Rolling buffer (over entry-comparison) chosen because the spec text specifies "in 5 min" / "in 60 min" — entry-comparison drifts as trades age (a 30-min-old trade's "entry to now" delta is no longer a 5-min measurement).
 
 - Composed with existing exit ladder (TP / SL / time / trail / partial) — first trigger wins
 - 1-hour OI features added to L1 C1 (`{ce,pe}_oi_change_60min_pct`) — see §2.1.4
 
-**Exhaustion-based exit triggers:**
-- Exit when `trend_age_ticks` ≥ N AND `momentum_deceleration` < threshold (trend tiring)
-- Exit when `premium_acceleration_drop` < threshold while position open
-- Exit on `volume_no_move_score` spike (absorption — likely reversal)
+**Exhaustion-based exit triggers (LOCKED 2026-05-17 — Batch 3 Q1 Option B — inline composition):** SEA tracks per-position state at entry (entry_momentum, entry_premium_velocity, etc.) and computes deltas inline at exit-check time. No new L1 features needed; uses existing A1/A2 momentum + A6 premium-momentum features.
+
+| Trigger | Inline computation | Composed from existing features |
+|---|---|---|
+| Trend tiring | `(now.trend_age_ticks ≥ N) AND ((entry.momentum − now.momentum) > momentum_decel_threshold)` | C5 `trend_age_ticks` (ACCEPT) + A1 `momentum` |
+| Premium losing pace | `(entry.premium_momentum − now.atm_premium_momentum) > premium_decel_threshold` | A6 `opt_0_{ce,pe}_premium_momentum` |
+| Volume absorption | `now.volume_no_move_score > absorption_threshold` (snapshot — no delta needed) | C5 `volume_no_move_score` (ACCEPT) |
+
+Per-position state added to SEA trade-tracker: `entry_momentum`, `entry_atm_ce_premium_momentum`, `entry_atm_pe_premium_momentum`. Captured at signal-fire tick; never updated. ~3 fields × 32 bytes ≈ 100 bytes per open position.
+
+**Why inline composition (B) over un-deferring features (A):** the DEFER rationale was "LightGBM composes from existing features." That applies to model inputs (true — trees split on differences naturally). For RULE-BASED exit triggers, we manually compose the same way — same outcome, no L1 churn (L1 stays at 446 features).
 
 **Regime-flip protection (LOCKED 2026-05-16 — Gap #8 Option C):** When L8 regime flips AWAY from the entry regime AND new regime has sustained ≥3 min (debounce against L8 noise), do NOT force exit. Instead:
 - Move SL to entry price (lock break-even on the trade)
@@ -1300,6 +1325,7 @@ All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`
 | D60 | Swing entry-cutoff times (currently 13:30 NSE / 21:30 MCX) | Validate: do swing entries fired right before cutoff actually time-out? If <10% time-out rate, extend cutoff by 30 min. If >30%, tighten by 30 min |
 | D61 | Agreement-window upgrade validation (L4 D7, locked 2026-05-17 §2.4) | Track per instrument: (a) fraction of scalp fires that get upgraded within 6-tick window, (b) per-upgraded-trade P&L vs would-have-been-scalp P&L. If upgrade trades regularly lose MORE than scalp would have captured (e.g. -10pt vs +3pt scalp), raise conviction floor for upgrade activation (e.g. require trend_direction_900s ≥ 0.75 not 0.65). Validate after 2 weeks of paper data |
 | D62 | 1-hour OI exit thresholds for swing (locked 2026-05-17 §2.5 + L1 C1 expanded) | RE-OPENED L1 to add `{ce,pe}_oi_change_60min_pct` (2 new features → C1 grows 10 → 12, L1 total 444 → 446). Swing OI exit thresholds locked at −20% / +25% (looser than trend's 5-min −15% / +20% — bigger window absorbs more noise). Recalibrate after first month of swing paper-trade data: too many swing exits on 60-min OI noise → tighten thresholds; too few → loosen |
+| D63 | Audit Batch 3 fixes (2026-05-17) | **RESOLVED 2026-05-17 by Partha.** I7 (exhaustion exit triggers reference DEFERRED features) → fixed Option B inline composition in SEA per-position state (§2.5 Exhaustion table). I8 (wall_strength delta not defined) → fixed Option B inline 60-min rolling buffer in SEA per-position state (§2.5 OI exits table). I14 (trend bias filter no magnitude floor) → fixed Option A — magnitude guard `|trend_magnitude_900s| ≥ noise_floor[instrument]` now required for bias activation (§2.4). All three fixes preserve L1 at 446 features (no further L1 re-open today) |
 | D48 | B5 Additional S/R features (added 2026-05-17) | **RESOLVED 2026-05-17 by Partha — L1 RE-LOCKED.** 8 features added (prior-day H/L, opening range H/L, round number above/below, 5-day swing H/L). §2.1.7 item 9 sub-decisions all locked. Expected: +3-5pp AUC on long-horizon targets |
 | D49 | Trend bias filter (added 2026-05-17 §2.4) | **RESOLVED 2026-05-17 by Partha.** Asymmetric pre-combinator filter added to §2.4. D50 sub-decisions resolved with defaults. Expected: 2-3pp win-rate boost on filtered trades |
 | D50 | Trend bias filter sub-decisions (sub of D49) | **RESOLVED 2026-05-17 by Partha.** `θ_bias_bullish=0.65`, `θ_bias_bearish=0.35`, asymmetric (trend vetoes scalp only), no magnitude floor on activation. **Follow-up:** validate thresholds after first month of paper trade; if too restrictive raise to 0.70/0.30, if too permissive narrow to 0.60/0.40 |
