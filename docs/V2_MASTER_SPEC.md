@@ -134,7 +134,7 @@ The Wave 2 model (targets at 60–300s, magnitude ~5–9 INR) is verified to be 
 
 | # | Layer | Status | Source section |
 |---|---|---|---|
-| 1 | Input features | **LOCKED 2026-05-16 by Partha** (all 8 §2.1.7 decisions resolved; 436 active features locked) | §2.1 |
+| 1 | Input features | **RE-OPENED 2026-05-17 by Partha** — adding 8 S/R features (B5 block) per §9 D48; re-lock after §2.1.7 B5 sub-decisions resolved | §2.1 |
 | 2 | Target labels | **LOCKED 2026-05-16 by Partha** (12 trend targets locked; 600s dropped per L1 D6) | §2.2 |
 | 3 | Model architecture | **LOCKED 2026-05-16 by Partha** (all 4 L3 decisions resolved: booster topology, hyperparameters, early stopping, per-instrument training) | §2.3 |
 | 4 | Gate logic | **LOCKED 2026-05-16 by Partha** (6 decisions resolved; L1+L2 now locked, dependency satisfied) | §2.4 |
@@ -156,10 +156,10 @@ Suggested deep-dive order: **4 → 5 → 7 → 6 → 8 → revisit 1–3.** Rati
 | Bucket | Count |
 |---|---|
 | A. Live in parquet today | **377** |
-| B. v2-plan multi-TF additions | **15** (all ACCEPT pending L1 D3) |
+| B. v2-plan multi-TF + S/R additions | **23** (15 original ACCEPT + **8 B5 added 2026-05-17 per §9 D48**) |
 | C. Brainstorm additions | **52** candidates → **44 ACCEPT, 8 DEFER → T14** (L1 D2 reviewed 2026-05-16) |
-| **Active L1 feature count post-lock** | **436** (= 377 + 15 + 44) |
-| Realistic post-L1-lock + LightGBM regularization | ~436 (Gap #24 D = no manual prune; trust regularization) |
+| **Active L1 feature count post-lock** | **444** (= 377 + 23 + 44) |
+| Realistic post-L1-lock + LightGBM regularization | ~444 (Gap #24 D = no manual prune; trust regularization) |
 
 #### 2.1.2 A — Live in parquet today (377 input features)
 
@@ -196,6 +196,7 @@ Source: `python_modules/tick_feature_agent/output/emitter.py` `_build_column_nam
 | B2 Trend strength | 3 | `adx_5min` (14-period ADX on 5-min candles), `momentum_5min` (close_now / close_5min_ago), `momentum_15min` |
 | B3 Higher-timeframe structure | 4 | `dist_from_session_open_pct`, `dist_from_session_vwap_pct`, `session_high_age_min`, `session_low_age_min` |
 | B4 Multi-bar pattern | 3 | `consecutive_higher_highs_5min`, `consecutive_higher_lows_5min`, `range_compression_ratio` |
+| B5 Additional S/R levels (added 2026-05-17 per §9 D48) | 8 | `distance_to_prev_day_{high,low}_pct`, `distance_to_opening_range_{high,low}_pct`, `distance_to_round_number_{above,below}_pct`, `distance_to_5d_swing_{high,low}_pct` |
 
 #### 2.1.4 C — Brainstorm additions (48, candidates)
 
@@ -272,6 +273,12 @@ All tagged ACCEPT / DEFER per L1 D2 review 2026-05-16. 44 accept, 8 defer (→ P
 
    Rationale: each config file owned by exactly one agent. No cross-agent ownership = no drift, easy per-agent audit.
 8. **600s (10-min) trend target (LOCKED 2026-05-16 — L1 D6 Option B):** DROPPED. Keep only `{900s, 1800s}` for trend horizons. Rationale: 600s sits between 300s scalp and 900s trend with no distinct trade profile; LightGBM can interpolate from neighbors. Saves 33% trend-retrain compute (12 trend heads instead of 18).
+
+9. **B5 sub-decisions (OPEN — added 2026-05-17 per §9 D48-D50; needed before L1 re-lock):**
+   a. **Opening range window length** — first **N minutes** of session defines the OR high/low. Options: N=15 (NSE-traditional), N=30 (more stable). One value applies across all instruments OR per-instrument tuning.
+   b. **Round number step per instrument** — nifty50: every {50 or 100 pts}, banknifty: every {100 or 200 pts}, crudeoil: every {5 or 10 INR}, naturalgas: every {0.5 or 1 INR}. `distance_to_round_number_{above,below}_pct` computed from the chosen step.
+   c. **5-day swing lookback definition** — "swing" = simple max/min of 5 prior session highs/lows? OR pivot-based (local extrema with N-bar confirmation)? Simple max/min is faster + deterministic; pivot-based is what humans see on charts. Start with simple max/min; revisit if model under-uses.
+   d. **State storage** — opening range + 5-day swing require state TFA didn't keep before. Add to session buffer (already extended in §2.1.8 cost row). Restart-safety: opening range can be recomputed from raw ticks; 5-day swing needs prior-session state — store in `data/state/<inst>_levels.json` updated at session close.
 
 #### 2.1.8 Compute / latency / storage cost
 
@@ -527,6 +534,31 @@ Rationale: model's predicted drawdown often under-estimates worst adverse move. 
 Stored in `config/sea_thresholds/<instrument>.json` alongside θ_dir. Confidence-tiered tuning (Option D) deferred until probability calibration validated post-first-retrain.
 
 **All L4 open items resolved + L1+L2 LOCKED 2026-05-16 by Partha → §2.4 now fully LOCKED.**
+
+**Trend bias filter (ADDED 2026-05-17 per §9 D49 — OPEN sub-decisions):** asymmetric pre-combinator filter giving the trend layer veto power over scalp signals (not vice-versa). Runs BEFORE the ensemble combinator (L4 D3).
+
+Logic per tick:
+```
+trend_prob_long = predictions["trend_direction_900s"]
+if trend_prob_long >= θ_bias_bullish:    # default 0.65
+    block any SHORT signal from scalp regardless of scalp confidence
+    (log reason: "trend_bias_veto_bullish")
+elif trend_prob_long <= θ_bias_bearish:  # default 0.35
+    block any LONG signal from scalp regardless of scalp confidence
+    (log reason: "trend_bias_veto_bearish")
+# else: neutral bias → no filtering, combinator runs as normal
+```
+
+**What this catches:** the case where the trend model is directionally confident but its own gate doesn't fire (e.g., magnitude below threshold, or dwell-time not satisfied) — the bias still vetoes counter-direction scalp signals. Asymmetric because trend has wider information horizon than scalp (15-min vs 60s).
+
+**Asymmetry rationale:** scalp setups are reversal-at-extreme plays (e.g., bounces off day-low). They WORK against the prevailing direction by design when at extremes. But "scalp says LONG_CE while trend is bearish at 0.20" is a low-quality setup — the bounce is likely a dead-cat. Trend bias kills these.
+
+**Open sub-decisions (D50):**
+- a. `θ_bias_bullish` / `θ_bias_bearish` defaults — proposed 0.65 / 0.35 (symmetric around 0.5); per-instrument tune post-paper-trade.
+- b. Should bias filter ALSO veto trend gate signals against opposite scalp bias (symmetric)? Currently NO — trend dominates by design. Revisit if losing trades cluster on "scalp would have warned" patterns.
+- c. Bias filter activation condition — only `trend_direction_900s` (current proposal), or also require `trend_magnitude_900s ≥ noise_floor × 0.5` to avoid filtering on noise predictions?
+
+**Cost:** ~15 lines in SEA `decide_action_*` dispatch. No new model heads. No new features. Activates only when both scalp + trend gates exist (`gate_mode = wave2+trend`).
 
 ---
 
@@ -1161,6 +1193,11 @@ All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`
 | D47 | Per-instrument L8 threshold override + learned regime classifier | If paper data shows (a) one instrument's ADX baseline systematically differs from default 25/15 thresholds, OR (b) §5.1 trade-quality report shows ≥20% of losers exit on regime-mis-tagged conditions over 4 weeks → add per-instrument thresholds AND/OR train learned LightGBM regime head. See T17 |
 | D36 | Doc role separation: V2_MASTER_SPEC vs PROJECT_TODO | **RESOLVED 2026-05-16 — Non-issue. V2_MASTER_SPEC is active design+dev plan (§2.0 layer status). PROJECT_TODO is parking lot for deferred tasks (T-list). Distinct purposes by design — no mirroring needed. During v2 design work, anything decided to be done later → add to PROJECT_TODO as new T-entry** |
 | D34 | Revisit single-pass pruning (Gap #24 D) if overfit observed | If first model's training AUC ≫ holdout AUC (e.g., gap > 0.10), pivot to Option A (post-train prune + retrain) and tighten regularization further |
+| D48 | B5 Additional S/R features (added 2026-05-17) | RE-OPENED L1 to add 8 features: prior-day H/L, opening range H/L, round number above/below, 5-day swing H/L. Re-lock L1 after §2.1.7 item 9 (B5 sub-decisions) is resolved. Source: 2026-05-16 brainstorm verified S/R Tier 1+2 coverage gap. Expected: +3-5pp AUC on long-horizon targets |
+| D49 | Trend bias filter (added 2026-05-17 §2.4) | Asymmetric pre-combinator filter — trend bias vetoes counter-direction scalp signals when `trend_direction_900s` is outside neutral band. Catches "scalp says LONG while trend strongly bearish but its own gate didn't fire" cases. Expected: 2-3pp win-rate boost on filtered trades, small total-signal reduction. Resolve D50 sub-decisions then mark RESOLVED |
+| D50 | Trend bias filter sub-decisions (sub of D49) | Defaults proposed: `θ_bias_bullish=0.65`, `θ_bias_bearish=0.35`, symmetric NO (trend dominates), no magnitude floor on bias condition. Validate after first month of paper trade — if too restrictive, raise bands to 0.70 / 0.30; if too permissive, narrow to 0.60 / 0.40 |
+| D51 | Opening range window length (B5 sub-decision) | First N minutes of session defines OR high/low used in `distance_to_opening_range_{high,low}_pct`. Proposed N=15 (NSE-traditional). Decide one global value vs per-instrument. Resolve before B5 ships to TFA code |
+| D52 | Round number step per instrument (B5 sub-decision) | nifty50: 50 or 100 pts; banknifty: 100 or 200; crudeoil: 5 or 10 INR; naturalgas: 0.5 or 1 INR. Affects `distance_to_round_number_{above,below}_pct` granularity. Resolve before B5 ships |
 
 ---
 
