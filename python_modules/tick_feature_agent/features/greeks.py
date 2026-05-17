@@ -54,7 +54,7 @@ def _norm_pdf(x: float) -> float:
 # ── Black-Scholes greeks ──────────────────────────────────────────────────
 
 
-def _bs_greeks(
+def bs_greeks(
     spot: float,
     strike: float,
     sigma: float,
@@ -66,6 +66,8 @@ def _bs_greeks(
     Return (delta, gamma, theta_per_day, vega_per_1pct).
 
     All inputs assumed pre-validated as finite, positive (where required).
+    Public so feature modules that aggregate Greeks across the chain
+    (e.g. dealer_hedging) can reuse the same Black-Scholes core.
     """
     sqrt_t = math.sqrt(t_years)
     sigma_sqrt_t = sigma * sqrt_t
@@ -194,7 +196,7 @@ def compute_greek_features(
     # CE greeks
     if ce_iv_pct is not None:
         sigma_ce = ce_iv_pct / 100.0
-        delta, gamma, theta_d, vega = _bs_greeks(
+        delta, gamma, theta_d, vega = bs_greeks(
             spot_v, strike_v, sigma_ce, t_years, risk_free_rate, is_call=True,
         )
         out["atm_ce_delta"] = delta
@@ -207,7 +209,7 @@ def compute_greek_features(
     # PE greeks (delta + theta differ; gamma + vega already published)
     if pe_iv_pct is not None:
         sigma_pe = pe_iv_pct / 100.0
-        delta, _gamma, theta_d, _vega = _bs_greeks(
+        delta, _gamma, theta_d, _vega = bs_greeks(
             spot_v, strike_v, sigma_pe, t_years, risk_free_rate, is_call=False,
         )
         out["atm_pe_delta"] = delta

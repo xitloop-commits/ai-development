@@ -6,12 +6,19 @@ session bounds, and an is_monthly flag from the caller. Emits 5 features
 that let the model learn theta-acceleration, gamma explosion, and IV crush
 patterns near expiry.
 
-Features (5 outputs):
+Features (6 outputs):
     days_to_expiry          (expiry_ts - now_ts) / 86400; can be fractional
     hours_to_expiry         (expiry_ts - now_ts) / 3600; granular near expiry
     is_expiry_day           1 if today is the expiry date, else 0
     is_monthly_expiry       1 = monthly, 0 = weekly, NaN if caller didn't classify
     session_remaining_pct   today's session: 0 at close, 1 at open. NaN if bounds missing
+    days_to_expiry_bucket   Categorical bucket ∈ {0, 1, 2, 3}, capped at 3.
+                            Floor of days_to_expiry; "3" = "3-or-more days out".
+                            Lets LightGBM learn discrete regime behaviour that
+                            doesn't interpolate cleanly (0-DTE gamma cliff vs
+                            1-DTE overnight risk vs 2-DTE mid-week calm vs 3+).
+                            NaN before expiry data is available; also NaN once
+                            days_to_expiry has gone negative (post-expiry).
 
 Why these:
     - Theta is non-linear in DTE — at 1 DTE it's 5–10× stronger than at 5 DTE
@@ -73,6 +80,7 @@ def compute_expiry_features(
         "is_expiry_day": _NAN,
         "is_monthly_expiry": _NAN,
         "session_remaining_pct": _NAN,
+        "days_to_expiry_bucket": _NAN,
     }
 
     now_v = _safe_ts(now_ts)
@@ -80,12 +88,17 @@ def compute_expiry_features(
 
     if now_v is not None and expiry_v is not None:
         delta_sec = expiry_v - now_v
-        out["days_to_expiry"] = delta_sec / _SECONDS_PER_DAY
+        dte = delta_sec / _SECONDS_PER_DAY
+        out["days_to_expiry"] = dte
         out["hours_to_expiry"] = delta_sec / _SECONDS_PER_HOUR
         # is_expiry_day: same calendar day in IST (caller's session window
         # already implies the IST calendar; we approximate via |delta| < 1 day
         # which is correct because expiry_ts is session-close on expiry date).
         out["is_expiry_day"] = 1.0 if 0.0 <= delta_sec <= _SECONDS_PER_DAY else 0.0
+        # DTE bucket: floor + cap at 3. Only emit for non-negative DTE
+        # (post-expiry the bucket has no meaningful interpretation).
+        if dte >= 0.0:
+            out["days_to_expiry_bucket"] = float(min(3, int(dte)))
 
     if is_monthly is not None:
         out["is_monthly_expiry"] = 1.0 if is_monthly else 0.0

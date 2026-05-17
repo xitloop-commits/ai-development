@@ -6,7 +6,10 @@ import math
 
 import pytest
 
-from tick_feature_agent.features.levels import compute_level_features
+from tick_feature_agent.features.levels import (
+    compute_level_features,
+    compute_max_pain_features,
+)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -165,3 +168,120 @@ def test_chain_row_without_strike_is_skipped():
     ]
     out = compute_level_features(100, 110, 90, 95, chain_rows=rows)
     assert out["max_call_oi_strike"] == 100.0
+
+
+# ── Max-pain features (C10) ───────────────────────────────────────────────
+
+
+def test_max_pain_v_shaped_oi_gives_vertex():
+    """V-shaped chain where call OI rises above and put OI rises below
+    a central strike → max pain == that strike (the V's vertex)."""
+    rows = [
+        {"strike": k, "callOI": max(0, k - 23000) * 10, "putOI": max(0, 25000 - k) * 10}
+        for k in range(23000, 25001, 100)
+    ]
+    out = compute_max_pain_features(spot=24000, chain_rows=rows)
+    assert out["max_pain_strike"] == 24000.0
+    assert out["distance_to_max_pain_pct"] == pytest.approx(0.0, abs=1e-9)
+    assert 0.0 < out["max_pain_gravity_strength"] <= 1.0
+
+
+def test_max_pain_strike_distance_signed_positive_when_spot_above():
+    rows = [
+        {"strike": k, "callOI": max(0, k - 23000) * 10, "putOI": max(0, 25000 - k) * 10}
+        for k in range(23000, 25001, 100)
+    ]
+    out = compute_max_pain_features(spot=24500, chain_rows=rows)
+    assert out["max_pain_strike"] == 24000.0
+    assert out["distance_to_max_pain_pct"] > 0
+
+
+def test_max_pain_strike_distance_signed_negative_when_spot_below():
+    rows = [
+        {"strike": k, "callOI": max(0, k - 23000) * 10, "putOI": max(0, 25000 - k) * 10}
+        for k in range(23000, 25001, 100)
+    ]
+    out = compute_max_pain_features(spot=23500, chain_rows=rows)
+    assert out["max_pain_strike"] == 24000.0
+    assert out["distance_to_max_pain_pct"] < 0
+
+
+def test_max_pain_call_heavy_chain_pulls_low():
+    """All OI is on a tower of calls — max pain sits at the lowest strike
+    (settling there pays out zero to call holders)."""
+    rows = [{"strike": k, "callOI": 5000, "putOI": 0} for k in range(23000, 25001, 100)]
+    out = compute_max_pain_features(spot=24000, chain_rows=rows)
+    assert out["max_pain_strike"] == 23000.0
+
+
+def test_max_pain_put_heavy_chain_pulls_high():
+    rows = [{"strike": k, "callOI": 0, "putOI": 5000} for k in range(23000, 25001, 100)]
+    out = compute_max_pain_features(spot=24000, chain_rows=rows)
+    assert out["max_pain_strike"] == 25000.0
+
+
+def test_max_pain_gravity_high_when_oi_concentrated():
+    """OI piled at one strike → gravity_strength close to 1."""
+    rows = []
+    for k in range(23000, 25001, 100):
+        if k == 24000:
+            rows.append({"strike": k, "callOI": 100_000, "putOI": 100_000})
+        else:
+            rows.append({"strike": k, "callOI": 100, "putOI": 100})
+    out = compute_max_pain_features(spot=24000, chain_rows=rows)
+    assert out["max_pain_strike"] == 24000.0
+    # 200k of ~204k total OI sits at the max-pain strike (within ±2% band).
+    assert out["max_pain_gravity_strength"] > 0.95
+
+
+def test_max_pain_gravity_low_when_oi_spread():
+    """Equal OI across many strikes → gravity_strength is the band's share
+    of total strikes (low for a wide chain)."""
+    rows = [{"strike": k, "callOI": 1000, "putOI": 1000} for k in range(20000, 28001, 100)]
+    out = compute_max_pain_features(spot=24000, chain_rows=rows)
+    # ±2% of 24000 = ±480 → strikes 23600..24400 = 9 of 81 strikes ≈ 0.11
+    assert math.isfinite(out["max_pain_gravity_strength"])
+    assert out["max_pain_gravity_strength"] < 0.20
+
+
+def test_max_pain_empty_chain_yields_nan():
+    out = compute_max_pain_features(spot=24000, chain_rows=[])
+    assert math.isnan(out["max_pain_strike"])
+    assert math.isnan(out["distance_to_max_pain_pct"])
+    assert math.isnan(out["max_pain_gravity_strength"])
+
+
+def test_max_pain_none_chain_yields_nan():
+    out = compute_max_pain_features(spot=24000, chain_rows=None)
+    assert math.isnan(out["max_pain_strike"])
+
+
+def test_max_pain_strike_returned_even_when_spot_missing():
+    """Max-pain strike is purely chain-derived; spot only affects the
+    distance + gravity features."""
+    rows = [
+        {"strike": k, "callOI": max(0, k - 23000) * 10, "putOI": max(0, 25000 - k) * 10}
+        for k in range(23000, 25001, 100)
+    ]
+    out = compute_max_pain_features(spot=None, chain_rows=rows)
+    assert out["max_pain_strike"] == 24000.0
+    assert math.isnan(out["distance_to_max_pain_pct"])
+    assert math.isnan(out["max_pain_gravity_strength"])
+
+
+def test_max_pain_all_zero_oi_yields_nan():
+    rows = [{"strike": k, "callOI": 0, "putOI": 0} for k in range(23000, 25001, 100)]
+    out = compute_max_pain_features(spot=24000, chain_rows=rows)
+    assert math.isnan(out["max_pain_strike"])
+
+
+def test_max_pain_malformed_rows_skipped():
+    rows = [
+        {"strike": 23500, "callOI": "junk", "putOI": 5000},  # bad callOI
+        {"strike": 24000, "callOI": 5000, "putOI": 5000},
+        {"strike": 24500, "callOI": 5000, "putOI": 5000},
+        {"callOI": 9999},  # no strike — skip
+    ]
+    out = compute_max_pain_features(spot=24000, chain_rows=rows)
+    # Function should not crash; returns a finite max-pain from the 2 valid rows.
+    assert math.isfinite(out["max_pain_strike"])

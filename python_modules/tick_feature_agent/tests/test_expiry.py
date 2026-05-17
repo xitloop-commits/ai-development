@@ -163,3 +163,53 @@ def test_invalid_session_bounds_yields_session_nan():
         session_open_ts=1_000_000, session_end_ts=1_000_000,  # same → invalid
     )
     assert math.isnan(out["session_remaining_pct"])
+
+
+# ── days_to_expiry_bucket (C12) ───────────────────────────────────────────
+
+
+def test_dte_bucket_zero_when_under_24h():
+    now = 1_000_000.0
+    expiry = now + 6 * 3600
+    out = compute_expiry_features(now_ts=now, expiry_ts=expiry)
+    assert out["days_to_expiry_bucket"] == 0.0
+
+
+def test_dte_bucket_one_at_1_to_2_days():
+    now = 1_000_000.0
+    expiry = now + 1.5 * 86400
+    out = compute_expiry_features(now_ts=now, expiry_ts=expiry)
+    assert out["days_to_expiry_bucket"] == 1.0
+
+
+def test_dte_bucket_two_at_2_to_3_days():
+    now = 1_000_000.0
+    expiry = now + 2.7 * 86400
+    out = compute_expiry_features(now_ts=now, expiry_ts=expiry)
+    assert out["days_to_expiry_bucket"] == 2.0
+
+
+def test_dte_bucket_caps_at_three():
+    now = 1_000_000.0
+    expiry = now + 10 * 86400
+    out = compute_expiry_features(now_ts=now, expiry_ts=expiry)
+    assert out["days_to_expiry_bucket"] == 3.0
+
+
+def test_dte_bucket_three_at_exactly_three_days():
+    now = 1_000_000.0
+    expiry = now + 3 * 86400
+    out = compute_expiry_features(now_ts=now, expiry_ts=expiry)
+    assert out["days_to_expiry_bucket"] == 3.0
+
+
+def test_dte_bucket_nan_post_expiry():
+    now = 1_000_000.0
+    expiry = now - 86400  # expired yesterday
+    out = compute_expiry_features(now_ts=now, expiry_ts=expiry)
+    assert math.isnan(out["days_to_expiry_bucket"])
+
+
+def test_dte_bucket_nan_when_no_expiry_input():
+    out = compute_expiry_features(now_ts=None, expiry_ts=None)
+    assert math.isnan(out["days_to_expiry_bucket"])

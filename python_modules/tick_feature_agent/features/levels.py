@@ -14,6 +14,11 @@ Features (8 outputs):
     distance_to_max_call_oi_strike_pct (spot - strike) / spot * 100
     distance_to_max_put_oi_strike_pct  (spot - strike) / spot * 100
 
+Max-pain features (C10, spec §2.1.4):
+    max_pain_strike                    Strike that minimises total option-holder payout
+    distance_to_max_pain_pct           Signed % distance from spot to max-pain strike
+    max_pain_gravity_strength          OI within ±2% of max-pain ÷ total chain OI ∈ [0, 1]
+
 Sign convention:
     distance_to_X_pct < 0  → spot is BELOW level X
     distance_to_X_pct = 0  → spot is AT level X
@@ -120,5 +125,96 @@ def compute_level_features(
             except (TypeError, ValueError):
                 # Malformed chain row → leave as NaN
                 pass
+
+    return out
+
+
+_GRAVITY_BAND_PCT = 0.02  # ±2% of spot defines the "near max-pain" window
+
+
+def compute_max_pain_features(
+    spot: float | None,
+    chain_rows: Iterable[dict] | None,
+) -> dict[str, float]:
+    """
+    Compute 3 C10 max-pain features.
+
+    Max pain = the settlement strike K_s that MINIMISES total payout to
+    option HOLDERS at expiry:
+
+        payout(K_s) = Σ_K callOI(K)·max(K_s − K, 0) + Σ_K putOI(K)·max(K − K_s, 0)
+
+    Spot tends to gravitate toward this strike near expiry (the "pin").
+    Gravity strength = fraction of total chain OI sitting within ±2% of
+    spot from the max-pain strike. Higher = stronger pinning pressure.
+
+    Args:
+        spot:        Current underlying spot price.
+        chain_rows:  Iterable of chain row dicts with strike / callOI / putOI.
+
+    Returns:
+        Dict with 3 keys. NaN where input is missing or chain is empty.
+    """
+    out: dict[str, float] = {
+        "max_pain_strike": _NAN,
+        "distance_to_max_pain_pct": _NAN,
+        "max_pain_gravity_strength": _NAN,
+    }
+
+    spot_pos = _safe_pos(spot)
+    if chain_rows is None:
+        return out
+
+    # Materialise + validate rows once.
+    clean: list[tuple[float, float, float]] = []  # (strike, callOI, putOI)
+    total_oi = 0.0
+    for r in chain_rows:
+        if not isinstance(r, dict):
+            continue
+        strike = _safe_pos(r.get("strike"))
+        if strike is None:
+            continue
+        try:
+            c_oi = max(0.0, float(r.get("callOI") or 0))
+            p_oi = max(0.0, float(r.get("putOI") or 0))
+        except (TypeError, ValueError):
+            continue
+        if not (math.isfinite(c_oi) and math.isfinite(p_oi)):
+            continue
+        clean.append((strike, c_oi, p_oi))
+        total_oi += c_oi + p_oi
+
+    if not clean or total_oi <= 0:
+        return out
+
+    # Candidate settlement strikes = the same grid we observe in the chain.
+    # For each candidate, compute total holder-side payout. Argmin = max pain.
+    best_strike: float | None = None
+    best_payout = math.inf
+    for k_s, _c, _p in clean:
+        payout = 0.0
+        for k, c_oi, p_oi in clean:
+            if c_oi > 0 and k_s > k:
+                payout += c_oi * (k_s - k)
+            if p_oi > 0 and k > k_s:
+                payout += p_oi * (k - k_s)
+        if payout < best_payout:
+            best_payout = payout
+            best_strike = k_s
+
+    if best_strike is None:
+        return out
+
+    out["max_pain_strike"] = best_strike
+
+    if spot_pos is not None:
+        out["distance_to_max_pain_pct"] = (spot_pos - best_strike) / spot_pos * 100.0
+        band_half_width = _GRAVITY_BAND_PCT * spot_pos
+        nearby_oi = sum(
+            c_oi + p_oi
+            for k, c_oi, p_oi in clean
+            if abs(k - best_strike) <= band_half_width
+        )
+        out["max_pain_gravity_strength"] = nearby_oi / total_oi
 
     return out
