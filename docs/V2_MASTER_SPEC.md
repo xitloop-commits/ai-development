@@ -356,18 +356,31 @@ Current `direction_60s` labels any positive move as "1." A +2 pt and a +50 pt mo
 - Trend model: 12 new heads per instrument (after L1 D6 dropped 600s horizon — was 18)
 - **Total: 84 heads × 4 instruments = 336 LightGBM models** (60 scalp + 12 trend + 12 swing, after swing added 2026-05-17)
 
-**Per-head version registry (LOCKED 2026-05-16 — Gap #10 Option B):** Replace single-file `models/<inst>/LATEST` (current text pointer to one timestamp) with `models/<inst>/LATEST_HEADS.json` (72 entries per instrument after L1 D6):
+**Per-head version registry (LOCKED 2026-05-16 — Gap #10 Option B; EXTENDED 2026-05-17 — Batch 4 Q1 Option A — per-head schema metadata):** Replace single-file `models/<inst>/LATEST` (current text pointer to one timestamp) with `models/<inst>/LATEST_HEADS.json` (84 entries per instrument after swing addition):
 
 ```json
 {
-  "trend_direction_900s": "20260516_020000",
-  "trend_magnitude_900s": "20260509_020000",
-  "direction_60s": "20260502_020000",
-  "...": "..."
+  "trend_direction_900s": {
+    "trained_at":     "20260516_020000",
+    "schema_version": 7,
+    "feature_count":  446
+  },
+  "trend_magnitude_900s": {
+    "trained_at":     "20260509_020000",
+    "schema_version": 6,
+    "feature_count":  444
+  },
+  "direction_60s": {
+    "trained_at":     "20260502_020000",
+    "schema_version": 5,
+    "feature_count":  436
+  }
 }
 ```
 
-SEA loads each head independently per the map. Saturday retrain (§6.1) compares per-head sim_pnl; only updates `LATEST_HEADS.json` entries for heads that beat current. Rollback = restore any prior `LATEST_HEADS.json` from `models/<inst>/HEADS_HISTORY/<date>.json` (auto-archived on every change).
+Each head entry carries its own `schema_version` + `feature_count` (snapshot at training time from the emitter's `LATEST_SCHEMA_VERSION` constant and the parquet column count). This is what makes per-head rollback truly safe — heads can stay on older schemas without breaking the cross-instrument check (which assumed single global schema and silently failed when schemas diverged — see audit I10 fix).
+
+SEA loads each head independently per the map. Saturday retrain (§6.1) compares per-head sim_pnl; only updates entries for heads that beat current. Rollback = restore any prior `LATEST_HEADS.json` from `models/<inst>/HEADS_HISTORY/<date>.json` (auto-archived on every change).
 
 **Why B over A:** Indian markets shift one instrument at a time (e.g., OPEC change hits crude only; RBI hits indices). Per-head rollback preserves 77 good improvements when fixing 1 regression. Critical for high-iteration retrain cadence (§6.1).
 
@@ -1080,7 +1093,7 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 
 | # | Check | Pass criterion |
 |---|---|---|
-| 1 | Model file integrity (all 84 per instrument × 4 = 336) | Every `.lgbm` loads without exception; expected feature count matches LATEST_SCHEMA_VERSION |
+| 1 | Model file integrity (all 84 per instrument × 4 = 336) | Every `.lgbm` loads without exception. **Per-head schema validation (LOCKED 2026-05-17 — Batch 4 I10 fix):** for each head, compare its loaded LightGBM `num_feature()` against the `feature_count` recorded in that head's `LATEST_HEADS.json` entry. The check passes if every head matches ITS OWN recorded count — heads on different schema versions are fine. RED if any head's actual feature count diverges from its registry record (indicates corruption or mis-promotion) |
 | 2 | Scaler / feature_config presence | `config/model_feature_config/<inst>_feature_config.json` exists for each instrument |
 | 3 | Prediction sanity | Predict on last hour of yesterday's chain snapshots. Verify per head: no all-NaN, no all-0, no all-1, prediction distribution within ±3σ of historical baseline |
 | 4 | Dhan token freshness (both accounts) | `token_age_hours < 14` for `dhan` (primary) and `dhan-ai-data` (spouse) |
@@ -1179,7 +1192,7 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 | Sat 02:00–21:00 | ~19 hr | **84 heads × 4 instruments × 5 walk-forward folds = 1680 LightGBM trainings** (swing addition raised from 1440) |
 | Sat 22:00 | Per-head sim_pnl compare | For each of 84 heads × 4 instruments, compute `sim_pnl_delta_pct = (new − prior) / abs(prior)` |
 | Sat 22:30 | Regression block (Gap #7 Option B) | Reject any head where `sim_pnl_delta_pct < -5%` (`regression_threshold`) even if absolute new sim_pnl is positive. Emit summary: "X heads improved, Y unchanged, Z regressed (blocked)" |
-| Sat 23:00 | Stage per-head CANDIDATE | Build `models/<inst>/CANDIDATE_HEADS.json` containing entries for ONLY heads that won AND passed regression block. Non-winners and regressed heads stay on existing LATEST_HEADS entry. If zero heads qualified, log "no promotion" and exit |
+| Sat 23:00 | Stage per-head CANDIDATE | Build `models/<inst>/CANDIDATE_HEADS.json` containing entries for ONLY heads that won AND passed regression block. **Each candidate entry stamps `schema_version` + `feature_count` from the emitter constants at training time** (Batch 4 I10 fix). Non-winners and regressed heads stay on existing LATEST_HEADS entry with their original schema metadata intact. If zero heads qualified, log "no promotion" and exit |
 | Sun (anytime) | Human review | Trade-quality report (§5.1) + drift report (§5.3) + CANDIDATE metrics |
 | Mon 08:50 | Pre-market check (§5.2) | Runs on whichever of LATEST_HEADS/CANDIDATE_HEADS is active. If CANDIDATE_HEADS approved by human, archive current LATEST_HEADS → `HEADS_HISTORY/`, then promote CANDIDATE_HEADS → LATEST_HEADS; else keep LATEST_HEADS. |
 
@@ -1326,6 +1339,7 @@ All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`
 | D61 | Agreement-window upgrade validation (L4 D7, locked 2026-05-17 §2.4) | Track per instrument: (a) fraction of scalp fires that get upgraded within 6-tick window, (b) per-upgraded-trade P&L vs would-have-been-scalp P&L. If upgrade trades regularly lose MORE than scalp would have captured (e.g. -10pt vs +3pt scalp), raise conviction floor for upgrade activation (e.g. require trend_direction_900s ≥ 0.75 not 0.65). Validate after 2 weeks of paper data |
 | D62 | 1-hour OI exit thresholds for swing (locked 2026-05-17 §2.5 + L1 C1 expanded) | RE-OPENED L1 to add `{ce,pe}_oi_change_60min_pct` (2 new features → C1 grows 10 → 12, L1 total 444 → 446). Swing OI exit thresholds locked at −20% / +25% (looser than trend's 5-min −15% / +20% — bigger window absorbs more noise). Recalibrate after first month of swing paper-trade data: too many swing exits on 60-min OI noise → tighten thresholds; too few → loosen |
 | D63 | Audit Batch 3 fixes (2026-05-17) | **RESOLVED 2026-05-17 by Partha.** I7 (exhaustion exit triggers reference DEFERRED features) → fixed Option B inline composition in SEA per-position state (§2.5 Exhaustion table). I8 (wall_strength delta not defined) → fixed Option B inline 60-min rolling buffer in SEA per-position state (§2.5 OI exits table). I14 (trend bias filter no magnitude floor) → fixed Option A — magnitude guard `|trend_magnitude_900s| ≥ noise_floor[instrument]` now required for bias activation (§2.4). All three fixes preserve L1 at 446 features (no further L1 re-open today) |
+| D64 | Audit Batch 4 fix — per-head schema version (I10, 2026-05-17) | **RESOLVED 2026-05-17 by Partha — Option A.** LATEST_HEADS.json structure extended from `{head_name: timestamp}` to `{head_name: {trained_at, schema_version, feature_count}}` per §2.3.2. Each head carries its own schema metadata. Pre-market check #1 (§5.2) now validates each head against ITS OWN recorded feature_count instead of a single global LATEST_SCHEMA_VERSION — heads on different schemas can coexist gracefully. Saturday retrain (§6.1) stamps schema_version + feature_count from emitter constants at training time. Migration: existing LATEST.txt files → run `scripts/migrate_latest_to_heads.py` once to convert (already needed for Gap #10 Option B baseline; just expand the structure) |
 | D48 | B5 Additional S/R features (added 2026-05-17) | **RESOLVED 2026-05-17 by Partha — L1 RE-LOCKED.** 8 features added (prior-day H/L, opening range H/L, round number above/below, 5-day swing H/L). §2.1.7 item 9 sub-decisions all locked. Expected: +3-5pp AUC on long-horizon targets |
 | D49 | Trend bias filter (added 2026-05-17 §2.4) | **RESOLVED 2026-05-17 by Partha.** Asymmetric pre-combinator filter added to §2.4. D50 sub-decisions resolved with defaults. Expected: 2-3pp win-rate boost on filtered trades |
 | D50 | Trend bias filter sub-decisions (sub of D49) | **RESOLVED 2026-05-17 by Partha.** `θ_bias_bullish=0.65`, `θ_bias_bearish=0.35`, asymmetric (trend vetoes scalp only), no magnitude floor on activation. **Follow-up:** validate thresholds after first month of paper trade; if too restrictive raise to 0.70/0.30, if too permissive narrow to 0.60/0.40 |
