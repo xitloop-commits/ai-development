@@ -48,6 +48,20 @@ Refer to trading strategies by their actual descriptive name, not by internal ve
 - In CONVERSATION, always translate: when about to type "Wave 2", stop and say "the scalp model" instead.
 - If a doc has a version-name title, refer to it by what it covers ("the trend design doc") not its version slot.
 
+## Rule 4 — Always resumable across desktop + laptop (May 17 2026)
+
+Partha works on this project from both a desktop and a laptop simultaneously. Sessions on either machine must always pick up from where the last session (on either machine) left off.
+
+**Why:** Partha said: *"i use desktop and laptop simultaneously for this implementation, so always i should start from where i left last time in both switching"*.
+
+**How to apply:**
+- **Session start (both machines):** `git pull --ff-only` before any work. Verify HEAD matches origin.
+- **Session end:** all in-progress work goes into git — commit and push before stopping. Never leave uncommitted edits sitting on one machine; they're invisible to the other.
+- **Persistent state belongs in repo files**, not transient session memory: `docs/PROJECT_TODO.md` (open tasks), `docs/V2_MASTER_SPEC.md` (design decisions), `docs/memory/MEMORY.md` (auto-loaded context), `CLAUDE.md` (session preamble). TodoWrite's in-session todo list does NOT survive a machine switch — mirror anything important into `PROJECT_TODO.md` before ending.
+- **Mid-task pauses** ("we'll continue this later"): write the current state (next decision, pending question, what's about-to-happen) into `PROJECT_TODO.md` so the other machine can resume cold.
+- **Conflict avoidance:** if both machines edit the same file, second-to-push has to pull+rebase first. Stay coordinated — pick one machine for active editing, use the other for reading/review.
+- **When in doubt:** ask "is what I just did pushed?" before stopping a session.
+
 ## How to add new rules
 
 Append at the bottom of this file with format:
