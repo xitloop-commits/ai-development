@@ -480,3 +480,128 @@ class TestFeatureHistoriesPopulation:
         assert len(proc._histories.pcr_list()) == 3
         assert len(proc._histories.oi_totals_list()) == 3
         assert len(proc._histories.iv_velocity_list()) == 3
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TestStatefulTrackerWiring (Phase 2d-03)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _tick_with_vol(ltp: float = 24150.0, ts: float | None = None, vol: int = 100) -> dict:
+    """Helper — like _tick() but lets the test set the tick volume."""
+    return {
+        "ltp": ltp,
+        "bid": ltp - 0.5,
+        "ask": ltp + 0.5,
+        "ltq": vol,
+        "recv_ts": ts if ts is not None else _now(),
+    }
+
+
+class TestStatefulTrackerWiring:
+    """The 6 per-instrument trackers added in 2d-03 must instantiate
+    on construction, configure / reset on session_open, and update on
+    the correct callbacks (tick / option-tick / chain-snapshot)."""
+
+    def test_trackers_exist_after_construction(self):
+        proc = _make_processor()
+        # All six trackers must be live attributes.
+        assert proc._bars is not None
+        assert proc._session_state is not None
+        assert proc._opening_range is not None
+        assert proc._premium_vwap is not None
+        assert proc._exhaustion is not None
+        assert proc._oi_dominance is not None
+
+    def test_session_open_configures_opening_range_window(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        # The OR window-end should be session_start (09:15 IST) + 15 min = 09:30 IST.
+        expected = datetime(2026, 4, 14, 9, 30, tzinfo=_IST).timestamp()
+        assert proc._opening_range.window_end_ts == pytest.approx(expected)
+
+    def test_underlying_tick_feeds_bar_aggregator(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        ts = datetime(2026, 4, 14, 10, 0, 0, tzinfo=_IST).timestamp()
+        proc.on_underlying_tick(_tick_with_vol(ltp=24150.0, ts=ts, vol=42))
+        cur = proc._bars.current_bar(60)
+        assert cur is not None
+        assert cur.open == pytest.approx(24150.0)
+        assert cur.volume >= 42
+
+    def test_underlying_tick_feeds_session_state(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        ts = datetime(2026, 4, 14, 10, 0, 0, tzinfo=_IST).timestamp()
+        proc.on_underlying_tick(_tick_with_vol(ltp=24100.0, ts=ts, vol=10))
+        assert proc._session_state.open_price == pytest.approx(24100.0)
+        assert proc._session_state.session_high == pytest.approx(24100.0)
+        assert proc._session_state.session_low == pytest.approx(24100.0)
+
+    def test_underlying_tick_feeds_opening_range_inside_window(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        ts = datetime(2026, 4, 14, 9, 20, 0, tzinfo=_IST).timestamp()  # inside OR
+        proc.on_underlying_tick(_tick_with_vol(ltp=24105.0, ts=ts, vol=10))
+        assert proc._opening_range.or_high == pytest.approx(24105.0)
+        assert proc._opening_range.or_low == pytest.approx(24105.0)
+
+    def test_opening_range_ignores_tick_outside_window(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        ts = datetime(2026, 4, 14, 11, 0, 0, tzinfo=_IST).timestamp()  # past 09:30
+        proc.on_underlying_tick(_tick_with_vol(ltp=24105.0, ts=ts, vol=10))
+        assert proc._opening_range.or_high is None
+        assert proc._opening_range.or_low is None
+
+    def test_atm_option_tick_feeds_premium_vwap_ce(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        proc.on_chain_snapshot(_make_snapshot(24150.0))   # so _cache.atm == 24150
+        atm = proc._cache.atm
+        assert atm is not None
+        proc.on_option_tick(
+            strike=int(atm),
+            opt_type="CE",
+            data={"ltp": 250.0, "bid": 249.0, "ask": 251.0, "ltq": 5, "recv_ts": _now()},
+        )
+        assert proc._premium_vwap.ce_cum_volume > 0
+        assert proc._premium_vwap.ce_vwap == pytest.approx(250.0)
+
+    def test_non_atm_option_tick_skipped_by_premium_vwap(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        proc.on_chain_snapshot(_make_snapshot(24150.0))
+        atm = proc._cache.atm
+        non_atm = int(atm) + 200
+        proc.on_option_tick(
+            strike=non_atm,
+            opt_type="CE",
+            data={"ltp": 99.0, "bid": 98, "ask": 100, "ltq": 5, "recv_ts": _now()},
+        )
+        assert proc._premium_vwap.ce_cum_volume == 0
+
+    def test_chain_snapshot_feeds_oi_dominance(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        proc.on_chain_snapshot(_make_snapshot(24150.0))
+        # Fixture has +500 callOIChange and +300 putOIChange per strike × 7
+        # strikes → call_change > put_change → +1 side.
+        assert proc._oi_dominance.current_side == 1
+        assert proc._oi_dominance.streak_start_ts is not None
+
+    def test_session_open_resets_all_trackers(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        ts = datetime(2026, 4, 14, 10, 0, 0, tzinfo=_IST).timestamp()
+        proc.on_underlying_tick(_tick_with_vol(ts=ts, vol=10))
+        proc.on_chain_snapshot(_make_snapshot(24150.0))
+        # Re-open for next session — everything must be cleared.
+        proc.on_session_open(_session_end_sec())
+        assert proc._session_state.open_price is None
+        assert proc._bars.current_bar(60) is None
+        assert proc._opening_range.or_high is None
+        assert proc._premium_vwap.ce_cum_volume == 0
+        assert proc._oi_dominance.current_side == 0
+        assert proc._exhaustion.trend_age_ticks == 0

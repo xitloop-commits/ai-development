@@ -51,18 +51,24 @@ from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTi
 from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
 from tick_feature_agent.chain_cache import ChainCache
 from tick_feature_agent.features.active_features import compute_active_features
+from tick_feature_agent.features.bars import BarAggregator
 from tick_feature_agent.features.chain import compute_chain_features
 from tick_feature_agent.features.compression import CompressionState
 from tick_feature_agent.features.decay import DecayState
+from tick_feature_agent.features.exhaustion import ExhaustionState
 from tick_feature_agent.features.expiry import compute_expiry_features
 from tick_feature_agent.features.greeks import compute_greek_features
 from tick_feature_agent.features.horizon import compute_horizon_features
 from tick_feature_agent.features.levels import compute_level_features
 from tick_feature_agent.features.meta import compute_meta_features
 from tick_feature_agent.features.ofi import compute_ofi_features
+from tick_feature_agent.features.oi_dominance import OiDominanceState
+from tick_feature_agent.features.opening_range import OpeningRangeState
 from tick_feature_agent.features.option_tick import compute_option_tick_features
+from tick_feature_agent.features.premium_vwap import PremiumVwapState
 from tick_feature_agent.features.realized_vol import compute_realized_vol_features
 from tick_feature_agent.features.regime import compute_regime_features
+from tick_feature_agent.features.session import SessionState
 from tick_feature_agent.features.targets import (
     TargetBuffer,
     UpsidePercentileTracker,
@@ -154,6 +160,17 @@ class TickProcessor:
         # India VIX). Populated from chain snapshots + per-tick Greek output.
         self._histories = FeatureHistories()
 
+        # Phase 2d-03: per-instrument stateful trackers for the new feature
+        # modules. Each is reset on session_open (BarAggregator/SessionState/
+        # OiDominanceState via reset(); OpeningRangeState additionally via
+        # configure() with the 15-min window-end timestamp per D74 B3).
+        self._bars = BarAggregator(timeframes_sec=(60, 300, 900), max_bars_per_tf=60)
+        self._session_state = SessionState()
+        self._opening_range = OpeningRangeState()
+        self._premium_vwap = PremiumVwapState()
+        self._exhaustion = ExhaustionState()
+        self._oi_dominance = OiDominanceState()
+
         # Target modules
         self._target_buf = TargetBuffer(target_windows_sec=profile.target_windows_sec)
         self._upside_pct = UpsidePercentileTracker()
@@ -213,6 +230,35 @@ class TickProcessor:
         self._pending.clear()
         # Phase 2d-02: clear all caller-side history buffers for fresh session.
         self._histories.reset()
+        # Phase 2d-03: reset every per-session stateful tracker. The
+        # opening-range tracker also needs its 15-min window-end timestamp
+        # configured per D74 B3 (NSE 09:15-09:29:59, MCX 09:00-09:14:59 IST).
+        self._bars.reset()
+        self._session_state.reset()
+        self._opening_range.reset()
+        self._premium_vwap.reset()
+        self._exhaustion.reset()
+        self._oi_dominance.reset()
+        or_end = self._compute_opening_range_end(session_end_sec)
+        if or_end is not None:
+            self._opening_range.configure(window_end_ts=or_end)
+
+    def _compute_opening_range_end(self, session_end_sec: float) -> float | None:
+        """Return the epoch second 15 min after the session-start clock time.
+
+        Derived from the profile's `session_start` (HH:MM) anchored to the
+        same calendar date as `session_end_sec` (interpreted in IST).
+        Returns None if the inputs don't yield a finite timestamp.
+        """
+        try:
+            from datetime import datetime, timedelta, timezone
+            tz = timezone(timedelta(hours=5, minutes=30))
+            end_dt = datetime.fromtimestamp(float(session_end_sec), tz=tz)
+            h, m = self._profile.session_start.split(":")
+            start_dt = end_dt.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
+            return (start_dt + timedelta(minutes=15)).timestamp()
+        except (TypeError, ValueError, AttributeError, OverflowError, OSError):
+            return None
 
     def on_session_close(self) -> None:
         """
@@ -335,6 +381,15 @@ class TickProcessor:
         self._tick_buf.push(tick)
         self._underlying_tick_count += 1
 
+        # Phase 2d-03: feed the per-tick stateful trackers. BarAggregator
+        # builds the 1m/5m/15m OHLCV history that technical / multi_tf /
+        # exhaustion read from. SessionState tracks session-OHLC + VWAP
+        # for the B3 features. OpeningRangeState latches the first-15-min
+        # extremes for B5 (silently no-ops once window_end_ts has passed).
+        self._bars.add_tick(ts, ltp, tick_volume=vol)
+        self._session_state.update(ts, ltp, tick_volume=vol)
+        self._opening_range.update(ts, ltp)
+
         # ── Market-open check ─────────────────────────────────────────────────
         is_open = self._session_mgr.is_market_open if self._session_mgr is not None else True
 
@@ -396,6 +451,20 @@ class TickProcessor:
         )
         self._opt_store.push(strike, opt_type, tick)
 
+        # Phase 2d-03: feed ATM-only ticks into the premium-VWAP tracker.
+        # Non-ATM ticks are ignored so the session VWAP reflects only the
+        # ATM CE / ATM PE premium streams the C8 feature is defined on.
+        atm = self._cache.atm
+        if atm is not None and int(strike) == int(atm) and ltp > 0:
+            if opt_type == "CE":
+                self._premium_vwap.update(
+                    ce_premium=ltp, pe_premium=None, tick_volume=vol,
+                )
+            elif opt_type == "PE":
+                self._premium_vwap.update(
+                    ce_premium=None, pe_premium=ltp, tick_volume=vol,
+                )
+
         # Record raw option tick
         if self._recorder is not None:
             record = dict(data)
@@ -419,6 +488,16 @@ class TickProcessor:
         # need to pre-validate. ATM-delta history is populated separately
         # in the per-tick path (Greeks are recomputed there, not here).
         self._populate_chain_histories(snapshot)
+
+        # Phase 2d-03: update OI-dominance streak state from the
+        # snapshot-aggregate OI deltas (CE total change vs PE total change).
+        # The ±240-min cap is applied inside compute_oi_dominance_features,
+        # not in state.
+        self._oi_dominance.update(
+            ts=snapshot.timestamp_sec,
+            oi_change_call=float(self._cache.oi_change_call),
+            oi_change_put=float(self._cache.oi_change_put),
+        )
 
         # Record raw snapshot
         if self._recorder is not None:
