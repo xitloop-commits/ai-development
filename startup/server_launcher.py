@@ -11,6 +11,7 @@ Exit code 75 → bat loop re-launches (restart).
 """
 
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -56,8 +57,33 @@ def _run_once():
     # stdin=DEVNULL prevents pnpm dev (Next.js) from reading keyboard input —
     # otherwise Next.js steals keypresses (e.g. Enter triggers HMR reload)
     # and only Python's msvcrt owns the keyboard for the Esc menu.
+    # CREATE_NEW_PROCESS_GROUP isolates the child so we can send
+    # CTRL_BREAK_EVENT to it without also signalling ourselves.
     cmd = "pnpm dev"
-    proc = subprocess.Popen(cmd, shell=True, cwd=os.getcwd(), stdin=subprocess.DEVNULL)
+    proc = subprocess.Popen(
+        cmd,
+        shell=True,
+        cwd=os.getcwd(),
+        stdin=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+    )
+
+    def _graceful_stop():
+        """Ctrl+Break the child group, wait 5s, hard-kill on timeout.
+
+        proc.terminate() on Windows is TerminateProcess — kills cmd.exe
+        without giving pnpm / Next.js any chance to flush HMR state or
+        close DB connections. CTRL_BREAK_EVENT propagates through the
+        process group so each layer can register a shutdown handler.
+        """
+        try:
+            os.kill(proc.pid, signal.CTRL_BREAK_EVENT)
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
 
     action = [None]  # mutable cell shared with keyboard thread
 
@@ -99,12 +125,12 @@ def _run_once():
 
                 if ch2 == "\x1b":  # Esc → exit
                     action[0] = "exit"
-                    proc.terminate()
+                    _graceful_stop()
                     return
 
                 elif ch2 in ("\r", "\n"):  # Enter → restart
                     action[0] = "restart"
-                    proc.terminate()
+                    _graceful_stop()
                     return
 
                 elif ch2.lower() == "c":  # C → continue
@@ -117,11 +143,7 @@ def _run_once():
     try:
         proc.wait()
     except KeyboardInterrupt:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        _graceful_stop()
         action[0] = "exit"
 
     kb_thread.join(timeout=1)

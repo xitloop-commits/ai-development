@@ -23,51 +23,12 @@ if not exist .env (
 )
 
 REM --- Detect Python ---
-set PYTHON_CMD=
-for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Python\pythoncore-*" 2^>nul') do (
-    if "!PYTHON_CMD!"=="" (
-        if exist "%LOCALAPPDATA%\Python\%%P\python.exe" (
-            "%LOCALAPPDATA%\Python\%%P\python.exe" --version >nul 2>&1
-            if !errorlevel! equ 0 set "PYTHON_CMD=%LOCALAPPDATA%\Python\%%P\python.exe"
-        )
-    )
-)
-if "!PYTHON_CMD!"=="" (
-    for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Programs\Python\Python*" 2^>nul') do (
-        if "!PYTHON_CMD!"=="" (
-            if exist "%LOCALAPPDATA%\Programs\Python\%%P\python.exe" (
-                "%LOCALAPPDATA%\Programs\Python\%%P\python.exe" --version >nul 2>&1
-                if !errorlevel! equ 0 set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\%%P\python.exe"
-            )
-        )
-    )
-)
-if "!PYTHON_CMD!"=="" (
-    for /f "delims=" %%P in ('dir /b /o-n "C:\Python*" 2^>nul') do (
-        if "!PYTHON_CMD!"=="" (
-            if exist "C:\%%P\python.exe" (
-                "C:\%%P\python.exe" --version >nul 2>&1
-                if !errorlevel! equ 0 set "PYTHON_CMD=C:\%%P\python.exe"
-            )
-        )
-    )
-)
-if "!PYTHON_CMD!"=="" (
-    for /f "delims=" %%P in ('dir /b /o-n "%ProgramFiles%\Python*" 2^>nul') do (
-        if "!PYTHON_CMD!"=="" (
-            if exist "%ProgramFiles%\%%P\python.exe" (
-                "%ProgramFiles%\%%P\python.exe" --version >nul 2>&1
-                if !errorlevel! equ 0 set "PYTHON_CMD=%ProgramFiles%\%%P\python.exe"
-            )
-        )
-    )
-)
-
-if "!PYTHON_CMD!"=="" (
+call "%~dp0_detect-python.bat"
+if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.
     echo   Install Python 3.11+ from https://www.python.org/downloads/
-    pause
+    if not defined ATS_HEADLESS pause
     exit /b 1
 )
 

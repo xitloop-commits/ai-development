@@ -1,0 +1,5 @@
+{
+  "_note": "Trading holidays for the ATS launcher. The scheduled task skips the morning fan-out on these dates. Use the UNION of NSE and MCX holidays -- if either market is closed, there's no reason to record. Update annually from: https://www.nseindia.com/resources/exchange-communication-holidays and https://www.mcxindia.com/market-data/holiday-calendar . Format: YYYY-MM-DD strings. Weekends are handled separately by _scheduled-start.bat -- do not list Saturdays/Sundays here.",
+  "2026": [],
+  "2027": []
+}

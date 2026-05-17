@@ -55,7 +55,9 @@ function Get-AtsPythonPids {
         if ($null -eq $cl) { continue }
         if ($cl -match 'tick_feature_agent\\main\.py' -or
             $cl -match 'server_launcher\.py'          -or
-            $cl -match 'signal_engine_agent') {
+            $cl -match 'signal_engine_agent'          -or
+            $cl -match 'tfa_bot\\bot\.py'             -or
+            $cl -match 'model_training_agent') {
             $found += [pscustomobject]@{ Pid = $p.ProcessId; CommandLine = $cl }
         }
     }
@@ -73,6 +75,8 @@ if ($targets.Count -eq 0) {
         $tag = if ($t.CommandLine -match 'tick_feature_agent') { 'TFA' }
                elseif ($t.CommandLine -match 'server_launcher')  { 'API' }
                elseif ($t.CommandLine -match 'signal_engine_agent') { 'SEA' }
+               elseif ($t.CommandLine -match 'tfa_bot')          { 'BOT' }
+               elseif ($t.CommandLine -match 'model_training_agent') { 'TRAIN' }
                else { 'PY' }
         try {
             $status = Send-CtrlC -processId $t.Pid
@@ -106,6 +110,28 @@ if ($targets.Count -eq 0) {
 & taskkill /FI 'WINDOWTITLE eq ATS-Server*'  /T 2>$null | Out-Null
 & taskkill /FI 'WINDOWTITLE eq TFA:*'        /T 2>$null | Out-Null
 
+# Clear the dup-fire lock now that we've actually stopped. Otherwise a user
+# who runs 'shutdown /a' to cancel the imminent shutdown and then tries to
+# restart the ATS would be blocked by their own recently-touched lock.
+$lockFile = Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..')).Path 'data\.ats-startup.lock'
+if (Test-Path $lockFile) {
+    Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+    Log "Cleared startup lock: $lockFile"
+}
+
 Log "Issuing OS shutdown in 60s (cancel with 'shutdown /a')."
+
+# Lifecycle event for the central log. Done before shutdown /s so the line
+# is durable even if the shutdown races us out.
+$killedCount    = if ($targets) { [Math]::Max(0, $targets.Count - $survivors.Count) } else { 0 }
+$survivorsCount = if ($survivors) { $survivors.Count } else { 0 }
+try {
+    & (Join-Path $PSScriptRoot '_emit-lifecycle.ps1') `
+        -Event stop -Result ok `
+        -Killed $killedCount -Survivors $survivorsCount
+} catch {
+    Log ("emit-lifecycle failed: " + $_.Exception.Message)
+}
+
 & shutdown /s /f /t 60 /c "ATS auto-shutdown. Run 'shutdown /a' within 60s to cancel."
 Log "=== ATS stop-all done ==="

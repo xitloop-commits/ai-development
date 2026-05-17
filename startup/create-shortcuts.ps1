@@ -1,4 +1,4 @@
-$root    = 'C:\Users\Admin\ai-development\ai-development'
+$root    = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $desktop = [Environment]::GetFolderPath('Desktop')
 $wsh     = New-Object -ComObject WScript.Shell
 $icons   = "$root\startup\icons"

@@ -32,28 +32,13 @@ if not "%~1"=="" (
     goto args_loop
 )
 
-REM --- Detect Python (same order as start-tfa.bat) ---
-set PYTHON_CMD=
-for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Python\pythoncore-*" 2^>nul') do (
-    if "!PYTHON_CMD!"=="" (
-        if exist "%LOCALAPPDATA%\Python\%%P\python.exe" (
-            "%LOCALAPPDATA%\Python\%%P\python.exe" --version >nul 2>&1
-            if !errorlevel! equ 0 set "PYTHON_CMD=%LOCALAPPDATA%\Python\%%P\python.exe"
-        )
-    )
-)
-if "!PYTHON_CMD!"=="" (
-    for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Programs\Python\Python*" 2^>nul') do (
-        if "!PYTHON_CMD!"=="" (
-            if exist "%LOCALAPPDATA%\Programs\Python\%%P\python.exe" (
-                set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\%%P\python.exe"
-            )
-        )
-    )
-)
-if "!PYTHON_CMD!"=="" (
+REM --- Detect Python ---
+call "%~dp0_detect-python.bat"
+if errorlevel 1 (
+    echo.
     echo   ERROR: Python not found.
-    pause
+    echo   Install Python 3.11+ from https://www.python.org/downloads/
+    if not defined ATS_HEADLESS pause
     exit /b 1
 )
 

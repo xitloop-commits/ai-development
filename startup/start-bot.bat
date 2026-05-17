@@ -1,17 +1,28 @@
 @echo off
-REM TFA Telegram Bot launcher
+REM ================================================================
+REM   ATS -- TFA Telegram Bot launcher
+REM
+REM   Usage:  startup\start-bot.bat
+REM   Press Ctrl+C to stop.
+REM ================================================================
 
-cd /d "%~dp0.."
+setlocal EnableDelayedExpansion
 
-set PYTHONIOENCODING=utf-8
+REM --- Go to project root ---
+set "ROOT=%~dp0..\"
+cd /d "%ROOT%"
 
-set "PY=C:\Users\Admin\AppData\Local\Programs\Python\Python311\python.exe"
-
-if not exist "%PY%" (
-    echo ERROR: Python not found at %PY%
-    pause
+REM --- Detect Python ---
+call "%~dp0_detect-python.bat"
+if errorlevel 1 (
+    echo.
+    echo   ERROR: Python not found.
+    echo   Install Python 3.11+ from https://www.python.org/downloads/
+    if not defined ATS_HEADLESS pause
     exit /b 1
 )
+
+set PYTHONIOENCODING=utf-8
 
 echo.
 echo   Starting TFA Telegram Bot...
@@ -19,5 +30,5 @@ echo   Check Telegram on your phone to confirm it is online.
 echo   Press Ctrl+C to stop.
 echo.
 
-"%PY%" tfa_bot\bot.py
-pause
+"%PYTHON_CMD%" tfa_bot\bot.py
+if not defined ATS_HEADLESS pause

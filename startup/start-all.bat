@@ -39,56 +39,37 @@ if not "%~1"=="" (
 )
 
 REM --- Detect Python ---
-set PYTHON_CMD=
-
-for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Python\pythoncore-*" 2^>nul') do (
-    if "!PYTHON_CMD!"=="" (
-        if exist "%LOCALAPPDATA%\Python\%%P\python.exe" (
-            "%LOCALAPPDATA%\Python\%%P\python.exe" --version >nul 2>&1
-            if !errorlevel! equ 0 set "PYTHON_CMD=%LOCALAPPDATA%\Python\%%P\python.exe"
-        )
-    )
-)
-if "!PYTHON_CMD!"=="" (
-    for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Programs\Python\Python*" 2^>nul') do (
-        if "!PYTHON_CMD!"=="" (
-            if exist "%LOCALAPPDATA%\Programs\Python\%%P\python.exe" (
-                "%LOCALAPPDATA%\Programs\Python\%%P\python.exe" --version >nul 2>&1
-                if !errorlevel! equ 0 set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\%%P\python.exe"
-            )
-        )
-    )
-)
-if "!PYTHON_CMD!"=="" (
-    for /f "delims=" %%P in ('dir /b /o-n "C:\Python*" 2^>nul') do (
-        if "!PYTHON_CMD!"=="" (
-            if exist "C:\%%P\python.exe" (
-                "C:\%%P\python.exe" --version >nul 2>&1
-                if !errorlevel! equ 0 set "PYTHON_CMD=C:\%%P\python.exe"
-            )
-        )
-    )
-)
-if "!PYTHON_CMD!"=="" (
-    for /f "delims=" %%P in ('dir /b /o-n "%ProgramFiles%\Python*" 2^>nul') do (
-        if "!PYTHON_CMD!"=="" (
-            if exist "%ProgramFiles%\%%P\python.exe" (
-                "%ProgramFiles%\%%P\python.exe" --version >nul 2>&1
-                if !errorlevel! equ 0 set "PYTHON_CMD=%ProgramFiles%\%%P\python.exe"
-            )
-        )
-    )
-)
-
-if "!PYTHON_CMD!"=="" (
+call "%~dp0_detect-python.bat"
+if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.
     echo   Install Python 3.11+ from https://www.python.org/downloads/
-    pause
+    if not defined ATS_HEADLESS pause
     exit /b 1
 )
 
 set PYTHONIOENCODING=utf-8
+
+REM --- Duplicate-fire guard ---
+REM AtLogOn triggers can fire twice on a logon hiccup; a manual re-trigger can
+REM also collide with an auto-start. A second start-all.bat would spawn another
+REM 4 TFAs on top of the existing fleet, instantly blowing the Dhan 5-WS budget
+REM on both accounts. The lock file's mtime is the source of truth.
+set "LOCK_FILE=%ROOT%data\.ats-startup.lock"
+if not exist "%ROOT%data" mkdir "%ROOT%data" >nul 2>&1
+if exist "%LOCK_FILE%" (
+    powershell -NoProfile -Command "if (((Get-Date) - (Get-Item '%LOCK_FILE%').LastWriteTime).TotalSeconds -lt 300) { exit 0 } else { exit 1 }"
+    if !errorlevel! equ 0 (
+        echo.
+        echo   ABORT: another start-all.bat fired in the last 5 minutes.
+        echo   Lock file: %LOCK_FILE%
+        echo   If this is intentional, delete the lock file and re-run.
+        echo.
+        if not defined ATS_HEADLESS pause
+        exit /b 2
+    )
+)
+echo %date% %time% > "%LOCK_FILE%"
 
 echo.
 echo ============================================================
@@ -112,9 +93,18 @@ set /a HEALTH_ATTEMPTS+=1
 if !HEALTH_ATTEMPTS! gtr 30 (
     echo.
     echo   ERROR: Server did not become ready within 60s.
-    echo   Check the ATS-Server window for errors.
-    echo.
-    pause
+    REM Clear the lock so a retry isn't blocked for 5 minutes -- this run is
+    REM dead, the next attempt should proceed unimpeded.
+    del "%LOCK_FILE%" 2>nul
+    if defined ATS_HEADLESS (
+        REM No one watching: kill the orphan server window so we don't leave
+        REM a zombie cmd on the desktop until next midnight shutdown.
+        taskkill /FI "WINDOWTITLE eq ATS-Server*" /T >nul 2>&1
+    ) else (
+        echo   Check the ATS-Server window for errors.
+        echo.
+        pause
+    )
     exit /b 1
 )
 curl -s -o nul -w "%%{http_code}" http://localhost:!SERVER_PORT!/health 2>nul | findstr /x "200" >nul 2>&1
@@ -163,3 +153,6 @@ echo   Close each window individually to stop an instrument.
 echo   To stop all: close all "TFA: *" windows or use Task Manager.
 echo ============================================================
 echo.
+
+REM Emit lifecycle event for the central log.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result ok -TfaCount 4 >nul 2>&1

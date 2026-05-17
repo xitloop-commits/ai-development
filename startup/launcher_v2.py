@@ -325,6 +325,19 @@ def compute_walk_forward_dates() -> tuple[str, str]:
     Honours config/holdout_dates.json: the most recent reserved date becomes
     the default backtest target; train_end is the most recent NON-reserved
     date (so training stops before the holdout begins).
+
+    Return-value semantics (callers MUST handle empty strings):
+      - ("", "")         : no feature parquets exist at all.
+      - (date, "")       : every available parquet is in the reserved
+                           holdout -- nothing left to train on, but a
+                           backtest target exists. Caller should disable
+                           the Train action and surface this state.
+      - (date, date)     : normal walk-forward state.
+
+    All current call sites guard via `or '--'` for display or via the
+    date-picker's `if not date: continue` for selection -- do NOT
+    interpolate the returned strings into subprocess args without
+    checking for empty first.
     """
     dates = _scan_complete_feature_dates()
     if not dates:
@@ -939,16 +952,6 @@ def act_train() -> None:
         if launched == 0:
             print(f"  {YELLOW('!')} Nothing launched.")
         _pause_briefly()
-
-
-# ── Placeholder actions for other submenus (Pass 2) ───────────────────────
-
-
-def _stub(name: str) -> None:
-    print()
-    print(f"  {YELLOW('!')} {name} submenu — coming in Pass 2.")
-    print(f"  {DIM('For now, use launcher.py (v1) for this action.')}")
-    _pause_briefly()
 
 
 def act_record() -> None:

@@ -61,39 +61,13 @@ echo !EXTRA_ARGS! | find "--date" >nul && set HAS_DATE=1
 echo !EXTRA_ARGS! | find "--include-dates" >nul && set HAS_DATE=1
 if "!HAS_DATE!"=="0" set "EXTRA_ARGS=!EXTRA_ARGS! --date-from 2026-04-01 --date-to 2026-12-31"
 
-REM --- Detect Python (same order as start-tfa.bat: Store Python first) ---
-set PYTHON_CMD=
-for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Python\pythoncore-*" 2^>nul') do (
-    if "!PYTHON_CMD!"=="" (
-        if exist "%LOCALAPPDATA%\Python\%%P\python.exe" (
-            "%LOCALAPPDATA%\Python\%%P\python.exe" --version >nul 2>&1
-            if !errorlevel! equ 0 set "PYTHON_CMD=%LOCALAPPDATA%\Python\%%P\python.exe"
-        )
-    )
-)
-if "!PYTHON_CMD!"=="" (
-    for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Programs\Python\Python*" 2^>nul') do (
-        if "!PYTHON_CMD!"=="" (
-            if exist "%LOCALAPPDATA%\Programs\Python\%%P\python.exe" (
-                "%LOCALAPPDATA%\Programs\Python\%%P\python.exe" --version >nul 2>&1
-                if !errorlevel! equ 0 set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\%%P\python.exe"
-            )
-        )
-    )
-)
-if "!PYTHON_CMD!"=="" (
-    for /f "delims=" %%P in ('dir /b /o-n "C:\Python*" 2^>nul') do (
-        if "!PYTHON_CMD!"=="" (
-            if exist "C:\%%P\python.exe" (
-                "C:\%%P\python.exe" --version >nul 2>&1
-                if !errorlevel! equ 0 set "PYTHON_CMD=C:\%%P\python.exe"
-            )
-        )
-    )
-)
-if "!PYTHON_CMD!"=="" (
+REM --- Detect Python ---
+call "%~dp0_detect-python.bat"
+if errorlevel 1 (
+    echo.
     echo   ERROR: Python not found.
-    pause
+    echo   Install Python 3.11+ from https://www.python.org/downloads/
+    if not defined ATS_HEADLESS pause
     exit /b 1
 )
 
@@ -106,7 +80,14 @@ echo   TFA Replay -- %INSTRUMENT%
 echo ============================================================
 echo.
 
+REM Run TFA replay; exit code 75 means "restart requested" (matches the
+REM convention used by start-tfa.bat, start-api.bat, start.bat).
+:run_loop
 %PYTHON_CMD% python_modules\tick_feature_agent\main.py --instrument-profile %PROFILE_PATH% --mode replay !EXTRA_ARGS!
+if !errorlevel! == 75 (
+    echo.
+    goto run_loop
+)
 
 echo.
-pause
+if not defined ATS_HEADLESS pause

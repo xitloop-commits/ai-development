@@ -30,48 +30,8 @@ for /f "tokens=*" %%v in ('node --version') do echo   Found Node.js %%v
 
 REM --- Step 2: Check Python ---
 echo [2/6] Checking Python...
-set PYTHON_CMD=
-
-for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Python\pythoncore-*" 2^>nul') do (
-    if "!PYTHON_CMD!"=="" (
-        if exist "%LOCALAPPDATA%\Python\%%P\python.exe" (
-            "%LOCALAPPDATA%\Python\%%P\python.exe" --version >nul 2>&1
-            if !errorlevel! equ 0 set "PYTHON_CMD=%LOCALAPPDATA%\Python\%%P\python.exe"
-        )
-    )
-)
-if "!PYTHON_CMD!"=="" (
-    for /f "delims=" %%P in ('dir /b /o-n "%LOCALAPPDATA%\Programs\Python\Python*" 2^>nul') do (
-        if "!PYTHON_CMD!"=="" (
-            if exist "%LOCALAPPDATA%\Programs\Python\%%P\python.exe" (
-                "%LOCALAPPDATA%\Programs\Python\%%P\python.exe" --version >nul 2>&1
-                if !errorlevel! equ 0 set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\%%P\python.exe"
-            )
-        )
-    )
-)
-if "!PYTHON_CMD!"=="" (
-    for /f "delims=" %%P in ('dir /b /o-n "C:\Python*" 2^>nul') do (
-        if "!PYTHON_CMD!"=="" (
-            if exist "C:\%%P\python.exe" (
-                "C:\%%P\python.exe" --version >nul 2>&1
-                if !errorlevel! equ 0 set "PYTHON_CMD=C:\%%P\python.exe"
-            )
-        )
-    )
-)
-if "!PYTHON_CMD!"=="" (
-    for /f "delims=" %%P in ('dir /b /o-n "%ProgramFiles%\Python*" 2^>nul') do (
-        if "!PYTHON_CMD!"=="" (
-            if exist "%ProgramFiles%\%%P\python.exe" (
-                "%ProgramFiles%\%%P\python.exe" --version >nul 2>&1
-                if !errorlevel! equ 0 set "PYTHON_CMD=%ProgramFiles%\%%P\python.exe"
-            )
-        )
-    )
-)
-
-if "!PYTHON_CMD!"=="" (
+call "%~dp0_detect-python.bat"
+if errorlevel 1 (
     echo   WARNING: Python is not installed or not found.
     echo   Python AI modules will not work without it.
     echo   Download from: https://www.python.org/downloads/

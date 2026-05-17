@@ -1,32 +1,19 @@
 @echo off
 REM ================================================================
-REM   ATS -- Live feature dashboard
+REM   ATS -- One-screen health snapshot (wraps startup\status.py)
 REM
-REM   Usage:  startup\watch-features.bat crudeoil
-REM           startup\watch-features.bat nifty50 --full
+REM   Usage:  startup\ats-status.bat
+REM
+REM   Exit codes:
+REM     0  - API server up AND >=1 live TFA recorder running
+REM     1  - degraded or down (or Python missing)
 REM ================================================================
 
 setlocal EnableDelayedExpansion
 
+REM --- Go to project root ---
 set "ROOT=%~dp0..\"
 cd /d "%ROOT%"
-
-set INSTRUMENT=%~1
-if "%INSTRUMENT%"=="" (
-    echo.
-    echo   Usage:  startup\watch-features.bat ^<instrument^> [options]
-    echo.
-    pause
-    exit /b 1
-)
-
-set EXTRA_ARGS=
-:args_loop
-shift
-if not "%~1"=="" (
-    set "EXTRA_ARGS=!EXTRA_ARGS! %~1"
-    goto args_loop
-)
 
 REM --- Detect Python ---
 call "%~dp0_detect-python.bat"
@@ -41,4 +28,5 @@ if errorlevel 1 (
 set PYTHONIOENCODING=utf-8
 chcp 65001 >nul 2>&1
 
-%PYTHON_CMD% watch_features.py %INSTRUMENT% !EXTRA_ARGS!
+"%PYTHON_CMD%" startup\status.py
+exit /b !errorlevel!

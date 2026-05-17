@@ -492,12 +492,12 @@ def run_one_date(
             "REPLAY_DATE_COMPLETE",
             msg=f"{instrument} {date_str}: {verdict.upper()} "
             f"({adapter.underlying_tick_count} ticks, "
-            f"{event_count} events)",
+            f"{event_idx} events)",
             instrument=instrument,
             date=date_str,
             verdict=verdict,
             underlying_ticks=adapter.underlying_tick_count,
-            event_count=event_count,
+            event_count=event_idx,
         )
 
     return verdict
