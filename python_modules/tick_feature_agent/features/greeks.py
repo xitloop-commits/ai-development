@@ -27,6 +27,20 @@ Why these:
 Null rules:
     Any required input missing/invalid (None, NaN, ≤0 for spot/strike/T,
     IV not in (0, 5)) → NaN for the affected output.
+
+C9 IV velocity (compute_iv_velocity_features):
+    Adds 4 features describing how ATM IV is *moving* (not just where it
+    sits). Lets the trend/swing gate distinguish drifting IV from
+    exploding IV and from panic-without-spot-move:
+        iv_change_1min               Change in ATM CE IV over 1 min (decimal)
+        iv_change_5min               Same over 5 min
+        iv_skew_velocity             Δ(atm_pe_iv − atm_ce_iv) over 5 min
+        iv_expansion_without_spot    max(|Δce|, |Δpe|) / |Δspot %| over 5 min
+                                     — NaN when |Δspot %| < 0.05% to keep
+                                     the ratio numerically stable.
+    Operates on a caller-maintained history buffer of
+    (ts, atm_ce_iv_decimal, atm_pe_iv_decimal, spot) snapshots, the
+    same shape india_vix.py / dealer_hedging.py expect.
 """
 
 from __future__ import annotations
@@ -219,5 +233,171 @@ def compute_greek_features(
             out["atm_gamma"] = _gamma
         if math.isnan(out["atm_vega"]):
             out["atm_vega"] = _vega
+
+    return out
+
+
+# ── C9 IV velocity ────────────────────────────────────────────────────────
+
+_ONE_MIN_SEC = 60.0
+_FIVE_MIN_SEC = 300.0
+_BASELINE_TOLERANCE_SEC = 60.0
+_MIN_SPOT_PCT_FOR_EXPANSION = 0.05  # 5 bps — below this the ratio is unstable
+
+
+def _safe_iv_decimal(v) -> float | None:
+    """ATM IV in DECIMAL form (e.g. 0.18). Sanity range: (0, 5)."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(f) or f <= 0 or f >= 5.0:
+        return None
+    return f
+
+
+def _safe_finite(v) -> float | None:
+    """Generic finite-float coercion. Used for ts + spot in the history."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(f):
+        return None
+    return f
+
+
+def _latest_at_or_before(
+    iv_history: list[tuple[float, float, float, float]],
+    target_ts: float,
+    tolerance_sec: float | None,
+) -> tuple[float, float, float, float] | None:
+    """
+    Walk `iv_history` newest → oldest and return the first row whose ts is
+    finite, > 0, ≤ target_ts, and whose ce_iv / pe_iv / spot are all valid.
+
+    If `tolerance_sec` is not None, also require (target_ts − ts) ≤ tolerance.
+    When the freshest candidate is beyond tolerance we stop scanning — older
+    rows can only be staler, so a hit upstream is impossible.
+
+    Rows with invalid fields are skipped silently (consistent with
+    india_vix.py).
+    """
+    for ts, ce_iv, pe_iv, spot in reversed(iv_history):
+        ts_v = _safe_finite(ts)
+        if ts_v is None or ts_v <= 0 or ts_v > target_ts:
+            continue
+        if tolerance_sec is not None and (target_ts - ts_v) > tolerance_sec:
+            # The newest candidate we can reach is already too stale; older
+            # rows are even staler, so abandon the search.
+            return None
+        ce_v = _safe_iv_decimal(ce_iv)
+        pe_v = _safe_iv_decimal(pe_iv)
+        spot_v = _safe_finite(spot)
+        if ce_v is None or pe_v is None or spot_v is None or spot_v <= 0:
+            # Row is corrupt; keep scanning further back.
+            continue
+        return ts_v, ce_v, pe_v, spot_v
+    return None
+
+
+def compute_iv_velocity_features(
+    iv_history: list[tuple[float, float, float, float]] | None,
+    now_ts: float | None,
+) -> dict[str, float]:
+    """
+    Compute the 4 C9 IV-velocity features.
+
+    Args:
+        iv_history: list of (ts_epoch_seconds, atm_ce_iv_decimal,
+                    atm_pe_iv_decimal, underlying_spot) sorted oldest →
+                    newest. All four fields per row; rows with any
+                    missing / non-finite field are skipped silently.
+                    IV is DECIMAL (0.18, not 18.0) — matches the
+                    `atm_ce_iv` / `atm_pe_iv` already published by
+                    compute_greek_features().
+        now_ts:     current epoch second.
+
+    Returns:
+        Dict with 4 float keys:
+            iv_change_1min               Δ atm_ce_iv over 1 min
+            iv_change_5min               Δ atm_ce_iv over 5 min
+            iv_skew_velocity             Δ (atm_pe_iv − atm_ce_iv) over 5 min
+            iv_expansion_without_spot    max(|Δce_5m|, |Δpe_5m|) / |Δspot %|
+                                         NaN when |Δspot %| < 0.05%.
+
+    Null rules:
+        - history None / empty                 → all 4 NaN.
+        - now_ts invalid                       → all 4 NaN.
+        - no current row at-or-before now_ts   → all 4 NaN.
+        - 1-min baseline missing / stale       → iv_change_1min NaN
+                                                 (5-min outputs may still
+                                                 compute).
+        - 5-min baseline missing / stale       → iv_change_5min,
+                                                 iv_skew_velocity,
+                                                 iv_expansion_without_spot
+                                                 all NaN.
+        - 5-min |Δspot %| < 0.05%              → iv_expansion_without_spot
+                                                 NaN.
+    """
+    out: dict[str, float] = {
+        "iv_change_1min": _NAN,
+        "iv_change_5min": _NAN,
+        "iv_skew_velocity": _NAN,
+        "iv_expansion_without_spot": _NAN,
+    }
+
+    now_v = _safe_finite(now_ts)
+    if now_v is None or now_v <= 0 or not iv_history:
+        return out
+
+    # "current" = latest valid row at-or-before now_ts. No tolerance bound
+    # on the current snapshot — the feature is dominated by the relative
+    # change, not the freshness of the latest tick (caller decides how
+    # stale "now" can be).
+    current = _latest_at_or_before(iv_history, now_v, tolerance_sec=None)
+    if current is None:
+        return out
+    _cur_ts, cur_ce, cur_pe, cur_spot = current
+
+    # 1-minute baseline → iv_change_1min only.
+    base_1m = _latest_at_or_before(
+        iv_history,
+        now_v - _ONE_MIN_SEC,
+        tolerance_sec=_BASELINE_TOLERANCE_SEC,
+    )
+    if base_1m is not None:
+        _b_ts, b_ce, _b_pe, _b_spot = base_1m
+        out["iv_change_1min"] = cur_ce - b_ce
+
+    # 5-minute baseline → iv_change_5min, iv_skew_velocity,
+    # iv_expansion_without_spot all share this lookup.
+    base_5m = _latest_at_or_before(
+        iv_history,
+        now_v - _FIVE_MIN_SEC,
+        tolerance_sec=_BASELINE_TOLERANCE_SEC,
+    )
+    if base_5m is None:
+        return out
+    _b5_ts, b5_ce, b5_pe, b5_spot = base_5m
+
+    d_ce = cur_ce - b5_ce
+    d_pe = cur_pe - b5_pe
+    out["iv_change_5min"] = d_ce
+    # Δ(pe − ce) = Δpe − Δce; identical to (now_skew − base_skew).
+    out["iv_skew_velocity"] = d_pe - d_ce
+
+    # iv_expansion_without_spot: max IV expansion magnitude per 1% of
+    # spot move. Big number = IV exploded while spot barely moved (panic
+    # flow / event re-pricing).
+    if b5_spot > 0:
+        spot_pct_change = (cur_spot - b5_spot) / b5_spot * 100.0
+        if math.isfinite(spot_pct_change) and abs(spot_pct_change) >= _MIN_SPOT_PCT_FOR_EXPANSION:
+            iv_expansion = max(abs(d_ce), abs(d_pe))
+            out["iv_expansion_without_spot"] = iv_expansion / abs(spot_pct_change)
 
     return out

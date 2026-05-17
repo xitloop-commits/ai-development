@@ -31,6 +31,22 @@ C1 additions (spec §2.1.4 C1):
                                           +ve = put load rising (bearish drift),
                                           −ve = call load rising (bullish drift).
 
+C1 wall-strength + OI-delta additions (V2_MASTER_SPEC §2.5 trend exits):
+    compute_wall_strength(chain_rows) → 2 features:
+        ce_wall_strength_rel              max(callOI across strikes) / mean(callOI).
+                                          1.0 = flat distribution; >1.0 = concentrated
+                                          call wall (resistance). NaN with < 2 valid
+                                          strikes or zero mean.
+        pe_wall_strength_rel              Mirror for puts (support concentration).
+
+    compute_oi_change_deltas(oi_history, now_ts) → 6 features:
+        ce_oi_change_5min_pct             %-change of total call OI vs ~5/15/60 min
+        pe_oi_change_5min_pct             ago, drawn from a caller-maintained
+        ce_oi_change_15min_pct            (ts, total_call_oi, total_put_oi) history.
+        pe_oi_change_15min_pct            Tolerances: 60s/90s/180s for 5/15/60-min.
+        ce_oi_change_60min_pct            NaN per-window if baseline missing or
+        pe_oi_change_60min_pct            stale; NaN per-side if baseline OI == 0.
+
 Wire format:
     In the flat NDJSON output (Phase 9) all chain features carry the `chain_`
     prefix (e.g. `pcr_global` → `chain_pcr_global`).  The prefix is applied
@@ -44,6 +60,10 @@ Null rule:
     OI-weighted strikes are NaN when the relevant side's total OI is 0.
     pcr_intraday_slope_30min is NaN with fewer than 2 valid history samples
     in the 30-min window.
+    Wall-strength is NaN when < 2 valid strikes contribute on a side or the
+    mean is 0; per-side independent.
+    OI-change %s are NaN when the per-window baseline is missing/stale or the
+    baseline OI is 0 (can't divide); per-window and per-side independent.
 """
 
 from __future__ import annotations
@@ -56,6 +76,14 @@ from tick_feature_agent.chain_cache import ChainCache
 _NAN = float("nan")
 _PCR_WINDOW_SEC = 30 * 60  # 30 minutes
 _SECONDS_PER_MINUTE = 60.0
+
+# OI-delta windows: (lookback_sec, tolerance_sec) for 5/15/60-min snapshots.
+_OI_DELTA_WINDOWS_SEC = (
+    (300, 60),
+    (900, 90),
+    (3600, 180),
+)
+_OI_DELTA_LABELS = ("5min", "15min", "60min")
 
 
 def compute_chain_features(cache: ChainCache) -> dict:
@@ -208,4 +236,156 @@ def compute_pcr_slope(
 
     slope_per_sec = num / den
     out["pcr_intraday_slope_30min"] = slope_per_sec * _SECONDS_PER_MINUTE
+    return out
+
+
+def compute_wall_strength(chain_rows: Iterable[dict] | None) -> dict[str, float]:
+    """
+    Compute relative OI-wall strength on each side (C1 trend-exit input).
+
+    Formula per side:
+        wall_strength_rel = max(OI across strikes) / mean(OI across strikes)
+
+    Bounded below by 1.0 (perfectly flat). Larger value = more concentrated
+    wall. Strikes with OI ≤ 0 (or malformed) are excluded from both the
+    numerator and the denominator on that side.
+
+    NaN when fewer than 2 valid strikes contribute on the side or the mean
+    is 0. The two sides are independent.
+    """
+    out: dict[str, float] = {
+        "ce_wall_strength_rel": _NAN,
+        "pe_wall_strength_rel": _NAN,
+    }
+    if chain_rows is None:
+        return out
+
+    ce_oi: list[float] = []
+    pe_oi: list[float] = []
+    for row in chain_rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            c_oi = float(row.get("callOI") or 0)
+        except (TypeError, ValueError):
+            c_oi = _NAN
+        try:
+            p_oi = float(row.get("putOI") or 0)
+        except (TypeError, ValueError):
+            p_oi = _NAN
+        if math.isfinite(c_oi) and c_oi > 0:
+            ce_oi.append(c_oi)
+        if math.isfinite(p_oi) and p_oi > 0:
+            pe_oi.append(p_oi)
+
+    if len(ce_oi) >= 2:
+        mean_ce = sum(ce_oi) / len(ce_oi)
+        if mean_ce > 0:
+            out["ce_wall_strength_rel"] = max(ce_oi) / mean_ce
+    if len(pe_oi) >= 2:
+        mean_pe = sum(pe_oi) / len(pe_oi)
+        if mean_pe > 0:
+            out["pe_wall_strength_rel"] = max(pe_oi) / mean_pe
+    return out
+
+
+def _safe_finite(v) -> float | None:
+    """Coerce to float and reject NaN/Inf. Returns None on failure."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(f):
+        return None
+    return f
+
+
+def compute_oi_change_deltas(
+    oi_history: list[tuple[float, float, float]] | None,
+    now_ts: float | None,
+) -> dict[str, float]:
+    """
+    Compute %-change of total call/put OI over 5/15/60-min windows.
+
+    Args:
+        oi_history: list of (ts_epoch_seconds, total_call_oi, total_put_oi)
+                    snapshots, oldest → newest. Caller (chain_cache or
+                    tick_processor) maintains this buffer.
+        now_ts:     current epoch second.
+
+    For each (lookback_sec, tolerance_sec) window in _OI_DELTA_WINDOWS_SEC:
+        target = now_ts - lookback_sec
+        baseline = latest snapshot at-or-before target, within tolerance_sec.
+        ce_pct  = (current_call_oi - baseline_call_oi) / baseline_call_oi * 100
+        pe_pct  = (current_put_oi  - baseline_put_oi)  / baseline_put_oi  * 100
+
+    NaN rules:
+        - history None/empty/single-sample → all 6 NaN.
+        - now_ts None / non-finite / non-numeric → all 6 NaN.
+        - baseline missing within tolerance for a window → that window's 2 NaN.
+        - baseline OI == 0 on a side → that side's % NaN (can't divide).
+    """
+    out: dict[str, float] = {
+        f"{side}_oi_change_{label}_pct": _NAN
+        for label in _OI_DELTA_LABELS
+        for side in ("ce", "pe")
+    }
+
+    now_v = _safe_finite(now_ts)
+    if now_v is None or not oi_history:
+        return out
+
+    # Find the latest valid snapshot at-or-before now_ts. This drives the
+    # numerator for every window. Walk backward — the tail is usually it.
+    current_call: float | None = None
+    current_put: float | None = None
+    for sample in reversed(oi_history):
+        if not isinstance(sample, tuple) or len(sample) != 3:
+            continue
+        ts_v = _safe_finite(sample[0])
+        if ts_v is None or ts_v > now_v:
+            continue
+        c_oi = _safe_finite(sample[1])
+        p_oi = _safe_finite(sample[2])
+        if c_oi is None or p_oi is None:
+            continue
+        current_call = c_oi
+        current_put = p_oi
+        break
+
+    if current_call is None or current_put is None:
+        return out
+
+    for (lookback_sec, tol_sec), label in zip(_OI_DELTA_WINDOWS_SEC, _OI_DELTA_LABELS):
+        target_ts = now_v - float(lookback_sec)
+        baseline_call: float | None = None
+        baseline_put: float | None = None
+        for sample in reversed(oi_history):
+            if not isinstance(sample, tuple) or len(sample) != 3:
+                continue
+            ts_v = _safe_finite(sample[0])
+            if ts_v is None or ts_v > target_ts:
+                continue
+            # First sample at-or-before target_ts. Check tolerance.
+            if target_ts - ts_v > float(tol_sec):
+                break  # too stale — leave NaN for this window
+            c_oi = _safe_finite(sample[1])
+            p_oi = _safe_finite(sample[2])
+            if c_oi is None or p_oi is None:
+                break
+            baseline_call = c_oi
+            baseline_put = p_oi
+            break
+
+        if baseline_call is not None and baseline_call > 0:
+            out[f"ce_oi_change_{label}_pct"] = (
+                (current_call - baseline_call) / baseline_call * 100.0
+            )
+        if baseline_put is not None and baseline_put > 0:
+            out[f"pe_oi_change_{label}_pct"] = (
+                (current_put - baseline_put) / baseline_put * 100.0
+            )
+
     return out

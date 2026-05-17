@@ -19,6 +19,14 @@ Max-pain features (C10, spec §2.1.4):
     distance_to_max_pain_pct           Signed % distance from spot to max-pain strike
     max_pain_gravity_strength          OI within ±2% of max-pain ÷ total chain OI ∈ [0, 1]
 
+Cross-day-state level features (B5, spec §2.1.3):
+    distance_to_prev_day_high_pct      (spot − prev_day_high) / spot * 100
+    distance_to_prev_day_low_pct       (spot − prev_day_low)  / spot * 100
+    distance_to_round_number_above_pct (spot − nearest_round_above) / spot * 100  (≤ 0)
+    distance_to_round_number_below_pct (spot − nearest_round_below) / spot * 100  (≥ 0)
+    distance_to_5d_swing_high_pct      (spot − swing_5d_high) / spot * 100
+    distance_to_5d_swing_low_pct       (spot − swing_5d_low)  / spot * 100
+
 Sign convention:
     distance_to_X_pct < 0  → spot is BELOW level X
     distance_to_X_pct = 0  → spot is AT level X
@@ -216,5 +224,92 @@ def compute_max_pain_features(
             if abs(k - best_strike) <= band_half_width
         )
         out["max_pain_gravity_strength"] = nearby_oi / total_oi
+
+    return out
+
+
+def compute_cross_day_level_features(
+    spot: float | None,
+    prev_day_high: float | None,
+    prev_day_low: float | None,
+    swing_5d_high: float | None,
+    swing_5d_low: float | None,
+    round_number_step: int | float | None,
+) -> dict[str, float]:
+    """
+    Compute 6 cross-day-state level features (B5, spec §2.1.3).
+
+    Adds awareness of:
+      • Previous trading day's extremes (carry-over S/R for gap/open logic)
+      • Multi-day swing pivots over the last 5 trading days
+      • Round-number levels (psychological S/R) at instrument-specific steps
+
+    All outputs are signed % distances using spot as the denominator. The
+    sign convention mirrors the rest of this module:
+        > 0 → spot is ABOVE the level
+        < 0 → spot is BELOW the level
+        = 0 → spot is AT the level
+
+    Round-number computation:
+        nearest_round_above = smallest multiple of round_number_step ≥ spot
+        nearest_round_below = largest  multiple of round_number_step ≤ spot
+        When spot lands exactly on a round number, both distances are 0.
+
+    Args:
+        spot:               Current underlying spot price.
+        prev_day_high:      Previous trading day's high.
+        prev_day_low:       Previous trading day's low.
+        swing_5d_high:      Highest high over the last 5 trading days.
+        swing_5d_low:       Lowest low over the last 5 trading days.
+        round_number_step:  Instrument-specific psychological step
+                            (e.g. 100 for NIFTY, 1000 for BANKNIFTY,
+                            100 for CRUDEOIL, 10 for NATURALGAS). Caller
+                            supplies from the InstrumentProfile.
+
+    Null rules:
+        spot missing or ≤ 0 → all 6 features NaN.
+        Any other single missing / non-positive input → only the feature(s)
+        depending on it are NaN; the rest compute normally.
+        round_number_step missing or ≤ 0 → only the 2 round-number features
+        are NaN; the other 4 compute fine.
+
+    Returns:
+        Dict with 6 keys, all floats. NaN where input is missing.
+    """
+    out: dict[str, float] = {
+        "distance_to_prev_day_high_pct": _NAN,
+        "distance_to_prev_day_low_pct": _NAN,
+        "distance_to_round_number_above_pct": _NAN,
+        "distance_to_round_number_below_pct": _NAN,
+        "distance_to_5d_swing_high_pct": _NAN,
+        "distance_to_5d_swing_low_pct": _NAN,
+    }
+
+    spot_pos = _safe_pos(spot)
+    if spot_pos is None:
+        return out
+
+    pdh_pos = _safe_pos(prev_day_high)
+    pdl_pos = _safe_pos(prev_day_low)
+    sh_pos = _safe_pos(swing_5d_high)
+    sl_pos = _safe_pos(swing_5d_low)
+    step_pos = _safe_pos(round_number_step)
+
+    if pdh_pos is not None:
+        out["distance_to_prev_day_high_pct"] = (spot_pos - pdh_pos) / spot_pos * 100.0
+    if pdl_pos is not None:
+        out["distance_to_prev_day_low_pct"] = (spot_pos - pdl_pos) / spot_pos * 100.0
+    if sh_pos is not None:
+        out["distance_to_5d_swing_high_pct"] = (spot_pos - sh_pos) / spot_pos * 100.0
+    if sl_pos is not None:
+        out["distance_to_5d_swing_low_pct"] = (spot_pos - sl_pos) / spot_pos * 100.0
+
+    if step_pos is not None:
+        # math.ceil/floor of spot/step gives the multiple count; multiply
+        # back by step to land on the nearest round number on each side.
+        nearest_above = math.ceil(spot_pos / step_pos) * step_pos
+        nearest_below = math.floor(spot_pos / step_pos) * step_pos
+        out["distance_to_round_number_above_pct"] = (spot_pos - nearest_above) / spot_pos * 100.0
+        out["distance_to_round_number_below_pct"] = (spot_pos - nearest_below) / spot_pos * 100.0
 
     return out

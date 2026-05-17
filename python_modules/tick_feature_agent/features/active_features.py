@@ -37,8 +37,9 @@ Null rules:
     Empty slots = NaN for all 24 fields.
 
 Public API:
-    compute_side_strengths()     — call/put strengths for all strikes in snapshot
-    compute_active_features()    — full §8.6–8.7 output dict (148 keys)
+    compute_side_strengths()              — call/put strengths for all strikes in snapshot
+    compute_active_features()             — full §8.6–8.7 output dict (148 keys)
+    compute_strike_rotation_features()    — C7 strike-rotation flow features (3 outputs)
 """
 
 from __future__ import annotations
@@ -384,5 +385,207 @@ def compute_active_features(
     if any_active:
         out["premium_divergence"] = call_pm_sum - put_pm_sum
     # else: remains NaN
+
+    return out
+
+
+# ── C7 Strike-rotation flow features ──────────────────────────────────────────
+#
+# These describe how the centre of mass of active-strike OI is rotating
+# through the strike grid, and whether OI flow is bleeding from ATM toward
+# OTM strikes (conviction breakout) or piling up at ATM (consolidation).
+#
+# Mirror of india_vix.py / dealer_hedging.py history-buffer pattern: caller
+# maintains a tiny ring of (ts, snapshot_rows) and we pick a 5-min baseline
+# within 60 s tolerance.
+
+
+_C7_FIVE_MIN_SEC = 300.0
+_C7_BASELINE_TOLERANCE_SEC = 60.0
+
+
+def _c7_safe_ts(v) -> float | None:
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(f) or f <= 0:
+        return None
+    return f
+
+
+def _c7_center_of_mass(rows: list[dict] | None) -> float | None:
+    """
+    Σ (strike · (callOI + putOI)) / Σ (callOI + putOI).
+
+    Returns None if rows is empty / total combined OI is ≤ 0 / all malformed.
+    """
+    if not rows:
+        return None
+    num = 0.0
+    den = 0.0
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        try:
+            strike = float(r.get("strike"))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(strike):
+            continue
+        try:
+            c_oi = float(r.get("callOI", 0) or 0)
+            p_oi = float(r.get("putOI", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if not (math.isfinite(c_oi) and math.isfinite(p_oi)):
+            continue
+        # Clamp negatives — OI is non-negative by definition.
+        if c_oi < 0:
+            c_oi = 0.0
+        if p_oi < 0:
+            p_oi = 0.0
+        total = c_oi + p_oi
+        if total <= 0:
+            continue
+        num += strike * total
+        den += total
+    if den <= 0:
+        return None
+    return num / den
+
+
+def compute_strike_rotation_features(
+    active_strike_history: list[tuple[float, list[dict]]] | None,
+    atm_strike: int | None,
+    strike_step: int | None,
+    now_ts: float | None,
+) -> dict[str, float]:
+    """
+    Compute the 3 C7 strike-rotation features.
+
+    Args:
+        active_strike_history: Caller-maintained list of (ts, snapshot_rows)
+                               pairs sorted oldest → newest. Each
+                               snapshot_rows is a list of chain rows with at
+                               minimum strike / callOI / putOI / callOIChange
+                               / putOIChange — same shape as
+                               ChainSnapshot.rows.
+        atm_strike:            Current ATM strike (int).
+        strike_step:           Strike grid step (int, > 0).
+        now_ts:                Current epoch second.
+
+    Returns:
+        Dict with 3 keys:
+            active_strike_shift_direction  ∈ {−1, 0, +1} or NaN
+            active_strike_shift_velocity   signed magnitude / strike_step or NaN
+            atm_to_otm_flow_ratio          otm_oi_change / atm_oi_change or NaN
+
+    Null rules:
+        history None/empty, atm_strike None, strike_step None / ≤ 0, now_ts
+            invalid  → all three NaN.
+        no baseline within 60s of (now_ts − 300s) → direction + velocity NaN,
+            ratio may still be finite from current snapshot alone.
+        empty current snapshot → all three NaN.
+    """
+    out: dict[str, float] = {
+        "active_strike_shift_direction": _NAN,
+        "active_strike_shift_velocity": _NAN,
+        "atm_to_otm_flow_ratio": _NAN,
+    }
+
+    now_v = _c7_safe_ts(now_ts)
+    if (
+        now_v is None
+        or not active_strike_history
+        or atm_strike is None
+        or strike_step is None
+    ):
+        return out
+    try:
+        step_v = float(strike_step)
+    except (TypeError, ValueError):
+        return out
+    if not math.isfinite(step_v) or step_v <= 0:
+        return out
+    try:
+        atm_v = float(atm_strike)
+    except (TypeError, ValueError):
+        return out
+    if not math.isfinite(atm_v):
+        return out
+
+    # ── Find current snapshot: latest (ts, rows) at-or-before now_ts ─────────
+    current_rows: list[dict] | None = None
+    for ts, rows in reversed(active_strike_history):
+        ts_v = _c7_safe_ts(ts)
+        if ts_v is None or ts_v > now_v:
+            continue
+        current_rows = rows if rows else None
+        if current_rows is not None:
+            break
+    if current_rows is None:
+        return out
+
+    current_com = _c7_center_of_mass(current_rows)
+
+    # ── Find baseline: latest (ts, rows) at-or-before (now_ts − 300s) ────────
+    target_ts = now_v - _C7_FIVE_MIN_SEC
+    baseline_com: float | None = None
+    for ts, rows in reversed(active_strike_history):
+        ts_v = _c7_safe_ts(ts)
+        if ts_v is None or ts_v > target_ts:
+            continue
+        # First sample at-or-before target_ts. Check freshness.
+        if target_ts - ts_v > _C7_BASELINE_TOLERANCE_SEC:
+            break  # too stale — leave NaN
+        baseline_com = _c7_center_of_mass(rows)
+        break
+
+    # ── Shift direction + velocity ───────────────────────────────────────────
+    if current_com is not None and baseline_com is not None:
+        shift_pts = current_com - baseline_com
+        if shift_pts > 0:
+            out["active_strike_shift_direction"] = 1.0
+        elif shift_pts < 0:
+            out["active_strike_shift_direction"] = -1.0
+        else:
+            out["active_strike_shift_direction"] = 0.0
+        out["active_strike_shift_velocity"] = shift_pts / step_v
+
+    # ── ATM-to-OTM flow ratio (uses CURRENT snapshot only) ───────────────────
+    # ATM cluster = strikes within ±strike_step of atm_strike.
+    # OTM cluster = all other strikes in the current snapshot.
+    atm_oi_change = 0.0
+    otm_oi_change = 0.0
+    atm_lo = atm_v - step_v
+    atm_hi = atm_v + step_v
+    for r in current_rows:
+        if not isinstance(r, dict):
+            continue
+        try:
+            strike = float(r.get("strike"))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(strike):
+            continue
+        try:
+            c_chg = float(r.get("callOIChange", 0) or 0)
+            p_chg = float(r.get("putOIChange", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if not (math.isfinite(c_chg) and math.isfinite(p_chg)):
+            continue
+        contrib = abs(c_chg) + abs(p_chg)
+        if atm_lo <= strike <= atm_hi:
+            atm_oi_change += contrib
+        else:
+            otm_oi_change += contrib
+
+    if atm_oi_change > 0:
+        out["atm_to_otm_flow_ratio"] = otm_oi_change / atm_oi_change
+    # else: remains NaN per spec ("NaN when ATM denominator is 0").
 
     return out
