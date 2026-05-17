@@ -16,7 +16,8 @@
 │                       ├─→ data/features/<date>/<inst>_features.parquet  │
 │                       │       │                                         │
 │                       │       └─→ MTA (offline retrain Sat 02:00)       │
-│                       │           ├─ L2 targets (72 heads/inst)         │
+│                       │           ├─ L2 targets (84 heads/inst:         │
+│                       │           │     60 scalp + 12 trend + 12 swing) │
 │                       │           ├─ L3 LightGBM training               │
 │                       │           ├─ 5-fold walk-forward holdout        │
 │                       │           ├─ Sim-PnL (§2.3.4) decision threshold│
@@ -73,7 +74,7 @@ The Wave 2 model (targets at 60–300s, magnitude ~5–9 INR) is verified to be 
 - LightGBM stays — no transformer/LSTM pivot this iteration.
 - Wave 2 scalp model stays as a **backup** signal layer (do not delete).
 - Holdout-protected validation, ≥30 sessions before retrain.
-- Swing-trade capability (1–3 day hold) is deferred to T7 in PROJECT_TODO — DO NOT bolt onto v2.
+- ~~Swing-trade capability (1–3 day hold) is deferred to T7~~ → **REVISED 2026-05-17 (§9 D55):** Swing IS in v2, but redefined as **intra-session 30 min - 2 hr hold** (NOT overnight — option theta risk). Targets at 3600s/7200s horizons. Three layers (scalp/trend/swing) feed a 3-way ensemble combinator. Multi-day holds remain out of scope.
 
 ### 1.3 Success criteria for v2 model
 
@@ -124,7 +125,7 @@ The Wave 2 model (targets at 60–300s, magnitude ~5–9 INR) is verified to be 
 - Does NOT change LightGBM choice.
 - Does NOT introduce ML position sizing (Kelly etc.) in v1.
 - Does NOT introduce ML regime classification in v1 — rules first.
-- Does NOT commit to swing trades — see T7 in PROJECT_TODO.
+- ~~Does NOT commit to swing trades~~ → **REVISED 2026-05-17 (§9 D55):** Intra-session swing (30 min - 2 hr) IS included. Multi-day / overnight holds remain OUT (option theta + gamma risk).
 
 ---
 
@@ -134,14 +135,14 @@ The Wave 2 model (targets at 60–300s, magnitude ~5–9 INR) is verified to be 
 
 | # | Layer | Status | Source section |
 |---|---|---|---|
-| 1 | Input features | **RE-LOCKED 2026-05-17 by Partha** — B5 added (8 features), all sub-decisions D51/D52/D48b-d resolved; 444 active features | §2.1 |
-| 2 | Target labels | **LOCKED 2026-05-16 by Partha** (12 trend targets locked; 600s dropped per L1 D6) | §2.2 |
-| 3 | Model architecture | **LOCKED 2026-05-16 by Partha** (all 4 L3 decisions resolved: booster topology, hyperparameters, early stopping, per-instrument training) | §2.3 |
-| 4 | Gate logic | **LOCKED 2026-05-16 by Partha** (6 decisions resolved; L1+L2 now locked, dependency satisfied) | §2.4 |
-| 5 | Trade management | **LOCKED 2026-05-16 by Partha** (4 decisions: 2-tier trail, TP/SL lock at entry, 2-stop-out lockout, market fills) | §2.5 |
-| 6 | Position sizing | **LOCKED 2026-05-16 by Partha** (5 decisions: hybrid risk budget, equal sizing v1, portfolio cap 2.5×, uniform formula, naturalgas lot=1250) | §2.6 |
-| 7 | Risk controls | **LOCKED 2026-05-16 by Partha** (6 decisions: hooks, reset cadence, rolling DD, paper/live toggle, expiry handling, per-instrument numbers) | §2.7 |
-| 8 | Regime / meta | **LOCKED 2026-05-16 by Partha** (4 decisions: thresholds, time-of-day via L1 features, look-ahead test, learned classifier deferred) | §2.8 |
+| 1 | Input features | **RE-LOCKED 2026-05-17 by Partha** — B5 added (8 features); 444 active features. Swing addition uses same feature set — no L1 change | §2.1 |
+| 2 | Target labels | **RE-OPENED 2026-05-17 by Partha** — adding 12 swing targets (3600s + 7200s × 6 types) per §9 D55. 24 new target heads total (was 12). Re-lock after swing noise-floor sub-decisions resolved | §2.2 |
+| 3 | Model architecture | **LOCKED 2026-05-16** (config unchanged; head count grows from 72 → 84 per instrument purely as a swing target addition — same training pipeline) | §2.3 |
+| 4 | Gate logic | **RE-OPENED 2026-05-17 by Partha** — adding `decide_action_swing` + extending ensemble to 3-way per §9 D55 | §2.4 |
+| 5 | Trade management | **RE-OPENED 2026-05-17 by Partha** — adding swing-specific exits (longer trail, 2-hr time-stop, hourly OI patterns) per §9 D55 | §2.5 |
+| 6 | Position sizing | **LOCKED 2026-05-16** (formula scales to swing automatically via larger predicted magnitude → larger size) | §2.6 |
+| 7 | Risk controls | **RE-OPENED 2026-05-17 by Partha** — adding concurrent-position cap "1 swing + 1 trend + 1 scalp per instrument" per §9 D55 | §2.7 |
+| 8 | Regime / meta | **RE-OPENED 2026-05-17 by Partha** — swing gate requires stricter regime (ADX ≥ 30 vs trend's ≥ 25) per §9 D55 | §2.8 |
 
 Suggested deep-dive order: **4 → 5 → 7 → 6 → 8 → revisit 1–3.** Rationale: L4 unblocks paper-trade gate; L5 defines TP/SL semantics L4 depends on; L7 (risk caps) must exist before any live capital; L6 (sizing) needs L7 caps; L8 (regime) is enhancement on working baseline; L1–L3 only revisit if L4–L8 surface a gap.
 
@@ -293,28 +294,35 @@ All tagged ACCEPT / DEFER per L1 D2 review 2026-05-16. 44 accept, 8 defer (→ P
 
 ### 2.2 Layer 2 — Target labels (LOCKED-CANDIDATE)
 
-**v2 direction:** keep existing 60 Wave-2 heads (60/300s scalp). Add **12 trend targets = 6 types × 2 horizons** {900s, 1800s} (600s dropped per L1 D6). Critical: directions labeled positive only when `|Δspot| ≥ noise_floor`.
+**v2 direction:** keep existing 60 Wave-2 heads (60/300s scalp). Add **12 trend targets** + **12 swing targets** (both = 6 types × 2 horizons each). Critical: directions labeled positive only when `|Δspot| ≥ noise_floor`.
 
-#### 2.2.1 Trend horizons
+#### 2.2.1 Horizons by layer
 
-| Window | Use case |
-|---|---|
-| ~~600s (10 min)~~ | **DROPPED** (L1 D6 lock 2026-05-16 — redundant between 300s scalp and 900s trend) |
-| 900s (15 min) | Standard trend trade |
-| 1800s (30 min) | Sustained-trend trade (rare, high conviction) |
+| Layer | Horizons | Hold time | Setup type |
+|---|---|---|---|
+| Scalp (existing Wave 2) | 60s, 300s | 30s - 2 min | Day-extreme reversals, microstructure |
+| Trend (v2) | 900s (15 min), 1800s (30 min) | 5 - 30 min | Multi-bar trend continuation / breakout |
+| **Swing (v2, added 2026-05-17)** | **3600s (1 hr), 7200s (2 hr)** | **30 min - 2 hrs** | **Sustained multi-trend-window moves** |
+| ~~600s (10 min)~~ | DROPPED (L1 D6, 2026-05-16) | — | redundant between 300s scalp and 900s trend |
 
-#### 2.2.2 Six target types per window
+Clean horizon separation — each layer's target window matches its intended hold time.
 
-| Target name | Type | Definition |
+#### 2.2.2 Six target types per window (same shape for trend AND swing)
+
+| Target name pattern | Type | Definition |
 |---|---|---|
-| `trend_direction_{w}s` | binary | 1 if `spot(t+w) > spot(t) + noise_floor`, else 0 |
-| `trend_magnitude_{w}s` | regression | `spot(t+w) − spot(t)` (signed) |
-| `trend_max_excursion_{w}s` | regression | `max(spot(t..t+w)) − spot(t)` |
-| `trend_max_drawdown_{w}s` | regression | `spot(t) − min(spot(t..t+w))` |
-| `trend_continues_{w}s` | binary | 1 if direction at `t+w` matches dominant direction of `[t-300s, t]` AND magnitude ≥ noise floor |
-| `trend_breakout_imminent_{w}s` | binary | 1 if max excursion in `[t, t+w]` ≥ 25 pts |
+| `{layer}_direction_{w}s` | binary | 1 if `spot(t+w) > spot(t) + noise_floor`, else 0 |
+| `{layer}_magnitude_{w}s` | regression | `spot(t+w) − spot(t)` (signed) |
+| `{layer}_max_excursion_{w}s` | regression | `max(spot(t..t+w)) − spot(t)` |
+| `{layer}_max_drawdown_{w}s` | regression | `spot(t) − min(spot(t..t+w))` |
+| `{layer}_continues_{w}s` | binary | 1 if direction at `t+w` matches dominant direction of `[t-300s, t]` AND magnitude ≥ noise floor |
+| `{layer}_breakout_imminent_{w}s` | binary | 1 if max excursion in `[t, t+w]` ≥ noise floor × scale (scale=3 for trend, scale=6 for swing) |
 
-**Total new target columns: 6 × 2 = 12** (L1 D6 dropped 600s horizon; only `{900s, 1800s}` retained).
+`{layer}` ∈ `{trend, swing}`. Identical shape — only the horizon and breakout-scale differ.
+
+**Total new target columns: trend 6 × 2 = 12, swing 6 × 2 = 12, GRAND TOTAL = 24.**
+
+**Swing-specific data note:** swing labels need a 7200s (2 hr) forward window → the last 2 hours of each session have no swing labels. Approximately 20% session-time loss for swing heads. Acceptable — still trainable on remaining 80%.
 
 #### 2.2.3 Why the noise floor in labels
 
@@ -346,7 +354,7 @@ Current `direction_60s` labels any positive move as "1." A +2 pt and a +50 pt mo
 
 - Scalping model: 60 heads per instrument (unchanged)
 - Trend model: 12 new heads per instrument (after L1 D6 dropped 600s horizon — was 18)
-- **Total: 72 heads × 4 instruments = 288 LightGBM models** (was 312)
+- **Total: 84 heads × 4 instruments = 336 LightGBM models** (60 scalp + 12 trend + 12 swing, after swing added 2026-05-17)
 
 **Per-head version registry (LOCKED 2026-05-16 — Gap #10 Option B):** Replace single-file `models/<inst>/LATEST` (current text pointer to one timestamp) with `models/<inst>/LATEST_HEADS.json` (72 entries per instrument after L1 D6):
 
@@ -414,7 +422,7 @@ Stored in `config/mta_hyperparams.json` (single file, applies to all instruments
 
 Rationale: sim_pnl inside early-stopping inner loop is impractical (5-10× training time). AUC/RMSE is a cheap, well-calibrated proxy for ranking quality during tree building; sim_pnl gates the final decision after training completes.
 
-**Training granularity (LOCKED 2026-05-16 — L3 D4 Option A):** per-instrument independent training (288 models total = 72 heads × 4 instruments). NO cross-instrument or per-asset-class sharing.
+**Training granularity (LOCKED 2026-05-16 — L3 D4 Option A; head count updated 2026-05-17 for swing addition):** per-instrument independent training (336 models total = 84 heads × 4 instruments). NO cross-instrument or per-asset-class sharing.
 
 Rationale: NSE indices (NIFTY, BANKNIFTY) and MCX commodities (CRUDEOIL, NATURALGAS) have fundamentally different microstructure — different strike grids, liquidity profiles, volatility regimes, tick rates. A shared model would average over these and underperform per-instrument on each. 4× compute cost (offline Sat retrain) is acceptable trade for specialization.
 
@@ -474,7 +482,7 @@ sim_pnl_total = Σ(sim_pnl_per_signal across all signals in holdout)
 
 **Decision threshold (walk-forward, Sugg #5 Option B):** model promoted to paper trade if **mean across 5 walk-forward holdouts** satisfies `sim_pnl_total ≥ wave2_baseline_sim_pnl × 1.20` AND per-trade expectancy ≥ +8 pts (per §1.3). Worst-fold sim_pnl reported separately as a sanity check; if worst-fold < 0, escalate before promotion.
 
-**Walk-forward setup:** 5 holdout windows, each 1 trading week (5 sessions), spaced evenly across the dataset. Training set for fold N = all sessions except that week's holdout. Total compute per validation cycle: 72 heads × 4 instruments × 5 folds = **1440 LightGBM trainings** (~18 hours after L1 D6 dropped 600s).
+**Walk-forward setup:** 5 holdout windows, each 1 trading week (5 sessions), spaced evenly across the dataset. Training set for fold N = all sessions except that week's holdout. Total compute per validation cycle: **84 heads × 4 instruments × 5 folds = 1680 LightGBM trainings** (~19 hours after swing added 2026-05-17 — was 1440 trainings / 18 hours pre-swing).
 
 **Upgrade path:** Migrate to Option D (multi-scenario best/expected/worst) once paper trading produces real fill data — see PROJECT_TODO T9.
 
@@ -508,12 +516,41 @@ This is "Option B" from Gap #1 fix — TP-floor with dynamic costs. Migration to
 - Trend gate: 5 consecutive ticks above θ_dir before firing (~0.5s)
 Rationale: scalping setups can be lost in 1 second, so debounce stays tight. Trend trades have minutes of room — 0.5s of confirmation removes per-tick noise without missing the move.
 
-**Ensemble combinator (LOCKED 2026-05-16 — L4 D3 Option D):** when `gate_mode=wave2+trend` (default per §8.4), per-tick logic:
-- Both gates agree on direction (e.g., both LONG_CE) → fire with parameters from the gate that fired first by dwell (smaller dwell wins → scalping)
-- Gates disagree on direction (e.g., LONG_CE vs SHORT_CE) → **skip** (both gates blocked, log as `disagreement_skip`)
-- Only one gate fires (other says WAIT) → fire on the one that fired, no veto
+**Ensemble combinator (REVISED 2026-05-17 — L4 D3 Option D + I9 fix + 3-way swing extension):** when `gate_mode = wave2+trend+swing` (new default per §8.4 once swing ships), per-tick 3-way logic:
 
-Rationale: agreement across two independent timeframes is a stronger signal than either alone. Disagreement skip eliminates the worst losers (cases where short-term and long-term tell different stories — usually noise). Expected 30-40% reduction in total signal count, win-rate boost on remaining signals.
+| Scenario | Action | Whose parameters (TP/SL) |
+|---|---|---|
+| All 3 agree on direction | FIRE with **highest conviction tier** | **Swing** (longest horizon dominates) |
+| 2 agree (any pair), 3rd silent | FIRE | Longer-horizon of the agreeing pair (trend > scalp; swing > trend; swing > scalp) |
+| 2 agree, 3rd disagrees | **SKIP** (log `disagreement_skip` with which-gate-disagreed) | n/a |
+| Only 1 gate fires (other 2 silent) | FIRE | That gate's parameters |
+| Any two say opposite directions | **SKIP** | n/a |
+
+**Why "longer horizon dominates" (replaces former "first by dwell" rule, I9 fix 2026-05-17):** when both/all timeframes confirm, the trade's *expected duration* is the longest agreeing horizon — TP/SL must match that, otherwise we exit a 30-min trend trade at scalp's 5-pt TP. Former rule made scalp params win because of shorter dwell — broke v2 trades-live-minutes mandate.
+
+**Rationale:** agreement across N independent timeframes is monotonically stronger evidence. Disagreement skip eliminates "two stories" noise. Expected:
+- 2-of-3 agreement fires more often than current 2-of-2 (looser middle ground)
+- 3-of-3 agreement is the high-conviction tier (rare but very high win-rate)
+- Total signal volume: similar to 2-gate, but distribution shifts toward higher-conviction trades
+- Win-rate uplift on the 3-of-3 tier vs 2-of-2 tier expected ~5pp based on independent-evidence math
+
+**Gate-mode evolution path:**
+- `wave2` — scalp only (legacy)
+- `trend` — trend only
+- `wave2+trend` — current default, 2-gate combinator (will become legacy)
+- `wave2+trend+swing` — **new default once swing heads ship**, 3-gate combinator
+
+Per-instrument config can opt-out to a 2-gate mode if swing proves unreliable on a specific instrument; default is full 3-way.
+
+**Swing gate `decide_action_swing` (ADDED 2026-05-17):** AND-gate similar to `decide_action_trend` but tighter:
+- `swing_direction_3600s` prob ≥ θ_swing_dir (per-instrument, default 0.70)
+- `swing_magnitude_3600s` ≥ `noise_floor × 6` (≥ 48 pts for nifty50)
+- `swing_max_drawdown_3600s` ≤ 25 pts (predicted SL below cap, larger than trend's 15 pts)
+- Cooldown since last swing signal ≥ 15 min (vs trend's 5 min — swing commits capital longer)
+- L8 regime `trend_strong` (ADX ≥ 30, stricter than trend's ≥ 25)
+- L1 `trend_age_ticks` not yet at exhaustion threshold
+
+Same dwell-time pattern as trend gate (5 consecutive ticks above threshold).
 
 **TP/SL prediction source (LOCKED 2026-05-16 — L4 D4 Option C):** point estimates from existing target heads, with safety multiplier on SL.
 - TP = entry + `trend_magnitude_{horizon}s` prediction
@@ -566,14 +603,22 @@ elif trend_prob_long <= θ_bias_bearish:  # default 0.35
 
 **What it is:** what happens between signal-emit and position-close — TP/SL, trailing, time-stops, partials.
 
-**v2 trade management — Hybrid static + time + 2-tier trail:**
-- Entry: static TP from `trend_magnitude_900s`, static SL from `trend_max_drawdown_900s × 1.3` (per L4 D4 safety multiplier)
-- Time-stop at `min(predicted_horizon, 1800s)` regardless of P&L
-- **2-tier trailing (LOCKED 2026-05-16 — L5 D1 Option E):**
-  - Tier 1 (break-even lock): when price reaches `entry + 0.33 × (TP − entry)`, move SL to entry
-  - Tier 2 (trailing stop): when price reaches `entry + 0.66 × (TP − entry)`, activate trail at `SL = current_price − 0.5 × (TP − current_price)`
-  - Trail updates per-minute (not per-tick — reduces compute + prevents noise-wick flipping)
-- No partial profit-taking in v1 — full position out at TP / SL / time / trail-stop / OI exits / exhaustion / regime-flip
+**v2 trade management — per-layer-tuned static + time + tiered trail:**
+
+| Layer | Entry TP source | Entry SL source | Time-stop | Trail tiers |
+|---|---|---|---|---|
+| Scalp (existing) | `max_upside_60s` | `max_drawdown_60s × 1.3` | 5 min | (legacy Wave 2 rules) |
+| Trend | `trend_magnitude_900s` | `trend_max_drawdown_900s × 1.3` | min(predicted, **1800s**) | Tier1 BE at 0.33×TP, Tier2 trail at 0.66×TP |
+| **Swing (ADDED 2026-05-17)** | `swing_magnitude_3600s` | `swing_max_drawdown_3600s × 1.4` | min(predicted, **7200s**) | Tier1 BE at 0.25×TP, Tier2 lock 50% at 0.5×TP, Tier3 trail at 0.75×TP |
+
+**Why swing differs:** 2-hour holds need wider SL safety multiplier (1.4× vs 1.3×) because intra-day mean-reversion patterns add noise over longer windows. 3-tier trail (instead of 2-tier) locks in partial gains earlier — a 60-pt swing winner that gives back 40 pts before hitting TP is worse than a partial-exit at 30 pts + ride remainder.
+
+**Trail update frequency:**
+- Scalp / Trend: per-minute
+- Swing: **per-5-minute** (longer-horizon trade needs less reactive trail; cuts compute)
+
+- No partial profit-taking for scalp/trend in v1 (out at TP / SL / time / trail / OI / exhaustion / regime-flip)
+- **Swing exception:** Tier 2 fires a partial 50% close at 0.5×TP (LOCKED 2026-05-17 — see §9 D55). Half the position rides; half is realized. Reduces "gave back the gains" on the longest-hold layer.
 
 **TP/SL lock at entry (LOCKED 2026-05-16 — L5 D2 Option A):** TP and SL are computed once at entry tick from `trend_magnitude_900s` and `trend_max_drawdown_900s × 1.3`, then **never updated** for the life of the trade. Reasons: operator-trustable (screen shows the exit plan), trade-quality report (§5.1) gets clean capture-ratio data, trail already handles "signal strengthening" implicitly. Dynamic TP/SL deferred — see D42.
 
@@ -652,7 +697,7 @@ With current §7 numbers: cap = `2.5 × ₹3000 (banknifty) = ₹7,500`. Allows 
 
 Correlation-aware aggregation (Option C) deferred — see D46.
 
-**Sizing per gate type (LOCKED 2026-05-16 — L6 D4 Option A):** same formula applies uniformly to scalp and trend signals. The drawdown-driven sizing self-adjusts — scalp's smaller `predicted_drawdown_pts` naturally yields more lots within the per-trade budget; trend's wider drawdown yields fewer. No per-gate split or boost. Keeps sizing logic single-path, debuggable, and free of arbitrary multipliers.
+**Sizing per gate type (LOCKED 2026-05-16 — L6 D4 Option A; EXTENDED 2026-05-17 for swing):** same formula applies uniformly to scalp, trend, AND swing signals. The drawdown-driven sizing self-adjusts — scalp's smaller `predicted_drawdown_pts` yields more lots within per-trade budget; trend's wider yields fewer; swing's widest yields fewest (largest commitment per lot). No per-gate split or boost. Keeps sizing logic single-path, debuggable, and free of arbitrary multipliers.
 
 **All L6 open items resolved. §2.6 promoted SKETCH → LOCKED 2026-05-16 by Partha.**
 
@@ -665,9 +710,11 @@ Correlation-aware aggregation (Option C) deferred — see D46.
 **v2 sketch — static config-driven hard limits:**
 - Daily-loss-limit (halt trading for the day if hit)
 - Max concurrent positions (per instrument and total)
+- **Layer-aware concurrent cap (ADDED 2026-05-17 — L7 D7 per §9 D55):** per instrument, at most **1 swing + 1 trend + 1 scalp** open simultaneously. Same-layer duplicates blocked. Cross-layer overlaps allowed (different exit horizons, different risk profiles). Total across instruments still capped at portfolio-level (see L6 D3).
 - Max signals/day per instrument
 - Blackout windows: lunch 12:30–13:30, last 5 min before close, broker maintenance
 - Session-warmup blackout (first 15 min, no trading)
+- **Swing entry-cutoff (ADDED 2026-05-17):** no NEW swing signals after 13:30 IST for NSE / after 21:30 IST for MCX. Reason: swing trade needs 2-hour runway; entering near close means time-stop fires before TP can hit. Trend + scalp continue normally past these cutoffs.
 - Broker WS budget caps (already implemented — see DualAccountArchitecture_Spec)
 - N-consecutive-losers auto-pause (resume requires manual re-enable)
 
@@ -752,10 +799,22 @@ L7 D5 also applies when `risk_limits_enabled=false` for `ai-paper` — it's safe
 
 **What it is:** classifies current market state, gates which signals are allowed in which states.
 
-**3-state classifier thresholds (LOCKED 2026-05-16 — L8 D1 Option A):**
-- `trend` if `adx_5min ≥ 25` AND `consecutive_higher_highs_5min ≥ 3` (or symmetric down: `consecutive_higher_lows_5min ≥ 3` reversed)
+**3-state classifier thresholds (LOCKED 2026-05-16 — L8 D1 Option A; EXTENDED 2026-05-17 for swing):**
+- `trend_strong` if `adx_5min ≥ 30` AND `consecutive_higher_highs_5min ≥ 5` (or symmetric down) — **NEW tier required for swing gate**
+- `trend` if `adx_5min ≥ 25` AND `consecutive_higher_highs_5min ≥ 3` (or symmetric down)
 - `chop` if `range_compression_ratio < 0.6` AND `adx_5min < 15`
 - `range` otherwise
+
+**Layer-to-regime mapping:**
+
+| Regime | Scalp allowed? | Trend allowed? | Swing allowed? |
+|---|---|---|---|
+| `trend_strong` | ✓ | ✓ | ✓ |
+| `trend` | ✓ | ✓ | ✗ — swing needs strongest conviction |
+| `range` | ✓ | ✗ | ✗ |
+| `chop` | ✗ | ✗ | ✗ — full halt |
+
+Swing's stricter regime gate is the safety overlay for its larger position commitment (15-min cooldown + 2-hr time-stop). If the regime weakens below `trend_strong` mid-trade, the existing regime-flip protection (Gap #8 Option C: lock break-even + halve TP) applies — swing exits gracefully without forcing the position out.
 
 Defaults from standard literature (ADX 25 = classic trending threshold; 15 = clear ranging). Per-instrument override available if paper data shows one instrument's ADX baseline systematically differs — see D47.
 
@@ -809,9 +868,10 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 | Input cols | 377 | 444 (377 base + 23 B-block including B5 + 44 C accept) |
 | Scalping target cols (default 2 windows, 12 types) | 25 | 25 (unchanged) |
 | Trend target cols (2 windows × 6 types per L1 D6) | 0 | 12 |
-| **Total parquet width** | 402 | ~473 |
-| Per-row storage | baseline | +18% |
-| LightGBM models per instrument | 60 | 72 (60 scalping + 12 trend) |
+| **Swing target cols (2 windows × 6 types — ADDED 2026-05-17)** | 0 | **12** |
+| **Total parquet width** | 402 | **~485** |
+| Per-row storage | baseline | +21% |
+| LightGBM models per instrument | 60 | **84** (60 scalping + 12 trend + 12 swing) |
 | LightGBM models total (× 4 instruments) | 240 | 288 |
 
 ### 3.1 Schema evolution policy (LOCKED 2026-05-16 — Option A)
@@ -850,10 +910,11 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 ### 4.2 ModelTrainingAgent (current v0.1 → bump v0.2)
 
 - +12 trend target heads (after L1 D6 dropped 600s horizon)
+- **+12 swing target heads** (ADDED 2026-05-17, 3600s + 7200s × 6 types)
 - `scale_pos_weight = n_neg / n_pos` per target
 - Holdout `last_n = 5`
 - Validation metric: AUC + simulated-PnL on holdout after fees
-- Total heads 60 → 72 per instrument
+- **Total heads 60 → 84 per instrument** (60 scalp + 12 trend + 12 swing)
 
 ### 4.3 SignalEngineAgent (SEA_ImplementationPlan_v0.1.md → v0.2)
 
@@ -959,7 +1020,7 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 
 | # | Check | Pass criterion |
 |---|---|---|
-| 1 | Model file integrity (all 72 per instrument × 4 = 288) | Every `.lgbm` loads without exception; expected feature count matches LATEST_SCHEMA_VERSION |
+| 1 | Model file integrity (all 84 per instrument × 4 = 336) | Every `.lgbm` loads without exception; expected feature count matches LATEST_SCHEMA_VERSION |
 | 2 | Scaler / feature_config presence | `config/model_feature_config/<inst>_feature_config.json` exists for each instrument |
 | 3 | Prediction sanity | Predict on last hour of yesterday's chain snapshots. Verify per head: no all-NaN, no all-0, no all-1, prediction distribution within ±3σ of historical baseline |
 | 4 | Dhan token freshness (both accounts) | `token_age_hours < 14` for `dhan` (primary) and `dhan-ai-data` (spouse) |
@@ -983,7 +1044,7 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 | Step | Logic |
 |---|---|
 | 1 | Load today's predictions from `logs/signals/<instrument>/YYYY-MM-DD_signals.log` and today's realized outcomes from `data/features/<date>/<instrument>_features.parquet` |
-| 2 | For each of 72 model heads × 4 instruments = 288 heads, compute today's per-head AUC vs realized target |
+| 2 | For each of 84 model heads × 4 instruments = 336 heads, compute today's per-head AUC vs realized target |
 | 3 | Maintain rolling 5-day mean AUC per head (state file `data/drift/per_head_auc_history.json`) |
 | 4 | Compare 5-day mean to baseline AUC recorded at last retrain (stored alongside model in `models/<inst>/<timestamp>/baseline_auc.json`) |
 | 5 | Alert (Telegram) per-head if `(baseline_auc − 5day_mean_auc) / baseline_auc > 10%` |
@@ -1035,14 +1096,14 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 |---|---|---|---|
 | 1 | Design lock (this doc) | 0 | ~brainstorm sessions per layer |
 | 2 | TFA feature additions (B + C blocks) | 1–2 days | 2 days |
-| 3 | Target additions (12 trend targets) | 1 day | 1 day |
+| 3 | Target additions (12 trend + 12 swing = 24 new targets) | 1.5 days | 2 days |
 | 4 | Auto-record accumulation (≥30 sessions) | 0 | ~30 days passive |
-| 5 | Retrain all 4 with combined targets (72 heads each) | 4 hours | 1 day |
-| 6 | Trend gate + smoke + L7 risk controls + L6 sizing | 2–3 days | 2–3 days |
+| 5 | Retrain all 4 with combined targets (**84 heads each** = 60 scalp + 12 trend + 12 swing) | 5 hours | 1 day |
+| 6 | Trend gate + **swing gate** + 3-way ensemble combinator + smoke + L7 risk controls + L6 sizing | 3–4 days | 3–4 days |
 | 7 | Paper trade ramp (ai-paper channel) | 0 | weeks |
 | 8 | AI Live transition (per canary spec) | 0 | per head-to-head result |
 
-**Total active work: ~6–9 days · Wall time: ~30+ days including data wait**
+**Total active work: ~10–13 days (swing adds ~4 days vs trend-only) · Wall time: ~30+ days (data wait dominates)**
 
 ### 6.1 Retrain cadence (LOCKED 2026-05-16 — Gap #5 Option C)
 
@@ -1055,8 +1116,8 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 | Step | Time | Action |
 |---|---|---|
 | Sat 02:00 | Cron trigger | `scripts/retrain_v2.sh` runs |
-| Sat 02:00–20:00 | ~18 hr | 72 heads × 4 instruments × 5 walk-forward folds = 1440 LightGBM trainings |
-| Sat 22:00 | Per-head sim_pnl compare | For each of 72 heads × 4 instruments, compute `sim_pnl_delta_pct = (new − prior) / abs(prior)` |
+| Sat 02:00–21:00 | ~19 hr | **84 heads × 4 instruments × 5 walk-forward folds = 1680 LightGBM trainings** (swing addition raised from 1440) |
+| Sat 22:00 | Per-head sim_pnl compare | For each of 84 heads × 4 instruments, compute `sim_pnl_delta_pct = (new − prior) / abs(prior)` |
 | Sat 22:30 | Regression block (Gap #7 Option B) | Reject any head where `sim_pnl_delta_pct < -5%` (`regression_threshold`) even if absolute new sim_pnl is positive. Emit summary: "X heads improved, Y unchanged, Z regressed (blocked)" |
 | Sat 23:00 | Stage per-head CANDIDATE | Build `models/<inst>/CANDIDATE_HEADS.json` containing entries for ONLY heads that won AND passed regression block. Non-winners and regressed heads stay on existing LATEST_HEADS entry. If zero heads qualified, log "no promotion" and exit |
 | Sun (anytime) | Human review | Trade-quality report (§5.1) + drift report (§5.3) + CANDIDATE metrics |
@@ -1072,14 +1133,16 @@ Rule-based first because labels for a learned regime classifier are circular (yo
 
 ## 7. Per-instrument numbers (placeholders, TBD)
 
-| Instrument | Noise floor | Lot size | Daily loss limit | Max signals/day | Slippage %/strike | Cost-floor buffer % |
-|---|---|---|---|---|---|---|
-| nifty50 | **8 pts** (LOCKED) | 75 | **₹2,500** (LOCKED) | **5** (LOCKED) | **0.3%** (LOCKED) | **20%** (LOCKED) |
-| banknifty | **25 pts** (LOCKED) | 30 | **₹3,000** (LOCKED) | **5** (LOCKED) | **0.5%** (LOCKED) | **25%** (LOCKED) |
-| crudeoil | **5 INR** (LOCKED) | 100 | **₹2,500** (LOCKED) | **4** (LOCKED) | **1.0%** (LOCKED) | **35%** (LOCKED) |
-| naturalgas | **3 INR** (LOCKED) | **1,250** (LOCKED — MCX standard; verify against Dhan profile) | **₹2,000** (LOCKED) | **4** (LOCKED) | **1.5%** (LOCKED) | **40%** (LOCKED) |
+| Instrument | Noise floor (scalp/trend) | **Swing noise floor** | Lot size | Daily loss limit | Max signals/day | Slippage %/strike | Cost-floor buffer % |
+|---|---|---|---|---|---|---|---|
+| nifty50 | **8 pts** (LOCKED) | **48 pts** (LOCKED 2026-05-17 — 6× scalp/trend floor; 1-hr swing magnitude floor) | 75 | **₹2,500** (LOCKED) | **5** (LOCKED) | **0.3%** (LOCKED) | **20%** (LOCKED) |
+| banknifty | **25 pts** (LOCKED) | **150 pts** (LOCKED 2026-05-17 — 6×) | 30 | **₹3,000** (LOCKED) | **5** (LOCKED) | **0.5%** (LOCKED) | **25%** (LOCKED) |
+| crudeoil | **5 INR** (LOCKED) | **30 INR** (LOCKED 2026-05-17 — 6×) | 100 | **₹2,500** (LOCKED) | **4** (LOCKED) | **1.0%** (LOCKED) | **35%** (LOCKED) |
+| naturalgas | **3 INR** (LOCKED) | **18 INR** (LOCKED 2026-05-17 — 6×) | **1,250** (LOCKED — MCX standard; verify against Dhan profile) | **₹2,000** (LOCKED) | **4** (LOCKED) | **1.5%** (LOCKED) | **40%** (LOCKED) |
 
-Noise-floor applies **same across both trend horizons** (900s / 1800s — 600s dropped per L1 D6) — minimum tradeable move doesn't scale with how long it took (L1 D1 + §2.2 decision, 2026-05-16). Recalibrate per D40 post-first-retrain.
+**Max signals/day** column applies to **scalp+trend combined**. Swing signals are additionally capped at **2 per instrument per day** (rare, high-conviction setups — anything more suggests over-firing).
+
+**Scalp/trend noise-floor** applies across both trend horizons (900s / 1800s). **Swing noise-floor** applies across both swing horizons (3600s / 7200s). Magnitude floor scales with hold time — minimum tradeable swing move must justify 1-2 hour capital commitment. Recalibrate per D40 post-first-retrain.
 
 `slippage_pct_per_strike_distance` defaults from Gap #4 fix (2026-05-16). To be recalibrated from real fill data — see PROJECT_TODO T10.
 `cost_floor_buffer_pct` defaults from L4 D6 fix (2026-05-16). To be recalibrated from real fill data — see D39.
@@ -1103,16 +1166,17 @@ To be filled during L7 lock session.
 - 30-day head-to-head: ai-live % gain ≥ my-live % gain on same signal set
 - Per HeadToHead_Spec v0.1
 
-### 8.4 Scalp + Trend models coexist permanently (REVISED 2026-05-16 — supersedes Gap #18)
+### 8.4 Scalp + Trend + Swing models coexist permanently (REVISED 2026-05-17 — supersedes Gap #28 / Gap #18)
 
-**Decision (Gap #28 Option X):** Both Scalp model (Wave 2) and Trend model (v2) run together permanently across all 4 instruments. Neither retires regardless of relative performance.
+**Decision:** All three layers — Scalp model (Wave 2), Trend model (v2), Swing model (v2 added 2026-05-17) — run together permanently across all 4 instruments. None retires regardless of relative performance.
 
 **Why:**
-- Scalp model catches day-extreme reversal opportunities (verified 9/9 directionally on tested days). Trend model misses these — different setup.
-- Trend model catches sustained moves (10-30 min). Scalp model misses these — different setup.
-- Together they cover more setups than either alone. Removing one creates a coverage gap that the other cannot fill.
+- Scalp catches day-extreme reversal opportunities (verified 9/9 directionally on tested days). Trend and swing miss these — different setup type.
+- Trend catches sustained 5-30 min moves. Scalp and swing miss these.
+- Swing catches sustained 30 min - 2 hr moves spanning multiple trend windows. Scalp and trend miss these.
+- All three together cover the full intraday move-duration distribution. Removing any creates a coverage gap the others cannot fill.
 
-**Default `gate_mode`:** `wave2+trend` for every instrument, permanently. Per-instrument config can override to `wave2` or `trend` only if user explicitly opts out (e.g., for diagnostic testing); not driven by automated retirement.
+**Default `gate_mode`:** `wave2+trend+swing` for every instrument, permanently. Per-instrument config can override to a 2-gate or 1-gate mode only for diagnostic testing or if a specific instrument shows one layer consistently regressing; not driven by automated retirement.
 
 **Replaces:** prior Gap #18 retirement criteria (30-day 10pp win-rate gap trigger). That logic is removed. Tracking of per-gate would-have-fired decisions still useful for ensemble combinator tuning + trade-quality report (§5.1), but no longer drives retirement.
 
@@ -1193,6 +1257,12 @@ All per-instrument numbers in §7 (`noise_floor`, `lot_size`, `daily_loss_limit`
 | D47 | Per-instrument L8 threshold override + learned regime classifier | If paper data shows (a) one instrument's ADX baseline systematically differs from default 25/15 thresholds, OR (b) §5.1 trade-quality report shows ≥20% of losers exit on regime-mis-tagged conditions over 4 weeks → add per-instrument thresholds AND/OR train learned LightGBM regime head. See T17 |
 | D36 | Doc role separation: V2_MASTER_SPEC vs PROJECT_TODO | **RESOLVED 2026-05-16 — Non-issue. V2_MASTER_SPEC is active design+dev plan (§2.0 layer status). PROJECT_TODO is parking lot for deferred tasks (T-list). Distinct purposes by design — no mirroring needed. During v2 design work, anything decided to be done later → add to PROJECT_TODO as new T-entry** |
 | D54 | Revisit single-pass pruning (Gap #24 D) if overfit observed (was duplicate D34 — renumbered 2026-05-17; also overlaps with D34 above) | If first model's training AUC ≫ holdout AUC (e.g., gap > 0.10), pivot to Option A (post-train prune + retrain) and tighten regularization further. NOTE: this restates D34; both kept until next cleanup pass to preserve cross-references |
+| D55 | **Swing layer added to v2 (2026-05-17)** | **RESOLVED 2026-05-17 by Partha.** Swing redefined as intra-session 30 min - 2 hr hold (NOT overnight). +12 swing target heads {3600s, 7200s} × 6 types per instrument. New `decide_action_swing` gate (§2.4). Ensemble combinator extended to 3-way (longest horizon dominates on agreement). Swing-specific trade mgmt (§2.5 3-tier trail, 50% partial exit). Layer-aware concurrent cap "1 swing + 1 trend + 1 scalp" per instrument (§2.7). Stricter `trend_strong` regime gate (§2.8 ADX≥30). Per-instrument swing noise floors 6× scalp floor (§7). PROJECT_TODO T7 moves from DEFERRED to IN v2. Cost: +4 days code, +17% retrain compute, same data wait. Re-opens L2/L4/L5/L7/L8 — re-lock after this commit propagates. **Follow-up D56:** validate 3-way agreement frequency after first 2 weeks of paper; if <1/day per instrument, soften 3-of-3 to weighted-2-of-3 |
+| D56 | 3-way ensemble agreement frequency validation (sub of D55) | After 2 weeks of paper trade: count daily 3-of-3 agreement events per instrument. Target: ≥1/day. If <1/day, options: (a) loosen swing gate thresholds; (b) soften combinator to weighted 2-of-3 (assign weights e.g. trend=0.5, swing=0.3, scalp=0.2 and fire above 0.6 threshold). Decision based on actual P&L distribution of single-gate vs 2-gate vs 3-gate fires |
+| D57 | Swing magnitude floor recalibration | Default 6× scalp floor (§7). After first month of paper: compute 90th-percentile of actual 1-hr moves per instrument; adjust if floor over/under-protects. Same recalibration cycle as D40 |
+| D58 | Swing partial-exit ratio (currently 50% at 0.5×TP) | After first month: if winners regularly run past partial-exit point without further drawdown, reduce partial to 30% (keep more of the position riding). If partial-exit point gets hit then trade reverses, raise partial to 70% (lock more) |
+| D59 | Same noise_floor across both swing horizons (3600s + 7200s)? | Initially yes (per §7 footer). If 7200s trades win at lower magnitudes than 3600s, split: different floors per swing horizon. Revisit at D40 cycle |
+| D60 | Swing entry-cutoff times (currently 13:30 NSE / 21:30 MCX) | Validate: do swing entries fired right before cutoff actually time-out? If <10% time-out rate, extend cutoff by 30 min. If >30%, tighten by 30 min |
 | D48 | B5 Additional S/R features (added 2026-05-17) | **RESOLVED 2026-05-17 by Partha — L1 RE-LOCKED.** 8 features added (prior-day H/L, opening range H/L, round number above/below, 5-day swing H/L). §2.1.7 item 9 sub-decisions all locked. Expected: +3-5pp AUC on long-horizon targets |
 | D49 | Trend bias filter (added 2026-05-17 §2.4) | **RESOLVED 2026-05-17 by Partha.** Asymmetric pre-combinator filter added to §2.4. D50 sub-decisions resolved with defaults. Expected: 2-3pp win-rate boost on filtered trades |
 | D50 | Trend bias filter sub-decisions (sub of D49) | **RESOLVED 2026-05-17 by Partha.** `θ_bias_bullish=0.65`, `θ_bias_bearish=0.35`, asymmetric (trend vetoes scalp only), no magnitude floor on activation. **Follow-up:** validate thresholds after first month of paper trade; if too restrictive raise to 0.70/0.30, if too permissive narrow to 0.60/0.40 |
