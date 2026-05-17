@@ -399,3 +399,84 @@ class TestTargetBackfillInProcessor:
         assert "max_upside_30s" in cols
         assert "direction_30s" in cols
         assert "max_upside_60s" in cols
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TestFeatureHistoriesPopulation (Phase 2d-02)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestFeatureHistoriesPopulation:
+    """Chain snapshots landing in TickProcessor must populate the caller-side
+    history buffers that the new trend/swing features consume."""
+
+    def test_chain_snapshot_populates_pcr_history(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        proc.on_chain_snapshot(_make_snapshot(24150.0))
+        pcr_history = proc._histories.pcr_list()
+        assert len(pcr_history) == 1
+        ts, pcr = pcr_history[0]
+        # PCR = put_oi / call_oi. ATM fixture has put=8000, call=10000 per
+        # row × 7 strikes → 56000 / 70000 = 0.8.
+        assert pcr == pytest.approx(0.8)
+
+    def test_chain_snapshot_populates_oi_totals_history(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        proc.on_chain_snapshot(_make_snapshot(24150.0))
+        oi_history = proc._histories.oi_totals_list()
+        assert len(oi_history) == 1
+        ts, ce_oi, pe_oi = oi_history[0]
+        assert ce_oi == pytest.approx(70_000.0)  # 10000 × 7 strikes
+        assert pe_oi == pytest.approx(56_000.0)  # 8000  × 7 strikes
+
+    def test_chain_snapshot_populates_iv_velocity_history(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        proc.on_chain_snapshot(_make_snapshot(24150.0))
+        iv_history = proc._histories.iv_velocity_list()
+        assert len(iv_history) == 1
+        ts, ce_iv_dec, pe_iv_dec, spot = iv_history[0]
+        # Fixture publishes IV in percent (18.5 / 17.5) — buffer must
+        # store decimals (0.185 / 0.175) so feature modules see the
+        # same units they were tested with.
+        assert ce_iv_dec == pytest.approx(0.185)
+        assert pe_iv_dec == pytest.approx(0.175)
+        assert spot == pytest.approx(24150.0)
+
+    def test_chain_snapshot_populates_active_strikes_history(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        proc.on_chain_snapshot(_make_snapshot(24150.0))
+        active = proc._histories.active_strikes_list()
+        assert len(active) == 1
+        ts, rows = active[0]
+        # The fixture emits 7 strikes (ATM ± 3).
+        assert len(rows) == 7
+        # Compacted rows must carry the minimal C7 key set.
+        assert set(rows[0].keys()) == {
+            "strike", "callOI", "putOI", "callOIChange", "putOIChange",
+        }
+
+    def test_session_open_resets_histories(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        proc.on_chain_snapshot(_make_snapshot(24150.0))
+        assert len(proc._histories.pcr_list()) == 1
+
+        # Simulate next-day session start.
+        proc.on_session_open(_session_end_sec())
+        assert proc._histories.pcr_list() == []
+        assert proc._histories.oi_totals_list() == []
+        assert proc._histories.iv_velocity_list() == []
+        assert proc._histories.active_strikes_list() == []
+
+    def test_multiple_snapshots_accrue_into_buffers(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        for i in range(3):
+            proc.on_chain_snapshot(_make_snapshot(24150.0 + i))
+        assert len(proc._histories.pcr_list()) == 3
+        assert len(proc._histories.oi_totals_list()) == 3
+        assert len(proc._histories.iv_velocity_list()) == 3

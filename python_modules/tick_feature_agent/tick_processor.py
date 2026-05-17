@@ -74,6 +74,7 @@ from tick_feature_agent.feed.chain_poller import ChainSnapshot
 from tick_feature_agent.instrument_profile import InstrumentProfile
 from tick_feature_agent.output.emitter import Emitter, assemble_flat_vector
 from tick_feature_agent.state import levels_store
+from tick_feature_agent.state.feature_histories import FeatureHistories
 from tick_feature_agent.state_machine import StateMachine, TradingState
 
 _NAN = float("nan")
@@ -148,6 +149,11 @@ class TickProcessor:
         self._time_to_move = TimeToMoveState()
         self._decay = DecayState()
 
+        # Phase 2d-02: caller-maintained ring buffers for trend/swing features
+        # (PCR slope, OI deltas, IV velocity, strike rotation, charm/vanna FD,
+        # India VIX). Populated from chain snapshots + per-tick Greek output.
+        self._histories = FeatureHistories()
+
         # Target modules
         self._target_buf = TargetBuffer(target_windows_sec=profile.target_windows_sec)
         self._upside_pct = UpsidePercentileTracker()
@@ -205,6 +211,8 @@ class TickProcessor:
         self._target_buf.reset()
         self._upside_pct.reset()
         self._pending.clear()
+        # Phase 2d-02: clear all caller-side history buffers for fresh session.
+        self._histories.reset()
 
     def on_session_close(self) -> None:
         """
@@ -406,6 +414,12 @@ class TickProcessor:
         if was_stale or self._sm.state == TradingState.CHAIN_STALE:
             self._sm.on_chain_recovered()
 
+        # Phase 2d-02: populate caller-side history buffers from this
+        # snapshot. Each append silently rejects bad inputs, so we don't
+        # need to pre-validate. ATM-delta history is populated separately
+        # in the per-tick path (Greeks are recomputed there, not here).
+        self._populate_chain_histories(snapshot)
+
         # Record raw snapshot
         if self._recorder is not None:
             raw = {
@@ -418,6 +432,56 @@ class TickProcessor:
                 "rows": snapshot.rows,
             }
             self._recorder.record_chain_snapshot(raw)
+
+    def _populate_chain_histories(self, snapshot: ChainSnapshot) -> None:
+        """Append per-snapshot samples to the FeatureHistories ring buffers.
+
+        Called from on_chain_snapshot after the ChainCache has refreshed
+        so we can pull pre-computed aggregates (pcr_global, oi_total_*)
+        directly from the cache. ATM IV is read from snapshot rows
+        (Dhan publishes IV in PERCENT — converted to decimal here so the
+        downstream features see the same units they were tested with).
+        """
+        snap_ts = snapshot.timestamp_sec
+
+        # PCR
+        if self._cache.pcr_global is not None:
+            self._histories.append_pcr(snap_ts, self._cache.pcr_global)
+
+        # OI totals (per side)
+        self._histories.append_oi_totals(
+            snap_ts,
+            float(self._cache.oi_total_call),
+            float(self._cache.oi_total_put),
+        )
+
+        # ATM IV + spot for IV-velocity feature. Need to find the ATM
+        # strike row in the snapshot.
+        atm = self._cache.atm
+        if atm is not None:
+            for row in snapshot.rows:
+                try:
+                    if int(row.get("strike", -1)) != int(atm):
+                        continue
+                except (TypeError, ValueError):
+                    continue
+                ce_iv_pct = row.get("callIV")
+                pe_iv_pct = row.get("putIV")
+                if ce_iv_pct is None or pe_iv_pct is None:
+                    break
+                try:
+                    ce_dec = float(ce_iv_pct) / 100.0
+                    pe_dec = float(pe_iv_pct) / 100.0
+                except (TypeError, ValueError):
+                    break
+                self._histories.append_iv_velocity(
+                    snap_ts, ce_dec, pe_dec, snapshot.spot_price,
+                )
+                break
+
+        # Active strikes snapshot (full chain rows — feature_histories
+        # compacts to the minimal key set internally).
+        self._histories.append_active_strikes(snap_ts, list(snapshot.rows))
 
     def on_chain_stale(self) -> None:
         """Called by ChainPoller when no snapshot for > 30s."""
