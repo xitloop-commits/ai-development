@@ -1,132 +1,61 @@
 # Partha's rules for working with Claude on this project
 
-Single source of truth for behavioral preferences. Read first at session start. Add new rules at the bottom with a date stamp.
+Single source of truth. Read at session start.
 
-## Rule 1 — Explain before implementing (May 3 2026)
+## Rule 1 — Plain strategy names, never version labels
 
-For any non-trivial task or sub-task in a multi-task plan, pause **before** implementing and brief in 3-8 lines:
+Refer to trading strategies by what they DO: "the scalp model", "the trend layer", "the swing system". Not "Wave 2" or "v2" or "Phase 5." Version labels are fine in code, commits, and filenames — never in chat.
 
-1. **Why it's needed** — the concrete problem it solves in *this* codebase / for *this* user. Not generic library benefits.
-2. **What changes after** — what Partha will be able to do, see, or measure that he can't today. Concrete examples beat abstract claims.
-3. **What it costs** — dependencies added, lines of code, surface area, runtime overhead.
+**Why:** *"do not confuse me with wave2, v2, say actual name (trend, swing, scalping)"*.
 
-Then wait for "go" / "proceed" / "ok" before writing code.
+## Rule 2 — Resume across desktop + laptop
 
-**Why:** Partha evaluates value before approving work and may redirect or skip tasks. Learned during Phase F when he asked "tell me why it is needed, what is the benefits" before approving F7 (prom-client `/metrics`). After a good explanation he approved immediately, then generalized: do this for *every* task.
+I work from desktop AND laptop. Sessions must always pick up from where the last commit on either machine left off.
 
-**How to apply:**
-- For a multi-task plan (Phase X, multi-PR work): brief each task individually as you arrive at it. Don't dump all explanations upfront.
-- Tight format: 3-8 lines covering need / outcome / cost, then a single "proceed?" question.
-- For trivial follow-ups (renames, lint fixes, one-line bumps confirmed in conversation): skip the briefing.
-- If Partha has already approved a class of work in this conversation ("go on each F task"), don't re-brief every commit. Brief at task boundaries, not edit boundaries.
+- Session start (both machines): `git pull --ff-only` before any work.
+- Session end: commit + push every in-flight change. Never leave uncommitted edits sitting on one machine.
+- Persistent state lives in repo docs (`PROJECT_TODO.md`, `V2_MASTER_SPEC.md`, `CLAUDE.md`). TodoWrite is in-session only — mirror anything important into `PROJECT_TODO.md` before stopping.
+- When in doubt: ask *"is what I just did pushed?"* before stopping.
 
-## Rule 2 — Short, crisp responses (May 10 2026)
+## Rule 3 — Short layman English, always
 
-Default to short, crisp answers. Skip explanations unless asked.
+Every chat answer is short, plain English, and a non-coder can follow it.
 
-**Why:** Partha said: *"always give me short and crispy answer, when i need explanation, i will ask you. do not generate large output, it is very hard to grasp quickly, and not interested to read all."*
+- Default ≤ 5 short sentences. Aim for less.
+- No code blocks, multi-row tables, or nested bullets unless I ask for them.
+- No section headers, no jargon piles. Translate each technical term to one short plain sentence.
+- If a question genuinely needs more, ask *"want more detail?"* first.
+- Source code, commit messages, and spec docs keep their existing conventions — this rule is about chat prose.
 
-**How to apply:**
-- One-screen-or-less answers by default
-- No multi-section breakdowns / large tables / long bullet lists unless asked
-- For decisions: state the decision + 1-line reason. Skip the comparison matrix, the pros/cons, the recommendation paragraph.
-- For findings: state the finding + the number that proves it. Skip the methodology recap and the "implications" section.
-- Only escalate to detailed explanation when Partha asks "why", "explain", "details", "compare options".
-- Tool-call summaries: result first, mechanics last (or omitted).
+**Why:** *"always give me short and crispy answer"* + *"do not generate heavy text output, explain the user with simple layman english, simple statement not lengthy, technical statements are fine but keep them simple."*
 
-## Rule 3 — Use plain strategy names, not version numbers (May 16 2026)
+## Rule 4 — Plan before touching anything, then wait
 
-Refer to trading strategies by their actual descriptive name, not by internal version labels (Wave 1, Wave 2, v2, Phase 1, etc.). Version labels are for git commits and design docs, not conversation.
+Any change to the running system (feature, refactor, **bug fix**, config edit, dependency bump) gets a short plan in chat FIRST. Wait for "ok" / "go" / "proceed" before editing files or running state-changing commands.
 
-**Why:** Partha said: *"do not confuse me with wave2, v2, say actual name (trend, swing, scalping)"*. Version labels carry no meaning for him in conversation — he tracks the system by what it DOES, not what we numbered it.
+**Plan format (Rule 3 applies — short layman English, no code blocks, no walkthroughs):**
+- **Why** — the gap or problem, one sentence.
+- **Change** — what gets touched, one sentence.
+- **Outcome** — what changes for me, one sentence.
+- **Suggestion** — the single recommended approach, one sentence.
+- Then "OK?"
 
-**How to apply:**
-- "the scalp model" / "the scalping gate" — not "Wave 2"
-- "the trend system" / "the trend targets" — not "v2" or "the new spec"
-- "the swing layer" — not "the 5-min target group"
-- In code / file names / commits, version labels are fine (`docs/TARGET_SPEC_V2_DESIGN.md` is OK as a filename).
-- In CONVERSATION, always translate: when about to type "Wave 2", stop and say "the scalp model" instead.
-- If a doc has a version-name title, refer to it by what it covers ("the trend design doc") not its version slot.
+**Allowed without a plan (read-only):** grep, file inspection, `git log`, test runs, replay-runner — anything that doesn't modify state.
 
-## Rule 4 — Always resumable across desktop + laptop (May 17 2026)
+**Skipping the plan:** only for trivial follow-ups already greenlit in this conversation (one-line bumps inside an approved slice). When in doubt, plan.
 
-Partha works on this project from both a desktop and a laptop simultaneously. Sessions on either machine must always pick up from where the last session (on either machine) left off.
-
-**Why:** Partha said: *"i use desktop and laptop simultaneously for this implementation, so always i should start from where i left last time in both switching"*.
-
-**How to apply:**
-- **Session start (both machines):** `git pull --ff-only` before any work. Verify HEAD matches origin.
-- **Session end:** all in-progress work goes into git — commit and push before stopping. Never leave uncommitted edits sitting on one machine; they're invisible to the other.
-- **Persistent state belongs in repo files**, not transient session memory: `docs/PROJECT_TODO.md` (open tasks), `docs/V2_MASTER_SPEC.md` (design decisions), `docs/memory/MEMORY.md` (auto-loaded context), `CLAUDE.md` (session preamble). TodoWrite's in-session todo list does NOT survive a machine switch — mirror anything important into `PROJECT_TODO.md` before ending.
-- **Mid-task pauses** ("we'll continue this later"): write the current state (next decision, pending question, what's about-to-happen) into `PROJECT_TODO.md` so the other machine can resume cold.
-- **Conflict avoidance:** if both machines edit the same file, second-to-push has to pull+rebase first. Stay coordinated — pick one machine for active editing, use the other for reading/review.
-- **When in doubt:** ask "is what I just did pushed?" before stopping a session.
-
-## Rule 5 — Brief in four one-line statements: why / change / outcome / suggestion (May 17 2026)
-
-Rule 1 says "explain before implementing." Rule 5 fixes the exact format. Every briefing has four sections, each a **single plain-English statement a layman can grasp**:
-
-- **Why** — the gap or problem in the running system today.
-- **Change** — what concretely gets built / modified.
-- **Outcome** — what Partha will be able to do, see, or measure once it lands.
-- **Suggestion** — the one concrete approach I recommend taking.
-
-Then end with a single "Proceed?" question. Nothing else.
-
-**Why:** Partha said *"do not show the features in the question instead show the outcome of having this and your suggestion"* during the Phase 2 TFA rollout, then clarified *"where is the outcome - just 1 line statement is required"* and *"why, change, outcome, suggestion - all in simple statement as laymen understand"*. Feature names, formulas, NaN rules, code paths, LOC counts, and spec quotes all belong in the code and spec — not in the briefing. The briefing's job is the value decision, not the engineering recap.
-
-**How to apply:**
-- Four bold headers, each followed by one sentence. No bulleted feature lists. No formula write-outs. No spec section quotes. No multi-clause sentences hiding three points.
-- Plain trading / product language. If a non-coder couldn't follow it, rewrite.
-- Skip the rule for trivial follow-ups already approved in the current conversation (renames, lint fixes, one-line bumps) — Rule 1's existing carve-out applies.
-- Engineering detail (LOC estimate, dependencies, hot-path cost, formula choice) lives in code, docstrings, and PR descriptions — surface it only if Partha asks.
-- For decisions with a real fork in approach: state the suggestion as a single recommended path, not an A/B/C menu. Mention the alternative only as a one-clause aside if it changes the trade-off.
-
-## Rule 6 — Short answers, plain layman English (May 18 2026)
-
-Prose answers must be **short, plain-English statements**. No heavy text dumps, no multi-section walkthroughs, no big concrete-example tables, unless Partha explicitly asks for them.
-
-- Technical statements are fine. Each one should be a single short sentence a non-coder could grasp.
-- Default response length: a few short sentences or a tight bulleted list. Aim for one screen, ideally less.
-- Translate jargon to plain English before using the technical term. Don't pile up acronyms.
-- This is about *prose responses* in the chat. Code, docstrings, commit messages, and spec docs keep their existing conventions.
-
-**Why:** Partha said *"do not generate heavy text output, explain the user with simple layman english, simple statement not lengthy, technical statements are fine but keep them simple."* Long explanations bury the answer; he'd rather get the core point fast and ask follow-ups than read a tutorial.
-
-**How to apply:**
-- Default to ≤ 5 short sentences for explanatory questions. If the question genuinely needs more, ask "want more detail?" before unloading.
-- Strip section headers, multi-row tables, and "Concrete example" blocks by default. Use them only when Partha asks for comparison / examples / numbers.
-- Combines with Rule 2 (short, crisp responses) — Rule 6 is the stricter "even shorter, even plainer" version that applies to explanatory prompts like *"what is X for?"* / *"explain Y"* / *"tell me about Z"*. Rule 5's why / change / outcome / suggestion format still applies to pre-implementation briefings.
-- If Partha pushes back ("longer", "more detail", "give example"), expand for that turn only and revert to the short default on the next prompt.
-
-## Rule 7 — Plan before touching code, even for bug fixes (May 18 2026)
-
-**Any** change to the running system — new feature, refactor, **bug fix**, config edit, dependency bump — gets a plain-English plan in chat FIRST. Wait for "ok" / "go" / "proceed" before editing files or running commands that modify state.
-
-**Why:** Partha said *"for any bug fix/enhancements/new development going forward, give me your plan first before touching the system / code base in simple laymen english in short. wait for my confirmation and continue."* The launcher diagnosis on 2026-05-18 had me dive into editing 21 files before showing him what was wrong or how I planned to fix it. He wants the gate moved earlier — see the problem, hear the fix, decide *then* I touch anything.
-
-**How to apply:**
-- Read-only investigation is fine without a plan (grep, `git log`, `file`, `cat`, opening files to look at them, running pytest, replay-runner). That's diagnosis, not modification.
-- The moment I'm about to **edit a file**, **run a script that writes**, **commit**, **push**, or **install/uninstall** anything — STOP. Write the plan first.
-- Plan format (Rule 6's short layman English applies):
-  - **What's wrong** — one sentence.
-  - **Fix** — one or two sentences plain-English.
-  - **Files / state touched** — short list.
-  - **Risk** — one sentence on what could go wrong; "none" is a valid answer.
-  - "OK to proceed?"
-- This supersedes Rule 1's "trivial follow-up" carve-out for changes Partha didn't already greenlight in the current conversation. Lint fixes, renames, one-line bumps still get a single-line plan ("Plan: rename `foo` to `bar`. OK?") — not a free pass.
-- If Partha has already approved a class of work in this conversation ("go through the 22 modules"), don't re-plan every commit — but do plan at task boundaries within that class.
-- Once approved, finish that slice. Re-plan on the next bug / enhancement / commit.
+**Why:** *"for any bug fix/enhancements/new development going forward, give me your plan first before touching the system / code base in simple laymen english in short. wait for my confirmation and continue."* Plus historical: explain before implementing, brief in why/change/outcome/suggestion.
 
 ## How to add new rules
 
-Append at the bottom of this file with format:
+Append at the bottom with format:
 
 ```
-## Rule N — short title (date)
-Body text.
-**Why:** quote or context.
-**How to apply:** bullets.
+## Rule N — short title
+
+Body.
+**Why:** quote.
+- How to apply: bullets.
 ```
 
-Update no other file. This is the single source of truth for behavioral preferences.
+Update no other file. This is the single source of truth.
