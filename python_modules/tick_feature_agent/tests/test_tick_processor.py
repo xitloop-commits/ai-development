@@ -605,3 +605,117 @@ class TestStatefulTrackerWiring:
         assert proc._premium_vwap.ce_cum_volume == 0
         assert proc._oi_dominance.current_side == 0
         assert proc._exhaustion.trend_age_ticks == 0
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TestPhase2dOrchestration (Phase 2d-04)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestPhase2dOrchestration:
+    """Verify that `_compute_row` actually populates the 69 new Phase 2 columns
+    with finite values after a representative tick stream (chain snapshot
+    landed + bars + session state primed)."""
+
+    def _prime(self, n_ticks: int = 40, spot: float = 24150.0):
+        """Build a processor, open a session, deliver a chain snapshot, and
+        run `n_ticks` underlying ticks spaced 1 s apart starting at
+        10:00 IST. Returns (proc, last_row)."""
+        proc = _make_processor(warm_up=1)
+        proc.on_session_open(_session_end_sec())
+        proc.on_chain_snapshot(_make_snapshot(spot))
+        base = datetime(2026, 4, 14, 10, 0, 0, tzinfo=_IST).timestamp()
+        last_row = None
+        for i in range(n_ticks):
+            ts = base + i
+            proc.on_underlying_tick(_tick_with_vol(ltp=spot + i * 0.1, ts=ts, vol=10))
+            # _compute_row stashes into _pending; the most recently appended
+            # PendingRow has the latest row.
+            if proc._pending:
+                last_row = proc._pending[-1].row
+        return proc, last_row
+
+    def test_row_carries_phase2_column_names(self):
+        _, row = self._prime(n_ticks=10)
+        # A spot-check across feature groups.
+        expected_keys = {
+            "india_vix",
+            "india_vix_change_5min",
+            "net_gex",
+            "gamma_flip_distance_pct",
+            "max_pain_strike",
+            "is_tier_2_event_day",
+            "oi_weighted_ce_resistance_strike",
+            "ce_wall_strength_rel",
+            "ce_oi_change_5min_pct",
+            "oi_dominance_streak_min",
+            "pcr_intraday_slope_30min",
+            "iv_change_5min",
+            "active_strike_shift_direction",
+            "distance_to_prev_day_high_pct",
+            "distance_to_round_number_above_pct",
+            "ma_5_5min",
+            "adx_5min",
+            "rsi_14_5min",
+            "macd_5min",
+            "dist_from_session_open_pct",
+            "session_high_age_min",
+            "distance_to_opening_range_high_pct",
+            "minutes_from_open",
+            "lunch_session_flag",
+            "atm_ce_premium_vwap_dist",
+            "trend_age_ticks",
+            "volume_no_move_score",
+            "days_to_expiry_bucket",
+        }
+        missing = expected_keys - set(row.keys())
+        assert not missing, f"missing Phase 2 keys in row: {sorted(missing)}"
+
+    def test_chain_features_populated_after_snapshot(self):
+        _, row = self._prime(n_ticks=5)
+        # Chain-derived features must be finite after a chain snapshot lands.
+        for key in (
+            "max_pain_strike",
+            "oi_weighted_ce_resistance_strike",
+            "oi_weighted_pe_support_strike",
+            "ce_wall_strength_rel",
+            "pe_wall_strength_rel",
+        ):
+            assert math.isfinite(row[key]), f"{key} = {row[key]} (expected finite)"
+
+    def test_session_relative_features_populated(self):
+        _, row = self._prime(n_ticks=10)
+        assert math.isfinite(row["dist_from_session_open_pct"])
+        # session_high_age_min is non-negative.
+        assert row["session_high_age_min"] >= 0
+        assert row["session_low_age_min"] >= 0
+
+    def test_intraday_time_features_populated(self):
+        _, row = self._prime(n_ticks=5)
+        # Ticks start at 10:00 IST, session open 09:15 IST → 45 min from open.
+        assert row["minutes_from_open"] == pytest.approx(45.0, abs=0.1)
+        # lunch_session_flag is 0 (10:00 IST is outside the 12:00 lunch hour).
+        assert row["lunch_session_flag"] == 0.0
+        assert row["minutes_to_close"] > 0
+
+    def test_oi_dominance_streak_finite_after_snapshot(self):
+        _, row = self._prime(n_ticks=2)
+        # Fixture chain has CE OI change > PE OI change → +1 dominance side,
+        # but the very first snapshot starts a fresh streak so the value is
+        # zero before any time has elapsed. Just verify it's finite + sign-ok.
+        assert math.isfinite(row["oi_dominance_streak_min"])
+        assert row["oi_dominance_streak_min"] >= 0
+
+    def test_dte_bucket_populated_when_expiry_known(self):
+        _, row = self._prime(n_ticks=2)
+        # Fixture expiry is 2026-04-17, session 2026-04-14 → 3 DTE bucket.
+        assert math.isfinite(row["days_to_expiry_bucket"])
+
+    def test_features_remain_finite_after_long_tick_stream(self):
+        """Stress: 200 ticks should not introduce any NaN-bloom or crash."""
+        _, row = self._prime(n_ticks=200)
+        assert row is not None
+        # Bar-derived features need bars to have finalised; after ~3 min of
+        # 1-Hz ticks we should have a couple of 1-min bars.
+        assert math.isfinite(row["max_pain_strike"])
+        assert math.isfinite(row["minutes_from_open"])

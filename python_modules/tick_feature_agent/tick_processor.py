@@ -50,25 +50,65 @@ from typing import Any
 from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
 from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
 from tick_feature_agent.chain_cache import ChainCache
-from tick_feature_agent.features.active_features import compute_active_features
+from tick_feature_agent.features.active_features import (
+    compute_active_features,
+    compute_strike_rotation_features,
+)
 from tick_feature_agent.features.bars import BarAggregator
-from tick_feature_agent.features.chain import compute_chain_features
+from tick_feature_agent.features.chain import (
+    compute_chain_features,
+    compute_oi_change_deltas,
+    compute_oi_weighted_levels,
+    compute_pcr_slope,
+    compute_wall_strength,
+)
 from tick_feature_agent.features.compression import CompressionState
+from tick_feature_agent.features.dealer_hedging import compute_dealer_hedging_features
 from tick_feature_agent.features.decay import DecayState
-from tick_feature_agent.features.exhaustion import ExhaustionState
+from tick_feature_agent.features.event_calendar import (
+    compute_event_calendar_features,
+    load_event_calendar,
+)
+from tick_feature_agent.features.exhaustion import (
+    ExhaustionState,
+    compute_exhaustion_features,
+)
 from tick_feature_agent.features.expiry import compute_expiry_features
-from tick_feature_agent.features.greeks import compute_greek_features
+from tick_feature_agent.features.india_vix import compute_india_vix_features
+from tick_feature_agent.features.intraday_time import compute_intraday_time_features
+from tick_feature_agent.features.multi_tf import compute_multi_tf_features
+from tick_feature_agent.features.session import (
+    SessionState,
+    compute_session_features,
+)
+from tick_feature_agent.features.technical import compute_technical_features
+from tick_feature_agent.features.greeks import (
+    compute_greek_features,
+    compute_iv_velocity_features,
+)
 from tick_feature_agent.features.horizon import compute_horizon_features
-from tick_feature_agent.features.levels import compute_level_features
+from tick_feature_agent.features.levels import (
+    compute_cross_day_level_features,
+    compute_level_features,
+    compute_max_pain_features,
+)
+from tick_feature_agent.features.oi_dominance import (
+    OiDominanceState,
+    compute_oi_dominance_features,
+)
+from tick_feature_agent.features.opening_range import (
+    OpeningRangeState,
+    compute_opening_range_features,
+)
+from tick_feature_agent.features.premium_vwap import (
+    PremiumVwapState,
+    compute_premium_vwap_features,
+)
 from tick_feature_agent.features.meta import compute_meta_features
 from tick_feature_agent.features.ofi import compute_ofi_features
-from tick_feature_agent.features.oi_dominance import OiDominanceState
-from tick_feature_agent.features.opening_range import OpeningRangeState
 from tick_feature_agent.features.option_tick import compute_option_tick_features
-from tick_feature_agent.features.premium_vwap import PremiumVwapState
 from tick_feature_agent.features.realized_vol import compute_realized_vol_features
 from tick_feature_agent.features.regime import compute_regime_features
-from tick_feature_agent.features.session import SessionState
 from tick_feature_agent.features.targets import (
     TargetBuffer,
     UpsidePercentileTracker,
@@ -171,6 +211,16 @@ class TickProcessor:
         self._exhaustion = ExhaustionState()
         self._oi_dominance = OiDominanceState()
 
+        # Phase 2d-04: external-state caches loaded once per session.
+        # event_calendar.json is human-maintained config; per-instrument
+        # cross-day levels JSON is written by on_session_close (2c-21) and
+        # read at the next session_open.
+        self._event_calendar: dict | None = None
+        self._cross_day_levels = levels_store.CrossDayLevels()
+
+        # Scheduled session-start epoch (set in on_session_open).
+        self._scheduled_session_start_sec: float | None = None
+
         # Target modules
         self._target_buf = TargetBuffer(target_windows_sec=profile.target_windows_sec)
         self._upside_pct = UpsidePercentileTracker()
@@ -242,13 +292,81 @@ class TickProcessor:
         or_end = self._compute_opening_range_end(session_end_sec)
         if or_end is not None:
             self._opening_range.configure(window_end_ts=or_end)
+        # Scheduled session start (09:15 IST etc.) — anchors `minutes_from_open`
+        # so the feature is invariant to first-tick latency.
+        self._scheduled_session_start_sec = self._compute_session_start_sec(
+            session_end_sec
+        )
 
-    def _compute_opening_range_end(self, session_end_sec: float) -> float | None:
-        """Return the epoch second 15 min after the session-start clock time.
+        # Phase 2d-04: load external state for today's session. Both are
+        # best-effort — failures fall back to empty defaults so feature
+        # compute returns NaN rather than crashing the session.
+        self._event_calendar = self._load_event_calendar()
+        self._cross_day_levels = self._load_cross_day_levels()
+
+    def _load_event_calendar(self) -> dict | None:
+        """Load <repo>/config/event_calendar.json once per session. Best-effort."""
+        try:
+            cal_path = _LEVELS_STATE_DIR.parent.parent / "config" / "event_calendar.json"
+            if cal_path.exists():
+                return load_event_calendar(cal_path)
+        except Exception as exc:
+            if self._log is not None:
+                self._log.warn("EVENT_CALENDAR_LOAD_FAIL", msg=str(exc))
+        return None
+
+    def _load_cross_day_levels(self) -> "levels_store.CrossDayLevels":
+        """Load this instrument's cross-day H/L state. Empty defaults on miss."""
+        try:
+            inst = self._profile.instrument_name
+            return levels_store.load(self._levels_state_dir / f"{inst}_levels.json")
+        except Exception as exc:
+            if self._log is not None:
+                self._log.warn("CROSS_DAY_LEVELS_LOAD_FAIL", msg=str(exc))
+            return levels_store.CrossDayLevels()
+
+    # Round-number step for B5 cross-day round-number distances. Keyed by
+    # the profile's instrument name; falls back to None (→ NaN round-num
+    # features) for unknown instruments. Promote to InstrumentProfile when
+    # FINNIFTY / MIDCPNIFTY / etc. join the roster.
+    _ROUND_NUMBER_STEP: dict[str, int] = {
+        "NIFTY": 100,
+        "BANKNIFTY": 500,
+        "CRUDEOIL": 100,
+        "NATURALGAS": 10,
+    }
+
+    def _round_number_step(self) -> int | None:
+        return self._ROUND_NUMBER_STEP.get(self._profile.instrument_name)
+
+    def _latest_atm_premiums(
+        self, atm_strike: int | None
+    ) -> tuple[float | None, float | None]:
+        """Return (latest_ATM_CE_ltp, latest_ATM_PE_ltp) from option_store, or (None, None)."""
+        if atm_strike is None:
+            return (None, None)
+        ce = pe = None
+        try:
+            ce_tick = self._opt_store.latest(int(atm_strike), "CE")
+            if ce_tick is not None and ce_tick.ltp > 0:
+                ce = float(ce_tick.ltp)
+        except (AttributeError, KeyError):
+            pass
+        try:
+            pe_tick = self._opt_store.latest(int(atm_strike), "PE")
+            if pe_tick is not None and pe_tick.ltp > 0:
+                pe = float(pe_tick.ltp)
+        except (AttributeError, KeyError):
+            pass
+        return (ce, pe)
+
+    def _compute_session_start_sec(self, session_end_sec: float) -> float | None:
+        """Return the SCHEDULED session-start epoch (e.g. 09:15 IST for NSE).
 
         Derived from the profile's `session_start` (HH:MM) anchored to the
         same calendar date as `session_end_sec` (interpreted in IST).
-        Returns None if the inputs don't yield a finite timestamp.
+        Used as the anchor for `minutes_from_open` so the feature is
+        invariant to first-tick latency.
         """
         try:
             from datetime import datetime, timedelta, timezone
@@ -256,9 +374,17 @@ class TickProcessor:
             end_dt = datetime.fromtimestamp(float(session_end_sec), tz=tz)
             h, m = self._profile.session_start.split(":")
             start_dt = end_dt.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
-            return (start_dt + timedelta(minutes=15)).timestamp()
+            return start_dt.timestamp()
         except (TypeError, ValueError, AttributeError, OverflowError, OSError):
             return None
+
+    def _compute_opening_range_end(self, session_end_sec: float) -> float | None:
+        """Return the epoch second 15 min after the scheduled session start
+        (D74 B3 — NSE 09:30 IST, MCX 09:15 IST). NaN inputs → None."""
+        start = self._compute_session_start_sec(session_end_sec)
+        if start is None:
+            return None
+        return start + 15 * 60.0
 
     def on_session_close(self) -> None:
         """
@@ -775,6 +901,31 @@ class TickProcessor:
             is_monthly=None,  # Wave 1: classifier deferred — emits NaN
         )
 
+        # Phase 2d-04: append ATM Greek snapshot to history so dealer-hedging
+        # charm + vanna FD estimates have a 5-min lookback to slope against.
+        atm_ce_delta = greek_f.get("atm_ce_delta")
+        atm_ce_iv_dec = greek_f.get("atm_ce_iv")
+        if (
+            atm_ce_delta is not None
+            and atm_ce_iv_dec is not None
+            and math.isfinite(atm_ce_delta)
+            and math.isfinite(atm_ce_iv_dec)
+        ):
+            self._histories.append_atm_delta(ts, atm_ce_delta, atm_ce_iv_dec)
+
+        # Phase 2d-04: run the 18 trend/swing compute functions and collect
+        # their dicts into the kwargs the emitter accepts (15 groups, since
+        # all C1 OI-flow dicts are merged + days_to_expiry_bucket lives in
+        # the existing expiry_f).
+        phase2 = self._compute_phase2_features(
+            ts=ts,
+            ltp=ltp,
+            chain_rows=chain_rows,
+            atm_strike=atm_strike,
+            strike_step=strike_step,
+            dte=dte,
+        )
+
         row = assemble_flat_vector(
             timestamp=ts,
             spot_price=ltp,
@@ -803,6 +954,22 @@ class TickProcessor:
             level_feats=level_f,
             greek_feats=greek_f,
             expiry_feats=expiry_f,
+            # Phase 2d-04: trend/swing feature groups (69 new columns)
+            multi_tf_feats=phase2["multi_tf_feats"],
+            session_feats=phase2["session_feats"],
+            opening_range_feats=phase2["opening_range_feats"],
+            cross_day_level_feats=phase2["cross_day_level_feats"],
+            oi_flow_feats=phase2["oi_flow_feats"],
+            technical_feats=phase2["technical_feats"],
+            vix_feats=phase2["vix_feats"],
+            dealer_hedging_feats=phase2["dealer_hedging_feats"],
+            exhaustion_feats=phase2["exhaustion_feats"],
+            intraday_time_feats=phase2["intraday_time_feats"],
+            strike_rotation_feats=phase2["strike_rotation_feats"],
+            premium_vwap_feats=phase2["premium_vwap_feats"],
+            iv_velocity_feats=phase2["iv_velocity_feats"],
+            max_pain_feats=phase2["max_pain_feats"],
+            event_calendar_feats=phase2["event_calendar_feats"],
         )
 
         # ── Attach ATM option security IDs (non-feature metadata) ───────────
@@ -813,6 +980,130 @@ class TickProcessor:
         row["atm_ce_security_id"] = ce_sid
         row["atm_pe_security_id"] = pe_sid
         return row
+
+    # ── Phase 2d-04 orchestration ────────────────────────────────────────────
+
+    def _compute_phase2_features(
+        self,
+        ts: float,
+        ltp: float,
+        chain_rows: list[dict] | None,
+        atm_strike: int | None,
+        strike_step: int | None,
+        dte: float | None,
+    ) -> dict[str, dict]:
+        """Run the 18 trend/swing compute functions and return a dict of
+        feature-group dicts keyed by the kwarg name `assemble_flat_vector`
+        expects. Caller-side histories + stateful trackers were primed by
+        2d-02 and 2d-03 wiring.
+        """
+        h = self._histories
+
+        vix_feats = compute_india_vix_features(now_ts=ts, vix_history=h.vix_list())
+
+        dealer_hedging_feats = compute_dealer_hedging_features(
+            spot=ltp,
+            rows=chain_rows or [],
+            days_to_expiry=dte,
+            atm_delta_history=h.atm_delta_list(),
+            now_ts=ts,
+        )
+
+        max_pain_feats = compute_max_pain_features(spot=ltp, chain_rows=chain_rows)
+
+        event_calendar_feats = compute_event_calendar_features(
+            now_ts=ts, calendar=self._event_calendar
+        )
+
+        # C1 OI-flow group — 5 compute functions merged into one dict so the
+        # emitter's single `oi_flow_feats` kwarg covers all 12 C1 keys.
+        oi_flow_feats: dict[str, float] = {}
+        oi_flow_feats.update(compute_oi_weighted_levels(chain_rows))
+        oi_flow_feats.update(
+            compute_pcr_slope(pcr_history=h.pcr_list(), now_ts=ts)
+        )
+        oi_flow_feats.update(compute_wall_strength(chain_rows))
+        oi_flow_feats.update(
+            compute_oi_change_deltas(oi_history=h.oi_totals_list(), now_ts=ts)
+        )
+        oi_flow_feats.update(compute_oi_dominance_features(self._oi_dominance))
+
+        iv_velocity_feats = compute_iv_velocity_features(
+            iv_history=h.iv_velocity_list(), now_ts=ts
+        )
+
+        strike_rotation_feats = compute_strike_rotation_features(
+            active_strike_history=h.active_strikes_list(),
+            atm_strike=atm_strike,
+            strike_step=strike_step,
+            now_ts=ts,
+        )
+
+        cd = self._cross_day_levels
+        cross_day_level_feats = compute_cross_day_level_features(
+            spot=ltp,
+            prev_day_high=cd.prev_day_high if cd else None,
+            prev_day_low=cd.prev_day_low if cd else None,
+            swing_5d_high=cd.swing_5d_high if cd else None,
+            swing_5d_low=cd.swing_5d_low if cd else None,
+            round_number_step=self._round_number_step(),
+        )
+
+        bars_1m = self._bars.get_recent_bars(60)
+        bars_5m = self._bars.get_recent_bars(300)
+        bars_15m = self._bars.get_recent_bars(900)
+        technical_feats = compute_technical_features(bars_5m)
+        multi_tf_feats = compute_multi_tf_features(
+            spot=ltp, bars_1m=bars_1m, bars_5m=bars_5m, bars_15m=bars_15m
+        )
+
+        session_feats = compute_session_features(
+            state=self._session_state, spot=ltp, now_ts=ts
+        )
+
+        opening_range_feats = compute_opening_range_features(
+            state=self._opening_range, spot=ltp, now_ts=ts
+        )
+
+        intraday_time_feats = compute_intraday_time_features(
+            now_ts=ts,
+            # Anchor to SCHEDULED open (09:15 IST etc.), not first-tick.
+            session_open_ts=self._scheduled_session_start_sec,
+            session_close_ts=self._session_end_sec or None,
+        )
+
+        ce_prem, pe_prem = self._latest_atm_premiums(atm_strike)
+        premium_vwap_feats = compute_premium_vwap_features(
+            state=self._premium_vwap,
+            current_ce_premium=ce_prem,
+            current_pe_premium=pe_prem,
+        )
+
+        # ExhaustionState.update() is deliberately NOT called per-tick yet:
+        # it consumes the L8 regime tag which arrives in Phase 6. Until then
+        # compute returns trend_age 0 (state is reset on session_open) and
+        # the bar-derived volume_no_move_score is computed from current bars.
+        exhaustion_feats = compute_exhaustion_features(
+            state=self._exhaustion, bars_5m=bars_5m
+        )
+
+        return {
+            "multi_tf_feats": multi_tf_feats,
+            "session_feats": session_feats,
+            "opening_range_feats": opening_range_feats,
+            "cross_day_level_feats": cross_day_level_feats,
+            "oi_flow_feats": oi_flow_feats,
+            "technical_feats": technical_feats,
+            "vix_feats": vix_feats,
+            "dealer_hedging_feats": dealer_hedging_feats,
+            "exhaustion_feats": exhaustion_feats,
+            "intraday_time_feats": intraday_time_feats,
+            "strike_rotation_feats": strike_rotation_feats,
+            "premium_vwap_feats": premium_vwap_feats,
+            "iv_velocity_feats": iv_velocity_feats,
+            "max_pain_feats": max_pain_feats,
+            "event_calendar_feats": event_calendar_feats,
+        }
 
     # ── Target backfill helpers ───────────────────────────────────────────────
 
