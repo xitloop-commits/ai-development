@@ -1,0 +1,24 @@
+# Line-ending policy.
+#
+# Windows-only scripts MUST have CRLF. cmd.exe and PowerShell are strict —
+# LF-only line endings produce silent or fragmented errors. See the launcher
+# breakage on 2026-05-18 where every .bat / .ps1 in startup/ committed with
+# LF caused "_detect-python.bat not recognized" and word-fragment errors
+# (e / op / can / d) because cmd's parser was glueing tokens across LF
+# boundaries.
+
+# Windows shell scripts → always CRLF, even on Linux check-outs.
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+# Default text: let git normalise (auto-detect on checkin, native on checkout).
+*           text=auto
+
+# Binaries: never touch line endings.
+*.parquet   binary
+*.gz        binary
+*.zip       binary
+*.png       binary
+*.ico       binary
+*.svg       binary
