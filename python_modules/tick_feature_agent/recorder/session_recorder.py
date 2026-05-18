@@ -76,10 +76,14 @@ class SessionRecorder:
         self._underlying_writer: NdjsonGzWriter | None = None
         self._option_writer: NdjsonGzWriter | None = None
         self._chain_writer: NdjsonGzWriter | None = None
+        # Phase 2d-01: India VIX co-recording. Optional — None until the
+        # session-open opens the writer.
+        self._vix_writer: NdjsonGzWriter | None = None
 
         self._underlying_count = 0
         self._option_count = 0
         self._chain_count = 0
+        self._vix_count = 0
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -107,11 +111,19 @@ class SessionRecorder:
             date_folder / f"{inst}_chain_snapshots.ndjson.gz",
             logger=self._logger,
         )
+        # Phase 2d-01: VIX writer is per-instrument too. Replay will read
+        # whichever instrument's file is co-located with the underlying it's
+        # replaying — keeps the recording self-contained per (date, instrument).
+        self._vix_writer = NdjsonGzWriter(
+            date_folder / f"{inst}_vix_ticks.ndjson.gz",
+            logger=self._logger,
+        )
 
         # Reset counters for this session
         self._underlying_count = 0
         self._option_count = 0
         self._chain_count = 0
+        self._vix_count = 0
 
         write_metadata(
             date_folder=date_folder,
@@ -134,8 +146,13 @@ class SessionRecorder:
             )
 
     def on_session_close(self) -> None:
-        """Flush and close all 3 writers; log final counts."""
-        for writer in (self._underlying_writer, self._option_writer, self._chain_writer):
+        """Flush and close all writers; log final counts."""
+        for writer in (
+            self._underlying_writer,
+            self._option_writer,
+            self._chain_writer,
+            self._vix_writer,
+        ):
             if writer is not None:
                 writer.close()
 
@@ -148,11 +165,13 @@ class SessionRecorder:
                 underlying_ticks=self._underlying_count,
                 option_ticks=self._option_count,
                 chain_snapshots=self._chain_count,
+                vix_ticks=self._vix_count,
             )
 
         self._underlying_writer = None
         self._option_writer = None
         self._chain_writer = None
+        self._vix_writer = None
 
     def on_expiry_rollover(
         self,
@@ -231,9 +250,28 @@ class SessionRecorder:
         if self._chain_writer.write(record):
             self._chain_count += 1
 
+    def record_vix_tick(self, record: dict[str, Any]) -> None:
+        """Write one India VIX tick record (Phase 2d-01).
+
+        Same lifecycle as the other recorders: silently no-ops if the
+        writer isn't open. ``recv_ts`` is added if not already present so
+        the recorded line is self-describing for replay.
+        """
+        if self._vix_writer is None:
+            return
+        if "recv_ts" not in record:
+            record = {"recv_ts": _now_ist_str(), **record}
+        if self._vix_writer.write(record):
+            self._vix_count += 1
+
     def flush(self) -> None:
         """Flush all open writers to disk (call periodically during live recording)."""
-        for writer in (self._underlying_writer, self._option_writer, self._chain_writer):
+        for writer in (
+            self._underlying_writer,
+            self._option_writer,
+            self._chain_writer,
+            self._vix_writer,
+        ):
             if writer is not None:
                 writer.flush()
 

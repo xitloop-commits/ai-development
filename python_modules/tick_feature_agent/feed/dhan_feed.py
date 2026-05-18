@@ -86,6 +86,7 @@ class DhanFeed:
         credential_fetcher: Callable[[], dict | None] | None = None,
         on_reconnecting: Callable[[float, int], None] | None = None,
         instrument_name: str = "",
+        on_vix_tick: Callable[[dict], Awaitable[None] | None] | None = None,
     ) -> None:
         self._token = access_token
         self._client_id = client_id
@@ -95,9 +96,17 @@ class DhanFeed:
         self._underlying_security_id = str(underlying_security_id)
         self._on_underlying_tick = on_underlying_tick
         self._on_option_tick = on_option_tick
+        self._on_vix_tick = on_vix_tick
         self._on_connected = on_connected
         self._on_disconnected = on_disconnected
         self._on_disconnect_code = on_disconnect_code
+
+        # Phase 2d-01: India VIX co-subscription on the same WS connection.
+        # VIX is an NSE index (segment IDX_I) regardless of which exchange
+        # this TFA process's native underlying lives on, so we hold the
+        # VIX-side segment as its own constant.
+        self._vix_security_id: str | None = None
+        self._vix_seg: str = "IDX_I"
 
         self._log = get_logger("tfa.dhan_feed", instrument=instrument_name)
 
@@ -142,6 +151,26 @@ class DhanFeed:
         }
         if self._connected and self._ws:
             self._send_subscribe([{"exchange": self._underlying_seg, "security_id": sec_id}])
+
+    def subscribe_vix(self, security_id: str = "264969") -> None:
+        """Register an India VIX co-subscription on this process's WS.
+
+        Phase 2d-01: VIX (security_id 264969 by default) is an NSE index in
+        the IDX_I segment. We add it as a fourth instrument category
+        alongside the underlying + options on the same WebSocket connection,
+        consuming zero additional WS-budget slots on this account. Incoming
+        VIX ticks are routed to ``on_vix_tick`` (set in the constructor).
+        """
+        sec_id = str(security_id)
+        self._vix_security_id = sec_id
+        key = f"{self._vix_seg}:{sec_id}"
+        self._subscriptions[key] = {
+            "exchange": self._vix_seg,
+            "security_id": sec_id,
+            "mode": "full",
+        }
+        if self._connected and self._ws:
+            self._send_subscribe([{"exchange": self._vix_seg, "security_id": sec_id}])
 
     def subscribe_options(self, sec_id_map: dict[str, tuple[int, str]]) -> None:
         """
@@ -340,6 +369,14 @@ class DhanFeed:
             cb = self._on_underlying_tick(merged)
             if asyncio.iscoroutine(cb):
                 await cb
+        elif self._vix_security_id is not None and sec_id == self._vix_security_id:
+            # Phase 2d-01: India VIX co-subscription. VIX publishes as an
+            # INDEX packet (response_code 1) carrying ltp — same shape as
+            # the underlying. Route to the dedicated on_vix_tick if set.
+            if self._on_vix_tick is not None:
+                cb = self._on_vix_tick(merged)
+                if asyncio.iscoroutine(cb):
+                    await cb
         elif sec_id in self._sec_id_map:
             # Options: require FULL packets (bid/ask depth needed for features)
             if header.response_code != ResponseCode.FULL:

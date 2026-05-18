@@ -365,6 +365,23 @@ class TickProcessor:
 
     # ── Feed callbacks ────────────────────────────────────────────────────────
 
+    def on_vix_tick(self, data: dict) -> None:
+        """Phase 2d-01: route a recorded India VIX tick into the shared
+        pipeline's VIX history buffer. VIX is the implied vol of NIFTY
+        options but is consumed by every instrument's trend/swing gates
+        as vol-regime context, so we co-subscribe on each TFA process's
+        WS and append independently.
+
+        Dhan publishes VIX as INDEX packets with `ltp` (the VIX value).
+        Bad / missing inputs are silently dropped by the buffer's append.
+        """
+        try:
+            ts = float(data.get("recv_ts") or time.time())
+            ltp = float(data.get("ltp") or 0)
+        except (TypeError, ValueError):
+            return
+        self._pipeline_state.histories.append_vix(ts, ltp)
+
     def on_underlying_tick(self, data: dict) -> None:
         """
         Called by DhanFeed on every Full-packet underlying tick.

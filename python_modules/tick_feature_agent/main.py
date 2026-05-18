@@ -658,6 +658,12 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         _h["o_ticks"] += 1
         processor.on_option_tick(strike, opt_type, data)
 
+    def _on_vix_tick(data: dict) -> None:
+        _h["v_ticks"] = _h.get("v_ticks", 0) + 1
+        if recorder is not None:
+            recorder.record_vix_tick(data)
+        processor.on_vix_tick(data)
+
     def _on_chain_snapshot(snap) -> None:
         _h["chain_snaps"] += 1
         _h["last_chain_ts"] = time.monotonic()
@@ -691,6 +697,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         underlying_security_id=ws_security_id,
         on_underlying_tick=_on_underlying_tick,
         on_option_tick=_on_option_tick,
+        on_vix_tick=_on_vix_tick,
         on_connected=lambda: (
             _h.__setitem__("feed_ok", True),
             _h.__setitem__("disconnect_code", None),
@@ -718,6 +725,12 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
 
     # Subscribe underlying futures
     feed.subscribe_underlying()
+
+    # Phase 2d-01: co-subscribe India VIX on this same WS (NSE index
+    # segment IDX_I, security_id 264969). Adds the india_vix +
+    # india_vix_change_5min features without consuming an extra
+    # WS-budget slot — VIX rides along on the existing connection.
+    feed.subscribe_vix()
 
     # Subscribe all options from first snapshot — use wrapped chain snapshot callback
     # for the poller's subsequent snapshots

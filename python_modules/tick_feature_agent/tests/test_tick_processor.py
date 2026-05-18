@@ -719,3 +719,55 @@ class TestPhase2dOrchestration:
         # 1-Hz ticks we should have a couple of 1-min bars.
         assert math.isfinite(row["max_pain_strike"])
         assert math.isfinite(row["minutes_from_open"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TestVixFeed (Phase 2d-01)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestVixFeed:
+    """India VIX co-subscription on the existing WS routes ticks into
+    the shared pipeline's VIX history buffer. Verified end-to-end by
+    calling on_vix_tick directly with synthetic Dhan-shaped packets."""
+
+    def test_vix_tick_lands_in_history_buffer(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        assert proc._pipeline_state.histories.vix_list() == []
+        ts = _now()
+        proc.on_vix_tick({"recv_ts": ts, "ltp": 13.45})
+        history = proc._pipeline_state.histories.vix_list()
+        assert len(history) == 1
+        sample_ts, sample_v = history[0]
+        assert sample_ts == pytest.approx(ts)
+        assert sample_v == pytest.approx(13.45)
+
+    def test_vix_tick_with_zero_ltp_is_dropped(self):
+        """The buffer's append_vix rejects non-positive values silently."""
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        proc.on_vix_tick({"recv_ts": _now(), "ltp": 0})
+        assert proc._pipeline_state.histories.vix_list() == []
+
+    def test_vix_tick_with_missing_ltp_is_dropped(self):
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        proc.on_vix_tick({"recv_ts": _now()})
+        assert proc._pipeline_state.histories.vix_list() == []
+
+    def test_multiple_vix_ticks_feed_india_vix_feature(self):
+        """End-to-end: 5-min gap between two VIX values yields a non-NaN
+        india_vix_change_5min for the next compute pass."""
+        from tick_feature_agent.features.india_vix import compute_india_vix_features
+        proc = _make_processor()
+        proc.on_session_open(_session_end_sec())
+        now = 1_000_000.0
+        proc.on_vix_tick({"recv_ts": now - 300, "ltp": 13.0})
+        proc.on_vix_tick({"recv_ts": now - 1, "ltp": 14.5})
+        out = compute_india_vix_features(
+            now_ts=now,
+            vix_history=proc._pipeline_state.histories.vix_list(),
+        )
+        assert out["india_vix"] == pytest.approx(14.5)
+        assert out["india_vix_change_5min"] == pytest.approx(1.5)

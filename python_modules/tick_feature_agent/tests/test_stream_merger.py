@@ -150,9 +150,13 @@ def test_merge_streams_no_audit_event_when_only_originals(tmp_path: Path):
 
 def test_merge_streams_warns_when_no_files_present(tmp_path: Path):
     """When neither original nor recovered exists, emit the existing
-    REPLAY_STREAM_EMPTY warning per stream and yield nothing."""
+    REPLAY_STREAM_EMPTY warning per stream and yield nothing.
+
+    Four streams now: underlying / option / chain / vix (vix added in
+    Phase 2d-01). Pre-VIX recordings won't have the vix file, so this
+    warning is the same nuisance level for old recordings as for the
+    other three when the recorder didn't run."""
     logger = _FakeLogger()
     events = list(merge_streams(tmp_path, _INSTRUMENT, logger=logger))
     assert events == []
-    # One warning per missing stream
-    assert logger.codes().count("REPLAY_STREAM_EMPTY") == 3
+    assert logger.codes().count("REPLAY_STREAM_EMPTY") == 4

@@ -313,7 +313,8 @@ class ReplayAdapter:
 
         Args:
             event: Dict from stream_merger.merge_streams() with keys:
-                   ``type`` ("underlying_tick" | "option_tick" | "chain_snapshot")
+                   ``type`` (one of ``underlying_tick``, ``option_tick``,
+                   ``chain_snapshot``, ``vix_tick``)
                    ``data`` (raw recorded record dict)
         """
         etype = event.get("type")
@@ -324,6 +325,21 @@ class ReplayAdapter:
             self._handle_option(data)
         elif etype == "chain_snapshot":
             self._handle_chain(data)
+        elif etype == "vix_tick":
+            self._handle_vix(data)
+
+    def _handle_vix(self, data: dict) -> None:
+        """Phase 2d-01: route a recorded India VIX tick into the shared
+        pipeline's VIX history buffer. Mirrors TickProcessor.on_vix_tick."""
+        ts_raw = data.get("recv_ts") or data.get("timestamp")
+        ts = _parse_ts(str(ts_raw)) if ts_raw else _NAN
+        if math.isnan(ts):
+            return
+        try:
+            ltp = float(data.get("ltp") or 0)
+        except (TypeError, ValueError):
+            return
+        self._pipeline_state.histories.append_vix(ts, ltp)
 
     def flush_all(self) -> None:
         """

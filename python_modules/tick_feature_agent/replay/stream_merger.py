@@ -24,11 +24,15 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
-_EVENT_TYPES = ("underlying_tick", "option_tick", "chain_snapshot")
+_EVENT_TYPES = ("underlying_tick", "option_tick", "chain_snapshot", "vix_tick")
 _FILE_SUFFIXES = (
     "underlying_ticks.ndjson.gz",
     "option_ticks.ndjson.gz",
     "chain_snapshots.ndjson.gz",
+    # Phase 2d-01: India VIX co-recording. Missing for pre-VIX recordings —
+    # _resolve_stream_path returns None and the merger silently skips, so
+    # old replays still work (VIX features simply stay NaN).
+    "vix_ticks.ndjson.gz",
 )
 
 
