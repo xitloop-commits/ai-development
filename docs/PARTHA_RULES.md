@@ -82,6 +82,23 @@ Then end with a single "Proceed?" question. Nothing else.
 - Engineering detail (LOC estimate, dependencies, hot-path cost, formula choice) lives in code, docstrings, and PR descriptions — surface it only if Partha asks.
 - For decisions with a real fork in approach: state the suggestion as a single recommended path, not an A/B/C menu. Mention the alternative only as a one-clause aside if it changes the trade-off.
 
+## Rule 6 — Short answers, plain layman English (May 18 2026)
+
+Prose answers must be **short, plain-English statements**. No heavy text dumps, no multi-section walkthroughs, no big concrete-example tables, unless Partha explicitly asks for them.
+
+- Technical statements are fine. Each one should be a single short sentence a non-coder could grasp.
+- Default response length: a few short sentences or a tight bulleted list. Aim for one screen, ideally less.
+- Translate jargon to plain English before using the technical term. Don't pile up acronyms.
+- This is about *prose responses* in the chat. Code, docstrings, commit messages, and spec docs keep their existing conventions.
+
+**Why:** Partha said *"do not generate heavy text output, explain the user with simple layman english, simple statement not lengthy, technical statements are fine but keep them simple."* Long explanations bury the answer; he'd rather get the core point fast and ask follow-ups than read a tutorial.
+
+**How to apply:**
+- Default to ≤ 5 short sentences for explanatory questions. If the question genuinely needs more, ask "want more detail?" before unloading.
+- Strip section headers, multi-row tables, and "Concrete example" blocks by default. Use them only when Partha asks for comparison / examples / numbers.
+- Combines with Rule 2 (short, crisp responses) — Rule 6 is the stricter "even shorter, even plainer" version that applies to explanatory prompts like *"what is X for?"* / *"explain Y"* / *"tell me about Z"*. Rule 5's why / change / outcome / suggestion format still applies to pre-implementation briefings.
+- If Partha pushes back ("longer", "more detail", "give example"), expand for that turn only and revert to the short default on the next prompt.
+
 ## How to add new rules
 
 Append at the bottom of this file with format:
