@@ -57,11 +57,9 @@ Current Wave 2 model is a microstructure scalp predictor; v2 adds trend (10-30 m
 - **Blocker:** Need ≥30 sessions of training data **under v2 schema** (per V2_MASTER_SPEC §3.1 Option A: existing ~10 sessions of 402-col parquets become inaccessible when v2 schema ships). Auto-recorder accumulates Mon-Fri → ~6 weeks of recording from schema cutover to first retrain. Reversible: raw .ndjson.gz files retained, can replay later if decision changes.
 - **Phases (V2_MASTER_SPEC §6):**
   - [x] Phase 1: Design lock (V2_MASTER_SPEC LOCKED 2026-05-17 — all 8 layers)
-  - [ ] Phase 2: TFA feature additions — IN PROGRESS
-    - [x] Phase 2a/2b/2c — 22 feature modules + ~500 tests + schema bump to v7 (commits `50d9bec` → `aa36c34`)
-    - [ ] Phase 2d — tick_processor wiring: VIX feed subscription, caller-side history buffers (VIX, PCR, OI, IV, spot, ATM delta, active strikes), per-instrument stateful trackers (Bar/Session/OpeningRange/PremiumVwap/Exhaustion/OiDominance), per-tick orchestration into `assemble_flat_vector()`, and end-to-end smoke replay validation. Without 2d, replay parquets carry the 69 new column NAMES but all NaN VALUES ← **NEXT UP**
-  - [ ] Phase 3: Target additions (12 trend + 12 swing = 24 new targets, ~1.5 days code)
-  - [ ] Phase 4: Auto-record accumulation (≥30 sessions, ~30 days passive)
+  - [x] Phase 2: TFA feature additions — COMPLETE 2026-05-18 (commits `50d9bec` → `54fa8b0`). 22 feature modules + 69 new L1 columns + schema v7 + tick_processor + replay wiring + India VIX feed + shared `feature_pipeline` module + 1600+ tests + smoke-replay-validated.
+  - [x] Phase 3: Target additions — COMPLETE 2026-05-18 (commits `60ee991` → `60ee991`). 12 trend + 12 swing target columns + schema v8 + replay-only backfill via `SpotTargetBuffer` (Option B) + 1631 tests + smoke-replay-validated. Live emits NaN for the 24 target cols; replay pipeline backfills end-of-day from recorded raw.
+  - [ ] Phase 4: Auto-record accumulation (≥30 sessions, ~30 days passive) ← **ACTIVE — no code work, just time. T5 auto-recorder runs Mon–Fri capturing raw ticks under the new v8 schema.**
   - [ ] Phase 5: Retrain all 4 with combined targets (84 heads each, ~5 hrs compute)
   - [ ] Phase 6: Trend gate + swing gate + 3-way combinator + smoke (~3-4 days code)
   - [ ] Phase 7: Paper trade ramp (ai-paper channel, weeks)
