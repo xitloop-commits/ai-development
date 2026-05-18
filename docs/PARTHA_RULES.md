@@ -99,6 +99,25 @@ Prose answers must be **short, plain-English statements**. No heavy text dumps, 
 - Combines with Rule 2 (short, crisp responses) — Rule 6 is the stricter "even shorter, even plainer" version that applies to explanatory prompts like *"what is X for?"* / *"explain Y"* / *"tell me about Z"*. Rule 5's why / change / outcome / suggestion format still applies to pre-implementation briefings.
 - If Partha pushes back ("longer", "more detail", "give example"), expand for that turn only and revert to the short default on the next prompt.
 
+## Rule 7 — Plan before touching code, even for bug fixes (May 18 2026)
+
+**Any** change to the running system — new feature, refactor, **bug fix**, config edit, dependency bump — gets a plain-English plan in chat FIRST. Wait for "ok" / "go" / "proceed" before editing files or running commands that modify state.
+
+**Why:** Partha said *"for any bug fix/enhancements/new development going forward, give me your plan first before touching the system / code base in simple laymen english in short. wait for my confirmation and continue."* The launcher diagnosis on 2026-05-18 had me dive into editing 21 files before showing him what was wrong or how I planned to fix it. He wants the gate moved earlier — see the problem, hear the fix, decide *then* I touch anything.
+
+**How to apply:**
+- Read-only investigation is fine without a plan (grep, `git log`, `file`, `cat`, opening files to look at them, running pytest, replay-runner). That's diagnosis, not modification.
+- The moment I'm about to **edit a file**, **run a script that writes**, **commit**, **push**, or **install/uninstall** anything — STOP. Write the plan first.
+- Plan format (Rule 6's short layman English applies):
+  - **What's wrong** — one sentence.
+  - **Fix** — one or two sentences plain-English.
+  - **Files / state touched** — short list.
+  - **Risk** — one sentence on what could go wrong; "none" is a valid answer.
+  - "OK to proceed?"
+- This supersedes Rule 1's "trivial follow-up" carve-out for changes Partha didn't already greenlight in the current conversation. Lint fixes, renames, one-line bumps still get a single-line plan ("Plan: rename `foo` to `bar`. OK?") — not a free pass.
+- If Partha has already approved a class of work in this conversation ("go through the 22 modules"), don't re-plan every commit — but do plan at task boundaries within that class.
+- Once approved, finish that slice. Re-plan on the next bug / enhancement / commit.
+
 ## How to add new rules
 
 Append at the bottom of this file with format:
