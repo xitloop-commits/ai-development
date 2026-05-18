@@ -13,9 +13,15 @@ Features (4 outputs):
 Null rules:
     All outputs NaN if underlying buffer has < 20 ticks.
     volatility_compression NaN if tick_count < 100 (median still bootstrapping).
-    volatility_compression NaN if vol_session_median == 0 (frozen zero guard).
     range_percent_20ticks NaN if median(price_20) ≤ 0 (feed error).
     spread_tightening_atm NaN if chain_available is False.
+
+Floor on vol_session_median:
+    After freeze, vol_session_median is clamped to a 0.01 floor so a
+    perfectly-flat 100-tick bootstrap (median == 0) doesn't kill the
+    feature for the rest of the session. Compression in a flat market
+    is then 0.0 (no measurable compression) — a defensible "neutral
+    observation" rather than NaN.
 
 vol_session_median:
     Running median of rolling_std_20 values from ticks 21..100.

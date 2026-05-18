@@ -386,10 +386,14 @@ class TestTickImbalance:
         # 5 up, 4 down, 0 flat; imbalance = (5-4)/9
         assert result["tick_imbalance_10"] == pytest.approx(1 / 9)
 
-    def test_imbalance_nan_all_flat(self):
-        # up=0, down=0 → denominator (up+down)=0 → NaN per spec §8.2
+    def test_imbalance_zero_all_flat(self):
+        # up=0, down=0 → "perfectly neutral imbalance" → 0.0 (not NaN).
+        # Implementation comment in features/underlying.py:110 explicitly
+        # chose 0.0 over NaN because a flat window is genuinely neutral
+        # data, not missing data — a defensible split signal for LightGBM.
         result = compute_underlying_features(_buf(*[100.0] * 10))
-        assert _nan(result["tick_imbalance_10"])
+        assert not _nan(result["tick_imbalance_10"])
+        assert result["tick_imbalance_10"] == 0.0
 
     def test_imbalance_nan_at_9_ticks(self):
         result = compute_underlying_features(_buf(*[100.0] * 9))

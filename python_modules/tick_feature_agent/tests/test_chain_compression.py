@@ -290,13 +290,17 @@ class TestVolatilityCompression:
         assert not _nan(result["volatility_compression"])
         assert result["volatility_compression"] < 1.0
 
-    def test_vol_compression_nan_when_session_median_zero(self):
+    def test_vol_compression_zero_when_session_median_floors(self):
         comp = CompressionState()
-        # 100 ticks all identical → rolling_std_20 = 0 for all → vol_session_median = 0
+        # 100 ticks all identical → rolling_std_20 = 0 for every tick →
+        # session median bootstraps to 0.0 but is FLOORED at 0.01 so the
+        # feature remains defined for the rest of the session.
         prices = [100.0] * 100
         result = self._run_n_ticks(comp, prices)
-        # After tick 100, median is frozen at 0.0 → compression = NaN
-        assert _nan(result["volatility_compression"])
+        # rolling_std_20 = 0 / floored 0.01 = 0.0 (no measurable compression)
+        # — a defensible neutral observation rather than NaN.
+        assert not _nan(result["volatility_compression"])
+        assert result["volatility_compression"] == 0.0
 
     def test_median_frozen_after_tick_100(self):
         comp = CompressionState()
