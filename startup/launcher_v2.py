@@ -1679,6 +1679,60 @@ def _delete_paths(paths: list[Path]) -> tuple[int, int]:
     return n_ok, n_err
 
 
+def _rebuild_replay_checkpoint(instruments: set[str]) -> tuple[int, list[str]]:
+    """Recompute the replay checkpoint from on-disk parquet reality.
+
+    Called after a parquet-delete flow so the next replay run doesn't skip
+    dates whose parquets were just removed. For each instrument passed in,
+    the checkpoint's `last_completed_date` is reset to the latest date
+    that still has a parquet on disk (or removed entirely if none remain).
+    `sessions_completed` is recounted from disk.
+
+    Returns:
+        (n_instruments_updated, summary_lines)
+    """
+    import json
+    cp_path = ROOT / "data" / "raw" / "replay_checkpoint.json"
+    features_root = ROOT / "data" / "features"
+    try:
+        data = json.loads(cp_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return (0, [])
+
+    updated = 0
+    summary: list[str] = []
+    for inst in sorted(instruments):
+        # Scan features dir for surviving parquets of this instrument.
+        dates_on_disk: list[str] = []
+        if features_root.exists():
+            for date_dir in features_root.iterdir():
+                if not date_dir.is_dir():
+                    continue
+                if (date_dir / f"{inst}_features.parquet").exists():
+                    dates_on_disk.append(date_dir.name)
+        dates_on_disk.sort()
+
+        before = data.get(inst, {}).get("last_completed_date")
+        if dates_on_disk:
+            new_last = dates_on_disk[-1]
+            data[inst] = {
+                "last_completed_date": new_last,
+                "sessions_completed": len(dates_on_disk),
+            }
+            if before != new_last:
+                summary.append(f"{inst}: {before} → {new_last} ({len(dates_on_disk)} sessions)")
+                updated += 1
+        elif inst in data:
+            # No parquets left for this instrument — drop the entry entirely.
+            del data[inst]
+            summary.append(f"{inst}: cleared (no parquets remain)")
+            updated += 1
+
+    cp_path.parent.mkdir(parents=True, exist_ok=True)
+    cp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return (updated, summary)
+
+
 def _delete_raw_or_parquet(kind: str) -> None:
     """Shared body for the Raw and Parquet delete flows.
     `kind` ∈ {'raw', 'parquet'}."""
@@ -1823,6 +1877,13 @@ def _delete_raw_or_parquet(kind: str) -> None:
         except OSError as e:
             print(f"  {YELLOW('!')} could not remove {day_dir}: {e}")
 
+    # If we just deleted parquets, the replay checkpoint may now skip dates
+    # we removed. Rebuild it from on-disk reality before the next replay run.
+    cp_updates: list[str] = []
+    if kind == "parquet":
+        touched_insts = set(res.selections.keys())
+        _, cp_updates = _rebuild_replay_checkpoint(touched_insts)
+
     print()
     msg = f"  {GREEN('✓')} Deleted {ok} files"
     if err:
@@ -1830,6 +1891,10 @@ def _delete_raw_or_parquet(kind: str) -> None:
     if pruned_dirs:
         msg += f", {GREEN('✓')} pruned {pruned_dirs} empty date folder(s)"
     print(msg)
+    if cp_updates:
+        print(f"  {GREEN('✓')} Replay checkpoint updated:")
+        for line in cp_updates:
+            print(f"      {line}")
     _pause_briefly()
 
 
