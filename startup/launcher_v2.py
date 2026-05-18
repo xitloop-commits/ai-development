@@ -2257,6 +2257,52 @@ class RootItem:
     action: callable
 
 
+def _read_replay_progress() -> list[tuple[str, str, float, str]]:
+    """Scan `data/features/*/<inst>_features_progress.json` for files that
+    were updated in the last 60s and return one row per active replay:
+        (instrument, date, percent_capped_0_99, eta_str)
+
+    Stale or unreadable files are skipped. Used by the root status header
+    to surface real-time replay progress alongside the bare 'running' line.
+    """
+    import json, time
+    out: list[tuple[str, str, float, str]] = []
+    features_root = ROOT / "data" / "features"
+    if not features_root.exists():
+        return out
+    now = time.time()
+    for date_dir in features_root.iterdir():
+        if not date_dir.is_dir():
+            continue
+        for f in date_dir.glob("*_features_progress.json"):
+            try:
+                if now - f.stat().st_mtime > 60:
+                    continue
+                data = json.loads(f.read_text(encoding="utf-8"))
+                inst = data.get("instrument") or f.name.split("_")[0]
+                date_str = data.get("date") or date_dir.name
+                pct = float(data.get("percent_est", 0.0))
+                pct = max(0.0, min(99.0, pct))  # cap so a low total_est can't read >100%
+                rate = float(data.get("rate_events_per_sec", 0.0))
+                processed = float(data.get("events_processed", 0.0))
+                total_est = float(data.get("events_total_est", 0.0))
+                remaining = max(0.0, total_est - processed)
+                if rate > 0 and remaining > 0:
+                    eta_sec = remaining / rate
+                    if eta_sec < 60:
+                        eta_str = f"{int(eta_sec)}s"
+                    else:
+                        eta_str = f"{eta_sec / 60:.1f}m"
+                else:
+                    eta_str = "—"
+                out.append((inst, date_str, pct, eta_str))
+            except Exception:
+                continue
+    # Sort by instrument then date for stable display
+    out.sort(key=lambda r: (r[0], r[1]))
+    return out
+
+
 def _root_status_header(procs: list[RunningProc] | None = None) -> list[str]:
     today = datetime.now().strftime("%Y-%m-%d")
     d1, d2 = compute_walk_forward_dates()
@@ -2270,10 +2316,17 @@ def _root_status_header(procs: list[RunningProc] | None = None) -> list[str]:
         if kind in by_kind:
             parts.append(f"{kind}({','.join(sorted(by_kind[kind]))})")
     running_str = "  ".join(parts) if parts else DIM("idle")
-    return [
+    lines = [
         f"today: {today}    D-1: {d1 or '--'}    D-2: {d2 or '--'}",
         f"running: {running_str}",
     ]
+    # Real-time progress per active replay (T4 follow-on).
+    for inst, date_str, pct, eta in _read_replay_progress():
+        lines.append(
+            f"  {YELLOW('↳')} {inst:<10} {date_str}  "
+            f"{BOLD(f'{pct:5.1f}%')}  ETA {eta}"
+        )
+    return lines
 
 
 def _compute_pending_counts(procs: list[RunningProc]) -> dict[str, int]:
