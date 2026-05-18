@@ -13,7 +13,10 @@ REM ================================================================
 
 setlocal EnableDelayedExpansion
 
-set "ROOT=%~dp0..\"
+REM Stash script directory before any arg-shifting (shift can corrupt %0).
+set "SCRIPT_DIR=%~dp0"
+
+set "ROOT=%SCRIPT_DIR%..\"
 cd /d "%ROOT%"
 
 set INSTRUMENT=%~1
@@ -68,7 +71,7 @@ echo !EXTRA_ARGS! | find "--include-dates" >nul && set HAS_DATE=1
 if "!HAS_DATE!"=="0" set "EXTRA_ARGS=!EXTRA_ARGS! --date-from 2026-04-01 --date-to 2026-12-31"
 
 REM --- Detect Python ---
-call "%~dp0_detect-python.bat"
+call "%SCRIPT_DIR%_detect-python.bat"
 if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.

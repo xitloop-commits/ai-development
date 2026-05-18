@@ -11,7 +11,10 @@ REM ================================================================
 
 setlocal EnableDelayedExpansion
 
-set "ROOT=%~dp0..\"
+REM Stash script directory before any arg-shifting (shift can corrupt %0).
+set "SCRIPT_DIR=%~dp0"
+
+set "ROOT=%SCRIPT_DIR%..\"
 cd /d "%ROOT%"
 
 set INSTRUMENT=%~1
@@ -46,7 +49,7 @@ if not "%~1"=="" (
 )
 
 REM --- Detect Python ---
-call "%~dp0_detect-python.bat"
+call "%SCRIPT_DIR%_detect-python.bat"
 if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.
