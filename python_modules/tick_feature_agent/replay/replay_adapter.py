@@ -37,77 +37,30 @@ from typing import Any
 from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
 from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
 from tick_feature_agent.chain_cache import ChainCache
-from tick_feature_agent.features.active_features import (
-    compute_active_features,
-    compute_strike_rotation_features,
-)
-from tick_feature_agent.features.bars import BarAggregator
-from tick_feature_agent.features.chain import (
-    compute_chain_features,
-    compute_oi_change_deltas,
-    compute_oi_weighted_levels,
-    compute_pcr_slope,
-    compute_wall_strength,
-)
+from tick_feature_agent.features.active_features import compute_active_features
+from tick_feature_agent.features.chain import compute_chain_features
 from tick_feature_agent.features.compression import CompressionState
-from tick_feature_agent.features.dealer_hedging import compute_dealer_hedging_features
 from tick_feature_agent.features.decay import DecayState
-from tick_feature_agent.features.event_calendar import (
-    compute_event_calendar_features,
-    load_event_calendar,
-)
-from tick_feature_agent.features.exhaustion import (
-    ExhaustionState,
-    compute_exhaustion_features,
-)
 from tick_feature_agent.features.expiry import compute_expiry_features
-from tick_feature_agent.features.greeks import (
-    compute_greek_features,
-    compute_iv_velocity_features,
-)
+from tick_feature_agent.features.greeks import compute_greek_features
 from tick_feature_agent.features.horizon import compute_horizon_features
-from tick_feature_agent.features.india_vix import compute_india_vix_features
-from tick_feature_agent.features.intraday_time import compute_intraday_time_features
-from tick_feature_agent.features.levels import (
-    compute_cross_day_level_features,
-    compute_level_features,
-    compute_max_pain_features,
-)
+from tick_feature_agent.features.levels import compute_level_features
 from tick_feature_agent.features.meta import compute_meta_features
-from tick_feature_agent.features.multi_tf import compute_multi_tf_features
 from tick_feature_agent.features.ofi import compute_ofi_features
-from tick_feature_agent.features.oi_dominance import (
-    OiDominanceState,
-    compute_oi_dominance_features,
-)
-from tick_feature_agent.features.opening_range import (
-    OpeningRangeState,
-    compute_opening_range_features,
-)
 from tick_feature_agent.features.option_tick import compute_option_tick_features
-from tick_feature_agent.features.premium_vwap import (
-    PremiumVwapState,
-    compute_premium_vwap_features,
-)
 from tick_feature_agent.features.realized_vol import compute_realized_vol_features
 from tick_feature_agent.features.regime import compute_regime_features
-from tick_feature_agent.features.session import (
-    SessionState,
-    compute_session_features,
-)
 from tick_feature_agent.features.targets import (
     TargetBuffer,
     UpsidePercentileTracker,
 )
-from tick_feature_agent.features.technical import compute_technical_features
 from tick_feature_agent.features.time_to_move import TimeToMoveState
 from tick_feature_agent.features.underlying import compute_underlying_features
 from tick_feature_agent.features.zone import compute_zone_features
 from tick_feature_agent.feed.chain_poller import ChainSnapshot
 from tick_feature_agent.instrument_profile import InstrumentProfile
 from tick_feature_agent.output.emitter import Emitter, assemble_flat_vector
-from tick_feature_agent.state import levels_store
-from tick_feature_agent.state.feature_histories import FeatureHistories
+from tick_feature_agent.state import feature_pipeline
 from tick_feature_agent.state_machine import StateMachine, TradingState
 
 _NAN = float("nan")
@@ -270,20 +223,11 @@ class ReplayAdapter:
         self._time_to_move = TimeToMoveState()
         self._decay = DecayState()
 
-        # Phase 2d-02 mirror: caller-maintained ring buffers for trend/swing
-        # features (PCR slope, OI deltas, IV velocity, strike rotation,
-        # charm/vanna FD, India VIX).
-        self._histories = FeatureHistories()
-
-        # Phase 2d-03 mirror: per-instrument stateful trackers for the new
-        # feature modules. OpeningRangeState additionally needs configure()
-        # below once the session boundary is known.
-        self._bars = BarAggregator(timeframes_sec=(60, 300, 900), max_bars_per_tf=60)
-        self._session_state = SessionState()
-        self._opening_range = OpeningRangeState()
-        self._premium_vwap = PremiumVwapState()
-        self._exhaustion = ExhaustionState()
-        self._oi_dominance = OiDominanceState()
+        # Phase 2d: shared trend/swing feature pipeline state. Same holder
+        # used by the live TickProcessor — the free-function helpers in
+        # `feature_pipeline` populate it on chain / tick / option events
+        # and produce the per-row compute dicts.
+        self._pipeline_state = feature_pipeline.FeaturePipelineState()
 
         # Target modules
         self._target_buf = TargetBuffer(target_windows_sec=profile.target_windows_sec)
@@ -336,23 +280,19 @@ class ReplayAdapter:
         # Market-open flag (derived from replay timestamps)
         self._is_market_open = False
 
-        # Phase 2d-03 mirror: configure opening-range window-end (15 min after
-        # the scheduled session start per D74 B3). _session_start_sec is the
-        # scheduled open in epoch seconds, so we can configure immediately.
-        try:
-            self._opening_range.configure(
-                window_end_ts=self._session_start_sec + 15 * 60.0
-            )
-        except (TypeError, ValueError):
-            pass
-
-        # Phase 2d-04 mirror: load external state for today's session.
-        # Event-calendar JSON is repo-local config; cross-day H/L state is
-        # written by the LIVE pipeline's on_session_close hook (2c-21) — in
-        # replay it may or may not exist. Both fall back to empty defaults
-        # so feature compute returns NaN rather than crashing.
-        self._event_calendar: dict | None = self._load_event_calendar()
-        self._cross_day_levels = self._load_cross_day_levels()
+        # Phase 2d: prime the shared trend/swing pipeline for this session.
+        # Resets buffers + trackers, configures the OR window end at
+        # session_start + 15 min per D74 B3, loads event_calendar.json +
+        # this instrument's cross-day H/L state file (best-effort each).
+        from pathlib import Path as _Path
+        _repo = _Path(__file__).resolve().parents[3]
+        feature_pipeline.reset_for_session(
+            self._pipeline_state,
+            scheduled_session_start_sec=self._session_start_sec,
+            event_calendar_path=_repo / "config" / "event_calendar.json",
+            cross_day_levels_path=_repo / "data" / "state"
+                / f"{profile.instrument_name}_levels.json",
+        )
 
     # ── Public properties ─────────────────────────────────────────────────────
 
@@ -427,54 +367,10 @@ class ReplayAdapter:
         if was_stale or self._sm.state == TradingState.CHAIN_STALE:
             self._sm.on_chain_recovered()
 
-        # Phase 2d-02 mirror: populate caller-side history buffers for the
-        # trend/swing chain-derived features.
-        self._populate_chain_histories(snapshot)
-
-        # Phase 2d-03 mirror: update OI-dominance streak from the snapshot's
-        # aggregated OI changes (CE total change vs PE total change).
-        self._oi_dominance.update(
-            ts=snapshot.timestamp_sec,
-            oi_change_call=float(self._cache.oi_change_call),
-            oi_change_put=float(self._cache.oi_change_put),
+        # Phase 2d: feed the snapshot through the shared trend/swing pipeline.
+        feature_pipeline.on_chain_snapshot(
+            self._pipeline_state, snapshot, self._cache,
         )
-
-    def _populate_chain_histories(self, snapshot: ChainSnapshot) -> None:
-        """Append per-snapshot samples to the FeatureHistories ring buffers."""
-        snap_ts = snapshot.timestamp_sec
-
-        if self._cache.pcr_global is not None:
-            self._histories.append_pcr(snap_ts, self._cache.pcr_global)
-
-        self._histories.append_oi_totals(
-            snap_ts,
-            float(self._cache.oi_total_call),
-            float(self._cache.oi_total_put),
-        )
-
-        atm = self._cache.atm
-        if atm is not None:
-            for row in snapshot.rows:
-                try:
-                    if int(row.get("strike", -1)) != int(atm):
-                        continue
-                except (TypeError, ValueError):
-                    continue
-                ce_iv_pct = row.get("callIV")
-                pe_iv_pct = row.get("putIV")
-                if ce_iv_pct is None or pe_iv_pct is None:
-                    break
-                try:
-                    ce_dec = float(ce_iv_pct) / 100.0
-                    pe_dec = float(pe_iv_pct) / 100.0
-                except (TypeError, ValueError):
-                    break
-                self._histories.append_iv_velocity(
-                    snap_ts, ce_dec, pe_dec, snapshot.spot_price,
-                )
-                break
-
-        self._histories.append_active_strikes(snap_ts, list(snapshot.rows))
 
     def _handle_option(self, data: dict) -> None:
         """Process a recorded option_tick event."""
@@ -518,19 +414,17 @@ class ReplayAdapter:
         )
         self._opt_store.push(strike, str(opt_type), tick)
 
-        # Phase 2d-03 mirror: feed ATM-only premium ticks into the premium-VWAP
-        # session accumulator (C8). Non-ATM ticks are skipped so VWAP reflects
-        # only the ATM CE / ATM PE streams the spec is defined on.
+        # Phase 2d: ATM-only premium ticks feed the shared pipeline's
+        # premium-VWAP tracker. Non-ATM ticks are skipped here so the
+        # spec's "ATM CE / ATM PE premium streams" definition is preserved.
         atm = self._cache.atm
-        if atm is not None and strike == int(atm) and ltp > 0:
-            if opt_type == "CE":
-                self._premium_vwap.update(
-                    ce_premium=ltp, pe_premium=None, tick_volume=volume,
-                )
-            elif opt_type == "PE":
-                self._premium_vwap.update(
-                    ce_premium=None, pe_premium=ltp, tick_volume=volume,
-                )
+        if atm is not None and strike == int(atm):
+            feature_pipeline.on_atm_option_tick(
+                self._pipeline_state,
+                opt_type=str(opt_type),
+                ltp=ltp,
+                tick_volume=volume,
+            )
 
     def _handle_underlying(self, data: dict) -> None:
         """Process a recorded underlying_tick event — the hot path."""
@@ -590,10 +484,11 @@ class ReplayAdapter:
         self._tick_buf.push(tick)
         self._underlying_tick_count += 1
 
-        # Phase 2d-03 mirror: feed the per-tick stateful trackers.
-        self._bars.add_tick(ts, ltp, tick_volume=vol)
-        self._session_state.update(ts, ltp, tick_volume=vol)
-        self._opening_range.update(ts, ltp)
+        # Phase 2d: feed the per-tick stateful trackers through the shared
+        # pipeline (bars / session / opening range).
+        feature_pipeline.on_underlying_tick(
+            self._pipeline_state, ts=ts, ltp=ltp, tick_volume=vol,
+        )
 
         # ── Push to target buffer (future-lookahead state) ────────────────────
         # Gather current ATM strike LTPs for target computation reference
@@ -625,48 +520,7 @@ class ReplayAdapter:
         self._prev_ltp = ltp
         self._prev_tick_ts = ts
 
-    # ── Phase 2d-04 mirror: orchestration helpers ─────────────────────────────
-
-    # Round-number step per instrument (NIFTY 100, BANKNIFTY 500, etc.). Keyed
-    # by profile.instrument_name; unknowns return None → round-num features
-    # NaN. Mirror the table in tick_processor.py.
-    _ROUND_NUMBER_STEP: dict[str, int] = {
-        "NIFTY": 100,
-        "BANKNIFTY": 500,
-        "CRUDEOIL": 100,
-        "NATURALGAS": 10,
-    }
-
-    def _round_number_step(self) -> int | None:
-        return self._ROUND_NUMBER_STEP.get(self._profile.instrument_name)
-
-    def _load_event_calendar(self) -> dict | None:
-        """Load <repo>/config/event_calendar.json. Best-effort."""
-        try:
-            # replay_adapter.py lives at python_modules/tick_feature_agent/replay/
-            # → up 3 levels = repo root.
-            from pathlib import Path
-            cal_path = (
-                Path(__file__).resolve().parents[3] / "config" / "event_calendar.json"
-            )
-            if cal_path.exists():
-                return load_event_calendar(cal_path)
-        except Exception as exc:
-            if self._log is not None:
-                self._log.warn("EVENT_CALENDAR_LOAD_FAIL", msg=str(exc))
-        return None
-
-    def _load_cross_day_levels(self) -> "levels_store.CrossDayLevels":
-        """Load this instrument's cross-day H/L state if present."""
-        try:
-            from pathlib import Path
-            inst = self._profile.instrument_name
-            state_dir = Path(__file__).resolve().parents[3] / "data" / "state"
-            return levels_store.load(state_dir / f"{inst}_levels.json")
-        except Exception as exc:
-            if self._log is not None:
-                self._log.warn("CROSS_DAY_LEVELS_LOAD_FAIL", msg=str(exc))
-            return levels_store.CrossDayLevels()
+    # ── Helper: latest ATM premiums for the C8 premium-VWAP dist features ────
 
     def _latest_atm_premiums(
         self, atm_strike: int | None
@@ -688,127 +542,6 @@ class ReplayAdapter:
         except (AttributeError, KeyError):
             pass
         return (ce, pe)
-
-    def _compute_phase2_features(
-        self,
-        ts: float,
-        ltp: float,
-        chain_rows: list[dict] | None,
-        atm_strike: int | None,
-        strike_step: int | None,
-        dte: float | None,
-    ) -> dict[str, dict]:
-        """Run the 18 trend/swing compute functions and return the dict of
-        feature-group dicts assemble_flat_vector expects. Mirrors the
-        identical helper in tick_processor.py — keep them in sync until
-        the duplication is factored out (post-Phase-3 TODO)."""
-        h = self._histories
-
-        vix_feats = compute_india_vix_features(now_ts=ts, vix_history=h.vix_list())
-
-        dealer_hedging_feats = compute_dealer_hedging_features(
-            spot=ltp,
-            rows=chain_rows or [],
-            days_to_expiry=dte,
-            atm_delta_history=h.atm_delta_list(),
-            now_ts=ts,
-        )
-
-        max_pain_feats = compute_max_pain_features(spot=ltp, chain_rows=chain_rows)
-
-        event_calendar_feats = compute_event_calendar_features(
-            now_ts=ts, calendar=self._event_calendar
-        )
-
-        oi_flow_feats: dict[str, float] = {}
-        oi_flow_feats.update(compute_oi_weighted_levels(chain_rows))
-        oi_flow_feats.update(
-            compute_pcr_slope(pcr_history=h.pcr_list(), now_ts=ts)
-        )
-        oi_flow_feats.update(compute_wall_strength(chain_rows))
-        oi_flow_feats.update(
-            compute_oi_change_deltas(oi_history=h.oi_totals_list(), now_ts=ts)
-        )
-        oi_flow_feats.update(compute_oi_dominance_features(self._oi_dominance))
-
-        iv_velocity_feats = compute_iv_velocity_features(
-            iv_history=h.iv_velocity_list(), now_ts=ts
-        )
-
-        strike_rotation_feats = compute_strike_rotation_features(
-            active_strike_history=h.active_strikes_list(),
-            atm_strike=atm_strike,
-            strike_step=strike_step,
-            now_ts=ts,
-        )
-
-        cd = self._cross_day_levels
-        cross_day_level_feats = compute_cross_day_level_features(
-            spot=ltp,
-            prev_day_high=cd.prev_day_high if cd else None,
-            prev_day_low=cd.prev_day_low if cd else None,
-            swing_5d_high=cd.swing_5d_high if cd else None,
-            swing_5d_low=cd.swing_5d_low if cd else None,
-            round_number_step=self._round_number_step(),
-        )
-
-        bars_1m = self._bars.get_recent_bars(60)
-        bars_5m = self._bars.get_recent_bars(300)
-        bars_15m = self._bars.get_recent_bars(900)
-        technical_feats = compute_technical_features(bars_5m)
-        multi_tf_feats = compute_multi_tf_features(
-            spot=ltp, bars_1m=bars_1m, bars_5m=bars_5m, bars_15m=bars_15m
-        )
-
-        session_feats = compute_session_features(
-            state=self._session_state, spot=ltp, now_ts=ts
-        )
-
-        opening_range_feats = compute_opening_range_features(
-            state=self._opening_range, spot=ltp, now_ts=ts
-        )
-
-        intraday_time_feats = compute_intraday_time_features(
-            now_ts=ts,
-            # Anchor to SCHEDULED open in epoch seconds — ReplayAdapter already
-            # carries this as self._session_start_sec (derived from
-            # profile.session_start + date_str). Matches tick_processor's
-            # _scheduled_session_start_sec semantics.
-            session_open_ts=self._session_start_sec,
-            session_close_ts=self._session_end_sec or None,
-        )
-
-        ce_prem, pe_prem = self._latest_atm_premiums(atm_strike)
-        premium_vwap_feats = compute_premium_vwap_features(
-            state=self._premium_vwap,
-            current_ce_premium=ce_prem,
-            current_pe_premium=pe_prem,
-        )
-
-        # ExhaustionState.update() not yet called per-tick — waits for L8
-        # regime tag (Phase 6). Compute is safe: returns trend_age=0 + the
-        # bar-derived volume_no_move_score.
-        exhaustion_feats = compute_exhaustion_features(
-            state=self._exhaustion, bars_5m=bars_5m
-        )
-
-        return {
-            "multi_tf_feats": multi_tf_feats,
-            "session_feats": session_feats,
-            "opening_range_feats": opening_range_feats,
-            "cross_day_level_feats": cross_day_level_feats,
-            "oi_flow_feats": oi_flow_feats,
-            "technical_feats": technical_feats,
-            "vix_feats": vix_feats,
-            "dealer_hedging_feats": dealer_hedging_feats,
-            "exhaustion_feats": exhaustion_feats,
-            "intraday_time_feats": intraday_time_feats,
-            "strike_rotation_feats": strike_rotation_feats,
-            "premium_vwap_feats": premium_vwap_feats,
-            "iv_velocity_feats": iv_velocity_feats,
-            "max_pain_feats": max_pain_feats,
-            "event_calendar_feats": event_calendar_feats,
-        }
 
     # ── Feature computation ───────────────────────────────────────────────────
 
@@ -988,26 +721,30 @@ class ReplayAdapter:
             is_monthly=None,
         )
 
-        # Phase 2d-04 mirror: append the ATM Greek snapshot to the FD history
-        # so dealer-hedging charm + vanna estimates have a 5-min lookback.
-        atm_ce_delta = greek_f.get("atm_ce_delta")
-        atm_ce_iv_dec = greek_f.get("atm_ce_iv")
-        if (
-            atm_ce_delta is not None
-            and atm_ce_iv_dec is not None
-            and math.isfinite(atm_ce_delta)
-            and math.isfinite(atm_ce_iv_dec)
-        ):
-            self._histories.append_atm_delta(ts, atm_ce_delta, atm_ce_iv_dec)
+        # Phase 2d: hand the ATM Greek snapshot to the shared pipeline so
+        # dealer-hedging charm + vanna FD estimates have a 5-min lookback.
+        feature_pipeline.append_atm_greek_snapshot(
+            self._pipeline_state,
+            ts=ts,
+            atm_ce_delta=greek_f.get("atm_ce_delta"),
+            atm_ce_iv_decimal=greek_f.get("atm_ce_iv"),
+        )
 
-        # Phase 2d-04 mirror: run the 18 trend/swing compute functions.
-        phase2 = self._compute_phase2_features(
+        # Phase 2d: run the shared trend/swing pipeline.
+        ce_prem, pe_prem = self._latest_atm_premiums(atm_strike)
+        pipeline = feature_pipeline.compute_pipeline_features(
+            self._pipeline_state,
             ts=ts,
             ltp=ltp,
             chain_rows=chain_rows,
             atm_strike=atm_strike,
             strike_step=strike_step,
-            dte=dte,
+            days_to_expiry=dte,
+            instrument_name=self._profile.instrument_name,
+            scheduled_session_start_sec=self._session_start_sec,
+            session_end_sec=self._session_end_sec or None,
+            latest_atm_ce_premium=ce_prem,
+            latest_atm_pe_premium=pe_prem,
         )
 
         # ── Assemble flat row (NaN targets — backfilled later) ────────────────
@@ -1040,21 +777,21 @@ class ReplayAdapter:
             greek_feats=greek_f,
             expiry_feats=expiry_f,
             # Phase 2d-04 mirror: trend/swing feature groups (69 new columns)
-            multi_tf_feats=phase2["multi_tf_feats"],
-            session_feats=phase2["session_feats"],
-            opening_range_feats=phase2["opening_range_feats"],
-            cross_day_level_feats=phase2["cross_day_level_feats"],
-            oi_flow_feats=phase2["oi_flow_feats"],
-            technical_feats=phase2["technical_feats"],
-            vix_feats=phase2["vix_feats"],
-            dealer_hedging_feats=phase2["dealer_hedging_feats"],
-            exhaustion_feats=phase2["exhaustion_feats"],
-            intraday_time_feats=phase2["intraday_time_feats"],
-            strike_rotation_feats=phase2["strike_rotation_feats"],
-            premium_vwap_feats=phase2["premium_vwap_feats"],
-            iv_velocity_feats=phase2["iv_velocity_feats"],
-            max_pain_feats=phase2["max_pain_feats"],
-            event_calendar_feats=phase2["event_calendar_feats"],
+            multi_tf_feats=pipeline["multi_tf_feats"],
+            session_feats=pipeline["session_feats"],
+            opening_range_feats=pipeline["opening_range_feats"],
+            cross_day_level_feats=pipeline["cross_day_level_feats"],
+            oi_flow_feats=pipeline["oi_flow_feats"],
+            technical_feats=pipeline["technical_feats"],
+            vix_feats=pipeline["vix_feats"],
+            dealer_hedging_feats=pipeline["dealer_hedging_feats"],
+            exhaustion_feats=pipeline["exhaustion_feats"],
+            intraday_time_feats=pipeline["intraday_time_feats"],
+            strike_rotation_feats=pipeline["strike_rotation_feats"],
+            premium_vwap_feats=pipeline["premium_vwap_feats"],
+            iv_velocity_feats=pipeline["iv_velocity_feats"],
+            max_pain_feats=pipeline["max_pain_feats"],
+            event_calendar_feats=pipeline["event_calendar_feats"],
         )
         return row
 
