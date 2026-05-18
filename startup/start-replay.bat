@@ -83,11 +83,7 @@ if errorlevel 1 (
 set PYTHONIOENCODING=utf-8
 chcp 65001 >nul 2>&1
 
-echo.
-echo ============================================================
-echo   TFA Replay -- %INSTRUMENT%
-echo ============================================================
-echo.
+REM Banner is printed by main.py — no need to duplicate from the wrapper.
 
 REM Run TFA replay; exit code 75 means "restart requested" (matches the
 REM convention used by start-tfa.bat, start-api.bat, start.bat).

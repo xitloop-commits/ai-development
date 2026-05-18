@@ -79,7 +79,20 @@ class _JsonFormatter(logging.Formatter):
 
 
 class _StderrFormatter(logging.Formatter):
-    """Human-readable single-line format for terminal output."""
+    """Human-readable single-line format for terminal output.
+
+    Levels get ANSI colours so warnings / errors stand out from
+    INFO chatter (yellow for WARN, red for ERROR).
+    """
+
+    _COLOUR_BY_LEVEL = {
+        "WARN":    "\033[33m",  # yellow
+        "WARNING": "\033[33m",
+        "ERROR":   "\033[31m",  # red
+        "CRIT":    "\033[31m",
+        "CRITICAL":"\033[31m",
+    }
+    _RESET = "\033[0m"
 
     def format(self, record: logging.LogRecord) -> str:
         # QueueHandler.prepare() sets record.args = None before queuing (for
@@ -94,7 +107,11 @@ class _StderrFormatter(logging.Formatter):
         alert = data.get("alert") or data.get("event", "")
         msg = data.get("msg", "")
         separator = " — " if msg else ""
-        return f"[{time_part} IST] {level:<5}  {alert}{separator}{msg}"
+        line = f"[{time_part} IST] {level:<5}  {alert}{separator}{msg}"
+        colour = self._COLOUR_BY_LEVEL.get(level.upper())
+        if colour:
+            return f"{colour}{line}{self._RESET}"
+        return line
 
 
 def setup_logging(

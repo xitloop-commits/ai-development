@@ -1212,7 +1212,12 @@ def main() -> None:
         _flat: list[str] = []
         for chunk in args.include_dates:
             _flat.extend(d.strip() for d in str(chunk).split(",") if d.strip())
-        mode_str = f"replay  ({len(_flat)} explicit dates)"
+        if len(_flat) == 1:
+            mode_str = f"replay  {_flat[0]}"
+        elif len(_flat) <= 5:
+            mode_str = f"replay  {', '.join(_flat)}"
+        else:
+            mode_str = f"replay  {_flat[0]} … {_flat[-1]}  ({len(_flat)} dates)"
     elif args.date:
         mode_str = f"replay  {args.date}"
     else:
