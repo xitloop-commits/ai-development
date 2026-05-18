@@ -498,6 +498,6 @@
     "hours_to_next_tier_1_or_2_event",
     "days_to_expiry_bucket"
   ],
-  "written_at_utc": "2026-05-17T16:33:28Z",
+  "written_at_utc": "2026-05-18T05:31:55Z",
   "written_by": "tick_feature_agent.emitter"
 }
