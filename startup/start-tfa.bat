@@ -87,6 +87,11 @@ chcp 65001 >nul 2>&1
 
 set "OUTPUT_FILE=data\features\%INSTRUMENT%_live.ndjson"
 
+REM Truncate the previous session's live NDJSON so the file stays bounded
+REM to a single session's data. `watch-features` reads this file; raw
+REM recordings (data/raw/<date>/) keep the durable copy used by replay.
+if exist "%OUTPUT_FILE%" del /Q "%OUTPUT_FILE%" >nul 2>&1
+
 REM Default to the spouse's Dhan account for TFA so the primary account's
 REM 5-WS budget stays free for TradingDesk + order updates. Override by
 REM passing --broker-id=dhan in EXTRA_ARGS.
