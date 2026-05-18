@@ -91,14 +91,14 @@ def _build(**overrides) -> dict:
 
 class TestColumnNames:
 
-    def test_count_is_471(self):
+    def test_count_is_495(self):
         # Wave 1: +22 (8 levels + 9 greeks + 5 expiry) → 392.
         # Wave 2: +5 target types per window × 2 default windows = +10 → 402.
-        # Phase 2 (Schema-22/23): +69 trend/swing L1 (23 B-block + 46 C-block) → 471.
-        assert len(COLUMN_NAMES) == 471
+        # Phase 2 (Schema-22/23): +69 trend/swing L1 (23 B-block + 46 C-block) → 495.
+        assert len(COLUMN_NAMES) == 495
 
     def test_no_duplicates(self):
-        assert len(set(COLUMN_NAMES)) == 471
+        assert len(set(COLUMN_NAMES)) == 495
 
     def test_first_column_is_timestamp(self):
         assert COLUMN_NAMES[0] == "timestamp"
@@ -235,30 +235,30 @@ class TestBuildTargetColumns:
 class TestDynamicColumnCount:
     """Lock the column-count contract for both the legacy 2-window
     profile and the canonical 4-window profile. Phase 2 (Schema-22/23)
-    appends 69 trend/swing L1 features, lifting the totals to 471 / 495."""
+    appends 69 trend/swing L1 features, lifting the totals to 495 / 519."""
 
-    def test_count_is_471_for_2window_profile(self):
+    def test_count_is_495_for_2window_profile(self):
         # Wave 1 +22 cols, Wave 2 +10 (5 target types × 2 windows),
-        # Phase 2 +69 trend/swing L1 → 380 + 22 + 10 + 69 = 471.
+        # Phase 2 +69 trend/swing L1 → 380 + 22 + 10 + 69 = 495.
         cols = column_names_for((30, 60))
-        assert len(cols) == 471
-        assert len(set(cols)) == 471, "duplicate column names in 2-window profile"
+        assert len(cols) == 495
+        assert len(set(cols)) == 495, "duplicate column names in 2-window profile"
 
     def test_count_is_495_for_4window_profile(self):
         """Canonical Phase D4 layout + Wave 1 (22) + Wave 2 (4×5=20)
-        + Phase 2 (69) = 495."""
+        + Phase 2 (69) = 519."""
         cols = column_names_for((30, 60, 300, 900))
-        assert len(cols) == 495
-        assert len(set(cols)) == 495, "duplicate column names in 4-window profile"
+        assert len(cols) == 519
+        assert len(set(cols)) == 519, "duplicate column names in 4-window profile"
 
     @pytest.mark.parametrize(
         "windows,expected_count",
         [
-            ((30,), 459),       # single-window: 446 + 12×1 + 1 = 459
-            ((30, 60), 471),    # 2-window legacy MVP: 446 + 24 + 1 = 471
-            ((30, 60, 300), 483),         # 3-window: 446 + 36 + 1 = 483
-            ((30, 60, 300, 900), 495),    # canonical D4: 446 + 48 + 1 = 495
-            ((30, 60, 120, 300, 900), 507),  # 5-window: 446 + 60 + 1 = 507
+            ((30,), 483),       # single-window: 446 + 12×1 + 1 + 24 = 483
+            ((30, 60), 495),    # 2-window legacy MVP: 446 + 24 + 1 + 24 = 495
+            ((30, 60, 300), 507),         # 3-window: 446 + 36 + 1 + 24 = 507
+            ((30, 60, 300, 900), 519),    # canonical D4: 446 + 48 + 1 + 24 = 519
+            ((30, 60, 120, 300, 900), 531),  # 5-window: 446 + 60 + 1 + 24 = 531
         ],
     )
     def test_count_formula(self, windows, expected_count):
@@ -270,7 +270,7 @@ class TestDynamicColumnCount:
     def test_legacy_module_global_is_2window_default(self):
         """`COLUMN_NAMES` exists as backward-compat for pre-E8 callers
         and resolves to the 2-window default."""
-        assert len(COLUMN_NAMES) == 471
+        assert len(COLUMN_NAMES) == 495
         assert COLUMN_NAMES == column_names_for((30, 60))
 
     def test_4window_includes_300s_and_900s_target_cols(self):
@@ -416,9 +416,9 @@ class TestParquetTypeForDirectionTargets:
 
 class TestAssembleFlatVector:
 
-    def test_key_count_is_471(self):
+    def test_key_count_is_495(self):
         row = _build()
-        assert len(row) == 471
+        assert len(row) == 495
 
     def test_key_order_matches_column_names(self):
         row = _build()
@@ -744,7 +744,7 @@ class TestSerializeRow:
         row = _build()
         line = serialize_row(row)
         parsed = json.loads(line)
-        assert len(parsed) == 471
+        assert len(parsed) == 495
 
     def test_allow_nan_false_satisfied(self):
         """NaN converted to null → json.loads should not raise."""
@@ -772,7 +772,7 @@ class TestEmitterFileSink:
         lines = Path(out_file).read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 1
         parsed = json.loads(lines[0])
-        assert len(parsed) == 471
+        assert len(parsed) == 495
 
     def test_emit_multiple_rows(self, tmp_path):
         out_file = str(tmp_path / "test_multi.ndjson")
@@ -974,7 +974,7 @@ class TestPhase2Columns:
 
     def test_phase2_block_is_appended_after_wave1(self):
         """Phase 2 columns must come AFTER the Wave 1 expiry block — the
-        order is contractually locked the moment we publish v7.json."""
+        order is contractually locked the moment we publish v8.json."""
         cols = column_names_for((30, 60))
         last_wave1_idx = cols.index("session_remaining_pct")
         first_phase2_idx = cols.index(_PHASE2_BC_COLUMNS[0])
@@ -1030,15 +1030,15 @@ class TestSchemaRegistry:
     """Lock the D74 B1 contract: emitter writes v<N>.json iff
     LATEST_SCHEMA_VERSION > highest existing version on disk."""
 
-    def test_writes_v7_when_dir_empty(self, tmp_path):
+    def test_writes_v8_when_dir_empty(self, tmp_path):
         registry = tmp_path / "schema_registry"
         Emitter(target_windows_sec=(30, 60, 300, 900), schema_registry_dir=registry)
         out_file = registry / f"v{LATEST_SCHEMA_VERSION}.json"
-        assert out_file.exists(), "emitter should auto-write v7.json on empty registry"
+        assert out_file.exists(), "emitter should auto-write v8.json on empty registry"
         payload = json.loads(out_file.read_text(encoding="utf-8"))
         assert payload["schema_version"] == LATEST_SCHEMA_VERSION
         assert payload["feature_count"] == len(payload["columns"])
-        assert payload["feature_count"] == 495  # 4-window canonical
+        assert payload["feature_count"] == 519  # 4-window canonical
         assert payload["columns"][0] == "timestamp"
         assert "india_vix" in payload["columns"]
         assert "days_to_expiry_bucket" in payload["columns"]
@@ -1047,7 +1047,7 @@ class TestSchemaRegistry:
     def test_no_write_when_existing_version_equal(self, tmp_path):
         registry = tmp_path / "schema_registry"
         registry.mkdir()
-        # Pre-place a v7.json with a deliberately wrong payload — the
+        # Pre-place a v8.json with a deliberately wrong payload — the
         # emitter must NOT overwrite an equal version.
         sentinel = {"schema_version": LATEST_SCHEMA_VERSION, "columns": ["DO-NOT-OVERWRITE"]}
         (registry / f"v{LATEST_SCHEMA_VERSION}.json").write_text(json.dumps(sentinel))
@@ -1063,7 +1063,7 @@ class TestSchemaRegistry:
         future = {"schema_version": LATEST_SCHEMA_VERSION + 1, "columns": []}
         (registry / f"v{LATEST_SCHEMA_VERSION + 1}.json").write_text(json.dumps(future))
         Emitter(schema_registry_dir=registry)
-        # Our v7 must NOT have appeared.
+        # Our v8 must NOT have appeared.
         assert not (registry / f"v{LATEST_SCHEMA_VERSION}.json").exists()
         # The future file is untouched.
         loaded = json.loads(
@@ -1089,33 +1089,35 @@ class TestSchemaRegistry:
         Emitter(mode="replay", schema_registry_dir=registry)
         assert (registry / f"v{LATEST_SCHEMA_VERSION}.json").exists()
 
-    def test_real_repo_registry_v7_present(self):
-        """End-to-end fixture: writes the canonical 4-window v7.json to
+    def test_real_repo_registry_v8_present(self):
+        """End-to-end fixture: writes the canonical 4-window v8.json to
         the real `config/schema_registry/` directory so the repo carries
         a developer-readable schema-of-truth. Per V2_MASTER_SPEC §2.3
         D74 B1 this file is autogenerated; the test fixture is the
         authoritative producer.
 
-        The test deletes any pre-existing v7.json first so the result
-        always reflects the 4-window canonical profile (495 cols) — the
+        The test deletes any pre-existing v8.json first so the result
+        always reflects the 4-window canonical profile (519 cols) — the
         registry is meant to mirror the live recorder, which uses 4
         windows per E8/D4. Other tests in this module override
         `schema_registry_dir` to tmp paths so they don't pollute the
         real registry."""
         from tick_feature_agent.output.emitter import _DEFAULT_SCHEMA_REGISTRY_DIR
-        v7 = _DEFAULT_SCHEMA_REGISTRY_DIR / "v7.json"
-        if v7.exists():
-            v7.unlink()
+        v8 = _DEFAULT_SCHEMA_REGISTRY_DIR / "v8.json"
+        if v8.exists():
+            v8.unlink()
         Emitter(target_windows_sec=(30, 60, 300, 900))
-        assert v7.exists(), f"expected real-repo registry file at {v7}"
-        payload = json.loads(v7.read_text(encoding="utf-8"))
-        assert payload["schema_version"] == 7
+        assert v8.exists(), f"expected real-repo registry file at {v8}"
+        payload = json.loads(v8.read_text(encoding="utf-8"))
+        assert payload["schema_version"] == 8
         assert payload["feature_count"] == len(payload["columns"])
-        assert payload["feature_count"] == 495, (
-            "real-repo v7.json must reflect canonical 4-window profile"
+        assert payload["feature_count"] == 519, (
+            "real-repo v8.json must reflect canonical 4-window profile"
         )
         assert payload["columns"][0] == "timestamp"
-        # Spot-check that the 69 Phase 2 keys made it in.
+        # Spot-check that the 69 Phase 2 keys + 24 Phase 3 target keys made it in.
         assert "india_vix" in payload["columns"]
         assert "net_gex" in payload["columns"]
         assert "days_to_expiry_bucket" in payload["columns"]
+        assert "trend_direction_900s" in payload["columns"]
+        assert "swing_breakout_imminent_7200s" in payload["columns"]

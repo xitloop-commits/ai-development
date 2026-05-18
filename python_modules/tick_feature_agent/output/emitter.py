@@ -97,12 +97,28 @@ _NAN = float("nan")
 # V2_MASTER_SPEC §2.3 D74 B1 (LOCKED 2026-05-17), the emitter is the SOLE
 # authoritative writer of the registry.
 #
-# History:
-#   v6 — Wave 2 scalp targets (5 new types × 2 windows = +10 target cols),
-#        landing 2-window profile at 402.
-#   v7 — Phase 2 trend/swing Layer-1 features (+69: 23 B-block + 46
-#        C-block), landing 2-window profile at 471, 4-window at 495.
-LATEST_SCHEMA_VERSION: int = 7
+# Schema version log (each row = one bump = one v<N>.json file shipped):
+#
+#   v6 (scalp-targets-expanded) — Wave 2 scalp added 5 new target types per
+#        window (direction_persists, breakout_in, exit_signal, max_upside_pe,
+#        max_drawdown_pe), +10 target cols on the 2-window profile. Landed
+#        2-window at 402.
+#
+#   v7 (trend-swing-features) — Phase 2 added 69 trend/swing Layer-1 input
+#        features (23 B-block: bars / session / opening-range / multi-TF;
+#        46 C-block: VIX / dealer-hedging / events / OI flow / IV velocity /
+#        technicals / etc.). Landed 2-window at 471, 4-window at 495.
+#
+#   v8 (trend-swing-targets) — Phase 3 added 24 trend + swing target labels
+#        (6 types × 4 horizons: 15m/30m for trend, 1h/2h for swing). These
+#        are populated by the replay backfill pipeline; live emits NaN per
+#        the Option B decision (2026-05-18). Lands 2-window at 495, 4-window
+#        at 519.
+#
+# Each version's file at config/schema_registry/v<N>.json captures the
+# exact ordered column list so downstream consumers (SEA, retrain) can
+# reconcile parquets written by older emitters.
+LATEST_SCHEMA_VERSION: int = 8
 
 _log = logging.getLogger("tick_feature_agent.emitter")
 
@@ -496,6 +512,22 @@ assert len(set(_PHASE2_BC_COLUMNS)) == len(_PHASE2_BC_COLUMNS), (
     "Duplicate column name detected in _PHASE2_BC_COLUMNS"
 )
 
+
+# ── Phase 3 trend + swing target columns (24, v8 schema) ─────────────────
+# Six target types × four horizons (trend 900s/1800s + swing 3600s/7200s).
+# See features/trend_swing_targets.py for the compute logic. Replay
+# populates these from end-of-day raw recordings; live emits NaN per the
+# Option B decision (2026-05-18).
+from tick_feature_agent.features.trend_swing_targets import (  # noqa: E402
+    trend_swing_target_column_names as _trend_swing_target_column_names,
+)
+
+_TREND_SWING_TARGET_COLUMNS: tuple[str, ...] = _trend_swing_target_column_names()
+assert len(_TREND_SWING_TARGET_COLUMNS) == 24, (
+    f"_TREND_SWING_TARGET_COLUMNS expected 24 (6 types × 4 horizons), "
+    f"got {len(_TREND_SWING_TARGET_COLUMNS)}"
+)
+
 # ── Target column generation ──────────────────────────────────────────────────
 
 
@@ -650,6 +682,11 @@ def _build_column_names(
     # Layer-1 features (69) — 23 B-block + 46 C-block.
     cols.extend(_PHASE2_BC_COLUMNS)
 
+    # Phase 3 trend + swing target labels (24, v8 schema). Same set for
+    # every profile — horizons are fixed (900s/1800s trend, 3600s/7200s
+    # swing). Replay-pass populates these; live emits NaN.
+    cols.extend(_TREND_SWING_TARGET_COLUMNS)
+
     return tuple(cols)
 
 
@@ -724,6 +761,12 @@ def assemble_flat_vector(
     iv_velocity_feats: dict | None = None,     # greeks.compute_iv_velocity_features (C9)
     max_pain_feats: dict | None = None,        # levels.compute_max_pain_features (C10)
     event_calendar_feats: dict | None = None,  # event_calendar.compute_event_calendar_features (C11)
+    # ── Phase 3 trend + swing target labels (v8 schema) ─────────────────────
+    # Replay backfills these from end-of-day raw data; live emits NaN per
+    # the Option B decision (2026-05-18). Pass None to emit NaN for all 24
+    # target columns; pass the dict returned by
+    # SpotTargetBuffer.compute_targets() to populate them.
+    trend_swing_target_feats: dict | None = None,
 ) -> dict:
     """
     Assemble all per-tick feature groups into a single ordered flat dict.
@@ -954,6 +997,11 @@ def assemble_flat_vector(
     # now returns 6 keys total, the new one appended at the end).
     for k in _C12_EXPIRY_BUCKET_KEYS:
         row[k] = expiry.get(k, _NAN)
+
+    # ── Phase 3 trend + swing target labels (24 columns, v8 schema) ─────────
+    _tst = trend_swing_target_feats or {}
+    for k in _TREND_SWING_TARGET_COLUMNS:
+        row[k] = _tst.get(k, _NAN)
 
     return row
 

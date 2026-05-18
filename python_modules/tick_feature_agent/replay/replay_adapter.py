@@ -54,6 +54,11 @@ from tick_feature_agent.features.targets import (
     TargetBuffer,
     UpsidePercentileTracker,
 )
+from tick_feature_agent.features.trend_swing_targets import (
+    SWING_HORIZONS_SEC,
+    TREND_HORIZONS_SEC,
+    SpotTargetBuffer,
+)
 from tick_feature_agent.features.time_to_move import TimeToMoveState
 from tick_feature_agent.features.underlying import compute_underlying_features
 from tick_feature_agent.features.zone import compute_zone_features
@@ -233,6 +238,11 @@ class ReplayAdapter:
         self._target_buf = TargetBuffer(target_windows_sec=profile.target_windows_sec)
         self._upside_pct = UpsidePercentileTracker()
 
+        # Phase 3: replay-only buffer for trend + swing target labels.
+        # Live emits NaN per Option B (2026-05-18) — only replay backfills
+        # the 24 trend/swing target columns.
+        self._spot_target_buf = SpotTargetBuffer()
+
         # Output emitter in replay mode (accumulates rows in memory).
         # Phase E8: pass profile windows so the parquet schema picks up
         # 4-window direction columns as int32 instead of float32.
@@ -272,9 +282,12 @@ class ReplayAdapter:
         # Target backfill queue
         self._pending: deque[_PendingRow] = deque()
 
-        # Maximum target window (seconds) — determines when to backfill
-        self._max_window_sec: float = (
-            max(profile.target_windows_sec) if profile.target_windows_sec else 60.0
+        # Maximum target window (seconds) — determines when to backfill.
+        # Phase 3: must also span the trend (1800s) + swing (7200s) horizons
+        # so rows aren't flushed before their swing windows close.
+        self._max_window_sec: float = max(
+            max(profile.target_windows_sec) if profile.target_windows_sec else 60.0,
+            float(max(TREND_HORIZONS_SEC + SWING_HORIZONS_SEC)),
         )
 
         # Market-open flag (derived from replay timestamps)
@@ -360,11 +373,20 @@ class ReplayAdapter:
                 day_low_at_t0=pending.day_low_at_t0,
             )
             pending.row.update(targets)
+            # Phase 3: also backfill the trend + swing target columns.
+            trend_swing = self._spot_target_buf.compute_targets(
+                t0=pending.t0,
+                spot_at_t0=pending.spot_at_t0,
+                instrument_name=self._profile.instrument_name,
+                session_end_sec=self._session_end_sec,
+            )
+            pending.row.update(trend_swing)
             self._emitter.emit(pending.row)
 
         # Reset target buffer and tracker for clean re-use (if any)
         self._target_buf.reset()
         self._upside_pct.reset()
+        self._spot_target_buf.reset()
 
     # ── Event handlers ────────────────────────────────────────────────────────
 
@@ -514,6 +536,9 @@ class ReplayAdapter:
             spot=ltp,
             strike_ltps=strike_ltps,
         )
+        # Phase 3: feed the spot-only buffer used by trend + swing target
+        # compute. Lightweight — stores only (ts, spot), no option legs.
+        self._spot_target_buf.push(ts, ltp)
 
         # ── Flush mature pending rows whose target windows are now complete ────
         self._flush_pending(ts)
@@ -841,6 +866,15 @@ class ReplayAdapter:
             targets[upside_pct_key] = self._upside_pct.add_and_query(upside_val)
 
             pending.row.update(targets)
+            # Phase 3: also backfill trend + swing target columns from the
+            # spot-only buffer (replay-only per Option B).
+            trend_swing = self._spot_target_buf.compute_targets(
+                t0=pending.t0,
+                spot_at_t0=pending.spot_at_t0,
+                instrument_name=self._profile.instrument_name,
+                session_end_sec=self._session_end_sec,
+            )
+            pending.row.update(trend_swing)
             self._emitter.emit(pending.row)
 
     def _get_atm_strike_ltps(self) -> dict[int, tuple[float, float]]:

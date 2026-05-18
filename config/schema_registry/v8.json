@@ -1,6 +1,6 @@
 {
-  "schema_version": 7,
-  "feature_count": 495,
+  "schema_version": 8,
+  "feature_count": 519,
   "columns": [
     "timestamp",
     "underlying_ltp",
@@ -496,8 +496,32 @@
     "is_tier_2_event_day",
     "event_type_categorical",
     "hours_to_next_tier_1_or_2_event",
-    "days_to_expiry_bucket"
+    "days_to_expiry_bucket",
+    "trend_direction_900s",
+    "trend_magnitude_900s",
+    "trend_max_excursion_900s",
+    "trend_max_drawdown_900s",
+    "trend_continues_900s",
+    "trend_breakout_imminent_900s",
+    "trend_direction_1800s",
+    "trend_magnitude_1800s",
+    "trend_max_excursion_1800s",
+    "trend_max_drawdown_1800s",
+    "trend_continues_1800s",
+    "trend_breakout_imminent_1800s",
+    "swing_direction_3600s",
+    "swing_magnitude_3600s",
+    "swing_max_excursion_3600s",
+    "swing_max_drawdown_3600s",
+    "swing_continues_3600s",
+    "swing_breakout_imminent_3600s",
+    "swing_direction_7200s",
+    "swing_magnitude_7200s",
+    "swing_max_excursion_7200s",
+    "swing_max_drawdown_7200s",
+    "swing_continues_7200s",
+    "swing_breakout_imminent_7200s"
   ],
-  "written_at_utc": "2026-05-18T05:31:55Z",
+  "written_at_utc": "2026-05-18T17:12:04Z",
   "written_by": "tick_feature_agent.emitter"
 }
