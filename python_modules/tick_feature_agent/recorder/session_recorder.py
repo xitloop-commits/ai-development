@@ -283,4 +283,5 @@ class SessionRecorder:
             "underlying_ticks": self._underlying_count,
             "option_ticks": self._option_count,
             "chain_snapshots": self._chain_count,
+            "vix_ticks": self._vix_count,
         }

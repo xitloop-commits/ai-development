@@ -374,6 +374,8 @@ class TestSessionRecorder:
         assert (date_dir / "nifty50_underlying_ticks.ndjson.gz").exists()
         assert (date_dir / "nifty50_option_ticks.ndjson.gz").exists()
         assert (date_dir / "nifty50_chain_snapshots.ndjson.gz").exists()
+        # Phase 2d-01: VIX writer must also open on session_open.
+        assert (date_dir / "nifty50_vix_ticks.ndjson.gz").exists()
 
     def test_metadata_written_on_open(self, tmp_path):
         rec = self._make_recorder(tmp_path)
@@ -424,7 +426,49 @@ class TestSessionRecorder:
         assert rec.counts["underlying_ticks"] == 2
         assert rec.counts["option_ticks"] == 1
         assert rec.counts["chain_snapshots"] == 1
+        assert rec.counts["vix_ticks"] == 0
         rec.on_session_close()
+
+    # ── Phase 2d-01: VIX recording ──────────────────────────────────────────
+
+    def test_record_vix_tick_persists_to_file(self, tmp_path):
+        rec = self._make_recorder(tmp_path)
+        rec.on_session_open("2026-04-14")
+        rec.record_vix_tick({"recv_ts": "2026-04-14T10:00:00+05:30", "ltp": 13.45})
+        rec.record_vix_tick({"recv_ts": "2026-04-14T10:00:01+05:30", "ltp": 13.46})
+        rec.on_session_close()
+        path = tmp_path / "data" / "raw" / "2026-04-14" / "nifty50_vix_ticks.ndjson.gz"
+        records = _read_gz(path)
+        assert len(records) == 2
+        assert records[0]["ltp"] == 13.45
+        assert records[1]["ltp"] == 13.46
+        assert "recv_ts" in records[0]
+
+    def test_vix_tick_recv_ts_added_if_missing(self, tmp_path):
+        rec = self._make_recorder(tmp_path)
+        rec.on_session_open("2026-04-14")
+        rec.record_vix_tick({"ltp": 13.45})  # no recv_ts
+        rec.on_session_close()
+        path = tmp_path / "data" / "raw" / "2026-04-14" / "nifty50_vix_ticks.ndjson.gz"
+        records = _read_gz(path)
+        assert len(records) == 1
+        # The recorder injects an IST-ISO recv_ts when missing.
+        assert "recv_ts" in records[0]
+        assert "+05:30" in records[0]["recv_ts"]
+
+    def test_vix_count_reflects_record_calls(self, tmp_path):
+        rec = self._make_recorder(tmp_path)
+        rec.on_session_open("2026-04-14")
+        for v in (13.45, 13.46, 13.47):
+            rec.record_vix_tick({"ltp": v})
+        assert rec.counts["vix_ticks"] == 3
+        rec.on_session_close()
+
+    def test_record_vix_before_session_open_is_silent(self, tmp_path):
+        """record_vix_tick before on_session_open must not raise."""
+        rec = self._make_recorder(tmp_path)
+        rec.record_vix_tick({"ltp": 13.45})  # writer is None — should no-op
+        assert rec.counts["vix_ticks"] == 0
 
     def test_recv_ts_added_if_missing(self, tmp_path):
         rec = self._make_recorder(tmp_path)

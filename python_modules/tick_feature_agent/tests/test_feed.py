@@ -518,3 +518,166 @@ class TestExchangeSegmentMaps:
         buf = _make_full_buf(exch_seg=2, sec_id=52175)
         header, _ = dispatch(buf)
         assert EXCHANGE_SEGMENT_NAME[header.exchange_segment] == "NSE_FNO"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DhanFeed dispatch — Phase 2d-01 VIX routing
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# These tests exercise the per-tick dispatch branch inside
+# DhanFeed._handle_message. We monkeypatch the module-level `dispatch`
+# function so we can drive the handler with controlled (PacketHeader,
+# payload) pairs without constructing real binary buffers.
+
+
+import asyncio
+
+from tick_feature_agent.feed import dhan_feed as _dhan_feed_mod
+from tick_feature_agent.feed.dhan_feed import DhanFeed
+
+
+class _CallTracker:
+    """Tiny helper — records which callback fired and with what args."""
+
+    def __init__(self):
+        self.underlying_calls: list[dict] = []
+        self.option_calls: list[tuple[int, str, dict]] = []
+        self.vix_calls: list[dict] = []
+
+    def on_underlying(self, data: dict) -> None:
+        self.underlying_calls.append(data)
+
+    def on_option(self, strike: int, opt_type: str, data: dict) -> None:
+        self.option_calls.append((strike, opt_type, data))
+
+    def on_vix(self, data: dict) -> None:
+        self.vix_calls.append(data)
+
+
+def _make_feed(*, with_vix_callback: bool = True) -> tuple[DhanFeed, _CallTracker]:
+    """Build a non-connected DhanFeed wired to call-trackers."""
+    tracker = _CallTracker()
+    feed = DhanFeed(
+        access_token="dummy",
+        client_id="dummy",
+        exchange="NSE",
+        underlying_security_id="13",  # NIFTY
+        on_underlying_tick=tracker.on_underlying,
+        on_option_tick=tracker.on_option,
+        on_vix_tick=tracker.on_vix if with_vix_callback else None,
+    )
+    # Skip real WS lifecycle — set the flags the dispatch path checks.
+    feed._connected = False  # _handle_message doesn't actually require connected
+    return feed, tracker
+
+
+def _patch_dispatch_to(monkeypatch, header: PacketHeader, payload: dict | None) -> None:
+    """Replace `dhan_feed.dispatch` so _handle_message gets a controlled
+    (header, payload) tuple regardless of the input bytes."""
+    monkeypatch.setattr(
+        _dhan_feed_mod, "dispatch", lambda _buf: (header, payload)
+    )
+
+
+def _run(coro):
+    """Sync wrapper for awaiting one coroutine in a fresh event loop."""
+    return asyncio.run(coro)
+
+
+class TestDhanFeedDispatch:
+    """Phase 2d-01: the new VIX dispatch branch in DhanFeed._handle_message."""
+
+    def test_vix_security_id_routes_to_on_vix_tick(self, monkeypatch):
+        feed, tracker = _make_feed()
+        feed.subscribe_vix("264969")
+        header = PacketHeader(
+            response_code=ResponseCode.INDEX,
+            message_length=12,
+            exchange_segment=0,  # IDX_I
+            security_id=264969,
+        )
+        _patch_dispatch_to(monkeypatch, header, {"ltp": 13.45})
+        _run(feed._handle_message(b"\x00" * 12))
+        assert len(tracker.vix_calls) == 1
+        assert tracker.vix_calls[0]["ltp"] == 13.45
+        # Must NOT have routed to either of the other callbacks.
+        assert tracker.underlying_calls == []
+        assert tracker.option_calls == []
+
+    def test_underlying_security_id_still_routes_to_on_underlying(self, monkeypatch):
+        """Regression: the new VIX branch must not steal underlying ticks."""
+        feed, tracker = _make_feed()
+        feed.subscribe_vix("264969")  # VIX subscribed alongside
+        header = PacketHeader(
+            response_code=ResponseCode.INDEX,
+            message_length=12,
+            exchange_segment=0,
+            security_id=13,  # NIFTY underlying
+        )
+        _patch_dispatch_to(monkeypatch, header, {"ltp": 24100.0})
+        _run(feed._handle_message(b"\x00" * 12))
+        assert len(tracker.underlying_calls) == 1
+        assert tracker.vix_calls == []
+
+    def test_option_security_id_still_routes_to_on_option(self, monkeypatch):
+        """Regression: options dispatch unaffected by VIX branch."""
+        feed, tracker = _make_feed()
+        feed.subscribe_vix("264969")
+        feed.subscribe_options({"52175": (21800, "CE")})
+        header = PacketHeader(
+            response_code=ResponseCode.FULL,  # options require FULL
+            message_length=160,
+            exchange_segment=2,  # NSE_FNO
+            security_id=52175,
+        )
+        _patch_dispatch_to(monkeypatch, header, {"ltp": 250.0})
+        _run(feed._handle_message(b"\x00" * 12))
+        assert len(tracker.option_calls) == 1
+        strike, opt_type, _ = tracker.option_calls[0]
+        assert strike == 21800
+        assert opt_type == "CE"
+        assert tracker.vix_calls == []
+
+    def test_vix_packet_when_not_subscribed_is_silently_dropped(self, monkeypatch):
+        """If subscribe_vix() was never called, a VIX-id packet should
+        fall through silently — no callback fires, no exception."""
+        feed, tracker = _make_feed()
+        # NOTE: subscribe_vix is intentionally NOT called.
+        header = PacketHeader(
+            response_code=ResponseCode.INDEX,
+            message_length=12,
+            exchange_segment=0,
+            security_id=264969,
+        )
+        _patch_dispatch_to(monkeypatch, header, {"ltp": 13.45})
+        _run(feed._handle_message(b"\x00" * 12))
+        assert tracker.vix_calls == []
+        assert tracker.underlying_calls == []
+        assert tracker.option_calls == []
+
+    def test_vix_packet_when_callback_is_none_is_silently_dropped(self, monkeypatch):
+        """Construct VIX subscribed but with on_vix_tick=None — packet
+        is recognised but no callback fires."""
+        feed, tracker = _make_feed(with_vix_callback=False)
+        feed.subscribe_vix("264969")
+        header = PacketHeader(
+            response_code=ResponseCode.INDEX,
+            message_length=12,
+            exchange_segment=0,
+            security_id=264969,
+        )
+        _patch_dispatch_to(monkeypatch, header, {"ltp": 13.45})
+        # Must NOT raise.
+        _run(feed._handle_message(b"\x00" * 12))
+        assert tracker.vix_calls == []  # callback was None
+
+    def test_subscribe_vix_adds_to_subscription_registry(self):
+        """Subscription survives reconnects — verify the entry exists in
+        _subscriptions so the resubscribe-on-reconnect path covers VIX."""
+        feed, _ = _make_feed()
+        feed.subscribe_vix("264969")
+        # Key format: "<segment>:<sec_id>"
+        assert "IDX_I:264969" in feed._subscriptions
+        entry = feed._subscriptions["IDX_I:264969"]
+        assert entry["exchange"] == "IDX_I"
+        assert entry["security_id"] == "264969"

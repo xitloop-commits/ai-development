@@ -148,6 +148,42 @@ def test_merge_streams_no_audit_event_when_only_originals(tmp_path: Path):
     assert "REPLAY_USING_RECOVERED" not in logger.codes()
 
 
+def test_file_suffixes_include_vix(tmp_path: Path):
+    """Phase 2d-01: vix_ticks.ndjson.gz must be in the merger's file tuple
+    so VIX recordings are picked up by replay."""
+    assert "vix_ticks.ndjson.gz" in _FILE_SUFFIXES
+
+
+def test_merge_streams_includes_vix_events(tmp_path: Path):
+    """End-to-end: write a small underlying + vix file pair and verify
+    the merger yields vix_tick events in chronological order alongside
+    underlying_tick events."""
+    _write_gz_lines(
+        tmp_path / f"{_INSTRUMENT}_underlying_ticks.ndjson.gz",
+        [
+            {"recv_ts": "2026-04-14T09:15:00", "ltp": 24100.0},
+            {"recv_ts": "2026-04-14T09:15:02", "ltp": 24101.0},
+        ],
+    )
+    _write_gz_lines(
+        tmp_path / f"{_INSTRUMENT}_vix_ticks.ndjson.gz",
+        [
+            {"recv_ts": "2026-04-14T09:15:01", "ltp": 13.45},
+            {"recv_ts": "2026-04-14T09:15:03", "ltp": 13.46},
+        ],
+    )
+    events = list(merge_streams(tmp_path, _INSTRUMENT))
+    # Filter just types/ts for assertion clarity.
+    sequence = [(e["type"], e["data"]["recv_ts"]) for e in events]
+    # Expect chronological interleave: u@00 vix@01 u@02 vix@03
+    assert sequence == [
+        ("underlying_tick", "2026-04-14T09:15:00"),
+        ("vix_tick", "2026-04-14T09:15:01"),
+        ("underlying_tick", "2026-04-14T09:15:02"),
+        ("vix_tick", "2026-04-14T09:15:03"),
+    ]
+
+
 def test_merge_streams_warns_when_no_files_present(tmp_path: Path):
     """When neither original nor recovered exists, emit the existing
     REPLAY_STREAM_EMPTY warning per stream and yield nothing.

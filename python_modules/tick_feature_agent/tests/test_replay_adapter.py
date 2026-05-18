@@ -313,6 +313,64 @@ class TestReplayAdapterBasic:
         adapter.flush_all()
         assert adapter.emitter.row_count == 0
 
+    # ── Phase 2d-01: VIX event routing ──────────────────────────────────────
+
+    def test_vix_event_lands_in_pipeline_buffer(self):
+        adapter = ReplayAdapter(_make_profile(), _DATE)
+        assert adapter._pipeline_state.histories.vix_list() == []
+        adapter.process_event({
+            "type": "vix_tick",
+            "data": {"recv_ts": _ts(9, 15, 5), "ltp": 13.45},
+        })
+        history = adapter._pipeline_state.histories.vix_list()
+        assert len(history) == 1
+        _ts_sample, value = history[0]
+        assert value == pytest.approx(13.45)
+
+    def test_vix_event_with_zero_ltp_is_dropped(self):
+        """Buffer's append_vix rejects non-positive values silently."""
+        adapter = ReplayAdapter(_make_profile(), _DATE)
+        adapter.process_event({
+            "type": "vix_tick",
+            "data": {"recv_ts": _ts(9, 15, 5), "ltp": 0},
+        })
+        assert adapter._pipeline_state.histories.vix_list() == []
+
+    def test_vix_event_with_bad_recv_ts_is_dropped(self):
+        adapter = ReplayAdapter(_make_profile(), _DATE)
+        adapter.process_event({
+            "type": "vix_tick",
+            "data": {"recv_ts": "not-a-timestamp", "ltp": 13.45},
+        })
+        assert adapter._pipeline_state.histories.vix_list() == []
+
+    def test_vix_events_drive_india_vix_feature_end_to_end(self):
+        """5-min gap between two VIX events must produce non-NaN
+        india_vix_change_5min in the next compute pass."""
+        from tick_feature_agent.features.india_vix import compute_india_vix_features
+        adapter = ReplayAdapter(_make_profile(), _DATE)
+        # Two VIX samples ~5 min apart, using the replay date's IST clock.
+        adapter.process_event({
+            "type": "vix_tick",
+            "data": {"recv_ts": _ts(9, 15, 0), "ltp": 13.0},
+        })
+        adapter.process_event({
+            "type": "vix_tick",
+            "data": {"recv_ts": _ts(9, 20, 0), "ltp": 14.5},
+        })
+        # now_ts = the timestamp of the latest sample, so it's "now".
+        from datetime import datetime as _dt
+        from datetime import timedelta as _td
+        from datetime import timezone as _tz
+        ist = _tz(_td(hours=5, minutes=30))
+        now_ts = _dt(2026, 4, 14, 9, 20, 0, tzinfo=ist).timestamp()
+        out = compute_india_vix_features(
+            now_ts=now_ts,
+            vix_history=adapter._pipeline_state.histories.vix_list(),
+        )
+        assert out["india_vix"] == pytest.approx(14.5)
+        assert out["india_vix_change_5min"] == pytest.approx(1.5)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TestReplayAdapterWithChain
@@ -513,3 +571,64 @@ class TestTargetBackfill:
         }
         adapter.process_event(opt_event)
         assert adapter._opt_store.tick_available(strike, opt_type)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TestVixEndToEnd (Phase 2d-01)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Recorder → merger → adapter integration: writes a VIX file via the live
+# SessionRecorder, reads it back via the replay stream_merger, routes
+# events through ReplayAdapter, asserts the india_vix feature populates.
+
+
+class TestVixEndToEndRecordReplay:
+
+    def test_recorder_to_merger_to_adapter_round_trip(self, tmp_path):
+        """Closes the live↔replay loop for VIX:
+        SessionRecorder writes vix_ticks.ndjson.gz, stream_merger reads
+        it back as `vix_tick` events, ReplayAdapter routes each event
+        into the pipeline's history buffer, and the feature compute
+        function emits a non-NaN india_vix_change_5min."""
+        from tick_feature_agent.recorder.session_recorder import SessionRecorder
+        from tick_feature_agent.replay.stream_merger import merge_streams
+        from tick_feature_agent.features.india_vix import compute_india_vix_features
+
+        # Use the same date the replay adapter is fixed to (_DATE = "2026-04-14").
+        from datetime import datetime as _dt
+        from datetime import timedelta as _td
+        from datetime import timezone as _tz
+        ist = _tz(_td(hours=5, minutes=30))
+
+        # 1. SessionRecorder writes two VIX samples 5 min apart.
+        rec = SessionRecorder(
+            instrument="nifty50",
+            data_root=tmp_path / "data" / "raw",
+            underlying_security_id="13",
+        )
+        rec.on_session_open(_DATE)
+        t0 = _dt(2026, 4, 14, 9, 15, 0, tzinfo=ist)
+        t1 = _dt(2026, 4, 14, 9, 20, 0, tzinfo=ist)
+        rec.record_vix_tick({"recv_ts": str(t0.timestamp()), "ltp": 13.0})
+        rec.record_vix_tick({"recv_ts": str(t1.timestamp()), "ltp": 14.5})
+        rec.on_session_close()
+
+        # 2. Stream merger reads the just-written file.
+        date_folder = tmp_path / "data" / "raw" / _DATE
+        events = list(merge_streams(date_folder, "nifty50"))
+        vix_events = [e for e in events if e["type"] == "vix_tick"]
+        assert len(vix_events) == 2
+
+        # 3. ReplayAdapter routes each VIX event into the pipeline buffer.
+        adapter = ReplayAdapter(_make_profile(), _DATE)
+        for ev in vix_events:
+            adapter.process_event(ev)
+
+        # 4. Compute india_vix from the populated history — both features
+        #    must be non-NaN.
+        out = compute_india_vix_features(
+            now_ts=t1.timestamp(),
+            vix_history=adapter._pipeline_state.histories.vix_list(),
+        )
+        assert out["india_vix"] == pytest.approx(14.5)
+        assert out["india_vix_change_5min"] == pytest.approx(1.5)
