@@ -83,6 +83,40 @@ Show events_done / events_total_est / rate / ETA AND survive power cuts without 
   - Launcher reads progress.json and shows e.g. `crudeoil 05-13: 43% · ETA 6m` on the replay row.
 - **Out of scope:** pre-counting events (rejected — too slow), adding to Train/Backtest (Partha excluded).
 
+### T22 — Launcher blue-tick for terminated/partial pipeline stages
+Add a 4th color state to the main-screen pipeline status table at [startup/launcher_v2.py:2406](startup/launcher_v2.py#L2406) (`_render_status_table`): **BLUE ✓ when a stage was started but did NOT fully complete** (process died, crashed, killed by power-cut, etc.). Currently the table shows 3 states per stage cell: green (done) / yellow (loading) / dim (none) — missing the "terminated mid-flight" signal.
+
+- **Status:** Deferred 2026-05-18 — user wants this, but 3 design choices need to be resolved first.
+- **Trigger to revisit:** any time the user wants to pick this up; no dependency on other tasks.
+- **Detection rules (proposed defaults):**
+  - **Raw stage:** `.lock` file exists for the date+instrument + no `.ndjson.gz` data file + no live TFA process. (Recorder started, never wrote data.)
+  - **Rep stage:** `<inst>_features_progress.json` exists with mtime > 60s + no final `<inst>_features.parquet` + no live replay process. (Chunked replay crashed before merge.) Inverse of existing `_read_replay_progress` at [launcher_v2.py:2260](startup/launcher_v2.py#L2260).
+  - **SBT stage:** backtest run dir exists at `data/backtests/<inst>/<version>/<date>/` + no `scorecard.json` inside + dir mtime > 1 hour. (Backtester started but didn't write scorecard.)
+  - **Trn stage:** [OPEN — see Q1 below]
+- **Code change scope:**
+  - 1 helper function per stage (Raw/Rep/SBT terminated detectors)
+  - Add `"terminated"` state to the state dict in `_render_status_table` (lines 2448-2477)
+  - Add `BLUE("✓")` branch to `_tick()` helper at [launcher_v2.py:2500-2503](startup/launcher_v2.py#L2500-L2503)
+  - Update legend / docstring at line 2412
+  - `BLUE` color helper already exists at [launcher_v2.py:65](startup/launcher_v2.py#L65) — no ANSI work needed
+  - Total: ~80 LOC + 3 unit tests
+
+- **Open questions before coding (3):**
+
+  **Q1 — Train terminated semantics.** Train is multi-date per run; manifest is committed atomically, so a crashed train leaves dates that look identical to "never attempted" from the per-date view. Three options:
+  - **A. Skip Trn terminated entirely** (3-state stays — done / loading / none). Simplest. My pick.
+  - **B. Scan for orphan timestamp dirs** (`models/<inst>/<ts>/` without `training_manifest.json` AND no train proc) + parse their `args.json` to find which dates were attempted, mark those Trn cells blue. Most accurate, requires verifying trainer writes an `args.json`.
+  - **C. Approximate via mtime** (latest timestamp dir without manifest + mtime > 1 hr → mark ALL parquet-but-not-trained dates for that instrument blue). Fuzzy; can spam blue across never-attempted dates.
+
+  **Q2 — Backtest loading state.** SBT has no `kind="backtest"` in `running_processes()` today, so cells can only be done / terminated / none — never yellow.
+  - **X. Leave SBT loading unimplemented** for this task. Add terminated only. My pick.
+  - **Y. Also add backtest process tracking** (extend `running_processes()` to detect `backtest-scored.bat` via command-line parse). Wider scope.
+
+  **Q3 — Stale-mtime thresholds.** Proposed defaults: replay `progress.json` = 60s, backtest run dir = 1 hour. Reasonable? Or different per stage?
+
+- **Decision needed:** answer Q1 / Q2 / Q3 inline; then ~1 session to code + test + commit.
+- **Why deferred:** the memory-leak fix (8e956cb) was the urgent task; this is UX polish that doesn't block any pipeline work. Trivial to pick up later.
+
 ### T21 — Feature pruning via SHAP after first retrain + paper-trade data
 Reduce L1 feature count from 446 by dropping features that SHAP analysis shows are low-importance across all 84 heads. Pairs with T14 (which ADDS deferred features if SHAP shows need); T21 is the inverse — DROP features that prove unhelpful.
 
