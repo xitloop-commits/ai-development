@@ -107,6 +107,12 @@ class DhanFeed:
         # VIX-side segment as its own constant.
         self._vix_security_id: str | None = None
         self._vix_seg: str = "IDX_I"
+        # VIX subscription is kept SEPARATE from `_subscriptions` because it
+        # must be sent in a different RequestCode (TICKER=15) than futures
+        # and options (FULL=21). See subscribe_vix() for the full rationale.
+        # `None` until subscribe_vix() is called; rebuilt as a one-instrument
+        # batch on every reconnect.
+        self._vix_entry: dict | None = None
 
         self._log = get_logger("tfa.dhan_feed", instrument=instrument_name)
 
@@ -165,19 +171,60 @@ class DhanFeed:
         (confirmed 2026-05-19 via scrip-master lookup). Phase 2d-01 originally
         used 264969 which is Dhan's REST-API VIX ID — the two ID systems
         don't match and the binary WS feed silently produces zero ticks on
-        the wrong ID. Symptom was the entire VIX channel staying dead while
-        underlying / options / chain all worked normally.
+        the wrong ID.
+
+        Why VIX uses RequestCode 15 (SUBSCRIBE_TICKER) instead of the
+        RequestCode 21 (SUBSCRIBE_FULL) that everything else uses
+        ────────────────────────────────────────────────────────────────
+        Dhan's WS feed silently drops IDX_I subscriptions sent with mode
+        FULL (21). The connection succeeds, the subscribe is acknowledged,
+        and zero data ticks are pushed. Switching the IDX_I subscribe to
+        TICKER mode (15) makes Dhan deliver INDEX packets (response_code 1)
+        carrying LTP — exactly what india_vix features need.
+
+        This is verified by `scripts/test_dhan_vix_ws.py`:
+          --mode full   → zero packets received in 12s for IDX_I:13 and :21
+          --mode ticker → both NIFTY-INDEX (13) and INDIA VIX (21) deliver
+                          LTP packets within ms of the subscribe.
+
+        Futures and options STAY on FULL mode (21) because we need their
+        bid/ask depth, volume, and OI fields — TICKER would deliver only
+        LTP+LTT and lose all microstructure features. Indices don't have
+        bid/ask/volume anyway, so TICKER is the right mode for them.
+
+        Implementation consequence: VIX is NOT placed into the shared
+        `self._subscriptions` dict — that dict is replayed in a single
+        FULL-mode batch on every reconnect, which would re-break VIX.
+        Instead VIX lives in its own `self._vix_entry` slot and is sent
+        as a dedicated single-instrument TICKER message both at initial
+        subscribe and on reconnect.
         """
         sec_id = str(security_id)
         self._vix_security_id = sec_id
-        key = f"{self._vix_seg}:{sec_id}"
-        self._subscriptions[key] = {
+        # Store on its own slot — NOT in self._subscriptions — so the
+        # reconnect re-sub loop doesn't replay VIX as part of the FULL
+        # batch. The reconnect path sends self._vix_entry separately.
+        self._vix_entry = {
             "exchange": self._vix_seg,
             "security_id": sec_id,
-            "mode": "full",
+            "mode": "ticker",
         }
         if self._connected and self._ws:
-            self._send_subscribe([{"exchange": self._vix_seg, "security_id": sec_id}])
+            self._send_vix_subscription()
+
+    def _send_vix_subscription(self) -> None:
+        """Send the VIX subscribe message in TICKER mode (RequestCode 15).
+
+        Separate from `_send_subscribe()` because that helper hardcodes
+        FULL mode (21) for the shared batch of futures + options. See the
+        long comment in `subscribe_vix()` for the why — TL;DR: Dhan's WS
+        feed silently drops IDX_I subscriptions in FULL mode.
+        """
+        if not self._vix_entry:
+            return
+        self._send_subscription_batch(
+            [self._vix_entry], RequestCode.SUBSCRIBE_TICKER
+        )
 
     def subscribe_options(self, sec_id_map: dict[str, tuple[int, str]]) -> None:
         """
@@ -302,6 +349,11 @@ class DhanFeed:
                 if self._subscriptions:
                     entries = list(self._subscriptions.values())
                     self._send_subscribe(entries)
+                # VIX rides on a separate TICKER-mode subscribe — see the
+                # extended rationale in subscribe_vix(). It is NOT part of
+                # `self._subscriptions` so we re-send it here explicitly.
+                if self._vix_entry is not None:
+                    self._send_vix_subscription()
 
                 if self._on_connected:
                     self._on_connected()
