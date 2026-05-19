@@ -77,12 +77,41 @@ class TargetBuffer:
     Thread-safety: not thread-safe — intended for single-threaded tick dispatch.
     """
 
-    def __init__(self, target_windows_sec: tuple[int, ...] = (30, 60)) -> None:
+    def __init__(
+        self,
+        target_windows_sec: tuple[int, ...] = (30, 60),
+        retention_window_sec: int | None = None,
+    ) -> None:
+        """
+        target_windows_sec:    Forward windows this buffer computes targets for
+                               (scalp's {30, 60, ..., 300}).
+        retention_window_sec:  Optional override for how long entries stay in
+                               the buffer before eviction. Defaults to
+                               max(target_windows_sec). Pass a LARGER value
+                               when this buffer is queried by a deferred-flush
+                               consumer (e.g. ReplayAdapter waits for the swing
+                               7200s window before flushing pending rows — by
+                               that point a 300s retention would have evicted
+                               the lookahead ticks scalp targets need, leaving
+                               every scalp target NaN). Must be >= max(target_windows_sec).
+        """
         if not target_windows_sec:
             raise ValueError("target_windows_sec must not be empty")
         self._windows: tuple[int, ...] = tuple(sorted(target_windows_sec))
         self._max_window: int = max(self._windows)
         self._min_window: int = min(self._windows)
+        # Retention >= max forward window so compute_targets always finds its
+        # lookahead entries even if the caller defers the call (e.g. replay
+        # flush at 7200s for swing horizons).
+        if retention_window_sec is None:
+            self._retention_sec: int = self._max_window
+        else:
+            if retention_window_sec < self._max_window:
+                raise ValueError(
+                    f"retention_window_sec ({retention_window_sec}) must be "
+                    f">= max(target_windows_sec) ({self._max_window})"
+                )
+            self._retention_sec = retention_window_sec
         self._entries: deque[_TickEntry] = deque()
 
     # ── Buffer management ──────────────────────────────────────────────────────
@@ -96,12 +125,12 @@ class TargetBuffer:
         """
         Add a new observation to the buffer.
 
-        Evicts entries with timestamp < (timestamp_sec - max_window - 1) to
-        keep memory bounded.  The extra 1-second margin ensures entries at
-        exactly (now - max_window) are never prematurely discarded.
+        Evicts entries with timestamp < (timestamp_sec - retention_window - 1)
+        to keep memory bounded. The extra 1-second margin ensures entries at
+        exactly (now - retention_window) are never prematurely discarded.
         """
         self._entries.append(_TickEntry(timestamp_sec, spot, strike_ltps or {}))
-        cutoff = timestamp_sec - self._max_window - 1.0
+        cutoff = timestamp_sec - self._retention_sec - 1.0
         while self._entries and self._entries[0].timestamp_sec < cutoff:
             self._entries.popleft()
 

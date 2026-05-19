@@ -235,7 +235,19 @@ class ReplayAdapter:
         self._pipeline_state = feature_pipeline.FeaturePipelineState()
 
         # Target modules
-        self._target_buf = TargetBuffer(target_windows_sec=profile.target_windows_sec)
+        # Retention matches the max flush window (max of scalp + trend + swing
+        # horizons) because _flush_pending defers target compute until that
+        # window elapses. Without this, scalp targets see an empty buffer and
+        # return NaN for ~99% of rows. See diagnosis 2026-05-19.
+        self._target_buf = TargetBuffer(
+            target_windows_sec=profile.target_windows_sec,
+            retention_window_sec=int(
+                max(
+                    max(profile.target_windows_sec) if profile.target_windows_sec else 60,
+                    max(TREND_HORIZONS_SEC + SWING_HORIZONS_SEC),
+                )
+            ),
+        )
         self._upside_pct = UpsidePercentileTracker()
 
         # Phase 3: replay-only buffer for trend + swing target labels.
