@@ -348,6 +348,11 @@ class ReplayAdapter:
         ts = _parse_ts(str(ts_raw)) if ts_raw else _NAN
         if math.isnan(ts):
             return
+
+        # Memory-leak fix: keep _pending drainage uniform across all event
+        # types so no single tick stream can stall flushing.
+        self._flush_pending(ts)
+
         try:
             ltp = float(data.get("ltp") or 0)
         except (TypeError, ValueError):
@@ -396,6 +401,14 @@ class ReplayAdapter:
         if snapshot is None:
             return
 
+        # Memory-leak fix: advance pending-row flush on every event with a
+        # valid timestamp, not only on underlying ticks. Without this, sparse
+        # underlying + dense option/chain caused unbounded growth of
+        # self._pending during long replays.
+        ts_chain = float(snapshot.timestamp_sec)
+        if not math.isnan(ts_chain):
+            self._flush_pending(ts_chain)
+
         was_stale = not self._cache.chain_available
 
         self._cache.update_from_snapshot(snapshot)
@@ -416,6 +429,11 @@ class ReplayAdapter:
         ts = _parse_ts(str(ts_raw)) if ts_raw else _NAN
         if math.isnan(ts):
             return
+
+        # Memory-leak fix: option ticks dominate event volume during dense
+        # periods. Flushing here keeps self._pending bounded when underlying
+        # ticks go sparse.
+        self._flush_pending(ts)
 
         # Look up (strike, opt_type) from the tick data or sec_id_map
         strike = data.get("strike")
