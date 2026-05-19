@@ -966,9 +966,13 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
 
         # Esc menu overlay
         if _kb.get("menu"):
-            lines.append(f"  {YELLOW('⏸  Paused')}  —  choose an action:")
+            # Launcher-style bottom bar — same shape as startup/launcher_v2.py.
+            # Same keys whether the user got here via Esc or Ctrl+C.
+            lines.append(f"  {YELLOW('⏸  Paused')}")
             lines.append(
-                f"  {BOLD('Enter')} Restart   " f"{BOLD('Esc')} Exit   " f"{BOLD('C')} Continue"
+                f"  {BOLD('[C]')} Continue   "
+                f"{BOLD('[R]')} Reload   "
+                f"{BOLD('[X]')} Exit"
             )
             lines.append(f"  {DIM('─' * W)}")
 
@@ -1031,19 +1035,37 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
             # Confirmed lone Esc — show menu, TFA keeps running
             _kb["menu"] = True
             while True:
+                # Ctrl+C also routes to this menu by flipping _kb["menu"]
+                # from _sigint(). If a R/X choice has already been queued
+                # by _sigint (rare race), honor it without waiting for a key.
+                queued = _kb.pop("queued_action", None)
+                if queued == "restart":
+                    _kb["menu"] = False
+                    _kb["action"] = "restart"
+                    raise asyncio.CancelledError
+                if queued == "exit":
+                    _kb["menu"] = False
+                    _kb["action"] = "exit"
+                    raise asyncio.CancelledError
+
                 await asyncio.sleep(0.05)
                 if not _msvcrt.kbhit():
                     continue
                 ch2 = _msvcrt.getwch()
-                if ch2 == "\x1b":  # Esc → exit
+                # Aliases keep the bottom-bar labels honest:
+                #   X / Esc        → graceful Exit
+                #   R / Enter      → graceful Reload (restart)
+                #   C              → Continue (dismiss menu, keep running)
+                low = ch2.lower()
+                if ch2 == "\x1b" or low == "x":  # Esc / X → exit
                     _kb["menu"] = False
                     _kb["action"] = "exit"
                     raise asyncio.CancelledError
-                elif ch2 in ("\r", "\n"):  # Enter → restart
+                elif ch2 in ("\r", "\n") or low == "r":  # Enter / R → restart
                     _kb["menu"] = False
                     _kb["action"] = "restart"
                     raise asyncio.CancelledError
-                elif ch2.lower() == "c":  # C → continue
+                elif low == "c":  # C → continue
                     _kb["menu"] = False
                     break  # back to outer loop
 
@@ -1308,42 +1330,54 @@ def main() -> None:
 
     _kb: dict = {"action": None, "menu": False}
 
+    # Ctrl+C lands in the same pause menu as Esc — see _kb_watch in
+    # _run_live. The signal handler only flips _kb["menu"] = True;
+    # the user then picks [C] Continue / [R] Reload / [X] Exit and the
+    # menu's normal flow handles the graceful shutdown (parquet flush,
+    # WS unsubscribe, recorder close) BEFORE the process exits. This
+    # avoids the data-loss-on-Ctrl+C symptom where the recorder was
+    # closing mid-cancel before the prompt appeared.
+    #
+    # For replay mode (no _kb_watch) Ctrl+C still raises KeyboardInterrupt
+    # — replay sessions are date-bounded and don't need a pause menu;
+    # the outer __main__ handler shows the simpler R/X prompt for them.
     def _sigint(signum, frame):
-        # Ctrl+C fallback — hard stop, no menu
-        raise KeyboardInterrupt
+        if args.mode == "live":
+            # Flip the menu flag; _kb_watch in _run_live picks it up on its
+            # next 50ms tick and shows the launcher-style pause overlay.
+            # No KeyboardInterrupt raised — asyncio + WS + recorder stay alive.
+            _kb["menu"] = True
+            return
+        raise KeyboardInterrupt  # replay mode: bubble to outer handler
 
     _prev_handler = _signal.signal(_signal.SIGINT, _sigint)
-    ctrl_c_pressed = False
     try:
         if args.mode == "live":
             asyncio.run(_run_live(profile, args, log, _kb))
         else:
             _run_replay(profile, args, log)
     except KeyboardInterrupt:
-        # Ctrl+C lands here (the in-process SIGINT handler raises). Remember
-        # the fact so we can offer the R/X prompt after cleanup. The Esc-menu
-        # path does NOT raise — it returns cleanly with _kb["action"]="restart".
-        ctrl_c_pressed = True
+        # Replay-mode Ctrl+C lands here; live-mode never raises (handled
+        # by the pause menu instead). Either way, finally below handles
+        # signal-handler restore + log flush.
+        pass
     finally:
         _signal.signal(_signal.SIGINT, _prev_handler)
         shutdown_logging()
 
     # ── Post-run action ───────────────────────────────────────────────────────
+    # Live mode honours the choice the user made in the pause menu:
+    #   _kb["action"] == "restart" → exit 75 (bat relaunches fresh)
+    #   _kb["action"] == "exit"    → exit 0  (bat falls through to pause)
+    # Both paths run through the menu's CancelledError flow, which already
+    # tears down the WS, recorder, and parquet writer GRACEFULLY before
+    # this code is reached. So no extra shutdown work needed here.
     if args.mode == "live" and _kb.get("action") == "restart":
         print(f"\n  {GREEN('↺ Restarting...')}\n", flush=True)
-        sys.exit(75)  # bat loop picks this up and re-launches
-
-    # Ctrl+C path — show R(estart) / X(exit) prompt so users can pick up
-    # code edits without manually relaunching the bat wrapper. Returning
-    # exit code 75 makes start-tfa.bat loop into a fresh process; 0 lets
-    # the bat fall through to its `pause` and quit cleanly. Doing the exit
-    # here (instead of letting KeyboardInterrupt propagate to __main__)
-    # also avoids cmd.exe's "Terminate batch job?" prompt — that only
-    # fires when the python process is killed by the signal, not when it
-    # exits via sys.exit().
-    if ctrl_c_pressed:
-        from _shared.restart_prompt import prompt_restart_or_exit
-        sys.exit(prompt_restart_or_exit("TFA recorder"))
+        sys.exit(75)
+    if args.mode == "live" and _kb.get("action") == "exit":
+        print(f"\n  {DIM('Stopped.')}\n", flush=True)
+        sys.exit(0)
 
 
 if __name__ == "__main__":
