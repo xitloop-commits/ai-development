@@ -964,17 +964,15 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
 
         lines.append(f"  {DIM('─' * W)}")
 
-        # Esc menu overlay
-        if _kb.get("menu"):
-            # Launcher-style bottom bar — same shape as startup/launcher_v2.py.
-            # Same keys whether the user got here via Esc or Ctrl+C.
-            lines.append(f"  {YELLOW('⏸  Paused')}")
-            lines.append(
-                f"  {BOLD('[C]')} Continue   "
-                f"{BOLD('[R]')} Reload   "
-                f"{BOLD('[X]')} Exit"
-            )
-            lines.append(f"  {DIM('─' * W)}")
+        # Always-visible hotkey footer — launcher-style. Keys are live at all
+        # times, no pause state, no menu to open. Pressing R or X (or Esc, or
+        # Ctrl+C) triggers the SAME graceful-shutdown path; only the exit
+        # code differs (75 = bat relaunches with fresh code, 0 = clean stop).
+        lines.append(
+            f"  {BOLD('[R]')} Reload   "
+            f"{BOLD('[X]')} Exit   "
+            f"{DIM('(also: Esc / Ctrl+C → Exit)')}"
+        )
 
         return lines
 
@@ -1008,66 +1006,64 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
             sys.stdout.flush()
             _health_nlines[0] = len(lines)
 
-    # ── Keyboard handler (Esc menu) ───────────────────────────────────────────
+    # ── Keyboard handler (always-active hotkeys) ─────────────────────────────
     async def _keyboard_handler():
         """
-        Windows-only: watch for Esc key to show the pause menu while TFA runs.
-        Non-Windows: no-op (use Ctrl+C to stop).
+        Always-active hotkey watcher — launcher-style. No pause state.
+          R / Enter   → graceful Reload  (sets _kb["action"]="restart")
+          X / Esc     → graceful Exit    (sets _kb["action"]="exit")
+          Ctrl+C      → also Exit, via _sigint() setting _kb["sigint_pending"]
+        On any of the above, raise asyncio.CancelledError so the full
+        shutdown sequence (parquet flush, recorder close, WS unsub) runs
+        before the process exits. Other keys are ignored.
+
+        Windows-only key reads (msvcrt). On non-Windows we still honour
+        Ctrl+C via the sigint_pending flag — there's no keyboard polling.
         """
         if sys.platform != "win32":
-            return
+            # No msvcrt — poll only the sigint flag.
+            while True:
+                await asyncio.sleep(0.05)
+                if _kb.get("sigint_pending"):
+                    _kb["sigint_pending"] = False
+                    _kb["action"] = _kb.get("action") or "exit"
+                    raise asyncio.CancelledError
+            return  # unreachable, makes the linter happy
         import msvcrt as _msvcrt
 
         while True:
             await asyncio.sleep(0.05)
+            # Ctrl+C path — signal handler set this flag from any thread.
+            if _kb.get("sigint_pending"):
+                _kb["sigint_pending"] = False
+                _kb["action"] = _kb.get("action") or "exit"
+                raise asyncio.CancelledError
+
             if not _msvcrt.kbhit():
                 continue
             ch = _msvcrt.getwch()
-            if ch != "\x1b":  # ignore non-Esc keys
-                continue
-            # \x1b could be an ANSI escape sequence from terminal output.
-            # A real Esc keypress is a lone \x1b — drain any following chars.
-            await asyncio.sleep(0.02)
-            while _msvcrt.kbhit():
-                _msvcrt.getwch()
-            if _msvcrt.kbhit():  # still more chars → ANSI sequence, ignore
-                continue
-            # Confirmed lone Esc — show menu, TFA keeps running
-            _kb["menu"] = True
-            while True:
-                # Ctrl+C also routes to this menu by flipping _kb["menu"]
-                # from _sigint(). If a R/X choice has already been queued
-                # by _sigint (rare race), honor it without waiting for a key.
-                queued = _kb.pop("queued_action", None)
-                if queued == "restart":
-                    _kb["menu"] = False
-                    _kb["action"] = "restart"
-                    raise asyncio.CancelledError
-                if queued == "exit":
-                    _kb["menu"] = False
-                    _kb["action"] = "exit"
-                    raise asyncio.CancelledError
+            # Esc may be a lone keypress OR the prefix of an ANSI sequence
+            # (arrow keys etc.). Drain follow-up bytes; only a SOLITARY
+            # Esc counts as Exit.
+            if ch == "\x1b":
+                await asyncio.sleep(0.02)
+                drained = False
+                while _msvcrt.kbhit():
+                    _msvcrt.getwch()
+                    drained = True
+                if drained:
+                    continue  # ANSI sequence, ignore
+                _kb["action"] = "exit"
+                raise asyncio.CancelledError
 
-                await asyncio.sleep(0.05)
-                if not _msvcrt.kbhit():
-                    continue
-                ch2 = _msvcrt.getwch()
-                # Aliases keep the bottom-bar labels honest:
-                #   X / Esc        → graceful Exit
-                #   R / Enter      → graceful Reload (restart)
-                #   C              → Continue (dismiss menu, keep running)
-                low = ch2.lower()
-                if ch2 == "\x1b" or low == "x":  # Esc / X → exit
-                    _kb["menu"] = False
-                    _kb["action"] = "exit"
-                    raise asyncio.CancelledError
-                elif ch2 in ("\r", "\n") or low == "r":  # Enter / R → restart
-                    _kb["menu"] = False
-                    _kb["action"] = "restart"
-                    raise asyncio.CancelledError
-                elif low == "c":  # C → continue
-                    _kb["menu"] = False
-                    break  # back to outer loop
+            low = ch.lower()
+            if low == "r" or ch in ("\r", "\n"):
+                _kb["action"] = "restart"
+                raise asyncio.CancelledError
+            if low == "x":
+                _kb["action"] = "exit"
+                raise asyncio.CancelledError
+            # everything else: ignored
 
     async def _auto_stop():
         """Wait briefly for final flushes then cancel all tasks cleanly."""
@@ -1328,25 +1324,27 @@ def main() -> None:
     # Python/Windows versions regardless of how asyncio handles SIGINT internally.
     import signal as _signal
 
-    _kb: dict = {"action": None, "menu": False}
+    # Shared coordination dict between signal handler, kb_watch coroutine,
+    # and the post-run code in main(). Fields:
+    #   action          None | "restart" | "exit" — choice picked
+    #   sigint_pending  bool — signal handler sets True; kb_watch consumes it
+    _kb: dict = {"action": None, "sigint_pending": False}
 
-    # Ctrl+C lands in the same pause menu as Esc — see _kb_watch in
-    # _run_live. The signal handler only flips _kb["menu"] = True;
-    # the user then picks [C] Continue / [R] Reload / [X] Exit and the
-    # menu's normal flow handles the graceful shutdown (parquet flush,
-    # WS unsubscribe, recorder close) BEFORE the process exits. This
-    # avoids the data-loss-on-Ctrl+C symptom where the recorder was
-    # closing mid-cancel before the prompt appeared.
+    # Ctrl+C in live mode is equivalent to pressing X — no pause state, no
+    # menu to open. Hotkeys [R] / [X] are always live in the health-display
+    # footer. The signal handler can't raise CancelledError directly (wrong
+    # stack), so it flips a flag and the always-running kb_watch coroutine
+    # picks it up within 50ms and triggers the graceful shutdown sequence
+    # (parquet flush → recorder close → WS unsubscribe) before exit. This
+    # keeps all teardown inside the asyncio task tree where shutdown hooks
+    # run in dependency order.
     #
-    # For replay mode (no _kb_watch) Ctrl+C still raises KeyboardInterrupt
-    # — replay sessions are date-bounded and don't need a pause menu;
-    # the outer __main__ handler shows the simpler R/X prompt for them.
+    # Replay mode is date-bounded and has no kb_watch; Ctrl+C there raises
+    # KeyboardInterrupt and the outer __main__ handler shows a simple R/X
+    # prompt.
     def _sigint(signum, frame):
         if args.mode == "live":
-            # Flip the menu flag; _kb_watch in _run_live picks it up on its
-            # next 50ms tick and shows the launcher-style pause overlay.
-            # No KeyboardInterrupt raised — asyncio + WS + recorder stay alive.
-            _kb["menu"] = True
+            _kb["sigint_pending"] = True
             return
         raise KeyboardInterrupt  # replay mode: bubble to outer handler
 
