@@ -1263,4 +1263,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        # Outermost safety net — Ctrl+C lands here if it slips past the
+        # in-process SIGINT handler / Esc-menu handler. Offer R/X.
+        from _shared.restart_prompt import prompt_restart_or_exit
+        sys.exit(prompt_restart_or_exit("TFA recorder"))

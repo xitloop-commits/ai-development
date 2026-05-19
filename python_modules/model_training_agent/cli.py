@@ -170,4 +170,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        # Ctrl+C: prompt restart vs exit so the user can re-run with code
+        # edits without manually relaunching the bat wrapper.
+        from _shared.restart_prompt import prompt_restart_or_exit
+        sys.exit(prompt_restart_or_exit("Training"))

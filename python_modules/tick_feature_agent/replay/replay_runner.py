@@ -707,7 +707,8 @@ if __name__ == "__main__":
     try:
         _cli()
     except KeyboardInterrupt:
-        # Outermost safety net — in case Ctrl+C lands during CLI parsing or
-        # profile loading before _cli enters the replay() try/except.
-        print("\nReplay interrupted before any date started.")
-        sys.exit(130)
+        # Outermost safety net — Ctrl+C lands here if it slips past the
+        # in-process handlers. Offer R(estart) / X(exit) so users can pick
+        # up code changes without manually relaunching the bat wrapper.
+        from _shared.restart_prompt import prompt_restart_or_exit
+        sys.exit(prompt_restart_or_exit("Replay"))

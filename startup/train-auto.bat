@@ -65,6 +65,11 @@ set PYTHONPATH=%ROOT%python_modules;%PYTHONPATH%
 REM Wide default date range; trainer only uses dates that have Parquet files.
 REM If EXTRA_ARGS is set (e.g. --include-dates a,b,c), it overrides the range
 REM via the trainer's CLI flag.
+REM
+REM Exit code 75 from the CLI = "restart requested" (Ctrl+C → R prompt).
+REM Looping on 75 re-runs the command with the same args so code edits get
+REM picked up without manually relaunching the bat.
+:run_loop
 if defined EXTRA_ARGS (
     echo   Training %INSTRUMENT% with !EXTRA_ARGS!
     %PYTHON_CMD% -m model_training_agent.cli --instrument %INSTRUMENT% --date-from 2026-04-01 --date-to %DATE_TO% !EXTRA_ARGS!
@@ -72,5 +77,9 @@ if defined EXTRA_ARGS (
     echo   Training %INSTRUMENT% with date-to=%DATE_TO%
     %PYTHON_CMD% -m model_training_agent.cli --instrument %INSTRUMENT% --date-from 2026-04-01 --date-to %DATE_TO%
 )
+if !errorlevel! == 75 (
+    echo.
+    goto run_loop
+)
 
-pause
+if not defined LUBAS_HEADLESS pause

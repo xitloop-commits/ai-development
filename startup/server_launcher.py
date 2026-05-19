@@ -5,7 +5,9 @@ server_launcher.py — wraps 'pnpm dev' with Esc-key menu support.
     Enter      → restart server
     Esc        → stop server and exit
     C          → continue (dismiss menu)
-  Ctrl+C       → stop server and exit (hard stop)
+  Ctrl+C       → graceful stop + prompt: R = restart, X = exit
+                 (set LUBAS_HEADLESS=1 to keep the historical hard-stop
+                  behaviour for Task Scheduler / CI runs)
 
 Exit code 75 → bat loop re-launches (restart).
 """
@@ -144,17 +146,44 @@ def _run_once():
         proc.wait()
     except KeyboardInterrupt:
         _graceful_stop()
-        action[0] = "exit"
+        # Ctrl+C: ask R(estart) / X(exit) so users can pick up code edits
+        # without manually relaunching the bat wrapper. Matches the pattern
+        # used by tfa / replay / training entry points.
+        action[0] = _prompt_restart_or_exit("API server")
 
     kb_thread.join(timeout=1)
     return action[0] or "exit"
+
+
+def _prompt_restart_or_exit(program_name: str) -> str:
+    """Return 'restart' or 'exit'. EOF / second Ctrl+C → 'exit'.
+
+    Headless override: LUBAS_HEADLESS=1 → always 'exit' (preserves the
+    historical hard-stop behaviour for Task Scheduler / CI runs)."""
+    if os.environ.get("LUBAS_HEADLESS"):
+        return "exit"
+    _msg(
+        f"\n  {program_name} interrupted.\n"
+        f"    {BOLD('[R]')} restart with latest code\n"
+        f"    {BOLD('[X]')} exit"
+    )
+    while True:
+        try:
+            choice = input("  > ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return "exit"
+        if choice in ("r", "restart"):
+            return "restart"
+        if choice in ("x", "exit", "q", "quit", ""):
+            return "exit"
+        _msg("  Press R to restart or X to exit.")
 
 
 def main():
     _msg(
         f"\n  {'─' * 50}\n"
         f"  Lubas — API Server\n"
-        f"  Press {BOLD('Esc')} for options  ·  {BOLD('Ctrl+C')} to force stop\n"
+        f"  Press {BOLD('Esc')} for options  ·  {BOLD('Ctrl+C')} for restart / exit\n"
         f"  {'─' * 50}\n"
     )
 

@@ -52,6 +52,14 @@ set PYTHONIOENCODING=utf-8
 chcp 65001 >nul 2>&1
 set PYTHONPATH=%ROOT%python_modules;%PYTHONPATH%
 
+REM Exit code 75 from the CLI = "restart requested" (Ctrl+C → R prompt).
+REM Looping on 75 re-runs the command with the same args so code edits get
+REM picked up without manually relaunching the bat.
+:run_loop
 %PYTHON_CMD% -m model_training_agent.cli --instrument %INSTRUMENT% --date-from %DATE_FROM% --date-to %DATE_TO%
+if !errorlevel! == 75 (
+    echo.
+    goto run_loop
+)
 
-pause
+if not defined LUBAS_HEADLESS pause
