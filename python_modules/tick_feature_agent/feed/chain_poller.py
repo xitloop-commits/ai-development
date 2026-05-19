@@ -65,7 +65,7 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 _ROLLOVER_HOUR = 14
 _ROLLOVER_MINUTE = 30
 _CLOCK_SKEW_MAX_SEC = 2.0
-_POLL_INTERVAL_SEC = 5.0
+_POLL_INTERVAL_SEC = 20.0  # 4 TFAs × 1 fetch per 20s = 1 per 5s, matches BSA chain gate (CHAIN_MIN_INTERVAL_MS=5000). Was 5.0 — caused queueing under BSA's serial throttle.
 _CHAIN_STALE_AFTER_SEC = 30.0
 _STARTUP_RETRY_MAX = 12
 _STARTUP_RETRY_INTERVAL_SEC = 5.0
