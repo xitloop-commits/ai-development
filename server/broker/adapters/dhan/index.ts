@@ -110,11 +110,18 @@ export class DhanAdapter implements BrokerAdapter {
   // Rate limiter for Dhan API calls
   private rateLimiter = new RateLimiter(10, 250);
 
-  // Option chain cache — multiple callers for same (underlying,expiry) within
-  // CHAIN_CACHE_TTL_MS share a single upstream fetch. Matches Dhan's 3s limit.
+  // Option chain cache + global throttle. Dhan rate-limits the option chain
+  // endpoint to ~1 request per 3s across ALL underlyings on a single API key.
+  // Per-key cache (chainCache) coalesces duplicate fetches for the same
+  // (underlying,expiry); the global serializer (chainFetchGate) staggers
+  // fetches across underlyings so concurrent TFA processes for NIFTY +
+  // BANKNIFTY + CRUDEOIL don't burst-trip 429s at market open.
   private chainCache = new Map<string, { data: OptionChainData; fetchedAt: number }>();
   private chainInflight = new Map<string, Promise<OptionChainData>>();
-  private readonly CHAIN_CACHE_TTL_MS = 2500;
+  private readonly CHAIN_CACHE_TTL_MS = 5100; // > CHAIN_MIN_INTERVAL_MS so cache always has data when next fetch is allowed
+  private readonly CHAIN_MIN_INTERVAL_MS = 5000; // global gap between fetches (widened from 3100 → 5000 to add headroom over Dhan's 3s window)
+  private chainLastFetchAt = 0;
+  private chainFetchGate: Promise<void> = Promise.resolve();
 
   // WebSocket and Subscription Manager
   private ws: DhanWebSocket | null = null;
@@ -684,8 +691,29 @@ export class DhanAdapter implements BrokerAdapter {
     }
   }
 
+  private async _acquireChainFetchSlot(): Promise<void> {
+    // Serialize callers via a promise chain; each call waits for the prior
+    // slot to release, then sleeps until CHAIN_MIN_INTERVAL_MS has elapsed
+    // since the last fetch start. Gap is measured from request-issue time
+    // (not response time) so a slow upstream call doesn't compound delay.
+    const prev = this.chainFetchGate;
+    let release!: () => void;
+    this.chainFetchGate = new Promise<void>((res) => {
+      release = res;
+    });
+    try {
+      await prev;
+      const waitMs = this.CHAIN_MIN_INTERVAL_MS - (Date.now() - this.chainLastFetchAt);
+      if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+      this.chainLastFetchAt = Date.now();
+    } finally {
+      release();
+    }
+  }
+
   private async _fetchOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData> {
     this._ensureToken();
+    await this._acquireChainFetchSlot();
 
     const requestBody = {
       UnderlyingScrip: Number(underlying),
