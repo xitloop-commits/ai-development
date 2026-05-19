@@ -1313,13 +1313,17 @@ def main() -> None:
         raise KeyboardInterrupt
 
     _prev_handler = _signal.signal(_signal.SIGINT, _sigint)
+    ctrl_c_pressed = False
     try:
         if args.mode == "live":
             asyncio.run(_run_live(profile, args, log, _kb))
         else:
             _run_replay(profile, args, log)
     except KeyboardInterrupt:
-        pass
+        # Ctrl+C lands here (the in-process SIGINT handler raises). Remember
+        # the fact so we can offer the R/X prompt after cleanup. The Esc-menu
+        # path does NOT raise — it returns cleanly with _kb["action"]="restart".
+        ctrl_c_pressed = True
     finally:
         _signal.signal(_signal.SIGINT, _prev_handler)
         shutdown_logging()
@@ -1328,6 +1332,18 @@ def main() -> None:
     if args.mode == "live" and _kb.get("action") == "restart":
         print(f"\n  {GREEN('↺ Restarting...')}\n", flush=True)
         sys.exit(75)  # bat loop picks this up and re-launches
+
+    # Ctrl+C path — show R(estart) / X(exit) prompt so users can pick up
+    # code edits without manually relaunching the bat wrapper. Returning
+    # exit code 75 makes start-tfa.bat loop into a fresh process; 0 lets
+    # the bat fall through to its `pause` and quit cleanly. Doing the exit
+    # here (instead of letting KeyboardInterrupt propagate to __main__)
+    # also avoids cmd.exe's "Terminate batch job?" prompt — that only
+    # fires when the python process is killed by the signal, not when it
+    # exits via sys.exit().
+    if ctrl_c_pressed:
+        from _shared.restart_prompt import prompt_restart_or_exit
+        sys.exit(prompt_restart_or_exit("TFA recorder"))
 
 
 if __name__ == "__main__":
