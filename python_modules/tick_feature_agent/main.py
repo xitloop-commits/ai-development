@@ -178,6 +178,41 @@ def _ensure_scrip_master(base_url: str, log) -> bool:
         return False
 
 
+def _resolve_vix_security_id(base_url: str) -> tuple[str, str]:
+    """Resolve India VIX securityId via the BSA scrip-master lookup.
+
+    Phase 2d-01 originally hardcoded "264969" which is Dhan's REST-API ID
+    for VIX. The binary WS feed uses scrip-master IDs which differ (VIX is
+    "21"). Resolving dynamically at startup — same pattern as the underlying
+    contract — keeps us robust to ID rotation.
+
+    Returns (security_id, source) where source is "scrip_master" on success
+    or "fallback" if BSA is unreachable / lookup fails. Fallback id is "21",
+    the known-correct binary-feed VIX id confirmed 2026-05-19.
+    """
+    fallback_id = "21"
+    try:
+        import requests as _req
+
+        r = _req.get(
+            f"{base_url}/api/broker/scrip-master/lookup",
+            params={"symbol": "INDIAVIX", "instrumentName": "INDEX"},
+            headers=_authed_headers(),
+            timeout=5,
+        )
+        if r.status_code != 200:
+            return fallback_id, "fallback"
+        body = r.json()
+        if not body.get("success"):
+            return fallback_id, "fallback"
+        sec_id = str(body.get("data", {}).get("securityId", "")).strip()
+        if not sec_id:
+            return fallback_id, "fallback"
+        return sec_id, "scrip_master"
+    except Exception:
+        return fallback_id, "fallback"
+
+
 def _resolve_near_month_contract(base_url: str, profile) -> tuple[str, str, str]:
     """Resolve the near-month futures contract for a TFA instrument.
 
@@ -726,11 +761,20 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     # Subscribe underlying futures
     feed.subscribe_underlying()
 
-    # Phase 2d-01: co-subscribe India VIX on this same WS (NSE index
-    # segment IDX_I, security_id 264969). Adds the india_vix +
-    # india_vix_change_5min features without consuming an extra
-    # WS-budget slot — VIX rides along on the existing connection.
-    feed.subscribe_vix()
+    # Phase 2d-01: co-subscribe India VIX on this same WS (NSE INDEX
+    # segment IDX_I). Adds the india_vix + india_vix_change_5min features
+    # without consuming an extra WS-budget slot — VIX rides along on the
+    # existing connection. Security id is resolved dynamically via the
+    # scrip-master lookup (T23 follow-up) so future ID rotations don't
+    # silently break the feed; falls back to "21" (verified 2026-05-19).
+    vix_security_id, vix_source = _resolve_vix_security_id(args.broker_url)
+    log.info(
+        "VIX_RESOLVED",
+        msg=f"India VIX subscribed: id={vix_security_id} (source={vix_source})",
+        vix_security_id=vix_security_id,
+        source=vix_source,
+    )
+    feed.subscribe_vix(security_id=vix_security_id)
 
     # Subscribe all options from first snapshot — use wrapped chain snapshot callback
     # for the poller's subsequent snapshots

@@ -152,14 +152,21 @@ class DhanFeed:
         if self._connected and self._ws:
             self._send_subscribe([{"exchange": self._underlying_seg, "security_id": sec_id}])
 
-    def subscribe_vix(self, security_id: str = "264969") -> None:
+    def subscribe_vix(self, security_id: str = "21") -> None:
         """Register an India VIX co-subscription on this process's WS.
 
-        Phase 2d-01: VIX (security_id 264969 by default) is an NSE index in
-        the IDX_I segment. We add it as a fourth instrument category
-        alongside the underlying + options on the same WebSocket connection,
-        consuming zero additional WS-budget slots on this account. Incoming
-        VIX ticks are routed to ``on_vix_tick`` (set in the constructor).
+        Phase 2d-01: VIX is an NSE INDEX (segment IDX_I). We add it as a
+        fourth instrument category alongside the underlying + options on
+        the same WebSocket connection, consuming zero additional WS-budget
+        slots on this account. Incoming VIX ticks are routed to
+        ``on_vix_tick`` (set in the constructor).
+
+        security_id="21" — Dhan binary-feed / scrip-master ID for INDIA VIX
+        (confirmed 2026-05-19 via scrip-master lookup). Phase 2d-01 originally
+        used 264969 which is Dhan's REST-API VIX ID — the two ID systems
+        don't match and the binary WS feed silently produces zero ticks on
+        the wrong ID. Symptom was the entire VIX channel staying dead while
+        underlying / options / chain all worked normally.
         """
         sec_id = str(security_id)
         self._vix_security_id = sec_id
