@@ -60,6 +60,11 @@ Current Wave 2 model is a microstructure scalp predictor; v2 adds trend (10-30 m
   - [x] Phase 2: TFA feature additions — COMPLETE 2026-05-18 (commits `50d9bec` → `54fa8b0`). 22 feature modules + 69 new L1 columns + schema v7 + tick_processor + replay wiring + India VIX feed + shared `feature_pipeline` module + 1600+ tests + smoke-replay-validated.
   - [x] Phase 3: Target additions — COMPLETE 2026-05-18 (commits `60ee991` → `60ee991`). 12 trend + 12 swing target columns + schema v8 + replay-only backfill via `SpotTargetBuffer` (Option B) + 1631 tests + smoke-replay-validated. Live emits NaN for the 24 target cols; replay pipeline backfills end-of-day from recorded raw.
   - [ ] Phase 4: Auto-record accumulation (≥30 sessions, ~30 days passive) ← **ACTIVE — no code work, just time. T5 auto-recorder runs Mon–Fri capturing raw ticks under the new v8 schema.**
+    - **Training lifecycle locked 2026-05-19 (V2_MASTER_SPEC D76):**
+      1. **v0 stopgap** trained NOW on pre-v8 data (8 sessions nifty as of 2026-05-19) — sanity check + pipeline validation only; not for paper / live.
+      2. **30-session gate** — no new retrain runs until ≥30 v8-schema sessions accumulated (~6 weeks Mon–Fri from 2026-05-19, expected first real retrain on or after 2026-06-29). Auto-recorder fills the window passively.
+      3. **Weekly Saturday retrain** kicks in after day-30; runs on full accumulated dataset per §6.1.
+      4. Trainer prints a non-blocking WARN if `len(loaded) < 30` so v0-style runs are obvious in logs.
   - [ ] Phase 5: Retrain all 4 with combined targets (84 heads each, ~5 hrs compute)
   - [ ] Phase 6: Trend gate + swing gate + 3-way combinator + smoke (~3-4 days code)
   - [ ] Phase 7: Paper trade ramp (ai-paper channel, weeks)
