@@ -667,8 +667,10 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         "session_ts": None,
         "u_ticks": 0,
         "o_ticks": 0,
+        "v_ticks": 0,
         "chain_snaps": 0,  # incremented AFTER startup snapshot
         "last_u_ts": None,
+        "last_v_ts": None,
         "last_chain_ts": None,
         "u_ticks_prev": 0,
         "u_rate": 0.0,
@@ -695,6 +697,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
 
     def _on_vix_tick(data: dict) -> None:
         _h["v_ticks"] = _h.get("v_ticks", 0) + 1
+        _h["last_v_ts"] = time.monotonic()
         if recorder is not None:
             recorder.record_vix_tick(data)
         processor.on_vix_tick(data)
@@ -901,6 +904,26 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         else:
             chain_s = f"{_h['chain_snaps']} snaps"
 
+        # VIX — surfaces silent subscription failures (Phase 2d-01). India VIX
+        # publishes every few seconds on NSE during market hours, so a >30s
+        # gap on an open session is suspect. Zero ticks while session is open
+        # = the subscribe path is broken (wrong security_id / entitlement).
+        vix_count = _h.get("v_ticks", 0)
+        last_v_ts = _h.get("last_v_ts")
+        if last_v_ts is None:
+            if _h["session_open"] and vix_count == 0:
+                vix_s = f"{RED('●')} no ticks yet  (subscribed, session open)"
+            else:
+                vix_s = f"{DIM('●')} {vix_count} ticks"
+        else:
+            vage = now - last_v_ts
+            count_str = f"{vix_count:,} ticks"
+            age_str = f"(last {vage:.0f}s ago)"
+            if vage > 30 and _h["session_open"]:
+                vix_s = f"{YELLOW('●')} {count_str}  {YELLOW(age_str)}"
+            else:
+                vix_s = f"{count_str}  {age_str}"
+
         # Holiday status lines — one per exchange if holiday today
         holiday_lines: list[str] = []
         for exch, key in (("NSE", "holiday_nse"), ("MCX", "holiday_mcx")):
@@ -928,6 +951,7 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
             f"  Ticks   : {_h['u_ticks']:>9,} underlying{rate_s}",
             f"  Options : {_h['o_ticks']:>9,} ticks",
             f"  Chain   : {chain_s}",
+            f"  VIX     : {vix_s}",
         ]
         lines.extend(holiday_lines)
 
