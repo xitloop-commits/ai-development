@@ -87,6 +87,94 @@ PEND = YELLOW("○")
 _IST = timezone(timedelta(hours=5, minutes=30))
 
 
+# ── Market-open gate (live mode only) ────────────────────────────────────────
+
+
+def _market_closed_reason(profile, now_ist: datetime) -> str | None:
+    """Return a human-readable reason if TFA should NOT start today for this
+    instrument, or None if it is OK to proceed. Live mode only — replay mode
+    is date-bounded and never hits this gate.
+
+    Blocks when:
+      - Today is Saturday or Sunday
+      - Today is a published market holiday (config/market_holidays.json)
+      - Today's session_close (from profile JSON) has already passed
+
+    Allows pre-market — e.g. an 08:55 AM start for an NSE instrument whose
+    session opens at 09:15 is fine. The existing wait-for-session logic in
+    SessionManager handles that gap.
+    """
+    weekday = now_ist.weekday()  # Mon=0 .. Sun=6
+    if weekday == 5:
+        return "today is Saturday (no NSE/MCX session)"
+    if weekday == 6:
+        return "today is Sunday (no NSE/MCX session)"
+
+    try:
+        from market_calendar import is_market_holiday
+        if is_market_holiday(now_ist.date()):
+            return f"today ({now_ist.date().isoformat()}) is a published market holiday"
+    except Exception:
+        # Fail-open: never let a broken holiday file block a real session.
+        pass
+
+    # session_close format in profile: "HH:MM" IST. Compare against now_ist.
+    sess_close_str = getattr(profile, "session_end", None) or getattr(profile, "session_close", None)
+    if sess_close_str:
+        try:
+            hh, mm = sess_close_str.split(":")
+            close_dt = now_ist.replace(
+                hour=int(hh), minute=int(mm), second=0, microsecond=0,
+            )
+            if now_ist > close_dt:
+                return (
+                    f"today's {profile.exchange} session for "
+                    f"{profile.instrument_name} closed at {sess_close_str} IST "
+                    f"(it is now {now_ist.strftime('%H:%M')} IST)"
+                )
+        except (ValueError, AttributeError):
+            # Malformed session_end — fail-open, proceed normally.
+            pass
+
+    return None  # OK to start
+
+
+def _notify_yow_partha(text: str, log) -> bool:
+    """Best-effort one-line push to the yow-partha Telegram channel.
+
+    Reads YOW_PARTHA_BOT_TOKEN + YOW_PARTHA_CHAT_ID from env (the same vars
+    yow-partha itself uses, set in the project .env). If either is missing
+    the function logs a WARN and returns False — the caller still proceeds
+    with whatever it was doing. The send uses Telegram's plain HTTP API so
+    we avoid pulling python-telegram-bot into TFA's import surface just to
+    push a single line.
+    """
+    token = os.environ.get("YOW_PARTHA_BOT_TOKEN", "").strip()
+    chat_id = os.environ.get("YOW_PARTHA_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        log.warn(
+            "YOW_PARTHA_NOTIFY_SKIPPED",
+            msg="YOW_PARTHA_BOT_TOKEN or YOW_PARTHA_CHAT_ID missing — Telegram notify skipped",
+        )
+        return False
+    try:
+        import urllib.parse
+        import urllib.request
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
+        with urllib.request.urlopen(url, data=data, timeout=5) as resp:
+            ok = resp.status == 200
+        if not ok:
+            log.warn(
+                "YOW_PARTHA_NOTIFY_FAILED",
+                msg=f"Telegram sendMessage returned status={resp.status}",
+            )
+        return ok
+    except Exception as exc:
+        log.warn("YOW_PARTHA_NOTIFY_FAILED", msg=str(exc))
+        return False
+
+
 # ── Console helpers ───────────────────────────────────────────────────────────
 
 
@@ -1290,6 +1378,26 @@ def main() -> None:
         level=_level_map.get(args.log_level, 20),
     )
     log = get_logger("tfa.main", instrument=profile.instrument_name)
+
+    # ── Market-closed gate (live mode only) ──────────────────────────────────
+    # Refuses to start when there is no realistic chance of receiving ticks
+    # today — weekend, holiday, or post-session-close. Pre-market is allowed
+    # (existing wait-for-session-open in SessionManager handles that).
+    # On a block, pings yow-partha with the reason and exits 0 cleanly so
+    # the .bat wrapper does NOT re-launch us in a loop.
+    if args.mode == "live":
+        _now_ist = datetime.now(_IST)
+        _block_reason = _market_closed_reason(profile, _now_ist)
+        if _block_reason:
+            msg = (
+                f"TFA recorder {profile.instrument_name} ({profile.exchange}) "
+                f"will not start: {_block_reason}"
+            )
+            log.info("MARKET_CLOSED", msg=msg)
+            print(f"\n  {YELLOW('●')} {msg}\n", flush=True)
+            _notify_yow_partha(f"📵 {msg}", log)
+            shutdown_logging()
+            sys.exit(0)
 
     # ── Banner ────────────────────────────────────────────────────────────────
     if args.mode == "live":

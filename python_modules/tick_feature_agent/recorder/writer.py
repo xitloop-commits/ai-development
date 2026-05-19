@@ -74,6 +74,17 @@ class _FileLock:
             os.close(self._fd)
         finally:
             self._fd = None
+        # Delete the sidecar .lock file on a clean release. Lingering .lock
+        # files are how the launcher distinguishes "this recorder crashed"
+        # from "this recorder finished cleanly" — cleaning up on graceful
+        # close keeps that signal honest. A hard-killed process never
+        # reaches this code, so its .lock stays on disk and the launcher
+        # can flag it. Best-effort: ignore failures (the next acquire()
+        # would just open a fresh fd on the same path).
+        try:
+            self._lock_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 class NdjsonGzWriter:
