@@ -65,9 +65,12 @@ if not "%~1"=="" (
 
 REM --- If no --date / --include-dates flags, use a default wide range
 REM     (checkpoint resumes already-completed days) ---
+REM Use findstr (Windows-only built-in) instead of `find` so a non-standard
+REM PATH (e.g. inherited from Git Bash, which ships GNU find) doesn't
+REM trigger `find: unknown predicate` noise on the console.
 set HAS_DATE=0
-echo !EXTRA_ARGS! | find "--date" >nul && set HAS_DATE=1
-echo !EXTRA_ARGS! | find "--include-dates" >nul && set HAS_DATE=1
+echo !EXTRA_ARGS! | findstr /c:"--date" >nul && set HAS_DATE=1
+echo !EXTRA_ARGS! | findstr /c:"--include-dates" >nul && set HAS_DATE=1
 if "!HAS_DATE!"=="0" set "EXTRA_ARGS=!EXTRA_ARGS! --date-from 2026-04-01 --date-to 2026-12-31"
 
 REM --- Detect Python ---
@@ -85,14 +88,26 @@ chcp 65001 >nul 2>&1
 
 REM Banner is printed by main.py — no need to duplicate from the wrapper.
 
+REM --- Lifecycle: emit start ---
+call powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%_emit-lifecycle.ps1" -Event start -Result starting -Process "replay-%INSTRUMENT%" >nul 2>&1
+
 REM Run TFA replay; exit code 75 means "restart requested" (matches the
 REM convention used by start-tfa.bat, start-api.bat, start.bat).
 :run_loop
 %PYTHON_CMD% python_modules\tick_feature_agent\main.py --instrument-profile %PROFILE_PATH% --mode replay !EXTRA_ARGS!
-if !errorlevel! == 75 (
+set "EXIT_CODE=!errorlevel!"
+if !EXIT_CODE! == 75 (
     echo.
     goto run_loop
 )
+
+REM --- Lifecycle: emit final result ---
+if !EXIT_CODE! == 0 (
+    set "EXIT_RESULT=completed"
+) else (
+    set "EXIT_RESULT=error"
+)
+call powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%_emit-lifecycle.ps1" -Event stop -Result !EXIT_RESULT! -Process "replay-%INSTRUMENT%" -Code !EXIT_CODE! >nul 2>&1
 
 echo.
 if not defined LUBAS_HEADLESS pause

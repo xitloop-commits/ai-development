@@ -1,0 +1,9 @@
+# yow-partha — v0.1 dependencies.
+#
+# PTB v22.x required for Python 3.14 (3.14 dropped asyncio.get_event_loop()
+# auto-creation, which v20.x and v21.x rely on inside run_polling).
+# yow-partha doesn't use JobQueue, so the v21+ breaking-changes warning
+# from the deleted tfa_bot doesn't apply here.
+python-telegram-bot==22.7
+python-dotenv==1.2.2
+psutil==6.0.0

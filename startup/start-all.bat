@@ -165,5 +165,5 @@ echo   To stop all: close all "TFA: *" windows or use Task Manager.
 echo ============================================================
 echo.
 
-REM Emit lifecycle event for the central log.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result ok -TfaCount 4 >nul 2>&1
+REM Emit lifecycle event for the central log + Telegram (yow-partha).
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result starting -Process start-all -TfaCount 4 -Detail "Crude Oil, Natural Gas, NIFTY 50, Bank Nifty" >nul 2>&1

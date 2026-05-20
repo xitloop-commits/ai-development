@@ -8,7 +8,7 @@
 # Run from repo root:
 #   ruff check .
 #   black .
-#   mypy python_modules/ tfa_bot/
+#   mypy python_modules/
 #
 # Versions are pinned in `python_modules/requirements-dev.txt` (E1).
 
@@ -60,7 +60,7 @@ ignore = [
 "**/test_*.py" = ["F401", "F811", "B"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["model_training_agent", "signal_engine_agent", "_shared", "tfa_bot"]
+known-first-party = ["model_training_agent", "signal_engine_agent", "_shared"]
 
 [tool.black]
 line-length = 100
@@ -82,22 +82,21 @@ extend-exclude = '''
 [tool.mypy]
 python_version = "3.11"
 # Plan §G2 calls for `strict = true`. First strict pass surfaces 365
-# errors across 40 files (mostly missing annotations on telegram bot
-# handlers and DataFrame operations). Cleaning all of them up in this
-# PR would be a multi-hour exercise that risks introducing real bugs
-# from incorrect annotations. Following the plan's stated escape valve
-# ("gate mypy to --ignore-errors for one cycle if too noisy"):
-# strict mode is OFF for this commit; mypy still runs and surfaces
-# bugs, just doesn't fail. Cleanup tracker PY-44.
+# errors across 40 files (mostly missing annotations on DataFrame
+# operations). Cleaning all of them up in this PR would be a multi-hour
+# exercise that risks introducing real bugs from incorrect annotations.
+# Following the plan's stated escape valve ("gate mypy to --ignore-errors
+# for one cycle if too noisy"): strict mode is OFF for this commit; mypy
+# still runs and surfaces bugs, just doesn't fail. Cleanup tracker PY-44.
 strict = false
 warn_redundant_casts = true
 warn_unused_ignores = false  # legacy `# type: ignore` comments may exist
 no_implicit_optional = true
 check_untyped_defs = false   # would require typing every helper; defer
 # Plan's escape valve: even non-strict mypy surfaces 85 errors in
-# legacy code (mostly `Optional` access without null-check in tfa_bot
-# and DataFrame operator overloading in trainer.py). `ignore_errors`
-# makes mypy run + emit warnings without failing CI. Tracker PY-44.
+# legacy code (mostly DataFrame operator overloading in trainer.py).
+# `ignore_errors` makes mypy run + emit warnings without failing CI.
+# Tracker PY-44.
 ignore_errors = true
 exclude = [
     "node_modules",

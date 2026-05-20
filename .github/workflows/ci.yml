@@ -93,14 +93,12 @@ jobs:
           cache-dependency-path: |
             python_modules/requirements.txt
             python_modules/requirements-dev.txt
-            tfa_bot/requirements.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r python_modules/requirements.txt
           pip install -r python_modules/requirements-dev.txt
-          pip install -r tfa_bot/requirements.txt
 
       - name: Ruff (lint)
         # Plan §G2: `ruff check .` exits 0 — gated rules under PY-44.
@@ -114,11 +112,11 @@ jobs:
         # G2 currently runs with `ignore_errors = true` until tracker
         # PY-44 is cleared. This step still gates on actual mypy
         # config errors (invalid pyproject, missing modules, etc.).
-        run: mypy python_modules/ tfa_bot/
+        run: mypy python_modules/
 
       - name: Pytest
         # Plan §G7: covered by E10. ~15s on this machine.
-        run: pytest python_modules/ tfa_bot/ -q
+        run: pytest python_modules/ -q
 
   audit:
     # Optional dependency-audit job. Warn-only — `continue-on-error`
@@ -158,4 +156,3 @@ jobs:
         run: |
           pip install pip-audit
           pip-audit -r python_modules/requirements.txt || true
-          pip-audit -r tfa_bot/requirements.txt || true

@@ -52,14 +52,26 @@ set PYTHONIOENCODING=utf-8
 chcp 65001 >nul 2>&1
 set PYTHONPATH=%ROOT%python_modules;%PYTHONPATH%
 
+REM --- Lifecycle: emit start ---
+call powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result starting -Process "train-%INSTRUMENT%" -Detail "%DATE_FROM% to %DATE_TO%" >nul 2>&1
+
 REM Exit code 75 from the CLI = "restart requested" (Ctrl+C → R prompt).
 REM Looping on 75 re-runs the command with the same args so code edits get
 REM picked up without manually relaunching the bat.
 :run_loop
 %PYTHON_CMD% -m model_training_agent.cli --instrument %INSTRUMENT% --date-from %DATE_FROM% --date-to %DATE_TO%
-if !errorlevel! == 75 (
+set "EXIT_CODE=!errorlevel!"
+if !EXIT_CODE! == 75 (
     echo.
     goto run_loop
 )
+
+REM --- Lifecycle: emit final result ---
+if !EXIT_CODE! == 0 (
+    set "EXIT_RESULT=completed"
+) else (
+    set "EXIT_RESULT=error"
+)
+call powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event stop -Result !EXIT_RESULT! -Process "train-%INSTRUMENT%" -Code !EXIT_CODE! -Detail "%DATE_FROM% to %DATE_TO%" >nul 2>&1
 
 if not defined LUBAS_HEADLESS pause

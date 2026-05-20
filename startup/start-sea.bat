@@ -54,6 +54,18 @@ echo ============================================================
 echo   SEA -- %INSTRUMENT%
 echo ============================================================
 
+REM --- Lifecycle: emit start ---
+call powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%_emit-lifecycle.ps1" -Event start -Result starting -Process "sea-%INSTRUMENT%" >nul 2>&1
+
 %PYTHON_CMD% -m signal_engine_agent.engine --instrument %INSTRUMENT% !EXTRA_ARGS!
+set "EXIT_CODE=!errorlevel!"
+
+REM --- Lifecycle: emit final result ---
+if !EXIT_CODE! == 0 (
+    set "EXIT_RESULT=ok"
+) else (
+    set "EXIT_RESULT=error"
+)
+call powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%_emit-lifecycle.ps1" -Event stop -Result !EXIT_RESULT! -Process "sea-%INSTRUMENT%" -Code !EXIT_CODE! >nul 2>&1
 
 pause

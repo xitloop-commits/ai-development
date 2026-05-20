@@ -56,8 +56,8 @@ function Get-AtsPythonPids {
         if ($cl -match 'tick_feature_agent\\main\.py' -or
             $cl -match 'server_launcher\.py'          -or
             $cl -match 'signal_engine_agent'          -or
-            $cl -match 'tfa_bot\\bot\.py'             -or
-            $cl -match 'model_training_agent') {
+            $cl -match 'model_training_agent'         -or
+            $cl -match 'yow_partha') {
             $found += [pscustomobject]@{ Pid = $p.ProcessId; CommandLine = $cl }
         }
     }
@@ -75,8 +75,8 @@ if ($targets.Count -eq 0) {
         $tag = if ($t.CommandLine -match 'tick_feature_agent') { 'TFA' }
                elseif ($t.CommandLine -match 'server_launcher')  { 'API' }
                elseif ($t.CommandLine -match 'signal_engine_agent') { 'SEA' }
-               elseif ($t.CommandLine -match 'tfa_bot')          { 'BOT' }
                elseif ($t.CommandLine -match 'model_training_agent') { 'TRAIN' }
+               elseif ($t.CommandLine -match 'yow_partha') { 'BOT' }
                else { 'PY' }
         try {
             $status = Send-CtrlC -processId $t.Pid
@@ -126,9 +126,13 @@ Log "Issuing OS shutdown in 60s (cancel with 'shutdown /a')."
 $killedCount    = if ($targets) { [Math]::Max(0, $targets.Count - $survivors.Count) } else { 0 }
 $survivorsCount = if ($survivors) { $survivors.Count } else { 0 }
 try {
+    $plural = if ($killedCount -eq 1) { 'process' } else { 'processes' }
+    $survNote = if ($survivorsCount -gt 0) { ", $survivorsCount were force-killed" } else { '' }
+    $detail = "$killedCount $plural shut down cleanly$survNote, computer shutting down in 60 seconds"
     & (Join-Path $PSScriptRoot '_emit-lifecycle.ps1') `
-        -Event stop -Result ok `
-        -Killed $killedCount -Survivors $survivorsCount
+        -Event stop -Result stopped -Process stop-all `
+        -Killed $killedCount -Survivors $survivorsCount `
+        -Detail $detail
 } catch {
     Log ("emit-lifecycle failed: " + $_.Exception.Message)
 }

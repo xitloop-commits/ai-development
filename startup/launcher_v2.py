@@ -1368,12 +1368,22 @@ def act_restart_launcher() -> None:
     sys.exit(75)
 
 
+def act_yow_partha() -> None:
+    """Launch yow-partha test entry — fires lifecycle pings so you can
+    confirm the Telegram channel is wired. The real bot module will hook
+    in here once it exists.
+
+    Title must contain a space — `start` parses unquoted single-token
+    titles as the program name, which broke when we passed "yow-partha".
+    """
+    _launch_new_window("Lubas: yow-partha", "start-yow-partha.bat")
+
+
 def act_tools() -> None:
-    """Tools menu — token refresh, credentials info, telegram bot."""
+    """Tools menu — token refresh, credentials info, ops utilities."""
     items = [
         ("Refresh Dhan token (TOTP)",       "refresh-token"),
         ("Show Dhan credentials info",      "creds-info"),
-        ("Start Telegram bot",              "telegram-bot"),
         ("Today's raw file sizes",          "file-sizes"),
         ("Replay checkpoint status",        "checkpoint"),
     ]
@@ -1434,8 +1444,6 @@ def act_tools() -> None:
             print(f"    {CYAN('node scripts/dhan-update-credentials.mjs --show')}")
             print()
             _pause_briefly()
-        elif kind == "telegram-bot":
-            _launch_new_window("TFA Bot", "start-bot.bat")
         elif kind == "file-sizes":
             today = datetime.now().strftime("%Y-%m-%d")
             d = ROOT / "data" / "raw" / today
@@ -2601,6 +2609,7 @@ def main() -> None:
         RootItem("Compare      (model vs prior on D-1)",   "P", act_compare),
         RootItem("Run SEA      (live features → signals/)", "I", act_sea),
         RootItem("Watch        (live dashboards)",         "W", act_watch),
+        RootItem("yow-partha   (Telegram control bot)",    "Y", act_yow_partha),
         RootItem("Tools        (token / creds / status)",  ".", act_tools),
         RootItem("Restart      (reload launcher code)",    "L", act_restart_launcher),
         RootItem("Delete       (raw / parquet / live / models)", "X", act_delete),

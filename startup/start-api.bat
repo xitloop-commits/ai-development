@@ -34,10 +34,22 @@ if errorlevel 1 (
 
 set PYTHONIOENCODING=utf-8
 
+REM --- Lifecycle: emit start ---
+call powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result starting -Process api >nul 2>&1
+
 REM --- Run server via launcher (restart loop via exit code 75) ---
 :run_loop
 %PYTHON_CMD% startup\server_launcher.py
-if !errorlevel! == 75 (
+set "EXIT_CODE=!errorlevel!"
+if !EXIT_CODE! == 75 (
     echo.
     goto run_loop
 )
+
+REM --- Lifecycle: emit final result ---
+if !EXIT_CODE! == 0 (
+    set "EXIT_RESULT=ok"
+) else (
+    set "EXIT_RESULT=error"
+)
+call powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event stop -Result !EXIT_RESULT! -Process api -Code !EXIT_CODE! >nul 2>&1

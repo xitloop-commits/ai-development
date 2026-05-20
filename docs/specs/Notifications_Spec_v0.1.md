@@ -19,8 +19,11 @@ in-app toasts, persistent in-app inbox, Telegram (TFA bot), and
 email.
 
 **Explicitly NOT in scope:**
-- The TFA bot's own command surface (covered by the existing
-  `tfa_bot/` module — separate from this spec's outbound delivery).
+- The yow-partha bot's own command surface (covered by the
+  forthcoming yow-partha spec — separate from this spec's outbound
+  delivery). Note (2026-05-19): the prior `tfa_bot/` module has been
+  removed; equivalent work now lives under yow-partha. See
+  `docs/specs/YowPartha_Migration_From_TfaBot.md`.
 - In-app log viewer (separate observability surface, deferred —
   see `IMPLEMENTATION_PLAN_v2.md` §13).
 - Push notifications to mobile native apps (deferred).
@@ -54,9 +57,9 @@ Outbound adapters (internal, not REST):
 
 ## 4. Decisions Locked
 
-- Telegram is the primary out-of-app channel (already in production
-  via `tfa_bot/`). (Source: `IMPLEMENTATION_PLAN_v2.md` §7 — TFA bot
-  is the existing operator interface.)
+- Telegram is the primary out-of-app channel; delivery flows through
+  the yow-partha bot (replaces the removed `tfa_bot/` module —
+  see `YowPartha_Migration_From_TfaBot.md`).
 - `CRITICAL` severity (capital cap hit, broker disconnect during open
   position, RCA stall) is **always** routed to Telegram regardless
   of preferences. (Source: spec intent — safety floor cannot be
@@ -90,7 +93,8 @@ Outbound adapters (internal, not REST):
 - `BrokerServiceAgent_Spec_v1.9.md` — emits disconnect / reconnect
   events (consumed via `Disconnect_Safety_Spec_v0.1.md`).
 - `Disconnect_Safety_Spec_v0.1.md` — emits kill-switch events.
-- TFA bot (`tfa_bot/`) — Telegram delivery surface.
+- yow-partha bot — Telegram delivery surface (see
+  `YowPartha_Migration_From_TfaBot.md`).
 
 ## 7. Change Log
 

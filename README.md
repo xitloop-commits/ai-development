@@ -24,7 +24,6 @@ pnpm dev          # dev server + Vite
 # Python side
 pip install -r python_modules/requirements.txt
 pip install -r python_modules/requirements-dev.txt
-pip install -r tfa_bot/requirements.txt
 ```
 
 ## Quality gates
@@ -40,8 +39,8 @@ pnpm test         # vitest run (parallel — ~8s)
 # Python
 ruff check .      # lint
 black --check .   # format
-mypy python_modules/ tfa_bot/
-pytest python_modules/ tfa_bot/ -q
+mypy python_modules/
+pytest python_modules/ -q
 ```
 
 ## Project layout
@@ -59,8 +58,9 @@ python_modules/     — Python pipeline
   tick_feature_agent/   — TFA: feature emission
   signal_engine_agent/  — SEA: live inference loop
   model_training_agent/ — MTA: LightGBM trainer
-tfa_bot/            — Telegram operator bot
 docs/               — Specs (IMPLEMENTATION_PLAN_v2.md is the master)
+                       yow-partha (Telegram control bot) — planned, see
+                       docs/specs/YowPartha_Migration_From_TfaBot.md
 config/             — Per-instrument profiles + thresholds
 ```
 

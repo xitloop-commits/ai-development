@@ -62,7 +62,6 @@ ICONS = [
     ("tfa_banknifty.ico", (110, 20, 170), "building-columns", "BANK"),
     ("tfa_crudeoil.ico", (185, 30, 30), "oil-can", "CRUDE"),
     ("tfa_naturalgas.ico", (0, 145, 135), "fire", "GAS"),
-    ("tfa_bot.ico", (35, 55, 200), "paper-plane", "BOT"),
     ("launcher.ico", (210, 145, 10), "compass", "Lubas"),
 ]
 

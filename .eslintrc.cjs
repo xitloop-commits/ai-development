@@ -136,7 +136,6 @@ module.exports = {
     "coverage/",
     ".pnpm-store/",
     "client/src/components/ui/**",  // shadcn/ui generated components
-    "tfa_bot/",                     // python only
     "python_modules/",              // python only
     "models/",                      // model artefacts
     "data/",                        // parquet files
