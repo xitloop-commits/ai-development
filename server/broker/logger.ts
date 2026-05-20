@@ -33,9 +33,14 @@ export interface Logger {
   warn (msg: string, ...args: unknown[]): void;
   error(msg: string, ...args: unknown[]): void;
   /**
-   * Emit at INFO level with a clinking-glasses marker (🥂) at the end —
-   * grep-able milestone for agent start/stop, broker connect, server up.
-   * Same semantics as Homebrew's 🍺 on `brew install` success.
+   * Emit at INFO level with a context-appropriate emoji marker at the end:
+   *   🚀 startup / connected / ready / running   (e.g. "Started — ...", "WS connected")
+   *   🛑 stopped / shutdown / disconnected       (e.g. "Stopped", "Graceful shutdown ...")
+   *   🚨 alert / fail / circuit / exit-all       (e.g. "Carry-forward FAIL", "Cap-grace expired")
+   *   ⚙️ configuration printed                   (e.g. "Environment configuration:")
+   *   🥂 uncategorized milestone                 (fallback)
+   * Marker is auto-selected from the message — callers don't pick. Greppable
+   * by emoji to filter the boot/lifecycle stream.
    */
   important(msg: string, ...args: unknown[]): void;
 }
@@ -135,8 +140,22 @@ export function createLogger(agentOrModule: string, module?: string): Logger {
     info:      (msg, ...args) => emit("info",  msg, args),
     warn:      (msg, ...args) => emit("warn",  msg, args),
     error:     (msg, ...args) => emit("error", msg, args),
-    important: (msg, ...args) => emit("info",  `${msg} 🥂`, args),
+    important: (msg, ...args) => emit("info",  `${msg} ${pickImportantMarker(msg)}`, args),
   };
+}
+
+/**
+ * Pick the trailing emoji for an `important()` line based on the message.
+ * Order matters — alert keywords are checked first so "FAIL → ... exited"
+ * maps to 🚨 instead of being caught by the stop/disconnect family on the
+ * word "exited".
+ */
+function pickImportantMarker(msg: string): string {
+  if (/\b(FAIL|expired|EXIT_ALL|circuit|tripped|kill\s*switch)\b/i.test(msg)) return "🚨";
+  if (/\bconfiguration\b/i.test(msg)) return "⚙️";
+  if (/\b(stop|stopped|shutdown|disconnect|disconnected)\b/i.test(msg)) return "🛑";
+  if (/\b(start|started|connect|connected|ready|running|online|registered|seeded|listening)\b/i.test(msg)) return "🚀";
+  return "🥂";
 }
 
 // ─── Boot legend ───────────────────────────────────────────────
