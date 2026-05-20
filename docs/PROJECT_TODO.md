@@ -62,7 +62,7 @@ Current Wave 2 model is a microstructure scalp predictor; v2 adds trend (10-30 m
   - [ ] Phase 4: Auto-record accumulation (≥30 sessions, ~30 days passive) ← **ACTIVE — no code work, just time. T5 auto-recorder runs Mon–Fri capturing raw ticks under the new v8 schema.**
     - **Training lifecycle locked 2026-05-19 (V2_MASTER_SPEC D76):**
       1. **v0 stopgap** trained NOW on pre-v8 data (8 sessions nifty as of 2026-05-19) — sanity check + pipeline validation only; not for paper / live.
-      2. **30-session gate** — no new retrain runs until ≥30 v8-schema sessions accumulated (~6 weeks Mon–Fri from 2026-05-19, expected first real retrain on or after 2026-06-29). Auto-recorder fills the window passively.
+      2. **30-session gate** — no new retrain runs until ≥30 v8-schema sessions accumulated. Day 1 = Wed 2026-05-20 (first full v8+VIX session). Assuming no NSE/MCX holidays in the window (`config/market_holidays.json` is currently empty for 2026), Day 30 = Tue 2026-06-30 and the first Saturday retrain runs Sat 2026-07-04. Auto-recorder fills the window passively. Each NSE/MCX holiday that lands in this window pushes the dates one trading day later — populate `market_holidays.json` for accurate forecasting.
       3. **Weekly Saturday retrain** kicks in after day-30; runs on full accumulated dataset per §6.1.
       4. Trainer prints a non-blocking WARN if `len(loaded) < 30` so v0-style runs are obvious in logs.
   - [ ] Phase 5: Retrain all 4 with combined targets (84 heads each, ~5 hrs compute)
