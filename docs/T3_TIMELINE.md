@@ -16,11 +16,11 @@ flowchart TD
 
     Start([Today · Mon 2026-05-19<br/>Day 1 of clean v8+VIX data]):::milestone
 
-    Phase4[<b>Phase 4 — Data Accumulation</b><br/>Mon-Fri × 6 weeks = 30 sessions<br/>· Auto-recorder captures ticks<br/>· Evening replay → features+targets<br/>· <i>No training. v0 stays as reference only.</i>]:::phase
+    Phase4[Phase 4 — Data Accumulation<br/>Mon-Fri × 6 weeks = 30 sessions<br/>· Auto-recorder captures ticks<br/>· Evening replay → features+targets<br/>· No training. v0 stays as reference only.]:::phase
 
     Day30{Day 30 reached<br/>~Fri 2026-06-26}:::gate
 
-    Retrain1[<b>First Real Retrain</b><br/>Sat 2026-06-27 · 02:00 IST<br/>· 1,680 LightGBM fits<br/>· 128 isotonic calibration maps<br/>· CANDIDATE_HEADS staged]:::phase
+    Retrain1[First Real Retrain<br/>Sat 2026-06-27 · 02:00 IST<br/>· 1,680 LightGBM fits<br/>· 128 isotonic calibration maps<br/>· CANDIDATE_HEADS staged]:::phase
 
     Review[Human Review<br/>Sun 2026-06-28<br/>· Trade-quality + drift + sim_pnl<br/>· Touch CANDIDATE_APPROVED]:::phase
 
@@ -28,25 +28,25 @@ flowchart TD
 
     StayV0[Stay on v0<br/>Alert yow-partha<br/>Investigate before next Sat]:::terminal
 
-    Phase7a[<b>Phase 7a — Paper, Minimum Exits</b><br/>Mon 2026-06-29 09:15 IST onwards<br/>· Signals → ai-paper channel<br/>· Exits: TP / SL / trail / time / regime-flip<br/>· OI + exhaustion <i>disabled</i>]:::phase
+    Phase7a[Phase 7a — Paper, Minimum Exits<br/>Mon 2026-06-29 09:15 IST onwards<br/>· Signals → ai-paper channel<br/>· Exits: TP / SL / trail / time / regime-flip<br/>· OI + exhaustion disabled]:::phase
 
     Gate7a{≥50 signals/inst AND<br/>WR within ±5pp of backtest?}:::gate
 
     Weekly([Weekly Saturday Retrain<br/>02:00 IST · always-on<br/>Trains on FULL accumulated history<br/>Each week grows by 5 sessions]):::milestone
 
-    Phase7b[<b>Phase 7b — OI Exits Enabled</b><br/>~Mon 2026-07-14<br/>· Adds 5-min + 60-min OI exit triggers]:::phase
+    Phase7b[Phase 7b — OI Exits Enabled<br/>~Mon 2026-07-14<br/>· Adds 5-min + 60-min OI exit triggers]:::phase
 
     Gate7b{A/B vs 7a<br/>OI adds ≥3pp WR<br/>OR ≥15% DD reduction?}:::gate
 
     Drop7b[Leave OI exits<br/>permanently disabled<br/>in production config]:::terminal
 
-    Phase7c[<b>Phase 7c — Exhaustion Exits Enabled</b><br/>~Mon 2026-07-28<br/>· trend-tiring + premium-decel + volume-absorption]:::phase
+    Phase7c[Phase 7c — Exhaustion Exits Enabled<br/>~Mon 2026-07-28<br/>· trend-tiring + premium-decel + volume-absorption]:::phase
 
     Gate7c{A/B vs 7b<br/>same ≥3pp / ≥15% gate?}:::gate
 
     Drop7c[Leave exhaustion<br/>exits disabled in<br/>production config]:::terminal
 
-    Phase8[<b>Phase 8 — AI-Live</b><br/>~Mid-Aug 2026 onwards<br/>· Small capital first per §8.2<br/>· §8.3 scaling when paper vs live ≤5pp diverge]:::milestone
+    Phase8[Phase 8 — AI-Live<br/>~Mid-Aug 2026 onwards<br/>· Small capital first per §8.2<br/>· §8.3 scaling when paper vs live ≤5pp diverge]:::milestone
 
     Start --> Phase4
     Phase4 --> Day30
@@ -57,8 +57,8 @@ flowchart TD
     Promote -->|GREEN| Phase7a
 
     Phase7a --> Gate7a
-    Phase7a -.feedback every Sat.-> Weekly
-    Weekly -.improves.-> Phase7a
+    Phase7a -. feedback every Sat .-> Weekly
+    Weekly -. improves .-> Phase7a
 
     Gate7a -->|PASS| Phase7b
     Phase7b --> Gate7b
@@ -70,9 +70,9 @@ flowchart TD
     Drop7b -.-> Phase7c
     Drop7c -.-> Phase8
 
-    Weekly -.same loop.-> Phase7b
-    Weekly -.same loop.-> Phase7c
-    Weekly -.same loop.-> Phase8
+    Weekly -. same loop .-> Phase7b
+    Weekly -. same loop .-> Phase7c
+    Weekly -. same loop .-> Phase8
 ```
 
 ---
