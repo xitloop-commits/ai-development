@@ -88,6 +88,17 @@ Show events_done / events_total_est / rate / ETA AND survive power cuts without 
   - Launcher reads progress.json and shows e.g. `crudeoil 05-13: 43% · ETA 6m` on the replay row.
 - **Out of scope:** pre-counting events (rejected — too slow), adding to Train/Backtest (Partha excluded).
 
+### T24 — Re-enable holdout reservation when paper-trade window starts
+The holdout reservation gate in `config/holdout_dates.json` is set to `"enabled": false` as of 2026-05-20. Every date is currently available for replay and training — no reserved-for-backtest dates. This was deliberately disabled during the Phase 4 accumulation window so we don't lose any of the 30-session minimum to the holdout reservation.
+
+- **Status:** Deferred 2026-05-20.
+- **Trigger to re-enable:** when Phase 7a paper-trade kicks off (~Mon 2026-07-06 per `docs/T3_TIMELINE.md`). Before promoting the first real-retrain candidate to LATEST_HEADS, flip `"enabled": true` and bump `"n"` from 1 to 5 (one full trading week reserved per V2_MASTER_SPEC §2.3.1 walk-forward holdout strategy).
+- **Change required:** edit `config/holdout_dates.json`:
+  - Set `"enabled": true`
+  - Bump `"n": 5` (or whatever holdout fold size the spec settles on at that point)
+- **Why disabled now:** Phase 4 is pure data accumulation. Reserving the most-recent date(s) would shrink the trainable set when we only have ~30 sessions to work with. Re-enabling is mandatory before paper trade so we have true out-of-sample dates the live model has never seen.
+- **Verification when re-enabled:** launcher's `[R]` magenta tags reappear on reserved dates; trainer's holdout-leak check raises if any reserved date sneaks into training.
+
 ### T22 — Launcher blue-tick for terminated/partial pipeline stages
 Add a 4th color state to the main-screen pipeline status table at [startup/launcher_v2.py:2406](startup/launcher_v2.py#L2406) (`_render_status_table`): **BLUE ✓ when a stage was started but did NOT fully complete** (process died, crashed, killed by power-cut, etc.). Currently the table shows 3 states per stage cell: green (done) / yellow (loading) / dim (none) — missing the "terminated mid-flight" signal.
 

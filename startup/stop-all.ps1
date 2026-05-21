@@ -64,6 +64,81 @@ function Get-AtsPythonPids {
     return $found
 }
 
+# --- Smart-shutdown gate: replay / trainer block shutdown -----------------
+# Recorders are gone by 00:00 by design (TFA self-closes on SESSION_AUTO_STOP);
+# the only things that legitimately run past midnight are auto-replays spawned
+# at session close and the Saturday trainer cron. If either is active, skip
+# shutdown, ping yow-partha so Partha knows the machine is staying up, sleep
+# 30 minutes, and re-check. Keep looping until either everything is idle (then
+# fall through to the existing shutdown sequence) or 08:15 IST hits — at which
+# point we're too close to the 08:55 morning startup to bother shutting down.
+
+function Get-BusyPids {
+    $procs = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue
+    $found = @()
+    foreach ($p in $procs) {
+        $cl = $p.CommandLine
+        if ($null -eq $cl) { continue }
+        $isReplay = ($cl -match 'tick_feature_agent.main' -and $cl -match '--mode replay') -or
+                    ($cl -match 'replay_runner\.py')
+        $isTrain  = $cl -match 'model_training_agent'
+        if ($isReplay -or $isTrain) {
+            $tag = if ($isReplay) { 'REPLAY' } else { 'TRAIN' }
+            $found += [pscustomobject]@{ Pid = $p.ProcessId; Tag = $tag; CommandLine = $cl }
+        }
+    }
+    return $found
+}
+
+function Notify-YowPartha([string]$text) {
+    $token = $env:YOW_PARTHA_BOT_TOKEN
+    $chat  = $env:YOW_PARTHA_CHAT_ID
+    if (-not $token -or -not $chat) { return }
+    try {
+        $body = @{ chat_id = $chat; text = $text } | ConvertTo-Json -Compress
+        Invoke-RestMethod -Method Post `
+            -Uri "https://api.telegram.org/bot$token/sendMessage" `
+            -ContentType 'application/json' `
+            -Body $body -TimeoutSec 5 | Out-Null
+    } catch {
+        Log ("yow-partha notify failed: " + $_.Exception.Message)
+    }
+}
+
+$cutoffHour   = 8
+$cutoffMinute = 15
+$skipCount    = 0
+while ($true) {
+    $now = Get-Date
+    if (($now.Hour -gt $cutoffHour) -or `
+        ($now.Hour -eq $cutoffHour -and $now.Minute -ge $cutoffMinute)) {
+        Log ("Reached 08:15 IST cutoff after {0} skip(s); abandoning shutdown for tonight." -f $skipCount)
+        if ($skipCount -gt 0) {
+            Notify-YowPartha "Shutdown abandoned for tonight — replay/trainer still busy at 08:15 IST after $skipCount checks. Machine staying up; recorder will start at 08:55."
+        }
+        try {
+            & (Join-Path $PSScriptRoot '_emit-lifecycle.ps1') `
+                -Event skip -Result cutoff `
+                -Process stop-all -Detail "08:15 cutoff after $skipCount skip(s)" 2>$null | Out-Null
+        } catch {}
+        exit 0
+    }
+
+    $busy = Get-BusyPids
+    if ($busy.Count -eq 0) { break }   # clear → fall through to real shutdown
+
+    $skipCount++
+    $busyTags = ($busy | ForEach-Object { "$($_.Tag)(pid=$($_.Pid))" }) -join ', '
+    Log ("Skip #{0}: {1} active process(es) — {2}. Sleeping 30 min." -f $skipCount, $busy.Count, $busyTags)
+    Notify-YowPartha "Shutdown skipped (check $skipCount) — still busy: $busyTags. Next check in 30 min (cutoff 08:15)."
+    try {
+        & (Join-Path $PSScriptRoot '_emit-lifecycle.ps1') `
+            -Event skip -Result busy `
+            -Process stop-all -Detail "skip $skipCount: $busyTags" 2>$null | Out-Null
+    } catch {}
+    Start-Sleep -Seconds 1800
+}
+
 Log "=== Lubas stop-all starting ==="
 
 $targets = Get-AtsPythonPids

@@ -78,7 +78,11 @@ if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.
     echo   Install Python 3.11+ from https://www.python.org/downloads/
-    if not defined LUBAS_HEADLESS pause
+    if not defined LUBAS_HEADLESS (
+        echo.
+        echo   (Auto-closes in 2 minutes. Press any key to close now.^)
+        timeout /t 120 >nul
+    )
     exit /b 1
 )
 

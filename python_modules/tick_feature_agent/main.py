@@ -175,6 +175,151 @@ def _notify_yow_partha(text: str, log) -> bool:
         return False
 
 
+# ── Session-close hooks (auto-replay + API graceful stop) ────────────────────
+
+
+def _is_replay_already_running(instrument: str, date_str: str) -> bool:
+    """True if a `tick_feature_agent.main --mode replay` process is already
+    running for this (instrument, date). Prevents double-spawn when the
+    operator manually launched a replay near session-close — TFA's hook
+    would otherwise race against it and trip the writer-lock error.
+
+    Uses PowerShell's Get-CimInstance Win32_Process to scan command lines
+    (matches the dedup style already in startup/stop-all.ps1). Failure to
+    enumerate (PS unavailable, timeout) is non-fatal — returns False so the
+    spawn proceeds; the writer-lock would catch a true collision anyway.
+    """
+    try:
+        import subprocess
+        result = subprocess.run(
+            [
+                "powershell", "-NoProfile", "-Command",
+                (
+                    "Get-CimInstance Win32_Process -Filter \"Name = 'python.exe'\" "
+                    "-ErrorAction SilentlyContinue | "
+                    "Where-Object { "
+                    f"  $_.CommandLine -match 'tick_feature_agent.main' -and "
+                    f"  $_.CommandLine -match '--mode replay' -and "
+                    f"  $_.CommandLine -match '{instrument}' -and "
+                    f"  $_.CommandLine -match '{date_str}' "
+                    "} | Measure-Object | Select-Object -ExpandProperty Count"
+                ),
+            ],
+            capture_output=True, text=True, timeout=10,
+        )
+        count = int((result.stdout or "0").strip() or "0")
+        return count > 0
+    except Exception:
+        return False
+
+
+def _spawn_auto_replay(profile, log) -> None:
+    """Detached subprocess: start-replay.bat <instrument> --date <today>.
+
+    Called from TFA's _on_session_close_h after SESSION_AUTO_STOP. Runs in a
+    separate cmd.exe window via the same launcher path the operator uses
+    manually; LUBAS_HEADLESS=1 in the spawn env so the wrapper bat skips its
+    interactive 2-minute auto-close timeout. Failures (file missing, dedup
+    skip, non-zero spawn) all ping yow-partha so Partha is aware.
+    """
+    today_ist = datetime.now(_IST).strftime("%Y-%m-%d")
+    inst = profile.instrument_name
+
+    if _is_replay_already_running(inst, today_ist):
+        log.info(
+            "AUTO_REPLAY_SKIPPED",
+            msg=f"Auto-replay skipped — replay already running for {inst} {today_ist}",
+            instrument=inst,
+            date=today_ist,
+        )
+        _notify_yow_partha(
+            f"⏭ Auto-replay skipped — already running for {inst} on {today_ist}",
+            log,
+        )
+        return
+
+    bat = Path(__file__).resolve().parents[2] / "startup" / "start-replay.bat"
+    if not bat.exists():
+        log.warn(
+            "AUTO_REPLAY_BAT_MISSING",
+            msg=f"start-replay.bat not found at {bat}",
+        )
+        _notify_yow_partha(
+            f"⚠ Auto-replay launch FAILED for {inst} on {today_ist}: start-replay.bat missing",
+            log,
+        )
+        return
+
+    try:
+        import subprocess
+        env = os.environ.copy()
+        env["LUBAS_HEADLESS"] = "1"
+        creation_flags = 0
+        if sys.platform == "win32":
+            # Detached + new console so the spawn survives TFA exit and gets
+            # its own cmd window for visibility.
+            creation_flags = (
+                subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+        subprocess.Popen(
+            ["cmd.exe", "/c", str(bat), inst, "--date", today_ist],
+            env=env,
+            cwd=str(bat.resolve().parents[1]),
+            creationflags=creation_flags,
+            close_fds=True,
+        )
+        log.info(
+            "AUTO_REPLAY_SPAWNED",
+            msg=f"Auto-replay spawned for {inst} on {today_ist}",
+            instrument=inst,
+            date=today_ist,
+        )
+    except Exception as exc:
+        log.warn(
+            "AUTO_REPLAY_SPAWN_FAILED",
+            msg=f"Auto-replay spawn FAILED for {inst} on {today_ist}: {exc}",
+            instrument=inst,
+            date=today_ist,
+            error=str(exc),
+        )
+        _notify_yow_partha(
+            f"⚠ Auto-replay spawn FAILED for {inst} on {today_ist}: {exc}",
+            log,
+        )
+
+
+def _spawn_api_graceful_stop(log) -> None:
+    """Fire-and-forget invocation of startup/_stop-api-graceful.ps1.
+
+    The helper finds server_launcher.py's PID and sends Ctrl+C via the
+    existing _send-ctrlc-helper.ps1 pattern, then force-kills if it doesn't
+    exit within 5s. We don't wait for completion — the API can take a few
+    seconds to shut down cleanly and we don't want to block TFA's own auto-
+    stop. Errors are logged but otherwise silent; the API will be force-
+    killed by start-all.bat's restart-fresh logic at 08:55 anyway.
+    """
+    helper = Path(__file__).resolve().parents[2] / "startup" / "_stop-api-graceful.ps1"
+    if not helper.exists():
+        log.warn(
+            "API_STOP_HELPER_MISSING",
+            msg=f"_stop-api-graceful.ps1 not found at {helper}",
+        )
+        return
+    try:
+        import subprocess
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", str(helper), "-Quiet"],
+            close_fds=True,
+        )
+        log.info(
+            "API_STOP_REQUESTED",
+            msg="Sent graceful-stop request to API (MCX session close)",
+        )
+    except Exception as exc:
+        log.warn("API_STOP_SPAWN_FAILED", msg=str(exc))
+
+
 # ── Console helpers ───────────────────────────────────────────────────────────
 
 
@@ -811,6 +956,17 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         print(f"\n  {YELLOW('◼  Market session closed.')}  Stopping in 10s…\n", flush=True)
         log.info("SESSION_AUTO_STOP", msg="Market session closed — TFA will stop in 10s")
         asyncio.ensure_future(_auto_stop())
+        # Spawn auto-replay for THIS instrument + today's date. Dedup against
+        # any already-running replay (manual launcher fires can collide with
+        # this hook). Failures ping yow-partha. See _spawn_auto_replay() for
+        # the full rationale.
+        _spawn_auto_replay(profile, log)
+        # MCX session close = end of day for all live feeds. The API server
+        # is not needed by replay or yow-partha (verified 2026-05-20), so
+        # gracefully stop it now to free resources. start-all.bat will
+        # restart it fresh at 08:55 IST tomorrow.
+        if profile.exchange == "MCX":
+            _spawn_api_graceful_stop(log)
 
     # Rebuild session_mgr with wrapped callbacks (replace in-place)
     session_mgr._on_session_start = _on_session_open_h

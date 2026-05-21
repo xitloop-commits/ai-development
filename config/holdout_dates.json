@@ -1,5 +1,6 @@
 {
+  "enabled": false,
   "policy": "last_n_per_instrument",
   "n": 1,
-  "notes": "Per-instrument reservation: for each instrument, the most recent N dates with raw or parquet data are reserved for backtest. n=1 reserves just today's working day (or the most recent recording day). Bump n=1 -> 2 / 3 once auto-run accumulates more depth. Edit and reload launcher to apply."
+  "notes": "Per-instrument reservation: for each instrument, the most recent N dates with raw or parquet data are reserved for backtest. enabled=false (set 2026-05-20 per PROJECT_TODO T24) turns the gate OFF — every date becomes available for replay/training. Re-enable when the paper-trade window starts. n / policy stay configured so flipping enabled=true picks up cleanly."
 }

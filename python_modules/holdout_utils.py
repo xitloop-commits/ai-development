@@ -113,6 +113,13 @@ def resolve_holdout_dates(
     """
     if config is None:
         config = load_holdout_config()
+    # Master kill-switch — when "enabled": false in holdout_dates.json the
+    # whole gate is bypassed regardless of policy. Set 2026-05-20 per
+    # PROJECT_TODO T24 so every date is replay/trainable during accumulation.
+    # Flip back to enabled=true (or remove the key) when paper-trade window
+    # begins and we need real out-of-sample reservation.
+    if config.get("enabled") is False:
+        return []
     policy = config.get("policy", "none")
     if policy == "none":
         return []

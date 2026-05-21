@@ -81,14 +81,22 @@ REM --- Resolve port (.env PORT or default 3000) ---
 set SERVER_PORT=3000
 for /f "tokens=2 delims==" %%V in ('findstr /i "^PORT=" "%ROOT%.env" 2^>nul') do set "SERVER_PORT=%%V"
 
-REM ── Step 1: Start the web server (or reuse if already up) ──
-REM Idempotent boot: if the server is already responding to /health, don't
-REM spawn another window -- that just creates an orphan failed cmd with an
-REM "EADDRINUSE" error stacked on top of the working server.
+REM ── Step 1: Start the web server (ALWAYS fresh per 2026-05-21 requirement) ──
+REM Inverts the previous "reuse if responding" idempotency: per user direction
+REM the API must restart fresh at 08:55 IST even if an overnight survivor is
+REM still running. Expected case is "API not running" (it's killed at 23:30
+REM IST when MCX session closes via TFA's session-close hook + _stop-api-
+REM graceful.ps1, and an 08:00-08:15 self-loop shutdown also takes it down).
+REM This handles the defensive fallback when something kept it alive.
 curl -s -o nul -w "%%{http_code}" http://localhost:!SERVER_PORT!/health 2>nul | findstr /x "200" >nul 2>&1
 if !errorlevel! equ 0 (
-    echo [PRE-FLIGHT 1/2] API server already responding on port !SERVER_PORT! -- reusing.
-    goto health_done
+    echo [PRE-FLIGHT 1/2] API already on port !SERVER_PORT! -- killing for fresh start.
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_stop-api-graceful.ps1" -Quiet >nul 2>&1
+    REM Belt-and-suspenders: nuke any leftover Lubas-Server window even if
+    REM the graceful stop missed something.
+    taskkill /FI "WINDOWTITLE eq Lubas-Server*" /T /F >nul 2>&1
+    REM Brief wait so the port frees up before we re-bind.
+    timeout /t 2 >nul
 )
 
 echo [PRE-FLIGHT 1/2] Starting Lubas web server...
