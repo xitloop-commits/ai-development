@@ -214,21 +214,32 @@ def train_instrument(
     models_root: Path = Path("models"),
     config_dir: Path = Path("config/model_feature_config"),
     val_days: int = 3,
+    cal_days: int = 5,
     n_jobs: int = 1,
     include_dates: list[str] | None = None,
 ) -> TrainResult:
     """Train all MVP targets for one instrument across a date range.
 
-    Split strategy:
-      - 1 day available   → random 80/20 split on that day.
-      - >=2 days          → walk-forward: last `val_days` chronological days
-                            used as val, earlier days used as train. `val_days`
-                            is capped at `total_days // 2` so train always has
-                            majority of data.
+    Split strategy (T24a — calibration fold carve-out, 2026-05-23):
+      Before any train/val split, peel off the most recent `cal_days`
+      chronological sessions as a held-out CALIBRATION fold. These
+      sessions are never seen by the trainer; they're recorded in the
+      manifest for T25 (per-head isotonic calibration) to consume later.
 
-    The wider val split (default 3 days instead of 1) reduces the chance that
-    val ends up single-class for long-lookahead binary targets
-    (direction_300s / direction_900s), which caused NaN AUC in earlier runs.
+      Carve-out only happens when `len(loaded) >= cal_days + 2`. Below
+      that threshold the carve-out is skipped with a WARN — keeps short-
+      data dev / v0-stopgap runs working. The remaining sessions then
+      go through the existing split:
+      - 1 day remaining   → random 80/20 split on that day.
+      - >=2 days remaining → last `val_days` chronological days used as
+                             val, earlier days used as train. `val_days`
+                             is capped at `total_days // 2` so train
+                             keeps the majority of rows.
+
+    The wider val split (default 3 days instead of 1) reduces the chance
+    that val ends up single-class for long-lookahead binary targets
+    (direction_300s, trend_direction_1800s), which caused NaN AUC in
+    earlier runs.
     """
     # 1. Load Parquets
     loaded = _load_parquets(
@@ -246,6 +257,26 @@ def train_instrument(
             f"No Parquet data for {instrument} in [{date_from}, {date_to}]. "
             f"Run replay first: startup\\start-replay.bat {instrument}"
         )
+
+    # 2. Calibration fold carve-out (T24a)
+    loaded_by_date_all = sorted(loaded, key=lambda t: t[0])  # ascending
+    calibration_dates: list[str] = []
+    if cal_days > 0 and len(loaded_by_date_all) >= cal_days + 2:
+        cal_pairs = loaded_by_date_all[-cal_days:]
+        calibration_dates = [d for d, _ in cal_pairs]
+        loaded = loaded_by_date_all[:-cal_days]
+        print(
+            f"  Calibration fold: {len(calibration_dates)} sessions reserved "
+            f"({calibration_dates[0]} → {calibration_dates[-1]}); held out from training"
+        )
+    elif cal_days > 0:
+        # Not enough data to carve out — skip with a clear log
+        print(
+            f"  WARN: calibration fold carve-out skipped — need >= {cal_days + 2} "
+            f"sessions, got {len(loaded_by_date_all)}. T25 calibration will use "
+            f"the val split (degraded mode, dev runs only)."
+        )
+        loaded = loaded_by_date_all  # use everything
 
     if len(loaded) == 1:
         # Single-day fallback: random 80/20 split on the one day's data.
@@ -427,6 +458,7 @@ def train_instrument(
         "date_to": date_to,
         "train_dates": train_dates,
         "val_dates": val_dates,
+        "calibration_dates": calibration_dates,
         "targets": list(MVP_TARGETS.keys()),
         "trained_count": len(MVP_TARGETS) - len(skipped_targets),
         "skipped_targets": skipped_targets,

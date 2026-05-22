@@ -41,8 +41,20 @@ def main() -> int:
         "--val-days",
         type=int,
         default=3,
-        help="Number of most recent days to hold out as validation "
-        "(capped at total_days // 2). Default 3.",
+        help="Number of most recent days (after carving out the "
+        "calibration fold) to hold out as validation (capped at "
+        "total_days // 2). Default 3.",
+    )
+    p.add_argument(
+        "--cal-days",
+        type=int,
+        default=5,
+        help="Number of MOST RECENT days reserved as the calibration "
+        "fold (T24a). The trainer never sees these sessions; T25 fits "
+        "per-head isotonic calibration on them later. Carve-out is "
+        "automatically skipped when total days < cal_days + 2, with a "
+        "WARN log (dev / v0-stopgap mode). Set to 0 to disable the "
+        "carve-out entirely. Default 5.",
     )
     p.add_argument(
         "--n-jobs",
@@ -150,6 +162,7 @@ def main() -> int:
             models_root=Path(args.models_root),
             config_dir=Path(args.config_dir),
             val_days=args.val_days,
+            cal_days=args.cal_days,
             n_jobs=n_jobs,
             include_dates=include_dates,
         )

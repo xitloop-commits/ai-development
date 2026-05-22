@@ -339,7 +339,8 @@ def test_multi_day_mode_uses_walk_forward_split(tmp_path: Path) -> None:
 
 def test_val_days_capped_at_half_of_total(tmp_path: Path) -> None:
     """4 days, val_days=10 (over-asked): cap = 4 // 2 = 2 → val gets last
-    2 days, train gets first 2 days."""
+    2 days, train gets first 2 days. cal_days=5 carve-out is auto-skipped
+    (need >= 7 sessions) so all 4 days remain in the train+val split."""
     features_root = tmp_path / "features"
     instrument = "nifty50"
     for i, ds in enumerate(["2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04"]):
@@ -359,6 +360,107 @@ def test_val_days_capped_at_half_of_total(tmp_path: Path) -> None:
     )
     assert manifest["train_dates"] == ["2026-04-01", "2026-04-02"]
     assert manifest["val_dates"] == ["2026-04-03", "2026-04-04"]
+    # Below carve-out threshold (4 < 5+2=7) → empty calibration_dates
+    assert manifest["calibration_dates"] == []
+
+
+# ── T24a calibration fold carve-out ───────────────────────────────────────
+
+
+def test_cal_days_carve_out_peels_last_n_sessions(tmp_path: Path) -> None:
+    """8 days, cal_days=5, val_days=1: cal = last 5, val = day 3, train = days 1-2.
+
+    The trainer must hold out the 5 most recent sessions entirely from
+    train + val and record them in manifest.calibration_dates for T25
+    to consume."""
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    all_dates = [
+        "2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04",
+        "2026-04-05", "2026-04-06", "2026-04-07", "2026-04-08",
+    ]
+    for i, ds in enumerate(all_dates):
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=i, date_str=ds))
+
+    result = train_instrument(
+        instrument=instrument,
+        date_from="2026-04-01",
+        date_to="2026-04-08",
+        features_root=features_root,
+        models_root=tmp_path / "models",
+        config_dir=tmp_path / "feature_config",
+        val_days=1,
+        cal_days=5,
+    )
+    manifest = json.loads(
+        (result.output_dir / "training_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["calibration_dates"] == [
+        "2026-04-04", "2026-04-05", "2026-04-06", "2026-04-07", "2026-04-08",
+    ]
+    assert manifest["train_dates"] == ["2026-04-01", "2026-04-02"]
+    assert manifest["val_dates"] == ["2026-04-03"]
+
+
+def test_cal_days_zero_disables_carve_out(tmp_path: Path) -> None:
+    """cal_days=0 → no carve-out; full 8 days flow into train + val."""
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    all_dates = [
+        "2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04",
+        "2026-04-05", "2026-04-06", "2026-04-07", "2026-04-08",
+    ]
+    for i, ds in enumerate(all_dates):
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=i, date_str=ds))
+
+    result = train_instrument(
+        instrument=instrument,
+        date_from="2026-04-01",
+        date_to="2026-04-08",
+        features_root=features_root,
+        models_root=tmp_path / "models",
+        config_dir=tmp_path / "feature_config",
+        val_days=1,
+        cal_days=0,
+    )
+    manifest = json.loads(
+        (result.output_dir / "training_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["calibration_dates"] == []
+    assert manifest["train_dates"] == all_dates[:-1]
+    assert manifest["val_dates"] == [all_dates[-1]]
+
+
+def test_cal_days_short_data_skips_with_warn(tmp_path: Path, capsys) -> None:
+    """6 days, cal_days=5: 6 < 5+2=7 → carve-out skipped, WARN logged,
+    all 6 days flow into train + val. Keeps short-data dev runs working."""
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    all_dates = [
+        "2026-04-01", "2026-04-02", "2026-04-03",
+        "2026-04-04", "2026-04-05", "2026-04-06",
+    ]
+    for i, ds in enumerate(all_dates):
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=i, date_str=ds))
+
+    result = train_instrument(
+        instrument=instrument,
+        date_from="2026-04-01",
+        date_to="2026-04-06",
+        features_root=features_root,
+        models_root=tmp_path / "models",
+        config_dir=tmp_path / "feature_config",
+        val_days=1,
+        cal_days=5,
+    )
+    captured = capsys.readouterr()
+    assert "WARN: calibration fold carve-out skipped" in captured.out
+    manifest = json.loads(
+        (result.output_dir / "training_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["calibration_dates"] == []
+    assert len(manifest["train_dates"]) == 5
+    assert manifest["val_dates"] == ["2026-04-06"]
 
 
 # ── PY-5 val-split guard (THE most important test) ───────────────────────

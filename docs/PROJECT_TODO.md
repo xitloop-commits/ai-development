@@ -88,11 +88,15 @@ Extended `python_modules/_shared/targets.py` from 60 scalp heads to 84 — added
 - **Cross-ref:** T3 Phase 5. Unblocks T24 (walk-forward CV), T25 (per-head calibration), T26 (sim-PnL), T27 (LATEST_HEADS schema metadata).
 
 ### T24 — Walk-forward CV implementation 🆕
-Replace the current single last-N-days split (`trainer.py:259-271`) with proper 5-fold walk-forward CV + dedicated calibration fold per V2_MASTER_SPEC §6. Note: existing test named `test_multi_day_mode_uses_walk_forward_split` actually tests the simple split — misleading name.
+Replace the current single last-N-days split with proper 5-fold walk-forward CV + dedicated calibration fold per V2_MASTER_SPEC §6.
 
-- **Status:** ⏳ PRE-Day-30 MUST.
-- **Effort:** ~1-2 days.
-- **Cross-ref:** T3 Phase 5; precondition for T25 (calibration fold).
+Split into two phases:
+- **T24a — Calibration fold carve-out** ✅ **DONE 2026-05-23**. `train_instrument` now peels off the most recent `cal_days` (default 5) sessions before the existing train/val split. Sessions are recorded in `manifest["calibration_dates"]` for T25 to consume; never seen by the trainer. Automatic skip with WARN when total sessions < `cal_days + 2` (keeps short-data dev runs working). `--cal-days` CLI flag added. 3 new tests + 1 updated test, all pass.
+- **T24b — Full 5-fold walk-forward CV** ⏳ PENDING. Wrap target loop in fold iteration; per-fold metrics; one final model per head trained on all-minus-cal-fold. ~1 day. Unblocks T26 sim-PnL promotion gate.
+
+- **Status:** 🚧 T24a done, T24b pending.
+- **Effort remaining:** ~1 day for T24b.
+- **Cross-ref:** T3 Phase 5; T24a unblocks T25; T24b unblocks T26.
 
 ### T25 — D72 isotonic calibration: fit + serialize + runtime apply 🆕
 Per V2_MASTER_SPEC D72. Add `model_training_agent/calibration.py` to fit per-head isotonic regression on dedicated calibration fold, serialize as `.calibration.json` sidecar per head. Wire `apply_calibration` (numpy.interp lookup) into `model_loader.py` so calibrated probabilities are produced before threshold compare. `scale_pos_weight` alone does NOT calibrate.
