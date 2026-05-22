@@ -21,6 +21,7 @@ Before starting any implementation or task, clearly list:
 - 2.3 What changes will be made
 - 2.4 Whether it can break existing systems
 - 2.5 Overall impact
+- 2.6 Layman-friendly example or analogy that makes the change understandable to a non-coder
 
 ## Main Rule 3 — Post-implementation checklist
 
