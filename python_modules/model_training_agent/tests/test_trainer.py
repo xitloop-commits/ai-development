@@ -431,6 +431,141 @@ def test_cal_days_zero_disables_carve_out(tmp_path: Path) -> None:
     assert manifest["val_dates"] == [all_dates[-1]]
 
 
+# ── T24b walk-forward CV fold planner ─────────────────────────────────────
+
+
+def test_fold_planner_returns_empty_when_dataset_too_short() -> None:
+    """24 sessions < 5*5=25 needed → empty fold list (short-data fallback)."""
+    from model_training_agent.trainer import _plan_walk_forward_folds
+
+    sessions = [f"2026-04-{i:02d}" for i in range(1, 25)]  # 24 sessions
+    assert _plan_walk_forward_folds(sessions, n_folds=5, week_size=5) == []
+
+
+def test_fold_planner_returns_n_folds_at_threshold() -> None:
+    """Exactly 25 sessions → 5 folds of 5 sessions each."""
+    from model_training_agent.trainer import _plan_walk_forward_folds
+
+    sessions = [f"2026-04-{i:02d}" for i in range(1, 26)]  # 25 sessions
+    folds = _plan_walk_forward_folds(sessions, n_folds=5, week_size=5)
+    assert len(folds) == 5
+    for f in folds:
+        assert len(f.val_dates) == 5
+        # train = everything except val
+        assert len(f.train_dates) == 20
+        # No overlap
+        assert not (set(f.train_dates) & set(f.val_dates))
+
+
+def test_fold_planner_val_windows_are_evenly_spaced() -> None:
+    """30 sessions, 5 folds: step = 6 → val windows start at 0, 6, 12, 18, 24."""
+    from model_training_agent.trainer import _plan_walk_forward_folds
+
+    sessions = [f"2026-04-{i:02d}" for i in range(1, 31)]  # 30 sessions
+    folds = _plan_walk_forward_folds(sessions, n_folds=5, week_size=5)
+    expected_starts = [0, 6, 12, 18, 24]
+    for f, start in zip(folds, expected_starts):
+        assert f.val_dates == sessions[start : start + 5]
+
+
+def test_fold_planner_rejects_zero_or_negative() -> None:
+    from model_training_agent.trainer import _plan_walk_forward_folds
+
+    sessions = [f"2026-04-{i:02d}" for i in range(1, 26)]
+    with pytest.raises(ValueError):
+        _plan_walk_forward_folds(sessions, n_folds=0, week_size=5)
+    with pytest.raises(ValueError):
+        _plan_walk_forward_folds(sessions, n_folds=5, week_size=0)
+
+
+def test_fold_mode_populates_manifest_and_aggregate(tmp_path: Path) -> None:
+    """When enough sessions exist for the fold pass, manifest['folds'] is
+    populated with n_folds entries and fold_aggregate carries mean +
+    worst per-head metrics across the folds.
+
+    Uses n_folds=2 + fold_week_size=2 (4 sessions needed) to keep the
+    test fast — the planner contract is what matters, not the spec
+    default of 5×5.
+    """
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    all_dates = [
+        "2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04",
+    ]
+    for i, ds in enumerate(all_dates):
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=i, date_str=ds))
+
+    result = train_instrument(
+        instrument=instrument,
+        date_from="2026-04-01",
+        date_to="2026-04-04",
+        features_root=features_root,
+        models_root=tmp_path / "models",
+        config_dir=tmp_path / "feature_config",
+        val_days=1,
+        cal_days=0,  # keep all 4 sessions in train+val for the fold pass
+        n_folds=2,
+        fold_week_size=2,
+    )
+    manifest = json.loads(
+        (result.output_dir / "training_manifest.json").read_text(encoding="utf-8")
+    )
+    assert len(manifest["folds"]) == 2
+    for f in manifest["folds"]:
+        assert "fold_index" in f
+        assert len(f["val_dates"]) == 2
+        assert len(f["train_dates"]) == 2
+        assert isinstance(f["metrics"], dict)
+
+    # Aggregate carries mean_/worst_ metrics for at least the heads
+    # that fit successfully in both folds.
+    assert isinstance(manifest["fold_aggregate"], dict)
+    successful = [
+        t for t, agg in manifest["fold_aggregate"].items()
+        if agg.get("n_folds_ok", 0) >= 2
+    ]
+    assert len(successful) >= 1
+    sample_agg = manifest["fold_aggregate"][successful[0]]
+    assert "n_folds_ok" in sample_agg
+    # At least one of mean_val_auc / mean_val_rmse should be present
+    assert any(k.startswith("mean_") for k in sample_agg.keys())
+
+
+def test_short_data_falls_back_with_warn_and_empty_folds(tmp_path: Path, capsys) -> None:
+    """Today's typical run (≤8 sessions of v8 data) must still work:
+    fold pass skips with WARN, single-split metrics still produced."""
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    all_dates = [
+        "2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04",
+        "2026-04-05", "2026-04-06", "2026-04-07", "2026-04-08",
+    ]
+    for i, ds in enumerate(all_dates):
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=i, date_str=ds))
+
+    result = train_instrument(
+        instrument=instrument,
+        date_from="2026-04-01",
+        date_to="2026-04-08",
+        features_root=features_root,
+        models_root=tmp_path / "models",
+        config_dir=tmp_path / "feature_config",
+        val_days=1,
+        cal_days=0,  # disable cal to keep all 8 sessions in train+val
+    )
+    captured = capsys.readouterr()
+    assert "WARN: walk-forward CV skipped" in captured.out
+
+    manifest = json.loads(
+        (result.output_dir / "training_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["folds"] == []
+    assert manifest["fold_aggregate"] == {}
+    # Single-split metrics still produced
+    assert manifest["train_dates"] == all_dates[:-1]
+    assert manifest["val_dates"] == [all_dates[-1]]
+
+
 def test_calibration_pass_writes_sidecars_for_binary_heads(tmp_path: Path) -> None:
     """T25 — when the calibration fold is non-empty, the trainer fits
     isotonic on each binary head's predictions and writes a

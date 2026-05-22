@@ -210,6 +210,159 @@ def _default_n_jobs() -> int:
     return max(1, min(4, cores - 1))
 
 
+# ── T24b — 5-fold walk-forward CV ─────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class FoldSpec:
+    """One walk-forward CV fold (V2_MASTER_SPEC §6 / §2.3.1)."""
+
+    fold_index: int
+    train_dates: list[str]
+    val_dates: list[str]
+
+
+def _plan_walk_forward_folds(
+    sessions: list[str],
+    n_folds: int,
+    week_size: int,
+) -> list[FoldSpec]:
+    """Plan `n_folds` holdout windows of `week_size` sessions each, evenly
+    spaced across the (sorted) `sessions`.
+
+    Per V2_MASTER_SPEC §6 (locked 2026-05-16, Sugg #5 Option B): "Training
+    set for fold N = all sessions except that week's holdout." Spaced
+    evenly so the 5 windows cover different parts of the dataset and
+    catch regime-shift variance.
+
+    Returns [] if `len(sessions) < n_folds * week_size`; caller falls
+    back to single-split with a WARN log (T24b "short-data" mode).
+    """
+    if n_folds < 1 or week_size < 1:
+        raise ValueError(
+            f"n_folds and week_size must be >= 1 (got {n_folds}, {week_size})"
+        )
+    sorted_sessions = sorted(sessions)
+    n = len(sorted_sessions)
+    if n < n_folds * week_size:
+        return []
+    step = n // n_folds
+    folds: list[FoldSpec] = []
+    for i in range(n_folds):
+        start = i * step
+        val = sorted_sessions[start : start + week_size]
+        train = sorted_sessions[:start] + sorted_sessions[start + week_size :]
+        folds.append(
+            FoldSpec(fold_index=i, train_dates=list(train), val_dates=list(val))
+        )
+    return folds
+
+
+def _validate_one_fold(
+    fold: FoldSpec,
+    loaded: list[tuple[str, pd.DataFrame]],
+    feature_config: dict,
+) -> dict:
+    """Train every head on `fold.train_dates` and score on `fold.val_dates`.
+
+    Returns `{target_name: metrics dict}`. Models are discarded after
+    scoring — this is the evaluation-only pass; the production .lgbm
+    comes from the final single-split path.
+
+    Same skip rules as the main loop apply (no data, single-class val,
+    fit exception) so per-fold metrics align with what the production
+    head will actually look like.
+    """
+    train_set = set(fold.train_dates)
+    val_set = set(fold.val_dates)
+    train_dfs = [df for d, df in loaded if d in train_set]
+    val_dfs = [df for d, df in loaded if d in val_set]
+    df_train = pd.concat(train_dfs, ignore_index=True)
+    df_val = pd.concat(val_dfs, ignore_index=True)
+
+    df_train_filt, X_train_base, _ = preprocess_for_training_base(df_train, feature_config)
+    df_val_filt, X_val_base, _ = preprocess_for_training_base(df_val, feature_config)
+
+    metrics: dict = {}
+    for target, objective in MVP_TARGETS.items():
+        X_tr, y_tr = extract_target_subset(df_train_filt, X_train_base, target)
+        X_va, y_va = extract_target_subset(df_val_filt, X_val_base, target)
+        if len(X_tr) == 0 or len(X_va) == 0:
+            metrics[target] = {
+                "n_train": int(len(X_tr)),
+                "n_val": int(len(X_va)),
+                "failed": True,
+                "reason": "no data after preprocess",
+            }
+            continue
+        if objective == "binary" and y_va.nunique() < 2:
+            metrics[target] = {
+                "n_train": int(len(X_tr)),
+                "n_val": int(len(X_va)),
+                "failed": True,
+                "reason": "single-class val (would yield NaN AUC)",
+            }
+            continue
+        try:
+            _, fit_metrics = _fit_one(
+                target, objective, X_tr, y_tr, X_va, y_va, lgbm_n_jobs=1,
+            )
+            metrics[target] = fit_metrics
+        except Exception as e:
+            metrics[target] = {
+                "n_train": int(len(X_tr)),
+                "n_val": int(len(X_va)),
+                "failed": True,
+                "error": f"{type(e).__name__}: {e}",
+            }
+    return metrics
+
+
+def _aggregate_fold_metrics(fold_results: list[dict]) -> dict:
+    """Compute mean + worst-fold per-head metrics across all folds.
+
+    Returns `{target_name: {mean_<metric>, worst_<metric>, n_folds_ok}}`.
+    Skipped folds (`failed: True`) don't contribute to mean/worst — that
+    head's `n_folds_ok` reflects how many folds actually scored it.
+    """
+    if not fold_results:
+        return {}
+
+    out: dict = {}
+    all_targets: set[str] = set()
+    for fr in fold_results:
+        all_targets.update(fr.get("metrics", {}).keys())
+
+    for target in all_targets:
+        fold_vals: list[dict] = []
+        for fr in fold_results:
+            m = fr.get("metrics", {}).get(target)
+            if m is None or m.get("failed"):
+                continue
+            fold_vals.append(m)
+
+        if not fold_vals:
+            out[target] = {"n_folds_ok": 0}
+            continue
+
+        agg: dict = {"n_folds_ok": len(fold_vals)}
+        # Detect metric keys (val_auc for binary, val_rmse for regression)
+        sample = fold_vals[0]
+        for key in ("val_auc", "val_rmse"):
+            if key in sample:
+                vals = [float(fv[key]) for fv in fold_vals if key in fv]
+                if vals:
+                    agg[f"mean_{key}"] = float(np.mean(vals))
+                    # "Worst" = lower AUC (bad) or higher RMSE (bad).
+                    agg[f"worst_{key}"] = (
+                        float(np.min(vals)) if key == "val_auc"
+                        else float(np.max(vals))
+                    )
+        out[target] = agg
+
+    return out
+
+
 def train_instrument(
     instrument: str,
     date_from: str,
@@ -219,6 +372,8 @@ def train_instrument(
     config_dir: Path = Path("config/model_feature_config"),
     val_days: int = 3,
     cal_days: int = 5,
+    n_folds: int = 5,
+    fold_week_size: int = 5,
     n_jobs: int = 1,
     include_dates: list[str] | None = None,
 ) -> TrainResult:
@@ -328,6 +483,51 @@ def train_instrument(
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = models_root / instrument / ts
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 3.5. Walk-forward CV fold validation (T24b, V2_MASTER_SPEC §6).
+    # Runs ONLY when enough sessions are available after the cal carve-
+    # out. Each fold trains all 84 heads on (sessions - val_week - cal)
+    # and scores on val_week — models are discarded after scoring; only
+    # the metrics flow into the manifest. The production `.lgbm` files
+    # come from the existing single-split path below (small spec
+    # deviation noted in PROJECT_TODO T24b: the final model loses
+    # `val_days` of training data; revisit if it hurts in practice).
+    fold_results: list[dict] = []
+    fold_aggregate: dict = {}
+    folds = _plan_walk_forward_folds(
+        [d for d, _ in loaded], n_folds, fold_week_size,
+    )
+    if folds:
+        print(
+            f"\n  >> Walk-forward CV: {len(folds)} folds × "
+            f"{fold_week_size} sessions ..."
+        )
+        for fold in folds:
+            print(
+                f"     Fold {fold.fold_index + 1}/{len(folds)}: "
+                f"val=[{fold.val_dates[0]} → {fold.val_dates[-1]}] "
+                f"({len(fold.val_dates)} days), "
+                f"train={len(fold.train_dates)} days"
+            )
+            fm = _validate_one_fold(fold, loaded, feature_config)
+            fold_results.append({
+                "fold_index": fold.fold_index,
+                "train_dates": fold.train_dates,
+                "val_dates": fold.val_dates,
+                "metrics": fm,
+            })
+        fold_aggregate = _aggregate_fold_metrics(fold_results)
+        print(
+            f"  Walk-forward CV: aggregated across {len(folds)} folds for "
+            f"{len(fold_aggregate)} heads"
+        )
+    else:
+        needed = n_folds * fold_week_size
+        print(
+            f"  WARN: walk-forward CV skipped — need >= {needed} sessions "
+            f"after cal carve-out, got {len(loaded)}. Falling back to "
+            f"single-split metrics only (dev / short-data mode)."
+        )
 
     # F4: compute the row-filtered DataFrame + float32 feature matrix ONCE
     # per (instrument, run). Pre-F4 the trainer ran the full preprocessor
@@ -522,6 +722,10 @@ def train_instrument(
         "calibration_dates": calibration_dates,
         "calibration_fit_count": calibration_fit_count,
         "calibration_skipped": calibration_skipped,
+        # T24b — walk-forward CV per-fold metrics (empty list if dataset
+        # was too short and the fold pass was skipped — see WARN log).
+        "folds": fold_results,
+        "fold_aggregate": fold_aggregate,
         "targets": list(MVP_TARGETS.keys()),
         "trained_count": len(MVP_TARGETS) - len(skipped_targets),
         "skipped_targets": skipped_targets,

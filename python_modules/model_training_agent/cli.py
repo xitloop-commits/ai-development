@@ -57,6 +57,23 @@ def main() -> int:
         "carve-out entirely. Default 5.",
     )
     p.add_argument(
+        "--n-folds",
+        type=int,
+        default=5,
+        help="Walk-forward CV fold count (T24b). Each fold holds out "
+        "1 trading week (--fold-week-size sessions) as val; the rest "
+        "trains the head, models discarded after scoring. Fold pass "
+        "auto-skips with WARN when sessions < n_folds * fold_week_size "
+        "after the cal carve-out (short-data dev mode). Default 5 per "
+        "V2_MASTER_SPEC §6.",
+    )
+    p.add_argument(
+        "--fold-week-size",
+        type=int,
+        default=5,
+        help="Sessions per CV fold (T24b). Default 5 = 1 trading week.",
+    )
+    p.add_argument(
         "--n-jobs",
         type=int,
         default=1,
@@ -163,6 +180,8 @@ def main() -> int:
             config_dir=Path(args.config_dir),
             val_days=args.val_days,
             cal_days=args.cal_days,
+            n_folds=args.n_folds,
+            fold_week_size=args.fold_week_size,
             n_jobs=n_jobs,
             include_dates=include_dates,
         )
