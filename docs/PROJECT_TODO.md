@@ -98,12 +98,15 @@ Split into two phases:
 - **Effort remaining:** ~1 day for T24b.
 - **Cross-ref:** T3 Phase 5; T24a unblocks T25; T24b unblocks T26.
 
-### T25 — D72 isotonic calibration: fit + serialize + runtime apply 🆕
-Per V2_MASTER_SPEC D72. Add `model_training_agent/calibration.py` to fit per-head isotonic regression on dedicated calibration fold, serialize as `.calibration.json` sidecar per head. Wire `apply_calibration` (numpy.interp lookup) into `model_loader.py` so calibrated probabilities are produced before threshold compare. `scale_pos_weight` alone does NOT calibrate.
+### T25 — D72 isotonic calibration: fit + serialize + runtime apply ✅ COMPLETE 2026-05-23
+Per V2_MASTER_SPEC §2.3 D72 (scope narrowed by D75 Gap 4 to binary heads only). Added `python_modules/model_training_agent/calibration.py` (fit_isotonic_for_head + sidecar writer/reader + CalibrationMap dataclass). Trainer's post-training pass loads each binary head's `.lgbm`, predicts on the T24a calibration fold, fits `sklearn.isotonic.IsotonicRegression(out_of_bounds='clip')`, and writes `<head>.calibration.json` next to the model. Manifest gained `calibration_fit_count` + `calibration_skipped`.
 
-- **Status:** ⏳ PRE-Day-30 MUST.
-- **Effort:** ~1-2 days.
-- **Cross-ref:** T3 Phase 5; unblocks T8 (EV-floor) + T16 (confidence-weighted sizing); requires T24 (calibration fold).
+SEA model_loader now reads every matching `.calibration.json` at load time and exposes `LoadedModels.apply_calibration(target, raw)` — a no-op when no sidecar (regression heads, or binary heads the trainer skipped). `engine._pred` calls this automatically so all gate logic transparently receives calibrated probabilities.
+
+- **Status:** ✅ DONE 2026-05-23.
+- **Verification:** 14/14 calibration unit tests pass (fit + apply + sidecar round-trip + path resolution). 17/17 model_loader tests pass (including 3 new tests for sidecar wiring). 212 SEA + 23 MTA tests all green. Trainer end-to-end test confirms binary heads get sidecars, regression heads don't.
+- **Files touched:** `model_training_agent/calibration.py` (new), `model_training_agent/trainer.py` (post-training calibration pass), `signal_engine_agent/model_loader.py` (sidecar load + apply_calibration), `signal_engine_agent/engine.py` (_pred applies calibration), `model_training_agent/tests/test_calibration.py` (new), `model_training_agent/tests/test_trainer.py` (1 new test), `signal_engine_agent/tests/test_model_loader.py` (3 new tests), `signal_engine_agent/tests/test_engine.py` (stub helper updated for apply_calibration contract).
+- **Cross-ref:** T3 Phase 5; unblocks T8 (EV-floor migration), T16 (confidence-weighted sizing), T34 (reliability monitoring). Required T24a (calibration fold carve-out).
 
 ### T26 — Sim-PnL Option C validation harness 🆕
 Create `model_training_agent/validation/sim_pnl.py` (directory does not currently exist). Implements V2_MASTER_SPEC §2.3.4 single bid/ask-slippage replay. Must produce a scorecard the moment training finishes; otherwise we train and can't evaluate the result.

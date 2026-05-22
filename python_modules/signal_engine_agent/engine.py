@@ -68,9 +68,18 @@ def _decide_via_gate(
 
 def _pred(models, X, name: str) -> float:
     """Run one model if loaded, else return NaN. Hoisted out of `run()`
-    so legacy_filter callers can share it."""
+    so legacy_filter callers can share it.
+
+    T25 — applies per-head isotonic calibration (V2_MASTER_SPEC D72)
+    when a `.calibration.json` sidecar was loaded for this head.
+    Regression heads and binary heads without a calibration map fall
+    through unchanged (LoadedModels.apply_calibration is a no-op when
+    no map exists)."""
     m = models.models.get(name)
-    return float(m.predict(X)[0]) if m else float("nan")
+    if m is None:
+        return float("nan")
+    raw = float(m.predict(X)[0])
+    return float(models.apply_calibration(name, raw))
 
 
 def _gather_predictions(models, X) -> dict[str, float]:

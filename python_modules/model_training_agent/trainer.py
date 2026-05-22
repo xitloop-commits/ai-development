@@ -37,6 +37,10 @@ from joblib import Parallel, delayed
 # fit the 7×4 matrix) is no longer trained — it remains a TFA-emitted
 # live session-rank feature column, which is correct.
 from _shared.targets import MVP_TARGET_OBJECTIVES as MVP_TARGETS
+from model_training_agent.calibration import (
+    fit_isotonic_for_head,
+    write_calibration_sidecar,
+)
 from model_training_agent.preprocessor import (
     extract_target_subset,
     preprocess_for_training,
@@ -258,12 +262,17 @@ def train_instrument(
             f"Run replay first: startup\\start-replay.bat {instrument}"
         )
 
-    # 2. Calibration fold carve-out (T24a)
+    # 2. Calibration fold carve-out (T24a). Retain `cal_df` for the
+    # post-training T25 isotonic pass — the cal sessions never touch
+    # train / val so the trainer cannot peek at them, but we hold the
+    # raw rows here to avoid re-reading parquet at calibration time.
     loaded_by_date_all = sorted(loaded, key=lambda t: t[0])  # ascending
     calibration_dates: list[str] = []
+    cal_df: pd.DataFrame | None = None
     if cal_days > 0 and len(loaded_by_date_all) >= cal_days + 2:
         cal_pairs = loaded_by_date_all[-cal_days:]
         calibration_dates = [d for d, _ in cal_pairs]
+        cal_df = pd.concat([df for _, df in cal_pairs], ignore_index=True)
         loaded = loaded_by_date_all[:-cal_days]
         print(
             f"  Calibration fold: {len(calibration_dates)} sessions reserved "
@@ -273,8 +282,8 @@ def train_instrument(
         # Not enough data to carve out — skip with a clear log
         print(
             f"  WARN: calibration fold carve-out skipped — need >= {cal_days + 2} "
-            f"sessions, got {len(loaded_by_date_all)}. T25 calibration will use "
-            f"the val split (degraded mode, dev runs only)."
+            f"sessions, got {len(loaded_by_date_all)}. T25 calibration will be "
+            f"skipped (degraded mode, dev runs only)."
         )
         loaded = loaded_by_date_all  # use everything
 
@@ -450,6 +459,58 @@ def train_instrument(
                 f"(train={metrics['n_train']:,}, val={metrics['n_val']:,})"
             )
 
+    # 4.5. Per-head isotonic calibration (T25, V2_MASTER_SPEC D72).
+    # Only binary heads — regression heads emit signed point estimates
+    # where calibration is meaningless (D75 Gap 4 narrowing 2026-05-18).
+    calibration_fit_count = 0
+    calibration_skipped: list[str] = []
+    if cal_df is not None:
+        binary_targets = [
+            t for t, obj in MVP_TARGETS.items() if obj == "binary"
+        ]
+        print(
+            f"\n  >> Fitting per-head isotonic calibration on cal fold "
+            f"({len(calibration_dates)} sessions, {len(cal_df):,} rows) "
+            f"for {len(binary_targets)} binary heads ..."
+        )
+        df_cal_filt, X_cal_base, _ = preprocess_for_training_base(
+            cal_df, feature_config,
+        )
+        for target in binary_targets:
+            if target in skipped_targets:
+                calibration_skipped.append(
+                    f"{target} (head was skipped during training)"
+                )
+                continue
+            model_path = output_dir / f"{target}.lgbm"
+            if not model_path.exists():
+                calibration_skipped.append(f"{target} (missing .lgbm)")
+                continue
+            X_cal, y_cal = extract_target_subset(
+                df_cal_filt, X_cal_base, target,
+            )
+            if len(X_cal) == 0:
+                calibration_skipped.append(f"{target} (no cal data)")
+                continue
+            booster = lgb.Booster(model_file=str(model_path))
+            raw_probs = booster.predict(X_cal.values)
+            try:
+                cmap = fit_isotonic_for_head(
+                    np.asarray(raw_probs),
+                    y_cal.values,
+                    target,
+                )
+            except ValueError as exc:
+                calibration_skipped.append(f"{target} ({exc})")
+                continue
+            sidecar = output_dir / f"{target}.calibration.json"
+            write_calibration_sidecar(sidecar, cmap)
+            calibration_fit_count += 1
+        print(
+            f"  Calibration: {calibration_fit_count}/{len(binary_targets)} "
+            f"binary heads fitted, {len(calibration_skipped)} skipped"
+        )
+
     # 5. Artifacts
     manifest = {
         "instrument": instrument,
@@ -459,6 +520,8 @@ def train_instrument(
         "train_dates": train_dates,
         "val_dates": val_dates,
         "calibration_dates": calibration_dates,
+        "calibration_fit_count": calibration_fit_count,
+        "calibration_skipped": calibration_skipped,
         "targets": list(MVP_TARGETS.keys()),
         "trained_count": len(MVP_TARGETS) - len(skipped_targets),
         "skipped_targets": skipped_targets,

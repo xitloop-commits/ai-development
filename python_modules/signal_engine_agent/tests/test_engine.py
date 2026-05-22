@@ -50,15 +50,24 @@ from signal_engine_agent.thresholds import SignalAction, Thresholds
 # ── helpers ───────────────────────────────────────────────────────────────
 
 
-def _stub_models(predictions: dict) -> MagicMock:
+def _stub_models(predictions: dict, calibrations: dict | None = None) -> MagicMock:
     """Build a fake `LoadedModels` whose `.models[name].predict(X)` returns
-    a 1-element ndarray with the right scalar. Missing names → not in dict."""
+    a 1-element ndarray with the right scalar. Missing names → not in dict.
+
+    `calibrations` (optional) maps target name → callable(raw) → calibrated.
+    When omitted, `apply_calibration` is a no-op that returns raw values
+    unchanged — matches the runtime contract where missing sidecars fall
+    through to raw predict() output (T25 graceful-skip behavior).
+    """
     fake = MagicMock()
     fake.models = {}
     for name, val in predictions.items():
         booster = MagicMock()
         booster.predict.return_value = np.array([val])
         fake.models[name] = booster
+
+    cal_map = calibrations or {}
+    fake.apply_calibration = lambda name, raw: cal_map.get(name, lambda v: v)(raw)
     return fake
 
 

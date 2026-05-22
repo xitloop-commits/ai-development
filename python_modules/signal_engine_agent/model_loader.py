@@ -1,14 +1,15 @@
 """
 model_loader.py — Load trained LightGBM models for one instrument.
 
-Reads models/{instrument}/LATEST pointer → loads {target}.lgbm files and
-the associated feature_config.
+Reads models/{instrument}/LATEST pointer → loads {target}.lgbm files,
+the associated feature_config, and any per-head `.calibration.json`
+isotonic sidecars (T25, V2_MASTER_SPEC D72).
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import lightgbm as lgb
@@ -21,8 +22,19 @@ import lightgbm as lgb
 # TFA-emitted live session-rank feature column on parquet rows, which is
 # correct. Heads missing from disk are silently skipped at load time —
 # this matters during the v2 ramp when only the 60 scalp .lgbm files
-# may exist while trend/swing await first Saturday retrain.
+# may exist while trend/swing await first Saturday retrain. Same
+# graceful-skip rule applies to `.calibration.json` sidecars — missing
+# sidecar → engine falls back to raw predict() output for that head.
 from _shared.targets import MVP_TARGET_NAMES as MVP_TARGETS
+
+# T25 — per-head isotonic calibration. Importing the MTA-side module
+# from SEA is OK: both live in the same Python package tree at runtime
+# and the trainer is the only writer of the sidecar format. Avoids a
+# duplicate CalibrationMap definition that could drift.
+from model_training_agent.calibration import (
+    CalibrationMap,
+    read_calibration_sidecar,
+)
 
 
 @dataclass
@@ -32,6 +44,24 @@ class LoadedModels:
     models: dict  # {target_name: lgb.Booster}
     feature_config: dict
     feature_names: list[str]
+    calibrations: dict = field(default_factory=dict)
+    """{target_name: CalibrationMap} — only binary heads with a fitted
+    `.calibration.json` sidecar present at load time. Engine helper
+    `_pred` applies these automatically; regression heads have no entry
+    here and fall through unchanged."""
+
+    def apply_calibration(self, target: str, raw_prob: float) -> float:
+        """Map a raw predict() output to a calibrated probability.
+
+        Returns `raw_prob` unchanged when no sidecar exists for this
+        head (regression heads, or binary heads that the trainer
+        skipped at the last retrain). Callers don't need to branch on
+        sidecar presence — this method is the one decision point.
+        """
+        cmap = self.calibrations.get(target)
+        if cmap is None:
+            return raw_prob
+        return float(cmap.apply(raw_prob))
 
 
 def load_models(
@@ -40,7 +70,8 @@ def load_models(
     config_dir: Path = Path("config/model_feature_config"),
 ) -> LoadedModels:
     """
-    Load the LATEST trained models for `instrument`.
+    Load the LATEST trained models for `instrument`, plus any per-head
+    isotonic calibration sidecars (T25).
 
     Raises FileNotFoundError with actionable error message if anything is missing.
     """
@@ -60,11 +91,19 @@ def load_models(
         )
 
     models: dict = {}
+    calibrations: dict[str, CalibrationMap] = {}
     for target in MVP_TARGETS:
         p = version_dir / f"{target}.lgbm"
         if p.exists():
             models[target] = lgb.Booster(model_file=str(p))
         # Skip missing models — engine uses .get() which returns nan for absent models
+
+        # T25 sidecar — only present for binary heads the trainer
+        # successfully calibrated. Missing sidecar → raw probs (graceful).
+        cal_path = version_dir / f"{target}.calibration.json"
+        cmap = read_calibration_sidecar(cal_path)
+        if cmap is not None:
+            calibrations[target] = cmap
 
     cfg_path = config_dir / f"{instrument}_feature_config.json"
     if not cfg_path.exists():
@@ -78,4 +117,5 @@ def load_models(
         models=models,
         feature_config=feature_config,
         feature_names=feature_names,
+        calibrations=calibrations,
     )

@@ -431,6 +431,47 @@ def test_cal_days_zero_disables_carve_out(tmp_path: Path) -> None:
     assert manifest["val_dates"] == [all_dates[-1]]
 
 
+def test_calibration_pass_writes_sidecars_for_binary_heads(tmp_path: Path) -> None:
+    """T25 — when the calibration fold is non-empty, the trainer fits
+    isotonic on each binary head's predictions and writes a
+    `<head>.calibration.json` sidecar next to the .lgbm. Regression
+    heads must NOT get a sidecar."""
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    all_dates = [
+        "2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04",
+        "2026-04-05", "2026-04-06", "2026-04-07", "2026-04-08",
+    ]
+    for i, ds in enumerate(all_dates):
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=i, date_str=ds))
+
+    result = train_instrument(
+        instrument=instrument,
+        date_from="2026-04-01",
+        date_to="2026-04-08",
+        features_root=features_root,
+        models_root=tmp_path / "models",
+        config_dir=tmp_path / "feature_config",
+        val_days=1,
+        cal_days=5,
+    )
+    manifest = json.loads(
+        (result.output_dir / "training_manifest.json").read_text(encoding="utf-8")
+    )
+    # Some binary heads must have been calibrated (skips on degenerate
+    # synthetic data are OK; the pass itself must run).
+    assert manifest["calibration_fit_count"] >= 1
+    # Every binary head with a sidecar must correspond to a real .lgbm file.
+    sidecar_paths = list(result.output_dir.glob("*.calibration.json"))
+    assert len(sidecar_paths) == manifest["calibration_fit_count"]
+    for sidecar in sidecar_paths:
+        head_name = sidecar.name.removesuffix(".calibration.json")
+        assert (result.output_dir / f"{head_name}.lgbm").exists()
+    # Regression heads must NOT have a sidecar (D75 Gap 4 narrowing).
+    assert not (result.output_dir / "max_upside_60s.calibration.json").exists()
+    assert not (result.output_dir / "risk_reward_ratio_60s.calibration.json").exists()
+
+
 def test_cal_days_short_data_skips_with_warn(tmp_path: Path, capsys) -> None:
     """6 days, cal_days=5: 6 < 5+2=7 → carve-out skipped, WARN logged,
     all 6 days flow into train + val. Keeps short-data dev runs working."""

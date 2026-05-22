@@ -244,3 +244,75 @@ def test_orphan_upside_percentile_target_not_loaded(tmp_path):
     _make_dummy_lgbm(inst_version_dir / "upside_percentile_30s.lgbm", n_features=3)
     loaded = load_models("nifty50", models_root=models_root, config_dir=config_dir)
     assert "upside_percentile_30s" not in loaded.models
+
+
+# ── T25 calibration sidecar wiring ────────────────────────────────────────
+
+
+def test_load_models_picks_up_calibration_sidecars(tmp_path):
+    """Loader must read every `<target>.calibration.json` sidecar whose
+    target name is in MVP_TARGET_NAMES and populate LoadedModels.calibrations."""
+    from model_training_agent.calibration import (
+        CalibrationMap,
+        write_calibration_sidecar,
+    )
+
+    models_root, config_dir = _build_layout(
+        tmp_path,
+        targets=["direction_60s", "max_upside_60s"],
+    )
+    version_dir = models_root / "nifty50" / "v_test_20260501"
+    cmap = CalibrationMap(
+        head_name="direction_60s",
+        x_knots=np.array([0.0, 0.5, 1.0]),
+        y_knots=np.array([0.0, 0.3, 0.9]),
+        n_samples=200,
+    )
+    write_calibration_sidecar(version_dir / "direction_60s.calibration.json", cmap)
+
+    loaded = load_models("nifty50", models_root=models_root, config_dir=config_dir)
+    assert "direction_60s" in loaded.calibrations
+    assert loaded.calibrations["direction_60s"].n_samples == 200
+    # Other heads must NOT pick up a sidecar (we only wrote one).
+    assert "max_upside_60s" not in loaded.calibrations
+
+
+def test_apply_calibration_returns_raw_when_no_sidecar(tmp_path):
+    """No sidecar present → apply_calibration is a no-op (returns raw)."""
+    models_root, config_dir = _build_layout(
+        tmp_path,
+        targets=["direction_60s"],
+    )
+    loaded = load_models("nifty50", models_root=models_root, config_dir=config_dir)
+    # No `.calibration.json` was written → no entries.
+    assert loaded.calibrations == {}
+    assert loaded.apply_calibration("direction_60s", 0.42) == pytest.approx(0.42)
+
+
+def test_apply_calibration_maps_raw_to_calibrated(tmp_path):
+    """When a sidecar IS present, apply_calibration runs numpy.interp
+    through the knot points and returns the corrected probability."""
+    from model_training_agent.calibration import (
+        CalibrationMap,
+        write_calibration_sidecar,
+    )
+
+    models_root, config_dir = _build_layout(
+        tmp_path,
+        targets=["direction_60s"],
+    )
+    version_dir = models_root / "nifty50" / "v_test_20260501"
+    # Over-confident model: raw 0.7 → calibrated 0.5.
+    write_calibration_sidecar(
+        version_dir / "direction_60s.calibration.json",
+        CalibrationMap(
+            head_name="direction_60s",
+            x_knots=np.array([0.0, 0.7, 1.0]),
+            y_knots=np.array([0.0, 0.5, 1.0]),
+            n_samples=300,
+        ),
+    )
+    loaded = load_models("nifty50", models_root=models_root, config_dir=config_dir)
+    assert loaded.apply_calibration("direction_60s", 0.7) == pytest.approx(0.5)
+    # Linear interpolation midway between knots
+    assert loaded.apply_calibration("direction_60s", 0.35) == pytest.approx(0.25)
