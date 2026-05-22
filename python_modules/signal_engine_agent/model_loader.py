@@ -13,12 +13,15 @@ from pathlib import Path
 
 import lightgbm as lgb
 
-# Single source of truth — the 28 canonical targets (7 types × 4 windows)
-# locked Phase D4, surfaced through `_shared.targets` per Phase E9 so the
-# trainer + SEA loader can never drift again. Old local 29-entry tuple
-# dropped 2026-04-30; the orphan `upside_percentile_30s` (which never fit
-# the 7×4 matrix) is no longer trained — it remains a TFA-emitted live
-# session-rank feature column on parquet rows, which is correct.
+# Single source of truth — the 84 canonical targets (60 scalp + 12 trend
+# + 12 swing per V2_MASTER_SPEC §2.2 D55, locked 2026-05-17), surfaced
+# through `_shared.targets` per Phase E9 so the trainer + SEA loader can
+# never drift again. Old local 29-entry tuple dropped 2026-04-30; the
+# orphan `upside_percentile_30s` is no longer trained — it remains a
+# TFA-emitted live session-rank feature column on parquet rows, which is
+# correct. Heads missing from disk are silently skipped at load time —
+# this matters during the v2 ramp when only the 60 scalp .lgbm files
+# may exist while trend/swing await first Saturday retrain.
 from _shared.targets import MVP_TARGET_NAMES as MVP_TARGETS
 
 

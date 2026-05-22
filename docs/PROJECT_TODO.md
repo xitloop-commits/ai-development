@@ -65,10 +65,118 @@ Current Wave 2 model is a microstructure scalp predictor; v2 adds trend (10-30 m
       2. **30-session gate** — no new retrain runs until ≥30 v8-schema sessions accumulated. Day 1 = Wed 2026-05-20 (first full v8+VIX session). Assuming no NSE/MCX holidays in the window (`config/market_holidays.json` is currently empty for 2026), Day 30 = Tue 2026-06-30 and the first Saturday retrain runs Sat 2026-07-04. Auto-recorder fills the window passively. Each NSE/MCX holiday that lands in this window pushes the dates one trading day later — populate `market_holidays.json` for accurate forecasting.
       3. **Weekly Saturday retrain** kicks in after day-30; runs on full accumulated dataset per §6.1.
       4. Trainer prints a non-blocking WARN if `len(loaded) < 30` so v0-style runs are obvious in logs.
-  - [ ] Phase 5: Retrain all 4 with combined targets (84 heads each, ~5 hrs compute)
-  - [ ] Phase 6: Trend gate + swing gate + 3-way combinator + smoke (~3-4 days code)
+    - **Phase 2e proposal (2026-05-21, from T7 brainstorm — ON HOLD with T7):** add ~28-30 macro-bias L1 columns (FII/DII, US-session closes WTI/$INR/S&P, Gift Nifty, event calendar FOMC/RBI/EIA/OPEC/CPI/NFP) shared between v2 intraday and T7 swing models. Would bump schema **v8→v9** and reset this accumulation counter. **Hold trigger:** re-engage only after paper/live trading shows significant edge improvement. See T7 "Brainstorm progress (2026-05-21)" sub-block for full details.
+  - [ ] Phase 5: Retrain all 4 with combined targets (84 heads each, ~5 hrs compute) — **expanded into T23-T28** (audit 2026-05-22)
+  - [ ] Phase 6: Trend gate + swing gate + 3-way combinator + smoke — **expanded into T29-T35** (audit 2026-05-22). Earlier estimate "~3-4 days code" was too low; real scope is ~13-17 days per audit.
   - [ ] Phase 7: Paper trade ramp (ai-paper channel, weeks)
 - **Empirical evidence the current model is scalp-only:** 9/9 nifty50 signals on 2026-04-30 / 2026-05-11 were 5-7 pt captures at day-extreme reversals; 85-pt sustained 10:50-11:20 uptrend on 2026-05-11 produced ZERO signals.
+
+## P1.5 — Pre-retrain critical path (audit 2026-05-22)
+
+Surfaced by a deep audit of `python_modules/` vs V2_MASTER_SPEC on 2026-05-22. Splits into two groups:
+- **Group A (T23-T28):** must complete BEFORE Day 30 (2026-06-30) so the auto-retrain on Sat 2026-07-04 produces a usable model. ~7-12 engineering days.
+- **Group B (T29-T35):** must complete BEFORE Phase 7 paper-trade ramp so the trained model can drive live signals. ~13-17 engineering days.
+
+Total NEW pre-paper-trade work: ~20-29 days. Fits in the ~6-week window from 2026-05-22 to 2026-07-04. All entries are 🆕 as of 2026-05-22.
+
+### T23 — Trainer targets 60→84 heads (Phase 5 prep) ✅ COMPLETE 2026-05-23
+Extended `python_modules/_shared/targets.py` from 60 scalp heads to 84 — added 12 trend (900/1800s) + 12 swing (3600/7200s) heads with `head_type` field per V2_MASTER_SPEC §2.2 / D55. Names match TFA-side `trend_swing_targets.py` exactly (`{trend|swing}_{direction|magnitude|max_excursion|max_drawdown|continues|breakout_imminent}_{w}s`). Added `MVP_TARGET_HEAD_TYPES` view + per-layer window assertions + head-type distribution guard.
+
+- **Status:** ✅ DONE 2026-05-23.
+- **Verification:** serial trainer run produced all 84 .lgbm files (60 scalp + 12 trend + 12 swing); 25/25 `test_targets.py` tests pass; trainer + loader tests pass (the one pre-existing parallel-test failure is a Python 3.14 / joblib-loky environment issue unrelated to T23).
+- **Files touched:** `_shared/targets.py`, `_shared/tests/test_targets.py`, `model_training_agent/tests/test_trainer.py` (comment), `signal_engine_agent/model_loader.py` (comment), `signal_engine_agent/tests/test_model_loader.py`.
+- **Cross-ref:** T3 Phase 5. Unblocks T24 (walk-forward CV), T25 (per-head calibration), T26 (sim-PnL), T27 (LATEST_HEADS schema metadata).
+
+### T24 — Walk-forward CV implementation 🆕
+Replace the current single last-N-days split (`trainer.py:259-271`) with proper 5-fold walk-forward CV + dedicated calibration fold per V2_MASTER_SPEC §6. Note: existing test named `test_multi_day_mode_uses_walk_forward_split` actually tests the simple split — misleading name.
+
+- **Status:** ⏳ PRE-Day-30 MUST.
+- **Effort:** ~1-2 days.
+- **Cross-ref:** T3 Phase 5; precondition for T25 (calibration fold).
+
+### T25 — D72 isotonic calibration: fit + serialize + runtime apply 🆕
+Per V2_MASTER_SPEC D72. Add `model_training_agent/calibration.py` to fit per-head isotonic regression on dedicated calibration fold, serialize as `.calibration.json` sidecar per head. Wire `apply_calibration` (numpy.interp lookup) into `model_loader.py` so calibrated probabilities are produced before threshold compare. `scale_pos_weight` alone does NOT calibrate.
+
+- **Status:** ⏳ PRE-Day-30 MUST.
+- **Effort:** ~1-2 days.
+- **Cross-ref:** T3 Phase 5; unblocks T8 (EV-floor) + T16 (confidence-weighted sizing); requires T24 (calibration fold).
+
+### T26 — Sim-PnL Option C validation harness 🆕
+Create `model_training_agent/validation/sim_pnl.py` (directory does not currently exist). Implements V2_MASTER_SPEC §2.3.4 single bid/ask-slippage replay. Must produce a scorecard the moment training finishes; otherwise we train and can't evaluate the result.
+
+- **Status:** ⏳ PRE-Day-30 MUST.
+- **Effort:** ~1-2 days.
+- **Cross-ref:** T3 Phase 5; promotion gate for new model artifacts; later upgraded by T9.
+
+### T27 — Saturday scheduler + LATEST_HEADS.json + D66 reconciler runtime 🆕
+Three coupled items needed for the auto-retrain to actually fire and the new model to load cleanly.
+- **Sat scheduler:** register `Lubas-Retrain-Saturday` in `startup/install-scheduled-tasks.ps1` (currently only registers Startup / Shutdown / Shutdown-Warning) and create `scripts/retrain_v2.sh`. Today `_scheduled-start.bat:94-98` explicitly **skips** Saturday.
+- **LATEST_HEADS.json writer:** trainer currently writes legacy plain-text `LATEST` pointer (`trainer.py:441`). Add per-head schema metadata (schema_version + calibration path + head_type) per D66/I10/D72.
+- **D66 reconciler runtime:** emitter writes `config/schema_registry/v8.json` (write side works at `emitter.py:121, 1170-1224`). Add `signal_engine_agent/schema_reconciler.py` to quarantine feature-mismatched model artifacts at load time.
+
+- **Status:** ⏳ PRE-Day-30 MUST.
+- **Effort:** ~1-1.5 days total.
+- **Cross-ref:** T3 Phase 5.
+
+### T28 — Hyperparameter tuning infrastructure (Optuna) 🆕
+Add Optuna sweep job that runs on holdout fold, picks best LightGBM params per head, feeds into Saturday retrain. Currently `LGBM_PARAMS_BINARY`/`_REGRESSION` are hardcoded in `trainer.py:46-67` and no `config/mta_hyperparams.json` exists (T3 Plan §5.2 line 174). Typically 1-3% AUC improvement per head.
+
+- **Status:** ⏳ PRE-Day-30 SHOULD (recommended, not strict).
+- **Effort:** ~2-3 days for per-head Optuna; ~1 day if just pinning from config.
+- **Cross-ref:** T3 Phase 5.
+
+### T29 — L4 v2 gate + head-type routing 🆕
+**Largest gap.** Implement V2_MASTER_SPEC §2.4 properly: `decide_action_scalp` / `decide_action_trend` / `decide_action_swing` separate decision paths + 3-way ensemble combinator + agreement window + bias-filter magnitude guard. Today `thresholds.py:257` `decide_action_v2` is labelled "Wave 1 gate" in its own docstring — Wave-1 logic + 3 deterministic guards, NOT v2 D55. Engine has no head-type routing (`scalp|trend|swing` grep returns zero in signal_engine_agent).
+
+- **Status:** ⏳ PRE-PAPER MUST.
+- **Effort:** ~3-4 days.
+- **Cross-ref:** T3 Phase 6; spec D55.
+
+### T30 — L5 D67 inline composition exits + D68 per-position state 🆕
+Implement V2_MASTER_SPEC §2.5.1 inline exhaustion/wall-break composition exits + per-position state schema. Exhaustion exists as a TFA FEATURE today but the L5 gate-side ACTION (exit-on-detection) is unimplemented. `wall_break|inline_composition` returns zero matches anywhere.
+
+- **Status:** ⏳ PRE-PAPER MUST.
+- **Effort:** ~3-4 days.
+- **Cross-ref:** T3 Phase 6; spec D67 + D68.
+
+### T31 — L7 v2 risk controls 🆕
+Implement V2_MASTER_SPEC §2.7: layer cap, swing entry cutoff, shared daily-loss budget, event blackout. Currently `server/discipline/` has generic limits (cooldowns, streaks, tradeLimits) but no layer-aware caps. `layer_cap|swing_cutoff|max_concurrent|positions_per_layer` returns zero matches.
+
+- **Status:** ⏳ PRE-PAPER MUST.
+- **Effort:** ~2-3 days.
+- **Cross-ref:** T3 Phase 6.
+
+### T32 — L8 regime classifier (rule-based per D4) 🆕
+Implement V2_MASTER_SPEC §2.8 rule-based classifier: `trend_strong` tier + 5-min sustain + benign degradation handling. Today `regime` is passed into `decide_action_v2:264` as a parameter but nothing actually writes it — the inference loop relies on the legacy 4-stage filter's `regime` output, which spec D55 deprecated.
+
+- **Status:** ⏳ PRE-PAPER MUST.
+- **Effort:** ~2 days.
+- **Cross-ref:** T3 Phase 6; spec D4 / D47; later upgrade T17.
+
+### T33 — D56 cohort tracking end-to-end 🆕
+Tag every signal + fill with originating signal type (scalp/trend/swing/multi-day-swing) through the full pipeline: SEA signal log → broker fill log → reliability monitoring. Currently `cohort|signal_source|signal_layer|attribution` returns zero matches across both Python `signal_engine_agent/` and TypeScript `server/`. Without this, post-paper-trade attribution analysis (which heads/cohorts are profitable) is impossible.
+
+- **Status:** ⏳ PRE-PAPER MUST.
+- **Effort:** ~1 day.
+- **Cross-ref:** T3 Phase 6; spec D56; precondition for T17/T18/T19/T20 analyses.
+
+### T34 — Per-head SHAP report + reliability monitoring (§5.1) 🆕
+Two coupled observability outputs needed before paper-trade promotion:
+- **SHAP-by-instrument report:** `scripts/shap_report_weekly.py` (T3 Plan §5.8 line 113) does not exist. Needed for T14 / T21 evidence-based feature decisions.
+- **§5.1 weekly reliability monitoring:** bucket signals by predicted prob, compare to actual win-rate (±5% across deciles = pass). `scripts/trade_quality_report_weekly.py` (T3 Plan line 114) does not exist. Required to validate D72 calibration on live data.
+
+- **Status:** ⏳ PRE-PAPER MUST.
+- **Effort:** ~1-2 days; blocked on T25 (calibration) + T33 (cohort tagging) being live.
+- **Cross-ref:** T3 Phase 6.
+
+### T35 — Partial-session handling + inference latency benchmark 🆕
+Two edge-case items not on prior roadmap:
+- **Partial-session / half-day:** `market_calendar.is_market_holiday()` only does an in-set check (`market_calendar.py:55-58`). Muhurat / half-days will be treated as full sessions, mis-labelling targets near abnormal close. Extend `market_holidays.json` schema + add `session_end_sec` lookup.
+- **Inference latency benchmark:** 84 heads × 4 instruments has never been benchmarked. `scripts/benchmark_signal_persistence.py` exists but measures DB writes only. Add one-shot harness to verify live inference fits within tick cadence.
+
+- **Status:** ⏳ PRE-PAPER MUST.
+- **Effort:** ~1 day total.
+- **Cross-ref:** T3 Phase 6.
 
 ## P2 — parked features (small enough to wait)
 
@@ -88,7 +196,9 @@ Show events_done / events_total_est / rate / ETA AND survive power cuts without 
   - Launcher reads progress.json and shows e.g. `crudeoil 05-13: 43% · ETA 6m` on the replay row.
 - **Out of scope:** pre-counting events (rejected — too slow), adding to Train/Backtest (Partha excluded).
 
-### T24 — Re-enable holdout reservation when paper-trade window starts
+### T36 — Re-enable holdout reservation when paper-trade window starts
+
+*(Renumbered from T24 → T36 on 2026-05-23 to resolve collision with the audit-added T24 "Walk-forward CV" in P1.5. Original entry added 2026-05-20.)*
 The holdout reservation gate in `config/holdout_dates.json` is set to `"enabled": false` as of 2026-05-20. Every date is currently available for replay and training — no reserved-for-backtest dates. This was deliberately disabled during the Phase 4 accumulation window so we don't lose any of the 30-session minimum to the holdout reservation.
 
 - **Status:** Deferred 2026-05-20.
@@ -249,6 +359,30 @@ Add 8 features deferred at L1 D2 lock (2026-05-16) if first-retrain analysis sho
 - **Decision criterion:** if SHAP analysis (§5.4) shows existing features that should be capturing these patterns have low importance OR show inconsistent signals, add the explicit feature.
 - **Spec change when ready:** V2_MASTER_SPEC §2.1.4 — move row from DEFER to ACCEPT, bump L1 active count.
 
+### T37 — Order-book depth features (levels 1-4)
+
+*(Renumbered from T25 → T37 on 2026-05-23 to resolve collision with the audit-added T25 "D72 isotonic calibration" in P1.5. Original entry added 2026-05-21.)*
+Currently every Dhan FULL option tick carries 5 depth levels (parsed in `binary_parser.parse_depth_levels`). Level 0 (top bid/ask price + size) already feeds features; levels 1-4 are parsed and discarded. Add ~10-15 new L1 columns built from the full 5-level book.
+
+- **Status:** Deferred 2026-05-21. Brainstormed as part of "ways to increase win-rate"; depth data is already on the wire — no Dhan subscription change, no rate-budget cost.
+- **Realistic lift:** 2-5% win-rate (not a silver bullet — more data + label quality + D72 calibration remain the bigger levers).
+- **Trigger to engage:** AFTER first v9 retrain (T3 Phase 5) when SHAP shows top-of-book features (`bid_size`, `ask_size`, `bid`, `ask` from level 0) land in the upper half of head importance — confirms book microstructure is signal-bearing for our heads. If level-0 features are low-SHAP, deeper levels are noise too — skip.
+- **Cost:** schema bump v8→v9, **resets the 30-session Phase 4 accumulation counter**. If Phase 2e macro-bias is also approved, ship both together in one v9 bump to avoid two resets.
+- **Candidate features (10-15):**
+  - `book_imbalance_top5` — (Σbid_qty − Σask_qty) / (Σbid_qty + Σask_qty) across all 5 levels
+  - `total_bid_size_top5`, `total_ask_size_top5` — sum of qty across 5 levels
+  - `bid_price_gap_1_2`, `ask_price_gap_1_2` — gap between best and 2nd-best price
+  - `avg_bid_size_levels`, `avg_ask_size_levels` — mean qty per level (depth uniformity proxy)
+  - `bid_orders_total`, `ask_orders_total` — sum of order counts (Dhan's `bid_orders`/`ask_orders` fields)
+  - `book_skew_top5` — weighted price imbalance (qty-weighted bid VWAP vs ask VWAP)
+  - `liquidity_cliff_bid`, `liquidity_cliff_ask` — biggest single-level qty drop across the 5 levels
+- **Implementation:**
+  - New feature module: `python_modules/tick_feature_agent/features/depth.py` reads `depth[1..4]` from each option packet.
+  - Per-strike emission (8 active strikes × 10-15 features = 80-120 option-side L1 columns).
+  - Wire into emitter, bump `schema_registry/v9.json`, update `FEATURE_HEAD_RECONCILIATION.md`, ~600 LOC + tests.
+  - V2_MASTER_SPEC §2.1.2-§2.1.4 — add new columns; §9 add D-entry recording trigger evidence.
+- **Not in scope (separate task if ever needed):** 20-level depth feed via Dhan `SUBSCRIBE_DEPTH` (RequestCode 23). Marginal value — levels 6-20 sparse on Indian options books, likely separate Dhan data tier. Revisit only if 5-level features show high SHAP importance AND we see evidence of losing trades on deep-book moves.
+
 ### T13 — Auto-generate feature catalog
 Create `scripts/generate_feature_catalog.py` that reads `python_modules/tick_feature_agent/output/emitter.py` `_build_column_names()` + module docstrings, emits `docs/FEATURE_CATALOG.md` table (name, source module, brief description). Hook into pre-commit so any TFA change auto-updates the catalog.
 
@@ -302,12 +436,74 @@ Promote L4 gate cost-floor from "TP must clear costs" (Option B, ships with v2 p
 ### T7 — Multi-day swing trade capability (1–3 day overnight hold)
 Add support for swing trades held 1–3 days (overnight) on the 4 traded instruments. **Scope narrowed 2026-05-17:** intra-session swing (30 min – 2 hr hold, square-off before close) is now part of v2 (D55). This task covers only the multi-day overnight case.
 
-- **Status:** Deferred. Add to design backlog only.
+- **Status (2026-05-21):** **HOLD — re-engage only after paper/live trading shows significant edge improvement.** Brainstorm progress (Q1-Q3 + rules + Phase 2e proposal) preserved below for resumption.
+- **Trigger to re-engage:** v2 intraday (scalp + trend + intra-session swing) demonstrates meaningful, sustained edge in paper trading and/or live trading. Until that signal exists, no further T7 design work or spec writing.
 - **Blocked by:** T3 (v2 intraday paper trade ramp). Reason: extending v2 with daily-bar targets/features now would dilute focus on the noise-floor/multi-TF label fix that's the actual critical path.
 - **Why it's hard:** different time horizon (1–3 days vs intra-session), different features (daily OHLCV bars, FII/DII flows, sector rotation), different risk profile (overnight gap, higher margin, MCX physical settlement), different brokerage structure (delivery rates, STT-on-physical).
 - **Approach when ready (Option B from 2026-05-16 brainstorm):** parallel pipeline — separate daily-bar TFA-equivalent, separate models, separate SEA loop, separate channel in BSA. Do NOT bolt 1d/2d/3d targets onto intraday v2.
 - **Data required:** 6–12 months of daily OHLCV bars per instrument (different acquisition path than the tick recorder — NSE/MCX provide free daily history).
 - **First doc to write when unblocked:** `docs/SWING_OVERNIGHT_SPEC.md`.
+
+#### Brainstorm progress (2026-05-21) — ON HOLD
+
+Active brainstorm walked through 6 design questions to lock the spec; **paused at Q4** pending paper/live evidence trigger. Below is the captured state for whenever T7 re-engages.
+
+**Locked picks:**
+- **Q1 horizon:** 1-3 days strict (theta beyond 3 days hurts; matches weekly index expiry cycle).
+- **Q2 instruments:** all 4 (nifty50, banknifty, crude, natgas).
+- **Q3 vehicle:** long CE/PE only (no futures, no spreads). Spreads deferred as post-paper-trade upgrade.
+- **Rule set layered on top:**
+  - Mandatory exit by Friday 15:25 (no weekend hold).
+  - MCX: no entries within 10 days of commodity expiry.
+  - NSE indices: no entries on expiry day (Thursdays).
+  - Indices use next-week or next-month expiry contracts (avoids weekly-expiry trap on Mon/Tue entries that would otherwise span Thursday).
+
+**Pending (resume here next session):**
+- **Q4 data source:** proposed — bhavcopy daily history as model input, ticks for execution only (clean train↔live consistency). Awaiting OK.
+- **Q5 decision cadence:** proposed — 15:25 decide, 15:29 entry (full session structure seen + 1-min Lubas/bot override window). Awaiting OK.
+- **Q6 risk sleeve:** proposed — separate capital sleeve (~30%), independent daily-loss budget. Awaiting OK.
+
+**Bottlenecks identified (in order of severity):**
+1. **MCX overnight slippage** — unverifiable until ~3 months of real swing fills accumulate. Mitigation: seed at 3-4× intraday observed slippage, human-confirmed first 50 fills, hard absolute premium cap per trade.
+2. **NSE/MCX scraper fragility** — exchange bot detection breaks libraries every few months. Mitigation: freshness checks + dual-source where possible.
+3. **Overnight gap risk on commodities** — crude/natgas can gap 30%+ on weekend/event news. Mitigation: hard premium cap, mandatory event blackouts, defined-risk via long-option-only.
+4. **Strike-level IV edge cases** — deep OTM near expiry settles at 0.05 floor → garbage IV. Mitigation: filter settle <0.1, use ATM IV as fill.
+5. **Compounded timeline** — T3 Phase 4 (~6 wks) → T3 Phase 5-7 (~2-3 mo) → T7 P1-P6 (~18-21 days) → T7 P7 (~1-3 mo) = ~7-9 months wall time to first real swing capital.
+6. **Capital fragmentation** across 4 swing instruments. Mitigation: max 1 open swing position per instrument.
+7. **Event calendar maintenance** — RBI/FOMC dates drift, OPEC dates political. Manual upkeep unavoidable.
+
+**Coupled decision — Phase 2e (v2 + T7 shared macro-bias feature expansion):**
+
+The data fetchers needed for T7 (daily bhavcopy, US closes, FII/DII, event calendar, Gift Nifty) produce features that would also benefit v2 intraday models (especially L8 regime classifier + trend layer). Recommendation: build the fetcher pipeline once, share between v2 + T7.
+
+Add ~28-30 new L1 macro-bias columns to v2 schema (bumps **v8→v9**):
+- **FII/DII daily flow** (~8-12 cols) — cash market net (today/5d/10d/20d), F&O participant net, long/short ratio.
+- **US-session closes** (~8-10 cols) — WTI overnight % + 5d + 20d + realized vol, $INR overnight + 5d, S&P futures overnight + 5d + realized vol.
+- **Gift Nifty** (~2-3 cols) — overnight % change, 9:00am IST gap size, 5-day overnight trend.
+- **Event calendar** (~8-12 cols) — hours-to-FOMC/RBI/EIA/OPEC/CPI/NFP, is-event-today/tomorrow, in-pre-event-blackout-window, in-post-event-window.
+
+Cost: schema bump v8→v9; **T3 Phase 4 accumulation counter resets when schema ships**. LightGBM scaling: confirmed comfortable at ~475 columns total (headroom to ~2,000 features at our ~660k row count per instrument).
+
+**Data sources required (all free, no paid feeds):**
+- NSE daily bhavcopy — `archives.nseindia.com/products/content/sec_bhavdata_full_<DDMMYYYY>.csv` via `nsepython` or `jugaad-data`.
+- NSE F&O bhavcopy — `archives.nseindia.com/content/historical/DERIVATIVES/...` via same libraries.
+- MCX daily bhavcopy — `mcxindia.com/market-data/bhavcopy` (custom scraper ~50 LOC).
+- NSE FII/DII flow — `nseindia.com/api/fiidiiTradeReact` via `nsepython.fii_dii_data()`.
+- US-session closes — `yfinance` library, tickers `CL=F` (WTI), `USDINR=X`, `ES=F` (S&P futures).
+- Gift Nifty — NSE IX site or Yahoo Finance.
+- Event calendar — `investpy` library or scrape `investing.com/economic-calendar` directly.
+- Strike-level IV — computed locally via `py_vollib` (Black-Scholes inversion), no external source.
+
+**Development roster for T7 (post-brainstorm-lock):**
+- **P1 Spec lock:** write `docs/SWING_OVERNIGHT_SPEC.md` covering all 6 Qs + rule set + feature list + risk wiring + validation gate — 2-3 days.
+- **P2 Data fetcher layer:** 7 fetchers (NSE cash bhavcopy, NSE F&O bhavcopy, MCX bhavcopy, FII/DII, US closes via `yfinance`, Gift Nifty, event calendar) + local IV computation — ~4 days code + 2 days validation.
+- **P3 Feature + target emitter:** ~28-30 new daily-bar L1 cols + 12 swing targets (1d/2d/3d × 4 instr), backfill 3+ yrs from bhavcopy archive — ~3 days.
+- **P4 Training pipeline:** separate daily-bar trainer (not tick-fed), 48 swing heads (12 × 4) with isotonic calibration per head, walk-forward CV — 3-4 days.
+- **P5 Gate + decision logic:** 15:25 decision, 15:29 entry, swing extension of 3-way combinator, Lubas/bot alert + 1-min override — 3 days.
+- **P6 Risk + execution wiring:** separate capital sleeve, per-instrument sub-cap, MCX expiry-distance hard block (≥10 days), NSE expiry-day block, Friday mandatory-exit time-stop, event-blackout calendar, 09:15 gap-handler with auto-exit if SL gapped through — 3 days.
+- **P7 Validation + paper:** walk-forward 2024-2025 holdout with 2× conservative slippage, then ≥1 month signal-only paper, then real capital ramp — passive, 1-3 months wall time.
+
+Total code work ≈ 18-21 days; total wall time to live ≈ 4-5 months once T3 Phase 7 unblocks T7.
 
 ## INFRA — passive, no action needed
 

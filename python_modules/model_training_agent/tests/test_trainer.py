@@ -66,7 +66,7 @@ def _build_day_df(
       - Step 1 filter cols all set to TRADING.
       - Identifier cols.
       - The 10 numeric features.
-      - All 60 MVP target columns (12 types × 5 windows post-Wave 2).
+      - All 84 MVP target columns (60 scalp + 12 trend + 12 swing per D55).
         Binary targets get a balanced 0/1 mix; regression targets get
         standard-normal noise.
 
@@ -90,7 +90,7 @@ def _build_day_df(
     for col in _FEATURE_COLS:
         data[col] = rng.normal(size=n).astype("float64")
 
-    # All 60 MVP targets (Wave 2)
+    # All 84 MVP targets (60 scalp + 12 trend + 12 swing)
     for name, objective in MVP_TARGET_OBJECTIVES.items():
         if objective == "binary":
             # Balanced 0/1 to keep AUC well-defined

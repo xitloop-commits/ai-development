@@ -124,8 +124,10 @@ def test_load_models_loads_lgbm_files(tmp_path):
 
 
 def test_load_models_silently_skips_missing_targets(tmp_path):
-    """Not all 60 .lgbm files need exist — missing targets are skipped
-    so the engine can call `.get(target)` and treat NaN downstream."""
+    """Not all 84 .lgbm files need exist — missing targets are skipped
+    so the engine can call `.get(target)` and treat NaN downstream. This
+    matters during the v2 ramp where Saturday retrain may have produced
+    only the 60 scalp heads while trend/swing heads are still pending."""
     models_root, config_dir = _build_layout(
         tmp_path,
         targets=["direction_60s"],  # only one target on disk
@@ -133,7 +135,7 @@ def test_load_models_silently_skips_missing_targets(tmp_path):
     loaded = load_models("nifty50", models_root=models_root, config_dir=config_dir)
     assert "direction_60s" in loaded.models
     assert "max_upside_60s" not in loaded.models
-    # No hard failure even with 59/60 missing
+    # No hard failure even with 83/84 missing
     assert len(loaded.models) == 1
 
 
@@ -146,7 +148,7 @@ def test_load_models_loads_only_canonical_target_names(tmp_path):
     _make_dummy_lgbm(inst_version_dir / "rogue_target.lgbm", n_features=3)
     loaded = load_models("nifty50", models_root=models_root, config_dir=config_dir)
     assert "rogue_target" not in loaded.models
-    # Each loaded name must be one of the 28 canonical targets
+    # Each loaded name must be one of the 84 canonical targets
     for name in loaded.models:
         assert name in MVP_TARGET_NAMES
 
@@ -219,17 +221,18 @@ def test_unknown_instrument_uses_its_own_path(tmp_path):
 
 
 def test_loader_uses_shared_mvp_target_names(tmp_path):
-    """Phase E9 lock + Wave 2: the loader walks `_shared.targets.MVP_TARGET_NAMES`,
-    not a private tuple. Verify by writing every canonical target and
-    asserting all 60 are loaded — no more, no less (12 types × 5 windows
-    post-Wave 2; was 28 = 7 × 4 pre-Wave-2)."""
+    """Phase E9 lock + Wave 2 + D55: the loader walks
+    `_shared.targets.MVP_TARGET_NAMES`, not a private tuple. Verify by
+    writing every canonical target and asserting all 84 are loaded — no
+    more, no less (60 scalp + 12 trend + 12 swing per V2_MASTER_SPEC D55,
+    locked 2026-05-17; was 60 pre-trend/swing-addition)."""
     models_root, config_dir = _build_layout(
         tmp_path,
         targets=list(MVP_TARGET_NAMES),
     )
     loaded = load_models("nifty50", models_root=models_root, config_dir=config_dir)
     assert set(loaded.models.keys()) == set(MVP_TARGET_NAMES)
-    assert len(loaded.models) == 60
+    assert len(loaded.models) == 84
 
 
 def test_orphan_upside_percentile_target_not_loaded(tmp_path):
