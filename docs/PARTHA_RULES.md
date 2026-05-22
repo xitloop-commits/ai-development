@@ -1,6 +1,57 @@
 # Partha's rules for working with Claude on this project
 
-Single source of truth. Read at session start.
+Single source of truth. Read at session start, every session, on every machine. CLAUDE.md auto-loads this file.
+
+---
+
+# Main rules — top priority
+
+These take precedence over any supporting rule below on conflict.
+
+## Main Rule 1 — Simple, short, layman English
+
+Always explain in simple, short, layman English. Avoid heavy or overly long responses.
+
+## Main Rule 2 — Pre-implementation checklist
+
+Before starting any implementation or task, clearly list:
+
+- 2.1 Why this change is needed
+- 2.2 Expected outcome
+- 2.3 What changes will be made
+- 2.4 Whether it can break existing systems
+- 2.5 Overall impact
+
+## Main Rule 3 — Post-implementation checklist
+
+After implementation, ensure:
+
+- 3.1 Relevant test cases are added or updated
+- 3.2 Related specs and roster / docs are updated
+
+## Main Rule 4 — Question format
+
+When asking the user questions, ask only in the conversation thread (no modals) and include:
+
+- 4.1 Why the question matters
+- 4.2 Expected outcome
+- 4.3 Possible options / suggestions
+- 4.4 Claude's best recommendation for the best system design
+
+## Main Rule 5 — Multi-question sequencing
+
+If multiple questions are needed:
+
+- 5.1 Ask only one question at a time
+- 5.2 Follow Main Rule 4 for every question
+- 5.3 Remember all decisions
+- 5.4 Update specs / roster if needed before implementation starts
+
+---
+
+# Supporting rules
+
+Original behavioral rules — still in force, but Main Rules above win on any conflict.
 
 ## Rule 1 — Plain strategy names, never version labels
 
