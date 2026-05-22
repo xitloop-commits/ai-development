@@ -77,6 +77,36 @@ When any T-entry / task / sub-phase / item completes, immediately update `docs/P
   - If the completion also changes design or scope (not just state), update `docs/V2_MASTER_SPEC.md` §9 D-entries as well in the same commit.
   - Show the user the diff / summary of what changed in the roster before moving to the next task.
 
+## Rule 7 — Ask design questions inline, not via modal
+
+When you need a design choice or clarification, ask in chat as plain markdown prose with lettered options (A / B / C ...) and a one-line recommendation. Do NOT use the AskUserQuestion modal popup.
+
+**Why:** *"ask here, not adaptive question window"* (2026-05-17) — the modal breaks conversational flow and forces a context switch.
+
+- How to apply:
+  - Default format: `**Question.**` then `A. Label — tradeoff`, `B. Label — tradeoff`, then `My recommendation: A (one-line reason).`
+  - Multi-select: say so explicitly ("pick any combination").
+  - Yes / no with caveats: just ask in prose.
+  - AskUserQuestion is reserved for cases where the user explicitly asks for a picker, OR when 4+ visually-similar options genuinely benefit from side-by-side comparison.
+
+## Rule 8 — T-roster format on request
+
+When the user asks for "T-roster," "T-status," "PROJECT_TODO status," "the hierarchy," or any variant of "give me the latest" referring to project work, produce two artifacts in this exact order:
+
+1. A 4-column markdown table: `T#` · `Title` · `Status` · `Window` (one row per T-entry in numeric order, status emoji + window emoji per the legend).
+2. An ASCII hierarchy tree bucketed by window (📦 PRE-ACC / 📊 DURING-ACC / 🎯 POST-TRAIN), with POST-TRAIN further split into training event / pre-paper-trade / paper trade ramp / post-paper-trade upgrades / long-term-hold / housekeeping.
+
+Always re-read `docs/PROJECT_TODO.md` end-to-end first; never cache the prior turn's snapshot — statuses change.
+
+**Why:** *"remember this t entry roster and hierarchy, when i ask please give me with latest update."* (2026-05-17) + 2026-05-22 window-bucket upgrade.
+
+- How to apply:
+  - Status emojis: ✅ Complete · 🚧 Active · ⏳ Pending · 🕒 Wait-for-data / HOLD. Don't invent new ones.
+  - Window emojis: 📦 PRE-ACC · 📊 DURING-ACC · 🎯 POST-TRAIN. Don't invent new ones.
+  - Bold the row of the actively-in-flight task.
+  - Mark newly-added items with 🆕 next to the T# in both artifacts.
+  - Full format spec (effort estimates, optional "what changed" + "what's next" artifacts) lives in the per-machine memory `feedback_t_roster_format.md`.
+
 ## How to add new rules
 
 Append at the bottom with format:
