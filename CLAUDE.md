@@ -11,12 +11,14 @@ This file is read automatically by Claude Code at the start of every session in 
 
 ## Important active design docs
 
-- [docs/specs/YowPartha_Spec_v0.1.md](docs/specs/YowPartha_Spec_v0.1.md) — yow-partha v0.1 design (buttons-only Telegram bot, full launcher control from phone). Read before implementing the listener.
-- [docs/specs/YowPartha_Migration_From_TfaBot.md](docs/specs/YowPartha_Migration_From_TfaBot.md) — `tfa_bot/` was removed on 2026-05-19; replaced by **yow-partha** (Telegram control bot, full-product scope). Older docs reference `tfa_bot/bot.py` — treat those as historical, route equivalent work to yow-partha.
-- [docs/V2_MASTER_SPEC.md](docs/V2_MASTER_SPEC.md) — Single source of truth for Signal System v2. 8 layers + schema + component spec deltas + phase plan + pending decisions. **Blocks paper trading until layers lock.** Supersedes the former `SIGNAL_SYSTEM_V2.md`, `TARGET_SPEC_V2_DESIGN.md`, `REFERENCE.md`, `LAYER1_CANDIDATES.md` (consolidated 2026-05-16).
-- [docs/FEATURE_HEAD_RECONCILIATION.md](docs/FEATURE_HEAD_RECONCILIATION.md) — Single-page reference: 446 L1 features ↔ 84 heads ↔ gate consumers ↔ runtime data flow. Read this when implementing T3 Phase 2–6; design questions still go to V2_MASTER_SPEC.
-- [docs/T3_IMPLEMENTATION_PLAN.md](docs/T3_IMPLEMENTATION_PLAN.md) — Module-by-module implementation plan for T3 Phases 2/3/5/6/7. Complete module touch list, dependency graph, parallelization opportunities, open questions per phase. Read before starting any phase.
-- [docs/WAVE2_RESUMPTION_GUIDE.md](docs/WAVE2_RESUMPTION_GUIDE.md) — Wave 2 model state + how to resume work on it.
+**Start here:** [docs/systems/README.md](docs/systems/README.md) — index of the 10 major-system overview specs. Each overview is a thin 1-page entry point that links to the detailed sub-specs in [docs/specs/](docs/specs/). Read the overview for the area you're working in, then click into the sub-specs from there.
+
+The 10 systems: [01 Data Ingestion](docs/systems/01_data_ingestion.md) · [02 Feature Engineering](docs/systems/02_feature_engineering.md) · [03 Model Training](docs/systems/03_model_training.md) · [04 Signal Engine](docs/systems/04_signal_engine.md) · [05 Execution](docs/systems/05_execution.md) · [06 Risk & Discipline](docs/systems/06_risk_discipline.md) · [07 Portfolio & Reporting](docs/systems/07_portfolio_reporting.md) · [08 UI Desktop](docs/systems/08_ui_desktop.md) · [09 Control Bot](docs/systems/09_control_bot.md) · [10 Launcher & Ops](docs/systems/10_launcher_ops.md).
+
+**Cross-cutting design authorities** (read alongside the system overviews):
+- [docs/V2_MASTER_SPEC.md](docs/V2_MASTER_SPEC.md) — Single source of truth for Signal System v2. 8 layers + schema + component spec deltas + phase plan + 73 D-decisions. **Blocks paper trading until layers lock.**
+- [docs/FEATURE_HEAD_RECONCILIATION.md](docs/FEATURE_HEAD_RECONCILIATION.md) — 446 L1 features ↔ 84 heads ↔ gate consumers ↔ runtime data flow lookup.
+- [docs/RUNBOOK_PHASE_I.md](docs/RUNBOOK_PHASE_I.md) — pre-open checklist for paper/live trading days.
 
 ## What this file is NOT for
 

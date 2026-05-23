@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-05-23.** Wave 2 model is being retired by the v2 trend-capture retrain (T3 Phases 5–7). The disabled `gate_mode=current` legacy gate will go away once [PROJECT_TODO T29](../PROJECT_TODO.md) ships. Active overview: [docs/systems/04_signal_engine.md](../systems/04_signal_engine.md).
+
+---
+
 # Wave 2 Resumption Guide
 
 **Last updated:** 2026-05-14

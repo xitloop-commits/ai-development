@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-05-23.** 728-finding April audit. Most rows are DONE / DEFERRED / WONT-FIX. If you find an unresolved item still relevant today, promote it to a T-entry in [docs/PROJECT_TODO.md](../PROJECT_TODO.md). Active overviews under [docs/systems/](../systems/).
+
+---
+
 # ATS Final-Round Production Verification & Cleanup Tracker
 
 **Status:** Active · v1 · 2026-04-26

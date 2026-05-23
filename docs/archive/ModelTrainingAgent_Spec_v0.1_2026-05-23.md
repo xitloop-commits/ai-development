@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-05-23.** Husk spec — content was split into MTA + SEA implementation plans on 2026-05-17. Active overviews: [docs/systems/03_model_training.md](../systems/03_model_training.md), [docs/systems/04_signal_engine.md](../systems/04_signal_engine.md). Open work: [docs/PROJECT_TODO.md](../PROJECT_TODO.md).
+
+---
+
 # MTA (Model Training Agent) & Signal Engine Agent (SEA) — Specification v0.1
 
 **Document:** ModelTrainingAgent_Spec_v0.1.md

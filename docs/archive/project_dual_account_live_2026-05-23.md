@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-05-23.** Dual-account decisions log from 2026-04-25. Design now lives in [docs/specs/DualAccountArchitecture_Spec_v0.1.md](../specs/DualAccountArchitecture_Spec_v0.1.md) and overview [docs/systems/05_execution.md](../systems/05_execution.md). Outstanding Dhan ToS confirmation tracked as [PROJECT_TODO T38](../PROJECT_TODO.md).
+
+---
+
 ---
 name: Dual Dhan account architecture is live (2026-04-25)
 description: Two-account split implemented and operational. Primary handles trading + UI tick feed; spouse hosts TFA + AI Live channel. Resolves the 5-WS Dhan cap. Spec at docs/specs/DualAccountArchitecture_Spec_v0.1.md.

@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-05-23.** April 2026 Wave 1 pipeline snapshot. Current architecture: [docs/V2_MASTER_SPEC.md](../V2_MASTER_SPEC.md) + [docs/systems/](../systems/) overviews. Open work: [docs/PROJECT_TODO.md](../PROJECT_TODO.md).
+
+---
+
 ---
 name: ML Training Pipeline Architecture
 description: Full pipeline from data recording to model training — component responsibilities, boundaries, and current implementation status

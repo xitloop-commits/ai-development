@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-05-23.** Transient 2026-04-21 instruction ("dont commit to main"). Refactor branch is long since resolved; current workflow follows [docs/PARTHA_RULES.md](../PARTHA_RULES.md) Supporting Rule 2.
+
+---
+
 ---
 name: Work on the refactor branch, not main (effective 2026-04-21)
 description: The user is refactoring the entire project on a dedicated branch. All future code changes in this repo must land on `refactor` (or whatever rename the user applies), not on main.

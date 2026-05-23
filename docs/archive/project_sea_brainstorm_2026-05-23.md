@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-05-23.** Brainstorming notes superseded by [docs/V2_MASTER_SPEC.md §2.4 + §2.5](../V2_MASTER_SPEC.md). Active overview: [docs/systems/04_signal_engine.md](../systems/04_signal_engine.md). Open work: [docs/PROJECT_TODO.md](../PROJECT_TODO.md).
+
+---
+
 ---
 name: SEA Brainstorm — Trade Signal Output Design
 description: SEA output redesign from GO_CALL/GO_PUT/WAIT to LONG_CE/LONG_PE/SHORT_CE/SHORT_PE with SL and TP. Feature-to-prediction mapping. Ready to continue implementation plan update.

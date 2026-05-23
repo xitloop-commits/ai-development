@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-05-23.** Engineering plan for T3 Phases 2–7. Design content folded into [docs/systems/02_feature_engineering.md](../systems/02_feature_engineering.md), [docs/systems/03_model_training.md](../systems/03_model_training.md), [docs/systems/04_signal_engine.md](../systems/04_signal_engine.md). Open tasks in [docs/PROJECT_TODO.md](../PROJECT_TODO.md) T3 + T23–T35.
+
+---
+
 # T3 — V2 Signal System Implementation Plan
 
 Complete module-by-module implementation plan for T3 Phases 2, 3, 5, 6, 7. Phase 1 is design (already complete via V2_MASTER_SPEC). Phase 4 is data accumulation (no code).

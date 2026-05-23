@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-05-23.** Four-agent contract (SEA → Discipline → RCA → TEA → PA) locked 2026-04-21; Phases 1–5 complete. Active overviews: [docs/systems/04_signal_engine.md](../systems/04_signal_engine.md), [docs/systems/05_execution.md](../systems/05_execution.md), [docs/systems/06_risk_discipline.md](../systems/06_risk_discipline.md). Open work: [docs/PROJECT_TODO.md](../PROJECT_TODO.md).
+
+---
+
 # Architecture Refactor Plan: Unified Execution Model
 **Date:** 2026-04-08 (original) · Revised 2026-04-21
 **Status:** Approved for Implementation

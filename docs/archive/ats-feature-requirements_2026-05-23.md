@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-05-23.** Pre-refactor baseline from 2026-03-30 — historical only. Live design lives in [docs/specs/](../specs/) and [docs/systems/](../systems/). Open work: [docs/PROJECT_TODO.md](../PROJECT_TODO.md).
+
+---
+
 > **⚠ HISTORICAL — pre-refactor baseline (2026-03-30).** Kept as the originating product narrative. Live source of truth: `docs/specs/` (per-agent specs) + `docs/IMPLEMENTATION_PLAN_v2.md` (build sheet) + `docs/FINAL_VERIFICATION_TRACKER.md` (punch list). Some claims here have been overtaken by implementation.
 
 ---

@@ -542,6 +542,21 @@ Worktree directory survived removal because something has an open file handle. D
 - **Status:** Deferred — harmless until next system reboot or manual cleanup.
 - **How to clean later:** Either find + close the locking process (Resource Monitor → CPU → Associated Handles), or schedule deletion via `MoveFileEx` for next boot.
 
+### T38 — Dhan ToS confirmation for spouse-account AI Live pattern 🆕
+Confirm with Dhan customer support that the spouse-account pattern (Client `1111388877` holding 4 TFA WebSocket subscriptions + `ai-live` orders, funded from spouse's own income/savings) complies with their Terms of Service. Without confirmation, AI Live runs paper-only.
+
+- **Status:** Deferred 2026-05-23 (admin task, not engineering). Carried forward from archived `docs/memory/project_dual_account_live.md` (originally surfaced 2026-04-25).
+- **Blocker for:** Phase 8 (AI Live real-capital ramp).
+- **How to act:** ticket Dhan support with the topology described in [DualAccountArchitecture_Spec_v0.1.md](specs/DualAccountArchitecture_Spec_v0.1.md); attach client IDs.
+- **Cross-ref:** [systems/05_execution.md](systems/05_execution.md), [systems/10_launcher_ops.md](systems/10_launcher_ops.md).
+
+### T39 — yow-partha graceful-stop refactor (direct-spawn architecture) 🆕
+Refactor the yow-partha Telegram bot so Lubas spawns it as a direct child process (not via a separate polling daemon). Cleaner process lifecycle, better stop-signal propagation, no orphan listeners on Lubas restart.
+
+- **Status:** Deferred 2026-05-23 (carried forward from per-machine auto-memory `project_yow_partha_resume.md`).
+- **Effort:** ~1 day; design notes already captured in the resume memory.
+- **Cross-ref:** [systems/09_control_bot.md](systems/09_control_bot.md), [YowPartha_Spec_v0.1.md](specs/YowPartha_Spec_v0.1.md).
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 _None yet._

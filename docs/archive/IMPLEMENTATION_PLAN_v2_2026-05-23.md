@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-05-23.** April 2026 build sheet — Phases A–E substantively done; any residual items have been folded into [docs/PROJECT_TODO.md](../PROJECT_TODO.md). Active overviews under [docs/systems/](../systems/).
+
+---
+
 # ATS Implementation Plan v2 — Build Sheet
 
 **Status:** Active · v2.0 · 2026-04-26
