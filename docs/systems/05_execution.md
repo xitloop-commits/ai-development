@@ -13,7 +13,6 @@ Sole owner of broker calls. Convert approved signals into live or paper orders, 
 - [Disconnect_Safety_Spec_v0.1.md](../specs/Disconnect_Safety_Spec_v0.1.md) — position reconciliation, stale-order cleanup, manual intervention.
 - [DualAccountArchitecture_Spec_v0.1.md](../specs/DualAccountArchitecture_Spec_v0.1.md) — primary + spouse accounts.
 - [DHAN_TOKEN_POLICY.md](../DHAN_TOKEN_POLICY.md) — startup-only refresh policy.
-- Memory: [docs/memory/project_dual_account_live.md](../memory/project_dual_account_live.md) — live decisions log (tax, feed-disconnect, cross-workspace).
 
 ## Data flow
 ```

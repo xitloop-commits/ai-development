@@ -24,7 +24,7 @@
   - Node server's market-data WebSocket (tick feed used by TradingDesk for live LTP).
   - Dhan's per-account cap of **5 concurrent WS connections** per the Broker Service Agent spec (BSA v1.9).
 - Tick Feature Agent (TFA) runs 4 processes (NIFTY / BANKNIFTY / CRUDEOIL / NATURALGAS), each owning its own Dhan WS → 4 WS.
-- Combined: 4 TFA + 1 Node tick + 1 order-update = **6** ⇒ exceeds 5-WS limit. The ui-refactoring branch cannot run concurrently with main, and order-update subscription competes for scarce headroom. This is logged in [docs/memory/project_dhan_ws_limit.md](../memory/project_dhan_ws_limit.md).
+- Combined: 4 TFA + 1 Node tick + 1 order-update = **6** ⇒ exceeds 5-WS limit. The ui-refactoring branch cannot run concurrently with main, and order-update subscription competes for scarce headroom.
 - The "AI Trades" workspace is **paper-only** today — an AI engine runs on top of a MockAdapter, so AI performance numbers are hypothetical, not real-money validated.
 
 ### 1.2 Proposed resolution (two-for-one)
@@ -456,7 +456,6 @@ v0.1 of this architecture is considered complete when:
 - [RCA v2.0](RiskControlAgent_Spec_v2.0.md) — position monitoring scope.
 - [SEA ImplementationPlan v0.1](SEA_ImplementationPlan_v0.1.md) — signal routing.
 - [TFA Spec v1.7](TickFeatureAgent_Spec_v1.7.md) — 4-process layout, WS subscription model.
-- [memory/project_dhan_ws_limit.md](../memory/project_dhan_ws_limit.md) — WS cap problem statement.
 
 ---
 

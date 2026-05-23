@@ -13,7 +13,8 @@ Single-screen Tauri/React desktop UI: monitor pipeline, place manual orders, con
 - [Settings_Spec_v1.5.md](../specs/Settings_Spec_v1.5.md) — user preferences, broker configs, workspace/mode toggles, execution defaults.
 - [InstrumentCard_v2_Spec_v0.1.md](../specs/InstrumentCard_v2_Spec_v0.1.md) — live IV, Greeks, OI distribution, max-pain, expiry countdown.
 - [Notifications_Spec_v0.1.md](../specs/Notifications_Spec_v0.1.md) — alert catalog, Telegram + UI toast, escalation rules.
-- Memory: [docs/memory/project_tradedesk_redesign.md](../memory/project_tradedesk_redesign.md) — redesign summary 10→6 items, 15→10 cols, row-expand.
+
+**TradingDesk redesign in-flight:** summary shrinks from 10 → 6 items; table shrinks from 15 → 10 columns; row-expand reveals per-trade detail. Ready to implement, no blockers.
 
 ## Data flow
 ```
