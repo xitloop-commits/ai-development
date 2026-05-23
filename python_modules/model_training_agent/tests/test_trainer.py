@@ -531,6 +531,100 @@ def test_fold_mode_populates_manifest_and_aggregate(tmp_path: Path) -> None:
     assert any(k.startswith("mean_") for k in sample_agg.keys())
 
 
+def test_latest_heads_json_written_with_full_schema(tmp_path: Path) -> None:
+    """T27 — every training run writes LATEST_HEADS.json next to the
+    LATEST pointer. Payload carries one entry per MVP head with
+    head_type, objective, lookahead_seconds, lgbm_path, and the
+    schema_version read from config/schema_registry/v<N>.json."""
+    from _shared.targets import MVP_TARGET_NAMES
+
+    # Stand up a synthetic schema_registry/v8.json so the reader picks
+    # it up instead of falling back to schema_version=0.
+    schema_dir = tmp_path / "config" / "schema_registry"
+    schema_dir.mkdir(parents=True)
+    (schema_dir / "v8.json").write_text(
+        json.dumps({"schema_version": 8, "feature_count": 80, "columns": []}),
+        encoding="utf-8",
+    )
+
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    for i, ds in enumerate(["2026-04-01", "2026-04-02", "2026-04-03"]):
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=i, date_str=ds))
+
+    # Trainer reads schema_registry from cwd; switch into tmp_path so
+    # our planted v8.json is the one it sees.
+    import os as _os
+    cwd_before = _os.getcwd()
+    try:
+        _os.chdir(tmp_path)
+        result = train_instrument(
+            instrument=instrument,
+            date_from="2026-04-01",
+            date_to="2026-04-03",
+            features_root=features_root,
+            models_root=tmp_path / "models",
+            config_dir=tmp_path / "feature_config",
+            val_days=1,
+            cal_days=0,
+        )
+    finally:
+        _os.chdir(cwd_before)
+
+    latest_heads = tmp_path / "models" / instrument / "LATEST_HEADS.json"
+    assert latest_heads.exists()
+    payload = json.loads(latest_heads.read_text(encoding="utf-8"))
+
+    assert payload["version"] == 1
+    assert payload["instrument"] == "nifty50"
+    assert payload["schema_version"] == 8
+    assert payload["head_count"] == 84
+    assert set(payload["heads"].keys()) == set(MVP_TARGET_NAMES)
+
+    # Spot-check head_type distribution
+    head_types = [h["head_type"] for h in payload["heads"].values()]
+    assert head_types.count("scalp") == 60
+    assert head_types.count("trend") == 12
+    assert head_types.count("swing") == 12
+
+    # Spot-check schema_version stamped on each head
+    for h in payload["heads"].values():
+        assert h["schema_version"] == 8
+
+
+def test_latest_heads_json_uses_zero_when_no_schema_registry(tmp_path: Path, capsys) -> None:
+    """No config/schema_registry/v<N>.json yet → schema_version=0 with WARN."""
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    for i, ds in enumerate(["2026-04-01", "2026-04-02"]):
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=i, date_str=ds))
+
+    import os as _os
+    cwd_before = _os.getcwd()
+    try:
+        _os.chdir(tmp_path)  # tmp_path has no config/schema_registry
+        result = train_instrument(
+            instrument=instrument,
+            date_from="2026-04-01",
+            date_to="2026-04-02",
+            features_root=features_root,
+            models_root=tmp_path / "models",
+            config_dir=tmp_path / "feature_config",
+            val_days=1,
+            cal_days=0,
+        )
+    finally:
+        _os.chdir(cwd_before)
+
+    captured = capsys.readouterr()
+    assert "no config/schema_registry" in captured.out
+
+    payload = json.loads(
+        (tmp_path / "models" / instrument / "LATEST_HEADS.json").read_text(encoding="utf-8")
+    )
+    assert payload["schema_version"] == 0
+
+
 def test_sim_pnl_skipped_when_val_lacks_option_columns(tmp_path: Path, capsys) -> None:
     """Default test fixture has no opt_atm_*_bid/ask cols → sim-PnL
     harness skips gracefully; manifest carries zero sim_pnl fields."""

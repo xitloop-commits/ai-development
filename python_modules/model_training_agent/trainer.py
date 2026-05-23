@@ -216,6 +216,107 @@ def _default_n_jobs() -> int:
     return max(1, min(4, cores - 1))
 
 
+# ── T27 — LATEST_HEADS.json writer ────────────────────────────────────────
+
+LATEST_HEADS_VERSION: int = 1
+"""Bump on every breaking change to LATEST_HEADS.json shape. SEA's
+`schema_reconciler` checks this on read; mismatched versions cause the
+loader to ignore the file and fall back to legacy LATEST behavior."""
+
+
+def _read_current_schema_version(
+    schema_registry_dir: Path = Path("config/schema_registry"),
+) -> int | None:
+    """Read the highest-numbered `v<N>.json` schema_version available.
+
+    The TFA emitter writes `v<LATEST_SCHEMA_VERSION>.json` on every run
+    (D66 additive-only policy). The trainer records this number on each
+    head so SEA can detect "head was trained against an OLDER feature
+    schema than emitter is now producing" and quarantine those heads.
+
+    Returns None if no `v<N>.json` file exists yet — caller treats this
+    as "schema_version unknown" and writes 0 + WARNs.
+    """
+    if not schema_registry_dir.is_dir():
+        return None
+    candidates: list[tuple[int, Path]] = []
+    for p in schema_registry_dir.glob("v*.json"):
+        stem = p.stem  # "v8"
+        if not stem.startswith("v") or not stem[1:].isdigit():
+            continue
+        candidates.append((int(stem[1:]), p))
+    if not candidates:
+        return None
+    _, latest = max(candidates, key=lambda t: t[0])
+    payload = json.loads(latest.read_text(encoding="utf-8"))
+    sv = payload.get("schema_version")
+    if not isinstance(sv, int):
+        return None
+    return sv
+
+
+def _build_latest_heads_payload(
+    *,
+    instrument: str,
+    timestamp: str,
+    schema_version: int | None,
+    output_dir: Path,
+    skipped_targets: list[str],
+) -> dict:
+    """Construct the LATEST_HEADS.json payload.
+
+    Walks every entry in `_shared.targets.MVP_TARGETS`. Per head we
+    record: head_type (scalp/trend/swing), objective (binary/regression),
+    lookahead_seconds, the .lgbm filename (relative to the version dir),
+    the calibration sidecar filename (or null), and the schema_version
+    the head was trained against.
+
+    Heads in `skipped_targets` are still listed but with `.lgbm` absent
+    on disk → SEA reconciler will see them as missing and treat as NaN
+    (matches existing missing-.lgbm semantics).
+    """
+    from _shared.targets import MVP_TARGETS as _ALL_TARGETS
+
+    heads: dict[str, dict] = {}
+    skipped_set = set(skipped_targets)
+    for spec in _ALL_TARGETS:
+        lgbm_name = f"{spec.name}.lgbm"
+        cal_name = f"{spec.name}.calibration.json"
+        cal_exists = (output_dir / cal_name).exists()
+        heads[spec.name] = {
+            "head_type": spec.head_type,
+            "objective": spec.target_type,
+            "lookahead_seconds": int(spec.lookahead_seconds),
+            "lgbm_path": lgbm_name if spec.name not in skipped_set else None,
+            "calibration_path": cal_name if cal_exists else None,
+            "schema_version": schema_version if schema_version is not None else 0,
+        }
+
+    return {
+        "version": LATEST_HEADS_VERSION,
+        "instrument": instrument,
+        "timestamp": timestamp,
+        "schema_version": schema_version if schema_version is not None else 0,
+        "head_count": len(heads),
+        "heads": heads,
+    }
+
+
+def write_latest_heads_json(
+    payload: dict,
+    instrument_models_dir: Path,
+) -> Path:
+    """Write LATEST_HEADS.json next to LATEST.
+
+    Returns the written path. The file lives at the instrument level
+    (not inside the timestamped version dir) so it travels with the
+    LATEST pointer and SEA can resolve both in one place.
+    """
+    out = instrument_models_dir / "LATEST_HEADS.json"
+    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return out
+
+
 # ── T24b — 5-fold walk-forward CV ─────────────────────────────────────────
 
 
@@ -826,8 +927,29 @@ def train_instrument(
     )
     (output_dir / "metrics.json").write_text(json.dumps(all_metrics, indent=2), encoding="utf-8")
 
-    # 6. LATEST pointer
+    # 6. LATEST pointer (legacy plain-text)
     (models_root / instrument / "LATEST").write_text(ts, encoding="utf-8")
+
+    # 7. LATEST_HEADS.json (T27, V2_MASTER_SPEC D66 / I10 / D72).
+    # Per-head schema_version + head_type + calibration sidecar path so
+    # SEA's schema_reconciler can quarantine heads trained against an
+    # older feature schema than the emitter is currently producing.
+    schema_version = _read_current_schema_version()
+    if schema_version is None:
+        print(
+            "  WARN: no config/schema_registry/v<N>.json found — "
+            "LATEST_HEADS.json will record schema_version=0. SEA "
+            "reconciler will treat all heads as 'version unknown' "
+            "(trust them, no quarantine)."
+        )
+    latest_heads_payload = _build_latest_heads_payload(
+        instrument=instrument,
+        timestamp=ts,
+        schema_version=schema_version,
+        output_dir=output_dir,
+        skipped_targets=skipped_targets,
+    )
+    write_latest_heads_json(latest_heads_payload, models_root / instrument)
 
     return TrainResult(
         timestamp=ts,

@@ -35,6 +35,7 @@ from model_training_agent.calibration import (
     CalibrationMap,
     read_calibration_sidecar,
 )
+from signal_engine_agent.schema_reconciler import reconcile_loaded_heads
 
 
 @dataclass
@@ -110,6 +111,17 @@ def load_models(
         raise FileNotFoundError(f"Missing feature config: {cfg_path}")
     feature_config = json.loads(cfg_path.read_text(encoding="utf-8"))
     feature_names = feature_config["final_features"]
+
+    # T27 — schema reconciliation (V2_MASTER_SPEC D66 / I10 / D72).
+    # Drop any heads whose recorded schema_version doesn't match the
+    # current emitter schema. Conservative: missing LATEST_HEADS.json,
+    # missing schema_registry, or version=0 → no quarantine.
+    latest_heads_path = models_root / instrument / "LATEST_HEADS.json"
+    report = reconcile_loaded_heads(latest_heads_path)
+    if report.quarantined:
+        for name in report.quarantined:
+            models.pop(name, None)
+            calibrations.pop(name, None)
 
     return LoadedModels(
         instrument=instrument,

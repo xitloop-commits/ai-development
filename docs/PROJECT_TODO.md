@@ -126,15 +126,17 @@ Trainer's post-training pass runs the harness on the single-split val set (match
 - **Files touched:** `model_training_agent/validation/__init__.py` (new), `model_training_agent/validation/sim_pnl.py` (new, ~370 LOC), `model_training_agent/trainer.py` (~70 LOC for the integration block + manifest), `model_training_agent/tests/test_sim_pnl.py` (new), `model_training_agent/tests/test_trainer.py` (2 new tests).
 - **Cross-ref:** T3 Phase 5. Unblocks T27 Saturday-automation promotion gate. Upgrade path to T9 (multi-scenario Option D) once paper-trade fills accumulate.
 
-### T27 — Saturday scheduler + LATEST_HEADS.json + D66 reconciler runtime 🆕
-Three coupled items needed for the auto-retrain to actually fire and the new model to load cleanly.
-- **Sat scheduler:** register `Lubas-Retrain-Saturday` in `startup/install-scheduled-tasks.ps1` (currently only registers Startup / Shutdown / Shutdown-Warning) and create `scripts/retrain_v2.sh`. Today `_scheduled-start.bat:94-98` explicitly **skips** Saturday.
-- **LATEST_HEADS.json writer:** trainer currently writes legacy plain-text `LATEST` pointer (`trainer.py:441`). Add per-head schema metadata (schema_version + calibration path + head_type) per D66/I10/D72.
-- **D66 reconciler runtime:** emitter writes `config/schema_registry/v8.json` (write side works at `emitter.py:121, 1170-1224`). Add `signal_engine_agent/schema_reconciler.py` to quarantine feature-mismatched model artifacts at load time.
+### T27 — Saturday scheduler + LATEST_HEADS.json + D66 reconciler runtime ✅ COMPLETE 2026-05-23
+Three coupled pieces, all shipped together:
 
-- **Status:** ⏳ PRE-Day-30 MUST.
-- **Effort:** ~1-1.5 days total.
-- **Cross-ref:** T3 Phase 5.
+- **Sat scheduler.** Registered `Lubas-Retrain-Saturday` in `startup/install-scheduled-tasks.ps1`: weekly trigger Sat 02:00, wakes the machine via `-WakeToRun`, runs as the current user, 16-hour execution-time limit. New `scripts/retrain_v2.bat` loops MTA CLI sequentially across crudeoil / naturalgas / nifty50 / banknifty; per-instrument failures don't abort the others. `_scheduled-start.bat` Saturday-skip stays in place (correct for the weekday-live-trading task; Sat retrain has its own dedicated entry).
+- **LATEST_HEADS.json writer.** Trainer's `_build_latest_heads_payload` + `write_latest_heads_json` now write `models/<inst>/LATEST_HEADS.json` next to the existing plain-text `LATEST`. Schema version is auto-detected from the highest-numbered `config/schema_registry/v<N>.json`; falls back to 0 with WARN when no registry exists. Each of the 84 heads records head_type, objective, lookahead_seconds, lgbm_path (null if training skipped), calibration_path (null if no sidecar), and schema_version. File format is versioned (`LATEST_HEADS_VERSION = 1`).
+- **D66 reconciler runtime.** New `signal_engine_agent/schema_reconciler.py` with `reconcile_loaded_heads()` returning a `QuarantineReport`. Loader runs it after loading .lgbm + sidecars; mismatched heads are popped from `LoadedModels.models` + `LoadedModels.calibrations` so the engine's `_pred` treats them as missing (NaN → gate fail-open). Conservative on uncertainty — missing `LATEST_HEADS.json`, missing `schema_registry/`, version=0, or unsupported file shape all → no quarantine.
+
+- **Status:** ✅ DONE 2026-05-23.
+- **Verification:** 9 new schema-reconciler tests (all conservative-on-uncertainty paths + happy-path quarantine + end-to-end loader integration). 2 new trainer tests for LATEST_HEADS writer (full schema present + zero-fallback path). 303/303 SEA + MTA + shared tests pass.
+- **Files touched:** `model_training_agent/trainer.py` (+~100 LOC: schema reader, payload builder, writer, integration), `signal_engine_agent/schema_reconciler.py` (new, ~120 LOC), `signal_engine_agent/model_loader.py` (+~10 LOC reconciler wiring), `startup/install-scheduled-tasks.ps1` (+50 LOC for the Saturday task block), `scripts/retrain_v2.bat` (new), tests for each piece.
+- **Cross-ref:** V2_MASTER_SPEC D66/I10/D72, §6.1 weekly cadence. Closes the pre-Day-30 MUST list.
 
 ### T28 — Hyperparameter tuning infrastructure (Optuna) 🆕
 Add Optuna sweep job that runs on holdout fold, picks best LightGBM params per head, feeds into Saturday retrain. Currently `LGBM_PARAMS_BINARY`/`_REGRESSION` are hardcoded in `trainer.py:46-67` and no `config/mta_hyperparams.json` exists (T3 Plan §5.2 line 174). Typically 1-3% AUC improvement per head.

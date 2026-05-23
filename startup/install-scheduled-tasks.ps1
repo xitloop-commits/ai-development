@@ -4,10 +4,14 @@
   Lubas -- Register Task Scheduler entries for automated daily run.
 
   Tasks created:
-    Lubas-Startup   At log on of the current user, Mon-Fri only
-                  -> runs startup\start-all.bat
-    Lubas-Shutdown  Daily at 00:00
-                  -> runs startup\stop-all.ps1 (graceful stop + shutdown /s)
+    Lubas-Startup           At log on of the current user, Mon-Fri only
+                            -> runs startup\start-all.bat
+    Lubas-Shutdown          Daily at 00:00
+                            -> runs startup\stop-all.ps1 (graceful stop + shutdown /s)
+    Lubas-Shutdown-Warning  Daily at 23:55
+                            -> msg.exe popup 5 min before shutdown
+    Lubas-Retrain-Saturday  Weekly Sat 02:00 (T27)
+                            -> runs scripts\retrain_v2.bat (MTA for all 4 instruments)
 
   Power-on at 08:55 Mon-Fri must be set in your motherboard BIOS
   ("Resume by RTC Alarm" / "Wake on RTC"). Windows cannot boot a
@@ -15,6 +19,12 @@
 
   Auto-login must also be enabled in `netplwiz` so the system reaches
   the desktop without manual sign-in after the BIOS-triggered boot.
+
+  Saturday retrain wakes the machine at 02:00 via -WakeToRun. The
+  machine remains awake for the duration of the retrain (~5 min today
+  at Day 4 of accumulation; ~5 hrs at Day 30+ once real retrains fire).
+  After the task ends, the shutdown is NOT auto-triggered -- the user
+  decides when to power off on weekends.
 
   Run this script ONCE from an elevated PowerShell:
       powershell -ExecutionPolicy Bypass -File startup\install-scheduled-tasks.ps1
@@ -197,8 +207,50 @@ Register-ScheduledTask `
     -Force | Out-Null
 Write-Host "Registered: Lubas-Shutdown-Warning (daily 23:55 as $user)"
 
+# ============================================================
+#  Lubas-Retrain-Saturday -- Weekly Sat 02:00 (T27, V2 §6.1)
+# ============================================================
+# Saturday retrain runs scripts\retrain_v2.bat which loops MTA over
+# all 4 instruments sequentially. Wakes the machine at 02:00 (per
+# -WakeToRun) and runs as the same user that owns the parquet data.
+# Today's data is too thin for a real retrain (Day 4 of accumulation),
+# so this fires in v0-stopgap mode and the produced models stay out
+# of LATEST until manually promoted -- matches V2_MASTER_SPEC D76.
+$retrainBat = Join-Path $root 'scripts\retrain_v2.bat'
+if (-not (Test-Path $retrainBat)) { throw "Required file not found: $retrainBat" }
+
+$retrainAction = New-ScheduledTaskAction `
+    -Execute 'cmd.exe' `
+    -Argument "/c `"$retrainBat`"" `
+    -WorkingDirectory $root
+
+$retrainTrigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Saturday -At '02:00'
+
+# Retrain can run for hours once real training kicks in (~5 hrs at Day 30
+# per spec budget of 19 hrs across 4 instruments × 5 folds, /4 = ~5/inst).
+# Allow up to 16 hours. StartWhenAvailable so a missed Saturday catches
+# up the moment the machine is on again.
+$retrainSettings = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable `
+    -WakeToRun `
+    -MultipleInstances IgnoreNew `
+    -ExecutionTimeLimit (New-TimeSpan -Hours 16)
+
+Register-ScheduledTask `
+    -TaskName  'Lubas-Retrain-Saturday' `
+    -Action    $retrainAction `
+    -Trigger   $retrainTrigger `
+    -Settings  $retrainSettings `
+    -User      $user `
+    -RunLevel  Limited `
+    -Description 'Weekly Saturday MTA retrain across all 4 instruments (T27, V2_MASTER_SPEC §6.1).' `
+    -Force | Out-Null
+Write-Host "Registered: Lubas-Retrain-Saturday (weekly Sat 02:00 as $user, wakes machine)"
+
 Write-Host ""
-Write-Host "Done. Verify all three tasks registered:"
+Write-Host "Done. Verify all four tasks registered:"
 Write-Host "  Get-ScheduledTask -TaskName 'Lubas-*' | Select TaskName,State"
 Write-Host ""
 Write-Host "Verify the 23:55 popup works in this session (will fire msg.exe now):"
