@@ -22,6 +22,7 @@ Before starting any implementation or task, clearly list:
 - 2.4 Whether it can break existing systems
 - 2.5 Overall impact
 - 2.6 Layman-friendly example or analogy that makes the change understandable to a non-coder
+- 2.7 Where this fits in the system + flow using arrows (e.g. `parquet → trainer → fold pass → sim_pnl → scorecard.json`)
 
 ## Main Rule 3 — Post-implementation checklist
 
