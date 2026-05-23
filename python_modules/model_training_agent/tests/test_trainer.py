@@ -531,6 +531,94 @@ def test_fold_mode_populates_manifest_and_aggregate(tmp_path: Path) -> None:
     assert any(k.startswith("mean_") for k in sample_agg.keys())
 
 
+def test_sim_pnl_skipped_when_val_lacks_option_columns(tmp_path: Path, capsys) -> None:
+    """Default test fixture has no opt_atm_*_bid/ask cols → sim-PnL
+    harness skips gracefully; manifest carries zero sim_pnl fields."""
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    for i, ds in enumerate(["2026-04-01", "2026-04-02", "2026-04-03"]):
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=i, date_str=ds))
+
+    result = train_instrument(
+        instrument=instrument,
+        date_from="2026-04-01",
+        date_to="2026-04-03",
+        features_root=features_root,
+        models_root=tmp_path / "models",
+        config_dir=tmp_path / "feature_config",
+        val_days=1,
+        cal_days=0,
+    )
+    captured = capsys.readouterr()
+    assert "Sim-PnL: SKIPPED" in captured.out
+
+    manifest = json.loads(
+        (result.output_dir / "training_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["sim_pnl_signals"] == 0
+    assert manifest["sim_pnl_total_inr"] == 0.0
+    # No scorecard file written when harness skipped
+    assert not (result.output_dir / "sim_pnl_scorecard.json").exists()
+
+
+def test_sim_pnl_writes_scorecard_when_option_cols_present(tmp_path: Path) -> None:
+    """When the val parquet carries opt_atm_*_bid/ask + tick_ts_ns, the
+    trainer's sim-PnL pass produces a scorecard JSON and surfaces the
+    summary on the manifest. The synthetic fixture is unlikely to
+    produce enough signals to trade, but the structure must be present."""
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    rng = np.random.default_rng(42)
+
+    def _augmented_day_df(seed: int, date_str: str) -> pd.DataFrame:
+        df = _build_day_df(seed=seed, date_str=date_str, n_rows=300)
+        # Add option bid/ask columns + tick_ts_ns (1-second cadence)
+        n = len(df)
+        base_ns = int(pd.Timestamp(f"{date_str} 09:15").value)
+        df["tick_ts_ns"] = base_ns + np.arange(n) * 1_000_000_000
+        ce_mid = 180.0 + rng.normal(0, 2, n).cumsum() * 0.05
+        pe_mid = 150.0 + rng.normal(0, 2, n).cumsum() * 0.05
+        df["opt_atm_ce_bid"] = ce_mid - 1.0
+        df["opt_atm_ce_ask"] = ce_mid + 1.0
+        df["opt_atm_pe_bid"] = pe_mid - 1.0
+        df["opt_atm_pe_ask"] = pe_mid + 1.0
+        return df
+
+    for i, ds in enumerate(["2026-04-01", "2026-04-02", "2026-04-03"]):
+        _write_day_parquet(features_root, instrument, ds, _augmented_day_df(seed=i, date_str=ds))
+
+    result = train_instrument(
+        instrument=instrument,
+        date_from="2026-04-01",
+        date_to="2026-04-03",
+        features_root=features_root,
+        models_root=tmp_path / "models",
+        config_dir=tmp_path / "feature_config",
+        val_days=1,
+        cal_days=0,
+    )
+
+    # Scorecard JSON written (even if 0 trades cleared the gate)
+    scorecard_path = result.output_dir / "sim_pnl_scorecard.json"
+    assert scorecard_path.exists()
+    sc = json.loads(scorecard_path.read_text(encoding="utf-8"))
+    assert "sim_pnl_total_inr" in sc
+    assert "sim_pnl_signals" in sc
+    assert "trades" in sc
+
+    manifest = json.loads(
+        (result.output_dir / "training_manifest.json").read_text(encoding="utf-8")
+    )
+    # All 8 sim_pnl fields present in manifest
+    for key in (
+        "sim_pnl_total_inr", "sim_pnl_signals", "sim_pnl_wins",
+        "sim_pnl_win_rate", "sim_pnl_expectancy_inr",
+        "sim_pnl_max_drawdown_inr",
+        "sim_pnl_skipped_no_data", "sim_pnl_skipped_other",
+    ):
+        assert key in manifest, f"manifest missing {key}"
+
+
 def test_short_data_falls_back_with_warn_and_empty_folds(tmp_path: Path, capsys) -> None:
     """Today's typical run (≤8 sessions of v8 data) must still work:
     fold pass skips with WARN, single-split metrics still produced."""

@@ -39,12 +39,18 @@ from joblib import Parallel, delayed
 from _shared.targets import MVP_TARGET_OBJECTIVES as MVP_TARGETS
 from model_training_agent.calibration import (
     fit_isotonic_for_head,
+    read_calibration_sidecar,
     write_calibration_sidecar,
 )
 from model_training_agent.preprocessor import (
     extract_target_subset,
     preprocess_for_training,
     preprocess_for_training_base,
+)
+from model_training_agent.validation.sim_pnl import (
+    Scorecard,
+    simulate_trades,
+    write_scorecard_json,
 )
 
 LGBM_PARAMS_BINARY = {
@@ -711,6 +717,88 @@ def train_instrument(
             f"binary heads fitted, {len(calibration_skipped)} skipped"
         )
 
+    # 4.6. Sim-PnL validation harness (T26, V2_MASTER_SPEC §2.3.4).
+    # Runs after the main loop + T25 calibration, on the single-split
+    # val set. v1 uses a simple direction-only gate (calibrated
+    # `direction_60s` prob ≥ 0.65 → LONG_CE; ≤ 0.35 → LONG_PE) because
+    # the real `decide_action_v2` gate needs the full 60-key prediction
+    # dict and is being upgraded in T29 to handle trend/swing heads
+    # too. Spec deviation noted in PROJECT_TODO T26; upgrade path is
+    # "swap signal_action_fn" once T29 lands.
+    sim_pnl_summary = Scorecard().manifest_summary()  # zeros by default
+    sim_pnl_scorecard: Scorecard | None = None
+    dir_model_path = output_dir / "direction_60s.lgbm"
+    has_option_cols = all(
+        c in df_val.columns for c in (
+            "opt_atm_ce_bid", "opt_atm_ce_ask",
+            "opt_atm_pe_bid", "opt_atm_pe_ask",
+        )
+    )
+    if dir_model_path.exists() and has_option_cols and len(df_val_filt) > 0:
+        print(
+            f"\n  >> Sim-PnL validation (T26 v1): direction-only gate on "
+            f"{len(df_val_filt):,} val rows ..."
+        )
+        try:
+            dir_booster = lgb.Booster(model_file=str(dir_model_path))
+            X_val_for_gate, _ = extract_target_subset(
+                df_val_filt, X_val_base, "direction_60s",
+            )
+            raw_probs = dir_booster.predict(X_val_for_gate.values)
+            cmap = read_calibration_sidecar(
+                output_dir / "direction_60s.calibration.json",
+            )
+            cal_probs = (
+                np.asarray(cmap.apply(np.asarray(raw_probs)))
+                if cmap is not None
+                else np.asarray(raw_probs)
+            )
+
+            # Map filtered-row index → calibrated prob; rows that were
+            # dropped during preprocess get prob=NaN → gate ignores.
+            # The filtered df's index column is preserved as `.index`,
+            # so we can align back to df_val by position.
+            prob_by_pos = dict(
+                zip(df_val_filt.index.tolist(), cal_probs.tolist())
+            )
+
+            def _dir_gate(row: pd.Series) -> str | None:
+                p = prob_by_pos.get(row.name)
+                if p is None or not np.isfinite(p):
+                    return None
+                if p >= 0.65:
+                    return "LONG_CE"
+                if p <= 0.35:
+                    return "LONG_PE"
+                return None
+
+            sim_pnl_scorecard = simulate_trades(
+                df_val,
+                signal_action_fn=_dir_gate,
+                instrument=instrument,
+            )
+            sim_pnl_summary = sim_pnl_scorecard.manifest_summary()
+            write_scorecard_json(
+                sim_pnl_scorecard, output_dir / "sim_pnl_scorecard.json",
+            )
+            print(
+                f"  Sim-PnL: signals={sim_pnl_scorecard.n_signals}, "
+                f"wins={sim_pnl_scorecard.n_wins}, "
+                f"total=₹{sim_pnl_scorecard.total_pnl_inr:,.2f}, "
+                f"expectancy=₹{sim_pnl_scorecard.expectancy_inr:,.2f}"
+            )
+        except Exception as exc:
+            print(f"  Sim-PnL: SKIPPED — {type(exc).__name__}: {exc}")
+    else:
+        reasons = []
+        if not dir_model_path.exists():
+            reasons.append("direction_60s.lgbm not on disk")
+        if not has_option_cols:
+            reasons.append("val data missing opt_atm_{ce,pe}_{bid,ask} cols")
+        if len(df_val_filt) == 0:
+            reasons.append("empty val")
+        print(f"  Sim-PnL: SKIPPED — {', '.join(reasons)}")
+
     # 5. Artifacts
     manifest = {
         "instrument": instrument,
@@ -726,6 +814,8 @@ def train_instrument(
         # was too short and the fold pass was skipped — see WARN log).
         "folds": fold_results,
         "fold_aggregate": fold_aggregate,
+        # T26 — sim-PnL summary (zeros when harness was skipped).
+        **sim_pnl_summary,
         "targets": list(MVP_TARGETS.keys()),
         "trained_count": len(MVP_TARGETS) - len(skipped_targets),
         "skipped_targets": skipped_targets,

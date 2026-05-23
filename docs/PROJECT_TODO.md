@@ -110,12 +110,21 @@ SEA model_loader now reads every matching `.calibration.json` at load time and e
 - **Files touched:** `model_training_agent/calibration.py` (new), `model_training_agent/trainer.py` (post-training calibration pass), `signal_engine_agent/model_loader.py` (sidecar load + apply_calibration), `signal_engine_agent/engine.py` (_pred applies calibration), `model_training_agent/tests/test_calibration.py` (new), `model_training_agent/tests/test_trainer.py` (1 new test), `signal_engine_agent/tests/test_model_loader.py` (3 new tests), `signal_engine_agent/tests/test_engine.py` (stub helper updated for apply_calibration contract).
 - **Cross-ref:** T3 Phase 5; unblocks T8 (EV-floor migration), T16 (confidence-weighted sizing), T34 (reliability monitoring). Required T24a (calibration fold carve-out).
 
-### T26 — Sim-PnL Option C validation harness 🆕
-Create `model_training_agent/validation/sim_pnl.py` (directory does not currently exist). Implements V2_MASTER_SPEC §2.3.4 single bid/ask-slippage replay. Must produce a scorecard the moment training finishes; otherwise we train and can't evaluate the result.
+### T26 — Sim-PnL Option C validation harness ✅ COMPLETE 2026-05-23
+New `python_modules/model_training_agent/validation/sim_pnl.py` implementing V2_MASTER_SPEC §2.3.4 Option C: per-signal entry at ask, exit at bid, time-stop horizon, placeholder charges. Pure `compute_scorecard()` aggregator (n_signals, wins, win_rate, expectancy_inr, max_drawdown_inr) + `simulate_trades()` orchestrator with `signal_action_fn` seam for the future T29 v2 gate.
 
-- **Status:** ⏳ PRE-Day-30 MUST.
-- **Effort:** ~1-2 days.
-- **Cross-ref:** T3 Phase 5; promotion gate for new model artifacts; later upgraded by T9.
+Trainer's post-training pass runs the harness on the single-split val set (matches today's `.lgbm` source — same scope deviation as T24b). Writes `sim_pnl_scorecard.json` next to the manifest; surfaces 8 sim_pnl_* keys on the manifest for T27 Saturday-automation to read.
+
+**v1 simplifications (all documented):**
+- Gate = simple direction-only: calibrated `direction_60s` ≥ 0.65 → LONG_CE; ≤ 0.35 → LONG_PE. Real `decide_action_v2` needs T29's multi-head router; swap by changing `signal_action_fn`.
+- Exit = time-stop only (60s horizon); TP/SL ladder from §2.5 is the upgrade path.
+- Charges = ₹125 placeholder constant (spec worked-example value); real Charges_Spec module wiring deferred.
+- Required val columns: `opt_atm_ce_bid/ask`, `opt_atm_pe_bid/ask`, `tick_ts_ns`. Missing any → harness skips gracefully with reason logged.
+
+- **Status:** ✅ DONE 2026-05-23.
+- **Verification:** 17 unit tests on the pure module (Trade properties, Scorecard aggregation, orchestrator routing + skip paths, JSON round-trip, manifest key contract). 2 trainer end-to-end tests (graceful skip when option cols absent, scorecard JSON + manifest keys present when augmented val has them). 94/94 MTA tests pass.
+- **Files touched:** `model_training_agent/validation/__init__.py` (new), `model_training_agent/validation/sim_pnl.py` (new, ~370 LOC), `model_training_agent/trainer.py` (~70 LOC for the integration block + manifest), `model_training_agent/tests/test_sim_pnl.py` (new), `model_training_agent/tests/test_trainer.py` (2 new tests).
+- **Cross-ref:** T3 Phase 5. Unblocks T27 Saturday-automation promotion gate. Upgrade path to T9 (multi-scenario Option D) once paper-trade fills accumulate.
 
 ### T27 — Saturday scheduler + LATEST_HEADS.json + D66 reconciler runtime 🆕
 Three coupled items needed for the auto-retrain to actually fire and the new model to load cleanly.
