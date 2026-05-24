@@ -12,7 +12,7 @@ Sole owner of broker calls. Convert approved signals into live or paper orders, 
 - [TradeExecutorAgent_Spec_v1.3.md](../specs/TradeExecutorAgent_Spec_v1.3.md) — singular broker caller, paper vs live split, DISCIPLINE_EXIT handling.
 - [Disconnect_Safety_Spec_v0.1.md](../specs/Disconnect_Safety_Spec_v0.1.md) — position reconciliation, stale-order cleanup, manual intervention.
 - [DualAccountArchitecture_Spec_v0.1.md](../specs/DualAccountArchitecture_Spec_v0.1.md) — primary + spouse accounts.
-- [DHAN_TOKEN_POLICY.md](../DHAN_TOKEN_POLICY.md) — startup-only refresh policy.
+- [DHAN_TOKEN_POLICY.md](../specs/DHAN_TOKEN_POLICY.md) — startup-only refresh policy.
 
 ## Data flow
 ```

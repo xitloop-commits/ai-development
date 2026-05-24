@@ -10,7 +10,7 @@ Local control plane for the whole Lubas platform on Windows. Start/stop processe
 ## Sub-specs
 - [AILiveCanary_Spec_v0.1.md](../specs/AILiveCanary_Spec_v0.1.md) — 1-week NIFTY-only canary playbook, metrics, promotion criteria.
 - [DualAccountArchitecture_Spec_v0.1.md](../specs/DualAccountArchitecture_Spec_v0.1.md) — primary + spouse account topology.
-- [RUNBOOK_PHASE_I.md](../RUNBOOK_PHASE_I.md) — pre-open checklist (server health, metrics, Dhan token, SEA feed).
+- [RUNBOOK_PHASE_I.md](../specs/RUNBOOK_PHASE_I.md) — pre-open checklist (server health, metrics, Dhan token, SEA feed).
 - Operational references (auto-memory, per-machine):
   - `project_launcher_windows_only.md` — cross-platform rejected 2026-05-17.
   - `project_launcher_name_lubas.md` — full ATS → Lubas rebrand 2026-05-17.

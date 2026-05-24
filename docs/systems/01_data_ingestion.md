@@ -8,7 +8,7 @@ Pull live ticks from Dhan, record raw `.ndjson.gz` per session, and expose a fea
 **Out:** feature derivation (→ 02), persistence to DB (→ 07), broker order channels (→ 05).
 
 ## Sub-specs
-- [DHAN_TOKEN_POLICY.md](../DHAN_TOKEN_POLICY.md) — startup-only refresh, no dual-refresh races (active production policy).
+- [DHAN_TOKEN_POLICY.md](../specs/DHAN_TOKEN_POLICY.md) — startup-only refresh, no dual-refresh races (active production policy).
 
 ## Data flow
 ```

@@ -11,7 +11,7 @@ Convert raw ticks into 446 L1 features per tick (live and replay) plus 24 L2 tar
 - [TickFeatureAgent_Spec_v1.7.md](../specs/TickFeatureAgent_Spec_v1.7.md) — 8 feature blocks (A–H), schema versions, alerts.
 - [TickFeatureAgent_ImplementationPlan_v1.0.md](../specs/TickFeatureAgent_ImplementationPlan_v1.0.md) — module-by-module build plan (Phase 2a stateless / 2b session-state / 2c cross-day / 3 targets).
 - Cross-cutting:
-  - [FEATURE_HEAD_RECONCILIATION.md](../FEATURE_HEAD_RECONCILIATION.md) — 446 features ↔ 84 heads lookup.
+  - [FEATURE_HEAD_RECONCILIATION.md](../specs/FEATURE_HEAD_RECONCILIATION.md) — 446 features ↔ 84 heads lookup.
   - [V2_MASTER_SPEC.md §2.1](../V2_MASTER_SPEC.md) — design authority for L1 features.
   - [V2_MASTER_SPEC.md §2.2](../V2_MASTER_SPEC.md) — design authority for L2 targets.
 
