@@ -198,6 +198,22 @@ Two edge-case items not on prior roadmap:
 - **Effort:** ~1 day total.
 - **Cross-ref:** T3 Phase 6.
 
+### T41 — Production prediction → outcome join (feedback-loop foundation) 🆕
+Persist every live head prediction (84 heads × every signal eval) to disk, then backfill the actual market outcome N seconds later from the live tick stream. Produces `predictions_<date>.parquet` per instrument joining what the model *said* with what actually *happened* — for all 84 heads, not just heads that fired.
+
+Schema per row: `prediction_id, ts_ns, instrument, head_name, head_type, raw_prob, calibrated_prob, gate_decision, regime_tag, feature_snapshot_hash, lookahead_seconds, outcome_direction, outcome_magnitude, outcome_max_excursion, outcome_max_drawdown, outcome_filled_ts_ns`. Outcome columns NaN at write time, backfilled by a tail-consumer process after each head's lookahead window elapses.
+
+**Why this is pre-paper-trade MUST:**
+- Without this, paper-trade fills produce only a P&L curve — no per-head reliability evidence to build confidence on.
+- T34 §5.1 weekly reliability report assumes this source data exists. T34 builds the *report*; T41 builds the *source table*.
+- Champion/challenger promotion (future T27 enhancement), recency-weighted retraining, regime-aware retraining, and any future RL / online-learning path all depend on `(prediction, outcome)` tuples.
+- If skipped to launch faster, the first month of paper-trade data is unrecoverable for feedback-loop purposes.
+
+- **Status:** ⏳ PRE-PAPER MUST. Added 2026-05-24.
+- **Effort:** ~2-3 days. New `signal_engine_agent/prediction_logger.py` + `signal_engine_agent/outcome_backfiller.py` + parquet writer + unit + integration tests.
+- **Files expected to touch:** `signal_engine_agent/prediction_logger.py` (new), `signal_engine_agent/outcome_backfiller.py` (new), `signal_engine_agent/engine.py` (`_pred` hook to emit), `python_modules/_shared/prediction_schema.py` (new), tests under each module.
+- **Cross-ref:** T27 (Saturday retrain — future champion/challenger needs this), T33 (cohort tagging — must tag prediction rows too), T34 (weekly reliability report — direct downstream consumer), T8/T16/T18 (any threshold/sizing/calibration tuning needs outcome data), [much later] RL / online-learning prerequisites.
+
 ## P2 — parked features (small enough to wait)
 
 ### T4 — Replay in-date progress + chunked resume (PARTIALLY DONE 2026-05-16)
