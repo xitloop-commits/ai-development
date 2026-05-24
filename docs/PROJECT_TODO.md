@@ -557,6 +557,13 @@ Refactor the yow-partha Telegram bot so Lubas spawns it as a direct child proces
 - **Effort:** ~1 day; design notes already captured in the resume memory.
 - **Cross-ref:** [systems/09_control_bot.md](systems/09_control_bot.md), [YowPartha_Spec_v0.1.md](specs/YowPartha_Spec_v0.1.md).
 
+### T40 [INGEST] — Tick-loss monitoring + alerting 🆕
+Add mid-session anomaly detection to the recorder: trigger Telegram alert when (a) tick drop rate exceeds 10% of the per-instrument baseline, or (b) a feed gap exceeds 10 s without a Dhan reconnect, or (c) a WebSocket disconnects without resubscribing within 30 s. Today TFA only logs final tick counts at session-close; mid-session degradation goes unnoticed until the daily review.
+
+- **Status:** Deferred 2026-05-24 (surfaced during System 01 doc rewrite).
+- **Effort:** ~1–2 days. Add a `tick_health_monitor` task inside `tick_processor.py`; emit via existing `_notify_yow_partha` path.
+- **Cross-ref:** [systems/01_data_ingestion.md §7](systems/01_data_ingestion.md). Pair with [T22](#t22--launcher-blue-tick-for-terminatedpartial-pipeline-stages) on the launcher-side display.
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 _None yet._
