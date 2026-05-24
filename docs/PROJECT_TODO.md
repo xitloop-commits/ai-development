@@ -2,53 +2,7 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
-## ACTIVE — currently in flight
-
-### T0 — Resume point for next session (2026-05-17 EOD)
-**Spec fully implementation-ready. All internal audit findings closed + external ChatGPT/Gemini review integrated.** Last commit `8d75ddf` on origin/main.
-
-Today's work (19 commits):
-- **Morning session (commits 6004b18 → 198bc41):** finalized L8 lock, swing layer added to v2 (D55, was T7), spec re-locked across L2/L4/L5/L7/L8 after swing addition, 4-batch internal audit (drift fixes + I9/I7/I8/I14/I10 design fixes), launcher hardening bundle A+B+C+D plus Round 2 audit.
-- **Afternoon session (commits 196aacb → d0a7ef6):** fresh-eyes audit found 9 residual findings; all closed (D65–D71). Launcher Round 3 audit + Lubas rebrand (f2c0f75 — separate parallel work).
-- **Evening session (commit 8d75ddf):** ChatGPT + Gemini external feedback integrated — 3 items added to v2 lock (D72 probability calibration, D73 Phase 7 sub-phases, D56 cohort tracking extension), 5 items added to PROJECT_TODO (T18 adaptive thresholds, T19 no-trade classifier, T20 meta-ensemble, T14 + T15 extended).
-
-**Net spec state (V2_MASTER_SPEC):**
-- 8 layers all LOCKED / RE-LOCKED 2026-05-17
-- 73 decisions tracked in §9 (D1–D73), all resolved or scheduled for post-paper-trade tuning
-- 446 L1 features (377 base + 23 B-block + 46 C-block ACCEPT)
-- 84 model heads per instrument (60 scalp + 12 trend + 12 swing)
-- Probability calibration pipeline (D72) unblocks T8 + T16 future upgrades
-
-**Next-session entry point: T3 Phase 2 (TFA feature additions, ~1-2 days code).** Spec defines exactly what to build:
-- 446-feature L1 emitter (377 base + 23 B-block + 46 C-block ACCEPT — schema_version bumps the registry per D66)
-- 12 trend target columns + 12 swing target columns (Phase 3)
-- New per-position state schema for inline composition exits (§2.5.1, I7/I8 + D68 fixes)
-- LATEST_HEADS.json per-head schema metadata + isotonic calibration map per head (I10 + D72)
-- Schema registry at `config/schema_registry/v<N>.json` (D66 runtime reconciliation)
-
-Spec sections to read first when resuming: §0 architecture diagram, §2.1 L1 features, §2.2 L2 targets, §2.3 model architecture (calibration added), §6 phase plan (Phase 7 now has 7a/7b/7c sub-phases).
-
 ## P1 — design work while data accumulates
-
-### T2 — Signal system v2 brainstorm (8 layers) — **COMPLETE 2026-05-17**
-Stage-by-stage design of the perfect signal system. All layer designs land in the single source of truth `docs/V2_MASTER_SPEC.md`.
-
-- **Status:** All 8 layers LOCKED. Audit complete (4 batches). 64 decisions tracked. Spec implementation-ready.
-- **Layers (status header in V2_MASTER_SPEC §2.0):**
-  - [x] Skeleton pass — all 8 layers consolidated (2026-05-16)
-  - [x] L1 — Input features LOCKED 2026-05-17 (multi-touch: B5 S/R + 1hr OI for swing); 446 active features
-  - [x] L2 — Target labels RE-LOCKED 2026-05-17 (12 swing targets added)
-  - [x] L3 — Model architecture LOCKED 2026-05-16 (head count grew 60→84 per instrument for swing)
-  - [x] L4 — Gate logic RE-LOCKED 2026-05-17 (decide_action_swing + 3-way ensemble + agreement-window upgrade + bias filter magnitude guard)
-  - [x] L5 — Trade management RE-LOCKED 2026-05-17 (swing-specific exits + per-layer stop counter + inline exhaustion/wall-break composition)
-  - [x] L6 — Position sizing LOCKED 2026-05-16 (formula scales to swing naturally)
-  - [x] L7 — Risk controls RE-LOCKED 2026-05-17 (layer cap + swing entry cutoff + shared daily-loss budget)
-  - [x] L8 — Regime / meta RE-LOCKED 2026-05-17 (trend_strong tier + 5-min sustain for swing + benign degradation handling)
-- **2026-05-17 additions over 2026-05-16 baseline:**
-  - 7-change architecture brainstorm (separate `docs/REFERENCE.md` consolidated into spec)
-  - Audit pass → Batch 1 (mechanical drift) + Batch 2 (I9 ensemble fix) + Batch 3 (I7/I8/I14 real bugs) + Batch 4 (I10 per-head schema)
-  - Swing layer added to v2 (was deferred to T7)
-- **Audit findings closed:** all CRITICAL (C1-C5) + IMPORTANT (I1-I14) + DESIGN issues resolved. MINOR items folded into mechanical sweep.
 
 ### T3 — Trend-capture retrain (P1 blocker for paper trading)
 Current Wave 2 model is a microstructure scalp predictor; v2 adds trend (10-30 min) + swing (30 min - 2 hr) layers. New target spec with noise floor in labels, new multi-TF features, retrain.
@@ -66,77 +20,14 @@ Current Wave 2 model is a microstructure scalp predictor; v2 adds trend (10-30 m
       3. **Weekly Saturday retrain** kicks in after day-30; runs on full accumulated dataset per §6.1.
       4. Trainer prints a non-blocking WARN if `len(loaded) < 30` so v0-style runs are obvious in logs.
     - **Phase 2e proposal (2026-05-21, from T7 brainstorm — ON HOLD with T7):** add ~28-30 macro-bias L1 columns (FII/DII, US-session closes WTI/$INR/S&P, Gift Nifty, event calendar FOMC/RBI/EIA/OPEC/CPI/NFP) shared between v2 intraday and T7 swing models. Would bump schema **v8→v9** and reset this accumulation counter. **Hold trigger:** re-engage only after paper/live trading shows significant edge improvement. See T7 "Brainstorm progress (2026-05-21)" sub-block for full details.
-  - [ ] Phase 5: Retrain all 4 with combined targets (84 heads each, ~5 hrs compute) — **expanded into T23-T28** (audit 2026-05-22)
-  - [ ] Phase 6: Trend gate + swing gate + 3-way combinator + smoke — **expanded into T29-T35** (audit 2026-05-22). Earlier estimate "~3-4 days code" was too low; real scope is ~13-17 days per audit.
+  - [x] Phase 5: Retrain pipeline COMPLETE 2026-05-23 — 84 heads + walk-forward CV + isotonic calibration + sim_pnl harness + Saturday scheduler + LATEST_HEADS + D66 schema reconciler all shipped (formerly T23–T27, now closed). T28 (Optuna hyperparam tuning) remains as PRE-Day-30 SHOULD; T41 (Saturday promotion-gate script) is PRE-paper-trade MUST.
+  - [ ] Phase 6: Trend gate + swing gate + 3-way combinator + smoke — **expanded into T29–T35** (audit 2026-05-22). Earlier estimate "~3-4 days code" was too low; real scope is ~13-17 days per audit.
   - [ ] Phase 7: Paper trade ramp (ai-paper channel, weeks)
 - **Empirical evidence the current model is scalp-only:** 9/9 nifty50 signals on 2026-04-30 / 2026-05-11 were 5-7 pt captures at day-extreme reversals; 85-pt sustained 10:50-11:20 uptrend on 2026-05-11 produced ZERO signals.
 
-## P1.5 — Pre-retrain critical path (audit 2026-05-22)
+## P1.5 — Pre-paper-trade critical path
 
-Surfaced by a deep audit of `python_modules/` vs V2_MASTER_SPEC on 2026-05-22. Splits into two groups:
-- **Group A (T23-T28):** must complete BEFORE Day 30 (2026-06-30) so the auto-retrain on Sat 2026-07-04 produces a usable model. ~7-12 engineering days.
-- **Group B (T29-T35):** must complete BEFORE Phase 7 paper-trade ramp so the trained model can drive live signals. ~13-17 engineering days.
-
-Total NEW pre-paper-trade work: ~20-29 days. Fits in the ~6-week window from 2026-05-22 to 2026-07-04. All entries are 🆕 as of 2026-05-22.
-
-### T23 — Trainer targets 60→84 heads (Phase 5 prep) ✅ COMPLETE 2026-05-23
-Extended `python_modules/_shared/targets.py` from 60 scalp heads to 84 — added 12 trend (900/1800s) + 12 swing (3600/7200s) heads with `head_type` field per V2_MASTER_SPEC §2.2 / D55. Names match TFA-side `trend_swing_targets.py` exactly (`{trend|swing}_{direction|magnitude|max_excursion|max_drawdown|continues|breakout_imminent}_{w}s`). Added `MVP_TARGET_HEAD_TYPES` view + per-layer window assertions + head-type distribution guard.
-
-- **Status:** ✅ DONE 2026-05-23.
-- **Verification:** serial trainer run produced all 84 .lgbm files (60 scalp + 12 trend + 12 swing); 25/25 `test_targets.py` tests pass; trainer + loader tests pass (the one pre-existing parallel-test failure is a Python 3.14 / joblib-loky environment issue unrelated to T23).
-- **Files touched:** `_shared/targets.py`, `_shared/tests/test_targets.py`, `model_training_agent/tests/test_trainer.py` (comment), `signal_engine_agent/model_loader.py` (comment), `signal_engine_agent/tests/test_model_loader.py`.
-- **Cross-ref:** T3 Phase 5. Unblocks T24 (walk-forward CV), T25 (per-head calibration), T26 (sim-PnL), T27 (LATEST_HEADS schema metadata).
-
-### T24 — Walk-forward CV implementation ✅ COMPLETE 2026-05-23
-Replace the current single last-N-days split with proper 5-fold walk-forward CV + dedicated calibration fold per V2_MASTER_SPEC §6.
-
-- **T24a — Calibration fold carve-out** ✅ DONE 2026-05-23. `train_instrument` peels off the most recent `cal_days` (default 5) sessions before the train/val split. Sessions recorded in `manifest["calibration_dates"]` for T25 to consume; never seen by trainer. Auto-skip with WARN when total < `cal_days + 2`. `--cal-days` CLI flag.
-- **T24b — Walk-forward CV** ✅ DONE 2026-05-23. New `_plan_walk_forward_folds()` helper + `_validate_one_fold()` + `_aggregate_fold_metrics()`. After the cal carve-out, the trainer runs `n_folds` (default 5) evenly-spaced 1-trading-week holdouts; each fold trains all 84 heads via `_fit_one()` and scores them on the fold's val week — models are discarded. Aggregate `mean_<metric>` + `worst_<metric>` per head go into `manifest["fold_aggregate"]`; per-fold detail in `manifest["folds"]`. CLI flags `--n-folds`, `--fold-week-size`. Auto-skips with WARN when sessions < `n_folds × fold_week_size`.
-
-**Spec deviation noted (T24b)**: production `.lgbm` still comes from the existing single-split path → loses `val_days` of training data (~10%) versus spec's "train on all-minus-cal". Acceptable today; revisit if it shows up as edge-quality drop after first real retrain.
-
-- **Status:** ✅ DONE 2026-05-23.
-- **Verification:** 9 new T24b tests (planner contract, threshold, even spacing, validation, fold-mode end-to-end, short-data fallback) + 4 T24a tests + carryover from T25 — total 75/75 MTA tests pass (the 1 pre-existing parallel-test failure is a Python 3.14 / joblib-loky environment issue, not T24).
-- **Files touched:** `model_training_agent/trainer.py` (~150 LOC added: FoldSpec dataclass + 3 helpers + fold pass + manifest fields), `model_training_agent/cli.py` (2 flags), `model_training_agent/tests/test_trainer.py` (6 new tests).
-- **Cross-ref:** T3 Phase 5. Unblocks T26 (sim-PnL has per-fold metrics to aggregate).
-
-### T25 — D72 isotonic calibration: fit + serialize + runtime apply ✅ COMPLETE 2026-05-23
-Per V2_MASTER_SPEC §2.3 D72 (scope narrowed by D75 Gap 4 to binary heads only). Added `python_modules/model_training_agent/calibration.py` (fit_isotonic_for_head + sidecar writer/reader + CalibrationMap dataclass). Trainer's post-training pass loads each binary head's `.lgbm`, predicts on the T24a calibration fold, fits `sklearn.isotonic.IsotonicRegression(out_of_bounds='clip')`, and writes `<head>.calibration.json` next to the model. Manifest gained `calibration_fit_count` + `calibration_skipped`.
-
-SEA model_loader now reads every matching `.calibration.json` at load time and exposes `LoadedModels.apply_calibration(target, raw)` — a no-op when no sidecar (regression heads, or binary heads the trainer skipped). `engine._pred` calls this automatically so all gate logic transparently receives calibrated probabilities.
-
-- **Status:** ✅ DONE 2026-05-23.
-- **Verification:** 14/14 calibration unit tests pass (fit + apply + sidecar round-trip + path resolution). 17/17 model_loader tests pass (including 3 new tests for sidecar wiring). 212 SEA + 23 MTA tests all green. Trainer end-to-end test confirms binary heads get sidecars, regression heads don't.
-- **Files touched:** `model_training_agent/calibration.py` (new), `model_training_agent/trainer.py` (post-training calibration pass), `signal_engine_agent/model_loader.py` (sidecar load + apply_calibration), `signal_engine_agent/engine.py` (_pred applies calibration), `model_training_agent/tests/test_calibration.py` (new), `model_training_agent/tests/test_trainer.py` (1 new test), `signal_engine_agent/tests/test_model_loader.py` (3 new tests), `signal_engine_agent/tests/test_engine.py` (stub helper updated for apply_calibration contract).
-- **Cross-ref:** T3 Phase 5; unblocks T8 (EV-floor migration), T16 (confidence-weighted sizing), T34 (reliability monitoring). Required T24a (calibration fold carve-out).
-
-### T26 — Sim-PnL Option C validation harness ✅ COMPLETE 2026-05-23
-New `python_modules/model_training_agent/validation/sim_pnl.py` implementing V2_MASTER_SPEC §2.3.4 Option C: per-signal entry at ask, exit at bid, time-stop horizon, placeholder charges. Pure `compute_scorecard()` aggregator (n_signals, wins, win_rate, expectancy_inr, max_drawdown_inr) + `simulate_trades()` orchestrator with `signal_action_fn` seam for the future T29 v2 gate.
-
-Trainer's post-training pass runs the harness on the single-split val set (matches today's `.lgbm` source — same scope deviation as T24b). Writes `sim_pnl_scorecard.json` next to the manifest; surfaces 8 sim_pnl_* keys on the manifest for T27 Saturday-automation to read.
-
-**v1 simplifications (all documented):**
-- Gate = simple direction-only: calibrated `direction_60s` ≥ 0.65 → LONG_CE; ≤ 0.35 → LONG_PE. Real `decide_action_v2` needs T29's multi-head router; swap by changing `signal_action_fn`.
-- Exit = time-stop only (60s horizon); TP/SL ladder from §2.5 is the upgrade path.
-- Charges = ₹125 placeholder constant (spec worked-example value); real Charges_Spec module wiring deferred.
-- Required val columns: `opt_atm_ce_bid/ask`, `opt_atm_pe_bid/ask`, `tick_ts_ns`. Missing any → harness skips gracefully with reason logged.
-
-- **Status:** ✅ DONE 2026-05-23.
-- **Verification:** 17 unit tests on the pure module (Trade properties, Scorecard aggregation, orchestrator routing + skip paths, JSON round-trip, manifest key contract). 2 trainer end-to-end tests (graceful skip when option cols absent, scorecard JSON + manifest keys present when augmented val has them). 94/94 MTA tests pass.
-- **Files touched:** `model_training_agent/validation/__init__.py` (new), `model_training_agent/validation/sim_pnl.py` (new, ~370 LOC), `model_training_agent/trainer.py` (~70 LOC for the integration block + manifest), `model_training_agent/tests/test_sim_pnl.py` (new), `model_training_agent/tests/test_trainer.py` (2 new tests).
-- **Cross-ref:** T3 Phase 5. Unblocks T27 Saturday-automation promotion gate. Upgrade path to T9 (multi-scenario Option D) once paper-trade fills accumulate.
-
-### T27 — Saturday scheduler + LATEST_HEADS.json + D66 reconciler runtime ✅ COMPLETE 2026-05-23
-Three coupled pieces, all shipped together:
-
-- **Sat scheduler.** Registered `Lubas-Retrain-Saturday` in `startup/install-scheduled-tasks.ps1`: weekly trigger Sat 02:00, wakes the machine via `-WakeToRun`, runs as the current user, 16-hour execution-time limit. New `scripts/retrain_v2.bat` loops MTA CLI sequentially across crudeoil / naturalgas / nifty50 / banknifty; per-instrument failures don't abort the others. `_scheduled-start.bat` Saturday-skip stays in place (correct for the weekday-live-trading task; Sat retrain has its own dedicated entry).
-- **LATEST_HEADS.json writer.** Trainer's `_build_latest_heads_payload` + `write_latest_heads_json` now write `models/<inst>/LATEST_HEADS.json` next to the existing plain-text `LATEST`. Schema version is auto-detected from the highest-numbered `config/schema_registry/v<N>.json`; falls back to 0 with WARN when no registry exists. Each of the 84 heads records head_type, objective, lookahead_seconds, lgbm_path (null if training skipped), calibration_path (null if no sidecar), and schema_version. File format is versioned (`LATEST_HEADS_VERSION = 1`).
-- **D66 reconciler runtime.** New `signal_engine_agent/schema_reconciler.py` with `reconcile_loaded_heads()` returning a `QuarantineReport`. Loader runs it after loading .lgbm + sidecars; mismatched heads are popped from `LoadedModels.models` + `LoadedModels.calibrations` so the engine's `_pred` treats them as missing (NaN → gate fail-open). Conservative on uncertainty — missing `LATEST_HEADS.json`, missing `schema_registry/`, version=0, or unsupported file shape all → no quarantine.
-
-- **Status:** ✅ DONE 2026-05-23.
-- **Verification:** 9 new schema-reconciler tests (all conservative-on-uncertainty paths + happy-path quarantine + end-to-end loader integration). 2 new trainer tests for LATEST_HEADS writer (full schema present + zero-fallback path). 303/303 SEA + MTA + shared tests pass.
-- **Files touched:** `model_training_agent/trainer.py` (+~100 LOC: schema reader, payload builder, writer, integration), `signal_engine_agent/schema_reconciler.py` (new, ~120 LOC), `signal_engine_agent/model_loader.py` (+~10 LOC reconciler wiring), `startup/install-scheduled-tasks.ps1` (+50 LOC for the Saturday task block), `scripts/retrain_v2.bat` (new), tests for each piece.
-- **Cross-ref:** V2_MASTER_SPEC D66/I10/D72, §6.1 weekly cadence. Closes the pre-Day-30 MUST list.
+T28 = PRE-Day-30 SHOULD (hyperparameter tuning before first real retrain). T29–T35 + T41 = PRE-PAPER MUST (must ship before Phase 7 paper-trade ramp). T23–T27 closed 2026-05-23 (training-pipeline build-out, see git log for detail).
 
 ### T28 — Hyperparameter tuning infrastructure (Optuna) 🆕
 Add Optuna sweep job that runs on holdout fold, picks best LightGBM params per head, feeds into Saturday retrain. Currently `LGBM_PARAMS_BINARY`/`_REGRESSION` are hardcoded in `trainer.py:46-67` and no `config/mta_hyperparams.json` exists (T3 Plan §5.2 line 174). Typically 1-3% AUC improvement per head.
@@ -541,15 +432,6 @@ Cost: schema bump v8→v9; **T3 Phase 4 accumulation counter resets when schema 
 
 Total code work ≈ 18-21 days; total wall time to live ≈ 4-5 months once T3 Phase 7 unblocks T7.
 
-## INFRA — passive, no action needed
-
-### T5 — Auto-recorder Mon-Fri 08:55 → midnight
-BIOS RTC + Windows auto-login + scheduled tasks. Tested working 2026-05-16.
-
-- **Status:** Live, autonomous.
-- **What it does:** Each weekday 08:55 → 00:00, records ticks for all 4 instruments to `data/raw/<DATE>/`.
-- **Manual override:** Run `Disable-ScheduledTask -TaskName 'ATS-Startup'` to pause.
-
 ## HOUSEKEEPING — small chores
 
 ### T6 — Locked `.claude/worktrees/angry-aryabhata-e93cfa` directory
@@ -579,6 +461,13 @@ Add mid-session anomaly detection to the recorder: trigger Telegram alert when (
 - **Status:** Deferred 2026-05-24 (surfaced during System 01 doc rewrite).
 - **Effort:** ~1–2 days. Add a `tick_health_monitor` task inside `tick_processor.py`; emit via existing `_notify_yow_partha` path.
 - **Cross-ref:** [systems/01_data_ingestion.md §7](systems/01_data_ingestion.md). Pair with [T22](#t22--launcher-blue-tick-for-terminatedpartial-pipeline-stages) on the launcher-side display.
+
+### T42 [MTA] — Saturday promotion-gate script 🆕
+After the Saturday retrain produces `training_manifest.json` with `sim_pnl_*` summary keys, an external script must decide whether to update `models/<inst>/LATEST` to the new run or hold for manual review. Today the cron retrains and writes artifacts; the promotion decision is implicit-manual. Per V2_MASTER_SPEC §2.3.4 the rule is: promote iff `sim_pnl_total ≥ wave2_baseline_sim_pnl × 1.20` AND per-trade expectancy ≥ +8 pts.
+
+- **Status:** Deferred 2026-05-24 (surfaced during System 03 doc rewrite). PRE-paper-trade MUST.
+- **Effort:** ~1 day. New `scripts/saturday_promote.py` reads manifest, compares baseline, updates LATEST pointer or fires Telegram alert.
+- **Cross-ref:** [systems/03_model_training.md §14](systems/03_model_training.md). Sister task to T28 (Optuna); both gate the Saturday workflow.
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
