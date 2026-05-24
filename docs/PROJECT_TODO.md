@@ -469,6 +469,13 @@ After the Saturday retrain produces `training_manifest.json` with `sim_pnl_*` su
 - **Effort:** ~1 day. New `scripts/saturday_promote.py` reads manifest, compares baseline, updates LATEST pointer or fires Telegram alert.
 - **Cross-ref:** [systems/03_model_training.md §14](systems/03_model_training.md). Sister task to T28 (Optuna); both gate the Saturday workflow.
 
+### T43 [SEA] — Remove deprecated legacy_filter.py + trade_filter.py 🆕
+Pre-E5 4-stage filter (`legacy_filter.py` 129 LOC + `trade_filter.py` 328 LOC = 457 LOC dead code) retained behind `--filter=legacy` CLI flag for one A/B validation cycle. Phase E5 base gate has been locked + validated since 2026-04-30. Time to delete.
+
+- **Status:** Deferred 2026-05-24 (surfaced during System 04 doc rewrite). Cleanup, not blocking.
+- **Effort:** ~½ day. Remove the two files, the `--filter=legacy` flag, and any unreachable branches in `engine.py`. Verify 124-test suite still green.
+- **Cross-ref:** [systems/04_signal_engine.md §9](systems/04_signal_engine.md).
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 _None yet._
