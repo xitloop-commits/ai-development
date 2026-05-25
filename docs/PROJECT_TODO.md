@@ -561,16 +561,18 @@ Convert TFA's per-event stateful trackers (the hot ones) to Polars columnar `upd
 - **Total effort:** ~5–6 weeks.
 - **Expected speedup vs today:** 3–5× per date; 5-date batch ~30–40 min → ~6–10 min.
 
-**Sub-phases (sequential — each its own PR, each golden-file gated):**
-  - [ ] **B.1 — Profile + scope** (~1–2 days): cProfile a full date, rank top 10 hot functions, lock the MUST-vectorise vs CAN-stay-scalar set in a short scope doc.
-  - [ ] **B.2 — ColumnarBatcher** (~2–3 days): new `python_modules/tick_feature_agent/replay/columnar_batcher.py` that buffers `merge_streams` events into 5–10k-row Polars chunks. Adapter still scalar; this is purely a refactor that changes the source shape. Golden-file must pass byte-for-byte.
-  - [ ] **B.3a — realized_vol → columnar** (~3 days): promote T48 spike to production-ready. Polars `group_by_dynamic` for the 4 rolling-std windows. Golden-file gate.
-  - [ ] **B.3b — compression → columnar** (~3 days): independent PR, golden-file gated.
-  - [ ] **B.3c — OI-weighted levels → columnar** (~3 days): "".
-  - [ ] **B.3d — exhaustion → columnar** (~3 days): "".
-  - [ ] **B.3e — OFI → columnar** (~3 days): "".
+**Sub-phases (sequential — each its own PR, each golden-file gated). B.3 list locked 2026-05-25 against profile data on 2026-04-28 (pre-v8) + 2026-05-22 (v8 schema) — both rankings agreed.**
+  - [x] **B.1 — Profile + scope** (DONE 2026-05-25): Profiled 500k events on 2026-04-28 and 2026-05-22. Top hot trackers (by tottime / call frequency): `levels.compute_max_pain_features` (34.8s), `targets.compute_targets` (31.0s), `compute_side_strengths` (10.0s), `dealer_hedging` + `bs_greeks` (~7s combined), `_c7_center_of_mass` + `compute_strike_rotation_features` (~6s combined), `compute_oi_weighted_levels` (2.5s). **`realized_vol` is NOT in the top 30** — the T48 5000× win on it accounts for <1% of total replay time; kept the columnar code but deprioritised in the sequence. Reports at `docs/T50_PROFILING_REPORT.md` + `docs/T50_PROFILING_REPORT_v8.md`.
+  - [ ] **B.2 — ColumnarBatcher** (~2–3 days): new `python_modules/tick_feature_agent/replay/columnar_batcher.py` that buffers `merge_streams` events into 5–10k-row Polars chunks per event type. Adapter still scalar; this is purely a refactor that changes the source shape. Golden-file must pass byte-for-byte.
+  - [ ] **B.3a — `compute_max_pain_features` → columnar** (~3 days): biggest single win (~30s out of 200s = 15% of replay). Polars per-strike pain summation across the chain snapshot batch.
+  - [ ] **B.3b — `targets.compute_targets` + `trend_swing_targets.compute_targets` → columnar** (~3 days): replay-only target backfill, ~33s combined. Perfect for batched vectorisation since outcomes are known after-the-fact.
+  - [ ] **B.3c — `active_features.py` cluster → columnar** (~3 days): `compute_side_strengths` + `_c7_center_of_mass` + `compute_strike_rotation_features`, ~17s combined. Group as one PR (shared helpers).
+  - [ ] **B.3d — `dealer_hedging` + `greeks.bs_greeks` cluster → columnar** (~3 days): ~7s combined; vectorised Black-Scholes via numpy/polars broadcasting.
+  - [ ] **B.3e — `chain.py` cluster → columnar** (~3 days): `compute_oi_weighted_levels` + `compute_wall_strength` + `compute_oi_change_deltas`, ~5s combined. Plus `realized_vol` (free hitchhiker — already implemented in T48).
   - [ ] **B.4 — Adapter columnar entry point** (~2–3 days): `ReplayAdapter.process_chunk(df)` alongside existing `process_event(event)`. Live mode never calls `process_chunk` — paper/live trading code path untouched.
-  - [ ] **B.5 — Equivalence harness + flip default** (~1–2 days): replay 5 reference dates (small / medium / large / quiet / chaotic) both ways, byte-compare parquets. Only ship when zero diffs. Then remove `--columnar` opt-in flag and make it the default.
+  - [ ] **B.5 — Equivalence harness + flip default** (~1–2 days): replay 5 reference dates (1 pre-v8 / 1 small / 1 large / 1 quiet / 1 chaotic) both ways, byte-compare parquets. Only ship when zero diffs. Then remove `--columnar` opt-in flag and make it the default.
+
+**Honest revised speedup (post-B.1):** target ~62s of 200s vectorisable = ~31%. At ~10× columnar win on those, total drops to ~140s = **~1.4–1.7× per date** (lower than the pre-profile 3–5× claim). The ceiling is set by the un-vectorisable 69% (JSON parse 11.5s, gzip decompress 1.4s, adapter dispatch 4s, Python intrinsics 25s of `math.isnan`/`max`/`dict.get`/`isfinite`). For Partha's typical 5-date batch: today ~30 min → after B-full ~18–22 min.
 
 **Risk-mitigation rules (non-negotiable):**
 - **Live trading never touched.** Every B-phase change is replay-only; shared `feature_pipeline.py` gets a new `update_columnar()` alongside `update()`. Live code keeps calling `update()`.
