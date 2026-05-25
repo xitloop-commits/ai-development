@@ -119,41 +119,87 @@ def compute_max_pain_features_batch(
         _total_oi=(pl.col("callOI") + pl.col("putOI")).sum()
     )
 
-    # Step 2 — self-join on snapshot_id to enumerate (k_s, k) pairs.
-    ks = long_df.select([
-        pl.col(snapshot_id_col),
-        pl.col("strike").alias("k_s"),
+    # Deduplicate by (snapshot, strike) so a defensive "two rows at same
+    # strike" input matches scalar behaviour (scalar's K==K_s pair
+    # contributes zero, so summing OI at duplicates gives the same result
+    # as treating them as separate rows). Real recorded chains never
+    # contain duplicate strikes; this is purely a robustness measure.
+    long_df = long_df.group_by([snapshot_id_col, "strike"]).agg([
+        pl.col("callOI").sum(),
+        pl.col("putOI").sum(),
     ])
-    pairs = ks.join(long_df, on=snapshot_id_col, how="inner")
 
-    # Step 3 — per-pair contribution to total payout for candidate k_s.
-    pairs = pairs.with_columns(
-        contrib=(
-            pl.when(pl.col("k_s") > pl.col("strike"))
-              .then(pl.col("callOI") * (pl.col("k_s") - pl.col("strike")))
-              .otherwise(0.0)
-            + pl.when(pl.col("strike") > pl.col("k_s"))
-              .then(pl.col("putOI") * (pl.col("strike") - pl.col("k_s")))
-              .otherwise(0.0)
+    # Step 2 — O(N) prefix-sum payout per candidate.
+    #
+    # For candidate K_s among the sorted strikes of one snapshot:
+    #   call_payout(K_s) = K_s * A_left(K_s) − B_left(K_s)
+    #     where A_left  = Σ callOI[K < K_s]
+    #           B_left  = Σ K · callOI[K < K_s]
+    #   put_payout(K_s) = B_right(K_s) − K_s * A_right(K_s)
+    #     where A_right = Σ putOI[K > K_s]
+    #           B_right = Σ K · putOI[K > K_s]
+    #
+    # All four prefix sums are computed once per snapshot via
+    # cum_sum().over(snapshot_id) on the sorted strikes, then each
+    # candidate's payout is a single arithmetic expression — O(N log N)
+    # per snapshot (sort cost) vs the prior cross-join's O(N²) pair
+    # enumeration. On 274 strikes that's ~2.2k ops vs ~75k.
+    sorted_long = long_df.sort([snapshot_id_col, "strike"]).with_columns(
+        _K_callOI=pl.col("strike") * pl.col("callOI"),
+        _K_putOI=pl.col("strike") * pl.col("putOI"),
+    )
+
+    sorted_long = sorted_long.with_columns(
+        # _A_left at row i = sum of callOI for strikes strictly less than
+        # this row's strike. shift(1) makes the cum_sum exclusive.
+        _A_left=(
+            pl.col("callOI").cum_sum().over(snapshot_id_col).shift(1).fill_null(0.0)
+        ),
+        _B_left=(
+            pl.col("_K_callOI").cum_sum().over(snapshot_id_col).shift(1).fill_null(0.0)
+        ),
+        # _A_right at row i = sum of putOI for strikes strictly greater
+        # than this row's strike = total − cum_sum_inclusive.
+        _A_right=(
+            pl.col("putOI").sum().over(snapshot_id_col)
+            - pl.col("putOI").cum_sum().over(snapshot_id_col)
+        ),
+        _B_right=(
+            pl.col("_K_putOI").sum().over(snapshot_id_col)
+            - pl.col("_K_putOI").cum_sum().over(snapshot_id_col)
+        ),
+    )
+
+    # shift(1) crosses snapshot boundaries; for the FIRST row of each
+    # snapshot the .shift(1) would otherwise pull in the last row of the
+    # previous snapshot. We need to null those out and refill with 0.
+    # The cleanest way: detect snapshot boundary with a row-index per
+    # snapshot and zero _A_left / _B_left for index==0 explicitly.
+    sorted_long = sorted_long.with_columns(
+        _row_idx_in_snap=pl.int_range(pl.len()).over(snapshot_id_col),
+    ).with_columns(
+        _A_left=pl.when(pl.col("_row_idx_in_snap") == 0).then(0.0).otherwise(pl.col("_A_left")),
+        _B_left=pl.when(pl.col("_row_idx_in_snap") == 0).then(0.0).otherwise(pl.col("_B_left")),
+    )
+
+    sorted_long = sorted_long.with_columns(
+        _total_payout=(
+            pl.col("strike") * pl.col("_A_left") - pl.col("_B_left")
+            + pl.col("_B_right") - pl.col("strike") * pl.col("_A_right")
         )
     )
 
-    # Step 4 — sum contributions per (snapshot, candidate), argmin per snapshot.
-    # Scalar tie-break = first encountered strike (insertion order); we
-    # approximate with sort by (total_payout, k_s) so ties resolve to the
-    # lowest strike — same answer when strikes are presented in ascending
-    # order, which is the recorder's invariant.
-    totals = pairs.group_by([snapshot_id_col, "k_s"]).agg(
-        _total_payout=pl.col("contrib").sum()
-    )
+    # Argmin per snapshot — tie-break to lowest strike (matches scalar's
+    # "first encountered" when input is presented ascending, which is the
+    # recorder's invariant).
     max_pain = (
-        totals.sort([snapshot_id_col, "_total_payout", "k_s"])
-              .group_by(snapshot_id_col, maintain_order=True)
-              .first()
-              .select([
-                  pl.col(snapshot_id_col),
-                  pl.col("k_s").alias("max_pain_strike"),
-              ])
+        sorted_long.sort([snapshot_id_col, "_total_payout", "strike"])
+                   .group_by(snapshot_id_col, maintain_order=True)
+                   .first()
+                   .select([
+                       pl.col(snapshot_id_col),
+                       pl.col("strike").alias("max_pain_strike"),
+                   ])
     )
 
     # Step 5 — distance + gravity. Join spot back in for the arithmetic.
