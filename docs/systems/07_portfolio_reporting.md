@@ -145,13 +145,13 @@ Both surfaces enforce the same single-writer rule: only TEA may submit fills.
 - Append-only for operator-authored fields **once a WeeklyReview is locked** (Mon-morning gate enforced by [06 DA Module 6](06_risk_discipline.md)).
 - Read by DA Module 6 to enforce "no new trades if last trade is unjournaled" (logic exists in `journalCheck.ts`, blocking gate ships; the journal-entry consumer that the gate reads doesn't).
 
-**Today no Journal code exists.** PA records the trade-close audit trail in `position_states` itself, which covers the structured fields but not the operator-authored layer or the cohort tag. Tracked as [T46 [JRNL]](../PROJECT_TODO.md).
+**Today no Journal code exists.** PA records the trade-close audit trail in `position_states` itself, which covers the structured fields but not the operator-authored layer or the cohort tag. Tracked as [T49 [JRNL]](../PROJECT_TODO.md).
 
 ## 10. Head-to-Head — spec'd, NOT YET BUILT
 
 `HeadToHead_Spec_v0.1` describes pairing ai-paper vs ai-live (and ai-live vs my-live once AI Live ramps) on `signal_id` from SEA. Daily metric cards: P&L, win-rate, Sharpe, max drawdown, divergence vs counterpart. The 5 pp divergence gate from V2 §8.2 / §8.3 feeds the AI-Live capital scale-up decision.
 
-**Today no Head-to-Head code exists.** Tracked as [T47 [H2H]](../PROJECT_TODO.md). Two prerequisites:
+**Today no Head-to-Head code exists.** Tracked as [T50 [H2H]](../PROJECT_TODO.md). Two prerequisites:
 1. SEA must emit a stable `signal_id` per fired signal (currently the schema doesn't define one — call out as design gap).
 2. Paper-trade fills need to accumulate (≥ 14 days per AI-Live canary gate 1).
 
@@ -166,8 +166,8 @@ Both surfaces enforce the same single-writer rule: only TEA may submit fills.
 - [T33](../PROJECT_TODO.md) — D56 cohort tagging end-to-end (PRE-PAPER MUST; precondition for T34 / T46 / H2H attribution).
 - [T34](../PROJECT_TODO.md) — per-head SHAP + reliability monitoring scripts (PRE-PAPER MUST; Journal-adjacent — reliability report reads from `predictions_<date>.parquet`).
 - [T41](../PROJECT_TODO.md) — prediction → outcome join parquet (PRE-PAPER MUST; the source-of-truth table that T34 consumes).
-- [T46 [JRNL]](../PROJECT_TODO.md) — Journal write-through module (operator-notes + cohort-tag layer; PRE-paper-trade SHOULD).
-- [T47 [H2H]](../PROJECT_TODO.md) — HeadToHead pairing + dashboard (gated on paper-trade fills + a stable SEA `signal_id`; deferred).
+- [T49 [JRNL]](../PROJECT_TODO.md) — Journal write-through module (operator-notes + cohort-tag layer; PRE-paper-trade SHOULD).
+- [T50 [H2H]](../PROJECT_TODO.md) — HeadToHead pairing + dashboard (gated on paper-trade fills + a stable SEA `signal_id`; deferred).
 
 ## 12. Open design decisions
 
@@ -181,7 +181,7 @@ Both surfaces enforce the same single-writer rule: only TEA may submit fills.
 - [05 Execution](05_execution.md) — fill source; single-writer into PA.
 - [06 Risk & Discipline](06_risk_discipline.md) — primary consumer of daily P&L; Module 6 journal-gate reader.
 - [08 UI Desktop](08_ui_desktop.md) — primary read surface (TradingDesk, dashboard, Head-to-Head card once T47 ships).
-- [PROJECT_TODO.md](../PROJECT_TODO.md) — T33 / T34 / T41 / T46 / T47 active.
+- [PROJECT_TODO.md](../PROJECT_TODO.md) — T33 / T34 / T41 / T49 / T50 active.
 
 ## 14. Code locations
 

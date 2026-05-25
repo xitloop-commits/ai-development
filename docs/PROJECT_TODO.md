@@ -548,6 +548,20 @@ Convert ONLY the `realized_vol` feature class (rolling std over 4 windows — si
 - **Files expected to touch:** `python_modules/tick_feature_agent/features/realized_vol.py`, `python_modules/tick_feature_agent/replay/columnar_batcher.py` (new), `python_modules/tick_feature_agent/tests/test_realized_vol_columnar.py` (new — includes golden-file harness), `requirements.txt` (add `polars`).
 - **Cross-ref:** T47 (must ship first), [systems/02_feature_engineering.md](systems/02_feature_engineering.md), T46 (Phase C plugs into the columnar API this task introduces, once a real GPU is in the box).
 
+### T49 [JRNL] — Implement write-through Journal module 🆕
+`Journal_Spec_v0.1` describes a write-through audit log (operator notes, SHAP-tagged top features at signal time, cohort tag, `discipline_violation` flag) keyed by `position_id`. Discipline Module 6 enforces "no new trades if last trade is unjournaled" but the journal-entry consumer the gate is supposed to read doesn't exist — today the gate effectively no-ops on the operator-notes layer. PA stores the structured trade-close audit on `position_states`; the operator-authored layer is missing.
+
+- **Status:** Deferred 2026-05-25 (surfaced during System 07 doc rewrite). PRE-paper-trade SHOULD; gated on T33 cohort tags shipping.
+- **Effort:** ~2–3 days. Land `server/journal/` module: collection schema, write-through hook in `PA.recordTradeClosed`, append-only enforcement on operator-authored fields once `WeeklyReview` locks the entry, tRPC `journal.list/edit/get` surfaces for the UI.
+- **Cross-ref:** [systems/07_portfolio_reporting.md §9](systems/07_portfolio_reporting.md), [systems/06_risk_discipline.md §3 Module 6](systems/06_risk_discipline.md).
+
+### T50 [H2H] — Implement HeadToHead pairing + dashboard 🆕
+`HeadToHead_Spec_v0.1` describes pairing ai-paper vs ai-live (and ai-live vs my-live once AI Live ramps) on a stable SEA `signal_id` — daily metric cards (P&L, win-rate, Sharpe, max drawdown, divergence). Feeds the 5 pp divergence gate from V2_MASTER_SPEC §8.2/§8.3 for AI-Live capital scale-up. Today no H2H code exists, AND SEA's signal schema doesn't define a `signal_id` field — that's a prerequisite design fix.
+
+- **Status:** Deferred 2026-05-25 (surfaced during System 07 doc rewrite). Gated on (a) paper-trade fills accumulating ≥ 14 days per AI-Live canary gate 1, (b) SEA emitting a stable `signal_id`, (c) T49 Journal shipping (H2H reads journal entries for SHAP / cohort context).
+- **Effort:** ~3–4 days. Land `server/reporting/headToHead/` module: pairing logic, daily aggregation, divergence detector, tRPC surface for the dashboard card.
+- **Cross-ref:** [systems/07_portfolio_reporting.md §10](systems/07_portfolio_reporting.md), [systems/04_signal_engine.md](systems/04_signal_engine.md) (signal_id schema gap).
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 _None yet._
