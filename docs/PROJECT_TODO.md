@@ -507,6 +507,16 @@ On reconnect after a broker disconnect, the design (Disconnect_Safety_Spec §2) 
 - **Effort:** ~1–2 days. On `Reconnect` event, fetch broker-side open positions via Dhan REST, diff against `portfolioAgent.getOpenPositions(channel)`, emit `BROKER_DESYNC` for any mismatch; quarantine the workspace until operator resolves.
 - **Cross-ref:** [systems/05_execution.md §9](systems/05_execution.md), [systems/07_portfolio_reporting.md](systems/07_portfolio_reporting.md).
 
+### T46 [TFA] — GPU-accelerated feature math for replay (Phase C of replay-parallelism plan) 🆕
+Offload heavy windowed feature math (rolling std / EMA / percentile bands / regime-window stats) to GPU via CuPy. Stacks on top of Phase A (CPU fan-out across dates) and Phase B (per-date event batching), both planned in conversation 2026-05-25. Per-event control flow stays on CPU; only large-array math touches GPU. CuPy → NumPy fallback when CUDA absent.
+
+- **Status:** Deferred 2026-05-25 — current GPU is **NVIDIA T1000 (4 GB VRAM, ~2.5 TFLOPS)**. On this card, expected gain over Phase A+B is only **~15–25%** at meaningful engineering cost (CuPy dep, per-worker GPU memory management, CUDA-driver contention across 16 workers, fallback path). Not worth shipping today.
+- **Trigger to revisit:** GPU upgraded to a ≥8 GB VRAM compute card (RTX 4060 / 4070 / 4080 or equivalent). At that point C unlocks roughly 4–8× more headroom than on the T1000.
+- **Effort:** ~3–4 days when triggered. CuPy adapter for the 5–8 heaviest feature classes + cross-worker GPU contention design (single queue, or 2–4 GPU workers + N CPU workers) + golden-file byte-equality test vs CPU output + NumPy fallback.
+- **Expected speedup once shipped on a real GPU:** +50–100% on top of A+B for batch jobs (i.e., today's serial baseline → ~45–60× faster vs ~25–35× with A+B alone).
+- **Prerequisite:** Phase A and Phase B must ship first (they expose the batching API that C plugs into).
+- **Cross-ref:** [systems/02_feature_engineering.md](systems/02_feature_engineering.md) (replay-parallelism design context, to be added in the same plan).
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 _None yet._
