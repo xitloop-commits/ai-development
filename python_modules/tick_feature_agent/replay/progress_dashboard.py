@@ -132,7 +132,12 @@ class ProgressDashboard:
         self._workers = workers
         self._d = progress_dict
         self._refresh_interval = 1.0 / max(refresh_hz, 1.0)
-        self._console = Console()
+        # ``force_terminal=True`` makes rich treat stdout as a TTY even when
+        # running under a .bat wrapper in PowerShell (where the heuristic
+        # otherwise picks the wrong strategy and falls back to per-frame
+        # append, stacking ~20 historical frames in the scrollback before
+        # painting the live one at the bottom — first seen 2026-05-25).
+        self._console = Console(force_terminal=True)
         self._started_monotonic = time.monotonic()
         self._started_wall = datetime.now(_IST)
         self._live: Live | None = None
@@ -152,6 +157,13 @@ class ProgressDashboard:
             refresh_per_second=10,
             transient=False,
             auto_refresh=False,
+            # Alternate-screen buffer: terminal switches to a "second page"
+            # for the dashboard (like vim / htop), so we can redraw cleanly
+            # without ever appending to the scrollback. On exit, the original
+            # scrollback returns intact. Without this, PowerShell stacked
+            # frames; the bottom of the buffer showed the live dashboard,
+            # everything above was historical paint debris.
+            screen=True,
         )
         self._live.__enter__()
         self._thread = threading.Thread(
@@ -172,10 +184,18 @@ class ProgressDashboard:
             pass
         return False
 
-    def mark_terminal(self, date_str: str, verdict: str) -> None:
-        """Called by parent when a worker future resolves."""
+    def mark_terminal(self, date_str: str, verdict: str, reason: str | None = None) -> None:
+        """Called by parent when a worker future resolves.
+
+        ``reason`` is for cases where the failure happens at the future
+        boundary (e.g. worker process crashed) — run_one_date doesn't get
+        a chance to stash anything in that case. Reasons stashed by
+        run_one_date itself are already in the dict and preserved here.
+        """
         entry = dict(self._d.get(date_str) or {})
         entry["status"] = verdict
+        if reason is not None:
+            entry["reason"] = reason
         self._d[date_str] = entry
 
     def summary(self) -> dict[str, int]:
@@ -286,17 +306,29 @@ class ProgressDashboard:
                 pct = (ev / total) if total else 0.0
                 rate = entry.get("rate") or 0.0
                 eta = ((total - ev) / rate) if (total and rate > 0) else None
+                phase = entry.get("phase", "running")
+                # During the warmup re-feed (resume of a partially-completed
+                # date) we visually mark the row so the user knows the
+                # "low %" is expected: the worker is re-replaying events
+                # it's already saved to chunks, just to rebuild adapter
+                # state. Bar paints yellow instead of cyan.
+                row_style = "yellow" if phase == "warmup" else style
+                bar_style = "yellow" if phase == "warmup" else "cyan"
+                chunk_text = _fmt_chunk(
+                    entry.get("chunk_done"), entry.get("chunks_total_est")
+                )
+                if phase == "warmup":
+                    chunk_text = (
+                        f"warmup re-feed · {chunk_text}" if chunk_text else "warmup re-feed"
+                    )
                 rows_running.append((
-                    Text(d, style=style),
-                    self._render_bar(pct, width=18),
-                    Text(f"{pct * 100:5.1f}%" if total else "  --.-%", style=style),
-                    Text(_fmt_int(ev), style=style),
-                    Text(_fmt_rate(rate), style=style),
-                    Text(_fmt_hms(eta), style="dim" if eta is None else style),
-                    Text(
-                        _fmt_chunk(entry.get("chunk_done"), entry.get("chunks_total_est")),
-                        style="dim",
-                    ),
+                    Text(d, style=row_style),
+                    self._render_bar(pct, width=18, filled_style=bar_style),
+                    Text(f"{pct * 100:5.1f}%" if total else "  --.-%", style=row_style),
+                    Text(_fmt_int(ev), style=row_style),
+                    Text(_fmt_rate(rate), style=row_style),
+                    Text(_fmt_hms(eta), style="dim" if eta is None else row_style),
+                    Text(chunk_text, style="dim"),
                 ))
             elif status == "pending":
                 rows_pending.append((
@@ -345,6 +377,28 @@ class ProgressDashboard:
             for r in rows_terminal[-3:]:
                 per_date_tbl.add_row(*r)
 
+        # Warnings & errors block — one row per date that finished with
+        # a non-PASS verdict AND has a reason recorded. Reasons come from
+        # the validator's non-PASS checks (most common) or worker / stream
+        # exception messages. Source of truth lives in the validation JSON
+        # at data/validation/<date>/<inst>_validation.json — this is just
+        # a triage glance.
+        warn_err_lines: list[Text] = []
+        for d in self._dates:
+            entry = snapshot[d]
+            status = entry.get("status", "pending")
+            reason = entry.get("reason")
+            if status not in ("warn", "fail") or not reason:
+                continue
+            icon = "⚠" if status == "warn" else "✗"
+            row_style = "yellow" if status == "warn" else "red"
+            line = Text()
+            line.append(f"  {icon} ", style=row_style)
+            line.append(f"{d}  ", style=row_style)
+            line.append(f"{status.upper():<4}  ", style=f"bold {row_style}")
+            line.append(str(reason), style="white")
+            warn_err_lines.append(line)
+
         # Tally
         tally = Text()
         tally.append(f"PASS {counts['pass']}", style="bold green")
@@ -364,7 +418,16 @@ class ProgressDashboard:
         tally.append("(Ctrl+C to stop)", style="dim")
 
         rule = Text("─" * 72, style="dim")
-        return Group(header_tbl, rule, overall_tbl, rule, per_date_tbl, rule, tally)
+        renderables: list = [
+            header_tbl, rule, overall_tbl, rule, per_date_tbl, rule,
+        ]
+        if warn_err_lines:
+            header_we = Text("Warnings & errors", style="bold yellow")
+            renderables.append(header_we)
+            renderables.extend(warn_err_lines)
+            renderables.append(rule)
+        renderables.append(tally)
+        return Group(*renderables)
 
     def _render_bar(
         self,

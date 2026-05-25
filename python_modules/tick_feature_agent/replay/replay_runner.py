@@ -356,6 +356,32 @@ def run_one_date(
         for event in merge_streams(date_folder, instrument, logger=logger):
             event_idx += 1
 
+            # Dashboard heartbeat — fires every 50k events regardless of
+            # which resume phase we're in, so a worker that's mid-warmup
+            # (re-feeding events to rebuild adapter state) doesn't look
+            # frozen at "0 events" on the multi-worker dashboard. The
+            # legacy \\r heartbeat below only fires in Phase 3 so its
+            # behaviour for single-process replays is unchanged.
+            if _has_progress_cb and event_idx % 50_000 == 0:
+                _now = time.monotonic()
+                _elapsed = _now - t_start
+                _rate = event_idx / max(_elapsed, 0.001)
+                _phase = "warmup" if (
+                    resume_from_idx > 0 and event_idx <= resume_from_idx
+                ) else "running"
+                try:
+                    progress_callback({
+                        "event_idx": event_idx,
+                        "total_events_est": total_events_est,
+                        "rate": _rate,
+                        "elapsed_seconds": _elapsed,
+                        "chunk_done": max(0, next_chunk_num - 1),
+                        "chunks_total_est": total_chunks_est,
+                        "phase": _phase,
+                    })
+                except Exception:
+                    pass
+
             # Resume mode — three phases:
             #   1. event_idx <= warmup_boundary: skip entirely (already saved
             #      in earlier chunks; adapter doesn't need them to reconstruct
@@ -386,9 +412,10 @@ def run_one_date(
                 done_chunks = max(0, next_chunk_num - 1)
 
                 if _has_progress_cb:
-                    # Dashboard mode (T47) — push state to the parent's
-                    # rich dashboard, skip the legacy \r heartbeat so
-                    # multiple workers don't fight for the cursor.
+                    # Dashboard mode (T47) — refresh the "running"-phase
+                    # snapshot. Phase-3 heartbeat is the authoritative one;
+                    # the warmup-aware heartbeat above keeps the dashboard
+                    # alive between Phase-3 events.
                     try:
                         progress_callback({
                             "event_idx": event_idx,
@@ -397,6 +424,7 @@ def run_one_date(
                             "elapsed_seconds": elapsed,
                             "chunk_done": done_chunks,
                             "chunks_total_est": total_chunks_est,
+                            "phase": "running",
                         })
                     except Exception:
                         pass
@@ -473,6 +501,11 @@ def run_one_date(
                 instrument=instrument,
                 date=date_str,
             )
+        if _has_progress_cb:
+            try:
+                progress_callback({"reason": f"stream error: {exc}"})
+            except Exception:
+                pass
         # Note: progress.json + chunks remain on disk → resumable on next run
         return "fail"
 
@@ -538,10 +571,16 @@ def run_one_date(
                 instrument=instrument,
                 date=date_str,
             )
+        if _has_progress_cb:
+            try:
+                progress_callback({"reason": f"parquet finalise failed: {exc}"})
+            except Exception:
+                pass
         return "fail"
 
     # ── Validate ──────────────────────────────────────────────────────────────
     val_dir = validation_root / date_str
+    validation_exc: str | None = None
     try:
         result = validate(parquet_path, instrument, date_str, output_dir=val_dir)
     except Exception as exc:
@@ -553,8 +592,35 @@ def run_one_date(
                 date=date_str,
             )
         result = {"verdict": "fail"}
+        validation_exc = f"validator crashed: {exc}"
 
     verdict = result.get("verdict", "fail").lower()
+
+    # ── Extract non-PASS reasons for the dashboard (T47) ───────────────────
+    reason_msg: str | None = None
+    if validation_exc:
+        reason_msg = validation_exc
+    elif verdict in ("warn", "fail"):
+        non_pass: list[str] = []
+        for layer_name, layer_res in (result.get("layers") or {}).items():
+            for check_name, status in (layer_res.get("checks") or {}).items():
+                status_str = str(status)
+                if not status_str.startswith("PASS"):
+                    # Keep each item compact; full detail lives in the
+                    # validation JSON on disk for deeper inspection.
+                    short = status_str if len(status_str) <= 80 else status_str[:77] + "…"
+                    non_pass.append(f"[{layer_name}.{check_name}] {short}")
+        if non_pass:
+            # First three items — enough to triage at a glance.
+            reason_msg = " | ".join(non_pass[:3])
+            if len(non_pass) > 3:
+                reason_msg += f" (+{len(non_pass) - 3} more)"
+
+    if _has_progress_cb and reason_msg:
+        try:
+            progress_callback({"reason": reason_msg})
+        except Exception:
+            pass
 
     if logger:
         logger.info(
@@ -660,9 +726,15 @@ def _worker_run_one_date(
 
     def progress_cb(data: dict[str, Any]) -> None:
         try:
-            data = dict(data)
-            data["status"] = "running"
-            progress_dict[date_str] = data
+            # Merge with existing entry instead of overwriting so partial
+            # updates (e.g. only `reason` near the end of run_one_date)
+            # don't clobber prior heartbeat fields like event_idx / rate.
+            merged = dict(progress_dict.get(date_str) or {})
+            merged.update(data)
+            # Worker is alive until the future resolves; parent's
+            # dashboard.mark_terminal sets the final status afterwards.
+            merged["status"] = "running"
+            progress_dict[date_str] = merged
         except Exception:
             # Manager proxy may be torn down on parent shutdown — ignore.
             pass
@@ -834,6 +906,7 @@ def replay(
                 try:
                     for fut in as_completed(futures):
                         date_str = futures[fut]
+                        worker_reason: str | None = None
                         try:
                             verdict = fut.result()
                         except Exception as exc:
@@ -846,7 +919,8 @@ def replay(
                                     error=str(exc),
                                 )
                             verdict = "fail"
-                        dashboard.mark_terminal(date_str, verdict)
+                            worker_reason = f"worker process crashed: {exc}"
+                        dashboard.mark_terminal(date_str, verdict, reason=worker_reason)
                         summary[verdict] = summary.get(verdict, 0) + 1
                         if verdict in ("pass", "warn", "fail"):
                             # Mark all processed dates (including fail) so replay
