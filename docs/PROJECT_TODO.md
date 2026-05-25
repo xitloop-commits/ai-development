@@ -555,6 +555,20 @@ Convert ONLY the `realized_vol` feature class (rolling std over 4 windows — si
 - **Effort:** ~2–3 days. Land `server/journal/` module: collection schema, write-through hook in `PA.recordTradeClosed`, append-only enforcement on operator-authored fields once `WeeklyReview` locks the entry, tRPC `journal.list/edit/get` surfaces for the UI.
 - **Cross-ref:** [systems/07_portfolio_reporting.md §9](systems/07_portfolio_reporting.md), [systems/06_risk_discipline.md §3 Module 6](systems/06_risk_discipline.md).
 
+### T51 [UI] — TradingDesk redesign decision + ship-or-drop 🆕
+`TradingDesk_Spec_v1.3` calls for shrinking the summary bar from 10 → 6 items, the table from 15 → 10 columns, and adding row-expand on `PastRow` (click reveals per-trade detail). The redesign was approved in the spec but **never merged** — the current UI still ships the full-fat layout. Decide: ship as one PR, or formally drop the redesign and update the spec to match reality.
+
+- **Status:** Deferred 2026-05-25 (surfaced during System 08 doc rewrite). Polish, not blocking — paper-trade ramp doesn't depend on this.
+- **Effort:** ~2 days if shipping (small visual refactor + per-row expand state); 30 min if dropping (delete the redesign rows from the spec, update overview).
+- **Cross-ref:** [systems/08_ui_desktop.md §4](systems/08_ui_desktop.md).
+
+### T52 [UI] — Notifications backend (Telegram routing + email + preferences UI) 🆕
+`Notifications_Spec_v0.1` describes three notification layers. **Only toast + AlertHistory are live.** Server-side Telegram path exists for token-expiry and session-close events but isn't wired for trade alerts, gate rejections, or DISCIPLINE_EXIT events. Email + preferences UI not built. Spec has 5 open decisions (provider, retention, quiet hours, de-duplication, default route table).
+
+- **Status:** Deferred 2026-05-25 (surfaced during System 08 doc rewrite). PRE-paper-trade SHOULD; PRE-AI-Live MUST (operator needs Telegram on phone for DISCIPLINE_EXIT events when desktop UI isn't open).
+- **Effort:** ~4–6 days. Email provider choice + setup (~1d), Telegram routing for trade events via yow-partha (~2d), preferences tRPC + Settings UI section (~2d), end-to-end test on a paper channel.
+- **Cross-ref:** [systems/08_ui_desktop.md §8](systems/08_ui_desktop.md), [systems/09_control_bot.md](systems/09_control_bot.md).
+
 ### T50 [H2H] — Implement HeadToHead pairing + dashboard 🆕
 `HeadToHead_Spec_v0.1` describes pairing ai-paper vs ai-live (and ai-live vs my-live once AI Live ramps) on a stable SEA `signal_id` — daily metric cards (P&L, win-rate, Sharpe, max drawdown, divergence). Feeds the 5 pp divergence gate from V2_MASTER_SPEC §8.2/§8.3 for AI-Live capital scale-up. Today no H2H code exists, AND SEA's signal schema doesn't define a `signal_id` field — that's a prerequisite design fix.
 
