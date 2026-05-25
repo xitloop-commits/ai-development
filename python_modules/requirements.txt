@@ -24,3 +24,8 @@ scikit-learn==1.8.0
 #                  ProcessPoolExecutor fan-out (workers finish out of order)
 rich==13.9.4
 portalocker==2.10.1
+#
+# Replay vectorisation (T48 — Phase B.0 spike, then Phase B-full / T50)
+#   polars       — columnar engine for rolling-window feature math; ~3-5x
+#                  faster per date than per-event scalar trackers (target)
+polars==1.41.0
