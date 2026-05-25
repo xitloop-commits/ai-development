@@ -469,7 +469,7 @@ Confirm with Dhan customer support that the spouse-account pattern (Client `1111
 
 - **Status:** Deferred 2026-05-23 (admin task, not engineering). Carried forward from archived `docs/memory/project_dual_account_live.md` (originally surfaced 2026-04-25).
 - **Blocker for:** Phase 8 (AI Live real-capital ramp).
-- **How to act:** ticket Dhan support with the topology described in [DualAccountArchitecture_Spec_v0.1.md](specs/DualAccountArchitecture_Spec_v0.1.md); attach client IDs.
+- **How to act:** ticket Dhan support with the dual-account topology described in [systems/05_execution.md §4](systems/05_execution.md); attach client IDs (primary `1101615161` + spouse `1111388877`).
 - **Cross-ref:** [systems/05_execution.md](systems/05_execution.md), [systems/10_launcher_ops.md](systems/10_launcher_ops.md).
 
 ### T39 — yow-partha graceful-stop refactor (direct-spawn architecture) 🆕
@@ -477,7 +477,7 @@ Refactor the yow-partha Telegram bot so Lubas spawns it as a direct child proces
 
 - **Status:** Deferred 2026-05-23 (carried forward from per-machine auto-memory `project_yow_partha_resume.md`).
 - **Effort:** ~1 day; design notes already captured in the resume memory.
-- **Cross-ref:** [systems/09_control_bot.md](systems/09_control_bot.md), [YowPartha_Spec_v0.1.md](specs/YowPartha_Spec_v0.1.md).
+- **Cross-ref:** [systems/09_control_bot.md](systems/09_control_bot.md).
 
 ### T40 [INGEST] — Tick-loss monitoring + alerting 🆕
 Add mid-session anomaly detection to the recorder: trigger Telegram alert when (a) tick drop rate exceeds 10% of the per-instrument baseline, or (b) a feed gap exceeds 10 s without a Dhan reconnect, or (c) a WebSocket disconnects without resubscribing within 30 s. Today TFA only logs final tick counts at session-close; mid-session degradation goes unnoticed until the daily review.

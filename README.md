@@ -58,13 +58,19 @@ python_modules/     — Python pipeline
   tick_feature_agent/   — TFA: feature emission
   signal_engine_agent/  — SEA: live inference loop
   model_training_agent/ — MTA: LightGBM trainer
-docs/               — Specs (IMPLEMENTATION_PLAN_v2.md is the master)
-                       yow-partha (Telegram control bot) — planned, see
-                       docs/specs/YowPartha_Migration_From_TfaBot.md
-config/             — Per-instrument profiles + thresholds
+docs/               — Documentation
+  PARTHA_RULES.md       — Behavioural rules for Claude sessions
+  PROJECT_TODO.md       — Single open-work tracker
+  systems/              — 10 self-contained system overviews (01–10) — design + code + status
+yow_partha/         — Telegram control bot (see docs/systems/09_control_bot.md)
+config/             — Per-instrument profiles + thresholds + schema registry
+scripts/            — Backtest, replay, retrain, smoke tests
+startup/            — Lubas launcher, scheduled tasks, start/stop scripts
 ```
 
-## Phases
+## Where to read what
 
-The system is being built in phases (see `docs/IMPLEMENTATION_PLAN_v2.md`).
-A–E shipped (cleanup, safety floor, discipline + RCA, spec contracts, Python hardening). **F** ships now: performance + observability (pino correlation IDs, `/metrics` endpoint, hot-path caches, vectorised preprocessor, parallel trainer). **G** is in progress: lint + format + type-check + tests gated in CI. **H + I** queue UI parity and DoD gating.
+- **New to the codebase?** Read [docs/systems/README.md](docs/systems/README.md) — index of the 10 system overviews.
+- **Working on a specific area?** Open the matching `docs/systems/XX_*.md` overview — it covers design, code paths, status, and open work for that subsystem.
+- **Open tasks?** [docs/PROJECT_TODO.md](docs/PROJECT_TODO.md) is the single source. Roadmap lives in `systems/10_launcher_ops.md §9` (T3 phase timeline) and `§10` (250-day journey strategy).
+- **Behavioural rules for Claude sessions?** [docs/PARTHA_RULES.md](docs/PARTHA_RULES.md).

@@ -4,11 +4,9 @@ This folder holds one **thin overview spec per major system** of the Lubas tradi
 
 ## Canonical structure
 
-- **System overviews live here** (`docs/systems/`). One file per major system.
-- **Detailed specs live in `docs/specs/`** (e.g. `RiskControlAgent_Spec_v2.0.md`). Overviews link to them; never duplicate them.
-- **Design authority** for the v2 signal system is [docs/V2_MASTER_SPEC.md](../V2_MASTER_SPEC.md).
+- **System overviews live here** (`docs/systems/`). One file per major system. Each is self-contained — design + code + status + open work for that subsystem, with no links back to per-component sub-specs (those have all been absorbed and removed).
 - **All open work** lives in [docs/PROJECT_TODO.md](../PROJECT_TODO.md) — single source for pending/done.
-- **Behavioral rules** live in [docs/PARTHA_RULES.md](../PARTHA_RULES.md).
+- **Behavioural rules** live in [docs/PARTHA_RULES.md](../PARTHA_RULES.md).
 
 ## The 10 major systems
 

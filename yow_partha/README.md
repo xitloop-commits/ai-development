@@ -27,8 +27,8 @@ Required environment variables (read from root `.env`):
 - `YOW_PARTHA_BOT_TOKEN` — BotFather token for `@yowparthabot`.
 - `YOW_PARTHA_CHAT_ID` — your Telegram user id (allowlist of one).
 
-## Specs
+## Design + status
 
-- [docs/specs/YowPartha_Spec_v0.1.md](../docs/specs/YowPartha_Spec_v0.1.md) — design contract.
-- [docs/specs/YowPartha_v0.1_Roster.md](../docs/specs/YowPartha_v0.1_Roster.md) — implementation tracker (planned / done / parked).
-- [docs/specs/YowPartha_Migration_From_TfaBot.md](../docs/specs/YowPartha_Migration_From_TfaBot.md) — reusable patterns lifted from the deleted `tfa_bot/`.
+Single source of truth: [docs/systems/09_control_bot.md](../docs/systems/09_control_bot.md) — purpose, scope, architecture, status table format, push-notification matrix, security model, code locations.
+
+Open work: [docs/PROJECT_TODO.md](../docs/PROJECT_TODO.md) — `T39` (graceful-stop direct-spawn refactor), `T52` (full Telegram routing for trade events).
