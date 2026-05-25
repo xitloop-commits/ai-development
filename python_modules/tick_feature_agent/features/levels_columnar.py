@@ -68,20 +68,30 @@ def compute_max_pain_features_batch(
         in ``tests/test_max_pain_columnar.py`` verifies bit-for-bit
         equivalence with the scalar function on one synthetic snapshot.
     """
+    empty_schema = {
+        snapshot_id_col: pl.UInt32,
+        "max_pain_strike": pl.Float64,
+        "distance_to_max_pain_pct": pl.Float64,
+        "max_pain_gravity_strength": pl.Float64,
+    }
     if len(chain_snapshots) == 0:
-        return pl.DataFrame(
-            schema={
-                snapshot_id_col: pl.UInt32,
-                "max_pain_strike": pl.Float64,
-                "distance_to_max_pain_pct": pl.Float64,
-                "max_pain_gravity_strength": pl.Float64,
-            }
-        )
+        return pl.DataFrame(schema=empty_schema)
 
     # Ensure snapshot_id column exists. If the caller didn't supply one,
     # add a row index — this is the snapshot identity for joins.
     if snapshot_id_col not in chain_snapshots.columns:
         chain_snapshots = chain_snapshots.with_row_index(snapshot_id_col)
+
+    # Defensive: drop snapshots whose rows list is null or empty. Mirrors
+    # scalar's "chain_rows is None or empty -> all NaN" by simply dropping
+    # them from the result (downstream consumers treat missing snapshot
+    # row the same as all-NaN output). Also dodges a Polars schema-
+    # inference failure on List(Null) when the entire batch is empty.
+    chain_snapshots = chain_snapshots.filter(
+        pl.col(rows_col).is_not_null() & (pl.col(rows_col).list.len() > 0)
+    )
+    if len(chain_snapshots) == 0:
+        return pl.DataFrame(schema=empty_schema)
 
     # Step 1 — explode rows to long form (one row per (snapshot, strike)).
     long_df = (
