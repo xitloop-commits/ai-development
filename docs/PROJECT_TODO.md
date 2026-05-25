@@ -500,6 +500,13 @@ Pre-E5 4-stage filter (`legacy_filter.py` 129 LOC + `trade_filter.py` 328 LOC = 
 - **Effort:** ~½ day. Remove the two files, the `--filter=legacy` flag, and any unreachable branches in `engine.py`. Verify 124-test suite still green.
 - **Cross-ref:** [systems/04_signal_engine.md §9](systems/04_signal_engine.md).
 
+### T45 [BSA] — Wire DesyncReconciler position-compare logic 🆕
+On reconnect after a broker disconnect, the design (Disconnect_Safety_Spec §2) calls for comparing broker-side open positions against Portfolio Agent state and surfacing any drift as `BROKER_DESYNC` events. Today the `DesyncReconciler` is a **stub** — kill-switch toggling + Telegram alerts work; the position-compare step doesn't. Risk: silent position desync after a long disconnect blob.
+
+- **Status:** Deferred 2026-05-25 (surfaced during System 05 doc rewrite). PRE-paper-trade SHOULD; PRE-AI-Live MUST.
+- **Effort:** ~1–2 days. On `Reconnect` event, fetch broker-side open positions via Dhan REST, diff against `portfolioAgent.getOpenPositions(channel)`, emit `BROKER_DESYNC` for any mismatch; quarantine the workspace until operator resolves.
+- **Cross-ref:** [systems/05_execution.md §9](systems/05_execution.md), [systems/07_portfolio_reporting.md](systems/07_portfolio_reporting.md).
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 _None yet._
