@@ -105,6 +105,30 @@ Schema per row: `prediction_id, ts_ns, instrument, head_name, head_type, raw_pro
 - **Files expected to touch:** `signal_engine_agent/prediction_logger.py` (new), `signal_engine_agent/outcome_backfiller.py` (new), `signal_engine_agent/engine.py` (`_pred` hook to emit), `python_modules/_shared/prediction_schema.py` (new), tests under each module.
 - **Cross-ref:** T27 (Saturday retrain — future champion/challenger needs this), T33 (cohort tagging — must tag prediction rows too), T34 (weekly reliability report — direct downstream consumer), T8/T16/T18 (any threshold/sizing/calibration tuning needs outcome data), [much later] RL / online-learning prerequisites.
 
+### T44 — Per-day per-instrument trade-chart HTML report + launcher menu 🆕
+Self-contained Plotly HTML report per (date, instrument) showing every trade overlaid on the spot price curve. One file per pair at `data/reports/<YYYY-MM-DD>/<inst>_trades.html`, generated automatically at session-end after `tick_processor` flushes the day's parquets (matches T5 auto-recorder's "ready by morning" pattern). No web server, no extra project — just static HTML opened by the default browser.
+
+**Visual elements required on each chart:**
+- Spot price line (1-min OHLC candles from the day's parquet).
+- **Entry markers** (green ▲ for LONG_CE / red ▼ for LONG_PE) at entry tick + entry price label.
+- **Exit markers** (X) at exit tick + exit price label.
+- **SL line** (dotted red) and **TP line** (dotted green) drawn from entry tick to exit tick.
+- **Exit-trigger tag** at each exit: `SL` / `TP` / `TIME_STOP` / `INLINE_EXHAUSTION` / `WALL_BREAK` / `MANUAL` / `EOD_SQUARE_OFF` (sourced from L5 exit reason — T30).
+- **Points gained label** at exit (`+5.2` green / `-3.1` red).
+- **Hover tooltip per trade:** `entry_ts`, `exit_ts`, qty, entry_px, exit_px, points, ₹ P&L, cohort/head (from T33), regime tag (from T32).
+- Day-summary header bar: total trades, wins / losses, net points, net ₹, max drawdown.
+
+**TUI launcher integration:**
+- New top-level menu entry **"View Trade Charts"** in `startup/launcher_v2.py`.
+- Drill: **instrument submenu** (crudeoil / naturalgas / nifty50 / banknifty) → **date submenu** (most-recent-first list of dates that have a generated report) → enter → `webbrowser.open()` on the HTML file.
+- Mirror the existing instrument→date drill pattern already used by the replay/backtest menus.
+
+- **Status:** ⏳ PRE-PAPER MUST. Added 2026-05-24.
+- **Effort:** ~3-4 days. Plotly generator (~2 days) + launcher menu (~1 day) + session-end auto-trigger hook + tests (~0.5 day).
+- **Files expected to touch:** `python_modules/_shared/trade_chart.py` (new — Plotly builder), `scripts/build_trade_chart.py` (new — CLI entry), `python_modules/tick_feature_agent/output/session_end_hook.py` (new or extend existing — invokes chart builder per instrument), `startup/launcher_v2.py` (new menu + submenus), tests under `python_modules/_shared/tests/`.
+- **Data sources:** spot OHLC = day's `<inst>_features.parquet` (1-min resample of `spot` col); trades = broker fill log (TS server-side) + L5 exit-reason log + signal log with cohort tag (T33).
+- **Cross-ref:** T33 (cohort/exit-reason tags must be present in fill log), T30 (L5 exit-reason source), T32 (regime tag in tooltip), T34 (shares the `data/reports/<date>/` directory pattern — same generator infra). Prerequisites in priority order: T33 → T30 → T32 → T44.
+
 ## P2 — parked features (small enough to wait)
 
 ### T4 — Replay in-date progress + chunked resume (PARTIALLY DONE 2026-05-16)
