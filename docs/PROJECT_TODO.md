@@ -517,10 +517,11 @@ Offload heavy windowed feature math (rolling std / EMA / percentile bands / regi
 - **Prerequisite:** Phase A and Phase B must ship first (they expose the batching API that C plugs into).
 - **Cross-ref:** T47 (Phase A — must ship first; exposes the worker-fan-out API), T48 (Phase B.0 spike — must complete + green-light before B.1–B.5 unlock the columnar batching API that C plugs into), [systems/02_feature_engineering.md](systems/02_feature_engineering.md) (replay-parallelism design context).
 
-### T47 [TFA] — Replay parallelism Phase A: CPU fan-out across dates + multi-worker progress dashboard 🆕
-Replace the serial `for date_str in dates_iter` loop in `replay/replay_runner.py` with a `ProcessPoolExecutor`-based fan-out so one CLI call can replay N dates in parallel on the i9-13900K's 24 cores. Pair with a `rich`-based multi-worker progress dashboard — top row: aggregate `X / Y dates done · Elapsed · ETA`; per-worker rows: visual bar + events processed + events/sec + per-date ETA + chunk M/N progress; bottom row: running pass/warn/fail/skip tally. Live `tick_processor` path **untouched** — replay-only change. Each worker still writes its own `<inst>_features_progress.json` so yow-partha and the launcher can poll the same files (closes T4's deferred launcher wire-up).
+### T47 [TFA] — Replay parallelism Phase A: CPU fan-out across dates + multi-worker progress dashboard ✅ IMPLEMENTED
+Replace the serial `for date_str in dates_iter` loop in `replay/replay_runner.py` with a `ProcessPoolExecutor`-based fan-out so one CLI call can replay N dates in parallel on the i9-13900K's 24 cores. Pair with a `rich`-based multi-worker progress dashboard — top row: aggregate `X / Y dates done · Elapsed · ETA`; per-worker rows: visual bar + events processed + events/sec + per-date ETA + chunk M/N progress (yellow during warmup re-feed on resume); a "Warnings & errors" section between per-date table and tally that lists every WARN/FAIL date with the validator's non-PASS check reasons (or exception text on stream/parquet/worker failure); bottom row: running pass/warn/fail/skip tally. Live `tick_processor` path **untouched** — replay-only change. Each worker still writes its own `<inst>_features_progress.json` so yow-partha and the launcher can poll the same files (closes T4's deferred launcher wire-up).
 
-- **Status:** ⏳ PRE-paper-trade SHOULD. Planned 2026-05-25.
+- **Status:** ✅ IMPLEMENTED 2026-05-25 across commits `ee39da7` (initial) → `c47f584` (warmup-aware heartbeat + Warnings & errors section + `Console(force_terminal=True)` + `Live(screen=True)` render-tearing fix). Smoke-tested 3 workers × 3 nifty50 dates against `data/raw`; dashboard rendered cleanly. 31/31 replay tests pass. PROJECT_TODO entry kept for one cleanup cycle before deletion.
+- **Previously:** ⏳ PRE-paper-trade SHOULD. Planned 2026-05-25.
 - **Effort:** ~3–4 days, one PR.
 - **Expected speedup:** ~12–15× on a 30-day batch replay. Single-date latency unchanged (A is per-date parallelism only).
 - **Locked design defaults (decided 2026-05-25 against confirmed hardware: i9-13900K 24c/32t, 31.7 GB RAM, NVMe PCIe 4):**
@@ -538,7 +539,7 @@ Replace the serial `for date_str in dates_iter` loop in `replay/replay_runner.py
 ### T48 [TFA] — Replay parallelism Phase B.0: realized_vol vectorisation spike 🆕
 Convert ONLY the `realized_vol` feature class (rolling std over 4 windows — single hottest pattern in TFA) from per-event scalar updates to Polars `group_by_dynamic` columnar processing. Wrap `merge_streams` output in 5–10k-row Polars chunks via a new `ColumnarBatcher`. Goal: **measure** per-date speedup of the converted feature + golden-file byte-equality vs pre-spike parquet output, so the bigger Phase B-full decision (tracker columnarisation across the other 5 hot trackers, ~5–6 weeks) is made on data not on guesses.
 
-- **Status:** ⏳ PRE-paper-trade SHOULD. Blocked on T47 shipping + producing real per-date latency measurements on the 16-worker layout.
+- **Status:** 🔓 Unblocked 2026-05-25 (T47 shipped). Ready to start. **NEXT ACTIVE T-task.**
 - **Effort:** ~3–5 days.
 - **Decision gate at end of spike (commit upfront, no re-litigating):**
   - **≥3× on `realized_vol`** → green-light B.1–B.5 (rewrite top 5 trackers as columnar; ~5–6 weeks; target ~3–5× per date, ~45–75× on 30-day batches when combined with T47).
@@ -546,7 +547,36 @@ Convert ONLY the `realized_vol` feature class (rolling std over 4 windows — si
   - **<1.5×** → **abort B-full**. Bottleneck is elsewhere (likely IO / parquet write / merge_streams). Re-plan around that, don't keep pushing on trackers.
 - **Why this risks the rest:** TFA pipeline is fundamentally stateful — every event mutates ~10 trackers; `feature_pipeline.py:31` explicitly says *"Threading: single-threaded."* Mistakes are silent: wrong feature value → wrong model input → wrong predictions in live trading. Golden-file diff on every PR is non-negotiable, and live mode never gets touched by B.
 - **Files expected to touch:** `python_modules/tick_feature_agent/features/realized_vol.py`, `python_modules/tick_feature_agent/replay/columnar_batcher.py` (new), `python_modules/tick_feature_agent/tests/test_realized_vol_columnar.py` (new — includes golden-file harness), `requirements.txt` (add `polars`).
-- **Cross-ref:** T47 (must ship first), [systems/02_feature_engineering.md](systems/02_feature_engineering.md), T46 (Phase C plugs into the columnar API this task introduces, once a real GPU is in the box).
+- **Cross-ref:** T47 (must ship first ✅), [systems/02_feature_engineering.md](systems/02_feature_engineering.md), T46 (Phase C plugs into the columnar API this task introduces, once a real GPU is in the box), T50 (B-full umbrella — only kicks off if this spike returns ≥3×).
+
+### T50 [TFA] — Replay parallelism Phase B-full: tracker columnarisation umbrella 🆕
+Convert TFA's per-event stateful trackers (the hot ones) to Polars columnar `update_chunk(df)` so every replay date runs **3–5× faster** per worker. Combined with T47's CPU fan-out, a 5-date batch drops from ~30–40 min to **~6–10 min** for Partha's typical workload. Live `tick_processor` path remains scalar (untouched) — replay-only refactor.
+
+**Conditional on T48 result:** ≥3× on `realized_vol` alone → green-light B.1–B.5; 1.5–2× → reconsider scope (~2 wks for partial win); <1.5× → abort, re-investigate bottleneck.
+
+- **Status:** ⏳ Conditional on T48 spike result. Planned sequence below; effort estimates assume green-light.
+- **Total effort:** ~5–6 weeks.
+- **Expected speedup vs today:** 3–5× per date; 5-date batch ~30–40 min → ~6–10 min.
+
+**Sub-phases (sequential — each its own PR, each golden-file gated):**
+  - [ ] **B.1 — Profile + scope** (~1–2 days): cProfile a full date, rank top 10 hot functions, lock the MUST-vectorise vs CAN-stay-scalar set in a short scope doc.
+  - [ ] **B.2 — ColumnarBatcher** (~2–3 days): new `python_modules/tick_feature_agent/replay/columnar_batcher.py` that buffers `merge_streams` events into 5–10k-row Polars chunks. Adapter still scalar; this is purely a refactor that changes the source shape. Golden-file must pass byte-for-byte.
+  - [ ] **B.3a — realized_vol → columnar** (~3 days): promote T48 spike to production-ready. Polars `group_by_dynamic` for the 4 rolling-std windows. Golden-file gate.
+  - [ ] **B.3b — compression → columnar** (~3 days): independent PR, golden-file gated.
+  - [ ] **B.3c — OI-weighted levels → columnar** (~3 days): "".
+  - [ ] **B.3d — exhaustion → columnar** (~3 days): "".
+  - [ ] **B.3e — OFI → columnar** (~3 days): "".
+  - [ ] **B.4 — Adapter columnar entry point** (~2–3 days): `ReplayAdapter.process_chunk(df)` alongside existing `process_event(event)`. Live mode never calls `process_chunk` — paper/live trading code path untouched.
+  - [ ] **B.5 — Equivalence harness + flip default** (~1–2 days): replay 5 reference dates (small / medium / large / quiet / chaotic) both ways, byte-compare parquets. Only ship when zero diffs. Then remove `--columnar` opt-in flag and make it the default.
+
+**Risk-mitigation rules (non-negotiable):**
+- **Live trading never touched.** Every B-phase change is replay-only; shared `feature_pipeline.py` gets a new `update_columnar()` alongside `update()`. Live code keeps calling `update()`.
+- **Golden-file test on every PR.** Replay 1 reference date pre-merge, byte-compare parquet output to baseline. Any diff = block merge.
+- **One tracker per PR.** No "rewrite 3 trackers in one go" PRs.
+- **Backout via env var.** Every tracker conversion keeps the scalar implementation reachable via `TFA_LEGACY_TRACKERS=1`. One env-var flip = full rollback.
+
+- **Files expected to touch (across all sub-phases):** `python_modules/tick_feature_agent/replay/columnar_batcher.py` (new), `python_modules/tick_feature_agent/replay/replay_adapter.py`, `python_modules/tick_feature_agent/features/realized_vol.py`, `…/compression.py`, `…/chain.py` (OI-weighted levels), `…/exhaustion.py`, `…/ofi.py`, golden-file harness under `python_modules/tick_feature_agent/tests/test_columnar_equivalence.py` (new), `requirements.txt` (add `polars`).
+- **Cross-ref:** T48 (decision gate), T47 (CPU fan-out — combined gives the headline 5-date wall-time win), T46 (Phase C plugs into the columnar API this task introduces), [systems/02_feature_engineering.md](systems/02_feature_engineering.md).
 
 ### T49 [JRNL] — Implement write-through Journal module 🆕
 `Journal_Spec_v0.1` describes a write-through audit log (operator notes, SHAP-tagged top features at signal time, cohort tag, `discipline_violation` flag) keyed by `position_id`. Discipline Module 6 enforces "no new trades if last trade is unjournaled" but the journal-entry consumer the gate is supposed to read doesn't exist — today the gate effectively no-ops on the operator-notes layer. PA stores the structured trade-close audit on `position_states`; the operator-authored layer is missing.
