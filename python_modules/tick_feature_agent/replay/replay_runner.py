@@ -44,11 +44,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing
+import os
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import date as _date
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any, Callable
 
 # ── Path bootstrap ────────────────────────────────────────────────────────────
 _HERE = Path(__file__).resolve().parent
@@ -59,9 +63,18 @@ if str(_PYTHON_MODULES) not in sys.path:
 from tick_feature_agent.instrument_profile import ProfileValidationError, load_profile
 from tick_feature_agent.recorder.metadata_writer import read_metadata
 from tick_feature_agent.replay.checkpoint import ReplayCheckpoint
+from tick_feature_agent.replay.progress_dashboard import ProgressDashboard
 from tick_feature_agent.replay.replay_adapter import ReplayAdapter
 from tick_feature_agent.replay.stream_merger import merge_streams
 from tick_feature_agent.validation.feature_validator import validate
+
+# ── T47 parallelism defaults ─────────────────────────────────────────────────
+# Default worker count is computed from min(num_dates, DEFAULT_WORKERS_TARGET);
+# the hard cap stops a user from pinning every core (and the NVMe) at once.
+# Tuned 2026-05-25 against i9-13900K (24c/32t) + NVMe PCIe 4: 16 workers
+# saturates the SSD before the CPU. Beyond 20 the gain plateaus.
+DEFAULT_WORKERS_TARGET: int = 16
+WORKERS_HARD_CAP: int = 20
 
 # ── Chunked-resume tuning constants ─────────────────────────────────────────
 # Target ~20 chunk files per date regardless of date size — divide estimated
@@ -184,9 +197,17 @@ def run_one_date(
     features_root: Path,
     validation_root: Path,
     logger=None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> str:
     """
     Replay one date for one instrument.
+
+    Args:
+        progress_callback: When non-None, called every ~50k events with a
+            dict of ``{event_idx, total_events_est, rate, elapsed_seconds,
+            chunk_done, chunks_total_est}``. The legacy single-line ``\\r``
+            heartbeat is suppressed in this mode so the parent's dashboard
+            owns the display (T47).
 
     Returns:
         "skip"    — raw data folder missing; not an error
@@ -194,6 +215,7 @@ def run_one_date(
         "warn"    — completed but validator returned WARN
         "pass"    — completed successfully
     """
+    _has_progress_cb = progress_callback is not None
     date_folder = raw_root / date_str
 
     # ── Read metadata ─────────────────────────────────────────────────────────
@@ -237,12 +259,13 @@ def run_one_date(
             resume_from_idx = int(prev.get("last_chunk_event_idx", 0))
             next_chunk_num = int(prev.get("chunks_written", 0)) + 1
             warmup_boundary = max(0, resume_from_idx - WARMUP_EVENT_COUNT)
-            print(
-                f"  [{date_str}] {instrument} RESUMING from event "
-                f"{resume_from_idx:,} (warmup re-feeds from {warmup_boundary:,}, "
-                f"next chunk #{next_chunk_num:03d})",
-                flush=True,
-            )
+            if not _has_progress_cb:
+                print(
+                    f"  [{date_str}] {instrument} RESUMING from event "
+                    f"{resume_from_idx:,} (warmup re-feeds from {warmup_boundary:,}, "
+                    f"next chunk #{next_chunk_num:03d})",
+                    flush=True,
+                )
         except (json.JSONDecodeError, OSError, ValueError):
             # Corrupt progress file → fall back to fresh start, leave any
             # stale chunks for cleanup at end.
@@ -260,13 +283,29 @@ def run_one_date(
     )
 
     # ── Run replay adapter with chunked writes ──────────────────────────────
-    print(
-        f"  [{date_str}] processing {instrument}  "
-        f"(est. {total_events_est:,} events, ~{total_chunks_est} chunks, "
-        f"{chunk_event_threshold:,} ev/chunk)",
-        flush=True,
-    )
+    if not _has_progress_cb:
+        print(
+            f"  [{date_str}] processing {instrument}  "
+            f"(est. {total_events_est:,} events, ~{total_chunks_est} chunks, "
+            f"{chunk_event_threshold:,} ev/chunk)",
+            flush=True,
+        )
     adapter = ReplayAdapter(profile, date_str, logger=logger)
+
+    # Initial progress ping so the dashboard shows totals before the first
+    # heartbeat at event #50,000 (long dates can take seconds to estimate).
+    if _has_progress_cb:
+        try:
+            progress_callback({
+                "event_idx": 0,
+                "total_events_est": total_events_est,
+                "rate": 0.0,
+                "elapsed_seconds": 0.0,
+                "chunk_done": next_chunk_num - 1,
+                "chunks_total_est": total_chunks_est,
+            })
+        except Exception:
+            pass
 
     event_idx = 0
     events_since_chunk = 0
@@ -345,38 +384,52 @@ def run_one_date(
                 rate = event_idx / max(elapsed, 0.001)
                 # next_chunk_num = chunk we'll write next; completed so far = next_chunk_num-1
                 done_chunks = max(0, next_chunk_num - 1)
-                # Show chunk progress; if we overshot the estimate (estimate
-                # was too low), keep showing chunk N without forcing a wrong
-                # N/M display.
-                if total_chunks_est > 0 and done_chunks <= total_chunks_est:
-                    chunk_str = f"chunk {done_chunks}/{total_chunks_est}"
-                elif total_chunks_est > 0:
-                    chunk_str = f"chunk {done_chunks} (est. ~{total_chunks_est})"
+
+                if _has_progress_cb:
+                    # Dashboard mode (T47) — push state to the parent's
+                    # rich dashboard, skip the legacy \r heartbeat so
+                    # multiple workers don't fight for the cursor.
+                    try:
+                        progress_callback({
+                            "event_idx": event_idx,
+                            "total_events_est": total_events_est,
+                            "rate": rate,
+                            "elapsed_seconds": elapsed,
+                            "chunk_done": done_chunks,
+                            "chunks_total_est": total_chunks_est,
+                        })
+                    except Exception:
+                        pass
                 else:
-                    chunk_str = f"chunk {done_chunks}"
-                if total_events_est > 0 and event_idx <= total_events_est:
-                    pct = 100.0 * event_idx / total_events_est
-                    remaining = max(total_events_est - event_idx, 0)
-                    eta_s = remaining / max(rate, 1.0)
-                    eta_min = eta_s / 60.0
-                    sys.stdout.write(
-                        f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
-                        f"({rate:>7,.0f}/s)  {pct:5.1f}%  ETA {eta_min:>5.1f}m  "
-                        f"{chunk_str}"
-                    )
-                elif total_events_est > 0:
-                    # Overshot the estimate — show "100%+" instead of misleading
-                    # 138.7% / negative-ETA values.
-                    sys.stdout.write(
-                        f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
-                        f"({rate:>7,.0f}/s)  100%+ (est. was off)  {chunk_str}"
-                    )
-                else:
-                    sys.stdout.write(
-                        f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
-                        f"({rate:>7,.0f}/s)  {chunk_str}"
-                    )
-                sys.stdout.flush()
+                    # Legacy single-line \r heartbeat — preserved for
+                    # single-process invocations (direct module run, tests).
+                    if total_chunks_est > 0 and done_chunks <= total_chunks_est:
+                        chunk_str = f"chunk {done_chunks}/{total_chunks_est}"
+                    elif total_chunks_est > 0:
+                        chunk_str = f"chunk {done_chunks} (est. ~{total_chunks_est})"
+                    else:
+                        chunk_str = f"chunk {done_chunks}"
+                    if total_events_est > 0 and event_idx <= total_events_est:
+                        pct = 100.0 * event_idx / total_events_est
+                        remaining = max(total_events_est - event_idx, 0)
+                        eta_s = remaining / max(rate, 1.0)
+                        eta_min = eta_s / 60.0
+                        sys.stdout.write(
+                            f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
+                            f"({rate:>7,.0f}/s)  {pct:5.1f}%  ETA {eta_min:>5.1f}m  "
+                            f"{chunk_str}"
+                        )
+                    elif total_events_est > 0:
+                        sys.stdout.write(
+                            f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
+                            f"({rate:>7,.0f}/s)  100%+ (est. was off)  {chunk_str}"
+                        )
+                    else:
+                        sys.stdout.write(
+                            f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
+                            f"({rate:>7,.0f}/s)  {chunk_str}"
+                        )
+                    sys.stdout.flush()
 
             # Chunk-flush check — every N events or X seconds
             if (
@@ -389,25 +442,28 @@ def run_one_date(
         # invocation resumes from here, then re-raise so the outer date loop
         # and CLI can exit cleanly.
         elapsed = time.monotonic() - t_start
-        print(
-            f"\n  [{date_str}] {instrument} INTERRUPTED at event "
-            f"{event_idx:,} ({elapsed:.1f}s elapsed). Flushing partial chunk...",
-            flush=True,
-        )
+        if not _has_progress_cb:
+            print(
+                f"\n  [{date_str}] {instrument} INTERRUPTED at event "
+                f"{event_idx:,} ({elapsed:.1f}s elapsed). Flushing partial chunk...",
+                flush=True,
+            )
         try:
             _flush_chunk(force=True)
         except Exception as exc:
+            if not _has_progress_cb:
+                print(
+                    f"  [{date_str}] WARN: partial-flush failed: {exc} — "
+                    f"some recent events may be re-processed on resume.",
+                    flush=True,
+                )
+        done_chunks = max(0, next_chunk_num - 1)
+        if not _has_progress_cb:
             print(
-                f"  [{date_str}] WARN: partial-flush failed: {exc} — "
-                f"some recent events may be re-processed on resume.",
+                f"  [{date_str}] {instrument} state saved ({done_chunks} chunk(s) "
+                f"on disk). Re-run the same command to resume.",
                 flush=True,
             )
-        done_chunks = max(0, next_chunk_num - 1)
-        print(
-            f"  [{date_str}] {instrument} state saved ({done_chunks} chunk(s) "
-            f"on disk). Re-run the same command to resume.",
-            flush=True,
-        )
         raise
     except Exception as exc:
         if logger:
@@ -422,11 +478,24 @@ def run_one_date(
 
     # Final progress line, then newline before next phase
     elapsed = time.monotonic() - t_start
-    print(
-        f"\r  [{date_str}] {instrument} {event_idx:>10,} ev in {elapsed:.1f}s. "
-        f"Finalising parquet...",
-        flush=True,
-    )
+    if _has_progress_cb:
+        try:
+            progress_callback({
+                "event_idx": event_idx,
+                "total_events_est": total_events_est,
+                "rate": event_idx / max(elapsed, 0.001),
+                "elapsed_seconds": elapsed,
+                "chunk_done": max(0, next_chunk_num - 1),
+                "chunks_total_est": total_chunks_est,
+            })
+        except Exception:
+            pass
+    else:
+        print(
+            f"\r  [{date_str}] {instrument} {event_idx:>10,} ev in {elapsed:.1f}s. "
+            f"Finalising parquet...",
+            flush=True,
+        )
 
     adapter.flush_all()
 
@@ -503,6 +572,113 @@ def run_one_date(
     return verdict
 
 
+def _resolve_workers(num_dates: int, requested: int | None) -> int:
+    """T47 worker-count policy.
+
+    None / 0 / negative → default ``min(num_dates, DEFAULT_WORKERS_TARGET)``.
+    Positive → clamp to ``[1, WORKERS_HARD_CAP]`` AND ``num_dates`` (no point
+    spinning up more workers than there are dates to process).
+    """
+    if num_dates <= 0:
+        return 1
+    if not requested or requested <= 0:
+        return max(1, min(num_dates, DEFAULT_WORKERS_TARGET))
+    return max(1, min(requested, WORKERS_HARD_CAP, num_dates))
+
+
+def _apply_blas_thread_caps() -> dict[str, str | None]:
+    """Cap BLAS / OMP threads per worker BEFORE spawning the pool.
+
+    Workers spawned with the ``spawn`` start method inherit the parent's
+    environment, then re-import numpy / scikit / lightgbm in a fresh
+    interpreter — so caps set here propagate cleanly.
+
+    Returns the original values so the caller can restore them after the
+    pool drains (avoids polluting the parent process for non-replay work).
+    """
+    caps = {
+        "OPENBLAS_NUM_THREADS": "2",
+        "MKL_NUM_THREADS": "2",
+        "OMP_NUM_THREADS": "2",
+    }
+    saved: dict[str, str | None] = {}
+    for k, v in caps.items():
+        saved[k] = os.environ.get(k)
+        os.environ[k] = v
+    return saved
+
+
+def _restore_env(saved: dict[str, str | None]) -> None:
+    for k, v in saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+
+
+def _worker_run_one_date(
+    profile_path: str,
+    instrument: str,
+    date_str: str,
+    raw_root: str,
+    features_root: str,
+    validation_root: str,
+    log_dir: str,
+    log_level: str,
+    progress_dict,
+) -> str:
+    """ProcessPoolExecutor entry point — must be top-level / picklable.
+
+    Re-establishes a per-worker logger (each subprocess writes its own log
+    file via TFA's log rotation), loads the instrument profile, and runs
+    ``run_one_date`` with a progress callback that writes to the manager
+    dict that the parent's dashboard polls.
+    """
+    # Belt-and-braces: the parent already set these before spawning, but
+    # honour them in case the spawn context didn't carry the env (e.g.,
+    # a future test invocation that constructs the pool directly).
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "2")
+    os.environ.setdefault("MKL_NUM_THREADS", "2")
+    os.environ.setdefault("OMP_NUM_THREADS", "2")
+
+    from tick_feature_agent.log.tfa_logger import get_logger, setup_logging
+
+    _LEVEL_MAP = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
+    setup_logging(instrument, log_dir=log_dir, level=_LEVEL_MAP.get(log_level, 20))
+    log = get_logger("tfa.replay.worker", instrument=instrument)
+
+    try:
+        base_profile = load_profile(Path(profile_path))
+    except (FileNotFoundError, ProfileValidationError) as exc:
+        log.error(
+            "REPLAY_WORKER_PROFILE_ERROR",
+            msg=f"Profile load failed in worker for {date_str}: {exc}",
+            profile_path=profile_path,
+            date=date_str,
+        )
+        return "fail"
+
+    def progress_cb(data: dict[str, Any]) -> None:
+        try:
+            data = dict(data)
+            data["status"] = "running"
+            progress_dict[date_str] = data
+        except Exception:
+            # Manager proxy may be torn down on parent shutdown — ignore.
+            pass
+
+    return run_one_date(
+        base_profile=base_profile,
+        instrument=instrument,
+        date_str=date_str,
+        raw_root=Path(raw_root),
+        features_root=Path(features_root),
+        validation_root=Path(validation_root),
+        logger=log,
+        progress_callback=progress_cb,
+    )
+
+
 def replay(
     profile_path: str | Path,
     instrument: str,
@@ -514,9 +690,16 @@ def replay(
     checkpoint_path: str | Path | None = None,
     logger=None,
     include_dates: list[str] | None = None,
+    workers: int | None = None,
+    log_dir: str = "logs",
+    log_level: str = "INFO",
 ) -> dict:
     """
     Replay all dates in [date_from, date_to] for the given instrument.
+
+    T47 (2026-05-25): fans out across dates via ``ProcessPoolExecutor`` and
+    drives a ``rich``-based multi-worker dashboard. Live (recorder) mode is
+    untouched — this only affects the replay path.
 
     Args:
         profile_path:     Path to instrument profile JSON.
@@ -532,9 +715,14 @@ def replay(
         include_dates:    When provided, ONLY these dates are replayed
                           (date_from / date_to and the checkpoint are
                           ignored). Used by the launcher's per-date picker.
+        workers:          Max concurrent dates (None → auto).
+        log_dir:          Per-worker log directory (each subprocess
+                          re-initialises logging on startup).
+        log_level:        Per-worker log level ("DEBUG"|"INFO"|"WARN"|"ERROR").
 
     Returns:
-        Summary dict with counts of each verdict type.
+        Summary dict with counts of each verdict type plus ``interrupted``
+        bool and ``workers`` count.
     """
     raw_root = Path(raw_root)
     features_root = Path(features_root)
@@ -564,38 +752,132 @@ def replay(
         resume_date = checkpoint.get_resume_date(instrument, date_from)
         dates_iter = list(_iter_dates(resume_date, date_to))
 
-    summary = {"pass": 0, "warn": 0, "fail": 0, "skip": 0, "interrupted": False}
+    n_workers = _resolve_workers(len(dates_iter), workers)
+    summary = {
+        "pass": 0, "warn": 0, "fail": 0, "skip": 0,
+        "interrupted": False, "workers": n_workers,
+    }
 
-    for date_str in dates_iter:
-        try:
-            verdict = run_one_date(
-                base_profile=base_profile,
+    if not dates_iter:
+        if logger:
+            logger.info(
+                "REPLAY_NO_DATES",
+                msg=f"No dates to replay for {instrument} (checkpoint up to date)",
                 instrument=instrument,
-                date_str=date_str,
-                raw_root=raw_root,
-                features_root=features_root,
-                validation_root=validation_root,
-                logger=logger,
             )
-        except KeyboardInterrupt:
-            # run_one_date already saved state for this date. Stop processing
-            # further dates; report interrupted summary.
-            summary["interrupted"] = True
-            return summary
-        summary[verdict] = summary.get(verdict, 0) + 1
+        return summary
 
-        if verdict in ("pass", "warn", "fail"):
-            # Mark all processed dates (including fail) so replay moves forward.
-            # Failed parquet files still exist and can be retrained on if desired.
-            checkpoint.mark_complete(instrument, date_str)
-            if verdict == "fail" and logger:
-                logger.warn(
-                    "REPLAY_DATE_FAILED",
-                    msg=f"{date_str} completed with FAIL verdict — "
-                    f"skipping to next date (partial data saved)",
+    # ── Serial in-process path (workers == 1) ────────────────────────────
+    # Single-date replays, tests that monkeypatch `run_one_date` in the
+    # parent process, and users who explicitly opt out via --workers 1 all
+    # land here. No ProcessPoolExecutor, no dashboard, no spawn — bytewise
+    # identical to the pre-T47 behaviour.
+    if n_workers == 1:
+        for date_str in dates_iter:
+            try:
+                verdict = run_one_date(
+                    base_profile=base_profile,
                     instrument=instrument,
-                    date=date_str,
+                    date_str=date_str,
+                    raw_root=raw_root,
+                    features_root=features_root,
+                    validation_root=validation_root,
+                    logger=logger,
                 )
+            except KeyboardInterrupt:
+                summary["interrupted"] = True
+                return summary
+            summary[verdict] = summary.get(verdict, 0) + 1
+            if verdict in ("pass", "warn", "fail"):
+                checkpoint.mark_complete(instrument, date_str)
+                if verdict == "fail" and logger:
+                    logger.warn(
+                        "REPLAY_DATE_FAILED",
+                        msg=f"{date_str} completed with FAIL verdict — "
+                        f"skipping to next date (partial data saved)",
+                        instrument=instrument,
+                        date=date_str,
+                    )
+        return summary
+
+    # ── Parallel fan-out path (workers >= 2) ─────────────────────────────
+    saved_env = _apply_blas_thread_caps()
+    manager = multiprocessing.Manager()
+    progress_dict = manager.dict()
+    mp_ctx = multiprocessing.get_context("spawn")
+
+    try:
+        with ProgressDashboard(
+            instrument=instrument,
+            dates=dates_iter,
+            workers=n_workers,
+            progress_dict=progress_dict,
+        ) as dashboard:
+            with ProcessPoolExecutor(
+                max_workers=n_workers, mp_context=mp_ctx,
+            ) as pool:
+                futures = {
+                    pool.submit(
+                        _worker_run_one_date,
+                        str(profile_path),
+                        instrument,
+                        date_str,
+                        str(raw_root),
+                        str(features_root),
+                        str(validation_root),
+                        log_dir,
+                        log_level,
+                        progress_dict,
+                    ): date_str
+                    for date_str in dates_iter
+                }
+                try:
+                    for fut in as_completed(futures):
+                        date_str = futures[fut]
+                        try:
+                            verdict = fut.result()
+                        except Exception as exc:
+                            if logger:
+                                logger.error(
+                                    "REPLAY_WORKER_FAILED",
+                                    msg=f"Worker for {date_str} crashed: {exc}",
+                                    instrument=instrument,
+                                    date=date_str,
+                                    error=str(exc),
+                                )
+                            verdict = "fail"
+                        dashboard.mark_terminal(date_str, verdict)
+                        summary[verdict] = summary.get(verdict, 0) + 1
+                        if verdict in ("pass", "warn", "fail"):
+                            # Mark all processed dates (including fail) so replay
+                            # moves forward. Failed parquet files still exist and
+                            # can be retrained on if desired. Filelock inside
+                            # ReplayCheckpoint protects the JSON from concurrent
+                            # writes (workers finish out of order).
+                            checkpoint.mark_complete(instrument, date_str)
+                            if verdict == "fail" and logger:
+                                logger.warn(
+                                    "REPLAY_DATE_FAILED",
+                                    msg=f"{date_str} completed with FAIL verdict — "
+                                    f"partial data saved",
+                                    instrument=instrument,
+                                    date=date_str,
+                                )
+                except KeyboardInterrupt:
+                    summary["interrupted"] = True
+                    # Cancel any not-yet-started futures so the pool drains
+                    # quickly; in-flight workers finish their current chunk
+                    # via the existing per-date KeyboardInterrupt path.
+                    for f in futures:
+                        if not f.done():
+                            f.cancel()
+                    raise
+    finally:
+        _restore_env(saved_env)
+        try:
+            manager.shutdown()
+        except Exception:
+            pass
 
     return summary
 
@@ -657,6 +939,16 @@ def _cli():
         choices=["DEBUG", "INFO", "WARN", "ERROR"],
         default="INFO",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help=(
+            f"Max parallel date workers (default: auto = min(num_dates, "
+            f"{DEFAULT_WORKERS_TARGET}); hard cap {WORKERS_HARD_CAP}). Set to "
+            "1 for serial replay (legacy behaviour)."
+        ),
+    )
     args = parser.parse_args()
 
     from tick_feature_agent.log.tfa_logger import get_logger, setup_logging
@@ -679,6 +971,9 @@ def _cli():
         validation_root=args.validation_root,
         checkpoint_path=args.checkpoint,
         logger=log,
+        workers=args.workers,
+        log_dir=args.log_dir,
+        log_level=args.log_level,
     )
 
     # Print summary

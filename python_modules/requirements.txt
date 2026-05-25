@@ -17,3 +17,10 @@ pandas==3.0.1
 numpy==2.4.3
 pyarrow==23.0.1
 scikit-learn==1.8.0
+#
+# Replay parallelism (T47 — Phase A)
+#   rich         — multi-worker progress dashboard (rich.live.Live + Table)
+#   portalocker  — cross-process file lock for replay_checkpoint.json under
+#                  ProcessPoolExecutor fan-out (workers finish out of order)
+rich==13.9.4
+portalocker==2.10.1

@@ -1427,6 +1427,9 @@ def _run_replay(profile, args, log) -> None:
         validation_root=args.validation_root,
         logger=log,
         include_dates=include_dates,
+        workers=getattr(args, "workers", None),
+        log_dir=args.log_dir,
+        log_level=args.log_level,
     )
 
     print()
@@ -1502,6 +1505,15 @@ def main() -> None:
     # Logging
     parser.add_argument("--log-dir", default="logs", metavar="DIR")
     parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARN", "ERROR"], default="INFO")
+    # T47 — replay-only: parallel fan-out across dates. Ignored in live mode.
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Replay-only: max parallel date workers (default: auto = "
+        "min(num_dates, 16); hard cap 20). Set to 1 for serial replay.",
+    )
 
     args = parser.parse_args()
 
