@@ -515,7 +515,38 @@ Offload heavy windowed feature math (rolling std / EMA / percentile bands / regi
 - **Effort:** ~3–4 days when triggered. CuPy adapter for the 5–8 heaviest feature classes + cross-worker GPU contention design (single queue, or 2–4 GPU workers + N CPU workers) + golden-file byte-equality test vs CPU output + NumPy fallback.
 - **Expected speedup once shipped on a real GPU:** +50–100% on top of A+B for batch jobs (i.e., today's serial baseline → ~45–60× faster vs ~25–35× with A+B alone).
 - **Prerequisite:** Phase A and Phase B must ship first (they expose the batching API that C plugs into).
-- **Cross-ref:** [systems/02_feature_engineering.md](systems/02_feature_engineering.md) (replay-parallelism design context, to be added in the same plan).
+- **Cross-ref:** T47 (Phase A — must ship first; exposes the worker-fan-out API), T48 (Phase B.0 spike — must complete + green-light before B.1–B.5 unlock the columnar batching API that C plugs into), [systems/02_feature_engineering.md](systems/02_feature_engineering.md) (replay-parallelism design context).
+
+### T47 [TFA] — Replay parallelism Phase A: CPU fan-out across dates + multi-worker progress dashboard 🆕
+Replace the serial `for date_str in dates_iter` loop in `replay/replay_runner.py` with a `ProcessPoolExecutor`-based fan-out so one CLI call can replay N dates in parallel on the i9-13900K's 24 cores. Pair with a `rich`-based multi-worker progress dashboard — top row: aggregate `X / Y dates done · Elapsed · ETA`; per-worker rows: visual bar + events processed + events/sec + per-date ETA + chunk M/N progress; bottom row: running pass/warn/fail/skip tally. Live `tick_processor` path **untouched** — replay-only change. Each worker still writes its own `<inst>_features_progress.json` so yow-partha and the launcher can poll the same files (closes T4's deferred launcher wire-up).
+
+- **Status:** ⏳ PRE-paper-trade SHOULD. Planned 2026-05-25.
+- **Effort:** ~3–4 days, one PR.
+- **Expected speedup:** ~12–15× on a 30-day batch replay. Single-date latency unchanged (A is per-date parallelism only).
+- **Locked design defaults (decided 2026-05-25 against confirmed hardware: i9-13900K 24c/32t, 31.7 GB RAM, NVMe PCIe 4):**
+  - `--workers` default = `min(num_dates, 16)`; hard cap 20 (leaves 8+ cores for OS / recorder / yow-partha / bot; saturates NVMe before saturating CPU).
+  - Concurrency model = `concurrent.futures.ProcessPoolExecutor` (process per worker, no GIL, no shared mutable state).
+  - Per-worker env: `OPENBLAS_NUM_THREADS=2`, `MKL_NUM_THREADS=2` (prevents thread oversubscription once T48/B-full lands BLAS-backed columnar trackers).
+  - Checkpoint write safety: `portalocker` file-lock around `ReplayCheckpoint.mark_complete()` (workers finish out of order; lock prevents corrupt JSON).
+  - Progress lib: **`rich`** — `rich.live.Live` + `rich.table.Table`, refresh ~10 Hz, fed from a `multiprocessing.Manager` dict that every worker writes to.
+  - Single-date / single-worker runs collapse to one worker row + overall row (still useful).
+  - Live single-process mode keeps today's `\r` heartbeat — zero change there.
+  - Ctrl+C: propagates to all workers; each flushes its own chunk via the existing per-date `KeyboardInterrupt` path → fully resumable.
+- **Files expected to touch:** `python_modules/tick_feature_agent/replay/replay_runner.py` (rewrite `replay()` body), `python_modules/tick_feature_agent/replay/checkpoint.py` (add filelock), `python_modules/tick_feature_agent/replay/progress_dashboard.py` (new, ~150 LOC), `python_modules/tick_feature_agent/tests/test_replay.py` (extend), `requirements.txt` (add `rich`, `portalocker`), `startup/start-replay.bat` (passthrough `--workers`).
+- **Cross-ref:** T4 (launcher per-date progress wire-up — the per-worker JSON files this task writes are exactly what T4 was waiting on), T48 (Phase B.0 spike — blocks on T47 shipping for measured baseline), T46 (Phase C — plugs into the same worker pool once GPU is upgraded), [systems/02_feature_engineering.md](systems/02_feature_engineering.md).
+
+### T48 [TFA] — Replay parallelism Phase B.0: realized_vol vectorisation spike 🆕
+Convert ONLY the `realized_vol` feature class (rolling std over 4 windows — single hottest pattern in TFA) from per-event scalar updates to Polars `group_by_dynamic` columnar processing. Wrap `merge_streams` output in 5–10k-row Polars chunks via a new `ColumnarBatcher`. Goal: **measure** per-date speedup of the converted feature + golden-file byte-equality vs pre-spike parquet output, so the bigger Phase B-full decision (tracker columnarisation across the other 5 hot trackers, ~5–6 weeks) is made on data not on guesses.
+
+- **Status:** ⏳ PRE-paper-trade SHOULD. Blocked on T47 shipping + producing real per-date latency measurements on the 16-worker layout.
+- **Effort:** ~3–5 days.
+- **Decision gate at end of spike (commit upfront, no re-litigating):**
+  - **≥3× on `realized_vol`** → green-light B.1–B.5 (rewrite top 5 trackers as columnar; ~5–6 weeks; target ~3–5× per date, ~45–75× on 30-day batches when combined with T47).
+  - **1.5–2×** → reconsider; trackers likely aren't the bottleneck; ~2× ceiling without a deeper rewrite.
+  - **<1.5×** → **abort B-full**. Bottleneck is elsewhere (likely IO / parquet write / merge_streams). Re-plan around that, don't keep pushing on trackers.
+- **Why this risks the rest:** TFA pipeline is fundamentally stateful — every event mutates ~10 trackers; `feature_pipeline.py:31` explicitly says *"Threading: single-threaded."* Mistakes are silent: wrong feature value → wrong model input → wrong predictions in live trading. Golden-file diff on every PR is non-negotiable, and live mode never gets touched by B.
+- **Files expected to touch:** `python_modules/tick_feature_agent/features/realized_vol.py`, `python_modules/tick_feature_agent/replay/columnar_batcher.py` (new), `python_modules/tick_feature_agent/tests/test_realized_vol_columnar.py` (new — includes golden-file harness), `requirements.txt` (add `polars`).
+- **Cross-ref:** T47 (must ship first), [systems/02_feature_engineering.md](systems/02_feature_engineering.md), T46 (Phase C plugs into the columnar API this task introduces, once a real GPU is in the box).
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
