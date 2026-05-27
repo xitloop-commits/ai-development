@@ -69,11 +69,14 @@ def _run_one(
                 yield event
         replay_runner.merge_streams = limited
 
-    # Env var controls cached path
+    # Env vars control the cached paths. Toggle BOTH B.3a and B.3b
+    # together so "scalar baseline" really is fully-scalar replay.
     if use_legacy:
         os.environ["TFA_LEGACY_MAX_PAIN"] = "1"
+        os.environ["TFA_LEGACY_TARGETS"] = "1"
     else:
         os.environ.pop("TFA_LEGACY_MAX_PAIN", None)
+        os.environ.pop("TFA_LEGACY_TARGETS", None)
 
     profile_path = _REPO_ROOT / f"config/instrument_profiles/{instrument}_profile.json"
     t0 = time.perf_counter()

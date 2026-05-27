@@ -377,28 +377,54 @@ class ReplayAdapter:
 
         Rows whose target windows would extend past the session end get NaN
         targets (they represent incomplete lookahead windows).
+
+        T50 B.3b: batched columnar path runs all pending rows through
+        the three Polars target functions in one pass, then emits in
+        FIFO order. Falls back to per-row scalar when ``TFA_LEGACY_TARGETS=1``.
         """
-        while self._pending:
-            pending = self._pending.popleft()
-            # Use session_end as the cutoff — no lookahead past session close
-            targets = self._target_buf.compute_targets(
-                t0=pending.t0,
-                spot_at_t0=pending.spot_at_t0,
-                active_strike_ltps_at_t0=pending.ltps_at_t0,
-                session_end_sec=self._session_end_sec,
-                day_high_at_t0=pending.day_high_at_t0,
-                day_low_at_t0=pending.day_low_at_t0,
-            )
-            pending.row.update(targets)
-            # Phase 3: also backfill the trend + swing target columns.
-            trend_swing = self._spot_target_buf.compute_targets(
-                t0=pending.t0,
-                spot_at_t0=pending.spot_at_t0,
+        from tick_feature_agent.replay import targets_cache as _tc
+        if _tc.legacy_enabled() or len(self._pending) < 2:
+            # Scalar path: original per-row implementation. Also used
+            # when there's only one pending row (Polars per-batch
+            # overhead beats it).
+            while self._pending:
+                pending = self._pending.popleft()
+                targets = self._target_buf.compute_targets(
+                    t0=pending.t0,
+                    spot_at_t0=pending.spot_at_t0,
+                    active_strike_ltps_at_t0=pending.ltps_at_t0,
+                    session_end_sec=self._session_end_sec,
+                    day_high_at_t0=pending.day_high_at_t0,
+                    day_low_at_t0=pending.day_low_at_t0,
+                )
+                pending.row.update(targets)
+                trend_swing = self._spot_target_buf.compute_targets(
+                    t0=pending.t0,
+                    spot_at_t0=pending.spot_at_t0,
+                    instrument_name=self._profile.instrument_name,
+                    session_end_sec=self._session_end_sec,
+                )
+                pending.row.update(trend_swing)
+                self._emitter.emit(pending.row)
+        else:
+            # Columnar batched path. Snapshot all rows, run batch, emit FIFO.
+            all_pending = list(self._pending)
+            self._pending.clear()
+            batched = _tc.compute_pending_targets_batched(
+                pending_rows=all_pending,
+                target_buf=self._target_buf,
+                spot_target_buf=self._spot_target_buf,
                 instrument_name=self._profile.instrument_name,
                 session_end_sec=self._session_end_sec,
+                target_windows_sec=self._profile.target_windows_sec,
             )
-            pending.row.update(trend_swing)
-            self._emitter.emit(pending.row)
+            # Note: flush_all does NOT call self._upside_pct (matches the
+            # scalar flush_all path above; only _flush_pending does). End-
+            # of-session rows leave upside_percentile_{min}s unset, same
+            # as the pre-T50 behaviour.
+            for pending, target_dict in zip(all_pending, batched, strict=True):
+                pending.row.update(target_dict)
+                self._emitter.emit(pending.row)
 
         # Reset target buffer and tracker for clean re-use (if any)
         self._target_buf.reset()
@@ -882,38 +908,66 @@ class ReplayAdapter:
         Emit any pending rows whose full target window has elapsed.
 
         A row at t0 is ready when current_ts >= t0 + max_window_sec.
+
+        T50 B.3b: collects all ready rows up-front, then batch-computes
+        targets via the columnar functions. Falls back to per-row scalar
+        when ``TFA_LEGACY_TARGETS=1`` or when the ready batch is < 2 rows
+        (scalar wins below the Polars per-batch overhead break-even).
         """
+        # Collect eligible rows (FIFO order preserved by popleft loop).
+        ready: list = []
         while self._pending:
             head = self._pending[0]
             if current_ts < head.t0 + self._max_window_sec:
                 break  # remaining rows are also not ready (queue is FIFO)
+            ready.append(self._pending.popleft())
+        if not ready:
+            return
 
-            pending = self._pending.popleft()
-            targets = self._target_buf.compute_targets(
-                t0=pending.t0,
-                spot_at_t0=pending.spot_at_t0,
-                active_strike_ltps_at_t0=pending.ltps_at_t0,
-                session_end_sec=self._session_end_sec,
-                day_high_at_t0=pending.day_high_at_t0,
-                day_low_at_t0=pending.day_low_at_t0,
-            )
-            # Inject upside percentile for the shortest window
-            min_window = min(self._profile.target_windows_sec)
-            upside_key = f"max_upside_{min_window}s"
-            upside_pct_key = f"upside_percentile_{min_window}s"
-            upside_val = targets.get(upside_key, _NAN)
-            targets[upside_pct_key] = self._upside_pct.add_and_query(upside_val)
+        from tick_feature_agent.replay import targets_cache as _tc
+        min_window = min(self._profile.target_windows_sec)
+        upside_key = f"max_upside_{min_window}s"
+        upside_pct_key = f"upside_percentile_{min_window}s"
 
-            pending.row.update(targets)
-            # Phase 3: also backfill trend + swing target columns from the
-            # spot-only buffer (replay-only per Option B).
-            trend_swing = self._spot_target_buf.compute_targets(
-                t0=pending.t0,
-                spot_at_t0=pending.spot_at_t0,
-                instrument_name=self._profile.instrument_name,
-                session_end_sec=self._session_end_sec,
-            )
-            pending.row.update(trend_swing)
+        if _tc.legacy_enabled() or len(ready) < 2:
+            # Scalar per-row fallback (original behaviour).
+            for pending in ready:
+                targets = self._target_buf.compute_targets(
+                    t0=pending.t0,
+                    spot_at_t0=pending.spot_at_t0,
+                    active_strike_ltps_at_t0=pending.ltps_at_t0,
+                    session_end_sec=self._session_end_sec,
+                    day_high_at_t0=pending.day_high_at_t0,
+                    day_low_at_t0=pending.day_low_at_t0,
+                )
+                upside_val = targets.get(upside_key, _NAN)
+                targets[upside_pct_key] = self._upside_pct.add_and_query(upside_val)
+                pending.row.update(targets)
+                trend_swing = self._spot_target_buf.compute_targets(
+                    t0=pending.t0,
+                    spot_at_t0=pending.spot_at_t0,
+                    instrument_name=self._profile.instrument_name,
+                    session_end_sec=self._session_end_sec,
+                )
+                pending.row.update(trend_swing)
+                self._emitter.emit(pending.row)
+            return
+
+        # Batched columnar path.
+        batched = _tc.compute_pending_targets_batched(
+            pending_rows=ready,
+            target_buf=self._target_buf,
+            spot_target_buf=self._spot_target_buf,
+            instrument_name=self._profile.instrument_name,
+            session_end_sec=self._session_end_sec,
+            target_windows_sec=self._profile.target_windows_sec,
+        )
+        for pending, target_dict in zip(ready, batched, strict=True):
+            pending.row.update(target_dict)
+            # upside_percentile must stay sequential — UpsidePercentileTracker
+            # carries state across calls and we must preserve FIFO ordering.
+            upside_val = pending.row.get(upside_key, _NAN)
+            pending.row[upside_pct_key] = self._upside_pct.add_and_query(upside_val)
             self._emitter.emit(pending.row)
 
     def _get_atm_strike_ltps(self) -> dict[int, tuple[float, float]]:
