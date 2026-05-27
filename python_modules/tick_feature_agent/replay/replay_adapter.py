@@ -413,6 +413,15 @@ class ReplayAdapter:
         if snapshot is None:
             return
 
+        # T50 B.3a: thread the current snapshot's timestamp into the
+        # max_pain_cache module so the monkey-patched
+        # compute_max_pain_features can look up the pre-computed
+        # max_pain_strike for THIS snapshot. No-op (writes to an unread
+        # module var) when the cache isn't installed (live mode never
+        # installs; replay can opt out via TFA_LEGACY_MAX_PAIN=1).
+        from tick_feature_agent.replay import max_pain_cache as _mpc
+        _mpc.current_snapshot_ts = float(snapshot.timestamp_sec)
+
         # Memory-leak fix: advance pending-row flush on every event with a
         # valid timestamp, not only on underlying ticks. Without this, sparse
         # underlying + dense option/chain caused unbounded growth of

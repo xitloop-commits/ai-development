@@ -62,6 +62,7 @@ if str(_PYTHON_MODULES) not in sys.path:
 
 from tick_feature_agent.instrument_profile import ProfileValidationError, load_profile
 from tick_feature_agent.recorder.metadata_writer import read_metadata
+from tick_feature_agent.replay import max_pain_cache as _max_pain_cache
 from tick_feature_agent.replay.checkpoint import ReplayCheckpoint
 from tick_feature_agent.replay.progress_dashboard import ProgressDashboard
 from tick_feature_agent.replay.replay_adapter import ReplayAdapter
@@ -291,6 +292,13 @@ def run_one_date(
             flush=True,
         )
     adapter = ReplayAdapter(profile, date_str, logger=logger)
+
+    # T50 B.3a: install max_pain pre-compute + monkey-patch. No-op when
+    # TFA_LEGACY_MAX_PAIN=1 or when chain stream is missing. Always
+    # uninstalled in the date-level try/finally below so a crash mid-
+    # replay can't leave feature_pipeline.compute_max_pain_features
+    # pointing at the cached wrapper for the next date or live mode.
+    _max_pain_patch = _max_pain_cache.install(date_folder, instrument)
 
     # Initial progress ping so the dashboard shows totals before the first
     # heartbeat at event #50,000 (long dates can take seconds to estimate).
@@ -634,6 +642,13 @@ def run_one_date(
             underlying_ticks=adapter.underlying_tick_count,
             event_count=event_idx,
         )
+
+    # T50 B.3a: uninstall the monkey-patch on the happy path. Early-exit
+    # paths (skip/fail returns earlier in this function) intentionally
+    # don't call uninstall — the next install() is self-healing and
+    # restores the true scalar original before re-patching, so leaks
+    # across dates within the same worker can't accumulate.
+    _max_pain_cache.uninstall(_max_pain_patch)
 
     return verdict
 
