@@ -77,11 +77,13 @@ def _run_one(
         os.environ["TFA_LEGACY_TARGETS"] = "1"
         os.environ["TFA_LEGACY_CHAIN_FEATURES"] = "1"
         os.environ["TFA_LEGACY_SIDE_STRENGTHS"] = "1"
+        os.environ["TFA_LEGACY_DEALER_HEDGING"] = "1"
     else:
         os.environ.pop("TFA_LEGACY_MAX_PAIN", None)
         os.environ.pop("TFA_LEGACY_TARGETS", None)
         os.environ.pop("TFA_LEGACY_CHAIN_FEATURES", None)
         os.environ.pop("TFA_LEGACY_SIDE_STRENGTHS", None)
+        os.environ.pop("TFA_LEGACY_DEALER_HEDGING", None)
 
     profile_path = _REPO_ROOT / f"config/instrument_profiles/{instrument}_profile.json"
     t0 = time.perf_counter()

@@ -313,6 +313,12 @@ def run_one_date(
     _side_strengths_patch = _max_pain_cache.install_side_strengths(
         date_folder, instrument,
     )
+    # T50 B.3d: dealer_hedging numpy-vectorised drop-in replacement.
+    # Same input signature + output dict; the per-strike BS loop is
+    # one numpy pass instead of Python iteration. No cache (per-emit
+    # spot dependency makes caching uneconomic). Rollback via
+    # TFA_LEGACY_DEALER_HEDGING=1.
+    _dealer_hedging_patch = _max_pain_cache.install_dealer_hedging()
 
     # Initial progress ping so the dashboard shows totals before the first
     # heartbeat at event #50,000 (long dates can take seconds to estimate).
@@ -657,14 +663,15 @@ def run_one_date(
             event_count=event_idx,
         )
 
-    # T50 B.3a + B.3c + B.3e: uninstall the monkey-patches on the happy
-    # path. Early-exit paths intentionally don't call uninstall — the
-    # next install() is self-healing and restores the true scalar
-    # original before re-patching, so leaks across dates within the
-    # same worker can't accumulate.
+    # T50 B.3a + B.3c + B.3d + B.3e: uninstall the monkey-patches on
+    # the happy path. Early-exit paths intentionally don't call
+    # uninstall — every install() is self-healing and restores the
+    # true scalar original before re-patching, so leaks across dates
+    # within the same worker can't accumulate.
     _max_pain_cache.uninstall(_max_pain_patch)
     _max_pain_cache.uninstall_chain_features(_chain_features_patch)
     _max_pain_cache.uninstall_side_strengths(_side_strengths_patch)
+    _max_pain_cache.uninstall_dealer_hedging(_dealer_hedging_patch)
 
     return verdict
 

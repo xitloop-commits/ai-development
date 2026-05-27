@@ -562,3 +562,47 @@ def uninstall_side_strengths(sentinel) -> None:
     (original,) = sentinel
     from tick_feature_agent.features import active_features as _af
     _af.compute_side_strengths = original
+
+
+# ── B.3d: dealer_hedging numpy-vectorised drop-in ───────────────────────────
+
+
+def _legacy_dealer_hedging_enabled() -> bool:
+    """TFA_LEGACY_DEALER_HEDGING=1 disables the B.3d vectorised replacement."""
+    return os.environ.get("TFA_LEGACY_DEALER_HEDGING", "").strip() not in (
+        "", "0", "false", "False",
+    )
+
+
+def install_dealer_hedging():
+    """Replace ``feature_pipeline.compute_dealer_hedging_features`` with
+    the numpy-vectorised drop-in. Same signature + return shape; per-call
+    speedup ~10× by replacing the Python per-strike BS loop with one
+    numpy pass over all strikes.
+
+    No cache, no chain-snapshot iteration at install time — this is
+    purely a function replacement. Returns sentinel for uninstall.
+    """
+    if _legacy_dealer_hedging_enabled():
+        return None
+    from tick_feature_agent.features.dealer_hedging_columnar import (
+        compute_dealer_hedging_features_vec as _vec_fn,
+    )
+    from tick_feature_agent.state import feature_pipeline as _fp
+
+    current = _fp.compute_dealer_hedging_features
+    # Self-healing: if a prior install left a wrapper, get the true scalar.
+    true_original = getattr(
+        current, "_dealer_hedging_true_original", current,
+    )
+    setattr(_vec_fn, "_dealer_hedging_true_original", true_original)
+    _fp.compute_dealer_hedging_features = _vec_fn
+    return (true_original,)
+
+
+def uninstall_dealer_hedging(sentinel) -> None:
+    if sentinel is None:
+        return
+    (original,) = sentinel
+    from tick_feature_agent.state import feature_pipeline as _fp
+    _fp.compute_dealer_hedging_features = original
