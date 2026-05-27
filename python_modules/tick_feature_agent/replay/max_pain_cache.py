@@ -36,6 +36,9 @@ from pathlib import Path
 
 import polars as pl
 
+from tick_feature_agent.features.active_features_columnar import (
+    compute_side_strengths_batch,
+)
 from tick_feature_agent.features.chain_columnar import (
     compute_oi_weighted_levels_batch,
     compute_wall_strength_batch,
@@ -414,31 +417,16 @@ def _legacy_side_strengths_enabled() -> bool:
     )
 
 
-def _build_side_strengths_cache(
+def _load_chain_snapshots_with_volumes(
     date_folder: Path, instrument: str,
-) -> dict[float, dict[int, tuple]]:
-    """Pre-compute compute_side_strengths(curr_rows, prev_rows) for every
-    snapshot in time order. Uses the SCALAR implementation internally —
-    the cache win comes from amortizing 5746 runtime calls (called from
-    both compute_active_features and compute_zone_features) down to
-    3306 unique snapshots (~40% fewer total calls).
-
-    Full Polars vectorisation of side_strengths is harder (requires
-    shift().over(strike) for vol_diff plus normalize within snapshot
-    groups) and deferred to a follow-up.
-    """
-    from tick_feature_agent.features.active_features import (
-        compute_side_strengths as _scalar_side_strengths,
-    )
-
+) -> tuple[pl.DataFrame, list[float]]:
+    """Like ``_load_chain_snapshots`` but preserves callVolume / putVolume
+    / callOIChange / putOIChange fields needed by side_strengths."""
     path = date_folder / f"{instrument}_chain_snapshots.ndjson.gz"
     if not path.exists():
-        return {}
-
-    # Load raw snapshots in time order (don't normalize the rows here —
-    # scalar compute_side_strengths reads callVolume/putVolume/
-    # callOIChange/putOIChange directly off the dicts).
-    raw_snapshots: list[tuple[float, list[dict]]] = []
+        return pl.DataFrame(), []
+    snapshots: list[dict] = []
+    timestamps: list[float] = []
     with gzip.open(path, "rt", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -456,24 +444,72 @@ def _build_side_strengths_cache(
             except (TypeError, ValueError):
                 continue
             ts_sec = ts_ms_f / 1000.0 if ts_ms_f > 1e9 else ts_ms_f
-            rows = rec.get("rows") or []
-            raw_snapshots.append((ts_sec, rows))
+            raw_rows = rec.get("rows") or []
+            rich_rows = []
+            for r in raw_rows:
+                if not isinstance(r, dict):
+                    continue
+                strike = r.get("strike")
+                if strike is None:
+                    continue
+                try:
+                    rich_rows.append({
+                        "strike": int(strike),
+                        "callVolume": float(r.get("callVolume") or 0),
+                        "putVolume": float(r.get("putVolume") or 0),
+                        "callOIChange": float(r.get("callOIChange") or 0),
+                        "putOIChange": float(r.get("putOIChange") or 0),
+                    })
+                except (TypeError, ValueError):
+                    continue
+            snapshots.append({"rows": rich_rows})
+            timestamps.append(ts_sec)
+    if not snapshots:
+        return pl.DataFrame(), []
+    df = pl.from_dicts(snapshots, infer_schema_length=None)
+    return df, timestamps
 
-    if not raw_snapshots:
+
+def _build_side_strengths_cache(
+    date_folder: Path, instrument: str,
+) -> dict[float, dict[int, tuple]]:
+    """Pre-compute side_strengths for every chain snapshot using the
+    Polars-vectorised ``compute_side_strengths_batch`` (T50 B.3c proper).
+
+    Output shape matches scalar ``compute_side_strengths(rows, prev_rows)``:
+    ``{snapshot_ts: {strike: (csv, csoi, strength, psv, psoi, strength_pe)}}``.
+
+    Win vs scalar: ~10× per-function speedup on the per-snapshot work,
+    plus the original amortisation (5746 runtime calls served by 3306
+    pre-built dicts).
+    """
+    df, timestamps = _load_chain_snapshots_with_volumes(date_folder, instrument)
+    if df.is_empty() or not timestamps:
+        return {}
+
+    out_df = compute_side_strengths_batch(df)
+    if len(out_df) == 0:
         return {}
 
     cache: dict[float, dict[int, tuple]] = {}
-    prev_rows: list[dict] | None = None
-    for ts, rows in raw_snapshots:
-        try:
-            result = _scalar_side_strengths(rows, prev_rows)
-        except Exception:
-            # Defensive — keep the cache clean; one bad snapshot just
-            # means the wrapper falls through to scalar for that ts.
-            prev_rows = rows
+    for sid_value, group in out_df.group_by("snapshot_id", maintain_order=True):
+        # group_by returns (key_tuple, group_df); key_tuple may be a
+        # single int or a tuple depending on Polars version. Normalise.
+        sid = int(sid_value[0] if isinstance(sid_value, tuple) else sid_value)
+        if sid < 0 or sid >= len(timestamps):
             continue
-        cache[ts] = result
-        prev_rows = rows
+        ts = timestamps[sid]
+        strike_dict: dict[int, tuple] = {}
+        for row in group.iter_rows(named=True):
+            strike_dict[int(row["strike"])] = (
+                float(row["csv"]),
+                float(row["csoi"]),
+                float(row["strength"]),
+                float(row["psv"]),
+                float(row["psoi"]),
+                float(row["strength_pe"]),
+            )
+        cache[ts] = strike_dict
     return cache
 
 

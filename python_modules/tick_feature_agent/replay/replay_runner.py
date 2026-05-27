@@ -305,15 +305,14 @@ def run_one_date(
     _chain_features_patch = _max_pain_cache.install_chain_features(
         date_folder, instrument,
     )
-    # T50 B.3c: side_strengths cache infrastructure exists in
-    # max_pain_cache but is NOT installed by default — measured a
-    # net regression of ~1s on 500k events because scalar-based
-    # pre-compute (~5s offline build) outweighs the amortisation
-    # savings (~4s saved at runtime). The wrapper + builder remain
-    # in place for a future Polars-vectorised replacement (proper
-    # shift-over-strike + group_by-normalize) that would actually
-    # win. Skip the install call to avoid the regression.
-    _side_strengths_patch = None
+    # T50 B.3c: side_strengths cache now backed by the Polars-
+    # vectorised ``compute_side_strengths_batch`` (shift-over-strike +
+    # normalize-within-snapshot via group_by). Build cost dropped to
+    # well under the runtime savings, so the install is back on by
+    # default. Rollback via TFA_LEGACY_SIDE_STRENGTHS=1.
+    _side_strengths_patch = _max_pain_cache.install_side_strengths(
+        date_folder, instrument,
+    )
 
     # Initial progress ping so the dashboard shows totals before the first
     # heartbeat at event #50,000 (long dates can take seconds to estimate).
