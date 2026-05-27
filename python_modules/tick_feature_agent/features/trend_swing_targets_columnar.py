@@ -174,39 +174,62 @@ def compute_trend_swing_targets_batch(
             excursion = pl.col("_max_spot") - pl.col("_spot0")
             drawdown = pl.col("_spot0") - pl.col("_min_spot")
 
-            # direction: scalar uses |magnitude| >= noise_floor for the
-            # non-zero bucket, sign otherwise. Match exactly.
+            # direction: scalar (lines 261-265 of trend_swing_targets.py):
+            #   if noise_floor is None: NaN
+            #   else:                   1.0 if magnitude > noise_floor else 0.0
+            # NOTE: this is BINARY (0/1), NOT a signed {-1,0,+1} bucket.
             if noise_floor is None:
-                direction_expr = pl.when(mask_null).then(None).otherwise(magnitude.sign())
+                direction_expr = pl.when(mask_null).then(None).otherwise(
+                    pl.lit(None).cast(pl.Float64)
+                )
             else:
                 direction_expr = (
                     pl.when(mask_null).then(None)
-                    .when(magnitude.abs() < noise_floor).then(0)
-                    .otherwise(magnitude.sign())
+                      .otherwise(
+                          pl.when(magnitude > noise_floor).then(1.0).otherwise(0.0)
+                      )
                 )
 
-            continues_expr = (
-                pl.when(mask_null | pl.col("_dominant_dir").is_null())
-                  .then(None)
-                  .when(noise_floor is not None and True and magnitude.abs() < (noise_floor or 0))
-                  .then(0)
-                  .otherwise(
-                      (direction_expr == pl.col("_dominant_dir")).cast(pl.Int8)
-                  )
-                if noise_floor is not None else
-                pl.when(mask_null | pl.col("_dominant_dir").is_null())
-                  .then(None)
-                  .otherwise(
-                      (magnitude.sign() == pl.col("_dominant_dir")).cast(pl.Int8)
-                  )
-            )
+            # continues: scalar (lines 267-284):
+            #   NaN if noise_floor is None OR earliest_lookback_spot is None
+            #   else if prior_change == 0 or magnitude == 0:   0.0
+            #   else if same_sign(prior, mag) AND |mag| >= noise_floor: 1.0
+            #   else: 0.0
+            if noise_floor is None:
+                continues_expr = pl.when(mask_null).then(None).otherwise(
+                    pl.lit(None).cast(pl.Float64)
+                )
+            else:
+                prior_change = pl.col("_spot0") - pl.col("_earliest_lookback_spot")
+                same_sign = (
+                    ((prior_change > 0) & (magnitude > 0))
+                    | ((prior_change < 0) & (magnitude < 0))
+                )
+                big_enough = magnitude.abs() >= noise_floor
+                continues_expr = (
+                    pl.when(mask_null | pl.col("_earliest_lookback_spot").is_null())
+                      .then(None)
+                      .when((prior_change == 0) | (magnitude == 0))
+                      .then(0.0)
+                      .otherwise(
+                          pl.when(same_sign & big_enough).then(1.0).otherwise(0.0)
+                      )
+                )
 
+            # breakout_imminent: scalar (lines 286-292):
+            #   NaN if breakout_threshold is None
+            #   else: 1.0 if max_excursion >= breakout_threshold else 0.0
+            # NOTE: scalar uses >= (inclusive), not > — match exactly.
             if breakout_threshold is None:
-                breakout_expr = pl.lit(None, dtype=pl.Int8)
+                breakout_expr = pl.when(mask_null).then(None).otherwise(
+                    pl.lit(None).cast(pl.Float64)
+                )
             else:
                 breakout_expr = (
                     pl.when(mask_null).then(None)
-                      .otherwise((excursion > breakout_threshold).cast(pl.Int8))
+                      .otherwise(
+                          pl.when(excursion >= breakout_threshold).then(1.0).otherwise(0.0)
+                      )
                 )
 
             result = result.with_columns(
