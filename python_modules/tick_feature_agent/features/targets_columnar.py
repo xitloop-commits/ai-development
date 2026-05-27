@@ -46,6 +46,197 @@ import polars as pl
 _DEFAULT_WINDOWS: tuple[int, ...] = (30, 60)
 
 
+def compute_targets_batch_per_strike(
+    emit_df: pl.DataFrame,
+    strike_history_df: pl.DataFrame,
+    *,
+    target_windows_sec: tuple[int, ...] = _DEFAULT_WINDOWS,
+    session_end_sec: float,
+    emit_ts_col: str = "ts_sec",
+    emit_active_strikes_col: str = "active_strikes_at_t0",
+    hist_ts_col: str = "ts_sec",
+    hist_strike_col: str = "strike",
+    hist_ce_col: str = "ce_ltp",
+    hist_pe_col: str = "pe_ltp",
+) -> pl.DataFrame:
+    """Per-strike half of compute_targets in batched form.
+
+    Args:
+        emit_df: One row per emit point with at least:
+            - ``ts_sec``: epoch seconds at t0
+            - ``active_strikes_at_t0``: List[Struct[strike, ce_now, pe_now]]
+        strike_history_df: Per-strike LTP history rows
+            ``ts_sec, strike, ce_ltp, pe_ltp`` (long form across all
+            strikes ever seen during the date).
+        target_windows_sec: Forward windows in seconds.
+        session_end_sec: Targets whose horizon extends past this are NaN.
+
+    Returns:
+        emit_df with ``7 * len(target_windows_sec)`` columns appended:
+        max_upside, max_drawdown, risk_reward_ratio, total_premium_decay,
+        avg_decay_per_strike, max_upside_pe, max_drawdown_pe — per window.
+
+    Notes:
+        Scaffold uses explode + cross-join + group_by. O(N_emit *
+        avg_strikes * lookahead_rows). Same correctness-first approach
+        as compute_targets_batch_spot — the perf pass (replace cross-
+        join with sorted time-window join_asof) ships in a follow-up
+        when the harness reveals a real bottleneck.
+    """
+    if len(emit_df) == 0:
+        return emit_df
+
+    # Stamp emit rows with an index and per-row active_count so the
+    # post-aggregation divisor matches scalar's ``active_count`` (=
+    # ``len(active_strike_ltps_at_t0)``, NOT the count of strikes that
+    # happened to have lookahead data).
+    emit_with_idx = emit_df.with_row_index("_emit_idx").with_columns(
+        _active_count=pl.col(emit_active_strikes_col).list.len(),
+    )
+
+    # Long-form expansion: one row per (emit, active strike).
+    emit_long = (
+        emit_with_idx
+        .select(["_emit_idx", emit_ts_col, emit_active_strikes_col, "_active_count"])
+        .rename({emit_ts_col: "_t0"})
+        .explode(emit_active_strikes_col)
+        .unnest(emit_active_strikes_col)
+    )
+    # emit_long now has cols: _emit_idx, _t0, _active_count, strike, ce_now, pe_now
+
+    # Filter strike_history rows to relevant ones via the largest window.
+    # Cuts the cross-join size massively when the date has many strikes
+    # that don't appear in any emit row's active set.
+    max_w = max(target_windows_sec)
+    hist_renamed = strike_history_df.rename({
+        hist_ts_col: "_h_ts",
+        hist_strike_col: "strike",
+        hist_ce_col: "_h_ce",
+        hist_pe_col: "_h_pe",
+    })
+
+    result = emit_with_idx
+
+    for w in target_windows_sec:
+        # Join emit_long (active strikes per emit) with per-strike history
+        # on matching strike + time predicate.
+        joined = (
+            emit_long
+            .join(hist_renamed, on="strike", how="inner")
+            .filter(
+                (pl.col("_h_ts") > pl.col("_t0"))
+                & (pl.col("_h_ts") <= pl.col("_t0") + w)
+            )
+        )
+
+        # Per (emit, strike): max/min/last over lookahead, scoped to
+        # the rows where the CE/PE values are finite (matches scalar's
+        # `not math.isnan(...)` filter on `fut_ces` / `fut_pes`).
+        per_strike = (
+            joined
+            .sort(["_emit_idx", "strike", "_h_ts"])
+            .group_by(["_emit_idx", "strike"], maintain_order=True)
+            .agg(
+                _max_ce=pl.col("_h_ce").filter(pl.col("_h_ce").is_finite()).max(),
+                _min_ce=pl.col("_h_ce").filter(pl.col("_h_ce").is_finite()).min(),
+                _max_pe=pl.col("_h_pe").filter(pl.col("_h_pe").is_finite()).max(),
+                _min_pe=pl.col("_h_pe").filter(pl.col("_h_pe").is_finite()).min(),
+                # premium_decay uses the LAST entry in the lookahead
+                # window for the snapshot at T+x (regardless of NaN — the
+                # scalar guards against NaN below).
+                _last_ce=pl.col("_h_ce").last(),
+                _last_pe=pl.col("_h_pe").last(),
+                _ce_now=pl.col("ce_now").first(),
+                _pe_now=pl.col("pe_now").first(),
+            )
+        )
+
+        # Per-strike contributions
+        per_strike = per_strike.with_columns(
+            _upside=pl.col("_max_ce") - pl.col("_ce_now"),
+            _drawdown=pl.col("_ce_now") - pl.col("_min_ce"),
+            _upside_pe=pl.col("_max_pe") - pl.col("_pe_now"),
+            _drawdown_pe=pl.col("_pe_now") - pl.col("_min_pe"),
+            # decay contribution only counts when BOTH CE and PE last
+            # values are finite (matches scalar's `not (isnan(ce_fut) or
+            # isnan(pe_fut))` guard).
+            _decay=(
+                pl.when(
+                    pl.col("_last_ce").is_finite() & pl.col("_last_pe").is_finite()
+                ).then(
+                    (pl.col("_ce_now") + pl.col("_pe_now"))
+                    - (pl.col("_last_ce") + pl.col("_last_pe"))
+                ).otherwise(0.0)
+            ),
+        )
+
+        # Aggregate across strikes per emit.
+        agg = (
+            per_strike
+            .group_by("_emit_idx")
+            .agg(
+                pl.col("_upside").max().alias(f"max_upside_{w}s"),
+                pl.col("_drawdown").max().alias(f"max_drawdown_{w}s"),
+                pl.col("_upside_pe").max().alias(f"max_upside_pe_{w}s"),
+                pl.col("_drawdown_pe").max().alias(f"max_drawdown_pe_{w}s"),
+                pl.col("_decay").sum().alias(f"total_premium_decay_{w}s"),
+            )
+        )
+        result = result.join(agg, on="_emit_idx", how="left")
+
+        # past_boundary + has_active guards (matches scalar's NaN
+        # behaviour). active_count comes from emit_df, not from the
+        # joined data.
+        past_boundary = pl.col("_t0") + w > session_end_sec if False else (
+            pl.col(emit_ts_col) + w > session_end_sec
+        )
+        has_active = pl.col("_active_count") > 0
+        guard_null = past_boundary | ~has_active
+
+        result = result.with_columns(
+            # Apply guards uniformly. If guard fires -> NaN regardless of
+            # the aggregated value above.
+            pl.when(guard_null).then(None).otherwise(pl.col(f"max_upside_{w}s"))
+                .alias(f"max_upside_{w}s"),
+            pl.when(guard_null).then(None).otherwise(pl.col(f"max_drawdown_{w}s"))
+                .alias(f"max_drawdown_{w}s"),
+            pl.when(guard_null).then(None).otherwise(pl.col(f"max_upside_pe_{w}s"))
+                .alias(f"max_upside_pe_{w}s"),
+            pl.when(guard_null).then(None).otherwise(pl.col(f"max_drawdown_pe_{w}s"))
+                .alias(f"max_drawdown_pe_{w}s"),
+        )
+
+        # risk_reward_ratio = upside / max(drawdown, 0.01). NaN if
+        # either upside or drawdown is NaN.
+        result = result.with_columns(
+            pl.when(
+                guard_null
+                | pl.col(f"max_upside_{w}s").is_null()
+                | pl.col(f"max_drawdown_{w}s").is_null()
+            ).then(None).otherwise(
+                pl.col(f"max_upside_{w}s")
+                / pl.max_horizontal(pl.col(f"max_drawdown_{w}s"), pl.lit(0.01))
+            ).alias(f"risk_reward_ratio_{w}s"),
+        )
+
+        # total_premium_decay + avg_decay: scalar NaNs when
+        # past_boundary, not has_active, OR not lookahead (the latter we
+        # detect by the agg returning null).
+        empty_la = pl.col(f"total_premium_decay_{w}s").is_null()
+        decay_null = guard_null | empty_la
+        result = result.with_columns(
+            pl.when(decay_null).then(None)
+              .otherwise(pl.col(f"total_premium_decay_{w}s"))
+              .alias(f"total_premium_decay_{w}s"),
+            pl.when(decay_null | (pl.col("_active_count") == 0)).then(None)
+              .otherwise(pl.col(f"total_premium_decay_{w}s") / pl.col("_active_count"))
+              .alias(f"avg_decay_per_strike_{w}s"),
+        )
+
+    # Drop the helper columns.
+    return result.drop(["_emit_idx", "_active_count"])
+
+
 def compute_targets_batch_spot(
     emit_df: pl.DataFrame,
     spot_history_df: pl.DataFrame,
