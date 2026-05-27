@@ -565,18 +565,19 @@ Convert TFA's per-event stateful trackers (the hot ones) to Polars columnar `upd
   - [x] **B.1 — Profile + scope** (DONE 2026-05-25): Profiled 500k events on 2026-04-28 and 2026-05-22. Top hot trackers (by tottime / call frequency): `levels.compute_max_pain_features` (34.8s), `targets.compute_targets` (31.0s), `compute_side_strengths` (10.0s), `dealer_hedging` + `bs_greeks` (~7s combined), `_c7_center_of_mass` + `compute_strike_rotation_features` (~6s combined), `compute_oi_weighted_levels` (2.5s). **`realized_vol` is NOT in the top 30** — the T48 5000× win on it accounts for <1% of total replay time; kept the columnar code but deprioritised in the sequence. Reports at `docs/T50_PROFILING_REPORT.md` + `docs/T50_PROFILING_REPORT_v8.md`.
   - [ ] **B.2 — ColumnarBatcher** (~2–3 days): new `python_modules/tick_feature_agent/replay/columnar_batcher.py` that buffers `merge_streams` events into 5–10k-row Polars chunks per event type. Adapter still scalar; this is purely a refactor that changes the source shape. Golden-file must pass byte-for-byte.
   - [x] **B.3a — `compute_max_pain_features` → columnar** (DONE 2026-05-26): O(N) prefix-sum algorithm + per-date pre-compute cache + adapter monkey-patch (replay-only, scoped to `run_one_date`). End-to-end on 500k events: **1.54× wall-time speedup**, byte-identical parquet output (0 mismatches on 3 max-pain cols + 50 sampled others). Per-function spike on real chain data: 126×. Shipped across commits 894d9fc → 4129990 → 7245e03 → e86717e. `TFA_LEGACY_MAX_PAIN=1` env var = one-flip rollback.
-  - [ ] **B.3b — `targets.compute_targets` + `trend_swing_targets.compute_targets` → columnar** (~3 days): replay-only target backfill, ~33s combined. Perfect for batched vectorisation since outcomes are known after-the-fact.
+  - [x] **B.3b — `targets.compute_targets` + `trend_swing_targets.compute_targets` → columnar** (DONE 2026-05-27): Both replay-only target backfill functions vectorised via Polars. `targets_columnar.compute_targets_batch_spot` covers the 5 spot-based families (direction, magnitude, persists, breakout_in, exit_signal); `compute_targets_batch_per_strike` covers the 7 per-strike families (max_upside CE/PE, max_drawdown CE/PE, risk_reward_ratio, total_premium_decay, avg_decay_per_strike). `trend_swing_targets_columnar` covers all 24 trend+swing columns. Adapter wire-in via new `replay/targets_cache.py` module: batched flush_all + _flush_pending paths with `TFA_LEGACY_TARGETS=1` env-var rollback. End-to-end on 500k events of 2026-05-22: **B.3a + B.3b combined = 1.92× wall-time speedup** vs full-scalar baseline (98.80s → 51.40s); byte-identical parquet output. Shipped across commits `1420cc3` → `cdff319` → `e68308c` → `05a4586`.
   - [ ] **B.3c — `active_features.py` cluster → columnar** (~3 days): `compute_side_strengths` + `_c7_center_of_mass` + `compute_strike_rotation_features`, ~17s combined. Group as one PR (shared helpers).
   - [ ] **B.3d — `dealer_hedging` + `greeks.bs_greeks` cluster → columnar** (~3 days): ~7s combined; vectorised Black-Scholes via numpy/polars broadcasting.
   - [ ] **B.3e — `chain.py` cluster → columnar** (~3 days): `compute_oi_weighted_levels` + `compute_wall_strength` + `compute_oi_change_deltas`, ~5s combined. Plus `realized_vol` (free hitchhiker — already implemented in T48).
   - [ ] **B.4 — Adapter columnar entry point** (~2–3 days): `ReplayAdapter.process_chunk(df)` alongside existing `process_event(event)`. Live mode never calls `process_chunk` — paper/live trading code path untouched.
   - [ ] **B.5 — Equivalence harness + flip default** (~1–2 days): replay 5 reference dates (1 pre-v8 / 1 small / 1 large / 1 quiet / 1 chaotic) both ways, byte-compare parquets. Only ship when zero diffs. Then remove `--columnar` opt-in flag and make it the default.
 
-**Honest revised speedup (post-B.3a end-to-end measurement on 500k events of 2026-05-22):**
-- B.3a alone shipped: **1.54× wall-time per date** (99.66s → 64.71s scalar vs cached).
-- Per-function speedup on max_pain: 126× (O(N) prefix-sum algorithm).
-- Remaining B.3b–e compound on top → total B-full likely lands **2.0–2.5× per date** once all sub-phases ship (revised UP from the earlier 1.7× projection that was made before measuring B.3a end-to-end).
-- For Partha's 5-date batch: today ~17 min → after just B.3a ~11 min → after full B-full ~7–8 min wall.
+**Measured speedup (post-B.3a + B.3b end-to-end, 500k events of 2026-05-22):**
+- B.3a alone: **1.54×** (99.66s → 64.71s).
+- B.3a + B.3b combined: **1.92×** (98.80s → 51.40s vs full-scalar baseline). Byte-identical parquet, 0 mismatches.
+- Per-function: max_pain 126× (O(N) prefix sums); targets 2-3× (Polars rolling-window join).
+- Remaining B.3c–e compound on top → total B-full now realistically tracks **2.2–2.7× per date** once all sub-phases ship.
+- For Partha's 5-date batch: today ~17 min → after B.3a+B.3b ~9 min → after full B-full ~6.5–8 min wall.
 
 **Risk-mitigation rules (non-negotiable):**
 - **Live trading never touched.** Every B-phase change is replay-only; shared `feature_pipeline.py` gets a new `update_columnar()` alongside `update()`. Live code keeps calling `update()`.
