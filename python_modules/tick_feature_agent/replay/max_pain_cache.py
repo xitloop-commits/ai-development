@@ -36,6 +36,10 @@ from pathlib import Path
 
 import polars as pl
 
+from tick_feature_agent.features.chain_columnar import (
+    compute_oi_weighted_levels_batch,
+    compute_wall_strength_batch,
+)
 from tick_feature_agent.features.levels_columnar import (
     compute_max_pain_features_batch,
 )
@@ -248,3 +252,153 @@ def uninstall(sentinel) -> None:
     original, _cache = sentinel
     from tick_feature_agent.state import feature_pipeline as _fp
     _fp.compute_max_pain_features = original
+
+
+# ── B.3e: oi_weighted_levels + wall_strength caches ─────────────────────────
+
+
+def _legacy_chain_enabled() -> bool:
+    """TFA_LEGACY_CHAIN_FEATURES=1 disables the B.3e caches (independent
+    of TFA_LEGACY_MAX_PAIN)."""
+    return os.environ.get("TFA_LEGACY_CHAIN_FEATURES", "").strip() not in (
+        "", "0", "false", "False",
+    )
+
+
+def _load_chain_snapshots(date_folder: Path, instrument: str) -> tuple[pl.DataFrame, list[float]]:
+    """Shared loader so multiple B.3e caches don't re-parse the same NDJSON.
+
+    Returns (chain_snapshots_df, timestamps_list). Empty/missing path =>
+    empty DataFrame + empty list.
+    """
+    path = date_folder / f"{instrument}_chain_snapshots.ndjson.gz"
+    if not path.exists():
+        return pl.DataFrame(), []
+    snapshots: list[dict] = []
+    timestamps: list[float] = []
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ts_ms = rec.get("timestamp")
+            if ts_ms is None:
+                continue
+            try:
+                ts_ms_f = float(ts_ms)
+            except (TypeError, ValueError):
+                continue
+            ts_sec = ts_ms_f / 1000.0 if ts_ms_f > 1e9 else ts_ms_f
+            rows = _normalize_rows(rec.get("rows", []))
+            snapshots.append({"rows": rows})
+            timestamps.append(ts_sec)
+    if not snapshots:
+        return pl.DataFrame(), []
+    df = pl.from_dicts(snapshots, infer_schema_length=None)
+    return df, timestamps
+
+
+def _build_chain_feature_caches(
+    date_folder: Path, instrument: str,
+) -> tuple[dict[float, dict[str, float]], dict[float, dict[str, float]]]:
+    """Build oi_weighted + wall_strength caches from one chain-snapshot
+    parse. Avoids re-parsing the .ndjson.gz multiple times in the same
+    install path (parsing was responsible for a measured ~3-4s regression
+    when these caches were built separately)."""
+    df, timestamps = _load_chain_snapshots(date_folder, instrument)
+    oi_cache: dict[float, dict[str, float]] = {}
+    ws_cache: dict[float, dict[str, float]] = {}
+    if df.is_empty() or not timestamps:
+        return oi_cache, ws_cache
+    oi_df = compute_oi_weighted_levels_batch(df)
+    ws_df = compute_wall_strength_batch(df)
+    for row in oi_df.iter_rows(named=True):
+        idx = int(row["snapshot_id"])
+        if idx < 0 or idx >= len(timestamps):
+            continue
+        oi_cache[timestamps[idx]] = {
+            "oi_weighted_ce_resistance_strike": (
+                _NAN if row["oi_weighted_ce_resistance_strike"] is None
+                else float(row["oi_weighted_ce_resistance_strike"])
+            ),
+            "oi_weighted_pe_support_strike": (
+                _NAN if row["oi_weighted_pe_support_strike"] is None
+                else float(row["oi_weighted_pe_support_strike"])
+            ),
+        }
+    for row in ws_df.iter_rows(named=True):
+        idx = int(row["snapshot_id"])
+        if idx < 0 or idx >= len(timestamps):
+            continue
+        ws_cache[timestamps[idx]] = {
+            "ce_wall_strength_rel": (
+                _NAN if row["ce_wall_strength_rel"] is None
+                else float(row["ce_wall_strength_rel"])
+            ),
+            "pe_wall_strength_rel": (
+                _NAN if row["pe_wall_strength_rel"] is None
+                else float(row["pe_wall_strength_rel"])
+            ),
+        }
+    return oi_cache, ws_cache
+
+
+def _make_dict_wrapper(cache: dict[float, dict[str, float]], scalar_fn, default_keys: tuple[str, ...]):
+    """Generic wrapper for compute_<fn>(chain_rows) -> dict pattern.
+
+    chain_rows is unused on cache hits — we look up by current_snapshot_ts.
+    Cache miss falls through to scalar to preserve correctness.
+    """
+    def cached(chain_rows):  # type: ignore[no-untyped-def]
+        if not cache or chain_rows is None:
+            return scalar_fn(chain_rows)
+        ts = current_snapshot_ts
+        if ts is None:
+            return scalar_fn(chain_rows)
+        hit = cache.get(ts)
+        if hit is None:
+            return scalar_fn(chain_rows)
+        return dict(hit)
+    return cached
+
+
+def install_chain_features(date_folder: Path, instrument: str):
+    """Install B.3e monkey-patches on chain.compute_oi_weighted_levels +
+    compute_wall_strength. Returns sentinel for uninstall_chain_features."""
+    if _legacy_chain_enabled():
+        return None
+    oi_cache, ws_cache = _build_chain_feature_caches(
+        Path(date_folder), instrument,
+    )
+    if not oi_cache and not ws_cache:
+        return None
+    from tick_feature_agent.features import chain as _chain_module
+    from tick_feature_agent.state import feature_pipeline as _fp
+
+    original_oi = _fp.compute_oi_weighted_levels
+    original_ws = _fp.compute_wall_strength
+
+    new_oi = _make_dict_wrapper(oi_cache, original_oi,
+                                ("oi_weighted_ce_resistance_strike",
+                                 "oi_weighted_pe_support_strike"))
+    new_ws = _make_dict_wrapper(ws_cache, original_ws,
+                                ("ce_wall_strength_rel", "pe_wall_strength_rel"))
+    setattr(new_oi, "_chain_feat_true_original", original_oi)
+    setattr(new_ws, "_chain_feat_true_original", original_ws)
+
+    _fp.compute_oi_weighted_levels = new_oi
+    _fp.compute_wall_strength = new_ws
+    return (original_oi, original_ws)
+
+
+def uninstall_chain_features(sentinel) -> None:
+    if sentinel is None:
+        return
+    original_oi, original_ws = sentinel
+    from tick_feature_agent.state import feature_pipeline as _fp
+    _fp.compute_oi_weighted_levels = original_oi
+    _fp.compute_wall_strength = original_ws

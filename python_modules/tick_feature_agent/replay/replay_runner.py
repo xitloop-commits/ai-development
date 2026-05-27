@@ -299,6 +299,12 @@ def run_one_date(
     # replay can't leave feature_pipeline.compute_max_pain_features
     # pointing at the cached wrapper for the next date or live mode.
     _max_pain_patch = _max_pain_cache.install(date_folder, instrument)
+    # T50 B.3e: also pre-compute the cheaper chain-row-derived features
+    # (oi_weighted_levels + wall_strength) in the same chain-snapshot
+    # iteration. Independent env-var rollback via TFA_LEGACY_CHAIN_FEATURES=1.
+    _chain_features_patch = _max_pain_cache.install_chain_features(
+        date_folder, instrument,
+    )
 
     # Initial progress ping so the dashboard shows totals before the first
     # heartbeat at event #50,000 (long dates can take seconds to estimate).
@@ -643,12 +649,13 @@ def run_one_date(
             event_count=event_idx,
         )
 
-    # T50 B.3a: uninstall the monkey-patch on the happy path. Early-exit
-    # paths (skip/fail returns earlier in this function) intentionally
-    # don't call uninstall — the next install() is self-healing and
-    # restores the true scalar original before re-patching, so leaks
-    # across dates within the same worker can't accumulate.
+    # T50 B.3a + B.3e: uninstall the monkey-patches on the happy path.
+    # Early-exit paths (skip/fail returns earlier in this function)
+    # intentionally don't call uninstall — the next install() is self-
+    # healing and restores the true scalar original before re-patching,
+    # so leaks across dates within the same worker can't accumulate.
     _max_pain_cache.uninstall(_max_pain_patch)
+    _max_pain_cache.uninstall_chain_features(_chain_features_patch)
 
     return verdict
 
