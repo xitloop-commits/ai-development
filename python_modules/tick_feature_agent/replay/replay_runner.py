@@ -305,6 +305,15 @@ def run_one_date(
     _chain_features_patch = _max_pain_cache.install_chain_features(
         date_folder, instrument,
     )
+    # T50 B.3c: side_strengths cache infrastructure exists in
+    # max_pain_cache but is NOT installed by default — measured a
+    # net regression of ~1s on 500k events because scalar-based
+    # pre-compute (~5s offline build) outweighs the amortisation
+    # savings (~4s saved at runtime). The wrapper + builder remain
+    # in place for a future Polars-vectorised replacement (proper
+    # shift-over-strike + group_by-normalize) that would actually
+    # win. Skip the install call to avoid the regression.
+    _side_strengths_patch = None
 
     # Initial progress ping so the dashboard shows totals before the first
     # heartbeat at event #50,000 (long dates can take seconds to estimate).
@@ -649,13 +658,14 @@ def run_one_date(
             event_count=event_idx,
         )
 
-    # T50 B.3a + B.3e: uninstall the monkey-patches on the happy path.
-    # Early-exit paths (skip/fail returns earlier in this function)
-    # intentionally don't call uninstall — the next install() is self-
-    # healing and restores the true scalar original before re-patching,
-    # so leaks across dates within the same worker can't accumulate.
+    # T50 B.3a + B.3c + B.3e: uninstall the monkey-patches on the happy
+    # path. Early-exit paths intentionally don't call uninstall — the
+    # next install() is self-healing and restores the true scalar
+    # original before re-patching, so leaks across dates within the
+    # same worker can't accumulate.
     _max_pain_cache.uninstall(_max_pain_patch)
     _max_pain_cache.uninstall_chain_features(_chain_features_patch)
+    _max_pain_cache.uninstall_side_strengths(_side_strengths_patch)
 
     return verdict
 

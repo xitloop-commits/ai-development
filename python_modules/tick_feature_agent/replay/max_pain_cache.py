@@ -402,3 +402,127 @@ def uninstall_chain_features(sentinel) -> None:
     from tick_feature_agent.state import feature_pipeline as _fp
     _fp.compute_oi_weighted_levels = original_oi
     _fp.compute_wall_strength = original_ws
+
+
+# ── B.3c: compute_side_strengths cache ──────────────────────────────────────
+
+
+def _legacy_side_strengths_enabled() -> bool:
+    """TFA_LEGACY_SIDE_STRENGTHS=1 disables the B.3c cache."""
+    return os.environ.get("TFA_LEGACY_SIDE_STRENGTHS", "").strip() not in (
+        "", "0", "false", "False",
+    )
+
+
+def _build_side_strengths_cache(
+    date_folder: Path, instrument: str,
+) -> dict[float, dict[int, tuple]]:
+    """Pre-compute compute_side_strengths(curr_rows, prev_rows) for every
+    snapshot in time order. Uses the SCALAR implementation internally —
+    the cache win comes from amortizing 5746 runtime calls (called from
+    both compute_active_features and compute_zone_features) down to
+    3306 unique snapshots (~40% fewer total calls).
+
+    Full Polars vectorisation of side_strengths is harder (requires
+    shift().over(strike) for vol_diff plus normalize within snapshot
+    groups) and deferred to a follow-up.
+    """
+    from tick_feature_agent.features.active_features import (
+        compute_side_strengths as _scalar_side_strengths,
+    )
+
+    path = date_folder / f"{instrument}_chain_snapshots.ndjson.gz"
+    if not path.exists():
+        return {}
+
+    # Load raw snapshots in time order (don't normalize the rows here —
+    # scalar compute_side_strengths reads callVolume/putVolume/
+    # callOIChange/putOIChange directly off the dicts).
+    raw_snapshots: list[tuple[float, list[dict]]] = []
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ts_ms = rec.get("timestamp")
+            if ts_ms is None:
+                continue
+            try:
+                ts_ms_f = float(ts_ms)
+            except (TypeError, ValueError):
+                continue
+            ts_sec = ts_ms_f / 1000.0 if ts_ms_f > 1e9 else ts_ms_f
+            rows = rec.get("rows") or []
+            raw_snapshots.append((ts_sec, rows))
+
+    if not raw_snapshots:
+        return {}
+
+    cache: dict[float, dict[int, tuple]] = {}
+    prev_rows: list[dict] | None = None
+    for ts, rows in raw_snapshots:
+        try:
+            result = _scalar_side_strengths(rows, prev_rows)
+        except Exception:
+            # Defensive — keep the cache clean; one bad snapshot just
+            # means the wrapper falls through to scalar for that ts.
+            prev_rows = rows
+            continue
+        cache[ts] = result
+        prev_rows = rows
+    return cache
+
+
+def _make_side_strengths_wrapper(cache: dict[float, dict[int, tuple]], scalar_fn):
+    """Wrapper that looks up by current_snapshot_ts; falls through on miss.
+
+    Note: the scalar fn's contract is ``f(rows, prev_rows) -> dict``.
+    On cache hit we IGNORE the runtime ``prev_rows`` — the cache built
+    by ``_build_side_strengths_cache`` already paired each snapshot with
+    its time-ordered predecessor, which matches what
+    ``compute_active_features`` passes at runtime (chain_cache's
+    prev_snapshot.rows).
+    """
+    def cached(rows, prev_rows):  # type: ignore[no-untyped-def]
+        if not cache or rows is None:
+            return scalar_fn(rows, prev_rows)
+        ts = current_snapshot_ts
+        if ts is None:
+            return scalar_fn(rows, prev_rows)
+        hit = cache.get(ts)
+        if hit is None:
+            return scalar_fn(rows, prev_rows)
+        return hit
+    return cached
+
+
+def install_side_strengths(date_folder: Path, instrument: str):
+    """Install B.3c monkey-patch on compute_side_strengths.
+
+    Monkey-patches BOTH the public ``active_features.compute_side_strengths``
+    AND the symbol re-imported by callers (active_features's own
+    compute_active_features looks it up via the module attribute).
+    """
+    if _legacy_side_strengths_enabled():
+        return None
+    cache = _build_side_strengths_cache(Path(date_folder), instrument)
+    if not cache:
+        return None
+    from tick_feature_agent.features import active_features as _af
+    original = _af.compute_side_strengths
+    wrapper = _make_side_strengths_wrapper(cache, original)
+    setattr(wrapper, "_side_strengths_true_original", original)
+    _af.compute_side_strengths = wrapper
+    return (original,)
+
+
+def uninstall_side_strengths(sentinel) -> None:
+    if sentinel is None:
+        return
+    (original,) = sentinel
+    from tick_feature_agent.features import active_features as _af
+    _af.compute_side_strengths = original
