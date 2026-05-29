@@ -41,6 +41,7 @@ import numpy as np
 from model_training_agent.preprocessor import LiveTickPreprocessor
 from signal_engine_agent import legacy_filter
 from signal_engine_agent.model_loader import load_models
+from signal_engine_agent.prediction_logger import PredictionLogger
 from signal_engine_agent.signal_logger import SignalLogger
 from signal_engine_agent.sustain import SustainFilter
 from signal_engine_agent.thresholds import (
@@ -75,11 +76,78 @@ def _pred(models, X, name: str) -> float:
     Regression heads and binary heads without a calibration map fall
     through unchanged (LoadedModels.apply_calibration is a no-op when
     no map exists)."""
+    raw, cal = _pred_raw_cal(models, X, name)
+    return cal
+
+
+def _pred_raw_cal(models, X, name: str) -> tuple[float, float]:
+    """T41 internal — returns ``(raw, calibrated)``. Same model call,
+    captures both pre- and post-calibration values so
+    ``prediction_logger`` can persist the pair for downstream
+    calibration-drift / champion-challenger analyses (T34, T27 future).
+    A single ``predict()`` call powers both values; cheap.
+    """
     m = models.models.get(name)
     if m is None:
-        return float("nan")
+        return float("nan"), float("nan")
     raw = float(m.predict(X)[0])
-    return float(models.apply_calibration(name, raw))
+    cal = float(models.apply_calibration(name, raw))
+    return raw, cal
+
+
+# Single source of truth for "which heads does the gate read + what dict
+# key does it use." Each tuple is ``(dict_key_used_by_gate, model_name)``;
+# they differ in two cases (``direction_prob_*`` vs ``direction_*``) and
+# match for everything else. ``_gather_predictions`` and
+# ``_gather_predictions_raw_cal`` (T41) both iterate this list so the
+# head set never drifts between them.
+_HEAD_PREDS: tuple[tuple[str, str], ...] = (
+    # Base 3-cond targets (legacy 30s)
+    ("direction_prob_30s",       "direction_30s"),
+    ("risk_reward_ratio_30s",    "risk_reward_ratio_30s"),
+    ("max_upside_30s",           "max_upside_30s"),
+    ("max_drawdown_30s",         "max_drawdown_30s"),
+    ("max_upside_300s",          "max_upside_300s"),
+    ("max_drawdown_300s",        "max_drawdown_300s"),
+    ("max_upside_900s",          "max_upside_900s"),
+    ("max_drawdown_900s",        "max_drawdown_900s"),
+    ("direction_30s_magnitude",  "direction_30s_magnitude"),
+    # Wave 2 base 3-cond on 60s window
+    ("direction_prob_60s",       "direction_60s"),
+    ("risk_reward_ratio_60s",    "risk_reward_ratio_60s"),
+    # Wave 2 direction_persists across windows
+    ("direction_persists_60s",   "direction_persists_60s"),
+    ("direction_persists_120s",  "direction_persists_120s"),
+    ("direction_persists_180s",  "direction_persists_180s"),
+    ("direction_persists_240s",  "direction_persists_240s"),
+    ("direction_persists_300s",  "direction_persists_300s"),
+    # Wave 2 breakout_in
+    ("breakout_in_60s",          "breakout_in_60s"),
+    ("breakout_in_300s",         "breakout_in_300s"),
+    # Wave 2 exit_signal
+    ("exit_signal_60s",          "exit_signal_60s"),
+    ("exit_signal_300s",         "exit_signal_300s"),
+    # Wave 2 PE-leg targets (replace first-order swap for LONG_PE)
+    ("max_upside_pe_60s",        "max_upside_pe_60s"),
+    ("max_upside_pe_120s",       "max_upside_pe_120s"),
+    ("max_upside_pe_180s",       "max_upside_pe_180s"),
+    ("max_upside_pe_240s",       "max_upside_pe_240s"),
+    ("max_upside_pe_300s",       "max_upside_pe_300s"),
+    ("max_drawdown_pe_60s",      "max_drawdown_pe_60s"),
+    ("max_drawdown_pe_120s",     "max_drawdown_pe_120s"),
+    ("max_drawdown_pe_180s",     "max_drawdown_pe_180s"),
+    ("max_drawdown_pe_240s",     "max_drawdown_pe_240s"),
+    ("max_drawdown_pe_300s",     "max_drawdown_pe_300s"),
+    # Wave 2 CE-leg 60s/120s/180s/240s (300s already in legacy list)
+    ("max_upside_60s",           "max_upside_60s"),
+    ("max_upside_120s",          "max_upside_120s"),
+    ("max_upside_180s",          "max_upside_180s"),
+    ("max_upside_240s",          "max_upside_240s"),
+    ("max_drawdown_60s",         "max_drawdown_60s"),
+    ("max_drawdown_120s",        "max_drawdown_120s"),
+    ("max_drawdown_180s",        "max_drawdown_180s"),
+    ("max_drawdown_240s",        "max_drawdown_240s"),
+)
 
 
 def _gather_predictions(models, X) -> dict[str, float]:
@@ -92,54 +160,34 @@ def _gather_predictions(models, X) -> dict[str, float]:
     breakout_in, exit_signal, max_upside_pe, max_drawdown_pe. Plus the
     base 3-cond moved from 30s → 60s window. Keys here cover both old
     and new shapes so any gate path runs without code branching.
+
+    Returns the calibrated predictions only (what the gate consumes).
+    Use ``_gather_predictions_raw_cal`` when both raw and calibrated
+    values are needed (e.g. T41 prediction_logger).
     """
-    return {
-        # Base 3-cond targets (legacy 30s)
-        "direction_prob_30s": _pred(models, X, "direction_30s"),
-        "risk_reward_ratio_30s": _pred(models, X, "risk_reward_ratio_30s"),
-        "max_upside_30s": _pred(models, X, "max_upside_30s"),
-        "max_drawdown_30s": _pred(models, X, "max_drawdown_30s"),
-        "max_upside_300s": _pred(models, X, "max_upside_300s"),
-        "max_drawdown_300s": _pred(models, X, "max_drawdown_300s"),
-        "max_upside_900s": _pred(models, X, "max_upside_900s"),
-        "max_drawdown_900s": _pred(models, X, "max_drawdown_900s"),
-        "direction_30s_magnitude": _pred(models, X, "direction_30s_magnitude"),
-        # Wave 2 base 3-cond on 60s window
-        "direction_prob_60s": _pred(models, X, "direction_60s"),
-        "risk_reward_ratio_60s": _pred(models, X, "risk_reward_ratio_60s"),
-        # Wave 2 direction_persists across windows
-        "direction_persists_60s": _pred(models, X, "direction_persists_60s"),
-        "direction_persists_120s": _pred(models, X, "direction_persists_120s"),
-        "direction_persists_180s": _pred(models, X, "direction_persists_180s"),
-        "direction_persists_240s": _pred(models, X, "direction_persists_240s"),
-        "direction_persists_300s": _pred(models, X, "direction_persists_300s"),
-        # Wave 2 breakout_in
-        "breakout_in_60s": _pred(models, X, "breakout_in_60s"),
-        "breakout_in_300s": _pred(models, X, "breakout_in_300s"),
-        # Wave 2 exit_signal
-        "exit_signal_60s": _pred(models, X, "exit_signal_60s"),
-        "exit_signal_300s": _pred(models, X, "exit_signal_300s"),
-        # Wave 2 PE-leg targets (replace first-order swap for LONG_PE)
-        "max_upside_pe_60s": _pred(models, X, "max_upside_pe_60s"),
-        "max_upside_pe_120s": _pred(models, X, "max_upside_pe_120s"),
-        "max_upside_pe_180s": _pred(models, X, "max_upside_pe_180s"),
-        "max_upside_pe_240s": _pred(models, X, "max_upside_pe_240s"),
-        "max_upside_pe_300s": _pred(models, X, "max_upside_pe_300s"),
-        "max_drawdown_pe_60s": _pred(models, X, "max_drawdown_pe_60s"),
-        "max_drawdown_pe_120s": _pred(models, X, "max_drawdown_pe_120s"),
-        "max_drawdown_pe_180s": _pred(models, X, "max_drawdown_pe_180s"),
-        "max_drawdown_pe_240s": _pred(models, X, "max_drawdown_pe_240s"),
-        "max_drawdown_pe_300s": _pred(models, X, "max_drawdown_pe_300s"),
-        # Wave 2 CE-leg 60s/120s/180s/240s (300s already in legacy list)
-        "max_upside_60s": _pred(models, X, "max_upside_60s"),
-        "max_upside_120s": _pred(models, X, "max_upside_120s"),
-        "max_upside_180s": _pred(models, X, "max_upside_180s"),
-        "max_upside_240s": _pred(models, X, "max_upside_240s"),
-        "max_drawdown_60s": _pred(models, X, "max_drawdown_60s"),
-        "max_drawdown_120s": _pred(models, X, "max_drawdown_120s"),
-        "max_drawdown_180s": _pred(models, X, "max_drawdown_180s"),
-        "max_drawdown_240s": _pred(models, X, "max_drawdown_240s"),
-    }
+    return {gate_key: _pred(models, X, model_name)
+            for gate_key, model_name in _HEAD_PREDS}
+
+
+def _gather_predictions_raw_cal(
+    models, X,
+) -> tuple[dict[str, float], dict[str, float]]:
+    """T41 variant — returns ``(raw_dict, cal_dict)`` with the SAME keys
+    as ``_gather_predictions``. One ``predict()`` call per head powers
+    both values (see ``_pred_raw_cal``); ~0% perf hit vs the calibrated-
+    only path.
+
+    Used by ``engine.run()`` when emitting the per-eval prediction log.
+    The gate continues to consume only the calibrated dict, identical to
+    the pre-T41 behaviour.
+    """
+    raw: dict[str, float] = {}
+    cal: dict[str, float] = {}
+    for gate_key, model_name in _HEAD_PREDS:
+        r, c = _pred_raw_cal(models, X, model_name)
+        raw[gate_key] = r
+        cal[gate_key] = c
+    return raw, cal
 
 
 def _tail(path: Path, poll_sec: float = 0.2):
@@ -239,6 +287,19 @@ def run(
 
     raw_logger = SignalLogger(instrument)
     filtered_logger = SignalLogger(instrument, root=Path("logs/signals"), suffix="_filtered")
+    # T41 feedback-loop foundation: persist every per-head (prediction,
+    # outcome) tuple. The logger buffers in-memory and flushes per chunk;
+    # ``finalise()`` on shutdown merges chunks into one parquet for the
+    # day. ``outcome_*`` columns are NaN at write time — backfilled by
+    # ``signal_engine_agent.outcome_backfiller`` post-session.
+    _t41_date = datetime.now(_IST).strftime("%Y-%m-%d")
+    prediction_logger = PredictionLogger(
+        instrument=instrument, date_str=_t41_date,
+    )
+    print(
+        f"  T41 predictions -> data/predictions/{_t41_date}/"
+        f"{instrument}_predictions.parquet"
+    )
     # F4 hot-path optimisation: pre-allocate the feature vector buffer
     # once per SEA instance and reuse it on every tick. The returned
     # array is the same buffer each call — `vec` must be consumed before
@@ -269,7 +330,10 @@ def run(
                 continue
             X = vec.reshape(1, -1)
 
-            preds = _gather_predictions(models, X)
+            # T41: gather BOTH raw + calibrated. The gate consumes the
+            # calibrated ``preds`` dict exactly as before; the raw dict
+            # is only passed to the prediction logger after the gate runs.
+            raw_preds, preds = _gather_predictions_raw_cal(models, X)
             # The session-rank `upside_percentile_30s` is a TFA-emitted
             # live feature column on the parquet row, not a model target
             # (per Phase E9). Pull it from the row directly.
@@ -347,6 +411,39 @@ def run(
                 action = legacy.action
                 entry, tp, sl, rr = legacy.entry, legacy.tp, legacy.sl, legacy.rr
                 gate_reasons = []
+
+            # T41: persist this eval's per-head (prediction, outcome)
+            # tuples. Outcome columns are NaN here; outcome_backfiller
+            # joins them in post-session from the recorded tick stream.
+            # Logged for EVERY eval — both heads-that-fired and heads-
+            # that-didn't — so T34's reliability + calibration drift
+            # analyses see the full distribution. Timestamp resolution
+            # falls back to wall-clock when the row didn't carry one.
+            _row_ts_ns = row.get("recv_ts_ns")
+            if not isinstance(_row_ts_ns, int):
+                _ts_str = row.get("timestamp")
+                if isinstance(_ts_str, str):
+                    try:
+                        _row_ts_ns = int(
+                            datetime.fromisoformat(_ts_str).timestamp() * 1e9
+                        )
+                    except (ValueError, OSError):
+                        _row_ts_ns = time.time_ns()
+                else:
+                    _row_ts_ns = time.time_ns()
+            try:
+                prediction_logger.log_eval(
+                    ts_ns=_row_ts_ns,
+                    feature_vec=vec,
+                    raw_preds=raw_preds,
+                    calibrated_preds=preds,
+                    gate_decision=action,
+                    regime_tag=regime if isinstance(regime, str) else None,
+                )
+            except Exception as exc:
+                # Never let the prediction logger crash the inference
+                # loop. Log + continue; T34 will surface gaps anyway.
+                print(f"  T41 log_eval error: {exc}", file=sys.stderr)
 
             processed += 1
 
@@ -485,6 +582,16 @@ def run(
     finally:
         raw_logger.close()
         filtered_logger.close()
+        # T41: finalise the prediction log — merges in-progress chunks
+        # into <inst>_predictions.parquet and deletes the chunks. Safe
+        # to call on partial-day data; outcome_backfiller picks it up
+        # post-session regardless.
+        try:
+            final_pred_path = prediction_logger.finalise()
+            if final_pred_path is not None:
+                print(f"  T41 predictions finalised -> {final_pred_path}")
+        except Exception as exc:
+            print(f"  T41 finalise error: {exc}", file=sys.stderr)
         if filter_mode == "legacy" and trade_filter is not None:
             print(f"\n  Legacy filter stats: {trade_filter.stats()}")
 
