@@ -89,8 +89,16 @@ Two edge-case items not on prior roadmap:
 - **Effort:** ~1 day total.
 - **Cross-ref:** T3 Phase 6.
 
-### T41 — Production prediction → outcome join (feedback-loop foundation) 🆕
+### T41 — Production prediction → outcome join (feedback-loop foundation) ✅ IMPLEMENTED
 Persist every live head prediction (84 heads × every signal eval) to disk, then backfill the actual market outcome N seconds later from the live tick stream. Produces `predictions_<date>.parquet` per instrument joining what the model *said* with what actually *happened* — for all 84 heads, not just heads that fired.
+
+**Implementation (shipped 2026-05-28, commit `c991b0d`):**
+- `python_modules/_shared/prediction_schema.py` — 16-col frozen schema (`ARROW_SCHEMA`, `PredictionRow`, `parse_lookahead_seconds`, `feature_snapshot_hash`, `build_arrow_table`).
+- `python_modules/signal_engine_agent/prediction_logger.py` — `PredictionLogger` write side; buffered in-memory queue + chunk flush every 50k rows OR 5 min; atomic `.tmp`+rename per chunk; `finalise()` merges chunks into `<inst>_predictions.parquet` on shutdown; scans existing chunks on construction so process restart continues the prediction_id sequence.
+- `python_modules/signal_engine_agent/outcome_backfiller.py` — post-session pass with CLI (`py -m signal_engine_agent.outcome_backfiller --instrument <i> --date <d>`); loads underlying-tick stream as sorted (ts_ns, spot) numpy arrays; binary-search per row for spot_at_t0 + window; computes outcome_direction/magnitude/excursion/drawdown; idempotent (skips already-filled rows unless `--force`).
+- `python_modules/signal_engine_agent/engine.py` — `_pred_raw_cal` shared by `_gather_predictions` and new `_gather_predictions_raw_cal`; one `_HEAD_PREDS` tuple is single source of truth for head list. `run()` constructs `PredictionLogger` at startup, calls `log_eval(...)` after each gate decision (every eval, both fired + not-fired heads), `finalise()` in try/finally.
+- 14 schema+logger tests + 7 backfiller tests pass; full project suite 1976/1976.
+- **head_type** + **regime_tag** columns NULL until T33 + T32 land; schema is forward-compatible (Partha-approved option 1).
 
 Schema per row: `prediction_id, ts_ns, instrument, head_name, head_type, raw_prob, calibrated_prob, gate_decision, regime_tag, feature_snapshot_hash, lookahead_seconds, outcome_direction, outcome_magnitude, outcome_max_excursion, outcome_max_drawdown, outcome_filled_ts_ns`. Outcome columns NaN at write time, backfilled by a tail-consumer process after each head's lookahead window elapses.
 
