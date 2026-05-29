@@ -44,22 +44,31 @@ sys.path.insert(0, str(_HERE))
 from validate_b3a_end_to_end import _compare_parquets, _run_one  # type: ignore
 
 
-# Reference set spanning pre-v8 + v8, small + large recorded dates.
-# Updated 2026-05-28 against ``data/raw/``. Picks are deliberately
-# heterogeneous so a regression caught here implies broad coverage:
-#   2026-04-27  pre-v8 schema, large recording
-#   2026-04-28  pre-v8 schema, smallest underlying ticks (half-day pattern)
-#   2026-04-29  pre-v8 schema, large recording (asymmetric to 04-27)
-#   2026-05-21  v8 schema, mid-week session (NOTE: 2026-05-19 has a
-#                corrupt .ndjson.gz block discovered by this harness
-#                2026-05-27 — needs recover_gz before it's usable)
-#   2026-05-22  v8 schema, latest full trading day used by all other harnesses
+# Reference set — v8-schema only.
+# Updated 2026-05-28 after Partha pointed out that pre-v8 dates
+# (April 2026) won't feed training under the current schema (V2 cutover
+# 2026-05-20 + 30-session gate per V2_MASTER_SPEC D76). Validating
+# regression on data the model can't actually consume isn't a useful
+# gate. The pre-v8 dates remain replayable — the cached output is
+# byte-identical to scalar on them too, verified 2026-05-27 — but
+# they're not in the default set anymore.
+#
+# Picks span the available v8 trading days with size + position variety:
+#   2026-05-20  v8 Day 1 — most important to validate schema cutover
+#   2026-05-21  PASSed end-to-end 2026-05-27
+#   2026-05-22  used by all other validate_b3a_end_to_end runs
+#   2026-05-25  varied underlying tick density (~1.47 MB) for breadth
+#   2026-05-27  latest full trading day in the v8 dataset
+#
+# 2026-05-19 (v8 Day 0) had a corrupt .ndjson.gz block discovered by
+# this harness on its first run — apply scripts/recover_gz.py before
+# adding it back to the reference set.
 _DEFAULT_DATES = (
-    "2026-04-27",
-    "2026-04-28",
-    "2026-04-29",
+    "2026-05-20",
     "2026-05-21",
     "2026-05-22",
+    "2026-05-25",
+    "2026-05-27",
 )
 
 
