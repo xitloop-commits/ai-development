@@ -62,7 +62,8 @@ from tick_feature_agent.features.meta import compute_meta_features
 from tick_feature_agent.features.ofi import compute_ofi_features
 from tick_feature_agent.features.option_tick import compute_option_tick_features
 from tick_feature_agent.features.realized_vol import compute_realized_vol_features
-from tick_feature_agent.features.regime import compute_regime_features
+from tick_feature_agent.features.multi_tf import compute_multi_tf_features
+from tick_feature_agent.features.regime import RegimeClassifier, compute_regime_features
 from tick_feature_agent.features.targets import (
     TargetBuffer,
     UpsidePercentileTracker,
@@ -162,6 +163,15 @@ class TickProcessor:
         self._target_buf = TargetBuffer(target_windows_sec=profile.target_windows_sec)
         self._upside_pct = UpsidePercentileTracker()
 
+        # T32 D4: regime classifier with 5-min sustain. Same instance
+        # carries through the session; reset() on session_start /
+        # expiry rollover clears state.
+        _regime_sustain = float(
+            getattr(profile, "regime_sustain_sec", 0.0)
+            or self._regime_thresholds().get("regime_sustain_sec", 300.0)
+        )
+        self._regime_classifier = RegimeClassifier(sustain_sec=_regime_sustain)
+
         # Max target window for backfill decisions
         self._max_window_sec = float(
             max(profile.target_windows_sec) if profile.target_windows_sec else 60.0
@@ -214,6 +224,7 @@ class TickProcessor:
         self._decay = DecayState()
         self._target_buf.reset()
         self._upside_pct.reset()
+        self._regime_classifier.reset()  # T32 — clear sustain state
         self._pending.clear()
         # Scheduled session start (09:15 IST etc.) — anchors `minutes_from_open`
         # so the feature is invariant to first-tick latency. Computed here
@@ -649,7 +660,22 @@ class TickProcessor:
         zone_f = compute_zone_features(cache, atm_window)
 
         # Regime
-        regime_f = compute_regime_features(
+        # T32 D4: sustained + ADX-aware regime via the stateful classifier.
+        # See the matching block in replay_adapter for the inline multi_tf
+        # rationale (ADX is required for TREND_STRONG; duplicate compute
+        # is cheap on already-aggregated bars).
+        _bars_5m_for_regime = self._pipeline_state.bars.get_recent_bars(300)
+        _bars_1m_for_regime = self._pipeline_state.bars.get_recent_bars(60)
+        _bars_15m_for_regime = self._pipeline_state.bars.get_recent_bars(900)
+        _multi_tf_for_regime = compute_multi_tf_features(
+            spot=ltp,
+            bars_1m=_bars_1m_for_regime,
+            bars_5m=_bars_5m_for_regime,
+            bars_15m=_bars_15m_for_regime,
+        )
+        _adx_5min_for_regime = float(_multi_tf_for_regime.get("adx_5min", _NAN))
+        regime_f = self._regime_classifier.update(
+            now_ts=ts,
             buffer=self._tick_buf,
             volatility_compression=float(comp_f.get("volatility_compression", _NAN)),
             tick_imbalance_20=float(uf.get("tick_imbalance_20", _NAN)),
@@ -658,6 +684,7 @@ class TickProcessor:
             trading_state=self._sm.state.value,
             volume_drought_atm=float(decay_f.get("volume_drought_atm", _NAN)),
             thresholds=self._regime_thresholds(),
+            adx_5min=_adx_5min_for_regime,
         )
 
         # Re-compute time-to-move with real zone and decay data

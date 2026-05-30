@@ -57,11 +57,17 @@ Implement V2_MASTER_SPEC §2.7: layer cap, swing entry cutoff, shared daily-loss
 - **Effort:** ~2-3 days.
 - **Cross-ref:** T3 Phase 6.
 
-### T32 — L8 regime classifier (rule-based per D4) 🆕
-Implement V2_MASTER_SPEC §2.8 rule-based classifier: `trend_strong` tier + 5-min sustain + benign degradation handling. Today `regime` is passed into `decide_action_v2:264` as a parameter but nothing actually writes it — the inference loop relies on the legacy 4-stage filter's `regime` output, which spec D55 deprecated.
+### T32 — L8 regime classifier (rule-based per D4) ✅ IMPLEMENTED
+Implement V2_MASTER_SPEC §2.8 rule-based classifier: `trend_strong` tier + 5-min sustain + benign degradation handling.
 
-- **Status:** ⏳ PRE-PAPER MUST.
-- **Effort:** ~2 days.
+**Implementation (shipped 2026-05-30):**
+- `python_modules/tick_feature_agent/features/regime.py` — `compute_regime_features` gains an `adx_5min` arg + new `TREND_STRONG` tier (ADX(14) ≥ 30 AND TREND signals); priority slots between DEAD and TREND. NaN ADX degrades gracefully (falls through to TREND).
+- `RegimeClassifier` (new class in same file) — stateful 5-min sustain wrapper. First valid instant reading accepted immediately; transitions held in a candidate slot until `sustain_sec` of continuous agreement; **benign degradation**: `instant=None` (warmup / missing signals) does NOT reset state or flip confirmed. `reset()` on session_start / rollover.
+- `tick_feature_agent/replay/replay_adapter.py` + `tick_feature_agent/tick_processor.py` — both adapters instantiate `RegimeClassifier(sustain_sec=…)` in `__init__`; inline-compute `multi_tf` to grab `adx_5min` immediately before the regime call (cheap on cached 5-min bars); call `self._regime_classifier.update(...)` instead of direct `compute_regime_features`; `reset()` on session_start.
+- 12 new tests in `tests/test_regime_t32.py`; 24 pre-existing regime tests still pass; full project 2005/2005.
+- T41's `regime_tag` column now flows through naturally because TFA's `regime` row column emits `TREND_STRONG` / `TREND` / `RANGE` / `DEAD` / `NEUTRAL`; SEA's existing `row.get("regime")` → log_eval already routes it.
+
+- **Status:** ✅ IMPLEMENTED 2026-05-30.
 - **Cross-ref:** T3 Phase 6; spec D4 / D47; later upgrade T17.
 
 ### T33 — D56 cohort tracking end-to-end ✅ PYTHON SIDE IMPLEMENTED
