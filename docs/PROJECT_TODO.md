@@ -150,6 +150,17 @@ Self-contained Plotly HTML report per (date, instrument) showing every trade ove
 - **Data sources:** spot OHLC = day's `<inst>_features.parquet` (1-min resample of `spot` col); trades = broker fill log (TS server-side) + L5 exit-reason log + signal log with cohort tag (T33).
 - **Cross-ref:** T33 (cohort/exit-reason tags must be present in fill log), T30 (L5 exit-reason source), T32 (regime tag in tooltip), T34 (shares the `data/reports/<date>/` directory pattern — same generator infra). Prerequisites in priority order: T33 → T30 → T32 → T44.
 
+### T45 — BrokerId rename + LTP source unification ✅ IMPLEMENTED
+Broker-infra cleanup paired with the UI bug-fix that motivated it.
+
+- **Rename:** `dhan` → `dhan-primary-ac`, `dhan-ai-data` → `dhan-secondary-ac`. Every reference (server code, all 60 test files, scripts, Python TFA `--broker-id` default, repo docs `systems/05`/`08`/`10`, startup `.bat`) now reads "what + who" at a glance. Startup auto-migration in `server/broker/brokerService.ts` rewrites the two legacy `broker_configs` docs on boot — idempotent, removable after every machine has booted once. Log-tag derivation simplified: existing regex `brokerId.replace(/^dhan-/, "")` now yields `primary-ac` / `secondary-ac` uniformly.
+- **LTP source unification:** every LTP shown in the trading desk reads from one stream keyed by `(exchange, contractSecurityId)`, paper-vs-live agnostic. (1) Server `ensureOptionLtpSubscription` routes paper-channel option subscribes through `dhanLive` (primary `dhan-primary-ac`) so paper trades see real market LTPs in the browser tick bus. (2) `NewTradeForm.tsx` and `QuickOrderPopup.tsx` read `getTick(exchange, contractSecurityId)` first; option-chain snapshot is the cold fallback. (3) Both surfaces subscribe the selected option leg via `broker.feed.subscribe` on strike-selection and unsubscribe on change/unmount.
+- **Trade history wiped** via new `scripts/reset-trade-history.mjs` so no stale `position_state.brokerId="dhan"` records survive. `broker_configs`, `usersettings`, `executorsettings`, `disciplinesettings` left untouched.
+- **Status:** ✅ IMPLEMENTED 2026-05-30 (commits `2a590ed`, `bc45785`, `df29e5f`). All 895 tests pass.
+- **Open follow-ups:**
+  - Refcounted unsubscribe in `SubscriptionManager` (today a bare unsubscribe on trade close would kill the feed for any other open trade on the same contract — currently leaks subs until restart, acceptable until contract count grows).
+  - Live in-market verification of LTP flow (deferred — markets closed Saturday).
+
 ## P2 — parked features (small enough to wait)
 
 ### T4 — Replay in-date progress + chunked resume (PARTIALLY DONE 2026-05-16)
