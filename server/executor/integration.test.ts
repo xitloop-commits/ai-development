@@ -36,6 +36,7 @@ function dayKey(channel: string, dayIndex: number) {
 
 vi.mock("../broker/brokerService", () => ({
   getAdapter: vi.fn(),
+  getActiveBroker: vi.fn(() => null),
   isChannelKillSwitchActive: vi.fn(() => false),
 }));
 

@@ -2,11 +2,12 @@
  * QuickOrderPopup — compact horizontal popup for placing quick orders via hotkeys.
  * All inputs render in a single row. ATM strike, LTP, SL/Target auto-filled from live data.
  */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Settings2, ChevronUp, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { trpc } from '../lib/trpc';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { useTickStream } from '@/hooks/useTickStream';
 
 // instrumentKey → option chain underlying symbol
 const INSTRUMENT_UNDERLYING: Record<string, string> = {
@@ -128,6 +129,21 @@ export function QuickOrderPopup({
     return best;
   }, [optionChainQuery.data]);
 
+  // Resolve the security ID of the currently-selected option leg so we can
+  // subscribe it to the live WS feed and read its LTP from the tick stream.
+  const selectedContractSecurityId = useMemo(() => {
+    const rows = optionChainQuery.data?.rows ?? [];
+    const row = rows.find((r) => r.strike === strike) ?? atmRow;
+    if (!row) return undefined;
+    return (optionType === 'CE' ? row.callSecurityId : row.putSecurityId) ?? undefined;
+  }, [optionChainQuery.data, strike, atmRow, optionType]);
+  const wsExchange =
+    instrumentKey === 'CRUDEOIL' || instrumentKey === 'NATURALGAS' ? 'MCX_COMM' : 'NSE_FNO';
+  const { getTick } = useTickStream();
+  const liveTick = selectedContractSecurityId
+    ? getTick(wsExchange, selectedContractSecurityId)
+    : undefined;
+
   // ── Effects ────────────────────────────────────────────────────
 
   // Reset form on open
@@ -155,12 +171,39 @@ export function QuickOrderPopup({
     if (atmRow && isOpen) setStrike(atmRow.strike);
   }, [atmRow?.strike]); // intentionally omit isOpen — fires whenever ATM data arrives
 
-  // Auto-fill entry price from LTP
+  // Auto-fill entry price from the live tick stream (preferred), falling
+  // back to the option-chain snapshot until the first tick arrives.
   useEffect(() => {
-    if (!atmRow || !isOpen) return;
-    const ltp = optionType === 'CE' ? atmRow.callLTP : atmRow.putLTP;
-    if (ltp > 0) setEntryPrice(ltp);
-  }, [atmRow, optionType, isOpen]);
+    if (!isOpen) return;
+    if (liveTick?.ltp && liveTick.ltp > 0) {
+      setEntryPrice(liveTick.ltp);
+      return;
+    }
+    if (atmRow) {
+      const ltp = optionType === 'CE' ? atmRow.callLTP : atmRow.putLTP;
+      if (ltp > 0) setEntryPrice(ltp);
+    }
+  }, [liveTick?.ltp, atmRow, optionType, isOpen]);
+
+  // Subscribe the selected option leg to the live WS feed while the popup
+  // is open, so liveTick refreshes per-tick. Unsubscribes on leg change /
+  // popup close.
+  const subscribeMut = trpc.broker.feed.subscribe.useMutation();
+  const unsubscribeMut = trpc.broker.feed.unsubscribe.useMutation();
+  const lastSubRef = useRef<{ exchange: string; securityId: string } | null>(null);
+  useEffect(() => {
+    if (!isOpen || !selectedContractSecurityId) return;
+    const sub = { exchange: wsExchange, securityId: selectedContractSecurityId };
+    lastSubRef.current = sub;
+    subscribeMut.mutate({ instruments: [{ ...sub, mode: 'full' }] as any });
+    return () => {
+      if (lastSubRef.current?.securityId === sub.securityId) {
+        unsubscribeMut.mutate({ instruments: [sub] as any });
+        lastSubRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, selectedContractSecurityId, wsExchange]);
 
   // Auto-fill SL / Target from settings percentages
   useEffect(() => {

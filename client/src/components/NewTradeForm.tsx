@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, ChevronUp, ChevronDown } from 'lucide-react';
 import { trpc } from '../lib/trpc';
 import { formatINR } from '@/lib/formatINR';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { estimateSingleLegCharges, type ChargeRate, DEFAULT_CHARGES } from '@shared/chargesEngine';
 import { useChain, _ingest as ingestChain } from '@/stores/optionChainStore';
+import { useTickStream } from '@/hooks/useTickStream';
 
 const UNDERLYING_MAP: Record<string, string> = {
   'NIFTY 50': 'NIFTY',
@@ -352,19 +353,48 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     }
   }, [qtyMode, instrument, entryPrice, availableCapital]);
 
-  const currentLtp = useMemo(() => {
-    if (!isOptionTrade || !selectedStrike) return 0;
-    const strikeData = strikeOptions.find((item) => String(item.strike) === selectedStrike);
-    if (!strikeData) return 0;
-    return optionType === 'CE' ? strikeData.callLTP : strikeData.putLTP;
-  }, [isOptionTrade, optionType, selectedStrike, strikeOptions]);
-
   const selectedContractSecurityId = useMemo(() => {
     if (!isOptionTrade || !selectedStrike) return undefined;
     const strikeData = strikeOptions.find((item) => String(item.strike) === selectedStrike);
     if (!strikeData) return undefined;
     return optionType === 'CE' ? strikeData.callSecurityId : strikeData.putSecurityId;
   }, [isOptionTrade, optionType, selectedStrike, strikeOptions]);
+
+  // LTP source unification: prefer the live tick stream (subscribed below);
+  // fall back to the option-chain snapshot (~5s refresh) until the first tick
+  // arrives or if the WS feed is down.
+  const wsExchange =
+    instrument === 'CRUDE OIL' || instrument === 'NATURAL GAS' ? 'MCX_COMM' : 'NSE_FNO';
+  const { getTick } = useTickStream();
+  const liveTick = selectedContractSecurityId
+    ? getTick(wsExchange, selectedContractSecurityId)
+    : undefined;
+  const chainLtp = useMemo(() => {
+    if (!isOptionTrade || !selectedStrike) return 0;
+    const strikeData = strikeOptions.find((item) => String(item.strike) === selectedStrike);
+    if (!strikeData) return 0;
+    return optionType === 'CE' ? strikeData.callLTP : strikeData.putLTP;
+  }, [isOptionTrade, optionType, selectedStrike, strikeOptions]);
+  const currentLtp = liveTick?.ltp && liveTick.ltp > 0 ? liveTick.ltp : chainLtp;
+
+  // Subscribe the selected contract to the live WS feed so currentLtp ticks
+  // in real time. Unsubscribes on strike/option change and on unmount.
+  const subscribeMut = trpc.broker.feed.subscribe.useMutation();
+  const unsubscribeMut = trpc.broker.feed.unsubscribe.useMutation();
+  const lastSubRef = useRef<{ exchange: string; securityId: string } | null>(null);
+  useEffect(() => {
+    if (!selectedContractSecurityId) return;
+    const sub = { exchange: wsExchange, securityId: selectedContractSecurityId };
+    lastSubRef.current = sub;
+    subscribeMut.mutate({ instruments: [{ ...sub, mode: 'full' }] as any });
+    return () => {
+      if (lastSubRef.current?.securityId === sub.securityId) {
+        unsubscribeMut.mutate({ instruments: [sub] as any });
+        lastSubRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedContractSecurityId, wsExchange]);
 
   const underlyingSymbol = UNDERLYING_MAP[instrument] ?? instrument;
   const lotSizeQuery = trpc.broker.getLotSize.useQuery(

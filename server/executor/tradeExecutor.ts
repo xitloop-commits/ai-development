@@ -22,7 +22,7 @@
 import { createLogger } from "../broker/logger";
 import { withTrade } from "../_core/correlationContext";
 import { teaSubmitTradeTotal, teaExitTotal } from "../_core/metrics";
-import { getAdapter, isChannelKillSwitchActive } from "../broker/brokerService";
+import { getAdapter, getActiveBroker, isChannelKillSwitchActive } from "../broker/brokerService";
 import { tickBus } from "../broker/tickBus";
 import type {
   BrokerAdapter,
@@ -178,7 +178,7 @@ class TradeExecutorAgent {
       }
 
       // Pre-flight: AI Live 1-lot cap. Applies to both ai-live and
-      // ai-paper — the dhan-ai-data broker fans out to both, and an
+      // ai-paper — the dhan-secondary-ac broker fans out to both, and an
       // accidentally-oversized order on ai-paper would still corrupt the
       // canary's paper-P&L validation. The canary protocol launches at
       // 1 lot per trade; bigger orders on either AI channel are rejected
@@ -821,26 +821,39 @@ function mapBrokerStatusToSubmitStatus(
 }
 
 /**
- * For option trades on live channels, ensure the contract is on the broker's
- * WS subscription so ticks flow into tickBus. Mock adapters treat this as a
- * no-op. Failures are non-fatal — the trade still places, but LTP may not
- * stream until the user subscribes manually.
+ * Ensure the option contract is on the live Dhan WS subscription so real
+ * ticks flow into tickBus.
+ *
+ * - Live channels: subscribe on the channel's own adapter (dhanLive for
+ *   my-live/testing-live, dhanAiData for ai-live).
+ * - Paper channels (my-paper, ai-paper, testing-sandbox): subscribe via
+ *   the primary Dhan adapter (dhanLive) so paper trades read the SAME
+ *   live LTP the UI already sees. The channel's mock adapter otherwise
+ *   emits synthetic ticks that never reach the browser bus.
+ *
+ * Failures are non-fatal — the trade still places, but LTP may not stream
+ * until the user subscribes manually.
+ *
+ * TODO: matching unsubscribe on trade close is blocked on SubscriptionManager
+ * gaining refcounting — today a bare unsubscribe would kill the feed for any
+ * other open trade on the same contract.
  */
 function ensureOptionLtpSubscription(
   adapter: BrokerAdapter,
   req: SubmitTradeRequest,
 ): void {
   if (!req.contractSecurityId) return;
-  if (!adapter.subscribeLTP) return;
+  const feedAdapter = _isPaperChannel(req.channel) ? getActiveBroker() : adapter;
+  if (!feedAdapter?.subscribeLTP) return;
   try {
     const exchange = resolveExchange(req.instrument);
     const wsExchange = exchange === "MCX_COMM" ? "MCX_COMM" : "NSE_FNO";
-    adapter.subscribeLTP(
+    feedAdapter.subscribeLTP(
       [{ exchange: wsExchange as any, securityId: req.contractSecurityId, mode: "full" }] as any,
       (tick) => tickBus.emitTick(tick),
     );
     log.debug(
-      `Subscribed option LTP: ${wsExchange}:${req.contractSecurityId} for trade ${req.executionId}`,
+      `Subscribed option LTP: ${wsExchange}:${req.contractSecurityId} for trade ${req.executionId} via ${feedAdapter.brokerId}`,
     );
   } catch (err: any) {
     log.warn(`subscribeLTP failed for ${req.contractSecurityId}: ${err?.message ?? err}`);
