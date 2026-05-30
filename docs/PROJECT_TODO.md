@@ -64,12 +64,19 @@ Implement V2_MASTER_SPEC §2.8 rule-based classifier: `trend_strong` tier + 5-mi
 - **Effort:** ~2 days.
 - **Cross-ref:** T3 Phase 6; spec D4 / D47; later upgrade T17.
 
-### T33 — D56 cohort tracking end-to-end 🆕
-Tag every signal + fill with originating signal type (scalp/trend/swing/multi-day-swing) through the full pipeline: SEA signal log → broker fill log → reliability monitoring. Currently `cohort|signal_source|signal_layer|attribution` returns zero matches across both Python `signal_engine_agent/` and TypeScript `server/`. Without this, post-paper-trade attribution analysis (which heads/cohorts are profitable) is impossible.
+### T33 — D56 cohort tracking end-to-end ✅ PYTHON SIDE IMPLEMENTED
+Tag every signal + fill with originating signal type (scalp/trend/swing/multi-day-swing) through the full pipeline: SEA signal log → broker fill log → reliability monitoring. Without this, post-paper-trade attribution analysis (which heads/cohorts are profitable) is impossible.
 
-- **Status:** ⏳ PRE-PAPER MUST.
-- **Effort:** ~1 day.
-- **Cross-ref:** T3 Phase 6; spec D56; precondition for T17/T18/T19/T20 analyses.
+**Python side shipped 2026-05-28:**
+- `python_modules/signal_engine_agent/cohort.py` — window-based classifier (`classify_window_seconds`, `classify_head`, `build_head_type_map`). Boundaries match `features/trend_swing_targets.py` constants (scalp ≤300s, trend 900–1800s, swing 3600–7200s, multi-day-swing >7200s).
+- `signal_engine_agent/engine.py` — head→cohort map built once at startup from `_HEAD_PREDS`, passed to `prediction_logger.log_eval(head_types=...)` on every eval (T41's `head_type` column now populates instead of staying NULL). Emitted signal JSON carries a `cohort` field (currently always `"scalp"` since all production gates consume scalp-window heads; will diversify when T29's head-type routing lands trend/swing gate paths).
+- 17 new cohort tests + 220/220 SEA suite pass.
+
+**Out of scope this implementation (deferred):**
+- TypeScript `server/` side: broker fill log carrying the cohort through to executions + portfolio attribution. The Python signal log now contains the field; TS server work is the natural follow-up.
+
+- **Status:** ✅ PYTHON SHIPPED 2026-05-28. ⏳ TS server side still PRE-PAPER MUST.
+- **Cross-ref:** T3 Phase 6; spec D56; precondition for T17/T18/T19/T20 analyses; T34 consumes the populated `head_type` column.
 
 ### T34 — Per-head SHAP report + reliability monitoring (§5.1) 🆕
 Two coupled observability outputs needed before paper-trade promotion:

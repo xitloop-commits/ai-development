@@ -40,6 +40,7 @@ import numpy as np
 
 from model_training_agent.preprocessor import LiveTickPreprocessor
 from signal_engine_agent import legacy_filter
+from signal_engine_agent.cohort import build_head_type_map
 from signal_engine_agent.model_loader import load_models
 from signal_engine_agent.prediction_logger import PredictionLogger
 from signal_engine_agent.signal_logger import SignalLogger
@@ -296,9 +297,23 @@ def run(
     prediction_logger = PredictionLogger(
         instrument=instrument, date_str=_t41_date,
     )
+    # T33 D56: pre-compute head -> cohort map once at startup. The map
+    # is immutable per process so we pass the same dict on every
+    # log_eval call. Heads without a window-derived cohort
+    # (e.g. upside_percentile_30s, regression heads outside the
+    # scalp/trend/swing bands) are simply absent — logger writes NULL.
+    _t33_head_types = build_head_type_map(
+        [gate_key for gate_key, _ in _HEAD_PREDS]
+    )
     print(
         f"  T41 predictions -> data/predictions/{_t41_date}/"
         f"{instrument}_predictions.parquet"
+    )
+    print(
+        f"  T33 cohorts:   "
+        f"{sum(1 for v in _t33_head_types.values() if v == 'scalp')} scalp / "
+        f"{sum(1 for v in _t33_head_types.values() if v == 'trend')} trend / "
+        f"{sum(1 for v in _t33_head_types.values() if v == 'swing')} swing"
     )
     # F4 hot-path optimisation: pre-allocate the feature vector buffer
     # once per SEA instance and reuse it on every tick. The returned
@@ -439,6 +454,7 @@ def run(
                     calibrated_preds=preds,
                     gate_decision=action,
                     regime_tag=regime if isinstance(regime, str) else None,
+                    head_types=_t33_head_types,
                 )
             except Exception as exc:
                 # Never let the prediction logger crash the inference
@@ -457,11 +473,19 @@ def run(
                 _last_action = action
                 _last_emit_ts = now_ts
                 raw_signals += 1
+                # T33 D56: cohort tag on every emitted signal. Current
+                # gates (wave2 / wave1 / 3-cond / legacy) are all scalp-
+                # window driven, so the originating cohort is always
+                # "scalp" today. When T29 lands head-type routing for
+                # trend / swing gates this will derive from the firing
+                # head's cohort instead of being a constant.
+                signal_cohort = "scalp"
                 signal = {
                     "timestamp": row.get("timestamp"),
                     "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
                     "instrument": instrument.upper(),
                     "action": action,
+                    "cohort": signal_cohort,
                     "direction_prob_30s": round(preds["direction_prob_30s"], 4),
                     "risk_reward_ratio_30s": round(preds["risk_reward_ratio_30s"], 4),
                     "upside_percentile_30s": round(preds["upside_percentile_30s"], 2),
