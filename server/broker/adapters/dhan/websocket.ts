@@ -190,6 +190,9 @@ export class DhanWebSocket extends EventEmitter {
   private _connected = false;
   private _cooldownUntil = 0;   // 429/auth cooldown — reject connects until this time
   private healthyTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectedAt = 0;          // ms timestamp of the last 'open' (0 = never opened this cycle)
+  private instantDropCount = 0;     // consecutive accept-then-instant-1006 drops
+  private subscriptionWarned = false; // warned once per failure burst about likely expired Data API plan
   private readonly log: Logger;
 
   constructor(config: DhanWSConfig) {
@@ -245,6 +248,7 @@ export class DhanWebSocket extends EventEmitter {
         clearTimeout(timeout);
         this._connected = true;
         this.isConnecting = false;
+        this.connectedAt = Date.now();
         // Don't reset reconnectAttempts here. The Dhan feed sometimes accepts the WS
         // upgrade and then closes the TCP within ~10ms (e.g. nightly maintenance, stale
         // token, account WS-cap exceeded — all surface as code 1006). Resetting on `open`
@@ -253,6 +257,10 @@ export class DhanWebSocket extends EventEmitter {
         if (this.healthyTimer) clearTimeout(this.healthyTimer);
         this.healthyTimer = setTimeout(() => {
           this.reconnectAttempts = 0;
+          // Connection stayed up 10s → genuinely healthy; clear the
+          // expired-subscription warning state so a future burst warns again.
+          this.instantDropCount = 0;
+          this.subscriptionWarned = false;
           this.healthyTimer = null;
         }, 10_000);
         // Disable Nagle for minimal latency on incoming ticks
@@ -284,6 +292,25 @@ export class DhanWebSocket extends EventEmitter {
         this.isConnecting = false;
         const reasonStr = reason.toString() || `code ${code}`;
         this.log.info(`Disconnected: ${reasonStr}`);
+
+        // Accept-then-instant-1006: socket opened then died within ~5s with no
+        // close reason. The usual cause is a lapsed Dhan Data API subscription
+        // (Dhan disconnect 806 "Data APIs not subscribed") — the token is valid
+        // for auth so the upgrade succeeds, but the feed drops it because the
+        // paid plan expired. Warn once per failure burst with the actionable fix.
+        const openedMs = this.connectedAt > 0 ? Date.now() - this.connectedAt : Infinity;
+        if (code === 1006 && openedMs < 5000) {
+          this.instantDropCount++;
+          if (this.instantDropCount >= 2 && !this.subscriptionWarned) {
+            this.subscriptionWarned = true;
+            this.log.warn(
+              `Feed accepted then dropped instantly (code 1006) ${this.instantDropCount}× — the Dhan ` +
+                `Data API subscription for this account (${this.config.brokerTag ?? "default"}) has likely EXPIRED. ` +
+                `Renew/pay the Dhan Data API subscription fee for this account. See docs/systems/01_data_ingestion.md §3.`
+            );
+          }
+        }
+        this.connectedAt = 0;
 
         if (!this.isDisconnecting) {
           this.scheduleReconnect();

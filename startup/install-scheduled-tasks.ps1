@@ -249,8 +249,46 @@ Register-ScheduledTask `
     -Force | Out-Null
 Write-Host "Registered: Lubas-Retrain-Saturday (weekly Sat 02:00 as $user, wakes machine)"
 
+# ============================================================
+#  Lubas-SubscriptionAlert-Daily -- Daily 09:00, Dhan auto-pay reminder
+# ============================================================
+# Runs startup\subscription-alert.bat which checks config\subscriptions.json
+# and, in the lead-time window before each account's monthly renewal day,
+# logs a console warning AND sends a yow-partha Telegram alert to keep enough
+# balance in the auto-pay bank. Runs EVERY day (incl. weekends/holidays) so a
+# renewal on a non-trading day isn't missed; StartWhenAvailable catches up a
+# missed run when the machine next powers on. Telegram is de-duped to once per
+# account per day, so this never double-sends with the in-server scheduler.
+$subAlertBat = Join-Path $root 'startup\subscription-alert.bat'
+if (-not (Test-Path $subAlertBat)) { throw "Required file not found: $subAlertBat" }
+
+$subAlertAction = New-ScheduledTaskAction `
+    -Execute 'cmd.exe' `
+    -Argument "/c `"$subAlertBat`"" `
+    -WorkingDirectory $root
+
+$subAlertTrigger = New-ScheduledTaskTrigger -Daily -At '09:00'
+
+$subAlertSettings = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable `
+    -MultipleInstances IgnoreNew `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+
+Register-ScheduledTask `
+    -TaskName  'Lubas-SubscriptionAlert-Daily' `
+    -Action    $subAlertAction `
+    -Trigger   $subAlertTrigger `
+    -Settings  $subAlertSettings `
+    -User      $user `
+    -RunLevel  Limited `
+    -Description 'Daily Dhan Data API auto-pay reminder (console + yow-partha bot) before each account renewal day.' `
+    -Force | Out-Null
+Write-Host "Registered: Lubas-SubscriptionAlert-Daily (daily 09:00 as $user)"
+
 Write-Host ""
-Write-Host "Done. Verify all four tasks registered:"
+Write-Host "Done. Verify all five tasks registered:"
 Write-Host "  Get-ScheduledTask -TaskName 'Lubas-*' | Select TaskName,State"
 Write-Host ""
 Write-Host "Verify the 23:55 popup works in this session (will fire msg.exe now):"

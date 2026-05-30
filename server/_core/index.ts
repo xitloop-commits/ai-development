@@ -26,6 +26,7 @@ import { authMiddleware, registerAuthBootstrapEndpoint } from "./auth";
 import { validateEnv } from "./validateEnv";
 import { requestIdMiddleware } from "./correlationContext";
 import { metricsHandler } from "./metrics";
+import { startSubscriptionAlertScheduler } from "./subscriptionAlert";
 
 const bootLog = createLogger("BOOT", "Server");
 
@@ -233,6 +234,8 @@ async function startServer() {
   const host = process.env.HTTP_HOST ?? "127.0.0.1";
   server.listen(port, host, () => {
     bootLog.important(`Server running on http://${host}:${port}/`);
+    // Dhan Data API subscription auto-pay reminders (console + yow-partha bot).
+    startSubscriptionAlertScheduler();
   });
 }
 

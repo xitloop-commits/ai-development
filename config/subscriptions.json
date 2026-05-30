@@ -1,0 +1,18 @@
+{
+  "_comment": "Dhan Data API subscription auto-pay reminders. Each account auto-renews monthly on renewalDayOfMonth via the autopayBank account. For leadDays days up to and including the renewal day, Lubas warns you (API console + yow-partha Telegram bot) to keep enough balance in the autopay bank so the auto-debit does not fail and the Data API feed does not lapse. Edit renewalDayOfMonth here when a subscription date changes; no code change needed.",
+  "leadDays": 5,
+  "accounts": [
+    {
+      "brokerId": "dhan-primary-ac",
+      "label": "primary",
+      "renewalDayOfMonth": 30,
+      "autopayBank": "ICICI"
+    },
+    {
+      "brokerId": "dhan-secondary-ac",
+      "label": "secondary",
+      "renewalDayOfMonth": 24,
+      "autopayBank": "ICICI"
+    }
+  ]
+}

@@ -14,9 +14,11 @@ import { createLogger } from "../broker/logger";
 
 const log = createLogger("BOOT", "Telegram");
 
-export async function notifyTelegram(message: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+async function postTelegram(
+  token: string | undefined,
+  chatId: string | undefined,
+  message: string
+): Promise<void> {
   if (!token || !chatId) return;
   try {
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
@@ -33,4 +35,18 @@ export async function notifyTelegram(message: string): Promise<void> {
   } catch (err) {
     log.warn(`Telegram notify failed: ${(err as Error).message}`);
   }
+}
+
+/** Push to the legacy TELEGRAM_* channel (B6 fatals, RCA kill-switch, etc.). */
+export async function notifyTelegram(message: string): Promise<void> {
+  return postTelegram(process.env.TELEGRAM_BOT_TOKEN, process.env.TELEGRAM_CHAT_ID, message);
+}
+
+/**
+ * Push to the yow-partha operator bot (YOW_PARTHA_* channel) — same phone,
+ * but routed through the control bot so operator alerts (e.g. subscription
+ * auto-pay reminders) land in the partha bot chat. Empty creds → silent no-op.
+ */
+export async function notifyPartha(message: string): Promise<void> {
+  return postTelegram(process.env.YOW_PARTHA_BOT_TOKEN, process.env.YOW_PARTHA_CHAT_ID, message);
 }
