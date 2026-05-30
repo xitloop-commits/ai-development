@@ -55,10 +55,12 @@ Dhan caps each account at **5 concurrent WebSocket connections**. Lubas spreads 
 
 | Account | Client ID | WS subscriptions | Used by |
 |---|---|---|---|
-| `dhan` (primary) | `1101615161` | 1 UI tick feed + 1 order-update = **2 / 5** | Manual trading (my-live / my-paper channels) |
-| `dhan-ai-data` (spouse) | `1111388877` | 4 TFA processes + 1 order-update = **5 / 5** | AI Live / AI Paper channels |
+| `dhan-primary-ac` (primary) | `1101615161` | 1 UI tick feed + 1 order-update = **2 / 5** | Manual trading (my-live / my-paper channels) |
+| `dhan-secondary-ac` (spouse) | `1111388877` | 4 TFA processes + 1 order-update = **5 / 5** | AI Live / AI Paper channels |
 
-**Headroom:** zero on `dhan-ai-data`. Any concurrent TFA on the `ui-refactoring` worktree (or a second instance on the same account) hits the cap and gets refused. The order-routing implications of dual-account live in [05 Execution](05_execution.md).
+**Headroom:** zero on `dhan-secondary-ac`. Any concurrent TFA on the `ui-refactoring` worktree (or a second instance on the same account) hits the cap and gets refused. The order-routing implications of dual-account live in [05 Execution](05_execution.md).
+
+**Troubleshooting — feed accepts then instantly drops with code 1006 (loops on reconnect backoff 1s/2s/4s…):** the most common cause is an **expired Dhan Data API subscription** on that account (Dhan disconnect code 806 "Data APIs not subscribed" — see `DHAN_WS_DISCONNECT_CODES` in `server/broker/adapters/dhan/constants.ts`). The socket opens because the token is valid for auth, but Dhan drops it because the paid Data API plan has lapsed. This is **account-specific**: if one account 1006-loops while the other stays connected, suspect the lapsed account's subscription, not a code bug or the WS-connection cap. Applies to **both** `dhan-primary-ac` and `dhan-secondary-ac` — each carries its own Data API subscription that must be paid/renewed independently. **Fix: renew (pay) the Dhan Data API subscription fee for the affected account.** First confirmed 2026-05-30 (primary account subscription lapsed).
 
 **MCX rollover handling.** `ChainPoller._resolve_near_month_contract()` queries the Dhan scripmaster on startup and on every option-chain resubscribe, so April → May → June FUT contract ID transitions don't strand the poller on a dead contract. The instrument profile JSON keeps the FUT contract as a fallback only.
 
@@ -85,8 +87,8 @@ Each TFA process writes its own 4-file set. India VIX is duplicated across instr
 
 **Policy:** startup-only refresh. No dual-refresh races, no in-flight TOTP retries.
 
-- Each Dhan broker (`dhan`, `dhan-ai-data`) has its own `tokenManager` instance with independent TOTP + access-token state.
-- TFA fetches its access token at startup via `GET /api/broker/token?brokerId=dhan-ai-data` from the Node broker service.
+- Each Dhan broker (`dhan-primary-ac`, `dhan-secondary-ac`) has its own `tokenManager` instance with independent TOTP + access-token state.
+- TFA fetches its access token at startup via `GET /api/broker/token?brokerId=dhan-secondary-ac` from the Node broker service.
 - Mid-session 401 from Dhan → mark token expired, alert via yow-partha Telegram, **wait for manual restart**. No automatic refresh attempt.
 - Tokens are valid ~24 h; the server is restarted often enough that the no-mid-refresh stance has zero resilience cost.
 
