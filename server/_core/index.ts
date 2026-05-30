@@ -118,8 +118,8 @@ async function startServer() {
 
       // Register broker adapters and initialize broker service after MongoDB is ready
       registerAdapter("mock", () => new MockAdapter(), { displayName: "Paper Trading", isPaperBroker: true });
-      registerAdapter("dhan", () => new DhanAdapter("dhan", false), { displayName: "Dhan (Trading)", isPaperBroker: false });
-      registerAdapter("dhan-ai-data", () => new DhanAdapter("dhan-ai-data", false), { displayName: "Dhan (AI + Data)", isPaperBroker: false });
+      registerAdapter("dhan-primary-ac", () => new DhanAdapter("dhan-primary-ac", false), { displayName: "Dhan (Trading)", isPaperBroker: false });
+      registerAdapter("dhan-secondary-ac", () => new DhanAdapter("dhan-secondary-ac", false), { displayName: "Dhan (AI + Data)", isPaperBroker: false });
       await initBrokerService();
       markReady("broker");
       // Broker WS connections close via brokerService disconnect at prio 500

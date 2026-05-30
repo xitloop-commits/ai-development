@@ -38,8 +38,8 @@ interface DhanWSConfig {
   clientId: string;
   /**
    * Per-broker tag used in the logger module name so multi-broker setups
-   * (`dhan` for trading, `dhan-ai-data` for AI tick feed, etc.) emit
-   * disambiguated lines: `[BSA:Dhan/ai-data-WS]` instead of generic
+   * (`dhan-primary-ac` for trading, `dhan-secondary-ac` for AI tick feed, etc.)
+   * emit disambiguated lines: `[BSA:Dhan/secondary-ac-WS]` instead of generic
    * `[BSA:DhanWS]`. Optional — defaults to `"default"`.
    */
   brokerTag?: string;

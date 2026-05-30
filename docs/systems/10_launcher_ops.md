@@ -115,7 +115,7 @@ The promotion procedure from `ai-paper` to `ai-live` is deliberately small + 30-
 4. RCA age-exit working — at least 3 closed trades in `ai-paper` with `exitTriggeredBy === "RCA"`.
 5. Discipline pre-trade gate active — at least one rejected SEA signal logged with reason `"Discipline blocked: ..."`.
 6. 1-lot cap enforced — `tradeExecutor.test.ts` 10/10 green.
-7. Wife's Dhan credentials provisioned — `broker_configs.dhan-ai-data` carries valid `auth.{clientId, pin, totpSecret}`.
+7. Wife's Dhan credentials provisioned — `broker_configs.dhan-secondary-ac` carries valid `auth.{clientId, pin, totpSecret}`.
 8. Dhan ToS confirmation — written confirmation from Dhan support that auto-trading is permitted on the wife's account ([T38](../PROJECT_TODO.md), pending admin task).
 
 If any gate is RED → do not activate. Either ship the missing wiring or revise the spec.
@@ -128,7 +128,7 @@ Operator runs through this every trading day before 09:15 IST. Source of truth u
 
 1. **Server health** — `lubas-status.bat` shows API + recorders + SEA all 🟢. If anything 🔴 or ⚫, restart via launcher.
 2. **Metrics** — `/metrics` endpoint reachable on the Node side; Prometheus pull is current within last 30 s.
-3. **Dhan token freshness** — both `dhan` and `dhan-ai-data` tokens loaded; no 401s in the morning startup log. Token policy: startup-only refresh (see [01 §5](01_data_ingestion.md), [05 §7](05_execution.md)).
+3. **Dhan token freshness** — both `dhan-primary-ac` and `dhan-secondary-ac` tokens loaded; no 401s in the morning startup log. Token policy: startup-only refresh (see [01 §5](01_data_ingestion.md), [05 §7](05_execution.md)).
 4. **Feed live** — TFA recorders × 4 receiving ticks (status table shows green for all four instruments).
 5. **SEA listening** — SEA's live feed tail position is current; `signal_engine_agent` log shows recent prediction loops.
 6. **Discipline state** — circuit breaker not tripped, kill switches off, daily caps reset to today.
@@ -142,10 +142,10 @@ Two Dhan accounts:
 
 | Account | Dhan Client ID | Channels owned | WS budget |
 |---|---|---|---|
-| `dhan` (primary) | `1101615161` | `my-live`, `testing-live` | 2 / 5 (UI tick + order-update) |
-| `dhan-ai-data` (spouse) | `1111388877` | `ai-live` | 5 / 5 (4 TFA + 1 order-update) |
+| `dhan-primary-ac` (primary) | `1101615161` | `my-live`, `testing-live` | 2 / 5 (UI tick + order-update) |
+| `dhan-secondary-ac` (spouse) | `1111388877` | `ai-live` | 5 / 5 (4 TFA + 1 order-update) |
 
-Full design lives in [05 Execution §4](05_execution.md). Operationally for the launcher: TFA always points at `--broker-id=dhan-ai-data`; the desktop UI tick feed always points at `dhan` (primary). Two startup-time decisions, both encoded in the start-*.bat scripts.
+Full design lives in [05 Execution §4](05_execution.md). Operationally for the launcher: TFA always points at `--broker-id=dhan-secondary-ac`; the desktop UI tick feed always points at `dhan-primary-ac` (primary). Two startup-time decisions, both encoded in the start-*.bat scripts.
 
 ## 9. T3 phase timeline (the next 4 months)
 

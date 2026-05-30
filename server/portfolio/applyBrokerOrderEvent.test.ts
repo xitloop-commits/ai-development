@@ -8,8 +8,8 @@
  *   - No-match (TP/SL leg event, ignored)
  *
  * Plus the brokerId pair-match disambiguation added in commit 2/3:
- * a trade on dhan-ai-data is not touched by an event from dhan even
- * if the orderIds happen to collide.
+ * a trade on dhan-secondary-ac is not touched by an event from dhan-primary-ac
+ * even if the orderIds happen to collide.
  *
  * State + storage are mocked so the suite runs without Mongo.
  */
@@ -86,7 +86,7 @@ function makeTrade(overrides?: Partial<TradeRecord>): TradeRecord {
     targetPrice: 105,
     stopLossPrice: 98,
     brokerOrderId: "BORD-1",
-    brokerId: "dhan",
+    brokerId: "dhan-primary-ac",
     openedAt: 1700000000000,
     closedAt: null,
     ...overrides,
@@ -138,7 +138,7 @@ function makeState(): CapitalState {
 }
 
 const baseEvent = (overrides?: Partial<BrokerOrderEvent>): BrokerOrderEvent => ({
-  brokerId: "dhan",
+  brokerId: "dhan-primary-ac",
   orderId: "BORD-1",
   status: "FILLED",
   filledQuantity: 75,
@@ -251,10 +251,10 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
   });
 
   it("brokerId disambiguation — event from a different broker is ignored even on orderId collision", async () => {
-    // Trade was placed on "dhan"; event arrives from "dhan-ai-data" with
+    // Trade was placed on "dhan-primary-ac"; event arrives from "dhan-secondary-ac" with
     // the same orderId. Pair-match must reject this.
     const result = await portfolioAgent.applyBrokerOrderEvent(
-      baseEvent({ brokerId: "dhan-ai-data", orderId: "BORD-1" }),
+      baseEvent({ brokerId: "dhan-secondary-ac", orderId: "BORD-1" }),
     );
     expect(result.matched).toBe(false);
     expect(upsertDayRecordMock).not.toHaveBeenCalled();
@@ -292,11 +292,11 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     );
     getDayRecordMock.mockImplementation(async (channel: any) => {
       if (channel === "my-live") return makeDay([]);
-      if (channel === "ai-live") return makeDay([makeTrade({ id: "T-AI", brokerId: "dhan-ai-data" })]);
+      if (channel === "ai-live") return makeDay([makeTrade({ id: "T-AI", brokerId: "dhan-secondary-ac" })]);
       return null;
     });
     const result = await portfolioAgent.applyBrokerOrderEvent(
-      baseEvent({ brokerId: "dhan-ai-data" }),
+      baseEvent({ brokerId: "dhan-secondary-ac" }),
     );
     expect(result.matched).toBe(true);
     expect(result.channel).toBe("ai-live");

@@ -25,7 +25,7 @@ import {
 
 // ─── Test Setup ────────────────────────────────────────────────
 
-const TEST_BROKER_ID = "dhan";
+const TEST_BROKER_ID = "dhan-primary-ac";
 const TEST_CLIENT_ID = "1000000099";
 const TEST_TOKEN = "test-jwt-token-abc123";
 

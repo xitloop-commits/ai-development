@@ -98,8 +98,8 @@ if exist "%OUTPUT_FILE%" del /Q "%OUTPUT_FILE%" >nul 2>&1
 
 REM Default to the spouse's Dhan account for TFA so the primary account's
 REM 5-WS budget stays free for TradingDesk + order updates. Override by
-REM passing --broker-id=dhan in EXTRA_ARGS.
-if not defined BROKER_ID set "BROKER_ID=dhan-ai-data"
+REM passing --broker-id=dhan-primary-ac in EXTRA_ARGS.
+if not defined BROKER_ID set "BROKER_ID=dhan-secondary-ac"
 
 REM --- Lifecycle: emit start ---
 call powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%_emit-lifecycle.ps1" -Event start -Result starting -Process "tfa-%INSTRUMENT%" >nul 2>&1

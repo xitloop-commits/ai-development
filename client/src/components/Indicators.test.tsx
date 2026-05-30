@@ -176,13 +176,13 @@ const noopQuery = { data: undefined, isLoading: false };
 
 const mockBrokerStatus = {
   data: {
-    activeBrokerId: 'dhan',
+    activeBrokerId: 'dhan-primary-ac',
     activeBrokerName: 'Dhan (Trading)',
     tokenStatus: 'valid',
     apiStatus: 'connected',
     wsStatus: 'connected',
     killSwitchActive: false,
-    registeredAdapters: ['dhan', 'mock-ai', 'mock-my'],
+    registeredAdapters: ['dhan-primary-ac', 'mock-ai', 'mock-my'],
   },
   isLoading: false,
 };

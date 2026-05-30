@@ -164,7 +164,7 @@ afterAll(async () => {
   await BrokerConfigModel.deleteMany({
     brokerId: {
       $in: ["test_dhan", "test_mock", "test_broker_a", "test_broker_b",
-            "dhan", "dhan-sandbox", "mock-ai", "mock-my"],
+            "dhan-primary-ac", "dhan-sandbox", "mock-ai", "mock-my"],
     },
   });
   await mongoose.disconnect();
@@ -357,7 +357,7 @@ describe("Broker Service", () => {
   beforeEach(async () => {
     _resetForTesting();
     await BrokerConfigModel.deleteMany({
-      brokerId: { $in: ["dhan", "dhan-sandbox", "mock-ai", "mock-my", "test_broker_a", "test_broker_b"] },
+      brokerId: { $in: ["dhan-primary-ac", "dhan-sandbox", "mock-ai", "mock-my", "test_broker_a", "test_broker_b"] },
     });
   });
 
@@ -406,7 +406,7 @@ describe("Broker Service", () => {
 
     const adapter = getActiveBroker();
     expect(adapter).not.toBeNull();
-    expect(adapter!.brokerId).toBe("dhan");
+    expect(adapter!.brokerId).toBe("dhan-primary-ac");
   }, 15000);
 
   // ── Per-workspace kill switch ─────────────────────────────────
@@ -474,7 +474,7 @@ describe("Broker Service", () => {
     await initBrokerService();
 
     const status = await getBrokerServiceStatus();
-    expect(status.activeBrokerId).toBe("dhan");
+    expect(status.activeBrokerId).toBe("dhan-primary-ac");
     expect(status.killSwitchActive).toBe(false);
   }, 15000);
 

@@ -96,8 +96,8 @@ export interface TradeRecord {
    *  Pre-2026-05 docs stored this on the (now-renamed) `brokerId` field;
    *  a one-time Mongo $rename runs at boot. */
   brokerOrderId: string | null;
-  /** Identity of the broker that placed this order (e.g. "dhan",
-   *  "dhan-ai-data", "mock"). Stamped at placeOrder time from
+  /** Identity of the broker that placed this order (e.g. "dhan-primary-ac",
+   *  "dhan-secondary-ac", "mock"). Stamped at placeOrder time from
    *  `adapter.brokerId`. Null for legacy / paper trades that pre-date
    *  the field. */
   brokerId: string | null;
@@ -330,7 +330,7 @@ export async function wipeLegacyCapitalDocs(): Promise<void> {
 /**
  * B11-followup — one-time rename of `brokerId` (which historically stored
  * the broker-assigned order ID) to `brokerOrderId`. The new `brokerId`
- * field stores the broker IDENTITY (e.g. "dhan", "dhan-ai-data") and is
+ * field stores the broker IDENTITY (e.g. "dhan-primary-ac", "dhan-secondary-ac") and is
  * left null on legacy docs since the identity wasn't tracked before this
  * commit.
  *

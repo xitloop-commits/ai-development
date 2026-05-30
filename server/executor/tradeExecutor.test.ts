@@ -266,7 +266,7 @@ describe("ai-live 1-lot cap", () => {
     }
   });
 
-  it("rejects a 2-lot order on ai-paper — cap applies to all dhan-ai-data channels (C5)", async () => {
+  it("rejects a 2-lot order on ai-paper — cap applies to all dhan-secondary-ac channels (C5)", async () => {
     // 150 / 75 = 2 lots. Exceeds cap of 1. Even though ai-paper is paper money,
     // an oversized AI order would corrupt canary-validation P&L.
     const resp = await tradeExecutor.submitTrade(
@@ -358,7 +358,7 @@ describe("B4 — BROKER_DESYNC handling", () => {
           status: "OPEN",
           ltp: 105,
           brokerOrderId: "BROKER-ORD-1",
-          brokerId: "dhan",
+          brokerId: "dhan-primary-ac",
           openedAt: 1700000000000,
         },
       ],

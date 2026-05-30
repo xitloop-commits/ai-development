@@ -8,15 +8,15 @@
  * after which they can be deleted from .env).
  *
  * Usage:
- *   # Primary trading account (default brokerId="dhan"):
+ *   # Primary trading account (default brokerId="dhan-primary-ac"):
  *   node scripts/dhan-update-credentials.mjs --clientId <ID> --pin <PIN> --totp <BASE32_SECRET>
  *
  *   # Spouse's AI + Data account:
- *   node scripts/dhan-update-credentials.mjs --brokerId dhan-ai-data --clientId <ID> --pin <PIN> --totp <BASE32_SECRET>
+ *   node scripts/dhan-update-credentials.mjs --brokerId dhan-secondary-ac --clientId <ID> --pin <PIN> --totp <BASE32_SECRET>
  *
  *   # Inspect what's stored (masked):
  *   node scripts/dhan-update-credentials.mjs --show
- *   node scripts/dhan-update-credentials.mjs --brokerId dhan-ai-data --show
+ *   node scripts/dhan-update-credentials.mjs --brokerId dhan-secondary-ac --show
  *
  * Reads MONGODB_URI from .env (only). All credential flags must be passed
  * explicitly — no env-var defaults for clientId / pin / totp.
@@ -45,8 +45,8 @@ const pinArg      = getArg("--pin");
 const clientArg   = getArg("--clientId");
 const brokerIdArg = getArg("--brokerId");
 
-const BROKER_ID = brokerIdArg ?? "dhan";
-const isPrimary = BROKER_ID === "dhan";
+const BROKER_ID = brokerIdArg ?? "dhan-primary-ac";
+const isPrimary = BROKER_ID === "dhan-primary-ac";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -108,7 +108,7 @@ async function main() {
   if (!totpArg && !pinArg && !clientArg) {
     console.error(
       "\n[ERROR] No credential flags provided.\n" +
-      "  --brokerId <ID>          Target broker config (default \"dhan\"; use \"dhan-ai-data\" for spouse account)\n" +
+      "  --brokerId <ID>          Target broker config (default \"dhan\"; use \"dhan-secondary-ac\" for spouse account)\n" +
       "  --totp <BASE32_SECRET>   Set the TOTP secret\n" +
       "  --pin  <PIN>             Set the login PIN\n" +
       "  --clientId <ID>          Set the Dhan client ID\n" +

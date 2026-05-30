@@ -41,7 +41,7 @@ beforeAll(async () => {
 afterAll(async () => {
   // Clean up broker configs seeded by initBrokerService
   await BrokerConfigModel.deleteMany({
-    brokerId: { $in: ["dhan", "dhan-sandbox", "mock-ai", "mock-my"] },
+    brokerId: { $in: ["dhan-primary-ac", "dhan-sandbox", "mock-ai", "mock-my"] },
   });
   await mongoose.disconnect();
 }, 10000);

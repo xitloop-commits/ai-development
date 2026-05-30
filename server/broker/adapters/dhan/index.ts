@@ -129,16 +129,17 @@ export class DhanAdapter implements BrokerAdapter {
   private tickCallback: TickCallback | null = null;
 
   // Per-instance logger so logs carry the brokerId, distinguishing the
-  // primary "dhan" from "dhan-ai-data" / "dhan-sandbox" in shared output.
+  // primary "dhan-primary-ac" from "dhan-secondary-ac" / "dhan-sandbox" in shared output.
   private readonly log: Logger;
 
-  constructor(brokerId = "dhan", sandboxMode = false) {
+  constructor(brokerId = "dhan-primary-ac", sandboxMode = false) {
     this.brokerId = brokerId;
     this.sandboxMode = sandboxMode;
     this.displayName = sandboxMode ? "Dhan Sandbox" : "Dhan";
-    // Friendly log tag: "dhan" → "primary", "dhan-ai-data" → "ai-data",
-    // "dhan-sandbox" → "sandbox". Falls back to raw brokerId for any other.
-    const logTag = brokerId === "dhan" ? "primary" : brokerId.replace(/^dhan-/, "");
+    // Friendly log tag: "dhan-primary-ac" → "primary-ac",
+    // "dhan-secondary-ac" → "secondary-ac", "dhan-sandbox" → "sandbox".
+    // Falls back to raw brokerId for any other.
+    const logTag = brokerId.replace(/^dhan-/, "");
     this.log = createLogger("BSA", `Dhan/${logTag}`);
   }
 

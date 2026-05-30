@@ -10,7 +10,7 @@ Single source of truth for the **broker-facing trading layer**: BrokerServiceAge
 - Order-update WebSocket (broker → TEA reconciliation).
 - Recovery engine for stale orders (PENDING > 60 s background poller).
 - Dhan token lifecycle on the **trading side** (TOTP + startup-only refresh policy).
-- Dual-account topology — primary `dhan` (user PAN) vs spouse `dhan-ai-data` (independent capital pools).
+- Dual-account topology — primary `dhan-primary-ac` (user PAN) vs spouse `dhan-secondary-ac` (independent capital pools).
 - Disconnect safety — kill-switch per workspace, exits bypass, position reconciliation.
 - AI Live canary ramp gates (the execution-side promotion criteria).
 
@@ -80,8 +80,8 @@ Channels are the product of **workspace × mode**:
 
 | Account | Dhan Client ID | WS subscriptions | Order channels owned |
 |---|---|---|---|
-| `dhan` (primary) | `1101615161` | 1 UI tick + 1 order-update = **2 / 5** | `my-live`, `testing-live` |
-| `dhan-ai-data` (spouse) | `1111388877` | 4 TFA (System 01) + 1 order-update = **5 / 5** | `ai-live` |
+| `dhan-primary-ac` (primary) | `1101615161` | 1 UI tick + 1 order-update = **2 / 5** | `my-live`, `testing-live` |
+| `dhan-secondary-ac` (spouse) | `1111388877` | 4 TFA (System 01) + 1 order-update = **5 / 5** | `ai-live` |
 
 **Independent capital pools.** AI Live capital is funded from the spouse's own income/savings (no gift trail — tax-clubbing risk resolved 2026-04-25). The dual-account design is what lets the platform run real-money AI Live and Partha's manual trading on the same desk without WebSocket contention or commingled capital.
 
@@ -113,7 +113,7 @@ Three rules enforced by code, not just convention:
 
 Same policy as the data side (see [01 Data Ingestion §5](01_data_ingestion.md)):
 
-- Each Dhan broker (`dhan`, `dhan-ai-data`) has its own `tokenManager` instance with independent TOTP + access-token state.
+- Each Dhan broker (`dhan-primary-ac`, `dhan-secondary-ac`) has its own `tokenManager` instance with independent TOTP + access-token state.
 - Refresh **only at startup**. `tokenAge < 2 h` → skip the refresh entirely (trust the cached token across rapid restarts).
 - Mid-session 401 → mark token expired, alert via yow-partha Telegram, **wait for manual restart**. No automatic retry.
 - TOTP is RFC 6238 HMAC-SHA1 generated locally from the secret in MongoDB `broker_configs`.

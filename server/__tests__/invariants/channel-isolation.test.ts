@@ -4,7 +4,7 @@
  * MUST NOT reach the ai-paper adapter, and vice-versa).
  *
  * Live channels intentionally share an adapter when they share an account
- * (my-live and testing-live both use `dhan`); the test asserts the
+ * (my-live and testing-live both use `dhan-primary-ac`); the test asserts the
  * documented mapping rather than universal isolation.
  *
  * Reference: BrokerServiceAgent_Spec_v1.9 §1.2 (channel→brokerId table).
@@ -47,8 +47,8 @@ describe("invariant: channel isolation", () => {
     _resetForTesting();
     // Five real adapter instances — one per BSA broker slot. Real
     // MockAdapter behaviour, but each instance is independent.
-    dhanLive   = new MockAdapter("dhan", "Dhan (live)");
-    dhanAiData = new MockAdapter("dhan-ai-data", "Dhan (AI Data)");
+    dhanLive   = new MockAdapter("dhan-primary-ac", "Dhan (live)");
+    dhanAiData = new MockAdapter("dhan-secondary-ac", "Dhan (AI Data)");
     dhanSandbox = new MockAdapter("dhan-sandbox", "Dhan (sandbox)");
     mockAi     = new MockAdapter("mock-ai", "Paper (AI Trades)");
     mockMy     = new MockAdapter("mock-my", "Paper (My Trades)");
@@ -73,15 +73,15 @@ describe("invariant: channel isolation", () => {
 
   // ── Channel → adapter mapping ─────────────────────────────────
 
-  it("ai-live routes to dhan-ai-data (spouse account)", () => {
+  it("ai-live routes to dhan-secondary-ac (spouse account)", () => {
     expect(getAdapter("ai-live")).toBe(dhanAiData);
   });
 
-  it("my-live routes to dhan (primary account)", () => {
+  it("my-live routes to dhan-primary-ac", () => {
     expect(getAdapter("my-live")).toBe(dhanLive);
   });
 
-  it("testing-live routes to dhan and shares the adapter with my-live (by design)", () => {
+  it("testing-live routes to dhan-primary-ac and shares the adapter with my-live (by design)", () => {
     expect(getAdapter("testing-live")).toBe(dhanLive);
     expect(getAdapter("testing-live")).toBe(getAdapter("my-live"));
   });
@@ -122,7 +122,7 @@ describe("invariant: channel isolation", () => {
 
   // ── placeOrder isolation: live channels ───────────────────────
 
-  it("an ai-live placeOrder touches dhan-ai-data only — primary dhan stays untouched", async () => {
+  it("an ai-live placeOrder touches dhan-secondary-ac only — primary dhan-primary-ac stays untouched", async () => {
     await getAdapter("ai-live").placeOrder(sampleOrder);
 
     expect(spies.dhanAiData).toHaveBeenCalledTimes(1);
@@ -142,9 +142,9 @@ describe("invariant: channel isolation", () => {
     expect(spies.mockMy).not.toHaveBeenCalled();
   });
 
-  // ── ai-live fallback when dhan-ai-data is missing ─────────────
+  // ── ai-live fallback when dhan-secondary-ac is missing ─────────────
 
-  it("ai-live falls back to dhan when dhan-ai-data is not configured", () => {
+  it("ai-live falls back to dhan-primary-ac when dhan-secondary-ac is not configured", () => {
     _resetForTesting();
     _setAdaptersForTesting({
       dhanLive, mockAi, mockMy,

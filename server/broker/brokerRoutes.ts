@@ -193,7 +193,7 @@ const optionChainQuerySchema = z
 
 const tokenQuerySchema = z
   .object({
-    brokerId: z.string().min(1).default("dhan"),
+    brokerId: z.string().min(1).default("dhan-primary-ac"),
   })
   .strict();
 
@@ -696,8 +696,8 @@ export function registerBrokerRoutes(app: Express): void {
     }
 
     try {
-      // brokerId selectable via query (?brokerId=dhan-ai-data for TFA on the
-      // spouse's account). Defaults to "dhan" for backward compatibility.
+      // brokerId selectable via query (?brokerId=dhan-secondary-ac for TFA on the
+      // spouse's account). Defaults to "dhan-primary-ac" for backward compatibility.
       const { brokerId: brokerIdParam } =
         req.query as unknown as z.infer<typeof tokenQuerySchema>;
       let config = await getBrokerConfig(brokerIdParam);

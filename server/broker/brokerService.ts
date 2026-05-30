@@ -2,7 +2,7 @@
  * Broker Service — Multi-Adapter Singleton (BSA v1.7)
  *
  * Manages four named adapter slots, each serving specific trading channels:
- *   dhanLive    → ai-live, my-live, testing-live  (brokerId: "dhan")
+ *   dhanLive    → ai-live, my-live, testing-live  (brokerId: "dhan-primary-ac")
  *   dhanSandbox → testing-sandbox                 (brokerId: "dhan-sandbox", sandboxMode)
  *   mockAi      → ai-paper                        (brokerId: "mock-ai")
  *   mockMy      → my-paper                        (brokerId: "mock-my")
@@ -84,6 +84,43 @@ const killSwitch: KillSwitchState = {
 const adapterFactories = new Map<string, AdapterFactory>();
 const adapterMeta = new Map<string, AdapterMeta>();
 
+// ─── One-shot brokerId Rename Migration (2026-05-27) ────────────
+//
+// Hardcoded rename of the two Dhan brokerIds:
+//   "dhan"         → "dhan-primary-ac"   (primary, Partha's account)
+//   "dhan-ai-data" → "dhan-secondary-ac"     (spouse Ahila's account, TFA + ai-live)
+//
+// Runs once at startup before seedBrokerConfigs. Idempotent — if a doc
+// already exists under the new brokerId (i.e. migration already happened
+// on this machine), the corresponding old doc is left untouched (will be
+// orphaned but harmless; safe to drop manually later). Removing this
+// function is safe once every machine has booted at least once with this
+// code.
+const BROKER_ID_RENAME_MAP: Record<string, string> = {
+  "dhan":         "dhan-primary-ac",
+  "dhan-ai-data": "dhan-secondary-ac",
+};
+
+async function renameLegacyBrokerIds(): Promise<void> {
+  const { default: mongoose } = await import("mongoose");
+  const db = mongoose.connection.db;
+  if (!db) return;
+
+  for (const [oldId, newId] of Object.entries(BROKER_ID_RENAME_MAP)) {
+    const newDoc = await db.collection("broker_configs").findOne({ brokerId: newId });
+    if (newDoc) continue; // Already migrated on this machine.
+
+    const oldDoc = await db.collection("broker_configs").findOne({ brokerId: oldId });
+    if (!oldDoc) continue; // Nothing to rename; seedBrokerConfigs will create fresh.
+
+    await db.collection("broker_configs").updateOne(
+      { brokerId: oldId },
+      { $set: { brokerId: newId } },
+    );
+    log.important(`Migrated broker_configs.brokerId: "${oldId}" → "${newId}"`);
+  }
+}
+
 // ─── Seed Documents ─────────────────────────────────────────────
 
 /**
@@ -99,11 +136,11 @@ async function seedBrokerConfigs(): Promise<void> {
     role: "trading" | "data-and-ai" | "paper" | "sandbox";
   };
   const seeds: Seed[] = [
-    { brokerId: "dhan",          displayName: "Dhan (Trading)",      isPaperBroker: false, sandboxMode: false, role: "trading"     },
-    { brokerId: "dhan-ai-data",  displayName: "Dhan (AI + Data)",    isPaperBroker: false, sandboxMode: false, role: "data-and-ai" },
-    { brokerId: "dhan-sandbox",  displayName: "Dhan Sandbox",        isPaperBroker: false, sandboxMode: true,  role: "sandbox"     },
-    { brokerId: "mock-ai",       displayName: "Paper (AI Trades)",   isPaperBroker: true,  sandboxMode: false, role: "paper"       },
-    { brokerId: "mock-my",       displayName: "Paper (My Trades)",   isPaperBroker: true,  sandboxMode: false, role: "paper"       },
+    { brokerId: "dhan-primary-ac", displayName: "Dhan (Trading)",      isPaperBroker: false, sandboxMode: false, role: "trading"     },
+    { brokerId: "dhan-secondary-ac",   displayName: "Dhan (AI + Data)",    isPaperBroker: false, sandboxMode: false, role: "data-and-ai" },
+    { brokerId: "dhan-sandbox",       displayName: "Dhan Sandbox",        isPaperBroker: false, sandboxMode: true,  role: "sandbox"     },
+    { brokerId: "mock-ai",            displayName: "Paper (AI Trades)",   isPaperBroker: true,  sandboxMode: false, role: "paper"       },
+    { brokerId: "mock-my",            displayName: "Paper (My Trades)",   isPaperBroker: true,  sandboxMode: false, role: "paper"       },
   ];
 
   for (const seed of seeds) {
@@ -115,7 +152,7 @@ async function seedBrokerConfigs(): Promise<void> {
         isPaperBroker: seed.isPaperBroker,
         sandboxMode: seed.sandboxMode,
         role: seed.role,
-        isActive: seed.brokerId === "dhan", // primary trading account is the default active broker
+        isActive: seed.brokerId === "dhan-primary-ac", // primary trading account is the default active broker
       });
       log.info(`Seeded broker config: ${seed.brokerId} (role=${seed.role})`);
     } else if (!existing.role) {
@@ -127,11 +164,11 @@ async function seedBrokerConfigs(): Promise<void> {
 }
 
 /**
- * One-time migration: if the primary "dhan" broker_config has no auth
- * credentials yet but the legacy .env vars are present, copy them into
+ * One-time migration: if the primary "dhan-primary-ac" broker_config has no
+ * auth credentials yet but the legacy .env vars are present, copy them into
  * MongoDB. Lets users delete the env vars after first boot. Idempotent.
  *
- * Only "dhan" (primary) is migrated — multi-account credentials never
+ * Only the primary broker is migrated — multi-account credentials never
  * lived in env vars and there's no per-broker namespace for them.
  */
 async function migrateEnvCredentialsToMongo(): Promise<void> {
@@ -144,7 +181,7 @@ async function migrateEnvCredentialsToMongo(): Promise<void> {
   const db = mongoose.connection.db;
   if (!db) return;
 
-  const doc = await db.collection("broker_configs").findOne({ brokerId: "dhan" });
+  const doc = await db.collection("broker_configs").findOne({ brokerId: "dhan-primary-ac" });
   if (!doc) return;
 
   const auth = (doc as any).auth ?? {};
@@ -156,9 +193,9 @@ async function migrateEnvCredentialsToMongo(): Promise<void> {
 
   if (Object.keys(update).length === 0) return;
 
-  await db.collection("broker_configs").updateOne({ brokerId: "dhan" }, { $set: update });
+  await db.collection("broker_configs").updateOne({ brokerId: "dhan-primary-ac" }, { $set: update });
   log.info(
-    `Migrated env credentials to broker_configs.auth (dhan): ${Object.keys(update).join(", ")}. ` +
+    `Migrated env credentials to broker_configs.auth (dhan-primary-ac): ${Object.keys(update).join(", ")}. ` +
     `You can now safely delete DHAN_CLIENT_ID / DHAN_PIN / DHAN_TOTP_SECRET from .env.`
   );
 }
@@ -171,9 +208,9 @@ async function migrateEnvCredentialsToMongo(): Promise<void> {
 export function getAdapter(channel: Channel): BrokerAdapter {
   switch (channel) {
     case "ai-live":
-      // Prefer the dedicated dhan-ai-data adapter (spouse account); fall back
-      // to dhan-primary if dhan-ai-data hasn't been configured yet (first-run
-      // before credentials are entered into Settings).
+      // Prefer the dedicated dhan-secondary-ac adapter (spouse account); fall back
+      // to the primary adapter if dhan-secondary-ac hasn't been configured yet
+      // (first-run before credentials are entered into Settings).
       if (adapters.dhanAiData) return adapters.dhanAiData;
       if (adapters.dhanLive) return adapters.dhanLive;
       throw new Error("Neither DhanAdapter (ai-data) nor (live) is initialised");
@@ -314,6 +351,14 @@ export function getRegisteredAdaptersMeta(): AdapterMeta[] {
 export async function initBrokerService(): Promise<void> {
   log.info("Initialising...");
 
+  // 0. One-shot rename of legacy brokerIds in broker_configs (2026-05-27).
+  //    Idempotent — no-ops once new brokerIds already exist.
+  try {
+    await renameLegacyBrokerIds();
+  } catch (err) {
+    log.warn("Legacy brokerId rename migration failed (non-fatal):", err);
+  }
+
   // 1. Seed the required broker_configs documents
   await seedBrokerConfigs();
 
@@ -337,7 +382,7 @@ export async function initBrokerService(): Promise<void> {
 
   // 3. Instantiate DhanAdapter (live) → connect (opens WS + order update WS)
   try {
-    adapters.dhanLive = new DhanAdapter("dhan", false);
+    adapters.dhanLive = new DhanAdapter("dhan-primary-ac", false);
     await adapters.dhanLive.connect();
     wireTickBus(adapters.dhanLive);
     log.important("DhanAdapter (live) connected");
@@ -354,17 +399,17 @@ export async function initBrokerService(): Promise<void> {
     log.warn("DhanAdapter (sandbox) failed to connect:", err);
   }
 
-  // 4b. Instantiate DhanAdapter (ai-data) → spouse's Dhan account for TFA + AI Live.
+  // 4b. Instantiate DhanAdapter (ai-data) → spouse Ahila's Dhan account for TFA + AI Live.
   // Pre-check the TOTP refresh INPUTS (auth.{clientId, pin, totpSecret}) rather
   // than the access token (which is the output — empty until the first refresh).
   // If connect() throws (auth credentials wrong, network down, etc.) we leave
   // adapters.dhanAiData null so getAdapter("ai-live") falls back to the primary.
   try {
-    const aiDataConfig = await getBrokerConfig("dhan-ai-data");
+    const aiDataConfig = await getBrokerConfig("dhan-secondary-ac");
     const auth = (aiDataConfig as any)?.auth ?? {};
     const hasAuthCreds = !!auth.clientId && !!auth.pin && !!auth.totpSecret;
     if (hasAuthCreds) {
-      const candidate = new DhanAdapter("dhan-ai-data", false);
+      const candidate = new DhanAdapter("dhan-secondary-ac", false);
       try {
         await candidate.connect();
         wireTickBus(candidate);
@@ -376,7 +421,7 @@ export async function initBrokerService(): Promise<void> {
     } else {
       log.info(
         "DhanAdapter (ai-data) auth credentials missing — set them with: " +
-        "node scripts/dhan-update-credentials.mjs --brokerId dhan-ai-data --clientId <ID> --pin <PIN> --totp <SECRET>"
+        "node scripts/dhan-update-credentials.mjs --brokerId dhan-secondary-ac --clientId <ID> --pin <PIN> --totp <SECRET>"
       );
     }
   } catch (err) {
@@ -494,9 +539,9 @@ export async function getBrokerServiceStatus(): Promise<BrokerServiceStatus> {
 
 function wireTickBus(adapter: BrokerAdapter): void {
   // B11-followup 2/3 — stamp the source broker on every emitted event
-  // so multi-adapter setups (dhan + dhan-ai-data) don't collide on
-  // orderId-only matching downstream. Adapters themselves don't need
-  // to know about the bus shape; the wire layer owns the tag.
+  // so multi-adapter setups (dhan-primary-ac + dhan-secondary-ac) don't
+  // collide on orderId-only matching downstream. Adapters themselves don't
+  // need to know about the bus shape; the wire layer owns the tag.
   adapter.onOrderUpdate((update) => {
     tickBus.emitOrderUpdate({ ...update, brokerId: adapter.brokerId });
   });

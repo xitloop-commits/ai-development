@@ -359,7 +359,7 @@ def _authed_headers() -> dict[str, str]:
 # ── Credentials helper ────────────────────────────────────────────────────────
 
 
-def _fetch_credentials(base_url: str, broker_id: str = "dhan") -> dict | None:
+def _fetch_credentials(base_url: str, broker_id: str = "dhan-primary-ac") -> dict | None:
     try:
         import requests
     except ImportError:
@@ -1496,9 +1496,9 @@ def main() -> None:
     # Paths
     parser.add_argument("--broker-url", default="http://localhost:3000")
     # Broker config to authenticate against. Defaults to the user's primary
-    # account ("dhan"). Set to "dhan-ai-data" to use the spouse's account
+    # account ("dhan-primary-ac"). Set to "dhan-secondary-ac" to use the spouse's account
     # (frees the primary account's WS budget for TradingDesk + order feed).
-    parser.add_argument("--broker-id", default="dhan")
+    parser.add_argument("--broker-id", default="dhan-primary-ac")
     parser.add_argument("--data-root", default="data/raw")
     parser.add_argument("--features-root", default="data/features")
     parser.add_argument("--validation-root", default="data/validation")

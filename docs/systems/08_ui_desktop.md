@@ -29,7 +29,7 @@ Single source of truth for the **Tauri / React desktop UI** — the operator's c
               ┌─────────────────────────────────────────────────┐
               │  [AI] [My] [Testing]                            │
               │   └─ inline mode pill: LIVE / PAPER             │
-              │   └─ broker status dots (dhan + dhan-ai-data)   │
+              │   └─ broker status dots (dhan-primary-ac + dhan-secondary-ac)   │
               │   └─ Discipline score · IST clock · holiday tag │
               └─────────────────────────────────────────────────┘
                        │

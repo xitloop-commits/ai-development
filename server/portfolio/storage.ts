@@ -100,7 +100,7 @@ export interface PositionStateDoc {
    *  the legacy `brokerId` field in 2026-05; that name now stores the
    *  broker identity instead. */
   brokerOrderId: string | null;
-  /** Broker identity (e.g. "dhan", "dhan-ai-data", "mock") that placed
+  /** Broker identity (e.g. "dhan-primary-ac", "dhan-secondary-ac", "mock") that placed
    *  this order. Stamped at placeOrder time. */
   brokerId: string | null;
   openedAt: number;

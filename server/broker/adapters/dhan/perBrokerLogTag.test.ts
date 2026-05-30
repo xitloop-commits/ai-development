@@ -3,8 +3,8 @@
  *
  * `DhanWebSocket` and `DhanOrderUpdateWs` constructors take a `brokerTag`
  * so multi-broker setups produce disambiguated log module names:
- *   `[BSA:Dhan/dhan-WS]`         (trading)
- *   `[BSA:Dhan/dhan-ai-data-WS]` (AI tick feed)
+ *   `[BSA:Dhan/dhan-primary-ac-WS]`   (trading)
+ *   `[BSA:Dhan/dhan-secondary-ac-WS]` (AI tick feed)
  * Without F8 every line read `[BSA:DhanWS]` regardless of which broker
  * fired it.
  */
@@ -58,12 +58,12 @@ describe("F8 — DhanWebSocket per-broker log tags", () => {
   });
 
   it("uses the supplied brokerTag in the module name", () => {
-    new DhanWebSocket({ ...baseConfig, brokerTag: "dhan" } as any);
-    new DhanWebSocket({ ...baseConfig, brokerTag: "dhan-ai-data" } as any);
+    new DhanWebSocket({ ...baseConfig, brokerTag: "dhan-primary-ac" } as any);
+    new DhanWebSocket({ ...baseConfig, brokerTag: "dhan-secondary-ac" } as any);
 
     const tagsSeen = createLoggerMock.mock.calls.map((c) => c[1]);
-    expect(tagsSeen).toContain("Dhan/dhan-WS");
-    expect(tagsSeen).toContain("Dhan/dhan-ai-data-WS");
+    expect(tagsSeen).toContain("Dhan/dhan-primary-ac-WS");
+    expect(tagsSeen).toContain("Dhan/dhan-secondary-ac-WS");
     // The two instances must produce distinct module names — that's
     // the whole point of F8.
     expect(new Set(tagsSeen).size).toBe(tagsSeen.length);
@@ -81,12 +81,12 @@ describe("F8 — DhanOrderUpdateWs per-broker log tags", () => {
   });
 
   it("uses the supplied brokerTag in the module name", () => {
-    new DhanOrderUpdateWs("client-1", "token-1", "dhan");
-    new DhanOrderUpdateWs("client-2", "token-2", "dhan-ai-data");
+    new DhanOrderUpdateWs("client-1", "token-1", "dhan-primary-ac");
+    new DhanOrderUpdateWs("client-2", "token-2", "dhan-secondary-ac");
 
     const tagsSeen = createLoggerMock.mock.calls.map((c) => c[1]);
-    expect(tagsSeen).toContain("Dhan/dhan-OrderWS");
-    expect(tagsSeen).toContain("Dhan/dhan-ai-data-OrderWS");
+    expect(tagsSeen).toContain("Dhan/dhan-primary-ac-OrderWS");
+    expect(tagsSeen).toContain("Dhan/dhan-secondary-ac-OrderWS");
     expect(new Set(tagsSeen).size).toBe(tagsSeen.length);
   });
 

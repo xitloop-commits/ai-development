@@ -320,8 +320,8 @@ export interface TickData {
 export type TickCallback = (data: TickData) => void;
 
 export interface OrderUpdate {
-  /** Identity of the broker that emitted this update ("dhan",
-   *  "dhan-ai-data", "mock"). Stamped by `wireTickBus` from the source
+  /** Identity of the broker that emitted this update ("dhan-primary-ac",
+   *  "dhan-secondary-ac", "mock"). Stamped by `wireTickBus` from the source
    *  adapter; consumers pair it with `orderId` to disambiguate events
    *  when multiple adapters are wired. (B11-followup 2/3) */
   brokerId: string;
@@ -387,8 +387,8 @@ export interface BrokerCapabilities {
 /**
  * Role describes which slice of the system an account services. Multiple
  * docs can share the same brokerType (e.g. two Dhan docs) but differ in role.
- *   - "trading"      → user's live trading + UI tick feed (dhan-primary)
- *   - "data-and-ai"  → TFA data subscriptions + AI Live execution (dhan-ai-data)
+ *   - "trading"      → user's live trading + UI tick feed (dhan-primary-ac)
+ *   - "data-and-ai"  → TFA data subscriptions + AI Live execution (dhan-secondary-ac)
  *   - "paper"        → mock adapters for paper-trading channels
  *   - "sandbox"      → Dhan sandbox token-validation only
  */
@@ -416,7 +416,7 @@ export interface BrokerConfigDoc {
 // ─── Broker Adapter Interface ───────────────────────────────────
 
 export interface BrokerAdapter {
-  /** Unique broker identifier (e.g. "dhan", "mock") */
+  /** Unique broker identifier (e.g. "dhan-primary-ac", "mock") */
   readonly brokerId: string;
 
   /** Human-readable name (e.g. "Dhan", "Paper Trading") */

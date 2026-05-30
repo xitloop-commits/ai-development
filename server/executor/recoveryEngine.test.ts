@@ -67,7 +67,7 @@ function makePosition(overrides: any = {}) {
 
 function makeAdapter(orderStatus: any) {
   return {
-    brokerId: "dhan",
+    brokerId: "dhan-primary-ac",
     getOrderStatus: vi.fn(async () => orderStatus),
   };
 }
@@ -101,7 +101,7 @@ describe("recoveryEngine — stuck PENDING reconciliation", () => {
     expect(emitOrderUpdateMock).toHaveBeenCalledTimes(1);
     expect(emitOrderUpdateMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        brokerId: "dhan",
+        brokerId: "dhan-primary-ac",
         orderId: "ORD-1",
         status: "FILLED",
         filledQuantity: 75,
@@ -181,7 +181,7 @@ describe("recoveryEngine — stuck PENDING reconciliation", () => {
   it("survives broker errors without throwing (best-effort backstop)", async () => {
     getOpenPositionsMock.mockResolvedValue([makePosition()]);
     const adapter = {
-      brokerId: "dhan",
+      brokerId: "dhan-primary-ac",
       getOrderStatus: vi.fn(async () => {
         throw new Error("broker 503");
       }),
