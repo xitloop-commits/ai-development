@@ -1403,9 +1403,22 @@ export class DhanAdapter implements BrokerAdapter {
       return result.securityId;
     }
 
-    // Fallback: return as-is
-    this.log.warn(`Could not resolve securityId for ${params.instrument}. Using as-is.`);
-    return params.instrument;
+    // Fail fast: never pass an unresolved name to the broker as a securityId.
+    // Dhan needs a numeric securityId; sending raw text (e.g. an index spot name
+    // like "NIFTY 50", which is not a tradeable contract) only yields a vague
+    // "Missing required fields" rejection that hides the real cause.
+    const detail = [
+      params.expiry ? `expiry=${params.expiry}` : null,
+      params.strike ? `strike=${params.strike}` : null,
+      params.optionType ? `optionType=${params.optionType}` : null,
+      params.exchange ? `exchange=${params.exchange}` : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    throw new Error(
+      `Cannot resolve securityId for "${params.instrument}"${detail ? ` (${detail})` : ""}. ` +
+        `It is not a tradeable contract in the scrip master — pick a valid future or option, not an index spot.`
+    );
   }
 
   /**
