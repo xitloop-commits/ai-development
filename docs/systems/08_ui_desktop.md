@@ -90,7 +90,7 @@ Every row component takes `channel: Channel` and themes via `channelToWorkspace(
 - `useTickStream` + `useTradingDeskData` — live LTP polling (2 s cadence) + feed subscription for underlying + option-chain instruments.
 - Discipline state cached separately (10 s cadence).
 
-**Summary bar redesign (planned, not shipped).** The spec at `TradingDesk_Spec_v1.3` calls for shrinking the summary from 10 → 6 items, the table from 15 → 10 columns, and adding row-expand on `PastRow` (click reveals per-trade detail). The current code still ships the full-fat layout. Tracked as [T51 [UI]](../PROJECT_TODO.md) — decide whether to ship the redesign or formally drop it.
+**Current layout (locked 2026-05-31).** Summary bar with the full metric set + 16-column trade table is the final design — no near-term redesign planned. The earlier `TradingDesk_Spec_v1.3` proposal to shrink (10 → 6 summary items, 15 → 10 columns, row-expand on `PastRow`) was formally dropped 2026-05-31. Code IS the authority for layout.
 
 ## 5. Left sidebar — Instrument tabs + `InstrumentCard v2`
 
@@ -179,7 +179,6 @@ tRPC queries used by the main loop:
 
 ## 12. Open work
 
-- [T51 [UI]](../PROJECT_TODO.md) — TradingDesk redesign decision + ship or drop (10 → 6 summary items, 15 → 10 columns, row-expand on PastRow). Design approved in spec but never merged; clarify status.
 - [T52 [UI]](../PROJECT_TODO.md) — Notifications backend (full Telegram routing for trade events + email provider + preferences UI section in Settings).
 - [T50 [H2H]](../PROJECT_TODO.md) — HeadToHead backend. Frontend exists; tRPC endpoint is stub.
 - [T22](../PROJECT_TODO.md) — Launcher blue-tick (terminated-state indicator on the pipeline view). Cross-cuts with launcher but UI piece lives here too.
