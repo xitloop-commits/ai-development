@@ -20,6 +20,11 @@
  */
 
 import { createLogger } from "../broker/logger";
+import {
+  notifyTradeFill,
+  notifyTradeExit,
+  notifyGateRejection,
+} from "../_core/tradeEventNotifier";
 import { withTrade } from "../_core/correlationContext";
 import { teaSubmitTradeTotal, teaExitTotal } from "../_core/metrics";
 import { getAdapter, getActiveBroker, isChannelKillSwitchActive } from "../broker/brokerService";
@@ -213,6 +218,13 @@ class TradeExecutorAgent {
           reason: resp.error!,
           timestamp: Date.now(),
         });
+        // T52: Telegram push for gate rejections (fire-and-forget).
+        notifyGateRejection({
+          channel: req.channel,
+          instrument: req.instrument,
+          qty: req.quantity,
+          reason: resp.error!,
+        });
         return resp;
       }
 
@@ -302,6 +314,22 @@ class TradeExecutorAgent {
         `submitTrade ok channel=${req.channel} trade=${tradeId} order=${orderResult.orderId} ` +
           `brokerStatus=${orderResult.status} tradeStatus=${tradeStatus}`,
       );
+      // T52: Telegram push for trade fills (fire-and-forget).
+      // Synthesize the CALL_BUY / PUT_SELL / BUY style string the formatter expects.
+      const fillType =
+        req.optionType === "CE" ? `CALL_${req.direction}` :
+        req.optionType === "PE" ? `PUT_${req.direction}` :
+        req.direction;
+      notifyTradeFill({
+        channel: req.channel,
+        instrument: req.instrument,
+        type: fillType,
+        strike: req.strike ?? null,
+        expiry: req.expiry ?? null,
+        qty: req.quantity,
+        entryPrice: req.entryPrice,
+        orderId: orderResult.orderId,
+      });
       return response;
     } catch (err: any) {
       const message = err?.message ?? String(err);
@@ -625,6 +653,21 @@ class TradeExecutorAgent {
       log.info(
         `exitTrade ok channel=${channel} trade=${tradeId} reason=${req.reason} by=${req.triggeredBy} pnl=${pnl}`,
       );
+      // T52: Telegram push for trade exits (fire-and-forget).
+      notifyTradeExit({
+        channel,
+        instrument: closed.instrument,
+        type: closed.type,
+        strike: closed.strike ?? null,
+        qty: closed.qty,
+        entryPrice: closed.entryPrice,
+        exitPrice,
+        realizedPnl: pnl,
+        realizedPnlPercent: grossEntryValue > 0 ? (pnl / grossEntryValue) * 100 : 0,
+        reason: req.reason,
+        triggeredBy: req.triggeredBy,
+        durationSeconds: Math.round((closedAt - closed.openedAt) / 1000),
+      });
       teaExitTotal.labels({ channel, trigger: req.reason }).inc();
       return response;
     } catch (err: any) {
@@ -692,6 +735,21 @@ class TradeExecutorAgent {
       log.info(
         `recordAutoExit ${req.reason} channel=${req.channel} trade=${req.tradeId} pnl=${pnl}`,
       );
+      // T52: Telegram push for PA-triggered auto-exits (TP/SL/DISCIPLINE_EXIT/EOD).
+      notifyTradeExit({
+        channel: req.channel,
+        instrument: closed.instrument,
+        type: closed.type,
+        strike: closed.strike ?? null,
+        qty: closed.qty,
+        entryPrice: closed.entryPrice,
+        exitPrice: req.exitPrice,
+        realizedPnl: pnl,
+        realizedPnlPercent: grossEntryValue > 0 ? (pnl / grossEntryValue) * 100 : 0,
+        reason: req.reason,
+        triggeredBy: "PA",
+        durationSeconds: Math.round((closedAt - closed.openedAt) / 1000),
+      });
       teaExitTotal.labels({ channel: req.channel, trigger: req.reason }).inc();
     } catch (err: any) {
       log.error(`recordAutoExit failed channel=${req.channel} trade=${req.tradeId}: ${err?.message ?? err}`);
