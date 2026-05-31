@@ -13,6 +13,12 @@
       "label": "secondary",
       "renewalDayOfMonth": 24,
       "autopayBank": "ICICI"
+    },
+    {
+      "brokerId": "dhan-sandbox",
+      "label": "sandbox",
+      "renewalDayOfMonth": 30,
+      "autopayBank": "developer.dhanhq.co"
     }
   ]
 }
