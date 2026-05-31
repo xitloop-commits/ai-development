@@ -588,11 +588,29 @@ Add mid-session anomaly detection to the recorder: trigger Telegram alert when (
 - **Effort:** ~1–2 days. Add a `tick_health_monitor` task inside `tick_processor.py`; emit via existing `_notify_yow_partha` path.
 - **Cross-ref:** [systems/01_data_ingestion.md §7](systems/01_data_ingestion.md). Pair with [T22](#t22--launcher-blue-tick-for-terminatedpartial-pipeline-stages) on the launcher-side display.
 
-### T42 [MTA] — Saturday promotion-gate script 🆕
-After the Saturday retrain produces `training_manifest.json` with `sim_pnl_*` summary keys, an external script must decide whether to update `models/<inst>/LATEST` to the new run or hold for manual review. Today the cron retrains and writes artifacts; the promotion decision is implicit-manual. Per V2_MASTER_SPEC §2.3.4 the rule is: promote iff `sim_pnl_total ≥ wave2_baseline_sim_pnl × 1.20` AND per-trade expectancy ≥ +8 pts.
+### T42 [MTA] — Saturday promotion-gate script ✅ IMPLEMENTED
+After the Saturday retrain produces `training_manifest.json` with `sim_pnl_*` summary keys, an external script must decide whether to update `models/<inst>/LATEST` to the new run or hold for manual review. Today the cron retrains and writes artifacts; the promotion decision is implicit-manual. Per V2_MASTER_SPEC §2.3.4 the rule is: promote iff `sim_pnl_total ≥ baseline_sim_pnl × 1.20` AND per-trade expectancy ≥ ₹8.
 
-- **Status:** Deferred 2026-05-24 (surfaced during System 03 doc rewrite). PRE-paper-trade MUST.
-- **Effort:** ~1 day. New `scripts/saturday_promote.py` reads manifest, compares baseline, updates LATEST pointer or fires Telegram alert.
+**Implementation (shipped 2026-05-31):**
+
+- `python_modules/_shared/promotion_gate.py` — pure decision functions:
+  - `decide_promotion(*, candidate_manifest, baseline_manifest, multiplier=1.20, min_expectancy_inr=8.0)` → `PromotionDecision(verdict ∈ {PASS, FAIL, SKIP}, reason, …)`. Handles all edge cases inline (no-baseline first run → PASS+note, candidate==LATEST → SKIP, candidate older than LATEST → SKIP, `sim_pnl_skipped=True` → SKIP w/ reason, `sim_pnl_signals==0` → SKIP, baseline ≤ 0 → PASS on expectancy floor alone, expectancy below floor → FAIL even on large absolute total).
+  - `list_dated_bundles`, `newest_bundle`, `load_manifest`, `resolve_current_latest_bundle`, `update_latest_pointer` (atomic via `.tmp` + os.replace).
+  - `format_decision_for_telegram` — compact multi-line summary with PASS/FAIL/SKIP icon, candidate + baseline timestamps, both metric blocks.
+
+- `scripts/saturday_promote.py` — CLI:
+  - `--instruments`, `--models-root`, `--multiplier 1.20`, `--min-expectancy-inr 8.0`, `--no-promote` (alert-only), `--no-telegram` (local-only), `--dry-run` (implies --no-telegram).
+  - Default behaviour (Partha 2026-05-31): **dynamic baseline = current LATEST's `sim_pnl_total_inr`**; **auto-promote on PASS, alert on FAIL/SKIP** ("silence is success"); alerts route to **yow-partha** via the same env-var pattern as `tick_feature_agent.main._notify_yow_partha`.
+  - Exit code: 0 = at least one PASS or all SKIPs; 1 = ≥1 FAIL (operator review); 2 = no instruments / fatal.
+  - Forces UTF-8 on stdio so the ₹ symbol doesn't crash on Windows cp1252.
+
+**Validation:**
+- 29 unit + CLI tests (`python_modules/_shared/tests/test_promotion_gate.py`): all PASS/FAIL/SKIP branches, atomic LATEST update, dry-run no-side-effects, --no-promote keeps LATEST on PASS, exit codes, explicit `--instruments` filter, Telegram format.
+- Live `--dry-run` against real `models/` correctly produced SKIP for all three instruments (banknifty + nifty50 = already-LATEST, crudeoil = missing manifest — pre-existing state).
+
+**Operator workflow:** the Saturday cron `Lubas-Retrain-Saturday` (02:00) should be followed by `py scripts/saturday_promote.py` ~02:30. Adding it to `startup/install-scheduled-tasks.ps1` is the natural next step (deferred — install-scheduled-tasks edits land via the launcher work cycle, not the MTA cycle).
+
+- **Status:** ✅ IMPLEMENTED 2026-05-31.
 - **Cross-ref:** [systems/03_model_training.md §14](systems/03_model_training.md). Sister task to T28 (Optuna); both gate the Saturday workflow.
 
 ### T43 [SEA] — Remove deprecated legacy_filter.py + trade_filter.py 🆕
