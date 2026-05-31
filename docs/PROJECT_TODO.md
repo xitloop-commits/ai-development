@@ -84,14 +84,29 @@ Tag every signal + fill with originating signal type (scalp/trend/swing/multi-da
 - **Status:** ✅ PYTHON SHIPPED 2026-05-28. ⏳ TS server side still PRE-PAPER MUST.
 - **Cross-ref:** T3 Phase 6; spec D56; precondition for T17/T18/T19/T20 analyses; T34 consumes the populated `head_type` column.
 
-### T34 — Per-head SHAP report + reliability monitoring (§5.1) 🆕
+### T34 — Per-head SHAP report + reliability monitoring (§5.1) ✅ IMPLEMENTED
 Two coupled observability outputs needed before paper-trade promotion:
 - **SHAP-by-instrument report:** `scripts/shap_report_weekly.py` (T3 Plan §5.8 line 113) does not exist. Needed for T14 / T21 evidence-based feature decisions.
 - **§5.1 weekly reliability monitoring:** bucket signals by predicted prob, compare to actual win-rate (±5% across deciles = pass). `scripts/trade_quality_report_weekly.py` (T3 Plan line 114) does not exist. Required to validate D72 calibration on live data.
 
-- **Status:** ⏳ PRE-PAPER MUST.
-- **Effort:** ~1-2 days; blocked on T25 (calibration) + T33 (cohort tagging) being live.
-- **Cross-ref:** T3 Phase 6.
+**Implementation (shipped 2026-05-30):**
+
+*Reliability (§5.1):*
+- `python_modules/_shared/reliability.py` — pure functions: `is_binary_classifier_head` (filters `direction_*`, `direction_persists_*`, `breakout_in_*`, `exit_signal_*`; excludes `direction_NNs_magnitude` regressors); `score_head_calibration` (sorts by `calibrated_prob`, splits into 10 deciles, computes `|mean_predicted − actual_positive_rate|` per decile, PASS when max ≤ 5%); `score_all_heads` (multi-head sweep); `render_markdown_summary` (per-head verdicts + per-cohort table + FAIL drill-down).
+- `scripts/trade_quality_report_weekly.py` — CLI: `--days 7 --end-date YYYY-MM-DD --predictions-root data/predictions --output-dir data/reports --tolerance 0.05 --instrument <inst>`. Reads T41's daily parquets, writes `reliability_weekly_<date>.md` + `.csv`. Exits non-zero only when no data found (FAILing heads surface in the report, not in exit code).
+- Heads skipped (insufficient outcomes) listed in the summary so silent gaps don't hide.
+
+*Feature importance (§5.8):*
+- `python_modules/_shared/feature_importance.py` — uses LightGBM gain-importance (`importance_type="gain"`) rather than true SHAP — answers the actual T14/T21 question ("which features drive each head, ranked, per instrument?") without pinning the ~20 MB `shap` package. Public API mirrors a real-SHAP wrapper so swap is mechanical if per-row attribution is ever needed. `resolve_latest_model_dir` handles all three on-disk layouts (LATEST symlink, LATEST text file with timestamp string, fallback to manifest timestamp).
+- `scripts/shap_report_weekly.py` — CLI: `--instruments nifty50,banknifty --models-root models --top-n 20 --head-filter ...`. Auto-discovers instruments from `<models_root>/<inst>/LATEST_HEADS.json`. Writes `feature_importance_<date>.md` (per-instrument per-head top-N + cross-instrument concordance section) + `.csv` (one row per (instrument, head, ranked feature) for downstream join with reliability CSV).
+- Filename kept as `shap_report_weekly.py` per V2 spec §5.8 even though metric is gain — methodology documented in module docstring.
+
+**Validation:**
+- 20 reliability unit + CLI tests, 17 feature-importance unit + CLI tests — all green.
+- Live smoke against real `models/nifty50/` + `models/banknifty/`: 168/168 (instrument, head) pairs scored, 0 missing.
+
+- **Status:** ✅ IMPLEMENTED 2026-05-30.
+- **Cross-ref:** Consumes T41's per-(prediction, outcome) parquet; reliability output validates D72 calibration; feature-importance output feeds T14 / T21 evidence-based feature decisions.
 
 ### T35 — Partial-session handling + inference latency benchmark 🆕
 Two edge-case items not on prior roadmap:
