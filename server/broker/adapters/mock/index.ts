@@ -14,6 +14,8 @@
  */
 
 import { createLogger } from "../../logger";
+import { getLotSizeBySymbol, isMcxSymbol } from "../dhan/scripMaster";
+import { getMcxLot } from "../dhan/mcxLots";
 
 const log = createLogger("BSA", "Mock");
 
@@ -207,12 +209,18 @@ export class MockAdapter implements BrokerAdapter {
   }
 
   async getLotSize(symbol: string): Promise<number> {
-    const MOCK_LOT_SIZES: Record<string, number> = {
-      NIFTY: 25, BANKNIFTY: 15, FINNIFTY: 25, MIDCPNIFTY: 50,
-      SENSEX: 10, BANKEX: 15,
-      CRUDEOIL: 100, NATURALGAS: 1250, GOLD: 1, SILVER: 30,
-    };
-    return MOCK_LOT_SIZES[symbol.toUpperCase()] ?? 1;
+    // Same authoritative resolution as the live adapter: scrip master for NSE,
+    // scraped lot-size page for MCX. No hardcodes — paper sizing matches live.
+    if (isMcxSymbol(symbol)) {
+      const lot = getMcxLot(symbol);
+      if (lot == null) {
+        throw new Error(
+          `MCX lot size for ${symbol} is unavailable (lot-size source not loaded). Cannot size commodity order.`,
+        );
+      }
+      return lot;
+    }
+    return getLotSizeBySymbol(symbol);
   }
 
   async getOptionChain(
