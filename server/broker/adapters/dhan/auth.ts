@@ -74,11 +74,12 @@ export async function dhanRequest<T>(
   endpoint: string,
   accessToken: string,
   body?: Record<string, unknown>,
-  options?: { timeout?: number; clientId?: string }
+  options?: { timeout?: number; clientId?: string; baseUrl?: string }
 ): Promise<DhanApiResponse<T>> {
+  const base = options?.baseUrl ?? DHAN_API_BASE;
   const url = endpoint.startsWith("http")
     ? endpoint
-    : `${DHAN_API_BASE}${endpoint}`;
+    : `${base}${endpoint}`;
 
   const timeout = options?.timeout ?? 10000;
 
@@ -159,7 +160,8 @@ export async function dhanRequest<T>(
  * This is a lightweight endpoint that confirms the token is valid.
  */
 export async function validateDhanToken(
-  accessToken: string
+  accessToken: string,
+  options?: { baseUrl?: string }
 ): Promise<{
   valid: boolean;
   clientId?: string;
@@ -169,7 +171,9 @@ export async function validateDhanToken(
   const result = await dhanRequest<DhanFundLimitResponse>(
     "GET",
     DHAN_ENDPOINTS.FUND_LIMIT,
-    accessToken
+    accessToken,
+    undefined,
+    { baseUrl: options?.baseUrl },
   );
 
   if (result.ok && result.data) {
@@ -205,14 +209,15 @@ export async function validateDhanToken(
 export async function updateDhanToken(
   brokerId: string,
   newToken: string,
-  clientId?: string
+  clientId?: string,
+  options?: { baseUrl?: string }
 ): Promise<{
   success: boolean;
   message: string;
   clientId?: string;
 }> {
-  // Step 1: Validate the new token
-  const validation = await validateDhanToken(newToken);
+  // Step 1: Validate the new token (against live or sandbox per baseUrl)
+  const validation = await validateDhanToken(newToken, { baseUrl: options?.baseUrl });
 
   if (validation.valid) {
     // Step 2: Save valid token to MongoDB

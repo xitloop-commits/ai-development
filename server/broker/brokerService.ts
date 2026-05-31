@@ -390,9 +390,18 @@ export async function initBrokerService(): Promise<void> {
     log.error("DhanAdapter (live) failed to connect:", err);
   }
 
-  // 4. Instantiate DhanAdapter (sandbox) → token validation only, no WS
+  // 4. Instantiate DhanAdapter (sandbox) → hits Dhan's sandbox host for
+  //    write/order endpoints; read-only metadata (option chain, scrip master,
+  //    WebSocket subscriptions) delegates to the primary live adapter, which
+  //    is wired in here as the metadata source. Sandbox has no TOTP refresh
+  //    and no WebSocket of its own.
   try {
     adapters.dhanSandbox = new DhanAdapter("dhan-sandbox", true);
+    if (adapters.dhanLive) {
+      adapters.dhanSandbox.setMetadataSource(adapters.dhanLive);
+    } else {
+      log.warn("dhanLive not initialised — sandbox option chain / WS will be unavailable");
+    }
     await adapters.dhanSandbox.connect();
     log.important("DhanAdapter (sandbox) connected");
   } catch (err) {

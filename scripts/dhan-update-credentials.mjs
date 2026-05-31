@@ -14,12 +14,15 @@
  *   # Spouse's AI + Data account:
  *   node scripts/dhan-update-credentials.mjs --brokerId dhan-secondary-ac --clientId <ID> --pin <PIN> --totp <BASE32_SECRET>
  *
+ *   # Sandbox account (no TOTP — token pasted directly from developer.dhanhq.co):
+ *   node scripts/dhan-update-credentials.mjs --brokerId dhan-sandbox --clientId <ID> --accessToken <JWT>
+ *
  *   # Inspect what's stored (masked):
  *   node scripts/dhan-update-credentials.mjs --show
  *   node scripts/dhan-update-credentials.mjs --brokerId dhan-secondary-ac --show
  *
  * Reads MONGODB_URI from .env (only). All credential flags must be passed
- * explicitly — no env-var defaults for clientId / pin / totp.
+ * explicitly — no env-var defaults for clientId / pin / totp / accessToken.
  */
 
 import mongoose from "mongoose";
@@ -39,14 +42,16 @@ function getArg(flag) {
   return idx !== -1 ? args[idx + 1] : null;
 }
 
-const showOnly    = args.includes("--show");
-const totpArg     = getArg("--totp");
-const pinArg      = getArg("--pin");
-const clientArg   = getArg("--clientId");
-const brokerIdArg = getArg("--brokerId");
+const showOnly       = args.includes("--show");
+const totpArg        = getArg("--totp");
+const pinArg         = getArg("--pin");
+const clientArg      = getArg("--clientId");
+const accessTokenArg = getArg("--accessToken");
+const brokerIdArg    = getArg("--brokerId");
 
 const BROKER_ID = brokerIdArg ?? "dhan-primary-ac";
 const isPrimary = BROKER_ID === "dhan-primary-ac";
+const isSandbox = BROKER_ID === "dhan-sandbox";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -81,11 +86,48 @@ async function main() {
       process.exit(1);
     }
     const auth = doc.auth ?? {};
-    console.log(`\n  Stored auth credentials for brokerId="${BROKER_ID}":`);
-    console.log(`    clientId:   ${mask(auth.clientId)}`);
-    console.log(`    pin:        ${mask(auth.pin)}`);
-    console.log(`    totpSecret: ${mask(auth.totpSecret)}`);
+    const creds = doc.credentials ?? {};
+    console.log(`\n  Stored credentials for brokerId="${BROKER_ID}":`);
+    console.log(`    [auth]  clientId:    ${mask(auth.clientId)}`);
+    console.log(`    [auth]  pin:         ${mask(auth.pin)}`);
+    console.log(`    [auth]  totpSecret:  ${mask(auth.totpSecret)}`);
+    console.log(`    [live]  accessToken: ${mask(creds.accessToken)}`);
+    console.log(`    [live]  clientId:    ${mask(creds.clientId)}`);
     console.log();
+    await mongoose.disconnect();
+    return;
+  }
+
+  // ── Sandbox direct-token path ────────────────────────────────
+  // Sandbox tokens come from developer.dhanhq.co and are pasted in directly —
+  // there's no TOTP refresh flow. Write straight to credentials.accessToken.
+  if (accessTokenArg) {
+    const update = {
+      "credentials.accessToken": accessTokenArg,
+      "credentials.updatedAt": Date.now(),
+      "credentials.status": "valid",
+    };
+    if (clientArg) update["credentials.clientId"] = clientArg;
+
+    const result = await db.collection("broker_configs").updateOne(
+      { brokerId: BROKER_ID },
+      { $set: update },
+    );
+    if (result.matchedCount === 0) {
+      console.error(`[ERROR] No broker_config found with brokerId="${BROKER_ID}"`);
+      process.exit(1);
+    }
+    log(`Direct-set access token saved to MongoDB (brokerId="${BROKER_ID}"):`);
+    log(`  accessToken: ${mask(accessTokenArg)}`);
+    if (clientArg) log(`  clientId:    ${mask(clientArg)}`);
+    if (!isSandbox) {
+      console.log(
+        "\n  [WARN] --accessToken bypasses TOTP refresh. Use --totp/--pin for accounts that " +
+        "support TOTP login (primary / spouse). Direct-set is intended for the sandbox brokerId.\n"
+      );
+    } else {
+      console.log("\n  Done. BSA will use this token on next server start.\n");
+    }
     await mongoose.disconnect();
     return;
   }
@@ -108,10 +150,11 @@ async function main() {
   if (!totpArg && !pinArg && !clientArg) {
     console.error(
       "\n[ERROR] No credential flags provided.\n" +
-      "  --brokerId <ID>          Target broker config (default \"dhan\"; use \"dhan-secondary-ac\" for spouse account)\n" +
-      "  --totp <BASE32_SECRET>   Set the TOTP secret\n" +
-      "  --pin  <PIN>             Set the login PIN\n" +
+      "  --brokerId <ID>          Target broker config (default \"dhan-primary-ac\"; \"dhan-secondary-ac\" for spouse; \"dhan-sandbox\" for sandbox)\n" +
+      "  --totp <BASE32_SECRET>   Set the TOTP secret (live accounts only)\n" +
+      "  --pin  <PIN>             Set the login PIN (live accounts only)\n" +
       "  --clientId <ID>          Set the Dhan client ID\n" +
+      "  --accessToken <JWT>      Direct-set access token (sandbox — no TOTP)\n" +
       "  --show                   Print current stored values (masked)\n"
     );
     process.exit(1);

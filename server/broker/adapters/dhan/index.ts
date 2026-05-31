@@ -34,6 +34,8 @@ import type {
 } from "../../types";
 
 import {
+  DHAN_API_BASE,
+  DHAN_SANDBOX_API_BASE,
   DHAN_ENDPOINTS,
   DHAN_TOKEN_EXPIRY_MS,
   DHAN_ORDER_STATUS_MAP,
@@ -143,6 +145,43 @@ export class DhanAdapter implements BrokerAdapter {
     this.log = createLogger("BSA", `Dhan/${logTag}`);
   }
 
+  // ── REST plumbing ─────────────────────────────────────────────
+  //
+  // Sandbox mode routes every REST call to Dhan's sandbox host (same path +
+  // payload shape as live). The two private wrappers (_dhanRequest /
+  // _validateToken) auto-inject this.accessToken + this._baseUrl so callers
+  // don't need to think about which host they're hitting.
+
+  /** Read-only metadata adapter (option chain, scrip master, WS feed) used
+   *  ONLY when this adapter is in sandboxMode — Dhan sandbox doesn't expose
+   *  market-data endpoints, so we route those reads to the primary live
+   *  adapter. Wired by brokerService.initBrokerService after both adapters
+   *  are constructed. */
+  private metadataSource: BrokerAdapter | null = null;
+  setMetadataSource(adapter: BrokerAdapter | null): void {
+    this.metadataSource = adapter;
+  }
+
+  private get _baseUrl(): string {
+    return this.sandboxMode ? DHAN_SANDBOX_API_BASE : DHAN_API_BASE;
+  }
+
+  private _dhanRequest<T>(
+    method: "GET" | "POST" | "PUT" | "DELETE",
+    endpoint: string,
+    body?: Record<string, unknown>,
+    options?: { timeout?: number; clientId?: string },
+  ) {
+    return dhanRequest<T>(method, endpoint, this.accessToken, body, {
+      ...options,
+      baseUrl: this._baseUrl,
+    });
+  }
+
+  private _validateToken() {
+    return validateDhanToken(this.accessToken, { baseUrl: this._baseUrl });
+  }
+
   // ── Token Auto-Refresh ────────────────────────────────────────
 
   /**
@@ -184,7 +223,7 @@ export class DhanAdapter implements BrokerAdapter {
     }
 
     // Validate against Dhan API
-    const result = await validateDhanToken(this.accessToken);
+    const result = await this._validateToken();
 
     if (result.valid) {
       const expiresAt = this.tokenUpdatedAt + DHAN_TOKEN_EXPIRY_MS;
@@ -285,10 +324,9 @@ export class DhanAdapter implements BrokerAdapter {
     await this.rateLimiter.acquire();
 
     const result = await withRetry(
-      () => dhanRequest<DhanOrderResponse>(
+      () => this._dhanRequest<DhanOrderResponse>(
         "POST",
         DHAN_ENDPOINTS.PLACE_ORDER,
-        this.accessToken,
         body as unknown as Record<string, unknown>
       ),
       {
@@ -336,10 +374,9 @@ export class DhanAdapter implements BrokerAdapter {
       body.orderType = DHAN_ORDER_TYPES[params.orderType] ?? params.orderType;
     }
 
-    const result = await dhanRequest<DhanOrderResponse>(
+    const result = await this._dhanRequest<DhanOrderResponse>(
       "PUT",
       DHAN_ENDPOINTS.MODIFY_ORDER(orderId),
-      this.accessToken,
       body
     );
 
@@ -366,10 +403,9 @@ export class DhanAdapter implements BrokerAdapter {
     this._ensureToken();
     await this.rateLimiter.acquire();
 
-    const result = await dhanRequest<DhanOrderResponse>(
+    const result = await this._dhanRequest<DhanOrderResponse>(
       "DELETE",
       DHAN_ENDPOINTS.CANCEL_ORDER(orderId),
-      this.accessToken
     );
 
     if (result.isAuthError) {
@@ -452,10 +488,9 @@ export class DhanAdapter implements BrokerAdapter {
     this._ensureToken();
     await this.rateLimiter.acquire();
 
-    const result = await dhanRequest<DhanOrderBookEntry[]>(
+    const result = await this._dhanRequest<DhanOrderBookEntry[]>(
       "GET",
       DHAN_ENDPOINTS.ORDER_BOOK,
-      this.accessToken
     );
 
     if (result.isAuthError) {
@@ -474,10 +509,9 @@ export class DhanAdapter implements BrokerAdapter {
     this._ensureToken();
     await this.rateLimiter.acquire();
 
-    const result = await dhanRequest<DhanOrderBookEntry>(
+    const result = await this._dhanRequest<DhanOrderBookEntry>(
       "GET",
       DHAN_ENDPOINTS.ORDER_STATUS(orderId),
-      this.accessToken
     );
 
     if (result.isAuthError) {
@@ -496,10 +530,9 @@ export class DhanAdapter implements BrokerAdapter {
     this._ensureToken();
     await this.rateLimiter.acquire();
 
-    const result = await dhanRequest<DhanTradeBookEntry[]>(
+    const result = await this._dhanRequest<DhanTradeBookEntry[]>(
       "GET",
       DHAN_ENDPOINTS.TRADE_BOOK,
-      this.accessToken
     );
 
     if (result.isAuthError) {
@@ -535,10 +568,9 @@ export class DhanAdapter implements BrokerAdapter {
     this._ensureToken();
     await this.rateLimiter.acquire();
 
-    const result = await dhanRequest<DhanPositionEntry[]>(
+    const result = await this._dhanRequest<DhanPositionEntry[]>(
       "GET",
       DHAN_ENDPOINTS.POSITIONS,
-      this.accessToken
     );
 
     if (result.isAuthError) {
@@ -580,10 +612,9 @@ export class DhanAdapter implements BrokerAdapter {
     this._ensureToken();
     await this.rateLimiter.acquire();
 
-    const result = await dhanRequest<DhanFundLimitResponse>(
+    const result = await this._dhanRequest<DhanFundLimitResponse>(
       "GET",
       DHAN_ENDPOINTS.FUND_LIMIT,
-      this.accessToken
     );
 
     if (result.isAuthError) {
@@ -605,6 +636,10 @@ export class DhanAdapter implements BrokerAdapter {
   // ── Market Data ───────────────────────────────────────────────
 
   async getScripMaster(exchange: string): Promise<Instrument[]> {
+    // Sandbox doesn't expose scrip master — delegate to the live primary adapter.
+    if (this.sandboxMode && this.metadataSource) {
+      return this.metadataSource.getScripMaster(exchange);
+    }
     // Ensure scrip master is loaded
     await this._ensureScripMasterLoaded();
 
@@ -625,16 +660,22 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   async getLotSize(symbol: string): Promise<number> {
+    if (this.sandboxMode && this.metadataSource?.getLotSize) {
+      return this.metadataSource.getLotSize(symbol);
+    }
     return getLotSizeBySymbol(symbol);
   }
 
   async getExpiryList(underlying: string, exchangeSegment?: string): Promise<string[]> {
+    // Sandbox doesn't expose expiry-list — delegate to live primary adapter.
+    if (this.sandboxMode && this.metadataSource?.getExpiryList) {
+      return this.metadataSource.getExpiryList(underlying, exchangeSegment);
+    }
     this._ensureToken();
 
-    const result = await dhanRequest<{ data: string[] }>(
+    const result = await this._dhanRequest<{ data: string[] }>(
       "POST",
       DHAN_ENDPOINTS.EXPIRY_LIST,
-      this.accessToken,
       {
         UnderlyingScrip: Number(underlying),
         UnderlyingSeg: exchangeSegment || "IDX_I",
@@ -657,6 +698,12 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
    async getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData> {
+    // Sandbox doesn't expose option chain — delegate to live primary adapter.
+    // Read-only metadata, no money risk; sandbox just borrows the chain shape
+    // so option trades can be placed against the sandbox order API.
+    if (this.sandboxMode && this.metadataSource?.getOptionChain) {
+      return this.metadataSource.getOptionChain(underlying, expiry, exchangeSegment);
+    }
     // Cache key: underlying + expiry + segment
     const cacheKey = `${underlying}|${expiry}|${exchangeSegment || "IDX_I"}`;
     const now = Date.now();
@@ -722,7 +769,7 @@ export class DhanAdapter implements BrokerAdapter {
       Expiry: expiry,
     };
 
-    const result = await dhanRequest<{
+    const result = await this._dhanRequest<{
       data: {
         last_price: number;
         oc: Record<string, {
@@ -748,7 +795,6 @@ export class DhanAdapter implements BrokerAdapter {
     }>(
       "POST",
       DHAN_ENDPOINTS.OPTION_CHAIN,
-      this.accessToken,
       requestBody,
       { clientId: this.clientId }
     );
@@ -827,10 +873,9 @@ export class DhanAdapter implements BrokerAdapter {
     };
 
     const result = await withRetry(
-      () => dhanRequest<DhanCandleDataResponse>(
+      () => this._dhanRequest<DhanCandleDataResponse>(
         "POST",
         DHAN_ENDPOINTS.CHARTS_INTRADAY,
-        this.accessToken,
         body as unknown as Record<string, unknown>
       ),
       {
@@ -878,10 +923,9 @@ export class DhanAdapter implements BrokerAdapter {
     };
 
     const result = await withRetry(
-      () => dhanRequest<DhanCandleDataResponse>(
+      () => this._dhanRequest<DhanCandleDataResponse>(
         "POST",
         DHAN_ENDPOINTS.CHARTS_HISTORICAL,
-        this.accessToken,
         body as unknown as Record<string, unknown>
       ),
       {
@@ -919,6 +963,13 @@ export class DhanAdapter implements BrokerAdapter {
   subscribeLTP(instruments: SubscribeParams[], callback: TickCallback): void {
     this.tickCallback = callback;
 
+    // Sandbox has no WebSocket — delegate the subscription to the live primary
+    // adapter so sandbox trades read the same live tick stream as everyone else.
+    if (this.sandboxMode && this.metadataSource?.subscribeLTP) {
+      this.metadataSource.subscribeLTP(instruments, callback);
+      return;
+    }
+
     if (!this.subManager) {
       this.log.warn("SubscriptionManager not initialized. Call connect() first.");
       return;
@@ -934,6 +985,11 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   unsubscribeLTP(instruments: SubscribeParams[]): void {
+    if (this.sandboxMode && this.metadataSource?.unsubscribeLTP) {
+      this.metadataSource.unsubscribeLTP(instruments);
+      return;
+    }
+
     if (!this.subManager) return;
 
     this.subManager.unsubscribeManual(
@@ -1061,11 +1117,42 @@ export class DhanAdapter implements BrokerAdapter {
   // ── Lifecycle ─────────────────────────────────────────────────
 
   async connect(): Promise<void> {
-    // Sandbox mode short-circuits — Dhan's sandbox doesn't expose a real
-    // auth endpoint, so we just mark the adapter as ready without a token.
+    // ── Sandbox path ───────────────────────────────────────────
+    // Dhan sandbox uses a separate API host with its own access token (issued
+    // by developer.dhanhq.co — no TOTP refresh flow). Load creds from Mongo,
+    // validate against the sandbox API, skip TOTP refresh + WebSocket.
     if (this.sandboxMode) {
-      this.log.info("Sandbox mode — skipping token refresh (token-validation only).");
-      await updateBrokerConnection(this.brokerId, { apiStatus: "connected" });
+      const config = await getBrokerConfig(this.brokerId);
+      if (!config || !config.credentials.accessToken) {
+        this.log.warn(
+          "Sandbox access token missing. Paste your sandbox token via Settings or: " +
+          `node scripts/dhan-update-credentials.mjs --brokerId ${this.brokerId} --accessToken <SANDBOX_TOKEN>`
+        );
+        await updateBrokerConnection(this.brokerId, { apiStatus: "disconnected" });
+        return;
+      }
+      this.accessToken = config.credentials.accessToken;
+      this.clientId = config.credentials.clientId;
+      this.tokenUpdatedAt = config.credentials.updatedAt;
+
+      const validation = await this._validateToken();
+      if (!validation.valid) {
+        this.log.error(`Sandbox token invalid: ${validation.error}. Refresh token at developer.dhanhq.co and re-paste.`);
+        await updateBrokerCredentials(this.brokerId, { status: "expired" });
+        await updateBrokerConnection(this.brokerId, { apiStatus: "error" });
+        return;
+      }
+      this.clientId = validation.clientId ?? this.clientId;
+      await updateBrokerCredentials(this.brokerId, { clientId: this.clientId, status: "valid" });
+      await updateBrokerConnection(this.brokerId, {
+        apiStatus: "connected",
+        lastApiCall: Date.now(),
+      });
+      this.log.important(
+        `Sandbox connected. Client: ${this.clientId}. Balance: ₹${validation.fundData?.availabelBalance ?? "N/A"}. ` +
+        `Note: every order fills at ₹100, capital resets to ₹10,00,000 daily. WebSocket + option chain are NOT available; ` +
+        `metadata reads will delegate to the primary live adapter.`
+      );
       return;
     }
 
@@ -1150,7 +1237,7 @@ export class DhanAdapter implements BrokerAdapter {
     }
 
     // Validate token against Dhan API
-    let validation = await validateDhanToken(this.accessToken);
+    let validation = await this._validateToken();
 
     if (!validation.valid) {
       this.log.warn(`Token validation failed (${validation.error}) — auto-refreshing...`);
@@ -1160,7 +1247,7 @@ export class DhanAdapter implements BrokerAdapter {
         await handleDhan401(this.brokerId);
         return;
       }
-      validation = await validateDhanToken(this.accessToken);
+      validation = await this._validateToken();
       if (!validation.valid) {
         this.log.error(`Token invalid after refresh: ${validation.error}`);
         await handleDhan401(this.brokerId);
@@ -1181,13 +1268,10 @@ export class DhanAdapter implements BrokerAdapter {
     });
     this.log.important(`Connected. Client: ${this.clientId}, Balance: ₹${validation.fundData?.availabelBalance ?? "N/A"}`);
 
-    // Sandbox mode: token validation only — no WebSocket feed
-    if (!this.sandboxMode) {
-      await this.connectFeed();
-      this.connectOrderUpdateWs();
-    } else {
-      this.log.info(`[${this.brokerId}] Sandbox mode — skipping WebSocket connections.`);
-    }
+    // Live path always opens WebSocket feeds. Sandbox path returned early
+    // above — it has no WebSocket support on Dhan's side.
+    await this.connectFeed();
+    this.connectOrderUpdateWs();
   }
 
   async disconnect(): Promise<void> {
@@ -1230,10 +1314,9 @@ export class DhanAdapter implements BrokerAdapter {
       }
 
       // Then activate Dhan's kill switch
-      const result = await dhanRequest<DhanKillSwitchResponse>(
+      const result = await this._dhanRequest<DhanKillSwitchResponse>(
         "POST",
         `${DHAN_ENDPOINTS.KILL_SWITCH}?killSwitchStatus=ACTIVATE`,
-        this.accessToken
       );
 
       if (result.isAuthError) {
@@ -1249,10 +1332,9 @@ export class DhanAdapter implements BrokerAdapter {
       };
     } else {
       // Deactivate
-      const result = await dhanRequest<DhanKillSwitchResponse>(
+      const result = await this._dhanRequest<DhanKillSwitchResponse>(
         "POST",
         `${DHAN_ENDPOINTS.KILL_SWITCH}?killSwitchStatus=DEACTIVATE`,
-        this.accessToken
       );
 
       if (result.isAuthError) {

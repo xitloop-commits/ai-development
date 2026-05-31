@@ -7,6 +7,13 @@
 // ─── Base URLs ─────────────────────────────────────────────────
 
 export const DHAN_API_BASE = "https://api.dhan.co/v2";
+// Dhan sandbox API — separate host, identical path/payload shape. Used by the
+// testing-sandbox channel to validate the full order lifecycle (place/modify/
+// cancel/order updates/positions) without real money. Sandbox token comes from
+// developer.dhanhq.co (no Dhan trading account needed). Sandbox does NOT
+// expose option chain / scrip master / WebSocket — those calls delegate to
+// the primary live adapter.
+export const DHAN_SANDBOX_API_BASE = "https://sandbox.dhan.co/v2";
 export const DHAN_WS_FEED_URL = "wss://api-feed.dhan.co";
 
 // ─── Endpoints ─────────────────────────────────────────────────
