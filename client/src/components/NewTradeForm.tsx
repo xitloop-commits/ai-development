@@ -767,11 +767,11 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         </span>
       </td>
 
-      <td className="px-2 py-1 border-r border-border">
+      <td className="px-2 py-1 border-r border-border min-w-[110px]">
         <Popover open={isQtyPopoverOpen} onOpenChange={setIsQtyPopoverOpen}>
           <PopoverTrigger asChild>
             <button
-              className={`w-full px-1 py-1 text-[0.5625rem] leading-tight tabular-nums text-right whitespace-nowrap rounded border transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer ${tone.textSoft} border-border`}
+              className={`w-full px-2 py-1 text-[0.625rem] tabular-nums text-right whitespace-nowrap rounded border transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer ${tone.textSoft} border-border`}
               title={
                 actualQty > 0
                   ? `${actualQty} lot${actualQty > 1 ? 's' : ''} × ${Math.max(lotSize, 1)} = ${totalUnits} qty — click to adjust`
