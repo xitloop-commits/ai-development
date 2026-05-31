@@ -196,7 +196,7 @@ Broker-infra cleanup paired with the UI bug-fix that motivated it.
 - **Trade history wiped** via new `scripts/reset-trade-history.mjs` so no stale `position_state.brokerId="dhan"` records survive. `broker_configs`, `usersettings`, `executorsettings`, `disciplinesettings` left untouched.
 - **Status:** ✅ IMPLEMENTED 2026-05-30 (commits `2a590ed`, `bc45785`, `df29e5f`). All 895 tests pass.
 - **Open follow-ups:**
-  - Refcounted unsubscribe in `SubscriptionManager` (today a bare unsubscribe on trade close would kill the feed for any other open trade on the same contract — currently leaks subs until restart, acceptable until contract count grows).
+  - ~~Refcounted unsubscribe in `SubscriptionManager`~~ ✅ shipped 2026-05-31 (commit `19a3196`): refCount on each subscription entry, WS sub created on first subscribe and torn down only when refCount hits 0; `tradeExecutor.exitTrade` + `recordAutoExit` now call the matching `unsubscribeLTP` after `recordTradeClosed`. 8 unit tests pin the contract.
   - Live in-market verification of LTP flow (deferred — markets closed Saturday).
 
 ### T46 — testing-sandbox channel wired to Dhan sandbox API + Settings token panel ✅ IMPLEMENTED
