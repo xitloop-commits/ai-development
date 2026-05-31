@@ -34,6 +34,7 @@ import { useHotkeyListener, type HotkeyAction } from '@/hooks/useHotkeyListener'
 
 // Shell components
 import AppBar from '@/components/AppBar';
+import { SecondaryBrokerBanner } from '@/components/SecondaryBrokerBanner';
 // SummaryBar removed — integrated into TradingDesk component per spec v1.2
 import MainFooter from '@/components/MainFooter';
 
@@ -345,6 +346,11 @@ export default function MainScreen() {
         onToggleLeftDrawer={() => setLeftSidebarVisible((p) => !p)}
         onToggleRightDrawer={() => setRightSidebarVisible((p) => !p)}
       />
+
+      {/* Soft alert for spouse Dhan account degradation (non-blocking;
+          primary path stays usable). Renders nothing when secondary is
+          healthy or has no credentials configured. */}
+      <SecondaryBrokerBanner />
 
       {/* Summary Bar — now integrated inside TradingDesk component */}
 
