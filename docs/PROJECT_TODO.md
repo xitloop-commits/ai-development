@@ -613,10 +613,19 @@ After the Saturday retrain produces `training_manifest.json` with `sim_pnl_*` su
 - **Status:** ✅ IMPLEMENTED 2026-05-31.
 - **Cross-ref:** [systems/03_model_training.md §14](systems/03_model_training.md). Sister task to T28 (Optuna); both gate the Saturday workflow.
 
-#### T42-FU1 — Wire `saturday_promote.py` into the Saturday Windows task 🆕
-T42 ships the script + tests but does NOT yet append it to the `Lubas-Retrain-Saturday` cron in `startup/install-scheduled-tasks.ps1`. Until that happens, the script runs manually only — the auto-promotion benefit isn't realised.
-- Scope: edit the `Lubas-Retrain-Saturday` block in `startup/install-scheduled-tasks.ps1` to chain `py scripts/saturday_promote.py` after the retrain step (~02:30 IST). Verify env vars `YOW_PARTHA_BOT_TOKEN` + `YOW_PARTHA_CHAT_ID` are visible to the scheduled-task context (they're already loaded via `dotenv/config` for the BSA API but the Windows Task Scheduler ENV inheritance differs).
-- Effort: ~½ hour. Belongs to the launcher work cycle (touches startup/, not python_modules/).
+#### T42-FU1 — Wire `saturday_promote.py` into the Saturday Windows task ✅ IMPLEMENTED
+T42 shipped the script + tests but did NOT initially append it to the `Lubas-Retrain-Saturday` cron. Until wiring landed, the script ran manually only — the auto-promotion benefit wasn't realised.
+
+**Implementation (shipped 2026-05-31):**
+- Chose to chain inside `scripts/retrain_v2.bat` rather than register a separate scheduled task. Reason: retrain can run for ~5 hours at Day 30+ per the existing 16-hour ExecutionTimeLimit; a parallel 02:30 task would risk firing while retrain is still writing the bundle. Sequential chain guarantees retrain → promote ordering, no time-budget guessing.
+- `scripts/retrain_v2.bat` — after the per-instrument retrain loop, unconditionally invokes `"%PYTHON_CMD%" "%~dp0saturday_promote.py"`. Runs unconditionally so instruments that trained successfully get auto-promoted even if a sibling instrument failed (failed siblings produce SKIP "no readable training_manifest.json" — no LATEST change, but a Telegram alert so operator sees both issues at once).
+- Final task exit code = `max(retrain_rc, promote_rc)` — Windows Task Scheduler history surfaces either failure type.
+- `startup/install-scheduled-tasks.ps1` — updated the top-banner doc, the section comment ("retrains + auto-promotion gate"), and the registered task `-Description` so future reinstalls see the promote step is part of the same task.
+
+**Env-var note:** `YOW_PARTHA_BOT_TOKEN` + `YOW_PARTHA_CHAT_ID` need to be in the Windows user-level environment for the scheduled task to see them (the `dotenv/config` loader BSA uses doesn't apply to BAT scripts). If a future Saturday alert silently fails, check the user-level env first.
+
+- **Status:** ✅ IMPLEMENTED 2026-05-31.
+- **Cross-ref:** T42 in this doc. Net change: ~25 added LOC in retrain_v2.bat + ~5 LOC of comment refresh in install-scheduled-tasks.ps1.
 
 ### T43 [SEA] — Remove deprecated legacy_filter.py + trade_filter.py ✅ IMPLEMENTED
 Pre-E5 4-stage filter (`legacy_filter.py` 129 LOC + `trade_filter.py` 328 LOC = 457 LOC dead code) retained behind `--filter=legacy` CLI flag for one A/B validation cycle. Phase E5 base gate has been locked + validated since 2026-04-30. Time to delete.

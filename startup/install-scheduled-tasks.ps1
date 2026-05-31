@@ -10,8 +10,9 @@
                             -> runs startup\stop-all.ps1 (graceful stop + shutdown /s)
     Lubas-Shutdown-Warning  Daily at 23:55
                             -> msg.exe popup 5 min before shutdown
-    Lubas-Retrain-Saturday  Weekly Sat 02:00 (T27)
-                            -> runs scripts\retrain_v2.bat (MTA for all 4 instruments)
+    Lubas-Retrain-Saturday  Weekly Sat 02:00 (T27 + T42-FU1)
+                            -> runs scripts\retrain_v2.bat (MTA for all 4 instruments
+                               + saturday_promote.py auto-LATEST gate w/ Telegram alert)
 
   Power-on at 08:55 Mon-Fri must be set in your motherboard BIOS
   ("Resume by RTC Alarm" / "Wake on RTC"). Windows cannot boot a
@@ -211,11 +212,16 @@ Write-Host "Registered: Lubas-Shutdown-Warning (daily 23:55 as $user)"
 #  Lubas-Retrain-Saturday -- Weekly Sat 02:00 (T27, V2 §6.1)
 # ============================================================
 # Saturday retrain runs scripts\retrain_v2.bat which loops MTA over
-# all 4 instruments sequentially. Wakes the machine at 02:00 (per
+# all 4 instruments sequentially, then chains scripts\saturday_promote.py
+# (T42-FU1) to compare each new bundle's sim_pnl vs current LATEST and
+# auto-promote on PASS (V2 §2.3.4: candidate_total >= baseline x 1.20
+# AND per-trade expectancy >= Rs 8). FAIL/SKIP fires a yow-partha
+# Telegram alert; silence is success. Wakes the machine at 02:00 (per
 # -WakeToRun) and runs as the same user that owns the parquet data.
 # Today's data is too thin for a real retrain (Day 4 of accumulation),
-# so this fires in v0-stopgap mode and the produced models stay out
-# of LATEST until manually promoted -- matches V2_MASTER_SPEC D76.
+# so this fires in v0-stopgap mode -- bundles produce SKIP verdicts
+# (zero sim_pnl signals on thin data) until Day 30+ -- matches
+# V2_MASTER_SPEC D76.
 $retrainBat = Join-Path $root 'scripts\retrain_v2.bat'
 if (-not (Test-Path $retrainBat)) { throw "Required file not found: $retrainBat" }
 
@@ -245,7 +251,7 @@ Register-ScheduledTask `
     -Settings  $retrainSettings `
     -User      $user `
     -RunLevel  Limited `
-    -Description 'Weekly Saturday MTA retrain across all 4 instruments (T27, V2_MASTER_SPEC §6.1).' `
+    -Description 'Weekly Saturday MTA retrain across all 4 instruments + auto-promotion gate (T27 + T42-FU1, V2_MASTER_SPEC §6.1 + §2.3.4).' `
     -Force | Out-Null
 Write-Host "Registered: Lubas-Retrain-Saturday (weekly Sat 02:00 as $user, wakes machine)"
 

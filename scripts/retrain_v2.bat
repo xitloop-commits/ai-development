@@ -17,8 +17,15 @@ REM Today (Day 4 of accumulation) the trainer's cal carve-out + walk-
 REM forward both auto-skip with WARN because the data isn't deep enough;
 REM that matches V2_MASTER_SPEC D76 ("no real retrain until Day 30 of
 REM v8 schema"). The Saturday job still fires so the pipeline is exercised
-REM weekly -- the produced model is v0-stopgap quality and stays out of
-REM LATEST until manually promoted.
+REM weekly -- the produced model is v0-stopgap quality.
+REM
+REM T42-FU1: after the retrain loop, scripts\saturday_promote.py reads
+REM each new manifest, compares sim_pnl_total_inr to the current LATEST
+REM bundle, auto-promotes when candidate clears baseline x 1.20 AND
+REM per-trade expectancy >= Rs 8 (V2 §2.3.4). On FAIL/SKIP it sends a
+REM yow-partha Telegram alert so the operator can review. Silence is
+REM success. Bundles whose retrain failed for that instrument produce
+REM SKIP ("no readable training_manifest.json") -- no LATEST change.
 
 setlocal EnableDelayedExpansion
 
@@ -83,6 +90,30 @@ if "%OVERALL_RC%"=="0" (
 ) else (
     echo  Saturday retrain FINISHED with errors -- check per-instrument logs
 )
+echo =====================================================================
+
+REM --- T42-FU1: promotion gate ---
+REM Runs unconditionally so instruments that trained successfully get
+REM auto-promoted even if a sibling failed. saturday_promote.py SKIPs
+REM gracefully on missing/unreadable manifests; FAIL fires a yow-partha
+REM Telegram alert. Auto-promotes on PASS (LATEST text-file flip).
+REM Final task exit code = max(retrain_rc, promote_rc) so the Windows
+REM Task Scheduler history surfaces either failure.
+echo.
+echo =====================================================================
+echo   Lubas Saturday promotion gate  (T42)
+echo =====================================================================
+"%PYTHON_CMD%" "%~dp0saturday_promote.py"
+set "PROMOTE_RC=!errorlevel!"
+echo.
+if "!PROMOTE_RC!"=="0" (
+    echo  Promotion gate OK  -- no FAILs.  Telegram silent on PASSes by design.
+) else (
+    echo  Promotion gate exit !PROMOTE_RC! -- check Telegram alert for details.
+)
+
+REM Propagate the worse of the two exit codes.
+if !PROMOTE_RC! gtr %OVERALL_RC% set "OVERALL_RC=!PROMOTE_RC!"
 echo =====================================================================
 
 exit /b %OVERALL_RC%
