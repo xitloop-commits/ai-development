@@ -27,6 +27,7 @@ import { validateEnv } from "./validateEnv";
 import { requestIdMiddleware } from "./correlationContext";
 import { metricsHandler } from "./metrics";
 import { startSubscriptionAlertScheduler } from "./subscriptionAlert";
+import { startSessionSummaryScheduler, stopSessionSummaryScheduler } from "./sessionSummaryScheduler";
 
 const bootLog = createLogger("BOOT", "Server");
 
@@ -236,6 +237,9 @@ async function startServer() {
     bootLog.important(`Server running on http://${host}:${port}/`);
     // Dhan Data API subscription auto-pay reminders (console + yow-partha bot).
     startSubscriptionAlertScheduler();
+    // Session-close P&L summary pushes to yow-partha (NSE 15:30 IST, MCX 23:30 IST).
+    void startSessionSummaryScheduler();
+    registerShutdownHook("sessionSummary", () => stopSessionSummaryScheduler(), 200);
   });
 }
 
