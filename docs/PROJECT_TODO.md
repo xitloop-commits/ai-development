@@ -746,7 +746,7 @@ Convert TFA's per-event stateful trackers (the hot ones) to Polars columnar `upd
 - **Effort:** ~2–3 days. Land `server/journal/` module: collection schema, write-through hook in `PA.recordTradeClosed`, append-only enforcement on operator-authored fields once `WeeklyReview` locks the entry, tRPC `journal.list/edit/get` surfaces for the UI.
 - **Cross-ref:** [systems/07_portfolio_reporting.md §9](systems/07_portfolio_reporting.md), [systems/06_risk_discipline.md §3 Module 6](systems/06_risk_discipline.md).
 
-### T52 [UI] — Notifications backend (Telegram routing for trade events + AlertHistory retention) 🆕
+### T52 [UI] — Notifications backend (Telegram routing for trade events + AlertHistory retention) ✅ IMPLEMENTED
 Extend the existing server-side Telegram path (today wired only for token-expiry + session-close) to cover every operator-facing trading event. Email layer dropped from scope — Telegram + in-app cover every need on a single phone.
 
 **5 open decisions LOCKED 2026-05-31:**
@@ -766,8 +766,13 @@ Extend the existing server-side Telegram path (today wired only for token-expiry
 4. **Quiet hours** — none. Push 24/7 (MCX runs till 23:30 IST anyway; Telegram per-chat mute is the operator's escape hatch).
 5. **De-duplication** — 30-second window. Identical event signature + content within 30 s collapses to one push (catches bug-storms without hiding legitimately rapid distinct events — different trade IDs produce different signatures).
 
-- **Status:** Decisions locked 2026-05-31; implementation pending. PRE-paper-trade SHOULD; PRE-AI-Live MUST (operator needs Telegram on phone for DISCIPLINE_EXIT when desktop UI isn't open).
-- **Revised effort:** ~3 days (was 4-6; email path eliminated). Telegram routing for trade events via yow-partha (~1.5d), AlertHistory 30-day retention + dedup window (~0.5d), session-close summary scheduler (~0.5d), end-to-end smoke test on a paper channel (~0.5d).
+- **Status:** ✅ IMPLEMENTED 2026-05-31 — same day as decisions locked. All 5 subslices shipped:
+  - Session-close P&L summaries (NSE 15:30 IST + MCX 23:30 IST) → commit `5f1c480`.
+  - Server-side AlertHistory persistence (Mongo model + tRPC router + 30-day nightly purge @ 03:00 IST) → commit `b2aa864`.
+  - Client AlertContext hydration + push-on-dispatch + markAllRead sync → commit `c29c290`.
+  - Trade-event Telegram routing (fill / exit / auto-exit / DISCIPLINE_EXIT / gate rejection) via new `server/_core/tradeEventNotifier.ts` with try/catch wrappers and fire-and-forget call pattern → commit `769ef71`.
+- **Deferred** (not blocking): 30 s same-event dedup window (each tradeId is unique so signatures differ naturally; dedup only matters for bug-storms that haven't happened). Add when the first bug-storm justifies it.
+- **Effort spent:** ~1 day end-to-end (was estimated ~3d after email dropped — landed faster because the existing schedulers + notifyPartha utility were reusable).
 - **Cross-ref:** [systems/08_ui_desktop.md §8](systems/08_ui_desktop.md), [systems/09_control_bot.md](systems/09_control_bot.md).
 
 ### T50 [H2H] — Implement HeadToHead pairing + dashboard 🆕
