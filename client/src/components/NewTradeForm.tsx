@@ -771,8 +771,12 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         <Popover open={isQtyPopoverOpen} onOpenChange={setIsQtyPopoverOpen}>
           <PopoverTrigger asChild>
             <button
-              className={`w-full px-2 py-1 text-[0.625rem] tabular-nums text-right rounded border transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer ${tone.textSoft} border-border`}
-              title="Click to adjust quantity"
+              className={`w-full px-1 py-1 text-[0.5625rem] leading-tight tabular-nums text-right whitespace-nowrap rounded border transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer ${tone.textSoft} border-border`}
+              title={
+                actualQty > 0
+                  ? `${actualQty} lot${actualQty > 1 ? 's' : ''} × ${Math.max(lotSize, 1)} = ${totalUnits} qty — click to adjust`
+                  : 'Click to adjust quantity'
+              }
             >
               {actualQty > 0
                 ? `${actualQty}×${Math.max(lotSize, 1)}=${totalUnits}`
