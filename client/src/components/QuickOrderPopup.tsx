@@ -100,9 +100,12 @@ export function QuickOrderPopup({
     )[0] ?? '';
   }, [expiryQuery.data]);
 
+  // Don't fetch the chain while the expiry list is still (re)loading for a
+  // changed instrument — otherwise it can fire with the new underlying + the
+  // previous instrument's expiry → Dhan "Invalid Expiry Date".
   const optionChainQuery = trpc.broker.optionChain.useQuery(
     { underlying, expiry: nearestExpiry, exchangeSegment },
-    { enabled: isOpen && !!nearestExpiry, refetchInterval: 5_000 }
+    { enabled: isOpen && !!nearestExpiry && !expiryQuery.isFetching, refetchInterval: 5_000 }
   );
 
   // ── Derived values ─────────────────────────────────────────────

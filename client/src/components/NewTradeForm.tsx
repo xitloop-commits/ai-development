@@ -257,7 +257,13 @@ export default function NewTradeForm(props: NewTradeFormProps) {
   // instrument, or browser just connected before first push), issue a single
   // tRPC query. Result is written into the store; every subsequent consumer
   // reads from the store. Self-healing — first visitor pays one fetch.
-  const needsFallback = canSelectStrike && !cachedChain;
+  // Only fetch once the expiry actually belongs to the current instrument's
+  // list. On instrument change the underlying updates synchronously but the
+  // expiry resets a render later — without this gate the chain would fetch with
+  // the new underlying + the previous instrument's expiry → Dhan "Invalid
+  // Expiry Date". The stale expiry is never in the new instrument's list.
+  const needsFallback =
+    canSelectStrike && !cachedChain && expiryOptions.includes(expiry);
   const fallbackQuery = trpc.broker.optionChain.useQuery(
     { underlying: requestUnderlying, expiry, exchangeSegment: requestExchangeSegment },
     {
