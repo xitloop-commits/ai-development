@@ -359,6 +359,16 @@ export class DhanAdapter implements BrokerAdapter {
     }
 
     if (!result.ok || !result.data) {
+      // Dhan's rejection message is generic ("Missing required fields, bad
+      // values"), so log the exact payload we sent to pinpoint the bad field.
+      // dhanClientId is shown as present/absent only (never the value).
+      this.log.warn(
+        `placeOrder rejected by Dhan (status=${result.status}, code=${result.error?.errorCode ?? "?"}): ` +
+          `${result.error?.errorMessage ?? "no message"} | sent: ` +
+          `clientId=${this.clientId ? "set" : "MISSING"} securityId=${body.securityId} ` +
+          `segment=${body.exchangeSegment} txn=${body.transactionType} product=${body.productType} ` +
+          `orderType=${body.orderType} validity=${body.validity} qty=${body.quantity} price=${body.price}`,
+      );
       throw new Error(
         result.error?.errorMessage ?? `Order placement failed (HTTP ${result.status})`
       );
