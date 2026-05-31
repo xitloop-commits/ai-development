@@ -613,6 +613,11 @@ After the Saturday retrain produces `training_manifest.json` with `sim_pnl_*` su
 - **Status:** ✅ IMPLEMENTED 2026-05-31.
 - **Cross-ref:** [systems/03_model_training.md §14](systems/03_model_training.md). Sister task to T28 (Optuna); both gate the Saturday workflow.
 
+#### T42-FU1 — Wire `saturday_promote.py` into the Saturday Windows task 🆕
+T42 ships the script + tests but does NOT yet append it to the `Lubas-Retrain-Saturday` cron in `startup/install-scheduled-tasks.ps1`. Until that happens, the script runs manually only — the auto-promotion benefit isn't realised.
+- Scope: edit the `Lubas-Retrain-Saturday` block in `startup/install-scheduled-tasks.ps1` to chain `py scripts/saturday_promote.py` after the retrain step (~02:30 IST). Verify env vars `YOW_PARTHA_BOT_TOKEN` + `YOW_PARTHA_CHAT_ID` are visible to the scheduled-task context (they're already loaded via `dotenv/config` for the BSA API but the Windows Task Scheduler ENV inheritance differs).
+- Effort: ~½ hour. Belongs to the launcher work cycle (touches startup/, not python_modules/).
+
 ### T43 [SEA] — Remove deprecated legacy_filter.py + trade_filter.py 🆕
 Pre-E5 4-stage filter (`legacy_filter.py` 129 LOC + `trade_filter.py` 328 LOC = 457 LOC dead code) retained behind `--filter=legacy` CLI flag for one A/B validation cycle. Phase E5 base gate has been locked + validated since 2026-04-30. Time to delete.
 
