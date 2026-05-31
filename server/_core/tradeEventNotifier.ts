@@ -19,8 +19,39 @@
  */
 import { notifyPartha } from "./telegram";
 import { createLogger } from "../broker/logger";
+import {
+  AlertModel,
+  type AlertEventType,
+  type AlertPriority,
+} from "../alerts/alertModel";
 
 const log = createLogger("BSA", "TradeNotify");
+
+/**
+ * Best-effort persistence to the alerts collection so the in-app
+ * AlertHistory drawer picks the event up on its next refetch. Failure
+ * to write is non-fatal — the Telegram push already happened, and a
+ * lost in-app record is worse than a crashed notifier.
+ */
+async function persistAlert(payload: {
+  type: AlertEventType;
+  priority: AlertPriority;
+  title: string;
+  message: string;
+  instrument?: string | null;
+  channel?: string | null;
+  tradeId?: string | null;
+  timestamp?: number;
+}): Promise<void> {
+  try {
+    await AlertModel.create({
+      ...payload,
+      timestamp: payload.timestamp ?? Date.now(),
+    });
+  } catch (err) {
+    log.warn(`AlertModel persist failed (${payload.type}): ${(err as Error).message}`);
+  }
+}
 
 // ─── Formatters (pure, testable) ──────────────────────────────────
 
@@ -152,16 +183,61 @@ async function safePush(message: string, eventLabel: string): Promise<void> {
   }
 }
 
+function contractLabel(instrument: string, type: string, strike: number | null | undefined): string {
+  if (strike == null) return instrument;
+  const leg = type.includes("CALL") ? "CE" : type.includes("PUT") ? "PE" : "";
+  return `${instrument} ${strike}${leg ? " " + leg : ""}`.trim();
+}
+
 export function notifyTradeFill(ev: TradeFillEvent): void {
   void safePush(formatFill(ev), `fill ${ev.channel}/${ev.instrument}`);
+  const direction = ev.type.includes("BUY") ? "BUY" : "SELL";
+  const contract = contractLabel(ev.instrument, ev.type, ev.strike);
+  void persistAlert({
+    type: "position_opened",
+    priority: ev.channel.endsWith("-live") ? "high" : "medium",
+    title: `Fill · ${ev.channel}`,
+    message: `${contract}  ${direction}  qty ${ev.qty}  @ ₹${ev.entryPrice}  (invested ₹${Math.round(ev.qty * ev.entryPrice).toLocaleString("en-IN")})`,
+    instrument: ev.instrument,
+    channel: ev.channel,
+  });
 }
 
 export function notifyTradeExit(ev: TradeExitEvent): void {
   void safePush(formatExit(ev), `exit ${ev.channel}/${ev.instrument}`);
+  // Map exit reason → existing AlertEventType so the drawer renders with
+  // the right icon (red shield for SL_HIT, green target for TP_HIT,
+  // module-down red triangle for DISCIPLINE_EXIT, generic close otherwise).
+  const inAppType: AlertEventType =
+    ev.reason === "SL_HIT" || ev.reason === "STOP_LOSS" ? "stop_loss_hit" :
+    ev.reason === "TP_HIT" || ev.reason === "TARGET_PROFIT" ? "target_profit_hit" :
+    ev.reason === "DISCIPLINE_EXIT" ? "module_down" :
+    "position_closed";
+  const priority: AlertPriority =
+    ev.reason === "DISCIPLINE_EXIT" ? "critical" :
+    ev.channel.endsWith("-live") ? "high" : "medium";
+  const contract = contractLabel(ev.instrument, ev.type, ev.strike);
+  const pnlSign = ev.realizedPnl >= 0 ? "+" : "";
+  void persistAlert({
+    type: inAppType,
+    priority,
+    title: `${ev.triggeredBy === "USER" ? "Exit" : "Auto-Exit"} · ${ev.channel} · ${ev.reason}`,
+    message: `${contract}  qty ${ev.qty}  ₹${ev.entryPrice} → ₹${ev.exitPrice}  ·  P&L ${pnlSign}₹${Math.round(ev.realizedPnl).toLocaleString("en-IN")} (${pnlSign}${ev.realizedPnlPercent.toFixed(2)}%)`,
+    instrument: ev.instrument,
+    channel: ev.channel,
+  });
 }
 
 export function notifyGateRejection(ev: GateRejectionEvent): void {
   void safePush(formatGateRejection(ev), `gate-reject ${ev.channel}/${ev.instrument}`);
+  void persistAlert({
+    type: "module_down", // closest match — gate rejection = "trading is being blocked"
+    priority: "high",
+    title: `Gate reject · ${ev.channel}`,
+    message: `${ev.instrument}${ev.qty != null ? `  qty ${ev.qty}` : ""}  ·  ${ev.reason}`,
+    instrument: ev.instrument,
+    channel: ev.channel,
+  });
 }
 
 // Per-broker dedup so a single broker can't spam the same disconnect
@@ -180,6 +256,12 @@ export function notifyBrokerDisconnect(ev: BrokerDisconnectEvent): void {
   }
   lastDisconnectAt.set(key, now);
   void safePush(formatBrokerDisconnect(ev), `broker-disconnect ${ev.brokerId}/${ev.kind}`);
+  void persistAlert({
+    type: "module_down", // broker is "down" from the operator's perspective
+    priority: "critical",
+    title: `Broker · ${ev.brokerId}`,
+    message: `${ev.kind.toUpperCase().replace(/_/g, " ")}: ${ev.reason}`,
+  });
 }
 
 /** Test-only: reset the per-broker disconnect-alert cooldown map. */

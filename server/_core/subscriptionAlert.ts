@@ -22,6 +22,7 @@ import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { createLogger } from "../broker/logger";
 import { notifyPartha } from "./telegram";
+import { AlertModel } from "../alerts/alertModel";
 
 const log = createLogger("BOOT", "SubscriptionAlert");
 
@@ -155,6 +156,19 @@ export async function sendDueAlertsTelegram(now: Date): Promise<string[]> {
   for (const d of due) {
     if (state[d.account.brokerId] === todayKey) continue; // already sent today
     await notifyPartha(d.message);
+    // Also persist to alerts collection so the in-app AlertHistory drawer
+    // shows the auto-pay reminder.
+    try {
+      await AlertModel.create({
+        type: "module_down", // closest existing type — "something needs operator attention"
+        priority: d.daysUntil === 0 ? "critical" : "high",
+        title: `Dhan auto-pay · ${d.account.label}`,
+        message: `Renews on day ${d.account.renewalDayOfMonth} (${d.daysUntil === 0 ? "today" : `in ${d.daysUntil}d`}) via ${d.account.autopayBank}. Keep balance topped up.`,
+        timestamp: now.getTime(),
+      });
+    } catch (err) {
+      log.warn(`AlertModel persist failed (subscription alert ${d.account.brokerId}): ${(err as Error).message}`);
+    }
     state[d.account.brokerId] = todayKey;
     sent.push(d.account.brokerId);
   }

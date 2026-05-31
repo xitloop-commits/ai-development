@@ -65,20 +65,26 @@ export function AlertProvider({ children }: { children: ReactNode }) {
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const lastReadTimestamp = useRef<number>(Date.now());
 
-  // ── T52: server-side persistence ──────────────────────────────
-  // Hydrate from server on mount (one-shot). Server is authoritative for
-  // history older than this session; local state stays authoritative for
-  // anything dispatched in-session. Fire-and-forget mutations keep the
-  // local-first UX — if the server is unreachable, alerts still work.
-  const hydratedRef = useRef(false);
-  const alertsListQuery = trpc.alerts.list.useQuery({ limit: MAX_ALERT_HISTORY });
+  // ── T52: server-side persistence + 10 s in-session polling ────
+  // Initial mount hydrates from server (last 50 alerts). Every 10 s
+  // afterwards re-fetches so server-side events (trade fills / exits /
+  // gate rejections / broker disconnects / subscription alerts / session
+  // summaries) appear in the in-app drawer without a page reload.
+  //
+  // Local state remains authoritative for in-session UX (toast + sound +
+  // browser notif fire immediately on dispatchAlert); the server merge
+  // runs after each poll and de-dupes by (id, then by composite
+  // timestamp+title+message for cases where the client-generated temp
+  // id hasn't yet been replaced by the server's _id).
+  const alertsListQuery = trpc.alerts.list.useQuery(
+    { limit: MAX_ALERT_HISTORY },
+    { refetchInterval: 10_000 },
+  );
   const alertsPushMut = trpc.alerts.push.useMutation();
   const alertsMarkReadMut = trpc.alerts.markAllRead.useMutation();
 
   useEffect(() => {
-    if (hydratedRef.current) return;
     if (!alertsListQuery.data) return;
-    hydratedRef.current = true;
     const serverAlerts: AlertEvent[] = alertsListQuery.data.map((d) => ({
       id: d.id,
       type: d.type as AlertEventType,
@@ -89,12 +95,20 @@ export function AlertProvider({ children }: { children: ReactNode }) {
       timestamp: d.timestamp,
       dismissed: false,
     }));
-    // Merge: keep any in-session local alerts at the head, append server
-    // history below (deduped by id in case the same alert was already
-    // pushed + hydrated within the same load).
     setAlerts((prev) => {
+      // Dedup: server _id match OR (same timestamp, title, message) — the
+      // composite catches the brief window between local push + server
+      // round-trip where the local alert still has its generateAlertId()
+      // temp id while the server-persisted copy carries its mongo _id.
       const knownIds = new Set(prev.map((a) => a.id));
-      const merged = [...prev, ...serverAlerts.filter((a) => !knownIds.has(a.id))];
+      const knownComposite = new Set(prev.map((a) => `${a.timestamp}|${a.title}|${a.message}`));
+      const fresh = serverAlerts.filter(
+        (a) =>
+          !knownIds.has(a.id) &&
+          !knownComposite.has(`${a.timestamp}|${a.title}|${a.message}`),
+      );
+      if (fresh.length === 0) return prev; // no new server events — bail to avoid pointless re-render
+      const merged = [...prev, ...fresh].sort((a, b) => b.timestamp - a.timestamp);
       return merged.slice(0, MAX_ALERT_HISTORY);
     });
   }, [alertsListQuery.data]);

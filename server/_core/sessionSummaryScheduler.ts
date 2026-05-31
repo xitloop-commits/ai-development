@@ -25,6 +25,7 @@ import { msToNextIstHHmm } from "../discipline/capitalProtectionScheduler";
 import { notifyPartha } from "./telegram";
 import { getDayRecord, getCapitalState } from "../portfolio/state";
 import type { Channel, TradeRecord } from "../portfolio/state";
+import { AlertModel } from "../alerts/alertModel";
 
 const log = createLogger("BOOT", "SessionSummary");
 
@@ -195,6 +196,21 @@ async function buildAndSend(exchange: Exchange, now: Date = new Date()): Promise
   const summary = computeSummary(aggregatedTrades, totalStartingCapital, totalCurrentCapital);
   const message = formatSummary(exchange, summary);
   await notifyPartha(message);
+  // Also persist to alerts collection so the in-app AlertHistory drawer
+  // picks it up on its next refetch. Failure non-fatal — Telegram push
+  // already happened.
+  try {
+    const sign = summary.netPnl >= 0 ? "+" : "";
+    await AlertModel.create({
+      type: "new_signal", // closest existing AlertEventType; future enum extension could add "session_summary"
+      priority: "medium",
+      title: `${exchange} session summary`,
+      message: `${summary.totalTrades} trades  ·  W ${summary.wins}/L ${summary.losses}  ·  Net ${sign}₹${Math.round(summary.netPnl).toLocaleString("en-IN")} (${sign}${summary.netPnlPercent.toFixed(2)}%)`,
+      timestamp: now.getTime(),
+    });
+  } catch (err) {
+    log.warn(`AlertModel persist failed (${exchange} session summary): ${(err as Error).message}`);
+  }
   state[todayKey] = now.toISOString();
   writeState(state);
   log.important(
