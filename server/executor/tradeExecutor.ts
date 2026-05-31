@@ -602,6 +602,14 @@ class TradeExecutorAgent {
         timestamp: Date.now(),
       });
 
+      // Release this trade's LTP subscription (refCount-aware in
+      // SubscriptionManager — the WS unsubscribe only fires once the LAST
+      // consumer of this contract drops it, so other open trades on the
+      // same option keep streaming). Mirrors ensureOptionLtpSubscription's
+      // routing: paper channels released via the primary live adapter,
+      // live channels via the channel's own adapter.
+      releaseOptionLtpSubscription(channel, closed.contractSecurityId, closed.instrument);
+
       void charges;
       const response: ExitTradeResponse = {
         success: true,
@@ -677,6 +685,10 @@ class TradeExecutorAgent {
         pnlCategory: pnl > 0 ? "win" : pnl < 0 ? "loss" : "breakeven",
         timestamp: Date.now(),
       });
+      // Release this contract's WS subscription (refCount-safe — see
+      // exitTrade for the same call pattern).
+      releaseOptionLtpSubscription(req.channel, closed.contractSecurityId, closed.instrument);
+
       log.info(
         `recordAutoExit ${req.reason} channel=${req.channel} trade=${req.tradeId} pnl=${pnl}`,
       );
@@ -857,6 +869,41 @@ function ensureOptionLtpSubscription(
     );
   } catch (err: any) {
     log.warn(`subscribeLTP failed for ${req.contractSecurityId}: ${err?.message ?? err}`);
+  }
+}
+
+/**
+ * Mirror of ensureOptionLtpSubscription for the trade-close path. The
+ * SubscriptionManager's refCount ensures that other open trades / forms
+ * still subscribed to the same contract keep their feed; the WS
+ * unsubscribe only fires when the last consumer releases.
+ *
+ * Failures are non-fatal — the trade is already closed; a stale WS
+ * subscription is at worst a minor inefficiency.
+ */
+function releaseOptionLtpSubscription(
+  channel: Channel,
+  contractSecurityId: string | null | undefined,
+  instrument: string,
+): void {
+  if (!contractSecurityId) return;
+  const adapter = (() => {
+    try { return getAdapter(channel); } catch { return null; }
+  })();
+  if (!adapter) return;
+  const feedAdapter = _isPaperChannel(channel) ? getActiveBroker() : adapter;
+  if (!feedAdapter?.unsubscribeLTP) return;
+  try {
+    const exchange = resolveExchange(instrument);
+    const wsExchange = exchange === "MCX_COMM" ? "MCX_COMM" : "NSE_FNO";
+    feedAdapter.unsubscribeLTP(
+      [{ exchange: wsExchange as any, securityId: contractSecurityId }] as any,
+    );
+    log.debug(
+      `Released option LTP: ${wsExchange}:${contractSecurityId} via ${feedAdapter.brokerId}`,
+    );
+  } catch (err: any) {
+    log.warn(`unsubscribeLTP failed for ${contractSecurityId}: ${err?.message ?? err}`);
   }
 }
 

@@ -38,7 +38,14 @@ export interface SubscriptionManagerCallbacks {
 // ─── SubscriptionManager Class ─────────────────────────────────
 
 export class SubscriptionManager {
-  private subscriptions = new Map<string, { exchange: string; mode: FeedMode }>();
+  // Each entry carries a refCount so multiple independent subscribers
+  // (e.g. several open trades on the same option contract, plus the
+  // new-trade-form + quick-order popup composing on the same strike) share
+  // one WS subscription without the first close ripping the feed out from
+  // under the others. refCount-aware subscribe / unsubscribe pair with each
+  // other 1:1 — the WS sub is created on the first subscribe and torn down
+  // only when refCount reaches 0.
+  private subscriptions = new Map<string, { exchange: string; mode: FeedMode; refCount: number }>();
   private callbacks: SubscriptionManagerCallbacks;
   private maxInstruments: number;
 
@@ -53,25 +60,31 @@ export class SubscriptionManager {
   // ── Public API ─────────────────────────────────────────────────
 
   /**
-   * Subscribe to specific instruments (batch). Deduplicates and enforces budget.
+   * Subscribe to specific instruments (batch). Increments the refCount for
+   * any instrument already subscribed; only emits a fresh WS subscribe when
+   * the entry is being created for the first time. Enforces the per-WS
+   * instrument cap on new entries.
    */
   subscribeManual(instruments: { exchange: string; securityId: string; mode: FeedMode }[]): void {
     const toAdd: SubscribeAction[] = [];
 
     for (const inst of instruments) {
       const key = `${inst.exchange}:${inst.securityId}`;
-      if (!this.subscriptions.has(key)) {
-        if (this.subscriptions.size >= this.maxInstruments) {
-          log.warn(`Max instruments (${this.maxInstruments}) reached. Cannot subscribe ${key}`);
-          continue;
-        }
-        this.subscriptions.set(key, { exchange: inst.exchange, mode: inst.mode });
-        toAdd.push({
-          exchange: inst.exchange,
-          securityId: inst.securityId,
-          mode: inst.mode,
-        });
+      const existing = this.subscriptions.get(key);
+      if (existing) {
+        existing.refCount += 1;
+        continue;
       }
+      if (this.subscriptions.size >= this.maxInstruments) {
+        log.warn(`Max instruments (${this.maxInstruments}) reached. Cannot subscribe ${key}`);
+        continue;
+      }
+      this.subscriptions.set(key, { exchange: inst.exchange, mode: inst.mode, refCount: 1 });
+      toAdd.push({
+        exchange: inst.exchange,
+        securityId: inst.securityId,
+        mode: inst.mode,
+      });
     }
 
     if (toAdd.length > 0) {
@@ -80,14 +93,19 @@ export class SubscriptionManager {
   }
 
   /**
-   * Unsubscribe from specific instruments (batch). Removes from registry.
+   * Unsubscribe from specific instruments (batch). Decrements the refCount;
+   * only emits an actual WS unsubscribe when the count drops to 0. Silent
+   * no-op for keys that aren't registered (preserves prior behaviour).
    */
   unsubscribeManual(instruments: { exchange: string; securityId: string }[]): void {
     const toRemove: { exchange: string; securityId: string }[] = [];
 
     for (const inst of instruments) {
       const key = `${inst.exchange}:${inst.securityId}`;
-      if (this.subscriptions.has(key)) {
+      const entry = this.subscriptions.get(key);
+      if (!entry) continue;
+      entry.refCount -= 1;
+      if (entry.refCount <= 0) {
         this.subscriptions.delete(key);
         toRemove.push(inst);
       }
