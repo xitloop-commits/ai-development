@@ -788,7 +788,15 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
     # ── SessionManager callbacks ──────────────────────────────────────────────
     def _on_session_open():
         today = datetime.now(_IST).strftime("%Y-%m-%d")
-        end_sec = _session_boundary_sec(today, profile.session_end)
+        # T35-FU1: use effective_session_end_epoch so Muhurat /
+        # MCX morning-only days return the abnormal close, not the
+        # profile's default 15:30/23:30.
+        from market_calendar import effective_session_end_epoch
+        end_sec = effective_session_end_epoch(
+            today,
+            exchange=profile.exchange,
+            default_hhmm=profile.session_end,
+        )
         processor.on_session_open(session_end_sec=end_sec)
         recorder.on_session_open(today)
         log.info("SESSION_OPEN", msg=f"Session opened for {today}")
@@ -1325,7 +1333,16 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
             try:
                 now_ist = datetime.now(_IST)
                 today = now_ist.strftime("%Y-%m-%d")
-                end_sec = _session_boundary_sec(today, profile.session_end)
+                # T35-FU1: match the session_open helper so the
+                # enforcer fires at the actual partial-session close
+                # (Muhurat 19:15, MCX morning-only 17:00) rather than
+                # at the profile default.
+                from market_calendar import effective_session_end_epoch
+                end_sec = effective_session_end_epoch(
+                    today,
+                    exchange=profile.exchange,
+                    default_hhmm=profile.session_end,
+                )
                 if now_ist.timestamp() > end_sec + 10:
                     print(
                         f"\n  {YELLOW('◼  session_end + 10s passed')}  —  force-stopping.\n",

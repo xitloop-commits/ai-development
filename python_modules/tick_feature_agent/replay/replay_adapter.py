@@ -69,6 +69,16 @@ from tick_feature_agent.output.emitter import Emitter, assemble_flat_vector
 from tick_feature_agent.state import feature_pipeline
 from tick_feature_agent.state_machine import StateMachine, TradingState
 
+# T35-FU1: clamp session_end to the abnormal close on Muhurat /
+# half-session days so target lookahead doesn't reach into NULL/
+# stale post-close prices.
+import sys as _sys
+from pathlib import Path as _Path
+_PY_MODULES_DIR = _Path(__file__).resolve().parents[2]
+if str(_PY_MODULES_DIR) not in _sys.path:
+    _sys.path.insert(0, str(_PY_MODULES_DIR))
+from market_calendar import effective_session_end_epoch  # noqa: E402
+
 _NAN = float("nan")
 _IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -275,8 +285,18 @@ class ReplayAdapter:
         )
 
         # ── Session boundary (Unix epoch seconds) ─────────────────────────────
+        # T35-FU1: session_end is clamped against partial-session
+        # entries in config/market_holidays.json. On a normal day the
+        # value collapses to the profile's session_end. On a Muhurat /
+        # MCX morning-only day, it returns the abnormal early close so
+        # downstream target-labelling stops emitting NaN for lookahead
+        # windows that reach into post-session NULL prices.
         self._session_start_sec = _session_boundary_sec(date_str, profile.session_start)
-        self._session_end_sec = _session_boundary_sec(date_str, profile.session_end)
+        self._session_end_sec = effective_session_end_epoch(
+            date_str,
+            exchange=profile.exchange,
+            default_hhmm=profile.session_end,
+        )
 
         # ── Internal replay state ─────────────────────────────────────────────
         # Security ID map from latest chain snapshot (for option tick lookup)

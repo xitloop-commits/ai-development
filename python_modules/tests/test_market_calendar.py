@@ -271,3 +271,108 @@ def test_get_partial_session_reason_empty_string_treated_as_none(write_holidays)
         },
     })
     assert mc.get_partial_session_reason(dt.date(2026, 11, 12)) is None
+
+
+# --- effective_session_end_epoch (T35-FU1) ----------------------------------
+
+def _ist_epoch(year, month, day, hour, minute):
+    """Helper: epoch seconds for a given IST wallclock time."""
+    tz = dt.timezone(dt.timedelta(hours=5, minutes=30))
+    return dt.datetime(year, month, day, hour, minute, tzinfo=tz).timestamp()
+
+
+def test_effective_end_normal_day_returns_profile_default(write_holidays):
+    """On a non-partial day, the helper must return the profile's
+    default_hhmm converted to epoch — no partial-session lookup applies.
+    """
+    write_holidays({"2026": [], "partial_sessions": {}})
+    epoch = mc.effective_session_end_epoch(
+        "2026-05-29", exchange="NSE", default_hhmm="15:30",
+    )
+    assert epoch == _ist_epoch(2026, 5, 29, 15, 30)
+
+
+def test_effective_end_normal_day_mcx(write_holidays):
+    write_holidays({"2026": [], "partial_sessions": {}})
+    epoch = mc.effective_session_end_epoch(
+        "2026-05-29", exchange="MCX", default_hhmm="23:30",
+    )
+    assert epoch == _ist_epoch(2026, 5, 29, 23, 30)
+
+
+def test_effective_end_muhurat_uses_later_close(write_holidays):
+    """NSE Muhurat 19:15 IST is LATER than the default 15:30.
+    The helper must use the partial value (19:15), not min(15:30, 19:15)
+    — Muhurat sessions are shifted, not shortened.
+    """
+    write_holidays({
+        "2026": [],
+        "partial_sessions": {
+            "2026-11-08": {
+                "session_end_sec": 69300,   # 19:15 IST
+                "reason": "Muhurat",
+                "exchanges": ["NSE"],
+            },
+        },
+    })
+    epoch = mc.effective_session_end_epoch(
+        "2026-11-08", exchange="NSE", default_hhmm="15:30",
+    )
+    assert epoch == _ist_epoch(2026, 11, 8, 19, 15)
+
+
+def test_effective_end_mcx_morning_only_uses_earlier_close(write_holidays):
+    """MCX morning-only at 17:00 IST is earlier than the default 23:30.
+    The helper must return 17:00.
+    """
+    write_holidays({
+        "2026": [],
+        "partial_sessions": {
+            "2026-01-01": {
+                "session_end_sec": 61200,   # 17:00 IST
+                "reason": "MCX morning-only",
+                "exchanges": ["MCX"],
+            },
+        },
+    })
+    epoch = mc.effective_session_end_epoch(
+        "2026-01-01", exchange="MCX", default_hhmm="23:30",
+    )
+    assert epoch == _ist_epoch(2026, 1, 1, 17, 0)
+
+
+def test_effective_end_exchange_scoped_does_not_leak(write_holidays):
+    """A partial-session entry scoped to NSE only must NOT change MCX's
+    effective end on the same date — MCX gets its default.
+    """
+    write_holidays({
+        "2026": [],
+        "partial_sessions": {
+            "2026-11-08": {
+                "session_end_sec": 69300,
+                "reason": "NSE Muhurat",
+                "exchanges": ["NSE"],
+            },
+        },
+    })
+    # NSE clamps to 19:15.
+    nse = mc.effective_session_end_epoch(
+        "2026-11-08", exchange="NSE", default_hhmm="15:30",
+    )
+    assert nse == _ist_epoch(2026, 11, 8, 19, 15)
+    # MCX gets the default 23:30 — not the NSE-scoped Muhurat value.
+    mcx = mc.effective_session_end_epoch(
+        "2026-11-08", exchange="MCX", default_hhmm="23:30",
+    )
+    assert mcx == _ist_epoch(2026, 11, 8, 23, 30)
+
+
+def test_effective_end_handles_missing_partial_block(write_holidays):
+    """JSON without a partial_sessions key at all — helper should fall
+    back to the profile default for every date.
+    """
+    write_holidays({"2026": []})
+    epoch = mc.effective_session_end_epoch(
+        "2026-05-29", exchange="NSE", default_hhmm="15:30",
+    )
+    assert epoch == _ist_epoch(2026, 5, 29, 15, 30)

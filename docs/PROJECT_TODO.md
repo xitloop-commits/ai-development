@@ -135,10 +135,27 @@ Two edge-case items not on prior roadmap:
 - **Status:** ✅ IMPLEMENTED 2026-05-31.
 - **Cross-ref:** T3 Phase 6. Follow-up below covers target-labelling consumers.
 
-#### T35-FU1 — Wire `get_session_end_sec` into MTA + SEA target computation 🆕
-T35 ships the calendar API but does NOT yet make MTA or SEA clamp their lookahead windows at the abnormal close. Until that wiring lands, labels on Muhurat Diwali days etc. are still computed against post-close NULL/stale prices.
-- Scope: grep for hard-coded `15:30` / `55800` / `session_end` in `python_modules/model_training_agent/` + `python_modules/signal_engine_agent/`; replace each call site with `market_calendar.get_session_end_sec(date, exchange=...)`.
-- Effort: ~½ day. No blockers — T35 calendar API is live.
+#### T35-FU1 — Wire `get_session_end_sec` into TFA session-boundary computation ✅ IMPLEMENTED
+T35 ships the calendar API but did NOT yet make TFA clamp its session_end_sec at the abnormal close. Until that wiring lands, labels on Muhurat Diwali days etc. were computed against post-close NULL/stale prices.
+
+**Scope correction during implementation:** the actual target-labelling code lives in `python_modules/tick_feature_agent/features/targets.py` + `trend_swing_targets.py` (NOT MTA/SEA as originally written). They already accept `session_end_sec` as a parameter; the gap was in how the **callers** (replay_adapter + live main.py) computed that value — they used `_session_boundary_sec(date_str, profile.session_end)` which is just the profile's hard-coded `"15:30"` / `"23:30"`.
+
+**Implementation (shipped 2026-05-31):**
+- `python_modules/market_calendar.py` gains `effective_session_end_epoch(date_str, *, exchange, default_hhmm, tzinfo=None) -> float`. Logic: if the date is in `partial_sessions` for the exchange → use the partial value (Muhurat 19:15 IST is LATER than 15:30 default, MCX morning-only 17:00 is EARLIER than 23:30; both handled by trusting the JSON entry); otherwise use `default_hhmm` from the profile. Direct epoch math, no double-conversion bugs.
+- `python_modules/tick_feature_agent/replay/replay_adapter.py:279` — `_session_end_sec` now flows through the new helper. Imported via `sys.path` shim because `market_calendar` lives in `python_modules/` root, not under `tick_feature_agent/`.
+- `python_modules/tick_feature_agent/main.py` — two live-mode call sites: `_on_session_open()` (sets the processor's session_end at session-open) and `_session_end_enforcer()` (the wall-clock force-stop safety net at session_end + 10s). Both swapped from `_session_boundary_sec(today, profile.session_end)` to `effective_session_end_epoch(...)`.
+- Session **start** computation deliberately NOT changed — partial-session entries cover end-of-session only. Muhurat session start (18:15 IST vs default 09:15) is a deeper change requiring a parallel `session_start_sec` field in the JSON; tracked separately as **T35-FU2** below.
+- 6 new helper tests added to `test_market_calendar.py` (25 total in that file): normal-day NSE + MCX, Muhurat later-close, MCX morning-only earlier-close, exchange-scoping doesn't leak across exchanges, missing partial-sessions block falls back gracefully.
+
+**Validation:** full project test suite (excluding the 4 pre-existing date-sensitive TFA tests) re-runs green after the replay_adapter + main.py edits.
+
+- **Status:** ✅ IMPLEMENTED 2026-05-31.
+- **Cross-ref:** Completes the partial-session loop end-to-end. Closes the labelling-corruption risk on Muhurat / half-session days for replay AND live ingestion.
+
+#### T35-FU2 — Partial-session START handling (Muhurat-only) 🆕
+T35-FU1 covers session END. Muhurat days also have a non-default session START (typically 18:15 IST vs profile default 09:15). For target labelling this isn't critical (ticks only arrive during the actual session anyway, so a target tick at 18:30 is well within any sensible window). But for the `_is_market_open` predicate + the launcher's pre-open countdown, the start matters.
+- Scope: add `session_start_sec` to partial-session JSON entries (optional); add `effective_session_start_epoch` helper; wire into replay_adapter + main.py.
+- Effort: ~½ day. Low priority — only matters if someone replays a Muhurat day OR if the launcher tries to schedule pre-open for one. Both are edge cases.
 
 ### T41 — Production prediction → outcome join (feedback-loop foundation) ✅ IMPLEMENTED
 Persist every live head prediction (84 heads × every signal eval) to disk, then backfill the actual market outcome N seconds later from the live tick stream. Produces `predictions_<date>.parquet` per instrument joining what the model *said* with what actually *happened* — for all 84 heads, not just heads that fired.

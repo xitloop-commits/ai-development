@@ -187,6 +187,62 @@ def get_session_end_sec(today: _dt.date | None = None, *,
     return entry["session_end_sec"]
 
 
+def effective_session_end_epoch(
+    date_str: str,
+    *,
+    exchange: str,
+    default_hhmm: str,
+    tzinfo: _dt.tzinfo | None = None,
+) -> float:
+    """Return the effective session-end as Unix epoch seconds for the
+    given date, considering partial sessions.
+
+    Logic:
+      - If the date is in ``partial_sessions`` for this exchange,
+        return the abnormal close from the JSON (epoch). This handles
+        BOTH directions of abnormality:
+          * MCX morning-only (e.g. 2026-01-01) closes EARLIER at 17:00
+            than the default 23:30 — clamps lookahead.
+          * NSE Muhurat (e.g. 2026-11-08) closes LATER at 19:15 than
+            the default 15:30 — the Muhurat session is shifted, not
+            shortened. Using the default 15:30 would label every
+            Muhurat tick as "after close."
+      - Otherwise, return the profile's ``default_hhmm`` converted to
+        epoch — the normal-day close.
+
+    Args:
+        date_str: ``"YYYY-MM-DD"``.
+        exchange: ``"NSE"`` or ``"MCX"`` — selects the per-exchange
+            default + filters exchange-scoped partial-session entries.
+        default_hhmm: profile's ``session_end`` field, e.g. ``"15:30"``.
+            Used only on non-partial-session days.
+        tzinfo: timezone for the date — defaults to IST. Tests can
+            inject a different zone if needed.
+    """
+    if tzinfo is None:
+        tzinfo = _dt.timezone(_dt.timedelta(hours=5, minutes=30))
+
+    date = _dt.date(
+        year=int(date_str[:4]),
+        month=int(date_str[5:7]),
+        day=int(date_str[8:10]),
+    )
+    midnight = _dt.datetime(
+        year=date.year, month=date.month, day=date.day,
+        tzinfo=tzinfo,
+    ).timestamp()
+
+    if is_partial_session_day(date, exchange=exchange):
+        # Use the partial-session value verbatim — Muhurat days move
+        # the close later, half-days move it earlier; both are
+        # handled by trusting the JSON entry.
+        sec_of_day = get_session_end_sec(date, exchange=exchange)
+        return midnight + float(sec_of_day)
+
+    h, m = default_hhmm.split(":")
+    return midnight + (int(h) * 3600 + int(m) * 60)
+
+
 def get_partial_session_reason(today: _dt.date | None = None) -> str | None:
     """Return the human-readable reason string for a partial-session day,
     or ``None`` if the date isn't a partial session. Useful for logging.
