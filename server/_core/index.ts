@@ -27,6 +27,7 @@ import { validateEnv } from "./validateEnv";
 import { requestIdMiddleware } from "./correlationContext";
 import { metricsHandler } from "./metrics";
 import { startSubscriptionAlertScheduler } from "./subscriptionAlert";
+import { startMcxLotScheduler } from "../broker/adapters/dhan/mcxLots";
 import { startSessionSummaryScheduler, stopSessionSummaryScheduler } from "./sessionSummaryScheduler";
 import { startAlertPurgeScheduler, stopAlertPurgeScheduler } from "./alertPurgeScheduler";
 
@@ -238,6 +239,8 @@ async function startServer() {
     bootLog.important(`Server running on http://${host}:${port}/`);
     // Dhan Data API subscription auto-pay reminders (console + yow-partha bot).
     startSubscriptionAlertScheduler();
+    // MCX commodity lot sizes (not in Dhan's scrip master) — scraped + daily refresh.
+    startMcxLotScheduler();
     // Session-close P&L summary pushes to yow-partha (NSE 15:30 IST, MCX 23:30 IST).
     void startSessionSummaryScheduler();
     registerShutdownHook("sessionSummary", () => stopSessionSummaryScheduler(), 200);

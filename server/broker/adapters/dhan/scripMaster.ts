@@ -511,6 +511,16 @@ export function getLotSizeBySymbol(symbol: string): number {
 }
 
 /**
+ * True if the symbol is an MCX commodity (e.g. CRUDEOIL, NATURALGAS). MCX lot
+ * sizes are NOT in the scrip master (it reports 1), so callers must source the
+ * real lot elsewhere for these. Determined from the scrip record's exchange.
+ */
+export function isMcxSymbol(symbol: string): boolean {
+  const candidates = bySymbol.get(symbol.toUpperCase().replace(/\s+/g, ""));
+  return !!candidates?.some((r) => r.exchange === "MCX");
+}
+
+/**
  * Check if the scrip master needs refreshing (older than given hours).
  */
 export function needsRefresh(maxAgeHours: number = 24): boolean {

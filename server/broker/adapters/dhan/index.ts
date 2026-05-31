@@ -76,7 +76,9 @@ import {
   needsRefresh as scripNeedsRefresh,
   getLotSizeBySecurityId,
   getLotSizeBySymbol,
+  isMcxSymbol,
 } from "./scripMaster";
+import { getMcxLot } from "./mcxLots";
 
 import {
   parseTradingSymbol,
@@ -689,6 +691,18 @@ export class DhanAdapter implements BrokerAdapter {
   async getLotSize(symbol: string): Promise<number> {
     if (this.sandboxMode && this.metadataSource?.getLotSize) {
       return this.metadataSource.getLotSize(symbol);
+    }
+    // MCX commodity lots aren't in the scrip master — source them from the
+    // scraped lot-size feed. No fallback: if it's not loaded, fail so the caller
+    // rejects the order rather than sizing it with a wrong lot.
+    if (isMcxSymbol(symbol)) {
+      const lot = getMcxLot(symbol);
+      if (lot == null) {
+        throw new Error(
+          `MCX lot size for ${symbol} is unavailable (lot-size source not loaded). Cannot size commodity order.`,
+        );
+      }
+      return lot;
     }
     return getLotSizeBySymbol(symbol);
   }
