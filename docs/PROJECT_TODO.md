@@ -700,11 +700,28 @@ Convert TFA's per-event stateful trackers (the hot ones) to Polars columnar `upd
 - **Effort:** ~2–3 days. Land `server/journal/` module: collection schema, write-through hook in `PA.recordTradeClosed`, append-only enforcement on operator-authored fields once `WeeklyReview` locks the entry, tRPC `journal.list/edit/get` surfaces for the UI.
 - **Cross-ref:** [systems/07_portfolio_reporting.md §9](systems/07_portfolio_reporting.md), [systems/06_risk_discipline.md §3 Module 6](systems/06_risk_discipline.md).
 
-### T52 [UI] — Notifications backend (Telegram routing + email + preferences UI) 🆕
-`Notifications_Spec_v0.1` describes three notification layers. **Only toast + AlertHistory are live.** Server-side Telegram path exists for token-expiry and session-close events but isn't wired for trade alerts, gate rejections, or DISCIPLINE_EXIT events. Email + preferences UI not built. Spec has 5 open decisions (provider, retention, quiet hours, de-duplication, default route table).
+### T52 [UI] — Notifications backend (Telegram routing for trade events + AlertHistory retention) 🆕
+Extend the existing server-side Telegram path (today wired only for token-expiry + session-close) to cover every operator-facing trading event. Email layer dropped from scope — Telegram + in-app cover every need on a single phone.
 
-- **Status:** Deferred 2026-05-25 (surfaced during System 08 doc rewrite). PRE-paper-trade SHOULD; PRE-AI-Live MUST (operator needs Telegram on phone for DISCIPLINE_EXIT events when desktop UI isn't open).
-- **Effort:** ~4–6 days. Email provider choice + setup (~1d), Telegram routing for trade events via yow-partha (~2d), preferences tRPC + Settings UI section (~2d), end-to-end test on a paper channel.
+**5 open decisions LOCKED 2026-05-31:**
+
+1. **Default route table** — Telegram for time-sensitive events; in-app toast for everything; Telegram for summaries (no email channel). Routes:
+   - Trade fill (entry) → Telegram + in-app
+   - Trade exit (TP / SL / manual) → Telegram + in-app
+   - Pre-trade gate rejection → Telegram + in-app
+   - DISCIPLINE_EXIT (circuit-breaker auto-close) → Telegram + in-app
+   - Daily NSE session-close summary (~15:30 IST) → Telegram (NIFTY + BANKNIFTY total trades, wins/losses, net ₹/%, best/worst trade, current capital)
+   - Daily MCX session-close summary (~23:30 IST) → Telegram (CRUDEOIL + NATURALGAS, same format)
+   - Token expiry warnings → Telegram (already shipped — keep)
+   - Broker disconnect / WS error → Telegram + in-app
+   - Test / debug events → in-app only
+2. **Email provider** — DROPPED. No email layer.
+3. **AlertHistory retention** — 30 days (Telegram itself keeps the chat history; this is the in-app AlertHistory drawer only).
+4. **Quiet hours** — none. Push 24/7 (MCX runs till 23:30 IST anyway; Telegram per-chat mute is the operator's escape hatch).
+5. **De-duplication** — 30-second window. Identical event signature + content within 30 s collapses to one push (catches bug-storms without hiding legitimately rapid distinct events — different trade IDs produce different signatures).
+
+- **Status:** Decisions locked 2026-05-31; implementation pending. PRE-paper-trade SHOULD; PRE-AI-Live MUST (operator needs Telegram on phone for DISCIPLINE_EXIT when desktop UI isn't open).
+- **Revised effort:** ~3 days (was 4-6; email path eliminated). Telegram routing for trade events via yow-partha (~1.5d), AlertHistory 30-day retention + dedup window (~0.5d), session-close summary scheduler (~0.5d), end-to-end smoke test on a paper channel (~0.5d).
 - **Cross-ref:** [systems/08_ui_desktop.md §8](systems/08_ui_desktop.md), [systems/09_control_bot.md](systems/09_control_bot.md).
 
 ### T50 [H2H] — Implement HeadToHead pairing + dashboard 🆕

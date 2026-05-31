@@ -11,7 +11,7 @@ Single source of truth for the **Tauri / React desktop UI** — the operator's c
 - Discipline overlay (Ctrl+D).
 - Left sidebar — instrument tabs hosting `InstrumentCard v2`.
 - Right sidebar — `SignalsFeed` + `AlertHistory`.
-- Notifications — toast (sonner) + AlertHistory; full Telegram + email routing is partial.
+- Notifications — toast (sonner) + AlertHistory live; Telegram routing partial (T52 extends it to trade events; email layer dropped).
 - Keyboard hotkeys (1/2/3/4 instrument switching, F2 Settings, Ctrl+D Discipline, Ctrl+[ / Ctrl+] sidebar toggles, Esc).
 - Live LTP polling, feed-subscription wiring via `useTickStream` / `useTradingDeskData` hooks.
 - `CapitalContext` / `CapitalProvider` — channel, allDays, currentDay, placeTrade / exitTrade mutations.
@@ -129,15 +129,16 @@ Save / Reset buttons per section via `SettingsActionsContext`.
 
 ## 8. Notifications
 
-Three layers planned in `Notifications_Spec_v0.1`; today **only the first is shipped**:
+**Two layers** (design locked 2026-05-31 — email layer formally dropped from scope):
 
 | Layer | Status |
 |---|---|
-| **UI toast (sonner)** + `AlertHistory` panel | ✅ Live. Toast appears bottom-right, 6 s, dark theme. AlertHistory persists session-scoped. |
-| **Telegram routing** (via yow-partha) | ⚠️ Partial. Server-side path exists for some events (token expiry, session-close); not yet wired for trade alerts, gate rejections, or DISCIPLINE_EXIT notifications. |
-| **Email + preferences UI** | ❌ Not built. Spec lists 5 open decisions (provider, retention, quiet hours, de-duplication, default route table). |
+| **UI toast (sonner)** + `AlertHistory` panel | ✅ Live. Toast appears bottom-right, 6 s, dark theme. AlertHistory persists session-scoped; **30-day retention** after T52 ships. |
+| **Telegram routing** (via yow-partha) | ⚠️ Partial. Token expiry warnings + session-close summaries already wired. T52 extends it to: every trade fill (entry + exit), every pre-trade gate rejection, every DISCIPLINE_EXIT (circuit breaker), broker disconnect / WS error. Push 24/7 — no quiet hours (MCX runs till 23:30 IST anyway). 30-second de-dup window collapses identical event signatures. |
 
-Tracked as [T52 [UI]](../PROJECT_TODO.md).
+**Session-close P&L summary**: two pushes per trading day to yow-partha — NSE-close (~15:30 IST, NIFTY + BANKNIFTY) and MCX-close (~23:30 IST, CRUDEOIL + NATURALGAS). Each push lists total trades, wins/losses, net ₹ + %, best/worst trade, current capital.
+
+Tracked as [T52 [UI]](../PROJECT_TODO.md). Email infrastructure dropped — Telegram + in-app cover every operator-facing need on a single phone.
 
 ## 9. Keyboard hotkeys
 
@@ -174,7 +175,7 @@ tRPC queries used by the main loop:
 - TradingDesk v1.3 channel-prop wiring + theme keying shipped.
 - Settings v1.5 sections all wired; mode toggles removed from Settings (moved to AppBar pills).
 - InstrumentCard v2 — 6-section implementation shipped; matching spec is a stub.
-- Notifications — toast layer + AlertHistory live; Telegram routing partial; email + preferences not started.
+- Notifications — toast layer + AlertHistory live; Telegram routing partial (token expiry + session-close shipped, trade-event routing pending). Email layer dropped from scope 2026-05-31.
 - HeadToHeadPage — frontend wired to `portfolio.headToHead` tRPC query; backend is stub (T50).
 
 ## 12. Open work
