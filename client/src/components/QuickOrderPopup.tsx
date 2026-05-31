@@ -114,7 +114,13 @@ export function QuickOrderPopup({
   const defaultTPPct = settings?.tradeTargetOptions ?? 30;
   const defaultQty = (settings as any)?.defaultQty ?? 1;
 
-  const lotSize = optionChainQuery.data?.lotSize ?? 1;
+  // getLotSize is authoritative (scrip master for NSE, scraped page for MCX);
+  // the option chain's lotSize is wrong for MCX (reports 1), so prefer the query.
+  const lotSizeQuery = trpc.broker.getLotSize.useQuery(
+    { symbol: symbolUnderlying },
+    { enabled: isOpen, staleTime: Infinity },
+  );
+  const lotSize = lotSizeQuery.data ?? optionChainQuery.data?.lotSize ?? 1;
   const totalUnits = qty * Math.max(lotSize, 1);
   const availableFund = marginQuery.data?.available ?? 0;
   const capitalRequired = entryPrice * totalUnits;

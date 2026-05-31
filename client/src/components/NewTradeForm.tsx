@@ -407,7 +407,9 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     { symbol: underlyingSymbol },
     { enabled: isDerivative, staleTime: Infinity }
   );
-  const lotSize = cachedChain?.lotSize ?? lotSizeQuery.data ?? 1;
+  // getLotSize is authoritative (scrip master for NSE, scraped page for MCX);
+  // the option chain's lotSize is wrong for MCX (reports 1), so prefer the query.
+  const lotSize = lotSizeQuery.data ?? cachedChain?.lotSize ?? 1;
 
   // actualQty is always in LOTS (qty=1 means 1 lot).
   // totalUnits = actualQty * lotSize is what gets traded.
