@@ -1,5 +1,7 @@
 {
   "_note": "Trading holidays for the ATS launcher. The scheduled task skips the morning fan-out on these dates. Use the UNION of NSE and MCX holidays -- if either market is closed, there's no reason to record. Update annually from: https://www.nseindia.com/resources/exchange-communication-holidays and https://www.mcxindia.com/market-data/holiday-calendar . Format: YYYY-MM-DD strings. Weekends are handled separately by _scheduled-start.bat -- do not list Saturdays/Sundays here.",
+  "_partial_sessions_note": "Trading days with an abnormal close time (Muhurat Diwali session ~18:15-19:15 IST, exchange-mandated half-days). 'session_end_sec' = seconds-since-midnight IST when the regular session ends; the rest of the day is closed. T35 added this to stop SEA/MTA target-labelling from computing lookahead values against post-close NULL/stale prices on these days. NSE default = 55800 (15:30), MCX default = 84600 (23:30). Populate from the same NSE/MCX holiday circulars as the holiday list above.",
   "2026": [],
-  "2027": []
+  "2027": [],
+  "partial_sessions": {}
 }
