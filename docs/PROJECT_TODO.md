@@ -108,14 +108,37 @@ Two coupled observability outputs needed before paper-trade promotion:
 - **Status:** ✅ IMPLEMENTED 2026-05-30.
 - **Cross-ref:** Consumes T41's per-(prediction, outcome) parquet; reliability output validates D72 calibration; feature-importance output feeds T14 / T21 evidence-based feature decisions.
 
-### T35 — Partial-session handling + inference latency benchmark 🆕
+### T35 — Partial-session handling + inference latency benchmark ✅ IMPLEMENTED
 Two edge-case items not on prior roadmap:
 - **Partial-session / half-day:** `market_calendar.is_market_holiday()` only does an in-set check (`market_calendar.py:55-58`). Muhurat / half-days will be treated as full sessions, mis-labelling targets near abnormal close. Extend `market_holidays.json` schema + add `session_end_sec` lookup.
 - **Inference latency benchmark:** 84 heads × 4 instruments has never been benchmarked. `scripts/benchmark_signal_persistence.py` exists but measures DB writes only. Add one-shot harness to verify live inference fits within tick cadence.
 
-- **Status:** ⏳ PRE-PAPER MUST.
-- **Effort:** ~1 day total.
-- **Cross-ref:** T3 Phase 6.
+**Implementation (shipped 2026-05-31):**
+
+*Partial-session calendar:*
+- `config/market_holidays.json` gains a top-level `partial_sessions` block: `{ "YYYY-MM-DD": { session_end_sec: int, reason: str, exchanges?: ["NSE"|"MCX"] } }`. Backward-compatible — old `2026: [...]` per-year arrays still drive `is_market_holiday()`.
+- `python_modules/market_calendar.py`: `get_session_end_sec(date, exchange="NSE")` returns the abnormal close (seconds-since-midnight IST) for a partial-session day, OR `NSE_DEFAULT_END_SEC=55800` (15:30) / `MCX_DEFAULT_END_SEC=84600` (23:30) otherwise. `is_partial_session_day(date, exchange=None)` checks membership with optional exchange filter. `get_partial_session_reason(date)` returns the human-readable reason for logging.
+- Malformed entries (missing/non-int/out-of-range `session_end_sec`, wrong shape) skipped with stderr WARN — fail-open mirrors the existing holiday-loader.
+- 19 unit tests covering: legacy holiday-set behaviour, partial_sessions key NOT leaking into holiday-set, NSE/MCX defaults, no-exchange-filter vs `exchanges:["NSE"]`-scoped entries, all four malformed-entry shapes, and `partial_sessions` as wrong-type (list instead of dict).
+- **Wiring into target-labelling deferred** — this T35 ships the lookup API only, per spec. Downstream callers (MTA / SEA target computation) need a follow-up to clamp lookahead windows at `get_session_end_sec(date)` rather than the hard-coded 15:30. Tracked as a follow-up below.
+
+*Inference latency benchmark:*
+- `scripts/bench_inference_latency.py` — one-shot harness loading every head listed in `models/<inst>/LATEST_HEADS.json`, running N synthetic evals through each, reporting per-head + per-instrument total latency (mean/p50/p95/p99/max). Heads sharing a feature-count share the same synthetic matrix to keep memory bounded. Per-eval-total p50/p95/p99 are computed on the SUM of per-head times for the same eval index — a realistic "all heads for one tick" number.
+- CLI: `--instruments` (auto-discover by default), `--n-evals 1000`, `--warmup 100` (not counted), `--head-filter`, `--output-json` (structured) + `--output-md`. Markdown also goes to stdout.
+- 9 unit + CLI tests using a synthetic LGBM bundle fixture; pinned `feature-seed` for determinism. Tests assert shape (`p50 ≤ p95 ≤ p99 ≤ max`, totals = sum of per-head means) rather than absolute latencies (CI machines vary).
+- **Live result (2026-05-31, 200 evals, 20 warmup, banknifty + nifty50 LATEST bundles, 84 heads each):**
+  - banknifty: total mean 5.94 ms/eval, p95 6.26 ms, p99 6.68 ms.
+  - nifty50: total mean 5.72 ms/eval, p95 5.76 ms, p99 5.87 ms.
+  - Conclusion: full 84-head sweep fits comfortably inside ~10 ms even under p99, and ~24 ms for 4 instruments concurrently — well under any reasonable tick cadence (~100 ms+). No model-side performance work needed before paper trade.
+- crudeoil + naturalgas had no `LATEST_HEADS.json` at time of run; bench auto-skipped them. Pre-existing state.
+
+- **Status:** ✅ IMPLEMENTED 2026-05-31.
+- **Cross-ref:** T3 Phase 6. Follow-up below covers target-labelling consumers.
+
+#### T35-FU1 — Wire `get_session_end_sec` into MTA + SEA target computation 🆕
+T35 ships the calendar API but does NOT yet make MTA or SEA clamp their lookahead windows at the abnormal close. Until that wiring lands, labels on Muhurat Diwali days etc. are still computed against post-close NULL/stale prices.
+- Scope: grep for hard-coded `15:30` / `55800` / `session_end` in `python_modules/model_training_agent/` + `python_modules/signal_engine_agent/`; replace each call site with `market_calendar.get_session_end_sec(date, exchange=...)`.
+- Effort: ~½ day. No blockers — T35 calendar API is live.
 
 ### T41 — Production prediction → outcome join (feedback-loop foundation) ✅ IMPLEMENTED
 Persist every live head prediction (84 heads × every signal eval) to disk, then backfill the actual market outcome N seconds later from the live tick stream. Produces `predictions_<date>.parquet` per instrument joining what the model *said* with what actually *happened* — for all 84 heads, not just heads that fired.
@@ -175,6 +198,18 @@ Broker-infra cleanup paired with the UI bug-fix that motivated it.
 - **Open follow-ups:**
   - Refcounted unsubscribe in `SubscriptionManager` (today a bare unsubscribe on trade close would kill the feed for any other open trade on the same contract — currently leaks subs until restart, acceptable until contract count grows).
   - Live in-market verification of LTP flow (deferred — markets closed Saturday).
+
+### T46 — testing-sandbox channel wired to Dhan sandbox API + Settings token panel ✅ IMPLEMENTED
+The `testing-sandbox` channel was historically half-built — `connect()` short-circuited without loading credentials, so every order on the channel rejected with `No Dhan access token configured`. Now it's a real integration test bed.
+
+- **Backend:** new `DHAN_SANDBOX_API_BASE = "https://sandbox.dhan.co/v2"` constant. `dhanRequest` / `validateDhanToken` / `updateDhanToken` accept optional `{ baseUrl }`. DhanAdapter gets `_baseUrl` getter (sandbox host when `sandboxMode=true`) + two private wrappers (`_dhanRequest` / `_validateToken`) that auto-inject `this.accessToken` + `this._baseUrl` — all 17 callsites rewritten via mechanical refactor. `connect()` sandbox branch rewritten to load creds from Mongo + validate token against the sandbox host + skip TOTP refresh (sandbox tokens are pasted manually) + skip WebSocket (sandbox has none). Read-only metadata (option chain / scrip master / WS subscriptions) delegate to the primary live adapter via a new `setMetadataSource(adapter)` hook on DhanAdapter, wired in `brokerService.initBrokerService` right after construction.
+- **Credentials:** `scripts/dhan-update-credentials.mjs` gains `--accessToken <JWT>` flag for direct-set tokens (bypasses TOTP); `--show` now also prints `credentials.accessToken` / `credentials.clientId`. Empirically confirmed: live JWT is rejected by sandbox host (`DH-906 "Invalid Token"`) — sandbox needs its own token from `developer.dhanhq.co`.
+- **Expiry alerts:** sandbox added to `config/subscriptions.json` (`renewalDayOfMonth: 30`) so the existing subscription-alert pipeline pings Telegram on the 25th-30th of every month, 5 days before each expected expiry.
+- **Settings UI:** new `SandboxCredentialsSection` in `client/src/pages/Settings.tsx` (sidebar entry "Sandbox Token") — info box linking to `developer.dhanhq.co`, status row (apiStatus / stored clientId / last updated), masked current token preview, Client ID + JWT inputs with clipboard-paste button, save wired to `broker.token.update` with `brokerId="dhan-sandbox"`. The mutation now accepts optional `brokerId` to target a specific adapter; `broker.config.get` accepts optional `{ brokerId }` so the panel queries the sandbox doc independently of the active broker.
+- **Status:** ✅ IMPLEMENTED 2026-05-31 (commits `1ce9f51` backend, `06a2bde` alert config, `930f3fd` Settings panel). All 900 tests pass.
+- **Open follow-ups:**
+  - Live in-UI verification on Monday: open Settings (F2) → Sandbox Token → confirm status reads "CONNECTED", then place an option trade on `testing-sandbox` channel and confirm it fills at ₹100 (Dhan sandbox quirk) and shows up in positions.
+  - Quirk to document operator-side: Dhan sandbox fills every order at ₹100 regardless of market; capital resets to ₹10,00,000 daily — useful for API-shape validation, not for P&L realism.
 
 ## P2 — parked features (small enough to wait)
 
