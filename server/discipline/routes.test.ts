@@ -16,6 +16,7 @@ vi.mock("./index", () => ({
     validateTrade: vi.fn(async () => ({
       allowed: true,
       blockedBy: [],
+      blockReasons: [],
       warnings: [],
       adjustments: [],
       details: {},
@@ -128,6 +129,7 @@ beforeEach(() => {
   (disciplineAgent.validateTrade as any).mockResolvedValue({
     allowed: true,
     blockedBy: [],
+    blockReasons: [],
     warnings: [],
     adjustments: [],
     details: {},
@@ -156,6 +158,7 @@ describe("POST /api/discipline/validateTrade", () => {
     (disciplineAgent.validateTrade as any).mockResolvedValueOnce({
       allowed: false,
       blockedBy: ["sessionHalted", "preTrade"],
+      blockReasons: ["Session halted (cap or manual)", "Pre-trade gate failed"],
       warnings: [],
       adjustments: [],
       details: {},
@@ -172,6 +175,9 @@ describe("POST /api/discipline/validateTrade", () => {
     expect(body.stage).toBe("DA");
     expect(body.decision).toBe("REJECT");
     expect(body.blockedBy).toEqual(["sessionHalted", "preTrade"]);
+    // Reject response carries human-readable reasons, not just the rule keys.
+    expect(body.blockReasons).toEqual(["Session halted (cap or manual)", "Pre-trade gate failed"]);
+    expect(body.reason).toBe("Session halted (cap or manual); Pre-trade gate failed");
     expect((rcaMonitor.evaluateTrade as any)).not.toHaveBeenCalled();
   });
 

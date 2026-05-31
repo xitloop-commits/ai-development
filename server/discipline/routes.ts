@@ -157,12 +157,17 @@ export function registerDisciplineRoutes(app: Express): void {
           body.channel,
         );
         if (!validation.allowed) {
-          log.info(`DA reject channel=${body.channel} blockedBy=[${validation.blockedBy.join(",")}] dt=${Date.now() - t0}ms`);
+          const reasonText = validation.blockReasons?.length
+            ? validation.blockReasons.join("; ")
+            : validation.blockedBy.join(", ");
+          log.info(`DA reject channel=${body.channel} reason="${reasonText}" dt=${Date.now() - t0}ms`);
           res.json({
             success: false,
             stage: "DA",
             decision: "REJECT",
             blockedBy: validation.blockedBy,
+            blockReasons: validation.blockReasons,
+            reason: reasonText,
             warnings: validation.warnings,
           });
           return;

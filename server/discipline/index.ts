@@ -24,7 +24,7 @@ import {
 import { checkDailyLossLimit, checkConsecutiveLosses } from "./circuitBreaker";
 import { checkMaxTrades, checkMaxPositions } from "./tradeLimits";
 import { checkCooldown, createRevengeCooldown, createConsecutiveLossCooldown, acknowledgeLoss, resolveOverlappingCooldowns } from "./cooldowns";
-import { checkTimeWindow } from "./timeWindows";
+import { checkTimeWindow, isSimulationChannel } from "./timeWindows";
 import { checkPositionSize, checkExposure } from "./positionSizing";
 import { evaluatePreTradeGate } from "./preTrade";
 import { checkJournalCompliance, checkWeeklyReview } from "./journalCheck";
@@ -295,8 +295,12 @@ class DisciplineAgent {
     const cdResult = checkCooldown(state, settings);
     if (!cdResult.passed) blockedBy.push("cooldown");
 
-    // 6. Time Window
-    const twResult = checkTimeWindow(request.exchange, settings);
+    // 6. Time Window — skipped for simulation channels (sandbox / paper) so
+    //    the system can be tested outside market hours. Real-exchange channels
+    //    (my-live, ai-live, testing-live) keep the market-hours guard.
+    const twResult = isSimulationChannel(channel)
+      ? { passed: true, exchange: request.exchange }
+      : checkTimeWindow(request.exchange, settings);
     if (!twResult.passed) blockedBy.push("timeWindow");
 
     // 7. Position Size
@@ -325,14 +329,19 @@ class DisciplineAgent {
     if (streakInfo.notifications.length > 0) warnings.push(...streakInfo.notifications);
     if (streakInfo.adjustments.length > 0) adjustments.push(...streakInfo.adjustments);
 
+    // Compose human-readable reasons (same order as blockedBy) once, so both
+    // the persisted violation record and the caller-facing result share them.
+    const reasonCtx = { cbResult, clResult, tlResult, mpResult, cdResult, twResult, psResult, exResult, jResult, ptResult, haltReason: halt?.reason };
+    const blockReasons = blockedBy.map((rule) => this.getBlockReason(rule, reasonCtx));
+
     // Record violations for any blocks
     if (blockedBy.length > 0) {
-      for (const rule of blockedBy) {
+      for (let i = 0; i < blockedBy.length; i++) {
         await addViolation(userId, date, {
-          ruleId: rule,
-          ruleName: rule,
+          ruleId: blockedBy[i],
+          ruleName: blockedBy[i],
           severity: "hard",
-          description: this.getBlockReason(rule, { cbResult, clResult, tlResult, mpResult, cdResult, twResult, psResult, exResult, jResult, ptResult, haltReason: halt?.reason }),
+          description: blockReasons[i],
           timestamp: new Date(),
           overridden: false,
         }, channel);
@@ -350,6 +359,7 @@ class DisciplineAgent {
     return {
       allowed: blockedBy.length === 0,
       blockedBy,
+      blockReasons,
       warnings,
       adjustments,
       details: {

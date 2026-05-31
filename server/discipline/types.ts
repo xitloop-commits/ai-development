@@ -54,6 +54,12 @@ export interface ModuleCheckResult {
 export interface TradeValidationResult {
   allowed: boolean;
   blockedBy: string[];
+  /**
+   * Human-readable reason for each entry in `blockedBy`, in the same order
+   * (e.g. "NSE market is closed" rather than the bare key "timeWindow").
+   * Empty when the trade is allowed.
+   */
+  blockReasons: string[];
   warnings: string[];
   adjustments: string[];
   details: {

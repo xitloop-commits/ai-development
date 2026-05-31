@@ -429,7 +429,10 @@ class TradeExecutorAgent {
         req.channel,
       );
       if (!result.allowed && result.blockedBy.length > 0) {
-        return result.blockedBy.join(", ");
+        // Prefer the human-readable reasons ("NSE market is closed") over the
+        // bare rule keys ("timeWindow"); fall back to keys if absent.
+        const reasons = result.blockReasons?.length ? result.blockReasons : result.blockedBy;
+        return reasons.join("; ");
       }
       return null;
     } catch (err: any) {

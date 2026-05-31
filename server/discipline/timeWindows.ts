@@ -40,6 +40,16 @@ function formatTime(totalMinutes: number): string {
 }
 
 /**
+ * Simulation channels (Dhan sandbox + mock paper) don't touch a real exchange,
+ * so the market-hours time-window guard is skipped for them — the system can be
+ * tested outside 9:15–15:30. Real-exchange channels (my-live, ai-live,
+ * testing-live) always keep the guard.
+ */
+export function isSimulationChannel(channel: string): boolean {
+  return channel === "testing-sandbox" || channel === "my-paper" || channel === "ai-paper";
+}
+
+/**
  * Check all time window rules for a given exchange.
  */
 export function checkTimeWindow(

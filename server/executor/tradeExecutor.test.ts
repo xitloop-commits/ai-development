@@ -54,6 +54,7 @@ vi.mock("../discipline", () => ({
     validateTrade: vi.fn(async () => ({
       allowed: true,
       blockedBy: [],
+      blockReasons: [],
       warnings: [],
       adjustments: [],
       details: {},

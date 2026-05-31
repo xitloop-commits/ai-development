@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { checkDailyLossLimit, checkConsecutiveLosses } from "./circuitBreaker";
 import { checkMaxTrades, checkMaxPositions } from "./tradeLimits";
 import { checkCooldown, createRevengeCooldown, acknowledgeLoss, resolveOverlappingCooldowns } from "./cooldowns";
-import { checkTimeWindow } from "./timeWindows";
+import { checkTimeWindow, isSimulationChannel } from "./timeWindows";
 import { checkPositionSize, checkExposure } from "./positionSizing";
 import { evaluatePreTradeGate } from "./preTrade";
 import { checkJournalCompliance, checkWeeklyReview } from "./journalCheck";
@@ -356,6 +356,20 @@ describe("Time Windows", () => {
     const result = checkTimeWindow("NSE", settings, fakeNow);
     expect(result.passed).toBe(false);
     expect(result.blockType).toBe("market_close");
+  });
+
+  describe("isSimulationChannel — market-hours bypass set", () => {
+    it("bypasses sandbox + paper channels (testable any time)", () => {
+      expect(isSimulationChannel("testing-sandbox")).toBe(true);
+      expect(isSimulationChannel("my-paper")).toBe(true);
+      expect(isSimulationChannel("ai-paper")).toBe(true);
+    });
+
+    it("does NOT bypass real-exchange channels", () => {
+      expect(isSimulationChannel("my-live")).toBe(false);
+      expect(isSimulationChannel("ai-live")).toBe(false);
+      expect(isSimulationChannel("testing-live")).toBe(false);
+    });
   });
 });
 
