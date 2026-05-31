@@ -14,6 +14,7 @@ import {
   withTrade,
   getCorrelationFields,
 } from "../_core/correlationContext";
+import { sanitizeForConsole } from "./logger";
 
 /**
  * Build a fresh pino root + capture stream so each test sees a clean log
@@ -91,5 +92,31 @@ describe("logger / pino integration", () => {
     expect(lines[0]).toMatchObject({ level: 50, msg: "connection failed" });
     expect(lines[0].err).toMatchObject({ message: "boom", type: "Error" });
     expect(typeof lines[0].err.stack).toBe("string");
+  });
+});
+
+// Log lines must be ASCII so the Windows console (cp437/cp1252) renders them
+// cleanly instead of mojibake ("Rs." -> "Γé╣", emoji -> "≡ƒÜÇ").
+describe("sanitizeForConsole", () => {
+  it("transliterates the rupee sign", () => {
+    expect(sanitizeForConsole("Balance: ₹1000000")).toBe("Balance: Rs.1000000");
+  });
+
+  it("replaces em/en dashes with a hyphen", () => {
+    expect(sanitizeForConsole("Started — listening")).toBe("Started - listening");
+    expect(sanitizeForConsole("a – b")).toBe("a - b");
+  });
+
+  it("normalizes smart quotes and ellipsis", () => {
+    expect(sanitizeForConsole("“hi” ‘x’ wait…")).toBe('"hi" \'x\' wait...');
+  });
+
+  it("strips emoji and trims the trailing space they leave", () => {
+    expect(sanitizeForConsole("Feed connected 🚀")).toBe("Feed connected");
+    expect(sanitizeForConsole("DhanAdapter (live) connected 🚀")).toBe("DhanAdapter (live) connected");
+  });
+
+  it("leaves plain ASCII untouched", () => {
+    expect(sanitizeForConsole("submitTrade ok channel=my-paper")).toBe("submitTrade ok channel=my-paper");
   });
 });

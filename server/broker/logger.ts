@@ -121,7 +121,8 @@ export function createLogger(agentOrModule: string, module?: string): Logger {
   // wrapper expects (msg, ...args) with `args` being arbitrary positional
   // values that the prior shim spread into console.* . Stash them under
   // `args` so they survive the JSON pipeline.
-  function emit(level: "debug" | "info" | "warn" | "error", msg: string, args: unknown[]): void {
+  function emit(level: "debug" | "info" | "warn" | "error", rawMsg: string, args: unknown[]): void {
+    const msg = sanitizeForConsole(rawMsg);
     if (args.length === 0) {
       child[level](msg);
     } else {
@@ -145,29 +146,46 @@ export function createLogger(agentOrModule: string, module?: string): Logger {
 }
 
 /**
- * Pick the trailing emoji for an `important()` line based on the message.
- * Order matters — alert keywords are checked first so "FAIL → ... exited"
- * maps to 🚨 instead of being caught by the stop/disconnect family on the
- * word "exited".
+ * ASCII-only transliteration of common Unicode used in log messages, so lines
+ * render correctly on the Windows console (cp437/cp1252) instead of mojibake
+ * like "Rs." → "Γé╣" or "[READY]" → "≡ƒÜÇ". Applied to every emitted message.
+ * Telegram pushes go through a separate path and keep their Unicode.
+ */
+export function sanitizeForConsole(s: string): string {
+  return s
+    .replace(/₹/g, "Rs.")
+    .replace(/[—–]/g, "-")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/…/g, "...")
+    .replace(/[^\x00-\x7F]/g, "") // strip any remaining non-ASCII (emoji, etc.)
+    .replace(/[ \t]+$/g, "");      // trim trailing space left by a stripped marker
+}
+
+/**
+ * Pick the trailing ASCII marker for an `important()` line based on the message.
+ * Order matters — alert keywords are checked first so "FAIL -> ... exited"
+ * maps to [ALERT] instead of being caught by the stop/disconnect family on the
+ * word "exited". Greppable by tag to filter the boot/lifecycle stream.
  */
 function pickImportantMarker(msg: string): string {
-  if (/\b(FAIL|expired|EXIT_ALL|circuit|tripped|kill\s*switch)\b/i.test(msg)) return "🚨";
-  if (/\bconfiguration\b/i.test(msg)) return "⚙️";
-  if (/\b(stop|stopped|shutdown|disconnect|disconnected)\b/i.test(msg)) return "🛑";
-  if (/\b(start|started|connect|connected|ready|running|online|registered|seeded|listening)\b/i.test(msg)) return "🚀";
-  return "🥂";
+  if (/\b(FAIL|expired|EXIT_ALL|circuit|tripped|kill\s*switch)\b/i.test(msg)) return "[ALERT]";
+  if (/\bconfiguration\b/i.test(msg)) return "[CONFIG]";
+  if (/\b(stop|stopped|shutdown|disconnect|disconnected)\b/i.test(msg)) return "[STOP]";
+  if (/\b(start|started|connect|connected|ready|running|online|registered|seeded|listening)\b/i.test(msg)) return "[READY]";
+  return "[DONE]";
 }
 
 // ─── Boot legend ───────────────────────────────────────────────
 
 /** Human description shown in the boot legend. */
 const AGENT_DESCRIPTIONS: Record<AgentCode, string> = {
-  BSA:  "Broker Service Agent — adapter routing, broker WS, kill switches",
-  PA:   "Portfolio Agent — capital, positions, drawdown, audit log",
-  TEA:  "Trade Executor Agent — single execution gateway",
-  RCA:  "Risk Control Agent — open-position monitor, exit triggers",
-  DE:   "Discipline Agent — pre-trade gate, cooldowns, circuit breaker",
-  BOOT: "Server Boot — Express + tRPC bootstrap, MongoDB, lifecycle",
+  BSA:  "Broker Service Agent - adapter routing, broker WS, kill switches",
+  PA:   "Portfolio Agent - capital, positions, drawdown, audit log",
+  TEA:  "Trade Executor Agent - single execution gateway",
+  RCA:  "Risk Control Agent - open-position monitor, exit triggers",
+  DE:   "Discipline Agent - pre-trade gate, cooldowns, circuit breaker",
+  BOOT: "Server Boot - Express + tRPC bootstrap, MongoDB, lifecycle",
 };
 
 /**
@@ -177,7 +195,7 @@ const AGENT_DESCRIPTIONS: Record<AgentCode, string> = {
  */
 export function printAgentLegend(): void {
   const legend = root.child({ agent: "BOOT", module: "Legend" });
-  legend.info("── Agent Legend ──");
+  legend.info("-- Agent Legend --");
   for (const code of KNOWN_AGENTS) {
     legend.info(`  ${code.padEnd(4)}  ${AGENT_DESCRIPTIONS[code]}`);
   }
