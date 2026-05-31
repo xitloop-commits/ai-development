@@ -23,6 +23,7 @@ import { brokerRouter } from "./broker/brokerRouter";
 import { portfolioRouter } from "./portfolio/router";
 import { executorRouter } from "./executor";
 import { disciplineRouter } from "./discipline/disciplineRouter";
+import { alertsRouter } from "./alerts/alertRouter";
 import { getUserSettings, updateUserSettings } from "./userSettings";
 import {
   getAllInstruments,
@@ -275,6 +276,9 @@ export const appRouter = router({
 
   // Discipline Agent
   discipline: disciplineRouter,
+
+  // Alerts (T52 — server-side AlertHistory persistence; client wiring pending)
+  alerts: alertsRouter,
 
   // MongoDB health check
   mongo: router({

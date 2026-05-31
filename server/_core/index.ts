@@ -28,6 +28,7 @@ import { requestIdMiddleware } from "./correlationContext";
 import { metricsHandler } from "./metrics";
 import { startSubscriptionAlertScheduler } from "./subscriptionAlert";
 import { startSessionSummaryScheduler, stopSessionSummaryScheduler } from "./sessionSummaryScheduler";
+import { startAlertPurgeScheduler, stopAlertPurgeScheduler } from "./alertPurgeScheduler";
 
 const bootLog = createLogger("BOOT", "Server");
 
@@ -240,6 +241,10 @@ async function startServer() {
     // Session-close P&L summary pushes to yow-partha (NSE 15:30 IST, MCX 23:30 IST).
     void startSessionSummaryScheduler();
     registerShutdownHook("sessionSummary", () => stopSessionSummaryScheduler(), 200);
+    // Nightly AlertHistory purge at 03:00 IST — keeps the alerts collection
+    // bounded to the 30-day rolling window locked in T52.
+    startAlertPurgeScheduler();
+    registerShutdownHook("alertPurge", () => stopAlertPurgeScheduler(), 200);
   });
 }
 
