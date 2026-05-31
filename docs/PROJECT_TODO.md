@@ -206,9 +206,12 @@ The `testing-sandbox` channel was historically half-built — `connect()` short-
 - **Credentials:** `scripts/dhan-update-credentials.mjs` gains `--accessToken <JWT>` flag for direct-set tokens (bypasses TOTP); `--show` now also prints `credentials.accessToken` / `credentials.clientId`. Empirically confirmed: live JWT is rejected by sandbox host (`DH-906 "Invalid Token"`) — sandbox needs its own token from `developer.dhanhq.co`.
 - **Expiry alerts:** sandbox added to `config/subscriptions.json` (`renewalDayOfMonth: 30`) so the existing subscription-alert pipeline pings Telegram on the 25th-30th of every month, 5 days before each expected expiry.
 - **Settings UI:** new `SandboxCredentialsSection` in `client/src/pages/Settings.tsx` (sidebar entry "Sandbox Token") — info box linking to `developer.dhanhq.co`, status row (apiStatus / stored clientId / last updated), masked current token preview, Client ID + JWT inputs with clipboard-paste button, save wired to `broker.token.update` with `brokerId="dhan-sandbox"`. The mutation now accepts optional `brokerId` to target a specific adapter; `broker.config.get` accepts optional `{ brokerId }` so the panel queries the sandbox doc independently of the active broker.
-- **Status:** ✅ IMPLEMENTED 2026-05-31 (commits `1ce9f51` backend, `06a2bde` alert config, `930f3fd` Settings panel). All 900 tests pass.
-- **Open follow-ups:**
-  - Live in-UI verification on Monday: open Settings (F2) → Sandbox Token → confirm status reads "CONNECTED", then place an option trade on `testing-sandbox` channel and confirm it fills at ₹100 (Dhan sandbox quirk) and shows up in positions.
+- **Status:** ✅ IMPLEMENTED 2026-05-31 (commits `1ce9f51` backend, `06a2bde` alert config, `930f3fd` Settings panel, `898e37a` Test Connection button, `d08a9ae` SecondaryBrokerBanner). All 908 tests pass.
+- **Follow-ups shipped same day:**
+  - Test Connection button in the Sandbox panel — probes `sandbox.dhan.co/v2/fundlimit` and toasts the validated clientId, lets the operator verify a freshly-pasted token without restarting the server.
+  - SecondaryBrokerBanner — non-blocking amber strip below AppBar when `dhan-secondary-ac` apiStatus is degraded (only when credentials are configured). Sandbox is intentionally excluded (testing-only channel; expiry covered by the subscription-alert pipeline). CredentialGate keeps the hard-block primary-only (every channel's critical path).
+- **Still open:**
+  - Live in-UI verification Monday: open Settings (F2) → Sandbox Token → confirm status reads "CONNECTED", then place an option trade on `testing-sandbox` and confirm it fills at ₹100 (Dhan sandbox quirk) and shows up in positions.
   - Quirk to document operator-side: Dhan sandbox fills every order at ₹100 regardless of market; capital resets to ₹10,00,000 daily — useful for API-shape validation, not for P&L realism.
 
 ## P2 — parked features (small enough to wait)
