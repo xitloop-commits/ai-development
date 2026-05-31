@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
   Lubas -- Graceful stop + OS shutdown.
 
@@ -134,7 +134,7 @@ while ($true) {
     try {
         & (Join-Path $PSScriptRoot '_emit-lifecycle.ps1') `
             -Event skip -Result busy `
-            -Process stop-all -Detail "skip $skipCount: $busyTags" 2>$null | Out-Null
+            -Process stop-all -Detail "skip ${skipCount}: $busyTags" 2>$null | Out-Null
     } catch {}
     Start-Sleep -Seconds 1800
 }

@@ -1,6 +1,6 @@
 #requires -Version 5.1
 <#
-  Lubas — Graceful stop for the API server (server_launcher.py + pnpm dev).
+  Lubas -- Graceful stop for the API server (server_launcher.py + pnpm dev).
 
   Triggered by the TFA recorder at MCX session close (23:30 IST) so the API
   can come down for the night while replay finishes; restarted fresh by
@@ -8,14 +8,14 @@
 
   How it works:
     1. Find the python.exe process whose command line contains
-       server_launcher.py — that's our API wrapper.
+       server_launcher.py -- that's our API wrapper.
     2. Invoke _send-ctrlc-helper.ps1 with its PID. The helper attaches to
        the target's console and issues GenerateConsoleCtrlEvent(CTRL_C).
-       server_launcher.py catches KeyboardInterrupt → _graceful_stop()
-       which CTRL_BREAKs the pnpm dev child → node closes cleanly.
+       server_launcher.py catches KeyboardInterrupt -> _graceful_stop()
+       which CTRL_BREAKs the pnpm dev child -> node closes cleanly.
     3. Wait up to 5s for the process to exit. If still alive, force-kill
        (data risk is minimal; node may have flushed by now).
-    4. Always exit 0 — failure to find API is not fatal, just means it
+    4. Always exit 0 -- failure to find API is not fatal, just means it
        wasn't running.
 
   Usage:
@@ -53,12 +53,12 @@ Out-Log ("stop-api-graceful: found API at pid={0}, sending Ctrl+C..." -f $apiPid
 # --- 2. Send Ctrl+C via the existing helper ------------------------------
 $helper = Join-Path $PSScriptRoot '_send-ctrlc-helper.ps1'
 if (-not (Test-Path $helper)) {
-    Out-Log "stop-api-graceful: _send-ctrlc-helper.ps1 missing — fallback to taskkill."
+    Out-Log "stop-api-graceful: _send-ctrlc-helper.ps1 missing -- fallback to taskkill."
     & taskkill /PID $apiPid /T /F 2>$null | Out-Null
     exit 0
 }
 
-# Helper must run in its own process — the AttachConsole call kills
+# Helper must run in its own process -- the AttachConsole call kills
 # whoever shares the target's console, so running it inline would kill us.
 $p = Start-Process -FilePath 'powershell.exe' `
     -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass',

@@ -174,6 +174,8 @@ def fire_shutdown() -> str:
         subprocess.Popen(
             [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ps1)],
             cwd=str(ROOT),
+            creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP,
+            close_fds=True,
         )
         return "🛑 Shutdown initiated — 60s grace; run `shutdown /a` on desktop to cancel."
     except OSError as exc:
