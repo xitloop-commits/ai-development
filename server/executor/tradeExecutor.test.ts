@@ -409,6 +409,9 @@ describe("B4 — BROKER_DESYNC handling", () => {
           ltp: 105,
           brokerOrderId: "BROKER-ORD-1",
           brokerId: "dhan-primary-ac",
+          // A live option position carries its resolved contract id; the exit
+          // reverses on this securityId, not the underlying name.
+          contractSecurityId: "55123",
           openedAt: 1700000000000,
         },
       ],
@@ -446,6 +449,53 @@ describe("B4 — BROKER_DESYNC handling", () => {
     });
 
     // The position is NOT closed locally — closeTrade must not have been called.
+    expect(portfolioAgent.closeTrade).not.toHaveBeenCalled();
+  });
+
+  it("exitTrade — live option with no contractSecurityId fails to DESYNC, never hits the broker", async () => {
+    // A live option leg can only be exited by its numeric contract id. If it's
+    // missing we must NOT place a reverse order with the underlying name (it
+    // never resolves) and must NOT close locally — flag for reconciliation.
+    (portfolioAgent.ensureCurrentDay as any).mockResolvedValue({
+      trades: [
+        {
+          id: "T1234",
+          instrument: "NIFTY 50",
+          type: "CALL_BUY",
+          entryPrice: 100,
+          qty: 75,
+          status: "OPEN",
+          ltp: 105,
+          brokerOrderId: "BROKER-ORD-1",
+          brokerId: "dhan-primary-ac",
+          // contractSecurityId intentionally absent
+          openedAt: 1700000000000,
+        },
+      ],
+    });
+    (getAdapter as any).mockReturnValue(fillingAdapter);
+
+    const resp = await tradeExecutor.exitTrade({
+      executionId: "exit-nocsid-1",
+      positionId: "POS-1234",
+      channel: "my-live",
+      exitType: "MARKET",
+      reason: "MANUAL",
+      triggeredBy: "USER",
+      timestamp: Date.now(),
+    });
+
+    expect(resp.success).toBe(false);
+    expect(resp.error).toMatch(/BROKER_DESYNC/);
+    expect(portfolioAgent.markTradeDesync).toHaveBeenCalledTimes(1);
+    expect((portfolioAgent.markTradeDesync as any).mock.calls[0][2]).toMatchObject({
+      kind: "EXIT",
+    });
+    expect((portfolioAgent.markTradeDesync as any).mock.calls[0][2].reason).toMatch(
+      /no contractSecurityId/i,
+    );
+    // Never reached the broker; never closed locally.
+    expect(fillingAdapter.placeOrder).not.toHaveBeenCalled();
     expect(portfolioAgent.closeTrade).not.toHaveBeenCalled();
   });
 

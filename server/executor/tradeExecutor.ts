@@ -578,15 +578,20 @@ class TradeExecutorAgent {
       if (isLiveChannel(channel) && trade.brokerOrderId) {
         const adapter = getAdapter(channel);
         const exitOrderType = req.reason === "DISCIPLINE_EXIT" ? "MARKET" : req.exitType;
+        const exitOptionType: OrderParams["optionType"] = trade.type.startsWith("CALL")
+          ? "CE"
+          : trade.type.startsWith("PUT")
+          ? "PE"
+          : "FUT";
+
         const exitParams: OrderParams = {
-          instrument: trade.instrument,
+          // Exit by the trade's stored numeric contract securityId. Options can
+          // ONLY be exited this way — the underlying name ("NIFTY 50") never
+          // resolves. Futures resolve by symbol, so they fall back to the name.
+          instrument: trade.contractSecurityId ?? trade.instrument,
           exchange: resolveExchange(trade.instrument),
           transactionType: trade.type.includes("BUY") ? "SELL" : "BUY",
-          optionType: trade.type.startsWith("CALL")
-            ? "CE"
-            : trade.type.startsWith("PUT")
-            ? "PE"
-            : "FUT",
+          optionType: exitOptionType,
           strike: trade.strike ?? 0,
           expiry: trade.expiry ?? "",
           quantity: trade.qty,
@@ -596,6 +601,14 @@ class TradeExecutorAgent {
           tag: `EXIT-${trade.id}`,
         };
         try {
+          // An option with no contractSecurityId cannot be exited — fail through
+          // the same BROKER_DESYNC path so the position stays open locally and is
+          // flagged for manual reconciliation rather than silently closed.
+          if ((exitOptionType === "CE" || exitOptionType === "PE") && !trade.contractSecurityId) {
+            throw new Error(
+              `option ${trade.instrument} ${trade.strike ?? "?"} ${exitOptionType} has no contractSecurityId`,
+            );
+          }
           const result = await adapter.placeOrder(exitParams);
           log.info(
             `exitTrade live broker exit channel=${channel} trade=${tradeId} ` +

@@ -94,6 +94,19 @@ import { createLogger, type Logger } from "../../logger";
 import { notifyBrokerDisconnect } from "../../../_core/tradeEventNotifier";
 import { dhanApiLatencyMs } from "../../../_core/metrics";
 
+/**
+ * Dhan rejects a MARKET-type order that carries a non-zero price with the
+ * generic "Missing required fields, bad values for parameters" error (DH-905).
+ * For MARKET and STOP_LOSS_MARKET (SL-M) orders the price field must be 0 — the
+ * broker fills at the prevailing market price. LIMIT and SL (stop-loss-limit)
+ * orders keep their caller-supplied price.
+ *
+ * Exported as a pure function so the rule is unit-testable without a network call.
+ */
+export function resolveDhanOrderPrice(orderType: string, price: number): number {
+  return orderType === "MARKET" || orderType === "SL-M" ? 0 : price;
+}
+
 // ─── DhanAdapter ───────────────────────────────────────────────
 
 export class DhanAdapter implements BrokerAdapter {
@@ -285,8 +298,8 @@ export class DhanAdapter implements BrokerAdapter {
     // Resolve security ID from scrip master
     const securityId = this._resolveSecurityId(params);
 
-    // Calculate limit price with offset if order type is LIMIT and price is 0 (auto-calculate)
-    const price = params.price;
+    // MARKET / SL-M orders must send price=0 (Dhan DH-905); LIMIT / SL keep theirs.
+    const price = resolveDhanOrderPrice(params.orderType, params.price);
     if (params.orderType === "LIMIT" && price === 0 && settings) {
       // Price of 0 means "use LTP with offset" — caller should provide actual LTP as price
       // For now, keep price as-is; the frontend will calculate using LTP
