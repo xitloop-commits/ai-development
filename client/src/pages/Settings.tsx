@@ -2596,6 +2596,20 @@ export function SandboxCredentialsSection() {
     },
   });
 
+  const testMutation = trpc.broker.token.test.useMutation({
+    onSuccess: (data) => {
+      if (data.ok) {
+        toast.success(`Sandbox connection OK — clientId ${data.clientId ?? '(unknown)'}`);
+        void configQuery.refetch();
+      } else {
+        toast.error(`Sandbox test failed: ${data.error}`);
+      }
+    },
+    onError: (err) => {
+      toast.error(`Sandbox test errored: ${err.message}`);
+    },
+  });
+
   const config = configQuery.data;
   const storedClientId = config?.credentials?.clientId ?? '';
   const storedTokenSuffix = config?.credentials?.accessToken ?? '';
@@ -2712,7 +2726,23 @@ export function SandboxCredentialsSection() {
             </div>
           </div>
 
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => testMutation.mutate({ brokerId: SANDBOX_BROKER_ID })}
+              disabled={testMutation.isPending || !storedTokenSuffix}
+              size="sm"
+              title="Probe the stored sandbox token against sandbox.dhan.co/v2/fundlimit"
+            >
+              {testMutation.isPending ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Testing...
+                </>
+              ) : (
+                <>Test Connection</>
+              )}
+            </Button>
             <Button
               type="button"
               onClick={handleSave}

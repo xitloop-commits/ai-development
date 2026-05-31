@@ -282,6 +282,47 @@ export const brokerRouter = router({
       };
     }),
 
+    /** Manually probe a specific broker's token by hitting its `fundlimit`
+     *  endpoint. Used by the Settings UI "Test Connection" button so the
+     *  operator can verify a freshly-pasted sandbox token end-to-end
+     *  without restarting the server. Returns the validated clientId +
+     *  available balance on success, the auth error on failure. */
+    test: protectedProcedure
+      .input(z.object({ brokerId: z.string().min(1) }))
+      .mutation(async ({ input }) => {
+        const { _getAdapterByBrokerId } = await import("./brokerService");
+        const adapter = _getAdapterByBrokerId(input.brokerId);
+        if (!adapter) {
+          return {
+            ok: false,
+            error: `No adapter initialised for brokerId="${input.brokerId}"`,
+          };
+        }
+        try {
+          const result = await adapter.validateToken();
+          if (!result.valid) {
+            return {
+              ok: false,
+              error: "Token invalid or expired at broker — re-paste and try again",
+            };
+          }
+          // Reach into broker_configs for the freshly-validated clientId +
+          // status that validateToken() already wrote back to MongoDB.
+          const config = await getBrokerConfig(input.brokerId);
+          return {
+            ok: true,
+            clientId: config?.credentials.clientId ?? null,
+            apiStatus: config?.connection.apiStatus ?? "unknown",
+            expiresAt: result.expiresAt ?? null,
+          };
+        } catch (err: any) {
+          return {
+            ok: false,
+            error: err?.message ?? String(err),
+          };
+        }
+      }),
+
     /** Update the access token. Defaults to the active broker; pass
      *  `brokerId` to target a specific adapter (e.g. "dhan-sandbox" so the
      *  Settings UI can paste a developer.dhanhq.co sandbox JWT without
