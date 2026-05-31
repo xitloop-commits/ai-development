@@ -240,7 +240,10 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   async updateToken(token: string, clientId?: string): Promise<void> {
-    const result = await updateDhanToken(this.brokerId, token, clientId);
+    // Validate against this adapter's own URL — sandbox tokens are issued by
+    // developer.dhanhq.co and are rejected by the live host (DH-906), so we
+    // must route the validate call to the right base URL.
+    const result = await updateDhanToken(this.brokerId, token, clientId, { baseUrl: this._baseUrl });
 
     if (result.success) {
       this.accessToken = token;

@@ -228,8 +228,24 @@ export function getAdapter(channel: Channel): BrokerAdapter {
       if (!adapters.mockMy) throw new Error("MockAdapter (mock-my) not initialised");
       return adapters.mockMy;
     default:
-      throw new Error(`Unknown channel: ${channel}`);
+      throw new Error(`Unknown channel "${channel}"`);
   }
+}
+
+/**
+ * Direct brokerId → adapter lookup, used when the caller knows the broker
+ * identity (e.g. the Settings UI pasting a sandbox token specifically into
+ * the dhan-sandbox slot). Returns null if no adapter is registered.
+ */
+export function _getAdapterByBrokerId(brokerId: string): BrokerAdapter | null {
+  switch (brokerId) {
+    case "dhan-primary-ac": return adapters.dhanLive;
+    case "dhan-secondary-ac": return adapters.dhanAiData;
+    case "dhan-sandbox": return adapters.dhanSandbox;
+    case "mock-ai": return adapters.mockAi;
+    case "mock-my": return adapters.mockMy;
+  }
+  return null;
 }
 
 // ─── Kill Switch ─────────────────────────────────────────────────

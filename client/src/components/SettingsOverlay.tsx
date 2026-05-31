@@ -15,6 +15,7 @@ import {
   Settings,
   X,
   Settings as SettingsIcon,
+  KeyRound,
 } from 'lucide-react';
 import {
   OrderExecutionSection,
@@ -24,6 +25,7 @@ import {
   ChargesSection,
   CapitalManagementSection,
   InstrumentsSection,
+  SandboxCredentialsSection,
   SettingsActionsContext,
   SaveButton,
   ResetButton,
@@ -37,7 +39,8 @@ type SettingsSection =
   | 'expiry'
   | 'charges'
   | 'capital'
-  | 'instruments';
+  | 'instruments'
+  | 'sandboxCredentials';
 
 interface SectionItem {
   id: SettingsSection;
@@ -54,6 +57,7 @@ const SECTIONS: SectionItem[] = [
   { id: 'expiry', label: 'Expiry Controls', icon: CalendarClock, description: 'Per-instrument expiry day rules' },
   { id: 'charges', label: 'Charges', icon: Receipt, description: 'Brokerage, STT, GST, and other charge rates' },
   { id: 'capital', label: 'Capital Management', icon: Landmark, description: 'Reset initial capital, pool allocation' },
+  { id: 'sandboxCredentials', label: 'Sandbox Token', icon: KeyRound, description: 'Paste Dhan sandbox access token (from developer.dhanhq.co)' },
 ];
 
 interface SettingsOverlayProps {
@@ -133,6 +137,8 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
         return <CapitalManagementSection />;
       case 'instruments':
         return <InstrumentsSection />;
+      case 'sandboxCredentials':
+        return <SandboxCredentialsSection />;
       default:
         return null;
     }

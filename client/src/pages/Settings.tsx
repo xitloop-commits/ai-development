@@ -26,7 +26,11 @@ import {
   Loader2,
   Landmark,
   Layers,
+  KeyRound,
+  ClipboardPaste,
 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -49,7 +53,8 @@ type SettingsSection =
   | 'expiry'
   | 'charges'
   | 'capital'
-  | 'instruments';
+  | 'instruments'
+  | 'sandboxCredentials';
 
 interface SectionItem {
   id: SettingsSection;
@@ -2554,6 +2559,176 @@ function _ExecutorSettingsSection() {
                 );
               })}
             </div>
+          </div>
+        </div>
+      </SettingsCard>
+    </div>
+  );
+}
+
+// ─── Sandbox Credentials Section ─────────────────────────────────
+//
+// Paste-and-save form for the Dhan sandbox access token (issued by
+// developer.dhanhq.co — separate from the primary/secondary live accounts).
+// Sandbox tokens have a 30-day validity and no TOTP auto-refresh flow, so
+// the operator pastes a fresh JWT here each cycle. The subscription-alert
+// pipeline (config/subscriptions.json) pings Telegram 5 days before each
+// expected expiry to nudge the rotation.
+
+export function SandboxCredentialsSection() {
+  const SANDBOX_BROKER_ID = 'dhan-sandbox';
+  const [clientId, setClientId] = useState('');
+  const [accessToken, setAccessToken] = useState('');
+
+  const configQuery = trpc.broker.config.get.useQuery(
+    { brokerId: SANDBOX_BROKER_ID },
+    { refetchInterval: 30_000 },
+  );
+
+  const updateMutation = trpc.broker.token.update.useMutation({
+    onSuccess: () => {
+      toast.success('Sandbox token updated');
+      setAccessToken('');
+      void configQuery.refetch();
+    },
+    onError: (err) => {
+      toast.error(`Update failed: ${err.message}`);
+    },
+  });
+
+  const config = configQuery.data;
+  const storedClientId = config?.credentials?.clientId ?? '';
+  const storedTokenSuffix = config?.credentials?.accessToken ?? '';
+  const updatedAt = config?.credentials?.updatedAt ?? 0;
+  const ageDays = updatedAt > 0 ? Math.floor((Date.now() - updatedAt) / 86_400_000) : null;
+  const apiStatus = config?.connection?.apiStatus ?? 'unknown';
+
+  // Pre-fill the clientId input once with whatever is stored, so the
+  // operator only has to paste the access token on rotations.
+  useEffect(() => {
+    if (!clientId && storedClientId) setClientId(storedClientId);
+  }, [storedClientId, clientId]);
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) setAccessToken(text.trim());
+    } catch {
+      toast.error('Clipboard read denied — paste manually');
+    }
+  };
+
+  const handleSave = () => {
+    if (!accessToken.trim()) { toast.error('Access token is required'); return; }
+    if (!clientId.trim())    { toast.error('Client ID is required');    return; }
+    updateMutation.mutate({
+      brokerId: SANDBOX_BROKER_ID,
+      token: accessToken.trim(),
+      clientId: clientId.trim(),
+    });
+  };
+
+  const statusBadge = (() => {
+    if (apiStatus === 'connected') {
+      return <span className="text-[0.6875rem] font-bold text-bullish">CONNECTED</span>;
+    }
+    if (apiStatus === 'error' || apiStatus === 'disconnected') {
+      return <span className="text-[0.6875rem] font-bold text-destructive">{apiStatus.toUpperCase()}</span>;
+    }
+    return <span className="text-[0.6875rem] font-bold text-muted-foreground">{String(apiStatus).toUpperCase()}</span>;
+  })();
+
+  return (
+    <div className="space-y-4">
+      <SettingsCard title="Dhan Sandbox Token">
+        <div className="space-y-4">
+          <div className="rounded-md border border-border bg-muted/30 p-3 text-[0.6875rem] leading-relaxed text-muted-foreground">
+            <div className="flex items-start gap-2">
+              <Info className="h-3 w-3 mt-0.5 shrink-0 text-info-cyan" />
+              <div>
+                <strong className="text-foreground">testing-sandbox</strong> channel hits Dhan's real sandbox API
+                (<code className="text-foreground">sandbox.dhan.co</code>). Get the token from{' '}
+                <a href="https://developer.dhanhq.co" target="_blank" rel="noreferrer" className="text-info-cyan underline">
+                  developer.dhanhq.co
+                </a>
+                . Tokens last 30 days; you'll be pinged on Telegram 5 days before expiry.
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 text-[0.75rem]">
+            <div>
+              <div className="text-[0.625rem] uppercase tracking-wider text-muted-foreground mb-1">Status</div>
+              <div>{statusBadge}</div>
+            </div>
+            <div>
+              <div className="text-[0.625rem] uppercase tracking-wider text-muted-foreground mb-1">Stored Client ID</div>
+              <div className="tabular-nums text-foreground">{storedClientId || <span className="text-muted-foreground">—</span>}</div>
+            </div>
+            <div>
+              <div className="text-[0.625rem] uppercase tracking-wider text-muted-foreground mb-1">Last Updated</div>
+              <div className="tabular-nums text-foreground">
+                {ageDays === null ? <span className="text-muted-foreground">never</span> : `${ageDays}d ago`}
+              </div>
+            </div>
+          </div>
+
+          {storedTokenSuffix && (
+            <div className="text-[0.6875rem] text-muted-foreground">
+              Current token (masked): <code className="text-foreground">{storedTokenSuffix}</code>
+            </div>
+          )}
+
+          <div className="space-y-3">
+            <div>
+              <label className="text-[0.6875rem] font-medium text-foreground block mb-1">Sandbox Client ID</label>
+              <Input
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                placeholder="e.g. 2605319451"
+                className="font-mono text-[0.75rem]"
+              />
+            </div>
+            <div>
+              <label className="text-[0.6875rem] font-medium text-foreground block mb-1">Access Token (JWT)</label>
+              <div className="flex gap-2">
+                <Input
+                  type="password"
+                  value={accessToken}
+                  onChange={(e) => setAccessToken(e.target.value)}
+                  placeholder="eyJhbGciOi..."
+                  className="font-mono text-[0.75rem]"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePaste}
+                  title="Paste from clipboard"
+                >
+                  <ClipboardPaste className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              onClick={handleSave}
+              disabled={updateMutation.isPending || !accessToken.trim() || !clientId.trim()}
+              size="sm"
+            >
+              {updateMutation.isPending ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Saving...
+                </>
+              ) : (
+                <>
+                  <KeyRound className="h-3.5 w-3.5 mr-1.5" /> Save Sandbox Token
+                </>
+              )}
+            </Button>
           </div>
         </div>
       </SettingsCard>

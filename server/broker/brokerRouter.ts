@@ -25,6 +25,7 @@ import {
 import {
   getActiveBrokerConfig,
   getAllBrokerConfigs,
+  getBrokerConfig,
   upsertBrokerConfig,
   updateBrokerSettings,
   updateBrokerCredentials,
@@ -188,22 +189,29 @@ export const brokerRouter = router({
   // ── Config ──────────────────────────────────────────────────
 
   config: router({
-    /** Get the active broker config (token is masked). */
-    get: publicProcedure.query(async () => {
-      const config = await getActiveBrokerConfig();
-      if (!config) return null;
+    /** Get a broker config (token is masked). Defaults to the active broker;
+     *  pass `brokerId` to target a specific broker (e.g. "dhan-sandbox" so
+     *  the Settings UI can show sandbox status independently of which broker
+     *  is currently active). */
+    get: publicProcedure
+      .input(z.object({ brokerId: z.string().optional() }).optional())
+      .query(async ({ input }) => {
+        const config = input?.brokerId
+          ? await getBrokerConfig(input.brokerId)
+          : await getActiveBrokerConfig();
+        if (!config) return null;
 
-      // Mask the access token for security
-      return {
-        ...config,
-        credentials: {
-          ...config.credentials,
-          accessToken: config.credentials.accessToken
-            ? `***${config.credentials.accessToken.slice(-4)}`
-            : "",
-        },
-      };
-    }),
+        // Mask the access token for security
+        return {
+          ...config,
+          credentials: {
+            ...config.credentials,
+            accessToken: config.credentials.accessToken
+              ? `***${config.credentials.accessToken.slice(-4)}`
+              : "",
+          },
+        };
+      }),
 
     /** Get all broker configs (tokens masked). */
     list: publicProcedure.query(async () => {
@@ -274,30 +282,46 @@ export const brokerRouter = router({
       };
     }),
 
-    /** Update the access token. */
+    /** Update the access token. Defaults to the active broker; pass
+     *  `brokerId` to target a specific adapter (e.g. "dhan-sandbox" so the
+     *  Settings UI can paste a developer.dhanhq.co sandbox JWT without
+     *  switching the active-broker context). */
     update: protectedProcedure
       .input(
         z.object({
           token: z.string().min(1),
           clientId: z.string().optional(),
+          brokerId: z.string().optional(),
         })
       )
       .mutation(async ({ input }) => {
-        const broker = requireBroker();
-        await broker.updateToken(input.token, input.clientId);
+        let targetBrokerId: string;
+        if (input.brokerId) {
+          targetBrokerId = input.brokerId;
+          const { _getAdapterByBrokerId } = await import("./brokerService");
+          const adapter = _getAdapterByBrokerId(input.brokerId);
+          if (!adapter) {
+            throw new Error(`No adapter initialised for brokerId="${input.brokerId}"`);
+          }
+          await adapter.updateToken(input.token, input.clientId);
+        } else {
+          const broker = requireBroker();
+          await broker.updateToken(input.token, input.clientId);
+          const config = await getActiveBrokerConfig();
+          targetBrokerId = config?.brokerId ?? "";
+        }
 
-        // Also update in MongoDB
-        const config = await getActiveBrokerConfig();
-        if (config) {
-          await updateBrokerCredentials(config.brokerId, {
+        if (targetBrokerId) {
+          const targetConfig = await getBrokerConfig(targetBrokerId);
+          await updateBrokerCredentials(targetBrokerId, {
             accessToken: input.token,
-            clientId: input.clientId ?? config.credentials.clientId,
+            clientId: input.clientId ?? targetConfig?.credentials.clientId ?? "",
             updatedAt: Date.now(),
             status: "valid",
           });
         }
 
-        return { success: true, message: "Token updated" };
+        return { success: true, message: "Token updated", brokerId: targetBrokerId };
       }),
 
   }),
