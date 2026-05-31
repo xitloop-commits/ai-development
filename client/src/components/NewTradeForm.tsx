@@ -438,6 +438,9 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     !!direction &&
     (isDerivative ? !!optionType : true) &&
     (!isOptionTrade || (!!expiry && !!selectedStrike)) &&
+    // Block option placement until the contract securityId has resolved from
+    // the chain — a trade must never go to the broker without it.
+    (!isOptionTrade || !!selectedContractSecurityId) &&
     !!entryPrice &&
     parseFloat(entryPrice) > 0;
 
@@ -597,6 +600,26 @@ export default function NewTradeForm(props: NewTradeFormProps) {
                     </button>
                   ))}
                 </div>
+
+                {/* Contract securityId indicator — confirms the option leg
+                    resolved before the trade can be placed. */}
+                {isOptionTrade && selectedStrike && (
+                  selectedContractSecurityId ? (
+                    <span
+                      className="shrink-0 rounded bg-bullish/15 px-1.5 py-0.5 text-[0.5625rem] font-bold text-bullish tabular-nums"
+                      title={`Contract securityId: ${selectedContractSecurityId}`}
+                    >
+                      ✓ {selectedContractSecurityId}
+                    </span>
+                  ) : (
+                    <span
+                      className="shrink-0 rounded bg-warning-amber/15 px-1.5 py-0.5 text-[0.5625rem] font-bold text-warning-amber"
+                      title="Waiting for the option chain to resolve this contract"
+                    >
+                      resolving…
+                    </span>
+                  )
+                )}
               </>
             )}
 

@@ -228,6 +228,30 @@ class TradeExecutorAgent {
         return resp;
       }
 
+      // Pre-flight: an option leg must carry a resolved contract securityId
+      // before it can be placed. This is the single universal guard for every
+      // channel and broker (AI, manual, paper, live, sandbox) — the mock/paper
+      // broker would otherwise fake-fill an unresolved name, and the live/
+      // sandbox Dhan adapter would reject it with a vague broker error. Without
+      // a contract id, option P&L tracking (tickHandler matches on it) is also
+      // broken. Non-option trades (FUT / equity) are unaffected.
+      if ((req.optionType === "CE" || req.optionType === "PE") && !req.contractSecurityId) {
+        const resp = rejection(
+          req.executionId,
+          `Option ${req.instrument} ${req.strike ?? "?"} ${req.optionType} ` +
+            `${req.expiry || "(no expiry)"} has no resolved contract securityId — ` +
+            `the option chain returned no match. Check the strike and expiry.`,
+        );
+        idempotencyStore.fail(req.executionId, resp.error!);
+        await portfolioAgent.recordTradeRejected({
+          channel: req.channel,
+          trade: { instrument: req.instrument },
+          reason: resp.error!,
+          timestamp: Date.now(),
+        });
+        return resp;
+      }
+
       const adapter: BrokerAdapter = getAdapter(req.channel);
       const orderParams = mapToOrderParams(req);
 

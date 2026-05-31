@@ -348,6 +348,19 @@ export function QuickOrderPopup({
               className={inputCls}
               disabled={isLoading}
             />
+            {/* Contract securityId — must resolve before BUY/SELL enables. */}
+            {selectedContractSecurityId ? (
+              <span
+                className="block text-[0.5625rem] font-bold text-profit-green tabular-nums truncate"
+                title={`Contract securityId: ${selectedContractSecurityId}`}
+              >
+                ✓ {selectedContractSecurityId}
+              </span>
+            ) : (
+              <span className="block text-[0.5625rem] font-bold text-warning-amber">
+                resolving…
+              </span>
+            )}
           </div>
 
           {/* Entry Price */}
@@ -476,7 +489,7 @@ export function QuickOrderPopup({
             <label className="text-[0.625rem] font-medium text-transparent block select-none">_</label>
             <button
               type="submit"
-              disabled={isLoading || entryPrice <= 0}
+              disabled={isLoading || entryPrice <= 0 || !selectedContractSecurityId}
               className={`px-5 py-1.5 text-xs font-bold rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                 isBuy
                   ? 'bg-profit-green text-white hover:bg-profit-green/90'

@@ -224,6 +224,26 @@ describe("submitTrade — paper path", () => {
     expect(orderParams.instrument).toBe("NIFTY_50");
   });
 
+  it("rejects an option with no contractSecurityId before hitting the broker (universal guard)", async () => {
+    // Applies to every channel/broker — an option leg without a resolved
+    // contract must never reach placeOrder (paper would fake-fill junk; live
+    // would reject vaguely; P&L tracking would break).
+    const req = paperRequest({
+      instrument: "NIFTY 50",
+      optionType: "CE",
+      strike: 23550,
+      expiry: "2026-06-25",
+      // contractSecurityId intentionally omitted
+    });
+    const resp = await tradeExecutor.submitTrade(req);
+
+    expect(resp.success).toBe(false);
+    expect(resp.error).toMatch(/no resolved contract securityId/i);
+    expect(fillingAdapter.placeOrder).not.toHaveBeenCalled();
+    expect(portfolioAgent.appendTrade).not.toHaveBeenCalled();
+    expect(portfolioAgent.recordTradeRejected).toHaveBeenCalledTimes(1);
+  });
+
   it("replays the cached response on duplicate executionId (idempotency)", async () => {
     const req = paperRequest({ executionId: "dup-1" });
     const first = await tradeExecutor.submitTrade(req);
