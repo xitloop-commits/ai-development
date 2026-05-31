@@ -10,6 +10,7 @@ import {
   formatFill,
   formatExit,
   formatGateRejection,
+  formatBrokerDisconnect,
 } from "./tradeEventNotifier";
 
 describe("formatFill", () => {
@@ -181,5 +182,42 @@ describe("formatGateRejection", () => {
     });
     expect(msg).not.toContain("qty");
     expect(msg).toContain("Circuit breaker active");
+  });
+});
+
+describe("formatBrokerDisconnect", () => {
+  it("WS gave-up message uses 📡 icon + restart hint", () => {
+    const msg = formatBrokerDisconnect({
+      brokerId: "dhan-primary-ac",
+      kind: "ws_gave_up",
+      reason: "WebSocket max reconnect attempts exceeded",
+    });
+    expect(msg).toContain("📡");
+    expect(msg).toContain("WS GAVE UP");
+    expect(msg).toContain("dhan-primary-ac");
+    expect(msg).toContain("max reconnect");
+    expect(msg).toContain("restart BSA");
+  });
+
+  it("token-expired uses 🔑 icon + token-specific action hint", () => {
+    const msg = formatBrokerDisconnect({
+      brokerId: "dhan-secondary-ac",
+      kind: "token_expired",
+      reason: "401 returned by /fundlimit",
+    });
+    expect(msg).toContain("🔑");
+    expect(msg).toContain("TOKEN EXPIRED");
+    expect(msg).toContain("mint a fresh token");
+  });
+
+  it("ws_error kind uses 📡 icon + generic WS error label", () => {
+    const msg = formatBrokerDisconnect({
+      brokerId: "dhan-primary-ac",
+      kind: "ws_error",
+      reason: "network timeout",
+    });
+    expect(msg).toContain("📡");
+    expect(msg).toContain("WS ERROR");
+    expect(msg).not.toContain("mint a fresh token");
   });
 });

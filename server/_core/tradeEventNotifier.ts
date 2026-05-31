@@ -120,6 +120,28 @@ export function formatGateRejection(ev: GateRejectionEvent): string {
   ].join("\n");
 }
 
+export interface BrokerDisconnectEvent {
+  brokerId: string;
+  kind: "ws_gave_up" | "ws_error" | "token_expired";
+  reason: string;
+}
+
+export function formatBrokerDisconnect(ev: BrokerDisconnectEvent): string {
+  const headerIcon = ev.kind === "token_expired" ? "🔑" : "📡";
+  const headerLabel = ev.kind === "ws_gave_up"
+    ? "WS GAVE UP"
+    : ev.kind === "token_expired"
+    ? "TOKEN EXPIRED"
+    : "WS ERROR";
+  return [
+    `${headerIcon} <b>BROKER · ${ev.brokerId}</b>`,
+    `${headerLabel}: ${ev.reason}`,
+    ev.kind === "token_expired"
+      ? "Action: restart BSA to mint a fresh token (refresh-on-startup policy)."
+      : "Action: server will keep trying or restart BSA to reset.",
+  ].join("\n");
+}
+
 // ─── Push wrappers (fire-and-forget, try/catch internal) ──────────
 
 async function safePush(message: string, eventLabel: string): Promise<void> {
@@ -140,4 +162,27 @@ export function notifyTradeExit(ev: TradeExitEvent): void {
 
 export function notifyGateRejection(ev: GateRejectionEvent): void {
   void safePush(formatGateRejection(ev), `gate-reject ${ev.channel}/${ev.instrument}`);
+}
+
+// Per-broker dedup so a single broker can't spam the same disconnect
+// event repeatedly (e.g. if the WS reconnect loop bottoms out, then a
+// second exhaustion happens within the cooldown). 5-minute window.
+const BROKER_DISCONNECT_COOLDOWN_MS = 5 * 60 * 1000;
+const lastDisconnectAt = new Map<string, number>();
+
+export function notifyBrokerDisconnect(ev: BrokerDisconnectEvent): void {
+  const key = `${ev.brokerId}:${ev.kind}`;
+  const now = Date.now();
+  const last = lastDisconnectAt.get(key) ?? 0;
+  if (now - last < BROKER_DISCONNECT_COOLDOWN_MS) {
+    log.debug(`Suppressed duplicate broker-disconnect alert (${key}) within cooldown`);
+    return;
+  }
+  lastDisconnectAt.set(key, now);
+  void safePush(formatBrokerDisconnect(ev), `broker-disconnect ${ev.brokerId}/${ev.kind}`);
+}
+
+/** Test-only: reset the per-broker disconnect-alert cooldown map. */
+export function _resetBrokerDisconnectCooldownForTesting(): void {
+  lastDisconnectAt.clear();
 }

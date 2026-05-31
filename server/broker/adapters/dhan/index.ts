@@ -91,6 +91,7 @@ import { DhanOrderUpdateWs } from "./orderUpdateWs";
 import { generateDhanToken } from "./tokenManager";
 import type { SubscriptionState, TickData } from "../../types";
 import { createLogger, type Logger } from "../../logger";
+import { notifyBrokerDisconnect } from "../../../_core/tradeEventNotifier";
 import { dhanApiLatencyMs } from "../../../_core/metrics";
 
 // ─── DhanAdapter ───────────────────────────────────────────────
@@ -1078,6 +1079,17 @@ export class DhanAdapter implements BrokerAdapter {
           this.log.error(`WS error: ${err.message}`);
         }
         void updateBrokerConnection(this.brokerId, { wsStatus: "error" });
+        // T52: push to Telegram when the WS reconnect loop has exhausted
+        // its attempts. Routine single drops auto-recover and are too
+        // noisy to push (5-min per-broker cooldown protects against
+        // burst-storms if the give-up condition fires repeatedly).
+        if (err.message.includes("max reconnect attempts")) {
+          notifyBrokerDisconnect({
+            brokerId: this.brokerId,
+            kind: "ws_gave_up",
+            reason: err.message,
+          });
+        }
       },
       onConnected: () => {
         void updateBrokerConnection(this.brokerId, {
