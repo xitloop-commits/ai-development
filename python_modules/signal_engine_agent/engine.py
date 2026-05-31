@@ -13,12 +13,6 @@ Phase E5 — canonical filter is the **3-condition gate** in
 
 Per-instrument thresholds live in `config/sea_thresholds/<inst>.json`
 (falling back to `default.json`); see `thresholds.load_thresholds`.
-
-The legacy 4-stage filter (regime-aware action router + TradeFilter
-sustained/confidence/consensus pipeline) is retained behind
-`--filter=legacy` for one A/B cycle and lives in `legacy_filter.py`.
-It will be removed after the new gate is validated on a full backtest
-cycle.
 """
 
 from __future__ import annotations
@@ -39,7 +33,6 @@ if str(_PYTHON_MODULES) not in sys.path:
 import numpy as np
 
 from model_training_agent.preprocessor import LiveTickPreprocessor
-from signal_engine_agent import legacy_filter
 from signal_engine_agent.cohort import build_head_type_map
 from signal_engine_agent.model_loader import load_models
 from signal_engine_agent.prediction_logger import PredictionLogger
@@ -69,8 +62,7 @@ def _decide_via_gate(
 
 
 def _pred(models, X, name: str) -> float:
-    """Run one model if loaded, else return NaN. Hoisted out of `run()`
-    so legacy_filter callers can share it.
+    """Run one model if loaded, else return NaN.
 
     T25 — applies per-head isotonic calibration (V2_MASTER_SPEC D72)
     when a `.calibration.json` sidecar was loaded for this head.
@@ -218,11 +210,6 @@ def run(
     instrument: str,
     features_root: Path = Path("data/features"),
     config_dir: Path = Path("config/sea_thresholds"),
-    filter_mode: str = "gate",
-    # Legacy-only knobs (ignored when filter_mode == "gate")
-    sustained_n: int = 5,
-    avg_prob_thresh: float = 0.65,
-    filter_cooldown_sec: float = 60.0,
 ) -> None:
     live_path = features_root / f"{instrument}_live.ndjson"
 
@@ -233,57 +220,37 @@ def run(
     print(f"  Model version: {models.version}")
     print(f"  Features: {len(models.feature_names)}")
 
-    if filter_mode == "gate":
-        thresholds, v2_thresholds, wave2_thresholds, gate_mode = load_thresholds_full(
-            instrument, config_dir,
-        )
-        if gate_mode == "wave2":
-            sustain_filter = None  # model handles persistence via direction_persists_*
-            print(
-                f"  Filter: Wave 2 model-driven gate  "
-                f"(prob>={thresholds.prob_min}, RR>={thresholds.rr_min}, "
-                f"pctile>={thresholds.upside_percentile_min}, "
-                f"persists_60s>={wave2_thresholds.persists_60s_min}, "
-                f"persists_300s>={wave2_thresholds.persists_300s_min}, "
-                f"exit_signal_60s<{wave2_thresholds.exit_signal_60s_max})"
-            )
-        elif gate_mode == "wave1":
-            sustain_filter = SustainFilter(window_n=10)
-            print(
-                f"  Filter: 3-cond gate + Wave 1 deterministic layer  "
-                f"(prob>={thresholds.prob_min}, RR>={thresholds.rr_min}, "
-                f"pctile>={thresholds.upside_percentile_min}, "
-                f"momentum>={v2_thresholds.momentum_persistence_min}, "
-                f"sr_clearance>={v2_thresholds.sr_clearance_pct}%, "
-                f"sustain_n={sustain_filter.window_n})"
-            )
-        else:
-            sustain_filter = None
-            print(
-                f"  Filter: 3-condition gate (current)  "
-                f"(prob>={thresholds.prob_min}, "
-                f"RR>={thresholds.rr_min}, "
-                f"pctile>={thresholds.upside_percentile_min})"
-            )
-        trade_filter = None
-    elif filter_mode == "legacy":
-        thresholds = None
-        v2_thresholds = None
-        wave2_thresholds = None
-        gate_mode = "current"
-        sustain_filter = None
-        trade_filter = legacy_filter.TradeFilter(
-            sustained_n=sustained_n,
-            avg_prob_threshold=avg_prob_thresh,
-            cooldown_sec=filter_cooldown_sec,
-        )
+    thresholds, v2_thresholds, wave2_thresholds, gate_mode = load_thresholds_full(
+        instrument, config_dir,
+    )
+    if gate_mode == "wave2":
+        sustain_filter = None  # model handles persistence via direction_persists_*
         print(
-            f"  Filter: LEGACY 4-stage  "
-            f"(sustained={sustained_n}, avg_prob>={avg_prob_thresh}, "
-            f"cooldown={filter_cooldown_sec}s) -- DEPRECATED"
+            f"  Filter: Wave 2 model-driven gate  "
+            f"(prob>={thresholds.prob_min}, RR>={thresholds.rr_min}, "
+            f"pctile>={thresholds.upside_percentile_min}, "
+            f"persists_60s>={wave2_thresholds.persists_60s_min}, "
+            f"persists_300s>={wave2_thresholds.persists_300s_min}, "
+            f"exit_signal_60s<{wave2_thresholds.exit_signal_60s_max})"
+        )
+    elif gate_mode == "wave1":
+        sustain_filter = SustainFilter(window_n=10)
+        print(
+            f"  Filter: 3-cond gate + Wave 1 deterministic layer  "
+            f"(prob>={thresholds.prob_min}, RR>={thresholds.rr_min}, "
+            f"pctile>={thresholds.upside_percentile_min}, "
+            f"momentum>={v2_thresholds.momentum_persistence_min}, "
+            f"sr_clearance>={v2_thresholds.sr_clearance_pct}%, "
+            f"sustain_n={sustain_filter.window_n})"
         )
     else:
-        raise ValueError(f"filter_mode must be 'gate' or 'legacy', got {filter_mode!r}")
+        sustain_filter = None
+        print(
+            f"  Filter: 3-condition gate (current)  "
+            f"(prob>={thresholds.prob_min}, "
+            f"RR>={thresholds.rr_min}, "
+            f"pctile>={thresholds.upside_percentile_min})"
+        )
     print()
 
     raw_logger = SignalLogger(instrument)
@@ -367,65 +334,42 @@ def run(
             ce_ltp = row.get("opt_0_ce_ltp")
             pe_ltp = row.get("opt_0_pe_ltp")
 
-            if filter_mode == "gate":
-                if gate_mode == "wave2":
-                    # Wave 2 model-driven gate: base 3-cond + direction_persists +
-                    # exit_signal + per-leg PE targets. Model handles persistence
-                    # so no sustained-tick filter needed.
-                    sig = decide_action_wave2(
-                        preds, thresholds, wave2_thresholds,
-                        ce_ltp=ce_ltp, pe_ltp=pe_ltp,
-                    )
-                elif gate_mode == "wave1":
-                    # Wave 1 deterministic gate: 3-condition + regime + momentum + S/R + sustained-N
-                    raw_sig = decide_action_v2(
-                        preds, thresholds, v2_thresholds,
-                        ce_ltp=ce_ltp, pe_ltp=pe_ltp,
-                        regime=regime if isinstance(regime, str) else None,
-                        momentum_persistence_ticks=row.get("momentum_persistence_ticks"),
-                        distance_to_day_high_pct=row.get("distance_to_day_high_pct"),
-                        distance_to_day_low_pct=row.get("distance_to_day_low_pct"),
-                    )
-                    # Apply sustained-tick filter on the raw decision
-                    confirmed = sustain_filter.observe(raw_sig.action)
-                    if confirmed != "WAIT" and raw_sig.gate_passed:
-                        sig = raw_sig
-                    else:
-                        sig = SignalAction(
-                            action="WAIT", direction=raw_sig.direction,
-                            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
-                            gate_passed=False,
-                            gate_reasons=raw_sig.gate_reasons + (
-                                ["C7_not_sustained"] if confirmed == "WAIT" and raw_sig.gate_passed else []
-                            ),
-                        )
-                else:
-                    sig = _decide_via_gate(preds, thresholds, ce_ltp, pe_ltp)
-                action = sig.action
-                entry, tp, sl, rr = sig.entry, sig.tp, sig.sl, sig.rr
-                gate_reasons = sig.gate_reasons
-            else:
-                # Legacy path — regime router + 4-stage filter
-                up_swing = preds["max_upside_900s"]
-                dn_swing = preds["max_drawdown_900s"]
-                if np.isnan(up_swing):
-                    up_swing = preds["max_upside_300s"]
-                if np.isnan(dn_swing):
-                    dn_swing = preds["max_drawdown_300s"]
-
-                legacy = legacy_filter.legacy_decide(
-                    preds["direction_prob_30s"],
-                    preds["max_upside_30s"],
-                    preds["max_drawdown_30s"],
-                    regime,
-                    ce_ltp,
-                    pe_ltp,
-                    up_pred_swing=up_swing,
-                    dn_pred_swing=dn_swing,
+            if gate_mode == "wave2":
+                # Wave 2 model-driven gate: base 3-cond + direction_persists +
+                # exit_signal + per-leg PE targets. Model handles persistence
+                # so no sustained-tick filter needed.
+                sig = decide_action_wave2(
+                    preds, thresholds, wave2_thresholds,
+                    ce_ltp=ce_ltp, pe_ltp=pe_ltp,
                 )
-                action = legacy.action
-                entry, tp, sl, rr = legacy.entry, legacy.tp, legacy.sl, legacy.rr
-                gate_reasons = []
+            elif gate_mode == "wave1":
+                # Wave 1 deterministic gate: 3-condition + regime + momentum + S/R + sustained-N
+                raw_sig = decide_action_v2(
+                    preds, thresholds, v2_thresholds,
+                    ce_ltp=ce_ltp, pe_ltp=pe_ltp,
+                    regime=regime if isinstance(regime, str) else None,
+                    momentum_persistence_ticks=row.get("momentum_persistence_ticks"),
+                    distance_to_day_high_pct=row.get("distance_to_day_high_pct"),
+                    distance_to_day_low_pct=row.get("distance_to_day_low_pct"),
+                )
+                # Apply sustained-tick filter on the raw decision
+                confirmed = sustain_filter.observe(raw_sig.action)
+                if confirmed != "WAIT" and raw_sig.gate_passed:
+                    sig = raw_sig
+                else:
+                    sig = SignalAction(
+                        action="WAIT", direction=raw_sig.direction,
+                        entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+                        gate_passed=False,
+                        gate_reasons=raw_sig.gate_reasons + (
+                            ["C7_not_sustained"] if confirmed == "WAIT" and raw_sig.gate_passed else []
+                        ),
+                    )
+            else:
+                sig = _decide_via_gate(preds, thresholds, ce_ltp, pe_ltp)
+            action = sig.action
+            entry, tp, sl, rr = sig.entry, sig.tp, sig.sl, sig.rr
+            gate_reasons = sig.gate_reasons
 
             # T41: persist this eval's per-head (prediction, outcome)
             # tuples. Outcome columns are NaN here; outcome_backfiller
@@ -474,11 +418,11 @@ def run(
                 _last_emit_ts = now_ts
                 raw_signals += 1
                 # T33 D56: cohort tag on every emitted signal. Current
-                # gates (wave2 / wave1 / 3-cond / legacy) are all scalp-
-                # window driven, so the originating cohort is always
-                # "scalp" today. When T29 lands head-type routing for
-                # trend / swing gates this will derive from the firing
-                # head's cohort instead of being a constant.
+                # gates (wave2 / wave1 / 3-cond) are all scalp-window
+                # driven, so the originating cohort is always "scalp"
+                # today. When T29 lands head-type routing for trend /
+                # swing gates this will derive from the firing head's
+                # cohort instead of being a constant.
                 signal_cohort = "scalp"
                 signal = {
                     "timestamp": row.get("timestamp"),
@@ -505,91 +449,32 @@ def run(
                     "momentum": row.get("underlying_momentum"),
                     "breakout": row.get("breakout_readiness"),
                     "model_version": models.version,
-                    "filter_mode": filter_mode,
                     "gate_mode": gate_mode,
                     "direction": "GO_CALL" if "CE" in action else "GO_PUT",
                 }
                 raw_logger.log(signal)
 
             # ── Filtered output ──
-            if filter_mode == "gate":
-                # New path: log the failed-gate diagnostic line per spec §3
-                # (filtered_signals.log). Only emit when prediction was
-                # evaluable (i.e. we have a direction_prob_30s) — pure
-                # noise rows are skipped.
-                if not np.isnan(preds["direction_prob_30s"]) and gate_reasons:
-                    filtered_signals += 1
-                    would_be = "GO_CALL" if preds["direction_prob_30s"] > 0.5 else "GO_PUT"
-                    filtered_logger.log(
-                        {
-                            "timestamp": row.get("timestamp"),
-                            "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
-                            "instrument": instrument.upper(),
-                            "would_be_direction": would_be,
-                            "fail_reasons": gate_reasons,
-                            "direction_prob_30s": round(preds["direction_prob_30s"], 4),
-                            "risk_reward_ratio_30s": round(preds["risk_reward_ratio_30s"], 4),
-                            "upside_percentile_30s": round(preds["upside_percentile_30s"], 2),
-                            "model_version": models.version,
-                        }
-                    )
-            else:
-                # Legacy path: 4-stage filter → trade recommendation
-                tick_decision = legacy_filter.TickDecision(
-                    timestamp=row.get("timestamp") or now_ts,
-                    action=action,
-                    direction_prob=preds["direction_prob_30s"],
-                    max_upside_pred=preds["max_upside_30s"],
-                    max_drawdown_pred=preds["max_drawdown_30s"],
-                    risk_reward_pred=preds["risk_reward_ratio_30s"],
-                    magnitude_pred=preds["direction_30s_magnitude"],
-                    regime=regime,
-                    entry=entry,
-                    tp=tp,
-                    sl=sl,
-                    rr=rr,
+            # Log the failed-gate diagnostic line per spec §3
+            # (filtered_signals.log). Only emit when prediction was
+            # evaluable (i.e. we have a direction_prob_30s) — pure
+            # noise rows are skipped.
+            if not np.isnan(preds["direction_prob_30s"]) and gate_reasons:
+                filtered_signals += 1
+                would_be = "GO_CALL" if preds["direction_prob_30s"] > 0.5 else "GO_PUT"
+                filtered_logger.log(
+                    {
+                        "timestamp": row.get("timestamp"),
+                        "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
+                        "instrument": instrument.upper(),
+                        "would_be_direction": would_be,
+                        "fail_reasons": gate_reasons,
+                        "direction_prob_30s": round(preds["direction_prob_30s"], 4),
+                        "risk_reward_ratio_30s": round(preds["risk_reward_ratio_30s"], 4),
+                        "upside_percentile_30s": round(preds["upside_percentile_30s"], 2),
+                        "model_version": models.version,
+                    }
                 )
-                rec = trade_filter.evaluate(tick_decision)
-                if rec is not None:
-                    filtered_signals += 1
-                    ts_short = datetime.now(_IST).strftime("%H:%M:%S")
-                    print(
-                        f"  [{ts_short}] [TRADE-LEGACY] {rec.action:<10}  "
-                        f"{rec.confidence}  score={rec.score}/6  "
-                        f"sustained={rec.sustained_ticks}  "
-                        f"avg_prob={rec.avg_prob:.3f}  "
-                        f"entry={rec.entry:.1f}  "
-                        f"TP={rec.tp:.1f}  SL={rec.sl:.1f}  "
-                        f"RR={rec.rr:.1f}"
-                    )
-                    filtered_logger.log(
-                        {
-                            "timestamp": rec.timestamp,
-                            "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
-                            "instrument": instrument.upper(),
-                            "action": rec.action,
-                            "confidence": rec.confidence,
-                            "score": rec.score,
-                            "sustained_ticks": rec.sustained_ticks,
-                            "avg_prob": rec.avg_prob,
-                            "min_prob": rec.min_prob,
-                            "entry": round(rec.entry, 2),
-                            "tp": round(rec.tp, 2),
-                            "sl": round(rec.sl, 2),
-                            "atm_strike": row.get("atm_strike"),
-                            "atm_ce_ltp": ce_ltp,
-                            "atm_pe_ltp": pe_ltp,
-                            "atm_ce_security_id": row.get("atm_ce_security_id"),
-                            "atm_pe_security_id": row.get("atm_pe_security_id"),
-                            "spot_price": row.get("spot_price"),
-                            "rr": rec.rr,
-                            "reasoning": rec.reasoning,
-                            "regime": regime,
-                            "model_version": models.version,
-                            "filter_mode": "legacy",
-                            "direction": "GO_CALL" if "CE" in rec.action else "GO_PUT",
-                        }
-                    )
 
             # Periodic heartbeat
             if processed % 500 == 0:
@@ -616,8 +501,6 @@ def run(
                 print(f"  T41 predictions finalised -> {final_pred_path}")
         except Exception as exc:
             print(f"  T41 finalise error: {exc}", file=sys.stderr)
-        if filter_mode == "legacy" and trade_filter is not None:
-            print(f"\n  Legacy filter stats: {trade_filter.stats()}")
 
 
 def main() -> int:
@@ -631,43 +514,12 @@ def main() -> int:
         default="config/sea_thresholds",
         help="Per-instrument JSON thresholds dir (default config/sea_thresholds)",
     )
-    p.add_argument(
-        "--filter",
-        choices=("gate", "legacy"),
-        default="gate",
-        help="'gate' = canonical 3-condition gate (Phase D4); "
-        "'legacy' = pre-E5 4-stage filter (DEPRECATED, removed next phase)",
-    )
-    # Legacy-only knobs (silently ignored in gate mode, kept to not break
-    # existing launcher scripts during the one-cycle transition).
-    p.add_argument(
-        "--sustained-n",
-        type=int,
-        default=5,
-        help="(legacy only) Consecutive ticks for sustained direction",
-    )
-    p.add_argument(
-        "--avg-prob-thresh",
-        type=float,
-        default=0.65,
-        help="(legacy only) Avg conviction probability threshold",
-    )
-    p.add_argument(
-        "--filter-cooldown",
-        type=float,
-        default=60.0,
-        help="(legacy only) Min seconds between filtered recommendations",
-    )
     args = p.parse_args()
 
     run(
         args.instrument,
         features_root=Path(args.features_root),
         config_dir=Path(args.config_dir),
-        filter_mode=args.filter,
-        sustained_n=args.sustained_n,
-        avg_prob_thresh=args.avg_prob_thresh,
-        filter_cooldown_sec=args.filter_cooldown,
     )
     return 0
 

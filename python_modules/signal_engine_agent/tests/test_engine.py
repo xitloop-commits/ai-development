@@ -276,30 +276,25 @@ def test_decide_via_gate_returns_decide_action_result_unmodified():
     assert out.rr == 2.5
 
 
-# ── mode dispatch sanity (delegate fns are mockable) ──────────────────────
+# ── gate dispatch sanity (delegate fn is mockable) ────────────────────────
 #
 # `run()` is not unit-testable (infinite loop). We instead verify that
-# the functions it dispatches to (_decide_via_gate and
-# legacy_filter.legacy_decide) are independently mockable and have the
-# right shape. This is the closest the test suite can get without
-# refactoring run() itself.
+# the function it dispatches to (`_decide_via_gate`) is independently
+# mockable and has the right shape. This is the closest the test
+# suite can get without refactoring run() itself.
 
 
 def test_decide_via_gate_is_a_module_attribute():
-    """Both dispatch entry points must exist as module attrs so run()
-    (and tests) can patch them."""
+    """Dispatch entry point must exist as a module attr so run() (and
+    tests) can patch it."""
     assert hasattr(sea_engine, "_decide_via_gate")
-    assert hasattr(sea_engine, "legacy_filter")
-    assert hasattr(sea_engine.legacy_filter, "legacy_decide")
+    assert callable(sea_engine._decide_via_gate)
 
 
-def test_engine_imports_thresholds_and_legacy_filter():
-    """Both filter paths must be importable from the engine — guards
-    against accidental dead-code removal of the legacy switch before
-    Phase E11 cleanup."""
-    assert sea_engine.legacy_filter is not None
+def test_engine_imports_thresholds():
+    """The gate's decision function must be importable through the
+    engine module so callers can rely on the public surface."""
     assert callable(sea_engine.decide_action)
-    assert callable(sea_engine.legacy_filter.legacy_decide)
 
 
 # ── _tail happy path (single-thread, no rotation, no truncation) ──────────

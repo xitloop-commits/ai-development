@@ -7,8 +7,8 @@ AND none are WAIT. This kills momentary flickers and ensures the model's
 direction prediction has held for ~10 ticks (≈10s) before triggering a
 trade.
 
-Replaces the legacy_filter Stage 4 sustained-direction logic; the gate
-path lost it during the legacy → gate cutover.
+Restores a sustained-direction check that the gate path lost during
+the legacy → gate cutover (pre-E5 4-stage filter, since deleted by T43).
 
 Usage:
     sus = SustainFilter(window_n=10)

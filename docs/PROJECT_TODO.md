@@ -618,11 +618,34 @@ T42 ships the script + tests but does NOT yet append it to the `Lubas-Retrain-Sa
 - Scope: edit the `Lubas-Retrain-Saturday` block in `startup/install-scheduled-tasks.ps1` to chain `py scripts/saturday_promote.py` after the retrain step (~02:30 IST). Verify env vars `YOW_PARTHA_BOT_TOKEN` + `YOW_PARTHA_CHAT_ID` are visible to the scheduled-task context (they're already loaded via `dotenv/config` for the BSA API but the Windows Task Scheduler ENV inheritance differs).
 - Effort: ~½ hour. Belongs to the launcher work cycle (touches startup/, not python_modules/).
 
-### T43 [SEA] — Remove deprecated legacy_filter.py + trade_filter.py 🆕
+### T43 [SEA] — Remove deprecated legacy_filter.py + trade_filter.py ✅ IMPLEMENTED
 Pre-E5 4-stage filter (`legacy_filter.py` 129 LOC + `trade_filter.py` 328 LOC = 457 LOC dead code) retained behind `--filter=legacy` CLI flag for one A/B validation cycle. Phase E5 base gate has been locked + validated since 2026-04-30. Time to delete.
 
-- **Status:** Deferred 2026-05-24 (surfaced during System 04 doc rewrite). Cleanup, not blocking.
-- **Effort:** ~½ day. Remove the two files, the `--filter=legacy` flag, and any unreachable branches in `engine.py`. Verify 124-test suite still green.
+**Implementation (shipped 2026-05-31):**
+- Deleted `python_modules/signal_engine_agent/legacy_filter.py` (regime-aware action router shim).
+- Deleted `python_modules/signal_engine_agent/trade_filter.py` (4-stage sustained/confidence/consensus pipeline).
+- Deleted `python_modules/signal_engine_agent/tests/test_trade_filter.py` (the Phase E10 PR2 lock — no longer locking anything that exists).
+- `python_modules/signal_engine_agent/engine.py` cleanup:
+  - Removed `from signal_engine_agent import legacy_filter` import.
+  - Removed `run()` parameters: `filter_mode`, `sustained_n`, `avg_prob_thresh`, `filter_cooldown_sec`. Promoted the gate-mode body out of the `if filter_mode == "gate":` block.
+  - Removed `--filter`, `--sustained-n`, `--avg-prob-thresh`, `--filter-cooldown` CLI args.
+  - Removed inner-loop `else: # Legacy path — regime router + 4-stage filter` branch (3-cond/wave1/wave2 gates promoted out).
+  - Removed `else: # Legacy path: 4-stage filter → trade recommendation` filtered-output branch.
+  - Removed `filter_mode` field from the emitted signal dict (gate_mode remains).
+  - Removed legacy stats print in the `finally` block.
+- `backtest_scored.py` cleanup (mirror of engine.py — same dead surface in the offline backtest runner):
+  - Removed `from signal_engine_agent import legacy_filter` + `TradeFilter` imports.
+  - Removed `run_scored_backtest()` legacy params.
+  - Removed dual `if filter_mode == "gate" / else` branches in the inner loop + filtered-output section.
+  - Removed `_compute_filtered_metrics()` (orphaned).
+  - Removed `--filter`, `--sustained-n`, `--avg-prob-thresh`, `--filter-cooldown` CLI args.
+  - Output dir suffix kept as `gate/` (preserves cross-scorecard tooling paths).
+- `python_modules/signal_engine_agent/tests/test_engine.py` cleanup: replaced `test_decide_via_gate_is_a_module_attribute` + `test_engine_imports_thresholds_and_legacy_filter` (which asserted the legacy_filter module attr) with gate-only equivalents.
+- Stale docstring updates in `sustain.py` + `thresholds.py` removing the "retained behind --filter=legacy for one cycle" prose.
+
+**Validation:** SEA test suite passes 162/162; full project suite passes (excluding the 4 pre-existing date-sensitive TFA fails). Net deletion ~520 LOC.
+
+- **Status:** ✅ IMPLEMENTED 2026-05-31.
 - **Cross-ref:** [systems/04_signal_engine.md §9](systems/04_signal_engine.md).
 
 ### T45 [BSA] — Wire DesyncReconciler position-compare logic 🆕

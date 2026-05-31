@@ -27,11 +27,6 @@ beyond the optional `ce_ltp` / `pe_ltp` arguments used to derive entry
 TP/SL prices. Per-instrument thresholds live in JSON under
 `config/sea_thresholds/{instrument}.json`; `load_thresholds()` is the
 only function that touches the filesystem.
-
-The legacy 4-stage MVP filter (`trade_filter.TradeFilter` + the regime
-router formerly in `engine._decide`) is retained behind a CLI
-`--filter=legacy` switch in `legacy_filter.py` for one cycle and will
-be removed once the gate is validated on a full backtest cycle.
 """
 
 from __future__ import annotations
