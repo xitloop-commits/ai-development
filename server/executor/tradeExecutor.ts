@@ -796,7 +796,13 @@ function resolveTransactionType(direction: "BUY" | "SELL"): TransactionType {
 
 function mapToOrderParams(req: SubmitTradeRequest): OrderParams {
   return {
-    instrument: req.instrument,
+    // Prefer the contract securityId resolved upstream (router resolveContract
+    // for UI option trades, or the signal path). The broker needs a numeric
+    // securityId; sending the underlying display name ("NIFTY 50") makes the
+    // adapter's scrip-master lookup miss and the order get rejected. Fall back
+    // to the name only when no contract id is present (e.g. futures-by-symbol
+    // that the adapter itself resolves via scrip master).
+    instrument: req.contractSecurityId ?? req.instrument,
     exchange: resolveExchange(req.instrument),
     transactionType: resolveTransactionType(req.direction),
     optionType: resolveOptionType(req),

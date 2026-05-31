@@ -23,6 +23,9 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 vi.mock("../broker/brokerService", () => ({
   getAdapter: vi.fn(),
   isChannelKillSwitchActive: vi.fn(() => false),
+  // Used by ensureOptionLtpSubscription for paper channels. Returning undefined
+  // makes the LTP subscription a safe no-op in unit tests (no live WS feed).
+  getActiveBroker: vi.fn(() => undefined),
 }));
 
 vi.mock("./tradeResolution", () => ({
@@ -192,6 +195,33 @@ describe("submitTrade — paper path", () => {
     expect(fillingAdapter.placeOrder).toHaveBeenCalledTimes(1);
     expect(portfolioAgent.appendTrade).toHaveBeenCalledTimes(1);
     expect(portfolioAgent.recordTradePlaced).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends the resolved contractSecurityId to the broker, not the underlying name", async () => {
+    // Regression: an option order resolves a numeric contract securityId upstream
+    // (router resolveContract). mapToOrderParams must forward THAT id to the
+    // broker — sending the display name "NIFTY 50" makes the adapter's scrip
+    // lookup miss and the order get rejected.
+    const req = paperRequest({
+      instrument: "NIFTY 50",
+      optionType: "CE",
+      strike: 23550,
+      expiry: "2026-06-25",
+      contractSecurityId: "55123",
+    });
+    await tradeExecutor.submitTrade(req);
+
+    expect(fillingAdapter.placeOrder).toHaveBeenCalledTimes(1);
+    const orderParams = (fillingAdapter.placeOrder as any).mock.calls[0][0];
+    expect(orderParams.instrument).toBe("55123");
+  });
+
+  it("falls back to the instrument name when no contractSecurityId is present", async () => {
+    const req = paperRequest({ instrument: "NIFTY_50" }); // no contractSecurityId
+    await tradeExecutor.submitTrade(req);
+
+    const orderParams = (fillingAdapter.placeOrder as any).mock.calls[0][0];
+    expect(orderParams.instrument).toBe("NIFTY_50");
   });
 
   it("replays the cached response on duplicate executionId (idempotency)", async () => {

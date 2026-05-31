@@ -272,6 +272,21 @@ export const executorRouter = router({
         }
       }
 
+      // Safety net: an option must have a resolved contract securityId before
+      // it can be placed. If the chain returned no match (bad strike/expiry, or
+      // an empty chain), reject here with a clear message instead of letting the
+      // bare underlying name ("NIFTY 50") leak to the broker as a securityId.
+      if (isOption && !contractSecurityId) {
+        const ceOrPe = input.type.startsWith("CALL") ? "CE" : "PE";
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            `Could not resolve a tradeable contract for ${input.instrument} ` +
+            `${strike ?? "?"} ${ceOrPe} ${expiry || "(no expiry)"}. ` +
+            `The option chain returned no match — check the strike and expiry.`,
+        });
+      }
+
       // ── 4. Compute qty + margin ─────────────────────────────────
       const state = await getCapitalState(input.channel);
       const day = await portfolioAgent.ensureCurrentDay(input.channel);
