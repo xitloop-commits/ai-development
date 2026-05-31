@@ -180,10 +180,11 @@ tRPC queries used by the main loop:
 
 ## 12. Open work
 
-- [T52 [UI]](../PROJECT_TODO.md) — Notifications backend (full Telegram routing for trade events + email provider + preferences UI section in Settings).
 - [T50 [H2H]](../PROJECT_TODO.md) — HeadToHead backend. Frontend exists; tRPC endpoint is stub.
 - [T22](../PROJECT_TODO.md) — Launcher blue-tick (terminated-state indicator on the pipeline view). Cross-cuts with launcher but UI piece lives here too.
 - [T44](../PROJECT_TODO.md) — Per-day trade-chart HTML report + launcher menu (added externally).
+
+**Shipped 2026-05-31:** T52 Notifications backend — session-close P&L summary push (NSE 15:30 + MCX 23:30 IST) → yow-partha; server-side AlertHistory persistence (Mongo + 30-day nightly purge); client AlertContext hydrates from + writes to server; trade-event Telegram routing (fill / exit / auto-exit / DISCIPLINE_EXIT / gate rejection / broker WS gave-up) all wired with try/catch fire-and-forget. Email layer formally dropped from scope. Preferences UI not built — every event currently pushes per the locked default route table; future task if per-event toggles are wanted.
 
 ## 13. Cross-refs
 

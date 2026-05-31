@@ -173,15 +173,16 @@ The single-chat policy intentionally rules out team mode; if Partha needs spouse
 
 **Pending:**
 - [T39](../PROJECT_TODO.md) — graceful-stop refactor (direct-spawn architecture). Today the bot uses a separate polling daemon; direct-spawn from Lubas would give cleaner process lifecycle + better stop-signal propagation + no orphan listeners on Lubas restart. ~1 day. Design notes captured before the per-machine memory was cleaned up; original resume point at v0.1 EOD.
-- [T52 [UI]](../PROJECT_TODO.md) — Notifications backend full Telegram routing. Today the bot pushes some events (token expiry, session-close anomaly); the catalog of every-trade / gate-rejection / DISCIPLINE_EXIT events isn't wired through. Lands when T52 ships the routing layer.
 - **v0.2 (post-paper-trade):** SEA control buttons (start / stop / inspect signal engine × 4), maybe a `flatten position` super-action wired into the Discipline `MUST_EXIT` path. Tracked separately when v0.1 stabilises.
+
+**Shipped 2026-05-31 (T52):** Notifications routing extended end-to-end. Bot now pushes (in addition to the prior token-expiry + session-close-anomaly events): every trade fill, every trade exit (TP / SL / manual / auto), every DISCIPLINE_EXIT, every gate rejection, every broker WS gave-up event. Daily NSE close (15:30 IST) + MCX close (23:30 IST) auto-summary digest also shipped. All pushes are fire-and-forget — a Telegram failure cannot break a trade. Per-(broker, kind) 5-min dedup on broker-disconnect alerts.
 
 ## 11. Cross-refs
 
 - [05 Execution](05_execution.md) — yow-partha shells into `startup/stop-all.ps1`, which graceful-stops the broker connections too.
 - [08 UI Desktop](08_ui_desktop.md) — sister control surface; the Notifications spec lives there and yow-partha is one of its delivery routes.
 - [10 Launcher & Ops](10_launcher_ops.md) — yow-partha and the desktop launcher both shell out to the same `startup/*.bat` scripts. Scheduled-task registration lives there.
-- [PROJECT_TODO.md](../PROJECT_TODO.md) — T39 (graceful-stop refactor), T52 (Notifications backend).
+- [PROJECT_TODO.md](../PROJECT_TODO.md) — T39 (graceful-stop refactor); T52 (Notifications backend) shipped 2026-05-31.
 
 ## 12. Code + ops locations
 
