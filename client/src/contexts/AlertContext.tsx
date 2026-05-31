@@ -25,6 +25,7 @@ import {
 } from '@/lib/alertTypes';
 import { playAlertSound, unlockAudio, type AlertSoundType } from '@/lib/soundEngine';
 import { toast } from 'sonner';
+import { trpc } from '@/lib/trpc';
 
 const MAX_ALERT_HISTORY = 50;
 
@@ -63,6 +64,40 @@ export function AlertProvider({ children }: { children: ReactNode }) {
     useState<NotificationPermission>('default');
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const lastReadTimestamp = useRef<number>(Date.now());
+
+  // ── T52: server-side persistence ──────────────────────────────
+  // Hydrate from server on mount (one-shot). Server is authoritative for
+  // history older than this session; local state stays authoritative for
+  // anything dispatched in-session. Fire-and-forget mutations keep the
+  // local-first UX — if the server is unreachable, alerts still work.
+  const hydratedRef = useRef(false);
+  const alertsListQuery = trpc.alerts.list.useQuery({ limit: MAX_ALERT_HISTORY });
+  const alertsPushMut = trpc.alerts.push.useMutation();
+  const alertsMarkReadMut = trpc.alerts.markAllRead.useMutation();
+
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    if (!alertsListQuery.data) return;
+    hydratedRef.current = true;
+    const serverAlerts: AlertEvent[] = alertsListQuery.data.map((d) => ({
+      id: d.id,
+      type: d.type as AlertEventType,
+      priority: d.priority as AlertEvent['priority'],
+      title: d.title,
+      message: d.message,
+      instrument: d.instrument ?? undefined,
+      timestamp: d.timestamp,
+      dismissed: false,
+    }));
+    // Merge: keep any in-session local alerts at the head, append server
+    // history below (deduped by id in case the same alert was already
+    // pushed + hydrated within the same load).
+    setAlerts((prev) => {
+      const knownIds = new Set(prev.map((a) => a.id));
+      const merged = [...prev, ...serverAlerts.filter((a) => !knownIds.has(a.id))];
+      return merged.slice(0, MAX_ALERT_HISTORY);
+    });
+  }, [alertsListQuery.data]);
 
   // Check notification permission on mount
   useEffect(() => {
@@ -124,7 +159,9 @@ export function AlertProvider({ children }: { children: ReactNode }) {
     lastReadTimestamp.current = Date.now();
     // Force re-render by updating alerts
     setAlerts((prev) => [...prev]);
-  }, []);
+    // T52: best-effort server sync — no await, no error blocking.
+    alertsMarkReadMut.mutate();
+  }, [alertsMarkReadMut]);
 
   // Compute unread count
   const unreadCount = alerts.filter(
@@ -201,6 +238,19 @@ export function AlertProvider({ children }: { children: ReactNode }) {
         return next.slice(0, MAX_ALERT_HISTORY);
       });
 
+      // T52: best-effort server persistence so this alert survives a
+      // page reload and shows up in tomorrow's AlertHistory. Fire-and-
+      // forget — if the push fails, the local toast still shows; we
+      // just lose the historical record for this one event.
+      alertsPushMut.mutate({
+        type: alert.type,
+        priority: alert.priority,
+        title: alert.title,
+        message: alert.message,
+        instrument: alert.instrument,
+        timestamp: alert.timestamp,
+      });
+
       // Play sound
       if (settings.soundEnabled) {
         const soundType = getSoundType(type);
@@ -247,7 +297,7 @@ export function AlertProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [isAlertEnabled, settings.soundEnabled, settings.soundVolume, settings.notificationsEnabled],
+    [isAlertEnabled, settings.soundEnabled, settings.soundVolume, settings.notificationsEnabled, alertsPushMut],
   );
 
   return (
