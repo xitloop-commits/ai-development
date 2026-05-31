@@ -32,6 +32,16 @@ vi.mock("./tradeResolution", () => ({
   resolveLotSize: vi.fn(async () => 75), // NIFTY default
 }));
 
+// Scrip master is not loaded in unit tests — mock the authoritative record
+// lookup. "55123" is a valid NIFTY CE (lot 75); any other id is unknown.
+vi.mock("../broker/adapters/dhan/scripMaster", () => ({
+  getScripBySecurityId: vi.fn((id: string) =>
+    id === "55123"
+      ? { securityId: "55123", optionType: "CE", expiryDateOnly: "2026-06-25", lotSize: 75 }
+      : undefined,
+  ),
+}));
+
 vi.mock("./settings", () => ({
   getExecutorSettings: vi.fn(async () => ({
     userId: "1",
@@ -215,6 +225,37 @@ describe("submitTrade — paper path", () => {
     expect(fillingAdapter.placeOrder).toHaveBeenCalledTimes(1);
     const orderParams = (fillingAdapter.placeOrder as any).mock.calls[0][0];
     expect(orderParams.instrument).toBe("55123");
+  });
+
+  it("rejects an option whose securityId is not in the scrip master (no fallback)", async () => {
+    const req = paperRequest({
+      instrument: "NIFTY 50",
+      optionType: "CE",
+      strike: 23550,
+      expiry: "2026-06-25",
+      contractSecurityId: "99999", // unknown to the scrip master mock
+    });
+    const resp = await tradeExecutor.submitTrade(req);
+
+    expect(resp.success).toBe(false);
+    expect(resp.error).toMatch(/not in the scrip master/i);
+    expect(fillingAdapter.placeOrder).not.toHaveBeenCalled();
+  });
+
+  it("rejects an option whose quantity is not a whole lot multiple", async () => {
+    const req = paperRequest({
+      instrument: "NIFTY 50",
+      optionType: "CE",
+      strike: 23550,
+      expiry: "2026-06-25",
+      contractSecurityId: "55123",
+      quantity: 65, // 65 is not a multiple of the scrip-master lot size 75
+    });
+    const resp = await tradeExecutor.submitTrade(req);
+
+    expect(resp.success).toBe(false);
+    expect(resp.error).toMatch(/not a whole multiple of the lot size 75/i);
+    expect(fillingAdapter.placeOrder).not.toHaveBeenCalled();
   });
 
   it("falls back to the instrument name when no contractSecurityId is present", async () => {

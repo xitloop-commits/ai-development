@@ -488,6 +488,16 @@ export function getLotSizeBySecurityId(securityId: string): number {
 }
 
 /**
+ * Authoritative record lookup by securityId. Returns the full scrip record or
+ * undefined if the securityId is not in the (loaded) scrip master. Callers that
+ * must NOT fall back use this to fail-fast: undefined means the scrip master is
+ * stale / not loaded / the contract doesn't exist — never a usable lot size.
+ */
+export function getScripBySecurityId(securityId: string): ScripRecord | undefined {
+  return bySecurityId.get(securityId);
+}
+
+/**
  * Get lot size for an underlying symbol (e.g., NIFTY, BANKNIFTY, CRUDEOIL).
  * Uses the first matching record from the scrip master.
  * Returns 1 if not found.

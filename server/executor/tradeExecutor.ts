@@ -46,6 +46,7 @@ import { idempotencyStore } from "./idempotency";
 import { orderSync } from "./orderSync";
 import { recoveryEngine } from "./recoveryEngine";
 import { resolveLotSize } from "./tradeResolution";
+import { getScripBySecurityId } from "../broker/adapters/dhan/scripMaster";
 import { getExecutorSettings } from "./settings";
 import type {
   SubmitTradeRequest,
@@ -228,20 +229,16 @@ class TradeExecutorAgent {
         return resp;
       }
 
-      // Pre-flight: an option leg must carry a resolved contract securityId
-      // before it can be placed. This is the single universal guard for every
-      // channel and broker (AI, manual, paper, live, sandbox) — the mock/paper
-      // broker would otherwise fake-fill an unresolved name, and the live/
-      // sandbox Dhan adapter would reject it with a vague broker error. Without
-      // a contract id, option P&L tracking (tickHandler matches on it) is also
-      // broken. Non-option trades (FUT / equity) are unaffected.
-      if ((req.optionType === "CE" || req.optionType === "PE") && !req.contractSecurityId) {
-        const resp = rejection(
-          req.executionId,
-          `Option ${req.instrument} ${req.strike ?? "?"} ${req.optionType} ` +
-            `${req.expiry || "(no expiry)"} has no resolved contract securityId — ` +
-            `the option chain returned no match. Check the strike and expiry.`,
-        );
+      // Pre-flight: validate the option leg against the authoritative scrip
+      // master — single universal gate for every channel/broker (AI, manual,
+      // paper, live, sandbox). securityId, expiry and lot size must all come
+      // from the scrip master with NO fallback: if anything can't be resolved
+      // there, the trade is rejected (and an alert logged), never placed with a
+      // guessed value. Non-option trades (FUT / equity) are unaffected.
+      const optionReject = validateOptionAgainstScrip(req);
+      if (optionReject) {
+        log.warn(`submitTrade scrip-validation reject channel=${req.channel}: ${optionReject}`);
+        const resp = rejection(req.executionId, optionReject);
         idempotencyStore.fail(req.executionId, resp.error!);
         await portfolioAgent.recordTradeRejected({
           channel: req.channel,
@@ -832,6 +829,40 @@ function resolveOptionType(req: SubmitTradeRequest): OptionType {
 
 function resolveTransactionType(direction: "BUY" | "SELL"): TransactionType {
   return direction === "BUY" ? "BUY" : "SELL";
+}
+
+/**
+ * Validate an option trade against the authoritative scrip master. Returns a
+ * rejection reason string, or null if the option is valid (or the trade is not
+ * an option). NO fallback: securityId, expiry and lot size must all resolve from
+ * the scrip master, and the quantity must be a whole lot multiple — otherwise
+ * the trade is blocked. Covers every channel via submitTrade.
+ */
+function validateOptionAgainstScrip(req: SubmitTradeRequest): string | null {
+  if (req.optionType !== "CE" && req.optionType !== "PE") return null;
+  const label = `${req.instrument} ${req.strike ?? "?"} ${req.optionType} ${req.expiry || "(no expiry)"}`;
+
+  if (!req.contractSecurityId) {
+    return `Option ${label} has no resolved contract securityId — the option chain returned no match. Check the strike and expiry.`;
+  }
+  const rec = getScripBySecurityId(req.contractSecurityId);
+  if (!rec) {
+    return `Option ${label}: securityId ${req.contractSecurityId} is not in the scrip master (stale or not loaded). Refresh the scrip master.`;
+  }
+  if (rec.optionType && rec.optionType !== req.optionType) {
+    return `Option ${label}: securityId ${req.contractSecurityId} is a ${rec.optionType} in the scrip master, not ${req.optionType}.`;
+  }
+  const reqExpiry = (req.expiry ?? "").split(" ")[0].split("T")[0];
+  if (reqExpiry && rec.expiryDateOnly && reqExpiry !== rec.expiryDateOnly) {
+    return `Option ${label}: expiry ${reqExpiry} does not match the scrip master (${rec.expiryDateOnly}) for securityId ${req.contractSecurityId}.`;
+  }
+  if (!rec.lotSize || rec.lotSize <= 0) {
+    return `Option ${label}: scrip master has no lot size for securityId ${req.contractSecurityId}.`;
+  }
+  if (req.quantity <= 0 || req.quantity % rec.lotSize !== 0) {
+    return `Option ${label}: quantity ${req.quantity} is not a whole multiple of the lot size ${rec.lotSize} (from scrip master).`;
+  }
+  return null;
 }
 
 function mapToOrderParams(req: SubmitTradeRequest): OrderParams {
