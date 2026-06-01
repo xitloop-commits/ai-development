@@ -262,9 +262,11 @@ class TickHandler extends EventEmitter {
           trade.peakLtp = newPeak;
         }
 
-        // Apply trailing stop if enabled: check trade-level override first, then broker config
-        const trailingStopActiveForTrade = trade.trailingStopEnabled !== undefined ? trade.trailingStopEnabled : trailingStopEnabled;
-        if (trailingStopActiveForTrade && trade.stopLossPrice !== null && newPeak !== currentPeak) {
+        // Trailing stop is a workspace-wide switch (broker config), not a
+        // per-trade flag. The UI no longer exposes a per-trade toggle, so the
+        // global setting governs every open trade — including ones opened
+        // before trailing was switched on.
+        if (trailingStopEnabled && trade.stopLossPrice !== null && newPeak !== currentPeak) {
           const trailedSL = isBuy
             ? Math.round(newPeak * (1 - trailingStopPercent / 100) * 100) / 100
             : Math.round(newPeak * (1 + trailingStopPercent / 100) * 100) / 100;

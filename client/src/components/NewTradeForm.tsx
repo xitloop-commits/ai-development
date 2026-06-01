@@ -294,22 +294,40 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     });
   }, [fallbackQuery.data, requestUnderlying, expiry, requestExchangeSegment]);
 
+  // Underlying spot for ATM anchoring. The option-chain `spotPrice` is
+  // unreliable for MCX commodities (Dhan returns last_price=0 for crude /
+  // natural gas → ATM would collapse to the lowest strike). instrumentLiveState
+  // carries the TFA pipeline's spot_price, which is correct for every
+  // instrument (it's what InstrumentCard shows). Prefer it; fall back to the
+  // chain spot for anything it doesn't cover.
+  const liveStateQuery = trpc.trading.instrumentLiveState.useQuery(
+    { instrument: instrument.toLowerCase().replace(/\s+/g, '') },
+    { enabled: canSelectStrike, refetchInterval: 5000, refetchOnWindowFocus: false },
+  );
+  const liveSpot = liveStateQuery.data?.live?.spot_price ?? 0;
+
   const strikeOptions = useMemo(() => {
     const strikes = cachedChain?.strikes ?? [];
     if (strikes.length === 0) return [];
 
     const sorted = [...strikes].sort((a, b) => a.strike - b.strike);
-    const spotPrice = cachedChain?.spotPrice ?? 0;
+    const spotPrice = liveSpot > 0 ? liveSpot : (cachedChain?.spotPrice ?? 0);
+    const hasValidSpot = spotPrice > 0;
 
+    // Only compute ATM when we have a trustworthy spot. With none (e.g. crude
+    // before the live-state query lands), leave isATM unset so auto-select
+    // waits rather than locking onto the wrong (lowest) strike.
     let atmIndex = 0;
-    let minDist = Number.POSITIVE_INFINITY;
-    sorted.forEach((row, idx) => {
-      const dist = Math.abs(row.strike - spotPrice);
-      if (dist < minDist) {
-        minDist = dist;
-        atmIndex = idx;
-      }
-    });
+    if (hasValidSpot) {
+      let minDist = Number.POSITIVE_INFINITY;
+      sorted.forEach((row, idx) => {
+        const dist = Math.abs(row.strike - spotPrice);
+        if (dist < minDist) {
+          minDist = dist;
+          atmIndex = idx;
+        }
+      });
+    }
 
     const startIdx = Math.max(0, atmIndex - STRIKE_WINDOW);
     const endIdx = Math.min(sorted.length - 1, atmIndex + STRIKE_WINDOW);
@@ -321,9 +339,9 @@ export default function NewTradeForm(props: NewTradeFormProps) {
       putLTP: row.peLTP,
       callSecurityId: row.ceSecurityId ?? undefined,
       putSecurityId: row.peSecurityId ?? undefined,
-      isATM: row.strike === sorted[atmIndex].strike,
+      isATM: hasValidSpot && row.strike === sorted[atmIndex].strike,
     }));
-  }, [cachedChain]);
+  }, [cachedChain, liveSpot]);
 
   useEffect(() => {
     setSelectedStrike('');

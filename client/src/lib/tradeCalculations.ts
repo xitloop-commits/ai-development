@@ -1,8 +1,36 @@
 import type { TradeRecord } from './tradeTypes';
+import { estimateSingleLegCharges, DEFAULT_CHARGES } from '@shared/chargesEngine';
 
 export function calculatePotentialPnl(trade: TradeRecord, price: number): number {
   const isBuy = trade.type.includes('BUY');
   return (isBuy ? (price - trade.entryPrice) : (trade.entryPrice - price)) * trade.qty;
+}
+
+/**
+ * Sum each trade's charge breakdown into a per-name total for the day.
+ * Used by the day-summary / past-day Charges tooltip. Only trades that
+ * carry a breakdown (closed/realized) contribute.
+ */
+export function aggregateChargesBreakdown(
+  trades: TradeRecord[],
+): { name: string; amount: number }[] {
+  const byName = new Map<string, number>();
+  for (const t of trades) {
+    let breakdown = t.chargesBreakdown ?? [];
+    // Closed trade with no stored breakdown (legacy): reconstruct from
+    // entry + exit so it still itemises in the tooltip.
+    if (breakdown.length === 0 && t.charges > 0) {
+      const isBuy = t.type.includes('BUY');
+      const exitPx = t.exitPrice ?? t.entryPrice;
+      const entry = estimateSingleLegCharges(t.entryPrice, t.qty, isBuy, DEFAULT_CHARGES);
+      const exit = estimateSingleLegCharges(exitPx, t.qty, !isBuy, DEFAULT_CHARGES);
+      breakdown = [...entry.breakdown, ...exit.breakdown];
+    }
+    for (const b of breakdown) {
+      byName.set(b.name, (byName.get(b.name) ?? 0) + b.amount);
+    }
+  }
+  return Array.from(byName, ([name, amount]) => ({ name, amount: Math.round(amount * 100) / 100 }));
 }
 
 export function calculateOpenRisk(trades: TradeRecord[]): number {

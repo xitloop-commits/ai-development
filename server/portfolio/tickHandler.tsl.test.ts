@@ -10,8 +10,8 @@
  *   2. TSL does NOT move down (never widens the stop)
  *   3. TSL ratchets DOWN for SELL when price makes a new low
  *   4. SL_HIT fires when ltp breaches the ratched SL
- *   5. trailingStopEnabled=false → SL stays static
- *   6. Per-trade override: trade.trailingStopEnabled wins over broker setting
+ *   5. broker trailingStopEnabled=false → SL stays static
+ *   6. broker setting governs every open trade (the per-trade flag is ignored)
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -195,26 +195,27 @@ describe("tickHandler TSL ratchet — Wave 1", () => {
     expect(trade.stopLossPrice).toBe(95);  // unchanged
   });
 
-  it("per-trade override (true) wins over broker setting (false)", async () => {
+  it("broker setting governs — trailing OFF globally never trails, even if the trade's frozen flag is on", async () => {
     getActiveBrokerConfigMock.mockResolvedValue({
       brokerId: "test",
       settings: { trailingStopEnabled: false, trailingStopPercent: 1.5 },
     });
     const trade = makeBuyTrade({
       entryPrice: 100, stopLossPrice: 95,
-      trailingStopEnabled: true,  // per-trade ON despite broker OFF
+      trailingStopEnabled: true,  // stale per-trade ON is ignored now
     });
     await processWith(trade, makeTick({ ltp: 110 }));
-    expect(trade.stopLossPrice).toBeCloseTo(108.35, 2);
+    expect(trade.stopLossPrice).toBe(95);  // global OFF → unchanged
   });
 
-  it("per-trade override (false) wins over broker setting (true)", async () => {
+  it("broker setting governs — trailing ON globally trails every open trade, even one whose frozen flag is off", async () => {
+    // Broker config defaults to trailingStopEnabled:true in beforeEach.
     const trade = makeBuyTrade({
       entryPrice: 100, stopLossPrice: 95,
-      trailingStopEnabled: false,  // per-trade OFF despite broker ON
+      trailingStopEnabled: false,  // stale per-trade OFF is ignored now
     });
     await processWith(trade, makeTick({ ltp: 110 }));
-    expect(trade.stopLossPrice).toBe(95);  // unchanged
+    expect(trade.stopLossPrice).toBeCloseTo(108.35, 2);  // global ON → trails
   });
 
   it("restart safety: persisted trade.peakLtp survives in-memory Map clear", async () => {

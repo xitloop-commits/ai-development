@@ -63,6 +63,7 @@ export default function TradingDesk({
     confirmDialog,
     closeConfirmDialog,
     highlightedDay,
+    exitingTradeId,
     handlePlaceTrade,
     handleExitTrade,
     handleExitAll,
@@ -126,6 +127,7 @@ export default function TradingDesk({
                 <col style={{ width: '4rem', maxWidth: '4rem' }} />
                 <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
                 <col style={{ width: '3.625rem', maxWidth: '3.625rem' }} />
+                <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
                 <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />
                 <col style={{ width: '3.625rem', maxWidth: '3.625rem' }} />
                 <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
@@ -145,6 +147,7 @@ export default function TradingDesk({
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Lot</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Invested</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Points</th>
+                  <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Charges</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L %</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Capital</th>
@@ -168,6 +171,7 @@ export default function TradingDesk({
                         onExitAll={handleExitAll}
                         onPlaceTrade={handlePlaceTrade}
                         exitLoading={exitTradePending}
+                        exitingTradeId={exitingTradeId}
                         placeLoading={placeTradePending}
                         getLiveLtp={getLiveLtp}
                         todayRef={todayRef}

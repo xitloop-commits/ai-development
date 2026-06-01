@@ -7,6 +7,7 @@ import {
   formatDeviation,
 } from '@/lib/tradeFormatters';
 import {
+  aggregateChargesBreakdown,
   calculateAvgEntryPrice,
   calculateAvgExitPrice,
   calculateAvgSignedPoints,
@@ -15,6 +16,7 @@ import {
 } from '@/lib/tradeCalculations';
 import { InstrumentTag } from './InstrumentTag';
 import { RatingIcon } from './RatingIcon';
+import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 
 const _seenGiftDays = new Set<number>();
 
@@ -82,6 +84,11 @@ function _PastRow({ day, showNet, highlighted = false }: PastRowProps) {
           if (pts === 0) return '';
           return <span className={pnlColor(pts)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
         })()}
+      </td>
+      <td className="px-2 py-2 text-right tabular-nums border-r border-border text-destructive/70">
+        {day.totalCharges > 0
+          ? <ChargesBreakdownTip total={day.totalCharges} breakdown={aggregateChargesBreakdown(day.trades ?? [])} />
+          : ''}
       </td>
       <td className={`px-2 py-2 text-right tabular-nums font-bold border-r border-border ${pnlColor(pnlValue)}`}>
         {fmt(Math.round(pnlValue), false)}

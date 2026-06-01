@@ -15,6 +15,7 @@ import {
   formatDeviation,
 } from '@/lib/tradeFormatters';
 import {
+  aggregateChargesBreakdown,
   calculateAvgSignedPoints,
   calculateTotalLots,
 } from '@/lib/tradeCalculations';
@@ -25,6 +26,7 @@ import {
 import { trpc } from '@/lib/trpc';
 import NewTradeForm from './NewTradeForm';
 import { TodayTradeRow } from './TodayTradeRow';
+import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 
 export interface TodaySectionProps {
   day: DayRecord;
@@ -34,6 +36,8 @@ export interface TodaySectionProps {
   onExitAll: () => void;
   onPlaceTrade: (trade: any) => Promise<void>;
   exitLoading?: boolean;
+  /** Id of the trade whose exit is currently in flight — only that row spins. */
+  exitingTradeId?: string | null;
   placeLoading?: boolean;
   getLiveLtp: (trade: TradeRecord) => number | undefined;
   todayRef: React.RefObject<HTMLTableRowElement | null>;
@@ -50,6 +54,7 @@ export function TodaySection({
   onExitAll,
   onPlaceTrade,
   exitLoading,
+  exitingTradeId,
   placeLoading,
   getLiveLtp,
   todayRef,
@@ -58,6 +63,11 @@ export function TodaySection({
   allDays,
 }: TodaySectionProps) {
   const [showNewTradeForm, setShowNewTradeForm] = useState(false);
+  // Trailing stop is a workspace-wide switch (Settings), no longer per-trade.
+  // Read it once here and pass to every row so the TSL status reflects the
+  // global setting rather than each trade's frozen flag.
+  const brokerConfigQuery = trpc.broker.config.get.useQuery(undefined);
+  const globalTrailingEnabled = brokerConfigQuery.data?.settings?.trailingStopEnabled ?? false;
   const updateTradeMutation = trpc.executor.updateTrade.useMutation();
   const utils = trpc.useUtils();
   const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
@@ -121,11 +131,12 @@ export function TodaySection({
             isFirst={isFirst}
             showNet={showNet}
             onExit={() => onExitTrade(trade.id, trade.instrument)}
-            exitLoading={exitLoading}
+            exitLoading={exitLoading && exitingTradeId === trade.id}
             onUpdateTpSl={handleUpdateTpSl}
             todayRef={isFirst ? todayRef : undefined}
             canManageTrades={canManageTrades}
             channel={channel}
+            globalTrailingEnabled={globalTrailingEnabled}
           />
         );
       })}
@@ -221,6 +232,11 @@ export function TodaySection({
             if (pts === 0) return '';
             return <span className={pnlColor(pts)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
           })()}
+        </td>
+        <td className="px-2 py-2 text-right tabular-nums border-r border-border text-destructive/70">
+          {trades.length > 0 && day.totalCharges > 0
+            ? <ChargesBreakdownTip total={day.totalCharges} breakdown={aggregateChargesBreakdown(trades)} />
+            : ''}
         </td>
         <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
           {trades.length > 0 ? fmt(Math.round(totalPnl), false) : ''}

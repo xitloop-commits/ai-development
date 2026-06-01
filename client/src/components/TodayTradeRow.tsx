@@ -1,5 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { estimateSingleLegCharges, DEFAULT_CHARGES } from '@shared/chargesEngine';
+import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Channel, DayRecord, TradeRecord } from '@/lib/tradeTypes';
@@ -36,6 +38,10 @@ export interface TodayTradeRowProps {
   todayRef?: React.RefObject<HTMLTableRowElement | null>;
   canManageTrades: boolean;
   channel: Channel;
+  /** Global trailing-stop setting (from broker config). Trailing is now a
+   *  workspace-wide switch, not per-trade — so the row reflects this flag
+   *  rather than the trade's frozen value. */
+  globalTrailingEnabled?: boolean;
 }
 
 interface RenderProps extends TodayTradeRowProps {
@@ -53,6 +59,7 @@ function _TodayTradeRow({
   todayRef,
   canManageTrades,
   channel,
+  globalTrailingEnabled = false,
   liveLtp,
 }: RenderProps) {
   const [editOpen, setEditOpen] = useState(false);
@@ -84,6 +91,22 @@ function _TodayTradeRow({
     ? (isBuy ? (displayLtp - trade.entryPrice) : (trade.entryPrice - displayLtp)) * trade.qty
     : 0;
   const pnl = isOpen ? liveUnrealizedPnl : (showNet ? trade.pnl : trade.pnl + trade.charges);
+  // Round-trip charges (buy + sell) + per-charge breakdown for the tooltip.
+  // Estimate both legs from prices (entry + exit/LTP) — used directly for open
+  // trades, and as a fallback breakdown for closed trades that don't carry a
+  // stored one. Closed trades otherwise show the real figures from the server.
+  const exitRef = isOpen ? displayLtp : (trade.exitPrice ?? trade.entryPrice);
+  const entryLeg = estimateSingleLegCharges(trade.entryPrice, trade.qty, isBuy, DEFAULT_CHARGES);
+  const exitLeg = estimateSingleLegCharges(exitRef, trade.qty, !isBuy, DEFAULT_CHARGES);
+  const estByName = new Map<string, number>();
+  for (const b of [...entryLeg.breakdown, ...exitLeg.breakdown]) {
+    estByName.set(b.name, (estByName.get(b.name) ?? 0) + b.amount);
+  }
+  const estBreakdown = Array.from(estByName, ([name, amount]) => ({ name, amount: Math.round(amount * 100) / 100 }));
+  const charges = isOpen ? entryLeg.total + exitLeg.total : (trade.charges || entryLeg.total + exitLeg.total);
+  const chargesBreakdown = isOpen
+    ? estBreakdown
+    : (trade.chargesBreakdown && trade.chargesBreakdown.length > 0 ? trade.chargesBreakdown : estBreakdown);
   const pnlPercent = trade.entryPrice > 0
     ? ((isOpen ? liveUnrealizedPnl : trade.pnl) / (trade.entryPrice * trade.qty) * 100)
     : 0;
@@ -196,7 +219,7 @@ function _TodayTradeRow({
                   {/* Wave 1: small TSL indicator when trailing-stop is active. SL value
                       itself ratchets via tickHandler; this badge tells operator the
                       stop is moving without needing to hover for the tooltip. */}
-                  {isOpen && trade.trailingStopEnabled && (
+                  {isOpen && globalTrailingEnabled && (
                     <span
                       className="ml-0.5 text-[0.5625rem] text-muted-foreground/80 align-baseline"
                       title="Trailing Stop active"
@@ -212,7 +235,7 @@ function _TodayTradeRow({
                 <div className="text-[0.625rem] space-y-0.5 tabular-nums">
                   {trade.stopLossPrice != null && (
                     <div className="flex justify-between gap-3">
-                      <span className="text-destructive font-bold">{trade.trailingStopEnabled ? 'TSL' : 'SL'}</span>
+                      <span className="text-destructive font-bold">{globalTrailingEnabled ? 'TSL' : 'SL'}</span>
                       <span className="text-destructive">
                         {trade.stopLossPrice.toFixed(2)}
                         <span className="ml-1 text-destructive/70">
@@ -244,7 +267,7 @@ function _TodayTradeRow({
               setSlPrice={setSlPrice}
               tpPrice={tpPrice}
               setTpPrice={setTpPrice}
-              trailingStopEnabled={trade.trailingStopEnabled ?? false}
+              trailingStopEnabled={globalTrailingEnabled}
               trailingStopPrice={trade.stopLossPrice ?? null}
               onCommit={() => {
                 const sl = parseFloat(slPrice);
@@ -295,6 +318,9 @@ function _TodayTradeRow({
           const pts = tradePoints(trade, price);
           return <span className={pnlColor(pts)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
         })()}
+      </td>
+      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border text-destructive/70">
+        {charges > 0 ? <ChargesBreakdownTip total={charges} breakdown={chargesBreakdown} estimate={isOpen} /> : ''}
       </td>
       <td className={`px-2 py-1.5 text-right tabular-nums font-bold border-r border-border ${pnlColor(pnl)}`}>
         {fmt(Math.round(pnl), false)}

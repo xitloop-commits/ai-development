@@ -41,6 +41,9 @@ vi.mock("@/lib/trpc", () => ({
     portfolio: {
       updateLtp: { useMutation: () => noopMutation },
     },
+    broker: {
+      config: { get: { useQuery: () => ({ data: undefined }) } },
+    },
     useUtils: () => ({
       portfolio: {
         state: { invalidate: vi.fn(async () => undefined) },

@@ -542,7 +542,7 @@ function _TodayPnlBar({
             e.currentTarget.dispatchEvent(event);
             onExitAll?.();
           }}
-          className="absolute z-4 -translate-x-1/2 top-[-22px] px-1 py-0.5 text-[0.5625rem] font-bold leading-tight rounded transition-colors flex flex-col items-center"
+          className="absolute z-4 -translate-x-1/2 top-[-0.1px] px-1 py-0.5 text-[0.5625rem] font-bold leading-tight rounded transition-colors whitespace-nowrap"
           style={{
             left: "var(--m)",
             backgroundColor: markerIsPositive ? "rgba(34, 197, 94, 0.2)" : "rgba(220, 38, 38, 0.2)",
@@ -560,8 +560,7 @@ function _TodayPnlBar({
           title="Exit all open positions"
           aria-label="Exit all open positions"
         >
-          <div>{pnl < 0 ? '-' : ''}₹{Math.abs(pnl).toLocaleString('en-IN')}</div>
-          <div>{currentPct >= 0 ? "+" : ""}{currentPct.toFixed(2)}%</div>
+          {pnl < 0 ? '-' : ''}₹{Math.abs(pnl).toLocaleString('en-IN')}({currentPct >= 0 ? "+" : ""}{currentPct.toFixed(2)}%)
         </button>
       )}
 

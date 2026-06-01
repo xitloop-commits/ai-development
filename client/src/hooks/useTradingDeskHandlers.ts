@@ -58,6 +58,9 @@ export function useTradingDeskHandlers({
     onConfirm: () => {},
   });
   const [highlightedDay, setHighlightedDay] = useState<number | null>(null);
+  // Which trade's exit is in flight — lets the row show its own spinner
+  // instead of every row lighting up off the shared mutation-pending flag.
+  const [exitingTradeId, setExitingTradeId] = useState<string | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const closeConfirmDialog = useCallback(
@@ -72,21 +75,16 @@ export function useTradingDeskHandlers({
     }
   }, [ctxPlaceTrade, subscribeOptionFeed]);
 
-  const handleExitTrade = useCallback((tradeId: string, instrument: string) => {
+  const handleExitTrade = useCallback((tradeId: string, _instrument: string) => {
     const trade = currentDay?.trades?.find((t) => t.id === tradeId);
     const liveLtp = trade ? getLiveLtp(trade) : undefined;
     const exitPrice = liveLtp ?? trade?.ltp ?? trade?.entryPrice ?? 0;
     if (exitPrice <= 0) return;
 
-    setConfirmDialog({
-      open: true,
-      title: 'Exit Position',
-      message: `Close ${instrument} position at market price ₹${exitPrice.toFixed(2)}?`,
-      onConfirm: () => {
-        ctxExitTrade({ tradeId, exitPrice, reason: 'MANUAL' });
-        setConfirmDialog((prev) => ({ ...prev, open: false }));
-      },
-    });
+    // No confirmation dialog — the row's × exits immediately at market.
+    // Mark this trade as exiting so only its own row shows the spinner.
+    setExitingTradeId(tradeId);
+    ctxExitTrade({ tradeId, exitPrice, reason: 'MANUAL' });
   }, [currentDay, ctxExitTrade, getLiveLtp]);
 
   const handleExitAll = useCallback(() => {
@@ -125,6 +123,7 @@ export function useTradingDeskHandlers({
     confirmDialog,
     closeConfirmDialog,
     highlightedDay,
+    exitingTradeId,
     handlePlaceTrade,
     handleExitTrade,
     handleExitAll,
