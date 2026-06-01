@@ -430,10 +430,16 @@ export const portfolioRouter = router({
       });
       const currentDay = await ensureCurrentDay(input.channel);
 
-      // Project future days from current actual capital
-      const startCapital = currentDay.actualCapital > 0
-        ? currentDay.actualCapital
-        : state.tradingPool;
+      // Project future days from REALIZED capital only. currentDay.actualCapital
+      // includes open trades' unrealized P&L, which marks-to-market on every
+      // tick — projecting from it shifts every future row on each price change.
+      // Realized capital (start-of-day capital + closed-trade P&L) only moves
+      // when a trade actually closes, which is when the projection should shift.
+      const realizedDayPnl = currentDay.trades
+        .filter((t) => t.status === "CLOSED")
+        .reduce((sum, t) => sum + (t.pnl ?? 0), 0);
+      const realizedCapital = currentDay.tradeCapital + realizedDayPnl;
+      const startCapital = realizedCapital > 0 ? realizedCapital : state.tradingPool;
       const targetPercent = await getDailyTargetPercent();
       const futureDays = input.futureCount > 0
         ? projectFutureDays(
