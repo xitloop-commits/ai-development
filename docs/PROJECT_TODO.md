@@ -791,6 +791,16 @@ Extend the existing server-side Telegram path (today wired only for token-expiry
 - **Effort:** ~3–4 days. Land `server/reporting/headToHead/` module: pairing logic, daily aggregation, divergence detector, tRPC surface for the dashboard card.
 - **Cross-ref:** [systems/07_portfolio_reporting.md §10](systems/07_portfolio_reporting.md), [systems/04_signal_engine.md](systems/04_signal_engine.md) (signal_id schema gap).
 
+### T53 [UI/DISCIPLINE] — Discipline controls for sim/testing channels 🆕
+Surfaced 2026-06-01 while testing sandbox order flow. Two related gaps: (a) discipline behavioural gates (timeWindow, weeklyReview, journal, cooldown, …) block sandbox/paper test trades one-by-one — only `timeWindow` is currently bypassed for sim channels (testing-sandbox, my-paper, ai-paper) via `isSimulationChannel`; (b) the Monday `weeklyReview` gate can only be cleared through the `discipline.completeReview` tRPC mutation — there is **no UI button** to complete it, so it hard-blocks trading with no in-app way out.
+
+- **Status:** ⏳ Open (2026-06-01). Stopgap: `weeklyReviewCompleted` flipped directly in Mongo for the 3 sim channels, **2026-06-01 only** (the flag is per-day and the gate is Monday-only, so it returns next Monday).
+- **Scope:**
+  1. **Settings toggle(s)** to enable/disable discipline checks per sim channel (sandbox/paper) — design pending: master per-channel switch (recommended) vs per-rule granularity. Needs a discipline-settings schema field + `validateTrade` read + a Settings UI control.
+  2. **"Complete weekly review" button** in the UI (discipline panel) wired to `discipline.completeReview` — the proper fix for the missing UI.
+- **Effort:** ~1 day (schema field + validateTrade gate + 2 Settings controls + 1 button).
+- **Cross-ref:** [systems/06_risk_discipline.md](systems/06_risk_discipline.md); `server/discipline/index.ts` (`validateTrade`, `isSimulationChannel`), `server/discipline/disciplineRouter.ts` (`completeReview`).
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 _None yet._
