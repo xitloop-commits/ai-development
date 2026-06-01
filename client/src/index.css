@@ -98,6 +98,30 @@
     @apply bg-background text-foreground;
     font-family: 'JetBrains Mono', monospace;
   }
+
+  /* ─── Global scrollbar — same look as the trading-desk table ───
+     Thin (6px), rounded, transparent track, subtle muted thumb. Lives in
+     `base` so the workspace-tinted `.scrollbar-*` classes (in `components`)
+     still override the thumb color on the desk. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(0.55 0.02 270 / 0.4) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: oklch(0.55 0.02 270 / 0.4);
+    border-radius: 3px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.55 0.02 270 / 0.6);
+  }
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
   [type="button"]:not(:disabled),

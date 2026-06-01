@@ -797,7 +797,8 @@ export function CapitalManagementSection() {
                       <AlertTriangle className="h-4 w-4" />
                       Reset Initial Capital
                     </AlertDialogTitle>
-                    <AlertDialogDescription className="text-[0.6875rem] text-muted-foreground space-y-2">
+                    <AlertDialogDescription asChild>
+                      <div className="text-[0.6875rem] text-muted-foreground space-y-2">
                       <p>
                         This will permanently delete all day records, trade history, profit history,
                         and reset capital pools to a fresh state with <strong className="text-foreground">{fmt(newFunding)}</strong> initial funding.
@@ -809,6 +810,7 @@ export function CapitalManagementSection() {
                       <p className="text-destructive font-bold">
                         This action cannot be undone. Both live and paper workspaces will be reset.
                       </p>
+                      </div>
                     </AlertDialogDescription>
                   </AlertDialogHeader>
 

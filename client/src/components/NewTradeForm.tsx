@@ -6,6 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { estimateSingleLegCharges, type ChargeRate, DEFAULT_CHARGES } from '@shared/chargesEngine';
 import { useChain, _ingest as ingestChain } from '@/stores/optionChainStore';
 import { useTickStream } from '@/hooks/useTickStream';
+import { useMarketOpen } from '@/hooks/useMarketOpen';
 
 const UNDERLYING_MAP: Record<string, string> = {
   'NIFTY 50': 'NIFTY',
@@ -127,9 +128,16 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     dayValues,
   } = props;
 
+  // Hide instruments whose market is closed (NSE and MCX close at different
+  // times). `isClosed` is true only when TFA reports the instrument's market
+  // shut; unknown / not-yet-loaded instruments stay visible.
+  const { isClosed } = useMarketOpen();
   const instrumentOptions = useMemo(
-    () => (instruments.length > 0 ? instruments : DEFAULT_INSTRUMENTS),
-    [instruments]
+    () => {
+      const base = instruments.length > 0 ? instruments : DEFAULT_INSTRUMENTS;
+      return base.filter((name) => !isClosed(name));
+    },
+    [instruments, isClosed]
   );
   const defaultInstrument = instrumentOptions[0] ?? DEFAULT_INSTRUMENTS[0];
 
@@ -883,11 +891,11 @@ export default function NewTradeForm(props: NewTradeFormProps) {
         {invested > 0 ? fmt(invested) : '-'}
       </td>
 
-      <td className="px-2 py-2 border-r border-border" /> {/* Points - empty for new trade */}
-      <td className="px-2 py-2 border-r border-border" /> {/* P&L - empty for new trade */}
-      <td className="px-2 py-2 border-r border-border" /> {/* Capital - empty for new trade */}
-      <td className="px-2 py-2 border-r border-border" /> {/* Dev. - empty for new trade */}
-      <td className="px-2 py-2 text-center" /> {/* Rating - empty for new trade */}
+      <td className="px-2 py-2 border-r border-border" />{/* Points - empty for new trade */}
+      <td className="px-2 py-2 border-r border-border" />{/* P&L - empty for new trade */}
+      <td className="px-2 py-2 border-r border-border" />{/* Capital - empty for new trade */}
+      <td className="px-2 py-2 border-r border-border" />{/* Dev. - empty for new trade */}
+      <td className="px-2 py-2 text-center" />{/* Rating - empty for new trade */}
     </tr>
   );
 }
