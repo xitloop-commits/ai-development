@@ -138,7 +138,7 @@ export default function NewTradeForm(props: NewTradeFormProps) {
   const [optionType, setOptionType] = useState<'CE' | 'PE' | 'NONE' | null>(null);
   const [selectedStrike, setSelectedStrike] = useState('');
   const [entryPrice, setEntryPrice] = useState('');
-  const [_entryPriceEdited, setEntryPriceEdited] = useState(false);
+  const [entryPriceEdited, setEntryPriceEdited] = useState(false);
   const [capitalPercent, setCapitalPercent] = useState(5);
   const [expiry, setExpiry] = useState('');
   const [qty, setQty] = useState(1);
@@ -382,6 +382,16 @@ export default function NewTradeForm(props: NewTradeFormProps) {
     return optionType === 'CE' ? strikeData.callLTP : strikeData.putLTP;
   }, [isOptionTrade, optionType, selectedStrike, strikeOptions]);
   const currentLtp = liveTick?.ltp && liveTick.ltp > 0 ? liveTick.ltp : chainLtp;
+
+  // Keep the entry price synced to the live LTP until the user types their
+  // own value (or places the trade). `entryPriceEdited` gates this: it's reset
+  // to false whenever the strike/option changes (strike-select effect above),
+  // re-arming the sync; a manual edit (input onChange) sets it true so the
+  // typed price always wins. No entryPrice in deps → no feedback loop.
+  useEffect(() => {
+    if (entryPriceEdited) return;
+    if (currentLtp > 0) setEntryPrice(currentLtp.toFixed(2));
+  }, [currentLtp, entryPriceEdited]);
 
   // Subscribe the selected contract to the live WS feed so currentLtp ticks
   // in real time. Unsubscribes on strike/option change and on unmount.

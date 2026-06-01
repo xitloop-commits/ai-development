@@ -59,7 +59,6 @@ function _TodayTradeRow({
   const [reconcileOpen, setReconcileOpen] = useState(false);
   const [slPrice, setSlPrice] = useState('');
   const [tpPrice, setTpPrice] = useState('');
-  const [trailingStopEnabled, setTrailingStopEnabled] = useState(trade.trailingStopEnabled ?? false);
   const theme = getWorkspaceThemeMeta(channelToWorkspace(channel));
   const isOpen = trade.status === 'OPEN';
   // B4 follow-up — a trade is "desync'd" when the broker call failed but
@@ -190,7 +189,6 @@ function _TodayTradeRow({
                     if (isDesync) return; // reconcile first
                     setSlPrice(trade.stopLossPrice?.toFixed(2) ?? '');
                     setTpPrice(trade.targetPrice?.toFixed(2) ?? '');
-                    setTrailingStopEnabled(trade.trailingStopEnabled ?? false);
                     setEditOpen(true);
                   }}
                 >
@@ -246,15 +244,14 @@ function _TodayTradeRow({
               setSlPrice={setSlPrice}
               tpPrice={tpPrice}
               setTpPrice={setTpPrice}
-              trailingStopEnabled={trailingStopEnabled}
-              setTrailingStopEnabled={setTrailingStopEnabled}
+              trailingStopEnabled={trade.trailingStopEnabled ?? false}
+              trailingStopPrice={trade.stopLossPrice ?? null}
               onCommit={() => {
                 const sl = parseFloat(slPrice);
                 const tp = parseFloat(tpPrice);
-                const patch: { stopLossPrice?: number; targetPrice?: number; trailingStopEnabled?: boolean } = {};
+                const patch: { stopLossPrice?: number; targetPrice?: number } = {};
                 if (sl > 0) patch.stopLossPrice = Math.round(sl * 100) / 100;
                 if (tp > 0) patch.targetPrice = Math.round(tp * 100) / 100;
-                if (trailingStopEnabled !== (trade.trailingStopEnabled ?? false)) patch.trailingStopEnabled = trailingStopEnabled;
                 if (Object.keys(patch).length > 0) onUpdateTpSl(trade.id, patch);
                 setEditOpen(false);
               }}

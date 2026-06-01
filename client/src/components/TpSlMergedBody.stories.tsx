@@ -5,7 +5,6 @@ import { TpSlMergedBody, type TpSlMergedBodyProps } from "./TpSlMergedBody";
 function Harness(initial: Partial<TpSlMergedBodyProps>) {
   const [slPrice, setSlPrice] = useState(initial.slPrice ?? "");
   const [tpPrice, setTpPrice] = useState(initial.tpPrice ?? "");
-  const [trailing, setTrailing] = useState(initial.trailingStopEnabled ?? false);
   return (
     <div className="w-56 p-3 rounded border border-border bg-card">
       <TpSlMergedBody
@@ -15,9 +14,9 @@ function Harness(initial: Partial<TpSlMergedBodyProps>) {
         setSlPrice={setSlPrice}
         tpPrice={tpPrice}
         setTpPrice={setTpPrice}
-        trailingStopEnabled={trailing}
-        setTrailingStopEnabled={setTrailing}
-        onCommit={() => console.log("commit", { slPrice, tpPrice, trailing })}
+        trailingStopEnabled={initial.trailingStopEnabled ?? false}
+        trailingStopPrice={initial.trailingStopPrice ?? null}
+        onCommit={() => console.log("commit", { slPrice, tpPrice })}
         onCancel={() => console.log("cancel")}
       />
     </div>
@@ -32,7 +31,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "TP/SL edit popover body used inside TodayTradeRow. Shows SL/TP price inputs with % deltas and a trailing-stop toggle.",
+          "TP/SL edit popover body used inside TodayTradeRow. Shows SL/TP price inputs with % deltas and a read-only trailing-stop status (ON + live trail price, or OFF). Trailing is enabled globally in Settings.",
       },
     },
   },
@@ -54,7 +53,7 @@ export const SellTrade: Story = {
 };
 
 export const TrailingEnabled: Story = {
-  args: { isBuy: true, entryPrice: 100, slPrice: "95", tpPrice: "110", trailingStopEnabled: true },
+  args: { isBuy: true, entryPrice: 100, slPrice: "95", tpPrice: "110", trailingStopEnabled: true, trailingStopPrice: 98.5 },
 };
 
 export const EmptyEdit: Story = {

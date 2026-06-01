@@ -14,7 +14,8 @@ export interface TpSlMergedBodyProps {
   tpPrice: string;
   setTpPrice: (v: string) => void;
   trailingStopEnabled: boolean;
-  setTrailingStopEnabled: (v: boolean) => void;
+  /** Current trailing-stop level (the trade's live stop price). Null when none. */
+  trailingStopPrice: number | null;
   onCommit: () => void;
   onCancel: () => void;
 }
@@ -23,7 +24,7 @@ function _TpSlMergedBody({
   isBuy, entryPrice,
   slPrice, setSlPrice,
   tpPrice, setTpPrice,
-  trailingStopEnabled, setTrailingStopEnabled,
+  trailingStopEnabled, trailingStopPrice,
   onCommit, onCancel,
 }: TpSlMergedBodyProps) {
   const slVal = parseFloat(slPrice);
@@ -66,18 +67,18 @@ function _TpSlMergedBody({
           {tpPct != null && isFinite(tpPct) ? `${tpPct.toFixed(1)}%` : ''}
         </span>
       </div>
+      {/* Trailing stop is enabled globally in Settings (no per-trade toggle).
+          Read-only status: shows ON + the live trail level (the stop price
+          that ratchets), or OFF. */}
       <div className="flex items-center gap-2 pt-1 border-t border-border/30">
         <span className="text-[0.625rem] font-bold text-muted-foreground flex-1">Trailing SL</span>
-        <button
-          onClick={() => setTrailingStopEnabled(!trailingStopEnabled)}
-          className={`px-2 py-1 rounded font-bold transition-colors ${
-            trailingStopEnabled
-              ? 'bg-bullish/20 text-bullish'
-              : 'bg-muted/30 text-muted-foreground hover:bg-muted/50'
-          }`}
-        >
-          {trailingStopEnabled ? 'ON' : 'OFF'}
-        </button>
+        {trailingStopEnabled ? (
+          <span className="text-[0.625rem] font-bold tabular-nums text-bullish">
+            ON{trailingStopPrice != null ? ` · ${trailingStopPrice.toFixed(2)}` : ''}
+          </span>
+        ) : (
+          <span className="text-[0.625rem] font-bold text-muted-foreground">OFF</span>
+        )}
       </div>
       <div className="flex gap-1.5 pt-1">
         <button
