@@ -111,9 +111,6 @@ temp/
 __pycache__/
 .pytest_cache/
 
-# Vendor telemetry / collector logs
-.manus-logs/
-
 # Per-machine local overrides for tools (e.g. Claude Code permissions)
 .claude/settings.local.json
 
