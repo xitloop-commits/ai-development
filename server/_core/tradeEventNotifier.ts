@@ -54,27 +54,18 @@ async function persistAlert(payload: {
 }
 
 // ─── Formatters (pure, testable) ──────────────────────────────────
+// Plain-English one-liners per Partha's locked trade-message spec
+// (2026-05-31): underlying name only, "Rs." prefix, magnitude only —
+// the leading verb/phrase already carries gain/loss direction.
 
-function fmtRupees(n: number): string {
-  const sign = n < 0 ? "-" : "";
-  return `${sign}₹${Math.abs(Math.round(n)).toLocaleString("en-IN")}`;
+/** "Rs.4,500" — absolute rupees, Indian digit grouping, no decimals. */
+function fmtRs(n: number): string {
+  return `Rs.${Math.abs(Math.round(n)).toLocaleString("en-IN")}`;
 }
 
-function fmtPnlPercent(n: number): string {
-  const sign = n >= 0 ? "+" : "";
-  return `${sign}${n.toFixed(2)}%`;
-}
-
-function fmtDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const m = Math.floor(seconds / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  return `${h}h${m % 60 > 0 ? `${m % 60}m` : ""}`;
-}
-
-function dirEmoji(pnl: number): string {
-  return pnl > 0 ? "🟢" : pnl < 0 ? "🔴" : "⚪";
+/** "8.00%" — absolute percent; the surrounding phrase conveys gain/loss. */
+function fmtPctAbs(n: number): string {
+  return `${Math.abs(n).toFixed(2)}%`;
 }
 
 export interface TradeFillEvent {
@@ -88,19 +79,10 @@ export interface TradeFillEvent {
   orderId?: string;
 }
 
+/** "bought 1250 naturalgas at Rs.45" (or "sold …" for a short entry). */
 export function formatFill(ev: TradeFillEvent): string {
-  const contract = ev.strike != null
-    ? `${ev.instrument} ${ev.strike} ${ev.type.includes("CALL") ? "CE" : ev.type.includes("PUT") ? "PE" : ""}`.trim()
-    : ev.instrument;
-  const direction = ev.type.includes("BUY") ? "BUY" : "SELL";
-  const invested = ev.qty * ev.entryPrice;
-  const lines: string[] = [
-    `🟦 <b>FILL · ${ev.channel}</b>`,
-    `${contract}  ${direction}  qty ${ev.qty}  @ ₹${ev.entryPrice}`,
-    `Invested: ${fmtRupees(invested)}`,
-  ];
-  if (ev.expiry) lines.push(`Expiry: ${ev.expiry}`);
-  return lines.join("\n");
+  const verb = ev.type.includes("BUY") ? "bought" : "sold";
+  return `${verb} ${ev.qty} ${ev.instrument} at Rs.${ev.entryPrice}`;
 }
 
 export interface TradeExitEvent {
@@ -118,22 +100,24 @@ export interface TradeExitEvent {
   durationSeconds: number;
 }
 
+/**
+ * Reason → opening phrase, then the shared "{pct} {rs} from {instrument}"
+ * tail. Take-profit and stop-loss read by their trigger; a risk-rule
+ * (discipline) exit is called out explicitly; anything else is a normal
+ * sell, where "gained"/"lost" carries the direction.
+ */
 export function formatExit(ev: TradeExitEvent): string {
-  const contract = ev.strike != null
-    ? `${ev.instrument} ${ev.strike} ${ev.type.includes("CALL") ? "CE" : ev.type.includes("PUT") ? "PE" : ""}`.trim()
-    : ev.instrument;
-  const isAuto = ev.triggeredBy !== "USER";
-  const headerIcon = ev.reason === "DISCIPLINE_EXIT"
-    ? "⛔"
-    : dirEmoji(ev.realizedPnl);
-  const headerLabel = isAuto ? "AUTO-EXIT" : "EXIT";
-  const pnlSign = ev.realizedPnl >= 0 ? "+" : "";
-  return [
-    `${headerIcon} <b>${headerLabel} · ${ev.channel}</b>`,
-    `${contract}`,
-    `${ev.reason}  qty ${ev.qty}  ₹${ev.entryPrice} → ₹${ev.exitPrice}`,
-    `P&L: <b>${pnlSign}${fmtRupees(ev.realizedPnl)}</b> (${fmtPnlPercent(ev.realizedPnlPercent)})  duration ${fmtDuration(ev.durationSeconds)}`,
-  ].join("\n");
+  const tail = `${fmtPctAbs(ev.realizedPnlPercent)} ${fmtRs(ev.realizedPnl)} from ${ev.instrument}`;
+  if (ev.reason === "TP_HIT" || ev.reason === "TARGET_PROFIT") {
+    return `target achieved ${tail}`;
+  }
+  if (ev.reason === "SL_HIT" || ev.reason === "STOP_LOSS") {
+    return `loss hit ${tail}`;
+  }
+  if (ev.reason === "DISCIPLINE_EXIT") {
+    return `closed by risk rule, ${tail}`;
+  }
+  return `${ev.realizedPnl >= 0 ? "gained" : "lost"} ${tail}`;
 }
 
 export interface GateRejectionEvent {
@@ -183,28 +167,22 @@ async function safePush(message: string, eventLabel: string): Promise<void> {
   }
 }
 
-function contractLabel(instrument: string, type: string, strike: number | null | undefined): string {
-  if (strike == null) return instrument;
-  const leg = type.includes("CALL") ? "CE" : type.includes("PUT") ? "PE" : "";
-  return `${instrument} ${strike}${leg ? " " + leg : ""}`.trim();
-}
-
 export function notifyTradeFill(ev: TradeFillEvent): void {
-  void safePush(formatFill(ev), `fill ${ev.channel}/${ev.instrument}`);
-  const direction = ev.type.includes("BUY") ? "BUY" : "SELL";
-  const contract = contractLabel(ev.instrument, ev.type, ev.strike);
+  const message = formatFill(ev);
+  void safePush(message, `fill ${ev.channel}/${ev.instrument}`);
   void persistAlert({
     type: "position_opened",
     priority: ev.channel.endsWith("-live") ? "high" : "medium",
     title: `Fill · ${ev.channel}`,
-    message: `${contract}  ${direction}  qty ${ev.qty}  @ ₹${ev.entryPrice}  (invested ₹${Math.round(ev.qty * ev.entryPrice).toLocaleString("en-IN")})`,
+    message,
     instrument: ev.instrument,
     channel: ev.channel,
   });
 }
 
 export function notifyTradeExit(ev: TradeExitEvent): void {
-  void safePush(formatExit(ev), `exit ${ev.channel}/${ev.instrument}`);
+  const message = formatExit(ev);
+  void safePush(message, `exit ${ev.channel}/${ev.instrument}`);
   // Map exit reason → existing AlertEventType so the drawer renders with
   // the right icon (red shield for SL_HIT, green target for TP_HIT,
   // module-down red triangle for DISCIPLINE_EXIT, generic close otherwise).
@@ -216,13 +194,11 @@ export function notifyTradeExit(ev: TradeExitEvent): void {
   const priority: AlertPriority =
     ev.reason === "DISCIPLINE_EXIT" ? "critical" :
     ev.channel.endsWith("-live") ? "high" : "medium";
-  const contract = contractLabel(ev.instrument, ev.type, ev.strike);
-  const pnlSign = ev.realizedPnl >= 0 ? "+" : "";
   void persistAlert({
     type: inAppType,
     priority,
     title: `${ev.triggeredBy === "USER" ? "Exit" : "Auto-Exit"} · ${ev.channel} · ${ev.reason}`,
-    message: `${contract}  qty ${ev.qty}  ₹${ev.entryPrice} → ₹${ev.exitPrice}  ·  P&L ${pnlSign}₹${Math.round(ev.realizedPnl).toLocaleString("en-IN")} (${pnlSign}${ev.realizedPnlPercent.toFixed(2)}%)`,
+    message,
     instrument: ev.instrument,
     channel: ev.channel,
   });

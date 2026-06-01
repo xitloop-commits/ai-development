@@ -775,7 +775,7 @@ Extend the existing server-side Telegram path (today wired only for token-expiry
 4. **Quiet hours** — none. Push 24/7 (MCX runs till 23:30 IST anyway; Telegram per-chat mute is the operator's escape hatch).
 5. **De-duplication** — 30-second window. Identical event signature + content within 30 s collapses to one push (catches bug-storms without hiding legitimately rapid distinct events — different trade IDs produce different signatures).
 
-- **Status:** ✅ IMPLEMENTED 2026-05-31 — same day as decisions locked. All 5 subslices shipped:
+- **Status:** ✅ IMPLEMENTED 2026-05-31 — same day as decisions locked. All 5 subslices shipped (fill/exit wording later refined to plain English 2026-06-01 — fill = "bought {qty} {instrument} at Rs.{price}"; exit by reason: TP "target achieved", SL "loss hit", DISCIPLINE_EXIT "closed by risk rule", else sell "gained/lost"; shared "{pct} {rs} from {instrument}" tail, magnitude only; same string drives Telegram + in-app drawer; gate-reject and broker-disconnect wording unchanged; tests rewritten, 13 pass):
   - Session-close P&L summaries (NSE 15:30 IST + MCX 23:30 IST) → commit `5f1c480`.
   - Server-side AlertHistory persistence (Mongo model + tRPC router + 30-day nightly purge @ 03:00 IST) → commit `b2aa864`.
   - Client AlertContext hydration + push-on-dispatch + markAllRead sync → commit `c29c290`.

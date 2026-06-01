@@ -14,7 +14,7 @@ import {
 } from "./tradeEventNotifier";
 
 describe("formatFill", () => {
-  it("renders a CE option fill with contract + invested capital", () => {
+  it("buy entry → 'bought {qty} {instrument} at Rs.{price}', no contract/strike noise", () => {
     const msg = formatFill({
       channel: "my-live",
       instrument: "NIFTY 50",
@@ -24,16 +24,10 @@ describe("formatFill", () => {
       qty: 75,
       entryPrice: 150,
     });
-    expect(msg).toContain("FILL · my-live");
-    expect(msg).toContain("NIFTY 50 24500 CE");
-    expect(msg).toContain("BUY");
-    expect(msg).toContain("qty 75");
-    expect(msg).toContain("@ ₹150");
-    expect(msg).toContain("Invested: ₹11,250");
-    expect(msg).toContain("Expiry: 2026-06-26");
+    expect(msg).toBe("bought 75 NIFTY 50 at Rs.150");
   });
 
-  it("renders a PE sell fill (no CALL label)", () => {
+  it("sell (short) entry → 'sold …'", () => {
     const msg = formatFill({
       channel: "ai-live",
       instrument: "BANK NIFTY",
@@ -42,121 +36,85 @@ describe("formatFill", () => {
       qty: 25,
       entryPrice: 200,
     });
-    expect(msg).toContain("BANK NIFTY 52000 PE");
-    expect(msg).toContain("SELL");
-    expect(msg).not.toContain("CE");
+    expect(msg).toBe("sold 25 BANK NIFTY at Rs.200");
   });
 
-  it("renders a non-option fill (futures direction) with no strike line", () => {
+  it("non-option buy reads the same plain way", () => {
     const msg = formatFill({
       channel: "testing-live",
-      instrument: "CRUDE OIL",
+      instrument: "NATURALGAS",
       type: "BUY",
       strike: null,
-      qty: 100,
-      entryPrice: 6500,
+      qty: 1250,
+      entryPrice: 45,
     });
-    expect(msg).toContain("CRUDE OIL");
-    expect(msg).not.toMatch(/CE|PE/);
-    expect(msg).toContain("BUY");
+    expect(msg).toBe("bought 1250 NATURALGAS at Rs.45");
   });
 });
 
 describe("formatExit", () => {
-  it("uses green emoji + plus-sign P&L for a winner", () => {
+  const base = {
+    channel: "my-live",
+    instrument: "NATURALGAS",
+    type: "CALL_BUY",
+    strike: 24500,
+    qty: 1250,
+    entryPrice: 150,
+    exitPrice: 195,
+    triggeredBy: "USER",
+    durationSeconds: 22 * 60,
+  };
+
+  it("TP_HIT → 'target achieved {pct} {rs} from {instrument}'", () => {
     const msg = formatExit({
-      channel: "my-live",
-      instrument: "NIFTY 50",
-      type: "CALL_BUY",
-      strike: 24500,
-      qty: 75,
-      entryPrice: 150,
-      exitPrice: 195,
+      ...base,
       realizedPnl: 3375,
       realizedPnlPercent: 30.0,
       reason: "TP_HIT",
-      triggeredBy: "USER",
-      durationSeconds: 22 * 60,
     });
-    expect(msg).toContain("🟢");
-    expect(msg).toContain("EXIT · my-live");
-    expect(msg).toContain("TP_HIT");
-    expect(msg).toContain("₹150 → ₹195");
-    expect(msg).toContain("+₹3,375");
-    expect(msg).toContain("+30.00%");
-    expect(msg).toContain("duration 22m");
+    expect(msg).toBe("target achieved 30.00% Rs.3,375 from NATURALGAS");
   });
 
-  it("uses red emoji + leading minus for a loser", () => {
+  it("SL_HIT → 'loss hit {pct} {rs} from {instrument}' (magnitude only)", () => {
     const msg = formatExit({
-      channel: "ai-live",
-      instrument: "CRUDE OIL",
-      type: "CALL_BUY",
-      strike: 6500,
-      qty: 50,
-      entryPrice: 120,
-      exitPrice: 105,
+      ...base,
       realizedPnl: -750,
       realizedPnlPercent: -12.5,
       reason: "SL_HIT",
       triggeredBy: "PA",
-      durationSeconds: 8 * 60,
     });
-    expect(msg).toContain("🔴");
-    expect(msg).toContain("AUTO-EXIT");
-    expect(msg).toContain("SL_HIT");
-    expect(msg).toContain("-₹750");
-    expect(msg).toContain("-12.50%");
+    expect(msg).toBe("loss hit 12.50% Rs.750 from NATURALGAS");
   });
 
-  it("uses ⛔ icon for DISCIPLINE_EXIT regardless of P&L sign", () => {
+  it("DISCIPLINE_EXIT → 'closed by risk rule, …' regardless of P&L sign", () => {
     const msg = formatExit({
-      channel: "ai-live",
-      instrument: "NIFTY 50",
-      type: "PUT_BUY",
-      strike: 24500,
-      qty: 75,
-      entryPrice: 100,
-      exitPrice: 90,
-      realizedPnl: -750,
+      ...base,
+      realizedPnl: -900,
       realizedPnlPercent: -10,
       reason: "DISCIPLINE_EXIT",
       triggeredBy: "DA",
-      durationSeconds: 45 * 60,
     });
-    expect(msg).toContain("⛔");
-    expect(msg).toContain("DISCIPLINE_EXIT");
+    expect(msg).toBe("closed by risk rule, 10.00% Rs.900 from NATURALGAS");
   });
 
-  it("USER triggeredBy → EXIT header; non-USER → AUTO-EXIT header", () => {
-    const base = {
-      channel: "my-live",
-      instrument: "NIFTY 50",
-      type: "CALL_BUY",
-      strike: 24500,
-      qty: 75,
-      entryPrice: 150,
-      exitPrice: 160,
+  it("normal sell winner → 'gained …'", () => {
+    const msg = formatExit({
+      ...base,
       realizedPnl: 750,
       realizedPnlPercent: 6.67,
       reason: "MANUAL",
-      durationSeconds: 10 * 60,
-    };
-    expect(formatExit({ ...base, triggeredBy: "USER" })).toContain("EXIT · my-live");
-    expect(formatExit({ ...base, triggeredBy: "USER" })).not.toContain("AUTO-EXIT");
-    expect(formatExit({ ...base, triggeredBy: "PA" })).toContain("AUTO-EXIT · my-live");
+    });
+    expect(msg).toBe("gained 6.67% Rs.750 from NATURALGAS");
   });
 
-  it("duration formatter renders seconds / minutes / hours correctly", () => {
-    const base = {
-      channel: "x", instrument: "Y", type: "BUY", strike: null,
-      qty: 1, entryPrice: 1, exitPrice: 1,
-      realizedPnl: 0, realizedPnlPercent: 0,
-      reason: "MANUAL", triggeredBy: "USER",
-    };
-    expect(formatExit({ ...base, durationSeconds: 45 })).toContain("duration 45s");
-    expect(formatExit({ ...base, durationSeconds: 5 * 60 })).toContain("duration 5m");
-    expect(formatExit({ ...base, durationSeconds: 2 * 3600 + 30 * 60 })).toContain("duration 2h30m");
+  it("normal sell loser → 'lost …'", () => {
+    const msg = formatExit({
+      ...base,
+      realizedPnl: -1200,
+      realizedPnlPercent: -3,
+      reason: "MANUAL",
+    });
+    expect(msg).toBe("lost 3.00% Rs.1,200 from NATURALGAS");
   });
 });
 
