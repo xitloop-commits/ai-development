@@ -48,6 +48,14 @@ const meta = {
       description: "Callback when order is submitted",
     },
   },
+  // Required handlers provided once at the meta level — the argTypes
+  // `action` entries above still log to the Storybook Actions panel; these
+  // satisfy the component's required props so individual stories don't each
+  // have to repeat them.
+  args: {
+    onClose: () => {},
+    onSubmit: () => {},
+  },
 } satisfies Meta<typeof QuickOrderPopup>;
 
 export default meta;

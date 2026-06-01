@@ -19,7 +19,9 @@ import type { Request, Response, NextFunction } from "express";
 import type { ZodSchema, ZodError } from "zod";
 
 function formatIssues(err: ZodError): { path: (string | number)[]; message: string }[] {
-  return err.issues.map((i) => ({ path: i.path, message: i.message }));
+  // zod types path as PropertyKey[] (includes symbol); our error shape is
+  // string|number only — issue paths are always string keys / numeric indices.
+  return err.issues.map((i) => ({ path: i.path as (string | number)[], message: i.message }));
 }
 
 function reject(res: Response, err: ZodError, where: "body" | "query" | "params") {

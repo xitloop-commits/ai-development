@@ -270,7 +270,9 @@ export function registerBrokerRoutes(app: Express): void {
     validateBody(brokerConfigSchema),
     async (req: Request, res: Response) => {
       try {
-        const result = await upsertBrokerConfig(req.body as z.infer<typeof brokerConfigSchema>);
+        const result = await upsertBrokerConfig(
+          req.body as Parameters<typeof upsertBrokerConfig>[0],
+        );
         res.json({ success: true, data: result });
       } catch (err: any) {
         log.error("Error upserting config:", err);
@@ -602,7 +604,7 @@ export function registerBrokerRoutes(app: Express): void {
         const data = await broker.getIntradayData({
           securityId,
           exchangeSegment,
-          instrument,
+          instrument: instrument as import("./types").InstrumentType,
           interval,
           fromDate,
           toDate,
@@ -636,7 +638,7 @@ export function registerBrokerRoutes(app: Express): void {
         const data = await broker.getHistoricalData({
           securityId,
           exchangeSegment,
-          instrument,
+          instrument: instrument as import("./types").InstrumentType,
           fromDate,
           toDate,
           expiryCode: expiryCode ?? 0,
@@ -795,7 +797,7 @@ export function registerBrokerRoutes(app: Express): void {
         if (!broker) return;
 
         const { instruments } = req.body as z.infer<typeof feedUnsubscribeSchema>;
-        broker.unsubscribeLTP(instruments);
+        broker.unsubscribeLTP(instruments as import("./types").SubscribeParams[]);
 
         const state = broker.getSubscriptionState?.();
         res.json({

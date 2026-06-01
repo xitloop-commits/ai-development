@@ -210,7 +210,7 @@ export function registerTradingRoutes(app: Express): void {
         const config: Omit<InstrumentConfig, "isDefault" | "addedAt"> = {
           key: body.key,
           displayName: body.displayName,
-          exchange: body.exchange,
+          exchange: body.exchange as InstrumentConfig["exchange"],
           exchangeSegment: body.exchangeSegment,
           underlying: body.underlying ?? null,
           autoResolve: body.autoResolve === true,

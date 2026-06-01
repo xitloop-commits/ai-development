@@ -23,7 +23,7 @@ async function startServer() {
     res.sendFile(path.join(staticPath, "index.html"));
   });
 
-  const port = process.env.PORT || 3000;
+  const port = Number(process.env.PORT) || 3000;
   const host = process.env.HTTP_HOST ?? "127.0.0.1";
 
   server.listen(port, host, () => {
