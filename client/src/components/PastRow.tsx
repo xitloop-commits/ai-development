@@ -114,6 +114,11 @@ function _PastRow({ day, showNet, highlighted = false }: PastRowProps) {
 export function pastRowPropsEqual(prev: PastRowProps, next: PastRowProps): boolean {
   const d1 = prev.day;
   const d2 = next.day;
+  // A past day is immutable once closed. The 2s allDays refetch re-runs
+  // normalizeDayRecord, handing every row brand-new `trades`/`instruments`
+  // array references — so comparing those by reference (the old behaviour)
+  // re-rendered all ~250 rows on every price tick. Compare the displayed
+  // values instead; a past row only needs to repaint if one actually changes.
   return (
     d1.dayIndex === d2.dayIndex &&
     d1.totalPnl === d2.totalPnl &&
@@ -121,8 +126,13 @@ export function pastRowPropsEqual(prev: PastRowProps, next: PastRowProps): boole
     d1.rating === d2.rating &&
     d1.actualCapital === d2.actualCapital &&
     d1.deviation === d2.deviation &&
-    d1.instruments === d2.instruments &&
-    d1.trades === d2.trades &&
+    d1.tradeCapital === d2.tradeCapital &&
+    d1.targetAmount === d2.targetAmount &&
+    d1.targetPercent === d2.targetPercent &&
+    d1.projCapital === d2.projCapital &&
+    (d1.trades?.length ?? 0) === (d2.trades?.length ?? 0) &&
+    d1.instruments.length === d2.instruments.length &&
+    d1.instruments.join('|') === d2.instruments.join('|') &&
     prev.showNet === next.showNet &&
     prev.channel === next.channel &&
     prev.highlighted === next.highlighted
