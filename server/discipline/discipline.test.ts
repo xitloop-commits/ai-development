@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { checkDailyLossLimit, checkConsecutiveLosses } from "./circuitBreaker";
 import { checkMaxTrades, checkMaxPositions } from "./tradeLimits";
 import { checkCooldown, createRevengeCooldown, acknowledgeLoss, resolveOverlappingCooldowns } from "./cooldowns";
-import { checkTimeWindow, isSimulationChannel } from "./timeWindows";
+import { checkTimeWindow, isSimulationChannel, isDisciplineBypassed } from "./timeWindows";
 import { checkPositionSize, checkExposure } from "./positionSizing";
 import { evaluatePreTradeGate } from "./preTrade";
 import { checkJournalCompliance, checkWeeklyReview } from "./journalCheck";
@@ -813,5 +813,35 @@ describe("Full Discipline Pipeline (Pure Logic)", () => {
     // 8. Second trade passes
     expect(checkMaxTrades(state, settings).passed).toBe(true);
     state.tradesToday = 2;
+  });
+});
+
+// ─── Simulation-channel master bypass ─────────────────────────────
+describe("isDisciplineBypassed", () => {
+  const off = makeSettings({ simulationEnforcement: { enabled: false } });
+  const on = makeSettings({ simulationEnforcement: { enabled: true } });
+
+  it("bypasses every simulation channel when enforcement is off", () => {
+    for (const ch of ["my-paper", "ai-paper", "testing-sandbox"]) {
+      expect(isDisciplineBypassed(ch, off)).toBe(true);
+    }
+  });
+
+  it("never bypasses simulation channels when enforcement is on", () => {
+    for (const ch of ["my-paper", "ai-paper", "testing-sandbox"]) {
+      expect(isDisciplineBypassed(ch, on)).toBe(false);
+    }
+  });
+
+  it("never bypasses live channels, even with enforcement off", () => {
+    for (const ch of ["my-live", "ai-live", "testing-live"]) {
+      expect(isDisciplineBypassed(ch, off)).toBe(false);
+    }
+  });
+
+  it("defaults to enforced when the flag is missing (legacy records)", () => {
+    const legacy = makeSettings();
+    delete (legacy as { simulationEnforcement?: unknown }).simulationEnforcement;
+    expect(isDisciplineBypassed("my-paper", legacy)).toBe(false);
   });
 });

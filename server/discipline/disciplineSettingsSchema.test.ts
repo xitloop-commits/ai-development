@@ -143,11 +143,19 @@ describe("disciplineSettingsUpdateSchema (B9)", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects unknown sub-object fields", () => {
+  it("strips unknown sub-object keys instead of rejecting (round-trip tolerance)", () => {
+    // The client posts back the full saved settings; Mongoose injects a
+    // stray `blockStates: []` into every rule. Sub-objects must strip such
+    // keys rather than fail the whole save.
     const result = disciplineSettingsUpdateSchema.safeParse({
-      dailyLossLimit: { enabled: true, thresholdPercent: 3, sneaky: 1 },
+      dailyLossLimit: { enabled: true, thresholdPercent: 3, blockStates: [], sneaky: 1 },
+      weeklyReview: { enabled: true, disciplineScoreWarning: 70, redWeekReduction: 3, blockStates: [] },
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.dailyLossLimit).toEqual({ enabled: true, thresholdPercent: 3 });
+      expect("blockStates" in (result.data.weeklyReview as object)).toBe(false);
+    }
   });
 
   it("rejects negative thresholdPercent", () => {

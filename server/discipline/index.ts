@@ -24,7 +24,7 @@ import {
 import { checkDailyLossLimit, checkConsecutiveLosses } from "./circuitBreaker";
 import { checkMaxTrades, checkMaxPositions } from "./tradeLimits";
 import { checkCooldown, createRevengeCooldown, createConsecutiveLossCooldown, acknowledgeLoss, resolveOverlappingCooldowns } from "./cooldowns";
-import { checkTimeWindow, isSimulationChannel } from "./timeWindows";
+import { checkTimeWindow, isSimulationChannel, isDisciplineBypassed } from "./timeWindows";
 import { checkPositionSize, checkExposure } from "./positionSizing";
 import { evaluatePreTradeGate } from "./preTrade";
 import { checkJournalCompliance, checkWeeklyReview } from "./journalCheck";
@@ -144,6 +144,9 @@ class DisciplineAgent {
       // Channels we monitor for carry-forward — same as RCA's set.
       const channels = ["my-live", "ai-live", "ai-paper"] as const;
       for (const channel of channels) {
+        // Master bypass: skip carry-forward for simulation channels when
+        // discipline is turned off for them.
+        if (isDisciplineBypassed(channel, settings)) continue;
         let trades: Awaited<ReturnType<typeof portfolioAgent.getPositions>> = [];
         try {
           trades = await portfolioAgent.getPositions(channel);
@@ -242,6 +245,31 @@ class DisciplineAgent {
   ): Promise<TradeValidationResult> {
     const date = getISTDateString();
     const settings = await getDisciplineSettings(userId);
+
+    // Master bypass: operator has turned discipline OFF for simulation
+    // (paper/sandbox) channels. Skip the entire gate — allow every trade,
+    // record no violations. Live channels are never bypassed.
+    if (isDisciplineBypassed(channel, settings)) {
+      disciplineValidateTotal.labels({ decision: "allow", reason: "simBypass" }).inc();
+      return {
+        allowed: true,
+        blockedBy: [],
+        blockReasons: [],
+        warnings: [],
+        adjustments: [],
+        details: {
+          circuitBreaker: { passed: true },
+          tradeLimits: { passed: true },
+          cooldown: { passed: true },
+          timeWindow: { passed: true },
+          positionSize: { passed: true },
+          journal: { passed: true },
+          preTrade: { passed: true },
+          streaks: { active: false },
+        },
+      };
+    }
+
     const state = await getDisciplineState(userId, date, channel);
 
     // Apply streak adjustments before validation
@@ -409,6 +437,13 @@ class DisciplineAgent {
   ): Promise<{ cooldownStarted: boolean; circuitBreakerTriggered: boolean }> {
     const date = getISTDateString();
     const settings = await getDisciplineSettings(userId);
+
+    // Master bypass: discipline OFF for simulation channels. Don't tally
+    // P&L, fire caps, start cooldowns, or latch session halts on paper/sandbox.
+    if (isDisciplineBypassed(channel, settings)) {
+      return { cooldownStarted: false, circuitBreakerTriggered: false };
+    }
+
     const state = await getDisciplineState(userId, date, channel);
 
     const newPnl = state.dailyRealizedPnl + pnl;

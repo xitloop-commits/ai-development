@@ -20,7 +20,7 @@ import {
 // ─── Discipline Settings Schema ────────────────────────────────
 
 const enabledNumberSchema = new Schema(
-  { enabled: { type: Boolean, default: true }, thresholdPercent: Number, maxLosses: Number, cooldownMinutes: Number, limit: Number, nseMinutes: Number, mcxMinutes: Number, durationMinutes: Number, requireAcknowledgment: Boolean, percentOfCapital: Number, maxUnjournaled: Number, disciplineScoreWarning: Number, redWeekReduction: Number, triggerAfterDays: Number, reduceByPercent: Number, ratio: Number, startTime: String, endTime: String, blockStates: [String] },
+  { enabled: { type: Boolean, default: true }, thresholdPercent: Number, maxLosses: Number, cooldownMinutes: Number, limit: Number, nseMinutes: Number, mcxMinutes: Number, durationMinutes: Number, requireAcknowledgment: Boolean, percentOfCapital: Number, maxUnjournaled: Number, disciplineScoreWarning: Number, redWeekReduction: Number, triggerAfterDays: Number, reduceByPercent: Number, ratio: Number, startTime: String, endTime: String, blockStates: { type: [String], default: undefined } },
   { _id: false, strict: false }
 );
 
@@ -87,6 +87,13 @@ const disciplineSettingsSchema = new Schema<DisciplineAgentSettings & Document>(
         },
       }, { _id: false }),
       default: () => JSON.parse(JSON.stringify(DEFAULT_DISCIPLINE_AGENT_SETTINGS.capitalProtection)),
+    },
+    simulationEnforcement: {
+      type: new Schema(
+        { enabled: { type: Boolean, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.simulationEnforcement.enabled } },
+        { _id: false }
+      ),
+      default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.simulationEnforcement }),
     },
     history: { type: [historyEntrySchema], default: [] },
   },

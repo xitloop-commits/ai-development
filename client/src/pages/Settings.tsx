@@ -1097,6 +1097,18 @@ export function DisciplineSection() {
 
   return (
     <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))" }}>
+      {/* Simulation Channels — master bypass for paper + sandbox */}
+      <SettingsCard title="Simulation Channels">
+        <div className="space-y-4">
+          <DisciplineRow
+            label="Enforce on Paper & Sandbox"
+            hint="When OFF, ALL discipline checks (caps, cooldowns, limits, halts) are bypassed for paper and sandbox channels so you can test freely. Live channels are always enforced."
+            enabled={ds.simulationEnforcement?.enabled ?? true}
+            onToggle={(v) => upd('simulationEnforcement.enabled', v)}
+          />
+        </div>
+      </SettingsCard>
+
       {/* Circuit Breaker */}
       <SettingsCard title="Circuit Breaker">
         <div className="space-y-4">

@@ -318,6 +318,13 @@ export interface DisciplineAgentSettings {
     };
   };
 
+  // Simulation-channel enforcement master switch.
+  // When `enabled` is false, ALL discipline activity (pre-trade gates,
+  // outcome recording, caps, cooldowns, halts) is bypassed for the
+  // paper + sandbox channels (see isSimulationChannel). Live channels are
+  // never affected. Default true → behaviour unchanged until operator opts out.
+  simulationEnforcement: { enabled: boolean };
+
   // Change history
   history: Array<{ changedAt: Date; field: string; oldValue: unknown; newValue: unknown }>;
 }
@@ -373,6 +380,8 @@ export const DEFAULT_DISCIPLINE_AGENT_SETTINGS: Omit<DisciplineAgentSettings, "u
       expensivePercentile: 75,
     },
   },
+  // Discipline ON for paper/sandbox by default; operator flips off to test freely.
+  simulationEnforcement: { enabled: true },
 };
 
 // ─── Default State ─────────────────────────────────────────────

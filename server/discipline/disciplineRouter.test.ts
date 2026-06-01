@@ -29,15 +29,21 @@ describe("disciplineSettingsUpdateSchema — bounds enforcement", () => {
     expect(r.success).toBe(false);
   });
 
-  it("rejects unknown sub-keys inside a strict module (footgun guard)", () => {
+  it("strips unknown sub-keys inside a module (round-trip tolerance)", () => {
+    // Sub-objects strip unknown keys so the client can post back the full
+    // saved settings (which Mongoose decorates with stray keys). Known
+    // fields survive; the stray is dropped rather than failing the save.
     const r = disciplineSettingsUpdateSchema.safeParse({
       dailyLossLimit: {
         enabled: true,
         thresholdPercent: 2.5,
-        sneakyDisable: true, // not in the spec
+        blockStates: [], // Mongoose-injected stray — must be tolerated
       },
     });
-    expect(r.success).toBe(false);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.dailyLossLimit).toEqual({ enabled: true, thresholdPercent: 2.5 });
+    }
   });
 
   it("rejects thresholdPercent above 100 (spec bound)", () => {

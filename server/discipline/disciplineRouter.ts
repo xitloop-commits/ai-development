@@ -35,8 +35,12 @@ import { getTimelineSegments } from "./timeWindows";
 const DEFAULT_USER_ID = "1";
 
 // ─── Settings update schema ─────────────────────────────────────────
-// Strict mirror of DisciplineAgentSettings (sans server-managed fields).
-// Each module's sub-object is `.strict()` so unknown sub-keys also reject.
+// Mirror of DisciplineAgentSettings (sans server-managed fields).
+// Top-level is `.strict()` so unknown top-level fields reject (typo guard).
+// Sub-objects intentionally STRIP unknown keys: the client round-trips the
+// full saved settings, and Mongoose's shared sub-schema injects harmless
+// stray keys (e.g. an empty `blockStates: []`) into every rule — strict
+// sub-objects would reject those on save. Value validation still applies.
 // Bounds reflect the spec — see DisciplineAgent_Spec_v1.4.
 
 const emotionalStateEnum = z.enum(["calm", "anxious", "revenge", "fomo", "greedy", "neutral"]);
@@ -47,44 +51,44 @@ export const disciplineSettingsUpdateSchema = z.object({
   dailyLossLimit: z.object({
     enabled: z.boolean(),
     thresholdPercent: z.number().min(0).max(100),
-  }).strict().optional(),
+  }).optional(),
   maxConsecutiveLosses: z.object({
     enabled: z.boolean(),
     maxLosses: z.number().int().min(1).max(20),
     cooldownMinutes: z.number().int().min(0).max(720),
-  }).strict().optional(),
+  }).optional(),
 
   // Module 2: Trade Limits
   maxTradesPerDay: z.object({
     enabled: z.boolean(),
     limit: z.number().int().min(1).max(100),
-  }).strict().optional(),
+  }).optional(),
   maxOpenPositions: z.object({
     enabled: z.boolean(),
     limit: z.number().int().min(1).max(50),
-  }).strict().optional(),
+  }).optional(),
   revengeCooldown: z.object({
     enabled: z.boolean(),
     durationMinutes: z.number().int().min(0).max(720),
     requireAcknowledgment: z.boolean(),
-  }).strict().optional(),
+  }).optional(),
 
   // Module 3: Time Windows
   noTradingAfterOpen: z.object({
     enabled: z.boolean(),
     nseMinutes: z.number().int().min(0).max(60),
     mcxMinutes: z.number().int().min(0).max(60),
-  }).strict().optional(),
+  }).optional(),
   noTradingBeforeClose: z.object({
     enabled: z.boolean(),
     nseMinutes: z.number().int().min(0).max(60),
     mcxMinutes: z.number().int().min(0).max(60),
-  }).strict().optional(),
+  }).optional(),
   lunchBreakPause: z.object({
     enabled: z.boolean(),
     startTime: timeHHmm,
     endTime: timeHHmm,
-  }).strict().optional(),
+  }).optional(),
 
   // Module 4: Pre-Trade Gate
   preTradeGate: z.object({
@@ -92,55 +96,55 @@ export const disciplineSettingsUpdateSchema = z.object({
     minRiskReward: z.object({
       enabled: z.boolean(),
       ratio: z.number().min(0).max(20),
-    }).strict(),
+    }),
     emotionalStateCheck: z.object({
       enabled: z.boolean(),
       blockStates: z.array(emotionalStateEnum),
-    }).strict(),
-  }).strict().optional(),
+    }),
+  }).optional(),
 
   // Module 5: Position Sizing
   maxPositionSize: z.object({
     enabled: z.boolean(),
     percentOfCapital: z.number().min(0).max(100),
-  }).strict().optional(),
+  }).optional(),
   maxTotalExposure: z.object({
     enabled: z.boolean(),
     percentOfCapital: z.number().min(0).max(100),
-  }).strict().optional(),
+  }).optional(),
 
   // Module 6: Journal
   journalEnforcement: z.object({
     enabled: z.boolean(),
     maxUnjournaled: z.number().int().min(0).max(100),
-  }).strict().optional(),
+  }).optional(),
   weeklyReview: z.object({
     enabled: z.boolean(),
     disciplineScoreWarning: z.number().int().min(0).max(100),
     redWeekReduction: z.number().int().min(1).max(52),
-  }).strict().optional(),
+  }).optional(),
 
   // Module 7: Streaks
   winningStreakReminder: z.object({
     enabled: z.boolean(),
     triggerAfterDays: z.number().int().min(1).max(365),
-  }).strict().optional(),
+  }).optional(),
   losingStreakAutoReduce: z.object({
     enabled: z.boolean(),
     triggerAfterDays: z.number().int().min(1).max(365),
     reduceByPercent: z.number().min(0).max(100),
-  }).strict().optional(),
+  }).optional(),
 
   // Module 8: Capital Protection & Session Management
   capitalProtection: z.object({
     profitCap: z.object({
       enabled: z.boolean(),
       percent: z.number().min(0).max(100),
-    }).strict(),
+    }),
     lossCap: z.object({
       enabled: z.boolean(),
       percent: z.number().min(0).max(100),
-    }).strict(),
+    }),
     gracePeriodSeconds: z.number().int().min(0).max(3600),
     carryForward: z.object({
       enabled: z.boolean(),
@@ -152,14 +156,19 @@ export const disciplineSettingsUpdateSchema = z.object({
       minMomentumScore: z.number().min(0).max(100),
       minDte: z.number().int().min(0).max(365),
       ivCondition: z.enum(["fair", "cheap", "any"]),
-    }).strict(),
+    }),
     iv: z.object({
       historyWindow: z.number().int().min(20).max(5000),
       minSamples: z.number().int().min(5).max(2000),
       cheapPercentile: z.number().min(0).max(100),
       expensivePercentile: z.number().min(0).max(100),
-    }).strict(),
-  }).strict().optional(),
+    }),
+  }).optional(),
+
+  // Master switch: discipline ON/OFF for paper + sandbox channels.
+  simulationEnforcement: z.object({
+    enabled: z.boolean(),
+  }).optional(),
 }).strict();
 
 export const disciplineRouter = router({
