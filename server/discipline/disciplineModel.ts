@@ -266,6 +266,41 @@ export const DisciplineDailyScoreModel = mongoose.model("DisciplineDailyScore", 
 
 // ─── CRUD Helpers ──────────────────────────────────────────────
 
+/**
+ * Fill any keys missing from `loaded` using `defaults`, recursively.
+ * Values already present in `loaded` always win — we only ever add what's
+ * absent, never overwrite. Arrays are treated as leaves (whole-array wins).
+ *
+ * Why: legacy `discipline_settings` documents were saved before newer
+ * sub-documents (e.g. Module 8 `capitalProtection`) existed. Mongoose
+ * schema `default`s only apply when a NEW document is created, and the
+ * read path uses `.lean()`, so old records come back missing those fields.
+ * Reading them then crashes (`cp.profitCap` of undefined). Backfilling from
+ * DEFAULT_DISCIPLINE_AGENT_SETTINGS on every read makes the read total
+ * regardless of how old the persisted record is — and future-proofs any
+ * field added later, with no DB migration.
+ */
+export function fillMissingDefaults<T>(loaded: any, defaults: T): T {
+  if (loaded === null || loaded === undefined) {
+    // Clone so callers can't mutate the shared DEFAULT_* object.
+    return JSON.parse(JSON.stringify(defaults));
+  }
+  if (
+    typeof loaded !== "object" ||
+    Array.isArray(loaded) ||
+    typeof defaults !== "object" ||
+    defaults === null ||
+    Array.isArray(defaults)
+  ) {
+    return loaded as T;
+  }
+  const out: any = { ...loaded };
+  for (const key of Object.keys(defaults as object)) {
+    out[key] = fillMissingDefaults(loaded[key], (defaults as any)[key]);
+  }
+  return out as T;
+}
+
 /** Get or create discipline settings for a user */
 export async function getDisciplineSettings(userId: string): Promise<DisciplineAgentSettings> {
   let doc = await DisciplineSettingsModel.findOne({ userId }).lean();
@@ -273,7 +308,9 @@ export async function getDisciplineSettings(userId: string): Promise<DisciplineA
     doc = await DisciplineSettingsModel.create({ userId, updatedAt: new Date(), history: [] });
     doc = doc.toObject();
   }
-  return doc as unknown as DisciplineAgentSettings;
+  // Backfill fields missing from legacy records (e.g. capitalProtection)
+  // from the spec defaults so downstream readers never hit `undefined`.
+  return fillMissingDefaults(doc, DEFAULT_DISCIPLINE_AGENT_SETTINGS) as DisciplineAgentSettings;
 }
 
 /** Update discipline settings with history logging */
