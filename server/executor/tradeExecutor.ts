@@ -127,7 +127,56 @@ class TradeExecutorAgent {
     // underlying broker order has reached a terminal status. Backstop
     // for missed WS events. Live channels only.
     recoveryEngine.start();
+    // Re-subscribe live LTP for trades left OPEN by the previous process —
+    // their in-memory feed subscriptions died on exit, so otherwise they
+    // freeze at entry price (only near-the-money strikes ride the
+    // option-chain feed). Fire-and-forget; per-trade failures are contained.
+    void this.resubscribeOpenTradeLtps();
     log.important("Started — Trade Executor Agent v1.3 (SEA + recovery online)");
+  }
+
+  /**
+   * Startup recovery for the frozen-LTP bug: trades left OPEN by a prior
+   * process lost their live-LTP subscription when it exited. Loop every
+   * channel's open positions and re-subscribe each contract so its live
+   * price streams to the browser again. Async, fire-and-forget from
+   * start(); a failure on one channel/trade never blocks the rest.
+   */
+  async resubscribeOpenTradeLtps(): Promise<void> {
+    const ALL_CHANNELS: Channel[] = [
+      "ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "testing-sandbox",
+    ];
+    let count = 0;
+    for (const channel of ALL_CHANNELS) {
+      let positions: TradeRecord[];
+      try {
+        // day_records source (not position_state, which lags / is empty
+        // during the dual-write migration window) so we never miss a
+        // displayed open trade.
+        positions = await portfolioAgent.listOpenTrades(channel);
+      } catch (err: any) {
+        log.warn(`resubscribeOpenTradeLtps: listOpenTrades(${channel}) failed: ${err?.message ?? err}`);
+        continue;
+      }
+      if (positions.length === 0) continue;
+      const feedAdapter = (() => {
+        try {
+          const adapter = getAdapter(channel);
+          return _isPaperChannel(channel) ? getActiveBroker() : adapter;
+        } catch {
+          return null;
+        }
+      })();
+      if (!feedAdapter) continue;
+      for (const t of positions) {
+        if (t.status !== "OPEN" || !t.contractSecurityId) continue;
+        _subscribeContractLtp(feedAdapter, t.instrument, t.contractSecurityId, `for open trade ${t.id}`);
+        count++;
+      }
+    }
+    if (count > 0) {
+      log.important(`Re-subscribed ${count} open-trade contract(s) to live LTP on startup`);
+    }
   }
 
   stop(): void {
@@ -985,26 +1034,41 @@ function mapBrokerStatusToSubmitStatus(
  * gaining refcounting — today a bare unsubscribe would kill the feed for any
  * other open trade on the same contract.
  */
+/**
+ * Core LTP-subscribe shared by the place-trade path and the startup
+ * re-subscribe. The caller passes the already-resolved feed adapter (live
+ * channel → its own adapter; paper channel → the active live Dhan adapter
+ * so paper reads real LTP). Failures are non-fatal.
+ */
+function _subscribeContractLtp(
+  feedAdapter: BrokerAdapter | null | undefined,
+  instrument: string,
+  contractSecurityId: string,
+  label: string,
+): void {
+  if (!feedAdapter?.subscribeLTP) return;
+  try {
+    const exchange = resolveExchange(instrument);
+    const wsExchange = exchange === "MCX_COMM" ? "MCX_COMM" : "NSE_FNO";
+    feedAdapter.subscribeLTP(
+      [{ exchange: wsExchange as any, securityId: contractSecurityId, mode: "full" }] as any,
+      (tick) => tickBus.emitTick(tick),
+    );
+    log.debug(
+      `Subscribed option LTP: ${wsExchange}:${contractSecurityId} ${label} via ${feedAdapter.brokerId}`,
+    );
+  } catch (err: any) {
+    log.warn(`subscribeLTP failed for ${contractSecurityId}: ${err?.message ?? err}`);
+  }
+}
+
 function ensureOptionLtpSubscription(
   adapter: BrokerAdapter,
   req: SubmitTradeRequest,
 ): void {
   if (!req.contractSecurityId) return;
   const feedAdapter = _isPaperChannel(req.channel) ? getActiveBroker() : adapter;
-  if (!feedAdapter?.subscribeLTP) return;
-  try {
-    const exchange = resolveExchange(req.instrument);
-    const wsExchange = exchange === "MCX_COMM" ? "MCX_COMM" : "NSE_FNO";
-    feedAdapter.subscribeLTP(
-      [{ exchange: wsExchange as any, securityId: req.contractSecurityId, mode: "full" }] as any,
-      (tick) => tickBus.emitTick(tick),
-    );
-    log.debug(
-      `Subscribed option LTP: ${wsExchange}:${req.contractSecurityId} for trade ${req.executionId} via ${feedAdapter.brokerId}`,
-    );
-  } catch (err: any) {
-    log.warn(`subscribeLTP failed for ${req.contractSecurityId}: ${err?.message ?? err}`);
-  }
+  _subscribeContractLtp(feedAdapter, req.instrument, req.contractSecurityId, `for trade ${req.executionId}`);
 }
 
 /**

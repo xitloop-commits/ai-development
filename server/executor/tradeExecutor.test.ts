@@ -81,6 +81,8 @@ vi.mock("../portfolio", () => ({
       reservePool: 25000,
     })),
     appendTrade: vi.fn(async (_channel: any, trade: any) => trade),
+    // Used by resubscribeOpenTradeLtps — default empty; tests override.
+    listOpenTrades: vi.fn(async () => [] as any[]),
     closeTrade: vi.fn(async (_channel: any, _tradeId: any, exitPrice: number) => ({
       trade: {
         id: "T-CLOSED",
@@ -588,5 +590,38 @@ describe("B4 — BROKER_DESYNC handling", () => {
     expect(resp.success).toBe(true);
     expect(portfolioAgent.markTradeDesync).not.toHaveBeenCalled();
     expect(portfolioAgent.updateTrade).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("resubscribeOpenTradeLtps (startup frozen-LTP fix)", () => {
+  it("re-subscribes each open trade's contract, skipping those without contractSecurityId", async () => {
+    const subscribeLTP = vi.fn();
+    vi.mocked(getAdapter).mockReturnValue({ brokerId: "dhan-primary-ac", subscribeLTP } as any);
+    vi.mocked(portfolioAgent.listOpenTrades).mockImplementation(async (ch: any) =>
+      ch === "my-live"
+        ? ([
+            { id: "T1", instrument: "NIFTY 50", status: "OPEN", contractSecurityId: "55123" },
+            { id: "T2", instrument: "NATURAL GAS", status: "OPEN", contractSecurityId: "99001" },
+            { id: "T3", instrument: "NIFTY 50", status: "OPEN", contractSecurityId: null },
+          ] as any[])
+        : ([] as any[]),
+    );
+
+    await tradeExecutor.resubscribeOpenTradeLtps();
+
+    // T1 (NSE) + T2 (MCX) subscribed; T3 skipped for missing contractSecurityId.
+    expect(subscribeLTP).toHaveBeenCalledTimes(2);
+    expect(subscribeLTP.mock.calls[0][0][0]).toMatchObject({ exchange: "NSE_FNO", securityId: "55123" });
+    expect(subscribeLTP.mock.calls[1][0][0]).toMatchObject({ exchange: "MCX_COMM", securityId: "99001" });
+  });
+
+  it("no-op when no channel has open trades", async () => {
+    const subscribeLTP = vi.fn();
+    vi.mocked(getAdapter).mockReturnValue({ brokerId: "dhan-primary-ac", subscribeLTP } as any);
+    vi.mocked(portfolioAgent.listOpenTrades).mockResolvedValue([] as any[]);
+
+    await tradeExecutor.resubscribeOpenTradeLtps();
+
+    expect(subscribeLTP).not.toHaveBeenCalled();
   });
 });

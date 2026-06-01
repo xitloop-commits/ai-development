@@ -848,6 +848,26 @@ class PortfolioAgentImpl {
   }
 
   /**
+   * All still-OPEN trades for a channel, read from day_records — the same
+   * authoritative source the trading desk renders. Unlike getPositions()
+   * (which reads position_state, a collection that lags during the dual-write
+   * migration window and can be empty), this never misses a displayed open
+   * trade. Used by the startup live-LTP re-subscribe so every open row gets
+   * its feed back after a restart.
+   */
+  async listOpenTrades(channel: Channel): Promise<TradeRecord[]> {
+    const state = await getCapitalState(channel);
+    const days = await getDayRecords(channel, { from: 1, to: state.currentDayIndex });
+    const open: TradeRecord[] = [];
+    for (const d of days) {
+      for (const t of d.trades) {
+        if (t.status === "OPEN") open.push(t);
+      }
+    }
+    return open;
+  }
+
+  /**
    * Per spec §7.1 — aggregate performance metrics for a channel.
    * Phase 1: sourced from existing day records. Phase 2 will use
    * portfolio_metrics collection.
