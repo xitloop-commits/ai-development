@@ -359,6 +359,16 @@ export const executorRouter = router({
         entryPrice,
         stopLoss: resolvedStopLoss,
         takeProfit: resolvedTakeProfit,
+        // Trailing stop: honour the form's explicit toggle when present,
+        // otherwise fall back to the broker-wide trailingStopEnabled default.
+        // Resolved here (like the SL/TP %-defaults above) so the trade record
+        // carries a concrete value that survives persistence — the position
+        // schema coerces an unset flag to false on save.
+        trailingStopLoss: {
+          enabled: input.trailingStopEnabled ?? config?.settings?.trailingStopEnabled ?? false,
+          distance: 0,
+          trigger: 0,
+        },
         orderType,
         productType,
         optionType: optionTypeForExec,

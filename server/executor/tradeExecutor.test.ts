@@ -210,6 +210,27 @@ describe("submitTrade — paper path", () => {
     expect(portfolioAgent.recordTradePlaced).toHaveBeenCalledTimes(1);
   });
 
+  it("persists trailingStopEnabled from the request's trailingStopLoss.enabled", async () => {
+    // Regression: the new-trade form's TSL toggle reaches submitTrade as
+    // trailingStopLoss.enabled and must land on the trade record. Previously
+    // the placeTrade adapter dropped it, so trailing-stop was always off.
+    const req = paperRequest({ trailingStopLoss: { enabled: true, distance: 0, trigger: 0 } });
+    await tradeExecutor.submitTrade(req);
+
+    expect(portfolioAgent.appendTrade).toHaveBeenCalledWith(
+      "my-paper",
+      expect.objectContaining({ trailingStopEnabled: true }),
+    );
+  });
+
+  it("defaults trailingStopEnabled to false when no TSL is supplied", async () => {
+    await tradeExecutor.submitTrade(paperRequest());
+    expect(portfolioAgent.appendTrade).toHaveBeenCalledWith(
+      "my-paper",
+      expect.objectContaining({ trailingStopEnabled: false }),
+    );
+  });
+
   it("sends the resolved contractSecurityId to the broker, not the underlying name", async () => {
     // Regression: an option order resolves a numeric contract securityId upstream
     // (router resolveContract). mapToOrderParams must forward THAT id to the
@@ -432,6 +453,28 @@ describe("modifyOrder", () => {
     expect(resp.success).toBe(true);
     expect(portfolioAgent.updateTrade).toHaveBeenCalledTimes(1);
     expect(fillingAdapter.modifyOrder).not.toHaveBeenCalled();
+  });
+
+  it("accepts the UI alias field names (stopLossPrice/targetPrice) and applies them", async () => {
+    // Regression: the UI updateTrade adapter sends stopLossPrice/targetPrice,
+    // but the local-update path used to read only stopLoss/takeProfit — so
+    // editing SL/TP on an open trade silently did nothing. modifyOrder must
+    // coalesce both spellings before calling PA.updateTrade.
+    const resp = await tradeExecutor.modifyOrder({
+      executionId: "mod-alias-1",
+      positionId: "POS-1234",
+      channel: "my-paper",
+      modifications: { stopLossPrice: 88, targetPrice: 125, trailingStopLoss: { enabled: true, distance: 0, trigger: 0 } },
+      reason: "USER",
+      timestamp: Date.now(),
+    });
+
+    expect(resp.success).toBe(true);
+    expect(portfolioAgent.updateTrade).toHaveBeenCalledWith(
+      "my-paper",
+      "T1234",
+      expect.objectContaining({ stopLossPrice: 88, targetPrice: 125, trailingStopEnabled: true }),
+    );
   });
 });
 

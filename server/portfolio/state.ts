@@ -91,6 +91,10 @@ export interface TradeRecord {
   targetPrice: number | null;
   stopLossPrice: number | null;
   trailingStopEnabled?: boolean;
+  /** Highest (BUY) / lowest (SELL) LTP seen since entry — the trailing-stop
+   *  ratchet anchor. Persisted via position_state so the trail survives a
+   *  server restart; absent on trades that pre-date the field. */
+  peakLtp?: number;
   /** Broker-assigned order ID returned by placeOrder. Used by orderSync /
    *  recoveryEngine to match broker events back to this trade.
    *  Pre-2026-05 docs stored this on the (now-renamed) `brokerId` field;

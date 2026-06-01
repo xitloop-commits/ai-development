@@ -497,6 +497,20 @@ class TradeExecutorAgent {
       const channel = req.channel;
       const tradeId = tradeIdFromPositionId(req.positionId);
 
+      // SL/TP arrive under two field-name spellings: the formal §4.2 API
+      // uses stopLoss/takeProfit; the UI updateTrade adapter sends the
+      // stopLossPrice/targetPrice aliases. Coalesce both up front so every
+      // path below (broker leg + local record) reads the same value.
+      // `!== undefined` (not `??`) preserves an explicit null = "clear it".
+      const slMod =
+        req.modifications.stopLossPrice !== undefined
+          ? req.modifications.stopLossPrice
+          : req.modifications.stopLoss;
+      const tpMod =
+        req.modifications.targetPrice !== undefined
+          ? req.modifications.targetPrice
+          : req.modifications.takeProfit;
+
       // Live: send broker.modifyOrder to update the bracket leg's SL/TP. The
       // legacy router doesn't do this today (paper-only); TEA fixes it for
       // live channels. modifyOrder needs the broker order id to target — we
@@ -516,8 +530,8 @@ class TradeExecutorAgent {
 
         try {
           const result = await adapter.modifyOrder(trade.brokerOrderId, {
-            triggerPrice: req.modifications.stopLossPrice ?? undefined,
-            price: req.modifications.targetPrice ?? undefined,
+            triggerPrice: slMod ?? undefined,
+            price: tpMod ?? undefined,
           });
           log.info(
             `modifyOrder live broker ack channel=${channel} order=${trade.brokerOrderId} status=${result.status}`,
@@ -532,8 +546,8 @@ class TradeExecutorAgent {
             reason,
             timestamp: Date.now(),
             attempted: {
-              stopLossPrice: req.modifications.stopLossPrice ?? null,
-              targetPrice: req.modifications.targetPrice ?? null,
+              stopLossPrice: slMod ?? null,
+              targetPrice: tpMod ?? null,
             },
           });
           // B4-followup — notify RCA so its sliding-window counter can
@@ -554,8 +568,8 @@ class TradeExecutorAgent {
       // Local update — applies for paper and live alike (live arrives here
       // only when the broker call above succeeded; paper has no broker call).
       const { trade, oldSL, oldTP } = await portfolioAgent.updateTrade(channel, tradeId, {
-        stopLossPrice: req.modifications.stopLoss ?? undefined,
-        targetPrice: req.modifications.takeProfit ?? undefined,
+        stopLossPrice: slMod,
+        targetPrice: tpMod,
         trailingStopEnabled: req.modifications.trailingStopLoss?.enabled,
       });
 
@@ -973,6 +987,9 @@ function buildTradeRecord(
     status,
     targetPrice: req.takeProfit ?? null,
     stopLossPrice: req.stopLoss ?? null,
+    // Callers resolve the trailing-stop default before submitting (the UI
+    // adapter folds in the broker-wide trailingStopEnabled setting). When a
+    // formal caller omits it entirely, default to off.
     trailingStopEnabled: req.trailingStopLoss?.enabled ?? false,
     brokerOrderId,
     brokerId,

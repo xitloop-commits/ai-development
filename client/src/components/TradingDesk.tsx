@@ -123,7 +123,7 @@ export default function TradingDesk({
                 <col />
                 <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
                 <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
-                <col style={{ width: '2.5rem', maxWidth: '2.5rem' }} />
+                <col style={{ width: '4rem', maxWidth: '4rem' }} />
                 <col style={{ width: '4.5rem', maxWidth: '4.5rem' }} />
                 <col style={{ width: '3.625rem', maxWidth: '3.625rem' }} />
                 <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />
@@ -142,7 +142,7 @@ export default function TradingDesk({
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Instrument</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Entry</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">LTP</th>
-                  <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border min-w-[112px]">Lot</th>
+                  <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Lot</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Invested</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Points</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L</th>
