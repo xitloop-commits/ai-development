@@ -36,8 +36,8 @@ export const DEFAULT_CHANNEL_FOR_WORKSPACE: Record<Workspace, Channel> = {
   testing: 'testing-sandbox',
 };
 
-/** First-launch landing channel (testing-sandbox during dev). */
-export const DEFAULT_LANDING_CHANNEL: Channel = 'testing-sandbox';
+/** First-launch landing channel — My Trades workspace, Paper mode. */
+export const DEFAULT_LANDING_CHANNEL: Channel = 'my-paper';
 
 export function channelToWorkspace(channel: Channel): Workspace {
   return channel.split('-')[0] as Workspace;
