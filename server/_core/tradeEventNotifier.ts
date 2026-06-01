@@ -127,12 +127,10 @@ export interface GateRejectionEvent {
   reason: string; // e.g. "Discipline blocked: AI Live 1-lot cap exceeded"
 }
 
+/** "blocked 150 NIFTY 50 — {reason}" (qty omitted when unknown). */
 export function formatGateRejection(ev: GateRejectionEvent): string {
-  return [
-    `🛑 <b>GATE REJECT · ${ev.channel}</b>`,
-    `${ev.instrument}${ev.qty != null ? `  qty ${ev.qty}` : ""}`,
-    ev.reason,
-  ].join("\n");
+  const qty = ev.qty != null ? `${ev.qty} ` : "";
+  return `blocked ${qty}${ev.instrument} — ${ev.reason}`;
 }
 
 export interface BrokerDisconnectEvent {
@@ -141,20 +139,17 @@ export interface BrokerDisconnectEvent {
   reason: string;
 }
 
+/**
+ * "{broker} {what} — {reason}. {action}" — one plain line. Token expiry
+ * needs a fresh-token restart; the two WS faults just need to know the
+ * feed dropped and that the server is retrying.
+ */
 export function formatBrokerDisconnect(ev: BrokerDisconnectEvent): string {
-  const headerIcon = ev.kind === "token_expired" ? "🔑" : "📡";
-  const headerLabel = ev.kind === "ws_gave_up"
-    ? "WS GAVE UP"
-    : ev.kind === "token_expired"
-    ? "TOKEN EXPIRED"
-    : "WS ERROR";
-  return [
-    `${headerIcon} <b>BROKER · ${ev.brokerId}</b>`,
-    `${headerLabel}: ${ev.reason}`,
-    ev.kind === "token_expired"
-      ? "Action: restart BSA to mint a fresh token (refresh-on-startup policy)."
-      : "Action: server will keep trying or restart BSA to reset.",
-  ].join("\n");
+  if (ev.kind === "token_expired") {
+    return `${ev.brokerId} token expired — ${ev.reason}. Restart BSA to mint a fresh token.`;
+  }
+  const what = ev.kind === "ws_gave_up" ? "feed gave up" : "feed error";
+  return `${ev.brokerId} ${what} — ${ev.reason}. Server will keep retrying; restart BSA to reset.`;
 }
 
 // ─── Push wrappers (fire-and-forget, try/catch internal) ──────────
@@ -205,12 +200,13 @@ export function notifyTradeExit(ev: TradeExitEvent): void {
 }
 
 export function notifyGateRejection(ev: GateRejectionEvent): void {
-  void safePush(formatGateRejection(ev), `gate-reject ${ev.channel}/${ev.instrument}`);
+  const message = formatGateRejection(ev);
+  void safePush(message, `gate-reject ${ev.channel}/${ev.instrument}`);
   void persistAlert({
     type: "module_down", // closest match — gate rejection = "trading is being blocked"
     priority: "high",
     title: `Gate reject · ${ev.channel}`,
-    message: `${ev.instrument}${ev.qty != null ? `  qty ${ev.qty}` : ""}  ·  ${ev.reason}`,
+    message,
     instrument: ev.instrument,
     channel: ev.channel,
   });
@@ -231,12 +227,13 @@ export function notifyBrokerDisconnect(ev: BrokerDisconnectEvent): void {
     return;
   }
   lastDisconnectAt.set(key, now);
-  void safePush(formatBrokerDisconnect(ev), `broker-disconnect ${ev.brokerId}/${ev.kind}`);
+  const message = formatBrokerDisconnect(ev);
+  void safePush(message, `broker-disconnect ${ev.brokerId}/${ev.kind}`);
   void persistAlert({
     type: "module_down", // broker is "down" from the operator's perspective
     priority: "critical",
     title: `Broker · ${ev.brokerId}`,
-    message: `${ev.kind.toUpperCase().replace(/_/g, " ")}: ${ev.reason}`,
+    message,
   });
 }
 

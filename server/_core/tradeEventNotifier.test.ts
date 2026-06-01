@@ -119,63 +119,58 @@ describe("formatExit", () => {
 });
 
 describe("formatGateRejection", () => {
-  it("includes channel, instrument, qty (if known), and the reason", () => {
+  it("'blocked {qty} {instrument} — {reason}' when qty is known", () => {
     const msg = formatGateRejection({
       channel: "ai-live",
       instrument: "NIFTY 50",
       qty: 150,
       reason: "Discipline blocked: AI Live 1-lot cap exceeded",
     });
-    expect(msg).toContain("GATE REJECT · ai-live");
-    expect(msg).toContain("NIFTY 50");
-    expect(msg).toContain("qty 150");
-    expect(msg).toContain("AI Live 1-lot cap exceeded");
+    expect(msg).toBe("blocked 150 NIFTY 50 — Discipline blocked: AI Live 1-lot cap exceeded");
   });
 
-  it("omits the qty marker when qty is not supplied", () => {
+  it("omits the qty when not supplied", () => {
     const msg = formatGateRejection({
       channel: "my-live",
       instrument: "CRUDE OIL",
       reason: "Circuit breaker active",
     });
-    expect(msg).not.toContain("qty");
-    expect(msg).toContain("Circuit breaker active");
+    expect(msg).toBe("blocked CRUDE OIL — Circuit breaker active");
   });
 });
 
 describe("formatBrokerDisconnect", () => {
-  it("WS gave-up message uses 📡 icon + restart hint", () => {
+  it("WS gave-up → plain feed-dropped line + retry hint", () => {
     const msg = formatBrokerDisconnect({
       brokerId: "dhan-primary-ac",
       kind: "ws_gave_up",
       reason: "WebSocket max reconnect attempts exceeded",
     });
-    expect(msg).toContain("📡");
-    expect(msg).toContain("WS GAVE UP");
-    expect(msg).toContain("dhan-primary-ac");
-    expect(msg).toContain("max reconnect");
-    expect(msg).toContain("restart BSA");
+    expect(msg).toBe(
+      "dhan-primary-ac feed gave up — WebSocket max reconnect attempts exceeded. Server will keep retrying; restart BSA to reset.",
+    );
   });
 
-  it("token-expired uses 🔑 icon + token-specific action hint", () => {
+  it("token-expired → token line + fresh-token restart hint", () => {
     const msg = formatBrokerDisconnect({
       brokerId: "dhan-secondary-ac",
       kind: "token_expired",
       reason: "401 returned by /fundlimit",
     });
-    expect(msg).toContain("🔑");
-    expect(msg).toContain("TOKEN EXPIRED");
-    expect(msg).toContain("mint a fresh token");
+    expect(msg).toBe(
+      "dhan-secondary-ac token expired — 401 returned by /fundlimit. Restart BSA to mint a fresh token.",
+    );
   });
 
-  it("ws_error kind uses 📡 icon + generic WS error label", () => {
+  it("ws_error → feed-error line, no token hint", () => {
     const msg = formatBrokerDisconnect({
       brokerId: "dhan-primary-ac",
       kind: "ws_error",
       reason: "network timeout",
     });
-    expect(msg).toContain("📡");
-    expect(msg).toContain("WS ERROR");
+    expect(msg).toBe(
+      "dhan-primary-ac feed error — network timeout. Server will keep retrying; restart BSA to reset.",
+    );
     expect(msg).not.toContain("mint a fresh token");
   });
 });
