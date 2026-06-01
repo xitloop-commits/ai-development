@@ -357,10 +357,14 @@ export async function patchPortfolioState(
 
 export async function upsertPosition(position: PositionStateDoc): Promise<PositionStateDoc> {
   const now = Date.now();
+  // createdAt must live ONLY in $setOnInsert — MongoDB rejects an update that
+  // touches the same path in both $set and $setOnInsert ("would create a
+  // conflict at 'createdAt'"), which was silently failing every mirror-write.
+  const { createdAt: _ignoredCreatedAt, ...rest } = position;
   const doc = await PositionStateModel.findOneAndUpdate(
     { positionId: position.positionId },
     {
-      $set: { ...position, updatedAt: now },
+      $set: { ...rest, updatedAt: now },
       $setOnInsert: { createdAt: now },
     },
     { upsert: true, returnDocument: "after", lean: true },
