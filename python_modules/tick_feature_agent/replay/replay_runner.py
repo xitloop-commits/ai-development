@@ -167,15 +167,37 @@ def _write_progress_atomic(progress_path: Path, data: dict) -> None:
 
 
 def _merge_chunks_to_final(
-    chunk_files: list[Path], final_path: Path
+    chunk_files: list[Path],
+    final_path: Path,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> None:
-    """Concatenate chunk parquets into one final parquet, write atomically."""
+    """Concatenate chunk parquets into one final parquet, write atomically.
+
+    Optional ``on_progress(i, total, stage)`` callback fires between chunk
+    reads + before/after the concat + write, so a long merge (100+
+    chunks on naturalgas → ~30s) doesn't freeze the dashboard. ``stage``
+    is one of ``"reading"``, ``"concat"``, ``"writing"``.
+    """
     import pyarrow as pa
     import pyarrow.parquet as pq
     if not chunk_files:
         return
-    tables = [pq.read_table(f) for f in chunk_files]
+    total = len(chunk_files)
+    tables: list = []
+    for i, f in enumerate(chunk_files):
+        tables.append(pq.read_table(f))
+        if on_progress is not None:
+            try:
+                on_progress(i + 1, total, "reading")
+            except Exception:
+                pass
+    if on_progress is not None:
+        try: on_progress(total, total, "concat")
+        except Exception: pass
     merged = pa.concat_tables(tables) if len(tables) > 1 else tables[0]
+    if on_progress is not None:
+        try: on_progress(total, total, "writing")
+        except Exception: pass
     tmp = final_path.with_suffix(final_path.suffix + ".tmp")
     pq.write_table(merged, tmp)
     tmp.replace(final_path)
@@ -652,6 +674,22 @@ def run_one_date(
             flush=True,
         )
 
+    def _emit_phase(phase: str, **extra: Any) -> None:
+        """Push a phase update to the dashboard so the post-event-loop
+        tail (flush / merge / validate) shows MOVEMENT rather than
+        looking frozen at the last in-loop frame. Cheap one-key write
+        through the same Manager dict the parent polls.
+        """
+        if not _has_progress_cb:
+            return
+        try:
+            payload = {"phase": phase}
+            payload.update(extra)
+            progress_callback(payload)
+        except Exception:
+            pass
+
+    _emit_phase("flushing")
     adapter.flush_all()
 
     if adapter.underlying_tick_count == 0:
@@ -675,7 +713,34 @@ def run_one_date(
         _flush_chunk(force=True)  # write the trailing rows
         chunk_files = sorted(out_dir.glob(f"{instrument}_features_part*.parquet"))
         if chunk_files:
-            _merge_chunks_to_final(chunk_files, parquet_path)
+            n_total = len(chunk_files)
+            _emit_phase(
+                "merging",
+                chunk_done=n_total,
+                chunks_total_est=n_total,
+            )
+
+            def _on_merge_progress(i: int, total: int, stage: str) -> None:
+                # Two flavours: reading-N-of-M during the per-file
+                # read loop, and concat/writing as separate phase
+                # labels. Each fire ticks the dashboard.
+                if stage == "reading":
+                    _emit_phase(
+                        "merging",
+                        chunk_done=i,
+                        chunks_total_est=total,
+                    )
+                else:  # "concat" / "writing"
+                    _emit_phase(
+                        f"merging:{stage}",
+                        chunk_done=total,
+                        chunks_total_est=total,
+                    )
+
+            _merge_chunks_to_final(
+                chunk_files, parquet_path,
+                on_progress=_on_merge_progress,
+            )
             n_chunks_merged = len(chunk_files)
             for f in chunk_files:
                 try: f.unlink()
@@ -717,6 +782,7 @@ def run_one_date(
         return "fail"
 
     # ── Validate ──────────────────────────────────────────────────────────────
+    _emit_phase("validating")
     val_dir = validation_root / date_str
     validation_exc: str | None = None
     try:

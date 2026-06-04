@@ -322,6 +322,55 @@ def test_per_date_finalising_marker_on_overshoot():
     )
 
 
+def test_phase_flushing_rendered_visibly():
+    """Worker emits ``phase: 'flushing'`` between event loop exit and
+    the chunk merge. Dashboard must show "flushing pending rows..."
+    in the per-date row so the operator can see what's happening.
+    """
+    dates = ["d1"]
+    progress_dict = {
+        "d1": {"status": "running", "event_idx": 1_000_000,
+               "total_events_est": 1_000_000, "rate": 5_000.0,
+               "phase": "flushing"},
+    }
+    dash = ProgressDashboard("nifty50", dates, workers=1, progress_dict=progress_dict)
+    rendered = _render_plain(dash)
+    assert "flushing" in rendered.lower(), (
+        f"phase=flushing must surface a visible 'flushing' marker; got:\n{rendered}"
+    )
+
+
+def test_phase_merging_shows_chunk_progress():
+    """During chunk merge, the worker pushes (i, N) so the dashboard
+    can show "merging chunks 42/55..." — actual movement during the
+    10-30s merge instead of a static label.
+    """
+    dates = ["d1"]
+    progress_dict = {
+        "d1": {"status": "running", "event_idx": 1_000_000,
+               "total_events_est": 1_000_000, "rate": 5_000.0,
+               "phase": "merging",
+               "chunk_done": 42, "chunks_total_est": 55},
+    }
+    dash = ProgressDashboard("nifty50", dates, workers=1, progress_dict=progress_dict)
+    rendered = _render_plain(dash)
+    assert "merging" in rendered.lower()
+    assert "42/55" in rendered, (
+        f"merging-phase row must show chunk progress; got:\n{rendered}"
+    )
+
+
+def test_phase_validating_rendered_visibly():
+    dates = ["d1"]
+    progress_dict = {
+        "d1": {"status": "running", "event_idx": 1_000_000,
+               "total_events_est": 1_000_000, "rate": 5_000.0,
+               "phase": "validating"},
+    }
+    dash = ProgressDashboard("nifty50", dates, workers=1, progress_dict=progress_dict)
+    assert "validating" in _render_plain(dash).lower()
+
+
 def test_bar_reaches_full_only_when_all_dates_terminal():
     """The 99% cap applies ONLY while at least one date is `running`.
     When every date is in a terminal verdict the Overall bar must be

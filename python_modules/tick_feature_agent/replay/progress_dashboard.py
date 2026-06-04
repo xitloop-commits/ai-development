@@ -403,13 +403,29 @@ class ProgressDashboard:
                 # visible marker the row reads "100% ETA 00:00" while
                 # the cmd window is still busy for ~10-30s.
                 overshoot = bool(total) and ev >= total
+                # Tail phases ARE post-event-loop work. When the worker
+                # transitions out of the event loop into flush/merge/
+                # validate, it emits a phase= callback. The dashboard
+                # paints these rows magenta so the operator can spot at
+                # a glance "this date has moved past event-loop".
+                _TAIL_PHASES = {
+                    "flushing", "merging", "merging:concat",
+                    "merging:writing", "validating",
+                }
                 # During the warmup re-feed (resume of a partially-completed
                 # date) we visually mark the row so the user knows the
                 # "low %" is expected: the worker is re-replaying events
                 # it's already saved to chunks, just to rebuild adapter
                 # state. Bar paints yellow instead of cyan.
-                row_style = "yellow" if phase == "warmup" else style
-                bar_style = "yellow" if phase == "warmup" else "cyan"
+                if phase == "warmup":
+                    row_style = "yellow"
+                    bar_style = "yellow"
+                elif phase in _TAIL_PHASES:
+                    row_style = "magenta"
+                    bar_style = "magenta"
+                else:
+                    row_style = style
+                    bar_style = "cyan"
                 # Cap the per-date bar at the same 0.99 ceiling as
                 # Overall so an overshooting date looks visibly
                 # almost-done, not done.
@@ -417,10 +433,31 @@ class ProgressDashboard:
                 chunk_text = _fmt_chunk(
                     entry.get("chunk_done"), entry.get("chunks_total_est")
                 )
+                # Tail-phase rendering. The worker emits phase=
+                # "flushing" / "merging" / "merging:concat" /
+                # "merging:writing" / "validating" via _emit_phase
+                # after the event loop ends, so the dashboard shows
+                # MOVEMENT through those ~10-30s tail phases instead
+                # of looking frozen at the last in-loop frame.
                 if phase == "warmup":
                     chunk_text = (
                         f"warmup re-feed · {chunk_text}" if chunk_text else "warmup re-feed"
                     )
+                elif phase == "flushing":
+                    chunk_text = "flushing pending rows..."
+                elif phase == "merging":
+                    n_done = entry.get("chunk_done") or 0
+                    n_total = entry.get("chunks_total_est") or 0
+                    chunk_text = (
+                        f"merging chunks {n_done}/{n_total}..."
+                        if n_total else "merging chunks..."
+                    )
+                elif phase == "merging:concat":
+                    chunk_text = "concat tables..."
+                elif phase == "merging:writing":
+                    chunk_text = "writing final parquet..."
+                elif phase == "validating":
+                    chunk_text = "validating..."
                 elif overshoot:
                     # Replace the chunk M/N text with a "finalising"
                     # marker — informs the operator that the event
@@ -432,6 +469,16 @@ class ProgressDashboard:
                     # finishing" hint used by the Overall ETA so the
                     # row doesn't flash 00:00:00 either.
                     eta = max(eta or 0.0, 15.0)
+                # Tail-phase + warmup chunk text needs to be VISIBLE,
+                # not dim — that's where the "what's happening right
+                # now" signal lives. Default "dim" is fine for normal
+                # event-loop "chunk N/M".
+                if phase in _TAIL_PHASES:
+                    chunk_text_style = "bold magenta"
+                elif phase == "warmup":
+                    chunk_text_style = "yellow"
+                else:
+                    chunk_text_style = "dim"
                 rows_running.append((
                     Text(d, style=row_style),
                     self._render_bar(display_pct, width=18, filled_style=bar_style),
@@ -439,7 +486,7 @@ class ProgressDashboard:
                     Text(_fmt_int(ev), style=row_style),
                     Text(_fmt_rate(rate), style=row_style),
                     Text(_fmt_hms(eta), style="dim" if eta is None else row_style),
-                    Text(chunk_text, style="dim"),
+                    Text(chunk_text, style=chunk_text_style),
                 ))
             elif status == "pending":
                 rows_pending.append((
