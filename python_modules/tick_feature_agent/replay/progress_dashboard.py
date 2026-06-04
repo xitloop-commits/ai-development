@@ -238,14 +238,52 @@ class ProgressDashboard:
             if status in ("pass", "warn", "fail", "skip"):
                 completed_dates += 1
 
-        # Aggregate ETA: assume remaining dates take the average completed
-        # date's duration. Falls back to "—" until at least one finishes.
+        # Aggregate ETA — three signal sources, used in priority order so
+        # we keep showing a useful number throughout the run:
+        #
+        #   1) After at least one date completes, the average completed-date
+        #      duration is the most accurate (real CPU + I/O cost). Use it
+        #      for the remaining dates.
+        #   2) Before any date completes but workers are running with a
+        #      measured rate, fall back to per-date ETAs already computed
+        #      below. The overall run finishes when the slowest currently-
+        #      running worker finishes plus any time taken by pending dates
+        #      (which average the running dates' total durations and replay
+        #      ``workers`` at a time).
+        #   3) If neither is available (no rates yet — workers just spun up),
+        #      ETA stays "—".
+        agg_eta = None
         if completed_dates > 0:
             avg_per_date = elapsed / completed_dates
             remaining_dates = len(self._dates) - completed_dates
             agg_eta = remaining_dates * avg_per_date
         else:
-            agg_eta = None
+            running_etas: list[float] = []
+            running_full_durations: list[float] = []
+            for d in self._dates:
+                entry = snapshot[d]
+                if entry.get("status") != "running":
+                    continue
+                ev = entry.get("event_idx") or 0
+                total = entry.get("total_events_est") or 0
+                rate = entry.get("rate") or 0.0
+                if not (total and rate > 0):
+                    continue
+                running_etas.append(max(0.0, (total - ev) / rate))
+                running_full_durations.append(total / rate)
+            if running_etas:
+                # Wall-clock finish for the running batch = slowest worker.
+                slowest_running_eta = max(running_etas)
+                pending_dates_count = counts.get("pending", 0)
+                if pending_dates_count > 0 and running_full_durations:
+                    avg_full = sum(running_full_durations) / len(running_full_durations)
+                    # Pending dates fan out over the worker pool — one
+                    # ``avg_full`` per ``self._workers`` of them.
+                    batches = -(-pending_dates_count // max(self._workers, 1))
+                    pending_eta = batches * avg_full
+                else:
+                    pending_eta = 0.0
+                agg_eta = slowest_running_eta + pending_eta
 
         # Header
         header_left = Text()
@@ -265,8 +303,28 @@ class ProgressDashboard:
         header_tbl.add_column(justify="right", ratio=1)
         header_tbl.add_row(header_left, header_right)
 
-        # Overall progress (one-line table — bar + counters + ETA)
-        agg_done_pct = (completed_dates / len(self._dates)) if self._dates else 0.0
+        # Overall progress (one-line table — bar + counters + ETA).
+        # The bar fill folds in partial progress from each currently-
+        # running date (event_idx / total_events_est, clamped to 1.0)
+        # so the operator sees the bar move from the first chunk
+        # onwards instead of staying empty until the first date hits
+        # a terminal verdict. The counter text below stays integer-
+        # completion-only — "0 / 3 dates" is accurate while three
+        # workers are still running.
+        running_partial = 0.0
+        for d in self._dates:
+            entry = snapshot[d]
+            if entry.get("status") != "running":
+                continue
+            ev = entry.get("event_idx") or 0
+            total = entry.get("total_events_est") or 0
+            if total > 0:
+                running_partial += min(1.0, ev / total)
+        if self._dates:
+            agg_done_pct = (completed_dates + running_partial) / len(self._dates)
+            agg_done_pct = min(1.0, agg_done_pct)
+        else:
+            agg_done_pct = 0.0
         agg_bar = self._render_bar(agg_done_pct, width=24)
         overall_tbl = Table.grid(expand=True, padding=(0, 2))
         overall_tbl.add_column(justify="left", min_width=10)

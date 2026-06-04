@@ -81,10 +81,13 @@ if errorlevel 1 (
     echo   Install Python 3.11+ from https://www.python.org/downloads/
     if not defined LUBAS_HEADLESS (
         echo.
-        echo   (Auto-closes in 2 minutes. Press any key to close now.^)
-        timeout /t 120 >nul
+        echo   (Auto-closes in 30 seconds. Press any key to close now.^)
+        timeout /t 30 >nul
     )
-    exit /b 1
+    REM Use `exit` (NOT `exit /b`) so the cmd host process terminates
+    REM too — the launcher spawns with `cmd /k`, which otherwise keeps
+    REM the window open after the batch script ends.
+    exit 1
 )
 
 set PYTHONIOENCODING=utf-8
@@ -115,6 +118,10 @@ call powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%_emit-life
 
 echo.
 if not defined LUBAS_HEADLESS (
-    echo   (Auto-closes in 2 minutes. Press any key to close now.^)
-    timeout /t 120 >nul
+    echo   (Auto-closes in 30 seconds. Press any key to close now.^)
+    timeout /t 30 >nul
 )
+REM Use `exit` (NOT `exit /b`) so the cmd host process terminates
+REM too — the launcher spawns with `cmd /k`, which otherwise keeps
+REM the window open after the batch script ends.
+exit %EXIT_CODE%
