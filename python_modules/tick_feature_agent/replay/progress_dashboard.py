@@ -444,7 +444,12 @@ class ProgressDashboard:
                         f"warmup re-feed · {chunk_text}" if chunk_text else "warmup re-feed"
                     )
                 elif phase == "flushing":
-                    chunk_text = "flushing pending rows..."
+                    n_done = entry.get("chunk_done") or 0
+                    n_total = entry.get("chunks_total_est") or 0
+                    chunk_text = (
+                        f"flushing pending {n_done:,}/{n_total:,} rows..."
+                        if n_total else "flushing pending rows..."
+                    )
                 elif phase == "merging":
                     n_done = entry.get("chunk_done") or 0
                     n_total = entry.get("chunks_total_est") or 0

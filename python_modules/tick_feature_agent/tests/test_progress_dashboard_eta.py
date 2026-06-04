@@ -340,6 +340,26 @@ def test_phase_flushing_rendered_visibly():
     )
 
 
+def test_phase_flushing_shows_row_progress():
+    """When the chunked flush_all surfaces rows_done/rows_total via
+    ``chunk_done`` + ``chunks_total_est``, the dashboard renders
+    ``flushing pending N,NNN/M,MMM rows...`` — operator can see the
+    deque draining in real time during the 30s+ flush on long sessions.
+    """
+    dates = ["d1"]
+    progress_dict = {
+        "d1": {"status": "running", "event_idx": 1_000_000,
+               "total_events_est": 1_000_000, "rate": 5_000.0,
+               "phase": "flushing",
+               "chunk_done": 8000, "chunks_total_est": 30000},
+    }
+    dash = ProgressDashboard("nifty50", dates, workers=1, progress_dict=progress_dict)
+    rendered = _render_plain(dash)
+    assert "8,000/30,000" in rendered, (
+        f"flushing progress must surface as comma-formatted N/M; got:\n{rendered}"
+    )
+
+
 def test_phase_merging_shows_chunk_progress():
     """During chunk merge, the worker pushes (i, N) so the dashboard
     can show "merging chunks 42/55..." — actual movement during the

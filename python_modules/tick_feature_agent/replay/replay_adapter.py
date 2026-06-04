@@ -29,10 +29,11 @@ Usage:
 from __future__ import annotations
 
 import math
+import os
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
 from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
 from tick_feature_agent.buffers.tick_buffer import CircularBuffer, UnderlyingTick
@@ -402,22 +403,45 @@ class ReplayAdapter:
             return
         self._pipeline_state.histories.append_vix(ts, ltp)
 
-    def flush_all(self) -> None:
+    def flush_all(
+        self,
+        flush_progress_callback: Callable[[int, int], None] | None = None,
+    ) -> None:
         """
         Finalise all pending target rows after the event stream is exhausted.
 
         Rows whose target windows would extend past the session end get NaN
         targets (they represent incomplete lookahead windows).
 
-        T50 B.3b: batched columnar path runs all pending rows through
-        the three Polars target functions in one pass, then emits in
-        FIFO order. Falls back to per-row scalar when ``TFA_LEGACY_TARGETS=1``.
+        T50 B.3b: batched columnar path runs pending rows through the three
+        Polars target functions, then emits in FIFO order. Falls back to
+        per-row scalar when ``TFA_LEGACY_TARGETS=1``.
+
+        Memory-safe chunking (added 2026-06-04 after a freeze repro):
+        the columnar path now processes pending rows in batches of
+        ``TFA_FLUSH_BATCH_SIZE`` (default 2000). On long sessions (esp.
+        MCX 14.5h) the pending deque can hold 30k+ rows × ~500 columns
+        at session end — feeding it all into one Polars DataFrame
+        materialises tens of GB of intermediate columns and the OS
+        starts paging. Chunking caps peak memory at batch_size ×
+        column_count regardless of total pending size. The strike +
+        spot history extracts are computed ONCE outside the loop and
+        reused across batches — they're snapshots of the same target_buf
+        state. Order is preserved (FIFO batches, FIFO emit within each).
+
+        ``flush_progress_callback(rows_done, rows_total)`` fires once
+        per batch when given — used by ``run_one_date`` to surface
+        "flushing batch i/N" in the live progress dashboard so the
+        operator can see movement during what used to look like a
+        freeze.
         """
         from tick_feature_agent.replay import targets_cache as _tc
         if _tc.legacy_enabled() or len(self._pending) < 2:
             # Scalar path: original per-row implementation. Also used
             # when there's only one pending row (Polars per-batch
             # overhead beats it).
+            n_total = len(self._pending)
+            n_done = 0
             while self._pending:
                 pending = self._pending.popleft()
                 targets = self._target_buf.compute_targets(
@@ -437,25 +461,75 @@ class ReplayAdapter:
                 )
                 pending.row.update(trend_swing)
                 self._emitter.emit(pending.row)
+                n_done += 1
+                # Heartbeat ~every 1000 rows so the dashboard ticks
+                # even on the slower scalar path.
+                if flush_progress_callback is not None and (
+                    n_done % 1000 == 0 or n_done == n_total
+                ):
+                    try:
+                        flush_progress_callback(n_done, n_total)
+                    except Exception:
+                        pass
         else:
-            # Columnar batched path. Snapshot all rows, run batch, emit FIFO.
+            # Columnar batched path — chunked to bound peak memory.
+            # See docstring for the rationale.
+            from tick_feature_agent.replay.targets_cache import (
+                extract_spot_history_df,
+                extract_strike_history_df,
+            )
+            batch_size_str = os.environ.get("TFA_FLUSH_BATCH_SIZE", "2000")
+            try:
+                batch_size = max(1, int(batch_size_str))
+            except ValueError:
+                batch_size = 2000
+
+            # Snapshot the history dataframes once. Cheap relative to
+            # compute and constant across batches (target_buf state
+            # doesn't change while we're flushing — no new ticks
+            # arriving post-stream).
+            strike_history_df = extract_strike_history_df(self._target_buf)
+            spot_history_df = extract_spot_history_df(self._spot_target_buf)
+
+            n_total = len(self._pending)
+            n_done = 0
+            # Move the deque to a list once, then slice in chunks — keeps
+            # the per-batch boundary cheap (no repeated deque popleft
+            # which copies elements).
             all_pending = list(self._pending)
             self._pending.clear()
-            batched = _tc.compute_pending_targets_batched(
-                pending_rows=all_pending,
-                target_buf=self._target_buf,
-                spot_target_buf=self._spot_target_buf,
-                instrument_name=self._profile.instrument_name,
-                session_end_sec=self._session_end_sec,
-                target_windows_sec=self._profile.target_windows_sec,
-            )
-            # Note: flush_all does NOT call self._upside_pct (matches the
-            # scalar flush_all path above; only _flush_pending does). End-
-            # of-session rows leave upside_percentile_{min}s unset, same
-            # as the pre-T50 behaviour.
-            for pending, target_dict in zip(all_pending, batched, strict=True):
-                pending.row.update(target_dict)
-                self._emitter.emit(pending.row)
+            for batch_start in range(0, n_total, batch_size):
+                batch = all_pending[batch_start:batch_start + batch_size]
+                batched = _tc.compute_pending_targets_batched(
+                    pending_rows=batch,
+                    target_buf=self._target_buf,
+                    spot_target_buf=self._spot_target_buf,
+                    instrument_name=self._profile.instrument_name,
+                    session_end_sec=self._session_end_sec,
+                    target_windows_sec=self._profile.target_windows_sec,
+                    strike_history_df=strike_history_df,
+                    spot_history_df=spot_history_df,
+                )
+                # Note: flush_all does NOT call self._upside_pct (matches
+                # the scalar flush_all path above; only _flush_pending
+                # does). End-of-session rows leave upside_percentile_*
+                # unset — same as pre-T50 behaviour.
+                for pending, target_dict in zip(batch, batched, strict=True):
+                    pending.row.update(target_dict)
+                    self._emitter.emit(pending.row)
+                n_done += len(batch)
+                if flush_progress_callback is not None:
+                    try:
+                        flush_progress_callback(n_done, n_total)
+                    except Exception:
+                        pass
+                # Help GC reclaim the batch + its result list before
+                # the next iteration claims its own working memory.
+                del batched
+                del batch
+            del all_pending
+            del strike_history_df
+            del spot_history_df
 
         # Reset target buffer and tracker for clean re-use (if any)
         self._target_buf.reset()

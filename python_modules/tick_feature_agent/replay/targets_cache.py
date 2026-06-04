@@ -128,6 +128,9 @@ def compute_pending_targets_batched(
     instrument_name: str,
     session_end_sec: float,
     target_windows_sec: tuple[int, ...],
+    *,
+    strike_history_df=None,
+    spot_history_df=None,
 ) -> list[dict[str, Any]]:
     """Run all three columnar target functions in one batch.
 
@@ -140,6 +143,14 @@ def compute_pending_targets_batched(
     The adapter still computes the ``upside_percentile_{min}s`` column
     separately AFTER the batch (it requires sequential state on the
     UpsidePercentileTracker that can't be safely batched).
+
+    ``strike_history_df`` + ``spot_history_df`` can be passed by callers
+    that chunk the pending list across multiple invocations (see
+    ``ReplayAdapter.flush_all``'s end-of-stream chunked path) — the
+    history extracts are state-snapshots of the same target_buf /
+    spot_target_buf, so they can be shared across batches and only need
+    to be extracted once per flush_all. Default ``None`` preserves the
+    original single-call behaviour for live + mid-stream uses.
     """
     if not pending_rows:
         return []
@@ -184,9 +195,13 @@ def compute_pending_targets_batched(
         infer_schema_length=None,
     )
 
-    # History extracts (cheap relative to compute).
-    strike_history_df = extract_strike_history_df(target_buf)
-    spot_history_df = extract_spot_history_df(spot_target_buf)
+    # History extracts (cheap relative to compute). Re-extract only if
+    # the caller didn't pass them in — chunked flush_all extracts once
+    # outside the loop and threads the same frames through every batch.
+    if strike_history_df is None:
+        strike_history_df = extract_strike_history_df(target_buf)
+    if spot_history_df is None:
+        spot_history_df = extract_spot_history_df(spot_target_buf)
 
     # Three columnar passes. Each appends columns to emit_df-shape.
     spot_out = compute_targets_batch_spot(

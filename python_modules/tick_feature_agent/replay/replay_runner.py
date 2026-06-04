@@ -690,7 +690,20 @@ def run_one_date(
             pass
 
     _emit_phase("flushing")
-    adapter.flush_all()
+
+    def _on_flush_progress(rows_done: int, rows_total: int) -> None:
+        # Surface batch progress as "flushing N/M rows" so the
+        # dashboard ticks while flush_all chews through ~30k pending
+        # rows in 2000-row chunks. Without this, even with the chunked
+        # flush the dashboard sits on a single "flushing pending
+        # rows..." label for minutes.
+        _emit_phase(
+            "flushing",
+            chunk_done=rows_done,
+            chunks_total_est=rows_total,
+        )
+
+    adapter.flush_all(flush_progress_callback=_on_flush_progress)
 
     if adapter.underlying_tick_count == 0:
         if logger:
