@@ -694,7 +694,7 @@ def run_one_date(
     def _on_flush_progress(rows_done: int, rows_total: int) -> None:
         # Surface batch progress as "flushing N/M rows" so the
         # dashboard ticks while flush_all chews through ~30k pending
-        # rows in 2000-row chunks. Without this, even with the chunked
+        # rows in 500-row chunks. Without this, even with the chunked
         # flush the dashboard sits on a single "flushing pending
         # rows..." label for minutes.
         _emit_phase(
@@ -703,7 +703,31 @@ def run_one_date(
             chunks_total_est=rows_total,
         )
 
-    adapter.flush_all(flush_progress_callback=_on_flush_progress)
+    def _on_flush_drain(_n_batches: int) -> None:
+        # Defensive: write a chunk parquet mid-flush so the emitter's
+        # internal row list doesn't accumulate every flushed row
+        # simultaneously (would peak at ~3 GB on a 30k-row flush).
+        # Default cadence: every 10 batches × 500 rows = 5000 rows
+        # per chunk written here. Tunable via TFA_FLUSH_DRAIN_EVERY_N_BATCHES.
+        # `_flush_chunk` returns silently when the buffer is empty so
+        # this is idempotent.
+        try:
+            _flush_chunk()
+        except Exception as exc:
+            # Don't let a chunk-write failure abort the flush — just
+            # log and continue; the final merge will catch up.
+            if logger:
+                logger.warn(
+                    "REPLAY_MID_FLUSH_CHUNK_FAILED",
+                    msg=f"Mid-flush chunk write failed on {date_str}: {exc}",
+                    instrument=instrument,
+                    date=date_str,
+                )
+
+    adapter.flush_all(
+        flush_progress_callback=_on_flush_progress,
+        on_batches_emitted=_on_flush_drain,
+    )
 
     if adapter.underlying_tick_count == 0:
         if logger:

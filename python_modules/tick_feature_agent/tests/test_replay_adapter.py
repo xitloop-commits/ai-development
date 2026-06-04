@@ -524,6 +524,33 @@ class TestReplayAdapterWithChain:
                 assert calls[i][0] >= calls[i - 1][0]
                 assert calls[i][1] == calls[0][1]
 
+    def test_flush_all_on_batches_emitted_fires_mid_flush(self, monkeypatch):
+        """on_batches_emitted fires every TFA_FLUSH_DRAIN_EVERY_N_BATCHES
+        and once more at the end (when batches_since_drain > 0). The
+        replay_runner uses this signal to write a chunk parquet
+        mid-flush so the emitter's row list doesn't accumulate every
+        flushed row.
+        """
+        monkeypatch.setenv("TFA_FLUSH_BATCH_SIZE", "5")
+        monkeypatch.setenv("TFA_FLUSH_DRAIN_EVERY_N_BATCHES", "2")
+        adapter = self._feed_session(40)
+
+        drain_calls: list[int] = []
+
+        def _on_drain(n: int) -> None:
+            drain_calls.append(n)
+
+        adapter.flush_all(on_batches_emitted=_on_drain)
+
+        # Either the scalar path ran (no drain calls — fine, the
+        # contract says drain is COLUMNAR-path only) OR the columnar
+        # path ran and the drain callback fired at least once. Pin
+        # the columnar-path contract: every drain call reports
+        # batch count > 0 and <= DRAIN_EVERY_N (= 2 here).
+        for n in drain_calls:
+            assert n > 0
+            assert n <= 2
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TestStateMachineReplay

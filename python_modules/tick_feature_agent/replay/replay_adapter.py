@@ -406,6 +406,7 @@ class ReplayAdapter:
     def flush_all(
         self,
         flush_progress_callback: Callable[[int, int], None] | None = None,
+        on_batches_emitted: Callable[[int], None] | None = None,
     ) -> None:
         """
         Finalise all pending target rows after the event stream is exhausted.
@@ -434,6 +435,14 @@ class ReplayAdapter:
         "flushing batch i/N" in the live progress dashboard so the
         operator can see movement during what used to look like a
         freeze.
+
+        ``on_batches_emitted(n_batches_since_last_call)`` fires every
+        N batches when given — used by ``run_one_date`` to write a
+        chunk parquet mid-flush so the emitter's ``_parquet_rows``
+        list doesn't accumulate every flushed row until ``flush_all``
+        returns. Without this drain the emitter can hold 30k+ row
+        dicts (~3 GB) at flush_all exit time, on top of pending and
+        Polars working memory.
         """
         from tick_feature_agent.replay import targets_cache as _tc
         if _tc.legacy_enabled() or len(self._pending) < 2:
@@ -478,11 +487,21 @@ class ReplayAdapter:
                 extract_spot_history_df,
                 extract_strike_history_df,
             )
-            batch_size_str = os.environ.get("TFA_FLUSH_BATCH_SIZE", "2000")
+            batch_size_str = os.environ.get("TFA_FLUSH_BATCH_SIZE", "500")
             try:
                 batch_size = max(1, int(batch_size_str))
             except ValueError:
-                batch_size = 2000
+                batch_size = 500
+            # Mid-flush emitter-drain frequency. Default: every 10
+            # batches → at batch=500 that's 5k accumulated rows before
+            # _parquet_rows is written + cleared. Tune lower if RAM is
+            # tighter; tune higher (or set to 0 to disable) if you'd
+            # rather pay one big merge at the end on a fast disk.
+            drain_str = os.environ.get("TFA_FLUSH_DRAIN_EVERY_N_BATCHES", "10")
+            try:
+                drain_every_n = max(0, int(drain_str))
+            except ValueError:
+                drain_every_n = 10
 
             # Snapshot the history dataframes once. Cheap relative to
             # compute and constant across batches (target_buf state
@@ -493,13 +512,21 @@ class ReplayAdapter:
 
             n_total = len(self._pending)
             n_done = 0
-            # Move the deque to a list once, then slice in chunks — keeps
-            # the per-batch boundary cheap (no repeated deque popleft
-            # which copies elements).
-            all_pending = list(self._pending)
-            self._pending.clear()
-            for batch_start in range(0, n_total, batch_size):
-                batch = all_pending[batch_start:batch_start + batch_size]
+            batches_since_drain = 0
+            # Drain the deque PROGRESSIVELY via popleft instead of
+            # snapshotting the whole thing into a list upfront. The
+            # upfront-snapshot approach (2026-06-04 first fix) pinned
+            # all N_pending rows for the entire flush; with 30k rows of
+            # ~500-key dicts that's ~3 GB held for the whole flush even
+            # though we only need batch_size rows in hand at any moment.
+            # Progressive drain lets CPython's refcount GC reclaim each
+            # batch's pending dicts as soon as they're emitted into the
+            # emitter (which is the new owner — emitter still
+            # accumulates until the next _flush_chunk, but at least
+            # pending isn't double-pinned).
+            while self._pending:
+                batch_n = min(batch_size, len(self._pending))
+                batch = [self._pending.popleft() for _ in range(batch_n)]
                 batched = _tc.compute_pending_targets_batched(
                     pending_rows=batch,
                     target_buf=self._target_buf,
@@ -517,7 +544,7 @@ class ReplayAdapter:
                 for pending, target_dict in zip(batch, batched, strict=True):
                     pending.row.update(target_dict)
                     self._emitter.emit(pending.row)
-                n_done += len(batch)
+                n_done += batch_n
                 if flush_progress_callback is not None:
                     try:
                         flush_progress_callback(n_done, n_total)
@@ -525,9 +552,35 @@ class ReplayAdapter:
                         pass
                 # Help GC reclaim the batch + its result list before
                 # the next iteration claims its own working memory.
+                # The pending dicts inside `batch` are now referenced
+                # by emitter._parquet_rows, so del'ing batch here just
+                # drops our local reference — emitter retains them
+                # until the next _flush_chunk drains.
                 del batched
                 del batch
-            del all_pending
+                # Mid-flush emitter drain. Let the caller write a chunk
+                # parquet every drain_every_n batches so the emitter's
+                # _parquet_rows list doesn't hold all flushed rows
+                # simultaneously. drain_every_n=0 disables.
+                batches_since_drain += 1
+                if (
+                    on_batches_emitted is not None
+                    and drain_every_n > 0
+                    and batches_since_drain >= drain_every_n
+                ):
+                    try:
+                        on_batches_emitted(batches_since_drain)
+                    except Exception:
+                        pass
+                    batches_since_drain = 0
+            # Final drain hint so the caller can write the tail
+            # accumulation as a chunk too (idempotent if it already
+            # wrote on the last loop iteration).
+            if on_batches_emitted is not None and batches_since_drain > 0:
+                try:
+                    on_batches_emitted(batches_since_drain)
+                except Exception:
+                    pass
             del strike_history_df
             del spot_history_df
 
