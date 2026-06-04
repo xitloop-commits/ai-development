@@ -45,6 +45,7 @@ export const DHAN_ENDPOINTS = {
   OPTION_CHAIN: "/optionchain",
   EXPIRY_LIST: "/optionchain/expirylist",
   MARKET_QUOTE: "/marketfeed/ltp",
+  MARKET_OHLC: "/marketfeed/ohlc",
 
   // Charts / Historical Data
   CHARTS_HISTORICAL: "/charts/historical",

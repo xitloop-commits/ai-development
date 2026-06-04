@@ -22,6 +22,7 @@ import type {
   MarginInfo,
   Instrument,
   OptionChainData,
+  OhlcQuoteResult,
   CandleData,
   IntradayDataParams,
   HistoricalDataParams,
@@ -736,6 +737,58 @@ export class DhanAdapter implements BrokerAdapter {
     }
 
     return result.data.data ?? [];
+  }
+
+  /**
+   * Current-day OHLC snapshot for a batch of instruments via Dhan's
+   * /marketfeed/ohlc. `request` is grouped by exchange segment, e.g.
+   * `{ IDX_I: [13, 25], MCX_COMM: [12345] }`. This is the ONLY way to get
+   * day OHLC for indices — Dhan drops IDX_I subscriptions in the WS
+   * quote/full modes, so index OHLC never arrives over the socket.
+   *
+   * NOTE: Dhan rate-limits this endpoint hard (~1 req/sec → HTTP 429
+   * "805 Too many requests"). Callers MUST batch all instruments into a
+   * single request and cache the result; never call per-instrument.
+   */
+  async getOhlcQuote(request: Record<string, number[]>): Promise<OhlcQuoteResult> {
+    // Sandbox doesn't expose market data — borrow the live primary adapter.
+    if (this.sandboxMode && this.metadataSource?.getOhlcQuote) {
+      return this.metadataSource.getOhlcQuote(request);
+    }
+    this._ensureToken();
+
+    const result = await this._dhanRequest<{
+      data: Record<
+        string,
+        Record<string, { last_price: number; ohlc: { open: number; close: number; high: number; low: number } }>
+      >;
+      status: string;
+    }>("POST", DHAN_ENDPOINTS.MARKET_OHLC, request, { clientId: this.clientId });
+
+    if (result.isAuthError) {
+      await handleDhan401(this.brokerId);
+      throw new Error("Token expired. Restart BSA to refresh.");
+    }
+
+    if (!result.ok || !result.data?.data) {
+      this.log.warn(`getOhlcQuote failed: status=${result.status} body=${JSON.stringify(result.data)?.slice(0, 200)}`);
+      return {};
+    }
+
+    const out: OhlcQuoteResult = {};
+    for (const [segment, byId] of Object.entries(result.data.data)) {
+      out[segment] = {};
+      for (const [securityId, q] of Object.entries(byId)) {
+        out[segment][securityId] = {
+          lastPrice: q.last_price ?? 0,
+          open: q.ohlc?.open ?? 0,
+          high: q.ohlc?.high ?? 0,
+          low: q.ohlc?.low ?? 0,
+          close: q.ohlc?.close ?? 0,
+        };
+      }
+    }
+    return out;
   }
 
    async getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData> {

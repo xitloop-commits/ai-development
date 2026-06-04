@@ -413,6 +413,20 @@ export interface BrokerConfigDoc {
   auth?: Record<string, unknown>;
 }
 
+// ─── Day OHLC snapshot ──────────────────────────────────────────
+
+/** Current-day OHLC + last price for one instrument (Dhan /marketfeed/ohlc). */
+export interface OhlcQuote {
+  lastPrice: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+/** Batched OHLC result keyed by exchange segment → securityId → quote. */
+export type OhlcQuoteResult = Record<string, Record<string, OhlcQuote>>;
+
 // ─── Broker Adapter Interface ───────────────────────────────────
 
 export interface BrokerAdapter {
@@ -470,6 +484,13 @@ export interface BrokerAdapter {
 
   /** Get option chain data for an underlying + expiry. */
   getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData>;
+
+  /**
+   * Get current-day OHLC snapshot for a batch of instruments, grouped by
+   * exchange segment (e.g. `{ IDX_I: [13, 25], MCX_COMM: [12345] }`).
+   * Optional — only adapters backed by a real quote API implement it.
+   */
+  getOhlcQuote?(request: Record<string, number[]>): Promise<OhlcQuoteResult>;
 
   /** Get intraday OHLCV candle data (1/5/15/25/60 min intervals, max 90 days per call). */
   getIntradayData(params: IntradayDataParams): Promise<CandleData>;

@@ -1312,6 +1312,76 @@ describe("DhanAdapter.getExpiryList", () => {
   });
 });
 
+// ─── Day OHLC snapshot ─────────────────────────────────────────
+
+describe("DhanAdapter.getOhlcQuote", () => {
+  it("normalizes the batched Dhan response into segment → securityId → OHLC", async () => {
+    mockFetch((url, init) => {
+      if (url.includes("/marketfeed/ohlc") && init?.method === "POST") {
+        return new Response(
+          JSON.stringify({
+            status: "success",
+            data: {
+              IDX_I: {
+                "13": { last_price: 23393.4, ohlc: { open: 23282.45, close: 23405.6, high: 23450.1, low: 23247.3 } },
+              },
+              MCX_COMM: {
+                "499095": { last_price: 9131, ohlc: { open: 9117, close: 9240, high: 9160, low: 9093 } },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response("Not found", { status: 404 });
+    });
+
+    const adapter = new DhanAdapter();
+    adapter._setInternalState({ accessToken: TEST_TOKEN, clientId: TEST_CLIENT_ID, tokenUpdatedAt: Date.now() });
+
+    const result = await adapter.getOhlcQuote({ IDX_I: [13], MCX_COMM: [499095] });
+
+    expect(result.IDX_I["13"]).toEqual({
+      lastPrice: 23393.4,
+      open: 23282.45,
+      high: 23450.1,
+      low: 23247.3,
+      close: 23405.6,
+    });
+    expect(result.MCX_COMM["499095"].close).toBe(9240);
+  });
+
+  it("forwards the segment→ids request as the POST body", async () => {
+    let capturedBody: Record<string, unknown> = {};
+    mockFetch((url, init) => {
+      if (url.includes("/marketfeed/ohlc") && init?.method === "POST") {
+        capturedBody = JSON.parse(init!.body as string);
+        return new Response(JSON.stringify({ status: "success", data: {} }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("Not found", { status: 404 });
+    });
+
+    const adapter = new DhanAdapter();
+    adapter._setInternalState({ accessToken: TEST_TOKEN, clientId: TEST_CLIENT_ID, tokenUpdatedAt: Date.now() });
+
+    await adapter.getOhlcQuote({ IDX_I: [13, 25], MCX_COMM: [499095] });
+    expect(capturedBody).toEqual({ IDX_I: [13, 25], MCX_COMM: [499095] });
+  });
+
+  it("returns an empty object on API error", async () => {
+    mockFetch(() => new Response(JSON.stringify({ status: "failed" }), { status: 400 }));
+
+    const adapter = new DhanAdapter();
+    adapter._setInternalState({ accessToken: TEST_TOKEN, clientId: TEST_CLIENT_ID, tokenUpdatedAt: Date.now() });
+
+    const result = await adapter.getOhlcQuote({ IDX_I: [13] });
+    expect(result).toEqual({});
+  });
+});
+
 // ─── Option Chain ─────────────────────────────────────────────
 
 describe("DhanAdapter.getOptionChain", () => {

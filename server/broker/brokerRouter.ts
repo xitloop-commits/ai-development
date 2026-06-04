@@ -51,6 +51,55 @@ function requireBroker() {
   return broker;
 }
 
+/**
+ * The 4 tracked underlyings with their feed securityIds. Indices are
+ * hardcoded (IDX_I:13/25); MCX commodities resolve their nearest-month FUT
+ * from the scrip master. Shared by `feed.resolveInstruments` and `feed.ohlc`.
+ */
+async function resolveTrackedInstruments(): Promise<
+  Array<{ name: string; securityId: string; exchange: string; mode: string }>
+> {
+  const broker = requireBroker();
+  const instruments: Array<{ name: string; securityId: string; exchange: string; mode: string }> = [
+    { name: "NIFTY_50", securityId: "13", exchange: "IDX_I", mode: "ticker" },
+    { name: "BANKNIFTY", securityId: "25", exchange: "IDX_I", mode: "ticker" },
+  ];
+  if (broker.getScripMaster) {
+    try {
+      await broker.getScripMaster("MCX");
+    } catch (e) {
+      log.warn("Failed to load scrip master:", e);
+    }
+  }
+  for (const mcx of ["CRUDEOIL", "NATURALGAS"] as const) {
+    if (broker.resolveMCXFutcom) {
+      const result = await broker.resolveMCXFutcom(mcx);
+      if (result) {
+        instruments.push({ name: mcx, securityId: String(result.securityId), exchange: "MCX_COMM", mode: "ticker" });
+        log.info(`${mcx} -> MCX_COMM:${result.securityId} (${result.tradingSymbol})`);
+      } else {
+        log.warn(`${mcx} -> not found in scrip master`);
+      }
+    }
+  }
+  return instruments;
+}
+
+// Day-OHLC snapshot cache. Dhan's /marketfeed/ohlc is rate-limited (~1 req/s,
+// HTTP 429 "805"), so we fetch all 4 instruments in ONE batched call and serve
+// every client from this cache for OHLC_CACHE_TTL_MS.
+const OHLC_CACHE_TTL_MS = 2000;
+interface OhlcEntry {
+  securityId: string;
+  exchange: string;
+  lastPrice: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+let ohlcCache: { at: number; data: { instruments: Record<string, OhlcEntry | null>; fetchedAt: number } } | null = null;
+
 function requireChannelAdapter(channel: Channel) {
   try {
     return getAdapter(channel);
@@ -590,43 +639,44 @@ export const brokerRouter = router({
      * NSE indices use hardcoded IDs (IDX_I:13, IDX_I:25).
      * MCX commodities resolve nearest-month future from scrip master.
      */
-    resolveInstruments: publicProcedure.query(async () => {
+    resolveInstruments: publicProcedure.query(() => resolveTrackedInstruments()),
+
+    /**
+     * Current-day OHLC snapshot for the 4 tracked instruments, keyed by name
+     * (e.g. `NIFTY_50`). One batched, server-cached Dhan REST call — this is
+     * the ONLY source of index OHLC (the WS feed never carries it). Entry is
+     * `null` for any instrument Dhan didn't return.
+     */
+    ohlc: publicProcedure.query(async () => {
+      const now = Date.now();
+      if (ohlcCache && now - ohlcCache.at < OHLC_CACHE_TTL_MS) {
+        return ohlcCache.data;
+      }
       const broker = requireBroker();
-      const instruments: Array<{
-        name: string;
-        securityId: string;
-        exchange: string;
-        mode: string;
-      }> = [
-        { name: "NIFTY_50", securityId: "13", exchange: "IDX_I", mode: "ticker" },
-        { name: "BANKNIFTY", securityId: "25", exchange: "IDX_I", mode: "ticker" },
-      ];
-      // Ensure scrip master is loaded before resolving MCX
-      if (broker.getScripMaster) {
-        try {
-          await broker.getScripMaster("MCX");
-        } catch (e) {
-          log.warn("Failed to load scrip master:", e);
-        }
+      if (!broker.getOhlcQuote) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Active broker does not support OHLC quotes.",
+        });
       }
-      // Resolve MCX commodities from scrip master
-      for (const mcx of ["CRUDEOIL", "NATURALGAS"] as const) {
-        if (broker.resolveMCXFutcom) {
-          const result = await broker.resolveMCXFutcom(mcx);
-          if (result) {
-            instruments.push({
-              name: mcx,
-              securityId: String(result.securityId),
-              exchange: "MCX_COMM",
-              mode: "ticker",
-            });
-            log.info(`${mcx} -> MCX_COMM:${result.securityId} (${result.tradingSymbol})`);
-          } else {
-            log.warn(`${mcx} -> not found in scrip master`);
-          }
-        }
+      const instruments = await resolveTrackedInstruments();
+      const request: Record<string, number[]> = {};
+      for (const inst of instruments) {
+        const id = Number(inst.securityId);
+        if (!Number.isFinite(id)) continue;
+        (request[inst.exchange] ??= []).push(id);
       }
-      return instruments;
+      const raw = await broker.getOhlcQuote(request);
+      const byName: Record<string, OhlcEntry | null> = {};
+      for (const inst of instruments) {
+        const q = raw[inst.exchange]?.[inst.securityId];
+        byName[inst.name] = q
+          ? { securityId: inst.securityId, exchange: inst.exchange, ...q }
+          : null;
+      }
+      const data = { instruments: byName, fetchedAt: now };
+      ohlcCache = { at: now, data };
+      return data;
     }),
 
     /** Get all latest cached ticks (snapshot). */
