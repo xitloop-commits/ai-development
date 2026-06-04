@@ -70,6 +70,40 @@ Implement V2_MASTER_SPEC §2.8 rule-based classifier: `trend_strong` tier + 5-mi
 - **Status:** ✅ IMPLEMENTED 2026-05-30.
 - **Cross-ref:** T3 Phase 6; spec D4 / D47; later upgrade T17.
 
+#### T32-FU1 — Replace consecutive-sustain with rolling-window majority 🆕
+T32's `RegimeClassifier.update` requires **5 minutes of UNINTERRUPTED same-candidate ticks** before flipping the confirmed regime ([regime.py:300-326](python_modules/tick_feature_agent/features/regime.py#L300-L326)). Real intraday data flaps between TREND/RANGE every few ticks; the candidate timer keeps resetting, so the classifier locks into whichever regime won the first 5-min stretch. Surfaced 2026-06-04 when validator's `statistical.regime` check WARNed on the newly-merged 2026-05-22 banknifty parquet ("always 'TREND'").
+
+**Evidence — per-(date, instrument) regime distribution across the 2026-05-20/21/22 banknifty + nifty50 parquets:**
+
+| date | instrument | distribution |
+|---|---|---|
+| 2026-05-20 | banknifty + nifty50 | 100% NEUTRAL |
+| 2026-05-21 | banknifty | 96% TREND + 4% RANGE |
+| 2026-05-21 | nifty50 | 100% NEUTRAL |
+| 2026-05-22 | banknifty | 100% TREND |
+| 2026-05-22 | nifty50 | 95% TREND + 5% NEUTRAL |
+
+**Also surfaced:** `TREND_STRONG` never fires (despite ADX up to 50 on 05-21 banknifty); `DEAD` never fires. Both worth a separate look once sustain is fixed.
+
+**Why it matters:** SEA's Wave-1 gate consumes `regime` for the regime guard; SEA's signal payload + T41's `regime_tag` carry it forward; T33's cohort mapping reads from the same column. A regime that locks into one value per day degenerates regime-conditioned analyses across the whole stack.
+
+**V2_MASTER_SPEC §2.8 D4** says "5-min sustain" — the spec wording is ambiguous between *consecutive* (what's shipped) and *majority-over-5-min* (more robust to noise). The data confirms consecutive is too strict.
+
+**Three fix options (recommendation: option 1):**
+1. **Rolling-window majority** — maintain a 5-min ring buffer of instant regimes; promote the candidate when it's the majority (≥70%) over the window. Robust to noise, matches the spec's usual reading.
+2. **Tolerate brief excursions** — keep the consecutive logic but allow up to N (~10) opposing ticks before resetting the timer. Smaller code change.
+3. **Reduce `sustain_sec`** — same logic with a 60s window. Still flap-prone but less stuck.
+
+**Validation plan once fixed:**
+- Re-run replay on 2026-05-22 banknifty (the date that triggered the WARN).
+- Confirm validator's `statistical.regime` check returns PASS (multiple regimes present).
+- Confirm regime distribution shows realistic transitions (not single-regime lock-in).
+- Spot-check that 2026-05-21 banknifty (the only date that DID flip out of TREND with the current logic) still shows reasonable transitions, not over-flipping.
+
+- **Status:** ⏳ surfaced 2026-06-04, pending decision on which fix option.
+- **Effort:** ~½ day for option 1 + tests + re-validation; option 2 is ~2 hours; option 3 is a one-line change.
+- **Cross-ref:** parent task T32; consumes side-effect of [validation/feature_validator.py:243-249](python_modules/tick_feature_agent/validation/feature_validator.py#L243-L249).
+
 ### T33 — D56 cohort tracking end-to-end ✅ PYTHON SIDE IMPLEMENTED
 Tag every signal + fill with originating signal type (scalp/trend/swing/multi-day-swing) through the full pipeline: SEA signal log → broker fill log → reliability monitoring. Without this, post-paper-trade attribution analysis (which heads/cohorts are profitable) is impossible.
 
