@@ -190,6 +190,100 @@ def _iter_dates(date_from: str, date_to: str):
         d += timedelta(days=1)
 
 
+def _inspect_canonical_parquet(
+    features_root: Path, date_str: str, instrument: str,
+) -> tuple[bool, int, int | None]:
+    """Inspect ``<features_root>/<date>/<inst>_features.parquet`` and
+    return ``(exists, size_bytes, row_count_or_None)``.
+
+    Row count is read cheaply from the parquet metadata (no full table
+    load); ``None`` if the read fails for any reason — the summary
+    falls back to showing just size in that case.
+    """
+    parquet_path = features_root / date_str / f"{instrument}_features.parquet"
+    if not parquet_path.exists():
+        return False, 0, None
+    try:
+        size = parquet_path.stat().st_size
+    except OSError:
+        return True, 0, None
+    rows: int | None = None
+    try:
+        import pyarrow.parquet as pq
+        rows = int(pq.ParquetFile(parquet_path).metadata.num_rows)
+    except Exception:
+        rows = None
+    return True, size, rows
+
+
+def _print_per_date_summary(
+    instrument: str,
+    date_from: str,
+    date_to: str,
+    *,
+    features_root: Path,
+    checkpoint_path: Path,
+    explicit_dates: list[str] | None = None,
+) -> None:
+    """Print a per-date table + the post-run checkpoint state for one
+    instrument. Designed to make a silent partial run obvious — a
+    missing parquet shows as ``— no parquet`` so the operator can
+    spot it at a glance.
+
+    ``explicit_dates`` overrides the date_from..date_to range when
+    provided (used by --include-dates so the table doesn't list
+    untouched dates in between the requested ones).
+    """
+    from tick_feature_agent.replay.checkpoint import ReplayCheckpoint
+    dates_iter = (
+        sorted(explicit_dates) if explicit_dates is not None
+        else list(_iter_dates(date_from, date_to))
+    )
+    print()
+    print(f"Per-date summary for {instrument}:")
+    print(f"  {'Date':<11s}  {'Verdict':<7s}  {'Parquet':<20s}  Rows")
+    print(f"  {'-' * 11}  {'-' * 7}  {'-' * 20}  {'-' * 12}")
+    # ASCII-safe markers — replay can run on a stdout that hasn't been
+    # reconfigured to UTF-8 (e.g. start-replay.bat → cmd.exe default
+    # cp1252 on Windows). Em-dashes there render as `?` / `�`.
+    DASH = "--"
+    for date_str in dates_iter:
+        exists, size_bytes, rows = _inspect_canonical_parquet(
+            features_root, date_str, instrument,
+        )
+        if exists:
+            mb = size_bytes / 1_048_576
+            size_str = f"{mb:.1f} MB"
+            rows_str = f"{rows:,}" if rows is not None else DASH
+            verdict = "DONE"
+        else:
+            size_str = f"{DASH} no parquet"
+            rows_str = DASH
+            verdict = "MISSING"
+        print(f"  {date_str:<11s}  {verdict:<7s}  {size_str:<20s}  {rows_str}")
+
+    # Post-run checkpoint state — confirms mark_complete actually
+    # advanced the pointer. Re-opens the file rather than reusing the
+    # ReplayCheckpoint that the worker pool used (which has already
+    # been released).
+    try:
+        cp = ReplayCheckpoint(checkpoint_path)
+        entry = cp.get_entry(instrument)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  Checkpoint  : (read failed: {exc})")
+        return
+    if entry is None:
+        print(f"  Checkpoint  : (no entry yet for {instrument})")
+    else:
+        last = entry.get("last_completed_date", DASH)
+        sessions = entry.get("sessions_completed", DASH)
+        print(
+            f"  Checkpoint  : last_completed_date={last}  "
+            f"sessions_completed={sessions}"
+        )
+    print()
+
+
 def run_one_date(
     base_profile,
     instrument: str,
@@ -582,6 +676,7 @@ def run_one_date(
         chunk_files = sorted(out_dir.glob(f"{instrument}_features_part*.parquet"))
         if chunk_files:
             _merge_chunks_to_final(chunk_files, parquet_path)
+            n_chunks_merged = len(chunk_files)
             for f in chunk_files:
                 try: f.unlink()
                 except OSError: pass
@@ -591,6 +686,21 @@ def run_one_date(
             # No chunks at all (shouldn't happen if we got here) — fall back
             # to direct write of any straggler rows.
             adapter.emitter.write_parquet(parquet_path)
+            n_chunks_merged = 0
+        # Visible confirmation in non-dashboard mode (single-date / direct
+        # CLI). Multi-worker fan-out suppresses worker prints — its
+        # equivalent per-date message is emitted by the end-of-run
+        # summary table in the CLI block.
+        if not _has_progress_cb:
+            try:
+                parquet_bytes = parquet_path.stat().st_size if parquet_path.exists() else 0
+            except OSError:
+                parquet_bytes = 0
+            print(
+                f"  [{date_str}] {instrument} MERGED "
+                f"({n_chunks_merged} chunks → {parquet_bytes / 1_048_576:.1f} MB)",
+                flush=True,
+            )
     except Exception as exc:
         if logger:
             logger.error(
@@ -651,16 +761,21 @@ def run_one_date(
             pass
 
     if logger:
+        try:
+            parquet_bytes = parquet_path.stat().st_size if parquet_path.exists() else 0
+        except OSError:
+            parquet_bytes = 0
         logger.info(
             "REPLAY_DATE_COMPLETE",
             msg=f"{instrument} {date_str}: {verdict.upper()} "
             f"({adapter.underlying_tick_count} ticks, "
-            f"{event_idx} events)",
+            f"{event_idx} events, parquet {parquet_bytes / 1_048_576:.1f} MB)",
             instrument=instrument,
             date=date_str,
             verdict=verdict,
             underlying_ticks=adapter.underlying_tick_count,
             event_count=event_idx,
+            parquet_bytes=parquet_bytes,
         )
 
     # T50 B.3a + B.3c + B.3d + B.3e: uninstall the monkey-patches on
@@ -1088,9 +1203,23 @@ def _cli():
         log_level=args.log_level,
     )
 
-    # Print summary
+    # Print per-date verdict table + tally + checkpoint state so the
+    # operator can see at a glance which dates actually finished, which
+    # files exist on disk, and where the checkpoint now sits. Without
+    # this the only signal was a 4-line PASS/WARN/FAIL/SKIP tally —
+    # easy to mistake a silent partial run (kill mid-merge) for full
+    # completion. Reads happen AFTER the dashboard exits so prints
+    # don't fight with `rich.live.Live`.
+    _print_per_date_summary(
+        args.instrument,
+        args.date_from,
+        args.date_to,
+        features_root=Path(args.features_root),
+        checkpoint_path=Path(args.checkpoint),
+    )
+
     if summary.get("interrupted"):
-        print(f"\nReplay INTERRUPTED for {args.instrument}  "
+        print(f"Replay INTERRUPTED for {args.instrument}  "
               f"({args.date_from} → {args.date_to}) — partial state saved.")
         print(f"  PASS : {summary.get('pass', 0)}")
         print(f"  WARN : {summary.get('warn', 0)}")
@@ -1099,7 +1228,8 @@ def _cli():
         print(f"  Re-run the same command to resume the interrupted date.")
         print()
         sys.exit(130)  # 128 + SIGINT, the standard "interrupted by Ctrl+C" exit code
-    print(f"\nReplay complete for {args.instrument}  " f"({args.date_from} → {args.date_to})")
+    print(f"Replay complete for {args.instrument}  "
+          f"({args.date_from} → {args.date_to})")
     print(f"  PASS : {summary.get('pass', 0)}")
     print(f"  WARN : {summary.get('warn', 0)}")
     print(f"  FAIL : {summary.get('fail', 0)}")

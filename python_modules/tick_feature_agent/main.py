@@ -1449,7 +1449,20 @@ def _run_replay(profile, args, log) -> None:
         log_level=args.log_level,
     )
 
-    print()
+    # Per-date table + checkpoint state — gives the operator a clear
+    # post-run confirmation of which dates actually produced a
+    # canonical parquet, the parquet's row count, and where the
+    # replay_checkpoint pointer ended up. Without this, a silent
+    # partial run (worker killed mid-merge) is indistinguishable from
+    # a complete one in the 4-line tally.
+    from tick_feature_agent.replay.replay_runner import _print_per_date_summary
+    _print_per_date_summary(
+        instrument_key, date_from, date_to,
+        features_root=Path(args.features_root),
+        checkpoint_path=Path(args.data_root) / "replay_checkpoint.json",
+        explicit_dates=include_dates,
+    )
+
     if include_dates:
         print(f"  Replay complete  (include-dates: {', '.join(include_dates)})")
     else:
