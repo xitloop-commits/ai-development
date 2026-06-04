@@ -258,6 +258,15 @@ class ProgressDashboard:
             remaining_dates = len(self._dates) - completed_dates
             agg_eta = remaining_dates * avg_per_date
         else:
+            # Minimum "still finishing" hint when a running date has
+            # overshot its event estimate. Without a floor, ETA would
+            # collapse to 00:00 the moment a worker burns past the
+            # estimate even though it's still in flush_all / merge /
+            # validate (none of which emit progress callbacks). 15s
+            # is the rough wall-clock cost of those tail phases on a
+            # typical instrument-day; conservative so the operator
+            # doesn't think the cmd window is hung.
+            _OVERSHOOT_ETA_FLOOR_SEC = 15.0
             running_etas: list[float] = []
             running_full_durations: list[float] = []
             for d in self._dates:
@@ -269,7 +278,13 @@ class ProgressDashboard:
                 rate = entry.get("rate") or 0.0
                 if not (total and rate > 0):
                     continue
-                running_etas.append(max(0.0, (total - ev) / rate))
+                remaining_eta = max(0.0, (total - ev) / rate)
+                if ev >= total:
+                    # Overshoot — estimator was wrong; we can't compute
+                    # a meaningful "events remaining" ETA. Floor at the
+                    # finalisation cost so Overall doesn't read 00:00.
+                    remaining_eta = max(remaining_eta, _OVERSHOOT_ETA_FLOOR_SEC)
+                running_etas.append(remaining_eta)
                 running_full_durations.append(total / rate)
             if running_etas:
                 # Wall-clock finish for the running batch = slowest worker.
@@ -311,6 +326,15 @@ class ProgressDashboard:
         # a terminal verdict. The counter text below stays integer-
         # completion-only — "0 / 3 dates" is accurate while three
         # workers are still running.
+        #
+        # CRITICAL UX rule: 100% Overall means "all dates terminal".
+        # While ANY date is still in `running` status, the bar caps at
+        # 99% — even when every running date's event_idx exceeds its
+        # ``total_events_est`` (the estimator under-counts MCX evening
+        # sessions; we saw pct=246% in real runs). Without this cap,
+        # Overall reads "DONE" while the worker is still in
+        # flush_all / _flush_chunk(force=True) / _merge_chunks_to_final
+        # / validate — none of which emit progress callbacks.
         running_partial = 0.0
         for d in self._dates:
             entry = snapshot[d]
@@ -323,6 +347,11 @@ class ProgressDashboard:
         if self._dates:
             agg_done_pct = (completed_dates + running_partial) / len(self._dates)
             agg_done_pct = min(1.0, agg_done_pct)
+            # Cap below 100% while any worker is still running. The
+            # 0.99 floor leaves a visible sliver in the bar so the
+            # operator sees "almost done, finalising" instead of "done".
+            if counts.get("running", 0) > 0:
+                agg_done_pct = min(0.99, agg_done_pct)
         else:
             agg_done_pct = 0.0
         agg_bar = self._render_bar(agg_done_pct, width=24)
@@ -365,6 +394,15 @@ class ProgressDashboard:
                 rate = entry.get("rate") or 0.0
                 eta = ((total - ev) / rate) if (total and rate > 0) else None
                 phase = entry.get("phase", "running")
+                # Overshoot guard — same root cause as the Overall-bar
+                # cap above. When ev > total, the worker has burned
+                # past its event-count estimate (MCX evening sessions
+                # under-estimate by ~2x) and is racing toward
+                # flush_all → merge → validate. The post-event-loop
+                # phases don't emit progress callbacks, so without a
+                # visible marker the row reads "100% ETA 00:00" while
+                # the cmd window is still busy for ~10-30s.
+                overshoot = bool(total) and ev >= total
                 # During the warmup re-feed (resume of a partially-completed
                 # date) we visually mark the row so the user knows the
                 # "low %" is expected: the worker is re-replaying events
@@ -372,6 +410,10 @@ class ProgressDashboard:
                 # state. Bar paints yellow instead of cyan.
                 row_style = "yellow" if phase == "warmup" else style
                 bar_style = "yellow" if phase == "warmup" else "cyan"
+                # Cap the per-date bar at the same 0.99 ceiling as
+                # Overall so an overshooting date looks visibly
+                # almost-done, not done.
+                display_pct = min(0.99, pct) if status == "running" else pct
                 chunk_text = _fmt_chunk(
                     entry.get("chunk_done"), entry.get("chunks_total_est")
                 )
@@ -379,9 +421,20 @@ class ProgressDashboard:
                     chunk_text = (
                         f"warmup re-feed · {chunk_text}" if chunk_text else "warmup re-feed"
                     )
+                elif overshoot:
+                    # Replace the chunk M/N text with a "finalising"
+                    # marker — informs the operator that the event
+                    # loop is done and the worker is in the tail
+                    # phases (flush_all / merge / validate).
+                    chunk_text = "finalising (estimate exceeded)"
+                if overshoot:
+                    # Floor the per-date ETA to the same "still
+                    # finishing" hint used by the Overall ETA so the
+                    # row doesn't flash 00:00:00 either.
+                    eta = max(eta or 0.0, 15.0)
                 rows_running.append((
                     Text(d, style=row_style),
-                    self._render_bar(pct, width=18, filled_style=bar_style),
+                    self._render_bar(display_pct, width=18, filled_style=bar_style),
                     Text(f"{pct * 100:5.1f}%" if total else "  --.-%", style=row_style),
                     Text(_fmt_int(ev), style=row_style),
                     Text(_fmt_rate(rate), style=row_style),
@@ -496,6 +549,13 @@ class ProgressDashboard:
     ) -> Text:
         fraction = max(0.0, min(1.0, fraction))
         filled = int(round(fraction * width))
+        # Guarantee a visible empty sliver whenever fraction is strictly
+        # below 1.0 — otherwise rounding turns 0.99 × 24 = 23.76 into
+        # 24 filled cells, hiding the "not quite done" signal that
+        # callers use the sub-1.0 cap to convey (see Overall-bar
+        # while-running cap above).
+        if fraction < 1.0 and filled >= width:
+            filled = width - 1
         empty = width - filled
         bar = Text()
         bar.append("[")

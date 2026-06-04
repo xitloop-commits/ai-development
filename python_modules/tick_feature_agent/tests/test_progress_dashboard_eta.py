@@ -42,6 +42,11 @@ from tick_feature_agent.replay.progress_dashboard import (  # noqa: E402
 
 
 def _render_plain(dash: ProgressDashboard) -> str:
+    # Force a wide console so the 24-char Overall bar isn't truncated
+    # under the default 79-column terminal. Without this, rich
+    # squeezes the bar column down to ~18 cells and a 0.99 fill ends
+    # up indistinguishable from 1.0 — the very state we're testing.
+    dash._console.width = 200
     with dash._console.capture() as cap:
         dash._console.print(dash._render())
     # ``Console.capture`` preserves ANSI escapes; strip them for stable
@@ -245,15 +250,88 @@ def test_bar_full_only_when_all_dates_completed():
 def test_bar_caps_at_full_on_estimator_overshoot():
     """If a worker's event_idx exceeds total_events_est (the per-date
     estimator under-counts MCX evening sessions; pct > 100% seen in
-    real runs), the Overall bar must still clamp at full, not loop.
+    real runs), the Overall bar must NOT reach full while the worker
+    is still in `running` status — the cmd window is still busy in
+    flush_all / merge / validate at that point. Cap at 99% so the
+    operator sees "almost done" not "done".
     """
     dates = ["d1"]
     progress_dict = {
         "d1": {"status": "running", "event_idx": 2_500_000,  # 250%
                "total_events_est": 1_000_000, "rate": 5_000.0},
     }
-    dash = ProgressDashboard("nifty50", dates, workers=1, progress_dict=progress_dict)
+    dash = ProgressDashboard("crudeoil", dates, workers=1, progress_dict=progress_dict)
     filled, total = _overall_bar_fill_count(_render_plain(dash))
-    assert filled == total, (
-        f"overshoot must clamp; got {filled}/{total}"
+    assert filled < total, (
+        f"bar must cap below full while running; got {filled}/{total}"
     )
+
+
+# ── Overshoot + "still running" UX rules ─────────────────────────────────────
+
+def test_bar_caps_at_99_while_any_date_running_even_if_all_overshoot():
+    """Three dates running, all at >100% (estimator overshoot). Overall
+    bar still must NOT show full — that's reserved for "all terminal".
+    """
+    dates = ["d1", "d2", "d3"]
+    progress_dict = {
+        d: {"status": "running", "event_idx": 1_500_000,
+            "total_events_est": 1_000_000, "rate": 5_000.0}
+        for d in dates
+    }
+    dash = ProgressDashboard("crudeoil", dates, workers=3, progress_dict=progress_dict)
+    filled, total = _overall_bar_fill_count(_render_plain(dash))
+    assert filled < total
+    # The clamp is at 99%, so we expect MOST of the bar full but not all.
+    # Width 24 × 0.99 ≈ 23 filled cells.
+    assert filled >= 22, f"99% cap should leave only ~1 cell empty; got {filled}/{total}"
+
+
+def test_overall_eta_stays_nonzero_on_overshoot():
+    """Single running date burning past its estimate must keep the
+    Overall ETA above 00:00 — worker is still finalising (flush_all
+    + merge + validate, ~15s typical) and the operator needs to know
+    it isn't done yet.
+    """
+    dates = ["d1"]
+    progress_dict = {
+        "d1": {"status": "running", "event_idx": 1_500_000,
+               "total_events_est": 1_000_000, "rate": 5_000.0},
+    }
+    dash = ProgressDashboard("crudeoil", dates, workers=1, progress_dict=progress_dict)
+    out = _render_plain(dash)
+    eta = _overall_eta_token(out)
+    assert eta != "00:00:00", f"ETA must not collapse to 00:00 on overshoot, got {eta!r}"
+    assert eta != "--:--:--", f"ETA must not be unknown on overshoot, got {eta!r}"
+
+
+def test_per_date_finalising_marker_on_overshoot():
+    """When a running date overshoots, the per-date chunk/status text
+    column shows 'finalising (estimate exceeded)' so the operator
+    knows the event loop is done and the worker is in tail phases.
+    """
+    dates = ["d1"]
+    progress_dict = {
+        "d1": {"status": "running", "event_idx": 1_500_000,
+               "total_events_est": 1_000_000, "rate": 5_000.0},
+    }
+    dash = ProgressDashboard("crudeoil", dates, workers=1, progress_dict=progress_dict)
+    rendered = _render_plain(dash)
+    assert "finalising" in rendered.lower(), (
+        f"expected per-date 'finalising' marker on overshoot, got:\n{rendered}"
+    )
+
+
+def test_bar_reaches_full_only_when_all_dates_terminal():
+    """The 99% cap applies ONLY while at least one date is `running`.
+    When every date is in a terminal verdict the Overall bar must be
+    fully filled.
+    """
+    dates = ["d1", "d2"]
+    progress_dict = {
+        "d1": {"status": "pass", "event_idx": 1_000_000},
+        "d2": {"status": "warn", "event_idx": 1_000_000},
+    }
+    dash = ProgressDashboard("nifty50", dates, workers=2, progress_dict=progress_dict)
+    filled, total = _overall_bar_fill_count(_render_plain(dash))
+    assert filled == total
