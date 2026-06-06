@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import type {
   CapitalState,
   Channel,
@@ -24,7 +24,6 @@ import {
   supportsManualControls,
 } from '@/lib/tradeThemes';
 import { trpc } from '@/lib/trpc';
-import NewTradeForm from './NewTradeForm';
 import { TodayTradeRow } from './TodayTradeRow';
 import { InstrumentBarRow } from './InstrumentBarRow';
 import { ChargesBreakdownTip } from './ChargesBreakdownTip';
@@ -68,7 +67,6 @@ export function TodaySection({
   resolvedInstruments,
   allDays,
 }: TodaySectionProps) {
-  const [showNewTradeForm, setShowNewTradeForm] = useState(false);
   // Trailing stop is a workspace-wide switch (Settings), no longer per-trade.
   // Read it once here and pass to every row so the TSL status reflects the
   // global setting rather than each trade's frozen flag.
@@ -151,29 +149,6 @@ export function TodaySection({
         );
       })}
 
-      {canManageTrades && showNewTradeForm && (
-        <NewTradeForm
-          channel={channel}
-          availableCapital={capital.availableCapital}
-          instruments={['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS']}
-          resolvedInstruments={resolvedInstruments}
-          onSubmit={async (trade) => {
-            await onPlaceTrade(trade);
-            setShowNewTradeForm(false);
-          }}
-          onCancel={() => setShowNewTradeForm(false)}
-          loading={placeLoading}
-          dayOpenedAt={day.openedAt}
-          dayValues={trades.length === 0 ? {
-            dayIndex: day.dayIndex,
-            tradeCapital: day.tradeCapital,
-            targetAmount: day.targetAmount,
-            targetPercent: day.targetPercent,
-            projCapital: day.projCapital,
-          } : undefined}
-        />
-      )}
-
       <tr data-day={day.dayIndex} className={`border-y font-bold ${theme.summaryBorder} ${theme.summaryBg}`} ref={trades.length === 0 ? todayRef : undefined}>
         <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
           {day.dayIndex}
@@ -212,18 +187,6 @@ export function TodaySection({
                 title={`Repeat last ${lastClosedTrade.instrument} trade at current LTP`}
               >
                 ↻
-              </button>
-            )}
-            {canManageTrades && (
-              <button
-                onClick={() => setShowNewTradeForm(prev => !prev)}
-                className={`px-2 py-0.5 rounded font-bold tracking-wider transition-colors ${
-                  showNewTradeForm
-                    ? theme.buttonActive
-                    : theme.button
-                }`}
-              >
-                {showNewTradeForm ? '- CANCEL' : '+ NEW TRADE'}
               </button>
             )}
           </div>
