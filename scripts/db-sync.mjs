@@ -72,8 +72,14 @@ if (mode === "export") {
     [`--uri=${uri}`, `--out=${DUMP_DIR}`],
     ["--uri=<uri>", `--out=${DUMP_DIR}`],
   );
-  console.log(`\n✓ Exported '${dbName}' → ${path.join(DUMP_DIR, dbName)}`);
-  console.log("⚠ Contains broker credentials / TOTP — transfer privately; do NOT commit.\n");
+  // Bundle .env (also secret) so one private transfer carries DB + env.
+  const envSrc = path.join(REPO_ROOT, ".env");
+  if (fs.existsSync(envSrc)) {
+    fs.copyFileSync(envSrc, path.join(DUMP_DIR, ".env"));
+    console.log("  bundled .env");
+  }
+  console.log(`\n✓ Exported '${dbName}' + .env → ${DUMP_DIR}`);
+  console.log("⚠ Contains broker credentials / TOTP / .env secrets — transfer privately; do NOT commit.\n");
 } else {
   const src = path.join(DUMP_DIR, dbName);
   if (!fs.existsSync(src)) {
@@ -87,5 +93,17 @@ if (mode === "export") {
     [`--uri=${uri}`, "--drop", src],
     ["--uri=<uri>", "--drop", src],
   );
+  // Restore the bundled .env — only if this machine doesn't already have one
+  // (never clobber a machine-specific .env; the bundle stays in db-dump/ to merge).
+  const envBundle = path.join(DUMP_DIR, ".env");
+  const envTarget = path.join(REPO_ROOT, ".env");
+  if (fs.existsSync(envBundle)) {
+    if (fs.existsSync(envTarget)) {
+      console.log("  .env already present — left untouched (merge from db-dump/.env if needed).");
+    } else {
+      fs.copyFileSync(envBundle, envTarget);
+      console.log("  restored .env");
+    }
+  }
   console.log(`\n✓ Imported ${src} → '${dbName}' (matching collections dropped + replaced).\n`);
 }

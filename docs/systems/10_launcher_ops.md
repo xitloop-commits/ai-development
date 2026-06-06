@@ -181,6 +181,18 @@ The journey is **5,000 trading hours of skill compounding**, not 250 days of gri
 
 [T44](../PROJECT_TODO.md) — generates a stand-alone HTML report per trading day with all trades + entry / exit markers on a candlestick chart, per-instrument tabs, P&L summary. Exposed from the launcher menu so operator can open the previous day's report on demand. Added 2026-05-24 externally; lives here because the launcher menu is the user-facing surface.
 
+## 11b. Cross-machine sync (desktop ↔ laptop)
+
+Three kinds of state travel between machines; only code/docs sync automatically.
+
+| State | How it syncs | Mechanism |
+|---|---|---|
+| Code + docs | Auto (git) | normal `git pull` / `git push`. |
+| Claude memory | Auto (git hooks) | `.githooks/pre-commit` runs `scripts/sync-memory.mjs push` + stages `docs/memory/`; `post-merge` runs `pull` → the home memory dir. Activated by `core.hooksPath=.githooks`, set on `pnpm install` (package.json `prepare`). |
+| MongoDB (`lucky_baskar`) + `.env` | **Manual** (local per-machine; hold secrets) | `pnpm db:export` dumps the full DB **and bundles `.env`** into `db-dump/` → copy privately → `pnpm db:import` on the other machine restores the DB (`--drop` replaces) and the `.env` if that machine has none (won't clobber an existing one). `scripts/db-sync.mjs` wraps mongodump/mongorestore (needs MongoDB Database Tools). `db-dump/` is gitignored — it holds broker credentials + TOTP + `.env` secrets; **never commit**. |
+
+**New-machine setup:** `git pull` → `pnpm install` (activates the memory hooks) → install MongoDB Database Tools + run a local `mongod` → copy `db-dump/` over → `pnpm db:import` (restores the DB + `.env`).
+
 ## 12. Status
 
 **ACTIVE.**
@@ -219,6 +231,8 @@ The journey is **5,000 trading hours of skill compounding**, not 250 days of gri
 | Backtest + compare launchers | `startup/backtest.bat`, `backtest-scored.bat`, `backtest-compare.bat` |
 | Server launcher (Python) | `startup/server_launcher.py` |
 | Smoke tools | `scripts/smoke_*.py`, `scripts/test_*` |
+| Cross-machine memory sync | `scripts/sync-memory.mjs` + `.githooks/{pre-commit,post-merge}` |
+| MongoDB + `.env` export/import | `scripts/db-sync.mjs` (`pnpm db:export` / `db:import`) |
 | Holiday calendar | `config/market_holidays.json` (populate to keep Phase-4 dates accurate) |
 | Per-instrument profiles | `config/instrument_profiles/<inst>_profile.json` |
 | Scheduled-task summary (Mon–Fri × 3 + Sat × 1) | 4 entries in `install-scheduled-tasks.ps1` |
