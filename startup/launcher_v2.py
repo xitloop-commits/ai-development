@@ -310,11 +310,20 @@ def running_processes() -> list[RunningProc]:
             continue
         raw_cmd = entry.get("CommandLine") or ""
         # Accept --include-dates 2026-05-10, --include-dates "2026-05-10",
-        # and --include-dates=2026-05-10 just in case any caller uses '='.
-        include_dates = re.findall(
-            r'--include-dates[=\s]+"?(\d{4}-\d{2}-\d{2})"?',
+        # --include-dates=2026-05-10, AND comma-separated lists like
+        # --include-dates 2026-05-10,2026-05-11,2026-05-12 (the launcher
+        # uses this form to drive T47's pooled runner with one terminal
+        # per instrument).
+        include_date_chunks = re.findall(
+            r'--include-dates[=\s]+"?([\d\-,]+)"?',
             raw_cmd,
         )
+        include_dates: list[str] = []
+        for chunk in include_date_chunks:
+            for d in chunk.split(","):
+                d = d.strip()
+                if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+                    include_dates.append(d)
         out.append(RunningProc(
             kind=kind,
             instrument=instrument,
@@ -1566,41 +1575,29 @@ def act_replay() -> None:
             _pause_briefly()
             continue
 
-        # Build the full (instrument, date) work list. Fan each pair into its
-        # own window so dates within an instrument run in parallel — single-
-        # process replay was the bottleneck (replay_runner.py loops dates
-        # sequentially in one Python process). Cap parallelism so a careless
-        # selection doesn't open 20 windows; tail of the queue runs after.
-        # The cap is *fleet-wide*: subtract any replay windows already running
-        # so opening the submenu twice can't exceed MAX_PARALLEL in total.
-        MAX_PARALLEL = 8
-        existing_replays = sum(1 for p in running if p.kind == "replay")
-        slots_available = max(0, MAX_PARALLEL - existing_replays)
-
-        work: list[tuple[str, str]] = []
-        for inst, new_dates in res.added.items():
-            for d in sorted(new_dates):
-                work.append((inst, d))
-
+        # Launch one terminal PER INSTRUMENT, passing each selected date as
+        # its own --include-dates flag (argparse action="append" collects
+        # them into a list). T47's pooled replay_runner (ProcessPoolExecutor
+        # + rich dashboard, default min(num_dates, 16) workers) handles
+        # per-date parallelism *inside* that terminal — no more
+        # N-windows-per-date fan-out. NOTE: comma-joined lists like
+        # "d1,d2,d3" cannot be used here because cmd.exe's `start` command
+        # treats commas as token separators and would split the value
+        # before it reaches start-replay.bat.
         print()
         launched = 0
-        deferred: list[tuple[str, str]] = []
-        for inst, d in work:
-            if launched >= slots_available:
-                deferred.append((inst, d))
+        for inst, new_dates in res.added.items():
+            sorted_dates = sorted(new_dates)
+            if not sorted_dates:
                 continue
+            include_flags: list[str] = []
+            for d in sorted_dates:
+                include_flags.extend(["--include-dates", d])
             _launch_no_pause(
-                f"Replay: {inst} {d}",
-                "start-replay.bat", inst, "--include-dates", d,
+                f"Replay: {inst} ({len(sorted_dates)}d)",
+                "start-replay.bat", inst, *include_flags,
             )
             launched += 1
-        if deferred:
-            print()
-            print(f"  {YELLOW('!')} {len(deferred)} (inst, date) pair(s) "
-                  f"deferred ({existing_replays} replay(s) already live, cap = {MAX_PARALLEL}):")
-            for inst, d in deferred:
-                print(f"      {DIM('queued:')} {inst} {d}")
-            print(f"  {DIM('Re-run Replay after some windows finish to launch the rest.')}")
         if launched == 0:
             print(f"  {YELLOW('!')} Nothing launched.")
         _pause_briefly()

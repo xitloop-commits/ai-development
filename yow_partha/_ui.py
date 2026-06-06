@@ -95,18 +95,23 @@ def render_group(kind: str) -> tuple[str, InlineKeyboardMarkup]:
     """
     if kind == "record":
         return _render_per_instrument("Record", "tfa")
-    if kind in ("replay", "train"):
+    if kind == "replay":
+        # Flat replay flow: instrument list (🟢 running / ⚫ stopped) →
+        # tapping an instrument fires `start:replay-<inst>`, which opens the
+        # date picker (running dates locked, rest selectable).
+        return _render_per_instrument("Replay", "replay", action="start")
+    if kind == "train":
         return _render_running_processes(kind)
     return f"Unknown group: {kind}", home_button_only()
 
 
-def _render_per_instrument(title: str, prefix: str) -> tuple[str, InlineKeyboardMarkup]:
+def _render_per_instrument(title: str, prefix: str, action: str = "target") -> tuple[str, InlineKeyboardMarkup]:
     raw: list[tuple[str, str]] = []
     for inst in INSTRUMENTS:
         tid = f"{prefix}-{inst}"
         st = status_for(tid)
         progress = f"  {st['progress']}" if st.get("progress") else ""
-        raw.append((f"{st['icon']} {st['noun']}{progress}", f"target:{tid}"))
+        raw.append((f"{st['icon']} {st['noun']}{progress}", f"{action}:{tid}"))
     rows = _pad_buttons_for_uniform_width(raw)
     rows.append([InlineKeyboardButton("🏠 Home", callback_data="home")])
     return f"{title} — pick an instrument", InlineKeyboardMarkup(rows)
@@ -133,14 +138,19 @@ def _render_running_processes(kind: str) -> tuple[str, InlineKeyboardMarkup]:
 
 def render_new_picker(kind: str) -> tuple[str, InlineKeyboardMarkup]:
     """Instrument picker for starting a fresh replay / train. Re-uses
-    the launcher-style 4-row layout."""
+    the launcher-style 4-row layout.
+
+    Tapping an instrument fires `start:<tid>`, which goes straight to the
+    multi-select date picker (unprocessed dates for replay, trainable dates
+    for train). The old intermediate per-target Start screen is skipped —
+    it only carried a single redundant "▶ Start" button."""
     title = "Start new replay" if kind == "replay" else "Start new training"
     prefix = "replay" if kind == "replay" else "train"
     raw: list[tuple[str, str]] = []
     for inst in INSTRUMENTS:
         tid = f"{prefix}-{inst}"
         st = status_for(tid)
-        raw.append((f"{st['icon']} {st['noun']}", f"target:{tid}"))
+        raw.append((f"{st['icon']} {st['noun']}", f"start:{tid}"))
     rows = _pad_buttons_for_uniform_width(raw)
     rows.append([InlineKeyboardButton(f"🏠 Back to {prefix.title()}", callback_data=f"group:{prefix}")])
     return title, InlineKeyboardMarkup(rows)
@@ -325,28 +335,46 @@ def _inst_initial(inst: str) -> str:
 
 # ── Multi-select date picker for train-model ─────────────────────────────
 
-def render_train_picker(tid: str, dates: list[str], selected: set[str]) -> tuple[str, InlineKeyboardMarkup]:
+def render_train_picker(
+    tid: str,
+    dates: list[str],
+    selected: set[str],
+    locked: set[str] | None = None,
+) -> tuple[str, InlineKeyboardMarkup]:
     """Multi-select date picker — matches the desktop launcher's pattern.
 
-    Each date is a toggle row (☐ unchecked / ☑ checked). The user taps to
-    flip, then taps the bottom Confirm button to fire training on every
-    checked date. Selection state lives in `context.user_data` between
-    taps (see callbacks.py).
+    Each selectable date is a toggle row (☐ unchecked / ☑ checked). The user
+    taps to flip, then taps Confirm to fire on every checked date. Selection
+    state lives in `context.user_data` between taps (see callbacks.py).
+
+    `locked` (replay only) is the set of dates that already have a replay
+    process running. They render as untappable-looking 🟢🔒 rows whose tap
+    opens a Stop/Back prompt instead of toggling — so a running date is never
+    altered by accident. Train passes no locked set, so its behaviour is
+    unchanged.
     """
+    locked = locked or set()
     t = TARGETS[tid]
+    verb = "replay" if t["kind"] == "replay" else "training"
     n = len(selected)
-    text = (f"{t['noun']} — tap dates to select for training\n"
-            f"({n} selected of {len(dates)} available)")
+    n_avail = len([d for d in dates if d not in locked])
+    text = (f"{t['noun']} — tap dates to select for {verb}\n"
+            f"({n} selected of {n_avail} available)")
+    if locked:
+        text += "\n🟢🔒 = already running (tap to stop)"
 
     rows: list[list[InlineKeyboardButton]] = []
     for d in dates:
-        mark = "☑" if d in selected else "☐"
-        rows.append([InlineKeyboardButton(f"{mark} {d}", callback_data=f"tog:{tid}:{d}")])
+        if d in locked:
+            rows.append([InlineKeyboardButton(f"🟢🔒 {d} (running)", callback_data=f"lock:{tid}:{d}")])
+        else:
+            mark = "☑" if d in selected else "☐"
+            rows.append([InlineKeyboardButton(f"{mark} {d}", callback_data=f"tog:{tid}:{d}")])
 
-    confirm_label = f"✓ Confirm ({n} selected)" if n else "✓ Confirm (pick at least one)"
+    confirm_label = f"✓ Start ({n} selected)" if n else "✓ Start (pick at least one)"
     rows.append([
         InlineKeyboardButton(confirm_label, callback_data=(f"tconf:{tid}" if n else "noop")),
-        InlineKeyboardButton("✗ Cancel", callback_data="home"),
+        InlineKeyboardButton("✗ Cancel", callback_data=f"group:{t['kind']}"),
     ])
     return text, InlineKeyboardMarkup(rows)
 

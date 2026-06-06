@@ -62,6 +62,19 @@ if (analyticsEndpoint && analyticsWebsiteId) {
   document.body.appendChild(s);
 }
 
+// Dev only — React's *development* build calls performance.measure() on every
+// render to feed Chrome's Performance panel ("⚛️" tracks). Those entries pile up
+// in the browser's user-timing buffer forever, and with the live-tick re-render
+// rate they grow into hundreds of MB until the tab crashes. Nothing reads them
+// back, so we periodically clear the buffer to keep memory flat. The production
+// React build emits none of this, so this guard is dev-only.
+if (import.meta.env.DEV && typeof performance !== "undefined") {
+  setInterval(() => {
+    performance.clearMeasures?.();
+    performance.clearMarks?.();
+  }, 20_000);
+}
+
 // B1-followup — fetch the X-Internal-Token from the loopback-only
 // bootstrap endpoint BEFORE React renders. We swallow failures to a
 // warning + empty token (warn-only fallback); enforcement-on without a

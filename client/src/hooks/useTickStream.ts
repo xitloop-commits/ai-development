@@ -194,6 +194,31 @@ function getSnapshot() {
   return storeVersion;
 }
 
+// ── Per-instrument subscription ───────────────────────────────────────────
+// Lets a single row subscribe to ONLY its own contract's ticks, so it
+// re-renders on its own ticks instead of every subscriber re-rendering on
+// every tick (the global `listeners` fan-out). Ticks are mutated in place, so
+// each key carries a version counter that bumps on update.
+const keyVersions = new Map<string, number>();
+const keySubs = new Map<string, Set<() => void>>();
+function bumpKey(key: string) {
+  keyVersions.set(key, (keyVersions.get(key) ?? 0) + 1);
+  const subs = keySubs.get(key);
+  if (subs) subs.forEach((cb) => cb());
+}
+function subscribeKey(key: string, cb: () => void) {
+  let set = keySubs.get(key);
+  if (!set) {
+    set = new Set();
+    keySubs.set(key, set);
+  }
+  set.add(cb);
+  return () => {
+    set!.delete(cb);
+    if (set!.size === 0) keySubs.delete(key);
+  };
+}
+
 function updateTick(key: string, partial: Partial<TickData>) {
   const existing = tickStore.get(key);
   if (existing) {
@@ -229,6 +254,7 @@ function updateTick(key: string, partial: Partial<TickData>) {
       ...partial,
     } as TickData);
   }
+  bumpKey(key);
   notifyListeners();
 }
 
@@ -236,8 +262,23 @@ function _ingestTick(tick: TickData) {
   if (tick && tick.securityId && tick.exchange) {
     const key = `${tick.exchange}:${tick.securityId}`;
     tickStore.set(key, tick);
+    bumpKey(key);
     notifyListeners();
   }
+}
+
+// ── Stale-tick eviction — bound tickStore memory over a long session ──
+// Contracts come and go as the operator trades different strikes; without
+// pruning the Map grows unbounded. Drop entries not updated in TICK_TTL_MS.
+// No notify on prune — rows re-read on their next render / tick.
+const TICK_TTL_MS = 15 * 60 * 1000;
+const PRUNE_INTERVAL_MS = 5 * 60 * 1000;
+let pruneTimer: ReturnType<typeof setInterval> | null = null;
+function pruneTickStore() {
+  const cutoff = Date.now() - TICK_TTL_MS;
+  tickStore.forEach((tick, key) => {
+    if (tick.timestamp < cutoff) tickStore.delete(key);
+  });
 }
 
 // ── WebSocket connection manager (singleton) ──────────────────────
@@ -254,6 +295,8 @@ function connectWs() {
   if (wsInstance && (wsInstance.readyState === WebSocket.CONNECTING || wsInstance.readyState === WebSocket.OPEN)) {
     return;
   }
+
+  if (!pruneTimer) pruneTimer = setInterval(pruneTickStore, PRUNE_INTERVAL_MS);
 
   const ws = new WebSocket(getWsUrl());
   ws.binaryType = "arraybuffer"; // receive binary as ArrayBuffer
@@ -284,6 +327,7 @@ function connectWs() {
           if (tick && tick.securityId && tick.exchange) {
             const key = `${tick.exchange}:${tick.securityId}`;
             tickStore.set(key, tick);
+            bumpKey(key);
             changed = true;
           }
         }
@@ -318,6 +362,10 @@ function disconnectWs() {
     clearTimeout(wsReconnectTimer);
     wsReconnectTimer = null;
   }
+  if (pruneTimer) {
+    clearInterval(pruneTimer);
+    pruneTimer = null;
+  }
   if (wsInstance) {
     wsInstance.onclose = null;
     wsInstance.close();
@@ -328,8 +376,8 @@ function disconnectWs() {
 
 let hookRefCount = 0;
 
-// ── Hook ────────────────────────────────────────────────────────
-export function useTickStream(enabled = true) {
+/** Shared WS connection lifecycle (ref-counted singleton). */
+function useTickConnection(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     hookRefCount++;
@@ -343,6 +391,32 @@ export function useTickStream(enabled = true) {
       }
     };
   }, [enabled]);
+}
+
+/**
+ * useInstrumentTick — subscribe to ONE contract's ticks only.
+ *
+ * Returns the latest TickData for `exchange:securityId` and re-renders the
+ * caller only when THAT contract ticks (not on every tick like useTickStream).
+ * Use this in per-row hot paths (e.g. open trade rows). Relies on a parent
+ * useTickStream to run the polling fallback; it manages the WS connection too.
+ */
+export function useInstrumentTick(
+  exchange?: string | null,
+  securityId?: string | null,
+): TickData | undefined {
+  useTickConnection(true);
+  const key = exchange && securityId ? `${exchange}:${securityId}` : null;
+  useSyncExternalStore(
+    useCallback((cb: () => void) => (key ? subscribeKey(key, cb) : () => {}), [key]),
+    useCallback(() => (key ? keyVersions.get(key) ?? 0 : 0), [key]),
+  );
+  return key ? tickStore.get(key) : undefined;
+}
+
+// ── Hook ────────────────────────────────────────────────────────
+export function useTickStream(enabled = true) {
+  useTickConnection(enabled);
 
   // Polling fallback (only when WS is not connected)
   const snapshotQuery = trpc.broker.feed.snapshot.useQuery(undefined, {
@@ -361,6 +435,7 @@ export function useTickStream(enabled = true) {
           const existing = tickStore.get(key);
           if (!existing || tick.timestamp > existing.timestamp) {
             tickStore.set(key, tick as TickData);
+            bumpKey(key);
             changed = true;
           }
         }

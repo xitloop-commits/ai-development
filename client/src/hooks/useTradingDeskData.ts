@@ -49,29 +49,15 @@ export function useTradingDeskData({
   }, [resolvedInstruments]);
 
   const getLiveLtp = useCallback((trade: { id?: string; instrument: string; contractSecurityId?: string | null }): number | undefined => {
+    // Option trades: read the contract's own tick (premium). Hot path — no
+    // logging / window globals here (called per open trade per tick).
     if (trade.contractSecurityId) {
       const exchange = (trade.instrument.includes('CRUDE') || trade.instrument.includes('NATURAL'))
         ? 'MCX_COMM'
         : 'NSE_FNO';
-      const tick = getTick(exchange, trade.contractSecurityId);
-      if (!tick && trade.id && !(window as any).__loggedLtp?.[trade.id]) {
-        (window as any).__loggedLtp = (window as any).__loggedLtp ?? {};
-        (window as any).__loggedLtp[trade.id] = true;
-        console.warn(
-          `[getLiveLtp] No option tick for ${exchange}:${trade.contractSecurityId} (trade ${trade.id} ${trade.instrument}) — using fallback`
-        );
-      }
-      return tick?.ltp;
+      return getTick(exchange, trade.contractSecurityId)?.ltp;
     }
-
-    if (trade.id && !(window as any).__loggedLtpFallback?.[trade.id]) {
-      (window as any).__loggedLtpFallback = (window as any).__loggedLtpFallback ?? {};
-      (window as any).__loggedLtpFallback[trade.id] = true;
-      console.warn(
-        `[getLiveLtp] Trade ${trade.id} ${trade.instrument} has NO contractSecurityId — falling back to underlying feed`
-      );
-    }
-
+    // No contract id → fall back to the underlying feed.
     const resolvedName = UI_TO_RESOLVED[trade.instrument] ?? trade.instrument;
     const feed = feedLookup.get(resolvedName);
     if (!feed) return undefined;

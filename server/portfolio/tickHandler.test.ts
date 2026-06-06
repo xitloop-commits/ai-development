@@ -182,3 +182,103 @@ describe("tickHandler — F1 per-channel state cache", () => {
     expect(getCapitalStateMock.mock.calls.length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Regression — clearing a workspace must not let a stale cached day
+ * resurrect the just-deleted trades.
+ *
+ * Bug: CLEAR deletes the day record in Mongo, but the tick handler still
+ * holds the old day (with its open trades) in `stateCache`. The next
+ * matching tick reads that stale day and re-persists it via
+ * upsertDayRecord — bringing every cleared trade back. The fix is for the
+ * clear path to call `tickHandler.clearStateCache()` after the delete.
+ */
+describe("tickHandler — clear-workspace cache invalidation", () => {
+  const openTrade = {
+    id: "T1",
+    instrument: "NIFTY_50",
+    type: "BUY",
+    strike: null,
+    expiry: null,
+    contractSecurityId: null,
+    entryPrice: 100,
+    exitPrice: null,
+    ltp: 100,
+    qty: 1,
+    status: "OPEN",
+    targetPrice: null,
+    stopLossPrice: null,
+    trailingStopEnabled: false,
+    lastTickAt: null,
+    unrealizedPnl: 0,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    tickHandler.clearStateCache();
+    // The persist throttle + peak/exit tracking live in private maps that
+    // are NOT cleared by clearStateCache and leak across tests. Reset them
+    // so the throttle never suppresses a write mid-test (otherwise these
+    // tests are timing-dependent on prior tests' lastPersistAt stamps).
+    const h = tickHandler as any;
+    h.lastPersistAt.clear();
+    h.peakPrices.clear();
+    h.exitingTrades.clear();
+    getCapitalStateMock.mockResolvedValue({
+      channel: "my-paper",
+      tradingPool: 100_000,
+      reservePool: 0,
+      initialFunding: 100_000,
+      currentDayIndex: 1,
+      targetPercent: 1,
+      profitHistory: [],
+      cumulativePnl: 0,
+      cumulativeCharges: 0,
+      sessionTradeCount: 0,
+    });
+    getActiveBrokerConfigMock.mockResolvedValue(null);
+  });
+
+  it("WITHOUT clearStateCache: a stale cached day re-persists the cleared trade (the bug)", async () => {
+    const handler = tickHandler as any;
+
+    // Warm the cache while the day still holds an open trade. Use a
+    // non-matching tick so no persist/invalidation happens during warm —
+    // the cache is left holding the open-trade day.
+    getDayRecordMock.mockResolvedValue({ dayIndex: 1, date: "2024-11-14", trades: [openTrade], totalPnl: 0 });
+    handler.pendingUpdates.set("NSE:WARM", makeTick({ securityId: "WARM" }));
+    await handler.processPendingUpdates();
+    expect(upsertDayRecordMock).not.toHaveBeenCalled();
+
+    // Simulate the clear: Mongo now returns an empty day, but the cache is
+    // NOT invalidated. A matching tick arrives.
+    getDayRecordMock.mockResolvedValue({ dayIndex: 1, date: "2024-11-14", trades: [], totalPnl: 0 });
+    vi.clearAllMocks();
+    handler.pendingUpdates.set("NSE:NIFTY_50", makeTick({ securityId: "NIFTY_50" }));
+    await handler.processPendingUpdates();
+
+    // Stale cache wins → the open-trade day is written back to Mongo.
+    expect(upsertDayRecordMock).toHaveBeenCalled();
+  });
+
+  it("WITH clearStateCache: the cleared trade stays gone (the fix)", async () => {
+    const handler = tickHandler as any;
+
+    // Warm the cache with the open-trade day (same as above).
+    getDayRecordMock.mockResolvedValue({ dayIndex: 1, date: "2024-11-14", trades: [openTrade], totalPnl: 0 });
+    handler.pendingUpdates.set("NSE:WARM", makeTick({ securityId: "WARM" }));
+    await handler.processPendingUpdates();
+
+    // Simulate clearWorkspace: delete the day, THEN invalidate the cache.
+    getDayRecordMock.mockResolvedValue({ dayIndex: 1, date: "2024-11-14", trades: [], totalPnl: 0 });
+    tickHandler.clearStateCache();
+    vi.clearAllMocks();
+
+    // Matching tick arrives — the handler must re-read the fresh empty day
+    // and write nothing back.
+    handler.pendingUpdates.set("NSE:NIFTY_50", makeTick({ securityId: "NIFTY_50" }));
+    await handler.processPendingUpdates();
+
+    expect(upsertDayRecordMock).not.toHaveBeenCalled();
+  });
+});

@@ -26,7 +26,13 @@ import {
 import { trpc } from '@/lib/trpc';
 import NewTradeForm from './NewTradeForm';
 import { TodayTradeRow } from './TodayTradeRow';
+import { InstrumentBarRow } from './InstrumentBarRow';
 import { ChargesBreakdownTip } from './ChargesBreakdownTip';
+
+/** The 4 tradable instruments shown as always-on bars at the bottom. */
+const INSTRUMENT_BAR_LIST = ['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS'];
+/** TradingDesk table column count (see TradingDesk.tsx colgroup). */
+const TABLE_COLSPAN = 17;
 
 export interface TodaySectionProps {
   day: DayRecord;
@@ -68,6 +74,9 @@ export function TodaySection({
   // global setting rather than each trade's frozen flag.
   const brokerConfigQuery = trpc.broker.config.get.useQuery(undefined);
   const globalTrailingEnabled = brokerConfigQuery.data?.settings?.trailingStopEnabled ?? false;
+  // SL% comes from settings (default 5%) — fed to each row's price bar to derive
+  // the hard-stop marker. The TSL marker uses the trade's actual stop price.
+  const slPercent = brokerConfigQuery.data?.settings?.defaultSL ?? 5;
   const updateTradeMutation = trpc.executor.updateTrade.useMutation();
   const utils = trpc.useUtils();
   const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
@@ -130,13 +139,14 @@ export function TodaySection({
             day={day}
             isFirst={isFirst}
             showNet={showNet}
-            onExit={() => onExitTrade(trade.id, trade.instrument)}
+            onExit={onExitTrade}
             exitLoading={exitLoading && exitingTradeId === trade.id}
             onUpdateTpSl={handleUpdateTpSl}
             todayRef={isFirst ? todayRef : undefined}
             canManageTrades={canManageTrades}
             channel={channel}
             globalTrailingEnabled={globalTrailingEnabled}
+            slPercent={slPercent}
           />
         );
       })}
@@ -250,6 +260,18 @@ export function TodaySection({
         </td>
         <td className="px-1 py-2" />
       </tr>
+
+      {/* Always-on per-instrument trade-entry bars (bottom of the section) */}
+      {canManageTrades &&
+        INSTRUMENT_BAR_LIST.map((inst) => (
+          <InstrumentBarRow
+            key={inst}
+            instrument={inst}
+            channel={channel}
+            colSpan={TABLE_COLSPAN}
+            resolvedInstruments={resolvedInstruments}
+          />
+        ))}
     </>
   );
 }

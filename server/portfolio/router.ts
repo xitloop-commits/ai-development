@@ -35,6 +35,7 @@ import type { ChargeRate } from "./charges";
 import { getUserSettings } from "../userSettings";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import { portfolioAgent } from "./portfolioAgent";
+import { tickHandler } from "./tickHandler";
 import { createLogger } from "../broker/logger";
 
 const log = createLogger("PA", "Router");
@@ -594,6 +595,13 @@ export const portfolioRouter = router({
       };
 
       const newState = await replaceCapitalState(input.channel, freshState);
+
+      // Invalidate the tick handler's in-memory day cache. Without this, a
+      // tick arriving within the cache's 2s TTL re-reads the stale day (still
+      // holding the just-deleted open trades) and re-persists it via
+      // upsertDayRecord — resurrecting every trade the clear just removed.
+      tickHandler.clearStateCache();
+
       return { success: true, deletedDayRecords: deleted, newState };
     }),
 

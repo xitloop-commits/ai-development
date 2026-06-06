@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { estimateSingleLegCharges, DEFAULT_CHARGES } from '@shared/chargesEngine';
 import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -18,18 +19,19 @@ import {
 } from '@/lib/tradeFormatters';
 import { tradePoints } from '@/lib/tradeCalculations';
 import { getWorkspaceThemeMeta } from '@/lib/tradeThemes';
-import { useTickStream } from '@/hooks/useTickStream';
+import { useInstrumentTick } from '@/hooks/useTickStream';
 import { InstrumentTag } from './InstrumentTag';
 import { StatusBadge } from './StatusBadge';
 import { TpSlMergedBody, pctFromPrice } from './TpSlMergedBody';
 import { ReconcileDesyncDialog } from './ReconcileDesyncDialog';
+import { TradeBar } from './TradeBar';
 
 export interface TodayTradeRowProps {
   trade: TradeRecord;
   day: DayRecord;
   isFirst: boolean;
   showNet: boolean;
-  onExit: () => void;
+  onExit: (tradeId: string, instrument: string) => void;
   exitLoading?: boolean;
   onUpdateTpSl: (
     tradeId: string,
@@ -42,6 +44,8 @@ export interface TodayTradeRowProps {
    *  workspace-wide switch, not per-trade — so the row reflects this flag
    *  rather than the trade's frozen value. */
   globalTrailingEnabled?: boolean;
+  /** Global hard-stop % (settings defaultSL) — fed to the price bar. */
+  slPercent?: number;
 }
 
 interface RenderProps extends TodayTradeRowProps {
@@ -60,6 +64,7 @@ function _TodayTradeRow({
   canManageTrades,
   channel,
   globalTrailingEnabled = false,
+  slPercent,
   liveLtp,
 }: RenderProps) {
   const [editOpen, setEditOpen] = useState(false);
@@ -149,6 +154,7 @@ function _TodayTradeRow({
         {fmt(day.projCapital, true)}
       </td>
       <td className="px-2 py-1.5 text-right border-r border-border">
+        <div className="flex flex-col gap-1 w-full">
         <div className="flex items-center justify-between gap-1.5">
           <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0">
             <InstrumentTag name={trade.instrument} />
@@ -186,7 +192,7 @@ function _TodayTradeRow({
             )}
             {isOpen && !isDesync && canManageTrades && (
               <button
-                onClick={(e) => { e.stopPropagation(); onExit(); }}
+                onClick={(e) => { e.stopPropagation(); onExit(trade.id, trade.instrument); }}
                 disabled={exitLoading}
                 className="px-1 py-0.5 rounded font-bold transition-colors bg-destructive/15 text-destructive hover:bg-destructive/25 disabled:opacity-30"
                 title="Exit position"
@@ -195,6 +201,31 @@ function _TodayTradeRow({
               </button>
             )}
           </div>
+        </div>
+        {isOpen && (
+          <TradeBar
+            isBuy={isBuy}
+            entryPrice={trade.entryPrice}
+            ltp={displayLtp}
+            slPercent={slPercent}
+            // Derive TP% from the trade's real target when set; else the bar's
+            // own default (10%). TSL activation/trailing is now self-contained
+            // in the bar. charges = per-unit round-trip cost for the TSL gate.
+            tpPercent={
+              trade.targetPrice && trade.targetPrice > 0
+                ? ((isBuy ? trade.targetPrice - trade.entryPrice : trade.entryPrice - trade.targetPrice) /
+                    trade.entryPrice) * 100
+                : undefined
+            }
+            charges={trade.qty > 0 ? charges / trade.qty : 0}
+            compact
+            // Testing-only: surface the bar's events as toasts so we can see
+            // what fired. Not wired to any real exit (server stays the owner).
+            onStopLossHit={() => toast.error(`SL hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`)}
+            onTakeProfitHit={() => toast.success(`TP hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`)}
+            onTslActivated={() => toast(`TSL activated · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''}`)}
+          />
+        )}
         </div>
       </td>
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
@@ -350,15 +381,14 @@ function _TodayTradeRow({
  * Closed rows never mount this, so they never re-render on ticks.
  */
 function LiveTodayTradeRow(props: TodayTradeRowProps) {
-  const { getTick } = useTickStream();
   const { trade } = props;
   const exchange = (trade.instrument.includes('CRUDE') || trade.instrument.includes('NATURAL'))
     ? 'MCX_COMM'
     : 'NSE_FNO';
-  const liveLtp = trade.contractSecurityId
-    ? getTick(exchange, trade.contractSecurityId)?.ltp
-    : undefined;
-  return <_TodayTradeRow {...props} liveLtp={liveLtp} />;
+  // Per-instrument subscription: this row re-renders only on its own contract's
+  // ticks, not on every tick across the desk.
+  const tick = useInstrumentTick(exchange, trade.contractSecurityId ?? null);
+  return <_TodayTradeRow {...props} liveLtp={tick?.ltp} />;
 }
 
 /**

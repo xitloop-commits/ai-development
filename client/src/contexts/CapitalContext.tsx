@@ -12,6 +12,7 @@ import {
   useState,
   useMemo,
   useCallback,
+  useRef,
   type ReactNode,
 } from 'react';
 import { toast } from 'sonner';
@@ -158,6 +159,14 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   const [channel, setChannel] = useState<Channel>(DEFAULT_LANDING_CHANNEL);
   const utils = trpc.useUtils();
 
+  // Per-channel cache of normalized past-day records — past days never change
+  // once closed, so we normalize each once (keyed by dayIndex) instead of
+  // re-running it over all past days on every 2s allDays poll.
+  const normCacheRef = useRef<{ channel: Channel; map: Map<number, DayRecord> }>({
+    channel: DEFAULT_LANDING_CHANNEL,
+    map: new Map(),
+  });
+
   // ─── Single shared query for capital state ──────────────────
   const stateQuery = trpc.portfolio.state.useQuery(
     { channel },
@@ -266,16 +275,36 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   }, [stateQuery.data]);
 
   const allDays: DayRecord[] = useMemo(() => {
-    if (allDaysQuery.data) {
-      const { pastDays, currentDay, futureDays } = allDaysQuery.data as any;
-      return [
-        ...(((pastDays as any[]) ?? []).map(normalizeDayRecord)),
-        ...(currentDay ? [normalizeDayRecord(currentDay)] : []),
-        ...(((futureDays as any[]) ?? []).map(normalizeDayRecord)),
-      ];
+    if (!allDaysQuery.data) return [];
+    const { pastDays, currentDay, futureDays } = allDaysQuery.data as any;
+
+    // Past days are immutable once closed — normalize each once and cache by
+    // dayIndex (per channel), so we don't re-run Set-dedup over every past day
+    // on every 2s poll (a freeze source). Today is normalized fresh (it changes);
+    // future days carry no trades so normalization is cheap.
+    const cache = normCacheRef.current;
+    if (cache.channel !== channel) {
+      cache.channel = channel;
+      cache.map.clear();
     }
-    return [];
-  }, [allDaysQuery.data]);
+    const pastNorm = ((pastDays as any[]) ?? []).map((d) => {
+      const idx = d?.dayIndex;
+      if (typeof idx === 'number') {
+        const hit = cache.map.get(idx);
+        if (hit) return hit;
+        const norm = normalizeDayRecord(d);
+        cache.map.set(idx, norm);
+        return norm;
+      }
+      return normalizeDayRecord(d);
+    });
+
+    return [
+      ...pastNorm,
+      ...(currentDay ? [normalizeDayRecord(currentDay)] : []),
+      ...(((futureDays as any[]) ?? []).map(normalizeDayRecord)),
+    ];
+  }, [allDaysQuery.data, channel]);
 
   const currentDay = useMemo(() => {
     return allDays.find((d) => d.dayIndex === capital.currentDayIndex) ?? null;

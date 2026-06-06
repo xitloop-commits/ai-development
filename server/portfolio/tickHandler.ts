@@ -118,11 +118,23 @@ interface ChannelStateCache {
 }
 
 const STATE_CACHE_TTL_MS = 2000;
+// Exit detection runs per-tick (live), but the Mongo P&L/LTP write is throttled
+// to at most once per channel per this interval — same write cadence as the old
+// 500ms batch, just decoupled from detection so stops react instantly.
+const PERSIST_THROTTLE_MS = 500;
 
 class TickHandler extends EventEmitter {
   private running = false;
-  private updateDebounce: NodeJS.Timeout | null = null;
-  private pendingUpdates = new Map<string, TickData>(); // key → latest tick
+  /** Latest tick per instrument key, drained each processing pass. */
+  private pendingUpdates = new Map<string, TickData>();
+  /** Serialize processing passes so async updateChannel calls never overlap. */
+  private processing = false;
+  private hasPending = false;
+  /** Trades with an exit already emitted, awaiting TEA's close. Stops the
+   *  per-tick detector from firing duplicate exits for the same trade. */
+  private exitingTrades = new Set<string>();
+  /** Last Mongo-persist time per channel — throttles the P&L write. */
+  private lastPersistAt = new Map<Channel, number>();
   /** Track peak price per trade for trailing stop logic. Key = tradeId */
   private peakPrices = new Map<string, number>();
   /** Per-channel cache of (capital, day, broker config). See ChannelStateCache. */
@@ -168,25 +180,35 @@ class TickHandler extends EventEmitter {
   stop(): void {
     this.running = false;
     tickBus.off("tick", this.handleTick);
-    if (this.updateDebounce) {
-      clearTimeout(this.updateDebounce);
-      this.updateDebounce = null;
-    }
+    this.pendingUpdates.clear();
+    this.hasPending = false;
     log.important("Stopped");
   }
 
-  /** Handle incoming tick — debounce to batch updates */
+  /** Handle incoming tick — process live (per tick). Exit detection runs every
+   *  tick; the Mongo write inside is throttled, so DB load stays bounded. */
   private handleTick = (tick: TickData): void => {
     const key = `${tick.exchange}:${tick.securityId}`;
     this.pendingUpdates.set(key, tick);
+    this.scheduleProcess();
+  };
 
-    // Debounce: process all pending ticks every 500ms
-    if (!this.updateDebounce) {
-      this.updateDebounce = setTimeout(() => {
-        this.updateDebounce = null;
-        void this.processPendingUpdates();
-      }, 500);
+  /** Run a processing pass now if idle; otherwise note that more ticks arrived
+   *  mid-pass and re-run once the current pass finishes. Guarantees a single
+   *  in-flight updateChannel chain at a time — no cache/DB races. */
+  private scheduleProcess(): void {
+    if (this.processing) {
+      this.hasPending = true;
+      return;
     }
+    this.processing = true;
+    void this.processPendingUpdates().finally(() => {
+      this.processing = false;
+      if (this.hasPending) {
+        this.hasPending = false;
+        this.scheduleProcess();
+      }
+    });
   };
 
   /** Process all pending tick updates */
@@ -219,6 +241,15 @@ class TickHandler extends EventEmitter {
     const openTrades = day.trades.filter((t) => t.status === "OPEN");
     if (openTrades.length === 0) return;
 
+    // Prune the exit guard: drop ids for trades TEA has since closed (no longer
+    // in the open set) so the guard can't leak or block a future re-open.
+    if (this.exitingTrades.size > 0) {
+      const openIds = new Set(openTrades.map((t) => t.id));
+      this.exitingTrades.forEach((id) => {
+        if (!openIds.has(id)) this.exitingTrades.delete(id);
+      });
+    }
+
     // Read trailing stop config from broker settings (centralized)
     const trailingStopEnabled = brokerConfig?.settings?.trailingStopEnabled ?? false;
     const trailingStopPercent = brokerConfig?.settings?.trailingStopPercent ?? 1.0;
@@ -227,6 +258,9 @@ class TickHandler extends EventEmitter {
     const tradesToExit: Array<{ trade: TradeRecord; reason: "TP_HIT" | "SL_HIT"; exitPrice: number }> = [];
 
     for (const trade of openTrades) {
+      // Exit already emitted for this trade; wait for TEA to close it rather
+      // than firing the same exit again on the next tick.
+      if (this.exitingTrades.has(trade.id)) continue;
       for (const tick of ticks) {
         if (!tickMatchesTrade(tick, trade)) continue;
 
@@ -286,6 +320,10 @@ class TickHandler extends EventEmitter {
             : tick.ltp <= trade.targetPrice;
           if (tpHit) {
             this.peakPrices.delete(peakKey); // cleanup
+            this.exitingTrades.add(trade.id);
+            // TP fills at the breaching tick: a favorable gap gives you the
+            // better price (the stop side caps the loss; the target lets a
+            // jump-through run in your favor).
             tradesToExit.push({ trade, reason: "TP_HIT", exitPrice: tick.ltp });
             continue; // Don't check SL if TP hit
           }
@@ -296,7 +334,11 @@ class TickHandler extends EventEmitter {
             : tick.ltp >= trade.stopLossPrice;
           if (slHit) {
             this.peakPrices.delete(peakKey); // cleanup
-            tradesToExit.push({ trade, reason: "SL_HIT", exitPrice: tick.ltp });
+            this.exitingTrades.add(trade.id);
+            // Fill at the stop LEVEL, not the (possibly gapped) breaching tick,
+            // so a fast move past the stop still realizes only the configured
+            // SL/TSL %, not the deeper price the tick happened to print.
+            tradesToExit.push({ trade, reason: "SL_HIT", exitPrice: trade.stopLossPrice });
           }
         }
       }
@@ -318,6 +360,18 @@ class TickHandler extends EventEmitter {
     }
 
     if (!anyUpdated) return;
+
+    // Throttle the Mongo write: persist at most once per channel per
+    // PERSIST_THROTTLE_MS, OR immediately when an exit fired (so the closing
+    // state lands promptly). Between writes the in-memory `day` (held in
+    // stateCache) carries the live LTP / peak / trailed-SL, and the per-tick
+    // detector reads from it — detection stays live with no DB write per tick.
+    const hadExit = tradesToExit.length > 0;
+    const lastPersist = this.lastPersistAt.get(channel) ?? 0;
+    if (!hadExit && Date.now() - lastPersist < PERSIST_THROTTLE_MS) {
+      return; // updates remain in the cached day; a later pass persists them
+    }
+    this.lastPersistAt.set(channel, Date.now());
 
     // Recalculate day aggregates and persist
     const updated = recalculateDayAggregates(day);

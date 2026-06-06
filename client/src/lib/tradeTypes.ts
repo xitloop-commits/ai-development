@@ -98,6 +98,9 @@ export interface TradeRecord {
   targetPrice: number | null;
   stopLossPrice: number | null;
   trailingStopEnabled?: boolean;
+  /** Peak (BUY) / trough (SELL) LTP since entry — the trailing-stop anchor.
+   *  Sent by the server (positionDocToTradeRecord); absent on older trades. */
+  peakLtp?: number | null;
   openedAt: number;
   closedAt: number | null;
   /**

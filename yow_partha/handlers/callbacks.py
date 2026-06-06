@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from .._auth import guard
@@ -47,6 +47,40 @@ from .._ui import (
 )
 
 log = logging.getLogger(__name__)
+
+
+def _build_replay_picker(ctx: ContextTypes.DEFAULT_TYPE, tid: str):
+    """Build the replay date picker for `tid`.
+
+    Splits dates into two groups:
+      - locked   = dates with a replay process already running (shown 🟢🔒,
+                   tap routes to a Stop/Back prompt, never toggles).
+      - selectable = remaining unprocessed dates (raw exists, no parquet,
+                   not reserved) — these are the ☐/☑ toggles.
+
+    The stored selection is intersected with the selectable set in place, so
+    a date that started running since the last render silently drops out of
+    the selection. Returns (text, markup) or None when there is nothing to
+    show at all.
+    """
+    from .picker import available_replay_dates
+    from .._status import list_running
+    from .._ui import render_train_picker
+
+    inst = TARGETS[tid]["inst"]
+    running_dates: set[str] = set()
+    for p in list_running("replay"):
+        if p["inst"] == inst:
+            running_dates.update(p["dates"])
+
+    selectable = [d for d in available_replay_dates(inst) if d not in running_dates]
+    all_dates = sorted(set(selectable) | running_dates)
+    if not all_dates:
+        return None
+
+    sel = ctx.user_data.setdefault("train_picker", {}).setdefault(tid, set())
+    sel &= set(selectable)  # in-place: keep selection within selectable dates
+    return render_train_picker(tid, all_dates, selected=sel, locked=running_dates)
 
 
 @guard
@@ -126,17 +160,28 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if head == "start":
             tid = parts[1]
             t = TARGETS.get(tid)
-            if t and t["kind"] in ("train", "replay"):
-                from .picker import available_dates, available_replay_dates
+            if t and t["kind"] == "replay":
+                # Replay: instrument → date picker with running dates locked.
+                ctx.user_data.setdefault("train_picker", {})[tid] = set()
+                res = _build_replay_picker(ctx, tid)
+                if res is None:
+                    await q.edit_message_text(
+                        f"❌ No replay-able dates for {t['noun']} (all already replayed or reserved).",
+                        reply_markup=home_button_only(),
+                    )
+                    return
+                text, markup = res
+                await q.edit_message_text(text, reply_markup=markup)
+                return
+            if t and t["kind"] == "train":
+                from .picker import available_dates
                 from .._ui import render_train_picker
-                if t["kind"] == "train":
-                    dates = available_dates(t["inst"])
-                    none_msg = f"❌ No trainable dates for {t['noun']}."
-                else:
-                    dates = available_replay_dates(t["inst"])
-                    none_msg = f"❌ No replay-able dates for {t['noun']} (all already replayed or reserved)."
+                dates = available_dates(t["inst"])
                 if not dates:
-                    await q.edit_message_text(none_msg, reply_markup=home_button_only())
+                    await q.edit_message_text(
+                        f"❌ No trainable dates for {t['noun']}.",
+                        reply_markup=home_button_only(),
+                    )
                     return
                 ctx.user_data.setdefault("train_picker", {})[tid] = set()
                 text, markup = render_train_picker(tid, dates, selected=set())
@@ -150,8 +195,6 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if head == "tog":
             tid = parts[1]
             date = parts[2]
-            from .picker import available_dates, available_replay_dates
-            from .._ui import render_train_picker
             t = TARGETS[tid]
             pick_state = ctx.user_data.setdefault("train_picker", {}).setdefault(tid, set())
             if date in pick_state:
@@ -159,11 +202,66 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             else:
                 pick_state.add(date)
             if t["kind"] == "replay":
-                dates = available_replay_dates(t["inst"])
+                res = _build_replay_picker(ctx, tid)
+                if res is None:
+                    await q.edit_message_text("No replay-able dates.", reply_markup=home_button_only())
+                    return
+                text, markup = res
             else:
+                from .picker import available_dates
+                from .._ui import render_train_picker
                 dates = available_dates(t["inst"])
-            text, markup = render_train_picker(tid, dates, selected=pick_state)
+                text, markup = render_train_picker(tid, dates, selected=pick_state)
             await q.edit_message_text(text, reply_markup=markup)
+            return
+
+        # Tap a 🟢🔒 running date in the replay picker → Stop / Back prompt.
+        # The locked row never toggles a date; it only routes here.
+        if head == "lock":
+            tid = parts[1]
+            date = parts[2]
+            t = TARGETS[tid]
+            text = f"🟢 {t['noun']} replay for {date} is running.\n\nStop it?"
+            buttons = [[
+                InlineKeyboardButton("⏹ Stop", callback_data=f"dostop:{tid}:{date}"),
+                InlineKeyboardButton("↩ Back", callback_data=f"rpick:{tid}"),
+            ]]
+            await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+            return
+
+        # Back from the Stop prompt → re-render the replay picker as-is.
+        if head == "rpick":
+            tid = parts[1]
+            res = _build_replay_picker(ctx, tid)
+            if res is None:
+                await q.edit_message_text("No replay-able dates.", reply_markup=home_button_only())
+                return
+            text, markup = res
+            await q.edit_message_text(text, reply_markup=markup)
+            return
+
+        # Confirmed stop of one running replay date → kill just that pid,
+        # then drop straight back into the (now-updated) picker.
+        if head == "dostop":
+            tid = parts[1]
+            date = parts[2]
+            from .._status import list_running
+            inst = TARGETS[tid]["inst"]
+            pid = None
+            for p in list_running("replay"):
+                if p["inst"] == inst and date in p["dates"]:
+                    pid = p["pid"]
+                    break
+            if pid is None:
+                head_msg = f"⚠️ No running replay found for {date} (already stopped?)."
+            else:
+                head_msg = stop_pid(pid)
+            res = _build_replay_picker(ctx, tid)
+            if res is None:
+                await q.edit_message_text(head_msg, reply_markup=home_button_only())
+                return
+            text, markup = res
+            await q.edit_message_text(f"{head_msg}\n\n{text}", reply_markup=markup)
             return
 
         # Confirm multi-select → fire on the picked set. Train uses a
