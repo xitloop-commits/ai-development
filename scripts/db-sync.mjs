@@ -43,6 +43,24 @@ function dbNameFromUri(uri) {
   return m ? m[1] : "test";
 }
 
+// Find a MongoDB tool: PATH first, else the standard Windows install dirs
+// (MongoDB Database Tools / Server). Falls back to the bare name so the ENOENT
+// hint still fires if it's genuinely missing.
+function resolveTool(name) {
+  const exe = process.platform === "win32" ? `${name}.exe` : name;
+  for (const base of ["C:/Program Files/MongoDB/Tools", "C:/Program Files/MongoDB/Server"]) {
+    try {
+      for (const ver of fs.readdirSync(base)) {
+        const p = path.join(base, ver, "bin", exe);
+        if (fs.existsSync(p)) return p;
+      }
+    } catch {
+      /* base dir absent */
+    }
+  }
+  return name;
+}
+
 function run(cmd, args, prettyArgs) {
   console.log(`\n$ ${cmd} ${prettyArgs.join(" ")}\n`);
   const r = spawnSync(cmd, args, { stdio: "inherit" });
@@ -68,7 +86,7 @@ const dbName = dbNameFromUri(uri);
 if (mode === "export") {
   fs.mkdirSync(DUMP_DIR, { recursive: true });
   run(
-    "mongodump",
+    resolveTool("mongodump"),
     [`--uri=${uri}`, `--out=${DUMP_DIR}`],
     ["--uri=<uri>", `--out=${DUMP_DIR}`],
   );
@@ -89,7 +107,7 @@ if (mode === "export") {
     process.exit(1);
   }
   run(
-    "mongorestore",
+    resolveTool("mongorestore"),
     [`--uri=${uri}`, "--drop", src],
     ["--uri=<uri>", "--drop", src],
   );
