@@ -117,9 +117,13 @@ __pycache__/
 # Recursive .env catch — top-level .env already ignored above
 **/.env
 
-# MongoDB dump/restore working dir (scripts/db-sync.mjs) — contains broker
-# credentials + TOTP secrets; transfer out-of-band, never commit.
+# MongoDB dump/restore working dir (scripts/db-sync.mjs) — plaintext, contains
+# broker credentials + TOTP secrets; never commit. (The encrypted db-dump.enc
+# IS committed and is safe.)
 db-dump/
+db-dump.tgz
+# The AES key for db-dump.enc — NEVER commit; share out-of-band.
+.db-sync.key
 
 # pnpm is the sole package manager (see package.json packageManager field)
 package-lock.json

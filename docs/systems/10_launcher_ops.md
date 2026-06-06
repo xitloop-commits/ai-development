@@ -189,9 +189,9 @@ Three kinds of state travel between machines; only code/docs sync automatically.
 |---|---|---|
 | Code + docs | Auto (git) | normal `git pull` / `git push`. |
 | Claude memory | Auto (git hooks) | `.githooks/pre-commit` runs `scripts/sync-memory.mjs push` + stages `docs/memory/`; `post-merge` runs `pull` → the home memory dir. Activated by `core.hooksPath=.githooks`, set on `pnpm install` (package.json `prepare`). |
-| MongoDB (`lucky_baskar`) + `.env` | **Manual** (local per-machine; hold secrets) | `pnpm db:export` dumps the full DB **and bundles `.env`** into `db-dump/` → copy privately → `pnpm db:import` on the other machine restores the DB (`--drop` replaces) and the `.env` if that machine has none (won't clobber an existing one). `scripts/db-sync.mjs` wraps mongodump/mongorestore (needs MongoDB Database Tools). `db-dump/` is gitignored — it holds broker credentials + TOTP + `.env` secrets; **never commit**. |
+| MongoDB (`lucky_baskar`) + `.env` | **Encrypted, via git** | `pnpm db:export` dumps the full DB + bundles `.env`, then AES-256-GCM-encrypts both into `db-dump.enc` (committed — safe). `pnpm db:import` decrypts → restores the DB (`--drop` replaces) + `.env` (won't clobber an existing `.env`). `scripts/db-sync.mjs` wraps mongodump/mongorestore (needs MongoDB Database Tools). The **key** is `.db-sync.key` (gitignored) — copy it to the other machine's repo root **out-of-band** (or set `DB_SYNC_KEY`); never commit it. Plaintext `db-dump/` is gitignored. |
 
-**New-machine setup:** `git pull` → `pnpm install` (activates the memory hooks) → install MongoDB Database Tools + run a local `mongod` → copy `db-dump/` over → `pnpm db:import` (restores the DB + `.env`).
+**New-machine setup:** `git pull` (brings `db-dump.enc`) → `pnpm install` (activates the memory hooks) → install MongoDB Database Tools + run a local `mongod` → place `.db-sync.key` at the repo root (out-of-band copy) → `pnpm db:import` (decrypts + restores the DB + `.env`).
 
 ## 12. Status
 
