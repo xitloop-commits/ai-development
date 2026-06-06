@@ -38,6 +38,19 @@ function readMongoUri() {
   return m[1].trim().replace(/^["']|["']$/g, "");
 }
 
+// Import-side URI: repo .env → the just-restored bundled .env → a localhost
+// default, so a fresh machine (no .env yet) can still restore.
+function resolveImportUri() {
+  if (process.env.MONGODB_URI) return process.env.MONGODB_URI;
+  for (const p of [path.join(REPO_ROOT, ".env"), path.join(DUMP_DIR, ".env")]) {
+    if (fs.existsSync(p)) {
+      const m = fs.readFileSync(p, "utf8").match(/^\s*MONGODB_URI\s*=\s*(.+)\s*$/m);
+      if (m) return m[1].trim().replace(/^["']|["']$/g, "");
+    }
+  }
+  return "mongodb://localhost:27017/lucky_baskar";
+}
+
 function dbNameFromUri(uri) {
   const m = uri.match(/\/([^/?]+)(\?|$)/);
   return m ? m[1] : "test";
@@ -109,13 +122,13 @@ if (!["export", "import"].includes(mode)) {
   process.exit(1);
 }
 
-const uri = readMongoUri();
-const dbName = dbNameFromUri(uri);
 // Temp archive at the repo root so `tar` gets a relative, drive-letter-free
 // filename (Windows bsdtar treats "C:\…" as a remote host). Cleaned up after.
 const tgz = path.join(REPO_ROOT, "db-dump.tgz");
 
 if (mode === "export") {
+  const uri = readMongoUri();
+  const dbName = dbNameFromUri(uri);
   if (fs.existsSync(DUMP_DIR)) fs.rmSync(DUMP_DIR, { recursive: true, force: true });
   fs.mkdirSync(DUMP_DIR, { recursive: true });
   run(resolveTool("mongodump"), [`--uri=${uri}`, `--out=${DUMP_DIR}`], ["--uri=<uri>", `--out=${DUMP_DIR}`]);
@@ -148,15 +161,8 @@ if (mode === "export") {
     fs.rmSync(tgz, { force: true });
   }
 
-  const src = path.join(DUMP_DIR, dbName);
-  if (!fs.existsSync(src)) {
-    console.error(
-      `✖ Nothing to import: no db-dump.enc and no ${src}.\n  Run 'pnpm db:export' on the source machine, commit db-dump.enc, pull here, and place .db-sync.key.`,
-    );
-    process.exit(1);
-  }
-  run(resolveTool("mongorestore"), [`--uri=${uri}`, "--drop", src], ["--uri=<uri>", "--drop", src]);
-
+  // Restore .env to the repo root if this machine has none yet — BEFORE
+  // resolving the Mongo URI, so a fresh machine can read it from the bundle.
   const envBundle = path.join(DUMP_DIR, ".env");
   const envTarget = path.join(REPO_ROOT, ".env");
   if (fs.existsSync(envBundle)) {
@@ -167,5 +173,16 @@ if (mode === "export") {
       console.log("  restored .env");
     }
   }
+
+  const uri = resolveImportUri();
+  const dbName = dbNameFromUri(uri);
+  const src = path.join(DUMP_DIR, dbName);
+  if (!fs.existsSync(src)) {
+    console.error(
+      `✖ Nothing to import: no db-dump.enc and no ${src}.\n  Run 'pnpm db:export' on the source machine, commit db-dump.enc, pull here, and place .db-sync.key.`,
+    );
+    process.exit(1);
+  }
+  run(resolveTool("mongorestore"), [`--uri=${uri}`, "--drop", src], ["--uri=<uri>", "--drop", src]);
   console.log(`\n✓ Imported '${dbName}' (+ .env) — matching collections dropped + replaced.\n`);
 }
