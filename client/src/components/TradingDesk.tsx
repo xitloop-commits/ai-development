@@ -8,7 +8,7 @@
  * Presentational children: PastRow, TodaySection, FutureRow, TodayPnlBar, ConfirmDialog.
  * Shared helpers: @/lib/tradeTypes, @/lib/tradeFormatters, @/lib/tradeCalculations, @/lib/tradeThemes.
  */
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useCapital } from '@/contexts/CapitalContext';
 import { TodayPnlBar } from './TodayPnlBar';
 import { TradingDeskSkeleton, NoCapitalEmpty, ErrorState } from './LoadingStates';
@@ -44,6 +44,15 @@ export default function TradingDesk({
   const workspace = channelToWorkspace(channel);
 
   const [showNet] = useState(true);
+  const [expandedDays, setExpandedDays] = useState<Set<number>>(() => new Set());
+  const toggleExpand = useCallback((dayIndex: number) => {
+    setExpandedDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(dayIndex)) next.delete(dayIndex);
+      else next.add(dayIndex);
+      return next;
+    });
+  }, []);
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const todayRef = useRef<HTMLTableRowElement>(null);
   const canManageTrades = supportsManualControls(channel);
@@ -201,6 +210,8 @@ export default function TradingDesk({
                       showNet={showNet}
                       channel={channel}
                       highlighted={highlightedDay === day.dayIndex}
+                      expanded={expandedDays.has(day.dayIndex)}
+                      onToggleExpand={toggleExpand}
                     />
                   );
                 })}

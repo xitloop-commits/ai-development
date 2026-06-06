@@ -17,6 +17,7 @@ import {
 import { InstrumentTag } from './InstrumentTag';
 import { RatingIcon } from './RatingIcon';
 import { ChargesBreakdownTip } from './ChargesBreakdownTip';
+import { PastTradeRow } from './PastTradeRow';
 
 const _seenGiftDays = new Set<number>();
 
@@ -25,9 +26,13 @@ export interface PastRowProps {
   showNet: boolean;
   channel: Channel;
   highlighted?: boolean;
+  /** When true, the day's individual trades are listed below the aggregate row. */
+  expanded?: boolean;
+  onToggleExpand?: (dayIndex: number) => void;
 }
 
-function _PastRow({ day, showNet, highlighted = false }: PastRowProps) {
+function _PastRow({ day, showNet, highlighted = false, expanded = false, onToggleExpand }: PastRowProps) {
+  const hasTrades = (day.trades?.length ?? 0) > 0;
   const pnlValue = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
   const pnlPercent = day.tradeCapital > 0 ? (day.totalPnl / day.tradeCapital * 100).toFixed(1) : '0.0';
   const dateLabel = formatDateAgeLabel(day.date || '', day.openedAt);
@@ -37,13 +42,26 @@ function _PastRow({ day, showNet, highlighted = false }: PastRowProps) {
   if (isGift) _seenGiftDays.add(day.dayIndex);
 
   return (
+    <>
     <tr data-day={day.dayIndex} className={`border-b border-border transition-colors text-muted-foreground ${
       isFreshGift ? 'animate-gift-celebrate' : ''
     } ${
       highlighted ? 'bg-warning-amber/20 outline outline-1 outline-warning-amber/60' : 'hover:bg-muted/30'
     }`}>
       <td className="px-2 py-2 text-right border-r border-border">
-        <span className="font-bold tabular-nums">{day.dayIndex}</span>
+        <div className="flex items-center justify-end gap-1">
+          {hasTrades ? (
+            <button
+              type="button"
+              onClick={() => onToggleExpand?.(day.dayIndex)}
+              className="leading-none text-muted-foreground hover:text-foreground"
+              title={expanded ? 'Hide trades' : 'Show trades'}
+            >
+              {expanded ? '▾' : '▸'}
+            </button>
+          ) : null}
+          <span className="font-bold tabular-nums">{day.dayIndex}</span>
+        </div>
       </td>
       <td className="px-2 py-2 text-right border-r border-border">
         <span className="block truncate tabular-nums">{dateLabel}</span>
@@ -108,6 +126,10 @@ function _PastRow({ day, showNet, highlighted = false }: PastRowProps) {
         </span>
       </td>
     </tr>
+    {expanded
+      ? (day.trades ?? []).map((t) => <PastTradeRow key={t.id} trade={t} showNet={showNet} />)
+      : null}
+    </>
   );
 }
 
@@ -135,7 +157,8 @@ export function pastRowPropsEqual(prev: PastRowProps, next: PastRowProps): boole
     d1.instruments.join('|') === d2.instruments.join('|') &&
     prev.showNet === next.showNet &&
     prev.channel === next.channel &&
-    prev.highlighted === next.highlighted
+    prev.highlighted === next.highlighted &&
+    prev.expanded === next.expanded
   );
 }
 
