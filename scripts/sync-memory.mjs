@@ -17,13 +17,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
 const REPO_MEMORY = path.join(REPO_ROOT, "docs", "memory");
 
-// Derive the Claude memory path from the repo root — same algorithm Claude uses.
-// Claude replaces path separators with "-" and prefixes with "c-" on Windows.
+// Derive the Claude memory path the same way Claude does (path separators → "-",
+// drive prefixed). IMPORTANT: Claude runs from the PARENT of the repo root (the
+// git repo is nested one level under the Claude working directory), so the slug
+// must come from that parent — not the repo root. An explicit CLAUDE_MEMORY_DIR
+// env var overrides everything for non-standard setups.
 function claudeMemoryPath() {
-  const repoAbs = REPO_ROOT.replace(/\\/g, "/"); // normalize
-  // e.g. C:/Users/Admin/ai-development/ai-development
-  // → c--Users-Admin-ai-development-ai-development
-  const slug = repoAbs
+  if (process.env.CLAUDE_MEMORY_DIR) return process.env.CLAUDE_MEMORY_DIR;
+  const cwd = path.resolve(REPO_ROOT, "..").replace(/\\/g, "/");
+  // e.g. C:/Users/Admin/ai-development → c--Users-Admin-ai-development
+  const slug = cwd
     .replace(/^([A-Za-z]):/, (_, d) => d.toLowerCase() + "-") // "C:" → "c-"
     .replace(/\//g, "-");                                       // slashes → dashes
   return path.join(os.homedir(), ".claude", "projects", slug, "memory");
