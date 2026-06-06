@@ -83,14 +83,25 @@ The single biggest UX change. AppBar now hosts three workspace tabs (AI / My / T
 
 `TradingDesk.tsx` renders a vertical stack: `PastRow` (completed Day Indexes, collapsed, green tint) → `TodaySection` (active day, expanded) → `FutureRow` (projected days, dimmed, auto-calculated).
 
-Every row component takes `channel: Channel` and themes via `channelToWorkspace(channel)` → `tradeThemes.ts`. Manual controls (exit buttons, new-trade form, quick-order hotkeys 1/2/3/4) are gated by `supportsManualControls(channel)` — false on `ai-live` / `ai-paper`, true everywhere else.
+Every row component takes `channel: Channel` and themes via `channelToWorkspace(channel)` → `tradeThemes.ts`. Manual controls (exit buttons, the per-instrument trade-entry bars, quick-order hotkeys 1/2/3/4) are gated by `supportsManualControls(channel)` — false on `ai-live` / `ai-paper`, true everywhere else.
 
 **Data sources:**
 - `useCapital()` from `CapitalContext` — channel, allDays, currentDay, P&L summary, placeTrade / exitTrade / updateLtp mutations.
 - `useTickStream` + `useTradingDeskData` — live LTP polling (2 s cadence) + feed subscription for underlying + option-chain instruments.
 - Discipline state cached separately (10 s cadence).
 
-**Current layout (locked 2026-05-31).** Summary bar with the full metric set + 16-column trade table is the final design — no near-term redesign planned. The earlier `TradingDesk_Spec_v1.3` proposal to shrink (10 → 6 summary items, 15 → 10 columns, row-expand on `PastRow`) was formally dropped 2026-05-31. Code IS the authority for layout.
+**Layout.** Summary bar with the full metric set + 17-column trade table. Code IS the authority for layout.
+
+**Trade entry — InstrumentBar bars (2026-06-06).** The old click-to-open `NewTradeForm` dropdown was removed; entry is now four always-on per-instrument bars at the bottom of `TodaySection` (below the day summary):
+- **`InstrumentBar`** (wrapper) — `caption | expiry | CE/PE | LONG/SHORT | bar`; switches inner bar by state: **ready → `StrikeBar`**, **open → `TradeBar`**, **closed → frozen `TradeBar`**.
+- **`StrikeBar`** (ready) — rolling ITM/ATM/OTM strike scale with the underlying LTP as a live pointer, support/resistance markers, a single-colour dwell-heatmap "footprint" trail, and a click-to-place **trade-entry marker**: clicking arms an entry price; when the LTP reaches it, `onEnterTrade` places the option (CE/PE + LONG/SHORT at ATM) via the normal executor path.
+- **`TradeBar`** (open/closed; renamed from `TradePriceBar`) — SL / entry / TSL / LTP / TP scale, with a `frozen` mode for the closed snapshot.
+- Ready-state columns show a live ATM-option preview (Entry / LTP / Lot / Invested / Charges); the caption sits in the Day+Date columns, bar+toggles in the Capital→Instrument columns. Underlying price comes only from the live tick stream (`useOptionPreview`).
+- **`PastRow`** now has a **chevron to expand** a completed day and list its individual trades (read-only `PastTradeRow`); past data stays immutable.
+
+**Performance hardening (2026-06-06).** To stop a freeze under live ticks: past-day `normalizeDayRecord` cached by dayIndex; open rows subscribe per-contract via `useInstrumentTick` (re-render only on their own tick, not every tick); `tickStore` evicts idle contracts (TTL); hot-path `console.warn`s removed; `onExit` stabilised for closed-row memo.
+
+**Dev mock-feed (dev builds only).** An AppBar `MOCK` toggle flips `getActiveBroker()` to the mock adapter so the whole desk (feed / chain / fills) runs on synthetic data offline for testing; hard-gated to non-production.
 
 ## 5. Left sidebar — Instrument tabs + `InstrumentCard v2`
 
@@ -163,10 +174,12 @@ tRPC queries used by the main loop:
 - `trading.instrumentLiveState`.
 - `discipline.state` (cached 10 s).
 - `portfolio.headToHead` (stub today — see [T50](../PROJECT_TODO.md) for the backend).
+- `broker.feed.ohlc` — server-cached (2 s) day OHLC for all 4 instruments; the only source of **index** OHLC (the WS feed can't carry it — Dhan drops IDX_I in quote/full mode). See [01 Data Ingestion](01_data_ingestion.md) / [05 Execution](05_execution.md).
 
 **Live data hooks:**
-- `useTickStream` — Dhan tick subscription for the active instrument.
+- `useTickStream` — Dhan tick subscription (shared singleton); `useInstrumentTick(exchange, securityId)` subscribes to a single contract's ticks (per-row hot path).
 - `useTradingDeskData` — composite hook joining tick stream + capital state + order updates.
+- `useOptionPreview` — resolves the ATM option contract + live premium for the InstrumentBar ready-state preview.
 
 ## 11. Status
 
@@ -177,6 +190,8 @@ tRPC queries used by the main loop:
 - InstrumentCard v2 — 6-section implementation shipped; matching spec is a stub.
 - Notifications — toast layer + AlertHistory live; Telegram routing partial (token expiry + session-close shipped, trade-event routing pending). Email layer dropped from scope 2026-05-31.
 - HeadToHeadPage — frontend wired to `portfolio.headToHead` tRPC query; backend is stub (T50).
+
+**Shipped 2026-06-06:** TradingDesk trade-entry redesign — always-on per-instrument `InstrumentBar` bars (`StrikeBar` ready / `TradeBar` open-closed, renamed from `TradePriceBar`) replace `NewTradeForm`; entry-marker → executor placement; `PastRow` expand-to-show-trades; freeze/leak/repaint hardening (normalize cache, per-instrument tick subscription, tickStore TTL); dev mock-feed toggle; `broker.feed.ohlc` endpoint.
 
 ## 12. Open work
 
@@ -201,14 +216,15 @@ tRPC queries used by the main loop:
 | App entry + router | `client/src/App.tsx` |
 | MainScreen | `client/src/pages/MainScreen.tsx` |
 | AppBar + channel tabs | `client/src/components/AppBar.tsx`, `ChannelTabs.tsx` |
-| TradingDesk + row components | `client/src/pages/TradingDesk.tsx`, `client/src/components/trade/` |
+| TradingDesk + row components | `client/src/components/TradingDesk.tsx`, `TodaySection.tsx`, `TodayTradeRow.tsx`, `PastRow.tsx`, `PastTradeRow.tsx`, `FutureRow.tsx` |
+| Instrument trade-entry bars | `client/src/components/{InstrumentBar,StrikeBar,TradeBar,InstrumentBarRow}.tsx` |
 | Settings overlay + sections | `client/src/components/SettingsOverlay.tsx`, `client/src/pages/Settings/` |
 | Discipline overlay | `client/src/components/DisciplineOverlay.tsx` |
 | CircuitBreakerOverlay (system-triggered) | `client/src/components/CircuitBreakerOverlay.tsx` |
 | InstrumentCard v2 (6 sections) | `client/src/components/InstrumentCard.tsx` |
 | Left / Right sidebars | `client/src/components/LeftDrawer.tsx`, `RightDrawer.tsx` |
 | Capital context + provider | `client/src/contexts/CapitalContext.tsx` |
-| Live data hooks | `client/src/hooks/useTickStream.ts`, `useTradingDeskData.ts` |
+| Live data hooks | `client/src/hooks/useTickStream.ts` (+ `useInstrumentTick`), `useTradingDeskData.ts`, `useOptionPreview.ts` |
 | Quick-order popup | `client/src/components/QuickOrderPopup.tsx` |
 | HeadToHeadPage (?view=h2h, dev-only) | `client/src/pages/HeadToHeadPage.tsx` |
 | Toast notifications | `client/src/components/Toaster.tsx` (sonner) |

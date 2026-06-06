@@ -267,6 +267,14 @@ The `testing-sandbox` channel was historically half-built — `connect()` short-
 
 ## P2 — parked features (small enough to wait)
 
+### TradingDesk trade-entry bars — ✅ SHIPPED 2026-06-06 (2 follow-ups open)
+
+Replaced `NewTradeForm` with always-on per-instrument `InstrumentBar` bars (`StrikeBar` ready / `TradeBar` open-closed) + click-to-place entry-marker → executor placement; `PastRow` expand-to-show-trades; TradingDesk freeze/leak/repaint hardening (past-day normalize cache, per-instrument `useInstrumentTick`, tickStore TTL); dev `MOCK` feed toggle for offline testing; `broker.feed.ohlc` endpoint. Full design + status in [08 UI Desktop §4](systems/08_ui_desktop.md).
+
+- [ ] Verify entry-marker → paper placement end-to-end at market open (so far only offline-tested via the dev MOCK toggle).
+- [ ] Pre-existing `DhanAdapter.exitAll` unit test fails (predates this work, unrelated) — fix or quarantine.
+- Note: BANKNIFTY strike-step defaults to 50 offline when `instrumentLiveState` is stale (intentionally left — correct at market open).
+
 ### T4 — Replay in-date progress + chunked resume (PARTIALLY DONE 2026-05-16)
 
 Show events_done / events_total_est / rate / ETA AND survive power cuts without losing all in-flight work.
