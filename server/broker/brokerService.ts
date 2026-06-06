@@ -308,11 +308,46 @@ export function getKillSwitchState(): KillSwitchState {
 
 // ─── Legacy single-adapter helpers (used by brokerRouter + brokerRoutes) ───
 
+// ─── Dev mock-feed (offline testing) ────────────────────────────
+// When enabled (dev builds only), getActiveBroker() returns the mock adapter so
+// the whole desk — feed, option chain, expiry, lot size, and paper fills — runs
+// on synthetic data with the market closed. Hard-gated to non-production; never
+// affects live builds; default off.
+const MOCK_FEED_ALLOWED = process.env.NODE_ENV !== "production";
+let mockFeedEnabled = false;
+const MOCK_FEED_UNDERLYINGS = [
+  { exchange: "IDX_I", securityId: "13", mode: "ticker" }, // NIFTY 50
+  { exchange: "IDX_I", securityId: "25", mode: "ticker" }, // BANK NIFTY
+];
+
+export function isMockFeedAllowed(): boolean {
+  return MOCK_FEED_ALLOWED;
+}
+export function isMockFeed(): boolean {
+  return mockFeedEnabled;
+}
+/** Toggle the dev mock feed. Returns the effective state. No-op in production. */
+export function setMockFeed(enabled: boolean): boolean {
+  if (!MOCK_FEED_ALLOWED) return false;
+  mockFeedEnabled = enabled;
+  const mock = adapters.mockMy;
+  if (mock) {
+    if (enabled) {
+      // Start synthetic underlying ticks → tickBus → browser.
+      mock.subscribeLTP(MOCK_FEED_UNDERLYINGS as any, (tick) => tickBus.emitTick(tick));
+    } else {
+      mock.unsubscribeLTP(MOCK_FEED_UNDERLYINGS as any);
+    }
+  }
+  return mockFeedEnabled;
+}
+
 /**
- * Get the currently active adapter (dhanLive by default).
- * Kept for backward compatibility — prefer getAdapter(channel) in new code.
+ * Get the currently active adapter (dhanLive by default; the mock adapter when
+ * the dev mock-feed is on). Prefer getAdapter(channel) in new code.
  */
 export function getActiveBroker(): BrokerAdapter | null {
+  if (mockFeedEnabled && adapters.mockMy) return adapters.mockMy;
   return adapters.dhanLive;
 }
 

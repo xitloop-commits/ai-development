@@ -453,11 +453,17 @@ export class MockAdapter implements BrokerAdapter {
   }
 
   private startTickSimulation(): void {
+    // Realistic seed prices for the tracked underlyings so the offline (mock)
+    // desk shows sensible numbers; everything else random-walks from ~100–500.
+    const SEED: Record<string, number> = {
+      "IDX_I:13": 23400, // NIFTY 50
+      "IDX_I:25": 51000, // BANK NIFTY
+    };
     const basePrices = new Map<string, number>();
     this.tickTimer = setInterval(() => {
       if (!this.tickCallback) return;
       for (const [key, inst] of Array.from(this.subscribedInstruments)) {
-        if (!basePrices.has(key)) basePrices.set(key, 100 + Math.random() * 400);
+        if (!basePrices.has(key)) basePrices.set(key, SEED[key] ?? 100 + Math.random() * 400);
         const base = basePrices.get(key)!;
         const jitter = (Math.random() - 0.5) * base * 0.005;
         const ltp = Math.round((base + jitter) * 100) / 100;

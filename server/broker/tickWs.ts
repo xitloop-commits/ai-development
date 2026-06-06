@@ -13,6 +13,8 @@ import type { Server, IncomingMessage } from "http";
 import type { Duplex } from "stream";
 import type { Socket } from "net";
 import { tickBus, type ChainUpdate } from "./tickBus";
+import type { TickData } from "./types";
+import { isMockFeed } from "./brokerService";
 
 import { createLogger } from "./logger";
 const log = createLogger("BSA", "TickWS");
@@ -108,6 +110,14 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
 
   tickBus.on("chainUpdate", onChainUpdate);
 
+  // Forward parsed ticks as JSON ONLY for the dev mock feed — live ticks already
+  // reach the browser as raw binary, so gating this avoids doubling traffic.
+  const onTick = (tick: TickData) => {
+    if (wss.clients.size === 0 || !isMockFeed()) return;
+    sendToAllClients(wss, JSON.stringify({ type: "snapshot", ticks: [tick] }));
+  };
+  tickBus.on("tick", onTick);
+
   wss.on("connection", (ws, request) => {
     log.info(`Client connected (total: ${wss.clients.size})`);
 
@@ -151,6 +161,7 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
         // push into a closed wss (would log noisy errors).
         tickBus.off("rawBinary", onRawBinary);
         tickBus.off("chainUpdate", onChainUpdate);
+        tickBus.off("tick", onTick);
         // Send a clean close frame to every connected browser, then
         // shut the server.
         wss.clients.forEach((client) => {

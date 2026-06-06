@@ -270,6 +270,8 @@ export function TodaySection({
             channel={channel}
             colSpan={TABLE_COLSPAN}
             resolvedInstruments={resolvedInstruments}
+            openTrade={trades.find((t) => t.instrument === inst && t.status === 'OPEN')}
+            onPlaceTrade={onPlaceTrade}
           />
         ))}
     </>
