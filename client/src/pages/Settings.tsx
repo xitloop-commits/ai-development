@@ -420,15 +420,21 @@ export function OrderExecutionSection() {
     }
   }, [config]);
 
-  const { syncDailyTarget, refetchAll } = useCapital();
+  const { syncDailyTarget } = useCapital();
 
   const updateMutation = trpc.broker.config.updateSettings.useMutation({
     onSuccess: () => {
       toast.success('Order execution settings saved');
+      // Light refresh: just re-read the broker config.
       void configQuery.refetch();
-      // Immediately sync dailyTargetPercent to capital state + current day record
-      syncDailyTarget(settings.dailyTargetPercent);
-      refetchAll();
+      // Only the daily-target change needs a portfolio recompute + full refresh
+      // (it rewrites the current day + future projections). Skip that heavy work
+      // for every other setting so saving stays snappy. syncDailyTarget already
+      // invalidates capital + allDays on success, so no extra refetchAll needed.
+      const prevTarget = (config?.settings as any)?.dailyTargetPercent;
+      if (settings.dailyTargetPercent !== prevTarget) {
+        syncDailyTarget(settings.dailyTargetPercent);
+      }
     },
     onError: (err) => toast.error(err.message),
   });
