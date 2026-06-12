@@ -140,7 +140,8 @@ const placeTradeUiSchema = z.object({
   type: uiTradeTypeSchema,
   strike: z.number().nullable().default(null),
   entryPrice: z.number().positive(),
-  capitalPercent: z.number().min(5).max(100),
+  // Optional: a trade may be sized by fixed lots (qty) instead of % of capital.
+  capitalPercent: z.number().min(0).max(100).optional(),
   expiry: z.string().optional().default(""),
   contractSecurityId: z.string().optional().nullable(),
   qty: z.number().int().positive().optional(),
@@ -300,13 +301,18 @@ export const executorRouter = router({
       if (input.qty != null && input.qty > 0) {
         qty = input.qty * (lotSize ?? 1);
         margin = qty * entryPrice;
-      } else {
+      } else if (input.capitalPercent != null && input.capitalPercent > 0) {
         ({ qty, margin } = calculatePositionSize(
           available,
           input.capitalPercent,
           entryPrice,
           lotSize ?? 1,
         ));
+      } else {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Provide either qty (lots) or capitalPercent to size the trade",
+        });
       }
       if (margin > available) {
         throw new TRPCError({
