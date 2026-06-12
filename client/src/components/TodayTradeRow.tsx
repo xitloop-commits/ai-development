@@ -324,10 +324,7 @@ function _TodayTradeRow({
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="cursor-default">
-              {(() => {
-                const ls = trade.lotSize && trade.lotSize > 1 ? trade.lotSize : 1;
-                return `${Math.floor(trade.qty / ls)} / ${trade.qty}`;
-              })()}
+              {trade.qty}
             </span>
           </TooltipTrigger>
           <TooltipContent side="top">

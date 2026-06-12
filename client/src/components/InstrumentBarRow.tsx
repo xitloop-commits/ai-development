@@ -159,8 +159,8 @@ export function InstrumentBarRow({
       {/* Entry / LTP / Lot / Invested → live ATM-option preview */}
       <td className={CELL}>{hasPreview ? premium.toFixed(2) : ""}</td>
       <td className={CELL}>{hasPreview ? premium.toFixed(2) : ""}</td>
-      {/* Lot / total units (e.g. 10 / 750) — matches the trade-row format. */}
-      <td className={CELL}>{hasPreview ? `${lots} / ${totalUnits}` : ""}</td>
+      {/* Total units (lots × lot size) — matches the trade-row format. */}
+      <td className={CELL}>{hasPreview ? totalUnits : ""}</td>
       <td className={CELL}>{hasPreview ? fmt(invested) : ""}</td>
       {/* Points */}
       <td className={CELL} />
