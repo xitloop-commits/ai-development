@@ -47,6 +47,8 @@ export interface TodayTradeRowProps {
   /** Fallback hard-stop % (settings defaultSL) — used only when the trade has no
    *  stored stop yet; otherwise the bar derives the stop from trade.stopLossPrice. */
   slPercent?: number;
+  /** Trailing activation gate % (settings) — positions the pending TSL marker. */
+  tslGatePercent?: number;
 }
 
 interface RenderProps extends TodayTradeRowProps {
@@ -66,6 +68,7 @@ function _TodayTradeRow({
   channel,
   globalTrailingEnabled = false,
   slPercent,
+  tslGatePercent,
   liveLtp,
 }: RenderProps) {
   const [editOpen, setEditOpen] = useState(false);
@@ -225,6 +228,14 @@ function _TodayTradeRow({
                     trade.entryPrice) * 100
                 : undefined
             }
+            // Pending TSL marker at the activation gate (breakeven + gate%) while
+            // trailing is on but the stop hasn't trailed into profit yet.
+            trailingEnabled={globalTrailingEnabled}
+            tslGatePrice={(() => {
+              const be = trade.breakevenPrice ?? trade.entryPrice;
+              const g = tslGatePercent ?? 2;
+              return isBuy ? be * (1 + g / 100) : be * (1 - g / 100);
+            })()}
             compact
             // Testing-only: surface the bar's events as toasts so we can see what
             // fired. Not wired to any real exit (server stays the owner).

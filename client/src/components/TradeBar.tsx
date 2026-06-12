@@ -35,6 +35,12 @@ export interface TradeBarProps {
   slPercent?: number;
   /** Take-profit %. TP = entry + tpPercent% (BUY). */
   tpPercent?: number;
+  /** Trailing enabled (global). When on but the stop hasn't trailed into profit
+   *  yet, a thin "pending" TSL marker is drawn at the activation gate. */
+  trailingEnabled?: boolean;
+  /** Price at which the trailing stop will arm (breakeven + gate%). Positions the
+   *  pending TSL marker before activation. */
+  tslGatePrice?: number;
   /** Compact mode (tight table cells): bar + ticks only, no text labels. */
   compact?: boolean;
   /** Frozen snapshot (closed trade): render markers statically + skip the hit
@@ -73,6 +79,8 @@ export function TradeBar({
   ltp,
   slPercent = 5,
   tpPercent = 10,
+  trailingEnabled = false,
+  tslGatePrice,
   compact = false,
   frozen = false,
   className,
@@ -88,6 +96,10 @@ export function TradeBar({
   // positive once it has trailed into profit ("locked").
   const stopFav = -slPercent;
   const stopLocked = stopFav > 0;
+  // Pending TSL: trailing is on but the stop hasn't trailed into profit yet — show
+  // a thin marker at the gate so it's clear the TSL exists, just not armed.
+  const gateFav = trailingEnabled && tslGatePrice && tslGatePrice > 0 ? toFav(tslGatePrice) : null;
+  const tslPending = trailingEnabled && !stopLocked && gateFav != null;
 
   // Scale anchored to the trade's own levels: stop on the left (+ a little pad,
   // but never above entry) and TP on the right (+ headroom). The upper bound
@@ -287,6 +299,20 @@ export function TradeBar({
           <Tick at={tpPos} color={TP_COLOR} tip={tpTip} />
         </div>
 
+        {/* Pending TSL — thin marker at the activation gate (trailing on, not armed). */}
+        {tslPending && (
+          <div
+            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 pointer-events-auto cursor-help"
+            style={{ left: `${pos(gateFav as number)}%`, width: '7px', height: '16px' }}
+            title={`TSL pending — arms at ${formatPrice(tslGatePrice as number)}`}
+          >
+            <div
+              className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0"
+              style={{ borderLeft: `1px dashed ${TSL_COLOR}`, opacity: 0.6 }}
+            />
+          </div>
+        )}
+
         {/* LTP triangle pointer */}
         <div
           className="absolute -translate-x-1/2 pointer-events-auto cursor-help transition-[left] duration-300 ease-out"
@@ -305,6 +331,14 @@ export function TradeBar({
         <div className="relative w-full h-3 mt-0.5">
           <Label at={stopPos} color={stopColor} text={stopText} />
           <Label at={entryPos} color={ENTRY_COLOR} text="E" />
+          {tslPending && (
+            <span
+              className="absolute -translate-x-1/2 text-[0.5rem] font-bold tabular-nums leading-none"
+              style={{ left: `${clamp(pos(gateFav as number), 4, 96)}%`, color: TSL_COLOR, opacity: 0.6 }}
+            >
+              TSL
+            </span>
+          )}
           <Label at={tpPos} color={TP_COLOR} text="TP" />
         </div>
       )}

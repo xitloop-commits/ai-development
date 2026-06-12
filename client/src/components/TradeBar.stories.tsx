@@ -73,6 +73,11 @@ export const BuyInLoss: Story = {
   parameters: { docs: { description: { story: "BUY in loss — LTP between the stop and entry." } } },
 };
 
+export const TslPending: Story = {
+  args: { ...base, trailingEnabled: true, tslGatePrice: 277 },
+  parameters: { docs: { description: { story: "Trailing on but not armed yet — a thin gold TSL marker sits at the activation gate until the stop trails into profit." } } },
+};
+
 export const StopTrailedIntoProfit: Story = {
   args: { ...base, ltp: 292, slPercent: -3 },
   parameters: { docs: { description: { story: "Stop trailed into profit (slPercent negative) — the marker turns gold and is labelled TSL; the entry→stop band shows locked profit." } } },

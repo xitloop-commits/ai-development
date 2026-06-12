@@ -77,6 +77,8 @@ export function TodaySection({
   // Fallback hard-stop % — only used when a trade has no stored stop yet; the bar
   // otherwise draws the real stop from trade.stopLossPrice (which the server trails).
   const slPercent = brokerConfigQuery.data?.settings?.defaultSL ?? 2;
+  // Trailing activation gate % — positions the pending TSL marker on each row's bar.
+  const tslGatePercent = brokerConfigQuery.data?.settings?.trailingActivationGatePercent ?? 2;
   const updateTradeMutation = trpc.executor.updateTrade.useMutation();
   const utils = trpc.useUtils();
   const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
@@ -147,6 +149,7 @@ export function TodaySection({
             channel={channel}
             globalTrailingEnabled={globalTrailingEnabled}
             slPercent={slPercent}
+            tslGatePercent={tslGatePercent}
           />
         );
       })}
