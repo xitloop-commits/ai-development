@@ -17,6 +17,14 @@ const INSTRUMENT_UNDERLYING: Record<string, string> = {
   NATURALGAS: 'NATURALGAS',
 };
 
+// instrumentKey → per-instrument sizing key (broker settings.instrumentSizing)
+const SIZING_KEY: Record<string, string> = {
+  NIFTY_50: 'nifty50',
+  BANKNIFTY: 'banknifty',
+  CRUDEOIL: 'crudeoil',
+  NATURALGAS: 'naturalgas',
+};
+
 const QTY_PRESETS = [1, 2, 3, 5, 10, 15, 20, 50];
 
 type OptionType = 'CE' | 'PE';
@@ -70,6 +78,7 @@ export function QuickOrderPopup({
   const [target, setTarget] = useState<number | undefined>();
   const [tslEnabled, setTslEnabled] = useState(false);
   const [isQtyPopoverOpen, setIsQtyPopoverOpen] = useState(false);
+  const pctSeededRef = useRef(false);
 
   const tradeType = `${optionType === 'CE' ? 'CALL' : 'PUT'}_${direction}` as QuickOrderData['tradeType'];
   const symbolUnderlying = INSTRUMENT_UNDERLYING[instrumentKey] ?? instrumentKey;
@@ -113,6 +122,11 @@ export function QuickOrderPopup({
   const defaultSLPct = settings?.defaultSL ?? 2;
   const defaultTPPct = settings?.tradeTargetOptions ?? 30;
   const defaultQty = (settings as any)?.defaultQty ?? 1;
+  // Per-instrument default sizing (Settings → Order Entry): fixed lots or % cap.
+  const sizing = ((settings as any)?.instrumentSizing?.[SIZING_KEY[instrumentKey] ?? ''] ?? {
+    mode: 'lots',
+    value: defaultQty,
+  }) as { mode: string; value: number };
 
   // getLotSize is authoritative (scrip master for NSE, scraped page for MCX);
   // the option chain's lotSize is wrong for MCX (reports 1), so prefer the query.
@@ -160,13 +174,26 @@ export function QuickOrderPopup({
     if (!isOpen) return;
     setOptionType('CE');
     setDirection('BUY');
-    setQty(defaultQty);
+    // Seed lots from the instrument's setting; % mode is resolved once prices load.
+    setQty(sizing.mode === 'lots' ? Math.max(1, Math.round(sizing.value)) : defaultQty);
+    pctSeededRef.current = false;
     setEntryPrice(0);
     setStopLoss(undefined);
     setTarget(undefined);
     // Set strike immediately from cached ATM data (if available), otherwise 0 until query loads
     setStrike(atmRow?.strike ?? 0);
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // % Cap sizing: once the premium + available capital + lot size are known,
+  // convert the configured % into a lots count (one-shot per open).
+  useEffect(() => {
+    if (!isOpen || sizing.mode !== 'percent' || pctSeededRef.current) return;
+    if (entryPrice > 0 && availableFund > 0 && lotSize > 0) {
+      const lots = Math.max(1, Math.floor((availableFund * (sizing.value / 100)) / (entryPrice * lotSize)));
+      setQty(lots);
+      pctSeededRef.current = true;
+    }
+  }, [isOpen, sizing.mode, sizing.value, entryPrice, availableFund, lotSize]);
 
   // Init TSL from broker settings
   useEffect(() => {

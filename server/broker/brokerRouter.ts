@@ -158,6 +158,11 @@ const _modifyParamsSchema = z.object({
   orderType: z.enum(["LIMIT", "MARKET", "SL", "SL-M"]).optional(),
 });
 
+const instrumentSizingEntrySchema = z.object({
+  mode: z.enum(["lots", "percent"]),
+  value: z.number().min(0).max(1000),
+});
+
 const brokerSettingsSchema = z.object({
   orderEntryOffset: z.number().min(0).max(10).optional(),
   defaultSL: z.number().min(0).max(50).optional(),
@@ -172,6 +177,14 @@ const brokerSettingsSchema = z.object({
   trailingActivationGatePercent: z.number().min(0).max(50).optional(),
   trailingActivationHoldSeconds: z.number().min(0).max(120).optional(),
   defaultQty: z.number().min(1).max(100).optional(),
+  instrumentSizing: z
+    .object({
+      nifty50: instrumentSizingEntrySchema,
+      banknifty: instrumentSizingEntrySchema,
+      crudeoil: instrumentSizingEntrySchema,
+      naturalgas: instrumentSizingEntrySchema,
+    })
+    .optional(),
 });
 
 const channelSchema = z.enum([

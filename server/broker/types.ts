@@ -353,6 +353,13 @@ export interface BrokerCredentials {
   status: TokenStatus;
 }
 
+/** How a new trade is sized: a fixed number of lots, or a % of available capital. */
+export type SizingMode = "lots" | "percent";
+export interface InstrumentSizing {
+  mode: SizingMode;
+  value: number; // lots count when mode="lots"; % of available capital when "percent"
+}
+
 export interface BrokerSettings {
   orderEntryOffset: number; // % below LTP for limit orders (default 1.0)
   defaultSL: number; // default stop loss % (default 2.0)
@@ -366,7 +373,15 @@ export interface BrokerSettings {
   trailingStopPercent: number; // trailing stop distance % from peak (default 2.0)
   trailingActivationGatePercent: number; // % past breakeven before TSL arms (default 2.0)
   trailingActivationHoldSeconds: number; // seconds the gate must hold before TSL arms (default 10)
-  defaultQty: number; // default quantity in lots for quick order (default 1)
+  defaultQty: number; // fallback quantity in lots (instruments not in instrumentSizing) (default 1)
+  // Per-instrument default sizing for the instrument bar + quick order: fixed
+  // lots or % of available capital. Keyed by instrumentLiveState key.
+  instrumentSizing: {
+    nifty50: InstrumentSizing;
+    banknifty: InstrumentSizing;
+    crudeoil: InstrumentSizing;
+    naturalgas: InstrumentSizing;
+  };
 }
 
 export interface BrokerConnection {

@@ -387,8 +387,15 @@ export function OrderExecutionSection() {
     trailingStopPercent: 2,
     trailingActivationGatePercent: 2,
     trailingActivationHoldSeconds: 10,
-    // Default quantity for quick order
+    // Fallback quantity (instruments not in instrumentSizing) for quick order
     defaultQty: 1,
+    // Per-instrument default sizing (instrument bar + quick order)
+    instrumentSizing: {
+      nifty50: { mode: 'lots', value: 10 },
+      banknifty: { mode: 'lots', value: 10 },
+      crudeoil: { mode: 'lots', value: 10 },
+      naturalgas: { mode: 'lots', value: 10 },
+    } as Record<string, { mode: string; value: number }>,
   });
 
   useEffect(() => {
@@ -408,6 +415,7 @@ export function OrderExecutionSection() {
         trailingActivationGatePercent: (config.settings as any).trailingActivationGatePercent ?? prev.trailingActivationGatePercent,
         trailingActivationHoldSeconds: (config.settings as any).trailingActivationHoldSeconds ?? prev.trailingActivationHoldSeconds,
         defaultQty: (config.settings as any).defaultQty ?? prev.defaultQty,
+        instrumentSizing: (config.settings as any).instrumentSizing ?? prev.instrumentSizing,
       }));
     }
   }, [config]);
@@ -442,6 +450,7 @@ export function OrderExecutionSection() {
         trailingActivationGatePercent: settings.trailingActivationGatePercent,
         trailingActivationHoldSeconds: settings.trailingActivationHoldSeconds,
         defaultQty: settings.defaultQty,
+        instrumentSizing: settings.instrumentSizing,
       } as any,
     });
   };
@@ -461,6 +470,12 @@ export function OrderExecutionSection() {
         trailingActivationGatePercent: (config.settings as any).trailingActivationGatePercent ?? 2,
         trailingActivationHoldSeconds: (config.settings as any).trailingActivationHoldSeconds ?? 10,
         defaultQty: (config.settings as any).defaultQty ?? 1,
+        instrumentSizing: (config.settings as any).instrumentSizing ?? {
+          nifty50: { mode: 'lots', value: 10 },
+          banknifty: { mode: 'lots', value: 10 },
+          crudeoil: { mode: 'lots', value: 10 },
+          naturalgas: { mode: 'lots', value: 10 },
+        },
       });
     }
   };
@@ -565,6 +580,53 @@ export function OrderExecutionSection() {
               max={100}
               step={1}
             />
+          </div>
+
+          <div className="space-y-2 pt-3 border-t border-border/40">
+            <FieldLabel hint="Default sizing per instrument for the instrument bar + quick order. Lots = place that many lots. % Cap = size by that % of available capital.">
+              Default Sizing (per instrument)
+            </FieldLabel>
+            {([
+              ['nifty50', 'NIFTY 50'],
+              ['banknifty', 'BANK NIFTY'],
+              ['crudeoil', 'CRUDE OIL'],
+              ['naturalgas', 'NATURAL GAS'],
+            ] as const).map(([key, label]) => {
+              const s = settings.instrumentSizing[key] ?? { mode: 'lots', value: 10 };
+              return (
+                <div key={key} className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">{label}</span>
+                  <div className="flex items-center gap-2">
+                    <SelectInput
+                      value={s.mode}
+                      onChange={(v) =>
+                        setSettings((st) => ({
+                          ...st,
+                          instrumentSizing: { ...st.instrumentSizing, [key]: { ...s, mode: v } },
+                        }))
+                      }
+                      options={[
+                        { value: 'lots', label: 'Lots' },
+                        { value: 'percent', label: '% Cap' },
+                      ]}
+                    />
+                    <NumberInput
+                      value={s.value}
+                      onChange={(v) =>
+                        setSettings((st) => ({
+                          ...st,
+                          instrumentSizing: { ...st.instrumentSizing, [key]: { ...s, value: v } },
+                        }))
+                      }
+                      min={0}
+                      max={s.mode === 'percent' ? 100 : 1000}
+                      step={s.mode === 'percent' ? 0.5 : 1}
+                      suffix={s.mode === 'percent' ? '%' : undefined}
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </SettingsCard>

@@ -31,6 +31,25 @@ const credentialsSchema = new Schema<BrokerCredentials>(
   { _id: false }
 );
 
+const sizingSchema = new Schema(
+  {
+    mode: { type: String, enum: ["lots", "percent"], default: "lots" },
+    value: { type: Number, default: 10 },
+  },
+  { _id: false }
+);
+
+const lotsDefault = () => ({ mode: "lots", value: 10 });
+const instrumentSizingSchema = new Schema(
+  {
+    nifty50: { type: sizingSchema, default: lotsDefault },
+    banknifty: { type: sizingSchema, default: lotsDefault },
+    crudeoil: { type: sizingSchema, default: lotsDefault },
+    naturalgas: { type: sizingSchema, default: lotsDefault },
+  },
+  { _id: false }
+);
+
 const settingsSchema = new Schema<BrokerSettings>(
   {
     orderEntryOffset: { type: Number, default: 1.0 },
@@ -54,6 +73,7 @@ const settingsSchema = new Schema<BrokerSettings>(
     trailingActivationGatePercent: { type: Number, default: 2.0 },
     trailingActivationHoldSeconds: { type: Number, default: 10 },
     defaultQty: { type: Number, default: 1 },
+    instrumentSizing: { type: instrumentSizingSchema, default: () => ({}) },
   },
   { _id: false }
 );
@@ -278,6 +298,12 @@ function docToConfig(doc: Record<string, any>): BrokerConfigDoc {
       trailingActivationGatePercent: doc.settings?.trailingActivationGatePercent ?? 2.0,
       trailingActivationHoldSeconds: doc.settings?.trailingActivationHoldSeconds ?? 10,
       defaultQty: doc.settings?.defaultQty ?? 1,
+      instrumentSizing: {
+        nifty50: doc.settings?.instrumentSizing?.nifty50 ?? { mode: "lots", value: 10 },
+        banknifty: doc.settings?.instrumentSizing?.banknifty ?? { mode: "lots", value: 10 },
+        crudeoil: doc.settings?.instrumentSizing?.crudeoil ?? { mode: "lots", value: 10 },
+        naturalgas: doc.settings?.instrumentSizing?.naturalgas ?? { mode: "lots", value: 10 },
+      },
     },
     connection: {
       apiStatus: doc.connection?.apiStatus ?? "disconnected",

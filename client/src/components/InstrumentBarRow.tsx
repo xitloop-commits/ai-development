@@ -19,6 +19,7 @@ import { fmt, formatExpiryLabel } from "@/lib/tradeFormatters";
 import { estimateSingleLegCharges, DEFAULT_CHARGES } from "@shared/chargesEngine";
 import { useOptionPreview } from "@/hooks/useOptionPreview";
 import { useInstrumentTick } from "@/hooks/useTickStream";
+import { useCapital } from "@/contexts/CapitalContext";
 import { InstrumentBar, type OptionSide, type TradeDirection } from "./InstrumentBar";
 import { InstrumentTag } from "./InstrumentTag";
 
@@ -31,7 +32,6 @@ const LIVE_KEY: Record<string, string> = {
 };
 
 const CELL = "px-2 py-2 text-right tabular-nums border-r border-border align-middle";
-const DEFAULT_CAPITAL_PCT = 5;
 
 export interface InstrumentBarRowProps {
   /** UI display name, e.g. "NIFTY 50". */
@@ -68,12 +68,27 @@ export function InstrumentBarRow({
   const underlyingTick = useInstrumentTick(ri?.exchange ?? null, ri?.securityId ?? null);
   const spot = underlyingTick?.ltp ?? 0;
 
+  // Per-instrument default sizing (Settings → Order Entry): fixed lots or % cap.
+  const cfgQuery = trpc.broker.config.get.useQuery(undefined);
+  const { capital } = useCapital();
+  const sizing = ((cfgQuery.data?.settings as any)?.instrumentSizing?.[key] ?? {
+    mode: "lots",
+    value: 10,
+  }) as { mode: string; value: number };
+
   // Live ATM-option preview for the selected side.
   const preview = useOptionPreview(instrument, side, spot, resolvedInstruments);
   const isBuy = direction === "LONG";
-  const lots = 1;
-  const totalUnits = lots * Math.max(1, preview.lotSize);
   const premium = preview.livePremium;
+  const lotSizeUnits = Math.max(1, preview.lotSize);
+  // Lots to place/show: fixed lots, or derived from a % of available capital.
+  const lots =
+    sizing.mode === "percent"
+      ? premium > 0
+        ? Math.max(1, Math.floor((capital.availableCapital * (sizing.value / 100)) / (premium * lotSizeUnits)))
+        : 1
+      : Math.max(1, Math.round(sizing.value));
+  const totalUnits = lots * lotSizeUnits;
   const invested = totalUnits * premium;
   const charges =
     premium > 0 && totalUnits > 0
@@ -98,7 +113,10 @@ export function InstrumentBarRow({
       strike: preview.atmStrike,
       expiry: preview.expiry,
       entryPrice: preview.livePremium,
-      capitalPercent: DEFAULT_CAPITAL_PCT,
+      // Size per the instrument's setting: fixed lots (qty) or % of capital.
+      ...(sizing.mode === "percent"
+        ? { capitalPercent: sizing.value }
+        : { qty: Math.max(1, Math.round(sizing.value)) }),
       contractSecurityId: preview.contractSecurityId,
       lotSize: preview.lotSize > 1 ? preview.lotSize : undefined,
     });
