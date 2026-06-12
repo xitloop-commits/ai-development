@@ -40,7 +40,7 @@ export async function getTradeTargetPercent(
   const tpPercent = isOption
     ? (config?.settings?.tradeTargetOptions ?? 30)
     : (config?.settings?.tradeTargetOther ?? 2);
-  const slPercent = config?.settings?.defaultSL ?? 10;
+  const slPercent = config?.settings?.defaultSL ?? 2; // aligned with schema + UI fallback
   return { tpPercent, slPercent };
 }
 

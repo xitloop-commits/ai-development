@@ -1,13 +1,11 @@
 /**
  * TradeBar.stories.tsx
  *
- * Self-contained per-trade price scale (V1). Fixed Entry−15% → Entry+50% scale
- * (upper auto-extends as the LTP approaches it), with SL / Entry / TSL / TP
- * markers and a live LTP triangle. Use these to iterate on the visual.
- *
- * Note: TSL is timer-gated — it activates only after the LTP holds above
- * entry + charges + 1% for 5 seconds, so it won't appear in a static snapshot;
- * use the live Storybook canvas (set ltp above the gate and wait 5s).
+ * Self-contained per-trade price scale. Lower bound at min(stop, entry)−15%,
+ * upper at TP+headroom (auto-extends as LTP nears it). Markers: the real Stop
+ * (entry − slPercent%), Entry, TP, and the live LTP triangle. The bar shows ONE
+ * stop driven by the trade's actual stop price — once it trails into profit
+ * (slPercent goes negative) the same marker turns gold and is labelled TSL.
  */
 
 import type { Meta, StoryObj } from "@storybook/react";
@@ -21,11 +19,11 @@ const meta = {
     docs: {
       description: {
         component:
-          "Self-contained price scale: lower bound fixed at Entry−15%, upper at " +
-          "Entry+50% (auto-extends +10% as LTP nears it). Markers: SL (entry−SL%), " +
-          "Entry, TSL (timer-gated, forward-only), TP (entry+TP%), and the live LTP " +
-          "triangle. BUY draws favourable to the right; SELL mirrors it. Emits " +
-          "stop-loss-hit / take-profit-hit / tsl-activated callbacks.",
+          "Self-contained price scale. Markers: Stop (entry − slPercent%), Entry, " +
+          "TP (entry + TP%), and the live LTP triangle. slPercent is the live " +
+          "distance to the REAL stop — negative once the stop trails into profit, " +
+          "where the marker turns gold/TSL. BUY draws favourable to the right; SELL " +
+          "mirrors it. Emits stop-loss-hit / take-profit-hit callbacks.",
       },
     },
   },
@@ -34,14 +32,11 @@ const meta = {
     isBuy: { control: { type: "boolean" }, description: "BUY (up is good) vs SELL (down is good)" },
     entryPrice: { control: { type: "number", step: 1 }, description: "Entry price" },
     ltp: { control: { type: "number", step: 1 }, description: "Live last-traded price (pointer)" },
-    slPercent: { control: { type: "number", step: 0.5 }, description: "Hard-stop % → SL = entry − SL% (default 5)" },
+    slPercent: { control: { type: "number", step: 0.5 }, description: "Distance to the real stop % → Stop = entry − SL%. Negative = stop in profit (TSL)" },
     tpPercent: { control: { type: "number", step: 0.5 }, description: "Take-profit % → TP = entry + TP% (default 10)" },
-    tslPercent: { control: { type: "number", step: 0.5 }, description: "Trailing distance % once TSL activates (default 1)" },
-    charges: { control: { type: "number", step: 0.5 }, description: "Per-unit charges added to the TSL activation gate" },
     compact: { control: { type: "boolean" }, description: "Hide labels for tight cells" },
-    onStopLossHit: { action: "stop loss hit" },
+    onStopLossHit: { action: "stop hit" },
     onTakeProfitHit: { action: "take profit hit" },
-    onTslActivated: { action: "tsl activated" },
   },
   decorators: [
     (Story) => (
@@ -55,15 +50,13 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// Reference: entry 271 → SL(5%) 257.45, TP(10%) 298.10. Scale 230.35 → 406.50.
+// Reference: entry 271 → Stop(5%) 257.45, TP(10%) 298.10.
 const base = {
   isBuy: true as const,
   entryPrice: 271,
   ltp: 285,
   slPercent: 5,
   tpPercent: 10,
-  tslPercent: 1,
-  charges: 2,
 };
 
 export const Playground: Story = {
@@ -72,21 +65,26 @@ export const Playground: Story = {
 
 export const BuyInProfit: Story = {
   args: { ...base, ltp: 290 },
-  parameters: { docs: { description: { story: "BUY in profit — LTP between entry and TP. Hold 5s above the gate and the TSL marker activates." } } },
+  parameters: { docs: { description: { story: "BUY in profit — LTP between entry and TP, stop still below entry." } } },
 };
 
 export const BuyInLoss: Story = {
   args: { ...base, ltp: 262 },
-  parameters: { docs: { description: { story: "BUY in loss — LTP between SL and entry; TSL never arms." } } },
+  parameters: { docs: { description: { story: "BUY in loss — LTP between the stop and entry." } } },
+};
+
+export const StopTrailedIntoProfit: Story = {
+  args: { ...base, ltp: 292, slPercent: -3 },
+  parameters: { docs: { description: { story: "Stop trailed into profit (slPercent negative) — the marker turns gold and is labelled TSL; the entry→stop band shows locked profit." } } },
 };
 
 export const NearMaxExtends: Story = {
   args: { ...base, ltp: 400 },
-  parameters: { docs: { description: { story: "LTP near the +50% top — the upper bound auto-extends +10% so the pointer never pins to the edge." } } },
+  parameters: { docs: { description: { story: "LTP near the top — the upper bound auto-extends +10% so the pointer never pins to the edge." } } },
 };
 
 export const SellInProfit: Story = {
-  args: { isBuy: false, entryPrice: 145, ltp: 132, slPercent: 5, tpPercent: 10, tslPercent: 1, charges: 1 },
+  args: { isBuy: false, entryPrice: 145, ltp: 132, slPercent: 5, tpPercent: 10 },
   parameters: { docs: { description: { story: "SELL — favourable (price falling) still reads left→right, mirrored." } } },
 };
 

@@ -363,7 +363,9 @@ export interface BrokerSettings {
   tradeTargetOptions: number; // per-trade target % for options (default 30)
   tradeTargetOther: number; // per-trade target % for equities/futures (default 2)
   trailingStopEnabled: boolean; // whether trailing stop is active (default false)
-  trailingStopPercent: number; // trailing stop distance % from peak (default 1.0)
+  trailingStopPercent: number; // trailing stop distance % from peak (default 2.0)
+  trailingActivationGatePercent: number; // % past breakeven before TSL arms (default 2.0)
+  trailingActivationHoldSeconds: number; // seconds the gate must hold before TSL arms (default 10)
   defaultQty: number; // default quantity in lots for quick order (default 1)
 }
 

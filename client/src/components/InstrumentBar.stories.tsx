@@ -1,41 +1,29 @@
 /**
  * InstrumentBar.stories.tsx
  *
- * Uses a thin demo wrapper so the nested strike/trade props are exposed as
- * flat, draggable controls (spot, ltp, strikeStep, entryPrice…). That lets you
- * move the pointer / trail in the ready state and the LTP in the open state
- * directly from the Storybook controls.
- *
- *   ready  → StrikeBar  (strikes + underlying LTP)
- *   open   → TradeBar   (live trade levels)
- *   closed → TradeBar   (frozen snapshot at close)
+ * The per-instrument bar is always the strike scale (it never flips to a trade
+ * view). A thin demo wrapper flattens the nested strike props into draggable
+ * controls (spot, ltp, strikeStep…) and a `withTrades` toggle that adds a couple
+ * of persistent entry markers.
  */
 
 import type { Meta, StoryObj } from "@storybook/react";
-import { InstrumentBar, type InstrumentBarState, type OptionSide, type TradeDirection } from "./InstrumentBar";
+import { InstrumentBar, type OptionSide, type TradeDirection } from "./InstrumentBar";
 
 interface DemoProps {
-  state: InstrumentBarState;
   name?: string;
   expiry?: string;
   side: OptionSide;
   direction: TradeDirection;
-  // strike (ready)
   spot: number;
   ltp: number;
   strikeStep: number;
   showTrail: boolean;
   showZoneLabels: boolean;
-  // trade (open / closed)
-  isBuy: boolean;
-  entryPrice: number;
-  tradeLtp: number;
-  slPercent: number;
-  tpPercent: number;
+  withTrades: boolean;
 }
 
 function InstrumentBarDemo({
-  state,
   name,
   expiry,
   side,
@@ -45,21 +33,22 @@ function InstrumentBarDemo({
   strikeStep,
   showTrail,
   showZoneLabels,
-  isBuy,
-  entryPrice,
-  tradeLtp,
-  slPercent,
-  tpPercent,
+  withTrades,
 }: DemoProps) {
+  const atm = Math.round(ltp / strikeStep) * strikeStep;
+  const tradeMarkers = withTrades
+    ? [
+        { price: atm, isBuy: true },
+        { price: atm - strikeStep * 2, isBuy: false },
+      ]
+    : [];
   return (
     <InstrumentBar
-      state={state}
       name={name}
       expiry={expiry}
       side={side}
       direction={direction}
-      strike={{ spot, ltp, strikeStep, windowEachSide: 3, showTrail, showZoneLabels }}
-      trade={{ isBuy, entryPrice, ltp: tradeLtp, slPercent, tpPercent, charges: 2 }}
+      strike={{ spot, ltp, strikeStep, windowEachSide: 3, showTrail, showZoneLabels, tradeMarkers }}
     />
   );
 }
@@ -72,29 +61,24 @@ const meta = {
     docs: {
       description: {
         component:
-          "Wrapper that switches inner bar by state: ready → StrikeBar, " +
-          "open → live TradeBar, closed → frozen TradeBar snapshot. Drag `ltp` " +
-          "to move the pointer (ready) or `tradeLtp` (open/closed).",
+          "Always the strike scale: expiry · CE/PE · LONG/SHORT · StrikeBar. Each " +
+          "trade leaves a persistent marker (green=BUY, red=SELL) — toggle `withTrades`. " +
+          "Drag `ltp` to move the pointer; the bar never flips to a trade view.",
       },
     },
   },
   tags: ["autodocs"],
   argTypes: {
-    state: { control: { type: "inline-radio" }, options: ["ready", "open", "closed"] },
-    name: { control: { type: "text" }, description: "Instrument name label" },
-    expiry: { control: { type: "text" }, description: "Expiry chip (ready)" },
+    name: { control: { type: "text" } },
+    expiry: { control: { type: "text" } },
     side: { control: { type: "inline-radio" }, options: ["CE", "PE"] },
     direction: { control: { type: "inline-radio" }, options: ["LONG", "SHORT"] },
-    spot: { control: { type: "number", step: 1 }, description: "Ready: window anchor" },
-    ltp: { control: { type: "number", step: 1 }, description: "Ready: underlying LTP pointer" },
+    spot: { control: { type: "number", step: 1 } },
+    ltp: { control: { type: "number", step: 1 }, description: "Underlying LTP pointer" },
     strikeStep: { control: { type: "number", step: 1 } },
-    showTrail: { control: { type: "boolean" }, description: "Ready: footprint heatmap" },
-    showZoneLabels: { control: { type: "boolean" }, description: "Ready: ITM/ATM/OTM labels" },
-    isBuy: { control: { type: "boolean" }, description: "Open/closed: BUY vs SELL" },
-    entryPrice: { control: { type: "number", step: 1 }, description: "Open/closed: entry premium" },
-    tradeLtp: { control: { type: "number", step: 1 }, description: "Open/closed: live premium" },
-    slPercent: { control: { type: "number", step: 0.5 } },
-    tpPercent: { control: { type: "number", step: 0.5 } },
+    showTrail: { control: { type: "boolean" }, description: "Footprint heatmap" },
+    showZoneLabels: { control: { type: "boolean" }, description: "ITM/ATM/OTM labels" },
+    withTrades: { control: { type: "boolean" }, description: "Add sample entry markers" },
   },
   args: {
     name: "nifty50",
@@ -106,11 +90,7 @@ const meta = {
     strikeStep: 50,
     showTrail: false,
     showZoneLabels: false,
-    isBuy: true,
-    entryPrice: 271,
-    tradeLtp: 290,
-    slPercent: 5,
-    tpPercent: 10,
+    withTrades: false,
   },
   decorators: [
     (Story) => (
@@ -124,17 +104,15 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Ready: Story = {
-  args: { state: "ready" },
-  parameters: { docs: { description: { story: "Ready — strike scale + toggles. Drag `ltp` to move the pointer; flip `state` to open/closed." } } },
+export const Default: Story = {
+  parameters: { docs: { description: { story: "Ready strike scale + toggles. Drag `ltp` to move the pointer." } } },
 };
 
-export const Open: Story = {
-  args: { state: "open" },
-  parameters: { docs: { description: { story: "Open — live trade bar. Drag `tradeLtp`." } } },
+export const WithEntryMarkers: Story = {
+  args: { withTrades: true },
+  parameters: { docs: { description: { story: "Two persistent entry markers (green BUY + red SELL) left by prior trades." } } },
 };
 
-export const Closed: Story = {
-  args: { state: "closed", tradeLtp: 298 },
-  parameters: { docs: { description: { story: "Closed — frozen TradeBar snapshot at the exit price." } } },
+export const Put: Story = {
+  args: { side: "PE" },
 };

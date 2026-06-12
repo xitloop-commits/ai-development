@@ -46,6 +46,10 @@ export interface StrikeBarProps {
   onEnterTrade?: (price: number) => void;
   /** Controlled placed entry price; if provided, click-to-place is parent-owned. */
   entryMarker?: number | null;
+  /** Persistent entry markers — one per trade taken on this instrument (price =
+   *  the strike/underlying where it entered). They stay on the bar across the
+   *  trade's life; the bar never flips to a trade view. */
+  tradeMarkers?: Array<{ price: number; isBuy: boolean }>;
   /** Strikes shown each side of centre (default 3 → 7 visible). */
   windowEachSide?: number;
   /** Compact mode (no strike-number labels) for tight table cells. */
@@ -56,7 +60,6 @@ export interface StrikeBarProps {
 // ─── Tunables ───────────────────────────────────────────────────────────
 const RANGE_EACH_SIDE = 30; // strikes generated each side of the anchor (rolling reserve)
 const EDGE = 4; // % margin so edge ticks / pointer never clip
-const SCROLL_BUFFER = 1; // roll just before the last strike — keep 1 strike of edge headroom
 
 // ─── Colours (match TradeBar / TodayPnlBar palette) ─────────────────────
 const ATM_COLOR = "#eab308"; // amber
@@ -71,10 +74,14 @@ const TRAIL_COLOR = "#2563eb"; // single colour for the dwell heatmap footprints
 const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, n));
 
 /**
- * Sticky rolling window over a strike list, centred near the live LTP. The
- * window stays put until the pointer comes within SCROLL_BUFFER strikes of an
- * edge, then it scrolls — mirrors TodayPnlBar.getVisibleMarkerIndices.
+ * Rolling window over the strike list. The window stays PUT while the pointer
+ * travels across it; once the pointer comes within SCROLL_BUFFER strikes of an
+ * edge it crawls ONE strike in that direction (introducing a single new strike),
+ * keeping a strike of headroom so the pointer never clips the last strike.
+ * Centres on first render.
  */
+const SCROLL_BUFFER = 1; // crawl when the pointer is this many strikes from an edge
+
 function getVisibleWindow(
   strikes: number[],
   ltp: number,
@@ -84,13 +91,14 @@ function getVisibleWindow(
   if (strikes.length <= visibleCount) return { start: 0, end: strikes.length };
   let current = strikes.findIndex((s) => s >= ltp);
   if (current === -1) current = strikes.length - 1;
-  const safeMin = SCROLL_BUFFER;
-  const safeMax = visibleCount - 1 - SCROLL_BUFFER;
-  let start = prevStart ?? 0;
-  const pos = current - start;
-  if (pos < 0 || pos >= visibleCount) start = Math.max(0, current - Math.floor(visibleCount / 2));
-  else if (pos < safeMin) start = current - safeMin;
-  else if (pos > safeMax) start = current - safeMax;
+  let start = prevStart ?? current - Math.floor(visibleCount / 2);
+  if (prevStart !== null) {
+    const pos = current - start; // pointer's index within the visible window
+    const safeMin = SCROLL_BUFFER;
+    const safeMax = visibleCount - 1 - SCROLL_BUFFER;
+    if (pos < safeMin) start = current - safeMin; // nearing the left edge → crawl one in
+    else if (pos > safeMax) start = current - safeMax; // nearing the right edge → crawl one in
+  }
   start = Math.max(0, Math.min(start, strikes.length - visibleCount));
   return { start, end: start + visibleCount };
 }
@@ -109,6 +117,7 @@ export function StrikeBar({
   onPlaceEntry,
   onEnterTrade,
   entryMarker,
+  tradeMarkers = [],
   windowEachSide = 3,
   compact = false,
   className,
@@ -116,11 +125,26 @@ export function StrikeBar({
   const step = strikeStep > 0 ? strikeStep : 1;
   // Live underlying LTP — drives the pointer, the rolling window, AND the ATM.
   const pointerVal = ltp ?? spot;
-  // The strike list is anchored to a stable reference (atmStrike or spot) and
-  // made wide so the window has room to roll; the ATM marker tracks the live LTP.
-  const listAnchor = atmStrike ?? Math.round(spot / step) * step;
   const liveAtm = Math.round(pointerVal / step) * step;
   const visibleCount = windowEachSide * 2 + 1;
+
+  const prevStartRef = useRef<number | null>(null);
+
+  // The strike LIST must be anchored to a STABLE reference so the window can
+  // actually roll as the live pointer moves. Callers often pass spot === ltp
+  // (the live tick), so anchoring to spot would re-centre the whole list under
+  // the pointer on every tick — the pointer would never reach an edge and the
+  // window would never roll. (It only "works" in Storybook because there spot is
+  // fixed while ltp is dragged.) So capture the anchor once and re-anchor only
+  // when the pointer nears the edge of the generated reserve.
+  const anchorRef = useRef<number | null>(null);
+  if (anchorRef.current === null) anchorRef.current = atmStrike ?? Math.round(spot / step) * step;
+  const reserveSpan = (RANGE_EACH_SIDE - 3) * step; // keep a few strikes of reserve
+  if (pointerVal > 0 && Math.abs(pointerVal - anchorRef.current) > reserveSpan) {
+    anchorRef.current = Math.round(pointerVal / step) * step;
+    prevStartRef.current = null; // re-centre the window on the fresh list
+  }
+  const listAnchor = anchorRef.current;
 
   const strikes = useMemo(() => {
     const arr: number[] = [];
@@ -128,9 +152,8 @@ export function StrikeBar({
     return arr;
   }, [listAnchor, step]);
 
-  // Window rolls to follow the live LTP — re-centres as the pointer nears an
-  // edge, bringing new strikes in (TodayPnlBar-style).
-  const prevStartRef = useRef<number | null>(null);
+  // Window rolls to follow the live LTP — stays put until the pointer reaches the
+  // last visible strike, then rolls one strike at a time.
   const { start, end } = useMemo(() => {
     const r = getVisibleWindow(strikes, pointerVal, visibleCount, prevStartRef.current);
     prevStartRef.current = r.start;
@@ -387,6 +410,25 @@ export function StrikeBar({
               <span className="absolute left-1/2 -translate-x-1/2 -top-1.5 text-[0.5rem] font-bold leading-none" style={{ color }}>
                 {kind}
               </span>
+            </div>
+          );
+        })}
+
+        {/* Persistent entry markers — one per trade taken; stays put across its
+            life (green up-triangle = BUY, red = SELL), below the track. */}
+        {tradeMarkers.map((m, i) => {
+          if (m.price < lo || m.price > hi) return null;
+          return (
+            <div
+              key={`tm-${i}-${m.price}`}
+              className="absolute -translate-x-1/2 pointer-events-auto cursor-help"
+              style={{ left: `${clamp(posForValue(m.price))}%`, bottom: "-7px" }}
+              title={`${m.isBuy ? "BUY" : "SELL"} entry @ ${m.price}`}
+            >
+              <div
+                className="w-0 h-0 border-l-[4px] border-r-[4px] border-b-[5px] border-l-transparent border-r-transparent"
+                style={{ borderBottomColor: m.isBuy ? ITM_COLOR : RESISTANCE_COLOR }}
+              />
             </div>
           );
         })}

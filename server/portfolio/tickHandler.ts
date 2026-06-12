@@ -137,6 +137,12 @@ class TickHandler extends EventEmitter {
   private lastPersistAt = new Map<Channel, number>();
   /** Track peak price per trade for trailing stop logic. Key = tradeId */
   private peakPrices = new Map<string, number>();
+  /** Trailing-stop activation gate: tradeId → epoch ms when price first cleared
+   *  the gate. Cleared if the gate breaks before the hold elapses. */
+  private tslArmedAt = new Map<string, number>();
+  /** Trailing-stop activated set: tradeIds whose gate held long enough. Once in,
+   *  the stop trails (floored at breakeven) for the rest of the trade's life. */
+  private tslActivated = new Set<string>();
   /** Per-channel cache of (capital, day, broker config). See ChannelStateCache. */
   private readonly stateCache = new Map<Channel, ChannelStateCache>();
 
@@ -250,9 +256,12 @@ class TickHandler extends EventEmitter {
       });
     }
 
-    // Read trailing stop config from broker settings (centralized)
+    // Read trailing stop config from broker settings (centralized). Gate/hold/gap
+    // are the single source the UI TradeBar reads too, so both behave identically.
     const trailingStopEnabled = brokerConfig?.settings?.trailingStopEnabled ?? false;
-    const trailingStopPercent = brokerConfig?.settings?.trailingStopPercent ?? 1.0;
+    const trailingStopPercent = brokerConfig?.settings?.trailingStopPercent ?? 2.0;
+    const tslGatePercent = brokerConfig?.settings?.trailingActivationGatePercent ?? 2.0;
+    const tslHoldMs = (brokerConfig?.settings?.trailingActivationHoldSeconds ?? 10) * 1000;
 
     let anyUpdated = false;
     const tradesToExit: Array<{ trade: TradeRecord; reason: "TP_HIT" | "SL_HIT"; exitPrice: number }> = [];
@@ -297,20 +306,50 @@ class TickHandler extends EventEmitter {
         }
 
         // Trailing stop is a workspace-wide switch (broker config), not a
-        // per-trade flag. The UI no longer exposes a per-trade toggle, so the
-        // global setting governs every open trade — including ones opened
-        // before trailing was switched on.
-        if (trailingStopEnabled && trade.stopLossPrice !== null && newPeak !== currentPeak) {
-          const trailedSL = isBuy
-            ? Math.round(newPeak * (1 - trailingStopPercent / 100) * 100) / 100
-            : Math.round(newPeak * (1 + trailingStopPercent / 100) * 100) / 100;
-          // Only trail in the favorable direction (never widen the stop)
-          const shouldTrail = isBuy
-            ? trailedSL > trade.stopLossPrice
-            : trailedSL < trade.stopLossPrice;
-          if (shouldTrail) {
-            trade.stopLossPrice = trailedSL;
-            anyUpdated = true;
+        // per-trade flag. It does NOT trail immediately: price must first clear
+        // breakeven by the gate %, held continuously for the hold time, before
+        // the stop arms. Once armed, the stop trails the peak by the gap % and
+        // is floored at breakeven so a pullback can never give back charges.
+        if (trailingStopEnabled && trade.stopLossPrice !== null) {
+          const breakeven = trade.breakevenPrice ?? trade.entryPrice;
+          const gatePrice = isBuy
+            ? breakeven * (1 + tslGatePercent / 100)
+            : breakeven * (1 - tslGatePercent / 100);
+          const pastGate = isBuy ? tick.ltp >= gatePrice : tick.ltp <= gatePrice;
+
+          // Activation: arm on first gate-clear, activate once the hold elapses,
+          // reset if the gate breaks before then.
+          if (!this.tslActivated.has(trade.id)) {
+            if (pastGate) {
+              const armedAt = this.tslArmedAt.get(trade.id);
+              if (armedAt == null) {
+                this.tslArmedAt.set(trade.id, Date.now());
+              } else if (Date.now() - armedAt >= tslHoldMs) {
+                this.tslActivated.add(trade.id);
+                this.tslArmedAt.delete(trade.id);
+              }
+            } else {
+              this.tslArmedAt.delete(trade.id);
+            }
+          }
+
+          if (this.tslActivated.has(trade.id)) {
+            const trailedRaw = isBuy
+              ? newPeak * (1 - trailingStopPercent / 100)
+              : newPeak * (1 + trailingStopPercent / 100);
+            // Floor at breakeven — the stop never gives back the charges.
+            const floored = isBuy
+              ? Math.max(trailedRaw, breakeven)
+              : Math.min(trailedRaw, breakeven);
+            const trailedSL = Math.round(floored * 100) / 100;
+            // Only trail in the favorable direction (never widen the stop).
+            const shouldTrail = isBuy
+              ? trailedSL > trade.stopLossPrice
+              : trailedSL < trade.stopLossPrice;
+            if (shouldTrail) {
+              trade.stopLossPrice = trailedSL;
+              anyUpdated = true;
+            }
           }
         }
 
@@ -320,6 +359,8 @@ class TickHandler extends EventEmitter {
             : tick.ltp <= trade.targetPrice;
           if (tpHit) {
             this.peakPrices.delete(peakKey); // cleanup
+            this.tslArmedAt.delete(trade.id);
+            this.tslActivated.delete(trade.id);
             this.exitingTrades.add(trade.id);
             // TP fills at the breaching tick: a favorable gap gives you the
             // better price (the stop side caps the loss; the target lets a
@@ -334,6 +375,8 @@ class TickHandler extends EventEmitter {
             : tick.ltp >= trade.stopLossPrice;
           if (slHit) {
             this.peakPrices.delete(peakKey); // cleanup
+            this.tslArmedAt.delete(trade.id);
+            this.tslActivated.delete(trade.id);
             this.exitingTrades.add(trade.id);
             // Fill at the stop LEVEL, not the (possibly gapped) breaching tick,
             // so a fast move past the stop still realizes only the configured

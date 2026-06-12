@@ -375,7 +375,6 @@ export function OrderExecutionSection() {
   const [settings, setSettings] = useState({
     orderEntryOffset: 1.0,
     defaultSL: 2.0,
-    defaultTP: 5.0,
     orderType: 'LIMIT' as string,
     productType: 'INTRADAY' as string,
     // Daily target
@@ -385,7 +384,9 @@ export function OrderExecutionSection() {
     tradeTargetOther: 2,
     // Trailing stop (moved from Discipline per spec v1.2)
     trailingStopEnabled: false,
-    trailingStopPercent: 1.5,
+    trailingStopPercent: 2,
+    trailingActivationGatePercent: 2,
+    trailingActivationHoldSeconds: 10,
     // Default quantity for quick order
     defaultQty: 1,
   });
@@ -396,7 +397,6 @@ export function OrderExecutionSection() {
         ...prev,
         orderEntryOffset: config.settings.orderEntryOffset,
         defaultSL: config.settings.defaultSL,
-        defaultTP: config.settings.defaultTP,
         orderType: config.settings.orderType,
         productType: config.settings.productType,
         // These may not exist yet in broker config, use defaults
@@ -405,6 +405,8 @@ export function OrderExecutionSection() {
         tradeTargetOther: (config.settings as any).tradeTargetOther ?? prev.tradeTargetOther,
         trailingStopEnabled: (config.settings as any).trailingStopEnabled ?? prev.trailingStopEnabled,
         trailingStopPercent: (config.settings as any).trailingStopPercent ?? prev.trailingStopPercent,
+        trailingActivationGatePercent: (config.settings as any).trailingActivationGatePercent ?? prev.trailingActivationGatePercent,
+        trailingActivationHoldSeconds: (config.settings as any).trailingActivationHoldSeconds ?? prev.trailingActivationHoldSeconds,
         defaultQty: (config.settings as any).defaultQty ?? prev.defaultQty,
       }));
     }
@@ -430,7 +432,6 @@ export function OrderExecutionSection() {
       settings: {
         orderEntryOffset: settings.orderEntryOffset,
         defaultSL: settings.defaultSL,
-        defaultTP: settings.defaultTP,
         orderType: settings.orderType as any,
         productType: settings.productType as any,
         dailyTargetPercent: settings.dailyTargetPercent,
@@ -438,6 +439,8 @@ export function OrderExecutionSection() {
         tradeTargetOther: settings.tradeTargetOther,
         trailingStopEnabled: settings.trailingStopEnabled,
         trailingStopPercent: settings.trailingStopPercent,
+        trailingActivationGatePercent: settings.trailingActivationGatePercent,
+        trailingActivationHoldSeconds: settings.trailingActivationHoldSeconds,
         defaultQty: settings.defaultQty,
       } as any,
     });
@@ -448,14 +451,15 @@ export function OrderExecutionSection() {
       setSettings({
         orderEntryOffset: config.settings.orderEntryOffset,
         defaultSL: config.settings.defaultSL,
-        defaultTP: config.settings.defaultTP,
         orderType: config.settings.orderType,
         productType: config.settings.productType,
         dailyTargetPercent: (config.settings as any).dailyTargetPercent ?? 5,
         tradeTargetOptions: (config.settings as any).tradeTargetOptions ?? 30,
         tradeTargetOther: (config.settings as any).tradeTargetOther ?? 2,
         trailingStopEnabled: (config.settings as any).trailingStopEnabled ?? false,
-        trailingStopPercent: (config.settings as any).trailingStopPercent ?? 1.5,
+        trailingStopPercent: (config.settings as any).trailingStopPercent ?? 2,
+        trailingActivationGatePercent: (config.settings as any).trailingActivationGatePercent ?? 2,
+        trailingActivationHoldSeconds: (config.settings as any).trailingActivationHoldSeconds ?? 10,
         defaultQty: (config.settings as any).defaultQty ?? 1,
       });
     }
@@ -614,7 +618,7 @@ export function OrderExecutionSection() {
       <SettingsCard title="Trailing Stop">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <FieldLabel hint="Enable automatic trailing stop loss">
+            <FieldLabel hint="Master switch. When on, after a trade moves enough into profit the stop follows the price up to lock in gains. When off, only the fixed Stop Loss applies.">
               Trailing Stop
             </FieldLabel>
             <ToggleSwitch
@@ -623,19 +627,51 @@ export function OrderExecutionSection() {
             />
           </div>
           {settings.trailingStopEnabled && (
-            <div className="flex items-center justify-between">
-              <FieldLabel hint="Trailing SL distance from peak price">
-                Trailing SL
-              </FieldLabel>
-              <NumberInput
-                value={settings.trailingStopPercent}
-                onChange={(v) => setSettings((s) => ({ ...s, trailingStopPercent: v }))}
-                min={0.1}
-                max={50}
-                step={0.1}
-                suffix="%"
-              />
-            </div>
+            <>
+              <div className="flex items-center justify-between">
+                <FieldLabel hint="Trailing gap: how far the stop sits below the highest price reached. Smaller = locks profit tighter, exits sooner on a pullback.">
+                  Trailing Gap
+                </FieldLabel>
+                <NumberInput
+                  value={settings.trailingStopPercent}
+                  onChange={(v) => setSettings((s) => ({ ...s, trailingStopPercent: v }))}
+                  min={0.1}
+                  max={50}
+                  step={0.1}
+                  suffix="%"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <FieldLabel hint="How far past breakeven (entry + charges) the price must move before the trailing stop switches on. Stops it from arming on small noise.">
+                  Activation Gate
+                </FieldLabel>
+                <NumberInput
+                  value={settings.trailingActivationGatePercent}
+                  onChange={(v) => setSettings((s) => ({ ...s, trailingActivationGatePercent: v }))}
+                  min={0}
+                  max={50}
+                  step={0.1}
+                  suffix="%"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <FieldLabel hint="How long the price must hold above the gate before the trailing stop arms. Prevents a one-tick spike from triggering it.">
+                  Activation Hold
+                </FieldLabel>
+                <NumberInput
+                  value={settings.trailingActivationHoldSeconds}
+                  onChange={(v) => setSettings((s) => ({ ...s, trailingActivationHoldSeconds: v }))}
+                  min={0}
+                  max={120}
+                  step={1}
+                  suffix="s"
+                />
+              </div>
+              <p className="text-[0.6875rem] text-muted-foreground leading-snug">
+                Once trailing is on, the stop can never drop below breakeven + charges — you always
+                recover your charges.
+              </p>
+            </>
           )}
         </div>
       </SettingsCard>

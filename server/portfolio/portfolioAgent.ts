@@ -52,7 +52,7 @@ import {
   calculateGiftDays,
   processClawback,
 } from "./compounding";
-import { calculateTradeCharges } from "./charges";
+import { calculateTradeCharges, estimateSingleLegCharges } from "./charges";
 import type { ChargeRate } from "./charges";
 import { getUserSettings } from "../userSettings";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
@@ -233,6 +233,11 @@ class PortfolioAgentImpl {
    */
   async appendTrade(channel: Channel, trade: TradeRecord): Promise<DayRecord> {
     const day = await this.ensureCurrentDay(channel);
+    // Freeze the breakeven price once at placement — the trailing stop is
+    // floored here, and the UI reads the same value, so they can't drift.
+    if (trade.breakevenPrice == null && trade.entryPrice > 0 && trade.qty > 0) {
+      trade.breakevenPrice = await this.computeBreakevenPrice(trade);
+    }
     day.trades.push(trade);
     const updated = recalculateDayAggregates(day);
     await upsertDayRecord(channel, updated);
@@ -250,6 +255,27 @@ class PortfolioAgentImpl {
       brokerId: trade.brokerId,
     });
     return updated;
+  }
+
+  /**
+   * Breakeven price = entry ± round-trip charges per unit. Uses the same charges
+   * engine + user rates as the close path so the figure matches what's realized;
+   * the exit leg is estimated at the entry price. Falls back to entryPrice if
+   * settings/charges can't be read.
+   */
+  private async computeBreakevenPrice(trade: TradeRecord): Promise<number> {
+    try {
+      const settings = await getUserSettings(1);
+      const rates = settings.charges.rates as ChargeRate[];
+      const isBuy = trade.type.includes("BUY");
+      const entryLeg = estimateSingleLegCharges(trade.entryPrice, trade.qty, isBuy, rates).total;
+      const exitLeg = estimateSingleLegCharges(trade.entryPrice, trade.qty, !isBuy, rates).total;
+      const perUnit = (entryLeg + exitLeg) / trade.qty;
+      const be = isBuy ? trade.entryPrice + perUnit : trade.entryPrice - perUnit;
+      return Math.round(be * 100) / 100;
+    } catch {
+      return trade.entryPrice;
+    }
   }
 
   /**
@@ -981,12 +1007,29 @@ class PortfolioAgentImpl {
    */
   async recordTradeClosed(req: TradeClosedRequest): Promise<TradeClosedResponse> {
     const state = await getCapitalState(req.channel);
-    const day = await getDayRecord(req.channel, state.currentDayIndex);
+    // Normally the trade lives in the current day. But if THIS close completed
+    // the day, closeTrade already advanced currentDayIndex (and the new day may
+    // not exist yet), so the current index points past the trade's day. Find
+    // the day that actually contains the trade, scanning back from the current
+    // index; only then fall back to ensuring a current day exists.
+    let day = await getDayRecord(req.channel, state.currentDayIndex);
+    if (!day || !day.trades.some((t) => t.id === req.tradeId)) {
+      const floor = Math.max(0, state.currentDayIndex - 30);
+      for (let idx = state.currentDayIndex - 1; idx >= floor; idx--) {
+        const candidate = await getDayRecord(req.channel, idx);
+        if (candidate?.trades.some((t) => t.id === req.tradeId)) {
+          day = candidate;
+          break;
+        }
+      }
+    }
     if (!day) {
-      throw new Error(`No active day for channel ${req.channel}`);
+      // No day record at all (e.g. fresh channel) — ensure one so downstream
+      // metrics / discipline don't crash; the metadata stamp below is a no-op.
+      day = await this.ensureCurrentDay(req.channel);
     }
 
-    // Locate the trade in today's record + stamp exit metadata
+    // Locate the trade in its day record + stamp exit metadata
     const trade = day.trades.find((t) => t.id === req.tradeId);
     if (trade) {
       trade.exitReason = req.exitReason;

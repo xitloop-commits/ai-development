@@ -95,6 +95,11 @@ export interface TradeRecord {
    *  ratchet anchor. Persisted via position_state so the trail survives a
    *  server restart; absent on trades that pre-date the field. */
   peakLtp?: number;
+  /** Breakeven price = entry ± round-trip charges per unit. Frozen at placement.
+   *  The trailing stop is floored here so a pullback never gives back charges;
+   *  both the server (exit) and the UI (TradeBar) read this same absolute price.
+   *  Absent on trades that pre-date the field → callers fall back to entryPrice. */
+  breakevenPrice?: number;
   /** Broker-assigned order ID returned by placeOrder. Used by orderSync /
    *  recoveryEngine to match broker events back to this trade.
    *  Pre-2026-05 docs stored this on the (now-renamed) `brokerId` field;
@@ -232,6 +237,7 @@ const tradeRecordSchema = new Schema(
     status: { type: String, default: "OPEN" },
     targetPrice: { type: Number, default: null },
     stopLossPrice: { type: Number, default: null },
+    breakevenPrice: { type: Number, default: null },
     brokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },
     openedAt: { type: Number, default: () => Date.now() },
@@ -888,6 +894,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       status: t.status ?? "OPEN",
       targetPrice: t.targetPrice ?? null,
       stopLossPrice: t.stopLossPrice ?? null,
+      breakevenPrice: t.breakevenPrice ?? undefined,
       brokerOrderId: t.brokerOrderId ?? null,
       brokerId: t.brokerId ?? null,
       openedAt: t.openedAt ?? Date.now(),

@@ -74,7 +74,9 @@ export function TodaySection({
   const globalTrailingEnabled = brokerConfigQuery.data?.settings?.trailingStopEnabled ?? false;
   // SL% comes from settings (default 5%) — fed to each row's price bar to derive
   // the hard-stop marker. The TSL marker uses the trade's actual stop price.
-  const slPercent = brokerConfigQuery.data?.settings?.defaultSL ?? 5;
+  // Fallback hard-stop % — only used when a trade has no stored stop yet; the bar
+  // otherwise draws the real stop from trade.stopLossPrice (which the server trails).
+  const slPercent = brokerConfigQuery.data?.settings?.defaultSL ?? 2;
   const updateTradeMutation = trpc.executor.updateTrade.useMutation();
   const utils = trpc.useUtils();
   const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
@@ -233,7 +235,7 @@ export function TodaySection({
             channel={channel}
             colSpan={TABLE_COLSPAN}
             resolvedInstruments={resolvedInstruments}
-            openTrade={trades.find((t) => t.instrument === inst && t.status === 'OPEN')}
+            instrumentTrades={trades.filter((t) => t.instrument === inst)}
             onPlaceTrade={onPlaceTrade}
           />
         ))}

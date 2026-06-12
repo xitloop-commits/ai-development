@@ -44,7 +44,8 @@ export interface TodayTradeRowProps {
    *  workspace-wide switch, not per-trade — so the row reflects this flag
    *  rather than the trade's frozen value. */
   globalTrailingEnabled?: boolean;
-  /** Global hard-stop % (settings defaultSL) — fed to the price bar. */
+  /** Fallback hard-stop % (settings defaultSL) — used only when the trade has no
+   *  stored stop yet; otherwise the bar derives the stop from trade.stopLossPrice. */
   slPercent?: number;
 }
 
@@ -207,23 +208,28 @@ function _TodayTradeRow({
             isBuy={isBuy}
             entryPrice={trade.entryPrice}
             ltp={displayLtp}
-            slPercent={slPercent}
-            // Derive TP% from the trade's real target when set; else the bar's
-            // own default (10%). TSL activation/trailing is now self-contained
-            // in the bar. charges = per-unit round-trip cost for the TSL gate.
+            // Stop distance from the trade's REAL stop price (the value the server
+            // exits on). It follows edits and server-side trailing, so the marker
+            // can't disagree with where the trade actually exits. Falls back to the
+            // global SL% only when no stop is stored yet.
+            slPercent={
+              trade.stopLossPrice && trade.stopLossPrice > 0
+                ? ((isBuy ? trade.entryPrice - trade.stopLossPrice : trade.stopLossPrice - trade.entryPrice) /
+                    trade.entryPrice) * 100
+                : slPercent
+            }
+            // TP% from the trade's real target when set; else the bar's default.
             tpPercent={
               trade.targetPrice && trade.targetPrice > 0
                 ? ((isBuy ? trade.targetPrice - trade.entryPrice : trade.entryPrice - trade.targetPrice) /
                     trade.entryPrice) * 100
                 : undefined
             }
-            charges={trade.qty > 0 ? charges / trade.qty : 0}
             compact
-            // Testing-only: surface the bar's events as toasts so we can see
-            // what fired. Not wired to any real exit (server stays the owner).
-            onStopLossHit={() => toast.error(`SL hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`)}
+            // Testing-only: surface the bar's events as toasts so we can see what
+            // fired. Not wired to any real exit (server stays the owner).
+            onStopLossHit={() => toast.error(`Stop hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`)}
             onTakeProfitHit={() => toast.success(`TP hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`)}
-            onTslActivated={() => toast(`TSL activated · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''}`)}
           />
         )}
         </div>

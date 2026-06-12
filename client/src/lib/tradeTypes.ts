@@ -97,6 +97,11 @@ export interface TradeRecord {
   exitReason?: string;
   targetPrice: number | null;
   stopLossPrice: number | null;
+  /** Breakeven price = entry ± round-trip charges per unit, frozen at placement.
+   *  The TradeBar floors the trailing stop here and gates activation off it, so
+   *  the bar matches the server exactly. Absent on older trades → fall back to
+   *  entryPrice. */
+  breakevenPrice?: number | null;
   trailingStopEnabled?: boolean;
   /** Peak (BUY) / trough (SELL) LTP since entry — the trailing-stop anchor.
    *  Sent by the server (positionDocToTradeRecord); absent on older trades. */

@@ -113,6 +113,32 @@ Every closed trade carries:
 - `charges` — full breakdown (brokerage + STT + exchange + GST + slippage)
 - `cohort` (planned, T33) — originating signal layer
 
+### 6.1 Trailing stop — gated activation + breakeven floor (2026-06-12)
+
+Paper auto-exits run in `tickHandler.updateChannel`. Trailing is a workspace-wide
+switch (broker config), and it does **not** trail from entry. The model:
+
+1. **Gate** — price must clear breakeven (entry ± round-trip charges/unit) by
+   `trailingActivationGatePercent`.
+2. **Hold** — that gate must hold continuously for `trailingActivationHoldSeconds`
+   before the stop arms (per-trade arm/activation state lives in tickHandler
+   instance Maps, not the day record).
+3. **Trail** — once armed, the stop trails the peak by `trailingStopPercent` and
+   is **floored at breakeven**, so a pullback can never give back charges.
+
+`breakevenPrice` is frozen on the trade at placement (`PA.appendTrade` →
+`computeBreakevenPrice`, same charges engine as the close path) and read by both
+the server (floor) and the UI `TradeBar` (which draws the single real stop from
+`trade.stopLossPrice`) — so the bar can never disagree with where the trade exits.
+Settings: `trailingStopPercent` (gap), `trailingActivationGatePercent` (gate),
+`trailingActivationHoldSeconds` (hold) — all on the Settings page.
+
+**Day-completion close fix (2026-06-12):** when the exit that *completes* the day
+advances `currentDayIndex`, `PA.recordTradeClosed` now resolves the day that
+actually contains the trade (scanning back from the current index) instead of
+trusting `currentDayIndex` — fixes the "No active day" error on the 2nd+ trade and
+ensures the feed-release + Telegram push still run.
+
 ## 7. Daily P&L push to Discipline
 
 **Primary** (push): after every trade close, PA calls `POST /api/discipline/recordTradeOutcome` with the latest `dailyRealizedPnl + dailyRealizedPnlPercent`. This is what triggers DA Module 8's cap-check evaluation in real time.

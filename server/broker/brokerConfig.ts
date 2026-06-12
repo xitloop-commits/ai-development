@@ -50,7 +50,9 @@ const settingsSchema = new Schema<BrokerSettings>(
     tradeTargetOptions: { type: Number, default: 30 },
     tradeTargetOther: { type: Number, default: 2 },
     trailingStopEnabled: { type: Boolean, default: false },
-    trailingStopPercent: { type: Number, default: 1.0 },
+    trailingStopPercent: { type: Number, default: 2.0 },
+    trailingActivationGatePercent: { type: Number, default: 2.0 },
+    trailingActivationHoldSeconds: { type: Number, default: 10 },
     defaultQty: { type: Number, default: 1 },
   },
   { _id: false }
@@ -272,7 +274,9 @@ function docToConfig(doc: Record<string, any>): BrokerConfigDoc {
       tradeTargetOptions: doc.settings?.tradeTargetOptions ?? 30,
       tradeTargetOther: doc.settings?.tradeTargetOther ?? 2,
       trailingStopEnabled: doc.settings?.trailingStopEnabled ?? false,
-      trailingStopPercent: doc.settings?.trailingStopPercent ?? 1.0,
+      trailingStopPercent: doc.settings?.trailingStopPercent ?? 2.0,
+      trailingActivationGatePercent: doc.settings?.trailingActivationGatePercent ?? 2.0,
+      trailingActivationHoldSeconds: doc.settings?.trailingActivationHoldSeconds ?? 10,
       defaultQty: doc.settings?.defaultQty ?? 1,
     },
     connection: {
