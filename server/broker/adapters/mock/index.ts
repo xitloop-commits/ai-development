@@ -460,13 +460,23 @@ export class MockAdapter implements BrokerAdapter {
       "IDX_I:25": 51000, // BANK NIFTY
     };
     const basePrices = new Map<string, number>();
+    const anchorPrices = new Map<string, number>();
     this.tickTimer = setInterval(() => {
       if (!this.tickCallback) return;
       for (const [key, inst] of Array.from(this.subscribedInstruments)) {
-        if (!basePrices.has(key)) basePrices.set(key, SEED[key] ?? 100 + Math.random() * 400);
+        if (!basePrices.has(key)) {
+          const seed = SEED[key] ?? 100 + Math.random() * 400;
+          basePrices.set(key, seed);
+          anchorPrices.set(key, seed);
+        }
         const base = basePrices.get(key)!;
-        const jitter = (Math.random() - 0.5) * base * 0.005;
-        const ltp = Math.round((base + jitter) * 100) / 100;
+        const anchor = anchorPrices.get(key)!;
+        // Smooth random walk: a small per-tick step plus a gentle pull back
+        // toward the anchor, so the LTP drifts realistically instead of leaping
+        // a full strike each tick and never wanders far over a session.
+        const jitter = (Math.random() - 0.5) * base * 0.0012; // ~±0.06% per tick
+        const reversion = (anchor - base) * 0.02;
+        const ltp = Math.max(0.05, Math.round((base + jitter + reversion) * 100) / 100);
         basePrices.set(key, ltp);
         const tick: TickData = {
           securityId: inst.securityId,
@@ -494,7 +504,7 @@ export class MockAdapter implements BrokerAdapter {
         };
         this.tickCallback(tick);
       }
-    }, 2000);
+    }, 800);
   }
 
   onOrderUpdate(callback: OrderUpdateCallback): void {
