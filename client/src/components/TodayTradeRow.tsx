@@ -236,6 +236,9 @@ function _TodayTradeRow({
               const g = tslGatePercent ?? 2;
               return isBuy ? be * (1 + g / 100) : be * (1 - g / 100);
             })()}
+            // Position size + round-trip charges → marker tooltips show ₹ P&L.
+            units={trade.qty}
+            roundTripCharges={charges}
             compact
             // Testing-only: surface the bar's events as toasts so we can see what
             // fired. Not wired to any real exit (server stays the owner).

@@ -41,6 +41,10 @@ export interface TradeBarProps {
   /** Price at which the trailing stop will arm (breakeven + gate%). Positions the
    *  pending TSL marker before activation. */
   tslGatePrice?: number;
+  /** Position size in units (lots × lot size) — used to show ₹ P&L at markers. */
+  units?: number;
+  /** Round-trip charges (₹) — subtracted from the ₹ P&L shown at markers. */
+  roundTripCharges?: number;
   /** Compact mode (tight table cells): bar + ticks only, no text labels. */
   compact?: boolean;
   /** Frozen snapshot (closed trade): render markers statically + skip the hit
@@ -81,6 +85,8 @@ export function TradeBar({
   tpPercent = 10,
   trailingEnabled = false,
   tslGatePrice,
+  units,
+  roundTripCharges = 0,
   compact = false,
   frozen = false,
   className,
@@ -96,10 +102,15 @@ export function TradeBar({
   // positive once it has trailed into profit ("locked").
   const stopFav = -slPercent;
   const stopLocked = stopFav > 0;
+  // ₹ P&L realised if the trade exits at a given favourable-% (net of charges).
+  const profitAtFav = (fav: number): number | null =>
+    units && units > 0 ? (fav / 100) * entryPrice * units - (roundTripCharges ?? 0) : null;
+  const fmtMoney = (v: number) => `${v >= 0 ? "+" : "-"}₹${Math.abs(Math.round(v)).toLocaleString("en-IN")}`;
   // Pending TSL: trailing is on but the stop hasn't trailed into profit yet — show
   // a thin marker at the gate so it's clear the TSL exists, just not armed.
   const gateFav = trailingEnabled && tslGatePrice && tslGatePrice > 0 ? toFav(tslGatePrice) : null;
   const tslPending = trailingEnabled && !stopLocked && gateFav != null;
+  const gateProfit = gateFav != null ? profitAtFav(gateFav) : null;
 
   // Scale anchored to the trade's own levels: stop on the left (+ a little pad,
   // but never above entry) and TP on the right (+ headroom). The upper bound
@@ -177,7 +188,8 @@ export function TradeBar({
   const tpPrice = favToPrice(tpPercent);
   const stopColor = stopLocked ? TSL_COLOR : SL_COLOR;
   const stopText = stopLocked ? "TSL" : "SL";
-  const stopTip = `${stopLocked ? "Trailing stop" : "Stop loss"} ${formatPrice(stopPrice)} (${fmtSign(stopFav)})`;
+  const stopProfit = profitAtFav(stopFav);
+  const stopTip = `${stopLocked ? "Trailing stop" : "Stop loss"} ${formatPrice(stopPrice)} (${fmtSign(stopFav)})${stopProfit != null ? ` · ${fmtMoney(stopProfit)}` : ""}`;
   const entryTip = `Entry ${formatPrice(entryPrice)}`;
   const tpTip = `TP ${formatPrice(tpPrice)} (${fmtSign(tpPercent)})`;
   const ltpTip = `LTP ${formatPrice(ltp)} (${fmtSign(ltpFav)})`;
@@ -304,7 +316,7 @@ export function TradeBar({
           <div
             className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 pointer-events-auto cursor-help"
             style={{ left: `${pos(gateFav as number)}%`, width: '7px', height: '16px' }}
-            title={`TSL pending — arms at ${formatPrice(tslGatePrice as number)}`}
+            title={`TSL pending — arms at ${formatPrice(tslGatePrice as number)}${gateProfit != null ? ` · locks ${fmtMoney(gateProfit)}` : ""}`}
           >
             <div
               className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0"
