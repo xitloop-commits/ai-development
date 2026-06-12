@@ -282,3 +282,74 @@ describe("tickHandler — clear-workspace cache invalidation", () => {
     expect(upsertDayRecordMock).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Regression — a live trade's tick persist must NOT clobber a trade that was
+ * placed (appended) AFTER the tick handler cached the day.
+ *
+ * Bug: the handler held a cached day snapshot (e.g. [BANK NIFTY]) and wrote the
+ * whole thing back on its ~0.5s persist. A NIFTY 50 trade placed while BANK
+ * NIFTY was live got erased by that stale write. The fix re-reads the day fresh
+ * at persist time and merges only the live fields, preserving new trades.
+ */
+describe("tickHandler — persist must not clobber concurrently-placed trades", () => {
+  function makeOpen(id: string, instrument: string) {
+    return {
+      id, instrument, type: "CALL_BUY", strike: null, expiry: null,
+      contractSecurityId: null, entryPrice: 100, exitPrice: null, ltp: 100, qty: 1,
+      status: "OPEN", targetPrice: null, stopLossPrice: null, trailingStopEnabled: false,
+      lastTickAt: null, unrealizedPnl: 0,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    tickHandler.clearStateCache();
+    const h = tickHandler as any;
+    h.lastPersistAt.clear();
+    h.peakPrices.clear();
+    h.exitingTrades.clear();
+    getCapitalStateMock.mockResolvedValue({
+      channel: "my-paper", tradingPool: 100_000, reservePool: 0, initialFunding: 100_000,
+      currentDayIndex: 1, targetPercent: 1, profitHistory: [], cumulativePnl: 0,
+      cumulativeCharges: 0, sessionTradeCount: 0,
+    });
+    getActiveBrokerConfigMock.mockResolvedValue(null);
+  });
+
+  it("a tick for trade A persists a day that still contains the just-placed trade B", async () => {
+    const handler = tickHandler as any;
+    const tradeA = makeOpen("TA", "NIFTY_50");
+    const tradeB = makeOpen("TB", "BANK NIFTY");
+
+    // `dayTrades` is the DB-backed list. Warm the cache while it holds only A.
+    let dayTrades: any[] = [tradeA];
+    getDayRecordMock.mockImplementation((ch: string) =>
+      Promise.resolve(
+        ch === "my-paper"
+          ? { dayIndex: 1, date: "2024-11-14", trades: dayTrades, totalPnl: 0 }
+          : { dayIndex: 1, date: "2024-11-14", trades: [], totalPnl: 0 },
+      ),
+    );
+
+    // Non-matching tick warms the cache (snapshot = [A]) without persisting.
+    handler.pendingUpdates.set("NSE:WARM", makeTick({ securityId: "WARM" }));
+    await handler.processPendingUpdates();
+    expect(upsertDayRecordMock).not.toHaveBeenCalled();
+
+    // Trade B is placed → appended to the DB list as a NEW array, so the cached
+    // snapshot still references the old [A].
+    dayTrades = [tradeA, tradeB];
+    upsertDayRecordMock.mockClear();
+
+    // A matching tick for A triggers a persist. The fix re-reads fresh [A, B].
+    handler.pendingUpdates.set("NSE:NIFTY_50", makeTick({ securityId: "NIFTY_50", ltp: 101 }));
+    await handler.processPendingUpdates();
+
+    expect(upsertDayRecordMock).toHaveBeenCalled();
+    const persisted = upsertDayRecordMock.mock.calls.find((c) => c[0] === "my-paper")?.[1];
+    const ids = (persisted?.trades ?? []).map((t: any) => t.id);
+    expect(ids).toContain("TA"); // the live trade
+    expect(ids).toContain("TB"); // the just-placed trade — NOT clobbered
+  });
+});

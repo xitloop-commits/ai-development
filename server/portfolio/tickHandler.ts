@@ -416,8 +416,29 @@ class TickHandler extends EventEmitter {
     }
     this.lastPersistAt.set(channel, Date.now());
 
-    // Recalculate day aggregates and persist
-    const updated = recalculateDayAggregates(day);
+    // Persist by MERGING onto a fresh read of the day — never write back the whole
+    // cached snapshot, or we'd clobber trades that were placed (appended) since the
+    // snapshot loaded. We only own the live fields (ltp, lastTickAt, peakLtp,
+    // trailed stopLossPrice); copy those onto the matching OPEN trades in the fresh
+    // record and leave everything else (new trades, TEA-closed trades) untouched.
+    const fresh = await getDayRecord(channel, day.dayIndex);
+    if (!fresh) {
+      // Day was removed (e.g. workspace cleared) since our snapshot — don't
+      // resurrect it. Drop the stale cache and bail.
+      this.stateCache.delete(channel);
+      return;
+    }
+    const liveById = new Map(day.trades.map((t) => [t.id, t]));
+    for (const ft of fresh.trades) {
+      if (ft.status !== "OPEN") continue;
+      const live = liveById.get(ft.id);
+      if (!live) continue;
+      ft.ltp = live.ltp;
+      ft.lastTickAt = live.lastTickAt;
+      if (live.peakLtp != null) ft.peakLtp = live.peakLtp;
+      if (live.stopLossPrice != null) ft.stopLossPrice = live.stopLossPrice;
+    }
+    const updated = recalculateDayAggregates(fresh);
     await upsertDayRecord(channel, updated);
 
     // A tick matched an open trade and we just persisted. Drop the cached
