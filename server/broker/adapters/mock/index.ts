@@ -461,6 +461,7 @@ export class MockAdapter implements BrokerAdapter {
     };
     const basePrices = new Map<string, number>();
     const anchorPrices = new Map<string, number>();
+    const velocities = new Map<string, number>();
     this.tickTimer = setInterval(() => {
       if (!this.tickCallback) return;
       for (const [key, inst] of Array.from(this.subscribedInstruments)) {
@@ -471,12 +472,17 @@ export class MockAdapter implements BrokerAdapter {
         }
         const base = basePrices.get(key)!;
         const anchor = anchorPrices.get(key)!;
-        // Smooth random walk: a small per-tick step plus a gentle pull back
-        // toward the anchor, so the LTP drifts realistically instead of leaping
-        // a full strike each tick and never wanders far over a session.
-        const jitter = (Math.random() - 0.5) * base * 0.0012; // ~±0.06% per tick
-        const reversion = (anchor - base) * 0.02;
-        const ltp = Math.max(0.05, Math.round((base + jitter + reversion) * 100) / 100);
+        // Momentum walk: a small impulse + damped velocity makes the LTP GLIDE in
+        // a direction (smooth) instead of jittering back and forth. A gentle pull
+        // toward the anchor keeps it in range, and the per-tick move is capped so
+        // it can never leap a full strike.
+        const v = velocities.get(key) ?? 0;
+        const impulse = (Math.random() - 0.5) * base * 0.0003;
+        const cap = base * 0.0008; // ≤ ~0.08% per tick — well under one strike
+        let nv = v * 0.85 + impulse + (anchor - base) * 0.01;
+        nv = Math.max(-cap, Math.min(cap, nv));
+        velocities.set(key, nv);
+        const ltp = Math.max(0.05, Math.round((base + nv) * 100) / 100);
         basePrices.set(key, ltp);
         const tick: TickData = {
           securityId: inst.securityId,
