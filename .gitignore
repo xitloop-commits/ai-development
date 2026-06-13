@@ -146,3 +146,6 @@ data/
 models/
 models_*.zip
 !models_latest.zip
+
+# local Claude worktrees/config
+.claude/worktrees/
