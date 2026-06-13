@@ -128,7 +128,7 @@ export function InstrumentBarRow({
       {/* Day + Date → caption */}
       <td colSpan={2} className="px-2 py-2 border-r border-border align-middle">
         <div className="text-xs">
-          <InstrumentTag name={key} />
+          <InstrumentTag name={instrument} />
         </div>
       </td>
 
