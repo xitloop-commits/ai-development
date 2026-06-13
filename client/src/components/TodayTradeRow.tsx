@@ -152,13 +152,13 @@ function _TodayTradeRow({
             {expiryLabel && (
               <>
                 <span className="text-border">|</span>
-                <span className="text-[0.5625rem] tabular-nums">{expiryLabel}</span>
+                <span className="text-[0.5625rem] tabular-nums text-muted-foreground">{expiryLabel}</span>
               </>
             )}
             {trade.strike !== null && (
               <>
                 <span className="text-border">|</span>
-                <span className="text-[0.5625rem] tabular-nums">{trade.strike}</span>
+                <span className="text-[0.5625rem] tabular-nums text-muted-foreground">{trade.strike}</span>
               </>
             )}
             <span className="text-border">|</span>
