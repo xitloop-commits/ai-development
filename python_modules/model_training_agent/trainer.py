@@ -76,6 +76,78 @@ LGBM_PARAMS_REGRESSION = {
     "n_estimators": 500,
 }
 
+# T28 (2026-06-13): per-head hyperparameter override config. Path is
+# resolved relative to the repo root so dev runs and the Saturday cron
+# both pick up the same file. Schema documented in the file itself —
+# empty `heads` block = no overrides = current trainer behaviour.
+MTA_HYPERPARAMS_CONFIG_DEFAULT = (
+    Path(__file__).resolve().parents[2] / "config" / "mta_hyperparams.json"
+)
+
+
+def _load_hyperparams_overrides(
+    path: Path | None = None,
+) -> dict[str, dict]:
+    """Load per-head LightGBM hyperparameter overrides from
+    ``config/mta_hyperparams.json``.
+
+    Returns ``{head_name: {param: value, ...}, ...}`` — empty dict when
+    the file is missing, malformed, or carries an empty ``heads`` block.
+    A missing/broken config NEVER aborts training: the trainer falls
+    back to the hardcoded ``LGBM_PARAMS_BINARY`` / ``_REGRESSION``
+    defaults and prints a one-line WARN.
+
+    The fallback is by design — T28 PR1 ships the read path with an
+    empty config. PR2 will run Optuna and fill the file.
+    """
+    p = path if path is not None else MTA_HYPERPARAMS_CONFIG_DEFAULT
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (json.JSONDecodeError, OSError) as exc:
+        print(
+            f"  WARN: mta_hyperparams config at {p} unreadable "
+            f"({type(exc).__name__}: {exc}) — using hardcoded defaults"
+        )
+        return {}
+    heads = data.get("heads") or {}
+    if not isinstance(heads, dict):
+        print(
+            f"  WARN: mta_hyperparams 'heads' key must be a dict, got "
+            f"{type(heads).__name__} — using hardcoded defaults"
+        )
+        return {}
+    # Coerce per-head entries to dicts; drop anything malformed.
+    out: dict[str, dict] = {}
+    for head_name, override in heads.items():
+        if isinstance(override, dict):
+            out[str(head_name)] = dict(override)
+    return out
+
+
+def _resolve_lgbm_params(
+    target: str,
+    objective: str,
+    overrides_by_head: dict[str, dict] | None = None,
+) -> dict:
+    """Build the final LightGBM param dict for one head.
+
+    Starts from the hardcoded base (binary or regression), then layers
+    the per-head override (if any) on top so individual keys can be
+    tuned without restating the whole dict in config.
+    """
+    base = (
+        LGBM_PARAMS_BINARY if objective == "binary"
+        else LGBM_PARAMS_REGRESSION
+    )
+    if not overrides_by_head:
+        return dict(base)
+    override = overrides_by_head.get(target)
+    if not override:
+        return dict(base)
+    return {**base, **override}
+
 
 @dataclass
 class TrainResult:
@@ -137,15 +209,29 @@ def _load_or_derive_feature_config(
 
 
 def _fit_one(
-    target: str, objective: str, X_train, y_train, X_val, y_val, *, lgbm_n_jobs: int = -1
+    target: str,
+    objective: str,
+    X_train,
+    y_train,
+    X_val,
+    y_val,
+    *,
+    lgbm_n_jobs: int = -1,
+    hyperparam_overrides: dict[str, dict] | None = None,
 ) -> tuple[lgb.Booster, dict]:
     """Train one model, return (booster, metrics).
 
     F5: `lgbm_n_jobs` controls LightGBM's internal thread count. The
     parallel-mode caller pins this to 1 so joblib outer parallelism +
     LightGBM inner parallelism don't oversubscribe CPU cores.
+
+    T28: `hyperparam_overrides` is the parsed
+    ``config/mta_hyperparams.json`` ``heads`` dict. When the current
+    ``target`` (head name) has an entry, the per-head values override
+    the hardcoded base for THIS head only. Default ``None`` →
+    hardcoded base verbatim, same as pre-T28 behaviour.
     """
-    base = LGBM_PARAMS_BINARY if objective == "binary" else LGBM_PARAMS_REGRESSION
+    base = _resolve_lgbm_params(target, objective, hyperparam_overrides)
     params = {**base, "n_jobs": lgbm_n_jobs}
     model_class = lgb.LGBMClassifier if objective == "binary" else lgb.LGBMRegressor
 
@@ -182,6 +268,7 @@ def _train_and_save_target(
     output_path: Path,
     *,
     lgbm_n_jobs: int,
+    hyperparam_overrides: dict[str, dict] | None = None,
 ) -> tuple[str, dict | None, str | None]:
     """Fit one target and persist the booster to `output_path`.
 
@@ -193,6 +280,11 @@ def _train_and_save_target(
     Returns (target, metrics, error_or_None). Exceptions are caught and
     returned as the error string so a single bad target doesn't kill the
     whole batch in parallel mode.
+
+    T28: ``hyperparam_overrides`` carries through to ``_fit_one`` so
+    per-head LightGBM tuning applies inside both serial and joblib
+    worker contexts. Passing the dict (not a path) keeps the parallel
+    workers from each re-reading + re-parsing the config file.
     """
     try:
         booster, metrics = _fit_one(
@@ -203,6 +295,7 @@ def _train_and_save_target(
             X_val,
             y_val,
             lgbm_n_jobs=lgbm_n_jobs,
+            hyperparam_overrides=hyperparam_overrides,
         )
         booster.save_model(str(output_path))
         return target, metrics, None
@@ -369,6 +462,8 @@ def _validate_one_fold(
     fold: FoldSpec,
     loaded: list[tuple[str, pd.DataFrame]],
     feature_config: dict,
+    *,
+    hyperparam_overrides: dict[str, dict] | None = None,
 ) -> dict:
     """Train every head on `fold.train_dates` and score on `fold.val_dates`.
 
@@ -379,6 +474,12 @@ def _validate_one_fold(
     Same skip rules as the main loop apply (no data, single-class val,
     fit exception) so per-fold metrics align with what the production
     head will actually look like.
+
+    T28: ``hyperparam_overrides`` is the same per-head dict used by the
+    production training loop. Passing it through here means walk-
+    forward validation scores the same hyperparameters that will ship
+    — without this, CV metrics would consistently use the hardcoded
+    defaults and mismatch the production heads.
     """
     train_set = set(fold.train_dates)
     val_set = set(fold.val_dates)
@@ -413,6 +514,7 @@ def _validate_one_fold(
         try:
             _, fit_metrics = _fit_one(
                 target, objective, X_tr, y_tr, X_va, y_va, lgbm_n_jobs=1,
+                hyperparam_overrides=hyperparam_overrides,
             )
             metrics[target] = fit_metrics
         except Exception as e:
@@ -483,6 +585,7 @@ def train_instrument(
     fold_week_size: int = 5,
     n_jobs: int = 1,
     include_dates: list[str] | None = None,
+    hyperparams_config_path: Path | None = None,
 ) -> TrainResult:
     """Train all MVP targets for one instrument across a date range.
 
@@ -507,6 +610,19 @@ def train_instrument(
     (direction_300s, trend_direction_1800s), which caused NaN AUC in
     earlier runs.
     """
+    # T28: load per-head hyperparameter overrides ONCE per call. The
+    # parsed dict gets threaded through both the production fit path
+    # and walk-forward validation so CV metrics match what the
+    # production heads actually ship with. Missing file / empty config
+    # = same behaviour as pre-T28 (hardcoded defaults).
+    hyperparam_overrides = _load_hyperparams_overrides(hyperparams_config_path)
+    if hyperparam_overrides:
+        print(
+            f"  Hyperparams: per-head overrides loaded for "
+            f"{len(hyperparam_overrides)} head(s) from "
+            f"{(hyperparams_config_path or MTA_HYPERPARAMS_CONFIG_DEFAULT)}"
+        )
+
     # 1. Load Parquets
     loaded = _load_parquets(
         instrument, date_from, date_to, features_root,
@@ -616,7 +732,10 @@ def train_instrument(
                 f"({len(fold.val_dates)} days), "
                 f"train={len(fold.train_dates)} days"
             )
-            fm = _validate_one_fold(fold, loaded, feature_config)
+            fm = _validate_one_fold(
+                fold, loaded, feature_config,
+                hyperparam_overrides=hyperparam_overrides,
+            )
             fold_results.append({
                 "fold_index": fold.fold_index,
                 "train_dates": fold.train_dates,
@@ -709,6 +828,7 @@ def train_instrument(
                 y_va,
                 output_dir / f"{target}.lgbm",
                 lgbm_n_jobs=-1,
+                hyperparam_overrides=hyperparam_overrides,
             )
             if err is not None:
                 print(f"     FAILED: {err}")
@@ -741,6 +861,7 @@ def train_instrument(
                 y_va,
                 output_dir / f"{target}.lgbm",
                 lgbm_n_jobs=1,
+                hyperparam_overrides=hyperparam_overrides,
             )
             for target, objective, X_tr, y_tr, X_va, y_va in fit_jobs
         )

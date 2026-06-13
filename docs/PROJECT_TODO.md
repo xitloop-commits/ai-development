@@ -29,11 +29,26 @@ Current Wave 2 model is a microstructure scalp predictor; v2 adds trend (10-30 m
 
 T28 = PRE-Day-30 SHOULD (hyperparameter tuning before first real retrain). T29–T35 + T41 = PRE-PAPER MUST (must ship before Phase 7 paper-trade ramp). T23–T27 closed 2026-05-23 (training-pipeline build-out, see git log for detail).
 
-### T28 — Hyperparameter tuning infrastructure (Optuna) 🆕
+### T28 — Hyperparameter tuning infrastructure (Optuna) 🚧 PR1 SHIPPED
 Add Optuna sweep job that runs on holdout fold, picks best LightGBM params per head, feeds into Saturday retrain. Currently `LGBM_PARAMS_BINARY`/`_REGRESSION` are hardcoded in `trainer.py:46-67` and no `config/mta_hyperparams.json` exists (T3 Plan §5.2 line 174). Typically 1-3% AUC improvement per head.
 
-- **Status:** ⏳ PRE-Day-30 SHOULD (recommended, not strict).
-- **Effort:** ~2-3 days for per-head Optuna; ~1 day if just pinning from config.
+**Two-PR plan (2026-06-13):**
+
+**PR1 — Config + read path (shipped 2026-06-13):** Pure plumbing, no behaviour change.
+- `config/mta_hyperparams.json` — new file with empty `heads` block + schema doc. Empty config = identical to pre-T28 behaviour.
+- `python_modules/model_training_agent/trainer.py`:
+  - `_load_hyperparams_overrides(path)` — reads + parses the config, returns `{head_name: override_dict}`. Missing / malformed / wrong-shape config → empty dict + WARN, never raises.
+  - `_resolve_lgbm_params(target, objective, overrides)` — merges per-head override onto the hardcoded base (binary or regression). Per-head keys win; unspecified keys inherit. New keys from Optuna (e.g. `min_data_in_leaf`, `lambda_l2`) accepted.
+  - `_fit_one` signature extended with `hyperparam_overrides: dict | None = None`. Default None preserves pre-T28 behaviour.
+  - `train_instrument` loads the config ONCE per call and threads the parsed dict through both serial + joblib parallel + walk-forward validation paths (passing parsed dict, not path, avoids joblib workers re-reading the file each fit).
+- 14 new unit tests in `tests/test_hyperparams_config.py` covering: missing file, malformed JSON, empty/missing/wrong-type heads block, base-verbatim fallback, per-head merge correctness, isolation between heads, accepts new-key Optuna params.
+
+**PR2 — Optuna sweep + tuned config (pending):**
+- New `scripts/tune_hyperparams.py` runs Optuna per head on the calibration fold, picks best per-head params, writes them into `config/mta_hyperparams.json`. Saturday retrain then picks them up automatically via PR1's read path.
+- ~1-2 days. Slow (Optuna sweep is the bottleneck), but the plumbing is already live.
+
+- **Status:** 🚧 PR1 ✅ IMPLEMENTED 2026-06-13 (commit pending); PR2 ⏳ pending.
+- **Effort remaining:** ~1-2 days for PR2.
 - **Cross-ref:** T3 Phase 5.
 
 ### T29 — L4 v2 gate + head-type routing 🆕

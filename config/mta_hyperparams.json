@@ -1,0 +1,5 @@
+{
+  "_note": "Per-head LightGBM hyperparameter overrides for MTA training (T28). When a head's name appears in `heads`, the listed key/value pairs override the matching entries in trainer.LGBM_PARAMS_BINARY or LGBM_PARAMS_REGRESSION for that head. Keys absent here keep their hardcoded defaults. Heads absent here use the hardcoded defaults verbatim. Populated by scripts/tune_hyperparams.py (T28 PR2). Empty `heads` block = current trainer behaviour, no change.",
+  "_schema_version": 1,
+  "heads": {}
+}
