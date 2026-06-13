@@ -66,7 +66,13 @@ from tick_feature_agent.features.bars import Bar
 
 _NAN = float("nan")
 
-_TREND_TAGS: frozenset[str] = frozenset({"trend", "trend_strong"})
+_TREND_TAGS: frozenset[str] = frozenset({"TREND", "TREND_STRONG"})
+# T32-FU3 (2026-06-13): regime classifier emits UPPERCASE labels
+# ("TREND" / "TREND_STRONG" / "RANGE" / "DEAD" / "NEUTRAL") — see
+# ``features/regime.py``. Pre-2026-06-13 this set held lowercase
+# strings, so the ``regime_tag in _TREND_TAGS`` membership test below
+# never matched and ``trend_age_ticks`` was a dead feature (always
+# NaN / 0) across every replay parquet.
 _BASELINE_BARS = 10
 _RANGE_FLOOR = 1e-9
 

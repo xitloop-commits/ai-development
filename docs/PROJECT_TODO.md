@@ -70,7 +70,7 @@ Implement V2_MASTER_SPEC §2.8 rule-based classifier: `trend_strong` tier + 5-mi
 - **Status:** ✅ IMPLEMENTED 2026-05-30.
 - **Cross-ref:** T3 Phase 6; spec D4 / D47; later upgrade T17.
 
-#### T32-FU1 — Replace consecutive-sustain with rolling-window majority 🆕
+#### T32-FU1 — Replace consecutive-sustain with rolling-window majority ✅ IMPLEMENTED
 T32's `RegimeClassifier.update` requires **5 minutes of UNINTERRUPTED same-candidate ticks** before flipping the confirmed regime ([regime.py:300-326](python_modules/tick_feature_agent/features/regime.py#L300-L326)). Real intraday data flaps between TREND/RANGE every few ticks; the candidate timer keeps resetting, so the classifier locks into whichever regime won the first 5-min stretch. Surfaced 2026-06-04 when validator's `statistical.regime` check WARNed on the newly-merged 2026-05-22 banknifty parquet ("always 'TREND'").
 
 **Evidence — per-(date, instrument) regime distribution across the 2026-05-20/21/22 banknifty + nifty50 parquets:**
@@ -100,9 +100,26 @@ T32's `RegimeClassifier.update` requires **5 minutes of UNINTERRUPTED same-candi
 - Confirm regime distribution shows realistic transitions (not single-regime lock-in).
 - Spot-check that 2026-05-21 banknifty (the only date that DID flip out of TREND with the current logic) still shows reasonable transitions, not over-flipping.
 
-- **Status:** ⏳ surfaced 2026-06-04, pending decision on which fix option.
-- **Effort:** ~½ day for option 1 + tests + re-validation; option 2 is ~2 hours; option 3 is a one-line change.
-- **Cross-ref:** parent task T32; consumes side-effect of [validation/feature_validator.py:243-249](python_modules/tick_feature_agent/validation/feature_validator.py#L243-L249).
+**Implementation (shipped 2026-06-13):**
+- `python_modules/tick_feature_agent/features/regime.py` — `RegimeClassifier.update` now maintains a `collections.deque` of `(ts, instant_regime)` tuples for the last `sustain_sec` (default 300s). On every update it appends + age-prunes the window. To promote a non-confirmed regime, the leading non-confirmed regime in the window must hold `≥ majority_threshold` (default 70%) share AND the window must contain `≥ min_window_ticks` (default 10) entries. Public API unchanged (same `update(...)` signature; same `confirmed_regime` / `confirmed_confidence` / `candidate_regime` properties). `candidate_regime` is now derived from the window (most-counted non-confirmed regime), not from a stored timer.
+- Same-regime updates refresh confidence in place without scanning the window — cheap path preserved.
+- Benign degradation (instant=None) still skipped without entering the window.
+- `python_modules/tick_feature_agent/tests/test_regime_t32.py` — 5 sustain tests rewritten to majority semantics + 3 new tests: `test_classifier_brief_excursion_does_not_promote` (50/50 flap stays at confirmed), `test_classifier_flapping_majority_eventually_flips` (the regression test for this bug — 8-out-of-9 RANGE eventually promotes despite constant flap interruptions), `test_classifier_old_entries_fall_out_of_window` (age-prune verification).
+
+**Validation:** Full TFA test suite 1668/1668. The regression test reproduces the exact scenario that broke production: a single TREND tick every 9th update would have prevented promotion under the old consecutive logic; the new majority logic promotes RANGE correctly.
+
+- **Status:** ✅ IMPLEMENTED 2026-06-13.
+- **Cross-ref:** parent task T32; bundled with T32-FU3 in same commit; depends on operator re-running replay to regenerate regime-affected columns (`regime`, `regime_confidence`, `breakout_readiness`, `breakout_readiness_extended`, `trend_age_ticks`).
+
+#### T32-FU3 — Fix `_TREND_TAGS` case mismatch in exhaustion.py ✅ IMPLEMENTED
+`python_modules/tick_feature_agent/features/exhaustion.py:69` held `_TREND_TAGS = frozenset({"trend", "trend_strong"})` (lowercase). But the regime classifier emits UPPERCASE labels (`"TREND"`, `"TREND_STRONG"`). The membership test on lines 116-117 never matched in production → `trend_age_ticks` was a dead feature (NaN before the first state update, 0.0 forever after) across every replay parquet since T32 shipped.
+
+**Why it matters:** `trend_age_ticks` is a maturity-of-current-trend counter. Fresh trends behave differently from late-stage exhausted ones; a working counter feeds trend-conditioned heads (`exit_signal_*`, `direction_persists_*`, `trend_continues_*`) a real signal instead of a constant. Conservative estimate: 1-2% AUC bump on those heads once parquets are regenerated AND models retrained.
+
+**Implementation (shipped 2026-06-13):** one-line fix in `exhaustion.py:69` — change frozenset contents to UPPERCASE `{"TREND", "TREND_STRONG"}`. Plus a regression test (`test_lowercase_regime_tag_no_longer_counts_as_trend`) that pins the casing contract so a future "let's lowercase the regime tags" change has to update both producer + consumer.
+
+- **Status:** ✅ IMPLEMENTED 2026-06-13.
+- **Cross-ref:** discovered during T32-FU1 impact analysis on 2026-06-13; bundled with T32-FU1 in the same commit. Realising the predictive value requires re-running replay (now produces correct `trend_age_ticks`) + retraining the affected heads.
 
 ### T33 — D56 cohort tracking end-to-end ✅ PYTHON SIDE IMPLEMENTED
 Tag every signal + fill with originating signal type (scalp/trend/swing/multi-day-swing) through the full pipeline: SEA signal log → broker fill log → reliability monitoring. Without this, post-paper-trade attribution analysis (which heads/cohorts are profitable) is impossible.

@@ -46,38 +46,45 @@ def test_initial_non_trend_tick_reports_zero():
     assert out["trend_age_ticks"] == 0.0
 
 
+# T32-FU3 (2026-06-13): regime classifier emits UPPERCASE labels
+# ("TREND", "TREND_STRONG", "RANGE", etc.) — see features/regime.py.
+# These tests previously fed lowercase strings, which exactly matched
+# the case-mismatched _TREND_TAGS frozenset and pinned the dead-feature
+# bug. Updated to use the actual emitted casing.
+
+
 def test_five_consecutive_trend_updates_yield_age_five():
     state = ExhaustionState()
     for _ in range(5):
-        state.update("trend")
+        state.update("TREND")
     out = compute_exhaustion_features(state=state, bars_5m=None)
     assert out["trend_age_ticks"] == 5.0
 
 
 def test_transition_into_trend_resets_then_counts_one():
     state = ExhaustionState()
-    state.update("range")        # age 0
-    state.update("trend")        # fresh entry → age 1 (not 0, not 2)
+    state.update("RANGE")        # age 0
+    state.update("TREND")        # fresh entry → age 1 (not 0, not 2)
     out = compute_exhaustion_features(state=state, bars_5m=None)
     assert out["trend_age_ticks"] == 1.0
 
 
 def test_range_and_chop_do_not_increment():
     state = ExhaustionState()
-    state.update("range")
-    state.update("chop")
-    state.update("range")
-    state.update("chop")
+    state.update("RANGE")
+    state.update("NEUTRAL")
+    state.update("RANGE")
+    state.update("NEUTRAL")
     out = compute_exhaustion_features(state=state, bars_5m=None)
     assert out["trend_age_ticks"] == 0.0
 
 
 def test_trend_strong_counts_same_as_trend():
     state = ExhaustionState()
-    state.update("trend_strong")        # fresh entry → 1
-    state.update("trend_strong")        # → 2
-    state.update("trend")               # same family → 3 (no reset)
-    state.update("trend_strong")        # → 4
+    state.update("TREND_STRONG")        # fresh entry → 1
+    state.update("TREND_STRONG")        # → 2
+    state.update("TREND")               # same family → 3 (no reset)
+    state.update("TREND_STRONG")        # → 4
     out = compute_exhaustion_features(state=state, bars_5m=None)
     assert out["trend_age_ticks"] == 4.0
 
@@ -85,8 +92,8 @@ def test_trend_strong_counts_same_as_trend():
 def test_flipping_out_of_trend_resets_counter():
     state = ExhaustionState()
     for _ in range(7):
-        state.update("trend")
-    state.update("range")    # leaves trend → counter snaps to 0
+        state.update("TREND")
+    state.update("RANGE")    # leaves trend → counter snaps to 0
     out = compute_exhaustion_features(state=state, bars_5m=None)
     assert out["trend_age_ticks"] == 0.0
 
@@ -94,9 +101,9 @@ def test_flipping_out_of_trend_resets_counter():
 def test_flipping_back_into_trend_starts_fresh():
     state = ExhaustionState()
     for _ in range(7):
-        state.update("trend")
-    state.update("range")
-    state.update("trend")   # fresh entry → 1, NOT 8
+        state.update("TREND")
+    state.update("RANGE")
+    state.update("TREND")   # fresh entry → 1, NOT 8
     out = compute_exhaustion_features(state=state, bars_5m=None)
     assert out["trend_age_ticks"] == 1.0
 
@@ -104,7 +111,7 @@ def test_flipping_back_into_trend_starts_fresh():
 def test_reset_zeroes_counter_and_clears_prev_regime():
     state = ExhaustionState()
     for _ in range(4):
-        state.update("trend")
+        state.update("TREND")
     state.reset()
     # After reset, state is indistinguishable from a fresh one.
     assert state.trend_age_ticks == 0
@@ -112,8 +119,27 @@ def test_reset_zeroes_counter_and_clears_prev_regime():
     assert state.has_seen_tick is False
     out = compute_exhaustion_features(state=state, bars_5m=None)
     assert math.isnan(out["trend_age_ticks"])
-    # And a subsequent trend update lands at 1 (fresh entry), not 5.
+
+
+def test_lowercase_regime_tag_no_longer_counts_as_trend():
+    """Regression for T32-FU3 (2026-06-13). The emitter sends UPPERCASE
+    regime labels — lowercase strings must NOT match the trend family.
+    Before the case fix, the production pipeline silently produced an
+    always-zero trend_age_ticks column because compute_regime_features
+    emitted "TREND" but _TREND_TAGS only matched "trend".
+
+    Sanity-pins this fix so a future "let's lowercase the regime tags"
+    change has to update BOTH sides (or this test will break).
+    """
+    state = ExhaustionState()
+    # Lowercase updates — must NOT count as trend.
     state.update("trend")
+    state.update("trend_strong")
+    out = compute_exhaustion_features(state=state, bars_5m=None)
+    assert out["trend_age_ticks"] == 0.0
+
+    # And switching to UPPERCASE picks up correctly — fresh entry → 1.
+    state.update("TREND")
     out = compute_exhaustion_features(state=state, bars_5m=None)
     assert out["trend_age_ticks"] == 1.0
 

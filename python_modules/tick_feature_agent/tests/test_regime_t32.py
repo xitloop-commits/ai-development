@@ -155,76 +155,106 @@ def test_classifier_accepts_first_valid_reading_immediately():
     assert clf.confirmed_regime == "TREND_STRONG"
 
 
-def test_classifier_holds_confirmed_until_candidate_sustains():
-    """RANGE candidate must hold for sustain_sec before promotion."""
-    clf = RegimeClassifier(sustain_sec=300.0)
+def test_classifier_holds_confirmed_until_window_majority(monkeypatch):
+    """RANGE candidate must accumulate ≥70% of the rolling window AND
+    the window must hold ≥min_window_ticks before promotion. T32-FU1
+    swapped consecutive-hold for rolling-majority sustain (2026-06-13).
+    """
+    clf = RegimeClassifier(sustain_sec=300.0, min_window_ticks=10)
     buf = _make_buffer_with_trend()
 
     # Confirmed: TREND_STRONG at t=0.
     clf.update(now_ts=0.0, **_trend_strong_inputs(buf))
     assert clf.confirmed_regime == "TREND_STRONG"
 
-    # Instant flips to RANGE at t=10. Confirmed should STILL be TREND_STRONG.
-    out = clf.update(now_ts=10.0, **_range_inputs(buf))
-    assert out["regime"] == "TREND_STRONG"
-    assert clf.candidate_regime == "RANGE"
+    # Send 5 RANGE readings — window now has 6 entries (1 TS + 5 RANGE).
+    # 5/6 = 83% >= 70% but window_n=6 < min_window_ticks=10 → no flip.
+    for i in range(1, 6):
+        out = clf.update(now_ts=float(i * 10), **_range_inputs(buf))
+        assert out["regime"] == "TREND_STRONG", f"flipped too early at i={i}"
 
-    # Still RANGE at t=200 (190 sec into sustain) — not promoted yet.
-    out = clf.update(now_ts=200.0, **_range_inputs(buf))
+    # 6th RANGE reading: window=[TS, R×6] → 7 entries, RANGE=6/7=86%
+    # but window_n=7 still <10 → no flip.
+    out = clf.update(now_ts=60.0, **_range_inputs(buf))
     assert out["regime"] == "TREND_STRONG"
 
-    # At t=310 (>300 sec since candidate started) — promote.
-    out = clf.update(now_ts=310.0, **_range_inputs(buf))
-    assert out["regime"] == "RANGE"
+    # 9th RANGE reading: window has 10 entries (1 TS + 9 RANGE).
+    # RANGE 9/10 = 90% >= 70%, window_n=10 >= min — PROMOTE.
+    for i in range(7, 10):
+        clf.update(now_ts=float(i * 10), **_range_inputs(buf))
     assert clf.confirmed_regime == "RANGE"
 
 
-def test_classifier_resets_candidate_when_instant_reverts():
-    """Instant TREND_STRONG -> RANGE -> TREND_STRONG before sustain
-    completes must reset the candidate timer."""
-    clf = RegimeClassifier(sustain_sec=300.0)
+def test_classifier_brief_excursion_does_not_promote():
+    """A short flap to RANGE that doesn't reach majority must NOT
+    flip the confirmed regime — even though the old consecutive-hold
+    logic would have started a candidate timer immediately.
+    """
+    clf = RegimeClassifier(sustain_sec=300.0, min_window_ticks=10)
     buf = _make_buffer_with_trend()
     clf.update(now_ts=0.0, **_trend_strong_inputs(buf))
 
-    # RANGE candidate starts.
-    clf.update(now_ts=10.0, **_range_inputs(buf))
-    assert clf.candidate_regime == "RANGE"
+    # Send 2 RANGE then back to TREND_STRONG, repeat. Each round
+    # only 2 out of 4 entries are non-confirmed → 50% share, below
+    # 70% threshold → no promotion regardless of how long this goes.
+    for round_idx in range(10):
+        t = 10.0 * round_idx * 4
+        clf.update(now_ts=t + 0,  **_range_inputs(buf))
+        clf.update(now_ts=t + 10, **_range_inputs(buf))
+        clf.update(now_ts=t + 20, **_trend_strong_inputs(buf))
+        clf.update(now_ts=t + 30, **_trend_strong_inputs(buf))
+    # Confirmed must still be TREND_STRONG.
+    assert clf.confirmed_regime == "TREND_STRONG"
 
-    # Reverts to confirmed before sustain.
-    out = clf.update(now_ts=20.0, **_trend_strong_inputs(buf))
-    assert out["regime"] == "TREND_STRONG"
-    assert clf.candidate_regime is None
 
+def test_classifier_flapping_majority_eventually_flips():
+    """Regression test for the bug T32-FU1 fixes: when the instant
+    classification flaps but RANGE dominates (e.g. 8 RANGE for every
+    1 TREND), the rolling majority must eventually promote RANGE.
 
-def test_classifier_resets_candidate_when_a_different_alternative_appears():
-    """Instant transitions TREND_STRONG -> RANGE for 100 sec, then
-    TREND_STRONG -> NEUTRAL — sustain timer must restart for NEUTRAL."""
-    clf = RegimeClassifier(sustain_sec=300.0)
+    The pre-T32-FU1 consecutive-hold logic would never flip in this
+    scenario because the single TREND tick reset the candidate timer
+    every time — producing the always-one-regime parquets the
+    validator WARNed on.
+    """
+    clf = RegimeClassifier(sustain_sec=300.0, min_window_ticks=10)
     buf = _make_buffer_with_trend()
     clf.update(now_ts=0.0, **_trend_strong_inputs(buf))
 
-    clf.update(now_ts=10.0, **_range_inputs(buf))
-    assert clf.candidate_regime == "RANGE"
-    clf.update(now_ts=100.0, **_range_inputs(buf))
-    # 90 sec into RANGE sustain.
-
-    # Now a different alternative (NEUTRAL via weakened signals).
-    neutral_inputs = dict(
-        buffer=buf, volatility_compression=0.7,
-        tick_imbalance_20=0.2, active_strike_count=3,
-        vol_diff_available=True, adx_5min=15.0,
+    # Simulate 50 ticks where RANGE wins 8-out-of-9 — even with the
+    # constant TREND_STRONG interruptions the candidate timer would
+    # have reset, the rolling majority should promote RANGE.
+    for i in range(1, 51):
+        t = float(i * 10)
+        if i % 9 == 0:
+            clf.update(now_ts=t, **_trend_strong_inputs(buf))
+        else:
+            clf.update(now_ts=t, **_range_inputs(buf))
+    assert clf.confirmed_regime == "RANGE", (
+        "rolling majority must promote RANGE under flapping data — "
+        "this is the bug T32-FU1 specifically fixes"
     )
-    clf.update(now_ts=110.0, **neutral_inputs)
-    # Candidate switched; sustain timer should reset to t=110.
-    assert clf.candidate_regime == "NEUTRAL"
 
-    # At t=350 (240 sec into NEUTRAL sustain — not yet 300), confirmed
-    # still TREND_STRONG.
-    out = clf.update(now_ts=350.0, **neutral_inputs)
-    assert out["regime"] == "TREND_STRONG"
-    # At t=415 (305 sec into NEUTRAL sustain), promote.
-    out = clf.update(now_ts=415.0, **neutral_inputs)
-    assert out["regime"] == "NEUTRAL"
+
+def test_classifier_old_entries_fall_out_of_window():
+    """Entries older than sustain_sec must drop from the window so a
+    burst of past-tick activity can't keep a confirmed regime alive
+    indefinitely.
+    """
+    clf = RegimeClassifier(sustain_sec=300.0, min_window_ticks=10)
+    buf = _make_buffer_with_trend()
+    # Seed: TREND_STRONG at t=0.
+    clf.update(now_ts=0.0, **_trend_strong_inputs(buf))
+    # Burst of TREND_STRONG readings far in the past relative to the
+    # eventual RANGE majority.
+    for i in range(1, 21):
+        clf.update(now_ts=float(i), **_trend_strong_inputs(buf))
+    # Now jump ahead 600 seconds (well past sustain_sec=300) and send
+    # only RANGE readings. The old TREND entries must age out so RANGE
+    # can dominate.
+    for i in range(15):
+        clf.update(now_ts=600.0 + i * 10, **_range_inputs(buf))
+    assert clf.confirmed_regime == "RANGE"
 
 
 def test_classifier_benign_degradation_none_keeps_confirmed():
