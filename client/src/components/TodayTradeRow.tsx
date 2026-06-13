@@ -140,34 +140,70 @@ function _TodayTradeRow({
       {/* Instrument + TradeBar take the full left width (cols 0–5); the day-level
           numbers that used to sit here are now in the top summary banner. */}
       <td colSpan={6} className="px-2 py-1.5 border-r border-border">
-        <div className="flex flex-col gap-1 w-full">
-        <div className="flex items-center justify-between gap-1.5">
-          <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0">
+        <div className="flex items-center gap-2 w-full">
+          {/* Instrument identity (left) */}
+          <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0 shrink-0">
             {tradeNo != null && (
               <span className="text-[0.625rem] font-semibold tabular-nums text-muted-foreground shrink-0">#{tradeNo}</span>
             )}
             {/* Instrument identity (the whole closed row is dimmed at row level). */}
             <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0">
               <InstrumentTag name={trade.instrument} muted={!isOpen} />
-            {expiryLabel && (
-              <>
-                <span className="text-border">|</span>
-                <span className="text-[0.5625rem] tabular-nums text-muted-foreground">{expiryLabel}</span>
-              </>
-            )}
-            {trade.strike !== null && (
-              <>
-                <span className="text-border">|</span>
-                <span className="text-[0.5625rem] tabular-nums text-muted-foreground">{trade.strike}</span>
-              </>
-            )}
-            <span className="text-border">|</span>
-            <span className={`text-[0.5625rem] ${isOpen ? 'font-bold' : ''} ${theme.buttonActive} rounded px-1 py-0.5`}>{contractLabel}</span>
-            <span className="text-border">|</span>
-            <span className={`text-[0.5625rem] ${isOpen ? 'font-semibold' : ''} ${isBuy ? 'text-bullish' : 'text-destructive'}`}>{directionLabel}</span>
+              {expiryLabel && (
+                <>
+                  <span className="text-border">|</span>
+                  <span className="text-[0.5625rem] tabular-nums text-muted-foreground">{expiryLabel}</span>
+                </>
+              )}
+              {trade.strike !== null && (
+                <>
+                  <span className="text-border">|</span>
+                  <span className="text-[0.5625rem] tabular-nums text-muted-foreground">{trade.strike}</span>
+                </>
+              )}
+              <span className="text-border">|</span>
+              <span className={`text-[0.5625rem] ${isOpen ? 'font-bold' : ''} ${theme.buttonActive} rounded px-1 py-0.5`}>{contractLabel}</span>
+              <span className="text-border">|</span>
+              <span className={`text-[0.5625rem] ${isOpen ? 'font-semibold' : ''} ${isBuy ? 'text-bullish' : 'text-destructive'}`}>{directionLabel}</span>
             </div>
           </div>
-          <div className="flex items-center gap-1 shrink-0">
+
+          {/* TradeBar fills the middle, on the same line (open trades only) */}
+          {isOpen && (
+            <div className="flex-1 min-w-0">
+              <TradeBar
+                isBuy={isBuy}
+                entryPrice={trade.entryPrice}
+                ltp={displayLtp}
+                slPercent={
+                  trade.stopLossPrice && trade.stopLossPrice > 0
+                    ? ((isBuy ? trade.entryPrice - trade.stopLossPrice : trade.stopLossPrice - trade.entryPrice) /
+                        trade.entryPrice) * 100
+                    : slPercent
+                }
+                tpPercent={
+                  trade.targetPrice && trade.targetPrice > 0
+                    ? ((isBuy ? trade.targetPrice - trade.entryPrice : trade.entryPrice - trade.targetPrice) /
+                        trade.entryPrice) * 100
+                    : undefined
+                }
+                trailingEnabled={globalTrailingEnabled}
+                tslGatePrice={(() => {
+                  const be = trade.breakevenPrice ?? trade.entryPrice;
+                  const g = tslGatePercent ?? 2;
+                  return isBuy ? be * (1 + g / 100) : be * (1 - g / 100);
+                })()}
+                units={trade.qty}
+                roundTripCharges={charges}
+                compact
+                onStopLossHit={() => toast.error(`Stop hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`)}
+                onTakeProfitHit={() => toast.success(`TP hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`)}
+              />
+            </div>
+          )}
+
+          {/* Age + exit / reconcile controls (right) */}
+          <div className="flex items-center gap-1 shrink-0 ml-auto">
             {isOpen && (
               <span className="text-[0.5rem] text-muted-foreground/60 tabular-nums">
                 {formatAge(trade.openedAt)}
@@ -193,47 +229,6 @@ function _TodayTradeRow({
               </button>
             )}
           </div>
-        </div>
-        {isOpen && (
-          <TradeBar
-            isBuy={isBuy}
-            entryPrice={trade.entryPrice}
-            ltp={displayLtp}
-            // Stop distance from the trade's REAL stop price (the value the server
-            // exits on). It follows edits and server-side trailing, so the marker
-            // can't disagree with where the trade actually exits. Falls back to the
-            // global SL% only when no stop is stored yet.
-            slPercent={
-              trade.stopLossPrice && trade.stopLossPrice > 0
-                ? ((isBuy ? trade.entryPrice - trade.stopLossPrice : trade.stopLossPrice - trade.entryPrice) /
-                    trade.entryPrice) * 100
-                : slPercent
-            }
-            // TP% from the trade's real target when set; else the bar's default.
-            tpPercent={
-              trade.targetPrice && trade.targetPrice > 0
-                ? ((isBuy ? trade.targetPrice - trade.entryPrice : trade.entryPrice - trade.targetPrice) /
-                    trade.entryPrice) * 100
-                : undefined
-            }
-            // Pending TSL marker at the activation gate (breakeven + gate%) while
-            // trailing is on but the stop hasn't trailed into profit yet.
-            trailingEnabled={globalTrailingEnabled}
-            tslGatePrice={(() => {
-              const be = trade.breakevenPrice ?? trade.entryPrice;
-              const g = tslGatePercent ?? 2;
-              return isBuy ? be * (1 + g / 100) : be * (1 - g / 100);
-            })()}
-            // Position size + round-trip charges → marker tooltips show ₹ P&L.
-            units={trade.qty}
-            roundTripCharges={charges}
-            compact
-            // Testing-only: surface the bar's events as toasts so we can see what
-            // fired. Not wired to any real exit (server stays the owner).
-            onStopLossHit={() => toast.error(`Stop hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`)}
-            onTakeProfitHit={() => toast.success(`TP hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`)}
-          />
-        )}
         </div>
       </td>
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
