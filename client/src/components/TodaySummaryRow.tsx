@@ -9,7 +9,7 @@
  */
 import type { DayRecord, TradeRecord } from '@/lib/tradeTypes';
 import { fmt, pnlColor, formatDeviation } from '@/lib/tradeFormatters';
-import { aggregateChargesBreakdown, calculateTotalLots } from '@/lib/tradeCalculations';
+import { aggregateChargesBreakdown } from '@/lib/tradeCalculations';
 import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 
 export interface TodaySummaryRowProps {
@@ -69,7 +69,6 @@ export function TodaySummaryRow({
   const realized = closed.reduce((s, t) => s + (t.pnl ?? 0), 0);
   const openUnrealized = open.reduce((s, t) => s + (t.unrealizedPnl ?? 0), 0);
   const openExposure = open.reduce((s, t) => s + t.entryPrice * t.qty, 0);
-  const lots = calculateTotalLots(trades ?? []);
   const invested = trades.reduce((s, t) => s + t.entryPrice * t.qty, 0);
   const pctToTarget = day.targetAmount > 0 ? (totalPnl / day.targetAmount) * 100 : 0;
   const fillPct = Math.max(0, Math.min(100, pctToTarget));
@@ -83,29 +82,28 @@ export function TodaySummaryRow({
   return (
     <tr data-day={day.dayIndex} className={`border-y ${summaryBorder} ${rowBg}`} ref={rowRef}>
       <td colSpan={colSpan} className="px-3 py-1.5">
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* Identity */}
-          <div className="flex flex-col leading-tight shrink-0">
-            <span className="text-xs font-semibold text-foreground">Day {day.dayIndex}</span>
-            <span className="text-[0.5625rem] text-muted-foreground">{cycleDateLabel}</span>
+        <div className="flex items-center justify-between gap-6 flex-wrap">
+          {/* ── Left: identity · capital · P&L hero ───────────────── */}
+          <div className="flex items-center gap-4 shrink-0">
+            <div className="flex flex-col leading-tight shrink-0">
+              <span className="text-xs font-semibold text-foreground">Day {day.dayIndex}</span>
+              <span className="text-[0.5625rem] text-muted-foreground">{cycleDateLabel}</span>
+            </div>
+
+            <Sep />
+
+            <Stat label="Capital">
+              {fmt(day.tradeCapital, true)}
+              <span className="text-muted-foreground"> → </span>
+              {hasTrades && day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
+              {hasTrades && (
+                <span className={pnlColor(day.deviation)}> ({formatDeviation(day.deviation)})</span>
+              )}
+            </Stat>
           </div>
 
-          <Sep />
-
-          {/* Capital flow: start → end (deviation) */}
-          <Stat label="Capital">
-            {fmt(day.tradeCapital, true)}
-            <span className="text-muted-foreground"> → </span>
-            {hasTrades && day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
-            {hasTrades && (
-              <span className={pnlColor(day.deviation)}> ({formatDeviation(day.deviation)})</span>
-            )}
-          </Stat>
-
-          <Sep />
-
-          {/* P&L hero + progress toward target */}
-          <div className="flex flex-col leading-tight min-w-[11rem] shrink-0">
+          {/* ── Centre: P&L + a wide target-progress bar that fills the slack ── */}
+          <div className="flex flex-col leading-tight flex-1 min-w-[14rem] max-w-[34rem]">
             <div className="flex items-baseline gap-2">
               <span className={`text-sm font-bold tabular-nums ${pnlColor(totalPnl)}`}>
                 {hasTrades ? fmt(Math.round(totalPnl), false) : '—'}
@@ -124,31 +122,29 @@ export function TodaySummaryRow({
             </div>
           </div>
 
-          <Sep />
+          {/* ── Right-of-centre: the stat groups ──────────────────── */}
+          <div className="flex items-center gap-4 shrink-0">
+            <Stat label="Realized" color={pnlColor(realized)}>{hasTrades ? fmt(Math.round(realized), false) : '—'}</Stat>
+            <Stat label="Open" color={pnlColor(openUnrealized)}>{open.length > 0 ? fmt(Math.round(openUnrealized), false) : '—'}</Stat>
+            <Stat label="Exposure">{open.length > 0 ? fmt(openExposure) : '—'}</Stat>
 
-          {/* Realized / Open / Exposure */}
-          <Stat label="Realized" color={pnlColor(realized)}>{hasTrades ? fmt(Math.round(realized), false) : '—'}</Stat>
-          <Stat label="Open" color={pnlColor(openUnrealized)}>{open.length > 0 ? fmt(Math.round(openUnrealized), false) : '—'}</Stat>
-          <Stat label="Exposure">{open.length > 0 ? fmt(openExposure) : '—'}</Stat>
+            <Sep />
 
-          <Sep />
+            <Stat label="Invested">{hasTrades ? fmt(invested) : '—'}</Stat>
+            <Stat label="Charges" color="text-destructive/70">
+              {hasTrades && day.totalCharges > 0
+                ? <ChargesBreakdownTip total={day.totalCharges} breakdown={aggregateChargesBreakdown(trades)} />
+                : '—'}
+            </Stat>
+            <Stat label="W / L">
+              <span className="text-bullish">{wins}</span>
+              <span className="text-muted-foreground"> / </span>
+              <span className="text-destructive">{losses}</span>
+            </Stat>
+          </div>
 
-          {/* Activity: lots / invested / charges / win-loss */}
-          <Stat label="Lots">{lots > 0 ? lots : '—'}</Stat>
-          <Stat label="Invested">{hasTrades ? fmt(invested) : '—'}</Stat>
-          <Stat label="Charges" color="text-destructive/70">
-            {hasTrades && day.totalCharges > 0
-              ? <ChargesBreakdownTip total={day.totalCharges} breakdown={aggregateChargesBreakdown(trades)} />
-              : '—'}
-          </Stat>
-          <Stat label="W / L">
-            <span className="text-bullish">{wins}</span>
-            <span className="text-muted-foreground"> / </span>
-            <span className="text-destructive">{losses}</span>
-          </Stat>
-
-          {/* Controls (right-aligned) */}
-          <div className="ml-auto flex items-center gap-2 shrink-0">
+          {/* ── Far right: controls ───────────────────────────────── */}
+          <div className="flex items-center gap-2 shrink-0">
             {!canManageTrades && (
               <span className="text-[0.5625rem] italic text-muted-foreground">AI managed</span>
             )}
