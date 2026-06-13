@@ -110,7 +110,7 @@ export function TodaySummaryRow({
         {trades.length > 0 ? fmt(Math.round(totalPnl), false) : ''}
       </td>
       <td className="px-2 py-2 border-r border-border" />
-      <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground border-r border-border">
+      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
         {trades.length > 0 && day.actualCapital > 0 ? fmt(day.actualCapital, true) : ''}
       </td>
       <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(day.deviation)}`}>
