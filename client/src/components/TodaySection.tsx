@@ -8,17 +8,9 @@ import type {
 } from '@/lib/tradeTypes';
 import { channelToWorkspace } from '@/lib/tradeTypes';
 import {
-  fmt,
-  pnlColor,
   formatCalendarDay,
   formatDateAgeLabel,
-  formatDeviation,
 } from '@/lib/tradeFormatters';
-import {
-  aggregateChargesBreakdown,
-  calculateAvgSignedPoints,
-  calculateTotalLots,
-} from '@/lib/tradeCalculations';
 import {
   getWorkspaceThemeMeta,
   supportsManualControls,
@@ -26,7 +18,7 @@ import {
 import { trpc } from '@/lib/trpc';
 import { TodayTradeRow } from './TodayTradeRow';
 import { InstrumentBarRow } from './InstrumentBarRow';
-import { ChargesBreakdownTip } from './ChargesBreakdownTip';
+import { TodaySummaryRow } from './TodaySummaryRow';
 
 /** The 4 tradable instruments shown as always-on bars at the bottom. */
 const INSTRUMENT_BAR_LIST = ['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS'];
@@ -154,80 +146,20 @@ export function TodaySection({
         );
       })}
 
-      <tr data-day={day.dayIndex} className={`border-y font-bold ${theme.summaryBorder} ${theme.summaryBg}`} ref={trades.length === 0 ? todayRef : undefined}>
-        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {day.dayIndex}
-        </td>
-        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {cycleDateLabel}
-        </td>
-        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {fmt(day.tradeCapital, true)}
-        </td>
-        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {fmt(day.targetAmount)}
-          <span className="text-[0.5rem] ml-0.5">({day.targetPercent}%)</span>
-        </td>
-        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {fmt(day.projCapital, true)}
-        </td>
-        <td className="px-2 py-2 border-r border-border">
-          <div className="flex items-center justify-end gap-2">
-            {!canManageTrades && (
-              <span className="text-[0.5625rem] italic text-muted-foreground">AI managed</span>
-            )}
-            {canManageTrades && openTrades.length > 0 && (
-              <button
-                onClick={onExitAll}
-                className="shrink-0 px-1 py-0.5 rounded font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
-                title="Exit all open positions"
-              >
-                ×
-              </button>
-            )}
-            {canManageTrades && lastClosedTrade && (
-              <button
-                onClick={handleRepeatLastOrder}
-                className="px-1.5 py-0.5 rounded font-bold bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25 transition-colors"
-                title={`Repeat last ${lastClosedTrade.instrument} trade at current LTP`}
-              >
-                ↻
-              </button>
-            )}
-          </div>
-        </td>
-        <td className="px-2 py-2 border-r border-border" />
-        <td className="px-2 py-2 border-r border-border" />
-        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {(() => { const lots = calculateTotalLots(trades ?? []); return lots > 0 ? lots : ''; })()}
-        </td>
-        <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
-          {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0)) : ''}
-        </td>
-        <td className="px-2 py-2 text-right tabular-nums border-r border-border">
-          {(() => {
-            const pts = calculateAvgSignedPoints(trades);
-            if (pts === 0) return '';
-            return <span className={pnlColor(pts)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
-          })()}
-        </td>
-        <td className="px-2 py-2 text-right tabular-nums border-r border-border text-destructive/70">
-          {trades.length > 0 && day.totalCharges > 0
-            ? <ChargesBreakdownTip total={day.totalCharges} breakdown={aggregateChargesBreakdown(trades)} />
-            : ''}
-        </td>
-        <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
-          {trades.length > 0 ? fmt(Math.round(totalPnl), false) : ''}
-        </td>
-        <td className="px-2 py-2 border-r border-border" />
-        <td className="px-2 py-2 text-right tabular-nums font-medium text-foreground border-r border-border">
-          {trades.length > 0 && day.actualCapital > 0 ? fmt(day.actualCapital, true) : ''}
-        </td>
-        <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(day.deviation)}`}>
-          {trades.length > 0 ? formatDeviation(day.deviation) : ''}
-        </td>
-        <td className="px-1 py-2" />
-      </tr>
+      <TodaySummaryRow
+        day={day}
+        trades={trades}
+        totalPnl={totalPnl}
+        canManageTrades={canManageTrades}
+        openTradeCount={openTrades.length}
+        cycleDateLabel={cycleDateLabel}
+        summaryBorder={theme.summaryBorder}
+        summaryBg={theme.summaryBg}
+        lastClosedTrade={lastClosedTrade}
+        onExitAll={onExitAll}
+        onRepeatLastOrder={handleRepeatLastOrder}
+        rowRef={trades.length === 0 ? todayRef : undefined}
+      />
 
       {/* Always-on per-instrument trade-entry bars (bottom of the section) */}
       {canManageTrades &&
