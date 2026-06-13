@@ -43,11 +43,13 @@ Add Optuna sweep job that runs on holdout fold, picks best LightGBM params per h
   - `train_instrument` loads the config ONCE per call and threads the parsed dict through both serial + joblib parallel + walk-forward validation paths (passing parsed dict, not path, avoids joblib workers re-reading the file each fit).
 - 14 new unit tests in `tests/test_hyperparams_config.py` covering: missing file, malformed JSON, empty/missing/wrong-type heads block, base-verbatim fallback, per-head merge correctness, isolation between heads, accepts new-key Optuna params.
 
-**PR2 — Optuna sweep + tuned config (pending):**
+**PR2 — Optuna sweep + tuned config (pending) — ⚠️ RUN BEFORE FIRST REAL RETRAIN:**
 - New `scripts/tune_hyperparams.py` runs Optuna per head on the calibration fold, picks best per-head params, writes them into `config/mta_hyperparams.json`. Saturday retrain then picks them up automatically via PR1's read path.
-- ~1-2 days. Slow (Optuna sweep is the bottleneck), but the plumbing is already live.
+- ~1-2 days build + the sweep itself runs ~hours-to-overnight per instrument.
+- Partha-decision 2026-06-13: park PR2; **remind before the 1st real model training cycle** (the one that actually feeds paper trade). Until then the hardcoded defaults in `LGBM_PARAMS_BINARY/_REGRESSION` are used and the plumbing falls through as a no-op.
+- Cadence after first build: re-tune every few months OR whenever enough new sessions are accumulated to make a re-sweep worthwhile.
 
-- **Status:** 🚧 PR1 ✅ IMPLEMENTED 2026-06-13 (commit pending); PR2 ⏳ pending.
+- **Status:** 🚧 PR1 ✅ IMPLEMENTED 2026-06-13 (`faf8917`); PR2 ⏳ parked — REMIND-BEFORE-FIRST-TRAINING.
 - **Effort remaining:** ~1-2 days for PR2.
 - **Cross-ref:** T3 Phase 5.
 
