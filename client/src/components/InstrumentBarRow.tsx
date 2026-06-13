@@ -162,10 +162,10 @@ export function InstrumentBarRow({
       {/* Total units (lots × lot size) — matches the trade-row format. */}
       <td className={CELL}>{hasPreview ? totalUnits : ""}</td>
       <td className={CELL}>{hasPreview ? fmt(invested) : ""}</td>
+      {/* Charges (now next to Invested) */}
+      <td className={CELL}>{hasPreview && charges > 0 ? fmt(charges) : ""}</td>
       {/* Points */}
       <td className={CELL} />
-      {/* Charges */}
-      <td className={`${CELL} text-destructive/70`}>{hasPreview && charges > 0 ? fmt(charges) : ""}</td>
       {/* P&L / P&L% / Capital / Dev. */}
       <td className={CELL} />
       <td className={CELL} />
