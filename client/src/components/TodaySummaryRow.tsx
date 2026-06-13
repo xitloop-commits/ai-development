@@ -53,7 +53,6 @@ export function TodaySummaryRow({
   openTradeCount,
   cycleDateLabel,
   summaryBorder,
-  summaryBg,
   lastClosedTrade,
   onExitAll,
   onRepeatLastOrder,
@@ -74,8 +73,10 @@ export function TodaySummaryRow({
   const fillPct = Math.max(0, Math.min(100, pctToTarget));
   const targetHit = day.targetAmount > 0 && totalPnl >= day.targetAmount;
   const heavyLoss = day.targetAmount > 0 && totalPnl <= -day.targetAmount;
-  // State tint (one bg only): target-hit green / heavy-loss red / else theme.
-  const rowBg = targetHit ? 'bg-bullish/10' : heavyLoss ? 'bg-destructive/10' : summaryBg;
+  // Neutral banner surface (matches the app header strip); green/red are kept
+  // only as meaningful state tints so they don't wash the row or clash with the
+  // coloured P&L text on a normal/profit day.
+  const rowBg = targetHit ? 'bg-bullish/15' : heavyLoss ? 'bg-destructive/15' : 'bg-secondary';
 
   const btn = 'px-1.5 py-0.5 rounded text-[0.625rem] font-bold transition-colors';
 
