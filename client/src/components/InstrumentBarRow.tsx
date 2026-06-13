@@ -159,7 +159,14 @@ export function InstrumentBarRow({
 
       {/* Entry / LTP / Lot / Invested → live ATM-option preview */}
       <td className={CELL}>{hasPreview ? premium.toFixed(2) : ""}</td>
-      <td className={CELL}>{hasPreview ? premium.toFixed(2) : ""}</td>
+      {/* LTP — coloured by price like the today trade row's LTP column. */}
+      <td className={CELL}>
+        {hasPreview ? (
+          <span className={preview.livePremium >= preview.premium ? "text-bullish" : "text-destructive"}>
+            {premium.toFixed(2)}
+          </span>
+        ) : ""}
+      </td>
       {/* Total units (lots × lot size) — matches the trade-row format. */}
       <td className={CELL}>{hasPreview ? totalUnits : ""}</td>
       <td className={CELL}>{hasPreview ? fmt(invested) : ""}</td>
