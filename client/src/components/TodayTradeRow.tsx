@@ -11,8 +11,6 @@ import {
   fmt,
   pnlColor,
   formatAge,
-  formatCalendarDay,
-  formatDateAgeLabel,
   formatExpiryLabel,
   getTradeDirectionLabel,
   getTradeContractLabel,
@@ -57,7 +55,6 @@ interface RenderProps extends TodayTradeRowProps {
 
 function _TodayTradeRow({
   trade,
-  day,
   isFirst,
   showNet,
   onExit,
@@ -119,7 +116,6 @@ function _TodayTradeRow({
   const pnlPercent = trade.entryPrice > 0
     ? ((isOpen ? liveUnrealizedPnl : trade.pnl) / (trade.entryPrice * trade.qty) * 100)
     : 0;
-  const cycleDateLabel = formatDateAgeLabel(formatCalendarDay(), day.openedAt);
 
   const directionLabel = getTradeDirectionLabel(trade.type);
   const contractLabel = getTradeContractLabel(trade.type);
@@ -135,29 +131,9 @@ function _TodayTradeRow({
           : `${theme.todayAltBg} border-l-2 ${theme.borderSoft}`
       } ${pnl > 0 ? 'text-bullish/60' : pnl < 0 ? 'text-destructive/60' : 'text-foreground'}`}
     >
-      <td className="px-2 py-1.5 text-right border-r border-border">
-        {isFirst ? (
-          <span className="font-bold tabular-nums text-foreground">{day.dayIndex}</span>
-        ) : (
-          <span className="tabular-nums">{day.dayIndex}</span>
-        )}
-      </td>
-      <td className="px-2 py-1.5 text-right border-r border-border">
-        <span className="block truncate tabular-nums">
-          {cycleDateLabel}
-        </span>
-      </td>
-      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
-        {fmt(day.tradeCapital, true)}
-      </td>
-      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
-        {fmt(day.targetAmount)}
-        <span className="text-[0.5rem] ml-0.5">({day.targetPercent}%)</span>
-      </td>
-      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
-        {fmt(day.projCapital, true)}
-      </td>
-      <td className="px-2 py-1.5 text-right border-r border-border">
+      {/* Instrument + TradeBar take the full left width (cols 0–5); the day-level
+          numbers that used to sit here are now in the top summary banner. */}
+      <td colSpan={6} className="px-2 py-1.5 border-r border-border">
         <div className="flex flex-col gap-1 w-full">
         <div className="flex items-center justify-between gap-1.5">
           <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0">
