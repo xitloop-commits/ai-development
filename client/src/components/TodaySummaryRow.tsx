@@ -48,21 +48,21 @@ export function TodaySummaryRow({
   rowRef,
 }: TodaySummaryRowProps) {
   return (
-    <tr data-day={day.dayIndex} className={`border-y font-bold ${summaryBorder} ${summaryBg}`} ref={rowRef}>
-      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+    <tr data-day={day.dayIndex} className={`border-y ${summaryBorder} ${summaryBg}`} ref={rowRef}>
+      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border">
         {day.dayIndex}
       </td>
-      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border">
         {cycleDateLabel}
       </td>
-      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border">
         {fmt(day.tradeCapital, true)}
       </td>
-      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border">
         {fmt(day.targetAmount)}
         <span className="text-[0.5rem] ml-0.5">({day.targetPercent}%)</span>
       </td>
-      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border">
         {fmt(day.projCapital, true)}
       </td>
       <td className="px-2 py-2 border-r border-border">
@@ -92,10 +92,10 @@ export function TodaySummaryRow({
       </td>
       <td className="px-2 py-2 border-r border-border" />
       <td className="px-2 py-2 border-r border-border" />
-      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border">
         {(() => { const lots = calculateTotalLots(trades ?? []); return lots > 0 ? lots : ''; })()}
       </td>
-      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border">
         {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0)) : ''}
       </td>
       {/* Points — blank at the day level: averaging points across different
@@ -106,11 +106,11 @@ export function TodaySummaryRow({
           ? <ChargesBreakdownTip total={day.totalCharges} breakdown={aggregateChargesBreakdown(trades)} />
           : ''}
       </td>
-      <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(totalPnl)}`}>
+      <td className={`px-2 py-2 text-right tabular-nums font-semibold border-r border-border ${pnlColor(totalPnl)}`}>
         {trades.length > 0 ? fmt(Math.round(totalPnl), false) : ''}
       </td>
       <td className="px-2 py-2 border-r border-border" />
-      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
+      <td className="px-2 py-2 text-right tabular-nums font-semibold text-foreground border-r border-border">
         {trades.length > 0 && day.actualCapital > 0 ? fmt(day.actualCapital, true) : ''}
       </td>
       <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(day.deviation)}`}>
