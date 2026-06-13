@@ -156,6 +156,7 @@ export function TodaySection({
           globalTrailingEnabled={globalTrailingEnabled}
           slPercent={slPercent}
           tslGatePercent={tslGatePercent}
+          tradeNo={idx + 1}
         />
       ))}
 

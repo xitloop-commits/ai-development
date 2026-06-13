@@ -47,6 +47,8 @@ export interface TodayTradeRowProps {
   slPercent?: number;
   /** Trailing activation gate % (settings) — positions the pending TSL marker. */
   tslGatePercent?: number;
+  /** 1-based trade number within the day, shown on the left of the row. */
+  tradeNo?: number;
 }
 
 interface RenderProps extends TodayTradeRowProps {
@@ -66,6 +68,7 @@ function _TodayTradeRow({
   globalTrailingEnabled = false,
   slPercent,
   tslGatePercent,
+  tradeNo,
   liveLtp,
 }: RenderProps) {
   const [editOpen, setEditOpen] = useState(false);
@@ -125,11 +128,11 @@ function _TodayTradeRow({
     <>
     <tr
       ref={todayRef}
-      className={`border-b border-border transition-colors ${
+      className={`border-b border-border transition-colors text-foreground ${
         isFirst
           ? `${theme.todayBg} border-l-2 ${theme.borderStrong}`
           : `${theme.todayAltBg} border-l-2 ${theme.borderSoft}`
-      } ${pnl > 0 ? 'text-bullish/60' : pnl < 0 ? 'text-destructive/60' : 'text-foreground'}`}
+      } ${isOpen ? '' : 'opacity-60'}`}
     >
       {/* Instrument + TradeBar take the full left width (cols 0–5); the day-level
           numbers that used to sit here are now in the top summary banner. */}
@@ -137,7 +140,12 @@ function _TodayTradeRow({
         <div className="flex flex-col gap-1 w-full">
         <div className="flex items-center justify-between gap-1.5">
           <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0">
-            <InstrumentTag name={trade.instrument} />
+            {tradeNo != null && (
+              <span className="text-[0.625rem] font-semibold tabular-nums text-muted-foreground shrink-0">#{tradeNo}</span>
+            )}
+            {/* Instrument identity (the whole closed row is dimmed at row level). */}
+            <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0">
+              <InstrumentTag name={trade.instrument} />
             {expiryLabel && (
               <>
                 <span className="text-border">|</span>
@@ -151,9 +159,10 @@ function _TodayTradeRow({
               </>
             )}
             <span className="text-border">|</span>
-            <span className={`text-[0.5625rem] font-bold ${theme.buttonActive} rounded px-1 py-0.5`}>{contractLabel}</span>
+            <span className={`text-[0.5625rem] ${isOpen ? 'font-bold' : ''} ${theme.buttonActive} rounded px-1 py-0.5`}>{contractLabel}</span>
             <span className="text-border">|</span>
-            <span className={`text-[0.5625rem] font-semibold ${isBuy ? 'text-bullish' : 'text-destructive'}`}>{directionLabel}</span>
+            <span className={`text-[0.5625rem] ${isOpen ? 'font-semibold' : ''} ${isBuy ? 'text-bullish' : 'text-destructive'}`}>{directionLabel}</span>
+            </div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
             {isOpen && (
@@ -233,7 +242,7 @@ function _TodayTradeRow({
             <TooltipTrigger asChild>
               <PopoverTrigger asChild>
                 <span
-                  className={`font-bold tabular-nums cursor-pointer rounded px-1 transition-colors duration-300 ${isOpen ? (displayLtp >= trade.entryPrice ? 'text-bullish' : 'text-destructive') : pnlColor(pnl)} ${flashClass}`}
+                  className={`tabular-nums cursor-pointer rounded px-1 transition-colors duration-300 ${isOpen ? (displayLtp >= trade.entryPrice ? 'text-bullish' : 'text-destructive') : pnlColor(pnl)} ${flashClass}`}
                   onClick={() => {
                     if (!isOpen || !canManageTrades) return;
                     if (isDesync) return; // reconcile first
@@ -310,7 +319,7 @@ function _TodayTradeRow({
           </PopoverContent>
         </Popover>
       </td>
-      <td className="px-2 py-1.5 text-right tabular-nums font-medium border-r border-border">
+      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="cursor-default">
@@ -343,13 +352,13 @@ function _TodayTradeRow({
           const price = isOpen ? displayLtp : (trade.exitPrice ?? 0);
           if (!price) return '';
           const pts = tradePoints(trade, price);
-          return <span className={pnlColor(pts)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
+          return <span className={pnlColor(pnl)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
         })()}
       </td>
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border text-destructive/70">
         {charges > 0 ? <ChargesBreakdownTip total={charges} breakdown={chargesBreakdown} estimate={isOpen} /> : ''}
       </td>
-      <td className={`px-2 py-1.5 text-right tabular-nums font-bold border-r border-border ${pnlColor(pnl)}`}>
+      <td className={`px-2 py-1.5 text-right tabular-nums border-r border-border ${pnlColor(pnl)}`}>
         {fmt(Math.round(pnl), false)}
       </td>
       <td className={`px-2 py-1.5 text-right tabular-nums border-r border-border ${pnlColor(pnl)}`}>
