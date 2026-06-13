@@ -124,28 +124,7 @@ export function TodaySection({
 
   return (
     <>
-      {trades.map((trade, idx) => {
-        const isFirst = idx === 0;
-        return (
-          <TodayTradeRow
-            key={trade.id}
-            trade={trade}
-            day={day}
-            isFirst={isFirst}
-            showNet={showNet}
-            onExit={onExitTrade}
-            exitLoading={exitLoading && exitingTradeId === trade.id}
-            onUpdateTpSl={handleUpdateTpSl}
-            todayRef={isFirst ? todayRef : undefined}
-            canManageTrades={canManageTrades}
-            channel={channel}
-            globalTrailingEnabled={globalTrailingEnabled}
-            slPercent={slPercent}
-            tslGatePercent={tslGatePercent}
-          />
-        );
-      })}
-
+      {/* Day summary banner — top of the today cycle, above the trade rows. */}
       <TodaySummaryRow
         day={day}
         trades={trades}
@@ -158,9 +137,27 @@ export function TodaySection({
         lastClosedTrade={lastClosedTrade}
         onExitAll={onExitAll}
         onRepeatLastOrder={handleRepeatLastOrder}
-        rowRef={trades.length === 0 ? todayRef : undefined}
+        rowRef={todayRef}
         colSpan={TABLE_COLSPAN}
       />
+
+      {trades.map((trade, idx) => (
+        <TodayTradeRow
+          key={trade.id}
+          trade={trade}
+          day={day}
+          isFirst={idx === 0}
+          showNet={showNet}
+          onExit={onExitTrade}
+          exitLoading={exitLoading && exitingTradeId === trade.id}
+          onUpdateTpSl={handleUpdateTpSl}
+          canManageTrades={canManageTrades}
+          channel={channel}
+          globalTrailingEnabled={globalTrailingEnabled}
+          slPercent={slPercent}
+          tslGatePercent={tslGatePercent}
+        />
+      ))}
 
       {/* Always-on per-instrument trade-entry bars (bottom of the section) */}
       {canManageTrades &&
