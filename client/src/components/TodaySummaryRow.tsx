@@ -10,7 +10,6 @@ import type { DayRecord, TradeRecord } from '@/lib/tradeTypes';
 import { fmt, pnlColor, formatDeviation } from '@/lib/tradeFormatters';
 import {
   aggregateChargesBreakdown,
-  calculateAvgSignedPoints,
   calculateTotalLots,
 } from '@/lib/tradeCalculations';
 import { ChargesBreakdownTip } from './ChargesBreakdownTip';
@@ -99,13 +98,9 @@ export function TodaySummaryRow({
       <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
         {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0)) : ''}
       </td>
-      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
-        {(() => {
-          const pts = calculateAvgSignedPoints(trades);
-          if (pts === 0) return '';
-          return <span className={pnlColor(pts)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
-        })()}
-      </td>
+      {/* Points — blank at the day level: averaging points across different
+          instruments isn't meaningful. */}
+      <td className="px-2 py-2 border-r border-border" />
       <td className="px-2 py-2 text-right tabular-nums border-r border-border text-destructive/70">
         {trades.length > 0 && day.totalCharges > 0
           ? <ChargesBreakdownTip total={day.totalCharges} breakdown={aggregateChargesBreakdown(trades)} />
