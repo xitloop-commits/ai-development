@@ -348,15 +348,15 @@ function _TodayTradeRow({
         {fmt(trade.entryPrice * trade.qty)}
       </td>
       <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
+        {charges > 0 ? <ChargesBreakdownTip total={charges} breakdown={chargesBreakdown} estimate={isOpen} /> : ''}
+      </td>
+      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border">
         {(() => {
           const price = isOpen ? displayLtp : (trade.exitPrice ?? 0);
           if (!price) return '';
           const pts = tradePoints(trade, price);
           return <span className={pnlColor(pnl)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
         })()}
-      </td>
-      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border text-destructive/70">
-        {charges > 0 ? <ChargesBreakdownTip total={charges} breakdown={chargesBreakdown} estimate={isOpen} /> : ''}
       </td>
       <td className={`px-2 py-1.5 text-right tabular-nums border-r border-border ${pnlColor(pnl)}`}>
         {fmt(Math.round(pnl), false)}

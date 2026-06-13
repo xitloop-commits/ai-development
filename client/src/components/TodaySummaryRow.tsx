@@ -132,7 +132,7 @@ export function TodaySummaryRow({
             <Sep />
 
             <Stat label="Invested">{hasTrades ? fmt(invested) : '—'}</Stat>
-            <Stat label="Charges" color="text-destructive/70">
+            <Stat label="Charges">
               {hasTrades && day.totalCharges > 0
                 ? <ChargesBreakdownTip total={day.totalCharges} breakdown={aggregateChargesBreakdown(trades)} />
                 : '—'}
