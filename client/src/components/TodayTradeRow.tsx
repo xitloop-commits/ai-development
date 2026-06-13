@@ -100,6 +100,9 @@ function _TodayTradeRow({
     ? (isBuy ? (displayLtp - trade.entryPrice) : (trade.entryPrice - displayLtp)) * trade.qty
     : 0;
   const pnl = isOpen ? liveUnrealizedPnl : (showNet ? trade.pnl : trade.pnl + trade.charges);
+  // Brighter (full-opacity) P&L colour for the P&L / P&L% columns so they pop a
+  // little more than the /80 used elsewhere.
+  const pnlBright = pnl > 0 ? 'text-bullish' : pnl < 0 ? 'text-destructive' : 'text-foreground';
   // Round-trip charges (buy + sell) + per-charge breakdown for the tooltip.
   // Estimate both legs from prices (entry + exit/LTP) — used directly for open
   // trades, and as a fallback breakdown for closed trades that don't carry a
@@ -358,10 +361,10 @@ function _TodayTradeRow({
           return <span className={pnlColor(pnl)}>{pts >= 0 ? '+' : ''}{pts.toFixed(2)}</span>;
         })()}
       </td>
-      <td className={`px-2 py-1.5 text-right tabular-nums border-r border-border ${pnlColor(pnl)}`}>
+      <td className={`px-2 py-1.5 text-right tabular-nums border-r border-border ${pnlBright}`}>
         {fmt(Math.round(pnl), false)}
       </td>
-      <td className={`px-2 py-1.5 text-right tabular-nums border-r border-border ${pnlColor(pnl)}`}>
+      <td className={`px-2 py-1.5 text-right tabular-nums border-r border-border ${pnlBright}`}>
         {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%
       </td>
       <td className="px-2 py-1.5 border-r border-border" />
