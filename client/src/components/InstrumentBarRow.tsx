@@ -31,8 +31,7 @@ const LIVE_KEY: Record<string, string> = {
   "NATURAL GAS": "naturalgas",
 };
 
-// Same column style as the today trade rows (entry/ltp/lot/invested/charges).
-const CELL = "px-2 py-1.5 text-right tabular-nums text-foreground border-r border-border";
+const CELL = "px-2 py-2 text-right tabular-nums border-r border-border align-middle";
 
 export interface InstrumentBarRowProps {
   /** UI display name, e.g. "NIFTY 50". */
