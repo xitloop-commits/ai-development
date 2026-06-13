@@ -1,19 +1,16 @@
 /**
- * TodaySummaryRow — the bold day-summary row at the bottom of the today cycle.
+ * TodaySummaryRow — the day-summary banner at the bottom of the today cycle.
  *
- * Aggregates the day's trades into the 17-column TradingDesk layout (capital,
- * target, lots, invested, points, charges, P&L, actual capital, deviation) plus
- * the Exit-All and Repeat-last-order controls. Extracted from TodaySection so it
- * can be enhanced on its own.
+ * Instead of squeezing into the 17 table columns, the summary spans the full row
+ * width (one colSpan cell) and lays the day out as grouped, scannable clusters:
+ *   Day · Capital flow · P&L + target progress · Realized/Open/Exposure ·
+ *   Lots/Invested/Charges/W-L · controls.
+ * The row tints green when the target is hit and red on a heavy-loss day.
  */
 import type { DayRecord, TradeRecord } from '@/lib/tradeTypes';
 import { fmt, pnlColor, formatDeviation } from '@/lib/tradeFormatters';
-import {
-  aggregateChargesBreakdown,
-  calculateTotalLots,
-} from '@/lib/tradeCalculations';
+import { aggregateChargesBreakdown, calculateTotalLots } from '@/lib/tradeCalculations';
 import { ChargesBreakdownTip } from './ChargesBreakdownTip';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 export interface TodaySummaryRowProps {
   day: DayRecord;
@@ -32,7 +29,21 @@ export interface TodaySummaryRowProps {
   onRepeatLastOrder: () => void;
   /** Anchor ref — set by the parent only when there are no trade rows above. */
   rowRef?: React.RefObject<HTMLTableRowElement | null>;
+  /** Total table columns to span (TradingDesk colgroup width). */
+  colSpan?: number;
 }
+
+/** A small label-over-value stat block. */
+function Stat({ label, color, children }: { label: string; color?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col leading-tight shrink-0">
+      <span className="text-[0.5rem] uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className={`text-[0.6875rem] tabular-nums ${color ?? 'text-foreground/90'}`}>{children}</span>
+    </div>
+  );
+}
+
+const Sep = () => <div className="h-6 w-px bg-border shrink-0" />;
 
 export function TodaySummaryRow({
   day,
@@ -47,8 +58,9 @@ export function TodaySummaryRow({
   onExitAll,
   onRepeatLastOrder,
   rowRef,
+  colSpan = 17,
 }: TodaySummaryRowProps) {
-  // Day-health aggregates for the at-a-glance enhancements.
+  // Day-health aggregates.
   const hasTrades = trades.length > 0;
   const closed = trades.filter((t) => t.status === 'CLOSED' || t.status === 'EXITED');
   const open = trades.filter((t) => t.status === 'OPEN');
@@ -57,122 +69,110 @@ export function TodaySummaryRow({
   const realized = closed.reduce((s, t) => s + (t.pnl ?? 0), 0);
   const openUnrealized = open.reduce((s, t) => s + (t.unrealizedPnl ?? 0), 0);
   const openExposure = open.reduce((s, t) => s + t.entryPrice * t.qty, 0);
+  const lots = calculateTotalLots(trades ?? []);
+  const invested = trades.reduce((s, t) => s + t.entryPrice * t.qty, 0);
   const pctToTarget = day.targetAmount > 0 ? (totalPnl / day.targetAmount) * 100 : 0;
+  const fillPct = Math.max(0, Math.min(100, pctToTarget));
   const targetHit = day.targetAmount > 0 && totalPnl >= day.targetAmount;
   const heavyLoss = day.targetAmount > 0 && totalPnl <= -day.targetAmount;
-  // State tint (E): one bg only — target-hit green / heavy-loss red / else theme.
+  // State tint (one bg only): target-hit green / heavy-loss red / else theme.
   const rowBg = targetHit ? 'bg-bullish/10' : heavyLoss ? 'bg-destructive/10' : summaryBg;
+
+  const btn = 'px-1.5 py-0.5 rounded text-[0.625rem] font-bold transition-colors';
 
   return (
     <tr data-day={day.dayIndex} className={`border-y ${summaryBorder} ${rowBg}`} ref={rowRef}>
-      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border">
-        {day.dayIndex}
-      </td>
-      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border">
-        {cycleDateLabel}
-      </td>
-      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border">
-        {fmt(day.tradeCapital, true)}
-      </td>
-      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border">
-        {fmt(day.targetAmount)}
-        <span className="text-[0.5rem] ml-0.5">({day.targetPercent}%)</span>
-      </td>
-      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border">
-        {fmt(day.projCapital, true)}
-      </td>
-      <td className="px-2 py-2 border-r border-border">
-        <div className="flex items-center justify-end gap-2">
-          {!canManageTrades && (
-            <span className="text-[0.5625rem] italic text-muted-foreground">AI managed</span>
-          )}
-          {canManageTrades && openTradeCount > 0 && (
-            <button
-              onClick={onExitAll}
-              className="shrink-0 px-1 py-0.5 rounded font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
-              title="Exit all open positions"
-            >
-              ×
-            </button>
-          )}
-          {canManageTrades && lastClosedTrade && (
-            <button
-              onClick={onRepeatLastOrder}
-              className="px-1.5 py-0.5 rounded font-bold bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25 transition-colors"
-              title={`Repeat last ${lastClosedTrade.instrument} trade at current LTP`}
-            >
-              ↻
-            </button>
-          )}
+      <td colSpan={colSpan} className="px-3 py-1.5">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Identity */}
+          <div className="flex flex-col leading-tight shrink-0">
+            <span className="text-xs font-semibold text-foreground">Day {day.dayIndex}</span>
+            <span className="text-[0.5625rem] text-muted-foreground">{cycleDateLabel}</span>
+          </div>
+
+          <Sep />
+
+          {/* Capital flow: start → end (deviation) */}
+          <Stat label="Capital">
+            {fmt(day.tradeCapital, true)}
+            <span className="text-muted-foreground"> → </span>
+            {hasTrades && day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
+            {hasTrades && (
+              <span className={pnlColor(day.deviation)}> ({formatDeviation(day.deviation)})</span>
+            )}
+          </Stat>
+
+          <Sep />
+
+          {/* P&L hero + progress toward target */}
+          <div className="flex flex-col leading-tight min-w-[11rem] shrink-0">
+            <div className="flex items-baseline gap-2">
+              <span className={`text-sm font-bold tabular-nums ${pnlColor(totalPnl)}`}>
+                {hasTrades ? fmt(Math.round(totalPnl), false) : '—'}
+              </span>
+              {hasTrades && day.targetAmount > 0 && (
+                <span className={`text-[0.625rem] font-semibold ${pnlColor(pctToTarget)}`}>
+                  {pctToTarget >= 0 ? '+' : ''}{pctToTarget.toFixed(0)}% of target
+                </span>
+              )}
+            </div>
+            <div className="mt-0.5 h-1 w-full rounded-full bg-muted-foreground/20 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-[width] duration-300 ${targetHit ? 'bg-bullish' : 'bg-bullish/70'}`}
+                style={{ width: `${fillPct}%` }}
+              />
+            </div>
+          </div>
+
+          <Sep />
+
+          {/* Realized / Open / Exposure */}
+          <Stat label="Realized" color={pnlColor(realized)}>{hasTrades ? fmt(Math.round(realized), false) : '—'}</Stat>
+          <Stat label="Open" color={pnlColor(openUnrealized)}>{open.length > 0 ? fmt(Math.round(openUnrealized), false) : '—'}</Stat>
+          <Stat label="Exposure">{open.length > 0 ? fmt(openExposure) : '—'}</Stat>
+
+          <Sep />
+
+          {/* Activity: lots / invested / charges / win-loss */}
+          <Stat label="Lots">{lots > 0 ? lots : '—'}</Stat>
+          <Stat label="Invested">{hasTrades ? fmt(invested) : '—'}</Stat>
+          <Stat label="Charges" color="text-destructive/70">
+            {hasTrades && day.totalCharges > 0
+              ? <ChargesBreakdownTip total={day.totalCharges} breakdown={aggregateChargesBreakdown(trades)} />
+              : '—'}
+          </Stat>
+          <Stat label="W / L">
+            <span className="text-bullish">{wins}</span>
+            <span className="text-muted-foreground"> / </span>
+            <span className="text-destructive">{losses}</span>
+          </Stat>
+
+          {/* Controls (right-aligned) */}
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            {!canManageTrades && (
+              <span className="text-[0.5625rem] italic text-muted-foreground">AI managed</span>
+            )}
+            {canManageTrades && openTradeCount > 0 && (
+              <button
+                onClick={onExitAll}
+                className={`${btn} bg-destructive/15 text-destructive hover:bg-destructive/25`}
+                title="Exit all open positions"
+              >
+                × Exit all
+              </button>
+            )}
+            {canManageTrades && lastClosedTrade && (
+              <button
+                onClick={onRepeatLastOrder}
+                className={`${btn} bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25`}
+                title={`Repeat last ${lastClosedTrade.instrument} trade at current LTP`}
+              >
+                ↻
+              </button>
+            )}
+          </div>
         </div>
       </td>
-      {/* Entry col → win/loss tally of closed trades (B) */}
-      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
-        {closed.length > 0 ? (
-          <span className="text-[0.625rem] font-semibold">
-            <span className="text-bullish">{wins}W</span>
-            <span className="text-muted-foreground"> · </span>
-            <span className="text-destructive">{losses}L</span>
-          </span>
-        ) : ''}
-      </td>
-      {/* LTP col — spacer */}
-      <td className="px-2 py-2 border-r border-border" />
-      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border">
-        {(() => { const lots = calculateTotalLots(trades ?? []); return lots > 0 ? lots : ''; })()}
-      </td>
-      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border">
-        {trades.length > 0 ? fmt(trades.reduce((s, t) => s + t.entryPrice * t.qty, 0)) : ''}
-      </td>
-      {/* Points — blank at the day level: averaging points across different
-          instruments isn't meaningful. */}
-      <td className="px-2 py-2 border-r border-border" />
-      <td className="px-2 py-2 text-right tabular-nums border-r border-border text-destructive/70">
-        {trades.length > 0 && day.totalCharges > 0
-          ? <ChargesBreakdownTip total={day.totalCharges} breakdown={aggregateChargesBreakdown(trades)} />
-          : ''}
-      </td>
-      <td className={`px-2 py-2 text-right tabular-nums font-semibold border-r border-border ${pnlColor(totalPnl)}`}>
-        {hasTrades ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="cursor-default">{fmt(Math.round(totalPnl), false)}</span>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <div className="text-[0.625rem] space-y-0.5 tabular-nums min-w-[8rem]">
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">Realized</span>
-                  <span className={pnlColor(realized)}>{fmt(Math.round(realized), false)}</span>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">Open (unrealized)</span>
-                  <span className={pnlColor(openUnrealized)}>{fmt(Math.round(openUnrealized), false)}</span>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">Open exposure</span>
-                  <span>{fmt(openExposure)}</span>
-                </div>
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        ) : ''}
-      </td>
-      {/* P&L% col → progress toward the day's target (A) */}
-      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
-        {hasTrades && day.targetAmount > 0 ? (
-          <span className={`text-[0.625rem] font-semibold ${pnlColor(pctToTarget)}`}>
-            {pctToTarget >= 0 ? '+' : ''}{pctToTarget.toFixed(0)}%
-            <span className="text-muted-foreground"> tgt</span>
-          </span>
-        ) : ''}
-      </td>
-      <td className="px-2 py-2 text-right tabular-nums font-semibold text-foreground border-r border-border">
-        {trades.length > 0 && day.actualCapital > 0 ? fmt(day.actualCapital, true) : ''}
-      </td>
-      <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(day.deviation)}`}>
-        {trades.length > 0 ? formatDeviation(day.deviation) : ''}
-      </td>
-      <td className="px-1 py-2" />
     </tr>
   );
 }

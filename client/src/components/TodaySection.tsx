@@ -159,6 +159,7 @@ export function TodaySection({
         onExitAll={onExitAll}
         onRepeatLastOrder={handleRepeatLastOrder}
         rowRef={trades.length === 0 ? todayRef : undefined}
+        colSpan={TABLE_COLSPAN}
       />
 
       {/* Always-on per-instrument trade-entry bars (bottom of the section) */}
