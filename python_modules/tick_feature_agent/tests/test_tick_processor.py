@@ -251,10 +251,10 @@ class TestTickProcessorOutput:
         proc._emitter.write_parquet(path)
         table = pq.read_table(path)
         # 2-window default profile: 402 legacy + 69 Phase 2 trend/swing
-        # + 26 T37 ATM depth = 521. +2 for atm_ce_security_id /
+        # + 26 T37 ATM depth = 524. +2 for atm_ce_security_id /
         # atm_pe_security_id which the tick processor appends to the
-        # row but aren't in COLUMN_NAMES = 523.
-        assert len(table.schema.names) == 523
+        # row but aren't in COLUMN_NAMES = 526.
+        assert len(table.schema.names) == 526
 
     def test_parquet_column_names_match_spec(self, tmp_path):
         import pyarrow.parquet as pq

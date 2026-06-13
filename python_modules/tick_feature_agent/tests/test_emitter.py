@@ -91,15 +91,15 @@ def _build(**overrides) -> dict:
 
 class TestColumnNames:
 
-    def test_count_is_521(self):
+    def test_count_is_524(self):
         # Wave 1: +22 (8 levels + 9 greeks + 5 expiry) → 392.
         # Wave 2: +5 target types per window × 2 default windows = +10 → 402.
         # Phase 2 (Schema-22/23): +69 trend/swing L1 (23 B-block + 46 C-block) → 495.
-        # T37 (Schema v9, 2026-06-13): +26 ATM-only depth (2 sides × 13 keys) → 521.
-        assert len(COLUMN_NAMES) == 521
+        # T37 (Schema v9, 2026-06-13): +26 ATM-only depth (2 sides × 13 keys) → 524.
+        assert len(COLUMN_NAMES) == 524
 
     def test_no_duplicates(self):
-        assert len(set(COLUMN_NAMES)) == 521
+        assert len(set(COLUMN_NAMES)) == 524
 
     def test_first_column_is_timestamp(self):
         assert COLUMN_NAMES[0] == "timestamp"
@@ -238,35 +238,35 @@ class TestDynamicColumnCount:
     profile and the canonical 4-window profile. Phase 2 (Schema-22/23)
     appends 69 trend/swing L1 features, lifting the totals to 495 / 519.
     T37 (Schema v9, 2026-06-13) appends 26 ATM-only depth columns,
-    lifting to 521 / 545."""
+    lifting to 524 / 548."""
 
-    def test_count_is_521_for_2window_profile(self):
+    def test_count_is_524_for_2window_profile(self):
         # Wave 1 +22 cols, Wave 2 +10 (5 target types × 2 windows),
         # Phase 2 +69 trend/swing L1, T37 +26 ATM depth
-        # → 380 + 22 + 10 + 69 + 26 = 521.
+        # → 380 + 22 + 10 + 69 + 26 = 524.
         cols = column_names_for((30, 60))
-        assert len(cols) == 521
-        assert len(set(cols)) == 521, "duplicate column names in 2-window profile"
+        assert len(cols) == 524
+        assert len(set(cols)) == 524, "duplicate column names in 2-window profile"
 
-    def test_count_is_545_for_4window_profile(self):
+    def test_count_is_548_for_4window_profile(self):
         """Canonical Phase D4 layout + Wave 1 (22) + Wave 2 (4×5=20)
-        + Phase 2 (69) + T37 ATM depth (26) = 545."""
+        + Phase 2 (69) + T37 ATM depth (26) = 548."""
         cols = column_names_for((30, 60, 300, 900))
-        assert len(cols) == 545
-        assert len(set(cols)) == 545, "duplicate column names in 4-window profile"
+        assert len(cols) == 548
+        assert len(set(cols)) == 548, "duplicate column names in 4-window profile"
 
     @pytest.mark.parametrize(
         "windows,expected_count",
         [
-            ((30,), 509),       # single-window: 472 + 12×1 + 1 + 24 = 509
-            ((30, 60), 521),    # 2-window legacy MVP: 472 + 24 + 1 + 24 = 521
-            ((30, 60, 300), 533),         # 3-window: 472 + 36 + 1 + 24 = 533
-            ((30, 60, 300, 900), 545),    # canonical D4: 472 + 48 + 1 + 24 = 545
-            ((30, 60, 120, 300, 900), 557),  # 5-window: 472 + 60 + 1 + 24 = 557
+            ((30,), 512),       # single-window: 475 + 12×1 + 1 + 24 = 512
+            ((30, 60), 524),    # 2-window legacy MVP: 475 + 24 + 1 + 24 = 524
+            ((30, 60, 300), 536),         # 3-window: 475 + 36 + 1 + 24 = 536
+            ((30, 60, 300, 900), 548),    # canonical D4: 475 + 48 + 1 + 24 = 548
+            ((30, 60, 120, 300, 900), 560),  # 5-window: 475 + 60 + 1 + 24 = 560
         ],
     )
     def test_count_formula(self, windows, expected_count):
-        """Total = 472 (window-independent: 355 base + 22 Wave 1 + 69
+        """Total = 475 (window-independent: 355 base + 22 Wave 1 + 69
         Phase 2 + 26 T37 ATM depth) + 12 × len(windows) + 1
         (upside_percentile_<min(windows)>s). Each extra target window
         adds exactly 12 columns."""
@@ -275,7 +275,7 @@ class TestDynamicColumnCount:
     def test_legacy_module_global_is_2window_default(self):
         """`COLUMN_NAMES` exists as backward-compat for pre-E8 callers
         and resolves to the 2-window default."""
-        assert len(COLUMN_NAMES) == 521
+        assert len(COLUMN_NAMES) == 524
         assert COLUMN_NAMES == column_names_for((30, 60))
 
     def test_4window_includes_300s_and_900s_target_cols(self):
@@ -421,9 +421,9 @@ class TestParquetTypeForDirectionTargets:
 
 class TestAssembleFlatVector:
 
-    def test_key_count_is_521(self):
+    def test_key_count_is_524(self):
         row = _build()
-        assert len(row) == 521
+        assert len(row) == 524
 
     def test_key_order_matches_column_names(self):
         row = _build()
@@ -749,7 +749,7 @@ class TestSerializeRow:
         row = _build()
         line = serialize_row(row)
         parsed = json.loads(line)
-        assert len(parsed) == 521
+        assert len(parsed) == 524
 
     def test_allow_nan_false_satisfied(self):
         """NaN converted to null → json.loads should not raise."""
@@ -777,7 +777,7 @@ class TestEmitterFileSink:
         lines = Path(out_file).read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 1
         parsed = json.loads(lines[0])
-        assert len(parsed) == 521
+        assert len(parsed) == 524
 
     def test_emit_multiple_rows(self, tmp_path):
         out_file = str(tmp_path / "test_multi.ndjson")
@@ -1043,7 +1043,7 @@ class TestSchemaRegistry:
         payload = json.loads(out_file.read_text(encoding="utf-8"))
         assert payload["schema_version"] == LATEST_SCHEMA_VERSION
         assert payload["feature_count"] == len(payload["columns"])
-        assert payload["feature_count"] == 545  # 4-window canonical
+        assert payload["feature_count"] == 548  # 4-window canonical
         assert payload["columns"][0] == "timestamp"
         assert "india_vix" in payload["columns"]
         assert "days_to_expiry_bucket" in payload["columns"]
@@ -1115,7 +1115,7 @@ class TestSchemaRegistry:
         payload = json.loads(latest.read_text(encoding="utf-8"))
         assert payload["schema_version"] == LATEST_SCHEMA_VERSION
         assert payload["feature_count"] == len(payload["columns"])
-        assert payload["feature_count"] == 545, (
+        assert payload["feature_count"] == 548, (
             "real-repo schema registry must reflect canonical 4-window profile"
         )
         assert payload["columns"][0] == "timestamp"

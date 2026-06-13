@@ -51,7 +51,11 @@ from tick_feature_agent.features.ofi import compute_ofi_features
 from tick_feature_agent.features.option_tick import compute_option_tick_features
 from tick_feature_agent.features.realized_vol import compute_realized_vol_features
 from tick_feature_agent.features.multi_tf import compute_multi_tf_features
+from tick_feature_agent.features.premium_acceleration import PremiumAccelerationState
 from tick_feature_agent.features.regime import RegimeClassifier, compute_regime_features
+from tick_feature_agent.features.strike_migration_persistence import (
+    StrikeMigrationPersistenceState,
+)
 from tick_feature_agent.features.targets import (
     TargetBuffer,
     UpsidePercentileTracker,
@@ -271,6 +275,12 @@ class ReplayAdapter:
             or self._regime_thresholds().get("regime_sustain_sec", 300.0)
         )
         self._regime_classifier = RegimeClassifier(sustain_sec=_regime_sustain)
+        # T14 (scope F, 2026-06-13): stateful trackers for
+        # premium-acceleration drop (per-leg) + strike-migration
+        # persistence counter. Both reset on session_start /
+        # expiry rollover via reset() — see flush_all below.
+        self._premium_acceleration = PremiumAccelerationState()
+        self._strike_migration_persistence = StrikeMigrationPersistenceState()
 
         # Phase 3: replay-only buffer for trend + swing target labels.
         # Live emits NaN per Option B (2026-05-18) — only replay backfills
@@ -589,6 +599,9 @@ class ReplayAdapter:
         self._upside_pct.reset()
         self._spot_target_buf.reset()
         self._regime_classifier.reset()  # T32 — clear sustain state
+        # T14 (scope F)
+        self._premium_acceleration.reset()
+        self._strike_migration_persistence.reset()
 
     # ── Event handlers ────────────────────────────────────────────────────────
 
@@ -1038,6 +1051,24 @@ class ReplayAdapter:
             latest_atm_pe_premium=pe_prem,
         )
 
+        # ── T14 scope F: ATM premium-acceleration drop + strike-migration
+        # persistence counter. Both run BEFORE assemble_flat_vector so
+        # their outputs flow in via the dedicated kwarg.
+        _atm_ce_dict = opt_tf.get((atm_strike, "CE"), {}) if atm_strike is not None else {}
+        _atm_pe_dict = opt_tf.get((atm_strike, "PE"), {}) if atm_strike is not None else {}
+        _accel = self._premium_acceleration.update(
+            ce_momentum=_atm_ce_dict.get("premium_momentum"),
+            pe_momentum=_atm_pe_dict.get("premium_momentum"),
+        )
+        _strike_dir = (
+            pipeline.get("strike_rotation_feats", {}) or {}
+        ).get("active_strike_shift_direction")
+        _migration_ticks = self._strike_migration_persistence.update(_strike_dir)
+        t14_feats = {
+            **_accel,
+            "strike_migration_persistence_ticks": _migration_ticks,
+        }
+
         # ── Assemble flat row (NaN targets — backfilled later) ────────────────
         row = assemble_flat_vector(
             timestamp=ts,
@@ -1083,6 +1114,8 @@ class ReplayAdapter:
             iv_velocity_feats=pipeline["iv_velocity_feats"],
             max_pain_feats=pipeline["max_pain_feats"],
             event_calendar_feats=pipeline["event_calendar_feats"],
+            # T14 (scope F): premium-acceleration + strike-migration
+            t14_feats=t14_feats,
         )
         return row
 

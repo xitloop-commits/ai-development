@@ -470,7 +470,27 @@ Investigate limit-order execution to reduce slippage cost. L5 D4 locked market o
 - **MCX-first priority (added 2026-05-17 per Gemini feedback + V2_MASTER_SPEC §7 warning):** crude/natgas books are thin; market-order self-impact may exceed even the 35%/40% cost-floor buffers under fast moves. When 100+ paper fills accumulate per MCX instrument, prioritize T15 implementation for crude/natgas BEFORE nifty50/banknifty. Trigger to escalate earlier: if observed MCX slippage regularly exceeds `cost_floor_buffer_pct` in §5.1 weekly report.
 - **Spec change when ready:** V2_MASTER_SPEC §2.5 L5 D4 — upgrade to Option B/D. Mirror change to sim_pnl §2.3.4 to assume limit fills where applicable. Re-validate with walk-forward.
 
-### T14 — Add 8 deferred L1 features post-paper-trade (+ Gemini convexity follow-up)
+### T14 — Add 8 deferred L1 features post-paper-trade (+ Gemini convexity follow-up) 🚧 SCOPE F SHIPPED
+
+**Scope F (2026-06-13, shipped):** of the 8 deferred features, only 2 land features that LightGBM provably cannot compose from existing snapshot-row features — both stateful (second derivative / persistence counter). Shipped:
+  - `premium_acceleration_drop_atm_ce` + `_pe` — second derivative of ATM premium momentum. When premium WAS rising fast (prev momentum > 0) and slowed/reversed, emit the magnitude of the drop. NaN before first valid prev; 0 when prev ≤ 0 or current ≥ prev.
+  - `strike_migration_persistence_ticks` — counter of how many consecutive ticks the active-strike shift direction has stayed the same sign. 0 on no-shift ticks; resets to 1 on sign flip; held across NaN inputs so warmup blips don't wipe state.
+
+**Implementation:**
+- New compute modules in `python_modules/tick_feature_agent/features/`: `premium_acceleration.py` (PremiumAccelerationState) and `strike_migration_persistence.py` (StrikeMigrationPersistenceState). Both reset on session_start / expiry rollover.
+- Wired into `replay_adapter.py` + `tick_processor.py` via the same pattern as RegimeClassifier (state on adapter, reset in flush_all, .update() called per emit).
+- Emitter gains `t14_feats` kwarg + 3 new column names appended after the trend/swing target block. Schema **v9 → v10**.
+- 19 new unit tests covering all edge cases (NaN inputs, sign flips, reset, extended runs, drop semantics).
+- Full TFA suite 1700/1700.
+
+**Skipped (no lift expected — LightGBM can compose from existing features):** `rsi_14_15min`, `ma_cross_event_5min`, `breakout_event_5min`, `premium_vwap_cross_strength`.
+
+**Skipped (overlap with existing features):** `active_strike_rotation_score` (covered by `active_strike_shift_velocity` + `active_strike_shift_direction`), `momentum_deceleration` (covered by existing `momentum_persistence_ticks` + `underlying_velocity`).
+
+**Skipped (Gemini follow-up):** `moneyness_velocity_atm` — original deferral criterion (wait for SHAP evidence that existing A16 Greeks + C4 dealer-hedging don't capture convexity) still applies.
+
+---
+**Original deferral rationale preserved below.**
 Add 8 features deferred at L1 D2 lock (2026-05-16) if first-retrain analysis shows missing signal that these would capture. Plus 1 additional feature from 2026-05-17 Gemini review (Greek-acceleration / moneyness velocity) if SHAP shows A16+C4 don't capture convexity.
 
 - **Status:** Deferred. Add only if needed (most can be composed by LightGBM from accepted features).

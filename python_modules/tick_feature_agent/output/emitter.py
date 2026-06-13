@@ -121,7 +121,11 @@ _NAN = float("nan")
 # v9 (2026-06-13 — T37): added 26 ATM-only order-book depth columns
 #   (opt_0_ce_depth_* + opt_0_pe_depth_*, 13 keys per side).
 #   Pure additive: prior parquet schemas remain backward-compatible.
-LATEST_SCHEMA_VERSION: int = 9
+# v10 (2026-06-13 — T14 scope F): added 3 stateful Layer-1 features:
+#   premium_acceleration_drop_atm_ce / _pe (ATM second-derivative of
+#   premium momentum) + strike_migration_persistence_ticks (counter
+#   of consecutive-same-direction strike shifts).
+LATEST_SCHEMA_VERSION: int = 10
 
 _log = logging.getLogger("tick_feature_agent.emitter")
 
@@ -485,6 +489,16 @@ _C11_EVENT_CALENDAR_KEYS = (
     "hours_to_next_tier_1_or_2_event",
 )
 
+# T14 scope F (2026-06-13) — 3 keys: ATM premium-acceleration drop per leg,
+# + strike-migration persistence counter. Stateful (sourced from
+# features/premium_acceleration.py + features/strike_migration_persistence.py
+# via the adapter). Schema bumped v9 → v10.
+_T14F_KEYS = (
+    "premium_acceleration_drop_atm_ce",
+    "premium_acceleration_drop_atm_pe",
+    "strike_migration_persistence_ticks",
+)
+
 # C12 — Expiry bucket (1 new key on top of existing _EXPIRY_KEYS — added to
 #       features/expiry.py compute_expiry_features). Appended here rather
 #       than inside _EXPIRY_KEYS so the Wave 1 expiry column ordering is
@@ -706,6 +720,10 @@ def _build_column_names(
     # swing). Replay-pass populates these; live emits NaN.
     cols.extend(_TREND_SWING_TARGET_COLUMNS)
 
+    # T14 scope F (Schema v10, 2026-06-13): 3 stateful features —
+    # ATM premium-acceleration drop per leg + strike-migration counter.
+    cols.extend(_T14F_KEYS)
+
     return tuple(cols)
 
 
@@ -780,6 +798,10 @@ def assemble_flat_vector(
     iv_velocity_feats: dict | None = None,     # greeks.compute_iv_velocity_features (C9)
     max_pain_feats: dict | None = None,        # levels.compute_max_pain_features (C10)
     event_calendar_feats: dict | None = None,  # event_calendar.compute_event_calendar_features (C11)
+    # T14 (scope F, 2026-06-13): premium-acceleration + strike-migration
+    # persistence. 3 keys: premium_acceleration_drop_atm_ce,
+    # premium_acceleration_drop_atm_pe, strike_migration_persistence_ticks.
+    t14_feats: dict | None = None,
     # ── Phase 3 trend + swing target labels (v8 schema) ─────────────────────
     # Replay backfills these from end-of-day raw data; live emits NaN per
     # the Option B decision (2026-05-18). Pass None to emit NaN for all 24
@@ -1039,6 +1061,11 @@ def assemble_flat_vector(
     _tst = trend_swing_target_feats or {}
     for k in _TREND_SWING_TARGET_COLUMNS:
         row[k] = _tst.get(k, _NAN)
+
+    # ── T14 scope F (v10): ATM premium-acceleration + strike-migration ──────
+    _t14 = t14_feats or {}
+    for k in _T14F_KEYS:
+        row[k] = _t14.get(k, _NAN)
 
     return row
 

@@ -199,13 +199,13 @@ class TestBuildChainSnapshot:
                     "callLTP": 150.0,
                     "callVolume": 50,
                     "callIV": 18.0,
-                    "callSecurityId": "52175",
+                    "callSecurityId": "52475",
                     "putOI": 800,
                     "putOIChange": 80,
                     "putLTP": 95.0,
                     "putVolume": 30,
                     "putIV": 17.5,
-                    "putSecurityId": "52176",
+                    "putSecurityId": "52476",
                 },
             ],
         }
@@ -214,9 +214,9 @@ class TestBuildChainSnapshot:
         assert snap.spot_price == 24150.0
         assert snap.expiry == "2026-04-17"
         assert len(snap.rows) == 1
-        assert "52175" in snap.sec_id_map
-        assert snap.sec_id_map["52175"] == (24100, "CE")
-        assert snap.sec_id_map["52176"] == (24100, "PE")
+        assert "52475" in snap.sec_id_map
+        assert snap.sec_id_map["52475"] == (24100, "CE")
+        assert snap.sec_id_map["52476"] == (24100, "PE")
 
     def test_missing_rows_returns_snapshot(self):
         data = {
@@ -418,8 +418,8 @@ class TestReplayAdapterWithChain:
         path = tmp_path / "test.parquet"
         adapter.emitter.write_parquet(path)
         table = pq.read_table(path)
-        # 2-window default profile: 402 legacy + 69 Phase 2 trend/swing + 26 T37 ATM depth = 521.
-        assert len(table.schema.names) == 521
+        # 2-window default profile: 402 legacy + 69 Phase 2 trend/swing + 26 T37 ATM depth = 524.
+        assert len(table.schema.names) == 524
 
     def test_parquet_column_names_match_spec(self, tmp_path):
         import pyarrow.parquet as pq
