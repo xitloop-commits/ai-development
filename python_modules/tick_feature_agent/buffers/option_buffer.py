@@ -25,11 +25,67 @@ from typing import NamedTuple
 class OptionTick(NamedTuple):
     timestamp: float  # Unix epoch seconds (recv_ts from feed)
     ltp: float  # Last traded price
-    bid: float  # Best bid
-    ask: float  # Best ask
-    bid_size: int  # Total bid quantity at best bid
-    ask_size: int  # Total ask quantity at best ask
+    bid: float  # Best bid                (== depth level 0 bid price)
+    ask: float  # Best ask                (== depth level 0 ask price)
+    bid_size: int  # Total bid quantity at best bid (== L0 bid_qty)
+    ask_size: int  # Total ask quantity at best ask (== L0 ask_qty)
     volume: int  # Cumulative day volume at this tick
+    # T37 (2026-06-13): order-book depth levels 1-4. Dhan FULL packets
+    # carry 5 depth levels; level 0 is exposed above via bid/ask +
+    # bid_size/ask_size. Levels 1-4 were previously parsed and
+    # discarded. Defaults are 0.0 / 0 so legacy callers (tests,
+    # synthetic ticks) keep working unchanged — a level with all-zero
+    # qty is functionally "no liquidity here", which features treat
+    # as a sentinel (NaN downstream rather than a real signal).
+    l1_bid_price: float = 0.0
+    l1_ask_price: float = 0.0
+    l1_bid_qty: int = 0
+    l1_ask_qty: int = 0
+    l2_bid_price: float = 0.0
+    l2_ask_price: float = 0.0
+    l2_bid_qty: int = 0
+    l2_ask_qty: int = 0
+    l3_bid_price: float = 0.0
+    l3_ask_price: float = 0.0
+    l3_bid_qty: int = 0
+    l3_ask_qty: int = 0
+    l4_bid_price: float = 0.0
+    l4_ask_price: float = 0.0
+    l4_bid_qty: int = 0
+    l4_ask_qty: int = 0
+
+
+def depth_levels_to_kwargs(depth: list[dict] | None) -> dict:
+    """T37: convert the recorded ``depth`` array (5 dicts) into the
+    ``l1_*..l4_*`` keyword arguments accepted by ``OptionTick``.
+
+    Recorded shape per level (from ``feed/binary_parser.py``):
+        {"bid_qty", "ask_qty", "bid_orders", "ask_orders",
+         "bid_price", "ask_price"}
+
+    Level 0 is already exposed via ``bid`` / ``ask`` / ``bid_size`` /
+    ``ask_size`` on ``OptionTick``; this helper only extracts levels
+    1-4. Empty / missing depth → all-zero defaults so legacy ticks
+    that didn't go through the FULL-packet parser still construct
+    cleanly. Bid_orders / ask_orders are ignored — not currently
+    used by any feature.
+    """
+    out: dict = {}
+    if not depth:
+        return out
+    for i in range(1, 5):
+        if i >= len(depth):
+            break
+        lvl = depth[i] or {}
+        try:
+            out[f"l{i}_bid_price"] = float(lvl.get("bid_price") or 0.0)
+            out[f"l{i}_ask_price"] = float(lvl.get("ask_price") or 0.0)
+            out[f"l{i}_bid_qty"] = int(lvl.get("bid_qty") or 0)
+            out[f"l{i}_ask_qty"] = int(lvl.get("ask_qty") or 0)
+        except (TypeError, ValueError):
+            # Corrupt level — leave defaults
+            pass
+    return out
 
 
 # ── Per-strike buffer ─────────────────────────────────────────────────────────

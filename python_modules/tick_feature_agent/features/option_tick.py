@@ -32,9 +32,19 @@ Null handling:
 from __future__ import annotations
 
 from tick_feature_agent.buffers.option_buffer import OptionBufferStore, OptionTick
+from tick_feature_agent.features.option_depth import (
+    _empty_feature_dict as _empty_depth_dict,
+    compute_depth_features,
+)
 
 _NAN = float("nan")
 _OPT_TYPES = ("CE", "PE")
+
+# T37: depth-feature column names (13 keys). The compute is per-tick;
+# the emitter is wired to read these keys from the ATM (offset == "0")
+# strike-side pair only — far-OTM depth is uniformly thin and the
+# schema bloat isn't worth it.
+_DEPTH_KEYS = tuple(_empty_depth_dict().keys())
 
 # Sentinels used when tick_available = 0
 _NULL_FEATURES: dict = {
@@ -47,6 +57,11 @@ _NULL_FEATURES: dict = {
     "bid_ask_imbalance": _NAN,
     "premium_momentum": _NAN,
     "premium_momentum_10": _NAN,
+    # T37: depth keys default to NaN when tick_available=0 so
+    # downstream consumers can rely on the same key set being
+    # present regardless of liquidity. compute_depth_features(None)
+    # produces the same NaN dict, kept in sync via the import above.
+    **_empty_depth_dict(),
 }
 
 
@@ -128,6 +143,10 @@ def compute_option_tick_features(
                 "bid_ask_imbalance": _bid_ask_imbalance(current),
                 "premium_momentum": _premium_momentum(ticks, 5, staleness_threshold_sec),
                 "premium_momentum_10": _premium_momentum(ticks, 10, staleness_threshold_sec),
+                # T37: order-book depth levels 1-4. Returns all-NaN
+                # when the tick lacks depth (legacy synthetic ticks
+                # in tests, illiquid options with no L1-L4 quotes).
+                **compute_depth_features(current),
             }
             result[key] = features
 

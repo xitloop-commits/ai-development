@@ -665,6 +665,13 @@ class ReplayAdapter:
         ask_size = int(data.get("ask_size") or data.get("askSize") or 0)
         volume = int(data.get("ltq") or data.get("volume") or 0)
 
+        # T37: surface levels 1-4 of the recorded depth array. Recorded
+        # ndjson includes the full 5-level depth list; level 0 is the
+        # top-of-book already exposed above. Empty/missing depth →
+        # defaults (zero quantities) preserve legacy synthetic ticks.
+        from tick_feature_agent.buffers.option_buffer import depth_levels_to_kwargs
+        depth_kwargs = depth_levels_to_kwargs(data.get("depth"))
+
         tick = OptionTick(
             timestamp=ts,
             ltp=ltp,
@@ -673,6 +680,7 @@ class ReplayAdapter:
             bid_size=bid_size,
             ask_size=ask_size,
             volume=volume,
+            **depth_kwargs,
         )
         self._opt_store.push(strike, str(opt_type), tick)
 

@@ -118,7 +118,10 @@ _NAN = float("nan")
 # Each version's file at config/schema_registry/v<N>.json captures the
 # exact ordered column list so downstream consumers (SEA, retrain) can
 # reconcile parquets written by older emitters.
-LATEST_SCHEMA_VERSION: int = 8
+# v9 (2026-06-13 — T37): added 26 ATM-only order-book depth columns
+#   (opt_0_ce_depth_* + opt_0_pe_depth_*, 13 keys per side).
+#   Pure additive: prior parquet schemas remain backward-compatible.
+LATEST_SCHEMA_VERSION: int = 9
 
 _log = logging.getLogger("tick_feature_agent.emitter")
 
@@ -198,6 +201,16 @@ _OPT_FIELD_NAMES = (
     "premium_momentum",
     "premium_momentum_10",
 )
+
+# T37 (2026-06-13): depth-feature suffixes for ATM ONLY (offset "0").
+# Far-OTM depth would be mostly NaN and triple the schema width for
+# negligible signal — emit at ATM only where the book is consistently
+# active. 13 keys × 2 sides (CE/PE) = 26 new columns total.
+# Source of truth lives in features/option_depth.py.
+from tick_feature_agent.features.option_depth import (  # noqa: E402
+    _empty_feature_dict as _empty_depth_dict,
+)
+_DEPTH_FIELD_NAMES: tuple[str, ...] = tuple(_empty_depth_dict().keys())
 
 # NaN sentinel for missing option data (used when strike absent from snapshot)
 _OPT_NULL: dict = {
@@ -640,6 +653,12 @@ def _build_column_names(
             for fname in _OPT_FIELD_NAMES:
                 cols.append(f"opt_{off}_{side}_{fname}")
 
+    # T37 (2026-06-13): ATM-only depth columns (26 = 2 sides × 13 keys).
+    # Schema v9. Far-OTM depth not emitted — see assemble_flat_vector.
+    for side in _OPT_SIDES:
+        for fname in _DEPTH_FIELD_NAMES:
+            cols.append(f"opt_0_{side}_{fname}")
+
     # Cols 172–180: Option Chain (9)
     cols.extend(_CHAIN_KEYS)
 
@@ -868,6 +887,24 @@ def assemble_flat_vector(
             )
             for fname in _OPT_FIELD_NAMES:
                 row[f"opt_{off}_{side_lower}_{fname}"] = feats.get(fname, _NAN)
+
+    # T37 (2026-06-13): ATM-only order-book depth columns (26 floats).
+    # Offset "0" only — far-OTM strikes don't sustain depth and would
+    # bloat the schema with mostly-NaN columns. Compute already lives
+    # inside the per-(strike, opt_type) feature dict above; this block
+    # just lays out the parquet column names. Far-OTM depth signal can
+    # be added later as a follow-up if it's worth the schema width.
+    _ATM_INDEX = 3  # offset "0" sits at index 3 in _OPT_OFFSETS
+    atm_strike = atm_window[_ATM_INDEX] if len(atm_window) > _ATM_INDEX else None
+    for side_lower in _OPT_SIDES:
+        side_upper = _OPT_SIDE_MAP[side_lower]
+        feats = (
+            opt_tick_feats.get((atm_strike, side_upper), _OPT_NULL)
+            if atm_strike is not None
+            else _OPT_NULL
+        )
+        for fname in _DEPTH_FIELD_NAMES:
+            row[f"opt_0_{side_lower}_{fname}"] = feats.get(fname, _NAN)
 
     # ── Cols 172–180: Option Chain ────────────────────────────────────────────
     for k in _CHAIN_KEYS:

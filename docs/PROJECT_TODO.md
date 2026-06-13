@@ -488,10 +488,34 @@ Add 8 features deferred at L1 D2 lock (2026-05-16) if first-retrain analysis sho
 - **Decision criterion:** if SHAP analysis (§5.4) shows existing features that should be capturing these patterns have low importance OR show inconsistent signals, add the explicit feature.
 - **Spec change when ready:** V2_MASTER_SPEC §2.1.4 — move row from DEFER to ACCEPT, bump L1 active count.
 
-### T37 — Order-book depth features (levels 1-4)
+### T37 — Order-book depth features (levels 1-4) ✅ IMPLEMENTED
 
 *(Renumbered from T25 → T37 on 2026-05-23 to resolve collision with the audit-added T25 "D72 isotonic calibration" in P1.5. Original entry added 2026-05-21.)*
 Currently every Dhan FULL option tick carries 5 depth levels (parsed in `binary_parser.parse_depth_levels`). Level 0 (top bid/ask price + size) already feeds features; levels 1-4 are parsed and discarded. Add ~10-15 new L1 columns built from the full 5-level book.
+
+**Implementation (shipped 2026-06-13):**
+- `python_modules/tick_feature_agent/buffers/option_buffer.py` — extended `OptionTick` NamedTuple with 16 new fields (`l1_*..l4_*` price + qty for both sides). All default to 0/0.0 so legacy callers (test fixtures, synthetic ticks) keep constructing unchanged. New helper `depth_levels_to_kwargs(depth: list[dict])` maps the recorded depth array into the kwarg shape.
+- `python_modules/tick_feature_agent/replay/replay_adapter.py` + `tick_processor.py` — both option-tick handoffs now read `data["depth"]` from the recorded packet and feed it through the helper into the OptionTick. Raw `.ndjson.gz` already carries the full depth array (verified on `data/raw/2026-05-20/banknifty_option_ticks.ndjson.gz`) so this works on existing recorded sessions.
+- `python_modules/tick_feature_agent/features/option_depth.py` (new, ~210 LOC) — computes **13 depth-derived features** per option leg from L1-L4: bid+ask qty sums, imbalance, total qty, qty-weighted prices + spread, wall detection (max qty + level), depth slope. Returns all-NaN for None / synthetic / illiquid ticks; never crashes.
+- `python_modules/tick_feature_agent/features/option_tick.py` — `compute_option_tick_features` merges the depth dict into the per-(strike, opt_type) feature dict. `_NULL_FEATURES` sentinel extended with the same keys so callers see a consistent schema regardless of `tick_available`.
+- `python_modules/tick_feature_agent/output/emitter.py` — schema **bumped v8 → v9**. Added 26 ATM-only depth columns (`opt_0_ce_depth_*` + `opt_0_pe_depth_*`, 13 keys per side). Far-OTM strikes don't emit depth columns — would mostly be NaN and triple the schema width for marginal signal. `_build_column_names()` appends them after the existing option-tick block; `assemble_flat_vector` writes them via a dedicated ATM block keyed by `_DEPTH_FIELD_NAMES` imported from the depth module.
+
+**Schema counts:**
+- 2-window legacy MVP: 495 → **521** (+26)
+- Canonical 4-window: 519 → **545** (+26)
+- Schema registry: `config/schema_registry/v9.json` auto-written on next emitter boot.
+
+**Validation:** Full TFA test suite 1681/1681 passes (was 1666; +15 net = 13 new depth-compute + 2 emitter-shape tests). 13 emitter / replay_adapter / tick_processor tests had hardcoded column counts updated from 495 → 521 (or 519 → 545 / 497 → 523 for the tick_processor +2 metadata case). The `test_real_repo_registry_v8_present` test was renamed `test_real_repo_registry_latest_present` and now references `LATEST_SCHEMA_VERSION` so future bumps stay a one-line edit.
+
+**Predictive value:** small per-column lift; stacks across all 84 heads once next training cycle consumes the new columns. Realising the gain requires (a) re-running replay on the affected dates so the new columns populate in the parquets, then (b) the next model retrain.
+
+- **Status:** ✅ IMPLEMENTED 2026-06-13.
+- **Realistic lift:** 2-5% win-rate (not a silver bullet — more data + label quality + D72 calibration remain the bigger levers).
+- **Cost paid:** schema bump v8→v9, **resets the 30-session Phase 4 accumulation counter** per the original cost note.
+- **Not in scope (separate task if ever needed):** 20-level depth feed via Dhan `SUBSCRIBE_DEPTH` (RequestCode 23). Marginal value — levels 6-20 sparse on Indian options books, likely separate Dhan data tier. Revisit only if these 5-level features show high SHAP importance AND we see evidence of losing trades on deep-book moves.
+
+---
+**Original planning notes preserved below for archive — superseded by the implementation above.**
 
 - **Status:** Deferred 2026-05-21. Brainstormed as part of "ways to increase win-rate"; depth data is already on the wire — no Dhan subscription change, no rate-budget cost.
 - **Realistic lift:** 2-5% win-rate (not a silver bullet — more data + label quality + D72 calibration remain the bigger levers).

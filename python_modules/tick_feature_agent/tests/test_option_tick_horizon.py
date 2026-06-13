@@ -104,7 +104,14 @@ class TestOptionTickFeatureKeys:
             for ot in ("CE", "PE"):
                 assert (strike, ot) in result
 
-    def test_each_entry_has_9_features(self):
+    def test_each_entry_has_expected_features(self):
+        """T37 (2026-06-13): per-(strike, opt_type) dict now carries 9
+        original keys + 13 depth keys = 22 keys. The depth keys are
+        the source-of-truth from features.option_depth so this test
+        imports them rather than re-listing."""
+        from tick_feature_agent.features.option_depth import (
+            _empty_feature_dict as _empty_depth_dict,
+        )
         store = OptionBufferStore(maxlen=10)
         result = compute_option_tick_features(_ATM_WINDOW, store)
         expected_keys = {
@@ -117,6 +124,7 @@ class TestOptionTickFeatureKeys:
             "bid_ask_imbalance",
             "premium_momentum",
             "premium_momentum_10",
+            *_empty_depth_dict().keys(),
         }
         for key, feat in result.items():
             assert set(feat) == expected_keys, f"wrong keys for {key}"

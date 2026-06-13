@@ -493,6 +493,10 @@ class TickProcessor:
         ask_size = int(data.get("ask_size") or 0)
         vol = int(data.get("ltq") or data.get("volume") or 0)
 
+        # T37: surface levels 1-4 of depth from the live FULL packet.
+        from tick_feature_agent.buffers.option_buffer import depth_levels_to_kwargs
+        depth_kwargs = depth_levels_to_kwargs(data.get("depth"))
+
         tick = OptionTick(
             timestamp=ts,
             ltp=ltp,
@@ -501,6 +505,7 @@ class TickProcessor:
             bid_size=bid_size,
             ask_size=ask_size,
             volume=vol,
+            **depth_kwargs,
         )
         self._opt_store.push(strike, opt_type, tick)
 

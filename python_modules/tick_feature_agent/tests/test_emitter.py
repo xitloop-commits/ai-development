@@ -91,14 +91,15 @@ def _build(**overrides) -> dict:
 
 class TestColumnNames:
 
-    def test_count_is_495(self):
+    def test_count_is_521(self):
         # Wave 1: +22 (8 levels + 9 greeks + 5 expiry) → 392.
         # Wave 2: +5 target types per window × 2 default windows = +10 → 402.
         # Phase 2 (Schema-22/23): +69 trend/swing L1 (23 B-block + 46 C-block) → 495.
-        assert len(COLUMN_NAMES) == 495
+        # T37 (Schema v9, 2026-06-13): +26 ATM-only depth (2 sides × 13 keys) → 521.
+        assert len(COLUMN_NAMES) == 521
 
     def test_no_duplicates(self):
-        assert len(set(COLUMN_NAMES)) == 495
+        assert len(set(COLUMN_NAMES)) == 521
 
     def test_first_column_is_timestamp(self):
         assert COLUMN_NAMES[0] == "timestamp"
@@ -137,48 +138,48 @@ class TestColumnNames:
         assert COLUMN_NAMES[99] == "opt_0_ce_tick_available"
 
     def test_chain_columns(self):
-        assert COLUMN_NAMES[171] == "chain_pcr_global"  # col 172
-        assert COLUMN_NAMES[179] == "chain_oi_imbalance_atm"  # col 180
+        assert COLUMN_NAMES[197] == "chain_pcr_global"  # col 198
+        assert COLUMN_NAMES[205] == "chain_oi_imbalance_atm"  # col 206
 
     def test_active_strike_first_slot(self):
-        assert COLUMN_NAMES[180] == "active_0_strike"  # col 181
-        assert COLUMN_NAMES[203] == "active_0_tick_age_sec"  # col 204
+        assert COLUMN_NAMES[206] == "active_0_strike"  # col 207
+        assert COLUMN_NAMES[229] == "active_0_tick_age_sec"  # col 230
 
     def test_active_strike_last_slot(self):
-        assert COLUMN_NAMES[300] == "active_5_strike"  # col 301
-        assert COLUMN_NAMES[323] == "active_5_tick_age_sec"  # col 324
+        assert COLUMN_NAMES[326] == "active_5_strike"  # col 327
+        assert COLUMN_NAMES[349] == "active_5_tick_age_sec"  # col 350
 
     def test_cross_feature_columns(self):
-        assert COLUMN_NAMES[324] == "call_put_strength_diff"  # col 325
-        assert COLUMN_NAMES[327] == "premium_divergence"
+        assert COLUMN_NAMES[350] == "call_put_strength_diff"  # col 351
+        assert COLUMN_NAMES[353] == "premium_divergence"
 
     def test_decay_columns(self):
-        assert COLUMN_NAMES[328] == "total_premium_decay_atm"
-        assert COLUMN_NAMES[332] == "dead_market_score"
+        assert COLUMN_NAMES[354] == "total_premium_decay_atm"
+        assert COLUMN_NAMES[358] == "dead_market_score"
 
     def test_regime_columns(self):
-        assert COLUMN_NAMES[333] == "regime"
-        assert COLUMN_NAMES[334] == "regime_confidence"
+        assert COLUMN_NAMES[359] == "regime"
+        assert COLUMN_NAMES[360] == "regime_confidence"
 
     def test_zone_columns(self):
-        assert COLUMN_NAMES[335] == "atm_zone_call_pressure"
-        assert COLUMN_NAMES[341] == "zone_activity_score"
+        assert COLUMN_NAMES[361] == "atm_zone_call_pressure"
+        assert COLUMN_NAMES[367] == "zone_activity_score"
 
     def test_target_columns_default_windows(self):
-        assert COLUMN_NAMES[342] == "max_upside_30s"
+        assert COLUMN_NAMES[368] == "max_upside_30s"
         # Wave 2 added 10 target cols (5 types × 2 default windows) before
         # upside_percentile_30s, shifting it by +10.
-        assert COLUMN_NAMES[366] == "upside_percentile_30s"
+        assert COLUMN_NAMES[392] == "upside_percentile_30s"
 
     def test_trading_state_columns(self):
         # Wave 2: shifted +10 from old indices.
-        assert COLUMN_NAMES[367] == "trading_state"
-        assert COLUMN_NAMES[370] == "stale_reason"
+        assert COLUMN_NAMES[393] == "trading_state"
+        assert COLUMN_NAMES[396] == "stale_reason"
 
     def test_metadata_last_column(self):
         # Wave 2: shifted +10 from old indices.
-        assert COLUMN_NAMES[371] == "exchange"
-        assert COLUMN_NAMES[379] == "is_market_open"
+        assert COLUMN_NAMES[397] == "exchange"
+        assert COLUMN_NAMES[405] == "is_market_open"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -235,42 +236,46 @@ class TestBuildTargetColumns:
 class TestDynamicColumnCount:
     """Lock the column-count contract for both the legacy 2-window
     profile and the canonical 4-window profile. Phase 2 (Schema-22/23)
-    appends 69 trend/swing L1 features, lifting the totals to 495 / 519."""
+    appends 69 trend/swing L1 features, lifting the totals to 495 / 519.
+    T37 (Schema v9, 2026-06-13) appends 26 ATM-only depth columns,
+    lifting to 521 / 545."""
 
-    def test_count_is_495_for_2window_profile(self):
+    def test_count_is_521_for_2window_profile(self):
         # Wave 1 +22 cols, Wave 2 +10 (5 target types × 2 windows),
-        # Phase 2 +69 trend/swing L1 → 380 + 22 + 10 + 69 = 495.
+        # Phase 2 +69 trend/swing L1, T37 +26 ATM depth
+        # → 380 + 22 + 10 + 69 + 26 = 521.
         cols = column_names_for((30, 60))
-        assert len(cols) == 495
-        assert len(set(cols)) == 495, "duplicate column names in 2-window profile"
+        assert len(cols) == 521
+        assert len(set(cols)) == 521, "duplicate column names in 2-window profile"
 
-    def test_count_is_495_for_4window_profile(self):
+    def test_count_is_545_for_4window_profile(self):
         """Canonical Phase D4 layout + Wave 1 (22) + Wave 2 (4×5=20)
-        + Phase 2 (69) = 519."""
+        + Phase 2 (69) + T37 ATM depth (26) = 545."""
         cols = column_names_for((30, 60, 300, 900))
-        assert len(cols) == 519
-        assert len(set(cols)) == 519, "duplicate column names in 4-window profile"
+        assert len(cols) == 545
+        assert len(set(cols)) == 545, "duplicate column names in 4-window profile"
 
     @pytest.mark.parametrize(
         "windows,expected_count",
         [
-            ((30,), 483),       # single-window: 446 + 12×1 + 1 + 24 = 483
-            ((30, 60), 495),    # 2-window legacy MVP: 446 + 24 + 1 + 24 = 495
-            ((30, 60, 300), 507),         # 3-window: 446 + 36 + 1 + 24 = 507
-            ((30, 60, 300, 900), 519),    # canonical D4: 446 + 48 + 1 + 24 = 519
-            ((30, 60, 120, 300, 900), 531),  # 5-window: 446 + 60 + 1 + 24 = 531
+            ((30,), 509),       # single-window: 472 + 12×1 + 1 + 24 = 509
+            ((30, 60), 521),    # 2-window legacy MVP: 472 + 24 + 1 + 24 = 521
+            ((30, 60, 300), 533),         # 3-window: 472 + 36 + 1 + 24 = 533
+            ((30, 60, 300, 900), 545),    # canonical D4: 472 + 48 + 1 + 24 = 545
+            ((30, 60, 120, 300, 900), 557),  # 5-window: 472 + 60 + 1 + 24 = 557
         ],
     )
     def test_count_formula(self, windows, expected_count):
-        """Total = 446 (window-independent: 355 base + 22 Wave 1 + 69
-        Phase 2) + 12 × len(windows) + 1 (upside_percentile_<min(windows)>s).
-        Each extra target window adds exactly 12 columns."""
+        """Total = 472 (window-independent: 355 base + 22 Wave 1 + 69
+        Phase 2 + 26 T37 ATM depth) + 12 × len(windows) + 1
+        (upside_percentile_<min(windows)>s). Each extra target window
+        adds exactly 12 columns."""
         assert len(column_names_for(windows)) == expected_count
 
     def test_legacy_module_global_is_2window_default(self):
         """`COLUMN_NAMES` exists as backward-compat for pre-E8 callers
         and resolves to the 2-window default."""
-        assert len(COLUMN_NAMES) == 495
+        assert len(COLUMN_NAMES) == 521
         assert COLUMN_NAMES == column_names_for((30, 60))
 
     def test_4window_includes_300s_and_900s_target_cols(self):
@@ -416,9 +421,9 @@ class TestParquetTypeForDirectionTargets:
 
 class TestAssembleFlatVector:
 
-    def test_key_count_is_495(self):
+    def test_key_count_is_521(self):
         row = _build()
-        assert len(row) == 495
+        assert len(row) == 521
 
     def test_key_order_matches_column_names(self):
         row = _build()
@@ -744,7 +749,7 @@ class TestSerializeRow:
         row = _build()
         line = serialize_row(row)
         parsed = json.loads(line)
-        assert len(parsed) == 495
+        assert len(parsed) == 521
 
     def test_allow_nan_false_satisfied(self):
         """NaN converted to null → json.loads should not raise."""
@@ -772,7 +777,7 @@ class TestEmitterFileSink:
         lines = Path(out_file).read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 1
         parsed = json.loads(lines[0])
-        assert len(parsed) == 495
+        assert len(parsed) == 521
 
     def test_emit_multiple_rows(self, tmp_path):
         out_file = str(tmp_path / "test_multi.ndjson")
@@ -1038,7 +1043,7 @@ class TestSchemaRegistry:
         payload = json.loads(out_file.read_text(encoding="utf-8"))
         assert payload["schema_version"] == LATEST_SCHEMA_VERSION
         assert payload["feature_count"] == len(payload["columns"])
-        assert payload["feature_count"] == 519  # 4-window canonical
+        assert payload["feature_count"] == 545  # 4-window canonical
         assert payload["columns"][0] == "timestamp"
         assert "india_vix" in payload["columns"]
         assert "days_to_expiry_bucket" in payload["columns"]
@@ -1089,30 +1094,29 @@ class TestSchemaRegistry:
         Emitter(mode="replay", schema_registry_dir=registry)
         assert (registry / f"v{LATEST_SCHEMA_VERSION}.json").exists()
 
-    def test_real_repo_registry_v8_present(self):
-        """End-to-end fixture: writes the canonical 4-window v8.json to
-        the real `config/schema_registry/` directory so the repo carries
-        a developer-readable schema-of-truth. Per V2_MASTER_SPEC §2.3
+    def test_real_repo_registry_latest_present(self):
+        """End-to-end fixture: writes the canonical 4-window
+        v<LATEST_SCHEMA_VERSION>.json to the real
+        `config/schema_registry/` directory so the repo carries a
+        developer-readable schema-of-truth. Per V2_MASTER_SPEC §2.3
         D74 B1 this file is autogenerated; the test fixture is the
         authoritative producer.
 
-        The test deletes any pre-existing v8.json first so the result
-        always reflects the 4-window canonical profile (519 cols) — the
-        registry is meant to mirror the live recorder, which uses 4
-        windows per E8/D4. Other tests in this module override
-        `schema_registry_dir` to tmp paths so they don't pollute the
-        real registry."""
+        T37 (2026-06-13): bumped schema to v9 (+26 ATM depth columns).
+        The test now references LATEST_SCHEMA_VERSION rather than a
+        hardcoded ``v8`` so future bumps stay one-line edits.
+        """
         from tick_feature_agent.output.emitter import _DEFAULT_SCHEMA_REGISTRY_DIR
-        v8 = _DEFAULT_SCHEMA_REGISTRY_DIR / "v8.json"
-        if v8.exists():
-            v8.unlink()
+        latest = _DEFAULT_SCHEMA_REGISTRY_DIR / f"v{LATEST_SCHEMA_VERSION}.json"
+        if latest.exists():
+            latest.unlink()
         Emitter(target_windows_sec=(30, 60, 300, 900))
-        assert v8.exists(), f"expected real-repo registry file at {v8}"
-        payload = json.loads(v8.read_text(encoding="utf-8"))
-        assert payload["schema_version"] == 8
+        assert latest.exists(), f"expected real-repo registry file at {latest}"
+        payload = json.loads(latest.read_text(encoding="utf-8"))
+        assert payload["schema_version"] == LATEST_SCHEMA_VERSION
         assert payload["feature_count"] == len(payload["columns"])
-        assert payload["feature_count"] == 519, (
-            "real-repo v8.json must reflect canonical 4-window profile"
+        assert payload["feature_count"] == 545, (
+            "real-repo schema registry must reflect canonical 4-window profile"
         )
         assert payload["columns"][0] == "timestamp"
         # Spot-check that the 69 Phase 2 keys + 24 Phase 3 target keys made it in.
