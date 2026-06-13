@@ -148,7 +148,7 @@ function _TodayTradeRow({
             )}
             {/* Instrument identity (the whole closed row is dimmed at row level). */}
             <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0">
-              <InstrumentTag name={trade.instrument} />
+              <InstrumentTag name={trade.instrument} muted={!isOpen} />
             {expiryLabel && (
               <>
                 <span className="text-border">|</span>
