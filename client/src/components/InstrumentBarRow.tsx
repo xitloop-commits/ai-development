@@ -31,7 +31,8 @@ const LIVE_KEY: Record<string, string> = {
   "NATURAL GAS": "naturalgas",
 };
 
-const CELL = "px-2 py-2 text-right tabular-nums border-r border-border align-middle";
+// Preview cells are dimmed (these are an at-the-money preview, not a live trade).
+const CELL = "px-2 py-2 text-right tabular-nums text-muted-foreground border-r border-border align-middle";
 
 export interface InstrumentBarRowProps {
   /** UI display name, e.g. "NIFTY 50". */
