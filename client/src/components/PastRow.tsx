@@ -84,19 +84,19 @@ function _PastRow({ day, showNet, highlighted = false, expanded = false, onToggl
           }
         </div>
       </td>
-      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
+      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
         {(() => { const avg = calculateAvgEntryPrice(day.trades ?? []); return avg > 0 ? avg.toFixed(2) : ''; })()}
       </td>
-      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
+      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
         {(() => { const avg = calculateAvgExitPrice(day.trades ?? []); return avg > 0 ? avg.toFixed(2) : ''; })()}
       </td>
-      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
+      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
         {(() => { const lots = calculateTotalLots(day.trades ?? []); return lots > 0 ? lots : ''; })()}
       </td>
-      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
+      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
         {(() => { const inv = calculateTotalInvested(day.trades ?? []); return inv > 0 ? fmt(inv) : ''; })()}
       </td>
-      <td className="px-2 py-2 text-right tabular-nums border-r border-border">
+      <td className="px-2 py-2 text-right tabular-nums text-foreground border-r border-border">
         {day.totalCharges > 0
           ? <ChargesBreakdownTip total={day.totalCharges} breakdown={aggregateChargesBreakdown(day.trades ?? [])} />
           : ''}
