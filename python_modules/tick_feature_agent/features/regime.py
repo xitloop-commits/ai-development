@@ -44,6 +44,7 @@ Default thresholds (see instrument profile for per-instrument values):
 
 from __future__ import annotations
 
+import collections
 import math
 import statistics
 
@@ -188,40 +189,58 @@ def compute_regime_features(
 
 
 class RegimeClassifier:
-    """5-minute-sustain wrapper around ``compute_regime_features``.
+    """Rolling-window-majority sustain wrapper around ``compute_regime_features``.
 
     Per V2_MASTER_SPEC §2.8 D4, regime transitions must be sustained for
-    5 minutes before they are 'confirmed' downstream. This prevents the
+    ~5 minutes before they're 'confirmed' downstream. This prevents the
     gate from flickering between TREND_STRONG and TREND on minor ADX
-    moves around the 30 threshold, and avoids treating a one-tick
-    NEUTRAL blip as a regime change.
+    moves around the 30 threshold and avoids treating a one-tick NEUTRAL
+    blip as a regime change.
 
-    Behaviour:
-      * First valid instantaneous classification is accepted immediately
-        (no warmup penalty beyond the underlying signal warmup).
-      * When the instantaneous classification matches the confirmed
-        regime, we update the confidence in place.
-      * When the instantaneous classification differs, we start a sustain
-        timer for the candidate. The candidate is promoted to confirmed
-        only after ``sustain_sec`` of continuous agreement.
-      * If the instantaneous classification reverts to the confirmed
-        value (or flips to a different non-confirmed value) before the
-        sustain window closes, the candidate timer resets.
-      * Benign degradation: an instantaneous ``regime=None`` (warmup,
-        missing signals) does NOT change the confirmed regime and does
-        NOT reset the candidate timer — the confirmed value carries
-        through until a new valid reading lands.
+    Algorithm (T32-FU1, 2026-06-13):
+
+      * Maintain a rolling window of the last ``sustain_sec`` seconds of
+        instantaneous regime readings.
+      * Promote a non-confirmed regime to confirmed only when it accounts
+        for at least ``majority_threshold`` (default 70%) of the window
+        AND the window holds at least ``min_window_ticks`` entries.
+      * First valid reading is accepted immediately (no warmup penalty
+        beyond the underlying compute_regime_features warmup).
+      * Benign degradation: ``instant_regime is None`` (warmup, missing
+        inputs) does NOT change confirmed state and is NOT added to the
+        window. The confirmed value carries through.
+      * Confidence: tracks the latest instant's confidence so the
+        downstream gate sees current conviction.
+
+    Why majority not consecutive-hold (the original T32 design):
+      Real intraday data flaps between TREND/RANGE every few ticks. A
+      strict "5 minutes uninterrupted" rule means the candidate timer
+      keeps resetting and no non-initial regime ever promotes. Whole-day
+      single-regime parquets were the symptom (2026-05-22 banknifty:
+      100% TREND; 2026-05-20 banknifty: 100% NEUTRAL). Majority within
+      the window absorbs the flap and still smooths transitions.
 
     Threading: not thread-safe — intended for single-threaded tick
     dispatch (same as the rest of the TFA feature pipeline).
     """
 
-    def __init__(self, *, sustain_sec: float = 300.0) -> None:
+    DEFAULT_MAJORITY_THRESHOLD = 0.70
+    DEFAULT_MIN_WINDOW_TICKS = 10
+
+    def __init__(
+        self,
+        *,
+        sustain_sec: float = 300.0,
+        majority_threshold: float = DEFAULT_MAJORITY_THRESHOLD,
+        min_window_ticks: int = DEFAULT_MIN_WINDOW_TICKS,
+    ) -> None:
         self._sustain_sec = float(sustain_sec)
+        self._majority_threshold = float(majority_threshold)
+        self._min_window_ticks = int(min_window_ticks)
         self._confirmed_regime: str | None = None
         self._confirmed_confidence: float = _NAN
-        self._candidate_regime: str | None = None
-        self._candidate_start_ts: float | None = None
+        # Rolling window of (ts, regime). Pruned by age on every update.
+        self._window: collections.deque[tuple[float, str]] = collections.deque()
 
     @property
     def confirmed_regime(self) -> str | None:
@@ -233,16 +252,27 @@ class RegimeClassifier:
 
     @property
     def candidate_regime(self) -> str | None:
-        """Inspection-only: what the classifier is tracking toward
-        becoming the next confirmed regime."""
-        return self._candidate_regime
+        """Inspection-only: the most-counted non-confirmed regime
+        currently in the rolling window, or None if no non-confirmed
+        readings are present. This is the value that would be promoted
+        next if it crosses the majority threshold.
+        """
+        if not self._window:
+            return None
+        counts: dict[str, int] = {}
+        for _ts, r in self._window:
+            if r == self._confirmed_regime:
+                continue
+            counts[r] = counts.get(r, 0) + 1
+        if not counts:
+            return None
+        return max(counts.items(), key=lambda kv: kv[1])[0]
 
     def reset(self) -> None:
         """Clear all state — called at session_start or expiry rollover."""
         self._confirmed_regime = None
         self._confirmed_confidence = _NAN
-        self._candidate_regime = None
-        self._candidate_start_ts = None
+        self._window.clear()
 
     def update(
         self,
@@ -259,10 +289,11 @@ class RegimeClassifier:
         adx_5min: float = _NAN,
     ) -> dict:
         """Classify the current tick and return the CONFIRMED regime
-        (after sustain), not the instantaneous classification.
+        (after rolling-majority sustain), not the instantaneous
+        classification.
 
         Args mirror ``compute_regime_features`` plus ``now_ts`` for the
-        sustain timer.
+        rolling window's age bookkeeping.
         """
         instant = compute_regime_features(
             buffer=buffer,
@@ -279,46 +310,59 @@ class RegimeClassifier:
         instant_conf = instant["regime_confidence"]
 
         # Benign degradation: a None instantaneous reading (warmup or
-        # missing inputs) does NOT change the confirmed state nor reset
-        # the candidate timer. The confirmed value carries through.
+        # missing inputs) does NOT change the confirmed state and does
+        # NOT enter the rolling window. The confirmed value carries
+        # through until a valid reading lands.
         if instant_regime is None:
             return {
                 "regime": self._confirmed_regime,
                 "regime_confidence": self._confirmed_confidence,
             }
 
+        # Append + prune the rolling window by age.
+        now_v = float(now_ts)
+        self._window.append((now_v, instant_regime))
+        cutoff = now_v - self._sustain_sec
+        while self._window and self._window[0][0] < cutoff:
+            self._window.popleft()
+
         # First valid reading — accept immediately, no sustain delay.
         if self._confirmed_regime is None:
             self._confirmed_regime = instant_regime
             self._confirmed_confidence = instant_conf
-            self._candidate_regime = None
-            self._candidate_start_ts = None
             return {
                 "regime": self._confirmed_regime,
                 "regime_confidence": self._confirmed_confidence,
             }
 
+        # Same as confirmed — refresh confidence in place; majority
+        # check is unnecessary (any same-regime instant trivially
+        # supports the existing confirmed value).
         if instant_regime == self._confirmed_regime:
-            # Same regime — refresh confidence; clear any candidate.
             self._confirmed_confidence = instant_conf
-            self._candidate_regime = None
-            self._candidate_start_ts = None
-        else:
-            # Different from confirmed — sustain logic.
-            if self._candidate_regime != instant_regime:
-                # New candidate (either first transition attempt or the
-                # alternative changed before sustain completed).
-                self._candidate_regime = instant_regime
-                self._candidate_start_ts = float(now_ts)
-            elif (
-                self._candidate_start_ts is not None
-                and (float(now_ts) - self._candidate_start_ts) >= self._sustain_sec
-            ):
-                # Candidate held for >= sustain_sec — promote.
-                self._confirmed_regime = instant_regime
+            return {
+                "regime": self._confirmed_regime,
+                "regime_confidence": self._confirmed_confidence,
+            }
+
+        # Different from confirmed — count the rolling window. Promote
+        # the most-counted non-confirmed regime iff it crosses both
+        # gates (min window size + majority share).
+        window_n = len(self._window)
+        if window_n >= self._min_window_ticks:
+            counts: dict[str, int] = {}
+            for _ts, r in self._window:
+                counts[r] = counts.get(r, 0) + 1
+            # Find the leading non-confirmed regime.
+            leader, leader_count = None, 0
+            for r, c in counts.items():
+                if r == self._confirmed_regime:
+                    continue
+                if c > leader_count:
+                    leader, leader_count = r, c
+            if leader is not None and (leader_count / window_n) >= self._majority_threshold:
+                self._confirmed_regime = leader
                 self._confirmed_confidence = instant_conf
-                self._candidate_regime = None
-                self._candidate_start_ts = None
 
         return {
             "regime": self._confirmed_regime,

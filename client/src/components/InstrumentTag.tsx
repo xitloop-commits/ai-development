@@ -9,7 +9,7 @@ export interface InstrumentTagProps {
 export function InstrumentTag({ name, muted }: InstrumentTagProps) {
   const style = getInstrumentStyle(name);
   return (
-    <span className={`inline-flex max-w-full items-center truncate px-1.5 py-0.5 rounded font-semibold ${muted ? '' : style.bg} ${style.text}`}>
+    <span className={`inline-flex max-w-full items-center truncate px-1.5 py-0.5 rounded text-[0.625rem] font-semibold ${muted ? '' : style.bg} ${style.text}`}>
       {name}
     </span>
   );
