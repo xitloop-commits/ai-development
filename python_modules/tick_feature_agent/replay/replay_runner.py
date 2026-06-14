@@ -46,6 +46,7 @@ import argparse
 import json
 import multiprocessing
 import os
+import signal
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -85,6 +86,13 @@ WORKERS_HARD_CAP: int = 20
 CHUNK_DIVISOR: int = 20
 CHUNK_EVENT_FLOOR: int = 5_000        # don't flush more often than every 5k events
 CHUNK_INTERVAL_SEC: float = 300.0     # 5 minutes — fallback for dull stretches
+
+# Dashboard heartbeat cadence. Dropped from 50k → 10k (2026-06-15) because
+# at typical replay rates (~1500 ev/s on heavy MCX dates) 50k means a row
+# update every ~30s — long enough for the operator to think the worker
+# is frozen. 10k → ~6s between visible ticks, still cheap (~one manager-
+# dict write per 6s per worker).
+HEARTBEAT_EVERY_EVENTS: int = 10_000
 
 # On resume, re-feed events from (last_chunk_event_idx - WARMUP_EVENT_COUNT)
 # so the adapter's pending queue is rebuilt before we start writing again.
@@ -538,11 +546,12 @@ def run_one_date(
         for event in merge_streams(date_folder, instrument, logger=logger):
             event_idx += 1
 
-            # Dashboard heartbeat — fires every 50k events regardless of
-            # which resume phase we're in, so a worker that's mid-warmup
-            # (re-feeding events to rebuild adapter state) doesn't look
-            # frozen at "0 events" on the multi-worker dashboard.
-            if event_idx % 50_000 == 0:
+            # Dashboard heartbeat — fires every HEARTBEAT_EVERY_EVENTS
+            # events regardless of which resume phase we're in, so a
+            # worker that's mid-warmup (re-feeding events to rebuild
+            # adapter state) doesn't look frozen on the multi-worker
+            # dashboard.
+            if event_idx % HEARTBEAT_EVERY_EVENTS == 0:
                 # Pool-driven cooperative cancel: parent sets the stop
                 # flag on Ctrl+C; worker raises locally so the existing
                 # per-date except KeyboardInterrupt path runs (STOPPING
@@ -598,7 +607,7 @@ def run_one_date(
             # of the dashboard "running" snapshot. The warmup-aware
             # heartbeat above keeps the dashboard alive between Phase-3
             # events.
-            if event_idx % 50_000 == 0:
+            if event_idx % HEARTBEAT_EVERY_EVENTS == 0:
                 now = time.monotonic()
                 elapsed = now - t_start
                 rate = event_idx / max(elapsed, 0.001)
@@ -931,9 +940,8 @@ def _worker_sigint_ignore() -> None:
     Workers idle in queue.get() exit cleanly when the parent shuts
     the pool down through normal channels.
     """
-    import signal as _signal
     try:
-        _signal.signal(_signal.SIGINT, _signal.SIG_IGN)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
     except (ValueError, OSError):
         # ``signal.signal`` only works on the main thread of a process,
         # which is what an ``initializer`` runs on. Defensive: don't
@@ -1219,10 +1227,19 @@ def replay(
                     # (see _worker_sigint_ignore initializer); we ask
                     # them to stop in-flight via a cooperative
                     # ``__stop__`` flag on the Manager dict — each
-                    # worker's 50k-event heartbeat polls it and raises
-                    # its own KeyboardInterrupt, routing into the
-                    # existing per-date STOPPING / flush / EXITED path.
+                    # worker's heartbeat polls it and raises its own
+                    # KeyboardInterrupt, routing into the existing
+                    # per-date STOPPING / flush / EXITED path.
                     progress_dict["__stop__"] = True
+                    # 2026-06-15: install SIG_IGN on the PARENT for the
+                    # duration of the drain so a SECOND Ctrl+C (operator
+                    # getting impatient) doesn't fire — it would
+                    # otherwise propagate into the executor's queue-
+                    # management-thread join during interpreter
+                    # shutdown, printing "Exception ignored on threading
+                    # shutdown: KeyboardInterrupt". Restored in the
+                    # outer finally so the CLI's R/X menu still works.
+                    _prev_sigint = signal.signal(signal.SIGINT, signal.SIG_IGN)
                     if logger:
                         logger.info(
                             "REPLAY_INTERRUPTED_DRAINING",
@@ -1264,17 +1281,17 @@ def replay(
                             verdict = "fail"
                         dashboard.mark_terminal(date_str, verdict)
                         summary[verdict] = summary.get(verdict, 0) + 1
-                    # All in-flight workers have flushed + exited. The
-                    # dashboard __exit__ will replay the final frame as
-                    # static text on the primary screen so STOPPING /
-                    # EXITED rows + state-saved confirmation stay
-                    # visible after alt-screen tear-down. Don't re-raise
-                    # KeyboardInterrupt — the CLI keys off
-                    # summary["interrupted"] for the 130 exit code, and
-                    # letting it propagate would trigger the
-                    # ProcessPoolExecutor atexit "Exception ignored on
-                    # threading shutdown" traceback (2026-06-14).
+                    # All in-flight workers have flushed + exited. Don't
+                    # re-raise — see comment in finally below.
     finally:
+        # Restore SIGINT to the prior handler so the outer CLI's R/X
+        # menu and the user's normal Ctrl+C semantics work again. The
+        # SIG_IGN was scoped to the drain only.
+        try:
+            if "_prev_sigint" in locals():
+                signal.signal(signal.SIGINT, _prev_sigint)
+        except Exception:
+            pass
         _restore_env(saved_env)
         try:
             manager.shutdown()

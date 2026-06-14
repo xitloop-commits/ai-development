@@ -502,16 +502,26 @@ class ProgressDashboard:
                 elif phase == "exited":
                     chunk_text = "EXITED (state saved, resumable)"
                 elif overshoot:
-                    # Replace the chunk M/N text with a "finalising"
-                    # marker — informs the operator that the event
-                    # loop is done and the worker is in the tail
-                    # phases (flush_all / merge / validate).
-                    chunk_text = "finalising (estimate exceeded)"
-                if overshoot:
-                    # Floor the per-date ETA to the same "still
-                    # finishing" hint used by the Overall ETA so the
-                    # row doesn't flash 00:00:00 either.
-                    eta = max(eta or 0.0, 15.0)
+                    # Worker is STILL in the event loop — its event-
+                    # count estimate (from .gz file size) was too low
+                    # (crude oil's 14-hr MCX session can undershoot by
+                    # 100%+). The post-loop phases (flush/merge/
+                    # validate) would have emitted their own phase=
+                    # callback above; reaching this branch means we're
+                    # STILL ingesting, just past the estimate. Be
+                    # honest: tell the operator the estimate was off
+                    # rather than implying we're nearly done.
+                    over_pct = int((pct - 1.0) * 100) if total else 0
+                    chunk_text = f"event-loop +{over_pct}% (estimate low)"
+                # ETA on an event-loop overshoot is UNKNOWN — the
+                # estimate is wrong by definition so the (total-ev)/rate
+                # formula is meaningless. Show "?" instead of the old
+                # 15s floor that lied to the operator. The 15s floor is
+                # still correct for actual tail phases (flush/merge/
+                # validate emit their own phase= callback, so they
+                # don't hit this branch).
+                if overshoot and phase == "running":
+                    eta = None
                 # Tail-phase + warmup chunk text needs to be VISIBLE,
                 # not dim — that's where the "what's happening right
                 # now" signal lives. Default "dim" is fine for normal
@@ -526,13 +536,20 @@ class ProgressDashboard:
                     chunk_text_style = "yellow"
                 else:
                     chunk_text_style = "dim"
+                # Overshoot in event-loop → ETA is genuinely unknown,
+                # so render "?" instead of "--:--:--" which reads as
+                # "we just haven't computed it yet".
+                if overshoot and phase == "running":
+                    eta_text = "       ?"
+                else:
+                    eta_text = _fmt_hms(eta)
                 rows_running.append((
                     Text(d, style=row_style),
                     self._render_bar(display_pct, width=18, filled_style=bar_style),
                     Text(f"{pct * 100:5.1f}%" if total else "  --.-%", style=row_style),
                     Text(_fmt_int(ev), style=row_style),
                     Text(_fmt_rate(rate), style=row_style),
-                    Text(_fmt_hms(eta), style="dim" if eta is None else row_style),
+                    Text(eta_text, style="dim" if eta is None else row_style),
                     Text(chunk_text, style=chunk_text_style),
                 ))
             elif status == "pending":

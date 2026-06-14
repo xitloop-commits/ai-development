@@ -305,10 +305,13 @@ def test_overall_eta_stays_nonzero_on_overshoot():
     assert eta != "--:--:--", f"ETA must not be unknown on overshoot, got {eta!r}"
 
 
-def test_per_date_finalising_marker_on_overshoot():
-    """When a running date overshoots, the per-date chunk/status text
-    column shows 'finalising (estimate exceeded)' so the operator
-    knows the event loop is done and the worker is in tail phases.
+def test_per_date_overshoot_label_is_honest_not_finalising():
+    """When a running date overshoots its event-count estimate, the
+    per-date chunk/status text column must HONESTLY say the event-loop
+    is still running with a wrong estimate — NOT 'finalising', which
+    incorrectly implies the loop is done (2026-06-15 fix). The "real"
+    finalising phases (flushing/merging/validating) emit their own
+    phase= callback above and don't reach this branch.
     """
     dates = ["d1"]
     progress_dict = {
@@ -317,8 +320,18 @@ def test_per_date_finalising_marker_on_overshoot():
     }
     dash = ProgressDashboard("crudeoil", dates, workers=1, progress_dict=progress_dict)
     rendered = _render_plain(dash)
-    assert "finalising" in rendered.lower(), (
-        f"expected per-date 'finalising' marker on overshoot, got:\n{rendered}"
+    # New honest label
+    assert "event-loop" in rendered.lower(), (
+        f"expected per-date 'event-loop' marker on overshoot, got:\n{rendered}"
+    )
+    # And the misleading old label must NOT appear
+    assert "finalising" not in rendered.lower(), (
+        f"'finalising' label is misleading on overshoot — should be 'event-loop +X%' instead. Got:\n{rendered}"
+    )
+    # The ETA cell shows "?" (genuinely unknown) instead of "--:--:--"
+    # (which reads as "we just haven't computed it yet").
+    assert " ?" in rendered or "?" in rendered.split("\n")[-1] or " ? " in rendered, (
+        f"expected ETA '?' for overshoot+running phase, got:\n{rendered}"
     )
 
 

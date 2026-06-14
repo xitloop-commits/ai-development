@@ -23,6 +23,7 @@ Local-only design decisions (not in repo docs):
 
 Working-style preferences:
 - [Ask design questions inline, not via modal](feedback_questions_inline.md) — Partha prefers chat-prose options over the AskUserQuestion popup.
+- [Don't lead with T-codes](feedback_no_t_codes.md) — chat replies use descriptive task names ("hyperparameter tuning") not codes ("T28"). T-codes only as small parenthetical for cross-reference.
 - [T-roster + hierarchy format on request](feedback_t_roster_format.md) — When asked for "T status / roster / hierarchy / latest update," produce the fixed two-table format; re-read PROJECT_TODO each time, never cache.
 - Briefing format (why / change / outcome / suggestion, one-line each) → [Rule 4 in docs/PARTHA_RULES.md](../../../../../ai-development/ai-development/docs/PARTHA_RULES.md).
 - [TFA + its Dhan WS connection are off-limits](feedback_tfa_do_not_touch.md) — never propose refactors that touch TFA's spouse-account WebSocket path.
