@@ -940,6 +940,16 @@ Surfaced 2026-06-01 while testing sandbox order flow. Two related gaps: (a) disc
 - **Effort:** ~1 day (schema field + validateTrade gate + 2 Settings controls + 1 button).
 - **Cross-ref:** [systems/06_risk_discipline.md](systems/06_risk_discipline.md); `server/discipline/index.ts` (`validateTrade`, `isSimulationChannel`), `server/discipline/disciplineRouter.ts` (`completeReview`).
 
+### T54 [DATA] — Automate `config/event_calendar.json` updates 🆕
+Surfaced 2026-06-14 while wiring the AppBar market-events tag. The macro-event calendar (FOMC, RBI, India CPI/GDP, US NFP/CPI/PCE, monthly expiry, budget) is **hand-maintained** — nothing in the repo writes `config/event_calendar.json`; the TFA (`tick_feature_agent/features/event_calendar.py`) and the new UI tag only read it. It currently ends at 2026-06-25, so it goes empty without manual top-ups.
+
+- **Status:** ⏳ Open (2026-06-14). Today: edit the JSON by hand from official sources.
+- **Goal:** a scheduled job that fetches/refreshes upcoming tier-1/2 events into `event_calendar.json` (IST `ts_ist`, existing schema), append-only + dedup, so both the TFA features and the UI tag stay current automatically.
+- **Sources (per the file's own `_note`):** RBI policy calendar; FOMC schedule (federalreserve.gov); MoSPI (India CPI/GDP); US BLS (NFP/CPI/PCE); NSE/MCX monthly expiries. Times = release moment in IST (+05:30).
+- **Open design qs:** scrape vs an economic-calendar API (offline-first prefers a small curated fetcher); cadence (weekly?); where it runs (launcher scheduled task, like the yow-partha auto-start); how to validate rows before writing so a bad fetch can't corrupt the file the TFA reads on session start.
+- **Effort:** ~1–2 days. Keep writes atomic + schema-validated; never let an automated write break the TFA's morning read.
+- **Cross-ref:** `config/event_calendar.json`, `python_modules/tick_feature_agent/features/event_calendar.py`, [systems/02_feature_engineering.md](systems/02_feature_engineering.md); AppBar market-events tag (this session).
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 _None yet._
