@@ -43,7 +43,6 @@ const meta = {
     openTradeCount: openCount,
     cycleDateLabel: "Today",
     summaryBorder: "border-bullish/30",
-    summaryBg: "bg-muted/30",
     lastClosedTrade: mockClosedTpTrade,
     onExitAll: () => console.log("exit all"),
     onRepeatLastOrder: () => console.log("repeat last"),

@@ -20,9 +20,8 @@ export interface TodaySummaryRowProps {
   canManageTrades: boolean;
   openTradeCount: number;
   cycleDateLabel: string;
-  /** Workspace theme classes for the summary row border + background. */
+  /** Workspace theme class for the summary row border. */
   summaryBorder: string;
-  summaryBg: string;
   /** Most recent closed trade (for the Repeat-last-order button); null if none. */
   lastClosedTrade: TradeRecord | null;
   onExitAll: () => void;

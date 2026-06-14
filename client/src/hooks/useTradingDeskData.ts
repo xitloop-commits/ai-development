@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Channel, ResolvedInstrument } from '@/lib/tradeTypes';
-import { UI_TO_RESOLVED } from '@/lib/tradeTypes';
+import { UI_TO_RESOLVED, optionExchangeFor } from '@/lib/tradeTypes';
 import { trpc } from '@/lib/trpc';
 import { useTickStream } from './useTickStream';
 
@@ -52,10 +52,7 @@ export function useTradingDeskData({
     // Option trades: read the contract's own tick (premium). Hot path — no
     // logging / window globals here (called per open trade per tick).
     if (trade.contractSecurityId) {
-      const exchange = (trade.instrument.includes('CRUDE') || trade.instrument.includes('NATURAL'))
-        ? 'MCX_COMM'
-        : 'NSE_FNO';
-      return getTick(exchange, trade.contractSecurityId)?.ltp;
+      return getTick(optionExchangeFor(trade.instrument), trade.contractSecurityId)?.ltp;
     }
     // No contract id → fall back to the underlying feed.
     const resolvedName = UI_TO_RESOLVED[trade.instrument] ?? trade.instrument;
@@ -65,11 +62,8 @@ export function useTradingDeskData({
   }, [feedLookup, getTick]);
 
   const subscribeOptionFeed = useCallback((instrument: string, contractSecurityId: string) => {
-    const exchange = (instrument.includes('CRUDE') || instrument.includes('NATURAL'))
-      ? 'MCX_COMM'
-      : 'NSE_FNO';
     feedSubscribeMutation.mutate({
-      instruments: [{ exchange, securityId: contractSecurityId, mode: 'full' }],
+      instruments: [{ exchange: optionExchangeFor(instrument), securityId: contractSecurityId, mode: 'full' }],
     });
   }, [feedSubscribeMutation]);
 
@@ -97,7 +91,7 @@ export function useTradingDeskData({
     if (openTrades.length === 0) return;
     feedSubscribeMutation.mutate({
       instruments: openTrades.map((t) => ({
-        exchange: (t.instrument.includes('CRUDE') || t.instrument.includes('NATURAL')) ? 'MCX_COMM' : 'NSE_FNO',
+        exchange: optionExchangeFor(t.instrument),
         securityId: t.contractSecurityId!,
         mode: 'full',
       })),

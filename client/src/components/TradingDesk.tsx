@@ -43,7 +43,7 @@ export default function TradingDesk({
   } = useCapital();
   const workspace = channelToWorkspace(channel);
 
-  const [showNet] = useState(true);
+  const [showNet, setShowNet] = useState(true);
   const [expandedDays, setExpandedDays] = useState<Set<number>>(() => new Set());
   const toggleExpand = useCallback((dayIndex: number) => {
     setExpandedDays((prev) => {
@@ -103,6 +103,16 @@ export default function TradingDesk({
           <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Cash</span>
           <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
         </div>
+        {/* Net (after charges) vs Gross (before charges) P&L display toggle. */}
+        <button
+          type="button"
+          onClick={() => setShowNet((v) => !v)}
+          className="px-3 py-1.5 flex flex-col items-center justify-center hover:bg-muted/40 transition-colors"
+          title={showNet ? 'Showing P&L net of charges — click for gross' : 'Showing gross P&L — click for net'}
+        >
+          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">P&amp;L</span>
+          <span className="text-xs font-bold tabular-nums text-foreground">{showNet ? 'Net' : 'Gross'}</span>
+        </button>
         <TodayPnlBar
           pnl={capital.todayPnl}
           tradingPool={capital.tradingPool}

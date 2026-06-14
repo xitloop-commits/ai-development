@@ -301,13 +301,30 @@ The `testing-sandbox` channel was historically half-built — `connect()` short-
 
 ## P2 — parked features (small enough to wait)
 
-### TradingDesk trade-entry bars — ✅ SHIPPED 2026-06-06 (2 follow-ups open)
+### TradingDesk trade-entry bars — ✅ SHIPPED 2026-06-06 (gap-audit fixes 2026-06-14)
 
 Replaced `NewTradeForm` with always-on per-instrument `InstrumentBar` bars (`StrikeBar` ready / `TradeBar` open-closed) + click-to-place entry-marker → executor placement; `PastRow` expand-to-show-trades; TradingDesk freeze/leak/repaint hardening (past-day normalize cache, per-instrument `useInstrumentTick`, tickStore TTL); dev `MOCK` feed toggle for offline testing; `broker.feed.ohlc` endpoint. Full design + status in [08 UI Desktop §4](systems/08_ui_desktop.md).
 
+**Shipped 2026-06-14 (TradeBar enhancements + gap-audit fixes):**
+- TradeBar reward zone broken into measured E→TSL→LTP→TP gaps; green TSL→LTP buffer band; secured-₹ on the E→TSL chip (only after TSL arms); TSL marker lifted above all layers (z-index).
+- Mock feed now also ticks Crude Oil + Natural Gas underlyings (was NIFTY/BANKNIFTY only) + open paper trades' option contracts — all 4 bars and open TradeBars move offline.
+- Per-instrument fallback strike-step (`FALLBACK_STRIKE_STEP`: BANKNIFTY 100 etc.) — no longer hard-50 when `instrumentLiveState` is stale.
+- Single `optionExchangeFor()` helper replaces 4 inline copies of the "Crude/Gas → MCX else NSE" rule.
+- Net/Gross P&L toggle in the desk header is now live (was frozen on Net).
+- Pending-TSL tooltip now states the hold-seconds so "pending" doesn't look armed before the server arms it.
+- Removed dead `summaryBg` prop from the day-summary banner.
+
+**Open gaps (from 2026-06-14 audit):**
+- [ ] Stuck "waiting for live data…" — if an underlying tick never arrives, the ready bar / option preview never resolves (no timeout / error / retry). `useOptionPreview` + `InstrumentBarRow`.
+- [ ] Frozen trade price — an open trade missing `contractSecurityId` silently shows a stale price (no live subscription, no warning). `TodayTradeRow`.
+- [ ] WS-drop polling fallback isn't reactive — `wsConnected` is a module var, so the 2s snapshot fallback won't auto-engage if the socket drops (WS auto-reconnects every 1s, so low risk). `useTickStream`.
+- [ ] Thin error / empty UX — contract-not-resolved shows only faint amber text; locked TP/SL click no-ops silently; status badges have no tooltip.
+- [ ] Header big-P&L number ignores the new Net/Gross toggle (table P&L columns respect it; header stays net).
+- Cross-refs (tracked elsewhere): HeadToHead backend stub (T50); per-event notification toggles UI (T52); InstrumentCard "News Sentiment" placeholder ([08 UI §5](systems/08_ui_desktop.md)).
+
+Carried over:
 - [ ] Verify entry-marker → paper placement end-to-end at market open (so far only offline-tested via the dev MOCK toggle).
 - [ ] Pre-existing `DhanAdapter.exitAll` unit test fails (predates this work, unrelated) — fix or quarantine.
-- Note: BANKNIFTY strike-step defaults to 50 offline when `instrumentLiveState` is stale (intentionally left — correct at market open).
 
 ### T4 — Replay in-date progress + chunked resume (PARTIALLY DONE 2026-05-16)
 

@@ -180,6 +180,29 @@ export const UI_TO_RESOLVED: Record<string, string> = {
   'NATURAL GAS': 'NATURALGAS',
 };
 
+/**
+ * The WS exchange segment an option leg trades on. MCX commodities (Crude Oil,
+ * Natural Gas) → MCX_COMM; everything else (index options) → NSE_FNO. Accepts
+ * any instrument label form ("CRUDE OIL", "CRUDEOIL", "NATURAL GAS", …).
+ * Single source of truth — callers must not re-derive this inline.
+ */
+export function optionExchangeFor(instrument: string): 'MCX_COMM' | 'NSE_FNO' {
+  const u = (instrument ?? '').toUpperCase();
+  return u.includes('CRUDE') || u.includes('NATURAL') ? 'MCX_COMM' : 'NSE_FNO';
+}
+
+/**
+ * Fallback strike spacing per instrument, used only when the live
+ * `strike_step` hasn't arrived yet. Keyed by instrumentLiveState key
+ * ("nifty50" / "banknifty" / "crudeoil" / "naturalgas").
+ */
+export const FALLBACK_STRIKE_STEP: Record<string, number> = {
+  nifty50: 50,
+  banknifty: 100,
+  crudeoil: 50,
+  naturalgas: 5,
+};
+
 export interface ResolvedInstrument {
   name: string;
   securityId: string;

@@ -71,6 +71,8 @@ export function TodaySection({
   const slPercent = brokerConfigQuery.data?.settings?.defaultSL ?? 2;
   // Trailing activation gate % — positions the pending TSL marker on each row's bar.
   const tslGatePercent = brokerConfigQuery.data?.settings?.trailingActivationGatePercent ?? 2;
+  // Seconds price must hold past the gate before the server arms the TSL.
+  const tslHoldSeconds = brokerConfigQuery.data?.settings?.trailingActivationHoldSeconds ?? 10;
   const updateTradeMutation = trpc.executor.updateTrade.useMutation();
   const utils = trpc.useUtils();
   const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
@@ -133,7 +135,6 @@ export function TodaySection({
         openTradeCount={openTrades.length}
         cycleDateLabel={cycleDateLabel}
         summaryBorder={theme.summaryBorder}
-        summaryBg={theme.summaryBg}
         lastClosedTrade={lastClosedTrade}
         onExitAll={onExitAll}
         onRepeatLastOrder={handleRepeatLastOrder}
@@ -156,6 +157,7 @@ export function TodaySection({
           globalTrailingEnabled={globalTrailingEnabled}
           slPercent={slPercent}
           tslGatePercent={tslGatePercent}
+          tslHoldSeconds={tslHoldSeconds}
           tradeNo={idx + 1}
         />
       ))}

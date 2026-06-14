@@ -14,7 +14,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { type Channel, type ResolvedInstrument, type TradeRecord, UI_TO_RESOLVED } from "@/lib/tradeTypes";
+import { type Channel, type ResolvedInstrument, type TradeRecord, UI_TO_RESOLVED, FALLBACK_STRIKE_STEP } from "@/lib/tradeTypes";
 import { fmt, formatExpiryLabel } from "@/lib/tradeFormatters";
 import { estimateSingleLegCharges, DEFAULT_CHARGES } from "@shared/chargesEngine";
 import { useOptionPreview } from "@/hooks/useOptionPreview";
@@ -145,7 +145,7 @@ export function InstrumentBarRow({
             strike={{
               spot,
               ltp: spot,
-              strikeStep: live?.strike_step ?? 50,
+              strikeStep: live?.strike_step ?? FALLBACK_STRIKE_STEP[key] ?? 50,
               windowEachSide: 3,
               showTrail: true,
               tradeMarkers,

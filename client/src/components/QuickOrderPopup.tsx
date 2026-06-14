@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { trpc } from '../lib/trpc';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { useTickStream } from '@/hooks/useTickStream';
+import { optionExchangeFor } from '@/lib/tradeTypes';
 
 // instrumentKey → option chain underlying symbol
 const INSTRUMENT_UNDERLYING: Record<string, string> = {
@@ -160,8 +161,7 @@ export function QuickOrderPopup({
     if (!row) return undefined;
     return (optionType === 'CE' ? row.callSecurityId : row.putSecurityId) ?? undefined;
   }, [optionChainQuery.data, strike, atmRow, optionType]);
-  const wsExchange =
-    instrumentKey === 'CRUDEOIL' || instrumentKey === 'NATURALGAS' ? 'MCX_COMM' : 'NSE_FNO';
+  const wsExchange = optionExchangeFor(instrumentKey);
   const { getTick } = useTickStream();
   const liveTick = selectedContractSecurityId
     ? getTick(wsExchange, selectedContractSecurityId)

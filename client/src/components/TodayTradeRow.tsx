@@ -6,7 +6,7 @@ import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Channel, DayRecord, TradeRecord } from '@/lib/tradeTypes';
-import { channelToWorkspace } from '@/lib/tradeTypes';
+import { channelToWorkspace, optionExchangeFor } from '@/lib/tradeTypes';
 import {
   fmt,
   pnlColor,
@@ -47,6 +47,8 @@ export interface TodayTradeRowProps {
   slPercent?: number;
   /** Trailing activation gate % (settings) — positions the pending TSL marker. */
   tslGatePercent?: number;
+  /** Seconds price must hold past the gate before the server arms the TSL. */
+  tslHoldSeconds?: number;
   /** 1-based trade number within the day, shown on the left of the row. */
   tradeNo?: number;
 }
@@ -68,6 +70,7 @@ function _TodayTradeRow({
   globalTrailingEnabled = false,
   slPercent,
   tslGatePercent,
+  tslHoldSeconds,
   tradeNo,
   liveLtp,
 }: RenderProps) {
@@ -188,6 +191,7 @@ function _TodayTradeRow({
                     : undefined
                 }
                 trailingEnabled={globalTrailingEnabled}
+                tslHoldSeconds={tslHoldSeconds}
                 tslGatePrice={(() => {
                   const be = trade.breakevenPrice ?? trade.entryPrice;
                   const g = tslGatePercent ?? 2;
@@ -385,12 +389,9 @@ function _TodayTradeRow({
  */
 function LiveTodayTradeRow(props: TodayTradeRowProps) {
   const { trade } = props;
-  const exchange = (trade.instrument.includes('CRUDE') || trade.instrument.includes('NATURAL'))
-    ? 'MCX_COMM'
-    : 'NSE_FNO';
   // Per-instrument subscription: this row re-renders only on its own contract's
   // ticks, not on every tick across the desk.
-  const tick = useInstrumentTick(exchange, trade.contractSecurityId ?? null);
+  const tick = useInstrumentTick(optionExchangeFor(trade.instrument), trade.contractSecurityId ?? null);
   return <_TodayTradeRow {...props} liveLtp={tick?.ltp} />;
 }
 

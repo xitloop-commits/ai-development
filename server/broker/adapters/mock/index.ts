@@ -458,6 +458,8 @@ export class MockAdapter implements BrokerAdapter {
     const SEED: Record<string, number> = {
       "IDX_I:13": 23400, // NIFTY 50
       "IDX_I:25": 51000, // BANK NIFTY
+      "MCX_COMM:MOCK-CRUDEOIL-FUT": 6000, // CRUDE OIL
+      "MCX_COMM:MOCK-NATURALGAS-FUT": 250, // NATURAL GAS
     };
     const basePrices = new Map<string, number>();
     const anchorPrices = new Map<string, number>();

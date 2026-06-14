@@ -41,6 +41,9 @@ export interface TradeBarProps {
   /** Price at which the trailing stop will arm (breakeven + gate%). Positions the
    *  pending TSL marker before activation. */
   tslGatePrice?: number;
+  /** Seconds price must hold past the gate before the server actually arms the
+   *  TSL — shown in the pending marker's tooltip so it doesn't look armed early. */
+  tslHoldSeconds?: number;
   /** Position size in units (lots × lot size) — used to show ₹ P&L at markers. */
   units?: number;
   /** Round-trip charges (₹) — subtracted from the ₹ P&L shown at markers. */
@@ -68,6 +71,7 @@ const RED = "#dc2626";
 const GREEN = "#22c55e";
 const DARK_GREEN = "rgba(21, 128, 61, 0.85)";
 const LIGHT_GREEN = "rgba(187, 247, 208, 0.85)";
+const BUFFER_GREEN = "rgba(34, 197, 94, 0.55)"; // clear green for the TSL → LTP buffer
 const GREY = "rgba(148, 163, 184, 0.35)";
 
 const SL_COLOR = "#dc2626";
@@ -85,6 +89,7 @@ export function TradeBar({
   tpPercent = 10,
   trailingEnabled = false,
   tslGatePrice,
+  tslHoldSeconds,
   units,
   roundTripCharges = 0,
   compact = false,
@@ -175,12 +180,26 @@ export function TradeBar({
   const isFavourable = ltpFav >= 0;
   const profitStart = stopLocked ? stopPos : entryPos;
 
+  // The TSL point in profit space: the locked trailing stop, or — before it
+  // arms — the pending activation gate. Used both for the colour bands below
+  // and the reward-gap breakdown further down.
+  const tslFav = stopLocked ? stopFav : gateFav ?? null;
+  const tslPos = tslFav != null && tslFav > 0 && tslFav < tpPercent ? pos(tslFav) : null;
+  // The green buffer is specifically the TSL → LTP gap (profit beyond the
+  // protected stop). Anchor it at the TSL marker whenever price is above it;
+  // otherwise fall back to entry so a plain in-profit trade still shows green.
+  const bufferStart = tslPos != null && tslPos < ltpPos ? tslPos : profitStart;
+
   // ── Colour bands ──────────────────────────────────────────────────────
   const bands: Array<{ from: number; to: number; color: string }> = [];
   if (!stopLocked) bands.push({ from: stopPos, to: entryPos, color: `${RED}55` }); // at-risk loss
-  if (stopLocked) bands.push({ from: entryPos, to: stopPos, color: DARK_GREEN }); // locked profit
-  if (ltpPos > profitStart) bands.push({ from: profitStart, to: ltpPos, color: LIGHT_GREEN }); // buffer
-  bands.push({ from: Math.max(profitStart, ltpPos), to: tpPos, color: GREY }); // room to TP
+  if (stopLocked) bands.push({ from: entryPos, to: stopPos, color: DARK_GREEN }); // locked profit (E→TSL)
+  // Pre-lock with price already past the gate: entry→gate is profit not yet
+  // protected (pale); gate→LTP is the clear-green buffer pushed below.
+  if (!stopLocked && tslPos != null && tslPos < ltpPos)
+    bands.push({ from: entryPos, to: tslPos, color: LIGHT_GREEN });
+  if (ltpPos > bufferStart) bands.push({ from: bufferStart, to: ltpPos, color: BUFFER_GREEN }); // TSL→LTP buffer
+  bands.push({ from: Math.max(bufferStart, ltpPos), to: tpPos, color: GREY }); // room to TP
 
   // ── Tooltips ──────────────────────────────────────────────────────────
   const fmtSign = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
@@ -194,10 +213,10 @@ export function TradeBar({
   const tpTip = `TP ${formatPrice(tpPrice)} (${fmtSign(tpPercent)})`;
   const ltpTip = `LTP ${formatPrice(ltp)} (${fmtSign(ltpFav)})`;
 
-  const Tick = ({ at, color, tip }: { at: number; color: string; tip: string }) => (
+  const Tick = ({ at, color, tip, z }: { at: number; color: string; tip: string; z?: number }) => (
     <div
       className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center justify-center pointer-events-auto cursor-help transition-[left] duration-300 ease-out"
-      style={{ left: `${at}%`, width: "12px", height: "16px" }}
+      style={{ left: `${at}%`, width: "12px", height: "16px", zIndex: z }}
       title={tip}
     >
       <div
@@ -221,13 +240,45 @@ export function TradeBar({
     </span>
   );
 
-  // ── Zone % arrows (<—— x% ——>) for the two main zones ─────────────────
+  // ── Zone % arrows (<—— x% ——>) ────────────────────────────────────────
   // Risk = stop→entry (the red loss zone, only when the stop is below entry).
-  // Reward = entry→TP (the room zone).
   const showRisk = !stopLocked && entryPos - stopPos > 4;
-  const showReward = tpPos - entryPos > 4;
   const riskMid = (stopPos + entryPos) / 2;
-  const rewardMid = (entryPos + tpPos) / 2;
+
+  // Reward = entry→TP, broken into consecutive measured gaps at the TSL and the
+  // live LTP. The TSL point is the locked trailing stop, or — before it arms —
+  // the pending activation gate, so the gap up to it reads as "how far price
+  // must still travel to activate the TSL". Sorting by position keeps every gap
+  // correct in all states: pre-arm you get …→TSL (distance to arm); once locked
+  // you get E→TSL, TSL→LTP, LTP→TP.
+  type RewardPoint = { fav: number; kind: 'E' | 'TSL' | 'LTP' | 'TP' };
+  const rewardPts: RewardPoint[] = [
+    { fav: 0, kind: 'E' },
+    { fav: tpPercent, kind: 'TP' },
+  ];
+  if (tslFav != null && tslFav > 0 && tslFav < tpPercent) rewardPts.push({ fav: tslFav, kind: 'TSL' });
+  if (ltpFav > 0 && ltpFav < tpPercent) rewardPts.push({ fav: ltpFav, kind: 'LTP' });
+  rewardPts.sort((a, b) => a.fav - b.fav);
+  const rewardSegs = rewardPts.slice(0, -1).map((a, i) => {
+    const b = rewardPts[i + 1];
+    return { fromPos: pos(a.fav), toPos: pos(b.fav), gapPct: b.fav - a.fav, from: a.kind, to: b.kind };
+  });
+  // The TSL↔LTP gap is the key number (cushion above the locked stop, or — before
+  // arming — the distance left to activate it), so its % always shows even when
+  // the gap is too thin for the generic width guard.
+  const isTslLtpGap = (s: { from: RewardPoint['kind']; to: RewardPoint['kind'] }) =>
+    (s.from === 'TSL' && s.to === 'LTP') || (s.from === 'LTP' && s.to === 'TSL');
+  // The Entry→TSL gap carries the secured ₹ (profit the trailing stop locks in).
+  const isEntryTslGap = (s: { from: RewardPoint['kind']; to: RewardPoint['kind'] }) =>
+    s.from === 'E' && s.to === 'TSL';
+  // Each gap is tinted by the marker it runs UP TO: yellow toward the TSL
+  // (the activation/locked stop), green toward the LTP, grey toward TP.
+  const SEG_COLOR: Record<RewardPoint['kind'], string> = {
+    E: '#dcfce7',
+    TSL: '#fde68a',
+    LTP: '#dcfce7',
+    TP: '#e5e7eb',
+  };
 
   // Double-headed measurement line spanning from%→to%, centred on the bar.
   const GapLine = ({ from, to, color }: { from: number; to: number; color: string }) => {
@@ -258,13 +309,13 @@ export function TradeBar({
     );
   };
 
-  // % chip centred over a zone.
-  const GapLabel = ({ at, pct, color }: { at: number; pct: number; color: string }) => (
+  // % chip centred over a zone; optional suffix (e.g. the secured ₹) appended.
+  const GapLabel = ({ at, pct, color, suffix }: { at: number; pct: number; color: string; suffix?: string }) => (
     <span
       className="absolute -translate-x-1/2 text-[0.5rem] font-bold leading-none px-0.5 rounded whitespace-nowrap transition-[left] duration-300 ease-out"
       style={{ left: `${clamp(at, 6, 94)}%`, top: "2px", color, background: "rgba(0,0,0,0.45)" }}
     >
-      {pct.toFixed(1)}%
+      {pct.toFixed(1).replace(/^(-?)0\./, "$1.")}%{suffix ? ` · ${suffix}` : ""}
     </span>
   );
 
@@ -277,10 +328,20 @@ export function TradeBar({
       aria-valuemax={Math.round(favToPrice(maxFav))}
       aria-valuenow={Math.round(ltp)}
     >
-      {/* Top tier: zone % chips (risk over stop→entry, reward over entry→TP) */}
+      {/* Top tier: zone % chips — risk over stop→entry, then one chip per
+          reward gap (E→TSL→LTP→TP). Skip a chip when its gap is too thin to read. */}
       <div className="relative w-full" style={{ height: "11px" }}>
         {showRisk && <GapLabel at={riskMid} pct={Math.abs(stopFav)} color="#fecaca" />}
-        {showReward && <GapLabel at={rewardMid} pct={tpPercent} color="#dcfce7" />}
+        {rewardSegs.map((s, i) => {
+          const showSecured = stopLocked && isEntryTslGap(s) && stopProfit != null;
+          if (!(s.toPos - s.fromPos > 6 || isTslLtpGap(s) || showSecured)) return null;
+          // Secured ₹ — the profit the trailing stop locks in — only once the TSL
+          // has actually activated (trailed into profit), shown on its Entry→TSL gap.
+          const suffix = showSecured ? fmtMoney(stopProfit as number) : undefined;
+          return (
+            <GapLabel key={i} at={(s.fromPos + s.toPos) / 2} pct={s.gapPct} color={SEG_COLOR[s.to]} suffix={suffix} />
+          );
+        })}
       </div>
 
       <div className="relative w-full h-1.5">
@@ -300,13 +361,17 @@ export function TradeBar({
           })}
         </div>
 
-        {/* Zone arrows: stop→entry (risk) and entry→TP (reward) */}
+        {/* Zone arrows: stop→entry (risk), then one arrow per reward gap
+            (E→TSL→LTP→TP). Tiny gaps self-skip inside GapLine. */}
         {showRisk && <GapLine from={stopPos} to={entryPos} color="rgba(255,255,255,0.95)" />}
-        {showReward && <GapLine from={entryPos} to={tpPos} color="rgba(220,252,231,0.9)" />}
+        {rewardSegs.map((s, i) => (
+          <GapLine key={i} from={s.fromPos} to={s.toPos} color="rgba(220,252,231,0.9)" />
+        ))}
 
-        {/* Marker ticks — each its own hover tooltip */}
+        {/* Marker ticks — each its own hover tooltip. The stop/TSL marker is
+            lifted above the gap arrows + bands so it's never obscured. */}
         <div className="absolute inset-0 pointer-events-none">
-          <Tick at={stopPos} color={stopColor} tip={stopTip} />
+          <Tick at={stopPos} color={stopColor} tip={stopTip} z={10} />
           <Tick at={entryPos} color={ENTRY_COLOR} tip={entryTip} />
           <Tick at={tpPos} color={TP_COLOR} tip={tpTip} />
         </div>
@@ -315,8 +380,8 @@ export function TradeBar({
         {tslPending && (
           <div
             className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 pointer-events-auto cursor-help"
-            style={{ left: `${pos(gateFav as number)}%`, width: '7px', height: '16px' }}
-            title={`TSL pending — arms at ${formatPrice(tslGatePrice as number)}${gateProfit != null ? ` · locks ${fmtMoney(gateProfit)}` : ""}`}
+            style={{ left: `${pos(gateFav as number)}%`, width: '7px', height: '16px', zIndex: 10 }}
+            title={`TSL pending — arms at ${formatPrice(tslGatePrice as number)}${tslHoldSeconds ? ` after holding ${tslHoldSeconds}s` : ""}${gateProfit != null ? ` · locks ${fmtMoney(gateProfit)}` : ""}`}
           >
             <div
               className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0"
