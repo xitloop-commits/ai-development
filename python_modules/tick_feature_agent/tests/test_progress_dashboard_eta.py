@@ -427,6 +427,58 @@ def test_phase_exited_rendered_with_state_saved_marker():
     assert "resumable" in rendered.lower()
 
 
+def test_mode_str_rendered_in_header_when_provided():
+    """2026-06-14: replay banner moved into the dashboard. When
+    `mode_str` is supplied, the dashboard renders a "Mode  …" line so
+    the operator sees instrument / mode / dates inside the alt-screen
+    frame (and never sees a stale primary-screen banner after Ctrl+C
+    tear-down).
+    """
+    dates = ["d1"]
+    progress_dict = {"d1": {"status": "running"}}
+    label = "replay  2026-06-09 … 2026-06-13  (5 dates)  ·  BANKNIFTY  (NSE)"
+    dash = ProgressDashboard(
+        "banknifty", dates, workers=1, progress_dict=progress_dict,
+        mode_str=label,
+    )
+    rendered = _render_plain(dash)
+    assert "Mode" in rendered
+    assert "BANKNIFTY" in rendered
+    assert "5 dates" in rendered
+
+
+def test_mode_str_absent_when_not_provided():
+    """Live mode and tests that don't pass `mode_str` must not get a
+    "Mode  None" line by accident.
+    """
+    dates = ["d1"]
+    progress_dict = {"d1": {"status": "running"}}
+    dash = ProgressDashboard("nifty50", dates, workers=1, progress_dict=progress_dict)
+    rendered = _render_plain(dash)
+    # The literal "Mode  " label is added ONLY when mode_str is set.
+    assert "Mode  " not in rendered
+
+
+def test_set_interrupted_footer_renders_in_dashboard():
+    """The parent's Ctrl+C drain calls `set_interrupted_footer(text)`
+    so the "Press any key to close..." prompt sits inside the alt-
+    screen frame next to the date rows the operator is watching. The
+    pre-2026-06-14 implementation printed to stdout, which got
+    erased by the next dashboard refresh.
+    """
+    dates = ["d1"]
+    progress_dict = {"d1": {"status": "running", "phase": "exited"}}
+    dash = ProgressDashboard("nifty50", dates, workers=1, progress_dict=progress_dict)
+    # Footer absent by default.
+    assert "Press any key" not in _render_plain(dash)
+    dash.set_interrupted_footer("Press any key to close...")
+    rendered = _render_plain(dash)
+    assert "Press any key to close..." in rendered
+    # And clearing it removes the footer cleanly.
+    dash.set_interrupted_footer(None)
+    assert "Press any key" not in _render_plain(dash)
+
+
 def test_bar_reaches_full_only_when_all_dates_terminal():
     """The 99% cap applies ONLY while at least one date is `running`.
     When every date is in a terminal verdict the Overall bar must be

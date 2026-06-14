@@ -1434,6 +1434,31 @@ def _run_replay(profile, args, log) -> None:
     profile_path_obj = Path(args.instrument_profile)
     instrument_key = profile_path_obj.stem.replace("_profile", "")
 
+    # Mirror the human-friendly mode label that used to be printed by
+    # `_banner()`. It now renders inside the ProgressDashboard alt-screen
+    # frame so the operator always sees instrument / mode / dates next
+    # to the per-date bars — and crucially, doesn't see a stale primary-
+    # screen banner after Ctrl+C tear-down.
+    instrument_label = f"{profile.instrument_name}  ({profile.exchange})"
+    if include_dates:
+        if len(include_dates) == 1:
+            mode_str = f"replay  {include_dates[0]}  ·  {instrument_label}"
+        elif len(include_dates) <= 5:
+            mode_str = (
+                f"replay  {', '.join(include_dates)}  ·  {instrument_label}"
+            )
+        else:
+            mode_str = (
+                f"replay  {include_dates[0]} … {include_dates[-1]}  "
+                f"({len(include_dates)} dates)  ·  {instrument_label}"
+            )
+    elif date_from == date_to:
+        mode_str = f"replay  {date_from}  ·  {instrument_label}"
+    else:
+        mode_str = (
+            f"replay  {date_from} … {date_to}  ·  {instrument_label}"
+        )
+
     summary = replay(
         profile_path=profile_path_obj,
         instrument=instrument_key,
@@ -1447,6 +1472,7 @@ def _run_replay(profile, args, log) -> None:
         workers=getattr(args, "workers", None),
         log_dir=args.log_dir,
         log_level=args.log_level,
+        dashboard_mode_str=mode_str,
     )
 
     # Per-date table + checkpoint state — gives the operator a clear
@@ -1615,7 +1641,12 @@ def main() -> None:
     else:
         mode_str = f"replay  {args.date_from} → {args.date_to}"
 
-    _banner(f"{profile.instrument_name}  ({profile.exchange})", mode_str)
+    # Live mode still prints the standalone banner. Replay mode skips
+    # it: the ProgressDashboard alt-screen carries the same info as its
+    # header so the primary screen stays clean after Ctrl+C tear-down
+    # (no stale banner left over) (2026-06-14).
+    if args.mode == "live":
+        _banner(f"{profile.instrument_name}  ({profile.exchange})", mode_str)
 
     log.info(
         "TFA_START",

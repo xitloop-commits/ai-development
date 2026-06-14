@@ -353,6 +353,7 @@ def run_one_date(
     validation_root: Path,
     logger=None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    stop_check: Callable[[], bool] | None = None,
 ) -> str:
     """
     Replay one date for one instrument.
@@ -365,6 +366,13 @@ def run_one_date(
             into the parent's Manager dict; direct callers may omit it
             and a no-op is substituted so the rest of the function can
             call it unconditionally.
+        stop_check: Polled at the same 50k-event heartbeat cadence.
+            When it returns truthy, the function raises ``KeyboardInterrupt``
+            locally so the existing per-date STOPPING → flush → EXITED
+            path fires. Workers ignore the parent's SIGINT (see
+            ``_worker_sigint_ignore``) so this is how the pool driver
+            asks them to stop in-flight. Defaults to a constant-False
+            no-op.
 
     Returns:
         "skip"    — raw data folder missing; not an error
@@ -375,6 +383,9 @@ def run_one_date(
     if progress_callback is None:
         def progress_callback(_payload: dict[str, Any]) -> None:
             return None
+    if stop_check is None:
+        def stop_check() -> bool:
+            return False
     date_folder = raw_root / date_str
 
     # ── Read metadata ─────────────────────────────────────────────────────────
@@ -532,6 +543,17 @@ def run_one_date(
             # (re-feeding events to rebuild adapter state) doesn't look
             # frozen at "0 events" on the multi-worker dashboard.
             if event_idx % 50_000 == 0:
+                # Pool-driven cooperative cancel: parent sets the stop
+                # flag on Ctrl+C; worker raises locally so the existing
+                # per-date except KeyboardInterrupt path runs (STOPPING
+                # → flush → EXITED → return). Cheaper than a SIGINT
+                # round-trip and avoids the queue.get traceback.
+                try:
+                    _should_stop = stop_check()
+                except Exception:
+                    _should_stop = False
+                if _should_stop:
+                    raise KeyboardInterrupt
                 _now = time.monotonic()
                 _elapsed = _now - t_start
                 _rate = event_idx / max(_elapsed, 0.001)
@@ -1028,6 +1050,16 @@ def _worker_run_one_date(
             # Manager proxy may be torn down on parent shutdown — ignore.
             pass
 
+    def stop_check() -> bool:
+        # Parent sets __stop__ = True on Ctrl+C; worker polls at the
+        # 50k-event heartbeat and raises locally so the existing
+        # per-date STOPPING / flush / EXITED path runs. Manager-dict
+        # read is the cross-process hop — fine at this cadence.
+        try:
+            return bool(progress_dict.get("__stop__"))
+        except Exception:
+            return False
+
     return run_one_date(
         base_profile=base_profile,
         instrument=instrument,
@@ -1037,6 +1069,7 @@ def _worker_run_one_date(
         validation_root=Path(validation_root),
         logger=log,
         progress_callback=progress_cb,
+        stop_check=stop_check,
     )
 
 
@@ -1054,6 +1087,7 @@ def replay(
     workers: int | None = None,
     log_dir: str = "logs",
     log_level: str = "INFO",
+    dashboard_mode_str: str | None = None,
 ) -> dict:
     """
     Replay all dates in [date_from, date_to] for the given instrument.
@@ -1148,6 +1182,7 @@ def replay(
             dates=dates_iter,
             workers=n_workers,
             progress_dict=progress_dict,
+            mode_str=dashboard_mode_str,
         ) as dashboard:
             with ProcessPoolExecutor(
                 max_workers=n_workers, mp_context=mp_ctx,
@@ -1205,14 +1240,18 @@ def replay(
                 except KeyboardInterrupt:
                     summary["interrupted"] = True
                     # 2026-06-14: graceful drain. Workers ignore SIGINT
-                    # (see _worker_sigint_ignore initializer); we need
-                    # to actively cancel pending futures + wait for
-                    # in-flight ones to walk RUNNING → STOPPING →
-                    # EXITED on the dashboard before tearing down.
+                    # (see _worker_sigint_ignore initializer); we ask
+                    # them to stop in-flight via a cooperative
+                    # ``__stop__`` flag on the Manager dict — each
+                    # worker's 50k-event heartbeat polls it and raises
+                    # its own KeyboardInterrupt, routing into the
+                    # existing per-date STOPPING / flush / EXITED path.
+                    progress_dict["__stop__"] = True
                     if logger:
                         logger.info(
                             "REPLAY_INTERRUPTED_DRAINING",
-                            msg="Ctrl+C — cancelling pending futures + "
+                            msg="Ctrl+C — set worker stop flag + "
+                                "cancelling pending futures + "
                                 "waiting for in-flight workers to finalise",
                             instrument=instrument,
                         )
@@ -1221,19 +1260,12 @@ def replay(
                     pending = [f for f in futures if not f.running() and not f.done()]
                     for f in pending:
                         f.cancel()
-                    # Now signal in-flight workers to stop via the
-                    # ProcessPoolExecutor's standard cancellation:
-                    # shutdown(cancel_futures=True) re-raises
-                    # KeyboardInterrupt inside each running worker's
-                    # run_one_date stream, which routes to the existing
-                    # per-date except KeyboardInterrupt path (chunk
-                    # flush + state save + phase=stopping then exited).
                     in_flight = [f for f in futures if f.running()]
+                    # ``wait=False`` so we don't block here; we drain
+                    # ``in_flight`` via ``as_completed`` below so the
+                    # dashboard mark_terminal calls reflect each date
+                    # as it exits.
                     pool.shutdown(wait=False, cancel_futures=True)
-                    # Drain the in-flight futures one at a time. Each
-                    # completion gets reflected on the dashboard via
-                    # mark_terminal so the operator sees each date
-                    # exit cleanly.
                     for fut in as_completed(in_flight):
                         date_str = futures[fut]
                         try:
@@ -1257,12 +1289,22 @@ def replay(
                         dashboard.mark_terminal(date_str, verdict)
                         summary[verdict] = summary.get(verdict, 0) + 1
                     # All in-flight workers have flushed + exited.
-                    # Now pause on the final dashboard frame until the
-                    # operator confirms — no auto-close. The dashboard
-                    # context manager exits AFTER this block, which
-                    # tears down the Live display.
+                    # Switch the dashboard footer to the "press any key"
+                    # state and block until the operator confirms.
+                    dashboard.set_interrupted_footer(
+                        "Press any key to close..."
+                        if sys.platform == "win32"
+                        else "Press Enter to close..."
+                    )
                     _interrupted_pause_for_keypress(dashboard)
-                    raise
+                    # Don't re-raise: the CLI keys off summary["interrupted"]
+                    # for the 130 exit code. Letting KeyboardInterrupt
+                    # propagate would leave the ProcessPoolExecutor's
+                    # atexit handler joining queue-management threads
+                    # during interpreter shutdown, which prints a
+                    # spurious "Exception ignored on threading shutdown:
+                    # KeyboardInterrupt" traceback after the dashboard
+                    # tears down.
     finally:
         _restore_env(saved_env)
         try:

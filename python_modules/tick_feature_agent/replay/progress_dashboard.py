@@ -126,12 +126,24 @@ class ProgressDashboard:
         workers: int,
         progress_dict: Mapping[str, Any],
         refresh_hz: float = 10.0,
+        mode_str: str | None = None,
     ) -> None:
         self._instrument = instrument
         self._dates = list(dates)
         self._workers = workers
         self._d = progress_dict
         self._refresh_interval = 1.0 / max(refresh_hz, 1.0)
+        # `mode_str` carries the same human label that the pre-dashboard
+        # `_banner()` used to print on the primary screen — instrument /
+        # exchange / mode / date range. Now rendered as a second header
+        # row inside the dashboard so the alt-screen frame is fully
+        # self-contained and the operator never sees a stale banner after
+        # Ctrl+C tear-down (2026-06-14).
+        self._mode_str = mode_str
+        # Footer set by the parent on Ctrl+C → "Press any key to
+        # close...". Rendered as the last line so it sits visibly next
+        # to the dashboard rows the operator was already watching.
+        self._interrupted_footer: str | None = None
         # ``force_terminal=True`` makes rich treat stdout as a TTY even when
         # running under a .bat wrapper in PowerShell (where the heuristic
         # otherwise picks the wrong strategy and falls back to per-frame
@@ -197,6 +209,16 @@ class ProgressDashboard:
         if reason is not None:
             entry["reason"] = reason
         self._d[date_str] = entry
+
+    def set_interrupted_footer(self, text: str | None) -> None:
+        """Show ``text`` as a bold-cyan footer row in the next render.
+
+        Called by the parent's Ctrl+C drain to display the "Press any
+        key to close..." prompt inside the dashboard frame, so the
+        operator sees STOPPING / EXITED rows AND the prompt in the
+        same alt-screen view. Passing None clears the footer.
+        """
+        self._interrupted_footer = text
 
     def summary(self) -> dict[str, int]:
         """Aggregate counts for the final summary line."""
@@ -601,15 +623,24 @@ class ProgressDashboard:
         tally.append("(Ctrl+C to stop)", style="dim")
 
         rule = Text("─" * 72, style="dim")
-        renderables: list = [
-            header_tbl, rule, overall_tbl, rule, per_date_tbl, rule,
-        ]
+        renderables: list = [header_tbl]
+        if self._mode_str:
+            mode_line = Text()
+            mode_line.append("Mode  ", style="dim")
+            mode_line.append(self._mode_str, style="cyan")
+            renderables.append(mode_line)
+        renderables.extend([rule, overall_tbl, rule, per_date_tbl, rule])
         if warn_err_lines:
             header_we = Text("Warnings & errors", style="bold yellow")
             renderables.append(header_we)
             renderables.extend(warn_err_lines)
             renderables.append(rule)
         renderables.append(tally)
+        if self._interrupted_footer:
+            footer = Text()
+            footer.append("  ")
+            footer.append(self._interrupted_footer, style="bold cyan")
+            renderables.append(footer)
         return Group(*renderables)
 
     def _render_bar(
