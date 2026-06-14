@@ -391,6 +391,42 @@ def test_phase_validating_rendered_visibly():
     assert "validating" in _render_plain(dash).lower()
 
 
+def test_phase_stopping_rendered_in_red_with_marker():
+    """2026-06-14 Ctrl+C graceful drain: worker emits phase=stopping
+    just before the partial-chunk flush. Dashboard must surface the
+    STOPPING marker text + paint the row in red so the operator can
+    see at a glance which dates are mid-flush.
+    """
+    dates = ["d1"]
+    progress_dict = {
+        "d1": {"status": "running", "event_idx": 800_000,
+               "total_events_est": 1_000_000, "rate": 5_000.0,
+               "phase": "stopping"},
+    }
+    dash = ProgressDashboard("nifty50", dates, workers=1, progress_dict=progress_dict)
+    rendered = _render_plain(dash)
+    assert "stopping" in rendered.lower()
+    assert "flushing partial chunk" in rendered.lower()
+
+
+def test_phase_exited_rendered_with_state_saved_marker():
+    """Worker emits phase=exited after the partial-chunk flush
+    completes. Dashboard shows "EXITED (state saved, resumable)"
+    so the operator confirms the date can be resumed cleanly.
+    """
+    dates = ["d1"]
+    progress_dict = {
+        "d1": {"status": "running", "event_idx": 800_000,
+               "total_events_est": 1_000_000, "rate": 5_000.0,
+               "phase": "exited"},
+    }
+    dash = ProgressDashboard("nifty50", dates, workers=1, progress_dict=progress_dict)
+    rendered = _render_plain(dash)
+    assert "exited" in rendered.lower()
+    assert "state saved" in rendered.lower()
+    assert "resumable" in rendered.lower()
+
+
 def test_bar_reaches_full_only_when_all_dates_terminal():
     """The 99% cap applies ONLY while at least one date is `running`.
     When every date is in a terminal verdict the Overall bar must be

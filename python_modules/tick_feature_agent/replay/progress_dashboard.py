@@ -412,6 +412,12 @@ class ProgressDashboard:
                     "flushing", "merging", "merging:concat",
                     "merging:writing", "validating",
                 }
+                # Graceful Ctrl+C phases (2026-06-14): worker emits
+                # `stopping` immediately when it catches SIGINT, then
+                # `exited` after the partial-chunk flush succeeds.
+                # Operator sees RUNNING → STOPPING (red) → EXITED
+                # (dim green) before the dashboard tears down.
+                _SHUTDOWN_PHASES = {"stopping", "exited"}
                 # During the warmup re-feed (resume of a partially-completed
                 # date) we visually mark the row so the user knows the
                 # "low %" is expected: the worker is re-replaying events
@@ -423,6 +429,12 @@ class ProgressDashboard:
                 elif phase in _TAIL_PHASES:
                     row_style = "magenta"
                     bar_style = "magenta"
+                elif phase == "stopping":
+                    row_style = "red"
+                    bar_style = "red"
+                elif phase == "exited":
+                    row_style = "green"
+                    bar_style = "green"
                 else:
                     row_style = style
                     bar_style = "cyan"
@@ -463,6 +475,10 @@ class ProgressDashboard:
                     chunk_text = "writing final parquet..."
                 elif phase == "validating":
                     chunk_text = "validating..."
+                elif phase == "stopping":
+                    chunk_text = "STOPPING — flushing partial chunk..."
+                elif phase == "exited":
+                    chunk_text = "EXITED (state saved, resumable)"
                 elif overshoot:
                     # Replace the chunk M/N text with a "finalising"
                     # marker — informs the operator that the event
@@ -480,6 +496,10 @@ class ProgressDashboard:
                 # event-loop "chunk N/M".
                 if phase in _TAIL_PHASES:
                     chunk_text_style = "bold magenta"
+                elif phase == "stopping":
+                    chunk_text_style = "bold red"
+                elif phase == "exited":
+                    chunk_text_style = "bold green"
                 elif phase == "warmup":
                     chunk_text_style = "yellow"
                 else:

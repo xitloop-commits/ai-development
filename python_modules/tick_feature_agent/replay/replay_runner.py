@@ -610,9 +610,18 @@ def run_one_date(
             ):
                 _flush_chunk()
     except KeyboardInterrupt:
-        # Graceful Ctrl+C: persist whatever's in the buffer so the next
-        # invocation resumes from here, then re-raise so the outer date loop
-        # and CLI can exit cleanly.
+        # Graceful Ctrl+C (2026-06-14): emit phase callbacks so the
+        # dashboard shows each date walking RUNNING → STOPPING (red) →
+        # EXITED (green) before tearing down. Persist whatever's in
+        # the buffer so the next invocation resumes from here, then
+        # re-raise so the outer date loop and CLI can exit cleanly.
+        # NOTE: ``_emit_phase`` is defined further down, so use the
+        # same inline callback pattern the in-loop heartbeats use.
+        if _has_progress_cb:
+            try:
+                progress_callback({"phase": "stopping"})
+            except Exception:
+                pass
         elapsed = time.monotonic() - t_start
         if not _has_progress_cb:
             print(
@@ -636,6 +645,14 @@ def run_one_date(
                 f"on disk). Re-run the same command to resume.",
                 flush=True,
             )
+        # Flush succeeded — emit EXITED phase so the dashboard turns the
+        # row green. Re-raise after, so the outer drain in `replay()`
+        # picks up the future result.
+        if _has_progress_cb:
+            try:
+                progress_callback({"phase": "exited"})
+            except Exception:
+                pass
         raise
     except Exception as exc:
         if logger:
@@ -908,6 +925,70 @@ def _resolve_workers(num_dates: int, requested: int | None) -> int:
     return max(1, min(requested, WORKERS_HARD_CAP, num_dates))
 
 
+def _interrupted_pause_for_keypress(dashboard) -> None:
+    """Hold the dashboard's final frame on screen after a graceful
+    Ctrl+C drain, then block until the operator presses any key
+    (2026-06-14).
+
+    Reads a single character via ``msvcrt.getch`` on Windows, or one
+    line via ``sys.stdin.readline`` everywhere else. Skipped when
+    ``LUBAS_HEADLESS=1`` is set (cron / scripted) or stdin isn't a
+    TTY. Failures degrade to silent no-op so a piped run can't
+    accidentally hang forever.
+    """
+    if os.environ.get("LUBAS_HEADLESS"):
+        return
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            print(
+                "\n  Press any key to close this window... ",
+                end="", flush=True,
+            )
+            msvcrt.getch()
+        else:
+            if not sys.stdin or not sys.stdin.isatty():
+                return
+            print(
+                "\n  Press Enter to close this window... ",
+                end="", flush=True,
+            )
+            try:
+                sys.stdin.readline()
+            except KeyboardInterrupt:
+                pass
+    except Exception:
+        # Headless / piped run — silently skip the pause.
+        pass
+
+
+def _worker_sigint_ignore() -> None:
+    """Initializer for ``ProcessPoolExecutor`` workers (2026-06-14).
+
+    On Ctrl+C, Windows + POSIX consoles deliver SIGINT to EVERY child
+    in the same process group, not just the parent. Workers blocked
+    in ``multiprocessing.Queue.get()`` (between tasks) raise
+    KeyboardInterrupt from inside Python's multiprocessing internals
+    and that traceback gets printed verbatim — looks like a crash to
+    the operator.
+
+    Telling each worker to IGNORE SIGINT means only the parent receives
+    Ctrl+C. The parent then cancels not-yet-started futures via
+    ``cancel_futures=True``; in-flight workers continue to their
+    per-date KeyboardInterrupt path via the future-cancel signalling.
+    Workers idle in queue.get() exit cleanly when the parent shuts
+    the pool down through normal channels.
+    """
+    import signal as _signal
+    try:
+        _signal.signal(_signal.SIGINT, _signal.SIG_IGN)
+    except (ValueError, OSError):
+        # ``signal.signal`` only works on the main thread of a process,
+        # which is what an ``initializer`` runs on. Defensive: don't
+        # crash worker startup if some host OS doesn't support it.
+        pass
+
+
 def _apply_blas_thread_caps() -> dict[str, str | None]:
     """Cap BLAS / OMP threads per worker BEFORE spawning the pool.
 
@@ -1143,6 +1224,7 @@ def replay(
         ) as dashboard:
             with ProcessPoolExecutor(
                 max_workers=n_workers, mp_context=mp_ctx,
+                initializer=_worker_sigint_ignore,
             ) as pool:
                 futures = {
                     pool.submit(
@@ -1195,12 +1277,64 @@ def replay(
                                 )
                 except KeyboardInterrupt:
                     summary["interrupted"] = True
-                    # Cancel any not-yet-started futures so the pool drains
-                    # quickly; in-flight workers finish their current chunk
-                    # via the existing per-date KeyboardInterrupt path.
-                    for f in futures:
-                        if not f.done():
-                            f.cancel()
+                    # 2026-06-14: graceful drain. Workers ignore SIGINT
+                    # (see _worker_sigint_ignore initializer); we need
+                    # to actively cancel pending futures + wait for
+                    # in-flight ones to walk RUNNING → STOPPING →
+                    # EXITED on the dashboard before tearing down.
+                    if logger:
+                        logger.info(
+                            "REPLAY_INTERRUPTED_DRAINING",
+                            msg="Ctrl+C — cancelling pending futures + "
+                                "waiting for in-flight workers to finalise",
+                            instrument=instrument,
+                        )
+                    # Cancel pending (not-yet-started) futures so the
+                    # pool's queue empties immediately.
+                    pending = [f for f in futures if not f.running() and not f.done()]
+                    for f in pending:
+                        f.cancel()
+                    # Now signal in-flight workers to stop via the
+                    # ProcessPoolExecutor's standard cancellation:
+                    # shutdown(cancel_futures=True) re-raises
+                    # KeyboardInterrupt inside each running worker's
+                    # run_one_date stream, which routes to the existing
+                    # per-date except KeyboardInterrupt path (chunk
+                    # flush + state save + phase=stopping then exited).
+                    in_flight = [f for f in futures if f.running()]
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    # Drain the in-flight futures one at a time. Each
+                    # completion gets reflected on the dashboard via
+                    # mark_terminal so the operator sees each date
+                    # exit cleanly.
+                    for fut in as_completed(in_flight):
+                        date_str = futures[fut]
+                        try:
+                            verdict = fut.result()
+                        except KeyboardInterrupt:
+                            # Worker hit per-date KeyboardInterrupt and
+                            # re-raised after the partial-chunk flush —
+                            # that's the graceful path. The dashboard
+                            # already has phase=exited from the worker.
+                            verdict = "interrupted"
+                        except Exception as exc:
+                            if logger:
+                                logger.warn(
+                                    "REPLAY_WORKER_DRAIN_ERROR",
+                                    msg=f"Worker for {date_str} "
+                                        f"errored during drain: {exc}",
+                                    instrument=instrument,
+                                    date=date_str,
+                                )
+                            verdict = "fail"
+                        dashboard.mark_terminal(date_str, verdict)
+                        summary[verdict] = summary.get(verdict, 0) + 1
+                    # All in-flight workers have flushed + exited.
+                    # Now pause on the final dashboard frame until the
+                    # operator confirms — no auto-close. The dashboard
+                    # context manager exits AFTER this block, which
+                    # tears down the Live display.
+                    _interrupted_pause_for_keypress(dashboard)
                     raise
     finally:
         _restore_env(saved_env)
