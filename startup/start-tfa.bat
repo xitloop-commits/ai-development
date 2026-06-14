@@ -120,3 +120,17 @@ if !EXIT_CODE! == 0 (
     set "EXIT_RESULT=error"
 )
 call powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%_emit-lifecycle.ps1" -Event stop -Result !EXIT_RESULT! -Process "tfa-%INSTRUMENT%" -Code !EXIT_CODE! >nul 2>&1
+
+REM --- Keep cmd window open so the operator can read errors that
+REM     crash before the replay dashboard ever starts (profile load,
+REM     port conflict, etc.). The replay dashboard itself already
+REM     pauses-for-keypress inside its alt-screen for normal + Ctrl+C
+REM     completion, so this is the belt-and-braces guard for early
+REM     failures only. LUBAS_HEADLESS=1 bypasses (cron / scheduled).
+if not defined LUBAS_HEADLESS (
+    echo "%EXTRA_ARGS%" | findstr /C:"--mode replay" >nul
+    if !errorlevel! == 0 (
+        echo.
+        pause
+    )
+)

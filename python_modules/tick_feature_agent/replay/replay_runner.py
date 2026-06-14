@@ -914,10 +914,14 @@ def _resolve_workers(num_dates: int, requested: int | None) -> int:
     return max(1, min(requested, WORKERS_HARD_CAP, num_dates))
 
 
-def _interrupted_pause_for_keypress(dashboard) -> None:
-    """Hold the dashboard's final frame on screen after a graceful
-    Ctrl+C drain, then block until the operator presses any key
-    (2026-06-14).
+def _pause_for_keypress_on_dashboard(dashboard) -> None:
+    """Hold the dashboard's final frame on screen and block until the
+    operator presses any key (2026-06-14).
+
+    Used by BOTH the normal-completion path (so operator always sees
+    PASS/WARN/FAIL counts + per-date rows + warn-error reasons before
+    the alt-screen tears down) AND the Ctrl+C drain path (so operator
+    sees STOPPING → EXITED + state-saved confirmation).
 
     Reads a single character via ``msvcrt.getch`` on Windows, or one
     line via ``sys.stdin.readline`` everywhere else. Skipped when
@@ -1309,7 +1313,7 @@ def replay(
                         if sys.platform == "win32"
                         else "Press Enter to close..."
                     )
-                    _interrupted_pause_for_keypress(dashboard)
+                    _pause_for_keypress_on_dashboard(dashboard)
                     # Don't re-raise: the CLI keys off summary["interrupted"]
                     # for the 130 exit code. Letting KeyboardInterrupt
                     # propagate would leave the ProcessPoolExecutor's
@@ -1318,6 +1322,19 @@ def replay(
                     # spurious "Exception ignored on threading shutdown:
                     # KeyboardInterrupt" traceback after the dashboard
                     # tears down.
+                else:
+                    # Normal completion (no Ctrl+C). Hold the dashboard's
+                    # final frame on screen so the operator sees the
+                    # PASS/WARN/FAIL counts, per-date verdicts, and the
+                    # Warnings & errors block before alt-screen tear-down
+                    # (otherwise the bars flash and disappear into the
+                    # .bat wrapper's cmd-window close) (2026-06-14).
+                    dashboard.set_interrupted_footer(
+                        "Replay complete — press any key to close..."
+                        if sys.platform == "win32"
+                        else "Replay complete — press Enter to close..."
+                    )
+                    _pause_for_keypress_on_dashboard(dashboard)
     finally:
         _restore_env(saved_env)
         try:

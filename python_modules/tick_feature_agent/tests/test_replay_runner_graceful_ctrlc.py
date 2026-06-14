@@ -4,9 +4,9 @@ Tests for 2026-06-14 Ctrl+C graceful drain helpers in replay_runner.
 Covers:
   - _worker_sigint_ignore actually installs SIG_IGN on SIGINT (so pool
     workers don't blow up with a traceback on console Ctrl+C).
-  - _interrupted_pause_for_keypress respects LUBAS_HEADLESS=1 so
+  - _pause_for_keypress_on_dashboard respects LUBAS_HEADLESS=1 so
     scripted / cron runs don't hang waiting for input that never comes.
-  - _interrupted_pause_for_keypress no-ops when stdin isn't a TTY on
+  - _pause_for_keypress_on_dashboard no-ops when stdin isn't a TTY on
     non-Windows hosts (same scripted-runs guard).
 
 Does NOT cover the in-process drain loop end-to-end — that needs a
@@ -30,7 +30,7 @@ if str(_PY_MODULES) not in sys.path:
     sys.path.insert(0, str(_PY_MODULES))
 
 from tick_feature_agent.replay.replay_runner import (  # noqa: E402
-    _interrupted_pause_for_keypress,
+    _pause_for_keypress_on_dashboard,
     _worker_sigint_ignore,
 )
 
@@ -58,7 +58,7 @@ def test_pause_for_keypress_returns_immediately_when_headless(monkeypatch):
     """
     monkeypatch.setenv("LUBAS_HEADLESS", "1")
     # Pass a dummy dashboard object — helper doesn't actually use it.
-    _interrupted_pause_for_keypress(dashboard=None)  # must not block
+    _pause_for_keypress_on_dashboard(dashboard=None)  # must not block
 
 
 def test_pause_for_keypress_returns_immediately_when_stdin_not_tty(monkeypatch):
@@ -81,7 +81,7 @@ def test_pause_for_keypress_returns_immediately_when_stdin_not_tty(monkeypatch):
             return ""
 
     monkeypatch.setattr(sys, "stdin", _NonTTYStdin())
-    _interrupted_pause_for_keypress(dashboard=None)  # must not block
+    _pause_for_keypress_on_dashboard(dashboard=None)  # must not block
 
 
 def test_pause_for_keypress_swallows_exceptions(monkeypatch):
@@ -104,4 +104,4 @@ def test_pause_for_keypress_swallows_exceptions(monkeypatch):
             def isatty(self) -> bool:
                 raise RuntimeError("simulated broken isatty")
         monkeypatch.setattr(sys, "stdin", _BrokenStdin())
-    _interrupted_pause_for_keypress(dashboard=None)  # must not raise
+    _pause_for_keypress_on_dashboard(dashboard=None)  # must not raise
