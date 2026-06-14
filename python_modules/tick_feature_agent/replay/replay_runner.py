@@ -212,6 +212,44 @@ def _iter_dates(date_from: str, date_to: str):
         d += timedelta(days=1)
 
 
+def _resolve_dates_to_process(
+    *,
+    instrument: str,
+    date_from: str,
+    date_to: str,
+    include_dates: list[str] | None,
+    checkpoint,
+) -> list[str]:
+    """Pure helper (2026-06-14): produce the ordered list of dates that
+    ``replay()`` will fan out to the pool, applying all three priority
+    rules in one place so the unified single+multi code path stays
+    DRY:
+
+      1. ``include_dates`` (per-date picker) wins over the range —
+         dedup + sort ascending, bypass the checkpoint entirely.
+      2. Otherwise, resume from ``checkpoint.get_resume_date`` so
+         already-completed days don't re-run.
+      3. Walk every day in ``[resume_date, date_to]`` inclusive.
+
+    Extracted from ``replay()`` so the date-selection contract can be
+    tested without spawning a ProcessPoolExecutor and without
+    monkey-patching ``run_one_date``. Pre-2026-06-14 the
+    ``TestReplayIncludeDates`` cases relied on a serial ``workers=1``
+    path that's now gone — they assert against this helper instead.
+    """
+    if include_dates:
+        seen: set[str] = set()
+        out: list[str] = []
+        for d in include_dates:
+            if d not in seen:
+                seen.add(d)
+                out.append(d)
+        out.sort()
+        return out
+    resume_date = checkpoint.get_resume_date(instrument, date_from)
+    return list(_iter_dates(resume_date, date_to))
+
+
 def _inspect_canonical_parquet(
     features_root: Path, date_str: str, instrument: str,
 ) -> tuple[bool, int, int | None]:
@@ -320,11 +358,13 @@ def run_one_date(
     Replay one date for one instrument.
 
     Args:
-        progress_callback: When non-None, called every ~50k events with a
-            dict of ``{event_idx, total_events_est, rate, elapsed_seconds,
-            chunk_done, chunks_total_est}``. The legacy single-line ``\\r``
-            heartbeat is suppressed in this mode so the parent's dashboard
-            owns the display (T47).
+        progress_callback: Called every ~50k events with a dict of
+            ``{event_idx, total_events_est, rate, elapsed_seconds,
+            chunk_done, chunks_total_est}``. The pool-worker entry point
+            (``_worker_run_one_date``) always installs one that writes
+            into the parent's Manager dict; direct callers may omit it
+            and a no-op is substituted so the rest of the function can
+            call it unconditionally.
 
     Returns:
         "skip"    — raw data folder missing; not an error
@@ -332,7 +372,9 @@ def run_one_date(
         "warn"    — completed but validator returned WARN
         "pass"    — completed successfully
     """
-    _has_progress_cb = progress_callback is not None
+    if progress_callback is None:
+        def progress_callback(_payload: dict[str, Any]) -> None:
+            return None
     date_folder = raw_root / date_str
 
     # ── Read metadata ─────────────────────────────────────────────────────────
@@ -376,13 +418,6 @@ def run_one_date(
             resume_from_idx = int(prev.get("last_chunk_event_idx", 0))
             next_chunk_num = int(prev.get("chunks_written", 0)) + 1
             warmup_boundary = max(0, resume_from_idx - WARMUP_EVENT_COUNT)
-            if not _has_progress_cb:
-                print(
-                    f"  [{date_str}] {instrument} RESUMING from event "
-                    f"{resume_from_idx:,} (warmup re-feeds from {warmup_boundary:,}, "
-                    f"next chunk #{next_chunk_num:03d})",
-                    flush=True,
-                )
         except (json.JSONDecodeError, OSError, ValueError):
             # Corrupt progress file → fall back to fresh start, leave any
             # stale chunks for cleanup at end.
@@ -400,13 +435,6 @@ def run_one_date(
     )
 
     # ── Run replay adapter with chunked writes ──────────────────────────────
-    if not _has_progress_cb:
-        print(
-            f"  [{date_str}] processing {instrument}  "
-            f"(est. {total_events_est:,} events, ~{total_chunks_est} chunks, "
-            f"{chunk_event_threshold:,} ev/chunk)",
-            flush=True,
-        )
     adapter = ReplayAdapter(profile, date_str, logger=logger)
 
     # T50 B.3a: install max_pain pre-compute + monkey-patch. No-op when
@@ -438,18 +466,17 @@ def run_one_date(
 
     # Initial progress ping so the dashboard shows totals before the first
     # heartbeat at event #50,000 (long dates can take seconds to estimate).
-    if _has_progress_cb:
-        try:
-            progress_callback({
-                "event_idx": 0,
-                "total_events_est": total_events_est,
-                "rate": 0.0,
-                "elapsed_seconds": 0.0,
-                "chunk_done": next_chunk_num - 1,
-                "chunks_total_est": total_chunks_est,
-            })
-        except Exception:
-            pass
+    try:
+        progress_callback({
+            "event_idx": 0,
+            "total_events_est": total_events_est,
+            "rate": 0.0,
+            "elapsed_seconds": 0.0,
+            "chunk_done": next_chunk_num - 1,
+            "chunks_total_est": total_chunks_est,
+        })
+    except Exception:
+        pass
 
     event_idx = 0
     events_since_chunk = 0
@@ -503,10 +530,8 @@ def run_one_date(
             # Dashboard heartbeat — fires every 50k events regardless of
             # which resume phase we're in, so a worker that's mid-warmup
             # (re-feeding events to rebuild adapter state) doesn't look
-            # frozen at "0 events" on the multi-worker dashboard. The
-            # legacy \\r heartbeat below only fires in Phase 3 so its
-            # behaviour for single-process replays is unchanged.
-            if _has_progress_cb and event_idx % 50_000 == 0:
+            # frozen at "0 events" on the multi-worker dashboard.
+            if event_idx % 50_000 == 0:
                 _now = time.monotonic()
                 _elapsed = _now - t_start
                 _rate = event_idx / max(_elapsed, 0.001)
@@ -547,61 +572,27 @@ def run_one_date(
             adapter.process_event(event)
             events_since_chunk += 1
 
-            # Heartbeat every 50k events
+            # Heartbeat every 50k events — Phase-3 authoritative refresh
+            # of the dashboard "running" snapshot. The warmup-aware
+            # heartbeat above keeps the dashboard alive between Phase-3
+            # events.
             if event_idx % 50_000 == 0:
                 now = time.monotonic()
                 elapsed = now - t_start
                 rate = event_idx / max(elapsed, 0.001)
-                # next_chunk_num = chunk we'll write next; completed so far = next_chunk_num-1
                 done_chunks = max(0, next_chunk_num - 1)
-
-                if _has_progress_cb:
-                    # Dashboard mode (T47) — refresh the "running"-phase
-                    # snapshot. Phase-3 heartbeat is the authoritative one;
-                    # the warmup-aware heartbeat above keeps the dashboard
-                    # alive between Phase-3 events.
-                    try:
-                        progress_callback({
-                            "event_idx": event_idx,
-                            "total_events_est": total_events_est,
-                            "rate": rate,
-                            "elapsed_seconds": elapsed,
-                            "chunk_done": done_chunks,
-                            "chunks_total_est": total_chunks_est,
-                            "phase": "running",
-                        })
-                    except Exception:
-                        pass
-                else:
-                    # Legacy single-line \r heartbeat — preserved for
-                    # single-process invocations (direct module run, tests).
-                    if total_chunks_est > 0 and done_chunks <= total_chunks_est:
-                        chunk_str = f"chunk {done_chunks}/{total_chunks_est}"
-                    elif total_chunks_est > 0:
-                        chunk_str = f"chunk {done_chunks} (est. ~{total_chunks_est})"
-                    else:
-                        chunk_str = f"chunk {done_chunks}"
-                    if total_events_est > 0 and event_idx <= total_events_est:
-                        pct = 100.0 * event_idx / total_events_est
-                        remaining = max(total_events_est - event_idx, 0)
-                        eta_s = remaining / max(rate, 1.0)
-                        eta_min = eta_s / 60.0
-                        sys.stdout.write(
-                            f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
-                            f"({rate:>7,.0f}/s)  {pct:5.1f}%  ETA {eta_min:>5.1f}m  "
-                            f"{chunk_str}"
-                        )
-                    elif total_events_est > 0:
-                        sys.stdout.write(
-                            f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
-                            f"({rate:>7,.0f}/s)  100%+ (est. was off)  {chunk_str}"
-                        )
-                    else:
-                        sys.stdout.write(
-                            f"\r  [{date_str}] {instrument} {event_idx:>10,} ev  "
-                            f"({rate:>7,.0f}/s)  {chunk_str}"
-                        )
-                    sys.stdout.flush()
+                try:
+                    progress_callback({
+                        "event_idx": event_idx,
+                        "total_events_est": total_events_est,
+                        "rate": rate,
+                        "elapsed_seconds": elapsed,
+                        "chunk_done": done_chunks,
+                        "chunks_total_est": total_chunks_est,
+                        "phase": "running",
+                    })
+                except Exception:
+                    pass
 
             # Chunk-flush check — every N events or X seconds
             if (
@@ -617,42 +608,24 @@ def run_one_date(
         # re-raise so the outer date loop and CLI can exit cleanly.
         # NOTE: ``_emit_phase`` is defined further down, so use the
         # same inline callback pattern the in-loop heartbeats use.
-        if _has_progress_cb:
-            try:
-                progress_callback({"phase": "stopping"})
-            except Exception:
-                pass
-        elapsed = time.monotonic() - t_start
-        if not _has_progress_cb:
-            print(
-                f"\n  [{date_str}] {instrument} INTERRUPTED at event "
-                f"{event_idx:,} ({elapsed:.1f}s elapsed). Flushing partial chunk...",
-                flush=True,
-            )
+        try:
+            progress_callback({"phase": "stopping"})
+        except Exception:
+            pass
         try:
             _flush_chunk(force=True)
-        except Exception as exc:
-            if not _has_progress_cb:
-                print(
-                    f"  [{date_str}] WARN: partial-flush failed: {exc} — "
-                    f"some recent events may be re-processed on resume.",
-                    flush=True,
-                )
-        done_chunks = max(0, next_chunk_num - 1)
-        if not _has_progress_cb:
-            print(
-                f"  [{date_str}] {instrument} state saved ({done_chunks} chunk(s) "
-                f"on disk). Re-run the same command to resume.",
-                flush=True,
-            )
+        except Exception:
+            # Partial-flush failed; the buffer is lost but earlier
+            # chunks are still on disk. Resume will re-feed from the
+            # last successful chunk boundary.
+            pass
         # Flush succeeded — emit EXITED phase so the dashboard turns the
         # row green. Re-raise after, so the outer drain in `replay()`
         # picks up the future result.
-        if _has_progress_cb:
-            try:
-                progress_callback({"phase": "exited"})
-            except Exception:
-                pass
+        try:
+            progress_callback({"phase": "exited"})
+        except Exception:
+            pass
         raise
     except Exception as exc:
         if logger:
@@ -662,34 +635,26 @@ def run_one_date(
                 instrument=instrument,
                 date=date_str,
             )
-        if _has_progress_cb:
-            try:
-                progress_callback({"reason": f"stream error: {exc}"})
-            except Exception:
-                pass
+        try:
+            progress_callback({"reason": f"stream error: {exc}"})
+        except Exception:
+            pass
         # Note: progress.json + chunks remain on disk → resumable on next run
         return "fail"
 
     # Final progress line, then newline before next phase
     elapsed = time.monotonic() - t_start
-    if _has_progress_cb:
-        try:
-            progress_callback({
-                "event_idx": event_idx,
-                "total_events_est": total_events_est,
-                "rate": event_idx / max(elapsed, 0.001),
-                "elapsed_seconds": elapsed,
-                "chunk_done": max(0, next_chunk_num - 1),
-                "chunks_total_est": total_chunks_est,
-            })
-        except Exception:
-            pass
-    else:
-        print(
-            f"\r  [{date_str}] {instrument} {event_idx:>10,} ev in {elapsed:.1f}s. "
-            f"Finalising parquet...",
-            flush=True,
-        )
+    try:
+        progress_callback({
+            "event_idx": event_idx,
+            "total_events_est": total_events_est,
+            "rate": event_idx / max(elapsed, 0.001),
+            "elapsed_seconds": elapsed,
+            "chunk_done": max(0, next_chunk_num - 1),
+            "chunks_total_est": total_chunks_est,
+        })
+    except Exception:
+        pass
 
     def _emit_phase(phase: str, **extra: Any) -> None:
         """Push a phase update to the dashboard so the post-event-loop
@@ -697,8 +662,6 @@ def run_one_date(
         looking frozen at the last in-loop frame. Cheap one-key write
         through the same Manager dict the parent polls.
         """
-        if not _has_progress_cb:
-            return
         try:
             payload = {"phase": phase}
             payload.update(extra)
@@ -806,20 +769,10 @@ def run_one_date(
             # to direct write of any straggler rows.
             adapter.emitter.write_parquet(parquet_path)
             n_chunks_merged = 0
-        # Visible confirmation in non-dashboard mode (single-date / direct
-        # CLI). Multi-worker fan-out suppresses worker prints — its
-        # equivalent per-date message is emitted by the end-of-run
-        # summary table in the CLI block.
-        if not _has_progress_cb:
-            try:
-                parquet_bytes = parquet_path.stat().st_size if parquet_path.exists() else 0
-            except OSError:
-                parquet_bytes = 0
-            print(
-                f"  [{date_str}] {instrument} MERGED "
-                f"({n_chunks_merged} chunks → {parquet_bytes / 1_048_576:.1f} MB)",
-                flush=True,
-            )
+        # Per-date completion is rendered by the parent dashboard
+        # row — no print fallback is needed now that every invocation
+        # runs through the pool path.
+        _ = n_chunks_merged
     except Exception as exc:
         if logger:
             logger.error(
@@ -828,11 +781,10 @@ def run_one_date(
                 instrument=instrument,
                 date=date_str,
             )
-        if _has_progress_cb:
-            try:
-                progress_callback({"reason": f"parquet finalise failed: {exc}"})
-            except Exception:
-                pass
+        try:
+            progress_callback({"reason": f"parquet finalise failed: {exc}"})
+        except Exception:
+            pass
         return "fail"
 
     # ── Validate ──────────────────────────────────────────────────────────────
@@ -874,7 +826,7 @@ def run_one_date(
             if len(non_pass) > 3:
                 reason_msg += f" (+{len(non_pass) - 3} more)"
 
-    if _has_progress_cb and reason_msg:
+    if reason_msg:
         try:
             progress_callback({"reason": reason_msg})
         except Exception:
@@ -1152,14 +1104,13 @@ def replay(
             )
         return {"error": str(exc)}
 
-    if include_dates:
-        # Explicit per-date selection bypasses the date-range walk AND the
-        # checkpoint — the user has chosen exactly what to (re-)replay.
-        dates_iter = sorted(set(include_dates))
-    else:
-        # Respect checkpoint: skip dates already completed
-        resume_date = checkpoint.get_resume_date(instrument, date_from)
-        dates_iter = list(_iter_dates(resume_date, date_to))
+    dates_iter = _resolve_dates_to_process(
+        instrument=instrument,
+        date_from=date_from,
+        date_to=date_to,
+        include_dates=include_dates,
+        checkpoint=checkpoint,
+    )
 
     n_workers = _resolve_workers(len(dates_iter), workers)
     summary = {
@@ -1176,40 +1127,16 @@ def replay(
             )
         return summary
 
-    # ── Serial in-process path (workers == 1) ────────────────────────────
-    # Single-date replays, tests that monkeypatch `run_one_date` in the
-    # parent process, and users who explicitly opt out via --workers 1 all
-    # land here. No ProcessPoolExecutor, no dashboard, no spawn — bytewise
-    # identical to the pre-T47 behaviour.
-    if n_workers == 1:
-        for date_str in dates_iter:
-            try:
-                verdict = run_one_date(
-                    base_profile=base_profile,
-                    instrument=instrument,
-                    date_str=date_str,
-                    raw_root=raw_root,
-                    features_root=features_root,
-                    validation_root=validation_root,
-                    logger=logger,
-                )
-            except KeyboardInterrupt:
-                summary["interrupted"] = True
-                return summary
-            summary[verdict] = summary.get(verdict, 0) + 1
-            if verdict in ("pass", "warn", "fail"):
-                checkpoint.mark_complete(instrument, date_str)
-                if verdict == "fail" and logger:
-                    logger.warn(
-                        "REPLAY_DATE_FAILED",
-                        msg=f"{date_str} completed with FAIL verdict — "
-                        f"skipping to next date (partial data saved)",
-                        instrument=instrument,
-                        date=date_str,
-                    )
-        return summary
-
-    # ── Parallel fan-out path (workers >= 2) ─────────────────────────────
+    # ── Unified pool + dashboard path ─────────────────────────────────────
+    # 2026-06-14 (Partha): the pre-2026-06-14 serial ``if n_workers == 1:``
+    # branch is gone. Single-date replays now go through the same
+    # ProcessPoolExecutor + ProgressDashboard as multi-date — worker
+    # exceptions (e.g. a corrupt ``.ndjson.gz`` raising ``zlib.error``)
+    # now surface as ``mark_terminal("fail")`` on the dashboard instead
+    # of a console traceback, and the graceful Ctrl+C drain
+    # (STOPPING → EXITED → wait-for-key) applies uniformly. Pool spin-
+    # up overhead for a 1-worker pool is ~100-300ms, acceptable given
+    # the consistency win.
     saved_env = _apply_blas_thread_caps()
     manager = multiprocessing.Manager()
     progress_dict = manager.dict()

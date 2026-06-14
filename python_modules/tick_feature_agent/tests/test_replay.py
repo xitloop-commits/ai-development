@@ -287,113 +287,110 @@ class TestReplayCheckpoint:
 
 
 class TestReplayIncludeDates:
-    """`replay(..., include_dates=[...])` should:
-      1. ONLY process the listed dates (skip date-range walk entirely).
-      2. Bypass the checkpoint — user has explicitly chosen what to (re-)run.
+    """Date-selection contract for ``replay()``:
+      1. ``include_dates`` (per-date picker) wins over the range — only
+         the listed dates run; date-range walk is skipped entirely.
+      2. ``include_dates`` bypasses the checkpoint — user has chosen
+         exactly what to (re-)replay.
       3. De-duplicate and sort the input list.
+      4. Without ``include_dates``, walk the range starting from the
+         checkpoint's resume date.
 
-    We monkey-patch `run_one_date` so we don't need real profiles/raw data —
-    the assertions live entirely in the date sequence and call count. All
-    tests pin ``workers=1`` to force the serial in-process path; the
-    ProcessPoolExecutor fan-out path (T47) re-imports in fresh subprocesses
-    and can't see parent-side monkeypatches, so it has its own tests below.
+    2026-06-14 rewrite: pre-existing version of these tests monkey-
+    patched ``run_one_date`` on the parent process and ran replay
+    via ``workers=1`` to force a serial in-process branch. That
+    branch was removed when single + multi date paths unified, so
+    the tests now exercise the same contract through the pure
+    ``_resolve_dates_to_process`` helper — no spawning, no patching.
     """
 
-    def _patch(self, monkeypatch, calls: list[str]):
-        from tick_feature_agent.replay import replay_runner
-
-        def _fake_run_one_date(*, date_str: str, **_kw) -> str:
-            calls.append(date_str)
-            return "pass"
-
-        def _fake_load_profile(*_a, **_kw):
-            class _P:
-                instrument_name = "stub"
-            return _P()
-
-        monkeypatch.setattr(replay_runner, "run_one_date", _fake_run_one_date)
-        monkeypatch.setattr(replay_runner, "load_profile", _fake_load_profile)
-
-    def test_include_dates_processes_only_listed_dates(self, tmp_path, monkeypatch):
-        from tick_feature_agent.replay.replay_runner import replay
-        calls: list[str] = []
-        self._patch(monkeypatch, calls)
-
-        replay(
-            profile_path="stub.json",
-            instrument="nifty50",
-            date_from="2026-04-01",  # ignored
-            date_to="2026-04-10",    # ignored
-            raw_root=tmp_path / "raw",
-            features_root=tmp_path / "features",
-            validation_root=tmp_path / "validation",
-            include_dates=["2026-04-03", "2026-04-07"],
-            workers=1,
-        )
-        assert calls == ["2026-04-03", "2026-04-07"]
-
-    def test_include_dates_bypasses_checkpoint(self, tmp_path, monkeypatch):
-        """A pre-existing checkpoint that says 'completed up to 2026-04-09'
-        must NOT cause replay() to skip earlier explicit dates."""
+    def test_include_dates_processes_only_listed_dates(self, tmp_path):
         from tick_feature_agent.replay.checkpoint import ReplayCheckpoint
-        from tick_feature_agent.replay.replay_runner import replay
-        calls: list[str] = []
-        self._patch(monkeypatch, calls)
+        from tick_feature_agent.replay.replay_runner import _resolve_dates_to_process
 
-        cp_path = tmp_path / "raw" / "replay_checkpoint.json"
-        cp = ReplayCheckpoint(cp_path)
+        cp = ReplayCheckpoint(tmp_path / "raw" / "replay_checkpoint.json")
+        out = _resolve_dates_to_process(
+            instrument="nifty50",
+            date_from="2026-04-01",   # ignored when include_dates is set
+            date_to="2026-04-10",     # ignored
+            include_dates=["2026-04-03", "2026-04-07"],
+            checkpoint=cp,
+        )
+        assert out == ["2026-04-03", "2026-04-07"]
+
+    def test_include_dates_bypasses_checkpoint(self, tmp_path):
+        """A pre-existing checkpoint that says 'completed up to
+        2026-04-09' must NOT cause earlier explicit dates to be
+        skipped."""
+        from tick_feature_agent.replay.checkpoint import ReplayCheckpoint
+        from tick_feature_agent.replay.replay_runner import _resolve_dates_to_process
+
+        cp = ReplayCheckpoint(tmp_path / "raw" / "replay_checkpoint.json")
         cp.mark_complete("nifty50", "2026-04-09")
 
-        replay(
-            profile_path="stub.json",
+        out = _resolve_dates_to_process(
             instrument="nifty50",
             date_from="2026-04-01",
             date_to="2026-04-10",
-            raw_root=tmp_path / "raw",
-            features_root=tmp_path / "features",
-            validation_root=tmp_path / "validation",
             include_dates=["2026-04-02", "2026-04-04"],
-            workers=1,
+            checkpoint=cp,
         )
-        # Both pre-checkpoint dates ran despite checkpoint saying 2026-04-09 is done
-        assert calls == ["2026-04-02", "2026-04-04"]
+        # Both pre-checkpoint dates land in the run list despite the
+        # checkpoint saying 2026-04-09 is done.
+        assert out == ["2026-04-02", "2026-04-04"]
 
-    def test_include_dates_dedupes_and_sorts(self, tmp_path, monkeypatch):
-        from tick_feature_agent.replay.replay_runner import replay
-        calls: list[str] = []
-        self._patch(monkeypatch, calls)
+    def test_include_dates_dedupes_and_sorts(self, tmp_path):
+        from tick_feature_agent.replay.checkpoint import ReplayCheckpoint
+        from tick_feature_agent.replay.replay_runner import _resolve_dates_to_process
 
-        replay(
-            profile_path="stub.json",
+        cp = ReplayCheckpoint(tmp_path / "raw" / "replay_checkpoint.json")
+        out = _resolve_dates_to_process(
             instrument="nifty50",
             date_from="2026-04-01",
             date_to="2026-04-10",
-            raw_root=tmp_path / "raw",
-            features_root=tmp_path / "features",
-            validation_root=tmp_path / "validation",
             include_dates=["2026-04-05", "2026-04-02", "2026-04-05"],
-            workers=1,
+            checkpoint=cp,
         )
-        assert calls == ["2026-04-02", "2026-04-05"]
+        assert out == ["2026-04-02", "2026-04-05"]
 
-    def test_no_include_dates_falls_back_to_range_walk(self, tmp_path, monkeypatch):
-        """Without include_dates, the existing date-range + checkpoint
-        behaviour is preserved."""
-        from tick_feature_agent.replay.replay_runner import replay
-        calls: list[str] = []
-        self._patch(monkeypatch, calls)
+    def test_no_include_dates_falls_back_to_range_walk(self, tmp_path):
+        """Without ``include_dates``, the range-walk + checkpoint-
+        respecting behaviour is preserved."""
+        from tick_feature_agent.replay.checkpoint import ReplayCheckpoint
+        from tick_feature_agent.replay.replay_runner import _resolve_dates_to_process
 
-        replay(
-            profile_path="stub.json",
+        cp = ReplayCheckpoint(tmp_path / "raw" / "replay_checkpoint.json")
+        out = _resolve_dates_to_process(
             instrument="nifty50",
             date_from="2026-04-01",
             date_to="2026-04-03",
-            raw_root=tmp_path / "raw",
-            features_root=tmp_path / "features",
-            validation_root=tmp_path / "validation",
-            workers=1,
+            include_dates=None,
+            checkpoint=cp,
         )
-        assert calls == ["2026-04-01", "2026-04-02", "2026-04-03"]
+        assert out == ["2026-04-01", "2026-04-02", "2026-04-03"]
+
+    def test_no_include_dates_resumes_from_checkpoint(self, tmp_path):
+        """Range walk MUST honour the checkpoint's resume date so
+        already-completed dates aren't re-replayed. (Pre-2026-06-14
+        this was implicitly covered by the monkey-patched serial
+        branch; explicit assertion now.)"""
+        from tick_feature_agent.replay.checkpoint import ReplayCheckpoint
+        from tick_feature_agent.replay.replay_runner import _resolve_dates_to_process
+
+        cp = ReplayCheckpoint(tmp_path / "raw" / "replay_checkpoint.json")
+        cp.mark_complete("nifty50", "2026-04-05")
+
+        out = _resolve_dates_to_process(
+            instrument="nifty50",
+            date_from="2026-04-01",
+            date_to="2026-04-08",
+            include_dates=None,
+            checkpoint=cp,
+        )
+        # Resume picks up at the day after the last completed date.
+        assert out == [
+            "2026-04-06", "2026-04-07", "2026-04-08",
+        ]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
