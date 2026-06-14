@@ -24,13 +24,10 @@
  */
 import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { trpc } from '@/lib/trpc';
-import { toast } from 'sonner';
 import { useAlertMonitor } from '@/hooks/useAlertMonitor';
 import { useTickStream } from '@/hooks/useTickStream';
 import { useFeedControl } from '@/hooks/useFeedControl';
 import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
-import { useCapital } from '@/contexts/CapitalContext';
-import { useHotkeyListener, type HotkeyAction } from '@/hooks/useHotkeyListener';
 
 // Shell components
 import AppBar from '@/components/AppBar';
@@ -54,8 +51,6 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 // Discipline — system-triggered overlay only
 import CircuitBreakerOverlay from '@/components/CircuitBreakerOverlay';
 
-// Quick Order Popup (hotkey-triggered)
-import { QuickOrderPopup, type QuickOrderData } from '@/components/QuickOrderPopup';
 
 // Mock data fallbacks — loaded via dynamic import() so the (large) mock
 // objects live in their own chunk and don't bloat the main bundle. While
@@ -71,14 +66,6 @@ export default function MainScreen() {
   // ─── Overlay State ─────────────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [disciplineOpen, setDisciplineOpen] = useState(false);
-
-  // ─── Quick Order Popup State (hotkey-triggered) ─────────────────
-  const [quickOrderOpen, setQuickOrderOpen] = useState(false);
-  const [quickOrderInstrument, setQuickOrderInstrument] = useState<{ key: string; name: string } | null>(null);
-  const [quickOrderLoading, setQuickOrderLoading] = useState(false);
-
-  // ─── Active channel (follows TradingDesk tab selection) ──────
-  const { channel: activeChannel } = useCapital();
 
   // ─── Instrument Filter ─────────────────────────────────────────
   const { isEnabled } = useInstrumentFilter();
@@ -160,27 +147,6 @@ export default function MainScreen() {
   // module via dynamic import as a tree-shaken chunk; H6 drops the
   // last consumer (`allInstruments` fallback below) so even the
   // dynamic-import code-path is gone in production builds.
-
-  // ─── tRPC Mutations ────────────────────────────────────────────
-  const utils = trpc.useUtils();
-
-  const placeTradeM = trpc.executor.placeTrade.useMutation({
-    onSuccess: async () => {
-      await Promise.all([
-        utils.portfolio.allDays.invalidate(),
-        utils.portfolio.currentDay.invalidate(),
-        utils.portfolio.state.invalidate(),
-        utils.portfolio.futureDays.invalidate(),
-      ]);
-      toast.success('Order placed');
-      setQuickOrderOpen(false);
-      setQuickOrderLoading(false);
-    },
-    onError: (err: any) => {
-      toast.error(`Order failed: ${err.message}`);
-      setQuickOrderLoading(false);
-    },
-  });
 
   // Discipline state from tRPC
   const disciplineQuery = trpc.discipline.getDashboard.useQuery(undefined, {
@@ -275,11 +241,6 @@ export default function MainScreen() {
     if (e.key === 'Escape') {
       setSettingsOpen(false);
       setDisciplineOpen(false);
-      // H4 / UI-45 — Esc also closes QuickOrderPopup so users who
-      // trigger one via hotkey (1/2/3/4) can back out without reaching
-      // for the X. Matches the Settings / Discipline / CircuitBreaker
-      // overlay behaviour.
-      setQuickOrderOpen(false);
     }
   }, []);
 
@@ -288,55 +249,6 @@ export default function MainScreen() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  // ─── Hotkey Listener for Quick Order ───────────────────────────
-  const hotkeyMap = useMemo(() => {
-    const map: Record<string, HotkeyAction> = {};
-    if (configuredInstruments) {
-      configuredInstruments.forEach((inst: any) => {
-        if (inst.hotkey && isEnabled(inst.key)) {
-          map[inst.hotkey.toLowerCase()] = {
-            instrumentKey: inst.key,
-            instrumentName: inst.displayName,
-            hotkey: inst.hotkey,
-          };
-        }
-      });
-    }
-    return map;
-  }, [configuredInstruments, isEnabled]);
-
-  const handleHotkeyPress = useCallback((action: HotkeyAction) => {
-    if (activeChannel === 'ai-live' || activeChannel === 'ai-paper') {
-      toast.error('Manual orders are not allowed in AI Trades workspace');
-      return;
-    }
-    setQuickOrderInstrument({ key: action.instrumentKey, name: action.instrumentName });
-    setQuickOrderOpen(true);
-  }, [activeChannel]);
-
-  useHotkeyListener(hotkeyMap, handleHotkeyPress);
-
-  const handleQuickOrderSubmit = (data: QuickOrderData) => {
-    if (activeChannel === 'ai-live' || activeChannel === 'ai-paper') {
-      toast.error('Manual orders are not allowed in AI Trades workspace');
-      return;
-    }
-    setQuickOrderLoading(true);
-    placeTradeM.mutate({
-      channel: activeChannel,
-      instrument: data.instrumentName ?? data.instrument,
-      type: data.tradeType,
-      strike: data.strike || null,
-      entryPrice: data.entryPrice,
-      capitalPercent: 5, // unused when qty is explicit
-      qty: data.quantity,
-      lotSize: data.lotSize,
-      stopLossPrice: data.stopLoss,   // undefined = let server use defaults; null = explicitly disabled
-      targetPrice: data.target,       // same
-      trailingStopEnabled: data.tslEnabled ?? false,
-      contractSecurityId: data.contractSecurityId ?? null,
-    });
-  };
 
   // ─── Render ────────────────────────────────────────────────────
   return (
@@ -409,18 +321,6 @@ export default function MainScreen() {
         threshold={lossThreshold}
       />
 
-      {/* ─── Quick Order Popup (hotkey-triggered) ──────────────────── */}
-      {quickOrderInstrument && (
-        <QuickOrderPopup
-          isOpen={quickOrderOpen}
-          instrumentKey={quickOrderInstrument.key}
-          instrumentName={quickOrderInstrument.name}
-          resolvedInstruments={resolvedInstruments}
-          onClose={() => setQuickOrderOpen(false)}
-          onSubmit={handleQuickOrderSubmit}
-          isLoading={quickOrderLoading || placeTradeM.isPending}
-        />
-      )}
     </div>
   );
 }

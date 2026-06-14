@@ -12,7 +12,7 @@ Single source of truth for the **Tauri / React desktop UI** — the operator's c
 - Left sidebar — instrument tabs hosting `InstrumentCard v2`.
 - Right sidebar — `SignalsFeed` + `AlertHistory`.
 - Notifications — toast (sonner) + AlertHistory live; Telegram routing partial (T52 extends it to trade events; email layer dropped).
-- Keyboard hotkeys (1/2/3/4 instrument switching, F2 Settings, Ctrl+D Discipline, Ctrl+[ / Ctrl+] sidebar toggles, Esc).
+- Keyboard hotkeys (F2 Settings, Ctrl+D Discipline, Ctrl+[ / Ctrl+] sidebar toggles, Esc).
 - Live LTP polling, feed-subscription wiring via `useTickStream` / `useTradingDeskData` hooks.
 - `CapitalContext` / `CapitalProvider` — channel, allDays, currentDay, placeTrade / exitTrade mutations.
 
@@ -83,7 +83,7 @@ The single biggest UX change. AppBar now hosts three workspace tabs (AI / My / T
 
 `TradingDesk.tsx` renders a vertical stack: `PastRow` (completed Day Indexes, collapsed, green tint) → `TodaySection` (active day, expanded) → `FutureRow` (projected days, dimmed, auto-calculated).
 
-Every row component takes `channel: Channel` and themes via `channelToWorkspace(channel)` → `tradeThemes.ts`. Manual controls (exit buttons, the per-instrument trade-entry bars, quick-order hotkeys 1/2/3/4) are gated by `supportsManualControls(channel)` — false on `ai-live` / `ai-paper`, true everywhere else.
+Every row component takes `channel: Channel` and themes via `channelToWorkspace(channel)` → `tradeThemes.ts`. Manual controls (exit buttons, the per-instrument trade-entry bars) are gated by `supportsManualControls(channel)` — false on `ai-live` / `ai-paper`, true everywhere else.
 
 **Data sources:**
 - `useCapital()` from `CapitalContext` — channel, allDays, currentDay, P&L summary, placeTrade / exitTrade / updateLtp mutations.
@@ -160,7 +160,6 @@ Tracked as [T52 [UI]](../PROJECT_TODO.md). Email infrastructure dropped — Tele
 | `Ctrl+[` | Toggle left sidebar |
 | `Ctrl+]` | Toggle right sidebar |
 | `Esc` | Close active overlay |
-| `1` / `2` / `3` / `4` | Quick-order popup for nifty50 / banknifty / crudeoil / naturalgas (blocked on AI channels) |
 
 ## 10. State management
 
@@ -192,6 +191,8 @@ tRPC queries used by the main loop:
 - HeadToHeadPage — frontend wired to `portfolio.headToHead` tRPC query; backend is stub (T50).
 
 **Shipped 2026-06-06:** TradingDesk trade-entry redesign — always-on per-instrument `InstrumentBar` bars (`StrikeBar` ready / `TradeBar` open-closed, renamed from `TradePriceBar`) replace `NewTradeForm`; entry-marker → executor placement; `PastRow` expand-to-show-trades; freeze/leak/repaint hardening (normalize cache, per-instrument tick subscription, tickStore TTL); dev mock-feed toggle; `broker.feed.ohlc` endpoint.
+
+**Removed 2026-06-14:** the hotkey-triggered Quick-Order popup (`QuickOrderPopup` + `useHotkeyListener` + the 1/2/3/4 hotkeys) and its dedicated `defaultQty` setting. The always-on instrument bars are the sole manual-entry path now. Per-instrument sizing + SL/TP settings stay (shared with the bars). The unused `defaultQty` field remains in the server schema (no DB migration).
 
 ## 12. Open work
 
@@ -225,7 +226,6 @@ tRPC queries used by the main loop:
 | Left / Right sidebars | `client/src/components/LeftDrawer.tsx`, `RightDrawer.tsx` |
 | Capital context + provider | `client/src/contexts/CapitalContext.tsx` |
 | Live data hooks | `client/src/hooks/useTickStream.ts` (+ `useInstrumentTick`), `useTradingDeskData.ts`, `useOptionPreview.ts` |
-| Quick-order popup | `client/src/components/QuickOrderPopup.tsx` |
 | HeadToHeadPage (?view=h2h, dev-only) | `client/src/pages/HeadToHeadPage.tsx` |
 | Toast notifications | `client/src/components/Toaster.tsx` (sonner) |
 | Themes + workspace mapping | `client/src/lib/tradeThemes.ts`, `channels.ts` |

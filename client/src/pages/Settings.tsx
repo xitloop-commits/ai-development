@@ -387,9 +387,7 @@ export function OrderExecutionSection() {
     trailingStopPercent: 2,
     trailingActivationGatePercent: 2,
     trailingActivationHoldSeconds: 10,
-    // Fallback quantity (instruments not in instrumentSizing) for quick order
-    defaultQty: 1,
-    // Per-instrument default sizing (instrument bar + quick order)
+    // Per-instrument default sizing (used by the instrument bar)
     instrumentSizing: {
       nifty50: { mode: 'lots', value: 10 },
       banknifty: { mode: 'lots', value: 10 },
@@ -414,7 +412,6 @@ export function OrderExecutionSection() {
         trailingStopPercent: (config.settings as any).trailingStopPercent ?? prev.trailingStopPercent,
         trailingActivationGatePercent: (config.settings as any).trailingActivationGatePercent ?? prev.trailingActivationGatePercent,
         trailingActivationHoldSeconds: (config.settings as any).trailingActivationHoldSeconds ?? prev.trailingActivationHoldSeconds,
-        defaultQty: (config.settings as any).defaultQty ?? prev.defaultQty,
         instrumentSizing: (config.settings as any).instrumentSizing ?? prev.instrumentSizing,
       }));
     }
@@ -455,7 +452,6 @@ export function OrderExecutionSection() {
         trailingStopPercent: settings.trailingStopPercent,
         trailingActivationGatePercent: settings.trailingActivationGatePercent,
         trailingActivationHoldSeconds: settings.trailingActivationHoldSeconds,
-        defaultQty: settings.defaultQty,
         instrumentSizing: settings.instrumentSizing,
       } as any,
     });
@@ -475,7 +471,6 @@ export function OrderExecutionSection() {
         trailingStopPercent: (config.settings as any).trailingStopPercent ?? 2,
         trailingActivationGatePercent: (config.settings as any).trailingActivationGatePercent ?? 2,
         trailingActivationHoldSeconds: (config.settings as any).trailingActivationHoldSeconds ?? 10,
-        defaultQty: (config.settings as any).defaultQty ?? 1,
         instrumentSizing: (config.settings as any).instrumentSizing ?? {
           nifty50: { mode: 'lots', value: 10 },
           banknifty: { mode: 'lots', value: 10 },
@@ -575,21 +570,8 @@ export function OrderExecutionSection() {
               ]}
             />
           </div>
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="Default quantity in lots for quick order popup">
-              Default Qty (lots)
-            </FieldLabel>
-            <NumberInput
-              value={settings.defaultQty}
-              onChange={(v) => setSettings((s) => ({ ...s, defaultQty: v }))}
-              min={1}
-              max={100}
-              step={1}
-            />
-          </div>
-
           <div className="space-y-2 pt-3 border-t border-border/40">
-            <FieldLabel hint="Default sizing per instrument for the instrument bar + quick order. Lots = place that many lots. % Cap = size by that % of available capital.">
+            <FieldLabel hint="Default sizing per instrument for the instrument bar. Lots = place that many lots. % Cap = size by that % of available capital.">
               Default Sizing (per instrument)
             </FieldLabel>
             {([

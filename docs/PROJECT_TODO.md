@@ -313,6 +313,7 @@ Replaced `NewTradeForm` with always-on per-instrument `InstrumentBar` bars (`Str
 - Net/Gross P&L toggle in the desk header is now live (was frozen on Net).
 - Pending-TSL tooltip now states the hold-seconds so "pending" doesn't look armed before the server arms it.
 - Removed dead `summaryBg` prop from the day-summary banner.
+- Removed the hotkey Quick-Order popup (`QuickOrderPopup` + `useHotkeyListener` + 1/2/3/4 hotkeys) and its dedicated `defaultQty` setting — instrument bars are the sole manual-entry path. Shared sizing + SL/TP settings kept; unused `defaultQty` left in the server schema (no DB migration).
 
 **Open gaps (from 2026-06-14 audit):**
 - [ ] Stuck "waiting for live data…" — if an underlying tick never arrives, the ready bar / option preview never resolves (no timeout / error / retry). `useOptionPreview` + `InstrumentBarRow`.
