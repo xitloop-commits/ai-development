@@ -11,7 +11,7 @@ Renders a `rich`-based live display while a fan-out replay is running:
     2026-04-16 [██████░░░░░░░░░] 41%    690,000 ev  1,510/s  ETA 06:14  chunk  8/19
     ... (one row per active worker)
     ──────────────────────────────────────────────────────────────────
-    PASS 8   WARN 1   FAIL 0   SKIP 3        (Ctrl+C to stop)
+    PASS 8   WARN 1   FAIL 0   SKIP 3        (Esc to stop)
 
 Per-worker progress is fed via a ``multiprocessing.Manager().dict()`` proxy that
 the parent and every replay worker share. Workers write entries like:
@@ -655,7 +655,7 @@ class ProgressDashboard:
             tally.append("   ")
             tally.append(f"PENDING {counts['pending']}", style="dim")
         tally.append("        ")
-        tally.append("(Ctrl+C to stop)", style="dim")
+        tally.append("(Esc to stop)", style="dim")
 
         rule = Text("─" * 72, style="dim")
         renderables: list = [header_tbl]

@@ -29,8 +29,43 @@ if str(_PY_MODULES) not in sys.path:
     sys.path.insert(0, str(_PY_MODULES))
 
 from tick_feature_agent.replay.replay_runner import (  # noqa: E402
+    _start_esc_watcher,
     _worker_sigint_ignore,
 )
+
+
+def test_esc_watcher_returns_none_on_non_windows(monkeypatch):
+    """ESC-key watcher is Windows-only (Lubas is Windows-only by design)
+    so on POSIX hosts the helper must no-op gracefully and return None.
+    Skipping on the actual Windows host because we can't fake
+    sys.platform after import without breaking msvcrt resolution.
+    """
+    if sys.platform == "win32":
+        import pytest
+        pytest.skip("Can't fake non-windows path on Windows host")
+    import threading as _t
+    stop = _t.Event()
+    result = _start_esc_watcher(stop)
+    assert result is None
+
+
+def test_esc_watcher_returns_thread_on_windows():
+    """On Windows the watcher returns a daemon Thread that we can ask
+    to stop via the event. Verifies the basic plumbing without
+    simulating a keypress (that requires a console).
+    """
+    if sys.platform != "win32":
+        import pytest
+        pytest.skip("Windows-only test")
+    import threading as _t
+    stop = _t.Event()
+    t = _start_esc_watcher(stop)
+    assert t is not None
+    assert t.is_alive()
+    assert t.daemon is True
+    stop.set()
+    t.join(timeout=1.0)
+    assert not t.is_alive(), "watcher thread must exit promptly when stop_event set"
 
 
 def test_worker_sigint_ignore_installs_sig_ign(monkeypatch):

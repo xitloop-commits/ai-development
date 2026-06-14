@@ -48,6 +48,7 @@ import multiprocessing
 import os
 import signal
 import sys
+import threading
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import date as _date
@@ -923,6 +924,65 @@ def _resolve_workers(num_dates: int, requested: int | None) -> int:
     return max(1, min(requested, WORKERS_HARD_CAP, num_dates))
 
 
+def _start_esc_watcher(stop_event: "threading.Event") -> "threading.Thread | None":
+    """Spawn a daemon thread that listens for ESC and triggers the same
+    graceful drain as Ctrl+C (2026-06-15).
+
+    Why a thread instead of binding ESC at the dashboard layer: rich's
+    ``Live`` owns the terminal and won't let us peek at keypresses
+    cleanly. Polling ``msvcrt.kbhit`` from a side thread + firing
+    ``os.kill(pid, SIGINT)`` is simpler and reuses the entire existing
+    drain path verbatim — STOPPING/EXITED rows, __stop__ flag, SIG_IGN
+    cleanup all just work.
+
+    Windows-only (Lubas is Windows-only by design). On non-Windows
+    hosts the function is a no-op so import + tests still work.
+
+    Arrow keys send `ESC + [` + letter — we read the second char
+    immediately and discard the sequence so arrows don't fake a stop.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import msvcrt  # noqa: F401  — import at thread start so non-win imports don't fail
+    except ImportError:
+        return None
+    import threading
+
+    def _poll() -> None:
+        import msvcrt as _mc
+        while not stop_event.is_set():
+            try:
+                if _mc.kbhit():
+                    ch = _mc.getch()
+                    # ESC = b'\x1b'. Arrow keys + F-keys on Windows
+                    # consoles arrive as either `b'\xe0' + letter` or
+                    # `b'\x00' + letter` — handled by the kbhit fall-
+                    # through. Bare ESC (no follow-up byte within a
+                    # few ms) is the stop.
+                    if ch == b"\x1b":
+                        # Drain a possible follow-up byte (some terminals
+                        # emit ESC [ X for special keys via stdin even
+                        # on Windows under certain wrappers).
+                        time.sleep(0.005)
+                        if _mc.kbhit():
+                            _mc.getch()  # discard sequence; ignore
+                            continue
+                        try:
+                            os.kill(os.getpid(), signal.SIGINT)
+                        except Exception:
+                            pass
+                        return
+                stop_event.wait(0.05)
+            except Exception:
+                # Don't let a keyboard glitch kill the dashboard.
+                return
+
+    t = threading.Thread(target=_poll, name="replay-esc-watcher", daemon=True)
+    t.start()
+    return t
+
+
 def _worker_sigint_ignore() -> None:
     """Initializer for ``ProcessPoolExecutor`` workers (2026-06-14).
 
@@ -1162,6 +1222,13 @@ def replay(
     progress_dict = manager.dict()
     mp_ctx = multiprocessing.get_context("spawn")
 
+    # ESC-key watcher (2026-06-15): polls msvcrt.kbhit in a daemon
+    # thread and fires SIGINT on ESC, which triggers the same graceful
+    # drain that Ctrl+C does. Set stop_event before the dashboard
+    # tears down so the thread exits on its own.
+    _esc_stop_event = threading.Event()
+    _esc_thread = _start_esc_watcher(_esc_stop_event)
+
     try:
         with ProgressDashboard(
             instrument=instrument,
@@ -1284,6 +1351,10 @@ def replay(
                     # All in-flight workers have flushed + exited. Don't
                     # re-raise — see comment in finally below.
     finally:
+        # Tell the ESC watcher to stop polling; daemon thread so it
+        # would die at interpreter exit anyway, but cleaner to signal
+        # explicitly.
+        _esc_stop_event.set()
         # Restore SIGINT to the prior handler so the outer CLI's R/X
         # menu and the user's normal Ctrl+C semantics work again. The
         # SIG_IGN was scoped to the drain only.
