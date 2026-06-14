@@ -140,10 +140,6 @@ class ProgressDashboard:
         # self-contained and the operator never sees a stale banner after
         # Ctrl+C tear-down (2026-06-14).
         self._mode_str = mode_str
-        # Footer set by the parent on Ctrl+C → "Press any key to
-        # close...". Rendered as the last line so it sits visibly next
-        # to the dashboard rows the operator was already watching.
-        self._interrupted_footer: str | None = None
         # ``force_terminal=True`` makes rich treat stdout as a TTY even when
         # running under a .bat wrapper in PowerShell (where the heuristic
         # otherwise picks the wrong strategy and falls back to per-frame
@@ -190,8 +186,22 @@ class ProgressDashboard:
             self._thread.join(timeout=2)
         try:
             if self._live is not None:
-                self._live.update(self._render(), refresh=True)
+                # Snapshot the final group ONCE so the alt-screen frame
+                # and the static-print copy below render identical
+                # content even if a tail-end status change lands
+                # between the two calls.
+                final_group = self._render()
+                self._live.update(final_group, refresh=True)
                 self._live.__exit__(*exc_info)
+                # alt-screen torn down; primary screen restored.
+                # Replay the final frame as static text on the primary
+                # screen so PASS/WARN/FAIL counts + per-date verdicts +
+                # the Warnings & errors block stay visible after the
+                # `with` block exits — the operator can read them while
+                # the `.bat` wrapper's `pause` waits for keypress, and
+                # they persist in scrollback after the cmd window
+                # closes (2026-06-14).
+                self._console.print(final_group)
         except Exception:
             pass
         return False
@@ -209,16 +219,6 @@ class ProgressDashboard:
         if reason is not None:
             entry["reason"] = reason
         self._d[date_str] = entry
-
-    def set_interrupted_footer(self, text: str | None) -> None:
-        """Show ``text`` as a bold-cyan footer row in the next render.
-
-        Called by the parent's Ctrl+C drain to display the "Press any
-        key to close..." prompt inside the dashboard frame, so the
-        operator sees STOPPING / EXITED rows AND the prompt in the
-        same alt-screen view. Passing None clears the footer.
-        """
-        self._interrupted_footer = text
 
     def summary(self) -> dict[str, int]:
         """Aggregate counts for the final summary line."""
@@ -636,11 +636,6 @@ class ProgressDashboard:
             renderables.extend(warn_err_lines)
             renderables.append(rule)
         renderables.append(tally)
-        if self._interrupted_footer:
-            footer = Text()
-            footer.append("  ")
-            footer.append(self._interrupted_footer, style="bold cyan")
-            renderables.append(footer)
         return Group(*renderables)
 
     def _render_bar(

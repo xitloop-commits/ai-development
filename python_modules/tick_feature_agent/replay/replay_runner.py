@@ -914,47 +914,6 @@ def _resolve_workers(num_dates: int, requested: int | None) -> int:
     return max(1, min(requested, WORKERS_HARD_CAP, num_dates))
 
 
-def _pause_for_keypress_on_dashboard(dashboard) -> None:
-    """Hold the dashboard's final frame on screen and block until the
-    operator presses any key (2026-06-14).
-
-    Used by BOTH the normal-completion path (so operator always sees
-    PASS/WARN/FAIL counts + per-date rows + warn-error reasons before
-    the alt-screen tears down) AND the Ctrl+C drain path (so operator
-    sees STOPPING → EXITED + state-saved confirmation).
-
-    Reads a single character via ``msvcrt.getch`` on Windows, or one
-    line via ``sys.stdin.readline`` everywhere else. Skipped when
-    ``LUBAS_HEADLESS=1`` is set (cron / scripted) or stdin isn't a
-    TTY. Failures degrade to silent no-op so a piped run can't
-    accidentally hang forever.
-    """
-    if os.environ.get("LUBAS_HEADLESS"):
-        return
-    try:
-        if sys.platform == "win32":
-            import msvcrt
-            print(
-                "\n  Press any key to close this window... ",
-                end="", flush=True,
-            )
-            msvcrt.getch()
-        else:
-            if not sys.stdin or not sys.stdin.isatty():
-                return
-            print(
-                "\n  Press Enter to close this window... ",
-                end="", flush=True,
-            )
-            try:
-                sys.stdin.readline()
-            except KeyboardInterrupt:
-                pass
-    except Exception:
-        # Headless / piped run — silently skip the pause.
-        pass
-
-
 def _worker_sigint_ignore() -> None:
     """Initializer for ``ProcessPoolExecutor`` workers (2026-06-14).
 
@@ -1305,36 +1264,16 @@ def replay(
                             verdict = "fail"
                         dashboard.mark_terminal(date_str, verdict)
                         summary[verdict] = summary.get(verdict, 0) + 1
-                    # All in-flight workers have flushed + exited.
-                    # Switch the dashboard footer to the "press any key"
-                    # state and block until the operator confirms.
-                    dashboard.set_interrupted_footer(
-                        "Press any key to close..."
-                        if sys.platform == "win32"
-                        else "Press Enter to close..."
-                    )
-                    _pause_for_keypress_on_dashboard(dashboard)
-                    # Don't re-raise: the CLI keys off summary["interrupted"]
-                    # for the 130 exit code. Letting KeyboardInterrupt
-                    # propagate would leave the ProcessPoolExecutor's
-                    # atexit handler joining queue-management threads
-                    # during interpreter shutdown, which prints a
-                    # spurious "Exception ignored on threading shutdown:
-                    # KeyboardInterrupt" traceback after the dashboard
-                    # tears down.
-                else:
-                    # Normal completion (no Ctrl+C). Hold the dashboard's
-                    # final frame on screen so the operator sees the
-                    # PASS/WARN/FAIL counts, per-date verdicts, and the
-                    # Warnings & errors block before alt-screen tear-down
-                    # (otherwise the bars flash and disappear into the
-                    # .bat wrapper's cmd-window close) (2026-06-14).
-                    dashboard.set_interrupted_footer(
-                        "Replay complete — press any key to close..."
-                        if sys.platform == "win32"
-                        else "Replay complete — press Enter to close..."
-                    )
-                    _pause_for_keypress_on_dashboard(dashboard)
+                    # All in-flight workers have flushed + exited. The
+                    # dashboard __exit__ will replay the final frame as
+                    # static text on the primary screen so STOPPING /
+                    # EXITED rows + state-saved confirmation stay
+                    # visible after alt-screen tear-down. Don't re-raise
+                    # KeyboardInterrupt — the CLI keys off
+                    # summary["interrupted"] for the 130 exit code, and
+                    # letting it propagate would trigger the
+                    # ProcessPoolExecutor atexit "Exception ignored on
+                    # threading shutdown" traceback (2026-06-14).
     finally:
         _restore_env(saved_env)
         try:

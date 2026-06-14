@@ -121,15 +121,16 @@ if !EXIT_CODE! == 0 (
 )
 call powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%_emit-lifecycle.ps1" -Event stop -Result !EXIT_RESULT! -Process "tfa-%INSTRUMENT%" -Code !EXIT_CODE! >nul 2>&1
 
-REM --- Keep cmd window open so the operator can read errors that
-REM     crash before the replay dashboard ever starts (profile load,
-REM     port conflict, etc.). The replay dashboard itself already
-REM     pauses-for-keypress inside its alt-screen for normal + Ctrl+C
-REM     completion, so this is the belt-and-braces guard for early
-REM     failures only. LUBAS_HEADLESS=1 bypasses (cron / scheduled).
-if not defined LUBAS_HEADLESS (
-    echo "%EXTRA_ARGS%" | findstr /C:"--mode replay" >nul
-    if !errorlevel! == 0 (
+REM --- Keep cmd window open after replay so the operator can read
+REM     the dashboard's final frame (printed as static text by
+REM     ProgressDashboard.__exit__) + per-date summary + any errors
+REM     that crashed before the dashboard ever started. The Python
+REM     process no longer pauses-for-keypress internally; this is the
+REM     single place that waits for the operator. LUBAS_HEADLESS=1
+REM     bypasses (cron / scheduled).
+echo %EXTRA_ARGS% | findstr /C:"--mode replay" >nul
+if !errorlevel! == 0 (
+    if not defined LUBAS_HEADLESS (
         echo.
         pause
     )
