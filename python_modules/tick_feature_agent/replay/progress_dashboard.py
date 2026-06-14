@@ -548,6 +548,24 @@ class ProgressDashboard:
             else:
                 # terminal: pass / warn / fail / skip
                 ev = entry.get("event_idx") or 0
+                # Inline the failure reason on the row itself (2026-06-14)
+                # — Warnings & errors block below is sometimes hidden by
+                # narrow terminals or rich rendering quirks, so the
+                # operator can never miss WHY a date failed. Truncated
+                # to keep the row from blowing past terminal width.
+                tail_text = ""
+                tail_style = "dim"
+                reason = entry.get("reason")
+                if status in ("warn", "fail") and reason:
+                    short = str(reason)
+                    if len(short) > 60:
+                        short = short[:57] + "..."
+                    tail_text = short
+                    tail_style = "red" if status == "fail" else "yellow"
+                elif status == "skip":
+                    tail_text = "skip"
+                else:
+                    tail_text = "done"
                 rows_terminal.append((
                     Text(d, style=style),
                     self._render_bar(1.0 if status != "skip" else 0.0, width=18,
@@ -556,7 +574,7 @@ class ProgressDashboard:
                     Text(_fmt_int(ev) if ev else "—", style="dim"),
                     Text("       —", style="dim"),
                     Text("done" if status != "skip" else "skip", style="dim"),
-                    Text("", style="dim"),
+                    Text(tail_text, style=tail_style),
                 ))
 
         # Cap the visible pending list so a 250-date run doesn't paint 250

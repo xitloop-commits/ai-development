@@ -427,6 +427,54 @@ def test_phase_exited_rendered_with_state_saved_marker():
     assert "resumable" in rendered.lower()
 
 
+def test_fail_row_inlines_reason_text():
+    """2026-06-14: a failed date's row must show the failure reason
+    inline (last column) so the operator can see WHY without depending
+    on the Warnings & errors block — which can be clipped by narrow
+    terminals or hidden by rich rendering quirks.
+    """
+    dates = ["2026-05-19"]
+    progress_dict = {
+        "2026-05-19": {
+            "status": "fail",
+            "reason": "worker process crashed: Error -3 while decompressing data: invalid block type",
+        }
+    }
+    dash = ProgressDashboard("nifty50", dates, workers=1, progress_dict=progress_dict)
+    rendered = _render_plain(dash)
+    # The row itself must carry a recognisable slice of the reason —
+    # truncated to 60 chars so it doesn't overflow narrow terminals.
+    assert "worker process crashed" in rendered or "Error -3" in rendered
+
+
+def test_warn_row_inlines_reason_text():
+    """Same protection for WARN-verdict rows so validator-flagged
+    anomalies (e.g. "always NEUTRAL regime", "null rates 10%+") show
+    up inline as well.
+    """
+    dates = ["2026-06-02"]
+    progress_dict = {
+        "2026-06-02": {
+            "status": "warn",
+            "reason": "[regime.coverage] always NEUTRAL — 0 trend ticks",
+        }
+    }
+    dash = ProgressDashboard("nifty50", dates, workers=1, progress_dict=progress_dict)
+    rendered = _render_plain(dash)
+    assert "NEUTRAL" in rendered
+
+
+def test_pass_row_keeps_done_label():
+    """PASS rows still show "done" — only fail/warn get the inline
+    reason treatment (a passed date has nothing to apologise for).
+    """
+    dates = ["d1"]
+    progress_dict = {"d1": {"status": "pass", "reason": "this should NOT appear"}}
+    dash = ProgressDashboard("nifty50", dates, workers=1, progress_dict=progress_dict)
+    rendered = _render_plain(dash)
+    assert "this should NOT appear" not in rendered
+
+
 def test_mode_str_rendered_in_header_when_provided():
     """2026-06-14: replay banner moved into the dashboard. When
     `mode_str` is supplied, the dashboard renders a "Mode  …" line so
