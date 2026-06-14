@@ -394,6 +394,47 @@ class TestReplayIncludeDates:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# TestCheckpointAdvancePolicy  (PASS-only advance — 2026-06-14)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestCheckpointAdvancePolicy:
+    """The checkpoint pointer only advances on PASS.
+
+    Pre-2026-06-14 it also advanced on WARN and FAIL, which silently
+    skipped dates that needed re-replay (e.g. partial-recording days
+    and validator-flagged anomalies). Operators had to remember to
+    pass `--include-dates` after a failure batch. PASS-only fixes
+    that — the next range run auto-retries WARN/FAIL dates.
+    """
+
+    def test_pass_advances(self):
+        from tick_feature_agent.replay.replay_runner import _should_advance_checkpoint
+        assert _should_advance_checkpoint("pass") is True
+
+    def test_warn_does_not_advance(self):
+        from tick_feature_agent.replay.replay_runner import _should_advance_checkpoint
+        assert _should_advance_checkpoint("warn") is False
+
+    def test_fail_does_not_advance(self):
+        from tick_feature_agent.replay.replay_runner import _should_advance_checkpoint
+        assert _should_advance_checkpoint("fail") is False
+
+    def test_skip_does_not_advance(self):
+        # "skip" = no raw data for that date; nothing was attempted,
+        # so the pointer must NOT move past it. Sensible semantics for
+        # a backfill that's catching up on missing data.
+        from tick_feature_agent.replay.replay_runner import _should_advance_checkpoint
+        assert _should_advance_checkpoint("skip") is False
+
+    def test_interrupted_does_not_advance(self):
+        # Ctrl+C drain stamps "interrupted" on partially-completed dates.
+        # They must be re-replayed cleanly on the next run.
+        from tick_feature_agent.replay.replay_runner import _should_advance_checkpoint
+        assert _should_advance_checkpoint("interrupted") is False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # TestT47Parallelism  (worker-count resolver + concurrent checkpoint writes)
 # ══════════════════════════════════════════════════════════════════════════════
 

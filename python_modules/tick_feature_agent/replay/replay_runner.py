@@ -885,6 +885,21 @@ def run_one_date(
     return verdict
 
 
+def _should_advance_checkpoint(verdict: str) -> bool:
+    """PASS-only checkpoint advance (2026-06-14).
+
+    WARN (validator flagged anomalies — e.g. all-NEUTRAL regime,
+    truncated recording day) and FAIL (stream / parquet / validator
+    crash) stay un-checkpointed so the next range run auto-retries
+    them. Skipped dates that have no raw data don't move the pointer
+    either — they were never asked to do anything.
+
+    The operator no longer has to remember which dates need a manual
+    ``--include-dates`` re-replay after a partial-failure batch.
+    """
+    return verdict == "pass"
+
+
 def _resolve_workers(num_dates: int, requested: int | None) -> int:
     """T47 worker-count policy.
 
@@ -1222,21 +1237,19 @@ def replay(
                             worker_reason = f"worker process crashed: {exc}"
                         dashboard.mark_terminal(date_str, verdict, reason=worker_reason)
                         summary[verdict] = summary.get(verdict, 0) + 1
-                        if verdict in ("pass", "warn", "fail"):
-                            # Mark all processed dates (including fail) so replay
-                            # moves forward. Failed parquet files still exist and
-                            # can be retrained on if desired. Filelock inside
-                            # ReplayCheckpoint protects the JSON from concurrent
-                            # writes (workers finish out of order).
+                        if _should_advance_checkpoint(verdict):
+                            # Filelock inside ReplayCheckpoint protects
+                            # the JSON from concurrent writes (workers
+                            # finish out of order).
                             checkpoint.mark_complete(instrument, date_str)
-                            if verdict == "fail" and logger:
-                                logger.warn(
-                                    "REPLAY_DATE_FAILED",
-                                    msg=f"{date_str} completed with FAIL verdict — "
-                                    f"partial data saved",
-                                    instrument=instrument,
-                                    date=date_str,
-                                )
+                        elif verdict == "fail" and logger:
+                            logger.warn(
+                                "REPLAY_DATE_FAILED",
+                                msg=f"{date_str} completed with FAIL verdict — "
+                                f"checkpoint NOT advanced; next range run will retry",
+                                instrument=instrument,
+                                date=date_str,
+                            )
                 except KeyboardInterrupt:
                     summary["interrupted"] = True
                     # 2026-06-14: graceful drain. Workers ignore SIGINT

@@ -1420,7 +1420,14 @@ def _run_replay(profile, args, log) -> None:
         date_from = min(include_dates)
         date_to = max(include_dates)
     elif args.date:
+        # 2026-06-14: explicit single-date requests always replay regardless
+        # of the checkpoint pointer. Routing through include_dates is the
+        # bypass — operator typed `--date X`, they want X, not "skip if X
+        # is older than the checkpoint". Range mode (--date-from / --date-to)
+        # keeps the resume-from-checkpoint behaviour because that's how
+        # crash recovery works for multi-day batches.
         date_from = date_to = args.date
+        include_dates = [args.date]
     elif args.date_from and args.date_to:
         date_from, date_to = args.date_from, args.date_to
     else:
