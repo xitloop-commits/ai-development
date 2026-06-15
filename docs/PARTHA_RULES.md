@@ -160,6 +160,17 @@ Always re-read `docs/PROJECT_TODO.md` end-to-end first; never cache the prior tu
   - Mark newly-added items with 🆕 next to the T# in both artifacts.
   - Full format spec (effort estimates, optional "what changed" + "what's next" artifacts) lives in the per-machine memory `feedback_t_roster_format.md`.
 
+## Rule 9 — "Later" means log it to PROJECT_TODO
+
+Whenever Partha defers something ("later", "do it later", "not now", "park it"), immediately add it as an entry in `docs/PROJECT_TODO.md` before moving on — never just drop it. Capture enough context (what / why / where in the code) so it's actionable later, then persist (commit + push) per Rule 6.
+
+**Why:** *"lets do later - when i say later - always remember to add it to todo"* (2026-06-15).
+
+- How to apply:
+  - Triggers on any defer phrasing, not just the literal word "later".
+  - Assign the next free T-number with the right area tag (e.g. `[BSA]`, `[UI]`, `[DATA]`).
+  - Confirm to Partha that it's been logged (one line), then continue.
+
 ## How to add new rules
 
 Append at the bottom with format:

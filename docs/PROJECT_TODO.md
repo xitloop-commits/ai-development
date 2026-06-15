@@ -950,6 +950,16 @@ Surfaced 2026-06-14 while wiring the AppBar market-events tag. The macro-event c
 - **Effort:** ~1–2 days. Keep writes atomic + schema-validated; never let an automated write break the TFA's morning read.
 - **Cross-ref:** `config/event_calendar.json`, `python_modules/tick_feature_agent/features/event_calendar.py`, [systems/02_feature_engineering.md](systems/02_feature_engineering.md); AppBar market-events tag (this session).
 
+### T55 [BSA] — Dhan WS feed self-heal (staleness watchdog + slow-retry) 🆕
+Surfaced 2026-06-15 debugging "MCX live price not in instrument bar." Diagnosed via a temporary tick log: MCX ticks WERE arriving server-side (ticker mode, valid LTP) — the feed had silently gone stale during the day and a **server restart** fixed it. Root gaps in `server/broker/adapters/dhan/websocket.ts`:
+1. **No tick-staleness watchdog.** Socket *drops* self-heal (`resubscribeAll` on reconnect), but if Dhan keeps the socket OPEN while silently stopping an instrument's feed (per-segment lapse — MCX's pattern), nothing detects it → no reconnect → feed dead until restart.
+2. **Reconnect gives up permanently** after `maxReconnectAttempts` (line ~615) — once exhausted only a restart recovers.
+
+- **Status:** ⏳ Open (2026-06-15). Workaround: restart the server when a feed goes silent.
+- **Fix:** (a) staleness watchdog — while market open + subscriptions exist, if no tick for ~60–90s force a reconnect (which resubscribes); generous threshold + market-hours gate so quiet markets don't false-fire. (b) after the fast-retry burst, keep a slow retry (~60s) instead of giving up.
+- **Risk:** touches the live Dhan WS adapter — test carefully (mock + logs); must not false-trigger.
+- **Cross-ref:** `server/broker/adapters/dhan/websocket.ts` (`scheduleReconnect`, `resubscribeAll`, `handleBinaryMessage`); related `1006` expiry warning already present.
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 _None yet._
