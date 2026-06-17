@@ -9,11 +9,12 @@
  * spot it picks the ATM strike and returns that side's securityId + premium.
  */
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { useChain, _ingest as ingestChain } from "@/stores/optionChainStore";
 import type { ResolvedInstrument } from "@/lib/tradeTypes";
 import { useInstrumentTick } from "./useTickStream";
+import { useFeedControl } from "./useFeedControl";
 
 const UNDERLYING_MAP: Record<string, string> = {
   "NIFTY 50": "NIFTY",
@@ -127,6 +128,35 @@ export function useOptionPreview(
 
   const exchange: "NSE_FNO" | "MCX_COMM" =
     instrument === "CRUDE OIL" || instrument === "NATURAL GAS" ? "MCX_COMM" : "NSE_FNO";
+
+  // Subscribe the displayed ATM contract to the live WS feed so its premium
+  // ticks in real time (otherwise livePremium falls back to the ~5s chain quote
+  // → "slow" ticks). Unsubscribe the previous contract when the strike rolls or
+  // the side flips, and on unmount. Subscriptions are ref-counted server-side.
+  const { subscribe, unsubscribe } = useFeedControl();
+  const subbedRef = useRef<{ exchange: string; securityId: string } | null>(null);
+  useEffect(() => {
+    const cur = contractSecurityId ? { exchange, securityId: contractSecurityId } : null;
+    const prev = subbedRef.current;
+    if (prev && (!cur || prev.securityId !== cur.securityId)) {
+      void unsubscribe([prev]);
+      subbedRef.current = null;
+    }
+    if (cur && (!prev || prev.securityId !== cur.securityId)) {
+      void subscribe([{ ...cur, mode: "full" }]);
+      subbedRef.current = cur;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contractSecurityId, exchange]);
+  // Release on unmount.
+  useEffect(
+    () => () => {
+      if (subbedRef.current) void unsubscribe([subbedRef.current]);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const tick = useInstrumentTick(exchange, contractSecurityId ?? null);
   const livePremium = tick?.ltp && tick.ltp > 0 ? tick.ltp : chainPremium;
 
