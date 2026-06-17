@@ -6,8 +6,10 @@
  * visible 7-strike window re-centres on ATM. Use these to iterate on the visual.
  */
 
+import { useEffect, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import { StrikeBar } from "./StrikeBar";
+import type { OiLevel } from "@/hooks/useOptionChainLevels";
 
 const meta = {
   title: "Components/StrikeBar",
@@ -35,6 +37,9 @@ const meta = {
     showTrail: { control: { type: "boolean" }, description: "Leave a fading footprint trail of recent LTP positions" },
     supports: { control: { type: "object" }, description: "Support price levels (array) — emerald dashed markers" },
     resistances: { control: { type: "object" }, description: "Resistance price levels (array) — red dashed markers" },
+    oiLevels: { control: { type: "object" }, description: "Option-chain OI levels (top CE/PE OI strikes, current expiry) — two-sided OI markers" },
+    oiMax: { control: { type: "number", step: 1000 }, description: "Largest single-side OI across oiLevels (normalises height/opacity)" },
+    maxPainStrike: { control: { type: "number", step: 1 }, description: "Max-pain strike — violet 'MP' marker" },
     entryMarker: { control: { type: "number", step: 1 }, description: "Placed trade-entry price (blue 'E'); hover+click also places it" },
     onPlaceEntry: { action: "place entry" },
     onEnterTrade: { action: "enter trade" },
@@ -62,6 +67,35 @@ const base = {
   showZoneLabels: true,
   windowEachSide: 3,
 };
+
+// Sample option-chain OI levels around NIFTY 23400 (current expiry). Put-OI
+// peaks below spot (supports), Call-OI peaks above (resistances). Two strikes
+// (23200, 23650) sit OUTSIDE the visible 23250–23550 window to demo the edge
+// overflow (◂N / ▸N) markers. Leans cover the quadrants (writer / buyer /
+// covering / unwind / flat).
+const sampleOiLevels: OiLevel[] = [
+  { strike: 23200, isSupport: true, isResistance: false, // off-window (left)
+    call: { oi: 30000, oiChange: -2500, trend: "down", lean: "unwind" },
+    put: { oi: 95000, oiChange: 9500, trend: "up", lean: "writer" } },
+  { strike: 23300, isSupport: true, isResistance: false,
+    call: { oi: 42000, oiChange: 800, trend: "flat", lean: "flat" },
+    put: { oi: 112000, oiChange: 13000, trend: "up", lean: "writer" } },
+  { strike: 23350, isSupport: true, isResistance: false,
+    call: { oi: 38000, oiChange: 0, trend: "flat", lean: "flat" },
+    put: { oi: 84000, oiChange: -6000, trend: "down", lean: "covering" } },
+  { strike: 23450, isSupport: false, isResistance: true,
+    call: { oi: 104000, oiChange: 12000, trend: "up", lean: "buyer" },
+    put: { oi: 30000, oiChange: -900, trend: "flat", lean: "flat" } },
+  { strike: 23500, isSupport: false, isResistance: true,
+    call: { oi: 120000, oiChange: 14000, trend: "up", lean: "writer" },
+    put: { oi: 26000, oiChange: 0, trend: "flat", lean: "flat" } },
+  { strike: 23650, isSupport: false, isResistance: true, // off-window (right)
+    call: { oi: 72000, oiChange: 5000, trend: "up", lean: "buyer" },
+    put: { oi: 21000, oiChange: 0, trend: "flat", lean: "flat" } },
+];
+const sampleOiMax = 120000;
+const sampleMaxPain = 23400;
+const oiBase = { ...base, showZoneLabels: false, oiLevels: sampleOiLevels, oiMax: sampleOiMax, maxPainStrike: sampleMaxPain };
 
 export const Playground: Story = { args: { ...base, compact: false } };
 
@@ -113,4 +147,70 @@ export const BankNifty: Story = {
 export const Compact: Story = {
   args: { ...base, compact: true },
   parameters: { docs: { description: { story: "Compact (no strike labels) — how it renders inside a tight table cell." } } },
+};
+
+// ── Option-chain OI markers (current expiry) ────────────────────────────────
+
+export const OiMarkers: Story = {
+  args: { ...oiBase },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Two-sided OI marks merged onto the strike axis: Call OI ABOVE the track (red), " +
+          "Put OI BELOW (green); height/opacity ∝ OI. ▲/▼ on each = OI building/unwinding; " +
+          "arrow colour = buyer/seller lean (wall-colour = defended, amber = under pressure). " +
+          "Violet 'MP' = max-pain. Hover any marker for the full CE + PE numbers.",
+      },
+    },
+  },
+};
+
+export const OiMarkersCompact: Story = {
+  args: { ...oiBase, compact: true },
+  parameters: { docs: { description: { story: "Compact (no strike labels) — how it renders inside a tight table cell on the instrument bar." } } },
+};
+
+export const OiMarkersPut: Story = {
+  args: { ...oiBase, side: "PE" },
+  parameters: { docs: { description: { story: "OI marks are identical in CE and PE — they're underlying strike levels, not side-specific. Only the strike-tick ITM/OTM colouring flips." } } },
+};
+
+// Dev preview of the flying-balloon S/R alerts: cycle the per-strike leans every
+// ~2s so balloons keep firing (green floats up = strengthening, red floats down =
+// weakening). In the live desk these fire only on real lean changes.
+function SrBalloonDemo() {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 2200);
+    return () => clearInterval(id);
+  }, []);
+  const cycle = ["writer", "buyer", "flat", "covering", "unwind"] as const;
+  const levels: OiLevel[] = sampleOiLevels
+    .filter((l) => l.strike >= 23250 && l.strike <= 23550) // inside the visible window
+    .map((l, i) => ({
+      ...l,
+      call: { ...l.call, lean: cycle[(tick + i) % cycle.length], trend: "up" },
+      put: { ...l.put, lean: cycle[(tick + i + 2) % cycle.length], trend: "up" },
+    }));
+  return (
+    <div style={{ padding: "48px 12px" }}>
+      <StrikeBar {...oiBase} oiLevels={levels} />
+    </div>
+  );
+}
+
+export const OiBalloons: Story = {
+  args: oiBase,
+  render: () => <SrBalloonDemo />,
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Dev preview of the flying-balloon S/R alerts. Leans cycle every ~2s so balloons keep " +
+          "popping: green floats UP (strengthening), red floats DOWN (weakening), labelled per side. " +
+          "In the live desk they fire only on a real lean change.",
+      },
+    },
+  },
 };

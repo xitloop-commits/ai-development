@@ -20,6 +20,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { PastRow } from './PastRow';
 import { FutureRow } from './FutureRow';
 import { TodaySection } from './TodaySection';
+import { InstrumentBarsPanel } from './InstrumentBarsPanel';
 import { useTradingDeskData } from '@/hooks/useTradingDeskData';
 import { useTradingDeskHandlers } from '@/hooks/useTradingDeskHandlers';
 
@@ -44,6 +45,8 @@ export default function TradingDesk({
   const workspace = channelToWorkspace(channel);
 
   const [showNet, setShowNet] = useState(true);
+  // The always-on instrument bars now live in a draggable floating window.
+  const [barsPanelOpen, setBarsPanelOpen] = useState(true);
   const [expandedDays, setExpandedDays] = useState<Set<number>>(() => new Set());
   const toggleExpand = useCallback((dayIndex: number) => {
     setExpandedDays((prev) => {
@@ -113,6 +116,17 @@ export default function TradingDesk({
           <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">P&amp;L</span>
           <span className="text-xs font-bold tabular-nums text-foreground">{showNet ? 'Net' : 'Gross'}</span>
         </button>
+        {canManageTrades && (
+          <button
+            type="button"
+            onClick={() => setBarsPanelOpen((v) => !v)}
+            className="px-3 py-1.5 flex flex-col items-center justify-center hover:bg-muted/40 transition-colors"
+            title="Toggle the movable instrument-bars window"
+          >
+            <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Bars</span>
+            <span className="text-xs font-bold tabular-nums text-foreground">{barsPanelOpen ? 'On' : 'Off'}</span>
+          </button>
+        )}
         <TodayPnlBar
           pnl={capital.todayPnl}
           tradingPool={capital.tradingPool}
@@ -195,7 +209,6 @@ export default function TradingDesk({
                         getLiveLtp={getLiveLtp}
                         todayRef={todayRef}
                         channel={channel}
-                        resolvedInstruments={resolvedInstruments}
                         allDays={allDays}
                       />
                     );
@@ -258,6 +271,16 @@ export default function TradingDesk({
         onConfirm={confirmDialog.onConfirm}
         onCancel={closeConfirmDialog}
       />
+
+      {/* Always-on instrument bars — draggable floating window (moved out of the table). */}
+      {canManageTrades && barsPanelOpen && (
+        <InstrumentBarsPanel
+          resolvedInstruments={resolvedInstruments}
+          trades={ctxCurrentDay?.trades ?? []}
+          onPlaceTrade={handlePlaceTrade}
+          onClose={() => setBarsPanelOpen(false)}
+        />
+      )}
     </div>
   );
 }

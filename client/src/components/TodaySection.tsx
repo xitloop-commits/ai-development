@@ -3,7 +3,6 @@ import type {
   CapitalState,
   Channel,
   DayRecord,
-  ResolvedInstrument,
   TradeRecord,
 } from '@/lib/tradeTypes';
 import { channelToWorkspace } from '@/lib/tradeTypes';
@@ -17,11 +16,8 @@ import {
 } from '@/lib/tradeThemes';
 import { trpc } from '@/lib/trpc';
 import { TodayTradeRow } from './TodayTradeRow';
-import { InstrumentBarRow } from './InstrumentBarRow';
 import { TodaySummaryRow } from './TodaySummaryRow';
 
-/** The 4 tradable instruments shown as always-on bars at the bottom. */
-const INSTRUMENT_BAR_LIST = ['NIFTY 50', 'BANK NIFTY', 'CRUDE OIL', 'NATURAL GAS'];
 /** TradingDesk table column count (see TradingDesk.tsx colgroup). */
 const TABLE_COLSPAN = 17;
 
@@ -39,7 +35,6 @@ export interface TodaySectionProps {
   getLiveLtp: (trade: TradeRecord) => number | undefined;
   todayRef: React.RefObject<HTMLTableRowElement | null>;
   channel: Channel;
-  resolvedInstruments?: ResolvedInstrument[];
   allDays: DayRecord[];
 }
 
@@ -56,7 +51,6 @@ export function TodaySection({
   getLiveLtp,
   todayRef,
   channel,
-  resolvedInstruments,
   allDays,
 }: TodaySectionProps) {
   // Trailing stop is a workspace-wide switch (Settings), no longer per-trade.
@@ -161,20 +155,6 @@ export function TodaySection({
           tradeNo={idx + 1}
         />
       ))}
-
-      {/* Always-on per-instrument trade-entry bars (bottom of the section) */}
-      {canManageTrades &&
-        INSTRUMENT_BAR_LIST.map((inst) => (
-          <InstrumentBarRow
-            key={inst}
-            instrument={inst}
-            channel={channel}
-            colSpan={TABLE_COLSPAN}
-            resolvedInstruments={resolvedInstruments}
-            instrumentTrades={trades.filter((t) => t.instrument === inst)}
-            onPlaceTrade={onPlaceTrade}
-          />
-        ))}
     </>
   );
 }

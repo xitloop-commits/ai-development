@@ -289,6 +289,25 @@
     display: inline-block;
   }
 
+  /* S/R "flying balloon" alerts. Strengthening = balloons rain DOWN into the arrow
+     from above (flow getting in). Weakening = balloons fall away below (flowing out). */
+  /* Anchored at the arrow's centre (top:50%); translate(-50%,-50%) = balloon
+     centred ON the arrow. Strengthening descends from above and lands on the
+     arrow centre (brightening); weakening starts on the arrow and falls away. */
+  @keyframes sr-balloon-up {
+    0%   { transform: translate(-50%, calc(-50% - 30px)); opacity: 0; }
+    90%  { transform: translate(-50%, calc(-50% - 2px));  opacity: 1; }
+    100% { transform: translate(-50%, -50%);              opacity: 0; }
+  }
+  @keyframes sr-balloon-down {
+    0%   { transform: translate(-50%, -50%);              opacity: 0; }
+    15%  { transform: translate(-50%, calc(-50% + 6px));  opacity: 1; }
+    80%  { transform: translate(-50%, calc(-50% + 26px)); opacity: 1; }
+    100% { transform: translate(-50%, calc(-50% + 34px)); opacity: 0; }
+  }
+  .animate-sr-balloon-up   { animation: sr-balloon-up 3s ease-out both; }
+  .animate-sr-balloon-down { animation: sr-balloon-down 3s ease-out both; }
+
   /* ─── Thin scrollbar with workspace colors ─── */
   .scrollbar-thin {
     scrollbar-width: thin;

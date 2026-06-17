@@ -228,37 +228,52 @@ export class MockAdapter implements BrokerAdapter {
     expiry: string,
     _exchangeSegment?: string
   ): Promise<OptionChainData> {
-    // Mock adapter returns a sample option chain
-    const sym = underlying.toUpperCase();
-    const isNifty = sym.includes("NIFTY");
-    const baseStrike = isNifty ? 26000 : 6000;
-    const step = isNifty ? 100 : 50;
+    // Resolve a per-instrument centre + step that matches the mock underlying
+    // feed (SEED prices) so the chain strikes line up with the StrikeBar window.
+    // `underlying` may be a securityId ("13"/"25"/"MOCK-…-FUT") or a symbol.
+    const u = underlying.toUpperCase();
+    let baseStrike: number, step: number, lotSize: number;
+    if (u === "13" || (u.includes("NIFTY") && !u.includes("BANK"))) {
+      baseStrike = 23400; step = 50; lotSize = 25; // NIFTY 50
+    } else if (u === "25" || u.includes("BANK")) {
+      baseStrike = 51000; step = 100; lotSize = 15; // BANK NIFTY
+    } else if (u.includes("CRUDE")) {
+      baseStrike = 6000; step = 50; lotSize = 100; // CRUDE OIL
+    } else if (u.includes("NATURAL") || u.includes("GAS")) {
+      baseStrike = 250; step = 5; lotSize = 1250; // NATURAL GAS
+    } else {
+      baseStrike = 6000; step = 50; lotSize = 1;
+    }
 
-    // Static lot sizes matching NSE/MCX exchange norms
-    const MOCK_LOT_SIZES: Record<string, number> = {
-      NIFTY: 25, BANKNIFTY: 15, FINNIFTY: 25, MIDCPNIFTY: 50,
-      SENSEX: 10, BANKEX: 15,
-      CRUDEOIL: 100, NATURALGAS: 1250, GOLD: 1, SILVER: 30,
-    };
-    const lotSize = MOCK_LOT_SIZES[sym] ?? (isNifty ? 25 : 1);
-
+    // Stable, realistic synthetic OI so the support/resistance markers don't
+    // jitter: a Put-OI peak BELOW spot (support) and a Call-OI peak ABOVE spot
+    // (resistance), Gaussian-decaying, with a fixed per-strike texture. OI and
+    // premium carry a slow time-drift (~20–30s) so OI-change arrows and the
+    // buyer/seller lean show movement without random per-call jumps.
+    const t = Date.now();
+    const gauss = (x: number, mu: number, sigma: number) => Math.exp(-((x - mu) ** 2) / (2 * sigma * sigma));
+    const PEAK_OI = 120000;
     const rows = [];
-    for (let i = -5; i <= 5; i++) {
+    for (let i = -8; i <= 8; i++) {
       const strike = baseStrike + i * step;
+      const texture = 1 + 0.15 * Math.sin(strike);                 // fixed per-strike variety
+      const callOI = Math.round(PEAK_OI * gauss(i, 3, 3) * texture * (1 + 0.12 * Math.sin(t / 30000 + i)));
+      const putOI = Math.round(PEAK_OI * gauss(i, -3, 3) * texture * (1 + 0.12 * Math.sin(t / 30000 + i + 7)));
+      const tv = step * 1.5 * gauss(i, 0, 4);                       // time value, bell around ATM
       rows.push({
         strike,
-        callOI: Math.floor(Math.random() * 100000),
-        callOIChange: Math.floor(Math.random() * 10000) - 5000,
-        callLTP: Math.max(0.05, (5 - i) * 20 + Math.random() * 10),
-        callVolume: Math.floor(Math.random() * 50000),
-        callIV: 15 + Math.random() * 10,
-        callSecurityId: `MOCK-${sym}-${strike}-CE`,
-        putOI: Math.floor(Math.random() * 100000),
-        putOIChange: Math.floor(Math.random() * 10000) - 5000,
-        putLTP: Math.max(0.05, (i + 5) * 20 + Math.random() * 10),
-        putVolume: Math.floor(Math.random() * 50000),
-        putIV: 15 + Math.random() * 10,
-        putSecurityId: `MOCK-${sym}-${strike}-PE`,
+        callOI,
+        callOIChange: Math.round(callOI * 0.08 * Math.sin(t / 20000 + i)),
+        callLTP: Math.max(0.05, Math.max(0, baseStrike - strike) + tv + 5 * Math.sin(t / 15000 + i)),
+        callVolume: Math.round(callOI * 0.4),
+        callIV: 15 + 5 * gauss(i, 0, 5),
+        callSecurityId: `MOCK-${u}-${strike}-CE`,
+        putOI,
+        putOIChange: Math.round(putOI * 0.08 * Math.sin(t / 20000 + i + 4)),
+        putLTP: Math.max(0.05, Math.max(0, strike - baseStrike) + tv + 5 * Math.sin(t / 15000 + i + 3)),
+        putVolume: Math.round(putOI * 0.4),
+        putIV: 15 + 5 * gauss(i, 0, 5),
+        putSecurityId: `MOCK-${u}-${strike}-PE`,
       });
     }
 

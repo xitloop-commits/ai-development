@@ -327,6 +327,8 @@ class TickHandler extends EventEmitter {
               } else if (Date.now() - armedAt >= tslHoldMs) {
                 this.tslActivated.add(trade.id);
                 this.tslArmedAt.delete(trade.id);
+                // TEMP DIAGNOSTIC (TSL investigation 2026-06-16): confirm activation.
+                log.important(`TSLDBG ACTIVATED ${channel} trade=${trade.id} ${trade.instrument} ltp=${tick.ltp} gate=${Math.round(gatePrice * 100) / 100} stop=${trade.stopLossPrice}`);
               }
             } else {
               this.tslArmedAt.delete(trade.id);
@@ -347,6 +349,8 @@ class TickHandler extends EventEmitter {
               ? trailedSL > trade.stopLossPrice
               : trailedSL < trade.stopLossPrice;
             if (shouldTrail) {
+              // TEMP DIAGNOSTIC (TSL investigation 2026-06-16): stop trailed up.
+              log.info(`TSLDBG TRAIL ${channel} trade=${trade.id} ltp=${tick.ltp} peak=${newPeak} stop ${trade.stopLossPrice}→${trailedSL}`);
               trade.stopLossPrice = trailedSL;
               anyUpdated = true;
             }
@@ -374,6 +378,8 @@ class TickHandler extends EventEmitter {
             ? tick.ltp <= trade.stopLossPrice
             : tick.ltp >= trade.stopLossPrice;
           if (slHit) {
+            // TEMP DIAGNOSTIC (TSL investigation 2026-06-16): SL/TSL hit → exit emit.
+            log.important(`TSLDBG SL-HIT ${channel} trade=${trade.id} ${trade.instrument} ltp=${tick.ltp} stop=${trade.stopLossPrice} → emit exit`);
             this.peakPrices.delete(peakKey); // cleanup
             this.tslArmedAt.delete(trade.id);
             this.tslActivated.delete(trade.id);
