@@ -213,17 +213,26 @@ def _is_replay_already_running(instrument: str, date_str: str) -> bool:
         return False
 
 
-def _spawn_auto_replay(profile, log) -> None:
-    """Detached subprocess: start-replay.bat <instrument> --date <today>.
+def _spawn_auto_replay(instrument_key: str, log) -> None:
+    """Detached subprocess: start-replay.bat <instrument-key> --date <today>.
 
     Called from TFA's _on_session_close_h after SESSION_AUTO_STOP. Runs in a
     separate cmd.exe window via the same launcher path the operator uses
     manually; LUBAS_HEADLESS=1 in the spawn env so the wrapper bat skips its
     interactive 2-minute auto-close timeout. Failures (file missing, dedup
     skip, non-zero spawn) all ping yow-partha so Partha is aware.
+
+    ``instrument_key`` is the lowercase profile-filename key (e.g.
+    ``"banknifty"``, ``"nifty50"``) — NOT ``profile.instrument_name``
+    (uppercase semantic name like ``"BANKNIFTY"``, ``"NIFTY"``). The
+    rest of the pipeline (metadata.json keys, parquet filenames,
+    checkpoint, lifecycle tags ``replay-banknifty``) all use the
+    lowercase form; the auto-replay invocation must match or
+    ``run_one_date`` will fail the ``meta["instruments"][key]`` lookup
+    and SKIP-and-exit immediately (2026-06-16 incident).
     """
     today_ist = datetime.now(_IST).strftime("%Y-%m-%d")
-    inst = profile.instrument_name
+    inst = instrument_key
 
     if _is_replay_already_running(inst, today_ist):
         log.info(
@@ -968,7 +977,15 @@ async def _run_live(profile, args, log, _kb: dict) -> None:
         # any already-running replay (manual launcher fires can collide with
         # this hook). Failures ping yow-partha. See _spawn_auto_replay() for
         # the full rationale.
-        _spawn_auto_replay(profile, log)
+        #
+        # Pass the lowercase profile-filename key (e.g. "banknifty",
+        # "nifty50"), NOT profile.instrument_name ("BANKNIFTY", "NIFTY").
+        # The metadata.json keys + parquet filenames + checkpoint all
+        # use the filename form; mismatching it makes run_one_date
+        # SKIP-and-exit immediately. Same derivation _run_replay uses
+        # at line ~1442 (2026-06-16 fix).
+        _auto_replay_key = Path(args.instrument_profile).stem.replace("_profile", "")
+        _spawn_auto_replay(_auto_replay_key, log)
         # MCX session close = end of day for all live feeds. The API server
         # is not needed by replay or yow-partha (verified 2026-05-20), so
         # gracefully stop it now to free resources. start-all.bat will
