@@ -399,8 +399,31 @@ def validate(
     ts_col = _col("timestamp")
     security_id_col = _col("underlying_security_id")
 
-    # Build column dict for Layer 2 / Layer 3
-    columns: dict[str, list] = {c: _col(c) for c in df_cols}
+    # 2026-06-17: only materialise the columns layers 2/3 + daily_stats +
+    # warmup-filter actually inspect. Pre-fix code did
+    # `{c: _col(c) for c in df_cols}` which converted ALL ~550 columns to
+    # Python lists then `_filter_post_warmup` iterated every one of them
+    # — for crude oil's millions of feature rows this was hours of pure-
+    # Python work per date. Restricting to the ~20 needed columns gives
+    # the same verdicts with ~25× less wasted materialisation. Layer
+    # functions, thresholds, output JSON shape all unchanged.
+    _NEEDED_COLS = (
+        # warmup filter
+        "trading_state",
+        # Layer 2 null-rate check columns
+        "underlying_ltp", "underlying_momentum", "underlying_ofi_5",
+        "chain_pcr_global", "chain_pcr_atm", "regime",
+        "breakout_readiness", "zone_activity_score", "data_quality_flag",
+        # Layer 3 statistical-sanity columns (union with above)
+        "opt_0_ce_bid_ask_imbalance", "opt_m1_ce_bid_ask_imbalance",
+        "underlying_trade_direction", "direction_30s",
+        "call_put_strength_diff", "underlying_return_5ticks",
+        # daily_stats columns (union with above)
+        "underlying_realized_vol_5",
+    )
+    columns: dict[str, list] = {
+        c: _col(c) for c in _NEEDED_COLS if c in df_cols
+    }
 
     layer1 = _layer1_structural(df_cols, n_rows, ts_col, security_id_col, COLUMN_NAMES)
     layer2 = _layer2_null_rates(columns, n_rows)
