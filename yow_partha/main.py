@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -22,6 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 
 from telegram import BotCommand
+from telegram.error import NetworkError, TelegramError
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler
 
 from .handlers.callbacks import on_callback
@@ -76,14 +78,38 @@ def main() -> None:
 
     app.post_init = _post_init
 
+    # Pre-flight: fail fast & clean if Telegram is unreachable (blocked ISP /
+    # no VPN / offline). Without this, PTB's bootstrap dumps a multi-page
+    # traceback before aborting. A quick TCP probe lets us show one line and
+    # terminate.
+    try:
+        with socket.create_connection(("api.telegram.org", 443), timeout=8):
+            pass
+    except OSError as exc:
+        print(f"\nERROR: can't reach Telegram — {exc}.", file=sys.stderr)
+        print("Check your internet / VPN, then restart the bot.", file=sys.stderr)
+        _emit_lifecycle("stop", "error", "network unreachable")
+        sys.exit(1)
+
     _emit_lifecycle("start", "starting", "bot polling")
     print(f"yow-partha running — allowed user: {chat_id}")
     print("Press Ctrl+C to stop.\n")
     try:
         app.run_polling(drop_pending_updates=True)
     except KeyboardInterrupt:
-        pass
-    finally:
+        _emit_lifecycle("stop", "ok", "bot stopped (Ctrl+C)")
+    except NetworkError as exc:
+        # Can't reach Telegram (timeout / connection refused). Show a clean
+        # one-liner instead of a multi-page traceback, then terminate.
+        print(f"\nERROR: can't reach Telegram — {exc}.", file=sys.stderr)
+        print("Check your internet / VPN, then restart the bot.", file=sys.stderr)
+        _emit_lifecycle("stop", "error", "network unreachable")
+        sys.exit(1)
+    except TelegramError as exc:
+        print(f"\nERROR: Telegram API error — {exc}. Stopping.", file=sys.stderr)
+        _emit_lifecycle("stop", "error", str(exc))
+        sys.exit(1)
+    else:
         _emit_lifecycle("stop", "ok", "bot stopped")
 
 
