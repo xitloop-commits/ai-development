@@ -960,6 +960,12 @@ Surfaced 2026-06-15 debugging "MCX live price not in instrument bar." Diagnosed 
 - **Risk:** touches the live Dhan WS adapter — test carefully (mock + logs); must not false-trigger.
 - **Cross-ref:** `server/broker/adapters/dhan/websocket.ts` (`scheduleReconnect`, `resubscribeAll`, `handleBinaryMessage`); related `1006` expiry warning already present.
 
+### T56 [UI] — Merge ENTER into the LONG/SHORT toggle (instrument bars) 🆕
+Proposed 2026-06-16 (Partha to confirm). Idea: drop the separate Ctrl-ENTER button on the floating instrument bars; instead move the LONG/SHORT toggle to the right and make it double as the entry trigger — plain click picks direction (and arms the entry-marker); **Ctrl+hover** flips that button's label to "ENTER" (green LONG / red SHORT); **Ctrl+click** enters at the live premium in *that* button's direction. Implementation note: the place call must use the clicked button's direction, not the previously-selected one (pass direction through `onEnter`).
+
+- **Status:** ⏳ Parked — keeping the dedicated ENTER button until Partha confirms.
+- **Cross-ref:** `client/src/components/InstrumentBar.tsx`, `InstrumentBarItem.tsx`, `useInstrumentBar.ts`.
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 _None yet._
