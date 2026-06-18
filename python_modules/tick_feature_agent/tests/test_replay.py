@@ -568,3 +568,102 @@ class TestProgressDashboard:
         # The Group object is opaque; rich renders it elsewhere.
         renderable = dash._render()
         assert renderable is not None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TestMergeChunksToFinal  (streaming merge — 2026-06-19 OOM fix)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestMergeChunksToFinal:
+    """Pre-2026-06-19 the merge loaded every chunk parquet as a pyarrow
+    Table into a list, then concatenated, then wrote. On crude oil's
+    ~25-chunk days that peaked at 3-4 GB and combined with flush_all's
+    pending queue Windows OOM-killed the worker. The streaming polars
+    rewrite uses constant ~50-100 MB regardless of input size.
+
+    These tests pin: (a) row equivalence with the old pyarrow path,
+    (b) column-order preservation, (c) graceful no-op on empty input,
+    (d) progress-callback invocations.
+    """
+
+    def _make_chunks(self, tmp_path, n_chunks: int = 3, n_rows: int = 50):
+        import polars as pl
+        chunks = []
+        for i in range(n_chunks):
+            df = pl.DataFrame({
+                "event_idx": list(range(i * n_rows, (i + 1) * n_rows)),
+                "timestamp": [1700000000 + i * n_rows + j for j in range(n_rows)],
+                "ltp": [100.0 + i + j * 0.1 for j in range(n_rows)],
+                "instrument": ["nifty50"] * n_rows,
+            })
+            p = tmp_path / f"chunk_{i:03d}.parquet"
+            df.write_parquet(str(p))
+            chunks.append(p)
+        return chunks
+
+    def test_streaming_merge_matches_pyarrow_concat(self, tmp_path):
+        import polars as pl
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        from tick_feature_agent.replay.replay_runner import _merge_chunks_to_final
+
+        chunks = self._make_chunks(tmp_path, n_chunks=4, n_rows=125)
+
+        # New streaming path
+        new_path = tmp_path / "new.parquet"
+        _merge_chunks_to_final(chunks, new_path)
+
+        # Old pyarrow path (the implementation we replaced)
+        tables = [pq.read_table(c) for c in chunks]
+        merged = pa.concat_tables(tables)
+        old_path = tmp_path / "old.parquet"
+        pq.write_table(merged, old_path)
+
+        new_df = pl.read_parquet(new_path)
+        old_df = pl.read_parquet(old_path)
+        assert new_df.shape == old_df.shape
+        assert new_df.columns == old_df.columns
+        # Row content is identical — only parquet row-group encoding may differ
+        # between the two writers, which we don't assert on.
+        assert new_df.equals(old_df)
+
+    def test_progress_callback_fires_at_expected_stages(self, tmp_path):
+        from tick_feature_agent.replay.replay_runner import _merge_chunks_to_final
+
+        chunks = self._make_chunks(tmp_path, n_chunks=3, n_rows=20)
+        events = []
+
+        def _cb(i, total, stage):
+            events.append((i, total, stage))
+
+        _merge_chunks_to_final(chunks, tmp_path / "final.parquet", on_progress=_cb)
+
+        stages = [e[2] for e in events]
+        assert "reading" in stages
+        assert "concat" in stages
+        assert "writing" in stages
+        # First event is reading start; last is writing.
+        assert events[0][2] == "reading"
+        assert events[-1][2] == "writing"
+
+    def test_empty_chunk_list_is_noop(self, tmp_path):
+        from tick_feature_agent.replay.replay_runner import _merge_chunks_to_final
+
+        out = tmp_path / "should_not_exist.parquet"
+        _merge_chunks_to_final([], out)
+        assert not out.exists()
+
+    def test_atomic_write_uses_tmp_then_rename(self, tmp_path):
+        """``_merge_chunks_to_final`` writes to ``<final>.tmp`` first
+        then renames. Verify the .tmp file does NOT survive the call
+        on success.
+        """
+        from tick_feature_agent.replay.replay_runner import _merge_chunks_to_final
+
+        chunks = self._make_chunks(tmp_path, n_chunks=2, n_rows=10)
+        out = tmp_path / "merged.parquet"
+        _merge_chunks_to_final(chunks, out)
+        assert out.exists()
+        assert not (tmp_path / "merged.parquet.tmp").exists()

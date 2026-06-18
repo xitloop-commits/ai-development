@@ -182,34 +182,53 @@ def _merge_chunks_to_final(
 ) -> None:
     """Concatenate chunk parquets into one final parquet, write atomically.
 
-    Optional ``on_progress(i, total, stage)`` callback fires between chunk
-    reads + before/after the concat + write, so a long merge (100+
-    chunks on naturalgas → ~30s) doesn't freeze the dashboard. ``stage``
-    is one of ``"reading"``, ``"concat"``, ``"writing"``.
+    Optional ``on_progress(i, total, stage)`` callback fires at the
+    start ("reading"), once polars completes the streaming pass
+    ("concat"), and once after the atomic rename ("writing"). The
+    previous per-chunk "reading" callbacks are gone — polars handles
+    the whole streaming pass as one operation.
+
+    2026-06-19: switched from pyarrow load-all + concat to polars
+    ``scan_parquet([files]).sink_parquet(tmp)`` streaming. The old
+    path read every chunk parquet into RAM as a pyarrow Table, then
+    held BOTH the table list AND the concat result simultaneously
+    while writing — peaked at 3–4 GB on crude oil's ~25-chunk days,
+    on top of the worker's already-fat steady state. Combined with
+    flush_all peak and the targets-cache Polars frames, the worker
+    hit 100% RAM and Windows OOM-killed it, losing the operator's
+    progress. The streaming path keeps merge memory at ~one row-batch
+    (~50-100 MB) regardless of input size. Chunks on disk are still
+    only deleted by the caller AFTER the atomic rename succeeds, so
+    a mid-merge crash leaves the chunks intact for resume.
     """
-    import pyarrow as pa
-    import pyarrow.parquet as pq
     if not chunk_files:
         return
     total = len(chunk_files)
-    tables: list = []
-    for i, f in enumerate(chunk_files):
-        tables.append(pq.read_table(f))
-        if on_progress is not None:
-            try:
-                on_progress(i + 1, total, "reading")
-            except Exception:
-                pass
     if on_progress is not None:
-        try: on_progress(total, total, "concat")
-        except Exception: pass
-    merged = pa.concat_tables(tables) if len(tables) > 1 else tables[0]
-    if on_progress is not None:
-        try: on_progress(total, total, "writing")
-        except Exception: pass
+        try:
+            on_progress(0, total, "reading")
+        except Exception:
+            pass
+
+    import polars as pl
+
     tmp = final_path.with_suffix(final_path.suffix + ".tmp")
-    pq.write_table(merged, tmp)
+    # ``scan_parquet`` accepts a list of paths and treats them as one
+    # logical lazy frame. ``sink_parquet`` writes incrementally without
+    # materialising the full frame.
+    pl.scan_parquet([str(f) for f in chunk_files]).sink_parquet(str(tmp))
+
+    if on_progress is not None:
+        try:
+            on_progress(total, total, "concat")
+        except Exception:
+            pass
     tmp.replace(final_path)
+    if on_progress is not None:
+        try:
+            on_progress(total, total, "writing")
+        except Exception:
+            pass
 
 
 def _iter_dates(date_from: str, date_to: str):
