@@ -263,6 +263,16 @@ def _spawn_auto_replay(instrument_key: str, log) -> None:
         import subprocess
         env = os.environ.copy()
         env["LUBAS_HEADLESS"] = "1"
+        # LUBAS_AUTO_REPLAY=1 signals the child's _run_replay path to
+        # acquire the auto-replay file-lock at data/raw/auto_replay.lock
+        # before starting (2026-06-18). When NSE close at 15:30 fires
+        # nifty50 + banknifty, or MCX close at 23:30 fires crudeoil +
+        # naturalgas, both instruments hit the lock; the second one
+        # blocks until the first finishes — instead of both fighting
+        # for NVMe + BLAS + RAM at the same time and each running 2-3×
+        # slower. Manual `start-replay.bat` invocations don't set this
+        # env var, so concurrent dev runs are unaffected.
+        env["LUBAS_AUTO_REPLAY"] = "1"
         creation_flags = 0
         if sys.platform == "win32":
             # Detached + new console so the spawn survives TFA exit and gets
@@ -1483,21 +1493,73 @@ def _run_replay(profile, args, log) -> None:
             f"replay  {date_from} … {date_to}  ·  {instrument_label}"
         )
 
-    summary = replay(
-        profile_path=profile_path_obj,
-        instrument=instrument_key,
-        date_from=date_from,
-        date_to=date_to,
-        raw_root=args.data_root,
-        features_root=args.features_root,
-        validation_root=args.validation_root,
-        logger=log,
-        include_dates=include_dates,
-        workers=getattr(args, "workers", None),
-        log_dir=args.log_dir,
-        log_level=args.log_level,
-        dashboard_mode_str=mode_str,
-    )
+    # 2026-06-18: serialise concurrent auto-replays via file-lock.
+    # When the recorder triggers _spawn_auto_replay at NSE close (15:30
+    # IST → nifty50 + banknifty) or MCX close (23:30 IST → crudeoil +
+    # naturalgas), both instruments would otherwise fight for NVMe +
+    # BLAS + RAM and each run 2-3× slower. The first one to grab the
+    # lock proceeds; the second blocks until the first finishes. Manual
+    # `start-replay.bat` invocations don't set LUBAS_AUTO_REPLAY, so
+    # this only affects the auto-replay path.
+    def _run_actual_replay():
+        return replay(
+            profile_path=profile_path_obj,
+            instrument=instrument_key,
+            date_from=date_from,
+            date_to=date_to,
+            raw_root=args.data_root,
+            features_root=args.features_root,
+            validation_root=args.validation_root,
+            logger=log,
+            include_dates=include_dates,
+            workers=getattr(args, "workers", None),
+            log_dir=args.log_dir,
+            log_level=args.log_level,
+            dashboard_mode_str=mode_str,
+        )
+
+    if os.environ.get("LUBAS_AUTO_REPLAY") == "1":
+        import portalocker
+        lock_path = Path(args.data_root) / "auto_replay.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        # Quick non-blocking probe first so we can print the queued
+        # message before we go silent on the blocking wait. If the
+        # probe succeeds we hold the lock and proceed; if it fails
+        # we re-enter blocking and print the queue notice.
+        try:
+            with portalocker.Lock(
+                str(lock_path), timeout=0.1, fail_when_locked=True,
+            ):
+                summary = _run_actual_replay()
+        except (portalocker.exceptions.LockException, OSError):
+            print(
+                f"\n  {YELLOW('◷  Auto-replay queue:')}  another instrument is "
+                f"still replaying. Waiting for it to finish before starting "
+                f"{instrument_key}...\n",
+                flush=True,
+            )
+            log.info(
+                "AUTO_REPLAY_QUEUED",
+                msg=f"Auto-replay for {instrument_key} waiting on lock",
+                instrument=instrument_key,
+                lock_path=str(lock_path),
+            )
+            # Blocking acquire — fail_when_locked=False is the default,
+            # so this waits indefinitely. The waiter sits at ~0% CPU.
+            with portalocker.Lock(str(lock_path), fail_when_locked=False):
+                print(
+                    f"\n  {GREEN('▶  Lock acquired.')}  Starting "
+                    f"{instrument_key} replay...\n",
+                    flush=True,
+                )
+                log.info(
+                    "AUTO_REPLAY_LOCK_ACQUIRED",
+                    msg=f"Auto-replay for {instrument_key} acquired lock",
+                    instrument=instrument_key,
+                )
+                summary = _run_actual_replay()
+    else:
+        summary = _run_actual_replay()
 
     # Per-date table + checkpoint state — gives the operator a clear
     # post-run confirmation of which dates actually produced a

@@ -148,27 +148,40 @@ def main() -> None:
     print("Starting cProfile-wrapped replay (serial, workers=1)...")
     print()
 
+    # 2026-06-18: profile run_one_date DIRECTLY in the parent process
+    # instead of going through replay()'s ProcessPoolExecutor. The pool
+    # spawns a fresh subprocess that re-imports merge_streams, which
+    # makes the `_install_event_limit` monkey-patch on the parent's
+    # replay_runner.merge_streams a no-op for the worker — so the event
+    # cap didn't apply and "profile first 500K events" silently turned
+    # into "profile the full day". Direct in-process call keeps the
+    # patch + cProfile both active.
+    from pathlib import Path as _Path
+
+    from tick_feature_agent.instrument_profile import load_profile
+    from tick_feature_agent.log.tfa_logger import get_logger, setup_logging
+    from tick_feature_agent.replay.replay_runner import run_one_date
+
+    setup_logging(args.instrument, log_dir="logs/profile_run", level=20)
+    log = get_logger("tfa.profile", instrument=args.instrument)
+    base_profile = load_profile(_Path(str(profile_path)))
+
     profiler = cProfile.Profile()
     profiler.enable()
     try:
-        summary = replay_runner.replay(
-            profile_path=str(profile_path),
+        verdict = run_one_date(
+            base_profile=base_profile,
             instrument=args.instrument,
-            # Use include_dates so we bypass the production checkpoint —
-            # the date may already have been replayed and the date-range
-            # path would return an empty dates_iter.
-            date_from=args.date,
-            date_to=args.date,
-            include_dates=[args.date],
-            raw_root=args.raw_root,
-            features_root=args.features_root,
-            validation_root=args.validation_root,
-            workers=1,
-            log_dir="logs/profile_run",
+            date_str=args.date,
+            raw_root=_Path(args.raw_root),
+            features_root=_Path(args.features_root),
+            validation_root=_Path(args.validation_root),
+            logger=log,
         )
     finally:
         profiler.disable()
 
+    summary = {"verdict": verdict}
     print(f"Replay summary: {summary}")
     print()
 
