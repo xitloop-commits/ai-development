@@ -95,6 +95,10 @@ export interface TradeRecord {
    *  ratchet anchor. Persisted via position_state so the trail survives a
    *  server restart; absent on trades that pre-date the field. */
   peakLtp?: number;
+  /** Epoch ms when the trailing stop ACTIVATED (gate held). Stamped once and
+   *  persisted so the UI can show a "TSL running" stopwatch that survives a
+   *  reload. Absent until the TSL arms; never reset for the trade's life. */
+  tslActivatedAt?: number;
   /** Breakeven price = entry ± round-trip charges per unit. Frozen at placement.
    *  The trailing stop is floored here so a pullback never gives back charges;
    *  both the server (exit) and the UI (TradeBar) read this same absolute price.
@@ -110,6 +114,24 @@ export interface TradeRecord {
    *  `adapter.brokerId`. Null for legacy / paper trades that pre-date
    *  the field. */
   brokerId: string | null;
+  /** Dhan Super Order anchor id (== entry-leg / AlgoOrdNo). Set on live trades
+   *  placed as a Super Order (broker-enforced SL+TP+trailing). Null for plain /
+   *  paper trades. Distinct from brokerOrderId so the plain-order path is
+   *  untouched. */
+  superOrderId?: string | null;
+  /** Dhan leg order ids — learned from the order-update WS (LegNo 2=SL, 3=TP).
+   *  Used to reconcile a broker SL/TP fill back to this trade. */
+  slLegOrderId?: string | null;
+  tpLegOrderId?: string | null;
+  /** Count of broker leg modifications issued for this Super Order — guards the
+   *  Dhan per-order modify cap (DHAN_RATE_LIMITS.modifyPerOrder = 25). */
+  legModifyCount?: number;
+  /** True once the trailing stop has been armed at the broker (STOP_LOSS_LEG
+   *  modified to breakeven + trailingJump). Idempotency guard — arm exactly once. */
+  tslArmedOnBroker?: boolean;
+  /** Throttle state for the broker trailing-take-profit (TARGET_LEG ratchet). */
+  lastBrokerTpModifyAt?: number;
+  lastBrokerTpPrice?: number;
   openedAt: number;
   closedAt: number | null;
   /** RCA Phase 2 — epoch ms of the most recent tick that updated this trade's ltp.
@@ -238,8 +260,16 @@ const tradeRecordSchema = new Schema(
     targetPrice: { type: Number, default: null },
     stopLossPrice: { type: Number, default: null },
     breakevenPrice: { type: Number, default: null },
+    tslActivatedAt: { type: Number, default: null },
     brokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },
+    superOrderId: { type: String, default: null },
+    slLegOrderId: { type: String, default: null },
+    tpLegOrderId: { type: String, default: null },
+    legModifyCount: { type: Number, default: 0 },
+    tslArmedOnBroker: { type: Boolean, default: false },
+    lastBrokerTpModifyAt: { type: Number, default: null },
+    lastBrokerTpPrice: { type: Number, default: null },
     openedAt: { type: Number, default: () => Date.now() },
     closedAt: { type: Number, default: null },
     lastTickAt: { type: Number, default: null },
@@ -895,8 +925,16 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       targetPrice: t.targetPrice ?? null,
       stopLossPrice: t.stopLossPrice ?? null,
       breakevenPrice: t.breakevenPrice ?? undefined,
+      tslActivatedAt: t.tslActivatedAt ?? undefined,
       brokerOrderId: t.brokerOrderId ?? null,
       brokerId: t.brokerId ?? null,
+      superOrderId: t.superOrderId ?? null,
+      slLegOrderId: t.slLegOrderId ?? null,
+      tpLegOrderId: t.tpLegOrderId ?? null,
+      legModifyCount: t.legModifyCount ?? 0,
+      tslArmedOnBroker: t.tslArmedOnBroker ?? false,
+      lastBrokerTpModifyAt: t.lastBrokerTpModifyAt ?? undefined,
+      lastBrokerTpPrice: t.lastBrokerTpPrice ?? undefined,
       openedAt: t.openedAt ?? Date.now(),
       closedAt: t.closedAt ?? null,
       lastTickAt: t.lastTickAt ?? undefined,

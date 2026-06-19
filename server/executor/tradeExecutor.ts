@@ -28,6 +28,7 @@ import {
 import { withTrade } from "../_core/correlationContext";
 import { teaSubmitTradeTotal, teaExitTotal } from "../_core/metrics";
 import { getAdapter, getActiveBroker, isChannelKillSwitchActive } from "../broker/brokerService";
+import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import { tickBus } from "../broker/tickBus";
 import type {
   BrokerAdapter,
@@ -90,6 +91,8 @@ function isKillSwitchOn(channel: Channel): boolean {
 class TradeExecutorAgent {
   private started = false;
   private unsubscribeAutoExit: (() => void) | null = null;
+  private unsubscribeBrokerTslArm: (() => void) | null = null;
+  private unsubscribeBrokerTpRatchet: (() => void) | null = null;
 
   /** Lifecycle — invoked by server boot in _core/index.ts. Idempotent. */
   start(): void {
@@ -111,6 +114,19 @@ class TradeExecutorAgent {
         triggeredBy: "PA",
         timestamp: event.timestamp,
       }).catch((err) => log.error(`recordAutoExit failed: ${err?.message ?? err}`));
+    });
+    // LIVE Super Orders: arm the gated TSL / ratchet the trailing TP at the
+    // broker when tickHandler signals (both route through TEA's single-writer
+    // leg-modify methods).
+    this.unsubscribeBrokerTslArm = portfolioAgent.onBrokerTslArm((event) => {
+      this.armBrokerTsl(event.channel, event.tradeId).catch((err) =>
+        log.error(`armBrokerTsl failed: ${err?.message ?? err}`),
+      );
+    });
+    this.unsubscribeBrokerTpRatchet = portfolioAgent.onBrokerTpRatchet((event) => {
+      this.ratchetBrokerTp(event.channel, event.tradeId, event.targetPrice).catch((err) =>
+        log.error(`ratchetBrokerTp failed: ${err?.message ?? err}`),
+      );
     });
     // Order lifecycle sync (broker WS events → trade record reconciliation).
     // Lives under executor/ per spec §6.4. Paper channels never emit broker
@@ -185,6 +201,14 @@ class TradeExecutorAgent {
     if (this.unsubscribeAutoExit) {
       this.unsubscribeAutoExit();
       this.unsubscribeAutoExit = null;
+    }
+    if (this.unsubscribeBrokerTslArm) {
+      this.unsubscribeBrokerTslArm();
+      this.unsubscribeBrokerTslArm = null;
+    }
+    if (this.unsubscribeBrokerTpRatchet) {
+      this.unsubscribeBrokerTpRatchet();
+      this.unsubscribeBrokerTpRatchet = null;
     }
     orderSync.stop();
     recoveryEngine.stop();
@@ -305,11 +329,31 @@ class TradeExecutorAgent {
       // flowing immediately. No-op for futures / non-option trades.
       ensureOptionLtpSubscription(adapter, req);
 
-      // Place the order — this is the SINGLE point in the codebase that
-      // calls broker.placeOrder. Spec §3 rule 1 (Single Execution Point).
+      // Decide Super Order vs plain order. Live channels get a broker-enforced
+      // Super Order (entry + SL + TP) when the setting is on, the adapter
+      // supports it, and both SL & TP are resolved. Everything else (paper,
+      // sandbox, missing SL/TP, setting off) uses the plain order path unchanged.
+      const activeCfg = await getActiveBrokerConfig();
+      const useSuperOrder =
+        isLiveChannel(req.channel) &&
+        (activeCfg?.settings?.useSuperOrderForLive ?? false) &&
+        typeof adapter.placeSuperOrder === "function" &&
+        !!(orderParams.stopLoss && orderParams.stopLoss > 0) &&
+        !!(orderParams.target && orderParams.target > 0);
+
+      // Place the order — this is the SINGLE point in the codebase that calls
+      // broker.placeOrder / placeSuperOrder. Spec §3 rule 1 (Single Execution Point).
       let orderResult: OrderResult;
+      let superOrderId: string | null = null;
       try {
-        orderResult = await adapter.placeOrder(orderParams);
+        if (useSuperOrder) {
+          const sr = await adapter.placeSuperOrder!(orderParams);
+          superOrderId = sr.orderId; // entry/anchor id; also used as brokerOrderId
+          orderResult = { orderId: sr.orderId, status: sr.status, message: sr.message, timestamp: sr.timestamp };
+          log.info(`submitTrade placed SUPER order channel=${req.channel} order=${sr.orderId}`);
+        } else {
+          orderResult = await adapter.placeOrder(orderParams);
+        }
       } catch (placeErr: any) {
         const msg = placeErr?.message ?? String(placeErr);
         log.error(`submitTrade broker.placeOrder threw channel=${req.channel}: ${msg}`);
@@ -356,6 +400,7 @@ class TradeExecutorAgent {
         orderResult.orderId,
         adapter.brokerId,
         tradeStatus,
+        superOrderId,
       );
 
       await portfolioAgent.appendTrade(req.channel, trade);
@@ -640,6 +685,21 @@ class TradeExecutorAgent {
       // (POST /api/executor/reconcile-desync) once they verify true state.
       if (isLiveChannel(channel) && trade.brokerOrderId) {
         const adapter = getAdapter(channel);
+
+        // Super Order: cancel the resting target/stop legs FIRST so neither can
+        // fire while we flatten. Best-effort (non-fatal) — we still place the
+        // reverse order below to guarantee the position is flat regardless of
+        // Dhan's cancel-vs-squareoff semantics. NOTE: exact Dhan behavior on
+        // cancelSuperOrder needs live verification (Super Orders are live-only).
+        if (trade.superOrderId && typeof adapter.cancelSuperOrder === "function") {
+          try {
+            await adapter.cancelSuperOrder(trade.superOrderId);
+            log.info(`exitTrade cancelled super-order legs channel=${channel} trade=${tradeId} super=${trade.superOrderId}`);
+          } catch (e: any) {
+            log.warn(`exitTrade cancelSuperOrder failed (continuing to flatten) trade=${tradeId}: ${e?.message ?? e}`);
+          }
+        }
+
         const exitOrderType = req.reason === "DISCIPLINE_EXIT" ? "MARKET" : req.exitType;
         const exitOptionType: OrderParams["optionType"] = trade.type.startsWith("CALL")
           ? "CE"
@@ -832,8 +892,9 @@ class TradeExecutorAgent {
       // exitTrade for the same call pattern).
       releaseOptionLtpSubscription(req.channel, closed.contractSecurityId, closed.instrument);
 
-      log.info(
-        `recordAutoExit ${req.reason} channel=${req.channel} trade=${req.tradeId} pnl=${pnl}`,
+      // TEMP DIAGNOSTIC ([XSYNC] exit-sync): the trade is now actually closed.
+      log.important(
+        `[XSYNC-SVR] CLOSED ${req.reason} channel=${req.channel} trade=${req.tradeId} exit=${req.exitPrice} pnl=${pnl}`,
       );
       // T52: Telegram push for PA-triggered auto-exits (TP/SL/DISCIPLINE_EXIT/EOD).
       notifyTradeExit({
@@ -855,9 +916,118 @@ class TradeExecutorAgent {
       log.error(`recordAutoExit failed channel=${req.channel} trade=${req.tradeId}: ${err?.message ?? err}`);
     }
   }
+
+  /**
+   * LIVE Super Orders — arm the gated trailing stop at the broker (exactly once).
+   * Triggered by tickHandler's gate/hold detection (brokerTslArm event). Moves
+   * the STOP_LOSS_LEG to ~breakeven and sets a native trailingJump so Dhan then
+   * trails the stop with zero further API calls. Single-writer: only TEA calls
+   * the broker + persists. No-op for non-super / closed / already-armed trades.
+   */
+  async armBrokerTsl(channel: Channel, tradeId: string): Promise<void> {
+    try {
+      const day = await portfolioAgent.ensureCurrentDay(channel);
+      const trade = day.trades.find((t) => t.id === tradeId);
+      if (!trade || trade.status !== "OPEN" || !trade.superOrderId) return;
+      if (trade.tslArmedOnBroker) return; // arm exactly once
+      if ((trade.legModifyCount ?? 0) >= BROKER_MODIFY_CAP - BROKER_MODIFY_SAFETY_MARGIN) return;
+      const adapter = getAdapter(channel);
+      if (typeof adapter.modifySuperOrderLeg !== "function") return;
+
+      const cfg = await getActiveBrokerConfig();
+      const trailingStopPercent = cfg?.settings?.trailingStopPercent ?? 2.0;
+      const breakeven = trade.breakevenPrice ?? trade.entryPrice;
+      // Lock out the loss (stop ≈ breakeven) and let Dhan trail by a fixed rupee
+      // jump (≈ trailingStopPercent% of entry) from here — no per-tick calls.
+      const stopLossPrice = breakeven;
+      const trailingJump = Math.max(0.05, (trailingStopPercent / 100) * trade.entryPrice);
+      try {
+        await adapter.modifySuperOrderLeg(trade.superOrderId, "STOP_LOSS_LEG", { stopLossPrice, trailingJump });
+      } catch (err: any) {
+        await portfolioAgent
+          .markTradeDesync(channel, tradeId, {
+            kind: "MODIFY",
+            reason: `TSL arm failed: ${err?.message ?? err}`,
+            timestamp: Date.now(),
+            attempted: { stopLossPrice },
+          })
+          .catch(() => undefined);
+        log.error(`armBrokerTsl modify failed channel=${channel} trade=${tradeId}: ${err?.message ?? err}`);
+        return;
+      }
+      await portfolioAgent.recordBrokerLegModify(channel, tradeId, {
+        tslArmedOnBroker: true,
+        stopLossPrice,
+        bumpModifyCount: true,
+      });
+      log.important(`[XSYNC-SVR] BROKER-TSL-ARMED ${channel} trade=${tradeId} stop=${stopLossPrice} jump=${trailingJump}`);
+    } catch (err: any) {
+      log.error(`armBrokerTsl failed channel=${channel} trade=${tradeId}: ${err?.message ?? err}`);
+    }
+  }
+
+  /**
+   * LIVE Super Orders — ratchet the trailing take-profit at the broker. Triggered
+   * (throttled) by tickHandler's brokerTpRatchet event. Applies its own step
+   * threshold + time throttle + the per-order modify-cap budget, then modifies
+   * the TARGET_LEG. Single-writer + favorable-direction-only.
+   */
+  async ratchetBrokerTp(channel: Channel, tradeId: string, candidateTp: number): Promise<void> {
+    try {
+      const day = await portfolioAgent.ensureCurrentDay(channel);
+      const trade = day.trades.find((t) => t.id === tradeId);
+      if (!trade || trade.status !== "OPEN" || !trade.superOrderId || trade.targetPrice === null) return;
+      if ((trade.legModifyCount ?? 0) >= BROKER_MODIFY_CAP - BROKER_MODIFY_SAFETY_MARGIN) return;
+
+      const isBuy = trade.type.includes("BUY");
+      const better = isBuy ? candidateTp > trade.targetPrice : candidateTp < trade.targetPrice;
+      if (!better) return;
+      // Step threshold — ignore tiny moves so we don't burn the modify budget.
+      const ref = trade.lastBrokerTpPrice ?? trade.targetPrice;
+      const step = (TP_BROKER_STEP_PERCENT / 100) * trade.entryPrice;
+      if (Math.abs(candidateTp - ref) < step) return;
+      // Time throttle.
+      if (trade.lastBrokerTpModifyAt && Date.now() - trade.lastBrokerTpModifyAt < TP_BROKER_MIN_INTERVAL_MS) return;
+
+      const adapter = getAdapter(channel);
+      if (typeof adapter.modifySuperOrderLeg !== "function") return;
+      try {
+        await adapter.modifySuperOrderLeg(trade.superOrderId, "TARGET_LEG", { targetPrice: candidateTp });
+      } catch (err: any) {
+        await portfolioAgent
+          .markTradeDesync(channel, tradeId, {
+            kind: "MODIFY",
+            reason: `TP ratchet failed: ${err?.message ?? err}`,
+            timestamp: Date.now(),
+            attempted: { targetPrice: candidateTp },
+          })
+          .catch(() => undefined);
+        log.error(`ratchetBrokerTp modify failed channel=${channel} trade=${tradeId}: ${err?.message ?? err}`);
+        return;
+      }
+      await portfolioAgent.recordBrokerLegModify(channel, tradeId, {
+        targetPrice: candidateTp,
+        lastBrokerTpPrice: candidateTp,
+        lastBrokerTpModifyAt: Date.now(),
+        bumpModifyCount: true,
+      });
+      log.info(`[XSYNC-SVR] BROKER-TP-RATCHET ${channel} trade=${tradeId} tp→${candidateTp}`);
+    } catch (err: any) {
+      log.error(`ratchetBrokerTp failed channel=${channel} trade=${tradeId}: ${err?.message ?? err}`);
+    }
+  }
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
+
+// Dhan caps Super Order modifications at 25/order (DHAN_RATE_LIMITS.modifyPerOrder).
+// Stop short of it, reserving margin so a long TP-ratchet trend can't starve the
+// one-time TSL arm.
+const BROKER_MODIFY_CAP = 25;
+const BROKER_MODIFY_SAFETY_MARGIN = 3;
+// TP-ratchet throttle: min favorable move (% of entry) + min time between modifies.
+const TP_BROKER_STEP_PERCENT = 1.0;
+const TP_BROKER_MIN_INTERVAL_MS = 30_000;
 
 function generateTradeId(): string {
   return `T${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -960,6 +1130,7 @@ function buildTradeRecord(
   brokerOrderId: string,
   brokerId: string,
   status: TradeStatus,
+  superOrderId?: string | null,
 ): TradeRecord {
   const tradeType: TradeRecord["type"] =
     req.optionType === "CE"
@@ -993,6 +1164,7 @@ function buildTradeRecord(
     trailingStopEnabled: req.trailingStopLoss?.enabled ?? false,
     brokerOrderId,
     brokerId,
+    superOrderId: superOrderId ?? null,
     openedAt: Date.now(),
     closedAt: null,
   };

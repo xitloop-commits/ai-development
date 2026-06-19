@@ -31,6 +31,15 @@ export const DHAN_ENDPOINTS = {
   TRADE_BOOK: "/trades",
   TRADES_BY_ORDER: (orderId: string) => `/trades/${orderId}`,
 
+  // Super Orders — single order carrying target + stop-loss + trailing legs,
+  // with Dhan managing the exits. Modify/cancel are per-leg (ENTRY_LEG /
+  // TARGET_LEG / STOP_LOSS_LEG). Used for every real-broker channel (live +
+  // sandbox) that carries an SL + TP.
+  SUPER_ORDER: "/super/orders",
+  MODIFY_SUPER_ORDER: (orderId: string) => `/super/orders/${orderId}`,
+  CANCEL_SUPER_ORDER: (orderId: string, leg: string) => `/super/orders/${orderId}/${leg}`,
+  SUPER_ORDER_BOOK: "/super/orders",
+
   // Positions & Portfolio
   POSITIONS: "/positions",
   HOLDINGS: "/holdings",

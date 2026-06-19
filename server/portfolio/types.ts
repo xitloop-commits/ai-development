@@ -153,6 +153,11 @@ export interface BrokerOrderEvent {
   filledQuantity: number;
   averagePrice: number;
   timestamp: number;
+  /** Super Order leg number (1=Entry, 2=Stop-Loss, 3=Target) when present —
+   *  lets PA reconcile a broker SL/TP leg fill back to the parent trade. */
+  legNo?: number;
+  /** The Super Order's entry/anchor id (Dhan AlgoOrdNo) linking a leg → entry. */
+  entryOrderId?: string;
 }
 
 export interface BrokerOrderEventResult {

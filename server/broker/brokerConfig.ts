@@ -72,6 +72,7 @@ const settingsSchema = new Schema<BrokerSettings>(
     trailingStopPercent: { type: Number, default: 2.0 },
     trailingActivationGatePercent: { type: Number, default: 2.0 },
     trailingActivationHoldSeconds: { type: Number, default: 10 },
+    useSuperOrderForLive: { type: Boolean, default: false },
     defaultQty: { type: Number, default: 1 },
     instrumentSizing: { type: instrumentSizingSchema, default: () => ({}) },
   },
@@ -297,6 +298,7 @@ function docToConfig(doc: Record<string, any>): BrokerConfigDoc {
       trailingStopPercent: doc.settings?.trailingStopPercent ?? 2.0,
       trailingActivationGatePercent: doc.settings?.trailingActivationGatePercent ?? 2.0,
       trailingActivationHoldSeconds: doc.settings?.trailingActivationHoldSeconds ?? 10,
+      useSuperOrderForLive: doc.settings?.useSuperOrderForLive ?? false,
       defaultQty: doc.settings?.defaultQty ?? 1,
       instrumentSizing: {
         nifty50: doc.settings?.instrumentSizing?.nifty50 ?? { mode: "lots", value: 10 },

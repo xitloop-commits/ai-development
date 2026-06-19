@@ -176,6 +176,7 @@ const brokerSettingsSchema = z.object({
   trailingStopPercent: z.number().min(0.1).max(50).optional(),
   trailingActivationGatePercent: z.number().min(0).max(50).optional(),
   trailingActivationHoldSeconds: z.number().min(0).max(120).optional(),
+  useSuperOrderForLive: z.boolean().optional(),
   defaultQty: z.number().min(1).max(100).optional(),
   instrumentSizing: z
     .object({

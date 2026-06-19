@@ -330,9 +330,29 @@ export interface OrderUpdate {
   filledQuantity: number;
   averagePrice: number;
   timestamp: number; // UTC ms
+  /** Super Order leg number (1=Entry, 2=Stop-Loss, 3=Target). Present on Dhan
+   *  Super Order updates; undefined for plain orders. Lets reconciliation tell
+   *  an SL/TP leg fill from an entry fill. */
+  legNo?: number;
+  /** The Super Order's entry/anchor order id (Dhan AlgoOrdNo) that links a
+   *  leg update back to its parent order — matched against trade.superOrderId. */
+  entryOrderId?: string;
 }
 
 export type OrderUpdateCallback = (update: OrderUpdate) => void;
+
+/** Result of placing a Dhan Super Order (entry + target + stop-loss legs). */
+export interface SuperOrderResult {
+  orderId: string; // entry/anchor id
+  status: OrderResult["status"];
+  message?: string;
+  timestamp: number;
+  /** Leg order ids if the broker returns them at placement (else learned via WS). */
+  legOrderIds?: { entry?: string; stopLoss?: string; target?: string };
+}
+
+/** Which leg of a Super Order a modify/cancel targets. */
+export type SuperOrderLeg = "ENTRY_LEG" | "TARGET_LEG" | "STOP_LOSS_LEG";
 
 // ─── Subscription Manager Types ────────────────────────────────
 
@@ -373,6 +393,10 @@ export interface BrokerSettings {
   trailingStopPercent: number; // trailing stop distance % from peak (default 2.0)
   trailingActivationGatePercent: number; // % past breakeven before TSL arms (default 2.0)
   trailingActivationHoldSeconds: number; // seconds the gate must hold before TSL arms (default 10)
+  /** When true, LIVE entries are placed as a Dhan Super Order (broker-enforced
+   *  SL+TP+trailing) instead of a plain order. Default false (plain order) until
+   *  validated live — Super Orders 404 on sandbox so there's no paper coverage. */
+  useSuperOrderForLive?: boolean;
   defaultQty: number; // fallback quantity in lots (instruments not in instrumentSizing) (default 1)
   // Per-instrument default sizing for the instrument bar + quick order: fixed
   // lots or % of available capital. Keyed by instrumentLiveState key.
@@ -469,6 +493,21 @@ export interface BrokerAdapter {
 
   /** Cancel a pending order. */
   cancelOrder(orderId: string): Promise<OrderResult>;
+
+  // ── Super Orders (optional — broker-enforced SL/TP/trailing) ──────────
+  /** Place a Super Order: entry + target + stop-loss (optionally trailing).
+   *  Optional — only brokers that support it (Dhan live) implement it; callers
+   *  must feature-detect before use. */
+  placeSuperOrder?(params: OrderParams): Promise<SuperOrderResult>;
+  /** Modify one leg of an active Super Order (targetPrice / stopLossPrice /
+   *  trailingJump). */
+  modifySuperOrderLeg?(
+    orderId: string,
+    leg: SuperOrderLeg,
+    params: { targetPrice?: number; stopLossPrice?: number; trailingJump?: number },
+  ): Promise<OrderResult>;
+  /** Cancel a Super Order (a specific leg, or the whole order if leg omitted). */
+  cancelSuperOrder?(orderId: string, leg?: SuperOrderLeg): Promise<OrderResult>;
 
   /** Exit all open positions and cancel all pending orders. */
   exitAll(): Promise<OrderResult[]>;

@@ -32,6 +32,8 @@ import type {
   ScripMasterStatusResult,
   SecurityLookupParams,
   SecurityLookupResult,
+  SuperOrderResult,
+  SuperOrderLeg,
 } from "../../types";
 
 import {
@@ -63,6 +65,10 @@ import type {
   DhanCandleDataResponse,
   DhanHistoricalDataRequest,
   DhanIntradayDataRequest,
+  DhanSuperOrderRequest,
+  DhanSuperOrderModifyRequest,
+  DhanSuperOrderResponse,
+  DhanSuperOrderLeg,
 } from "./types";
 
 import { getBrokerConfig, updateBrokerConnection, updateBrokerCredentials } from "../../brokerConfig";
@@ -106,8 +112,19 @@ import { dhanApiLatencyMs } from "../../../_core/metrics";
  *
  * Exported as a pure function so the rule is unit-testable without a network call.
  */
+/**
+ * Snap a price to Dhan's 0.05 tick and clean the 32-bit-float tail back to 2
+ * decimals. The live feed delivers prices as float32, so they arrive with
+ * precision junk (e.g. 785.2000122070312); Dhan rejects anything off-tick with
+ * the generic DH-905 error. Used for entry, target and stop-loss prices.
+ */
+export function roundToDhanTick(price: number): number {
+  return Math.round((Math.round(price / 0.05) * 0.05) * 100) / 100;
+}
+
 export function resolveDhanOrderPrice(orderType: string, price: number): number {
-  return orderType === "MARKET" || orderType === "SL-M" ? 0 : price;
+  if (orderType === "MARKET" || orderType === "SL-M") return 0;
+  return roundToDhanTick(price);
 }
 
 // ─── DhanAdapter ───────────────────────────────────────────────
@@ -309,7 +326,13 @@ export class DhanAdapter implements BrokerAdapter {
       this.log.warn("LIMIT order with price=0. Frontend should provide LTP-based price.");
     }
 
-    // Build the Dhan order request
+    // The ENTRY is placed as a PLAIN order — no bracket and no super-order
+    // fields. SL / TP / TSL are applied as a SEPARATE step AFTER the entry is
+    // confirmed (see attachProtection — Stage 2). Two reasons we don't bundle
+    // them at entry: (1) the old bo* bracket values on a non-BO order are what
+    // Dhan rejected with DH-905; (2) the Super Order endpoint is absent from the
+    // sandbox host (404), so a bundled order can't be validated there.
+    const endpoint = DHAN_ENDPOINTS.PLACE_ORDER;
     const body: DhanOrderRequest = {
       dhanClientId: this.clientId,
       transactionType: params.transactionType,
@@ -321,24 +344,15 @@ export class DhanAdapter implements BrokerAdapter {
       quantity: params.quantity,
       price,
     };
+    if (params.triggerPrice) body.triggerPrice = params.triggerPrice;
+    if (params.tag) body.correlationId = params.tag;
 
-    // Trigger price for SL orders
-    if (params.triggerPrice) {
-      body.triggerPrice = params.triggerPrice;
-    }
-
-    // Bracket order: SL and TP values
-    if (params.stopLoss) {
-      body.boStopLossValue = params.stopLoss;
-    }
-    if (params.target) {
-      body.boProfitValue = params.target;
-    }
-
-    // Correlation ID for tracking
-    if (params.tag) {
-      body.correlationId = params.tag;
-    }
+    // Live order audit — log exactly what we send to Dhan (clientId never logged).
+    this.log.debug(
+      `[ORDER→Dhan] place ${body.transactionType} secId=${body.securityId} seg=${body.exchangeSegment} ` +
+        `product=${body.productType} type=${body.orderType} qty=${body.quantity} price=${body.price} ` +
+        `trigger=${body.triggerPrice ?? "-"} tag=${body.correlationId ?? "-"}`,
+    );
 
     // Rate limit + retry
     await this.rateLimiter.acquire();
@@ -346,7 +360,7 @@ export class DhanAdapter implements BrokerAdapter {
     const result = await withRetry(
       () => this._dhanRequest<DhanOrderResponse>(
         "POST",
-        DHAN_ENDPOINTS.PLACE_ORDER,
+        endpoint,
         body as unknown as Record<string, unknown>
       ),
       {
@@ -367,7 +381,7 @@ export class DhanAdapter implements BrokerAdapter {
       // dhanClientId is shown as present/absent only (never the value).
       this.log.warn(
         `placeOrder rejected by Dhan (status=${result.status}, code=${result.error?.errorCode ?? "?"}): ` +
-          `${result.error?.errorMessage ?? "no message"} | sent: ` +
+          `${result.error?.errorMessage ?? "no message"} | sent: endpoint=${endpoint} ` +
           `clientId=${this.clientId ? "set" : "MISSING"} securityId=${body.securityId} ` +
           `segment=${body.exchangeSegment} txn=${body.transactionType} product=${body.productType} ` +
           `orderType=${body.orderType} validity=${body.validity} qty=${body.quantity} price=${body.price}`,
@@ -380,6 +394,7 @@ export class DhanAdapter implements BrokerAdapter {
     // Update last API call timestamp
     await updateBrokerConnection(this.brokerId, { lastApiCall: Date.now() });
 
+    this.log.debug(`[ORDER←Dhan] placed orderId=${result.data.orderId} status=${result.data.orderStatus}`);
     return {
       orderId: result.data.orderId,
       status: (DHAN_ORDER_STATUS_MAP[result.data.orderStatus] ?? "PENDING") as OrderResult["status"],
@@ -453,6 +468,161 @@ export class DhanAdapter implements BrokerAdapter {
       orderId: result.data.orderId,
       status: "CANCELLED",
       message: `Order cancelled: ${orderId}`,
+      timestamp: Date.now(),
+    };
+  }
+
+  // ── Super Orders (broker-enforced SL/TP/trailing) ─────────────────────
+  // LIVE-ONLY: the Super Order endpoints 404 on the Dhan sandbox host.
+
+  /**
+   * Place a Super Order — entry + target leg + stop-loss leg (optionally
+   * trailing). Dhan enforces the exits broker-side (survives our app/feed
+   * outage). Mirrors `_placeOrderImpl`'s limiter/retry/401/DH-905 handling.
+   * `trailingJump=0` at entry; the TSL is armed later by modifying STOP_LOSS_LEG.
+   */
+  async placeSuperOrder(params: OrderParams): Promise<SuperOrderResult> {
+    this._ensureToken();
+    this._ensureNotKilled();
+
+    const securityId = this._resolveSecurityId(params);
+    const price = resolveDhanOrderPrice(params.orderType, params.price);
+    if (!(params.stopLoss && params.stopLoss > 0) || !(params.target && params.target > 0)) {
+      throw new Error("placeSuperOrder requires both stopLoss and target");
+    }
+
+    const body: DhanSuperOrderRequest = {
+      dhanClientId: this.clientId,
+      transactionType: params.transactionType,
+      exchangeSegment: params.exchange,
+      productType: DHAN_PRODUCT_TYPES[params.productType] ?? params.productType,
+      orderType: DHAN_ORDER_TYPES[params.orderType] ?? params.orderType,
+      securityId,
+      quantity: params.quantity,
+      price,
+      targetPrice: roundToDhanTick(params.target),
+      stopLossPrice: roundToDhanTick(params.stopLoss),
+      trailingJump: 0, // armed later via modifySuperOrderLeg(STOP_LOSS_LEG)
+    };
+    if (params.tag) body.correlationId = params.tag;
+
+    // Live order audit — log exactly what we send to Dhan (clientId never logged).
+    this.log.debug(
+      `[ORDER→Dhan] SUPER place ${body.transactionType} secId=${body.securityId} seg=${body.exchangeSegment} ` +
+        `product=${body.productType} type=${body.orderType} qty=${body.quantity} price=${body.price} ` +
+        `target=${body.targetPrice} stop=${body.stopLossPrice} jump=${body.trailingJump} tag=${body.correlationId ?? "-"}`,
+    );
+
+    await this.rateLimiter.acquire();
+    const result = await withRetry(
+      () => this._dhanRequest<DhanSuperOrderResponse>(
+        "POST",
+        DHAN_ENDPOINTS.SUPER_ORDER,
+        body as unknown as Record<string, unknown>,
+      ),
+      { maxRetries: 2, delayMs: 500, shouldRetry: isRetryableError },
+    );
+
+    if (result.isAuthError) {
+      await handleDhan401(this.brokerId);
+      throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
+    }
+    if (!result.ok || !result.data) {
+      this.log.warn(
+        `placeSuperOrder rejected by Dhan (status=${result.status}, code=${result.error?.errorCode ?? "?"}): ` +
+          `${result.error?.errorMessage ?? "no message"} | sent: endpoint=${DHAN_ENDPOINTS.SUPER_ORDER} ` +
+          `clientId=${this.clientId ? "set" : "MISSING"} securityId=${body.securityId} segment=${body.exchangeSegment} ` +
+          `txn=${body.transactionType} product=${body.productType} orderType=${body.orderType} qty=${body.quantity} ` +
+          `price=${body.price} target=${body.targetPrice} stop=${body.stopLossPrice}`,
+      );
+      throw new Error(result.error?.errorMessage ?? `Super order placement failed (HTTP ${result.status})`);
+    }
+
+    await updateBrokerConnection(this.brokerId, { lastApiCall: Date.now() });
+    this.log.debug(`[ORDER←Dhan] SUPER placed orderId=${result.data.orderId} status=${result.data.orderStatus}`);
+    return {
+      orderId: result.data.orderId,
+      status: (DHAN_ORDER_STATUS_MAP[result.data.orderStatus] ?? "PENDING") as OrderResult["status"],
+      message: `Super order placed: ${result.data.orderId}`,
+      timestamp: Date.now(),
+    };
+  }
+
+  /** Modify one leg of a Super Order (targetPrice / stopLossPrice / trailingJump). */
+  async modifySuperOrderLeg(
+    orderId: string,
+    leg: SuperOrderLeg,
+    params: { targetPrice?: number; stopLossPrice?: number; trailingJump?: number },
+  ): Promise<OrderResult> {
+    this._ensureToken();
+    await this.rateLimiter.acquire();
+
+    const body: DhanSuperOrderModifyRequest = {
+      dhanClientId: this.clientId,
+      orderId,
+      legName: leg as DhanSuperOrderLeg,
+    };
+    if (params.targetPrice !== undefined) body.targetPrice = roundToDhanTick(params.targetPrice);
+    if (params.stopLossPrice !== undefined) body.stopLossPrice = roundToDhanTick(params.stopLossPrice);
+    if (params.trailingJump !== undefined) body.trailingJump = roundToDhanTick(params.trailingJump);
+
+    this.log.debug(
+      `[ORDER→Dhan] SUPER modify ${leg} order=${orderId} ` +
+        `target=${body.targetPrice ?? "-"} stop=${body.stopLossPrice ?? "-"} jump=${body.trailingJump ?? "-"}`,
+    );
+
+    const result = await this._dhanRequest<DhanSuperOrderResponse>(
+      "PUT",
+      DHAN_ENDPOINTS.MODIFY_SUPER_ORDER(orderId),
+      body as unknown as Record<string, unknown>,
+    );
+
+    if (result.isAuthError) {
+      await handleDhan401(this.brokerId);
+      throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
+    }
+    if (!result.ok || !result.data) {
+      this.log.warn(
+        `[ORDER←Dhan] SUPER modify ${leg} FAILED order=${orderId} status=${result.status} ` +
+          `code=${result.error?.errorCode ?? "?"}: ${result.error?.errorMessage ?? "no message"}`,
+      );
+      throw new Error(result.error?.errorMessage ?? `Super order leg modify failed (HTTP ${result.status})`);
+    }
+    this.log.debug(`[ORDER←Dhan] SUPER modified ${leg} order=${result.data.orderId} status=${result.data.orderStatus}`);
+    return {
+      orderId: result.data.orderId,
+      status: (DHAN_ORDER_STATUS_MAP[result.data.orderStatus] ?? "PENDING") as OrderResult["status"],
+      message: `Super order leg ${leg} modified: ${orderId}`,
+      timestamp: Date.now(),
+    };
+  }
+
+  /** Cancel a Super Order leg (or the whole order if `leg` omitted → entry leg). */
+  async cancelSuperOrder(orderId: string, leg?: SuperOrderLeg): Promise<OrderResult> {
+    this._ensureToken();
+    await this.rateLimiter.acquire();
+
+    this.log.debug(`[ORDER→Dhan] SUPER cancel ${leg ?? "ENTRY_LEG"} order=${orderId}`);
+    const result = await this._dhanRequest<DhanSuperOrderResponse>(
+      "DELETE",
+      DHAN_ENDPOINTS.CANCEL_SUPER_ORDER(orderId, (leg ?? "ENTRY_LEG") as DhanSuperOrderLeg),
+    );
+
+    if (result.isAuthError) {
+      await handleDhan401(this.brokerId);
+      throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
+    }
+    if (!result.ok || !result.data) {
+      this.log.warn(
+        `[ORDER←Dhan] SUPER cancel ${leg ?? "ENTRY_LEG"} FAILED order=${orderId} status=${result.status}: ${result.error?.errorMessage ?? "no message"}`,
+      );
+      throw new Error(result.error?.errorMessage ?? `Super order cancel failed (HTTP ${result.status})`);
+    }
+    this.log.debug(`[ORDER←Dhan] SUPER cancelled ${leg ?? "ENTRY_LEG"} order=${result.data.orderId}`);
+    return {
+      orderId: result.data.orderId,
+      status: "CANCELLED",
+      message: `Super order ${leg ?? "ENTRY_LEG"} cancelled: ${orderId}`,
       timestamp: Date.now(),
     };
   }
@@ -1123,6 +1293,10 @@ export class DhanAdapter implements BrokerAdapter {
         filledQuantity: update.tradedQty,
         averagePrice: update.avgTradedPrice,
         timestamp: Date.now(),
+        // Super Order leg context — lets reconciliation match an SL/TP leg fill
+        // (legNo 2/3) back to its parent trade via the entry/anchor id.
+        legNo: update.legNo,
+        entryOrderId: update.entryOrderId || undefined,
       });
     });
     this.orderUpdateWs.connect();

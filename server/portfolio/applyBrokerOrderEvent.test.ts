@@ -64,6 +64,7 @@ vi.mock("../userSettings", () => ({
 // ─── SUT ─────────────────────────────────────────────────────────
 
 import { portfolioAgent } from "./portfolioAgent";
+import { tickHandler } from "./tickHandler";
 
 // ─── Fixtures ────────────────────────────────────────────────────
 
@@ -173,6 +174,53 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     const written = upsertDayRecordMock.mock.calls[0][1] as DayRecord;
     expect(written.trades[0].entryPrice).toBe(100.5);
     expect(written.trades[0].qty).toBe(75);
+  });
+
+  it("Super Order SL leg fill (legNo 2) → closes parent via autoExitDetected SL_HIT", async () => {
+    getDayRecordMock.mockImplementation(async (channel: any) =>
+      channel === "my-live"
+        ? makeDay([makeTrade({ superOrderId: "SUP-1", stopLossPrice: 98 })])
+        : null,
+    );
+    const emitSpy = vi.spyOn(tickHandler, "emit");
+    const result = await portfolioAgent.applyBrokerOrderEvent(
+      baseEvent({ orderId: "LEG-SL", legNo: 2, entryOrderId: "SUP-1", averagePrice: 98 }),
+    );
+    expect(result.matched).toBe(true);
+    expect(result.tradeId).toBe("T-1");
+    expect(emitSpy).toHaveBeenCalledWith(
+      "autoExitDetected",
+      expect.objectContaining({ channel: "my-live", tradeId: "T-1", reason: "SL_HIT", exitPrice: 98 }),
+    );
+    emitSpy.mockRestore();
+  });
+
+  it("Super Order TP leg fill (legNo 3) → closes parent via autoExitDetected TP_HIT", async () => {
+    getDayRecordMock.mockImplementation(async (channel: any) =>
+      channel === "my-live"
+        ? makeDay([makeTrade({ superOrderId: "SUP-1", targetPrice: 105 })])
+        : null,
+    );
+    const emitSpy = vi.spyOn(tickHandler, "emit");
+    const result = await portfolioAgent.applyBrokerOrderEvent(
+      baseEvent({ orderId: "LEG-TP", legNo: 3, entryOrderId: "SUP-1", averagePrice: 105 }),
+    );
+    expect(result.matched).toBe(true);
+    expect(emitSpy).toHaveBeenCalledWith(
+      "autoExitDetected",
+      expect.objectContaining({ reason: "TP_HIT", exitPrice: 105 }),
+    );
+    emitSpy.mockRestore();
+  });
+
+  it("Super Order leg fill with no matching superOrderId → no match, no emit", async () => {
+    const emitSpy = vi.spyOn(tickHandler, "emit");
+    const result = await portfolioAgent.applyBrokerOrderEvent(
+      baseEvent({ orderId: "LEG-X", legNo: 2, entryOrderId: "SUP-UNKNOWN", averagePrice: 98 }),
+    );
+    expect(result.matched).toBe(false);
+    expect(emitSpy).not.toHaveBeenCalledWith("autoExitDetected", expect.anything());
+    emitSpy.mockRestore();
   });
 
   it("FILLED with partial qty — adjusts qty + promotes PENDING → OPEN", async () => {
