@@ -412,19 +412,36 @@ class ProgressDashboard:
             if status == "running":
                 ev = entry.get("event_idx") or 0
                 total = entry.get("total_events_est") or 0
-                pct = (ev / total) if total else 0.0
                 rate = entry.get("rate") or 0.0
-                eta = ((total - ev) / rate) if (total and rate > 0) else None
                 phase = entry.get("phase", "running")
-                # Overshoot guard — same root cause as the Overall-bar
-                # cap above. When ev > total, the worker has burned
-                # past its event-count estimate (MCX evening sessions
-                # under-estimate by ~2x) and is racing toward
-                # flush_all → merge → validate. The post-event-loop
-                # phases don't emit progress callbacks, so without a
-                # visible marker the row reads "100% ETA 00:00" while
-                # the cmd window is still busy for ~10-30s.
-                overshoot = bool(total) and ev >= total
+                # 2026-06-19: prefer bytes-based progress (worker emits
+                # `bytes_read` / `bytes_total` in its heartbeat now).
+                # Compressed file size is exact; the older `event_idx /
+                # total_events_est` ratio was a 1MB-sample extrapolation
+                # that routinely overshot by 100-300% on MCX days
+                # (operator saw "+257% event-loop estimate low" with no
+                # idea how much was actually left).
+                bytes_read = entry.get("bytes_read") or 0
+                bytes_total = entry.get("bytes_total") or 0
+                if bytes_total > 0:
+                    pct = min(1.0, bytes_read / bytes_total)
+                    # ETA from bytes pct + wall-clock elapsed (more
+                    # stable than rate × remaining-events because the
+                    # rate is calibrated to current per-second event
+                    # processing, not bytes).
+                    _elapsed = entry.get("elapsed_seconds") or 0.0
+                    if pct > 0 and _elapsed > 0:
+                        eta = _elapsed * (1.0 - pct) / pct
+                    else:
+                        eta = None
+                    overshoot = False  # bytes pct CAN'T overshoot
+                else:
+                    # Legacy fallback for pre-2026-06-19 workers (no
+                    # bytes fields in their callback). Same broken
+                    # estimate, same "+X% overshoot" workaround.
+                    pct = (ev / total) if total else 0.0
+                    eta = ((total - ev) / rate) if (total and rate > 0) else None
+                    overshoot = bool(total) and ev >= total
                 # Tail phases ARE post-event-loop work. When the worker
                 # transitions out of the event loop into flush/merge/
                 # validate, it emits a phase= callback. The dashboard
@@ -501,25 +518,23 @@ class ProgressDashboard:
                     chunk_text = "STOPPING — flushing partial chunk..."
                 elif phase == "exited":
                     chunk_text = "EXITED (state saved, resumable)"
+                elif bytes_total > 0:
+                    # 2026-06-19: bytes-progress is available. Show the
+                    # actual raw bytes consumed vs total. Far more
+                    # meaningful than the +X% overshoot label.
+                    def _gb(b: int) -> str:
+                        # < 1 GB → "742 MB"; >= 1 GB → "4.5 GB"
+                        if b < 1_073_741_824:
+                            return f"{b / 1_048_576:.0f} MB"
+                        return f"{b / 1_073_741_824:.1f} GB"
+                    chunk_text = f"event-loop  {_gb(bytes_read)} / {_gb(bytes_total)}"
                 elif overshoot:
-                    # Worker is STILL in the event loop — its event-
-                    # count estimate (from .gz file size) was too low
-                    # (crude oil's 14-hr MCX session can undershoot by
-                    # 100%+). The post-loop phases (flush/merge/
-                    # validate) would have emitted their own phase=
-                    # callback above; reaching this branch means we're
-                    # STILL ingesting, just past the estimate. Be
-                    # honest: tell the operator the estimate was off
-                    # rather than implying we're nearly done.
+                    # Legacy fallback for the no-bytes case (shouldn't
+                    # happen on workers running post-2026-06-19 code,
+                    # but kept so a stale worker doesn't break the
+                    # dashboard).
                     over_pct = int((pct - 1.0) * 100) if total else 0
                     chunk_text = f"event-loop +{over_pct}% (estimate low)"
-                # ETA on an event-loop overshoot is UNKNOWN — the
-                # estimate is wrong by definition so the (total-ev)/rate
-                # formula is meaningless. Show "?" instead of the old
-                # 15s floor that lied to the operator. The 15s floor is
-                # still correct for actual tail phases (flush/merge/
-                # validate emit their own phase= callback, so they
-                # don't hit this branch).
                 if overshoot and phase == "running":
                     eta = None
                 # Tail-phase + warmup chunk text needs to be VISIBLE,

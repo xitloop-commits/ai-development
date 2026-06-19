@@ -562,8 +562,17 @@ def run_one_date(
         events_since_chunk = 0
         last_chunk_time = time.monotonic()
 
+    # Bytes-progress (2026-06-19): merge_streams populates one dict per
+    # active stream with `bytes_read` / `bytes_total`. The heartbeat
+    # aggregates these → real progress percentage that NEVER overshoots
+    # 100% — replaces the broken file-size-based event-count estimate
+    # that routinely showed `+200%` on MCX dates.
+    _bytes_streams: list[dict] = []
     try:
-        for event in merge_streams(date_folder, instrument, logger=logger):
+        for event in merge_streams(
+            date_folder, instrument, logger=logger,
+            bytes_progress=_bytes_streams,
+        ):
             event_idx += 1
 
             # Dashboard heartbeat — fires every HEARTBEAT_EVERY_EVENTS
@@ -589,6 +598,8 @@ def run_one_date(
                 _phase = "warmup" if (
                     resume_from_idx > 0 and event_idx <= resume_from_idx
                 ) else "running"
+                _bytes_read = sum(s.get("bytes_read", 0) for s in _bytes_streams)
+                _bytes_total = sum(s.get("bytes_total", 0) for s in _bytes_streams)
                 try:
                     progress_callback({
                         "event_idx": event_idx,
@@ -598,6 +609,8 @@ def run_one_date(
                         "chunk_done": max(0, next_chunk_num - 1),
                         "chunks_total_est": total_chunks_est,
                         "phase": _phase,
+                        "bytes_read": _bytes_read,
+                        "bytes_total": _bytes_total,
                     })
                 except Exception:
                     pass
@@ -632,6 +645,8 @@ def run_one_date(
                 elapsed = now - t_start
                 rate = event_idx / max(elapsed, 0.001)
                 done_chunks = max(0, next_chunk_num - 1)
+                bytes_read = sum(s.get("bytes_read", 0) for s in _bytes_streams)
+                bytes_total = sum(s.get("bytes_total", 0) for s in _bytes_streams)
                 try:
                     progress_callback({
                         "event_idx": event_idx,
@@ -641,6 +656,8 @@ def run_one_date(
                         "chunk_done": done_chunks,
                         "chunks_total_est": total_chunks_est,
                         "phase": "running",
+                        "bytes_read": bytes_read,
+                        "bytes_total": bytes_total,
                     })
                 except Exception:
                     pass
