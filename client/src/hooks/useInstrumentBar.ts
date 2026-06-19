@@ -5,7 +5,7 @@
  * (`InstrumentBarItem`).
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { type ResolvedInstrument, type TradeRecord, UI_TO_RESOLVED, FALLBACK_STRIKE_STEP } from "@/lib/tradeTypes";
@@ -105,16 +105,33 @@ export function useInstrumentBar(
   }, [previewCE.chainStrikes, previewCE.exchange, spot]);
   useFeedSubscriptions(windowContracts);
 
-  // Capital required for one side = premium × units (lots × lot size) under the
-  // current sizing rule; canAfford = it fits the available capital.
-  const sideCapital = (prem: number, lotSize: number) => {
-    const lotUnits = Math.max(1, lotSize);
-    const lots =
-      sizing.mode === "percent"
-        ? prem > 0
-          ? Math.max(1, Math.floor((availableCapital * (sizing.value / 100)) / (prem * lotUnits)))
-          : 1
-        : Math.max(1, Math.round(sizing.value));
+  // ── Chosen lot count (LotPicker) ──────────────────────────────────────────
+  // Seeded from the per-instrument Settings default: lots mode → its value;
+  // % mode → start at 1 and convert to a lots count once prices load (one-shot,
+  // never overriding a manual change). After seeding, the user owns it via the
+  // −/+ stepper / preset chips.
+  const [lots, setLotsState] = useState<number>(() =>
+    sizing.mode === "lots" ? Math.max(1, Math.round(sizing.value)) : 1,
+  );
+  const lotsSeededRef = useRef(false);
+  const setLots = (n: number) => {
+    lotsSeededRef.current = true; // a manual change ends the %-seed window
+    setLotsState(Math.max(1, Math.round(n)));
+  };
+  const lotSize = Math.max(1, previewCE.lotSize || 1);
+  useEffect(() => {
+    if (lotsSeededRef.current || sizing.mode !== "percent") return;
+    const prem = preview.livePremium;
+    if (prem > 0 && availableCapital > 0 && lotSize > 0) {
+      setLotsState(Math.max(1, Math.floor((availableCapital * (sizing.value / 100)) / (prem * lotSize))));
+      lotsSeededRef.current = true;
+    }
+  }, [sizing.mode, sizing.value, preview.livePremium, availableCapital, lotSize]);
+
+  // Capital required for one side = premium × units (chosen lots × lot size);
+  // canAfford = it fits the available capital. Updates live as lots change.
+  const sideCapital = (prem: number, lotSizeArg: number) => {
+    const lotUnits = Math.max(1, lotSizeArg);
     const totalUnits = lots * lotUnits;
     const invested = totalUnits * prem;
     return { premium: prem, lots, totalUnits, invested, canAfford: prem > 0 && invested > 0 && invested <= availableCapital };
@@ -123,7 +140,7 @@ export function useInstrumentBar(
   const capPE = sideCapital(previewPE.livePremium, previewPE.lotSize);
 
   const premium = preview.livePremium;
-  const { lots, totalUnits, invested, canAfford } = side === "CE" ? capCE : capPE;
+  const { totalUnits, invested, canAfford } = side === "CE" ? capCE : capPE;
   const charges =
     premium > 0 && totalUnits > 0
       ? estimateSingleLegCharges(premium, totalUnits, isBuy, DEFAULT_CHARGES).total +
@@ -178,9 +195,7 @@ export function useInstrumentBar(
       strike,
       expiry: preview.expiry,
       entryPrice,
-      ...(sizing.mode === "percent"
-        ? { capitalPercent: sizing.value }
-        : { qty: Math.max(1, Math.round(sizing.value)) }),
+      qty: Math.max(1, Math.round(lots)),
       contractSecurityId,
       lotSize: preview.lotSize > 1 ? preview.lotSize : undefined,
     });
@@ -189,7 +204,7 @@ export function useInstrumentBar(
 
   return {
     side, setSide, direction, setDirection,
-    spot, live, oi, preview, previewCE, previewPE, isBuy, premium, lots, totalUnits, invested, charges,
+    spot, live, oi, preview, previewCE, previewPE, isBuy, premium, lots, setLots, lotSize, totalUnits, invested, charges,
     hasPreview, strikeStep, tradeMarkers, placeAt,
     availableCapital, canAfford, capCE, capPE,
   };

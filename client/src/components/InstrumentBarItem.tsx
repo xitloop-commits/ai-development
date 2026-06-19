@@ -10,6 +10,7 @@ import { fmt } from "@/lib/tradeFormatters";
 import { useInstrumentBar } from "@/hooks/useInstrumentBar";
 import { InstrumentBar } from "./InstrumentBar";
 import { InstrumentTag } from "./InstrumentTag";
+import { LotPicker } from "./LotPicker";
 
 /** Whole days from now until an ISO expiry date (≥0); null if no expiry yet. */
 function daysToExpiry(expiry: string): number | null {
@@ -32,7 +33,7 @@ export function InstrumentBarItem({
   onPlaceTrade,
 }: InstrumentBarItemProps) {
   const bar = useInstrumentBar(instrument, resolvedInstruments, instrumentTrades, onPlaceTrade);
-  const { spot, oi, preview, hasPreview, availableCapital, strikeStep, tradeMarkers, placeAt, capCE, capPE } = bar;
+  const { spot, oi, preview, hasPreview, availableCapital, strikeStep, tradeMarkers, placeAt, capCE, capPE, lots, setLots, lotSize } = bar;
 
   // Entry marker (an underlying price level) lifted here so BOTH the strike bar
   // (auto-fire on touch) and the LONG/SHORT toggle (Ctrl+click) can use it: when
@@ -61,6 +62,14 @@ export function InstrumentBarItem({
       </div>
     ) : null;
 
+  // Right slot: CE/PE capital readout + the lot chooser beside it (option b).
+  const rightSlot = (
+    <div className="flex items-center gap-2">
+      {capitalBlock}
+      <LotPicker lots={lots} onChange={setLots} lotSize={lotSize} disabled={!hasPreview} />
+    </div>
+  );
+
   return (
     <div className="border-b border-border/40 py-2.5 last:border-b-0">
       {spot > 0 ? (
@@ -68,7 +77,7 @@ export function InstrumentBarItem({
           name={instrument}
           stacked
           expiryDaysLeft={daysToExpiry(preview.expiry)}
-          rightSlot={capitalBlock}
+          rightSlot={rightSlot}
           side={bar.side}
           onSideChange={bar.setSide}
           direction={bar.direction}
