@@ -679,6 +679,26 @@ class ProgressDashboard:
             mode_line.append("Mode  ", style="dim")
             mode_line.append(self._mode_str, style="cyan")
             renderables.append(mode_line)
+        # 2026-06-19: Esc-confirmation + drain-countdown banner. The
+        # watcher / drain code writes a short message into
+        # progress_dict["__esc_banner__"]. We render it at the top of
+        # the frame so the operator can see at a glance what's going
+        # on. Style is encoded in a second key __esc_banner_style__
+        # (default "bold yellow"). Both keys are cleared by the
+        # writer when the situation passes.
+        try:
+            _banner_text = self._d.get("__esc_banner__")
+        except Exception:
+            _banner_text = None
+        if _banner_text:
+            try:
+                _banner_style = self._d.get("__esc_banner_style__") or "bold yellow"
+            except Exception:
+                _banner_style = "bold yellow"
+            banner_line = Text()
+            banner_line.append("  ")
+            banner_line.append(str(_banner_text), style=_banner_style)
+            renderables.append(banner_line)
         renderables.extend([rule, overall_tbl, rule, per_date_tbl, rule])
         if warn_err_lines:
             header_we = Text("Warnings & errors", style="bold yellow")

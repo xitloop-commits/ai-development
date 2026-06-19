@@ -960,19 +960,27 @@ def _resolve_workers(num_dates: int, requested: int | None) -> int:
     return max(1, min(requested, WORKERS_HARD_CAP, num_dates))
 
 
-def _start_esc_watcher(stop_event: "threading.Event") -> "threading.Thread | None":
-    """Spawn a daemon thread that listens for ESC and triggers the same
-    graceful drain as Ctrl+C (2026-06-15).
+def _start_esc_watcher(
+    stop_event: "threading.Event",
+    progress_dict=None,
+) -> "threading.Thread | None":
+    """Spawn a daemon thread that listens for ESC and triggers a
+    graceful drain (2026-06-15, with confirmation added 2026-06-19).
 
     Why a thread instead of binding ESC at the dashboard layer: rich's
     ``Live`` owns the terminal and won't let us peek at keypresses
-    cleanly. Polling ``msvcrt.kbhit`` from a side thread + firing
-    ``os.kill(pid, SIGINT)`` is simpler and reuses the entire existing
-    drain path verbatim — STOPPING/EXITED rows, __stop__ flag, SIG_IGN
-    cleanup all just work.
+    cleanly. Polling ``msvcrt.kbhit`` from a side thread is simpler.
 
-    Windows-only (Lubas is Windows-only by design). On non-Windows
-    hosts the function is a no-op so import + tests still work.
+    **Two-press confirmation** (2026-06-19): a single Esc tap is
+    surprisingly easy to hit by accident. First Esc → set a banner
+    "Press Esc AGAIN within 3 seconds to stop. Any other key to
+    continue." in ``progress_dict["__esc_banner__"]``. Second Esc
+    within 3s → fire ``os.kill(pid, SIGINT)`` and reuse the existing
+    drain path verbatim. Any other key OR 3s timeout → clear the
+    banner and continue.
+
+    Windows-only. On non-Windows hosts the function is a no-op so
+    import + tests still work.
 
     Arrow keys send `ESC + [` + letter — we read the second char
     immediately and discard the sequence so arrows don't fake a stop.
@@ -985,30 +993,75 @@ def _start_esc_watcher(stop_event: "threading.Event") -> "threading.Thread | Non
         return None
     import threading
 
+    _CONFIRM_BANNER = (
+        "⚠  Press Esc AGAIN within 3 seconds to STOP the replay. "
+        "Any other key to continue."
+    )
+    _CONFIRM_STYLE = "bold yellow"
+    _STOPPING_BANNER = "STOPPING — please wait..."
+    _STOPPING_STYLE = "bold red"
+
+    def _set_banner(text: str | None, style: str = "bold yellow") -> None:
+        if progress_dict is None:
+            return
+        try:
+            if text is None:
+                progress_dict.pop("__esc_banner__", None)
+                progress_dict.pop("__esc_banner_style__", None)
+            else:
+                progress_dict["__esc_banner__"] = text
+                progress_dict["__esc_banner_style__"] = style
+        except Exception:
+            pass
+
     def _poll() -> None:
         import msvcrt as _mc
+        _esc_pending = False
+        _esc_pending_until = 0.0
         while not stop_event.is_set():
             try:
+                now = time.monotonic()
+                # Confirmation window expired — clear pending + banner.
+                if _esc_pending and now > _esc_pending_until:
+                    _esc_pending = False
+                    _set_banner(None)
                 if _mc.kbhit():
                     ch = _mc.getch()
-                    # ESC = b'\x1b'. Arrow keys + F-keys on Windows
-                    # consoles arrive as either `b'\xe0' + letter` or
-                    # `b'\x00' + letter` — handled by the kbhit fall-
-                    # through. Bare ESC (no follow-up byte within a
-                    # few ms) is the stop.
-                    if ch == b"\x1b":
-                        # Drain a possible follow-up byte (some terminals
-                        # emit ESC [ X for special keys via stdin even
-                        # on Windows under certain wrappers).
+                    # Arrow keys + F-keys arrive as `\xe0` or `\x00` +
+                    # letter. Discard the follow-up byte for those.
+                    if ch in (b"\xe0", b"\x00"):
+                        # eat the next byte (the key code)
+                        if _mc.kbhit():
+                            _mc.getch()
+                        if _esc_pending:
+                            # Any non-Esc keypress aborts the pending stop.
+                            _esc_pending = False
+                            _set_banner(None)
+                        continue
+                    if ch == b"\x1b":  # ESC
+                        # Drain a possible follow-up byte (terminal-encoded
+                        # ESC [ X sequences for arrows).
                         time.sleep(0.005)
                         if _mc.kbhit():
-                            _mc.getch()  # discard sequence; ignore
+                            _mc.getch()
                             continue
-                        try:
-                            os.kill(os.getpid(), signal.SIGINT)
-                        except Exception:
-                            pass
-                        return
+                        if _esc_pending and now <= _esc_pending_until:
+                            # Confirmed stop.
+                            _set_banner(_STOPPING_BANNER, _STOPPING_STYLE)
+                            try:
+                                os.kill(os.getpid(), signal.SIGINT)
+                            except Exception:
+                                pass
+                            return
+                        # First Esc — open confirmation window.
+                        _esc_pending = True
+                        _esc_pending_until = now + 3.0
+                        _set_banner(_CONFIRM_BANNER, _CONFIRM_STYLE)
+                    else:
+                        # Any other key aborts pending stop.
+                        if _esc_pending:
+                            _esc_pending = False
+                            _set_banner(None)
                 stop_event.wait(0.05)
             except Exception:
                 # Don't let a keyboard glitch kill the dashboard.
@@ -1263,7 +1316,7 @@ def replay(
     # drain that Ctrl+C does. Set stop_event before the dashboard
     # tears down so the thread exits on its own.
     _esc_stop_event = threading.Event()
-    _esc_thread = _start_esc_watcher(_esc_stop_event)
+    _esc_thread = _start_esc_watcher(_esc_stop_event, progress_dict)
 
     try:
         with ProgressDashboard(
@@ -1358,34 +1411,123 @@ def replay(
                         f.cancel()
                     in_flight = [f for f in futures if f.running()]
                     # ``wait=False`` so we don't block here; we drain
-                    # ``in_flight`` via ``as_completed`` below so the
-                    # dashboard mark_terminal calls reflect each date
-                    # as it exits.
+                    # ``in_flight`` via short-timeout polling below so
+                    # the dashboard countdown stays alive.
                     pool.shutdown(wait=False, cancel_futures=True)
-                    for fut in as_completed(in_flight):
-                        date_str = futures[fut]
+                    # 2026-06-19: graceful drain with a HARD timeout +
+                    # force-kill of any worker still alive at the end.
+                    # Pre-fix the drain would wait forever on a worker
+                    # stuck in flush_all / merge / validate — memory
+                    # stayed full until the operator closed the .bat
+                    # window manually.
+                    _DRAIN_TIMEOUT_SEC = 30.0
+                    _drain_deadline = time.monotonic() + _DRAIN_TIMEOUT_SEC
+                    _completed_futs: set = set()
+                    while True:
+                        _now = time.monotonic()
+                        _secs_left = max(0, int(_drain_deadline - _now))
+                        # Update banner with countdown so the operator
+                        # can see progress.
                         try:
-                            verdict = fut.result()
-                        except KeyboardInterrupt:
-                            # Worker hit per-date KeyboardInterrupt and
-                            # re-raised after the partial-chunk flush —
-                            # that's the graceful path. The dashboard
-                            # already has phase=exited from the worker.
-                            verdict = "interrupted"
-                        except Exception as exc:
-                            if logger:
-                                logger.warn(
-                                    "REPLAY_WORKER_DRAIN_ERROR",
-                                    msg=f"Worker for {date_str} "
-                                        f"errored during drain: {exc}",
-                                    instrument=instrument,
-                                    date=date_str,
-                                )
-                            verdict = "fail"
-                        dashboard.mark_terminal(date_str, verdict)
-                        summary[verdict] = summary.get(verdict, 0) + 1
-                    # All in-flight workers have flushed + exited. Don't
-                    # re-raise — see comment in finally below.
+                            progress_dict["__esc_banner__"] = (
+                                f"STOPPING — waiting up to {_secs_left}s "
+                                "for workers to finish current chunk..."
+                            )
+                            progress_dict["__esc_banner_style__"] = "bold red"
+                        except Exception:
+                            pass
+                        # All in-flight either completed or we're past
+                        # the deadline → leave loop.
+                        _live = [f for f in in_flight if f not in _completed_futs]
+                        if not _live or _now >= _drain_deadline:
+                            break
+                        # Wait up to 1s for the next future to complete;
+                        # update banner countdown every second.
+                        try:
+                            from concurrent.futures import wait as _futwait
+                            from concurrent.futures import FIRST_COMPLETED
+                            _done, _ = _futwait(
+                                _live, timeout=1.0,
+                                return_when=FIRST_COMPLETED,
+                            )
+                        except Exception:
+                            _done = set()
+                        for fut in _done:
+                            _completed_futs.add(fut)
+                            date_str = futures[fut]
+                            try:
+                                verdict = fut.result()
+                            except KeyboardInterrupt:
+                                verdict = "interrupted"
+                            except Exception as exc:
+                                if logger:
+                                    logger.warn(
+                                        "REPLAY_WORKER_DRAIN_ERROR",
+                                        msg=f"Worker for {date_str} "
+                                            f"errored during drain: {exc}",
+                                        instrument=instrument,
+                                        date=date_str,
+                                    )
+                                verdict = "fail"
+                            dashboard.mark_terminal(date_str, verdict)
+                            summary[verdict] = summary.get(verdict, 0) + 1
+                    # Force-kill any worker process that didn't finish
+                    # within the deadline. Without this, a hung worker
+                    # holds ~3 GB+ of pending state until the OS reaps
+                    # it when the parent dies — operator sees "memory
+                    # still full" in task manager after Esc.
+                    _still_running = [f for f in in_flight if f not in _completed_futs]
+                    if _still_running:
+                        try:
+                            progress_dict["__esc_banner__"] = (
+                                f"Force-killing {len(_still_running)} stuck workers "
+                                "(memory freeing now)..."
+                            )
+                        except Exception:
+                            pass
+                        if logger:
+                            logger.warn(
+                                "REPLAY_WORKERS_FORCE_KILLED",
+                                msg=f"{len(_still_running)} workers did not "
+                                    f"finish within {int(_DRAIN_TIMEOUT_SEC)}s; "
+                                    "force-killing.",
+                                instrument=instrument,
+                            )
+                        # ProcessPoolExecutor exposes its worker processes
+                        # via the private `_processes` dict (PID → Process).
+                        # That's stable enough — concurrent.futures has used
+                        # it since Python 3.4. Falls back to a no-op if the
+                        # attribute is missing in some future version.
+                        try:
+                            for _proc in list(getattr(pool, "_processes", {}).values()):
+                                try:
+                                    _proc.terminate()
+                                except Exception:
+                                    pass
+                            time.sleep(0.5)
+                            for _proc in list(getattr(pool, "_processes", {}).values()):
+                                try:
+                                    if _proc.is_alive():
+                                        _proc.kill()
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                        # Mark the still-running dates as interrupted so
+                        # the per-date row turns red instead of staying
+                        # forever on its last "running" frame.
+                        for fut in _still_running:
+                            date_str = futures[fut]
+                            dashboard.mark_terminal(date_str, "interrupted")
+                            summary["interrupted"] = True
+                    try:
+                        progress_dict["__esc_banner__"] = (
+                            "STOPPED. Dashboard frame below; press any key in the cmd window to close."
+                        )
+                        progress_dict["__esc_banner_style__"] = "bold green"
+                    except Exception:
+                        pass
+                    # Don't re-raise — see comment in finally below.
     finally:
         # Tell the ESC watcher to stop polling; daemon thread so it
         # would die at interpreter exit anyway, but cleaner to signal
