@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { TodayTradeRow } from "./TodayTradeRow";
 import {
-  makeDay,
   mockOpenTrade,
   mockClosedTpTrade,
   mockClosedSlTrade,
@@ -19,7 +18,6 @@ function TableWrap({ children }: { children: React.ReactNode }) {
   );
 }
 
-const day = makeDay({ trades: [mockOpenTrade] });
 
 const meta = {
   title: "Components/TodayTradeRow",
@@ -36,7 +34,6 @@ const meta = {
   tags: ["autodocs"],
   decorators: [(Story: any) => <TableWrap><Story /></TableWrap>],
   args: {
-    day,
     isFirst: true,
     showNet: true,
     canManageTrades: true,

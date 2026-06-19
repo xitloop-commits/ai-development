@@ -5,7 +5,7 @@ import { estimateSingleLegCharges, DEFAULT_CHARGES } from '@shared/chargesEngine
 import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import type { Channel, DayRecord, TradeRecord } from '@/lib/tradeTypes';
+import type { Channel, TradeRecord } from '@/lib/tradeTypes';
 import { channelToWorkspace, optionExchangeFor } from '@/lib/tradeTypes';
 import {
   fmt,
@@ -26,7 +26,6 @@ import { TradeBar } from './TradeBar';
 
 export interface TodayTradeRowProps {
   trade: TradeRecord;
-  day: DayRecord;
   isFirst: boolean;
   showNet: boolean;
   onExit: (tradeId: string, instrument: string) => void;
@@ -192,6 +191,7 @@ function _TodayTradeRow({
                 }
                 trailingEnabled={globalTrailingEnabled}
                 tslHoldSeconds={tslHoldSeconds}
+                tslActivatedAt={(trade as any).tslActivatedAt ?? null}
                 tslGatePrice={(() => {
                   const be = trade.breakevenPrice ?? trade.entryPrice;
                   const g = tslGatePercent ?? 2;
@@ -200,8 +200,15 @@ function _TodayTradeRow({
                 units={trade.qty}
                 roundTripCharges={charges}
                 compact
-                onStopLossHit={() => toast.error(`Stop hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`)}
-                onTakeProfitHit={() => toast.success(`TP hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`)}
+                onStopLossHit={() => {
+                  // TEMP DIAGNOSTIC ([XSYNC] exit-sync): client-side marker crossed.
+                  if (import.meta.env.DEV) console.log(`[XSYNC-CLI] predict SL-HIT trade=${trade.id} ${trade.instrument} ltp=${displayLtp.toFixed(2)} stop=${trade.stopLossPrice}`);
+                  toast.error(`Stop hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`);
+                }}
+                onTakeProfitHit={() => {
+                  if (import.meta.env.DEV) console.log(`[XSYNC-CLI] predict TP-HIT trade=${trade.id} ${trade.instrument} ltp=${displayLtp.toFixed(2)} target=${trade.targetPrice}`);
+                  toast.success(`TP hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`);
+                }}
               />
             </div>
           )}
@@ -384,8 +391,8 @@ function _TodayTradeRow({
 
 /**
  * Subscriber wrapper mounted ONLY for OPEN trades.
- * Calls useTickStream → re-renders on every tick via useSyncExternalStore.
- * Closed rows never mount this, so they never re-render on ticks.
+ * Subscribes (via useInstrumentTick) to this trade's own contract, so it
+ * re-renders only on its own ticks. Closed rows never mount this.
  */
 function LiveTodayTradeRow(props: TodayTradeRowProps) {
   const { trade } = props;
@@ -400,9 +407,62 @@ function LiveTodayTradeRow(props: TodayTradeRowProps) {
  * Memoized so closed rows skip re-renders on unrelated parent updates; open
  * rows drive their own renders via useSyncExternalStore (memo is bypassed).
  */
+/**
+ * Re-render only when something the row actually SHOWS changes.
+ *
+ * Two churn sources are deliberately ignored here:
+ *  - `trade` identity churns every 2s poll (server re-serialisation of nullable
+ *    fields), so we compare it BY VALUE — a closed trade's values are frozen, so
+ *    it never re-renders; an open trade's ltp/pnl change, so it does.
+ *  - the `onExit` / `onUpdateTpSl` handlers are recreated every poll (their deps
+ *    include `currentDay` / the mutation object), but handler identity does NOT
+ *    affect the rendered output, and closed rows never invoke them (no exit/edit
+ *    on a closed trade). Open rows re-render anyway, so they always hold a fresh
+ *    handler. Comparing them by reference was what kept every row re-rendering.
+ *
+ * Live WS ticks still update open rows via the inner useInstrumentTick
+ * subscription, independent of this memo.
+ */
+function rowPropsEqual(a: TodayTradeRowProps, b: TodayTradeRowProps): boolean {
+  return (
+    a.isFirst === b.isFirst &&
+    a.showNet === b.showNet &&
+    a.exitLoading === b.exitLoading &&
+    a.canManageTrades === b.canManageTrades &&
+    a.channel === b.channel &&
+    a.globalTrailingEnabled === b.globalTrailingEnabled &&
+    a.slPercent === b.slPercent &&
+    a.tslGatePercent === b.tslGatePercent &&
+    a.tslHoldSeconds === b.tslHoldSeconds &&
+    a.tradeNo === b.tradeNo &&
+    a.todayRef === b.todayRef &&
+    // By-value compare neutralises the per-poll reference + undefined/absent churn.
+    JSON.stringify(a.trade) === JSON.stringify(b.trade)
+  );
+}
+
 export const TodayTradeRow = memo(function TodayTradeRow(props: TodayTradeRowProps) {
+  // TEMP DIAGNOSTIC ([XSYNC] exit-sync): observe the server's view reaching the
+  // client — when this trade closes, and when a trailed stop arrives. Lives on
+  // the dispatcher (persists across the OPEN→closed wrapper swap).
+  const t = props.trade;
+  const prevRef = useRef<{ status: string; stop: number | null }>({ status: t.status, stop: t.stopLossPrice ?? null });
+  useEffect(() => {
+    const prev = prevRef.current;
+    if (import.meta.env.DEV) {
+      if (prev.status === 'OPEN' && t.status !== 'OPEN') {
+        console.log(`[XSYNC-CLI] CLOSED trade=${t.id} ${t.instrument} status=${t.status} reason=${(t as any).exitReason ?? '?'} exit=${t.exitPrice ?? '?'}`);
+      }
+      const stop = t.stopLossPrice ?? null;
+      if (stop !== prev.stop) {
+        console.log(`[XSYNC-CLI] STOP-MOVED trade=${t.id} ${t.instrument} ${prev.stop}→${stop}`);
+      }
+    }
+    prevRef.current = { status: t.status, stop: t.stopLossPrice ?? null };
+  }, [t.status, t.stopLossPrice, t.id, t.instrument, t.exitPrice]);
+
   if (props.trade.status === 'OPEN') {
     return <LiveTodayTradeRow {...props} />;
   }
   return <_TodayTradeRow {...props} />;
-});
+}, rowPropsEqual);

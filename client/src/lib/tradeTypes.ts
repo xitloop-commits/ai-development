@@ -106,6 +106,9 @@ export interface TradeRecord {
   /** Peak (BUY) / trough (SELL) LTP since entry — the trailing-stop anchor.
    *  Sent by the server (positionDocToTradeRecord); absent on older trades. */
   peakLtp?: number | null;
+  /** Epoch ms when the trailing stop activated — drives the TradeBar's "TSL
+   *  running" stopwatch next to the TP. Absent until TSL arms. */
+  tslActivatedAt?: number | null;
   openedAt: number;
   closedAt: number | null;
   /**

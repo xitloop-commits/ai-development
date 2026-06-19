@@ -6,7 +6,7 @@
  * Data: Broker status from tRPC broker.getStatus, discipline score from
  * tRPC discipline.getDashboard, module heartbeats from props (polling).
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { Calendar,
   Menu, Target,
 } from 'lucide-react';
@@ -15,7 +15,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
 import { trpc } from '@/lib/trpc';
-import { useCapital } from '@/contexts/CapitalContext';
+import { useCapital, useChannel } from '@/contexts/CapitalContext';
 import { formatINR } from '@/lib/formatINR';
 import type { MarketHoliday } from '@/lib/types';
 import {
@@ -193,9 +193,17 @@ const MODES_FOR: Record<Workspace, [Mode, Mode]> = {
 };
 
 function ChannelModeToggle() {
-  const { channel, setChannel, refetchAll } = useCapital() as any;
+  // Channel-only subscription — does NOT re-render on capital/P&L churn.
+  const { channel, setChannel } = useChannel();
   const currentWs = channelToWorkspace(channel);
   const currentMode = channelToMode(channel);
+  const utils = trpc.useUtils();
+  // Refresh capital data after a workspace clear / mock-feed toggle, via the
+  // stable trpc utils (so this component needn't read the capital context).
+  const refetchData = () => {
+    void utils.portfolio.state.invalidate();
+    void utils.portfolio.allDays.invalidate();
+  };
 
   const [confirmTarget, setConfirmTarget] = useState<Channel | null>(null);
 
@@ -212,19 +220,20 @@ function ChannelModeToggle() {
   };
 
   const clearWorkspaceMutation = trpc.portfolio.clearWorkspace.useMutation({
-    onSuccess: () => refetchAll(),
+    onSuccess: () => refetchData(),
   });
   const canClear = currentMode === 'paper' || currentMode === 'sandbox';
 
   // Dev mock-feed toggle — only rendered in dev builds (mockFeedStatus.allowed).
-  const utils = trpc.useUtils();
-  const mockStatus = trpc.broker.mockFeedStatus.useQuery(undefined, { refetchInterval: 5000 });
+  // The mock feed is never flipped externally, so no polling: fetch once and let
+  // the toggle mutation's invalidate refresh it (refetch-on-focus as a safety net).
+  const mockStatus = trpc.broker.mockFeedStatus.useQuery(undefined, { refetchOnWindowFocus: true });
   const mockOn = mockStatus.data?.enabled ?? false;
   const mockAllowed = mockStatus.data?.allowed ?? false;
   const setMockMutation = trpc.broker.setMockFeed.useMutation({
     onSuccess: () => {
       utils.broker.mockFeedStatus.invalidate();
-      refetchAll();
+      refetchData();
     },
   });
 
@@ -294,7 +303,12 @@ interface AppBarProps {
   onToggleRightDrawer: () => void;
 }
 
-export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
+/**
+ * Days-left badge + journey tooltip. Reads `capital` itself so that the live
+ * net-worth churn (recomputed every poll) re-renders ONLY this tiny badge, not
+ * the whole AppBar shell.
+ */
+function AppBarDayBadge() {
   const { capital } = useCapital();
   const currentDay = capital.currentDayIndex;
   const dayProgress = (currentDay / 250) * 100;
@@ -303,7 +317,29 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
   const growthPercent = initialFunding > 0
     ? (((netWorth - initialFunding) / initialFunding) * 100).toFixed(1)
     : '0.0';
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="px-3 flex items-center gap-1.5 shrink-0 cursor-default">
+          <Target className="h-3 w-3 text-primary shrink-0" />
+          <span className="text-[0.625rem] font-bold tabular-nums text-primary">{250 - currentDay} left</span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        <div className="text-[0.625rem] space-y-0.5">
+          <div className="font-bold">Day 250 Journey — {dayProgress.toFixed(1)}% Complete</div>
+          <div className="text-muted-foreground">Current Day: {currentDay}</div>
+          <div className="text-muted-foreground">Remaining: {250 - currentDay} days</div>
+          <div className="text-muted-foreground">Growth: {growthPercent}% from {formatINR(initialFunding)}</div>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
+function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
+  // NOTE: AppBar shell intentionally does NOT read `capital` — that lives in
+  // AppBarDayBadge so capital churn doesn't repaint the whole top bar.
   // The right-side indicator cluster owns all its own queries — see
   // Indicators.tsx. AppBar no longer threads broker/feed/discipline
   // state through this scope.
@@ -330,23 +366,8 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
-        {/* Days Left */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="px-3 flex items-center gap-1.5 shrink-0 cursor-default">
-              <Target className="h-3 w-3 text-primary shrink-0" />
-              <span className="text-[0.625rem] font-bold tabular-nums text-primary">{250 - currentDay} left</span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            <div className="text-[0.625rem] space-y-0.5">
-              <div className="font-bold">Day 250 Journey — {dayProgress.toFixed(1)}% Complete</div>
-              <div className="text-muted-foreground">Current Day: {currentDay}</div>
-              <div className="text-muted-foreground">Remaining: {250 - currentDay} days</div>
-              <div className="text-muted-foreground">Growth: {growthPercent}% from {formatINR(initialFunding)}</div>
-            </div>
-          </TooltipContent>
-        </Tooltip>
+        {/* Days Left (reads capital in its own component to avoid repainting AppBar) */}
+        <AppBarDayBadge />
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
@@ -402,3 +423,9 @@ export default function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppB
     </div>
   );
 }
+
+// Memoized so MainScreen's frequent polls (it re-renders every ~3s) don't repaint
+// the whole top bar. Props are stable (useCallback in MainScreen); the live
+// children (ChannelTabs, day badge, mode toggle) update themselves via their own
+// subscriptions.
+export default memo(AppBar);

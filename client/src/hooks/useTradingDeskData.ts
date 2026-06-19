@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Channel, ResolvedInstrument } from '@/lib/tradeTypes';
 import { UI_TO_RESOLVED, optionExchangeFor } from '@/lib/tradeTypes';
 import { trpc } from '@/lib/trpc';
-import { useTickStream } from './useTickStream';
+import { useTickFeed, getTickFromStore } from './useTickStream';
 
 interface UseTradingDeskDataParams {
   resolvedInstruments?: ResolvedInstrument[];
@@ -35,7 +35,9 @@ export function useTradingDeskData({
   updateLtp,
   todayRef,
 }: UseTradingDeskDataParams) {
-  const { getTick } = useTickStream(liveTicksEnabled);
+  // Connection only — we read ticks on demand via getTickFromStore (below), so
+  // the desk must NOT re-render on every tick.
+  useTickFeed(liveTicksEnabled);
   const feedSubscribeMutation = trpc.broker.feed.subscribe.useMutation();
 
   const feedLookup = useMemo(() => {
@@ -52,14 +54,14 @@ export function useTradingDeskData({
     // Option trades: read the contract's own tick (premium). Hot path — no
     // logging / window globals here (called per open trade per tick).
     if (trade.contractSecurityId) {
-      return getTick(optionExchangeFor(trade.instrument), trade.contractSecurityId)?.ltp;
+      return getTickFromStore(optionExchangeFor(trade.instrument), trade.contractSecurityId)?.ltp;
     }
     // No contract id → fall back to the underlying feed.
     const resolvedName = UI_TO_RESOLVED[trade.instrument] ?? trade.instrument;
     const feed = feedLookup.get(resolvedName);
     if (!feed) return undefined;
-    return getTick(feed.exchange, feed.securityId)?.ltp;
-  }, [feedLookup, getTick]);
+    return getTickFromStore(feed.exchange, feed.securityId)?.ltp;
+  }, [feedLookup]);
 
   const subscribeOptionFeed = useCallback((instrument: string, contractSecurityId: string) => {
     feedSubscribeMutation.mutate({

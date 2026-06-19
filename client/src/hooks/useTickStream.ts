@@ -1,13 +1,11 @@
 /**
- * useTickStream — Live tick data hook
+ * Live tick data — WS feed (/ws/ticks, raw Dhan binary) with a tRPC polling
+ * fallback, parsed client-side for zero-latency LTP.
  *
- * Connects to /ws/ticks which forwards raw Dhan binary packets.
- * Parses binary on the client side for zero-latency LTP display.
- * Falls back to tRPC polling if WS fails.
- *
- * Usage:
- *   const { getTick, isConnected } = useTickStream();
- *   const niftyTick = getTick("IDX_I", "13");
+ * Two consumption modes, both per-render-cheap:
+ *   - useInstrumentTick(exchange, securityId) — reactive for ONE contract.
+ *   - useTickFeed() — keep the feed connected without re-rendering on ticks;
+ *     read on demand via getTickFromStore(exchange, securityId).
  */
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
@@ -172,39 +170,32 @@ function parseBinaryPacket(buf: DataView, byteLen: number): { key: string; parti
 
 // ── Global tick store (shared across all hook instances) ─────────
 const tickStore = new Map<string, TickData>();
-const listeners: Array<() => void> = [];
-let storeVersion = 0;
-
-function notifyListeners() {
-  storeVersion++;
-  for (let i = 0; i < listeners.length; i++) {
-    listeners[i]();
-  }
-}
-
-function subscribe(listener: () => void) {
-  listeners.push(listener);
-  return () => {
-    const idx = listeners.indexOf(listener);
-    if (idx >= 0) listeners.splice(idx, 1);
-  };
-}
-
-function getSnapshot() {
-  return storeVersion;
-}
 
 // ── Per-instrument subscription ───────────────────────────────────────────
-// Lets a single row subscribe to ONLY its own contract's ticks, so it
-// re-renders on its own ticks instead of every subscriber re-rendering on
-// every tick (the global `listeners` fan-out). Ticks are mutated in place, so
-// each key carries a version counter that bumps on update.
+// A row subscribes to ONLY its own contract's ticks, so it re-renders on its
+// own ticks — never a global fan-out. Ticks are mutated in place, so each key
+// carries a version counter that bumps on update.
 const keyVersions = new Map<string, number>();
 const keySubs = new Map<string, Set<() => void>>();
+// Wall-clock of the most recent tick (any contract) — drives the feed-health
+// banner. Init to "now" so a fresh page load gets a grace period before the
+// staleness check can fire. Every tick path funnels through bumpKey.
+let lastTickAt = Date.now();
 function bumpKey(key: string) {
+  lastTickAt = Date.now();
   keyVersions.set(key, (keyVersions.get(key) ?? 0) + 1);
   const subs = keySubs.get(key);
   if (subs) subs.forEach((cb) => cb());
+}
+
+/** ms timestamp of the most recent tick received (any contract). */
+export function getLastTickAt(): number {
+  return lastTickAt;
+}
+
+/** Whether the tick WebSocket is currently connected. */
+export function isFeedConnected(): boolean {
+  return wsConnected;
 }
 function subscribeKey(key: string, cb: () => void) {
   let set = keySubs.get(key);
@@ -255,7 +246,6 @@ function updateTick(key: string, partial: Partial<TickData>) {
     } as TickData);
   }
   bumpKey(key);
-  notifyListeners();
 }
 
 function _ingestTick(tick: TickData) {
@@ -263,7 +253,6 @@ function _ingestTick(tick: TickData) {
     const key = `${tick.exchange}:${tick.securityId}`;
     tickStore.set(key, tick);
     bumpKey(key);
-    notifyListeners();
   }
 }
 
@@ -322,16 +311,13 @@ function connectWs() {
     try {
       const data = JSON.parse(event.data);
       if (data.type === "snapshot" && Array.isArray(data.ticks)) {
-        let changed = false;
         for (const tick of data.ticks) {
           if (tick && tick.securityId && tick.exchange) {
             const key = `${tick.exchange}:${tick.securityId}`;
             tickStore.set(key, tick);
             bumpKey(key);
-            changed = true;
           }
         }
-        if (changed) notifyListeners();
       } else if (data.type === "chainUpdate" && data.chain) {
         // One option-chain update pushed by server when its chainCache refreshes
         chainStore._ingest(data.chain);
@@ -397,9 +383,9 @@ function useTickConnection(enabled: boolean) {
  * useInstrumentTick — subscribe to ONE contract's ticks only.
  *
  * Returns the latest TickData for `exchange:securityId` and re-renders the
- * caller only when THAT contract ticks (not on every tick like useTickStream).
- * Use this in per-row hot paths (e.g. open trade rows). Relies on a parent
- * useTickStream to run the polling fallback; it manages the WS connection too.
+ * caller only when THAT contract ticks. Use this in per-row hot paths (e.g.
+ * open trade rows). It manages the WS connection; a parent `useTickFeed` runs
+ * the polling fallback.
  */
 export function useInstrumentTick(
   exchange?: string | null,
@@ -414,8 +400,14 @@ export function useInstrumentTick(
   return key ? tickStore.get(key) : undefined;
 }
 
-// ── Hook ────────────────────────────────────────────────────────
-export function useTickStream(enabled = true) {
+// ── Feed-only hook ───────────────────────────────────────────────
+/**
+ * useTickFeed — keep the live feed CONNECTED (WS + polling fallback) WITHOUT
+ * subscribing to the global tick stream. Use this when a component only needs
+ * the feed running (e.g. the app shell) and must NOT re-render on every tick.
+ * Read ticks reactively via `useInstrumentTick` (per-contract) instead.
+ */
+export function useTickFeed(enabled = true) {
   useTickConnection(enabled);
 
   // Polling fallback (only when WS is not connected)
@@ -428,7 +420,6 @@ export function useTickStream(enabled = true) {
 
   useEffect(() => {
     if (snapshotQuery.data && Array.isArray(snapshotQuery.data)) {
-      let changed = false;
       for (const tick of snapshotQuery.data) {
         if (tick && tick.securityId && tick.exchange) {
           const key = `${tick.exchange}:${tick.securityId}`;
@@ -436,34 +427,13 @@ export function useTickStream(enabled = true) {
           if (!existing || tick.timestamp > existing.timestamp) {
             tickStore.set(key, tick as TickData);
             bumpKey(key);
-            changed = true;
           }
         }
       }
-      if (changed) notifyListeners();
     }
   }, [snapshotQuery.data]);
 
-  useSyncExternalStore(subscribe, getSnapshot);
-
-  const getTick = useCallback(
-    (exchange: string, securityId: string): TickData | undefined => {
-      return tickStore.get(`${exchange}:${securityId}`);
-    },
-    []
-  );
-
-  const getAllTicks = useCallback((): TickData[] => {
-    return Array.from(tickStore.values());
-  }, []);
-
-  return {
-    ticks: tickStore,
-    getTick,
-    getAllTicks,
-    isConnected: wsConnected || (snapshotQuery.data?.length ?? 0) > 0,
-    tickCount: tickStore.size,
-  };
+  return snapshotQuery;
 }
 
 export function getTickFromStore(

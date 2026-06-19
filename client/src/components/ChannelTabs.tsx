@@ -22,7 +22,7 @@ import {
   channelToWorkspace,
   channelToMode,
 } from '@/lib/tradeTypes';
-import { useCapital } from '@/contexts/CapitalContext';
+import { useChannel } from '@/contexts/CapitalContext';
 import { ConfirmPopover } from './ConfirmPopover';
 
 export const TAB_DEFS: Array<{
@@ -47,7 +47,7 @@ export const lastModeForWs: Record<Workspace, Mode> = {
 };
 
 export function ChannelTabs() {
-  const { channel, setChannel } = useCapital() as any;
+  const { channel, setChannel } = useChannel();
   const currentWs = channelToWorkspace(channel);
   const currentMode = channelToMode(channel);
 

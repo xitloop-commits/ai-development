@@ -21,7 +21,10 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { formatPrice } from "@/lib/formatINR";
+import { formatPrice, formatINR } from "@/lib/formatINR";
+
+/** Compact price for the scale (no ₹, no K/L shorthand): 135.4, 1,234.5. */
+const scalePrice = (v: number) => formatINR(v, { prefix: false, compact: false });
 
 export interface TradeBarProps {
   /** BUY → price up is favourable; SELL → price down is favourable (mirrored). */
@@ -44,6 +47,9 @@ export interface TradeBarProps {
   /** Seconds price must hold past the gate before the server actually arms the
    *  TSL — shown in the pending marker's tooltip so it doesn't look armed early. */
   tslHoldSeconds?: number;
+  /** Epoch ms the trailing stop ACTIVATED — when set, a running mm:ss stopwatch
+   *  shows next to the TP marker (how long the TSL has been live). */
+  tslActivatedAt?: number | null;
   /** Position size in units (lots × lot size) — used to show ₹ P&L at markers. */
   units?: number;
   /** Round-trip charges (₹) — subtracted from the ₹ P&L shown at markers. */
@@ -75,9 +81,9 @@ const BUFFER_GREEN = "rgba(34, 197, 94, 0.55)"; // clear green for the TSL → L
 const GREY = "rgba(148, 163, 184, 0.35)";
 
 const SL_COLOR = "#dc2626";
-const ENTRY_COLOR = "#000000";
+const ENTRY_COLOR = "#2563eb"; // blue — visible on dark rows
 const TSL_COLOR = "#eab308"; // stop colour once it has trailed into profit
-const TP_COLOR = "#3b82f6";
+const TP_COLOR = "#22c55e"; // green
 
 const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, n));
 
@@ -90,6 +96,7 @@ export function TradeBar({
   trailingEnabled = false,
   tslGatePrice,
   tslHoldSeconds,
+  tslActivatedAt,
   units,
   roundTripCharges = 0,
   compact = false,
@@ -125,6 +132,18 @@ export function TradeBar({
   // ── State ───────────────────────────────────────────────────────────
   const [maxFav, setMaxFav] = useState(baseMaxFav);
   const firedRef = useRef({ sl: false, tp: false });
+
+  // "TSL running" stopwatch — re-render once a second only while the TSL is
+  // active (and the bar is live), so the mm:ss next to the TP keeps ticking.
+  const [, tickClock] = useState(0);
+  const tslRunning = !!tslActivatedAt && !frozen;
+  useEffect(() => {
+    if (!tslRunning) return;
+    const id = setInterval(() => tickClock((n) => (n + 1) % 86_400), 1000);
+    return () => clearInterval(id);
+  }, [tslRunning]);
+  const tslElapsedSec = tslActivatedAt ? Math.max(0, Math.floor((Date.now() - tslActivatedAt) / 1000)) : 0;
+  const tslClock = `${String(Math.floor(tslElapsedSec / 60)).padStart(2, "0")}:${String(tslElapsedSec % 60).padStart(2, "0")}`;
 
   const onStopLossHitRef = useRef(onStopLossHit);
   const onTakeProfitHitRef = useRef(onTakeProfitHit);
@@ -221,24 +240,32 @@ export function TradeBar({
     >
       <div
         style={{
-          width: "3px",
+          width: "2px",
           height: "11px",
           backgroundColor: color,
           borderRadius: "1px",
-          boxShadow: "0 0 0 0.5px rgba(255,255,255,0.65)",
         }}
       />
     </div>
   );
 
-  const Label = ({ at, color, text }: { at: number; color: string; text: string }) => (
-    <span
-      className="absolute -translate-x-1/2 text-[0.5rem] font-bold tabular-nums leading-none transition-[left] duration-300 ease-out"
-      style={{ left: `${clamp(at, 4, 96)}%`, color }}
-    >
-      {text}
-    </span>
-  );
+  // align: "center" under the marker (default), "left" = label sits to the LEFT
+  // of the marker, "right" = to the RIGHT — used to separate markers that crowd.
+  const Label = ({ at, color, text, price, hideText, align = "center" }: { at: number; color: string; text: string; price?: number; hideText?: boolean; align?: "center" | "left" | "right" }) => {
+    const transform = align === "left" ? "translateX(-100%)" : align === "right" ? "translateX(0)" : "translateX(-50%)";
+    const items = align === "left" ? "items-end pr-1" : align === "right" ? "items-start pl-1" : "items-center";
+    return (
+      <span
+        className={`absolute flex flex-col gap-px leading-none transition-[left] duration-300 ease-out ${items}`}
+        style={{ left: `${clamp(at, 4, 96)}%`, color, transform }}
+      >
+        {!hideText && <span className="text-[0.5rem] font-bold tabular-nums">{text}</span>}
+        {price != null && price > 0 && (
+          <span className="text-[0.5rem] font-bold tabular-nums opacity-90">{scalePrice(price)}</span>
+        )}
+      </span>
+    );
+  };
 
   // ── Zone % arrows (<—— x% ——>) ────────────────────────────────────────
   // Risk = stop→entry (the red loss zone, only when the stop is below entry).
@@ -376,6 +403,18 @@ export function TradeBar({
           <Tick at={tpPos} color={TP_COLOR} tip={tpTip} />
         </div>
 
+        {/* TSL "running" stopwatch (mm:ss) — sits just right of the TP marker,
+            inside the bar, while the trailing stop is active. */}
+        {tslRunning && (
+          <span
+            className="absolute z-[11] text-[0.5rem] font-bold tabular-nums leading-none px-0.5 rounded pointer-events-none whitespace-nowrap"
+            style={{ left: `${clamp(tpPos, 6, 96)}%`, top: "50%", transform: "translate(3px, -50%)", color: TSL_COLOR, background: "rgba(0,0,0,0.55)" }}
+            title={`Trailing stop running · ${tslClock}`}
+          >
+            {tslClock}
+          </span>
+        )}
+
         {/* Pending TSL — thin marker at the activation gate (trailing on, not armed). */}
         {tslPending && (
           <div
@@ -385,17 +424,23 @@ export function TradeBar({
           >
             <div
               className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0"
-              style={{ borderLeft: `1px dashed ${TSL_COLOR}`, opacity: 0.6 }}
+              style={{ borderLeft: `2px solid ${TSL_COLOR}`, opacity: 0.85 }}
             />
           </div>
         )}
 
-        {/* LTP triangle pointer */}
+        {/* LTP triangle pointer + live price above it */}
         <div
           className="absolute -translate-x-1/2 pointer-events-auto cursor-help transition-[left] duration-300 ease-out"
           style={{ left: `${ltpPos}%`, top: "-6px" }}
           title={ltpTip}
         >
+          <span
+            className="absolute left-1/2 -translate-x-1/2 -top-2.5 text-[0.5rem] font-bold tabular-nums leading-none whitespace-nowrap"
+            style={{ color: isFavourable ? GREEN : RED }}
+          >
+            {scalePrice(ltp)}
+          </span>
           <div
             className="w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent"
             style={{ borderTopColor: isFavourable ? GREEN : RED }}
@@ -403,22 +448,28 @@ export function TradeBar({
         </div>
       </div>
 
-      {/* Labels below the bar (hidden in compact mode) */}
-      {!compact && (
-        <div className="relative w-full h-3 mt-0.5">
-          <Label at={stopPos} color={stopColor} text={stopText} />
-          <Label at={entryPos} color={ENTRY_COLOR} text="E" />
-          {tslPending && (
-            <span
-              className="absolute -translate-x-1/2 text-[0.5rem] font-bold tabular-nums leading-none"
-              style={{ left: `${clamp(pos(gateFav as number), 4, 96)}%`, color: TSL_COLOR, opacity: 0.6 }}
-            >
-              TSL
-            </span>
-          )}
-          <Label at={tpPos} color={TP_COLOR} text="TP" />
-        </div>
-      )}
+      {/* Marker labels below the bar: option price under each marker. In full
+          mode the SL/E/TP/TSL letter sits above the price; compact mode shows the
+          prices only (markers are still colour-coded). */}
+      <div className={`relative w-full mt-1.5 ${compact ? "h-2.5" : "h-5"}`}>
+        {/* Stop: SL centred; once trailed into profit (TSL) it crowds Entry, so
+            its price sits to the RIGHT of the marker. Entry's price sits to the
+            LEFT of its marker so the two never overlap. */}
+        <Label at={stopPos} color={stopColor} text={stopText} price={stopPrice} hideText={compact} align={stopLocked ? "right" : "center"} />
+        <Label at={entryPos} color={ENTRY_COLOR} text="E" price={entryPrice} hideText={compact} align="left" />
+        {tslPending && (
+          <span
+            className="absolute flex flex-col items-start pl-1 gap-px leading-none"
+            style={{ left: `${clamp(pos(gateFav as number), 4, 96)}%`, color: TSL_COLOR, opacity: 0.6, transform: "translateX(0)" }}
+          >
+            {!compact && <span className="text-[0.5rem] font-bold tabular-nums">TSL</span>}
+            {tslGatePrice != null && tslGatePrice > 0 && (
+              <span className="text-[0.5rem] font-bold tabular-nums">{scalePrice(tslGatePrice)}</span>
+            )}
+          </span>
+        )}
+        <Label at={tpPos} color={TP_COLOR} text="TP" price={tpPrice} hideText={compact} />
+      </div>
     </div>
   );
 }

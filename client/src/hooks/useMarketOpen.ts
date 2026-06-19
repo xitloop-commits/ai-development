@@ -54,5 +54,9 @@ export function useMarketOpen() {
     [openByKey],
   );
 
-  return { isClosed };
+  // True when at least one instrument's market is known-open — i.e. we should be
+  // receiving live ticks. Used to gate the feed-health banner to trading hours.
+  const anyOpen = useMemo(() => Object.values(openByKey).some((v) => v === true), [openByKey]);
+
+  return { isClosed, anyOpen };
 }
