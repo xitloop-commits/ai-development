@@ -1006,7 +1006,15 @@ In progress 2026-06-19. Plan: `~/.claude/plans/how-the-integration-is-synthetic-
   - **Phase 2:** tickHandler live block runs gated-TSL detection → emits `brokerTslArm` → TEA `armBrokerTsl` modifies STOP_LOSS_LEG to breakeven + native `trailingJump` (arm-once, cap-guarded).
   - **Phase 3:** TP ratchet → throttled `brokerTpRatchet` (30s emit throttle) → TEA `ratchetBrokerTp` modifies TARGET_LEG with step% + time throttle + `25 - margin` modify budget.
 - **DEFERRED:** recovery-engine super-order leg reconciliation via `SUPER_ORDER_BOOK` (backstop for a WS event missed while down). Needs the real Dhan super-order-book response shape → build during live validation.
-- **Live validation checklist (before enabling):** refresh expired `dhan-primary-ac` token → set `useSuperOrderForLive` on → 1 lot on `testing-live`: confirm 3 legs in Dhan; SL leg fill closes our record; gate-hold arms the stop + trailingJump (no further calls); TP ratchets at throttled cadence under the 25-cap. Watch `[XSYNC-SVR]` logs (TSL-ACTIVATED(live) / BROKER-TSL-ARMED / BROKER-TP-RATCHET / CLOSED).
+- **Live validation runbook (live-only — Super Orders 404 on sandbox; 1 lot, cheapest viable option, market open, one test at a time):**
+  - **Pre-flight:** (1) **Token** — Dhan mints it on server startup via stored TOTP (refresh-on-startup-only policy; no manual/runtime refresh). If the **feed banner is green**, the token is valid → proceed; if red/stale, **restart the server** to re-mint. (2) `LOG_LEVEL=debug` to see `[ORDER→/←Dhan]`. (3) Enable `useSuperOrderForLive` in Settings. (4) Kill switch within reach; start on `testing-live`.
+  - **T1 Placement:** place → `[ORDER→Dhan] SUPER place` → `[ORDER←Dhan] SUPER placed`; confirm **3 legs** in the Dhan app; our trade has `superOrderId`, flips OPEN on entry fill.
+  - **T2 Broker SL fill (critical):** tight SL → stop leg fills at Dhan → WS → `[XSYNC-SVR] CLOSED SL_HIT` → our record closes. (Tight TP → `TP_HIT` likewise.)
+  - **T3 Gated TSL arm:** hold past the gate → `TSL-ACTIVATED(live)` → `BROKER-TSL-ARMED` → `SUPER modify STOP_LOSS_LEG` (stop→breakeven + `trailingJump`); then Dhan trails natively with **no further modify calls**; a reversal → `CLOSED SL_HIT (tsl=true)`.
+  - **T4 TP ratchet:** sustained favorable move → `BROKER-TP-RATCHET` + `SUPER modify TARGET_LEG`, ≥30s apart, `legModifyCount` under ~22.
+  - **T5 Manual exit:** exit → `SUPER cancel` legs → flatten → record closes; verify **no orphan legs / flat position** in Dhan.
+  - **Abort:** kill switch (halt new) · toggle `useSuperOrderForLive` OFF (instant revert to plain) · manual square-off in Dhan if `BROKER_DESYNC`.
+  - **Known gaps:** `cancelSuperOrder` square-off-vs-cancel semantics unverified (we flatten anyway); `trailingJump` is a fixed-rupee step (not %-of-peak); recovery backstop deferred → don't restart the server mid-trade (a leg fill while down won't auto-reconcile yet).
 - **Cross-ref:** `server/broker/adapters/dhan/{index,types,constants}.ts`, `server/broker/{types,brokerConfig,brokerRouter}.ts`, `server/executor/tradeExecutor.ts`, `server/portfolio/{tickHandler,portfolioAgent,state,types}.ts`.
 
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
