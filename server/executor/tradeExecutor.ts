@@ -61,7 +61,7 @@ import type {
 
 const log = createLogger("TEA", "Executor");
 
-const PAPER_CHANNELS: Channel[] = ["my-paper", "ai-paper", "testing-sandbox"];
+const PAPER_CHANNELS: Channel[] = ["my-paper", "ai-paper"];
 const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live"];
 
 // AI_LIVE_LOT_CAP is now sourced from executor_settings (default 1).
@@ -160,7 +160,7 @@ class TradeExecutorAgent {
    */
   async resubscribeOpenTradeLtps(): Promise<void> {
     const ALL_CHANNELS: Channel[] = [
-      "ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "testing-sandbox",
+      "ai-live", "ai-paper", "my-live", "my-paper", "testing-live",
     ];
     let count = 0;
     for (const channel of ALL_CHANNELS) {
@@ -1211,7 +1211,7 @@ function mapBrokerStatusToSubmitStatus(
  *
  * - Live channels: subscribe on the channel's own adapter (dhanLive for
  *   my-live/testing-live, dhanAiData for ai-live).
- * - Paper channels (my-paper, ai-paper, testing-sandbox): subscribe via
+ * - Paper channels (my-paper, ai-paper): subscribe via
  *   the primary Dhan adapter (dhanLive) so paper trades read the SAME
  *   live LTP the UI already sees. The channel's mock adapter otherwise
  *   emits synthetic ticks that never reach the browser bus.

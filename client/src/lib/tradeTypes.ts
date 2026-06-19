@@ -3,22 +3,21 @@
  *
  * Canonical state vocabulary (BSA v1.8):
  *   workspace ∈ { ai, my, testing }
- *   mode      ∈ { live, paper, sandbox }   (sandbox only on testing)
- *   channel   = `${workspace}-${mode}`     // 6 valid combinations
+ *   mode      ∈ { live, paper }            (testing is live-only)
+ *   channel   = `${workspace}-${mode}`     // 5 valid combinations
  *
  * `channel` is the single source of truth on the wire and in storage.
  */
 
 export type Workspace = 'ai' | 'my' | 'testing';
-export type Mode = 'live' | 'paper' | 'sandbox';
+export type Mode = 'live' | 'paper';
 
 export type Channel =
   | 'ai-live'
   | 'ai-paper'
   | 'my-live'
   | 'my-paper'
-  | 'testing-live'
-  | 'testing-sandbox';
+  | 'testing-live';
 
 export const ALL_CHANNELS: readonly Channel[] = [
   'ai-live',
@@ -26,17 +25,16 @@ export const ALL_CHANNELS: readonly Channel[] = [
   'my-live',
   'my-paper',
   'testing-live',
-  'testing-sandbox',
 ] as const;
 
-/** Default mode for each workspace tab on first launch (paper/sandbox = safer side). */
+/** Default mode for each workspace tab on first launch (paper = safer side; testing is live-only). */
 export const DEFAULT_CHANNEL_FOR_WORKSPACE: Record<Workspace, Channel> = {
   ai: 'ai-paper',
   my: 'my-paper',
-  testing: 'testing-sandbox',
+  testing: 'testing-live',
 };
 
-/** First-launch landing channel — My Trades workspace, Paper mode. */
+/** First-launch landing channel — My Trades workspace, Paper mode (safe default). */
 export const DEFAULT_LANDING_CHANNEL: Channel = 'my-paper';
 
 export function channelToWorkspace(channel: Channel): Workspace {
@@ -56,8 +54,7 @@ export function isLiveChannel(channel: Channel): boolean {
 }
 
 export function isPaperChannel(channel: Channel): boolean {
-  const mode = channelToMode(channel);
-  return mode === 'paper' || mode === 'sandbox';
+  return channelToMode(channel) === 'paper';
 }
 
 export type DayStatus = 'ACTIVE' | 'COMPLETED' | 'GIFT' | 'FUTURE';

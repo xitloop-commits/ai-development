@@ -4,7 +4,7 @@
  * One CapitalState document per channel; one DayRecord per (channel, dayIndex).
  *
  * Channels (BSA v1.8):
- *   ai-live | ai-paper | my-live | my-paper | testing-live | testing-sandbox
+ *   ai-live | ai-paper | my-live | my-paper | testing-live
  */
 import mongoose, { Schema } from "mongoose";
 import { PortfolioStateModel, PositionStateModel } from "./storage";
@@ -12,16 +12,16 @@ import { PortfolioStateModel, PositionStateModel } from "./storage";
 // ─── Types ───────────────────────────────────────────────────────
 
 /**
- * Canonical channel vocabulary — six entries, one per (workspace, mode) pair.
- * See client/src/lib/tradeTypes.ts for the helper functions.
+ * Canonical channel vocabulary — five entries, one per (workspace, mode) pair.
+ * Testing is live-only (the sandbox channel was removed). See
+ * client/src/lib/tradeTypes.ts for the helper functions.
  */
 export type Channel =
   | "ai-live"
   | "ai-paper"
   | "my-live"
   | "my-paper"
-  | "testing-live"
-  | "testing-sandbox";
+  | "testing-live";
 
 /** @deprecated Kept only to silence transitional callers; use Channel. */
 export type Workspace = Channel;

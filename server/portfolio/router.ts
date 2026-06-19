@@ -42,9 +42,9 @@ const log = createLogger("PA", "Router");
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-const channelSchema = z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "testing-sandbox"]);
+const channelSchema = z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live"]);
 /** Channels that mirror My Trades LIVE capital ops for shadow tracking. */
-const mirroredChannels: Channel[] = ["my-paper", "ai-paper", "testing-sandbox"];
+const mirroredChannels: Channel[] = ["my-paper", "ai-paper"];
 
 function _generateTradeId(): string {
   return `T${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -568,7 +568,7 @@ export const portfolioRouter = router({
   /** Clear all trades and reset a paper channel to zero. Only allowed for paper channels. */
   clearWorkspace: protectedProcedure
     .input(z.object({
-      channel: z.enum(['my-paper', 'ai-paper', 'testing-sandbox']),
+      channel: z.enum(['my-paper', 'ai-paper']),
       initialFunding: z.number().positive().default(100000),
     }))
     .mutation(async ({ input }) => {

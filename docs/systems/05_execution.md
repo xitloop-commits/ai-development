@@ -5,7 +5,7 @@ Single source of truth for the **broker-facing trading layer**: BrokerServiceAge
 ## 1. Purpose & Scope
 
 **In scope:**
-- BSA — single broker-abstraction gateway, 4 adapter slots (`dhanLive`, `dhanAiData`, `dhanSandbox`, `mock-ai` + `mock-my`), 6-channel routing.
+- BSA — single broker-abstraction gateway, 4 adapter slots (`dhanLive`, `dhanAiData`, `mock-ai`, `mock-my`), 5-channel routing.
 - TEA — singular broker-caller; `submitTrade` / `modifyOrder` / `exitTrade` APIs; idempotency; paper-side SL/TP monitoring; DISCIPLINE_EXIT handling.
 - Order-update WebSocket (broker → TEA reconciliation).
 - Recovery engine for stale orders (PENDING > 60 s background poller).
@@ -37,15 +37,13 @@ Single source of truth for the **broker-facing trading layer**: BrokerServiceAge
                 │
                 ▼
             BSA.getAdapter(channel)
-       ┌────────────────────┼────────────────────┐
-       ▼          ▼         ▼         ▼         ▼
-    dhanLive  dhanAiData  dhanSandbox  mock-ai  mock-my
-       │          │           │          │         │
-       │          │           │          └─────┬───┘
-       │          │           │                ▼
-       │          │           │         instant-fill paper
-       │          │           ▼
-       │          │      Dhan UAT sandbox
+       ┌───────────────┼───────────────┐
+       ▼          ▼          ▼          ▼
+    dhanLive  dhanAiData  mock-ai  mock-my
+       │          │          │         │
+       │          │          └─────┬───┘
+       │          │                ▼
+       │          │         instant-fill paper
        ▼          ▼
    primary    spouse
    account    account
@@ -61,7 +59,7 @@ Single source of truth for the **broker-facing trading layer**: BrokerServiceAge
        recoveryEngine background poll for PENDING > 60s
 ```
 
-## 3. The six channels
+## 3. The five channels
 
 Channels are the product of **workspace × mode**:
 
@@ -72,9 +70,8 @@ Channels are the product of **workspace × mode**:
 | `my-live` | My | Live | `dhanLive` (primary) | Partha's manual trading |
 | `my-paper` | My | Paper | `mock-my` | Partha's paper testing |
 | `testing-live` | Testing | Live | `dhanLive` | Manual integration testing against live broker |
-| `testing-sandbox` | Testing | Sandbox | `dhanSandbox` | Manual integration testing against Dhan UAT |
 
-`BSAAdapters.getAdapter(channel)` returns the right instance. The 6-channel + 2-account topology was locked in BSA v1.9 (2026-04-24, dual-account integration).
+`BSAAdapters.getAdapter(channel)` returns the right instance. The Dhan sandbox channel (`testing-sandbox` / `dhanSandbox`) was removed 2026-06-19 — sandbox can't exercise live Super Orders (404) and its broken lot sizing produced false DH-905 rejections.
 
 ## 4. The two Dhan accounts
 

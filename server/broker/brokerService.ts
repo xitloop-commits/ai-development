@@ -1,9 +1,9 @@
 /**
  * Broker Service — Multi-Adapter Singleton (BSA v1.7)
  *
- * Manages four named adapter slots, each serving specific trading channels:
- *   dhanLive    → ai-live, my-live, testing-live  (brokerId: "dhan-primary-ac")
- *   dhanSandbox → testing-sandbox                 (brokerId: "dhan-sandbox", sandboxMode)
+ * Manages named adapter slots, each serving specific trading channels:
+ *   dhanLive    → my-live, testing-live           (brokerId: "dhan-primary-ac")
+ *   dhanAiData  → ai-live + TFA data feed         (brokerId: "dhan-secondary-ac")
  *   mockAi      → ai-paper                        (brokerId: "mock-ai")
  *   mockMy      → my-paper                        (brokerId: "mock-my")
  *
@@ -44,8 +44,7 @@ export type Channel =
   | "ai-paper"
   | "my-live"
   | "my-paper"
-  | "testing-live"
-  | "testing-sandbox";
+  | "testing-live";
 
 export type Workspace = "ai" | "my" | "testing";
 
@@ -54,7 +53,6 @@ export type Workspace = "ai" | "my" | "testing";
 interface BSAAdapters {
   dhanLive: DhanAdapter | null;       // my-live, testing-live  (user's primary Dhan account)
   dhanAiData: DhanAdapter | null;     // ai-live + TFA data feed (spouse's Dhan account)
-  dhanSandbox: DhanAdapter | null;    // testing-sandbox
   mockAi: MockAdapter | null;         // ai-paper
   mockMy: MockAdapter | null;         // my-paper
 }
@@ -62,7 +60,6 @@ interface BSAAdapters {
 const adapters: BSAAdapters = {
   dhanLive: null,
   dhanAiData: null,
-  dhanSandbox: null,
   mockAi: null,
   mockMy: null,
 };
@@ -132,15 +129,13 @@ async function seedBrokerConfigs(): Promise<void> {
     brokerId: string;
     displayName: string;
     isPaperBroker: boolean;
-    sandboxMode: boolean;
-    role: "trading" | "data-and-ai" | "paper" | "sandbox";
+    role: "trading" | "data-and-ai" | "paper";
   };
   const seeds: Seed[] = [
-    { brokerId: "dhan-primary-ac", displayName: "Dhan (Trading)",      isPaperBroker: false, sandboxMode: false, role: "trading"     },
-    { brokerId: "dhan-secondary-ac",   displayName: "Dhan (AI + Data)",    isPaperBroker: false, sandboxMode: false, role: "data-and-ai" },
-    { brokerId: "dhan-sandbox",       displayName: "Dhan Sandbox",        isPaperBroker: false, sandboxMode: true,  role: "sandbox"     },
-    { brokerId: "mock-ai",            displayName: "Paper (AI Trades)",   isPaperBroker: true,  sandboxMode: false, role: "paper"       },
-    { brokerId: "mock-my",            displayName: "Paper (My Trades)",   isPaperBroker: true,  sandboxMode: false, role: "paper"       },
+    { brokerId: "dhan-primary-ac", displayName: "Dhan (Trading)",      isPaperBroker: false, role: "trading"     },
+    { brokerId: "dhan-secondary-ac",   displayName: "Dhan (AI + Data)",    isPaperBroker: false, role: "data-and-ai" },
+    { brokerId: "mock-ai",            displayName: "Paper (AI Trades)",   isPaperBroker: true,  role: "paper"       },
+    { brokerId: "mock-my",            displayName: "Paper (My Trades)",   isPaperBroker: true,  role: "paper"       },
   ];
 
   for (const seed of seeds) {
@@ -150,7 +145,6 @@ async function seedBrokerConfigs(): Promise<void> {
         brokerId: seed.brokerId,
         displayName: seed.displayName,
         isPaperBroker: seed.isPaperBroker,
-        sandboxMode: seed.sandboxMode,
         role: seed.role,
         isActive: seed.brokerId === "dhan-primary-ac", // primary trading account is the default active broker
       });
@@ -218,9 +212,6 @@ export function getAdapter(channel: Channel): BrokerAdapter {
     case "testing-live":
       if (!adapters.dhanLive) throw new Error("DhanAdapter (live) not initialised");
       return adapters.dhanLive;
-    case "testing-sandbox":
-      if (!adapters.dhanSandbox) throw new Error("DhanAdapter (sandbox) not initialised");
-      return adapters.dhanSandbox;
     case "ai-paper":
       if (!adapters.mockAi) throw new Error("MockAdapter (mock-ai) not initialised");
       return adapters.mockAi;
@@ -234,14 +225,13 @@ export function getAdapter(channel: Channel): BrokerAdapter {
 
 /**
  * Direct brokerId → adapter lookup, used when the caller knows the broker
- * identity (e.g. the Settings UI pasting a sandbox token specifically into
- * the dhan-sandbox slot). Returns null if no adapter is registered.
+ * identity (e.g. the Settings UI pasting a token into a specific slot).
+ * Returns null if no adapter is registered.
  */
 export function _getAdapterByBrokerId(brokerId: string): BrokerAdapter | null {
   switch (brokerId) {
     case "dhan-primary-ac": return adapters.dhanLive;
     case "dhan-secondary-ac": return adapters.dhanAiData;
-    case "dhan-sandbox": return adapters.dhanSandbox;
     case "mock-ai": return adapters.mockAi;
     case "mock-my": return adapters.mockMy;
   }
@@ -365,7 +355,7 @@ async function syncMockOpenTradeContracts(subscribe: boolean): Promise<void> {
   try {
     // Lazy import avoids a static import cycle (portfolio → … → brokerService).
     const { portfolioAgent } = await import("../portfolio");
-    const PAPER_CHANNELS: Channel[] = ["ai-paper", "my-paper", "testing-sandbox"];
+    const PAPER_CHANNELS: Channel[] = ["ai-paper", "my-paper"];
     const contracts: any[] = [];
     const seen = new Set<string>();
     for (const channel of PAPER_CHANNELS) {
@@ -490,7 +480,7 @@ export async function initBrokerService(): Promise<void> {
 
   // 3. Instantiate DhanAdapter (live) → connect (opens WS + order update WS)
   try {
-    adapters.dhanLive = new DhanAdapter("dhan-primary-ac", false);
+    adapters.dhanLive = new DhanAdapter("dhan-primary-ac");
     await adapters.dhanLive.connect();
     wireTickBus(adapters.dhanLive);
     log.important("DhanAdapter (live) connected");
@@ -498,25 +488,7 @@ export async function initBrokerService(): Promise<void> {
     log.error("DhanAdapter (live) failed to connect:", err);
   }
 
-  // 4. Instantiate DhanAdapter (sandbox) → hits Dhan's sandbox host for
-  //    write/order endpoints; read-only metadata (option chain, scrip master,
-  //    WebSocket subscriptions) delegates to the primary live adapter, which
-  //    is wired in here as the metadata source. Sandbox has no TOTP refresh
-  //    and no WebSocket of its own.
-  try {
-    adapters.dhanSandbox = new DhanAdapter("dhan-sandbox", true);
-    if (adapters.dhanLive) {
-      adapters.dhanSandbox.setMetadataSource(adapters.dhanLive);
-    } else {
-      log.warn("dhanLive not initialised — sandbox option chain / WS will be unavailable");
-    }
-    await adapters.dhanSandbox.connect();
-    log.important("DhanAdapter (sandbox) connected");
-  } catch (err) {
-    log.warn("DhanAdapter (sandbox) failed to connect:", err);
-  }
-
-  // 4b. Instantiate DhanAdapter (ai-data) → spouse Ahila's Dhan account for TFA + AI Live.
+  // 4. Instantiate DhanAdapter (ai-data) → spouse Ahila's Dhan account for TFA + AI Live.
   // Pre-check the TOTP refresh INPUTS (auth.{clientId, pin, totpSecret}) rather
   // than the access token (which is the output — empty until the first refresh).
   // If connect() throws (auth credentials wrong, network down, etc.) we leave
@@ -526,7 +498,7 @@ export async function initBrokerService(): Promise<void> {
     const auth = (aiDataConfig as any)?.auth ?? {};
     const hasAuthCreds = !!auth.clientId && !!auth.pin && !!auth.totpSecret;
     if (hasAuthCreds) {
-      const candidate = new DhanAdapter("dhan-secondary-ac", false);
+      const candidate = new DhanAdapter("dhan-secondary-ac");
       try {
         await candidate.connect();
         wireTickBus(candidate);
@@ -583,7 +555,7 @@ export async function switchBroker(brokerId: string): Promise<BrokerAdapter> {
     try { await adapters.dhanLive.disconnect(); } catch { /* ignore */ }
   }
   await setActiveBrokerInDB(brokerId);
-  adapters.dhanLive = new DhanAdapter(brokerId, false);
+  adapters.dhanLive = new DhanAdapter(brokerId);
   await adapters.dhanLive.connect();
   wireTickBus(adapters.dhanLive);
   killSwitch.ai = false;
@@ -604,7 +576,6 @@ export async function disconnectAllAdapters(): Promise<void> {
   const all: Array<[string, BrokerAdapter | null]> = [
     ["dhanLive", adapters.dhanLive],
     ["dhanAiData", adapters.dhanAiData],
-    ["dhanSandbox", adapters.dhanSandbox],
     ["mockAi", adapters.mockAi],
     ["mockMy", adapters.mockMy],
   ];
@@ -670,7 +641,6 @@ function wireTickBus(adapter: BrokerAdapter): void {
 export function _resetForTesting(): void {
   adapters.dhanLive = null;
   adapters.dhanAiData = null;
-  adapters.dhanSandbox = null;
   adapters.mockAi = null;
   adapters.mockMy = null;
   killSwitch.ai = false;
@@ -689,13 +659,11 @@ export function _resetForTesting(): void {
 export function _setAdaptersForTesting(stubs: Partial<{
   dhanLive: BrokerAdapter;
   dhanAiData: BrokerAdapter;
-  dhanSandbox: BrokerAdapter;
   mockAi: BrokerAdapter;
   mockMy: BrokerAdapter;
 }>): void {
   if ("dhanLive" in stubs) adapters.dhanLive = stubs.dhanLive as DhanAdapter;
   if ("dhanAiData" in stubs) adapters.dhanAiData = stubs.dhanAiData as DhanAdapter;
-  if ("dhanSandbox" in stubs) adapters.dhanSandbox = stubs.dhanSandbox as DhanAdapter;
   if ("mockAi" in stubs) adapters.mockAi = stubs.mockAi as MockAdapter;
   if ("mockMy" in stubs) adapters.mockMy = stubs.mockMy as MockAdapter;
 }

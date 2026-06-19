@@ -185,11 +185,13 @@ function HolidayIndicator() {
 // components read/write it, so switching tabs lands on each workspace's
 // last-used mode without needing to hoist state into the React tree.
 
-const MODE_LABELS: Record<Mode, string> = { live: 'LIVE', paper: 'PAPER', sandbox: 'SANDBOX' };
-const MODES_FOR: Record<Workspace, [Mode, Mode]> = {
+const MODE_LABELS: Record<Mode, string> = { live: 'LIVE', paper: 'PAPER' };
+// Modes offered per workspace. Testing is live-only (sandbox removed), so it
+// has a single entry and the toggle renders just one (non-switching) button.
+const MODES_FOR: Record<Workspace, Mode[]> = {
   ai: ['paper', 'live'],
   my: ['paper', 'live'],
-  testing: ['sandbox', 'live'],
+  testing: ['live'],
 };
 
 function ChannelModeToggle() {
@@ -222,7 +224,7 @@ function ChannelModeToggle() {
   const clearWorkspaceMutation = trpc.portfolio.clearWorkspace.useMutation({
     onSuccess: () => refetchData(),
   });
-  const canClear = currentMode === 'paper' || currentMode === 'sandbox';
+  const canClear = currentMode === 'paper';
 
   // Dev mock-feed toggle — only rendered in dev builds (mockFeedStatus.allowed).
   // The mock feed is never flipped externally, so no polling: fetch once and let
@@ -388,7 +390,7 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
-        {/* Channel mode toggle (LIVE/PAPER or LIVE/SANDBOX + CLEAR) — separated from tabs */}
+        {/* Channel mode toggle (LIVE/PAPER + CLEAR; testing is live-only) — separated from tabs */}
         <div className="px-3 flex items-center shrink-0">
           <ChannelModeToggle />
         </div>

@@ -78,7 +78,7 @@ export interface BrokerTpRatchetEvent {
 }
 
 /** Channels whose open trades get tick-driven MTM + auto-SL/TP. */
-const TICK_CHANNELS: Channel[] = ["my-live", "my-paper", "ai-live", "ai-paper", "testing-live", "testing-sandbox"];
+const TICK_CHANNELS: Channel[] = ["my-live", "my-paper", "ai-live", "ai-paper", "testing-live"];
 
 // ─── Instrument → Trade Mapping ─────────────────────────────────
 

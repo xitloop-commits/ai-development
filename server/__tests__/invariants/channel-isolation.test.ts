@@ -38,29 +38,26 @@ const sampleOrder: OrderParams = {
 describe("invariant: channel isolation", () => {
   let dhanLive: MockAdapter;
   let dhanAiData: MockAdapter;
-  let dhanSandbox: MockAdapter;
   let mockAi: MockAdapter;
   let mockMy: MockAdapter;
   let spies: Record<string, ReturnType<typeof vi.spyOn>>;
 
   beforeEach(() => {
     _resetForTesting();
-    // Five real adapter instances — one per BSA broker slot. Real
+    // Four real adapter instances — one per BSA broker slot. Real
     // MockAdapter behaviour, but each instance is independent.
     dhanLive   = new MockAdapter("dhan-primary-ac", "Dhan (live)");
     dhanAiData = new MockAdapter("dhan-secondary-ac", "Dhan (AI Data)");
-    dhanSandbox = new MockAdapter("dhan-sandbox", "Dhan (sandbox)");
     mockAi     = new MockAdapter("mock-ai", "Paper (AI Trades)");
     mockMy     = new MockAdapter("mock-my", "Paper (My Trades)");
 
     _setAdaptersForTesting({
-      dhanLive, dhanAiData, dhanSandbox, mockAi, mockMy,
+      dhanLive, dhanAiData, mockAi, mockMy,
     });
 
     spies = {
       dhanLive:   vi.spyOn(dhanLive, "placeOrder"),
       dhanAiData: vi.spyOn(dhanAiData, "placeOrder"),
-      dhanSandbox: vi.spyOn(dhanSandbox, "placeOrder"),
       mockAi:     vi.spyOn(mockAi, "placeOrder"),
       mockMy:     vi.spyOn(mockMy, "placeOrder"),
     };
@@ -86,10 +83,6 @@ describe("invariant: channel isolation", () => {
     expect(getAdapter("testing-live")).toBe(getAdapter("my-live"));
   });
 
-  it("testing-sandbox routes to dhan-sandbox", () => {
-    expect(getAdapter("testing-sandbox")).toBe(dhanSandbox);
-  });
-
   it("ai-paper routes to mock-ai", () => {
     expect(getAdapter("ai-paper")).toBe(mockAi);
   });
@@ -107,7 +100,6 @@ describe("invariant: channel isolation", () => {
     expect(spies.mockAi).not.toHaveBeenCalled();
     expect(spies.dhanLive).not.toHaveBeenCalled();
     expect(spies.dhanAiData).not.toHaveBeenCalled();
-    expect(spies.dhanSandbox).not.toHaveBeenCalled();
   });
 
   it("an ai-paper placeOrder touches mock-ai only — every other adapter stays untouched", async () => {
@@ -117,7 +109,6 @@ describe("invariant: channel isolation", () => {
     expect(spies.mockMy).not.toHaveBeenCalled();
     expect(spies.dhanLive).not.toHaveBeenCalled();
     expect(spies.dhanAiData).not.toHaveBeenCalled();
-    expect(spies.dhanSandbox).not.toHaveBeenCalled();
   });
 
   // ── placeOrder isolation: live channels ───────────────────────
@@ -127,17 +118,6 @@ describe("invariant: channel isolation", () => {
 
     expect(spies.dhanAiData).toHaveBeenCalledTimes(1);
     expect(spies.dhanLive).not.toHaveBeenCalled();
-    expect(spies.mockAi).not.toHaveBeenCalled();
-    expect(spies.mockMy).not.toHaveBeenCalled();
-    expect(spies.dhanSandbox).not.toHaveBeenCalled();
-  });
-
-  it("an testing-sandbox placeOrder touches dhan-sandbox only", async () => {
-    await getAdapter("testing-sandbox").placeOrder(sampleOrder);
-
-    expect(spies.dhanSandbox).toHaveBeenCalledTimes(1);
-    expect(spies.dhanLive).not.toHaveBeenCalled();
-    expect(spies.dhanAiData).not.toHaveBeenCalled();
     expect(spies.mockAi).not.toHaveBeenCalled();
     expect(spies.mockMy).not.toHaveBeenCalled();
   });

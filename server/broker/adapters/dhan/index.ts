@@ -38,7 +38,6 @@ import type {
 
 import {
   DHAN_API_BASE,
-  DHAN_SANDBOX_API_BASE,
   DHAN_ENDPOINTS,
   DHAN_TOKEN_EXPIRY_MS,
   DHAN_ORDER_STATUS_MAP,
@@ -132,7 +131,6 @@ export function resolveDhanOrderPrice(orderType: string, price: number): number 
 export class DhanAdapter implements BrokerAdapter {
   readonly brokerId: string;
   readonly displayName: string;
-  private sandboxMode: boolean;
 
   private accessToken: string = "";
   private clientId: string = "";
@@ -165,15 +163,14 @@ export class DhanAdapter implements BrokerAdapter {
   private tickCallback: TickCallback | null = null;
 
   // Per-instance logger so logs carry the brokerId, distinguishing the
-  // primary "dhan-primary-ac" from "dhan-secondary-ac" / "dhan-sandbox" in shared output.
+  // primary "dhan-primary-ac" from "dhan-secondary-ac" in shared output.
   private readonly log: Logger;
 
-  constructor(brokerId = "dhan-primary-ac", sandboxMode = false) {
+  constructor(brokerId = "dhan-primary-ac") {
     this.brokerId = brokerId;
-    this.sandboxMode = sandboxMode;
-    this.displayName = sandboxMode ? "Dhan Sandbox" : "Dhan";
+    this.displayName = "Dhan";
     // Friendly log tag: "dhan-primary-ac" → "primary-ac",
-    // "dhan-secondary-ac" → "secondary-ac", "dhan-sandbox" → "sandbox".
+    // "dhan-secondary-ac" → "secondary-ac".
     // Falls back to raw brokerId for any other.
     const logTag = brokerId.replace(/^dhan-/, "");
     this.log = createLogger("BSA", `Dhan/${logTag}`);
@@ -181,23 +178,12 @@ export class DhanAdapter implements BrokerAdapter {
 
   // ── REST plumbing ─────────────────────────────────────────────
   //
-  // Sandbox mode routes every REST call to Dhan's sandbox host (same path +
-  // payload shape as live). The two private wrappers (_dhanRequest /
-  // _validateToken) auto-inject this.accessToken + this._baseUrl so callers
-  // don't need to think about which host they're hitting.
-
-  /** Read-only metadata adapter (option chain, scrip master, WS feed) used
-   *  ONLY when this adapter is in sandboxMode — Dhan sandbox doesn't expose
-   *  market-data endpoints, so we route those reads to the primary live
-   *  adapter. Wired by brokerService.initBrokerService after both adapters
-   *  are constructed. */
-  private metadataSource: BrokerAdapter | null = null;
-  setMetadataSource(adapter: BrokerAdapter | null): void {
-    this.metadataSource = adapter;
-  }
+  // The two private wrappers (_dhanRequest / _validateToken) auto-inject
+  // this.accessToken + this._baseUrl so callers don't need to think about
+  // which host they're hitting.
 
   private get _baseUrl(): string {
-    return this.sandboxMode ? DHAN_SANDBOX_API_BASE : DHAN_API_BASE;
+    return DHAN_API_BASE;
   }
 
   private _dhanRequest<T>(
@@ -274,9 +260,7 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   async updateToken(token: string, clientId?: string): Promise<void> {
-    // Validate against this adapter's own URL — sandbox tokens are issued by
-    // developer.dhanhq.co and are rejected by the live host (DH-906), so we
-    // must route the validate call to the right base URL.
+    // Validate the new token against the live Dhan host before storing it.
     const result = await updateDhanToken(this.brokerId, token, clientId, { baseUrl: this._baseUrl });
 
     if (result.success) {
@@ -836,10 +820,6 @@ export class DhanAdapter implements BrokerAdapter {
   // ── Market Data ───────────────────────────────────────────────
 
   async getScripMaster(exchange: string): Promise<Instrument[]> {
-    // Sandbox doesn't expose scrip master — delegate to the live primary adapter.
-    if (this.sandboxMode && this.metadataSource) {
-      return this.metadataSource.getScripMaster(exchange);
-    }
     // Ensure scrip master is loaded
     await this._ensureScripMasterLoaded();
 
@@ -860,9 +840,6 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   async getLotSize(symbol: string): Promise<number> {
-    if (this.sandboxMode && this.metadataSource?.getLotSize) {
-      return this.metadataSource.getLotSize(symbol);
-    }
     // MCX commodity lots aren't in the scrip master — source them from the
     // scraped lot-size feed. No fallback: if it's not loaded, fail so the caller
     // rejects the order rather than sizing it with a wrong lot.
@@ -879,10 +856,6 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   async getExpiryList(underlying: string, exchangeSegment?: string): Promise<string[]> {
-    // Sandbox doesn't expose expiry-list — delegate to live primary adapter.
-    if (this.sandboxMode && this.metadataSource?.getExpiryList) {
-      return this.metadataSource.getExpiryList(underlying, exchangeSegment);
-    }
     this._ensureToken();
 
     const result = await this._dhanRequest<{ data: string[] }>(
@@ -921,10 +894,6 @@ export class DhanAdapter implements BrokerAdapter {
    * single request and cache the result; never call per-instrument.
    */
   async getOhlcQuote(request: Record<string, number[]>): Promise<OhlcQuoteResult> {
-    // Sandbox doesn't expose market data — borrow the live primary adapter.
-    if (this.sandboxMode && this.metadataSource?.getOhlcQuote) {
-      return this.metadataSource.getOhlcQuote(request);
-    }
     this._ensureToken();
 
     const result = await this._dhanRequest<{
@@ -962,12 +931,6 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
    async getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData> {
-    // Sandbox doesn't expose option chain — delegate to live primary adapter.
-    // Read-only metadata, no money risk; sandbox just borrows the chain shape
-    // so option trades can be placed against the sandbox order API.
-    if (this.sandboxMode && this.metadataSource?.getOptionChain) {
-      return this.metadataSource.getOptionChain(underlying, expiry, exchangeSegment);
-    }
     // Cache key: underlying + expiry + segment
     const cacheKey = `${underlying}|${expiry}|${exchangeSegment || "IDX_I"}`;
     const now = Date.now();
@@ -1227,13 +1190,6 @@ export class DhanAdapter implements BrokerAdapter {
   subscribeLTP(instruments: SubscribeParams[], callback: TickCallback): void {
     this.tickCallback = callback;
 
-    // Sandbox has no WebSocket — delegate the subscription to the live primary
-    // adapter so sandbox trades read the same live tick stream as everyone else.
-    if (this.sandboxMode && this.metadataSource?.subscribeLTP) {
-      this.metadataSource.subscribeLTP(instruments, callback);
-      return;
-    }
-
     if (!this.subManager) {
       this.log.warn("SubscriptionManager not initialized. Call connect() first.");
       return;
@@ -1249,11 +1205,6 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   unsubscribeLTP(instruments: SubscribeParams[]): void {
-    if (this.sandboxMode && this.metadataSource?.unsubscribeLTP) {
-      this.metadataSource.unsubscribeLTP(instruments);
-      return;
-    }
-
     if (!this.subManager) return;
 
     this.subManager.unsubscribeManual(
@@ -1396,45 +1347,6 @@ export class DhanAdapter implements BrokerAdapter {
   // ── Lifecycle ─────────────────────────────────────────────────
 
   async connect(): Promise<void> {
-    // ── Sandbox path ───────────────────────────────────────────
-    // Dhan sandbox uses a separate API host with its own access token (issued
-    // by developer.dhanhq.co — no TOTP refresh flow). Load creds from Mongo,
-    // validate against the sandbox API, skip TOTP refresh + WebSocket.
-    if (this.sandboxMode) {
-      const config = await getBrokerConfig(this.brokerId);
-      if (!config || !config.credentials.accessToken) {
-        this.log.warn(
-          "Sandbox access token missing. Paste your sandbox token via Settings or: " +
-          `node scripts/dhan-update-credentials.mjs --brokerId ${this.brokerId} --accessToken <SANDBOX_TOKEN>`
-        );
-        await updateBrokerConnection(this.brokerId, { apiStatus: "disconnected" });
-        return;
-      }
-      this.accessToken = config.credentials.accessToken;
-      this.clientId = config.credentials.clientId;
-      this.tokenUpdatedAt = config.credentials.updatedAt;
-
-      const validation = await this._validateToken();
-      if (!validation.valid) {
-        this.log.error(`Sandbox token invalid: ${validation.error}. Refresh token at developer.dhanhq.co and re-paste.`);
-        await updateBrokerCredentials(this.brokerId, { status: "expired" });
-        await updateBrokerConnection(this.brokerId, { apiStatus: "error" });
-        return;
-      }
-      this.clientId = validation.clientId ?? this.clientId;
-      await updateBrokerCredentials(this.brokerId, { clientId: this.clientId, status: "valid" });
-      await updateBrokerConnection(this.brokerId, {
-        apiStatus: "connected",
-        lastApiCall: Date.now(),
-      });
-      this.log.important(
-        `Sandbox connected. Client: ${this.clientId}. Balance: ₹${validation.fundData?.availabelBalance ?? "N/A"}. ` +
-        `Note: every order fills at ₹100, capital resets to ₹10,00,000 daily. WebSocket + option chain are NOT available; ` +
-        `metadata reads will delegate to the primary live adapter.`
-      );
-      return;
-    }
-
     // Load credentials from MongoDB
     const config = await getBrokerConfig(this.brokerId);
 
@@ -1547,8 +1459,6 @@ export class DhanAdapter implements BrokerAdapter {
     });
     this.log.important(`Connected. Client: ${this.clientId}, Balance: ₹${validation.fundData?.availabelBalance ?? "N/A"}`);
 
-    // Live path always opens WebSocket feeds. Sandbox path returned early
-    // above — it has no WebSocket support on Dhan's side.
     await this.connectFeed();
     this.connectOrderUpdateWs();
   }

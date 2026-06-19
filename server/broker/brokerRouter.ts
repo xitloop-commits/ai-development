@@ -189,7 +189,7 @@ const brokerSettingsSchema = z.object({
 });
 
 const channelSchema = z.enum([
-  "ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "testing-sandbox",
+  "ai-live", "ai-paper", "my-live", "my-paper", "testing-live",
 ]);
 
 const workspaceSchema = z.enum(["ai", "my", "testing"]);
@@ -269,9 +269,9 @@ export const brokerRouter = router({
 
   config: router({
     /** Get a broker config (token is masked). Defaults to the active broker;
-     *  pass `brokerId` to target a specific broker (e.g. "dhan-sandbox" so
-     *  the Settings UI can show sandbox status independently of which broker
-     *  is currently active). */
+     *  pass `brokerId` to target a specific broker (e.g. "dhan-secondary-ac"
+     *  so the Settings UI can show that account's status independently of
+     *  which broker is currently active). */
     get: publicProcedure
       .input(z.object({ brokerId: z.string().optional() }).optional())
       .query(async ({ input }) => {
@@ -363,8 +363,8 @@ export const brokerRouter = router({
 
     /** Manually probe a specific broker's token by hitting its `fundlimit`
      *  endpoint. Used by the Settings UI "Test Connection" button so the
-     *  operator can verify a freshly-pasted sandbox token end-to-end
-     *  without restarting the server. Returns the validated clientId +
+     *  operator can verify a freshly-minted token end-to-end without
+     *  restarting the server. Returns the validated clientId +
      *  available balance on success, the auth error on failure. */
     test: protectedProcedure
       .input(z.object({ brokerId: z.string().min(1) }))
@@ -403,9 +403,9 @@ export const brokerRouter = router({
       }),
 
     /** Update the access token. Defaults to the active broker; pass
-     *  `brokerId` to target a specific adapter (e.g. "dhan-sandbox" so the
-     *  Settings UI can paste a developer.dhanhq.co sandbox JWT without
-     *  switching the active-broker context). */
+     *  `brokerId` to target a specific adapter (e.g. "dhan-secondary-ac"
+     *  to update the spouse account without switching the active-broker
+     *  context). */
     update: protectedProcedure
       .input(
         z.object({

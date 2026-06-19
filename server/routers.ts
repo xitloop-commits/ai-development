@@ -252,7 +252,7 @@ export const appRouter = router({
       .input(z.object({
         aiTradesMode: z.enum(["live", "paper"]).optional(),
         myTradesMode: z.enum(["live", "paper"]).optional(),
-        testingMode: z.enum(["live", "sandbox"]).optional(),
+        testingMode: z.enum(["live"]).optional(),
         aiKillSwitch: z.boolean().optional(),
         myKillSwitch: z.boolean().optional(),
         testingKillSwitch: z.boolean().optional(),

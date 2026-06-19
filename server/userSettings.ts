@@ -70,7 +70,7 @@ export interface ChargesSettings {
 export interface TradingModeSettings {
   aiTradesMode: "live" | "paper";     // AI Trades workspace mode (Settings-only)
   myTradesMode: "live" | "paper";     // My Trades workspace mode (on-screen toggle, persisted)
-  testingMode: "live" | "sandbox";    // Testing workspace mode (on-screen toggle, persisted)
+  testingMode: "live";                // Testing workspace is live-only (sandbox removed)
   aiKillSwitch: boolean;              // Kill switch for ai-live channel
   myKillSwitch: boolean;              // Kill switch for my-live channel
   testingKillSwitch: boolean;         // Kill switch for testing-live channel
@@ -167,7 +167,7 @@ export const DEFAULT_EXPIRY_RULES: ExpiryInstrumentRule[] = [
 export const DEFAULT_TRADING_MODE: TradingModeSettings = {
   aiTradesMode: "paper",
   myTradesMode: "paper",
-  testingMode: "sandbox",
+  testingMode: "live",
   aiKillSwitch: false,
   myKillSwitch: false,
   testingKillSwitch: false,
@@ -259,7 +259,7 @@ const tradingModeSchema = new Schema(
   {
     aiTradesMode: { type: String, enum: ["live", "paper"], default: "paper" },
     myTradesMode: { type: String, enum: ["live", "paper"], default: "paper" },
-    testingMode: { type: String, enum: ["live", "sandbox"], default: "sandbox" },
+    testingMode: { type: String, enum: ["live"], default: "live" },
     aiKillSwitch: { type: Boolean, default: false },
     myKillSwitch: { type: Boolean, default: false },
     testingKillSwitch: { type: Boolean, default: false },
@@ -420,7 +420,7 @@ function docToSettings(doc: Record<string, any>): UserSettingsDoc {
     tradingMode: {
       aiTradesMode: doc.tradingMode?.aiTradesMode ?? "paper",
       myTradesMode: doc.tradingMode?.myTradesMode ?? "paper",
-      testingMode: doc.tradingMode?.testingMode ?? "sandbox",
+      testingMode: doc.tradingMode?.testingMode ?? "live",
       aiKillSwitch: doc.tradingMode?.aiKillSwitch ?? false,
       myKillSwitch: doc.tradingMode?.myKillSwitch ?? false,
       testingKillSwitch: doc.tradingMode?.testingKillSwitch ?? false,

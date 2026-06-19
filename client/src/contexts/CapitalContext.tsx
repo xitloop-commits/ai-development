@@ -3,8 +3,8 @@
  *
  * Single source of truth for capital data across the entire app.
  * Channel-aware: provides per-channel capital state. The active channel can
- * be switched via setChannel(). Six channels per BSA v1.8:
- *   ai-live, ai-paper, my-live, my-paper, testing-live, testing-sandbox.
+ * be switched via setChannel(). Five channels per BSA v1.8:
+ *   ai-live, ai-paper, my-live, my-paper, testing-live.
  */
 import {
   createContext,

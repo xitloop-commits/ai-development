@@ -433,14 +433,13 @@ export interface BrokerCapabilities {
  *   - "paper"        → mock adapters for paper-trading channels
  *   - "sandbox"      → Dhan sandbox token-validation only
  */
-export type BrokerRole = "trading" | "data-and-ai" | "paper" | "sandbox";
+export type BrokerRole = "trading" | "data-and-ai" | "paper";
 
 export interface BrokerConfigDoc {
   brokerId: string;
   displayName: string;
   isActive: boolean;
   isPaperBroker: boolean;
-  sandboxMode: boolean;
   /** Functional role. Optional for backward compat; defaults inferred from brokerId. */
   role?: BrokerRole;
   /** PAN of the account holder (audit trail for two-account setups). */
