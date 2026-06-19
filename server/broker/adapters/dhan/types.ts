@@ -33,14 +33,59 @@ export interface DhanOrderRequest {
   price: number;
   triggerPrice?: number;
   afterMarketOrder?: boolean;
-  boProfitValue?: number;
-  boStopLossValue?: number;
 }
 
 export interface DhanOrderResponse {
   orderId: string;
   orderStatus: string;
   dhanClientId?: string;
+}
+
+/**
+ * Super Order — one order that carries the entry plus a target leg and a
+ * stop-loss (optionally trailing) leg. Dhan manages the exits. `trailingJump`
+ * is the absolute rupee step the stop trails by; 0 = no trailing (we arm it
+ * later from the TSL activation logic by modifying the STOP_LOSS_LEG).
+ * Note: unlike a plain order, there is no `validity` field.
+ */
+export interface DhanSuperOrderRequest {
+  dhanClientId: string;
+  correlationId?: string;
+  transactionType: "BUY" | "SELL";
+  exchangeSegment: string;
+  productType: string;
+  orderType: string;
+  securityId: string;
+  quantity: number;
+  price: number;
+  targetPrice: number;
+  stopLossPrice: number;
+  trailingJump: number;
+}
+
+/** Which leg a Super Order modify/cancel targets (Dhan `legName`). */
+export type DhanSuperOrderLeg = "ENTRY_LEG" | "TARGET_LEG" | "STOP_LOSS_LEG";
+
+/** PUT /super/orders/{id} — modify a single leg. Only the fields relevant to
+ *  the leg are sent (TARGET_LEG → targetPrice; STOP_LOSS_LEG → stopLossPrice +
+ *  trailingJump; ENTRY_LEG → price/quantity). */
+export interface DhanSuperOrderModifyRequest {
+  dhanClientId: string;
+  orderId: string;
+  legName: DhanSuperOrderLeg;
+  orderType?: string;
+  quantity?: number;
+  price?: number;
+  targetPrice?: number;
+  stopLossPrice?: number;
+  trailingJump?: number;
+}
+
+/** Response from a Super Order place/modify. Dhan returns the entry orderId;
+ *  leg ids (if present) arrive on the order-update WS. */
+export interface DhanSuperOrderResponse {
+  orderId: string;
+  orderStatus: string;
 }
 
 export interface DhanOrderBookEntry {

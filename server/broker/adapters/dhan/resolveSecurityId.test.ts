@@ -30,7 +30,7 @@ function makeParams(overrides: Partial<OrderParams>): OrderParams {
 }
 
 describe("DhanAdapter._resolveSecurityId", () => {
-  const adapter = new DhanAdapter("dhan-sandbox", true);
+  const adapter = new DhanAdapter("dhan-primary-ac");
   const resolve = (p: OrderParams) => (adapter as any)._resolveSecurityId(p);
 
   it("passes through a numeric securityId untouched", () => {

@@ -3,8 +3,8 @@
  *
  * Single source of truth for capital data across the entire app.
  * Channel-aware: provides per-channel capital state. The active channel can
- * be switched via setChannel(). Six channels per BSA v1.8:
- *   ai-live, ai-paper, my-live, my-paper, testing-live, testing-sandbox.
+ * be switched via setChannel(). Five channels per BSA v1.8:
+ *   ai-live, ai-paper, my-live, my-paper, testing-live.
  */
 import {
   createContext,
@@ -116,6 +116,16 @@ export interface CapitalContextValue {
 
 const CapitalContext = createContext<CapitalContextValue | null>(null);
 
+// Channel lives in its OWN context so components that only need the active
+// channel (ChannelTabs, ChannelModeToggle) don't re-render every poll when the
+// live capital/P&L in CapitalContext changes. This value changes only on a
+// channel switch.
+interface ChannelContextValue {
+  channel: Channel;
+  setChannel: (ch: Channel) => void;
+}
+const ChannelContext = createContext<ChannelContextValue | null>(null);
+
 function normalizeDayRecord(day: any): DayRecord {
   const trades = Array.isArray(day?.trades) ? day.trades : [];
   const instruments = Array.isArray(day?.instruments)
@@ -204,8 +214,14 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   // executor.placeTrade / executor.updateTrade; exit translates to the
   // formal `executor.exitTrade` shape inline below.
   const placeTradeMutation = trpc.executor.placeTrade.useMutation({
-    onSuccess: async () => {
-      await invalidateAll();
+    onSuccess: () => {
+      // Fire-and-forget: don't await the 4-query portfolio refetch here.
+      // React Query keeps the mutation `pending` until onSuccess resolves, so
+      // awaiting would hold `placeTradePending` true through the whole refetch
+      // even though the order already returned. The refresh still happens in the
+      // background (and the 2s allDays poll backs it up), so the new trade shows
+      // promptly without blocking the place from feeling done.
+      void invalidateAll();
     },
     onError: (err) => {
       // TEA + Discipline rejections come back as TRPCError BAD_REQUEST with
@@ -387,45 +403,90 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
     void allDaysQuery.refetch();
   }, [stateQuery, allDaysQuery]);
 
+  // Memoize the context value so consumers re-render only when something they
+  // use actually changes — NOT on every provider render (the 2s/3s query polls
+  // and mutation-pending toggles re-render this provider constantly). Without
+  // this, the inline object was a new reference each time → all 9 consumers
+  // (incl. the Settings page) re-rendered every ~2s.
+  const value = useMemo(
+    () => ({
+      channel,
+      setChannel,
+      capital,
+      capitalLoading: stateQuery.isLoading && !stateQuery.data,
+      capitalReady: !!stateQuery.data,
+      allDays,
+      currentDay,
+      allDaysLoading: allDaysQuery.isLoading && !allDaysQuery.data,
+      stateData: stateQuery.data,
+      allDaysData: allDaysQuery.data,
+      inject,
+      injectPending: injectMutation.isPending,
+      placeTrade,
+      placeTradePending: placeTradeMutation.isPending,
+      exitTrade,
+      exitTradePending: exitTradeMutation.isPending,
+      updateLtp,
+      syncDailyTarget,
+      syncDailyTargetPending: syncDailyTargetMutation.isPending,
+      resetCapital,
+      resetCapitalPending: resetCapitalMutation.isPending,
+      transferFunds,
+      transferFundsPending: transferFundsMutation.isPending,
+      refetchAll,
+    }),
+    [
+      channel,
+      setChannel,
+      capital,
+      stateQuery.isLoading,
+      stateQuery.data,
+      allDays,
+      currentDay,
+      allDaysQuery.isLoading,
+      allDaysQuery.data,
+      inject,
+      injectMutation.isPending,
+      placeTrade,
+      placeTradeMutation.isPending,
+      exitTrade,
+      exitTradeMutation.isPending,
+      updateLtp,
+      syncDailyTarget,
+      syncDailyTargetMutation.isPending,
+      resetCapital,
+      resetCapitalMutation.isPending,
+      transferFunds,
+      transferFundsMutation.isPending,
+      refetchAll,
+    ],
+  );
+
+  // Stable channel-only value — changes only when the channel switches.
+  const channelValue = useMemo<ChannelContextValue>(() => ({ channel, setChannel }), [channel]);
+
   return (
-    <CapitalContext.Provider
-      value={{
-        channel,
-        setChannel,
-        capital,
-        capitalLoading: stateQuery.isLoading && !stateQuery.data,
-        capitalReady: !!stateQuery.data,
-        allDays,
-        currentDay,
-        allDaysLoading: allDaysQuery.isLoading && !allDaysQuery.data,
-        stateData: stateQuery.data,
-        allDaysData: allDaysQuery.data,
-        inject,
-        injectPending: injectMutation.isPending,
-        placeTrade,
-        placeTradePending: placeTradeMutation.isPending,
-        exitTrade,
-        exitTradePending: exitTradeMutation.isPending,
-        updateLtp,
-        syncDailyTarget,
-        syncDailyTargetPending: syncDailyTargetMutation.isPending,
-        resetCapital,
-        resetCapitalPending: resetCapitalMutation.isPending,
-        transferFunds,
-        transferFundsPending: transferFundsMutation.isPending,
-        refetchAll,
-      }}
-    >
-      {children}
-    </CapitalContext.Provider>
+    <ChannelContext.Provider value={channelValue}>
+      <CapitalContext.Provider value={value}>{children}</CapitalContext.Provider>
+    </ChannelContext.Provider>
   );
 }
 
-// ─── Hook ───────────────────────────────────────────────────────
+// ─── Hooks ──────────────────────────────────────────────────────
 export function useCapital(): CapitalContextValue {
   const ctx = useContext(CapitalContext);
   if (!ctx) {
     throw new Error('useCapital must be used within a CapitalProvider');
+  }
+  return ctx;
+}
+
+/** Channel-only subscription — does NOT re-render on capital/P&L changes. Use
+ *  this in components that only need the active channel (tabs, mode toggle). */
+export function useChannel(): ChannelContextValue {
+  const ctx = useContext(ChannelContext);
+  if (!ctx) {
+    throw new Error('useChannel must be used within a CapitalProvider');
   }
   return ctx;
 }
@@ -437,5 +498,13 @@ export function StaticCapitalProvider({
   value: CapitalContextValue;
   children: ReactNode;
 }) {
-  return <CapitalContext.Provider value={value}>{children}</CapitalContext.Provider>;
+  const channelValue = useMemo<ChannelContextValue>(
+    () => ({ channel: value.channel, setChannel: value.setChannel }),
+    [value.channel, value.setChannel],
+  );
+  return (
+    <ChannelContext.Provider value={channelValue}>
+      <CapitalContext.Provider value={value}>{children}</CapitalContext.Provider>
+    </ChannelContext.Provider>
+  );
 }

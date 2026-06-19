@@ -32,11 +32,12 @@ import type {
   ScripMasterStatusResult,
   SecurityLookupParams,
   SecurityLookupResult,
+  SuperOrderResult,
+  SuperOrderLeg,
 } from "../../types";
 
 import {
   DHAN_API_BASE,
-  DHAN_SANDBOX_API_BASE,
   DHAN_ENDPOINTS,
   DHAN_TOKEN_EXPIRY_MS,
   DHAN_ORDER_STATUS_MAP,
@@ -63,6 +64,10 @@ import type {
   DhanCandleDataResponse,
   DhanHistoricalDataRequest,
   DhanIntradayDataRequest,
+  DhanSuperOrderRequest,
+  DhanSuperOrderModifyRequest,
+  DhanSuperOrderResponse,
+  DhanSuperOrderLeg,
 } from "./types";
 
 import { getBrokerConfig, updateBrokerConnection, updateBrokerCredentials } from "../../brokerConfig";
@@ -106,8 +111,19 @@ import { dhanApiLatencyMs } from "../../../_core/metrics";
  *
  * Exported as a pure function so the rule is unit-testable without a network call.
  */
+/**
+ * Snap a price to Dhan's 0.05 tick and clean the 32-bit-float tail back to 2
+ * decimals. The live feed delivers prices as float32, so they arrive with
+ * precision junk (e.g. 785.2000122070312); Dhan rejects anything off-tick with
+ * the generic DH-905 error. Used for entry, target and stop-loss prices.
+ */
+export function roundToDhanTick(price: number): number {
+  return Math.round((Math.round(price / 0.05) * 0.05) * 100) / 100;
+}
+
 export function resolveDhanOrderPrice(orderType: string, price: number): number {
-  return orderType === "MARKET" || orderType === "SL-M" ? 0 : price;
+  if (orderType === "MARKET" || orderType === "SL-M") return 0;
+  return roundToDhanTick(price);
 }
 
 // ─── DhanAdapter ───────────────────────────────────────────────
@@ -115,7 +131,6 @@ export function resolveDhanOrderPrice(orderType: string, price: number): number 
 export class DhanAdapter implements BrokerAdapter {
   readonly brokerId: string;
   readonly displayName: string;
-  private sandboxMode: boolean;
 
   private accessToken: string = "";
   private clientId: string = "";
@@ -148,15 +163,14 @@ export class DhanAdapter implements BrokerAdapter {
   private tickCallback: TickCallback | null = null;
 
   // Per-instance logger so logs carry the brokerId, distinguishing the
-  // primary "dhan-primary-ac" from "dhan-secondary-ac" / "dhan-sandbox" in shared output.
+  // primary "dhan-primary-ac" from "dhan-secondary-ac" in shared output.
   private readonly log: Logger;
 
-  constructor(brokerId = "dhan-primary-ac", sandboxMode = false) {
+  constructor(brokerId = "dhan-primary-ac") {
     this.brokerId = brokerId;
-    this.sandboxMode = sandboxMode;
-    this.displayName = sandboxMode ? "Dhan Sandbox" : "Dhan";
+    this.displayName = "Dhan";
     // Friendly log tag: "dhan-primary-ac" → "primary-ac",
-    // "dhan-secondary-ac" → "secondary-ac", "dhan-sandbox" → "sandbox".
+    // "dhan-secondary-ac" → "secondary-ac".
     // Falls back to raw brokerId for any other.
     const logTag = brokerId.replace(/^dhan-/, "");
     this.log = createLogger("BSA", `Dhan/${logTag}`);
@@ -164,23 +178,12 @@ export class DhanAdapter implements BrokerAdapter {
 
   // ── REST plumbing ─────────────────────────────────────────────
   //
-  // Sandbox mode routes every REST call to Dhan's sandbox host (same path +
-  // payload shape as live). The two private wrappers (_dhanRequest /
-  // _validateToken) auto-inject this.accessToken + this._baseUrl so callers
-  // don't need to think about which host they're hitting.
-
-  /** Read-only metadata adapter (option chain, scrip master, WS feed) used
-   *  ONLY when this adapter is in sandboxMode — Dhan sandbox doesn't expose
-   *  market-data endpoints, so we route those reads to the primary live
-   *  adapter. Wired by brokerService.initBrokerService after both adapters
-   *  are constructed. */
-  private metadataSource: BrokerAdapter | null = null;
-  setMetadataSource(adapter: BrokerAdapter | null): void {
-    this.metadataSource = adapter;
-  }
+  // The two private wrappers (_dhanRequest / _validateToken) auto-inject
+  // this.accessToken + this._baseUrl so callers don't need to think about
+  // which host they're hitting.
 
   private get _baseUrl(): string {
-    return this.sandboxMode ? DHAN_SANDBOX_API_BASE : DHAN_API_BASE;
+    return DHAN_API_BASE;
   }
 
   private _dhanRequest<T>(
@@ -257,9 +260,7 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   async updateToken(token: string, clientId?: string): Promise<void> {
-    // Validate against this adapter's own URL — sandbox tokens are issued by
-    // developer.dhanhq.co and are rejected by the live host (DH-906), so we
-    // must route the validate call to the right base URL.
+    // Validate the new token against the live Dhan host before storing it.
     const result = await updateDhanToken(this.brokerId, token, clientId, { baseUrl: this._baseUrl });
 
     if (result.success) {
@@ -309,7 +310,13 @@ export class DhanAdapter implements BrokerAdapter {
       this.log.warn("LIMIT order with price=0. Frontend should provide LTP-based price.");
     }
 
-    // Build the Dhan order request
+    // The ENTRY is placed as a PLAIN order — no bracket and no super-order
+    // fields. SL / TP / TSL are applied as a SEPARATE step AFTER the entry is
+    // confirmed (see attachProtection — Stage 2). Two reasons we don't bundle
+    // them at entry: (1) the old bo* bracket values on a non-BO order are what
+    // Dhan rejected with DH-905; (2) the Super Order endpoint is absent from the
+    // sandbox host (404), so a bundled order can't be validated there.
+    const endpoint = DHAN_ENDPOINTS.PLACE_ORDER;
     const body: DhanOrderRequest = {
       dhanClientId: this.clientId,
       transactionType: params.transactionType,
@@ -321,24 +328,15 @@ export class DhanAdapter implements BrokerAdapter {
       quantity: params.quantity,
       price,
     };
+    if (params.triggerPrice) body.triggerPrice = params.triggerPrice;
+    if (params.tag) body.correlationId = params.tag;
 
-    // Trigger price for SL orders
-    if (params.triggerPrice) {
-      body.triggerPrice = params.triggerPrice;
-    }
-
-    // Bracket order: SL and TP values
-    if (params.stopLoss) {
-      body.boStopLossValue = params.stopLoss;
-    }
-    if (params.target) {
-      body.boProfitValue = params.target;
-    }
-
-    // Correlation ID for tracking
-    if (params.tag) {
-      body.correlationId = params.tag;
-    }
+    // Live order audit — log exactly what we send to Dhan (clientId never logged).
+    this.log.debug(
+      `[ORDER→Dhan] place ${body.transactionType} secId=${body.securityId} seg=${body.exchangeSegment} ` +
+        `product=${body.productType} type=${body.orderType} qty=${body.quantity} price=${body.price} ` +
+        `trigger=${body.triggerPrice ?? "-"} tag=${body.correlationId ?? "-"}`,
+    );
 
     // Rate limit + retry
     await this.rateLimiter.acquire();
@@ -346,7 +344,7 @@ export class DhanAdapter implements BrokerAdapter {
     const result = await withRetry(
       () => this._dhanRequest<DhanOrderResponse>(
         "POST",
-        DHAN_ENDPOINTS.PLACE_ORDER,
+        endpoint,
         body as unknown as Record<string, unknown>
       ),
       {
@@ -367,7 +365,7 @@ export class DhanAdapter implements BrokerAdapter {
       // dhanClientId is shown as present/absent only (never the value).
       this.log.warn(
         `placeOrder rejected by Dhan (status=${result.status}, code=${result.error?.errorCode ?? "?"}): ` +
-          `${result.error?.errorMessage ?? "no message"} | sent: ` +
+          `${result.error?.errorMessage ?? "no message"} | sent: endpoint=${endpoint} ` +
           `clientId=${this.clientId ? "set" : "MISSING"} securityId=${body.securityId} ` +
           `segment=${body.exchangeSegment} txn=${body.transactionType} product=${body.productType} ` +
           `orderType=${body.orderType} validity=${body.validity} qty=${body.quantity} price=${body.price}`,
@@ -380,6 +378,7 @@ export class DhanAdapter implements BrokerAdapter {
     // Update last API call timestamp
     await updateBrokerConnection(this.brokerId, { lastApiCall: Date.now() });
 
+    this.log.debug(`[ORDER←Dhan] placed orderId=${result.data.orderId} status=${result.data.orderStatus}`);
     return {
       orderId: result.data.orderId,
       status: (DHAN_ORDER_STATUS_MAP[result.data.orderStatus] ?? "PENDING") as OrderResult["status"],
@@ -453,6 +452,161 @@ export class DhanAdapter implements BrokerAdapter {
       orderId: result.data.orderId,
       status: "CANCELLED",
       message: `Order cancelled: ${orderId}`,
+      timestamp: Date.now(),
+    };
+  }
+
+  // ── Super Orders (broker-enforced SL/TP/trailing) ─────────────────────
+  // LIVE-ONLY: the Super Order endpoints 404 on the Dhan sandbox host.
+
+  /**
+   * Place a Super Order — entry + target leg + stop-loss leg (optionally
+   * trailing). Dhan enforces the exits broker-side (survives our app/feed
+   * outage). Mirrors `_placeOrderImpl`'s limiter/retry/401/DH-905 handling.
+   * `trailingJump=0` at entry; the TSL is armed later by modifying STOP_LOSS_LEG.
+   */
+  async placeSuperOrder(params: OrderParams): Promise<SuperOrderResult> {
+    this._ensureToken();
+    this._ensureNotKilled();
+
+    const securityId = this._resolveSecurityId(params);
+    const price = resolveDhanOrderPrice(params.orderType, params.price);
+    if (!(params.stopLoss && params.stopLoss > 0) || !(params.target && params.target > 0)) {
+      throw new Error("placeSuperOrder requires both stopLoss and target");
+    }
+
+    const body: DhanSuperOrderRequest = {
+      dhanClientId: this.clientId,
+      transactionType: params.transactionType,
+      exchangeSegment: params.exchange,
+      productType: DHAN_PRODUCT_TYPES[params.productType] ?? params.productType,
+      orderType: DHAN_ORDER_TYPES[params.orderType] ?? params.orderType,
+      securityId,
+      quantity: params.quantity,
+      price,
+      targetPrice: roundToDhanTick(params.target),
+      stopLossPrice: roundToDhanTick(params.stopLoss),
+      trailingJump: 0, // armed later via modifySuperOrderLeg(STOP_LOSS_LEG)
+    };
+    if (params.tag) body.correlationId = params.tag;
+
+    // Live order audit — log exactly what we send to Dhan (clientId never logged).
+    this.log.debug(
+      `[ORDER→Dhan] SUPER place ${body.transactionType} secId=${body.securityId} seg=${body.exchangeSegment} ` +
+        `product=${body.productType} type=${body.orderType} qty=${body.quantity} price=${body.price} ` +
+        `target=${body.targetPrice} stop=${body.stopLossPrice} jump=${body.trailingJump} tag=${body.correlationId ?? "-"}`,
+    );
+
+    await this.rateLimiter.acquire();
+    const result = await withRetry(
+      () => this._dhanRequest<DhanSuperOrderResponse>(
+        "POST",
+        DHAN_ENDPOINTS.SUPER_ORDER,
+        body as unknown as Record<string, unknown>,
+      ),
+      { maxRetries: 2, delayMs: 500, shouldRetry: isRetryableError },
+    );
+
+    if (result.isAuthError) {
+      await handleDhan401(this.brokerId);
+      throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
+    }
+    if (!result.ok || !result.data) {
+      this.log.warn(
+        `placeSuperOrder rejected by Dhan (status=${result.status}, code=${result.error?.errorCode ?? "?"}): ` +
+          `${result.error?.errorMessage ?? "no message"} | sent: endpoint=${DHAN_ENDPOINTS.SUPER_ORDER} ` +
+          `clientId=${this.clientId ? "set" : "MISSING"} securityId=${body.securityId} segment=${body.exchangeSegment} ` +
+          `txn=${body.transactionType} product=${body.productType} orderType=${body.orderType} qty=${body.quantity} ` +
+          `price=${body.price} target=${body.targetPrice} stop=${body.stopLossPrice}`,
+      );
+      throw new Error(result.error?.errorMessage ?? `Super order placement failed (HTTP ${result.status})`);
+    }
+
+    await updateBrokerConnection(this.brokerId, { lastApiCall: Date.now() });
+    this.log.debug(`[ORDER←Dhan] SUPER placed orderId=${result.data.orderId} status=${result.data.orderStatus}`);
+    return {
+      orderId: result.data.orderId,
+      status: (DHAN_ORDER_STATUS_MAP[result.data.orderStatus] ?? "PENDING") as OrderResult["status"],
+      message: `Super order placed: ${result.data.orderId}`,
+      timestamp: Date.now(),
+    };
+  }
+
+  /** Modify one leg of a Super Order (targetPrice / stopLossPrice / trailingJump). */
+  async modifySuperOrderLeg(
+    orderId: string,
+    leg: SuperOrderLeg,
+    params: { targetPrice?: number; stopLossPrice?: number; trailingJump?: number },
+  ): Promise<OrderResult> {
+    this._ensureToken();
+    await this.rateLimiter.acquire();
+
+    const body: DhanSuperOrderModifyRequest = {
+      dhanClientId: this.clientId,
+      orderId,
+      legName: leg as DhanSuperOrderLeg,
+    };
+    if (params.targetPrice !== undefined) body.targetPrice = roundToDhanTick(params.targetPrice);
+    if (params.stopLossPrice !== undefined) body.stopLossPrice = roundToDhanTick(params.stopLossPrice);
+    if (params.trailingJump !== undefined) body.trailingJump = roundToDhanTick(params.trailingJump);
+
+    this.log.debug(
+      `[ORDER→Dhan] SUPER modify ${leg} order=${orderId} ` +
+        `target=${body.targetPrice ?? "-"} stop=${body.stopLossPrice ?? "-"} jump=${body.trailingJump ?? "-"}`,
+    );
+
+    const result = await this._dhanRequest<DhanSuperOrderResponse>(
+      "PUT",
+      DHAN_ENDPOINTS.MODIFY_SUPER_ORDER(orderId),
+      body as unknown as Record<string, unknown>,
+    );
+
+    if (result.isAuthError) {
+      await handleDhan401(this.brokerId);
+      throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
+    }
+    if (!result.ok || !result.data) {
+      this.log.warn(
+        `[ORDER←Dhan] SUPER modify ${leg} FAILED order=${orderId} status=${result.status} ` +
+          `code=${result.error?.errorCode ?? "?"}: ${result.error?.errorMessage ?? "no message"}`,
+      );
+      throw new Error(result.error?.errorMessage ?? `Super order leg modify failed (HTTP ${result.status})`);
+    }
+    this.log.debug(`[ORDER←Dhan] SUPER modified ${leg} order=${result.data.orderId} status=${result.data.orderStatus}`);
+    return {
+      orderId: result.data.orderId,
+      status: (DHAN_ORDER_STATUS_MAP[result.data.orderStatus] ?? "PENDING") as OrderResult["status"],
+      message: `Super order leg ${leg} modified: ${orderId}`,
+      timestamp: Date.now(),
+    };
+  }
+
+  /** Cancel a Super Order leg (or the whole order if `leg` omitted → entry leg). */
+  async cancelSuperOrder(orderId: string, leg?: SuperOrderLeg): Promise<OrderResult> {
+    this._ensureToken();
+    await this.rateLimiter.acquire();
+
+    this.log.debug(`[ORDER→Dhan] SUPER cancel ${leg ?? "ENTRY_LEG"} order=${orderId}`);
+    const result = await this._dhanRequest<DhanSuperOrderResponse>(
+      "DELETE",
+      DHAN_ENDPOINTS.CANCEL_SUPER_ORDER(orderId, (leg ?? "ENTRY_LEG") as DhanSuperOrderLeg),
+    );
+
+    if (result.isAuthError) {
+      await handleDhan401(this.brokerId);
+      throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
+    }
+    if (!result.ok || !result.data) {
+      this.log.warn(
+        `[ORDER←Dhan] SUPER cancel ${leg ?? "ENTRY_LEG"} FAILED order=${orderId} status=${result.status}: ${result.error?.errorMessage ?? "no message"}`,
+      );
+      throw new Error(result.error?.errorMessage ?? `Super order cancel failed (HTTP ${result.status})`);
+    }
+    this.log.debug(`[ORDER←Dhan] SUPER cancelled ${leg ?? "ENTRY_LEG"} order=${result.data.orderId}`);
+    return {
+      orderId: result.data.orderId,
+      status: "CANCELLED",
+      message: `Super order ${leg ?? "ENTRY_LEG"} cancelled: ${orderId}`,
       timestamp: Date.now(),
     };
   }
@@ -666,10 +820,6 @@ export class DhanAdapter implements BrokerAdapter {
   // ── Market Data ───────────────────────────────────────────────
 
   async getScripMaster(exchange: string): Promise<Instrument[]> {
-    // Sandbox doesn't expose scrip master — delegate to the live primary adapter.
-    if (this.sandboxMode && this.metadataSource) {
-      return this.metadataSource.getScripMaster(exchange);
-    }
     // Ensure scrip master is loaded
     await this._ensureScripMasterLoaded();
 
@@ -690,9 +840,6 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   async getLotSize(symbol: string): Promise<number> {
-    if (this.sandboxMode && this.metadataSource?.getLotSize) {
-      return this.metadataSource.getLotSize(symbol);
-    }
     // MCX commodity lots aren't in the scrip master — source them from the
     // scraped lot-size feed. No fallback: if it's not loaded, fail so the caller
     // rejects the order rather than sizing it with a wrong lot.
@@ -709,10 +856,6 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   async getExpiryList(underlying: string, exchangeSegment?: string): Promise<string[]> {
-    // Sandbox doesn't expose expiry-list — delegate to live primary adapter.
-    if (this.sandboxMode && this.metadataSource?.getExpiryList) {
-      return this.metadataSource.getExpiryList(underlying, exchangeSegment);
-    }
     this._ensureToken();
 
     const result = await this._dhanRequest<{ data: string[] }>(
@@ -751,10 +894,6 @@ export class DhanAdapter implements BrokerAdapter {
    * single request and cache the result; never call per-instrument.
    */
   async getOhlcQuote(request: Record<string, number[]>): Promise<OhlcQuoteResult> {
-    // Sandbox doesn't expose market data — borrow the live primary adapter.
-    if (this.sandboxMode && this.metadataSource?.getOhlcQuote) {
-      return this.metadataSource.getOhlcQuote(request);
-    }
     this._ensureToken();
 
     const result = await this._dhanRequest<{
@@ -792,12 +931,6 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
    async getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData> {
-    // Sandbox doesn't expose option chain — delegate to live primary adapter.
-    // Read-only metadata, no money risk; sandbox just borrows the chain shape
-    // so option trades can be placed against the sandbox order API.
-    if (this.sandboxMode && this.metadataSource?.getOptionChain) {
-      return this.metadataSource.getOptionChain(underlying, expiry, exchangeSegment);
-    }
     // Cache key: underlying + expiry + segment
     const cacheKey = `${underlying}|${expiry}|${exchangeSegment || "IDX_I"}`;
     const now = Date.now();
@@ -1057,13 +1190,6 @@ export class DhanAdapter implements BrokerAdapter {
   subscribeLTP(instruments: SubscribeParams[], callback: TickCallback): void {
     this.tickCallback = callback;
 
-    // Sandbox has no WebSocket — delegate the subscription to the live primary
-    // adapter so sandbox trades read the same live tick stream as everyone else.
-    if (this.sandboxMode && this.metadataSource?.subscribeLTP) {
-      this.metadataSource.subscribeLTP(instruments, callback);
-      return;
-    }
-
     if (!this.subManager) {
       this.log.warn("SubscriptionManager not initialized. Call connect() first.");
       return;
@@ -1079,11 +1205,6 @@ export class DhanAdapter implements BrokerAdapter {
   }
 
   unsubscribeLTP(instruments: SubscribeParams[]): void {
-    if (this.sandboxMode && this.metadataSource?.unsubscribeLTP) {
-      this.metadataSource.unsubscribeLTP(instruments);
-      return;
-    }
-
     if (!this.subManager) return;
 
     this.subManager.unsubscribeManual(
@@ -1123,6 +1244,10 @@ export class DhanAdapter implements BrokerAdapter {
         filledQuantity: update.tradedQty,
         averagePrice: update.avgTradedPrice,
         timestamp: Date.now(),
+        // Super Order leg context — lets reconciliation match an SL/TP leg fill
+        // (legNo 2/3) back to its parent trade via the entry/anchor id.
+        legNo: update.legNo,
+        entryOrderId: update.entryOrderId || undefined,
       });
     });
     this.orderUpdateWs.connect();
@@ -1222,45 +1347,6 @@ export class DhanAdapter implements BrokerAdapter {
   // ── Lifecycle ─────────────────────────────────────────────────
 
   async connect(): Promise<void> {
-    // ── Sandbox path ───────────────────────────────────────────
-    // Dhan sandbox uses a separate API host with its own access token (issued
-    // by developer.dhanhq.co — no TOTP refresh flow). Load creds from Mongo,
-    // validate against the sandbox API, skip TOTP refresh + WebSocket.
-    if (this.sandboxMode) {
-      const config = await getBrokerConfig(this.brokerId);
-      if (!config || !config.credentials.accessToken) {
-        this.log.warn(
-          "Sandbox access token missing. Paste your sandbox token via Settings or: " +
-          `node scripts/dhan-update-credentials.mjs --brokerId ${this.brokerId} --accessToken <SANDBOX_TOKEN>`
-        );
-        await updateBrokerConnection(this.brokerId, { apiStatus: "disconnected" });
-        return;
-      }
-      this.accessToken = config.credentials.accessToken;
-      this.clientId = config.credentials.clientId;
-      this.tokenUpdatedAt = config.credentials.updatedAt;
-
-      const validation = await this._validateToken();
-      if (!validation.valid) {
-        this.log.error(`Sandbox token invalid: ${validation.error}. Refresh token at developer.dhanhq.co and re-paste.`);
-        await updateBrokerCredentials(this.brokerId, { status: "expired" });
-        await updateBrokerConnection(this.brokerId, { apiStatus: "error" });
-        return;
-      }
-      this.clientId = validation.clientId ?? this.clientId;
-      await updateBrokerCredentials(this.brokerId, { clientId: this.clientId, status: "valid" });
-      await updateBrokerConnection(this.brokerId, {
-        apiStatus: "connected",
-        lastApiCall: Date.now(),
-      });
-      this.log.important(
-        `Sandbox connected. Client: ${this.clientId}. Balance: ₹${validation.fundData?.availabelBalance ?? "N/A"}. ` +
-        `Note: every order fills at ₹100, capital resets to ₹10,00,000 daily. WebSocket + option chain are NOT available; ` +
-        `metadata reads will delegate to the primary live adapter.`
-      );
-      return;
-    }
-
     // Load credentials from MongoDB
     const config = await getBrokerConfig(this.brokerId);
 
@@ -1373,8 +1459,6 @@ export class DhanAdapter implements BrokerAdapter {
     });
     this.log.important(`Connected. Client: ${this.clientId}, Balance: ₹${validation.fundData?.availabelBalance ?? "N/A"}`);
 
-    // Live path always opens WebSocket feeds. Sandbox path returned early
-    // above — it has no WebSocket support on Dhan's side.
     await this.connectFeed();
     this.connectOrderUpdateWs();
   }

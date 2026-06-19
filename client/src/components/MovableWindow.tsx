@@ -14,13 +14,27 @@ export interface MovableWindowProps {
   onClose?: () => void;
   /** Initial top-left position (px). Defaults to a sensible offset. */
   initial?: { x: number; y: number };
+  /** Initial placement when no explicit `initial` is given. "bottom-center"
+   *  centres the window horizontally and pins it just above the bottom bar
+   *  (until the user drags it). */
+  placement?: "default" | "bottom-center";
+  /** Gap (px) above the bottom of the viewport for "bottom-center" placement —
+   *  sized to clear the sticky MainFooter. */
+  bottomGap?: number;
   /** Optional fixed width (px). */
   width?: number;
   children: ReactNode;
 }
 
-export function MovableWindow({ title, onClose, initial, width = 560, children }: MovableWindowProps) {
-  const [pos, setPos] = useState(() => initial ?? { x: Math.max(16, window.innerWidth - width - 32), y: 96 });
+export function MovableWindow({ title, onClose, initial, placement = "default", bottomGap = 56, width = 560, children }: MovableWindowProps) {
+  // `pos` is null until the window has an explicit px position: for
+  // "bottom-center" we keep it null and anchor via CSS (bottom + centre) so the
+  // window stays put above the footer even as its height changes — once the user
+  // drags it, we freeze it to px coordinates.
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(
+    () => initial ?? (placement === "bottom-center" ? null : { x: Math.max(16, window.innerWidth - width - 32), y: 96 }),
+  );
+  const winRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
 
   const onPointerMove = useCallback((e: PointerEvent) => {
@@ -38,10 +52,22 @@ export function MovableWindow({ title, onClose, initial, width = 560, children }
   }, [onPointerMove]);
 
   const startDrag = (e: React.PointerEvent) => {
-    dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+    // Anchor the drag to the window's current on-screen rect — works whether it
+    // was px-positioned or still CSS-anchored (bottom-center, pos === null).
+    const rect = winRef.current?.getBoundingClientRect();
+    const curX = pos?.x ?? rect?.left ?? 0;
+    const curY = pos?.y ?? rect?.top ?? 0;
+    if (pos == null) setPos({ x: curX, y: curY }); // freeze to px so dragging works
+    dragRef.current = { dx: e.clientX - curX, dy: e.clientY - curY };
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
   };
+
+  // Style: explicit px once positioned/dragged; otherwise CSS-anchored bottom-centre.
+  const anchorStyle: React.CSSProperties =
+    pos != null
+      ? { left: pos.x, top: pos.y, width }
+      : { left: "50%", bottom: bottomGap, transform: "translateX(-50%)", width };
 
   useEffect(
     () => () => {
@@ -53,8 +79,9 @@ export function MovableWindow({ title, onClose, initial, width = 560, children }
 
   return (
     <div
+      ref={winRef}
       className="fixed z-50 rounded-lg border border-border bg-card/95 shadow-2xl backdrop-blur-sm"
-      style={{ left: pos.x, top: pos.y, width }}
+      style={anchorStyle}
       role="dialog"
       aria-label={title}
     >

@@ -25,8 +25,7 @@ type Channel =
   | "ai-paper"
   | "my-live"
   | "my-paper"
-  | "testing-live"
-  | "testing-sandbox";
+  | "testing-live";
 
 const ALL_CHANNELS: Channel[] = [
   "ai-paper",
@@ -40,7 +39,7 @@ function getChannelsFromUrl(): Channel[] {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get("channels");
   if (!raw) return ALL_CHANNELS;
-  const valid: Channel[] = ["ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "testing-sandbox"];
+  const valid: Channel[] = ["ai-live", "ai-paper", "my-live", "my-paper", "testing-live"];
   return raw.split(",").filter((c): c is Channel => valid.includes(c as Channel));
 }
 

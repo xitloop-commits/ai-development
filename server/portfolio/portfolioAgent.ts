@@ -29,7 +29,7 @@ import {
   updateCapitalState,
 } from "./state";
 import { tickHandler } from "./tickHandler";
-import type { AutoExitEvent } from "./tickHandler";
+import type { AutoExitEvent, BrokerTslArmEvent, BrokerTpRatchetEvent } from "./tickHandler";
 import {
   upsertPosition,
   getOpenPositions,
@@ -182,6 +182,47 @@ class PortfolioAgentImpl {
   onAutoExit(handler: (event: AutoExitEvent) => void): () => void {
     tickHandler.on("autoExitDetected", handler);
     return () => tickHandler.off("autoExitDetected", handler);
+  }
+
+  /** LIVE Super Orders: gated TSL should arm at the broker (TEA modifies the
+   *  STOP_LOSS_LEG). Returns an unsubscribe function. */
+  onBrokerTslArm(handler: (event: BrokerTslArmEvent) => void): () => void {
+    tickHandler.on("brokerTslArm", handler);
+    return () => tickHandler.off("brokerTslArm", handler);
+  }
+
+  /** LIVE Super Orders: trailing take-profit should ratchet at the broker (TEA
+   *  modifies the TARGET_LEG, applying its throttle + modify-cap budget). */
+  onBrokerTpRatchet(handler: (event: BrokerTpRatchetEvent) => void): () => void {
+    tickHandler.on("brokerTpRatchet", handler);
+    return () => tickHandler.off("brokerTpRatchet", handler);
+  }
+
+  /** Persist the local flags after a broker Super Order leg modify (single
+   *  writer). Mutates only the leg-modify bookkeeping fields + optionally the
+   *  new SL/TP the broker now holds. */
+  async recordBrokerLegModify(
+    channel: Channel,
+    tradeId: string,
+    patch: {
+      tslArmedOnBroker?: boolean;
+      stopLossPrice?: number;
+      targetPrice?: number;
+      lastBrokerTpPrice?: number;
+      lastBrokerTpModifyAt?: number;
+      bumpModifyCount?: boolean;
+    },
+  ): Promise<void> {
+    const day = await this.ensureCurrentDay(channel);
+    const trade = day.trades.find((t) => t.id === tradeId);
+    if (!trade) return;
+    if (patch.tslArmedOnBroker !== undefined) trade.tslArmedOnBroker = patch.tslArmedOnBroker;
+    if (patch.stopLossPrice !== undefined) trade.stopLossPrice = patch.stopLossPrice;
+    if (patch.targetPrice !== undefined) trade.targetPrice = patch.targetPrice;
+    if (patch.lastBrokerTpPrice !== undefined) trade.lastBrokerTpPrice = patch.lastBrokerTpPrice;
+    if (patch.lastBrokerTpModifyAt !== undefined) trade.lastBrokerTpModifyAt = patch.lastBrokerTpModifyAt;
+    if (patch.bumpModifyCount) trade.legModifyCount = (trade.legModifyCount ?? 0) + 1;
+    await upsertDayRecord(channel, day);
   }
 
   // ── Internal helpers (used by TEA + portfolioRouter) ─────────
@@ -716,6 +757,51 @@ class PortfolioAgentImpl {
       update.status !== "REJECTED" &&
       update.status !== "EXPIRED"
     ) {
+      return { matched: false };
+    }
+
+    // ── Super Order leg fill (LegNo 2 = Stop-Loss, 3 = Target) ───────────
+    // A broker-side SL/TP exit. Match the parent trade by superOrderId (== the
+    // leg's entryOrderId / AlgoOrdNo, always present on a leg event) or by a
+    // previously-learned leg id, then close via the SAME auto-exit path paper
+    // uses: emit autoExitDetected → TEA.recordAutoExit owns close + analytics +
+    // notify (single-writer invariant preserved).
+    if (update.status === "FILLED" && (update.legNo === 2 || update.legNo === 3)) {
+      const reason: AutoExitEvent["reason"] = update.legNo === 2 ? "SL_HIT" : "TP_HIT";
+      const legChannels: Channel[] = ["my-live", "ai-live", "testing-live"];
+      for (const channel of legChannels) {
+        const state = await getCapitalState(channel).catch(() => null);
+        if (!state) continue;
+        const day = await getDayRecord(channel, state.currentDayIndex).catch(() => null);
+        if (!day) continue;
+        const trade = day.trades.find(
+          (t) =>
+            (t.status === "OPEN" || t.status === "PENDING") &&
+            ((!!update.entryOrderId && t.superOrderId === update.entryOrderId) ||
+              t.slLegOrderId === update.orderId ||
+              t.tpLegOrderId === update.orderId),
+        );
+        if (!trade) continue;
+        const legPrice = update.legNo === 2 ? trade.stopLossPrice : trade.targetPrice;
+        const exitPrice = update.averagePrice > 0 ? update.averagePrice : legPrice ?? trade.ltp;
+        await this.audit("BROKER_ORDER_EVENT", channel, trade.id, {
+          brokerId: update.brokerId,
+          legNo: update.legNo,
+          legOrderId: update.orderId,
+          superOrderId: trade.superOrderId,
+          reason,
+          exitPrice,
+          note: "super-order leg fill",
+        });
+        tickHandler.emit("autoExitDetected", {
+          channel,
+          tradeId: trade.id,
+          reason,
+          exitPrice,
+          timestamp: Date.now(),
+        } satisfies AutoExitEvent);
+        return { matched: true, channel, tradeId: trade.id };
+      }
       return { matched: false };
     }
 

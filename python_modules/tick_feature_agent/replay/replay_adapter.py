@@ -29,6 +29,7 @@ Usage:
 from __future__ import annotations
 
 import math
+import gc
 import os
 from collections import deque
 from dataclasses import dataclass
@@ -497,21 +498,26 @@ class ReplayAdapter:
                 extract_spot_history_df,
                 extract_strike_history_df,
             )
-            batch_size_str = os.environ.get("TFA_FLUSH_BATCH_SIZE", "500")
+            # 2026-06-19: defaults dropped from 500 → 200 + 10 → 5 after
+            # a user OOM-kill on a 4-worker crude-oil batch. The old
+            # defaults meant up to 5,000 row dicts accumulated in
+            # emitter._parquet_rows before being drained to disk
+            # (~20 MB per worker × 4 workers = 80 MB just in chunk
+            # buffer). On top of the 3 GB pending queue + 500 MB+
+            # strike-history snapshot per worker, the system hit
+            # 100% RAM and Windows OOM-killed the workers. New
+            # defaults cap emitter buffer at 1,000 rows (~4 MB) and
+            # cut per-batch Polars working memory ~60%.
+            batch_size_str = os.environ.get("TFA_FLUSH_BATCH_SIZE", "200")
             try:
                 batch_size = max(1, int(batch_size_str))
             except ValueError:
-                batch_size = 500
-            # Mid-flush emitter-drain frequency. Default: every 10
-            # batches → at batch=500 that's 5k accumulated rows before
-            # _parquet_rows is written + cleared. Tune lower if RAM is
-            # tighter; tune higher (or set to 0 to disable) if you'd
-            # rather pay one big merge at the end on a fast disk.
-            drain_str = os.environ.get("TFA_FLUSH_DRAIN_EVERY_N_BATCHES", "10")
+                batch_size = 200
+            drain_str = os.environ.get("TFA_FLUSH_DRAIN_EVERY_N_BATCHES", "5")
             try:
                 drain_every_n = max(0, int(drain_str))
             except ValueError:
-                drain_every_n = 10
+                drain_every_n = 5
 
             # Snapshot the history dataframes once. Cheap relative to
             # compute and constant across batches (target_buf state
@@ -583,6 +589,16 @@ class ReplayAdapter:
                     except Exception:
                         pass
                     batches_since_drain = 0
+                    # 2026-06-19: explicit GC sweep after every drain.
+                    # Without this, CPython's tracing GC may hold onto
+                    # the now-orphaned row dicts (drained into
+                    # _parquet_rows then cleared) until its threshold
+                    # fires — at which point the worker has already
+                    # eaten another 5 batches of memory on top.
+                    # Forcing a sweep here keeps the worker's RSS
+                    # tight throughout the flush instead of
+                    # ballooning then collapsing.
+                    gc.collect()
             # Final drain hint so the caller can write the tail
             # accumulation as a chunk too (idempotent if it already
             # wrote on the last loop iteration).

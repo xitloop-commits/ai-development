@@ -65,7 +65,7 @@ describe("ChannelTabs — render", () => {
     // Reset module memory so tests don't leak state into each other.
     lastModeForWs.ai = "paper";
     lastModeForWs.my = "paper";
-    lastModeForWs.testing = "sandbox";
+    lastModeForWs.testing = "live";
   });
 
   it("renders the three workspace tab labels in TAB_DEFS order", () => {
@@ -78,7 +78,7 @@ describe("ChannelTabs — render", () => {
     }
   });
 
-  it("does not render the live pulse dot for paper / sandbox channels", () => {
+  it("does not render the live pulse dot for paper channels", () => {
     const { container } = renderWith("ai-paper");
     const dots = container.querySelectorAll(".animate-pulse");
     expect(dots.length).toBe(0);
@@ -95,7 +95,7 @@ describe("ChannelTabs — switch confirmation", () => {
   beforeEach(() => {
     lastModeForWs.ai = "paper";
     lastModeForWs.my = "paper";
-    lastModeForWs.testing = "sandbox";
+    lastModeForWs.testing = "live";
   });
 
   it("clicking the active tab is a no-op (no confirm shown)", () => {
@@ -151,12 +151,12 @@ describe("ChannelTabs — switch confirmation", () => {
     expect(setChannel).toHaveBeenCalledWith("my-live");
   });
 
-  it("targets testing-sandbox for testing workspace by default (not testing-paper which doesn't exist)", () => {
+  it("targets testing-live for testing workspace (testing is live-only)", () => {
     const setChannel = vi.fn();
     renderWith("my-paper", setChannel);
 
     act(() => { screen.getByText(/Testing/).click(); });
-    expect(screen.getByText(/Switch from my-paper to testing-sandbox/)).toBeInTheDocument();
+    expect(screen.getByText(/Switch from my-paper to testing-live/)).toBeInTheDocument();
   });
 });
 
@@ -164,7 +164,7 @@ describe("ChannelTabs — last-mode memory mirror", () => {
   beforeEach(() => {
     lastModeForWs.ai = "paper";
     lastModeForWs.my = "paper";
-    lastModeForWs.testing = "sandbox";
+    lastModeForWs.testing = "live";
   });
 
   it("updates lastModeForWs[ai] when the active channel is ai-live", () => {
@@ -173,9 +173,9 @@ describe("ChannelTabs — last-mode memory mirror", () => {
     expect(lastModeForWs.ai).toBe("live");
   });
 
-  it("updates lastModeForWs[testing] when the active channel is testing-sandbox", () => {
-    renderWith("testing-sandbox");
-    expect(lastModeForWs.testing).toBe("sandbox");
+  it("updates lastModeForWs[testing] when the active channel is testing-live", () => {
+    renderWith("testing-live");
+    expect(lastModeForWs.testing).toBe("live");
   });
 
   it("updates lastModeForWs[my] when the active channel is my-paper", () => {

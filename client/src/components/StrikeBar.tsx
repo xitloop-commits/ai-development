@@ -55,6 +55,8 @@ export interface StrikeBarProps {
   onEnterTrade?: (price: number) => void;
   /** Controlled placed entry price; if provided, click-to-place is parent-owned. */
   entryMarker?: number | null;
+  /** Fired when the user clicks the placed entry marker to remove it. */
+  onClearEntry?: () => void;
   /** Persistent entry markers — one per trade taken on this instrument (price =
    *  the strike/underlying where it entered). They stay on the bar across the
    *  trade's life; the bar never flips to a trade view. */
@@ -168,6 +170,7 @@ export function StrikeBar({
   onPlaceEntry,
   onEnterTrade,
   entryMarker,
+  onClearEntry,
   tradeMarkers = [],
   windowEachSide = 3,
   compact = false,
@@ -626,9 +629,14 @@ export function StrikeBar({
         )}
         {entryPrice != null && (
           <div
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 pointer-events-none"
-            style={{ left: `${clamp(posForValue(entryPrice))}%`, width: "10px", height: "20px" }}
-            title={`Entry ${entryPrice.toFixed(2)}`}
+            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 pointer-events-auto cursor-pointer z-[8]"
+            style={{ left: `${clamp(posForValue(entryPrice))}%`, width: "14px", height: "22px" }}
+            title={`Entry ${entryPrice.toFixed(2)} — click to remove`}
+            onClick={(e) => {
+              e.stopPropagation(); // don't let the bar's click re-place a marker
+              if (entryMarker === undefined) setInternalEntry(null);
+              onClearEntry?.();
+            }}
           >
             <div className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0" style={{ borderLeft: `2px solid ${ENTRY_COLOR}` }} />
             <span className="absolute left-1/2 -translate-x-1/2 -bottom-2.5 text-[0.5rem] font-bold tabular-nums leading-none whitespace-nowrap" style={{ color: ENTRY_COLOR }}>

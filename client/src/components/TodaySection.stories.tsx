@@ -79,7 +79,7 @@ export const WithTrades: Story = {
   args: { day: makeDay({ dayIndex: 3, trades: [mockOpenTrade, mockClosedTpTrade] }) },
 };
 
-export const PaperManual: Story = { args: { day: baseDay, channel: "testing-sandbox" } };
+export const PaperManual: Story = { args: { day: baseDay, channel: "my-paper" } };
 
 export const AiPaper: Story = { args: { day: baseDay, channel: "ai-paper" } };
 

@@ -60,7 +60,7 @@ Stored in MongoDB `position_states` collection, one document per `(channel, inst
 
 | Field | Purpose |
 |---|---|
-| `channel` | one of `ai-live`, `ai-paper`, `my-live`, `my-paper`, `testing-live`, `testing-sandbox` |
+| `channel` | one of `ai-live`, `ai-paper`, `my-live`, `my-paper`, `testing-live` |
 | `instrument` | nifty50 / banknifty / crudeoil / naturalgas |
 | `openLots`, `avgEntryPrice` | running quantity + cost basis |
 | `realizedPnlToday`, `unrealizedPnl` | P&L split |

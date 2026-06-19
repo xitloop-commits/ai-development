@@ -6,7 +6,7 @@
  * active channel via CapitalContext.
  *
  * Last-used mode memory: switching FROM a workspace stores its current
- * mode (live / paper / sandbox) in `lastModeForWs`. Switching BACK to
+ * mode (live / paper) in `lastModeForWs`. Switching BACK to
  * that workspace lands on the same mode without needing to hoist state
  * into the React tree. The state is shared with `ChannelModeToggle`
  * (which still lives in AppBar.tsx) — see `lastModeForWs` export.
@@ -22,7 +22,7 @@ import {
   channelToWorkspace,
   channelToMode,
 } from '@/lib/tradeTypes';
-import { useCapital } from '@/contexts/CapitalContext';
+import { useChannel } from '@/contexts/CapitalContext';
 import { ConfirmPopover } from './ConfirmPopover';
 
 export const TAB_DEFS: Array<{
@@ -43,11 +43,11 @@ export const TAB_DEFS: Array<{
 export const lastModeForWs: Record<Workspace, Mode> = {
   ai: 'paper',
   my: 'paper',
-  testing: 'sandbox',
+  testing: 'live',
 };
 
 export function ChannelTabs() {
-  const { channel, setChannel } = useCapital() as any;
+  const { channel, setChannel } = useChannel();
   const currentWs = channelToWorkspace(channel);
   const currentMode = channelToMode(channel);
 

@@ -120,27 +120,10 @@ export function TodaySection({
 
   return (
     <>
-      {/* Day summary banner — top of the today cycle, above the trade rows. */}
-      <TodaySummaryRow
-        day={day}
-        trades={trades}
-        totalPnl={totalPnl}
-        canManageTrades={canManageTrades}
-        openTradeCount={openTrades.length}
-        cycleDateLabel={cycleDateLabel}
-        summaryBorder={theme.summaryBorder}
-        lastClosedTrade={lastClosedTrade}
-        onExitAll={onExitAll}
-        onRepeatLastOrder={handleRepeatLastOrder}
-        rowRef={todayRef}
-        colSpan={TABLE_COLSPAN}
-      />
-
       {trades.map((trade, idx) => (
         <TodayTradeRow
           key={trade.id}
           trade={trade}
-          day={day}
           isFirst={idx === 0}
           showNet={showNet}
           onExit={onExitTrade}
@@ -155,6 +138,22 @@ export function TodaySection({
           tradeNo={idx + 1}
         />
       ))}
+
+      {/* Day summary banner — bottom of the today cycle, below the trade rows. */}
+      <TodaySummaryRow
+        day={day}
+        trades={trades}
+        totalPnl={totalPnl}
+        canManageTrades={canManageTrades}
+        openTradeCount={openTrades.length}
+        cycleDateLabel={cycleDateLabel}
+        summaryBorder={theme.summaryBorder}
+        lastClosedTrade={lastClosedTrade}
+        onExitAll={onExitAll}
+        onRepeatLastOrder={handleRepeatLastOrder}
+        rowRef={todayRef}
+        colSpan={TABLE_COLSPAN}
+      />
     </>
   );
 }

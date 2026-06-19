@@ -25,12 +25,13 @@
 import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { trpc } from '@/lib/trpc';
 import { useAlertMonitor } from '@/hooks/useAlertMonitor';
-import { useTickStream } from '@/hooks/useTickStream';
+import { useTickFeed } from '@/hooks/useTickStream';
 import { useFeedControl } from '@/hooks/useFeedControl';
 import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
 
 // Shell components
 import AppBar from '@/components/AppBar';
+import { FeedStatusBanner } from '@/components/FeedStatusBanner';
 import { SecondaryBrokerBanner } from '@/components/SecondaryBrokerBanner';
 // SummaryBar removed — integrated into TradingDesk component per spec v1.2
 import MainFooter from '@/components/MainFooter';
@@ -59,9 +60,15 @@ import CircuitBreakerOverlay from '@/components/CircuitBreakerOverlay';
 const POLL_INTERVAL = 3000;
 
 export default function MainScreen() {
-  // ─── Sidebar State (visible by default) ────────────────────────
-  const [leftSidebarVisible, setLeftSidebarVisible] = useState(true);
+  // ─── Sidebar State ─────────────────────────────────────────────
+  // Left (instrument cards) defaults OFF — the floating Instrument Bars window
+  // now covers that; toggle back on with `[` or the AppBar button.
+  const [leftSidebarVisible, setLeftSidebarVisible] = useState(false);
   const [rightSidebarVisible, setRightSidebarVisible] = useState(false);
+  // Stable toggles so the memoized AppBar doesn't re-render on every MainScreen
+  // poll (its callback props would otherwise be new functions each render).
+  const toggleLeftDrawer = useCallback(() => setLeftSidebarVisible((p) => !p), []);
+  const toggleRightDrawer = useCallback(() => setRightSidebarVisible((p) => !p), []);
 
   // ─── Overlay State ─────────────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -71,7 +78,9 @@ export default function MainScreen() {
   const { isEnabled } = useInstrumentFilter();
 
   // ─── Live Feed ─────────────────────────────────────────────────
-  const { getTick: _getTick, isConnected: _feedConnected } = useTickStream();
+  // Keep the live feed connected without re-rendering the whole app on every
+  // tick — rows read prices via per-contract useInstrumentTick instead.
+  useTickFeed();
   const { subscribe: feedSubscribe } = useFeedControl();
   const feedSubscribedRef = useRef(false);
 
@@ -255,9 +264,12 @@ export default function MainScreen() {
     <div className="h-screen bg-background flex flex-col overflow-hidden">
       {/* Sticky App Bar */}
       <AppBar
-        onToggleLeftDrawer={() => setLeftSidebarVisible((p) => !p)}
-        onToggleRightDrawer={() => setRightSidebarVisible((p) => !p)}
+        onToggleLeftDrawer={toggleLeftDrawer}
+        onToggleRightDrawer={toggleRightDrawer}
       />
+
+      {/* Live-feed health: warns when ticks stall during market hours */}
+      <FeedStatusBanner />
 
       {/* Soft alert for spouse Dhan account degradation (non-blocking;
           primary path stays usable). Renders nothing when secondary is

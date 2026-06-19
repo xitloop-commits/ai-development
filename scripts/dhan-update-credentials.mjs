@@ -14,8 +14,8 @@
  *   # Spouse's AI + Data account:
  *   node scripts/dhan-update-credentials.mjs --brokerId dhan-secondary-ac --clientId <ID> --pin <PIN> --totp <BASE32_SECRET>
  *
- *   # Sandbox account (no TOTP — token pasted directly from developer.dhanhq.co):
- *   node scripts/dhan-update-credentials.mjs --brokerId dhan-sandbox --clientId <ID> --accessToken <JWT>
+ *   # Manual token escape-hatch (bypasses TOTP — only if a token must be set by hand):
+ *   node scripts/dhan-update-credentials.mjs --brokerId dhan-primary-ac --accessToken <JWT>
  *
  *   # Inspect what's stored (masked):
  *   node scripts/dhan-update-credentials.mjs --show
@@ -51,7 +51,6 @@ const brokerIdArg    = getArg("--brokerId");
 
 const BROKER_ID = brokerIdArg ?? "dhan-primary-ac";
 const isPrimary = BROKER_ID === "dhan-primary-ac";
-const isSandbox = BROKER_ID === "dhan-sandbox";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -98,9 +97,10 @@ async function main() {
     return;
   }
 
-  // ── Sandbox direct-token path ────────────────────────────────
-  // Sandbox tokens come from developer.dhanhq.co and are pasted in directly —
-  // there's no TOTP refresh flow. Write straight to credentials.accessToken.
+  // ── Manual direct-token escape hatch ─────────────────────────
+  // Writes a token straight to credentials.accessToken, bypassing the TOTP
+  // refresh flow. Only for emergencies — normal accounts mint their token at
+  // server startup via TOTP (--totp/--pin).
   if (accessTokenArg) {
     const update = {
       "credentials.accessToken": accessTokenArg,
@@ -120,14 +120,10 @@ async function main() {
     log(`Direct-set access token saved to MongoDB (brokerId="${BROKER_ID}"):`);
     log(`  accessToken: ${mask(accessTokenArg)}`);
     if (clientArg) log(`  clientId:    ${mask(clientArg)}`);
-    if (!isSandbox) {
-      console.log(
-        "\n  [WARN] --accessToken bypasses TOTP refresh. Use --totp/--pin for accounts that " +
-        "support TOTP login (primary / spouse). Direct-set is intended for the sandbox brokerId.\n"
-      );
-    } else {
-      console.log("\n  Done. BSA will use this token on next server start.\n");
-    }
+    console.log(
+      "\n  [WARN] --accessToken bypasses TOTP refresh. Normally accounts mint their " +
+      "token at server startup via --totp/--pin; use direct-set only as an emergency escape hatch.\n"
+    );
     await mongoose.disconnect();
     return;
   }
@@ -150,11 +146,11 @@ async function main() {
   if (!totpArg && !pinArg && !clientArg) {
     console.error(
       "\n[ERROR] No credential flags provided.\n" +
-      "  --brokerId <ID>          Target broker config (default \"dhan-primary-ac\"; \"dhan-secondary-ac\" for spouse; \"dhan-sandbox\" for sandbox)\n" +
-      "  --totp <BASE32_SECRET>   Set the TOTP secret (live accounts only)\n" +
-      "  --pin  <PIN>             Set the login PIN (live accounts only)\n" +
+      "  --brokerId <ID>          Target broker config (default \"dhan-primary-ac\"; \"dhan-secondary-ac\" for spouse)\n" +
+      "  --totp <BASE32_SECRET>   Set the TOTP secret (live accounts)\n" +
+      "  --pin  <PIN>             Set the login PIN (live accounts)\n" +
       "  --clientId <ID>          Set the Dhan client ID\n" +
-      "  --accessToken <JWT>      Direct-set access token (sandbox — no TOTP)\n" +
+      "  --accessToken <JWT>      Direct-set access token (emergency escape hatch — bypasses TOTP)\n" +
       "  --show                   Print current stored values (masked)\n"
     );
     process.exit(1);

@@ -72,6 +72,7 @@ const settingsSchema = new Schema<BrokerSettings>(
     trailingStopPercent: { type: Number, default: 2.0 },
     trailingActivationGatePercent: { type: Number, default: 2.0 },
     trailingActivationHoldSeconds: { type: Number, default: 10 },
+    useSuperOrderForLive: { type: Boolean, default: false },
     defaultQty: { type: Number, default: 1 },
     instrumentSizing: { type: instrumentSizingSchema, default: () => ({}) },
   },
@@ -115,10 +116,9 @@ const brokerConfigSchema = new Schema<BrokerConfigDoc & Document>(
     displayName: { type: String, required: true },
     isActive: { type: Boolean, default: false },
     isPaperBroker: { type: Boolean, default: false },
-    sandboxMode: { type: Boolean, default: false },
     role: {
       type: String,
-      enum: ["trading", "data-and-ai", "paper", "sandbox"],
+      enum: ["trading", "data-and-ai", "paper"],
       default: undefined,
     },
     ownerPAN: { type: String, default: undefined },
@@ -274,7 +274,6 @@ function docToConfig(doc: Record<string, any>): BrokerConfigDoc {
     displayName: doc.displayName,
     isActive: doc.isActive,
     isPaperBroker: doc.isPaperBroker ?? false,
-    sandboxMode: doc.sandboxMode ?? false,
     role: doc.role,
     ownerPAN: doc.ownerPAN,
     credentials: {
@@ -297,6 +296,7 @@ function docToConfig(doc: Record<string, any>): BrokerConfigDoc {
       trailingStopPercent: doc.settings?.trailingStopPercent ?? 2.0,
       trailingActivationGatePercent: doc.settings?.trailingActivationGatePercent ?? 2.0,
       trailingActivationHoldSeconds: doc.settings?.trailingActivationHoldSeconds ?? 10,
+      useSuperOrderForLive: doc.settings?.useSuperOrderForLive ?? false,
       defaultQty: doc.settings?.defaultQty ?? 1,
       instrumentSizing: {
         nifty50: doc.settings?.instrumentSizing?.nifty50 ?? { mode: "lots", value: 10 },

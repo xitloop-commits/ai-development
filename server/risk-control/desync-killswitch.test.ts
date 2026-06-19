@@ -61,7 +61,7 @@ import { rcaMonitor } from "./index";
 beforeEach(() => {
   vi.clearAllMocks();
   // Reset every channel's counter so tests don't bleed state.
-  (["ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "testing-sandbox"] as const).forEach(
+  (["ai-live", "ai-paper", "my-live", "my-paper", "testing-live"] as const).forEach(
     (c) => rcaMonitor.clearDesyncCounter(c),
   );
   settingsMock.desyncKillSwitchEnabled = true;

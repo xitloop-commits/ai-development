@@ -7,13 +7,6 @@
 // ─── Base URLs ─────────────────────────────────────────────────
 
 export const DHAN_API_BASE = "https://api.dhan.co/v2";
-// Dhan sandbox API — separate host, identical path/payload shape. Used by the
-// testing-sandbox channel to validate the full order lifecycle (place/modify/
-// cancel/order updates/positions) without real money. Sandbox token comes from
-// developer.dhanhq.co (no Dhan trading account needed). Sandbox does NOT
-// expose option chain / scrip master / WebSocket — those calls delegate to
-// the primary live adapter.
-export const DHAN_SANDBOX_API_BASE = "https://sandbox.dhan.co/v2";
 export const DHAN_WS_FEED_URL = "wss://api-feed.dhan.co";
 
 // ─── Endpoints ─────────────────────────────────────────────────
@@ -30,6 +23,15 @@ export const DHAN_ENDPOINTS = {
   ORDER_STATUS: (orderId: string) => `/orders/${orderId}`,
   TRADE_BOOK: "/trades",
   TRADES_BY_ORDER: (orderId: string) => `/trades/${orderId}`,
+
+  // Super Orders — single order carrying target + stop-loss + trailing legs,
+  // with Dhan managing the exits. Modify/cancel are per-leg (ENTRY_LEG /
+  // TARGET_LEG / STOP_LOSS_LEG). Used for every real-broker channel (live +
+  // sandbox) that carries an SL + TP.
+  SUPER_ORDER: "/super/orders",
+  MODIFY_SUPER_ORDER: (orderId: string) => `/super/orders/${orderId}`,
+  CANCEL_SUPER_ORDER: (orderId: string, leg: string) => `/super/orders/${orderId}/${leg}`,
+  SUPER_ORDER_BOOK: "/super/orders",
 
   // Positions & Portfolio
   POSITIONS: "/positions",

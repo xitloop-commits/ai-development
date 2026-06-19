@@ -359,8 +359,7 @@ describe("Time Windows", () => {
   });
 
   describe("isSimulationChannel — market-hours bypass set", () => {
-    it("bypasses sandbox + paper channels (testable any time)", () => {
-      expect(isSimulationChannel("testing-sandbox")).toBe(true);
+    it("bypasses paper channels (testable any time)", () => {
       expect(isSimulationChannel("my-paper")).toBe(true);
       expect(isSimulationChannel("ai-paper")).toBe(true);
     });
@@ -822,13 +821,13 @@ describe("isDisciplineBypassed", () => {
   const on = makeSettings({ simulationEnforcement: { enabled: true } });
 
   it("bypasses every simulation channel when enforcement is off", () => {
-    for (const ch of ["my-paper", "ai-paper", "testing-sandbox"]) {
+    for (const ch of ["my-paper", "ai-paper"]) {
       expect(isDisciplineBypassed(ch, off)).toBe(true);
     }
   });
 
   it("never bypasses simulation channels when enforcement is on", () => {
-    for (const ch of ["my-paper", "ai-paper", "testing-sandbox"]) {
+    for (const ch of ["my-paper", "ai-paper"]) {
       expect(isDisciplineBypassed(ch, on)).toBe(false);
     }
   });

@@ -56,8 +56,29 @@ export interface AutoExitEvent {
   timestamp: number;
 }
 
+/**
+ * LIVE-only (Super Order trades): fired once when the gated trailing stop should
+ * arm at the broker. TEA listens and modifies the STOP_LOSS_LEG (move to
+ * breakeven + set native trailingJump). Single-writer: TEA owns the broker call.
+ */
+export interface BrokerTslArmEvent {
+  channel: Channel;
+  tradeId: string;
+}
+
+/**
+ * LIVE-only (Super Order trades): fired (throttled) when the trailing
+ * take-profit should ratchet up. TEA listens and modifies the TARGET_LEG,
+ * applying its own throttle + the per-order modify-cap budget.
+ */
+export interface BrokerTpRatchetEvent {
+  channel: Channel;
+  tradeId: string;
+  targetPrice: number;
+}
+
 /** Channels whose open trades get tick-driven MTM + auto-SL/TP. */
-const TICK_CHANNELS: Channel[] = ["my-live", "my-paper", "ai-live", "ai-paper", "testing-live", "testing-sandbox"];
+const TICK_CHANNELS: Channel[] = ["my-live", "my-paper", "ai-live", "ai-paper", "testing-live"];
 
 // ─── Instrument → Trade Mapping ─────────────────────────────────
 
@@ -123,6 +144,16 @@ const STATE_CACHE_TTL_MS = 2000;
 // 500ms batch, just decoupled from detection so stops react instantly.
 const PERSIST_THROTTLE_MS = 500;
 
+// Trailing take-profit (active only when the trailing stop is enabled): keep the
+// target this many % ahead of the LTP's high-water mark, ratcheting in the
+// favorable direction only (never retreats). Lets a winner run — the trailing
+// stop books the exit on a reversal; the TP only fires on a single-tick gap past it.
+const TP_TRAIL_PERCENT = 1.5;
+
+// LIVE only — min gap between broker TP-ratchet emits per trade (TEA also caps
+// total modifies per order). Keeps us well under Dhan's 25-modify-per-order limit.
+const TP_EMIT_THROTTLE_MS = 30_000;
+
 class TickHandler extends EventEmitter {
   private running = false;
   /** Latest tick per instrument key, drained each processing pass. */
@@ -143,6 +174,9 @@ class TickHandler extends EventEmitter {
   /** Trailing-stop activated set: tradeIds whose gate held long enough. Once in,
    *  the stop trails (floored at breakeven) for the rest of the trade's life. */
   private tslActivated = new Set<string>();
+  /** LIVE only — last time we emitted a broker TP-ratchet for a trade. Throttles
+   *  the emit so we don't flood TEA (which also enforces the per-order modify cap). */
+  private lastTpEmitAt = new Map<string, number>();
   /** Per-channel cache of (capital, day, broker config). See ChannelStateCache. */
   private readonly stateCache = new Map<Channel, ChannelStateCache>();
 
@@ -279,8 +313,60 @@ class TickHandler extends EventEmitter {
         trade.lastTickAt = Date.now();
         anyUpdated = true;
 
-        // Check TP/SL triggers for paper/sandbox channels; live channels are managed by broker bracket orders
-        if (channel === "my-live" || channel === "ai-live" || channel === "testing-live") continue;
+        // ── LIVE channels ────────────────────────────────────────────────
+        // The broker (Dhan Super Order) enforces the SL/TP/native-trailing
+        // exits, so we do NOT run the paper exit detection here. We DO drive the
+        // dynamic layer for Super Order trades: arm the gated TSL once, and
+        // ratchet the TP (both via throttled events → TEA → leg modify). Plain
+        // live orders (no superOrderId) have no broker bracket to modify, so
+        // they're skipped (pre-existing unprotected behavior — see Phase 1 gate).
+        if (channel === "my-live" || channel === "ai-live" || channel === "testing-live") {
+          if (trailingStopEnabled && trade.superOrderId) {
+            const lBuy = trade.type.includes("BUY");
+            const breakeven = trade.breakevenPrice ?? trade.entryPrice;
+            const gatePrice = lBuy
+              ? breakeven * (1 + tslGatePercent / 100)
+              : breakeven * (1 - tslGatePercent / 100);
+            const pastGate = lBuy ? tick.ltp >= gatePrice : tick.ltp <= gatePrice;
+
+            // Gated activation — arm at the broker exactly once when the gate holds.
+            if (!this.tslActivated.has(trade.id)) {
+              if (pastGate) {
+                const armedAt = this.tslArmedAt.get(trade.id);
+                if (armedAt == null) {
+                  this.tslArmedAt.set(trade.id, Date.now());
+                } else if (Date.now() - armedAt >= tslHoldMs) {
+                  this.tslActivated.add(trade.id);
+                  this.tslArmedAt.delete(trade.id);
+                  if (trade.tslActivatedAt == null) {
+                    trade.tslActivatedAt = Date.now();
+                    anyUpdated = true;
+                  }
+                  log.important(`[XSYNC-SVR] TSL-ACTIVATED(live) ${channel} trade=${trade.id} ${trade.instrument} ltp=${tick.ltp} gate=${Math.round(gatePrice * 100) / 100} super=${trade.superOrderId}`);
+                  this.emit("brokerTslArm", { channel, tradeId: trade.id } satisfies BrokerTslArmEvent);
+                }
+              } else {
+                this.tslArmedAt.delete(trade.id);
+              }
+            }
+
+            // Trailing take-profit — ratchet the TARGET_LEG up (throttled emit;
+            // TEA enforces the step threshold + per-order modify budget).
+            if (trade.targetPrice !== null) {
+              const candidateTP = lBuy
+                ? tick.ltp * (1 + TP_TRAIL_PERCENT / 100)
+                : tick.ltp * (1 - TP_TRAIL_PERCENT / 100);
+              const rounded = Math.round(candidateTP * 100) / 100;
+              const raise = lBuy ? rounded > trade.targetPrice : rounded < trade.targetPrice;
+              const lastEmit = this.lastTpEmitAt.get(trade.id) ?? 0;
+              if (raise && Date.now() - lastEmit >= TP_EMIT_THROTTLE_MS) {
+                this.lastTpEmitAt.set(trade.id, Date.now());
+                this.emit("brokerTpRatchet", { channel, tradeId: trade.id, targetPrice: rounded } satisfies BrokerTpRatchetEvent);
+              }
+            }
+          }
+          continue;
+        }
         const isBuy = trade.type.includes("BUY");
 
         // ── Trailing Stop Logic ──────────────────────────────
@@ -327,8 +413,14 @@ class TickHandler extends EventEmitter {
               } else if (Date.now() - armedAt >= tslHoldMs) {
                 this.tslActivated.add(trade.id);
                 this.tslArmedAt.delete(trade.id);
-                // TEMP DIAGNOSTIC (TSL investigation 2026-06-16): confirm activation.
-                log.important(`TSLDBG ACTIVATED ${channel} trade=${trade.id} ${trade.instrument} ltp=${tick.ltp} gate=${Math.round(gatePrice * 100) / 100} stop=${trade.stopLossPrice}`);
+                // Stamp activation time ONCE (survives restart — don't overwrite
+                // if already set). Drives the UI's "TSL running" stopwatch.
+                if (trade.tslActivatedAt == null) {
+                  trade.tslActivatedAt = Date.now();
+                  anyUpdated = true;
+                }
+                // TEMP DIAGNOSTIC ([XSYNC] client/server exit-sync confirmation).
+                log.important(`[XSYNC-SVR] TSL-ACTIVATED ${channel} trade=${trade.id} ${trade.instrument} ltp=${tick.ltp} gate=${Math.round(gatePrice * 100) / 100} stop=${trade.stopLossPrice} held=${tslHoldMs}ms`);
               }
             } else {
               this.tslArmedAt.delete(trade.id);
@@ -349,11 +441,30 @@ class TickHandler extends EventEmitter {
               ? trailedSL > trade.stopLossPrice
               : trailedSL < trade.stopLossPrice;
             if (shouldTrail) {
-              // TEMP DIAGNOSTIC (TSL investigation 2026-06-16): stop trailed up.
-              log.info(`TSLDBG TRAIL ${channel} trade=${trade.id} ltp=${tick.ltp} peak=${newPeak} stop ${trade.stopLossPrice}→${trailedSL}`);
+              // TEMP DIAGNOSTIC ([XSYNC] exit-sync): stop trailed up.
+              log.info(`[XSYNC-SVR] TSL-TRAIL ${channel} trade=${trade.id} ltp=${tick.ltp} peak=${newPeak} stop ${trade.stopLossPrice}→${trailedSL}`);
               trade.stopLossPrice = trailedSL;
               anyUpdated = true;
             }
+          }
+        }
+
+        // ── Trailing Take-Profit (only when TSL is on) ───────
+        // Keep the target TP_TRAIL_PERCENT ahead of the LTP's high-water mark,
+        // ratcheting only in the favorable direction (never retreats when price
+        // pulls back). The trailing stop books the actual exit on a reversal;
+        // this TP only fires if price gaps past it in a single tick.
+        if (trailingStopEnabled && trade.targetPrice !== null) {
+          const candidateTP = isBuy
+            ? tick.ltp * (1 + TP_TRAIL_PERCENT / 100)
+            : tick.ltp * (1 - TP_TRAIL_PERCENT / 100);
+          const rounded = Math.round(candidateTP * 100) / 100;
+          const raise = isBuy ? rounded > trade.targetPrice : rounded < trade.targetPrice;
+          if (raise) {
+            // TEMP DIAGNOSTIC ([XSYNC] exit-sync): TP trailed up.
+            log.info(`[XSYNC-SVR] TP-TRAIL ${channel} trade=${trade.id} ltp=${tick.ltp} tp ${trade.targetPrice}→${rounded}`);
+            trade.targetPrice = rounded;
+            anyUpdated = true;
           }
         }
 
@@ -362,6 +473,8 @@ class TickHandler extends EventEmitter {
             ? tick.ltp >= trade.targetPrice
             : tick.ltp <= trade.targetPrice;
           if (tpHit) {
+            // TEMP DIAGNOSTIC ([XSYNC] exit-sync): TP hit → exit emit.
+            log.important(`[XSYNC-SVR] TP-HIT ${channel} trade=${trade.id} ${trade.instrument} ltp=${tick.ltp} target=${trade.targetPrice} → emit exit`);
             this.peakPrices.delete(peakKey); // cleanup
             this.tslArmedAt.delete(trade.id);
             this.tslActivated.delete(trade.id);
@@ -378,8 +491,9 @@ class TickHandler extends EventEmitter {
             ? tick.ltp <= trade.stopLossPrice
             : tick.ltp >= trade.stopLossPrice;
           if (slHit) {
-            // TEMP DIAGNOSTIC (TSL investigation 2026-06-16): SL/TSL hit → exit emit.
-            log.important(`TSLDBG SL-HIT ${channel} trade=${trade.id} ${trade.instrument} ltp=${tick.ltp} stop=${trade.stopLossPrice} → emit exit`);
+            // TEMP DIAGNOSTIC ([XSYNC] exit-sync): SL/TSL hit → exit emit. tsl=true
+            // means this was a trailed-stop exit, false a hard-SL exit.
+            log.important(`[XSYNC-SVR] SL-HIT ${channel} trade=${trade.id} ${trade.instrument} ltp=${tick.ltp} stop=${trade.stopLossPrice} tsl=${this.tslActivated.has(trade.id)} → emit exit`);
             this.peakPrices.delete(peakKey); // cleanup
             this.tslArmedAt.delete(trade.id);
             this.tslActivated.delete(trade.id);
@@ -443,6 +557,10 @@ class TickHandler extends EventEmitter {
       ft.lastTickAt = live.lastTickAt;
       if (live.peakLtp != null) ft.peakLtp = live.peakLtp;
       if (live.stopLossPrice != null) ft.stopLossPrice = live.stopLossPrice;
+      // Trailing take-profit: the live record may have ratcheted the target up.
+      if (live.targetPrice != null) ft.targetPrice = live.targetPrice;
+      // TSL activation timestamp (for the UI stopwatch) — stamp once, never clear.
+      if (live.tslActivatedAt != null) ft.tslActivatedAt = live.tslActivatedAt;
     }
     const updated = recalculateDayAggregates(fresh);
     await upsertDayRecord(channel, updated);

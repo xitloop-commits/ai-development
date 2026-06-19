@@ -28,7 +28,7 @@ export function InstrumentBarsPanel({ resolvedInstruments, trades, onPlaceTrade,
   const visible = mockOn ? INSTRUMENT_BAR_LIST : INSTRUMENT_BAR_LIST.filter((inst) => !isClosed(inst));
 
   return (
-    <MovableWindow title="Instrument Bars" onClose={onClose} width={680}>
+    <MovableWindow title="Instrument Bars" onClose={onClose} width={680} placement="bottom-center">
       {visible.length === 0 ? (
         <div className="px-2 py-4 text-center text-[0.6875rem] italic text-muted-foreground">
           All markets closed
