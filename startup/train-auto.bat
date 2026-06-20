@@ -54,11 +54,6 @@ if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.
     echo   Install Python 3.11+ from https://www.python.org/downloads/
-    if not defined LUBAS_HEADLESS (
-        echo.
-        echo   (Auto-closes in 2 minutes. Press any key to close now.^)
-        timeout /t 120 >nul
-    )
     exit /b 1
 )
 
@@ -98,8 +93,3 @@ if !EXIT_CODE! == 0 (
 )
 call powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%_emit-lifecycle.ps1" -Event stop -Result !EXIT_RESULT! -Process "train-auto-%INSTRUMENT%" -Code !EXIT_CODE! -Detail "up to %DATE_TO%" >nul 2>&1
 
-if not defined LUBAS_HEADLESS (
-    echo.
-    echo   (Auto-closes in 2 minutes. Press any key to close now.^)
-    timeout /t 120 >nul
-)

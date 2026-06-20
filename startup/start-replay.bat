@@ -79,15 +79,7 @@ if errorlevel 1 (
     echo.
     echo   ERROR: Python not found.
     echo   Install Python 3.11+ from https://www.python.org/downloads/
-    if not defined LUBAS_HEADLESS (
-        echo.
-        echo   (Auto-closes in 30 seconds. Press any key to close now.^)
-        timeout /t 30 >nul
-    )
-    REM Use `exit` (NOT `exit /b`) so the cmd host process terminates
-    REM too — the launcher spawns with `cmd /k`, which otherwise keeps
-    REM the window open after the batch script ends.
-    exit 1
+    exit /b 1
 )
 
 set PYTHONIOENCODING=utf-8
@@ -117,11 +109,7 @@ if !EXIT_CODE! == 0 (
 call powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%_emit-lifecycle.ps1" -Event stop -Result !EXIT_RESULT! -Process "replay-%INSTRUMENT%" -Code !EXIT_CODE! >nul 2>&1
 
 echo.
-if not defined LUBAS_HEADLESS (
-    echo   (Auto-closes in 30 seconds. Press any key to close now.^)
-    timeout /t 30 >nul
-)
-REM Use `exit` (NOT `exit /b`) so the cmd host process terminates
-REM too — the launcher spawns with `cmd /k`, which otherwise keeps
-REM the window open after the batch script ends.
-exit %EXIT_CODE%
+REM Keep window open after replay ends so operator can read the summary.
+REM `cmd /k` (the launcher's spawn form) preserves the window after
+REM `exit /b` returns; user closes manually with X button or `exit`.
+exit /b %EXIT_CODE%
