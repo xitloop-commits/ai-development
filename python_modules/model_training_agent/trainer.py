@@ -994,136 +994,129 @@ def train_instrument(
         _os.environ.get("TFA_LEGACY_TRAIN_UI", "0").strip() not in ("1", "true", "True")
     )
     cv_dashboard = None
-    if folds:
-        if _use_dashboard:
-            from model_training_agent.training_dashboard import (
-                TrainingDashboard,
-            )
-            _NSE = {"nifty50", "banknifty"}
-            _MCX = {"crudeoil", "naturalgas"}
-            _exchange = (
-                "NSE" if instrument in _NSE
-                else "MCX" if instrument in _MCX
-                else "?"
-            )
-            cv_dashboard = TrainingDashboard(
-                instrument=instrument, exchange=_exchange,
-                n_dates=len(loaded),
-                total_heads=84,  # rolling counter; per-phase total is set below
-                feature_count=len(feature_config["final_features"]),
-            )
-            cv_dashboard.__enter__()
-        print(
-            f"\n  >> Walk-forward CV: {len(folds)} folds × "
-            f"{fold_week_size} sessions ..."
-        )
-        # Phase 3 (2026-06-20): load per-fold checkpoint when resuming.
-        # Already-completed folds skip _validate_one_fold entirely.
-        _, prior_folds = read_partial_folds(output_dir)
-        done_fold_indices: set[int] = {f["fold_index"] for f in prior_folds}
-        if prior_folds:
-            print(
-                f"     Resuming: {len(prior_folds)} fold(s) already "
-                f"completed — skipping {sorted(done_fold_indices)}"
-            )
-            fold_results.extend(prior_folds)
-        for fold in folds:
-            if fold.fold_index in done_fold_indices:
-                continue
-            if cv_dashboard is not None:
-                cv_dashboard.set_phase(
-                    "cv",
-                    total_heads_in_phase=len(MVP_TARGETS),
-                    fold_index=fold.fold_index + 1,
-                    total_folds=len(folds),
+    esc_stop_event = None
+    try:
+        if folds:
+            if _use_dashboard:
+                from model_training_agent.training_dashboard import (
+                    TrainingDashboard,
+                )
+                _NSE = {"nifty50", "banknifty"}
+                _MCX = {"crudeoil", "naturalgas"}
+                _exchange = (
+                    "NSE" if instrument in _NSE
+                    else "MCX" if instrument in _MCX
+                    else "?"
+                )
+                cv_dashboard = TrainingDashboard(
+                    instrument=instrument, exchange=_exchange,
+                    n_dates=len(loaded),
+                    total_heads=84,  # rolling counter; per-phase total is set below
+                    feature_count=len(feature_config["final_features"]),
+                )
+                cv_dashboard.__enter__()
+                # Phase 2 (2026-06-20): two-press Esc watcher. Confirms before
+                # killing so an accidental Esc doesn't waste a long run. SIGINT
+                # propagates as KeyboardInterrupt; the outer try/except below
+                # closes the dashboard cleanly and points at --resume.
+                from model_training_agent.esc_watcher import start_esc_watcher
+                esc_stop_event, _esc_thread = start_esc_watcher(
+                    set_banner=cv_dashboard.set_banner,
                 )
             print(
-                f"     Fold {fold.fold_index + 1}/{len(folds)}: "
-                f"val=[{fold.val_dates[0]} → {fold.val_dates[-1]}] "
-                f"({len(fold.val_dates)} days), "
-                f"train={len(fold.train_dates)} days"
+                f"\n  >> Walk-forward CV: {len(folds)} folds × "
+                f"{fold_week_size} sessions ..."
             )
-            fm = _validate_one_fold(
-                fold, loaded, feature_config,
-                hyperparam_overrides=hyperparam_overrides,
-                dashboard=cv_dashboard,
-            )
-            fold_results.append({
-                "fold_index": fold.fold_index,
-                "train_dates": fold.train_dates,
-                "val_dates": fold.val_dates,
-                "metrics": fm,
-            })
-            # Phase 3: persist after every fold so a killed run can resume.
-            try:
-                write_partial_folds(output_dir, schema_fp, fold_results)
-            except Exception as exc:
-                # Don't let a checkpoint-write failure abort the actual
-                # training. Worst case the operator loses the resume
-                # benefit for this fold; the model still gets built.
-                print(f"     WARN: failed to write partial_folds.json: {exc}")
-        # Re-sort fold_results by fold_index in case resume mixed old +
-        # new in non-monotonic order. Aggregator iterates per-head; order
-        # doesn't affect correctness but keeps the manifest readable.
-        fold_results.sort(key=lambda r: r["fold_index"])
-        fold_aggregate = _aggregate_fold_metrics(fold_results)
-        print(
-            f"  Walk-forward CV: aggregated across {len(folds)} folds for "
-            f"{len(fold_aggregate)} heads"
-        )
-    else:
-        needed = n_folds * fold_week_size
-        print(
-            f"  WARN: walk-forward CV skipped — need >= {needed} sessions "
-            f"after cal carve-out, got {len(loaded)}. Falling back to "
-            f"single-split metrics only (dev / short-data mode)."
-        )
-
-    # F4: compute the row-filtered DataFrame + float32 feature matrix ONCE
-    # per (instrument, run). Pre-F4 the trainer ran the full preprocessor
-    # ~26 times (once per target) — most of that work was identical
-    # (Step 1 row filter, feature extraction, dtype cast). With the
-    # split, the per-target work is just `extract_target_subset`, which
-    # is a boolean mask + reset_index on already-built X_base.
-    df_train_filt, X_train_base, feature_config = preprocess_for_training_base(
-        df_train,
-        feature_config,
-    )
-    df_val_filt, X_val_base, _ = preprocess_for_training_base(
-        df_val,
-        feature_config,
-    )
-
-    all_metrics: dict = {}
-    skipped_targets: list[str] = []
-
-    # F5 — pre-flight: build the list of fit-able targets and apply the
-    # cheap skip rules (no data, single-class val) here so the parallel
-    # path doesn't pay subprocess startup cost just to skip.
-    fit_jobs: list[tuple[str, str, pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]] = []
-    for target, objective in MVP_TARGETS.items():
-        X_tr, y_tr = extract_target_subset(df_train_filt, X_train_base, target)
-        X_va, y_va = extract_target_subset(df_val_filt, X_val_base, target)
-
-        if len(X_tr) == 0 or len(X_va) == 0:
-            reason = f"no data after preprocess (train={len(X_tr)}, val={len(X_va)})"
-            print(f"  >> SKIP {target}: {reason}")
-            all_metrics[target] = {
-                "n_train": len(X_tr),
-                "n_val": len(X_va),
-                "skipped": True,
-                "reason": reason,
-            }
-            skipped_targets.append(target)
-            continue
-
-        if objective == "binary":
-            unique_classes = np.unique(y_va)
-            if len(unique_classes) < 2:
-                reason = (
-                    f"val has only one class ({unique_classes.tolist()}); "
-                    f"AUC undefined. Widen --val-days or wait for more data."
+            # Phase 3 (2026-06-20): load per-fold checkpoint when resuming.
+            # Already-completed folds skip _validate_one_fold entirely.
+            _, prior_folds = read_partial_folds(output_dir)
+            done_fold_indices: set[int] = {f["fold_index"] for f in prior_folds}
+            if prior_folds:
+                print(
+                    f"     Resuming: {len(prior_folds)} fold(s) already "
+                    f"completed — skipping {sorted(done_fold_indices)}"
                 )
+                fold_results.extend(prior_folds)
+            for fold in folds:
+                if fold.fold_index in done_fold_indices:
+                    continue
+                if cv_dashboard is not None:
+                    cv_dashboard.set_phase(
+                        "cv",
+                        total_heads_in_phase=len(MVP_TARGETS),
+                        fold_index=fold.fold_index + 1,
+                        total_folds=len(folds),
+                    )
+                print(
+                    f"     Fold {fold.fold_index + 1}/{len(folds)}: "
+                    f"val=[{fold.val_dates[0]} → {fold.val_dates[-1]}] "
+                    f"({len(fold.val_dates)} days), "
+                    f"train={len(fold.train_dates)} days"
+                )
+                fm = _validate_one_fold(
+                    fold, loaded, feature_config,
+                    hyperparam_overrides=hyperparam_overrides,
+                    dashboard=cv_dashboard,
+                )
+                fold_results.append({
+                    "fold_index": fold.fold_index,
+                    "train_dates": fold.train_dates,
+                    "val_dates": fold.val_dates,
+                    "metrics": fm,
+                })
+                # Phase 3: persist after every fold so a killed run can resume.
+                try:
+                    write_partial_folds(output_dir, schema_fp, fold_results)
+                except Exception as exc:
+                    # Don't let a checkpoint-write failure abort the actual
+                    # training. Worst case the operator loses the resume
+                    # benefit for this fold; the model still gets built.
+                    print(f"     WARN: failed to write partial_folds.json: {exc}")
+            # Re-sort fold_results by fold_index in case resume mixed old +
+            # new in non-monotonic order. Aggregator iterates per-head; order
+            # doesn't affect correctness but keeps the manifest readable.
+            fold_results.sort(key=lambda r: r["fold_index"])
+            fold_aggregate = _aggregate_fold_metrics(fold_results)
+            print(
+                f"  Walk-forward CV: aggregated across {len(folds)} folds for "
+                f"{len(fold_aggregate)} heads"
+            )
+        else:
+            needed = n_folds * fold_week_size
+            print(
+                f"  WARN: walk-forward CV skipped — need >= {needed} sessions "
+                f"after cal carve-out, got {len(loaded)}. Falling back to "
+                f"single-split metrics only (dev / short-data mode)."
+            )
+
+        # F4: compute the row-filtered DataFrame + float32 feature matrix ONCE
+        # per (instrument, run). Pre-F4 the trainer ran the full preprocessor
+        # ~26 times (once per target) — most of that work was identical
+        # (Step 1 row filter, feature extraction, dtype cast). With the
+        # split, the per-target work is just `extract_target_subset`, which
+        # is a boolean mask + reset_index on already-built X_base.
+        df_train_filt, X_train_base, feature_config = preprocess_for_training_base(
+            df_train,
+            feature_config,
+        )
+        df_val_filt, X_val_base, _ = preprocess_for_training_base(
+            df_val,
+            feature_config,
+        )
+
+        all_metrics: dict = {}
+        skipped_targets: list[str] = []
+
+        # F5 — pre-flight: build the list of fit-able targets and apply the
+        # cheap skip rules (no data, single-class val) here so the parallel
+        # path doesn't pay subprocess startup cost just to skip.
+        fit_jobs: list[tuple[str, str, pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]] = []
+        for target, objective in MVP_TARGETS.items():
+            X_tr, y_tr = extract_target_subset(df_train_filt, X_train_base, target)
+            X_va, y_va = extract_target_subset(df_val_filt, X_val_base, target)
+
+            if len(X_tr) == 0 or len(X_va) == 0:
+                reason = f"no data after preprocess (train={len(X_tr)}, val={len(X_va)})"
                 print(f"  >> SKIP {target}: {reason}")
                 all_metrics[target] = {
                     "n_train": len(X_tr),
@@ -1134,283 +1127,342 @@ def train_instrument(
                 skipped_targets.append(target)
                 continue
 
-        fit_jobs.append((target, objective, X_tr, y_tr, X_va, y_va))
+            if objective == "binary":
+                unique_classes = np.unique(y_va)
+                if len(unique_classes) < 2:
+                    reason = (
+                        f"val has only one class ({unique_classes.tolist()}); "
+                        f"AUC undefined. Widen --val-days or wait for more data."
+                    )
+                    print(f"  >> SKIP {target}: {reason}")
+                    all_metrics[target] = {
+                        "n_train": len(X_tr),
+                        "n_val": len(X_va),
+                        "skipped": True,
+                        "reason": reason,
+                    }
+                    skipped_targets.append(target)
+                    continue
 
-    # F5 — execute: serial when n_jobs<=1 (preserves the original log
-    # cadence and is what tests rely on), parallel otherwise. In parallel
-    # mode LightGBM's internal thread count is pinned to 1 so the outer
-    # joblib workers don't oversubscribe.
-    if n_jobs <= 1:
-        # Phase 1a (2026-06-20): rich progress dashboard in the serial path.
-        # Falls back to the legacy per-line prints when TFA_LEGACY_TRAIN_UI=1
-        # (set by --quiet or cron jobs). Parallel n_jobs>1 path still uses
-        # legacy prints — Phase 1b will wrap that in ProcessPoolExecutor.
-        import os as _os
-        _NSE = {"nifty50", "banknifty"}
-        _MCX = {"crudeoil", "naturalgas"}
-        _exchange = (
-            "NSE" if instrument in _NSE
-            else "MCX" if instrument in _MCX
-            else "?"
+            fit_jobs.append((target, objective, X_tr, y_tr, X_va, y_va))
+
+        # F5 — execute: serial when n_jobs<=1 (preserves the original log
+        # cadence and is what tests rely on), parallel otherwise. In parallel
+        # mode LightGBM's internal thread count is pinned to 1 so the outer
+        # joblib workers don't oversubscribe.
+        if n_jobs <= 1:
+            # Phase 1a (2026-06-20): rich progress dashboard in the serial path.
+            # Falls back to the legacy per-line prints when TFA_LEGACY_TRAIN_UI=1
+            # (set by --quiet or cron jobs). Parallel n_jobs>1 path still uses
+            # legacy prints — Phase 1b will wrap that in ProcessPoolExecutor.
+            import os as _os
+            _NSE = {"nifty50", "banknifty"}
+            _MCX = {"crudeoil", "naturalgas"}
+            _exchange = (
+                "NSE" if instrument in _NSE
+                else "MCX" if instrument in _MCX
+                else "?"
+            )
+            _use_dashboard = (
+                _os.environ.get("TFA_LEGACY_TRAIN_UI", "0").strip() not in ("1", "true", "True")
+            )
+            _serial_train_with_dashboard(
+                fit_jobs=fit_jobs,
+                instrument=instrument,
+                exchange=_exchange,
+                n_dates=len(loaded),
+                feature_count=len(feature_config["final_features"]),
+                output_dir=output_dir,
+                hyperparam_overrides=hyperparam_overrides,
+                all_metrics=all_metrics,
+                skipped_targets=skipped_targets,
+                use_dashboard=_use_dashboard,
+                existing_dashboard=cv_dashboard,  # Phase 1c: reuse CV dashboard
+            )
+            # Final-fit done: close the CV dashboard if we opened one.
+            # Stop the Esc watcher before tearing down the dashboard so the
+            # banner-set callback isn't called against a torn-down Live.
+            if esc_stop_event is not None:
+                try:
+                    esc_stop_event.set()
+                except Exception:
+                    pass
+                esc_stop_event = None
+            if cv_dashboard is not None:
+                try:
+                    cv_dashboard.__exit__(None, None, None)
+                except Exception:
+                    pass
+                cv_dashboard = None
+        else:
+            print(
+                f"\n  >> Training {len(fit_jobs)} targets in parallel "
+                f"(n_jobs={n_jobs}, lgbm_n_jobs=1) ..."
+            )
+            results = Parallel(n_jobs=n_jobs)(
+                delayed(_train_and_save_target)(
+                    target,
+                    objective,
+                    X_tr,
+                    y_tr,
+                    X_va,
+                    y_va,
+                    output_dir / f"{target}.lgbm",
+                    lgbm_n_jobs=1,
+                    hyperparam_overrides=hyperparam_overrides,
+                )
+                for target, objective, X_tr, y_tr, X_va, y_va in fit_jobs
+            )
+            # Re-attach objective / sizes from the input job list so the
+            # post-loop print uses the right metric label and counts.
+            for (_target_ret, metrics, err), (target_in, objective, X_tr, _yt, X_va, _yv) in zip(
+                results, fit_jobs, strict=False
+            ):
+                if err is not None:
+                    print(f"     FAILED {target_in}: {err}")
+                    all_metrics[target_in] = {
+                        "n_train": len(X_tr),
+                        "n_val": len(X_va),
+                        "failed": True,
+                        "error": err,
+                    }
+                    skipped_targets.append(target_in)
+                    continue
+                all_metrics[target_in] = metrics
+                metric_key = "val_auc" if objective == "binary" else "val_rmse"
+                print(
+                    f"     {target_in}: {metric_key} = {metrics[metric_key]:.4f}  "
+                    f"(train={metrics['n_train']:,}, val={metrics['n_val']:,})"
+                )
+
+        # 4.5. Per-head isotonic calibration (T25, V2_MASTER_SPEC D72).
+        # Only binary heads — regression heads emit signed point estimates
+        # where calibration is meaningless (D75 Gap 4 narrowing 2026-05-18).
+        calibration_fit_count = 0
+        calibration_skipped: list[str] = []
+        if cal_df is not None:
+            binary_targets = [
+                t for t, obj in MVP_TARGETS.items() if obj == "binary"
+            ]
+            print(
+                f"\n  >> Fitting per-head isotonic calibration on cal fold "
+                f"({len(calibration_dates)} sessions, {len(cal_df):,} rows) "
+                f"for {len(binary_targets)} binary heads ..."
+            )
+            df_cal_filt, X_cal_base, _ = preprocess_for_training_base(
+                cal_df, feature_config,
+            )
+            for target in binary_targets:
+                if target in skipped_targets:
+                    calibration_skipped.append(
+                        f"{target} (head was skipped during training)"
+                    )
+                    continue
+                model_path = output_dir / f"{target}.lgbm"
+                if not model_path.exists():
+                    calibration_skipped.append(f"{target} (missing .lgbm)")
+                    continue
+                X_cal, y_cal = extract_target_subset(
+                    df_cal_filt, X_cal_base, target,
+                )
+                if len(X_cal) == 0:
+                    calibration_skipped.append(f"{target} (no cal data)")
+                    continue
+                booster = lgb.Booster(model_file=str(model_path))
+                raw_probs = booster.predict(X_cal.values)
+                try:
+                    cmap = fit_isotonic_for_head(
+                        np.asarray(raw_probs),
+                        y_cal.values,
+                        target,
+                    )
+                except ValueError as exc:
+                    calibration_skipped.append(f"{target} ({exc})")
+                    continue
+                sidecar = output_dir / f"{target}.calibration.json"
+                write_calibration_sidecar(sidecar, cmap)
+                calibration_fit_count += 1
+            print(
+                f"  Calibration: {calibration_fit_count}/{len(binary_targets)} "
+                f"binary heads fitted, {len(calibration_skipped)} skipped"
+            )
+
+        # 4.6. Sim-PnL validation harness (T26, V2_MASTER_SPEC §2.3.4).
+        # Runs after the main loop + T25 calibration, on the single-split
+        # val set. v1 uses a simple direction-only gate (calibrated
+        # `direction_60s` prob ≥ 0.65 → LONG_CE; ≤ 0.35 → LONG_PE) because
+        # the real `decide_action_v2` gate needs the full 60-key prediction
+        # dict and is being upgraded in T29 to handle trend/swing heads
+        # too. Spec deviation noted in PROJECT_TODO T26; upgrade path is
+        # "swap signal_action_fn" once T29 lands.
+        sim_pnl_summary = Scorecard().manifest_summary()  # zeros by default
+        sim_pnl_scorecard: Scorecard | None = None
+        dir_model_path = output_dir / "direction_60s.lgbm"
+        has_option_cols = all(
+            c in df_val.columns for c in (
+                "opt_atm_ce_bid", "opt_atm_ce_ask",
+                "opt_atm_pe_bid", "opt_atm_pe_ask",
+            )
         )
-        _use_dashboard = (
-            _os.environ.get("TFA_LEGACY_TRAIN_UI", "0").strip() not in ("1", "true", "True")
+        if dir_model_path.exists() and has_option_cols and len(df_val_filt) > 0:
+            print(
+                f"\n  >> Sim-PnL validation (T26 v1): direction-only gate on "
+                f"{len(df_val_filt):,} val rows ..."
+            )
+            try:
+                dir_booster = lgb.Booster(model_file=str(dir_model_path))
+                X_val_for_gate, _ = extract_target_subset(
+                    df_val_filt, X_val_base, "direction_60s",
+                )
+                raw_probs = dir_booster.predict(X_val_for_gate.values)
+                cmap = read_calibration_sidecar(
+                    output_dir / "direction_60s.calibration.json",
+                )
+                cal_probs = (
+                    np.asarray(cmap.apply(np.asarray(raw_probs)))
+                    if cmap is not None
+                    else np.asarray(raw_probs)
+                )
+
+                # Map filtered-row index → calibrated prob; rows that were
+                # dropped during preprocess get prob=NaN → gate ignores.
+                # The filtered df's index column is preserved as `.index`,
+                # so we can align back to df_val by position.
+                prob_by_pos = dict(
+                    zip(df_val_filt.index.tolist(), cal_probs.tolist())
+                )
+
+                def _dir_gate(row: pd.Series) -> str | None:
+                    p = prob_by_pos.get(row.name)
+                    if p is None or not np.isfinite(p):
+                        return None
+                    if p >= 0.65:
+                        return "LONG_CE"
+                    if p <= 0.35:
+                        return "LONG_PE"
+                    return None
+
+                sim_pnl_scorecard = simulate_trades(
+                    df_val,
+                    signal_action_fn=_dir_gate,
+                    instrument=instrument,
+                )
+                sim_pnl_summary = sim_pnl_scorecard.manifest_summary()
+                write_scorecard_json(
+                    sim_pnl_scorecard, output_dir / "sim_pnl_scorecard.json",
+                )
+                print(
+                    f"  Sim-PnL: signals={sim_pnl_scorecard.n_signals}, "
+                    f"wins={sim_pnl_scorecard.n_wins}, "
+                    f"total=₹{sim_pnl_scorecard.total_pnl_inr:,.2f}, "
+                    f"expectancy=₹{sim_pnl_scorecard.expectancy_inr:,.2f}"
+                )
+            except Exception as exc:
+                print(f"  Sim-PnL: SKIPPED — {type(exc).__name__}: {exc}")
+        else:
+            reasons = []
+            if not dir_model_path.exists():
+                reasons.append("direction_60s.lgbm not on disk")
+            if not has_option_cols:
+                reasons.append("val data missing opt_atm_{ce,pe}_{bid,ask} cols")
+            if len(df_val_filt) == 0:
+                reasons.append("empty val")
+            print(f"  Sim-PnL: SKIPPED — {', '.join(reasons)}")
+
+        # 5. Artifacts
+        manifest = {
+            "instrument": instrument,
+            "timestamp": ts,
+            "date_from": date_from,
+            "date_to": date_to,
+            "train_dates": train_dates,
+            "val_dates": val_dates,
+            "calibration_dates": calibration_dates,
+            "calibration_fit_count": calibration_fit_count,
+            "calibration_skipped": calibration_skipped,
+            # T24b — walk-forward CV per-fold metrics (empty list if dataset
+            # was too short and the fold pass was skipped — see WARN log).
+            "folds": fold_results,
+            "fold_aggregate": fold_aggregate,
+            # T26 — sim-PnL summary (zeros when harness was skipped).
+            **sim_pnl_summary,
+            "targets": list(MVP_TARGETS.keys()),
+            "trained_count": len(MVP_TARGETS) - len(skipped_targets),
+            "skipped_targets": skipped_targets,
+            "feature_count": len(feature_config["final_features"]),
+        }
+        (output_dir / "training_manifest.json").write_text(
+            json.dumps(manifest, indent=2), encoding="utf-8"
         )
-        _serial_train_with_dashboard(
-            fit_jobs=fit_jobs,
+        (output_dir / "metrics.json").write_text(json.dumps(all_metrics, indent=2), encoding="utf-8")
+        # Phase 3 (2026-06-20): remove the partial-state sidecars on
+        # successful completion. Keeps the run dir clean and ensures
+        # find_resumable_run_dir() won't pick this finished run.
+        try:
+            cleanup_partial_state(output_dir)
+        except Exception:
+            pass
+
+        # 6. LATEST pointer (legacy plain-text)
+        (models_root / instrument / "LATEST").write_text(ts, encoding="utf-8")
+
+        # 7. LATEST_HEADS.json (T27, V2_MASTER_SPEC D66 / I10 / D72).
+        # Per-head schema_version + head_type + calibration sidecar path so
+        # SEA's schema_reconciler can quarantine heads trained against an
+        # older feature schema than the emitter is currently producing.
+        schema_version = _read_current_schema_version()
+        if schema_version is None:
+            print(
+                "  WARN: no config/schema_registry/v<N>.json found — "
+                "LATEST_HEADS.json will record schema_version=0. SEA "
+                "reconciler will treat all heads as 'version unknown' "
+                "(trust them, no quarantine)."
+            )
+        latest_heads_payload = _build_latest_heads_payload(
             instrument=instrument,
-            exchange=_exchange,
-            n_dates=len(loaded),
-            feature_count=len(feature_config["final_features"]),
+            timestamp=ts,
+            schema_version=schema_version,
             output_dir=output_dir,
-            hyperparam_overrides=hyperparam_overrides,
-            all_metrics=all_metrics,
             skipped_targets=skipped_targets,
-            use_dashboard=_use_dashboard,
-            existing_dashboard=cv_dashboard,  # Phase 1c: reuse CV dashboard
         )
-        # Final-fit done: close the CV dashboard if we opened one.
+        write_latest_heads_json(latest_heads_payload, models_root / instrument)
+
+        return TrainResult(
+            timestamp=ts,
+            output_dir=output_dir,
+            metrics=all_metrics,
+            feature_count=len(feature_config["final_features"]),
+        )
+    except KeyboardInterrupt:
+        # Phase 2 (2026-06-20): operator confirmed Esc-stop. Close the
+        # dashboard cleanly so the terminal exits alt-screen, then
+        # advise that --resume picks up where we left off.
         if cv_dashboard is not None:
             try:
                 cv_dashboard.__exit__(None, None, None)
             except Exception:
                 pass
-    else:
-        print(
-            f"\n  >> Training {len(fit_jobs)} targets in parallel "
-            f"(n_jobs={n_jobs}, lgbm_n_jobs=1) ..."
-        )
-        results = Parallel(n_jobs=n_jobs)(
-            delayed(_train_and_save_target)(
-                target,
-                objective,
-                X_tr,
-                y_tr,
-                X_va,
-                y_va,
-                output_dir / f"{target}.lgbm",
-                lgbm_n_jobs=1,
-                hyperparam_overrides=hyperparam_overrides,
-            )
-            for target, objective, X_tr, y_tr, X_va, y_va in fit_jobs
-        )
-        # Re-attach objective / sizes from the input job list so the
-        # post-loop print uses the right metric label and counts.
-        for (_target_ret, metrics, err), (target_in, objective, X_tr, _yt, X_va, _yv) in zip(
-            results, fit_jobs, strict=False
-        ):
-            if err is not None:
-                print(f"     FAILED {target_in}: {err}")
-                all_metrics[target_in] = {
-                    "n_train": len(X_tr),
-                    "n_val": len(X_va),
-                    "failed": True,
-                    "error": err,
-                }
-                skipped_targets.append(target_in)
-                continue
-            all_metrics[target_in] = metrics
-            metric_key = "val_auc" if objective == "binary" else "val_rmse"
-            print(
-                f"     {target_in}: {metric_key} = {metrics[metric_key]:.4f}  "
-                f"(train={metrics['n_train']:,}, val={metrics['n_val']:,})"
-            )
-
-    # 4.5. Per-head isotonic calibration (T25, V2_MASTER_SPEC D72).
-    # Only binary heads — regression heads emit signed point estimates
-    # where calibration is meaningless (D75 Gap 4 narrowing 2026-05-18).
-    calibration_fit_count = 0
-    calibration_skipped: list[str] = []
-    if cal_df is not None:
-        binary_targets = [
-            t for t, obj in MVP_TARGETS.items() if obj == "binary"
-        ]
-        print(
-            f"\n  >> Fitting per-head isotonic calibration on cal fold "
-            f"({len(calibration_dates)} sessions, {len(cal_df):,} rows) "
-            f"for {len(binary_targets)} binary heads ..."
-        )
-        df_cal_filt, X_cal_base, _ = preprocess_for_training_base(
-            cal_df, feature_config,
-        )
-        for target in binary_targets:
-            if target in skipped_targets:
-                calibration_skipped.append(
-                    f"{target} (head was skipped during training)"
-                )
-                continue
-            model_path = output_dir / f"{target}.lgbm"
-            if not model_path.exists():
-                calibration_skipped.append(f"{target} (missing .lgbm)")
-                continue
-            X_cal, y_cal = extract_target_subset(
-                df_cal_filt, X_cal_base, target,
-            )
-            if len(X_cal) == 0:
-                calibration_skipped.append(f"{target} (no cal data)")
-                continue
-            booster = lgb.Booster(model_file=str(model_path))
-            raw_probs = booster.predict(X_cal.values)
+            cv_dashboard = None
+        print()
+        print('  ' + '=' * 56)
+        print('   TRAINING STOPPED by Esc')
+        print('  ' + '=' * 56)
+        print(f'   Partial state preserved at:')
+        print(f'     {output_dir}')
+        print(f'   Resume with the same command + --resume.')
+        print()
+        raise
+    finally:
+        # Stop the Esc watcher thread (no-op on non-Windows or if never
+        # started). Close the dashboard if a non-KeyboardInterrupt
+        # exception bypassed the normal-completion close above.
+        if esc_stop_event is not None:
             try:
-                cmap = fit_isotonic_for_head(
-                    np.asarray(raw_probs),
-                    y_cal.values,
-                    target,
-                )
-            except ValueError as exc:
-                calibration_skipped.append(f"{target} ({exc})")
-                continue
-            sidecar = output_dir / f"{target}.calibration.json"
-            write_calibration_sidecar(sidecar, cmap)
-            calibration_fit_count += 1
-        print(
-            f"  Calibration: {calibration_fit_count}/{len(binary_targets)} "
-            f"binary heads fitted, {len(calibration_skipped)} skipped"
-        )
-
-    # 4.6. Sim-PnL validation harness (T26, V2_MASTER_SPEC §2.3.4).
-    # Runs after the main loop + T25 calibration, on the single-split
-    # val set. v1 uses a simple direction-only gate (calibrated
-    # `direction_60s` prob ≥ 0.65 → LONG_CE; ≤ 0.35 → LONG_PE) because
-    # the real `decide_action_v2` gate needs the full 60-key prediction
-    # dict and is being upgraded in T29 to handle trend/swing heads
-    # too. Spec deviation noted in PROJECT_TODO T26; upgrade path is
-    # "swap signal_action_fn" once T29 lands.
-    sim_pnl_summary = Scorecard().manifest_summary()  # zeros by default
-    sim_pnl_scorecard: Scorecard | None = None
-    dir_model_path = output_dir / "direction_60s.lgbm"
-    has_option_cols = all(
-        c in df_val.columns for c in (
-            "opt_atm_ce_bid", "opt_atm_ce_ask",
-            "opt_atm_pe_bid", "opt_atm_pe_ask",
-        )
-    )
-    if dir_model_path.exists() and has_option_cols and len(df_val_filt) > 0:
-        print(
-            f"\n  >> Sim-PnL validation (T26 v1): direction-only gate on "
-            f"{len(df_val_filt):,} val rows ..."
-        )
-        try:
-            dir_booster = lgb.Booster(model_file=str(dir_model_path))
-            X_val_for_gate, _ = extract_target_subset(
-                df_val_filt, X_val_base, "direction_60s",
-            )
-            raw_probs = dir_booster.predict(X_val_for_gate.values)
-            cmap = read_calibration_sidecar(
-                output_dir / "direction_60s.calibration.json",
-            )
-            cal_probs = (
-                np.asarray(cmap.apply(np.asarray(raw_probs)))
-                if cmap is not None
-                else np.asarray(raw_probs)
-            )
-
-            # Map filtered-row index → calibrated prob; rows that were
-            # dropped during preprocess get prob=NaN → gate ignores.
-            # The filtered df's index column is preserved as `.index`,
-            # so we can align back to df_val by position.
-            prob_by_pos = dict(
-                zip(df_val_filt.index.tolist(), cal_probs.tolist())
-            )
-
-            def _dir_gate(row: pd.Series) -> str | None:
-                p = prob_by_pos.get(row.name)
-                if p is None or not np.isfinite(p):
-                    return None
-                if p >= 0.65:
-                    return "LONG_CE"
-                if p <= 0.35:
-                    return "LONG_PE"
-                return None
-
-            sim_pnl_scorecard = simulate_trades(
-                df_val,
-                signal_action_fn=_dir_gate,
-                instrument=instrument,
-            )
-            sim_pnl_summary = sim_pnl_scorecard.manifest_summary()
-            write_scorecard_json(
-                sim_pnl_scorecard, output_dir / "sim_pnl_scorecard.json",
-            )
-            print(
-                f"  Sim-PnL: signals={sim_pnl_scorecard.n_signals}, "
-                f"wins={sim_pnl_scorecard.n_wins}, "
-                f"total=₹{sim_pnl_scorecard.total_pnl_inr:,.2f}, "
-                f"expectancy=₹{sim_pnl_scorecard.expectancy_inr:,.2f}"
-            )
-        except Exception as exc:
-            print(f"  Sim-PnL: SKIPPED — {type(exc).__name__}: {exc}")
-    else:
-        reasons = []
-        if not dir_model_path.exists():
-            reasons.append("direction_60s.lgbm not on disk")
-        if not has_option_cols:
-            reasons.append("val data missing opt_atm_{ce,pe}_{bid,ask} cols")
-        if len(df_val_filt) == 0:
-            reasons.append("empty val")
-        print(f"  Sim-PnL: SKIPPED — {', '.join(reasons)}")
-
-    # 5. Artifacts
-    manifest = {
-        "instrument": instrument,
-        "timestamp": ts,
-        "date_from": date_from,
-        "date_to": date_to,
-        "train_dates": train_dates,
-        "val_dates": val_dates,
-        "calibration_dates": calibration_dates,
-        "calibration_fit_count": calibration_fit_count,
-        "calibration_skipped": calibration_skipped,
-        # T24b — walk-forward CV per-fold metrics (empty list if dataset
-        # was too short and the fold pass was skipped — see WARN log).
-        "folds": fold_results,
-        "fold_aggregate": fold_aggregate,
-        # T26 — sim-PnL summary (zeros when harness was skipped).
-        **sim_pnl_summary,
-        "targets": list(MVP_TARGETS.keys()),
-        "trained_count": len(MVP_TARGETS) - len(skipped_targets),
-        "skipped_targets": skipped_targets,
-        "feature_count": len(feature_config["final_features"]),
-    }
-    (output_dir / "training_manifest.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
-    )
-    (output_dir / "metrics.json").write_text(json.dumps(all_metrics, indent=2), encoding="utf-8")
-    # Phase 3 (2026-06-20): remove the partial-state sidecars on
-    # successful completion. Keeps the run dir clean and ensures
-    # find_resumable_run_dir() won't pick this finished run.
-    try:
-        cleanup_partial_state(output_dir)
-    except Exception:
-        pass
-
-    # 6. LATEST pointer (legacy plain-text)
-    (models_root / instrument / "LATEST").write_text(ts, encoding="utf-8")
-
-    # 7. LATEST_HEADS.json (T27, V2_MASTER_SPEC D66 / I10 / D72).
-    # Per-head schema_version + head_type + calibration sidecar path so
-    # SEA's schema_reconciler can quarantine heads trained against an
-    # older feature schema than the emitter is currently producing.
-    schema_version = _read_current_schema_version()
-    if schema_version is None:
-        print(
-            "  WARN: no config/schema_registry/v<N>.json found — "
-            "LATEST_HEADS.json will record schema_version=0. SEA "
-            "reconciler will treat all heads as 'version unknown' "
-            "(trust them, no quarantine)."
-        )
-    latest_heads_payload = _build_latest_heads_payload(
-        instrument=instrument,
-        timestamp=ts,
-        schema_version=schema_version,
-        output_dir=output_dir,
-        skipped_targets=skipped_targets,
-    )
-    write_latest_heads_json(latest_heads_payload, models_root / instrument)
-
-    return TrainResult(
-        timestamp=ts,
-        output_dir=output_dir,
-        metrics=all_metrics,
-        feature_count=len(feature_config["final_features"]),
-    )
+                esc_stop_event.set()
+            except Exception:
+                pass
+        if cv_dashboard is not None:
+            try:
+                cv_dashboard.__exit__(None, None, None)
+            except Exception:
+                pass
