@@ -999,12 +999,18 @@ def act_train() -> None:
             for d in union_dates:
                 flags.extend(["--include-dates", d])
             inst_csv = ",".join(insts)
+            # Period-separate before passing to start.exe -- cmd.exe's
+            # `start` treats comma as a token separator and would split
+            # the list into multiple positional args, dropping all but
+            # the first instrument. train-parallel.bat converts the dots
+            # back to commas before invoking the trainer.
+            inst_arg_for_bat = ".".join(insts)
             added_counts = ", ".join(
                 f"{i}+{len(res.added[i])}d" for i, _ in to_train
             )
             _launch_no_pause(
                 f"Train parallel: {inst_csv} ({added_counts})",
-                "train-parallel.bat", inst_csv, *flags,
+                "train-parallel.bat", inst_arg_for_bat, *flags,
             )
             launched = len(to_train)
 

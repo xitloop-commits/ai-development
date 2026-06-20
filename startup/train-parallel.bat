@@ -18,27 +18,35 @@ set "SCRIPT_DIR=%~dp0"
 set "ROOT=%SCRIPT_DIR%..\"
 cd /d "%ROOT%"
 
+REM Launcher passes instruments period-separated (e.g. "nifty50.banknifty")
+REM because cmd.exe's `start` command treats comma as a token separator
+REM and would split the list into multiple args. We convert back to
+REM commas here so the trainer's --instruments flag sees the canonical
+REM form. Period is not a cmd separator so it survives untouched.
 set INSTRUMENTS=%~1
 if "%INSTRUMENTS%"=="" (
     echo.
-    echo   Usage:  startup\train-parallel.bat ^<inst1,inst2,...^> [--include-dates ^<a,b,...^>]
+    echo   Usage:  startup\train-parallel.bat ^<inst1.inst2....^> [--include-dates ^<a,b,...^>]
     echo.
     echo   Valid instruments: nifty50, banknifty, crudeoil, naturalgas
     echo.
     pause
     exit /b 1
 )
+set INSTRUMENTS=%INSTRUMENTS:.=,%
 
 REM Collect every remaining arg into EXTRA_ARGS via shift loop so the
-REM number of flags is unlimited (vs %2-%9 ceiling of the old form).
+REM number of flags is unlimited. Drop %1 (INSTRUMENTS, already captured)
+REM with a single shift; loop captures the rest with shift AFTER append
+REM so no arg is silently dropped.
 set EXTRA_ARGS=
 shift
 :args_loop
+if "%~1"=="" goto args_done
+set "EXTRA_ARGS=!EXTRA_ARGS! %~1"
 shift
-if not "%~1"=="" (
-    set "EXTRA_ARGS=!EXTRA_ARGS! %~1"
-    goto args_loop
-)
+goto args_loop
+:args_done
 
 REM --- Detect Python ---
 call "%SCRIPT_DIR%_detect-python.bat"
