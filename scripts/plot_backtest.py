@@ -175,13 +175,21 @@ def _load_predictions(path: Path) -> list[dict]:
     return out
 
 
-def _fmt_ts(ts: float | None) -> str | None:
+def _to_dt(ts: float | None) -> datetime | None:
+    """Convert epoch seconds to an IST-aware datetime.
+
+    Plotly aligns traces correctly when X values are real datetime
+    objects -- mixing string timestamps from different sources (candles
+    at 30s boundaries, markers at tick-level) puts the markers AFTER
+    the candles in categorical X-axis ordering. Datetime axis cures
+    that by treating both as points on a continuous timeline.
+    """
     if ts is None:
         return None
     try:
-        return datetime.fromtimestamp(ts, _IST).strftime("%H:%M:%S")
+        return datetime.fromtimestamp(ts, _IST)
     except Exception:
-        return str(ts)
+        return None
 
 
 def _bucket_ts(ts: float, interval_sec: int) -> int:
@@ -189,14 +197,27 @@ def _bucket_ts(ts: float, interval_sec: int) -> int:
     return int(ts // interval_sec) * interval_sec
 
 
+def _price_range(rows: list[dict]) -> float:
+    """Return the day's high − low for the spot price, used to size
+    arrow vertical offsets so they don't sit on top of the candle body."""
+    prices = [float(r["spot_price"]) for r in rows
+              if r.get("spot_price") is not None]
+    if not prices:
+        return 0.0
+    return max(prices) - min(prices)
+
+
 def _aggregate_ohlc(
     rows: list[dict],
     interval_sec: int,
-) -> tuple[list[str], list[float], list[float], list[float], list[float]]:
+) -> tuple[list[datetime], list[float], list[float], list[float], list[float]]:
     """Group ticks into OHLC bars at `interval_sec` resolution.
 
-    Returns parallel arrays (timestamps, open, high, low, close) for
-    a Plotly Candlestick trace.
+    Returns parallel arrays (timestamps, open, high, low, close) for a
+    Plotly Candlestick trace. X values are datetime objects so Plotly
+    aligns them on a continuous time axis -- mixing string-formatted
+    times with the marker traces caused the markers to land off the
+    chart end (categorical-axis grouping bug).
     """
     buckets: dict[int, dict] = {}
     for r in rows:
@@ -218,7 +239,7 @@ def _aggregate_ohlc(
             b["close"] = price
 
     sorted_ts = sorted(buckets.keys())
-    xs = [_fmt_ts(t) for t in sorted_ts]
+    xs = [_to_dt(t) for t in sorted_ts]
     o = [buckets[t]["open"] for t in sorted_ts]
     h = [buckets[t]["high"] for t in sorted_ts]
     l = [buckets[t]["low"] for t in sorted_ts]
@@ -226,18 +247,37 @@ def _aggregate_ohlc(
     return xs, o, h, l, c
 
 
+# How far above/below the price each horizon's arrow sits, as a fraction
+# of the day's high-low range. Scalp arrows ride closest to the price;
+# trend and swing sit further out so all three layers stack visibly when
+# they fire together at the same tick.
+_HORIZON_OFFSET_FRACTION = {
+    "scalp_60s":   0.015,  # ~1.5% of day's price range
+    "trend_1800s": 0.030,  # ~3%
+    "swing_7200s": 0.045,  # ~4.5%
+}
+
+
 def _marker_traces_per_horizon(
     rows: list[dict],
     marker_every_n: int,
     thresholds: dict[str, tuple[float, float]],
+    price_range: float,
 ) -> list[go.Scattergl]:
     """Build one (UP, DOWN) trace per horizon. Two traces per horizon
     so the legend can toggle direction independently. `thresholds` maps
-    each horizon to its (up_th, dn_th) computed from the day's data."""
+    each horizon to its (up_th, dn_th) computed from the day's data.
+
+    Arrows are offset off the price line: UP arrows BELOW the price
+    (pointing up at it), DOWN arrows ABOVE the price (pointing down at
+    it) -- TradingView convention. Per-horizon offsets stack so all
+    three horizons remain readable when they fire on the same tick.
+    """
     traces: list[go.Scattergl] = []
     for horizon, style in _HORIZON_STYLES.items():
         prob_key = _HORIZON_PROB_KEY[horizon]
         up_th, dn_th = thresholds[horizon]
+        offset = price_range * _HORIZON_OFFSET_FRACTION[horizon]
         up_x, up_y, up_text = [], [], []
         dn_x, dn_y, dn_text = [], [], []
         for i, r in enumerate(rows):
@@ -247,17 +287,19 @@ def _marker_traces_per_horizon(
             price = r.get("spot_price")
             if prob is None or price is None:
                 continue
-            x = _fmt_ts(r.get("timestamp"))
+            x = _to_dt(r.get("timestamp"))
             # Multi-horizon tooltip body: show ALL three horizons at this
             # tick so the operator can spot agreement / disagreement.
             tip = _build_tooltip(r, thresholds)
             if prob >= up_th:
+                # UP arrow BELOW price (points up at it)
                 up_x.append(x)
-                up_y.append(price)
+                up_y.append(float(price) - offset)
                 up_text.append(tip)
             elif prob <= dn_th:
+                # DOWN arrow ABOVE price (points down at it)
                 dn_x.append(x)
-                dn_y.append(price)
+                dn_y.append(float(price) + offset)
                 dn_text.append(tip)
         if up_x:
             traces.append(go.Scattergl(
@@ -317,12 +359,21 @@ def _build_layout(
     *, instrument: str, date: str, model_version: str, mode_label: str,
     thresholds: dict[str, tuple[float, float]],
 ) -> dict:
+    # type="date" pins the X axis to a continuous time scale, so candle
+    # buckets and tick-level marker timestamps land on the same timeline.
+    # tickformat="%H:%M:%S" keeps the human-readable IST label without
+    # the date prefix (the day is in the title).
     return dict(
         title=(f"Backtest predictions ({mode_label}) — {instrument} {date}<br>"
                f"<sub>model {model_version}</sub><br>"
                f"<sub>{_format_threshold_summary(thresholds)}</sub>"),
-        xaxis=dict(title="time (IST)", showgrid=True, gridcolor="#222",
-                   rangeslider=dict(visible=False)),
+        xaxis=dict(
+            title="time (IST)",
+            type="date",
+            tickformat="%H:%M:%S",
+            showgrid=True, gridcolor="#222",
+            rangeslider=dict(visible=False),
+        ),
         yaxis=dict(title="spot price", showgrid=True, gridcolor="#222"),
         template="plotly_dark",
         height=720,
@@ -336,9 +387,10 @@ def build_tick_chart(
     *, instrument: str, date: str, model_version: str,
     marker_every_n: int,
     thresholds: dict[str, tuple[float, float]],
+    price_range: float,
 ) -> go.Figure:
     """Tick-line variant: continuous price line + marker layers."""
-    xs = [_fmt_ts(r.get("timestamp")) for r in rows
+    xs = [_to_dt(r.get("timestamp")) for r in rows
           if r.get("spot_price") is not None]
     ys = [float(r["spot_price"]) for r in rows
           if r.get("spot_price") is not None]
@@ -349,7 +401,7 @@ def build_tick_chart(
         name="price (tick)",
         hoverinfo="x+y",
     ))
-    for tr in _marker_traces_per_horizon(rows, marker_every_n, thresholds):
+    for tr in _marker_traces_per_horizon(rows, marker_every_n, thresholds, price_range):
         fig.add_trace(tr)
     fig.update_layout(**_build_layout(
         instrument=instrument, date=date,
@@ -364,6 +416,7 @@ def build_candlestick_chart(
     *, instrument: str, date: str, model_version: str,
     interval_sec: int, mode_label: str, marker_every_n: int,
     thresholds: dict[str, tuple[float, float]],
+    price_range: float,
 ) -> go.Figure:
     """OHLC candlestick variant at `interval_sec` resolution."""
     xs, o, h, l, c = _aggregate_ohlc(rows, interval_sec)
@@ -374,7 +427,7 @@ def build_candlestick_chart(
         name=f"OHLC {mode_label}",
         showlegend=True,
     ))
-    for tr in _marker_traces_per_horizon(rows, marker_every_n, thresholds):
+    for tr in _marker_traces_per_horizon(rows, marker_every_n, thresholds, price_range):
         fig.add_trace(tr)
     fig.update_layout(**_build_layout(
         instrument=instrument, date=date,
@@ -421,13 +474,15 @@ def main() -> int:
         return 4
 
     # Compute per-horizon up/dn thresholds from this day's data ONCE so
-    # all 3 chart variants classify markers identically.
+    # all 3 chart variants classify markers identically. price_range
+    # sizes the arrow vertical offsets per horizon.
     thresholds = _compute_horizon_thresholds(rows)
+    price_range = _price_range(rows)
 
     common = dict(
         instrument=args.instrument, date=args.date,
         model_version=model_version, marker_every_n=args.marker_every,
-        thresholds=thresholds,
+        thresholds=thresholds, price_range=price_range,
     )
 
     variants = [
