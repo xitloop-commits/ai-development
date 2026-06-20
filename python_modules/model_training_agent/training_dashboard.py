@@ -120,6 +120,19 @@ class TrainingDashboard:
         self._last_head_durations: list[float] = []
         # Banner that overlays the frame (e.g. Esc confirmation prompt).
         self._banner: tuple[str, str] | None = None  # (text, style)
+        # Phase 1c (2026-06-20): track the trainer's high-level phase so
+        # the dashboard's header reflects "we're in CV fold 3/5" vs
+        # "final fit" vs "calibration". `_phase_total_heads` and
+        # `_phase_started_monotonic` reset on each phase change so the
+        # in-phase progress bar + ETA are accurate per phase.
+        self._phase: str = "fit"  # "cv" | "fit" | "calibration"
+        self._fold_index: int = 0  # 1-based for display; 0 = not in CV
+        self._total_folds: int = 0
+        self._phase_total_heads: int = total_heads
+        self._phase_started_monotonic: float = time.monotonic()
+        # Track count of results FOR THE CURRENT PHASE only. Resets on
+        # `set_phase()` so the bar starts at 0 again for each phase.
+        self._phase_start_n_results: int = 0
 
     # ── public API ──────────────────────────────────────────────────────
 
@@ -179,6 +192,35 @@ class TrainingDashboard:
         with self._lock:
             self._banner = (text, style) if text else None
 
+    def set_phase(
+        self,
+        phase: str,
+        *,
+        total_heads_in_phase: int,
+        fold_index: int = 0,
+        total_folds: int = 0,
+    ) -> None:
+        """Mark a new training phase. Resets the in-phase progress bar.
+
+        ``phase`` is one of:
+          - ``"cv"``: walk-forward CV fold (set ``fold_index`` 1..N
+            and ``total_folds``)
+          - ``"fit"``: final-fit on full train+val
+          - ``"calibration"``: post-training isotonic pass
+
+        ``total_heads_in_phase`` sets the denominator for the in-phase
+        progress bar. For CV this is 84 (heads per fold); for fit it's
+        whatever ``fit_jobs`` was; for calibration it's the binary-head
+        count.
+        """
+        with self._lock:
+            self._phase = phase
+            self._fold_index = fold_index
+            self._total_folds = total_folds
+            self._phase_total_heads = max(1, total_heads_in_phase)
+            self._phase_started_monotonic = time.monotonic()
+            self._phase_start_n_results = len(self._results)
+
     # ── internal ────────────────────────────────────────────────────────
 
     def _refresh_loop(self) -> None:
@@ -198,6 +240,12 @@ class TrainingDashboard:
             current_started = self._current_started
             last_durations = list(self._last_head_durations)
             banner = self._banner
+            phase = self._phase
+            fold_index = self._fold_index
+            total_folds = self._total_folds
+            phase_total_heads = self._phase_total_heads
+            phase_started = self._phase_started_monotonic
+            phase_start_n = self._phase_start_n_results
 
         elapsed = time.monotonic() - self._started_monotonic
         n_done = len(results)
@@ -205,12 +253,15 @@ class TrainingDashboard:
         n_skipped = sum(1 for r in results if r.status == "skipped")
         n_failed = sum(1 for r in results if r.status == "failed")
 
-        pct = n_done / max(self._total_heads, 1)
-        if pct > 0 and elapsed > 0:
-            eta = elapsed * (1.0 - pct) / pct
+        # In-phase counters reset on each set_phase() call.
+        phase_n_done = max(0, n_done - phase_start_n)
+        phase_elapsed = time.monotonic() - phase_started
+        pct = phase_n_done / max(phase_total_heads, 1)
+        if pct > 0 and phase_elapsed > 0:
+            eta = phase_elapsed * (1.0 - pct) / pct
         elif last_durations:
             avg = sum(last_durations) / len(last_durations)
-            eta = avg * (self._total_heads - n_done)
+            eta = avg * (phase_total_heads - phase_n_done)
         else:
             eta = None
 
@@ -222,8 +273,6 @@ class TrainingDashboard:
         header_left.append(f"  ({self._exchange})  ·  ", style="dim")
         header_left.append(f"{self._n_dates} dates", style="cyan")
         header_left.append("  ·  ", style="dim")
-        header_left.append(f"{self._total_heads} heads", style="cyan")
-        header_left.append("  ·  ", style="dim")
         header_left.append(f"{self._feature_count} features", style="cyan")
         header_right = Text(
             f"started {self._started_wall.strftime('%H:%M:%S')} IST",
@@ -234,8 +283,26 @@ class TrainingDashboard:
         header_tbl.add_column(justify="right", ratio=1)
         header_tbl.add_row(header_left, header_right)
 
-        # ── Overall progress bar
+        # ── Phase indicator line (Phase 1c, 2026-06-20)
+        phase_line = Text()
+        phase_line.append("  Phase     ", style="dim")
+        if phase == "cv" and total_folds > 0:
+            phase_line.append(
+                f"WALK-FORWARD CV — Fold {fold_index}/{total_folds}",
+                style="bold magenta",
+            )
+        elif phase == "fit":
+            phase_line.append("FINAL FIT  (84 heads on full train+val)",
+                              style="bold green")
+        elif phase == "calibration":
+            phase_line.append("CALIBRATION  (isotonic per-head)",
+                              style="bold cyan")
+        else:
+            phase_line.append(phase.upper(), style="bold")
+
+        # ── Overall progress bar (in-phase, not lifetime)
         bar = self._render_bar(pct, width=24)
+        overall_label = "Phase"
         overall_tbl = Table.grid(expand=True, padding=(0, 2))
         overall_tbl.add_column(min_width=10)
         overall_tbl.add_column()
@@ -243,9 +310,9 @@ class TrainingDashboard:
         overall_tbl.add_column()
         overall_tbl.add_column()
         overall_tbl.add_row(
-            Text("Overall", style="bold"),
+            Text(overall_label, style="bold"),
             bar,
-            Text(f"{n_done} / {self._total_heads} heads"),
+            Text(f"{phase_n_done} / {phase_total_heads} heads"),
             Text(f"Elapsed {_fmt_hms(elapsed)}", style="dim"),
             Text(f"ETA {_fmt_hms(eta)}",
                  style="green" if eta is not None else "dim"),
@@ -311,7 +378,7 @@ class TrainingDashboard:
         tally.append("(Esc to stop)", style="dim")
 
         rule = Text("─" * 72, style="dim")
-        renderables: list = [header_tbl]
+        renderables: list = [header_tbl, phase_line]
         if banner:
             banner_line = Text()
             banner_line.append("  ")

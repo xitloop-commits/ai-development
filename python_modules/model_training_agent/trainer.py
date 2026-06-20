@@ -464,6 +464,7 @@ def _validate_one_fold(
     feature_config: dict,
     *,
     hyperparam_overrides: dict[str, dict] | None = None,
+    dashboard=None,  # Optional TrainingDashboard for per-head progress (Phase 1c)
 ) -> dict:
     """Train every head on `fold.train_dates` and score on `fold.val_dates`.
 
@@ -491,8 +492,16 @@ def _validate_one_fold(
     df_train_filt, X_train_base, _ = preprocess_for_training_base(df_train, feature_config)
     df_val_filt, X_val_base, _ = preprocess_for_training_base(df_val, feature_config)
 
+    # Phase 1c (2026-06-20): when a dashboard is passed, emit per-head
+    # progress callbacks. Imports happen lazily so this module stays
+    # cheap to import in scripted environments.
+    if dashboard is not None:
+        from model_training_agent.training_dashboard import HeadResult
+
     metrics: dict = {}
     for target, objective in MVP_TARGETS.items():
+        if dashboard is not None:
+            dashboard.start_head(target, objective)
         X_tr, y_tr = extract_target_subset(df_train_filt, X_train_base, target)
         X_va, y_va = extract_target_subset(df_val_filt, X_val_base, target)
         if len(X_tr) == 0 or len(X_va) == 0:
@@ -502,6 +511,13 @@ def _validate_one_fold(
                 "failed": True,
                 "reason": "no data after preprocess",
             }
+            if dashboard is not None:
+                dashboard.mark_head_done(HeadResult(
+                    target=target, objective=objective,
+                    val_metric=None, metric_name="",
+                    n_train=int(len(X_tr)), n_val=int(len(X_va)),
+                    status="skipped", error="no data after preprocess",
+                ))
             continue
         if objective == "binary" and y_va.nunique() < 2:
             metrics[target] = {
@@ -510,6 +526,14 @@ def _validate_one_fold(
                 "failed": True,
                 "reason": "single-class val (would yield NaN AUC)",
             }
+            if dashboard is not None:
+                dashboard.mark_head_done(HeadResult(
+                    target=target, objective=objective,
+                    val_metric=None, metric_name="",
+                    n_train=int(len(X_tr)), n_val=int(len(X_va)),
+                    status="skipped",
+                    error="single-class val (would yield NaN AUC)",
+                ))
             continue
         try:
             _, fit_metrics = _fit_one(
@@ -517,13 +541,31 @@ def _validate_one_fold(
                 hyperparam_overrides=hyperparam_overrides,
             )
             metrics[target] = fit_metrics
+            if dashboard is not None:
+                mkey = "val_auc" if objective == "binary" else "val_rmse"
+                dashboard.mark_head_done(HeadResult(
+                    target=target, objective=objective,
+                    val_metric=fit_metrics.get(mkey),
+                    metric_name=mkey,
+                    n_train=fit_metrics["n_train"],
+                    n_val=fit_metrics["n_val"],
+                    status="pass",
+                ))
         except Exception as e:
+            err = f"{type(e).__name__}: {e}"
             metrics[target] = {
                 "n_train": int(len(X_tr)),
                 "n_val": int(len(X_va)),
                 "failed": True,
-                "error": f"{type(e).__name__}: {e}",
+                "error": err,
             }
+            if dashboard is not None:
+                dashboard.mark_head_done(HeadResult(
+                    target=target, objective=objective,
+                    val_metric=None, metric_name="",
+                    n_train=int(len(X_tr)), n_val=int(len(X_va)),
+                    status="failed", error=err,
+                ))
     return metrics
 
 
@@ -584,6 +626,7 @@ def _serial_train_with_dashboard(
     all_metrics: dict,
     skipped_targets: list[str],
     use_dashboard: bool,
+    existing_dashboard=None,  # Phase 1c: reuse the CV dashboard if open
 ) -> None:
     """Run the serial fitting loop, optionally wrapping it in a rich
     TrainingDashboard (Phase 1a, 2026-06-20).
@@ -620,16 +663,27 @@ def _serial_train_with_dashboard(
         return
 
     # Rich dashboard path.
+    from contextlib import nullcontext
+
     from model_training_agent.training_dashboard import (
         HeadResult,
         TrainingDashboard,
     )
     total_heads = len(fit_jobs)
-    with TrainingDashboard(
-        instrument=instrument, exchange=exchange,
-        n_dates=n_dates, total_heads=total_heads,
-        feature_count=feature_count,
-    ) as dash:
+    # Phase 1c (2026-06-20): reuse the CV dashboard if it's already open
+    # so the operator sees one continuous frame (CV folds → Final fit →
+    # Calibration). When called outside a CV context, instantiate a
+    # fresh dashboard like before.
+    if existing_dashboard is not None:
+        dash_cm = nullcontext(existing_dashboard)
+        existing_dashboard.set_phase("fit", total_heads_in_phase=total_heads)
+    else:
+        dash_cm = TrainingDashboard(
+            instrument=instrument, exchange=exchange,
+            n_dates=n_dates, total_heads=total_heads,
+            feature_count=feature_count,
+        )
+    with dash_cm as dash:
         for target, objective, X_tr, y_tr, X_va, y_va in fit_jobs:
             dash.start_head(target, objective)
             _, metrics, err = _train_and_save_target(
@@ -836,12 +890,48 @@ def train_instrument(
     folds = _plan_walk_forward_folds(
         [d for d, _ in loaded], n_folds, fold_week_size,
     )
+    # Phase 1c (2026-06-20): keep one TrainingDashboard alive across BOTH
+    # the CV folds and the post-CV final-fit. `cv_dashboard` is set when
+    # CV is going to run AND the operator hasn't opted into legacy text
+    # output via TFA_LEGACY_TRAIN_UI=1. We carry it through to the final
+    # fit by stashing it in a closure variable that the serial-fit
+    # wrapper picks up.
+    import os as _os
+    _use_dashboard = (
+        _os.environ.get("TFA_LEGACY_TRAIN_UI", "0").strip() not in ("1", "true", "True")
+    )
+    cv_dashboard = None
     if folds:
+        if _use_dashboard:
+            from model_training_agent.training_dashboard import (
+                TrainingDashboard,
+            )
+            _NSE = {"nifty50", "banknifty"}
+            _MCX = {"crudeoil", "naturalgas"}
+            _exchange = (
+                "NSE" if instrument in _NSE
+                else "MCX" if instrument in _MCX
+                else "?"
+            )
+            cv_dashboard = TrainingDashboard(
+                instrument=instrument, exchange=_exchange,
+                n_dates=len(loaded),
+                total_heads=84,  # rolling counter; per-phase total is set below
+                feature_count=len(feature_config["final_features"]),
+            )
+            cv_dashboard.__enter__()
         print(
             f"\n  >> Walk-forward CV: {len(folds)} folds × "
             f"{fold_week_size} sessions ..."
         )
         for fold in folds:
+            if cv_dashboard is not None:
+                cv_dashboard.set_phase(
+                    "cv",
+                    total_heads_in_phase=len(MVP_TARGETS),
+                    fold_index=fold.fold_index + 1,
+                    total_folds=len(folds),
+                )
             print(
                 f"     Fold {fold.fold_index + 1}/{len(folds)}: "
                 f"val=[{fold.val_dates[0]} → {fold.val_dates[-1]}] "
@@ -851,6 +941,7 @@ def train_instrument(
             fm = _validate_one_fold(
                 fold, loaded, feature_config,
                 hyperparam_overrides=hyperparam_overrides,
+                dashboard=cv_dashboard,
             )
             fold_results.append({
                 "fold_index": fold.fold_index,
@@ -959,7 +1050,14 @@ def train_instrument(
             all_metrics=all_metrics,
             skipped_targets=skipped_targets,
             use_dashboard=_use_dashboard,
+            existing_dashboard=cv_dashboard,  # Phase 1c: reuse CV dashboard
         )
+        # Final-fit done: close the CV dashboard if we opened one.
+        if cv_dashboard is not None:
+            try:
+                cv_dashboard.__exit__(None, None, None)
+            except Exception:
+                pass
     else:
         print(
             f"\n  >> Training {len(fit_jobs)} targets in parallel "
