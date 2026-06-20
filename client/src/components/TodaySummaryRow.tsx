@@ -1,10 +1,10 @@
 /**
  * TodaySummaryRow — the day-summary banner at the bottom of the today cycle.
  *
- * Instead of squeezing into the 17 table columns, the summary spans the full row
- * width (one colSpan cell) and lays the day out as grouped, scannable clusters:
- *   Day · Capital flow · P&L + target progress · Realized/Open/Exposure ·
- *   Lots/Invested/Charges/W-L · controls.
+ * Laid out as real <td> cells whose colSpans match the TradingDesk colgroup, so
+ * each summary figure lines up directly under its trade-table header:
+ *   Day+Date(1-2) · Capital flow(3-5) · W/L + controls(6, Instrument) ·
+ *   Realized/Open/Exposure(7-9) · Invested(10) · Charges(11) · P&L(12-14) · ∅(15-17)
  * The row tints green when the target is hit and red on a heavy-loss day.
  */
 import type { DayRecord, TradeRecord } from '@/lib/tradeTypes';
@@ -32,17 +32,18 @@ export interface TodaySummaryRowProps {
   colSpan?: number;
 }
 
-/** A small label-over-value stat block. */
-function Stat({ label, color, children }: { label: string; color?: string; children: React.ReactNode }) {
+/** Compact label-over-value stat. */
+function Stat({ label, color, align = 'right', children }: {
+  label: string; color?: string; align?: 'left' | 'right' | 'center'; children: React.ReactNode;
+}) {
+  const items = align === 'left' ? 'items-start' : align === 'center' ? 'items-center' : 'items-end';
   return (
-    <div className="flex flex-col leading-tight shrink-0">
+    <div className={`flex flex-col leading-tight ${items}`}>
       <span className="text-[0.5rem] uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span className={`text-[0.6875rem] tabular-nums ${color ?? 'text-foreground/90'}`}>{children}</span>
+      <span className={`text-[0.625rem] tabular-nums ${color ?? 'text-foreground/90'}`}>{children}</span>
     </div>
   );
 }
-
-const Sep = () => <div className="h-6 w-px bg-border shrink-0" />;
 
 export function TodaySummaryRow({
   day,
@@ -69,7 +70,6 @@ export function TodaySummaryRow({
   const openExposure = open.reduce((s, t) => s + t.entryPrice * t.qty, 0);
   const invested = trades.reduce((s, t) => s + t.entryPrice * t.qty, 0);
   const pctToTarget = day.targetAmount > 0 ? (totalPnl / day.targetAmount) * 100 : 0;
-  const fillPct = Math.max(0, Math.min(100, pctToTarget));
   const targetHit = day.targetAmount > 0 && totalPnl >= day.targetAmount;
   const heavyLoss = day.targetAmount > 0 && totalPnl <= -day.targetAmount;
   // Neutral banner surface (matches the app header strip); green/red are kept
@@ -78,73 +78,41 @@ export function TodaySummaryRow({
   const rowBg = targetHit ? 'bg-bullish/15' : heavyLoss ? 'bg-destructive/15' : 'bg-secondary';
 
   const btn = 'px-1.5 py-0.5 rounded text-[0.625rem] font-bold transition-colors';
+  const cell = 'px-2 py-1.5 border-r border-border align-middle';
+
+  // Filler span keeps the row at the full table width even if the column count
+  // changes (placed = Day2+Cap3+Inst1+ROE3+Inv1+Chg1+PnL3 = 14).
+  const fillerSpan = Math.max(0, colSpan - 14);
 
   return (
     <tr data-day={day.dayIndex} className={`border-y ${summaryBorder} ${rowBg}`} ref={rowRef}>
-      <td colSpan={colSpan} className="px-3 py-1.5">
-        <div className="flex items-center justify-between gap-6 flex-wrap">
-          {/* ── Left: identity · capital · P&L hero ───────────────── */}
-          <div className="flex items-center gap-4 shrink-0">
-            <div className="flex flex-col leading-tight shrink-0">
-              <span className="text-xs font-semibold text-foreground">Day {day.dayIndex}</span>
-              <span className="text-[0.5625rem] text-muted-foreground">{cycleDateLabel}</span>
-            </div>
+      {/* 1-2 Day · Date */}
+      <td colSpan={2} className={`${cell} text-left`}>
+        <div className="flex flex-col leading-tight">
+          <span className="text-xs font-semibold text-foreground">Day {day.dayIndex}</span>
+          <span className="text-[0.5625rem] text-muted-foreground">{cycleDateLabel}</span>
+        </div>
+      </td>
 
-            <Sep />
+      {/* 3-5 Capital flow */}
+      <td colSpan={3} className={`${cell} text-right`}>
+        <span className="text-[0.6875rem] tabular-nums text-foreground/90">
+          {fmt(day.tradeCapital, true)}
+          <span className="text-muted-foreground"> → </span>
+          {hasTrades && day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
+          {hasTrades && <span className={pnlColor(day.deviation)}> ({formatDeviation(day.deviation)})</span>}
+        </span>
+      </td>
 
-            <Stat label="Capital">
-              {fmt(day.tradeCapital, true)}
-              <span className="text-muted-foreground"> → </span>
-              {hasTrades && day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
-              {hasTrades && (
-                <span className={pnlColor(day.deviation)}> ({formatDeviation(day.deviation)})</span>
-              )}
-            </Stat>
-          </div>
-
-          {/* ── Centre: P&L + a wide target-progress bar that fills the slack ── */}
-          <div className="flex flex-col leading-tight flex-1 min-w-[14rem] max-w-[34rem]">
-            <div className="flex items-baseline gap-2">
-              <span className={`text-sm font-bold tabular-nums ${pnlColor(totalPnl)}`}>
-                {hasTrades ? fmt(Math.round(totalPnl), false) : '—'}
-              </span>
-              {hasTrades && day.targetAmount > 0 && (
-                <span className={`text-[0.625rem] font-semibold ${pnlColor(pctToTarget)}`}>
-                  {pctToTarget >= 0 ? '+' : ''}{pctToTarget.toFixed(0)}% of target
-                </span>
-              )}
-            </div>
-            <div className="mt-0.5 h-1 w-full rounded-full bg-muted-foreground/20 overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-[width] duration-300 ${targetHit ? 'bg-bullish' : 'bg-bullish/70'}`}
-                style={{ width: `${fillPct}%` }}
-              />
-            </div>
-          </div>
-
-          {/* ── Right-of-centre: the stat groups ──────────────────── */}
-          <div className="flex items-center gap-4 shrink-0">
-            <Stat label="Realized" color={pnlColor(realized)}>{hasTrades ? fmt(Math.round(realized), false) : '—'}</Stat>
-            <Stat label="Open" color={pnlColor(openUnrealized)}>{open.length > 0 ? fmt(Math.round(openUnrealized), false) : '—'}</Stat>
-            <Stat label="Exposure">{open.length > 0 ? fmt(openExposure) : '—'}</Stat>
-
-            <Sep />
-
-            <Stat label="Invested">{hasTrades ? fmt(invested) : '—'}</Stat>
-            <Stat label="Charges">
-              {hasTrades && day.totalCharges > 0
-                ? <ChargesBreakdownTip total={day.totalCharges} breakdown={aggregateChargesBreakdown(trades)} />
-                : '—'}
-            </Stat>
-            <Stat label="W / L">
-              <span className="text-bullish">{wins}</span>
-              <span className="text-muted-foreground"> / </span>
-              <span className="text-destructive">{losses}</span>
-            </Stat>
-          </div>
-
-          {/* ── Far right: controls ───────────────────────────────── */}
-          <div className="flex items-center gap-2 shrink-0">
+      {/* 6 Instrument → W/L + controls */}
+      <td colSpan={1} className={`${cell}`}>
+        <div className="flex items-center justify-between gap-2">
+          <Stat label="W / L" align="left">
+            <span className="text-bullish">{wins}</span>
+            <span className="text-muted-foreground"> / </span>
+            <span className="text-destructive">{losses}</span>
+          </Stat>
+          <div className="flex items-center gap-1 shrink-0">
             {!canManageTrades && (
               <span className="text-[0.5625rem] italic text-muted-foreground">AI managed</span>
             )}
@@ -169,6 +137,46 @@ export function TodaySummaryRow({
           </div>
         </div>
       </td>
+
+      {/* 7-9 Realized · Open · Exposure */}
+      <td colSpan={3} className={`${cell}`}>
+        <div className="flex items-center justify-end gap-3">
+          <Stat label="Realized" color={pnlColor(realized)}>{hasTrades ? fmt(Math.round(realized), false) : '—'}</Stat>
+          <Stat label="Open" color={pnlColor(openUnrealized)}>{open.length > 0 ? fmt(Math.round(openUnrealized), false) : '—'}</Stat>
+          <Stat label="Exposure">{open.length > 0 ? fmt(openExposure) : '—'}</Stat>
+        </div>
+      </td>
+
+      {/* 10 Invested */}
+      <td colSpan={1} className={`${cell} text-right`}>
+        <Stat label="Invested">{hasTrades ? fmt(invested) : '—'}</Stat>
+      </td>
+
+      {/* 11 Charges */}
+      <td colSpan={1} className={`${cell} text-right`}>
+        <Stat label="Charges">
+          {hasTrades && day.totalCharges > 0
+            ? <ChargesBreakdownTip total={day.totalCharges} breakdown={aggregateChargesBreakdown(trades)} />
+            : '—'}
+        </Stat>
+      </td>
+
+      {/* 12-14 Points · P&L · P&L% → day P&L + % of target */}
+      <td colSpan={3} className={`${cell} text-right`}>
+        <div className="flex items-baseline justify-end gap-2">
+          <span className={`text-sm font-bold tabular-nums ${pnlColor(totalPnl)}`}>
+            {hasTrades ? fmt(Math.round(totalPnl), false) : '—'}
+          </span>
+          {hasTrades && day.targetAmount > 0 && (
+            <span className={`text-[0.625rem] font-semibold ${pnlColor(pctToTarget)}`}>
+              {pctToTarget >= 0 ? '+' : ''}{pctToTarget.toFixed(0)}% of target
+            </span>
+          )}
+        </div>
+      </td>
+
+      {/* 15-17 unused */}
+      {fillerSpan > 0 && <td colSpan={fillerSpan} className="px-2 py-1.5" />}
     </tr>
   );
 }
