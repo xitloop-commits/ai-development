@@ -63,7 +63,7 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 #
 # Floor: at least 0.02 (2 percentage points) of band so a near-constant
 # horizon (std ≈ 0) doesn't trip every tick as either UP or DOWN.
-_STDS_FROM_MEAN = 1.0
+_STDS_FROM_MEAN = 2.0
 _MIN_BAND = 0.02
 
 # Fallback when a horizon column is entirely missing or all-NaN.
