@@ -373,38 +373,57 @@ def _scan_complete_feature_dates() -> list[str]:
 
 
 def _scan_backtestable_dates(instruments: list[str]) -> list[str]:
-    """Dates where parquets exist for EACH of the given instruments AND <today,
-    PLUS the calibration dates from each selected instrument's latest model
-    (always backtestable since the model was deliberately held out from them).
+    """Only HELD-OUT dates -- the only sources of honest scorecards.
 
-    Phase 1b follow-up (2026-06-21): the legacy `_scan_complete_feature_dates`
-    required all 4 instruments to have parquets on the same date -- workable
-    when the recorder ran for everything, but blocks single-instrument
-    backtests during phased rollouts (e.g. only nifty50 trained / recorded
-    so far). This function relaxes that constraint and unions in the
-    calibration dates so the submenu can always offer the model's "ideal"
-    out-of-sample candidates.
+    Returns the union of:
+      * reserved holdout dates (from `config/holdout_dates.json` when enabled)
+      * calibration dates (from each selected model's manifest -- the T25
+        carve-out the model was deliberately held back from)
+
+    Intersected with parquet availability for the selected instruments and
+    filtered to < today.
+
+    Phase 1b follow-up (2026-06-21, strict-only revision): the prior version
+    returned every available parquet date and *unioned in* the cal set, but
+    that left the operator one keystroke away from accidentally backtesting
+    on a TRAINING date -- the resulting scorecard would be wildly in-sample
+    and falsely confidence-inducing. The lesson: there is no benign use of a
+    backtest on a date the model trained on; even "sanity-check" backtests
+    would be more misleading than useful. We refuse to offer them.
+
+    Empty result is meaningful: it tells the caller "no held-out dates
+    available for this instrument set" -- the operator's next step is to
+    reserve a date in `config/holdout_dates.json` (or train a new model
+    with a cal carve-out) rather than to wonder where the parquets are.
     """
     today = datetime.now().strftime("%Y-%m-%d")
     if not instruments:
         return []
-    # Intersection of parquet availability across selected instruments only.
-    by_inst = {inst: set(scan_feature_days(inst)) for inst in instruments}
-    common = set.intersection(*by_inst.values()) if all(by_inst.values()) else set()
-    # Union in calibration dates (per-model) -- if a date is in every
-    # selected instrument's cal set, surface it even if a parquet check
-    # would otherwise hide it.
+    # Reserved holdout (instrument-agnostic).
+    reserved = set(resolve_holdout_dates(
+        features_root=ROOT / "data" / "features",
+        raw_root=ROOT / "data" / "raw",
+    ))
+    # Calibration dates per selected model -- intersected so we only
+    # surface dates that every chosen instrument's model has held out.
+    # (Same-date scorecards across instruments make for cleaner cross-
+    # instrument comparison.)
     cal_intersection: set[str] | None = None
     for inst in instruments:
-        info = last_model_info(inst)
-        cal = set(info.calibration_dates)
-        if cal_intersection is None:
-            cal_intersection = cal
-        else:
-            cal_intersection &= cal
-    if cal_intersection:
-        common |= cal_intersection
-    return sorted(d for d in common if d < today)
+        cal = set(last_model_info(inst).calibration_dates)
+        cal_intersection = cal if cal_intersection is None else cal_intersection & cal
+    cal_intersection = cal_intersection or set()
+    candidates = reserved | cal_intersection
+    if not candidates:
+        return []
+    # Require an actual parquet for every selected instrument on the
+    # date -- a held-out date isn't backtestable without features.
+    have_parquet: set[str] | None = None
+    for inst in instruments:
+        days = set(scan_feature_days(inst))
+        have_parquet = days if have_parquet is None else have_parquet & days
+    have_parquet = have_parquet or set()
+    return sorted(d for d in (candidates & have_parquet) if d < today)
 
 
 def compute_walk_forward_dates() -> tuple[str, str]:
