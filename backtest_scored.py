@@ -346,7 +346,50 @@ def run_scored_backtest(
     )
 
     _print_scorecard(scorecard)
+
+    # Auto-render the interactive prediction chart (2026-06-21). Best-
+    # effort -- a chart-build failure must not fail the backtest itself.
+    # Prints `file:///...` URL the operator can click to open in browser.
+    try:
+        _render_prediction_chart(
+            instrument=instrument,
+            date_str=date_str,
+            model_version=model_version,
+            out_dir=out_dir,
+        )
+    except Exception as exc:  # noqa: BLE001 -- visualization is non-fatal
+        print(f"\n  (chart skipped: {type(exc).__name__}: {exc})\n")
+
     return scorecard
+
+
+def _render_prediction_chart(
+    *,
+    instrument: str,
+    date_str: str,
+    model_version: str,
+    out_dir: Path,
+) -> None:
+    """Call scripts/plot_backtest.py for this run and print its file URL.
+
+    Invoked at the tail of each backtest so the operator gets a clickable
+    chart link in the cmd window. Failures (missing plotly, malformed
+    predictions, etc.) are caught upstream so the backtest itself stays
+    green even if the chart can't render.
+    """
+    import sys as _sys
+    import subprocess as _subprocess
+    script = Path(__file__).resolve().parent / "scripts" / "plot_backtest.py"
+    if not script.exists():
+        return
+    # Drain our buffered output BEFORE spawning the child so cmd shows the
+    # scorecard fully before the chart URL prints below it.
+    _sys.stdout.flush()
+    _subprocess.run(
+        [_sys.executable, str(script), instrument, date_str,
+         "--model-version", model_version],
+        check=False,
+    )
 
 
 def _compute_gate_diagnostics(filtered_signals: list[dict]) -> dict:
