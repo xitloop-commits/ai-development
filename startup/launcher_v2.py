@@ -172,6 +172,12 @@ def scan_backtest_days(instrument: str) -> list[str]:
 class ModelInfo:
     version: str | None = None
     trained_dates: list[str] = field(default_factory=list)
+    # Phase 1b follow-up (2026-06-21): dates the model SAW for isotonic
+    # calibration but was NOT trained on. Pictured separately in the
+    # train submenu (yellow pill) so the operator can tell "no work
+    # left" from "needs more training" -- the cal set is "covered, by
+    # design held out".
+    calibration_dates: list[str] = field(default_factory=list)
     feature_count: int | None = None
     skipped_targets: list[str] = field(default_factory=list)
 
@@ -207,9 +213,23 @@ def last_model_info(instrument: str) -> ModelInfo:
     seen: set[str] = set()
     trained = [d for d in trained if not (d in seen or seen.add(d))]
 
+    # Calibration dates are kept separate -- the trainer carved them out
+    # before train/val split, the model never saw them during fit, but
+    # T25 isotonic calibration DID fit per-head on them. The operator
+    # should see "covered, just not trained on" rather than "missing".
+    raw_cal = data.get("calibration_dates", []) or []
+    calibration: list[str] = []
+    cal_seen: set[str] = set()
+    for s in raw_cal:
+        m = re.search(r"\d{4}-\d{2}-\d{2}", str(s))
+        if m and m.group(0) not in cal_seen:
+            calibration.append(m.group(0))
+            cal_seen.add(m.group(0))
+
     return ModelInfo(
         version=version,
         trained_dates=trained,
+        calibration_dates=calibration,
         feature_count=data.get("feature_count"),
         skipped_targets=list(data.get("skipped_targets", []) or []),
     )
@@ -222,14 +242,19 @@ def render_date_pills(
     available: list[str],
     processed: list[str],
     max_show: int = 14,
+    calibration: list[str] | None = None,
 ) -> str:
     """Render a single-line list of date pills.
-    Green = processed, dim/grey = pending.
+    Green = processed (trained on),
+    Yellow = calibration (model used these for isotonic fit but NOT for
+             training -- T25 carve-out, deliberately held out),
+    Dim/grey = pending (no model has seen this date yet).
     Truncates with `…` if more than max_show.
     """
     if not available:
         return DIM("(none)")
     processed_set = set(processed)
+    calibration_set = set(calibration or [])
     tokens: list[str] = []
     overflow = 0
     if len(available) > max_show:
@@ -241,6 +266,8 @@ def render_date_pills(
         short = d[5:]  # MM-DD
         if d in processed_set:
             tokens.append(GREEN(short))
+        elif d in calibration_set:
+            tokens.append(YELLOW(short))
         else:
             tokens.append(DIM(short))
     s = " ".join(tokens)
@@ -872,12 +899,22 @@ def _train_status_line(instrument: str, running: list[RunningProc]) -> tuple[str
         )
     if not avail:
         return (DIM("  (no parquets)"), False, [])
-    pills = render_date_pills(avail, info.trained_dates)
-    n_done = sum(1 for d in avail if d in set(info.trained_dates))
-    counter = f"{n_done}/{len(avail)} ✓"
+    pills = render_date_pills(
+        avail, info.trained_dates, calibration=info.calibration_dates,
+    )
+    trained_set = set(info.trained_dates)
+    cal_set = set(info.calibration_dates)
+    n_trained = sum(1 for d in avail if d in trained_set)
+    n_covered = sum(1 for d in avail if d in trained_set or d in cal_set)
+    if n_covered > n_trained:
+        # Show "trained / covered / total" -- e.g. 25/29/29 -- so the
+        # operator can tell trained from held-out-for-cal.
+        counter = f"{n_trained}+{n_covered - n_trained}c/{len(avail)}"
+    else:
+        counter = f"{n_trained}/{len(avail)} ✓"
     last_ver = info.version or "----"
     return (
-        f"  {counter:>8}  {pills}   "
+        f"  {counter:>10}  {pills}   "
         f"{DIM('last:')} {DIM(last_ver)}",
         True,
         avail,
@@ -915,12 +952,25 @@ def act_train() -> None:
                     status_hint=DIM("(no parquets)"),
                 ))
                 continue
-            locked = set(info.trained_dates) & set(avail)
+            # Both trained AND calibration dates are "covered" -- the
+            # operator can't usefully retrain on a calibration date in
+            # this model's universe (T25 carve-out is deliberate). Lock
+            # both so neither can be toggled.
+            covered = (set(info.trained_dates) | set(info.calibration_dates)) & set(avail)
+            locked = covered
             last_ver = info.version or "----"
-            # All available parquet dates are already in the last model →
+            n_trained_avail = sum(1 for d in avail if d in set(info.trained_dates))
+            n_cal_avail = sum(1 for d in avail if d in set(info.calibration_dates))
+            # All available parquet dates are covered by the last model →
             # no pending work for this instrument. Row shows as [✓] and dim,
             # cannot be toggled, won't fire a subprocess on Enter.
-            if locked == set(avail):
+            if covered == set(avail):
+                if n_cal_avail > 0:
+                    hint = (f"all {len(avail)} dates covered  "
+                            f"({n_trained_avail} trained + {n_cal_avail} cal held-out, "
+                            f"model {last_ver})")
+                else:
+                    hint = f"all {len(avail)} dates already trained (model {last_ver})"
                 items.append(InstrumentDates(
                     instrument=inst,
                     enabled=False,
@@ -928,8 +978,7 @@ def act_train() -> None:
                     available=avail,
                     locked=locked,
                     checked=set(),
-                    status_hint=DIM(f"all {len(avail)} dates already trained "
-                                    f"(model {last_ver})"),
+                    status_hint=DIM(hint),
                     fully_done=True,
                     reserved=reserved,
                 ))
@@ -2407,12 +2456,18 @@ def _compute_pending_counts(procs: list[RunningProc]) -> dict[str, int]:
         parquet = set(scan_feature_days(inst))
         info = last_model_info(inst)
         trained = set(info.trained_dates)
+        # Calibration set counts as "covered" -- T25 deliberately held
+        # these out from training, no operator action will retrain on
+        # them inside this model. Treating them as pending would surface
+        # phantom work that does not exist.
+        cal = set(info.calibration_dates)
         # F: replay pending — raw not yet featurized, not currently being
         # replayed, and not reserved (reserved dates are tracked separately
         # under Backtest pending).
         replay_pending += len(raw - parquet - replay_in_flight[inst] - reserved)
-        # T: train pending — parquet not in latest model's trained_dates AND not reserved
-        train_pending  += len(parquet - trained - reserved)
+        # T: train pending — parquet not covered by latest model (neither
+        # trained nor calibration) AND not reserved.
+        train_pending  += len(parquet - trained - cal - reserved)
         # B: backtest pending — reserved dates missing a scorecard for THIS instrument
         for d in reserved:
             if d in parquet and not _has_scorecard(inst, d):
@@ -2487,12 +2542,15 @@ def _render_status_table(procs: list[RunningProc] | None = None) -> list[str]:
         parquet = set(scan_feature_days(inst))
         info = last_model_info(inst)
         trained = set(info.trained_dates)
-        inst_dates = raw | parquet | trained
+        cal = set(info.calibration_dates)
+        inst_dates = raw | parquet | trained | cal
         if "tfa" in proc_kinds[inst]:
             inst_dates.add(today)
         state[inst] = {}
         pending_rep = raw - parquet
-        pending_trn = parquet - trained
+        # Calibration dates are "covered" — same reasoning as
+        # _compute_pending_state above; they don't belong in pending_trn.
+        pending_trn = parquet - trained - cal
         for d in inst_dates:
             # raw cell
             if d in raw:
