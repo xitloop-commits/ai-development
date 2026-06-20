@@ -29,7 +29,7 @@ export interface LiveTick {
   is_market_open: number;
   chain_available: number;
   active_strike_count: number;
-  // Key features
+  // Key features (per-tick microstructure)
   regime: string | null;
   underlying_momentum: number | null;
   underlying_velocity: number | null;
@@ -44,6 +44,32 @@ export interface LiveTick {
   opt_0_pe_ltp: number | null;
   opt_0_ce_bid_ask_imbalance: number | null;
   opt_0_pe_bid_ask_imbalance: number | null;
+  // v3 (2026-06-20): multi-horizon momentum so the operator can tell
+  // whether the current push is sticky or just noise.
+  momentum_5min: number | null;
+  momentum_15min: number | null;
+  // v3: realized-vol regime context — pairs with breakout_readiness.
+  underlying_realized_vol_5: number | null;
+  underlying_realized_vol_20: number | null;
+  // v3: premium-acceleration drop per leg (shipped in T14 scope F) — a
+  // leading-edge reversal indicator at the ATM.
+  premium_acceleration_drop_atm_ce: number | null;
+  premium_acceleration_drop_atm_pe: number | null;
+  // v3: chain-structure context — magnet level, wall strengths per
+  // side, sustained-side OI dominance counter.
+  max_pain_strike: number | null;
+  ce_wall_strength_rel: number | null;
+  pe_wall_strength_rel: number | null;
+  oi_dominance_streak_min: number | null;
+  // v3: ATM order-book depth (shipped in T37) — pre-summed L1-L4 qty.
+  // Lets the operator see whether the stack is one-sided.
+  opt_0_ce_depth_bid_qty_sum_l1_4: number | null;
+  opt_0_ce_depth_ask_qty_sum_l1_4: number | null;
+  opt_0_pe_depth_bid_qty_sum_l1_4: number | null;
+  opt_0_pe_depth_ask_qty_sum_l1_4: number | null;
+  // v3: 15-min trend-continuation probability from the model output.
+  // Operator's "is this trend going to keep running?" check.
+  trend_continues_900s: number | null;
   // Tick freshness
   file_age_sec: number;
 }
@@ -190,6 +216,22 @@ export function getInstrumentLiveState(instrument: string): LiveState {
       opt_0_pe_ltp: row.opt_0_pe_ltp ?? null,
       opt_0_ce_bid_ask_imbalance: row.opt_0_ce_bid_ask_imbalance ?? null,
       opt_0_pe_bid_ask_imbalance: row.opt_0_pe_bid_ask_imbalance ?? null,
+      // v3 additions (2026-06-20)
+      momentum_5min: row.momentum_5min ?? null,
+      momentum_15min: row.momentum_15min ?? null,
+      underlying_realized_vol_5: row.underlying_realized_vol_5 ?? null,
+      underlying_realized_vol_20: row.underlying_realized_vol_20 ?? null,
+      premium_acceleration_drop_atm_ce: row.premium_acceleration_drop_atm_ce ?? null,
+      premium_acceleration_drop_atm_pe: row.premium_acceleration_drop_atm_pe ?? null,
+      max_pain_strike: row.max_pain_strike ?? null,
+      ce_wall_strength_rel: row.ce_wall_strength_rel ?? null,
+      pe_wall_strength_rel: row.pe_wall_strength_rel ?? null,
+      oi_dominance_streak_min: row.oi_dominance_streak_min ?? null,
+      opt_0_ce_depth_bid_qty_sum_l1_4: row.opt_0_ce_depth_bid_qty_sum_l1_4 ?? null,
+      opt_0_ce_depth_ask_qty_sum_l1_4: row.opt_0_ce_depth_ask_qty_sum_l1_4 ?? null,
+      opt_0_pe_depth_bid_qty_sum_l1_4: row.opt_0_pe_depth_bid_qty_sum_l1_4 ?? null,
+      opt_0_pe_depth_ask_qty_sum_l1_4: row.opt_0_pe_depth_ask_qty_sum_l1_4 ?? null,
+      trend_continues_900s: row.trend_continues_900s ?? null,
       file_age_sec: Math.round(fileAgeSec),
     };
   }
