@@ -958,19 +958,56 @@ def act_train() -> None:
 
         print()
         launched = 0
+        # Phase 1b (2026-06-20): when 2+ instruments need training, route
+        # to a single parallel window via train-parallel.bat instead of
+        # spawning N separate windows that fight for CPU. Each worker gets
+        # cpu_count() // N LightGBM threads (no oversubscription) and
+        # output is prefixed `[instrument]` so the operator can still
+        # follow per-instrument progress. The rich dashboard is OFF in
+        # parallel mode -- multiple rich.Live instances in one terminal
+        # would clobber the alt-screen.
+        to_train: list[tuple[str, list[str]]] = []
         for inst, dates in res.selections.items():
             new_dates = res.added.get(inst, [])
             if not new_dates:
                 print(f"  {DIM('•')} {inst:11s} skipped (no new dates to add)")
                 continue
+            to_train.append((inst, dates))
+
+        if len(to_train) == 1:
+            # Serial path -- single dashboard window.
+            inst, dates = to_train[0]
             flags: list[str] = []
             for d in dates:
                 flags.extend(["--include-dates", d])
             _launch_no_pause(
-                f"Train: {inst} (+{len(new_dates)}d, {len(dates)}d total)",
+                f"Train: {inst} (+{len(res.added[inst])}d, {len(dates)}d total)",
                 "train-auto.bat", inst, *flags,
             )
-            launched += 1
+            launched = 1
+        elif len(to_train) >= 2:
+            # Parallel path -- one window, N workers, no dashboard.
+            insts = [inst for inst, _ in to_train]
+            # Date set = UNION across instruments. Each worker's
+            # _load_parquets silently skips dates without parquet files for
+            # its own instrument, so this works even if instruments have
+            # divergent date selections.
+            union_dates: list[str] = sorted({
+                d for _, dates in to_train for d in dates
+            })
+            flags = []
+            for d in union_dates:
+                flags.extend(["--include-dates", d])
+            inst_csv = ",".join(insts)
+            added_counts = ", ".join(
+                f"{i}+{len(res.added[i])}d" for i, _ in to_train
+            )
+            _launch_no_pause(
+                f"Train parallel: {inst_csv} ({added_counts})",
+                "train-parallel.bat", inst_csv, *flags,
+            )
+            launched = len(to_train)
+
         if launched == 0:
             print(f"  {YELLOW('!')} Nothing launched.")
         _pause_briefly()
