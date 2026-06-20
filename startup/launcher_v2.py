@@ -372,6 +372,41 @@ def _scan_complete_feature_dates() -> list[str]:
     return sorted(d for d in common if d < today)
 
 
+def _scan_backtestable_dates(instruments: list[str]) -> list[str]:
+    """Dates where parquets exist for EACH of the given instruments AND <today,
+    PLUS the calibration dates from each selected instrument's latest model
+    (always backtestable since the model was deliberately held out from them).
+
+    Phase 1b follow-up (2026-06-21): the legacy `_scan_complete_feature_dates`
+    required all 4 instruments to have parquets on the same date -- workable
+    when the recorder ran for everything, but blocks single-instrument
+    backtests during phased rollouts (e.g. only nifty50 trained / recorded
+    so far). This function relaxes that constraint and unions in the
+    calibration dates so the submenu can always offer the model's "ideal"
+    out-of-sample candidates.
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    if not instruments:
+        return []
+    # Intersection of parquet availability across selected instruments only.
+    by_inst = {inst: set(scan_feature_days(inst)) for inst in instruments}
+    common = set.intersection(*by_inst.values()) if all(by_inst.values()) else set()
+    # Union in calibration dates (per-model) -- if a date is in every
+    # selected instrument's cal set, surface it even if a parquet check
+    # would otherwise hide it.
+    cal_intersection: set[str] | None = None
+    for inst in instruments:
+        info = last_model_info(inst)
+        cal = set(info.calibration_dates)
+        if cal_intersection is None:
+            cal_intersection = cal
+        else:
+            cal_intersection &= cal
+    if cal_intersection:
+        common |= cal_intersection
+    return sorted(d for d in common if d < today)
+
+
 def compute_walk_forward_dates() -> tuple[str, str]:
     """(backtest target, train end-date).
 
@@ -1249,11 +1284,22 @@ def act_sbt() -> None:
             print(f"  {YELLOW('!')} Nothing selected.")
             _pause_briefly()
             continue
-        available = _scan_complete_feature_dates()
+        # Phase 1b follow-up (2026-06-21): per-selected-instrument
+        # availability + calibration-date union, so single-instrument
+        # backtests aren't blocked by missing parquets on the others
+        # and the model's own cal dates are always candidates.
+        available = _scan_backtestable_dates(list(res.selected))
         reserved = set(resolve_holdout_dates(
             features_root=ROOT / "data" / "features",
             raw_root=ROOT / "data" / "raw",
         ))
+        # Per-selected calibration dates (intersection) so the picker can
+        # mark them distinctly -- they're the "ideal" backtest candidates.
+        cal_for_selected: set[str] | None = None
+        for inst in res.selected:
+            cal = set(last_model_info(inst).calibration_dates)
+            cal_for_selected = cal if cal_for_selected is None else cal_for_selected & cal
+        cal_for_selected = cal_for_selected or set()
         default_label = (f"reserved holdout = {d1}" if d1 and d1 in reserved
                          else f"D-1 = {d1 or '--'}")
         date = _single_date_picker(
@@ -1347,7 +1393,9 @@ def act_compare() -> None:
             print(f"  {YELLOW('!')} Nothing selected.")
             _pause_briefly()
             continue
-        available = _scan_complete_feature_dates()
+        # Phase 1b follow-up (2026-06-21): per-selected-instrument
+        # availability + calibration union, matching act_sbt above.
+        available = _scan_backtestable_dates(list(res.selected))
         date = _single_date_picker(
             f"Compare  —  step 2 of 2: pick test date (default D-1 = {d1 or '--'})",
             available,
