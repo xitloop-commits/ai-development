@@ -1,44 +1,78 @@
 """
-scripts/plot_backtest.py — visualize model predictions on top of price.
+scripts/plot_backtest.py — visualize multi-horizon model predictions.
 
-Reads a completed scored-backtest's `predictions.ndjson` and renders a
-single-pane interactive Plotly chart: spot_price line with prediction
-arrows superimposed at regular intervals, colored by predicted direction.
+Reads a completed scored-backtest's `predictions.ndjson` and renders THREE
+interactive Plotly HTML charts side-by-side as separate files:
+
+  * chart_tick.html  - tick-by-tick price line  + markers
+  * chart_30s.html   - 30-second OHLC candles   + markers
+  * chart_1m.html    - 1-minute OHLC candles    + markers
+
+Each chart layers THREE prediction horizons on top of the price:
+
+  ▲   small  green    = scalp (60s)   predicted UP
+  ▼   small  red      = scalp (60s)   predicted DOWN
+  ▲   medium yellow   = trend (1800s) predicted UP
+  ▼   medium orange   = trend (1800s) predicted DOWN
+  ▲   large  cyan     = swing (7200s) predicted UP
+  ▼   large  magenta  = swing (7200s) predicted DOWN
+
+When all three horizon arrows STACK in the same direction at a given
+moment, that's the model's highest-conviction zone -- exactly what the
+operator wants to see before deploying capital. When they DISAGREE,
+that's chop or a regime change.
+
+Hover tooltip on any marker shows all six probabilities for that tick.
 
 Usage::
 
     py scripts/plot_backtest.py <instrument> <date>
     py scripts/plot_backtest.py nifty50 2026-06-19
 
-By default the script auto-discovers the latest model version under
-`data/backtests/<instrument>/`. Pass --model-version to pick a specific
-historical run.
-
-Output: `data/backtests/<instrument>/<model_version>/<date>/chart.html`.
-
-Why interactive HTML (not PNG): hover-tooltips expose per-tick probability
-and actual outcome — essential for the "is the model getting these
-RIGHT?" eyeball check that motivated this script. Plotly's webgl scatter
-handles 25k+ points without lag.
+Output: `data/backtests/<instrument>/<model_version>/<date>/gate/`
+containing chart_tick.html, chart_30s.html, chart_1m.html.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import plotly.graph_objects as go
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+_IST = timezone(timedelta(hours=5, minutes=30))
 
 
-# Confidence band thresholds. The actual SEA gate uses 0.55/0.45 (we
-# tightened earlier today), but for VISUAL inspection we show a wider
-# band so the operator can see what the model wanted to say even when
-# the gate would have suppressed it. Tuning later: pass --threshold.
-_DEFAULT_UP_THRESHOLD = 0.52
-_DEFAULT_DN_THRESHOLD = 0.48
+# Direction-classification thresholds. Predictions are calibrated probs
+# in [0, 1]; >= up → UP marker, <= dn → DOWN marker, else no marker.
+# Wider band than the SEA gate so the chart shows the model's "leans"
+# even when the gate would have suppressed them.
+_UP_TH = 0.52
+_DN_TH = 0.48
+
+# Marker per-horizon style. Size escalates with horizon so longer-term
+# views are visually heavier (matches how the operator should weight
+# them in entry decisions).
+_HORIZON_STYLES = {
+    "scalp_60s":   dict(up="#1ea453", dn="#d6443c",
+                         size=8,  label="scalp 60s"),
+    "trend_1800s": dict(up="#e7c83d", dn="#e88a1a",
+                         size=12, label="trend 30m"),
+    "swing_7200s": dict(up="#3dc1d3", dn="#d63d9c",
+                         size=16, label="swing 2h"),
+}
+
+# What probability column maps to each horizon. The backtest scorer
+# writes these into predictions.ndjson (multi-horizon emit landed
+# 2026-06-21).
+_HORIZON_PROB_KEY = {
+    "scalp_60s":   "pred_dir_60s",
+    "trend_1800s": "pred_trend_dir_1800s",
+    "swing_7200s": "pred_swing_dir_7200s",
+}
 
 
 def _find_backtest_dir(
@@ -49,8 +83,7 @@ def _find_backtest_dir(
     """Locate the backtest output dir for (instrument, date, model_version).
 
     When model_version is None, picks the lexicographically-largest
-    timestamped dir that has a predictions.ndjson for this date — i.e.
-    the most recent run.
+    timestamped dir that has a predictions.ndjson for this date.
     """
     root = _REPO_ROOT / "data" / "backtests" / instrument
     if not root.is_dir():
@@ -99,158 +132,196 @@ def _load_predictions(path: Path) -> list[dict]:
     return out
 
 
-def _classify(prob: float | None, up_th: float, dn_th: float) -> str:
-    """Return 'up', 'down', or 'neutral' for a calibrated prob."""
-    if prob is None:
-        return "neutral"
-    if prob >= up_th:
-        return "up"
-    if prob <= dn_th:
-        return "down"
-    return "neutral"
-
-
-def _correctness(prob: float | None, actual: float | None,
-                 up_th: float, dn_th: float) -> str | None:
-    """'correct', 'wrong', or None when ground truth is missing.
-
-    `actual_dir_60s` in the predictions file is the same signed direction
-    target the trainer uses: positive → price moved up over the lookahead,
-    negative → down, zero/None → flat or missing.
-    """
-    if actual is None or prob is None:
+def _fmt_ts(ts: float | None) -> str | None:
+    if ts is None:
         return None
-    pred = _classify(prob, up_th, dn_th)
-    if pred == "neutral":
-        return None  # model didn't commit; correctness undefined
-    actual_up = actual > 0
-    return ("correct" if (pred == "up" and actual_up) or
-                          (pred == "down" and not actual_up) else "wrong")
+    try:
+        return datetime.fromtimestamp(ts, _IST).strftime("%H:%M:%S")
+    except Exception:
+        return str(ts)
 
 
-def build_chart(
-    predictions: list[dict],
-    instrument: str,
-    date: str,
-    model_version: str,
-    up_threshold: float,
-    dn_threshold: float,
-    marker_every_n: int,
-) -> go.Figure:
-    """Assemble the Plotly figure."""
-    # Filter to ticks with a usable price (the trainer skips a few warmup
-    # rows; their predictions records can have None spot_price).
-    rows = [r for r in predictions if r.get("spot_price") is not None]
-    if not rows:
-        raise RuntimeError("predictions.ndjson has no rows with a spot_price")
+def _bucket_ts(ts: float, interval_sec: int) -> int:
+    """Floor a timestamp to the start of its interval bucket."""
+    return int(ts // interval_sec) * interval_sec
 
-    # X axis = wall-clock HH:MM:SS for readability. timestamp in the
-    # backtest file is epoch seconds (IST) per the trainer's writer.
-    from datetime import datetime, timezone, timedelta
-    _IST = timezone(timedelta(hours=5, minutes=30))
 
-    def _fmt_ts(ts):
-        if ts is None:
-            return None
-        try:
-            return datetime.fromtimestamp(ts, _IST).strftime("%H:%M:%S")
-        except Exception:
-            return str(ts)
+def _aggregate_ohlc(
+    rows: list[dict],
+    interval_sec: int,
+) -> tuple[list[str], list[float], list[float], list[float], list[float]]:
+    """Group ticks into OHLC bars at `interval_sec` resolution.
 
-    xs = [_fmt_ts(r.get("timestamp")) for r in rows]
-    ys = [float(r["spot_price"]) for r in rows]
-
-    fig = go.Figure()
-
-    # Underlying price line (webgl for performance on 25k pts).
-    fig.add_trace(go.Scattergl(
-        x=xs, y=ys, mode="lines",
-        line=dict(color="#888888", width=1),
-        name="spot_price",
-        hoverinfo="x+y",
-    ))
-
-    # Predictions as scatter markers, downsampled by `marker_every_n`.
-    # Split into 4 traces by (predicted direction × correctness) so the
-    # legend doubles as a filter.
-    by_bucket: dict[str, list[tuple]] = {
-        "up_correct":   [], "up_wrong":   [],
-        "down_correct": [], "down_wrong": [],
-        "neutral":      [],
-    }
-    for i, r in enumerate(rows):
-        if i % marker_every_n != 0:
+    Returns parallel arrays (timestamps, open, high, low, close) for
+    a Plotly Candlestick trace.
+    """
+    buckets: dict[int, dict] = {}
+    for r in rows:
+        ts = r.get("timestamp")
+        price = r.get("spot_price")
+        if ts is None or price is None:
             continue
-        prob = r.get("pred_dir_60s")
-        actual = r.get("actual_dir_60s")
-        klass = _classify(prob, up_threshold, dn_threshold)
-        if klass == "neutral":
-            by_bucket["neutral"].append((xs[i], ys[i], prob, actual))
-            continue
-        corr = _correctness(prob, actual, up_threshold, dn_threshold)
-        if corr is None:
-            # No ground truth — bucket as wrong-bucket so it's visible
-            # but the symbol differs (hollow vs filled).
-            by_bucket[f"{klass}_wrong"].append((xs[i], ys[i], prob, None))
+        ts = float(ts)
+        price = float(price)
+        bucket_ts = _bucket_ts(ts, interval_sec)
+        if bucket_ts not in buckets:
+            buckets[bucket_ts] = {
+                "open": price, "high": price, "low": price, "close": price,
+            }
         else:
-            by_bucket[f"{klass}_{corr}"].append((xs[i], ys[i], prob, actual))
+            b = buckets[bucket_ts]
+            b["high"] = max(b["high"], price)
+            b["low"] = min(b["low"], price)
+            b["close"] = price
 
-    marker_styles = {
-        "up_correct":   dict(symbol="triangle-up",   color="#1ea453",  size=10,
-                              name="↑ correct"),
-        "up_wrong":     dict(symbol="triangle-up-open", color="#1ea453", size=10,
-                              name="↑ wrong"),
-        "down_correct": dict(symbol="triangle-down", color="#d6443c",  size=10,
-                              name="↓ correct"),
-        "down_wrong":   dict(symbol="triangle-down-open", color="#d6443c", size=10,
-                              name="↓ wrong"),
-        "neutral":      dict(symbol="circle",         color="#777777",  size=4,
-                              name="·  no-signal"),
-    }
+    sorted_ts = sorted(buckets.keys())
+    xs = [_fmt_ts(t) for t in sorted_ts]
+    o = [buckets[t]["open"] for t in sorted_ts]
+    h = [buckets[t]["high"] for t in sorted_ts]
+    l = [buckets[t]["low"] for t in sorted_ts]
+    c = [buckets[t]["close"] for t in sorted_ts]
+    return xs, o, h, l, c
 
-    for bucket, items in by_bucket.items():
-        if not items:
-            continue
-        x_b = [it[0] for it in items]
-        y_b = [it[1] for it in items]
-        probs = [it[2] for it in items]
-        actuals = [it[3] for it in items]
-        style = marker_styles[bucket]
-        text = [
-            f"prob_up={p:.3f}<br>actual_60s={'+' if (a is not None and a > 0) else ('−' if (a is not None and a < 0) else '?')}"
-            if p is not None else "no prob"
-            for p, a in zip(probs, actuals)
-        ]
-        fig.add_trace(go.Scattergl(
-            x=x_b, y=y_b,
-            mode="markers",
-            marker=dict(symbol=style["symbol"], color=style["color"],
-                        size=style["size"],
-                        line=dict(width=1, color=style["color"])),
-            name=style["name"],
-            text=text,
-            hovertemplate="%{x}<br>price=%{y:.2f}<br>%{text}<extra></extra>",
-        ))
 
-    fig.update_layout(
-        title=(f"Backtest predictions — {instrument} {date}<br>"
+def _marker_traces_per_horizon(
+    rows: list[dict],
+    marker_every_n: int,
+) -> list[go.Scattergl]:
+    """Build one (UP, DOWN) trace per horizon. Two traces per horizon
+    so the legend can toggle direction independently."""
+    traces: list[go.Scattergl] = []
+    for horizon, style in _HORIZON_STYLES.items():
+        prob_key = _HORIZON_PROB_KEY[horizon]
+        up_x, up_y, up_text = [], [], []
+        dn_x, dn_y, dn_text = [], [], []
+        for i, r in enumerate(rows):
+            if i % marker_every_n != 0:
+                continue
+            prob = r.get(prob_key)
+            price = r.get("spot_price")
+            if prob is None or price is None:
+                continue
+            x = _fmt_ts(r.get("timestamp"))
+            # Multi-horizon tooltip body: show ALL three horizons at this
+            # tick so the operator can spot agreement / disagreement.
+            tip = _build_tooltip(r)
+            if prob >= _UP_TH:
+                up_x.append(x)
+                up_y.append(price)
+                up_text.append(tip)
+            elif prob <= _DN_TH:
+                dn_x.append(x)
+                dn_y.append(price)
+                dn_text.append(tip)
+        if up_x:
+            traces.append(go.Scattergl(
+                x=up_x, y=up_y, mode="markers",
+                marker=dict(symbol="triangle-up", color=style["up"],
+                            size=style["size"],
+                            line=dict(width=1, color=style["up"])),
+                name=f"▲ {style['label']}",
+                text=up_text,
+                hovertemplate="<b>%{x}</b><br>price=%{y:.2f}<br>%{text}<extra></extra>",
+            ))
+        if dn_x:
+            traces.append(go.Scattergl(
+                x=dn_x, y=dn_y, mode="markers",
+                marker=dict(symbol="triangle-down", color=style["dn"],
+                            size=style["size"],
+                            line=dict(width=1, color=style["dn"])),
+                name=f"▼ {style['label']}",
+                text=dn_text,
+                hovertemplate="<b>%{x}</b><br>price=%{y:.2f}<br>%{text}<extra></extra>",
+            ))
+    return traces
+
+
+def _build_tooltip(r: dict) -> str:
+    """Compact 3-line multi-horizon prob summary for the hover card."""
+    def _fmt(key, label):
+        v = r.get(key)
+        if v is None:
+            return f"{label}: n/a"
+        arrow = "▲" if v >= _UP_TH else ("▼" if v <= _DN_TH else "·")
+        return f"{label}: {arrow} {v:.3f}"
+    return (
+        f"{_fmt('pred_dir_60s',         'scalp 60s')}<br>"
+        f"{_fmt('pred_trend_dir_1800s', 'trend 30m')}<br>"
+        f"{_fmt('pred_swing_dir_7200s', 'swing 2h')}"
+    )
+
+
+def _build_layout(
+    *, instrument: str, date: str, model_version: str, mode_label: str,
+) -> dict:
+    return dict(
+        title=(f"Backtest predictions ({mode_label}) — {instrument} {date}<br>"
                f"<sub>model {model_version}  ·  "
-               f"up≥{up_threshold:.2f}  dn≤{dn_threshold:.2f}  ·  "
-               f"marker every {marker_every_n} ticks</sub>"),
-        xaxis=dict(title="time (IST)", showgrid=True, gridcolor="#222"),
+               f"up≥{_UP_TH:.2f} / dn≤{_DN_TH:.2f}  ·  "
+               f"scalp 60s + trend 30m + swing 2h</sub>"),
+        xaxis=dict(title="time (IST)", showgrid=True, gridcolor="#222",
+                   rangeslider=dict(visible=False)),
         yaxis=dict(title="spot price", showgrid=True, gridcolor="#222"),
         template="plotly_dark",
         height=720,
         hovermode="x unified",
         legend=dict(orientation="h", y=-0.18),
     )
+
+
+def build_tick_chart(
+    rows: list[dict],
+    *, instrument: str, date: str, model_version: str,
+    marker_every_n: int,
+) -> go.Figure:
+    """Tick-line variant: continuous price line + marker layers."""
+    xs = [_fmt_ts(r.get("timestamp")) for r in rows
+          if r.get("spot_price") is not None]
+    ys = [float(r["spot_price"]) for r in rows
+          if r.get("spot_price") is not None]
+    fig = go.Figure()
+    fig.add_trace(go.Scattergl(
+        x=xs, y=ys, mode="lines",
+        line=dict(color="#888888", width=1),
+        name="price (tick)",
+        hoverinfo="x+y",
+    ))
+    for tr in _marker_traces_per_horizon(rows, marker_every_n):
+        fig.add_trace(tr)
+    fig.update_layout(**_build_layout(
+        instrument=instrument, date=date,
+        model_version=model_version, mode_label="tick line",
+    ))
+    return fig
+
+
+def build_candlestick_chart(
+    rows: list[dict],
+    *, instrument: str, date: str, model_version: str,
+    interval_sec: int, mode_label: str, marker_every_n: int,
+) -> go.Figure:
+    """OHLC candlestick variant at `interval_sec` resolution."""
+    xs, o, h, l, c = _aggregate_ohlc(rows, interval_sec)
+    fig = go.Figure()
+    fig.add_trace(go.Candlestick(
+        x=xs, open=o, high=h, low=l, close=c,
+        increasing_line_color="#3a8f5a", decreasing_line_color="#9c4444",
+        name=f"OHLC {mode_label}",
+        showlegend=True,
+    ))
+    for tr in _marker_traces_per_horizon(rows, marker_every_n):
+        fig.add_trace(tr)
+    fig.update_layout(**_build_layout(
+        instrument=instrument, date=date,
+        model_version=model_version, mode_label=mode_label,
+    ))
     return fig
 
 
 def main() -> int:
     p = argparse.ArgumentParser(
         prog="plot_backtest",
-        description="Render a Plotly HTML chart of model predictions on top of price.",
+        description="Render multi-horizon Plotly charts of model predictions.",
     )
     p.add_argument("instrument", help="nifty50 / banknifty / crudeoil / naturalgas")
     p.add_argument("date", help="YYYY-MM-DD (a date you've already backtested)")
@@ -259,16 +330,8 @@ def main() -> int:
         help="Pin a specific model (default: most recent backtested run).",
     )
     p.add_argument(
-        "--up-threshold", type=float, default=_DEFAULT_UP_THRESHOLD,
-        help=f"Calibrated prob ≥ this is a predicted UP marker. Default {_DEFAULT_UP_THRESHOLD}.",
-    )
-    p.add_argument(
-        "--dn-threshold", type=float, default=_DEFAULT_DN_THRESHOLD,
-        help=f"Calibrated prob ≤ this is a predicted DOWN marker. Default {_DEFAULT_DN_THRESHOLD}.",
-    )
-    p.add_argument(
         "--marker-every", type=int, default=30,
-        help="Draw a prediction marker every N ticks (default 30 = ~30s on a 1Hz tick stream).",
+        help="Draw a prediction marker every N ticks (default 30 ~ 30s).",
     )
     args = p.parse_args()
 
@@ -285,29 +348,43 @@ def main() -> int:
         print(f"\n  ERROR: no predictions parsed from {pred_path}\n")
         return 3
 
-    fig = build_chart(
-        predictions,
-        instrument=args.instrument,
-        date=args.date,
-        model_version=model_version,
-        up_threshold=args.up_threshold,
-        dn_threshold=args.dn_threshold,
-        marker_every_n=args.marker_every,
+    # Filter to rows with usable price (warmup ticks may be missing it).
+    rows = [r for r in predictions if r.get("spot_price") is not None]
+    if not rows:
+        print("\n  ERROR: predictions.ndjson has no rows with spot_price.\n")
+        return 4
+
+    common = dict(
+        instrument=args.instrument, date=args.date,
+        model_version=model_version, marker_every_n=args.marker_every,
     )
 
-    out_path = bt_dir / "chart.html"
-    fig.write_html(str(out_path), include_plotlyjs="cdn", auto_open=False)
+    variants = [
+        ("chart_tick.html", build_tick_chart(rows, **common), "Tick line"),
+        ("chart_30s.html",  build_candlestick_chart(
+            rows, interval_sec=30, mode_label="30s candles", **common),
+         "30-second candles"),
+        ("chart_1m.html",   build_candlestick_chart(
+            rows, interval_sec=60, mode_label="1m candles", **common),
+         "1-minute candles"),
+    ]
 
-    # Print a file:// URL — Windows Terminal turns this into a clickable
-    # link (Ctrl+click in classic conhost, plain click in WT).
-    file_url = "file:///" + str(out_path).replace("\\", "/")
+    written: list[tuple[str, Path]] = []
+    for fname, fig, label in variants:
+        out_path = bt_dir / fname
+        fig.write_html(str(out_path), include_plotlyjs="cdn", auto_open=False)
+        written.append((label, out_path))
+
     print()
     print("  " + "=" * 56)
-    print(f"   Chart written:")
-    print(f"     {out_path}")
+    print(f"   Charts written ({len(written)} variants):")
+    for label, path in written:
+        print(f"     {label:20s}  {path.name}")
     print()
-    print(f"   Open in browser:")
-    print(f"     {file_url}")
+    print(f"   Open in browser (Ctrl+click in Windows Terminal):")
+    for label, path in written:
+        url = "file:///" + str(path).replace("\\", "/")
+        print(f"     {label:20s}  {url}")
     print("  " + "=" * 56)
     print()
     return 0

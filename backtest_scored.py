@@ -191,6 +191,15 @@ def run_scored_backtest(
             dn_pred_300 = _pred("max_drawdown_300s")
             up_pred_900 = _pred("max_upside_900s")
             dn_pred_900 = _pred("max_drawdown_900s")
+            # Multi-horizon direction (2026-06-21): scalp 300s, trend
+            # 900s/1800s, swing 3600s/7200s -- captured so the chart
+            # visualizer can show when all horizons agree (high-conviction
+            # entry zone) vs disagree (regime change / chop).
+            dir_prob_300 = _pred("direction_300s")
+            trend_dir_900 = _pred("trend_direction_900s")
+            trend_dir_1800 = _pred("trend_direction_1800s")
+            swing_dir_3600 = _pred("swing_direction_3600s")
+            swing_dir_7200 = _pred("swing_direction_7200s")
 
             regime = row.get("regime")
             ce_ltp = row.get("opt_0_ce_ltp")
@@ -236,6 +245,12 @@ def run_scored_backtest(
                 # Predictions
                 "pred_dir_30s": _safe(dir_prob_30),
                 "pred_dir_60s": _safe(dir_prob_60),
+                # Multi-horizon direction predictions (scalp / trend / swing)
+                "pred_dir_300s": _safe(dir_prob_300),
+                "pred_trend_dir_900s": _safe(trend_dir_900),
+                "pred_trend_dir_1800s": _safe(trend_dir_1800),
+                "pred_swing_dir_3600s": _safe(swing_dir_3600),
+                "pred_swing_dir_7200s": _safe(swing_dir_7200),
                 "pred_up_30s": _safe(up_pred_30),
                 "pred_up_60s": _safe(up_pred_60),
                 "pred_dn_30s": _safe(dn_pred_30),
