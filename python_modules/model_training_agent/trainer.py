@@ -734,6 +734,33 @@ def train_instrument(
     # train / val so the trainer cannot peek at them, but we hold the
     # raw rows here to avoid re-reading parquet at calibration time.
     loaded_by_date_all = sorted(loaded, key=lambda t: t[0])  # ascending
+
+    # 2026-06-20: auto-shrink cal_days when the dataset is just below the
+    # walk-forward CV threshold but COULD fit it with a smaller carve-out.
+    # Example: 28 days available, default cal_days=5 leaves 23 train days,
+    # but walk-forward CV needs 25 (5 folds × 5 day weeks) → CV silently
+    # skipped, operator falls back to single-split dev mode. Instead,
+    # auto-shrink to cal_days=3 → 25 train days → CV runs.
+    # Floor at 3 days (smaller is too few rows for isotonic calibration
+    # to be meaningful). When `total >= cal_days + wf_required` (the
+    # happy path with abundant data), this leaves the operator's
+    # explicit choice alone. When `total < 3 + wf_required` (very small
+    # dataset), can't shrink enough — fall through to the WARN path.
+    _wf_required = n_folds * fold_week_size
+    _total = len(loaded_by_date_all)
+    if (
+        cal_days > 3
+        and _total < cal_days + _wf_required
+        and _total >= 3 + _wf_required
+    ):
+        _new_cal_days = max(3, _total - _wf_required)
+        print(
+            f"  Auto-shrink: cal_days {cal_days} → {_new_cal_days} "
+            f"(have {_total} days; walk-forward CV needs {_wf_required} train + "
+            f"{_new_cal_days} cal). Override with explicit --cal-days N."
+        )
+        cal_days = _new_cal_days
+
     calibration_dates: list[str] = []
     cal_df: pd.DataFrame | None = None
     if cal_days > 0 and len(loaded_by_date_all) >= cal_days + 2:

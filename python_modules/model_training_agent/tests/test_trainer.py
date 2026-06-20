@@ -821,6 +821,89 @@ def test_cal_days_short_data_skips_with_warn(tmp_path: Path, capsys) -> None:
     assert manifest["val_dates"] == ["2026-04-06"]
 
 
+def test_cal_days_auto_shrinks_to_fit_walk_forward(tmp_path: Path, capsys) -> None:
+    """7 sessions, requested cal_days=5, walk-forward needs 4 (n_folds=2 *
+    fold_week_size=2). Default would leave 7-5=2 train days < 4 wf → CV
+    would silently skip. Auto-shrink (2026-06-20) recognises that 7-3=4
+    DOES fit and lowers cal_days from 5 → 3 so the operator gets the
+    walk-forward run they actually wanted.
+
+    Mirrors the real-world scenario the trainer was originally hitting on
+    Day 28 of nifty50 accumulation: 28 < 5+25, but 28 >= 3+25, so shrink
+    to cal_days=3 unlocks walk-forward CV at the cost of 2 fewer
+    calibration days (still ~150K rows — plenty for isotonic).
+    """
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    all_dates = [
+        "2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04",
+        "2026-04-05", "2026-04-06", "2026-04-07",
+    ]
+    for i, ds in enumerate(all_dates):
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=i, date_str=ds))
+
+    result = train_instrument(
+        instrument=instrument,
+        date_from="2026-04-01",
+        date_to="2026-04-07",
+        features_root=features_root,
+        models_root=tmp_path / "models",
+        config_dir=tmp_path / "feature_config",
+        val_days=1,
+        cal_days=5,
+        n_folds=2,
+        fold_week_size=2,
+    )
+    captured = capsys.readouterr()
+    # Auto-shrink message printed with the old cal_days value AND the new one
+    assert "Auto-shrink: cal_days 5" in captured.out
+    assert "3" in captured.out.split("Auto-shrink")[1].split("\n")[0]
+    # Carve-out actually used 3 sessions, NOT 5
+    manifest = json.loads(
+        (result.output_dir / "training_manifest.json").read_text(encoding="utf-8")
+    )
+    assert len(manifest["calibration_dates"]) == 3
+    # The 3 most recent days are the calibration set
+    assert manifest["calibration_dates"] == ["2026-04-05", "2026-04-06", "2026-04-07"]
+
+
+def test_cal_days_no_shrink_when_abundant_data(tmp_path: Path) -> None:
+    """When the operator has enough data to satisfy both the cal_days
+    carve-out AND walk-forward, auto-shrink leaves cal_days alone.
+
+    Example: 11 sessions, cal_days=5, walk-forward needs 4 → 11-5=6 >= 4
+    → no shrink necessary. The auto-shrink condition guards against
+    pre-emptive shrinking that would throw away calibration data.
+    """
+    features_root = tmp_path / "features"
+    instrument = "nifty50"
+    all_dates = [
+        "2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04",
+        "2026-04-05", "2026-04-06", "2026-04-07", "2026-04-08",
+        "2026-04-09", "2026-04-10", "2026-04-11",
+    ]
+    for i, ds in enumerate(all_dates):
+        _write_day_parquet(features_root, instrument, ds, _build_day_df(seed=i, date_str=ds))
+
+    result = train_instrument(
+        instrument=instrument,
+        date_from="2026-04-01",
+        date_to="2026-04-11",
+        features_root=features_root,
+        models_root=tmp_path / "models",
+        config_dir=tmp_path / "feature_config",
+        val_days=1,
+        cal_days=5,
+        n_folds=2,
+        fold_week_size=2,
+    )
+    manifest = json.loads(
+        (result.output_dir / "training_manifest.json").read_text(encoding="utf-8")
+    )
+    # Full 5-day carve-out preserved
+    assert len(manifest["calibration_dates"]) == 5
+
+
 # ── PY-5 val-split guard (THE most important test) ───────────────────────
 
 
