@@ -139,6 +139,16 @@ def main() -> int:
         "setting TFA_LEGACY_TRAIN_UI=1 in the environment (used by cron "
         "and scripted retrains so logs stay one-line-per-event).",
     )
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume the most recent interrupted run (Phase 3, 2026-06-20). "
+        "Finds the newest dir under `models/<instrument>/` that has no "
+        "training_manifest.json (= interrupted) but has at least one "
+        "partial-state sidecar. Walk-forward CV picks up at the next "
+        "fold; the final-fit phase picks up at the next head. Schema "
+        "fingerprint protects against resuming after a config change.",
+    )
     args = p.parse_args()
     if args.quiet:
         import os as _os
@@ -251,6 +261,30 @@ def main() -> int:
         print(line)
     print("  " + "=" * 56)
 
+    # Phase 3 (2026-06-20): --resume looks up the most recent interrupted
+    # run dir under models/<instrument>/ and threads it through so the
+    # trainer picks up where the prior run left off.
+    resume_dir = None
+    if args.resume:
+        from model_training_agent.checkpoint import find_resumable_run_dir
+        resume_dir = find_resumable_run_dir(
+            args.instrument, Path(args.models_root),
+        )
+        if resume_dir is None:
+            print()
+            print("  " + "=" * 56)
+            print(f"   --resume: no interrupted run found for {args.instrument}")
+            print("  " + "=" * 56)
+            print(
+                f"  Looked under {args.models_root}/{args.instrument}/ for a "
+                f"timestamped dir with partial_folds.json or "
+                f"partial_metrics.jsonl AND no training_manifest.json. "
+                f"Falling back to a fresh run."
+            )
+            print()
+        else:
+            print(f"\n   Resuming run from: {resume_dir}\n")
+
     try:
         result = train_instrument(
             instrument=args.instrument,
@@ -265,6 +299,7 @@ def main() -> int:
             fold_week_size=args.fold_week_size,
             n_jobs=n_jobs,
             include_dates=include_dates,
+            resume_dir=resume_dir,
         )
     except RuntimeError as e:
         print(f"\n  ERROR: {e}\n")

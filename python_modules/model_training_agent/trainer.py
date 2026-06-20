@@ -636,9 +636,26 @@ def _serial_train_with_dashboard(
     pre-fix loop — same metrics, same on-disk artefacts, same error
     paths — just with a visible progress UI when interactive.
     """
+    # Phase 3 (2026-06-20): per-head checkpoint. Load already-completed
+    # heads from partial_metrics.jsonl so a resumed run skips them.
+    # New runs (no sidecar) start with an empty dict.
+    from model_training_agent.checkpoint import (
+        append_partial_head_metrics,
+        read_partial_head_metrics,
+    )
+    _done_metrics = read_partial_head_metrics(output_dir)
+    if _done_metrics:
+        print(
+            f"\n  Resuming final fit: {len(_done_metrics)} head(s) already "
+            f"completed — skipping."
+        )
+        all_metrics.update(_done_metrics)
+
     if not use_dashboard or not fit_jobs:
         # Legacy print path — same as pre-Phase-1a behaviour.
         for target, objective, X_tr, y_tr, X_va, y_va in fit_jobs:
+            if target in _done_metrics:
+                continue
             print(f"\n  >> Training {target} ({objective}) ...")
             _, metrics, err = _train_and_save_target(
                 target, objective, X_tr, y_tr, X_va, y_va,
@@ -653,6 +670,12 @@ def _serial_train_with_dashboard(
                     "failed": True, "error": err,
                 }
                 skipped_targets.append(target)
+                try:
+                    append_partial_head_metrics(
+                        output_dir, target, objective, all_metrics[target],
+                    )
+                except Exception:
+                    pass
                 continue
             all_metrics[target] = metrics
             metric_key = "val_auc" if objective == "binary" else "val_rmse"
@@ -660,6 +683,12 @@ def _serial_train_with_dashboard(
                 f"     {metric_key} = {metrics[metric_key]:.4f}  "
                 f"(train={metrics['n_train']:,}, val={metrics['n_val']:,})"
             )
+            try:
+                append_partial_head_metrics(
+                    output_dir, target, objective, metrics,
+                )
+            except Exception:
+                pass
         return
 
     # Rich dashboard path.
@@ -685,6 +714,21 @@ def _serial_train_with_dashboard(
         )
     with dash_cm as dash:
         for target, objective, X_tr, y_tr, X_va, y_va in fit_jobs:
+            if target in _done_metrics:
+                # Already trained in a prior run; advance dashboard counter
+                # by replaying the past result so progress stays honest.
+                _m = _done_metrics[target]
+                _mkey = "val_auc" if objective == "binary" else "val_rmse"
+                dash.start_head(target, objective)
+                dash.mark_head_done(HeadResult(
+                    target=target, objective=objective,
+                    val_metric=_m.get(_mkey),
+                    metric_name=_mkey,
+                    n_train=_m.get("n_train", 0),
+                    n_val=_m.get("n_val", 0),
+                    status="pass" if not _m.get("failed") else "skipped",
+                ))
+                continue
             dash.start_head(target, objective)
             _, metrics, err = _train_and_save_target(
                 target, objective, X_tr, y_tr, X_va, y_va,
@@ -704,6 +748,12 @@ def _serial_train_with_dashboard(
                     n_train=len(X_tr), n_val=len(X_va),
                     status="failed", error=err,
                 ))
+                try:
+                    append_partial_head_metrics(
+                        output_dir, target, objective, all_metrics[target],
+                    )
+                except Exception:
+                    pass
                 continue
             all_metrics[target] = metrics
             metric_key = "val_auc" if objective == "binary" else "val_rmse"
@@ -713,6 +763,12 @@ def _serial_train_with_dashboard(
                 n_train=metrics["n_train"], n_val=metrics["n_val"],
                 status="pass",
             ))
+            try:
+                append_partial_head_metrics(
+                    output_dir, target, objective, metrics,
+                )
+            except Exception:
+                pass
 
 
 def train_instrument(
@@ -729,6 +785,7 @@ def train_instrument(
     n_jobs: int = 1,
     include_dates: list[str] | None = None,
     hyperparams_config_path: Path | None = None,
+    resume_dir: Path | None = None,
 ) -> TrainResult:
     """Train all MVP targets for one instrument across a date range.
 
@@ -873,9 +930,45 @@ def train_instrument(
     )
 
     # 4. Train each target
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = models_root / instrument / ts
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Phase 3 (2026-06-20): when `resume_dir` is passed, reuse that
+    # directory so per-fold + per-head checkpoints carry over. The CLI
+    # resolves the dir from the --resume flag. `ts` derived from the
+    # dir name so the manifest + LATEST writes downstream still work.
+    if resume_dir is not None:
+        output_dir = resume_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+        ts = output_dir.name  # YYYYMMDD_HHMMSS — matches non-resume convention
+        print(f"  Resuming: {output_dir}")
+    else:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = models_root / instrument / ts
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Phase 3: schema fingerprint guards against resuming a run whose
+    # feature set has changed since the original launch (would silently
+    # corrupt the model). MVP_TARGETS imported at module top.
+    from model_training_agent.checkpoint import (
+        append_partial_head_metrics,
+        cleanup_partial_state,
+        compute_schema_fingerprint,
+        read_partial_folds,
+        read_partial_head_metrics,
+        write_partial_folds,
+    )
+    schema_fp = compute_schema_fingerprint(
+        features=feature_config["final_features"],
+        targets=[t for t in MVP_TARGETS.keys()],
+    )
+    if resume_dir is not None:
+        prior_fp, _ = read_partial_folds(resume_dir)
+        if prior_fp is not None and prior_fp != schema_fp:
+            raise RuntimeError(
+                f"Cannot resume {resume_dir}: schema fingerprint "
+                f"{prior_fp} doesn't match current {schema_fp}. "
+                f"Feature config or target list changed since the "
+                f"interrupted run. Delete the partial dir and start "
+                f"fresh, or restore the prior feature config."
+            )
 
     # 3.5. Walk-forward CV fold validation (T24b, V2_MASTER_SPEC §6).
     # Runs ONLY when enough sessions are available after the cal carve-
@@ -924,7 +1017,19 @@ def train_instrument(
             f"\n  >> Walk-forward CV: {len(folds)} folds × "
             f"{fold_week_size} sessions ..."
         )
+        # Phase 3 (2026-06-20): load per-fold checkpoint when resuming.
+        # Already-completed folds skip _validate_one_fold entirely.
+        _, prior_folds = read_partial_folds(output_dir)
+        done_fold_indices: set[int] = {f["fold_index"] for f in prior_folds}
+        if prior_folds:
+            print(
+                f"     Resuming: {len(prior_folds)} fold(s) already "
+                f"completed — skipping {sorted(done_fold_indices)}"
+            )
+            fold_results.extend(prior_folds)
         for fold in folds:
+            if fold.fold_index in done_fold_indices:
+                continue
             if cv_dashboard is not None:
                 cv_dashboard.set_phase(
                     "cv",
@@ -949,6 +1054,18 @@ def train_instrument(
                 "val_dates": fold.val_dates,
                 "metrics": fm,
             })
+            # Phase 3: persist after every fold so a killed run can resume.
+            try:
+                write_partial_folds(output_dir, schema_fp, fold_results)
+            except Exception as exc:
+                # Don't let a checkpoint-write failure abort the actual
+                # training. Worst case the operator loses the resume
+                # benefit for this fold; the model still gets built.
+                print(f"     WARN: failed to write partial_folds.json: {exc}")
+        # Re-sort fold_results by fold_index in case resume mixed old +
+        # new in non-monotonic order. Aggregator iterates per-head; order
+        # doesn't affect correctness but keeps the manifest readable.
+        fold_results.sort(key=lambda r: r["fold_index"])
         fold_aggregate = _aggregate_fold_metrics(fold_results)
         print(
             f"  Walk-forward CV: aggregated across {len(folds)} folds for "
@@ -1259,6 +1376,13 @@ def train_instrument(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )
     (output_dir / "metrics.json").write_text(json.dumps(all_metrics, indent=2), encoding="utf-8")
+    # Phase 3 (2026-06-20): remove the partial-state sidecars on
+    # successful completion. Keeps the run dir clean and ensures
+    # find_resumable_run_dir() won't pick this finished run.
+    try:
+        cleanup_partial_state(output_dir)
+    except Exception:
+        pass
 
     # 6. LATEST pointer (legacy plain-text)
     (models_root / instrument / "LATEST").write_text(ts, encoding="utf-8")
