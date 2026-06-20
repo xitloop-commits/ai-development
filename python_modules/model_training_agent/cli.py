@@ -131,7 +131,18 @@ def main() -> int:
         help="What to do with dates that have no validation JSON. "
         "Default: include (validator absence is not evidence of badness).",
     )
+    p.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Disable the rich progress dashboard; fall back to legacy "
+        "per-head print output. Default: dashboard ON. Equivalent to "
+        "setting TFA_LEGACY_TRAIN_UI=1 in the environment (used by cron "
+        "and scripted retrains so logs stay one-line-per-event).",
+    )
     args = p.parse_args()
+    if args.quiet:
+        import os as _os
+        _os.environ["TFA_LEGACY_TRAIN_UI"] = "1"
     # Flatten: each --include-dates value may itself be a comma-separated list
     flat: list[str] = []
     for chunk in args.include_dates:

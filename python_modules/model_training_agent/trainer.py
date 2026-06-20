@@ -572,6 +572,95 @@ def _aggregate_fold_metrics(fold_results: list[dict]) -> dict:
     return out
 
 
+def _serial_train_with_dashboard(
+    *,
+    fit_jobs: list,
+    instrument: str,
+    exchange: str,
+    n_dates: int,
+    feature_count: int,
+    output_dir: Path,
+    hyperparam_overrides: dict,
+    all_metrics: dict,
+    skipped_targets: list[str],
+    use_dashboard: bool,
+) -> None:
+    """Run the serial fitting loop, optionally wrapping it in a rich
+    TrainingDashboard (Phase 1a, 2026-06-20).
+
+    Falls back to plain prints when ``use_dashboard=False`` (cron jobs,
+    --quiet, TFA_LEGACY_TRAIN_UI=1). Behaviourally identical to the
+    pre-fix loop — same metrics, same on-disk artefacts, same error
+    paths — just with a visible progress UI when interactive.
+    """
+    if not use_dashboard or not fit_jobs:
+        # Legacy print path — same as pre-Phase-1a behaviour.
+        for target, objective, X_tr, y_tr, X_va, y_va in fit_jobs:
+            print(f"\n  >> Training {target} ({objective}) ...")
+            _, metrics, err = _train_and_save_target(
+                target, objective, X_tr, y_tr, X_va, y_va,
+                output_dir / f"{target}.lgbm",
+                lgbm_n_jobs=-1,
+                hyperparam_overrides=hyperparam_overrides,
+            )
+            if err is not None:
+                print(f"     FAILED: {err}")
+                all_metrics[target] = {
+                    "n_train": len(X_tr), "n_val": len(X_va),
+                    "failed": True, "error": err,
+                }
+                skipped_targets.append(target)
+                continue
+            all_metrics[target] = metrics
+            metric_key = "val_auc" if objective == "binary" else "val_rmse"
+            print(
+                f"     {metric_key} = {metrics[metric_key]:.4f}  "
+                f"(train={metrics['n_train']:,}, val={metrics['n_val']:,})"
+            )
+        return
+
+    # Rich dashboard path.
+    from model_training_agent.training_dashboard import (
+        HeadResult,
+        TrainingDashboard,
+    )
+    total_heads = len(fit_jobs)
+    with TrainingDashboard(
+        instrument=instrument, exchange=exchange,
+        n_dates=n_dates, total_heads=total_heads,
+        feature_count=feature_count,
+    ) as dash:
+        for target, objective, X_tr, y_tr, X_va, y_va in fit_jobs:
+            dash.start_head(target, objective)
+            _, metrics, err = _train_and_save_target(
+                target, objective, X_tr, y_tr, X_va, y_va,
+                output_dir / f"{target}.lgbm",
+                lgbm_n_jobs=-1,
+                hyperparam_overrides=hyperparam_overrides,
+            )
+            if err is not None:
+                all_metrics[target] = {
+                    "n_train": len(X_tr), "n_val": len(X_va),
+                    "failed": True, "error": err,
+                }
+                skipped_targets.append(target)
+                dash.mark_head_done(HeadResult(
+                    target=target, objective=objective,
+                    val_metric=None, metric_name="",
+                    n_train=len(X_tr), n_val=len(X_va),
+                    status="failed", error=err,
+                ))
+                continue
+            all_metrics[target] = metrics
+            metric_key = "val_auc" if objective == "binary" else "val_rmse"
+            dash.mark_head_done(HeadResult(
+                target=target, objective=objective,
+                val_metric=metrics[metric_key], metric_name=metric_key,
+                n_train=metrics["n_train"], n_val=metrics["n_val"],
+                status="pass",
+            ))
+
+
 def train_instrument(
     instrument: str,
     date_from: str,
@@ -817,35 +906,33 @@ def train_instrument(
     # mode LightGBM's internal thread count is pinned to 1 so the outer
     # joblib workers don't oversubscribe.
     if n_jobs <= 1:
-        for target, objective, X_tr, y_tr, X_va, y_va in fit_jobs:
-            print(f"\n  >> Training {target} ({objective}) ...")
-            _, metrics, err = _train_and_save_target(
-                target,
-                objective,
-                X_tr,
-                y_tr,
-                X_va,
-                y_va,
-                output_dir / f"{target}.lgbm",
-                lgbm_n_jobs=-1,
-                hyperparam_overrides=hyperparam_overrides,
-            )
-            if err is not None:
-                print(f"     FAILED: {err}")
-                all_metrics[target] = {
-                    "n_train": len(X_tr),
-                    "n_val": len(X_va),
-                    "failed": True,
-                    "error": err,
-                }
-                skipped_targets.append(target)
-                continue
-            all_metrics[target] = metrics
-            metric_key = "val_auc" if objective == "binary" else "val_rmse"
-            print(
-                f"     {metric_key} = {metrics[metric_key]:.4f}  "
-                f"(train={metrics['n_train']:,}, val={metrics['n_val']:,})"
-            )
+        # Phase 1a (2026-06-20): rich progress dashboard in the serial path.
+        # Falls back to the legacy per-line prints when TFA_LEGACY_TRAIN_UI=1
+        # (set by --quiet or cron jobs). Parallel n_jobs>1 path still uses
+        # legacy prints — Phase 1b will wrap that in ProcessPoolExecutor.
+        import os as _os
+        _NSE = {"nifty50", "banknifty"}
+        _MCX = {"crudeoil", "naturalgas"}
+        _exchange = (
+            "NSE" if instrument in _NSE
+            else "MCX" if instrument in _MCX
+            else "?"
+        )
+        _use_dashboard = (
+            _os.environ.get("TFA_LEGACY_TRAIN_UI", "0").strip() not in ("1", "true", "True")
+        )
+        _serial_train_with_dashboard(
+            fit_jobs=fit_jobs,
+            instrument=instrument,
+            exchange=_exchange,
+            n_dates=len(loaded),
+            feature_count=len(feature_config["final_features"]),
+            output_dir=output_dir,
+            hyperparam_overrides=hyperparam_overrides,
+            all_metrics=all_metrics,
+            skipped_targets=skipped_targets,
+            use_dashboard=_use_dashboard,
+        )
     else:
         print(
             f"\n  >> Training {len(fit_jobs)} targets in parallel "
