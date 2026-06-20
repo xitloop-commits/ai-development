@@ -267,6 +267,13 @@ def run_scored_backtest(
                 # Ground truth
                 "actual_dir_30s": _safe(row.get("direction_30s")),
                 "actual_dir_60s": _safe(row.get("direction_60s")),
+                # Multi-horizon ground truth (2026-06-21) so the chart
+                # can paint correct/wrong markers for trend + swing too.
+                "actual_dir_300s": _safe(row.get("direction_300s")),
+                "actual_trend_dir_900s": _safe(row.get("trend_direction_900s")),
+                "actual_trend_dir_1800s": _safe(row.get("trend_direction_1800s")),
+                "actual_swing_dir_3600s": _safe(row.get("swing_direction_3600s")),
+                "actual_swing_dir_7200s": _safe(row.get("swing_direction_7200s")),
                 "actual_up_30s": _safe(row.get("max_upside_30s")),
                 "actual_up_60s": _safe(row.get("max_upside_60s")),
                 "actual_dn_30s": _safe(row.get("max_drawdown_30s")),
