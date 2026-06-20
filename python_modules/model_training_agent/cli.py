@@ -31,7 +31,22 @@ def main() -> int:
         prog="mta",
         description="Model Training Agent (MVP)",
     )
-    p.add_argument("--instrument", required=True, choices=VALID_INSTRUMENTS)
+    # Phase 1b (2026-06-20): `--instrument` (single) keeps the old serial
+    # behavior; `--instruments` (plural, comma-separated) triggers parallel
+    # training via ProcessPoolExecutor. Mutually exclusive; one of them is
+    # required.
+    inst_group = p.add_mutually_exclusive_group(required=True)
+    inst_group.add_argument(
+        "--instrument", choices=VALID_INSTRUMENTS,
+        help="Train ONE instrument (serial). Mutually exclusive with --instruments.",
+    )
+    inst_group.add_argument(
+        "--instruments",
+        help="Comma-separated list of instruments to train concurrently "
+        "(e.g. `nifty50,banknifty`). Spawns one worker per instrument; "
+        "LightGBM threads per worker = max(1, cpu_count() // N) to avoid "
+        "oversubscription. Mutually exclusive with --instrument.",
+    )
     p.add_argument("--date-from", required=True, help="YYYY-MM-DD inclusive")
     p.add_argument("--date-to", required=True, help="YYYY-MM-DD inclusive")
     p.add_argument("--features-root", default="data/features")
@@ -153,6 +168,35 @@ def main() -> int:
     if args.quiet:
         import os as _os
         _os.environ["TFA_LEGACY_TRAIN_UI"] = "1"
+
+    # Phase 1b (2026-06-20): parse --instruments into a list when set.
+    # Parallel mode = N > 1 (single-name --instruments still flows through
+    # the serial path so behavior matches --instrument exactly).
+    parallel_instruments: list[str] | None = None
+    if args.instruments:
+        parallel_instruments = [
+            s.strip() for s in args.instruments.split(",") if s.strip()
+        ]
+        invalid = [i for i in parallel_instruments if i not in VALID_INSTRUMENTS]
+        if invalid:
+            print(
+                f"\n  ERROR: invalid instrument(s) in --instruments: "
+                f"{', '.join(invalid)}. Valid: {', '.join(VALID_INSTRUMENTS)}\n"
+            )
+            return 5
+        if args.resume:
+            print(
+                "\n  ERROR: --resume is not supported with --instruments "
+                "(parallel mode). Use --instrument <one> --resume to resume a "
+                "single interrupted run.\n"
+            )
+            return 5
+        if len(parallel_instruments) == 1:
+            # Single instrument inside --instruments -- treat it as the
+            # serial path so the user gets the rich dashboard.
+            args.instrument = parallel_instruments[0]
+            parallel_instruments = None
+
     # Flatten: each --include-dates value may itself be a comma-separated list
     flat: list[str] = []
     for chunk in args.include_dates:
@@ -165,8 +209,11 @@ def main() -> int:
     # trainer itself walks the parquet directory; we'd need to enumerate
     # the same way here just to filter. Skip for now -- range mode users
     # can pass --include-dates instead if they want auto-filtering.
+    # Phase 1b: in parallel mode the filter runs per-instrument INSIDE
+    # each worker (different instruments can have different validation
+    # verdicts on the same date). Parent skips the check.
     hygiene_summary_lines: list[str] = []
-    if include_dates is not None:
+    if include_dates is not None and parallel_instruments is None:
         from model_training_agent.date_hygiene import (
             filter_for_training,
             format_summary_lines,
@@ -248,6 +295,44 @@ def main() -> int:
 
         n_jobs = _default_n_jobs()
         print(f"  --n-jobs=auto resolved to {n_jobs}")
+
+    # Phase 1b (2026-06-20): parallel multi-instrument dispatch BEFORE
+    # the serial path below. Each worker reruns the date-hygiene filter
+    # itself (per-instrument validation verdicts); we forward the raw
+    # include_dates and let each instrument decide what's usable.
+    if parallel_instruments is not None:
+        from model_training_agent.parallel_orchestrator import (
+            train_multiple_instruments,
+        )
+        common_kwargs: dict = {
+            "date_from": args.date_from,
+            "date_to": args.date_to,
+            "features_root": Path(args.features_root),
+            "models_root": Path(args.models_root),
+            "config_dir": Path(args.config_dir),
+            "val_days": args.val_days,
+            "cal_days": args.cal_days,
+            "n_folds": args.n_folds,
+            "fold_week_size": args.fold_week_size,
+            "n_jobs": n_jobs,
+            "include_dates": include_dates,
+            # resume_dir intentionally omitted -- parallel mode forbids --resume
+        }
+        try:
+            results = train_multiple_instruments(
+                instruments=parallel_instruments,
+                train_kwargs=common_kwargs,
+            )
+        except KeyboardInterrupt:
+            # Esc-confirmed stop -- partial state preserved per worker.
+            print()
+            print("  Parallel training STOPPED by Esc.")
+            print("  Per-worker partial state preserved; resume each instrument")
+            print("  individually with: --instrument <name> --resume")
+            print()
+            return 1
+        n_failed = sum(1 for r in results.values() if not r["ok"])
+        return 0 if n_failed == 0 else 2
 
     print()
     print("  " + "=" * 56)
