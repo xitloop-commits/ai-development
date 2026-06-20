@@ -46,12 +46,29 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _IST = timezone(timedelta(hours=5, minutes=30))
 
 
-# Direction-classification thresholds. Predictions are calibrated probs
-# in [0, 1]; >= up → UP marker, <= dn → DOWN marker, else no marker.
-# Wider band than the SEA gate so the chart shows the model's "leans"
-# even when the gate would have suppressed them.
-_UP_TH = 0.52
-_DN_TH = 0.48
+# Direction-classification: per-horizon dynamic thresholds.
+#
+# Default behaviour up to 2026-06-21 used hardcoded 0.52 / 0.48 thresholds
+# for every horizon, which broke on flat days: trend / swing heads have a
+# narrow effective range (e.g. 0.38-0.44 on a NEUTRAL session) and stayed
+# permanently below the 0.48 down-line -- the chart drew DOWN arrows on
+# every single tick even though the model wasn't expressing real
+# conviction.
+#
+# Fix: compute thresholds per horizon as `mean ± std * _STDS_FROM_MEAN`
+# using the day's actual prediction distribution. An UP arrow now only
+# appears when a horizon's probability is meaningfully ABOVE its OWN
+# average for the day, and similarly for DOWN. Flat-day baselines stop
+# producing arrow-spam; high-conviction excursions still pop.
+#
+# Floor: at least 0.02 (2 percentage points) of band so a near-constant
+# horizon (std ≈ 0) doesn't trip every tick as either UP or DOWN.
+_STDS_FROM_MEAN = 1.0
+_MIN_BAND = 0.02
+
+# Fallback when a horizon column is entirely missing or all-NaN.
+_FALLBACK_UP_TH = 0.55
+_FALLBACK_DN_TH = 0.45
 
 # Marker per-horizon style. Size escalates with horizon so longer-term
 # views are visually heavier (matches how the operator should weight
@@ -73,6 +90,32 @@ _HORIZON_PROB_KEY = {
     "trend_1800s": "pred_trend_dir_1800s",
     "swing_7200s": "pred_swing_dir_7200s",
 }
+
+
+def _compute_horizon_thresholds(rows: list[dict]) -> dict[str, tuple[float, float]]:
+    """Return ``{horizon: (up_th, dn_th)}`` derived from each horizon's
+    own per-day prob distribution. See module docstring for rationale.
+
+    Statistics: mean + sample std on the non-null values; up = mean +
+    _STDS_FROM_MEAN * std, dn = mean - _STDS_FROM_MEAN * std. Band is
+    floored at ``_MIN_BAND`` so a near-constant horizon doesn't draw
+    every tick.
+    """
+    import math
+    out: dict[str, tuple[float, float]] = {}
+    for horizon, prob_key in _HORIZON_PROB_KEY.items():
+        vals = [float(r[prob_key]) for r in rows
+                if r.get(prob_key) is not None]
+        if not vals:
+            out[horizon] = (_FALLBACK_UP_TH, _FALLBACK_DN_TH)
+            continue
+        n = len(vals)
+        mean = sum(vals) / n
+        var = sum((v - mean) ** 2 for v in vals) / max(1, n - 1)
+        std = math.sqrt(var)
+        band = max(_MIN_BAND, _STDS_FROM_MEAN * std)
+        out[horizon] = (mean + band, mean - band)
+    return out
 
 
 def _find_backtest_dir(
@@ -186,12 +229,15 @@ def _aggregate_ohlc(
 def _marker_traces_per_horizon(
     rows: list[dict],
     marker_every_n: int,
+    thresholds: dict[str, tuple[float, float]],
 ) -> list[go.Scattergl]:
     """Build one (UP, DOWN) trace per horizon. Two traces per horizon
-    so the legend can toggle direction independently."""
+    so the legend can toggle direction independently. `thresholds` maps
+    each horizon to its (up_th, dn_th) computed from the day's data."""
     traces: list[go.Scattergl] = []
     for horizon, style in _HORIZON_STYLES.items():
         prob_key = _HORIZON_PROB_KEY[horizon]
+        up_th, dn_th = thresholds[horizon]
         up_x, up_y, up_text = [], [], []
         dn_x, dn_y, dn_text = [], [], []
         for i, r in enumerate(rows):
@@ -204,12 +250,12 @@ def _marker_traces_per_horizon(
             x = _fmt_ts(r.get("timestamp"))
             # Multi-horizon tooltip body: show ALL three horizons at this
             # tick so the operator can spot agreement / disagreement.
-            tip = _build_tooltip(r)
-            if prob >= _UP_TH:
+            tip = _build_tooltip(r, thresholds)
+            if prob >= up_th:
                 up_x.append(x)
                 up_y.append(price)
                 up_text.append(tip)
-            elif prob <= _DN_TH:
+            elif prob <= dn_th:
                 dn_x.append(x)
                 dn_y.append(price)
                 dn_text.append(tip)
@@ -236,36 +282,52 @@ def _marker_traces_per_horizon(
     return traces
 
 
-def _build_tooltip(r: dict) -> str:
-    """Compact 3-line multi-horizon prob summary for the hover card."""
-    def _fmt(key, label):
+def _build_tooltip(r: dict, thresholds: dict[str, tuple[float, float]]) -> str:
+    """Compact 3-line multi-horizon prob summary for the hover card.
+
+    Direction arrow is decided per-horizon using THAT horizon's threshold
+    rather than a shared 0.50 midpoint -- matches the marker logic.
+    """
+    def _fmt(key, label, horizon):
         v = r.get(key)
         if v is None:
             return f"{label}: n/a"
-        arrow = "▲" if v >= _UP_TH else ("▼" if v <= _DN_TH else "·")
+        up_th, dn_th = thresholds[horizon]
+        arrow = "▲" if v >= up_th else ("▼" if v <= dn_th else "·")
         return f"{label}: {arrow} {v:.3f}"
     return (
-        f"{_fmt('pred_dir_60s',         'scalp 60s')}<br>"
-        f"{_fmt('pred_trend_dir_1800s', 'trend 30m')}<br>"
-        f"{_fmt('pred_swing_dir_7200s', 'swing 2h')}"
+        f"{_fmt('pred_dir_60s',         'scalp 60s', 'scalp_60s')}<br>"
+        f"{_fmt('pred_trend_dir_1800s', 'trend 30m', 'trend_1800s')}<br>"
+        f"{_fmt('pred_swing_dir_7200s', 'swing 2h',  'swing_7200s')}"
     )
+
+
+def _format_threshold_summary(thresholds: dict[str, tuple[float, float]]) -> str:
+    """Build the small subtitle line that lists each horizon's actual
+    up/dn thresholds so the operator can see what classifications
+    they're looking at."""
+    parts = []
+    for horizon, (up_th, dn_th) in thresholds.items():
+        label = _HORIZON_STYLES[horizon]["label"]
+        parts.append(f"{label} ≥{up_th:.3f} / ≤{dn_th:.3f}")
+    return "  ·  ".join(parts)
 
 
 def _build_layout(
     *, instrument: str, date: str, model_version: str, mode_label: str,
+    thresholds: dict[str, tuple[float, float]],
 ) -> dict:
     return dict(
         title=(f"Backtest predictions ({mode_label}) — {instrument} {date}<br>"
-               f"<sub>model {model_version}  ·  "
-               f"up≥{_UP_TH:.2f} / dn≤{_DN_TH:.2f}  ·  "
-               f"scalp 60s + trend 30m + swing 2h</sub>"),
+               f"<sub>model {model_version}</sub><br>"
+               f"<sub>{_format_threshold_summary(thresholds)}</sub>"),
         xaxis=dict(title="time (IST)", showgrid=True, gridcolor="#222",
                    rangeslider=dict(visible=False)),
         yaxis=dict(title="spot price", showgrid=True, gridcolor="#222"),
         template="plotly_dark",
         height=720,
         hovermode="x unified",
-        legend=dict(orientation="h", y=-0.18),
+        legend=dict(orientation="h", y=-0.20),
     )
 
 
@@ -273,6 +335,7 @@ def build_tick_chart(
     rows: list[dict],
     *, instrument: str, date: str, model_version: str,
     marker_every_n: int,
+    thresholds: dict[str, tuple[float, float]],
 ) -> go.Figure:
     """Tick-line variant: continuous price line + marker layers."""
     xs = [_fmt_ts(r.get("timestamp")) for r in rows
@@ -286,11 +349,12 @@ def build_tick_chart(
         name="price (tick)",
         hoverinfo="x+y",
     ))
-    for tr in _marker_traces_per_horizon(rows, marker_every_n):
+    for tr in _marker_traces_per_horizon(rows, marker_every_n, thresholds):
         fig.add_trace(tr)
     fig.update_layout(**_build_layout(
         instrument=instrument, date=date,
         model_version=model_version, mode_label="tick line",
+        thresholds=thresholds,
     ))
     return fig
 
@@ -299,6 +363,7 @@ def build_candlestick_chart(
     rows: list[dict],
     *, instrument: str, date: str, model_version: str,
     interval_sec: int, mode_label: str, marker_every_n: int,
+    thresholds: dict[str, tuple[float, float]],
 ) -> go.Figure:
     """OHLC candlestick variant at `interval_sec` resolution."""
     xs, o, h, l, c = _aggregate_ohlc(rows, interval_sec)
@@ -309,11 +374,12 @@ def build_candlestick_chart(
         name=f"OHLC {mode_label}",
         showlegend=True,
     ))
-    for tr in _marker_traces_per_horizon(rows, marker_every_n):
+    for tr in _marker_traces_per_horizon(rows, marker_every_n, thresholds):
         fig.add_trace(tr)
     fig.update_layout(**_build_layout(
         instrument=instrument, date=date,
         model_version=model_version, mode_label=mode_label,
+        thresholds=thresholds,
     ))
     return fig
 
@@ -354,9 +420,14 @@ def main() -> int:
         print("\n  ERROR: predictions.ndjson has no rows with spot_price.\n")
         return 4
 
+    # Compute per-horizon up/dn thresholds from this day's data ONCE so
+    # all 3 chart variants classify markers identically.
+    thresholds = _compute_horizon_thresholds(rows)
+
     common = dict(
         instrument=args.instrument, date=args.date,
         model_version=model_version, marker_every_n=args.marker_every,
+        thresholds=thresholds,
     )
 
     variants = [
