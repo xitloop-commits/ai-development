@@ -90,20 +90,32 @@ def _load_parquet_columns(parquet_path: Path) -> list[str]:
     output (different horizon suffixes, sometimes missing freshly-added
     columns). Reading the parquet directly removes that risk.
 
-    Non-numeric columns (regime='TREND', trading_state='TRADING',
-    instrument='nifty50', etc.) are filtered out here — the trainer's
+    Non-numeric columns (`regime='TREND'`, `trading_state='TRADING'`,
+    `instrument='nifty50'`, etc.) are filtered out here — the trainer's
     preprocessor casts everything to float32 and chokes on strings.
-    Categorical features like `regime` deserve to be in the model but
-    need one-hot or native-categorical handling first; until that lands
-    they're auto-excluded here.
+
+    `regime` is the one supported exception (2026-06-20): when the
+    column is present, four binary one-hot expansions
+    (`regime_TREND/RANGE/NEUTRAL/DEAD`) are emitted in its place so the
+    classifier signal is visible to the model. The trainer mirrors this
+    expansion at load time via ``_expand_regime_one_hot``.
     """
     import polars as pl
     schema = pl.scan_parquet(str(parquet_path)).collect_schema()
     string_like = {"String", "Utf8", "Categorical", "Boolean", "Date", "Datetime"}
-    return [
-        c for c, dt in schema.items()
-        if not any(s in str(dt) for s in string_like)
-    ]
+    cols: list[str] = []
+    for c, dt in schema.items():
+        if any(s in str(dt) for s in string_like):
+            if c == "regime":
+                # Drop the string col; emit 4 one-hot variants instead so
+                # the trainer side picks them up automatically. Keep
+                # alphabetic order of the categories so feature_config
+                # diffs are stable run-to-run.
+                cols.extend([f"regime_{cat}" for cat in
+                             ("DEAD", "NEUTRAL", "RANGE", "TREND")])
+            continue
+        cols.append(c)
+    return cols
 
 
 def _target_names() -> set[str]:

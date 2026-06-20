@@ -158,6 +158,40 @@ class TrainResult:
     feature_count: int
 
 
+# The replay pipeline writes `regime` as a String column with one of
+# four classifications per tick. The trainer's float32 cast can't
+# consume strings, so until 2026-06-20 the regime signal was simply
+# dropped. This list defines the canonical 4 categories one-hot
+# expansion uses; rows with NaN/None regime get all four set to 0.
+_REGIME_CATEGORIES: tuple[str, ...] = ("TREND", "RANGE", "NEUTRAL", "DEAD")
+
+
+def _expand_regime_one_hot(df: pd.DataFrame) -> pd.DataFrame:
+    """Replace the `regime` String column with 4 binary `regime_<CAT>`
+    int8 columns. Idempotent — if `regime` is missing or already
+    expanded, the dataframe is returned unchanged.
+
+    Why one-hot vs ordinal: LightGBM handles categoricals natively but
+    only when columns are dtype 'category' AND configured per-head; the
+    trainer's preprocessor flat-casts to float32 so ordinal mapping
+    would impose a false ordering (TREND > RANGE > NEUTRAL is meaningless).
+    Four binary columns let each regime contribute independently to leaf
+    splits without ordering bias.
+    """
+    if "regime" not in df.columns:
+        return df
+    # Skip when the column is non-string (already coerced upstream).
+    if df["regime"].dtype != object and not pd.api.types.is_string_dtype(df["regime"]):
+        return df
+    regime = df["regime"]
+    for cat in _REGIME_CATEGORIES:
+        col_name = f"regime_{cat}"
+        # `==` propagates NaN safely (NaN != cat → False → 0).
+        df[col_name] = (regime == cat).astype("int8")
+    df = df.drop(columns=["regime"])
+    return df
+
+
 def _load_parquets(
     instrument: str,
     date_from: str,
@@ -170,6 +204,10 @@ def _load_parquets(
     If `include_dates` is given, ONLY those dates are loaded (date_from/date_to
     are ignored). Otherwise walks every day in [date_from, date_to] inclusive
     and loads any parquet present.
+
+    `regime` is one-hot expanded into 4 binary `regime_<CAT>` columns at
+    load time so the trainer's float32 cast doesn't have to special-case
+    the only string-typed feature column.
     """
     out: list[tuple[str, pd.DataFrame]] = []
     if include_dates:
@@ -177,6 +215,7 @@ def _load_parquets(
             p = features_root / ds / f"{instrument}_features.parquet"
             if p.exists():
                 df = pd.read_parquet(p)
+                df = _expand_regime_one_hot(df)
                 df["__date"] = ds
                 out.append((ds, df))
         return out
@@ -187,6 +226,7 @@ def _load_parquets(
         p = features_root / ds / f"{instrument}_features.parquet"
         if p.exists():
             df = pd.read_parquet(p)
+            df = _expand_regime_one_hot(df)
             df["__date"] = ds
             out.append((ds, df))
         d += timedelta(days=1)

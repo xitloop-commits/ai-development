@@ -125,7 +125,13 @@ _NAN = float("nan")
 #   premium_acceleration_drop_atm_ce / _pe (ATM second-derivative of
 #   premium momentum) + strike_migration_persistence_ticks (counter
 #   of consecutive-same-direction strike shifts).
-LATEST_SCHEMA_VERSION: int = 10
+# v11 (2026-06-20 — target-window profile bump): TFA now runs with the
+#   (60, 120, 180, 240, 300) profile (was 30s/900s); this swaps 25 old
+#   target columns (direction_30s, _900s, etc.) for 37 new ones
+#   (direction_120s/180s/240s + persists/breakout/exit/upside/drawdown
+#   per window). Net +12 columns to 560. MVP_TARGETS already targets
+#   the new windows; v10.json was structurally inconsistent until now.
+LATEST_SCHEMA_VERSION: int = 11
 
 _log = logging.getLogger("tick_feature_agent.emitter")
 
