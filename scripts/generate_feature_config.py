@@ -84,17 +84,26 @@ def _load_schema_columns(schema_path: Path) -> list[str]:
 
 
 def _load_parquet_columns(parquet_path: Path) -> list[str]:
-    """Read the column list from a sample parquet — the GROUND TRUTH.
+    """Read NUMERIC column names from a sample parquet — the GROUND TRUTH.
 
     The schema_registry/*.json files drift behind the actual parquet
     output (different horizon suffixes, sometimes missing freshly-added
     columns). Reading the parquet directly removes that risk.
+
+    Non-numeric columns (regime='TREND', trading_state='TRADING',
+    instrument='nifty50', etc.) are filtered out here — the trainer's
+    preprocessor casts everything to float32 and chokes on strings.
+    Categorical features like `regime` deserve to be in the model but
+    need one-hot or native-categorical handling first; until that lands
+    they're auto-excluded here.
     """
     import polars as pl
-    if parquet_path.is_dir() or "*" in str(parquet_path):
-        # Glob pattern (e.g. chunked parquets) — scan_parquet handles it.
-        return list(pl.scan_parquet(str(parquet_path)).collect_schema().names())
-    return list(pl.scan_parquet(str(parquet_path)).collect_schema().names())
+    schema = pl.scan_parquet(str(parquet_path)).collect_schema()
+    string_like = {"String", "Utf8", "Categorical", "Boolean", "Date", "Datetime"}
+    return [
+        c for c, dt in schema.items()
+        if not any(s in str(dt) for s in string_like)
+    ]
 
 
 def _target_names() -> set[str]:
