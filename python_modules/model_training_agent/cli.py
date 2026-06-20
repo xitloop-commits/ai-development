@@ -101,12 +101,79 @@ def main() -> int:
         "when you intentionally want to retrain on the holdout (e.g. for a "
         "final 'production' build after backtests have validated the model).",
     )
+    # ── Date-hygiene pre-flight (Phase 4, 2026-06-20) ─────────────────────
+    # Read each date's `data/validation/{date}/{inst}_validation.json` and
+    # auto-drop FAILs before they reach the trainer. WARN dates kept by
+    # default since they're usually usable. Missing JSONs kept by default
+    # (absence of evidence is not evidence of badness).
+    p.add_argument(
+        "--validation-root",
+        default="data/validation",
+        help="Where to look for per-date validation JSONs.",
+    )
+    p.add_argument(
+        "--include-fails",
+        action="store_true",
+        help="Keep FAIL-verdict dates in the training set. Default: drop. "
+        "Use ONLY when you've reviewed each FAIL and are sure they're safe.",
+    )
+    p.add_argument(
+        "--no-warns",
+        action="store_true",
+        help="Drop WARN-verdict dates from the training set. Default: keep "
+        "them (most WARNs are usable, e.g. 'regime: always NEUTRAL' on a "
+        "low-volatility day leaves the other 600+ features fine).",
+    )
+    p.add_argument(
+        "--missing-policy",
+        default="include",
+        choices=["include", "drop"],
+        help="What to do with dates that have no validation JSON. "
+        "Default: include (validator absence is not evidence of badness).",
+    )
     args = p.parse_args()
     # Flatten: each --include-dates value may itself be a comma-separated list
     flat: list[str] = []
     for chunk in args.include_dates:
         flat.extend(d.strip() for d in chunk.split(",") if d.strip())
     include_dates = flat or None
+
+    # ── Date hygiene pre-flight (Phase 4, 2026-06-20) ────────────────────
+    # Run the validator-verdict filter ONLY when an explicit include-dates
+    # list was given. For the date-range path (date_from / date_to) the
+    # trainer itself walks the parquet directory; we'd need to enumerate
+    # the same way here just to filter. Skip for now -- range mode users
+    # can pass --include-dates instead if they want auto-filtering.
+    hygiene_summary_lines: list[str] = []
+    if include_dates is not None:
+        from model_training_agent.date_hygiene import (
+            filter_for_training,
+            format_summary_lines,
+        )
+        kept, cls = filter_for_training(
+            include_dates,
+            instrument=args.instrument,
+            validation_root=Path(args.validation_root),
+            include_warns=not args.no_warns,
+            include_fails=args.include_fails,
+            missing_policy=args.missing_policy,
+        )
+        hygiene_summary_lines = format_summary_lines(
+            cls, kept,
+            include_warns=not args.no_warns,
+            include_fails=args.include_fails,
+            missing_policy=args.missing_policy,
+        )
+        if not kept:
+            print()
+            print("  " + "=" * 56)
+            print(f"   No usable dates after hygiene filter -- nothing to train")
+            print("  " + "=" * 56)
+            for line in hygiene_summary_lines:
+                print(line)
+            print()
+            return 4
+        include_dates = kept
 
     # ── Holdout leak guard ───────────────────────────────────────────────
     # Build the set of dates that training would actually touch and check it
@@ -168,6 +235,9 @@ def main() -> int:
         print(f"   include-dates ({len(include_dates)}):  {', '.join(include_dates)}")
     else:
         print(f"   range:  {args.date_from}  ->  {args.date_to}")
+    # Phase-4 hygiene summary (only when --include-dates was used)
+    for line in hygiene_summary_lines:
+        print(line)
     print("  " + "=" * 56)
 
     try:
