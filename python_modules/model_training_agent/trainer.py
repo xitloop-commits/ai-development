@@ -18,6 +18,7 @@ Flow:
 
 from __future__ import annotations
 
+import gc
 import json
 import os
 from dataclasses import dataclass
@@ -298,6 +299,11 @@ def _train_and_save_target(
             hyperparam_overrides=hyperparam_overrides,
         )
         booster.save_model(str(output_path))
+        # Phase 5 (2026-06-20): drop the in-memory booster + reclaim its
+        # ~5-15MB tree structures before returning. Across 84 heads that's
+        # ~1GB held when only the current head needs to be resident.
+        del booster
+        gc.collect()
         return target, metrics, None
     except Exception as e:
         return target, None, f"{type(e).__name__}: {e}"
@@ -536,8 +542,14 @@ def _validate_one_fold(
                 ))
             continue
         try:
+            # Phase 5 (2026-06-20): CV used to fit each head single-threaded
+            # — leaving 7+ cores idle for the longest phase of training.
+            # `lgbm_n_jobs=-1` lets LightGBM use every core; CV's 5 folds ×
+            # 84 heads is now ~2x faster on multi-core. Production-fit and
+            # CV use the same hyperparams so saturating cores during CV
+            # doesn't change scores, only wall-clock.
             _, fit_metrics = _fit_one(
-                target, objective, X_tr, y_tr, X_va, y_va, lgbm_n_jobs=1,
+                target, objective, X_tr, y_tr, X_va, y_va, lgbm_n_jobs=-1,
                 hyperparam_overrides=hyperparam_overrides,
             )
             metrics[target] = fit_metrics
@@ -1146,6 +1158,15 @@ def train_instrument(
 
             fit_jobs.append((target, objective, X_tr, y_tr, X_va, y_va))
 
+        # Phase 5 (2026-06-20): fit_jobs now holds the per-target copies it
+        # needs. The bulk train-side objects (raw DataFrames + the float32
+        # X_train_base feature matrix) won't be touched again until sim_PnL
+        # (which uses X_val_base only). Dropping these here cuts peak memory
+        # by the size of df_train + X_train_base — usually 1–3 GB on a
+        # 28-day run, and the win scales linearly with date count.
+        del df_train, df_train_filt, X_train_base
+        gc.collect()
+
         # F5 — execute: serial when n_jobs<=1 (preserves the original log
         # cadence and is what tests rely on), parallel otherwise. In parallel
         # mode LightGBM's internal thread count is pinned to 1 so the outer
@@ -1195,9 +1216,21 @@ def train_instrument(
                     pass
                 cv_dashboard = None
         else:
+            # Phase 5 (2026-06-20): cap BLAS thread pools so the
+            # n_jobs joblib workers don't oversubscribe the CPU. Each
+            # LightGBM worker already pins lgbm_n_jobs=1, but pandas
+            # / numpy preprocessing inside the worker would otherwise
+            # let BLAS spawn a full thread pool per worker (so n_jobs=4
+            # could spawn 4 × cores threads). Setting these in the
+            # parent env is inherited by the joblib workers. Safe to
+            # set unconditionally since they only affect BLAS-backed
+            # numpy ops; existing LightGBM threading is unaffected.
+            for _var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS",
+                         "OPENBLAS_NUM_THREADS"):
+                os.environ.setdefault(_var, "1")
             print(
                 f"\n  >> Training {len(fit_jobs)} targets in parallel "
-                f"(n_jobs={n_jobs}, lgbm_n_jobs=1) ..."
+                f"(n_jobs={n_jobs}, lgbm_n_jobs=1, BLAS=1) ..."
             )
             results = Parallel(n_jobs=n_jobs)(
                 delayed(_train_and_save_target)(
