@@ -157,12 +157,19 @@ def main() -> int:
     p.add_argument(
         "--resume",
         action="store_true",
-        help="Resume the most recent interrupted run (Phase 3, 2026-06-20). "
-        "Finds the newest dir under `models/<instrument>/` that has no "
-        "training_manifest.json (= interrupted) but has at least one "
-        "partial-state sidecar. Walk-forward CV picks up at the next "
-        "fold; the final-fit phase picks up at the next head. Schema "
-        "fingerprint protects against resuming after a config change.",
+        help="DEPRECATED -- resume is now auto-detected by default "
+        "(2026-06-21). Kept for backwards compatibility; passing it "
+        "is equivalent to the default behavior.",
+    )
+    p.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Force a fresh run, even if an interrupted run with partial "
+        "state exists for this instrument. Default behaviour (2026-06-21) "
+        "is to auto-detect resumable runs and pick up where they left "
+        "off, matching the replay UX. Pass --fresh when you want to "
+        "deliberately discard prior partial state and start over (e.g. "
+        "after a feature-config change that invalidates the old run).",
     )
     args = p.parse_args()
     if args.quiet:
@@ -184,13 +191,11 @@ def main() -> int:
                 f"{', '.join(invalid)}. Valid: {', '.join(VALID_INSTRUMENTS)}\n"
             )
             return 5
-        if args.resume:
-            print(
-                "\n  ERROR: --resume is not supported with --instruments "
-                "(parallel mode). Use --instrument <one> --resume to resume a "
-                "single interrupted run.\n"
-            )
-            return 5
+        # Phase 3 / auto-resume (2026-06-21): parallel mode now does
+        # per-instrument auto-detect inside each worker. The old
+        # blanket "--resume forbidden with --instruments" check is
+        # gone -- the orchestrator picks the right resume dir per
+        # instrument via find_resumable_run_dir.
         if len(parallel_instruments) == 1:
             # Single instrument inside --instruments -- treat it as the
             # serial path so the user gets the rich dashboard.
@@ -316,7 +321,10 @@ def main() -> int:
             "fold_week_size": args.fold_week_size,
             "n_jobs": n_jobs,
             "include_dates": include_dates,
-            # resume_dir intentionally omitted -- parallel mode forbids --resume
+            # Workers auto-detect their own instrument's resumable run
+            # unless --fresh is set. The orchestrator pops this key
+            # before forwarding to train_instrument.
+            "_auto_resume": not args.fresh,
         }
         try:
             results = train_multiple_instruments(
@@ -346,16 +354,23 @@ def main() -> int:
         print(line)
     print("  " + "=" * 56)
 
-    # Phase 3 (2026-06-20): --resume looks up the most recent interrupted
-    # run dir under models/<instrument>/ and threads it through so the
-    # trainer picks up where the prior run left off.
+    # Phase 3 (2026-06-20) + auto-detect (2026-06-21): unless --fresh is
+    # passed, look up the most recent interrupted run dir under
+    # `models/<instrument>/` and thread it through so the trainer picks
+    # up where the prior run left off. Matches the replay's UX: relaunch
+    # = resume by default; pass --fresh when you want a clean run.
     resume_dir = None
-    if args.resume:
+    if not args.fresh:
         from model_training_agent.checkpoint import find_resumable_run_dir
         resume_dir = find_resumable_run_dir(
             args.instrument, Path(args.models_root),
         )
-        if resume_dir is None:
+        if resume_dir is not None:
+            print(f"\n   Auto-resume: picking up at {resume_dir.name}")
+            print(f"   (pass --fresh to discard partial state and start over)\n")
+        elif args.resume:
+            # Legacy --resume diagnostic: only print when the operator
+            # explicitly asked to resume but nothing was there.
             print()
             print("  " + "=" * 56)
             print(f"   --resume: no interrupted run found for {args.instrument}")
@@ -367,8 +382,6 @@ def main() -> int:
                 f"Falling back to a fresh run."
             )
             print()
-        else:
-            print(f"\n   Resuming run from: {resume_dir}\n")
 
     try:
         result = train_instrument(

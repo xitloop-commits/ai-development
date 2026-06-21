@@ -132,6 +132,20 @@ def _train_one_instrument_worker(
 
     from model_training_agent.trainer import train_instrument
 
+    # Auto-detect resumable run per instrument (2026-06-21). Each worker
+    # owns its own instrument's resume state, so parallel mode mirrors
+    # the single-instrument CLI behavior. `auto_resume=False` lets the
+    # caller suppress (set when `--fresh` is on at the CLI level).
+    auto_resume = train_kwargs.pop("_auto_resume", True)
+    if auto_resume and train_kwargs.get("resume_dir") is None:
+        from model_training_agent.checkpoint import find_resumable_run_dir
+        from pathlib import Path as _Path
+        _models_root = train_kwargs.get("models_root") or _Path("models")
+        _resume = find_resumable_run_dir(instrument, _Path(_models_root))
+        if _resume is not None:
+            print(f"  Auto-resume: picking up at {_resume.name}")
+            train_kwargs["resume_dir"] = _resume
+
     try:
         result = train_instrument(instrument=instrument, **train_kwargs)
         return {
