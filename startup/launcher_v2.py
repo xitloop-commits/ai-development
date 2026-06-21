@@ -865,14 +865,14 @@ def date_picker(
         # underneath was easy to miss when "Select All Pending" was
         # only in the help line; promoting it here so operators see
         # the option without scanning shortcuts.
-        print(f"    [Run]    {YELLOW('[A] Select All Pending')}    "
+        print(f"    [Run]    {YELLOW('[A] Select All Pending (cursor instrument)')}    "
               f"[C] Clear Selection    [Esc] Cancel")
         print()
         print(f"  {DIM('─' * W)}")
         print(f"  " + _hk_line(
             ("↑↓", "move"),
             ("Space", "toggle"),
-            ("A", "all pending"),
+            ("A", "all pending (cursor inst)"),
             ("C", "clear"),
             ("1-4", "toggle inst"),
             ("I", "toggle current"),
@@ -911,18 +911,31 @@ def date_picker(
                 continue
             if kind == "inst":
                 it.included = not it.included
+                # 2026-06-21: selecting an instrument auto-ticks all
+                # its pending (non-locked) dates. Saves the operator
+                # the separate "now press A" step for the common
+                # "train everything that hasn't been trained yet"
+                # workflow. Deselecting clears the user's picks so
+                # the next select gives a fresh state.
+                if it.included:
+                    it.checked = set(d for d in it.available if d not in it.locked)
+                else:
+                    it.checked.clear()
             elif kind == "date" and dstr not in it.locked and it.included:
                 if dstr in it.checked:
                     it.checked.discard(dstr)
                 else:
                     it.checked.add(dstr)
         elif key in ("a", "A"):
-            for it in items:
+            # 2026-06-21: scoped to the instrument under the cursor
+            # (was global across all included instruments). Manual
+            # equivalent of what Space-toggle now does automatically,
+            # kept for the case where the operator already toggled
+            # instruments on and just wants to re-tick everything.
+            if nav:
+                _knd, inst_idx, _ = nav[cursor]
+                it = items[inst_idx]
                 if it.enabled and it.included:
-                    it.checked = set(it.available) - it.locked
-                    it.checked |= it.locked  # locked already always included; harmless
-                    it.checked -= it.locked
-                    # Above is messy: simplify to "all pending ticked"
                     it.checked = set(d for d in it.available if d not in it.locked)
         elif key in ("c", "C", "n", "N"):
             for it in items:
@@ -931,11 +944,21 @@ def date_picker(
             idx = int(key) - 1
             if 0 <= idx < len(items) and items[idx].enabled:
                 items[idx].included = not items[idx].included
+                it = items[idx]
+                # Same auto-tick behaviour as Space-on-inst.
+                if it.included:
+                    it.checked = set(d for d in it.available if d not in it.locked)
+                else:
+                    it.checked.clear()
         elif key in ("i", "I"):
             _knd, inst_idx, _ = nav[cursor]
             it = items[inst_idx]
             if it.enabled:
                 it.included = not it.included
+                if it.included:
+                    it.checked = set(d for d in it.available if d not in it.locked)
+                else:
+                    it.checked.clear()
 
 
 # ── Train submenu ─────────────────────────────────────────────────────────
