@@ -861,7 +861,12 @@ def date_picker(
             i += 1  # safety
 
         print()
-        print(f"    [Run]    [Clear Selection]    [Cancel]")
+        # Surfaced action row -- visible, labeled buttons. The (A) key
+        # underneath was easy to miss when "Select All Pending" was
+        # only in the help line; promoting it here so operators see
+        # the option without scanning shortcuts.
+        print(f"    [Run]    {YELLOW('[A] Select All Pending')}    "
+              f"[C] Clear Selection    [Esc] Cancel")
         print()
         print(f"  {DIM('─' * W)}")
         print(f"  " + _hk_line(
