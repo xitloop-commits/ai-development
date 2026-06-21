@@ -1009,6 +1009,26 @@ def train_instrument(
         f"({len(feature_config['final_features'])} features)"
     )
 
+    # 3.1 Phase F (2026-06-21): memory-headroom pre-flight. Refuses to
+    # start when projected peak working set won't fit in RAM, with a
+    # clear diagnostic + suggested actions. Critical for MCX
+    # instruments whose 15-hr sessions push ~70k ticks/day.
+    from model_training_agent.memory_guard import assert_headroom_or_advise
+    # Estimate based on the BIGGER of (train+val) and the most demanding
+    # CV-fold concat (which can briefly hold a larger combined matrix).
+    _row_count_est = max(
+        len(df_train) + len(df_val),
+        len(loaded) * (len(df_train) // max(1, len(train_dates))),
+    )
+    assert_headroom_or_advise(
+        instrument=instrument,
+        row_count=_row_count_est,
+        feature_count=len(feature_config["final_features"]),
+        # Parallel mode is detected via env var the orchestrator sets;
+        # in single-instrument mode we treat it as serial.
+        is_parallel_mode=os.environ.get("MTA_PARALLEL_WORKER", "") == "1",
+    )
+
     # 4. Train each target
     # Phase 3 (2026-06-20): when `resume_dir` is passed, reuse that
     # directory so per-fold + per-head checkpoints carry over. The CLI
@@ -1179,6 +1199,12 @@ def train_instrument(
             df_train,
             feature_config,
         )
+        # Phase B (2026-06-21): raw df_train carries ~560 cols incl.
+        # strings/objects (~3 GB on crudeoil) and isn't referenced again
+        # after preprocessing. Drop it BEFORE the val preprocess so its
+        # peak doesn't stack with X_val_base's allocation.
+        del df_train
+        gc.collect()
         df_val_filt, X_val_base, _ = preprocess_for_training_base(
             df_val,
             feature_config,
@@ -1282,6 +1308,13 @@ def train_instrument(
                 except Exception:
                     pass
                 cv_dashboard = None
+            # Phase B (2026-06-21): final-fit done; train-side base
+            # matrices are no longer referenced. Calibration uses cal_df
+            # + cal_X_base (separate); sim_PnL uses df_val_filt /
+            # X_val_base only. Free ~1.4 GB on banknifty / ~3.3 GB on
+            # crudeoil before the calibration loop begins.
+            del df_train_filt, X_train_base
+            gc.collect()
         else:
             # Phase 5 (2026-06-20): cap BLAS thread pools so the
             # n_jobs joblib workers don't oversubscribe the CPU. Each
@@ -1339,6 +1372,10 @@ def train_instrument(
                     f"     {target_in}: {metric_key} = {metrics[metric_key]:.4f}  "
                     f"(train={metrics['n_train']:,}, val={metrics['n_val']:,})"
                 )
+            # Phase B parallel-branch parity: free train-side matrices
+            # before calibration runs. Same reasoning as the serial path.
+            del df_train_filt, X_train_base
+            gc.collect()
 
         # 4.5. Per-head isotonic calibration (T25, V2_MASTER_SPEC D72).
         # Only binary heads — regression heads emit signed point estimates

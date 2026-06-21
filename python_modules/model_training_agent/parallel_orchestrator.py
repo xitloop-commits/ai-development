@@ -121,6 +121,10 @@ def _train_one_instrument_worker(
     # Force legacy text output — multiple rich.Live dashboards in the same
     # terminal would clobber each other's alt-screen state.
     os.environ["TFA_LEGACY_TRAIN_UI"] = "1"
+    # Phase F (2026-06-21): tell the trainer's memory-headroom guard
+    # that it's running in parallel mode, so the diagnostic suggests
+    # dropping to serial as a remediation if it fails.
+    os.environ["MTA_PARALLEL_WORKER"] = "1"
 
     _install_stdout_prefix(instrument)
 
