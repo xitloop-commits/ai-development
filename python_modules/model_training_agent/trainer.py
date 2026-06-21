@@ -668,7 +668,11 @@ def _aggregate_fold_metrics(fold_results: list[dict]) -> dict:
 
 def _serial_train_with_dashboard(
     *,
-    fit_jobs: list,
+    fit_targets: list[tuple[str, str]],
+    df_train_filt: pd.DataFrame,
+    X_train_base: pd.DataFrame,
+    df_val_filt: pd.DataFrame,
+    X_val_base: pd.DataFrame,
     instrument: str,
     exchange: str,
     n_dates: int,
@@ -682,6 +686,14 @@ def _serial_train_with_dashboard(
 ) -> None:
     """Run the serial fitting loop, optionally wrapping it in a rich
     TrainingDashboard (Phase 1a, 2026-06-20).
+
+    Memory refactor (2026-06-21): previously took a pre-materialised
+    ``fit_jobs`` list of ``(target, objective, X_tr, y_tr, X_va, y_va)``
+    tuples -- ~900MB per target × 84 targets = ~75GB peak on banknifty.
+    Now takes ``fit_targets`` metadata + the base matrices; per-target
+    ``(X_tr, y_tr, X_va, y_va)`` extraction happens INSIDE the loop and
+    is released after each head's `gc.collect()`. Peak memory is one
+    target's worth (~900MB) instead of 84.
 
     Falls back to plain prints when ``use_dashboard=False`` (cron jobs,
     --quiet, TFA_LEGACY_TRAIN_UI=1). Behaviourally identical to the
@@ -703,22 +715,34 @@ def _serial_train_with_dashboard(
         )
         all_metrics.update(_done_metrics)
 
-    if not use_dashboard or not fit_jobs:
+    def _extract(target: str) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
+        """Pull this target's (X_tr, y_tr, X_va, y_va) from the base
+        matrices. Caller is responsible for releasing the references
+        (`del` + `gc.collect()`) before the next iteration."""
+        X_tr, y_tr = extract_target_subset(df_train_filt, X_train_base, target)
+        X_va, y_va = extract_target_subset(df_val_filt, X_val_base, target)
+        return X_tr, y_tr, X_va, y_va
+
+    if not use_dashboard or not fit_targets:
         # Legacy print path — same as pre-Phase-1a behaviour.
-        for target, objective, X_tr, y_tr, X_va, y_va in fit_jobs:
+        for target, objective in fit_targets:
             if target in _done_metrics:
                 continue
             print(f"\n  >> Training {target} ({objective}) ...")
+            X_tr, y_tr, X_va, y_va = _extract(target)
             _, metrics, err = _train_and_save_target(
                 target, objective, X_tr, y_tr, X_va, y_va,
                 output_dir / f"{target}.lgbm",
                 lgbm_n_jobs=-1,
                 hyperparam_overrides=hyperparam_overrides,
             )
+            n_tr, n_va = len(X_tr), len(X_va)
+            del X_tr, y_tr, X_va, y_va
+            gc.collect()
             if err is not None:
                 print(f"     FAILED: {err}")
                 all_metrics[target] = {
-                    "n_train": len(X_tr), "n_val": len(X_va),
+                    "n_train": n_tr, "n_val": n_va,
                     "failed": True, "error": err,
                 }
                 skipped_targets.append(target)
@@ -750,7 +774,7 @@ def _serial_train_with_dashboard(
         HeadResult,
         TrainingDashboard,
     )
-    total_heads = len(fit_jobs)
+    total_heads = len(fit_targets)
     # Phase 1c (2026-06-20): reuse the CV dashboard if it's already open
     # so the operator sees one continuous frame (CV folds → Final fit →
     # Calibration). When called outside a CV context, instantiate a
@@ -765,7 +789,7 @@ def _serial_train_with_dashboard(
             feature_count=feature_count,
         )
     with dash_cm as dash:
-        for target, objective, X_tr, y_tr, X_va, y_va in fit_jobs:
+        for target, objective in fit_targets:
             if target in _done_metrics:
                 # Already trained in a prior run; advance dashboard counter
                 # by replaying the past result so progress stays honest.
@@ -782,22 +806,26 @@ def _serial_train_with_dashboard(
                 ))
                 continue
             dash.start_head(target, objective)
+            X_tr, y_tr, X_va, y_va = _extract(target)
             _, metrics, err = _train_and_save_target(
                 target, objective, X_tr, y_tr, X_va, y_va,
                 output_dir / f"{target}.lgbm",
                 lgbm_n_jobs=-1,
                 hyperparam_overrides=hyperparam_overrides,
             )
+            n_tr, n_va = len(X_tr), len(X_va)
+            del X_tr, y_tr, X_va, y_va
+            gc.collect()
             if err is not None:
                 all_metrics[target] = {
-                    "n_train": len(X_tr), "n_val": len(X_va),
+                    "n_train": n_tr, "n_val": n_va,
                     "failed": True, "error": err,
                 }
                 skipped_targets.append(target)
                 dash.mark_head_done(HeadResult(
                     target=target, objective=objective,
                     val_metric=None, metric_name="",
-                    n_train=len(X_tr), n_val=len(X_va),
+                    n_train=n_tr, n_val=n_va,
                     status="failed", error=err,
                 ))
                 try:
@@ -1159,28 +1187,34 @@ def train_instrument(
         all_metrics: dict = {}
         skipped_targets: list[str] = []
 
-        # F5 — pre-flight: build the list of fit-able targets and apply the
-        # cheap skip rules (no data, single-class val) here so the parallel
-        # path doesn't pay subprocess startup cost just to skip.
-        fit_jobs: list[tuple[str, str, pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]] = []
+        # F5 pre-flight (2026-06-21 memory refactor): only the cheap
+        # skip checks happen here. We do NOT materialise per-target
+        # X_tr/y_tr copies anymore -- the fit loop pulls them on demand
+        # so memory holds at most ONE target's worth at a time.
+        INT32_SENTINEL = -2147483648
+        fit_targets: list[tuple[str, str]] = []
         for target, objective in MVP_TARGETS.items():
-            X_tr, y_tr = extract_target_subset(df_train_filt, X_train_base, target)
-            X_va, y_va = extract_target_subset(df_val_filt, X_val_base, target)
+            y_tr_series = df_train_filt[target]
+            valid_tr = y_tr_series.notna() & (y_tr_series != INT32_SENTINEL)
+            n_tr = int(valid_tr.sum())
+            y_va_series = df_val_filt[target]
+            valid_va = y_va_series.notna() & (y_va_series != INT32_SENTINEL)
+            n_va = int(valid_va.sum())
 
-            if len(X_tr) == 0 or len(X_va) == 0:
-                reason = f"no data after preprocess (train={len(X_tr)}, val={len(X_va)})"
+            if n_tr == 0 or n_va == 0:
+                reason = f"no data after preprocess (train={n_tr}, val={n_va})"
                 print(f"  >> SKIP {target}: {reason}")
                 all_metrics[target] = {
-                    "n_train": len(X_tr),
-                    "n_val": len(X_va),
-                    "skipped": True,
-                    "reason": reason,
+                    "n_train": n_tr, "n_val": n_va,
+                    "skipped": True, "reason": reason,
                 }
                 skipped_targets.append(target)
                 continue
 
             if objective == "binary":
-                unique_classes = np.unique(y_va)
+                # Cheap unique-class check on the masked val targets
+                # (no big X matrix materialised).
+                unique_classes = np.unique(y_va_series[valid_va].values)
                 if len(unique_classes) < 2:
                     reason = (
                         f"val has only one class ({unique_classes.tolist()}); "
@@ -1188,24 +1222,13 @@ def train_instrument(
                     )
                     print(f"  >> SKIP {target}: {reason}")
                     all_metrics[target] = {
-                        "n_train": len(X_tr),
-                        "n_val": len(X_va),
-                        "skipped": True,
-                        "reason": reason,
+                        "n_train": n_tr, "n_val": n_va,
+                        "skipped": True, "reason": reason,
                     }
                     skipped_targets.append(target)
                     continue
 
-            fit_jobs.append((target, objective, X_tr, y_tr, X_va, y_va))
-
-        # Phase 5 (2026-06-20): fit_jobs now holds the per-target copies it
-        # needs. The bulk train-side objects (raw DataFrames + the float32
-        # X_train_base feature matrix) won't be touched again until sim_PnL
-        # (which uses X_val_base only). Dropping these here cuts peak memory
-        # by the size of df_train + X_train_base — usually 1–3 GB on a
-        # 28-day run, and the win scales linearly with date count.
-        del df_train, df_train_filt, X_train_base
-        gc.collect()
+            fit_targets.append((target, objective))
 
         # F5 — execute: serial when n_jobs<=1 (preserves the original log
         # cadence and is what tests rely on), parallel otherwise. In parallel
@@ -1228,7 +1251,11 @@ def train_instrument(
                 _os.environ.get("TFA_LEGACY_TRAIN_UI", "0").strip() not in ("1", "true", "True")
             )
             _serial_train_with_dashboard(
-                fit_jobs=fit_jobs,
+                fit_targets=fit_targets,
+                df_train_filt=df_train_filt,
+                X_train_base=X_train_base,
+                df_val_filt=df_val_filt,
+                X_val_base=X_val_base,
                 instrument=instrument,
                 exchange=_exchange,
                 n_dates=len(loaded),
@@ -1269,35 +1296,40 @@ def train_instrument(
                          "OPENBLAS_NUM_THREADS"):
                 os.environ.setdefault(_var, "1")
             print(
-                f"\n  >> Training {len(fit_jobs)} targets in parallel "
+                f"\n  >> Training {len(fit_targets)} targets in parallel "
                 f"(n_jobs={n_jobs}, lgbm_n_jobs=1, BLAS=1) ..."
             )
-            results = Parallel(n_jobs=n_jobs)(
-                delayed(_train_and_save_target)(
-                    target,
-                    objective,
-                    X_tr,
-                    y_tr,
-                    X_va,
-                    y_va,
+            # 2026-06-21 memory refactor: per-target extract happens
+            # inside each joblib worker (lazy) instead of pre-materialising
+            # 84 copies in the parent. Sizes are captured here for the
+            # post-loop diagnostic print.
+            def _fit_one_parallel(target: str, objective: str):
+                X_tr, y_tr = extract_target_subset(df_train_filt, X_train_base, target)
+                X_va, y_va = extract_target_subset(df_val_filt, X_val_base, target)
+                ret = _train_and_save_target(
+                    target, objective, X_tr, y_tr, X_va, y_va,
                     output_dir / f"{target}.lgbm",
                     lgbm_n_jobs=1,
                     hyperparam_overrides=hyperparam_overrides,
                 )
-                for target, objective, X_tr, y_tr, X_va, y_va in fit_jobs
+                n_tr, n_va = len(X_tr), len(X_va)
+                del X_tr, y_tr, X_va, y_va
+                gc.collect()
+                return ret, n_tr, n_va
+            results = Parallel(n_jobs=n_jobs)(
+                delayed(_fit_one_parallel)(target, objective)
+                for target, objective in fit_targets
             )
-            # Re-attach objective / sizes from the input job list so the
-            # post-loop print uses the right metric label and counts.
-            for (_target_ret, metrics, err), (target_in, objective, X_tr, _yt, X_va, _yv) in zip(
-                results, fit_jobs, strict=False
+            # Re-attach objective from the input target list so the
+            # post-loop print uses the right metric label.
+            for ((_target_ret, metrics, err), n_tr, n_va), (target_in, objective) in zip(
+                results, fit_targets, strict=False
             ):
                 if err is not None:
                     print(f"     FAILED {target_in}: {err}")
                     all_metrics[target_in] = {
-                        "n_train": len(X_tr),
-                        "n_val": len(X_va),
-                        "failed": True,
-                        "error": err,
+                        "n_train": n_tr, "n_val": n_va,
+                        "failed": True, "error": err,
                     }
                     skipped_targets.append(target_in)
                     continue
