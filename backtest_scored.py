@@ -38,7 +38,7 @@ from signal_engine_agent.model_loader import LoadedModels, load_models
 from signal_engine_agent.thresholds import (
     Wave2Thresholds,
     decide_action_wave2,
-    load_thresholds,
+    load_thresholds_full,
 )
 
 _IST = timezone(timedelta(hours=5, minutes=30))
@@ -105,7 +105,12 @@ def run_scored_backtest(
     out_dir = output_root / instrument / model_version / date_str / "gate"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    thresholds = load_thresholds(instrument, config_dir)
+    # 2026-06-23 fix: load BOTH the base 3-cond and the Wave 2 add-on
+    # from the per-instrument JSON (was passing Wave2Thresholds() defaults
+    # which ignored every tuning override in config/sea_thresholds/*.json).
+    thresholds, _v2, wave2_thresholds, _gate_mode = load_thresholds_full(
+        instrument, config_dir,
+    )
 
     print()
     print("  ═══════════════════════════════════════════════════════════")
@@ -250,7 +255,7 @@ def run_scored_backtest(
                 "max_drawdown_900s": dn_pred_900,
             }
             sig = decide_action_wave2(
-                preds, thresholds, Wave2Thresholds(),
+                preds, thresholds, wave2_thresholds,
                 ce_ltp=ce_ltp, pe_ltp=pe_ltp,
             )
             action = sig.action
