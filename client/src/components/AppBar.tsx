@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { trpc } from '@/lib/trpc';
 import { useCapital, useChannel } from '@/contexts/CapitalContext';
+import { useMarketOpen } from '@/hooks/useMarketOpen';
 import { formatINR } from '@/lib/formatINR';
 import type { MarketHoliday } from '@/lib/types';
 import {
@@ -57,6 +58,30 @@ function isHolidayThisMonth(dateStr: string): boolean {
   const now = new Date();
   const d = new Date(dateStr + 'T00:00:00');
   return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+}
+
+// ── Market status (NSE / MCX) ────────────────────────────────
+// Two open/closed lights: green = at least one of the exchange's instruments
+// reports is_market_open (NSE = NIFTY/BANKNIFTY, MCX = CRUDE/NATURALGAS);
+// grey = closed or status not yet loaded. NSE and MCX close independently.
+function MarketStatusIndicator() {
+  const { isOpen } = useMarketOpen();
+  const nseOpen = isOpen('NIFTY 50') || isOpen('BANK NIFTY');
+  const mcxOpen = isOpen('CRUDE OIL') || isOpen('NATURAL GAS');
+
+  const light = (label: string, open: boolean) => (
+    <span className="flex items-center gap-1" title={`${label} market ${open ? 'open' : 'closed'}`}>
+      <span className={`inline-block h-2 w-2 rounded-full ${open ? 'bg-bullish' : 'bg-muted-foreground/40'}`} />
+      <span className="text-[0.5625rem] tracking-wider text-muted-foreground">{label}</span>
+    </span>
+  );
+
+  return (
+    <div className="flex items-center gap-2.5">
+      {light('NSE', nseOpen)}
+      {light('MCX', mcxOpen)}
+    </div>
+  );
 }
 
 function HolidayIndicator() {
@@ -376,6 +401,13 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
         {/* Holiday */}
         <div className="px-3 flex items-center shrink-0">
           <HolidayIndicator />
+        </div>
+
+        <div className="w-px self-stretch bg-border shrink-0" />
+
+        {/* Market status (NSE / MCX open-closed lights) */}
+        <div className="px-3 flex items-center shrink-0">
+          <MarketStatusIndicator />
         </div>
 
         <div className="w-px self-stretch bg-border shrink-0" />

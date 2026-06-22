@@ -54,9 +54,16 @@ export function useMarketOpen() {
     [openByKey],
   );
 
+  // True ONLY when an instrument is known-open (loaded + is_market_open). Unknown
+  // / not-loaded → false, so a status light reads grey until proven open.
+  const isOpen = useCallback(
+    (instrumentName: string): boolean => openByKey[norm(instrumentName)] === true,
+    [openByKey],
+  );
+
   // True when at least one instrument's market is known-open — i.e. we should be
   // receiving live ticks. Used to gate the feed-health banner to trading hours.
   const anyOpen = useMemo(() => Object.values(openByKey).some((v) => v === true), [openByKey]);
 
-  return { isClosed, anyOpen };
+  return { isClosed, isOpen, anyOpen };
 }
