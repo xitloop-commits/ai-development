@@ -928,6 +928,21 @@ def run_one_date(
     _max_pain_cache.uninstall_side_strengths(_side_strengths_patch)
     _max_pain_cache.uninstall_dealer_hedging(_dealer_hedging_patch)
 
+    # 2026-06-22: emit the terminal status from the WORKER side so the
+    # dashboard's row flips to green (pass) / yellow (warn) / red (fail)
+    # the instant validation finishes -- no wait for the parent's
+    # as_completed → mark_terminal IPC roundtrip. Previously the row
+    # could sit at "validating 99.9%" for ~hundreds of ms after the
+    # worker already returned, and if the operator pressed Esc inside
+    # that window the date appeared "stuck" even though it was fully
+    # done on disk. The parent's mark_terminal() call remains as a
+    # safety net for the worker-crashed case (where the worker never
+    # reaches this line and the future raises instead of returns).
+    try:
+        progress_callback({"status": verdict})
+    except Exception:
+        pass
+
     return verdict
 
 
