@@ -1311,6 +1311,20 @@ def replay(
             )
         return summary
 
+    # ── Memory headroom pre-flight (2026-06-23) ───────────────────────────
+    # Refuse to spawn workers when projected combined peak working set
+    # won't fit in available RAM. Prevents the 30-min validation-thrash
+    # observed on 6-worker MCX crudeoil where each worker ate 6-14 GB and
+    # the system swapped instead of completing. Override with env
+    # `TFA_SKIP_REPLAY_MEMORY_GUARD=1`.
+    from tick_feature_agent.replay.memory_guard import assert_headroom_or_advise
+    assert_headroom_or_advise(
+        instrument=instrument,
+        dates=list(dates_iter),
+        n_workers=n_workers,
+        raw_root=raw_root,
+    )
+
     # ── Unified pool + dashboard path ─────────────────────────────────────
     # 2026-06-14 (Partha): the pre-2026-06-14 serial ``if n_workers == 1:``
     # branch is gone. Single-date replays now go through the same
