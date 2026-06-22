@@ -544,6 +544,12 @@ def _compute_scorecard(
             )
 
     # ── Signal precision (only emitted signals) ─────────────────────────
+    # 2026-06-23: precision check now uses actual_dir_60s (matches the
+    # Wave 2 gate's 60s horizon). Previously read actual_dir_30s which
+    # is NaN under the current model -- new MVP_TARGETS dropped the 30s
+    # window (direction_60s/120s/180s/240s/300s only). That made the
+    # precision tally skip every signal and report 0% even when the
+    # gate fired correctly.
     signal_counts = {"LONG_CE": 0, "LONG_PE": 0, "SHORT_CE": 0, "SHORT_PE": 0}
     signal_correct = {"LONG_CE": 0, "LONG_PE": 0, "SHORT_CE": 0, "SHORT_PE": 0}
 
@@ -553,7 +559,7 @@ def _compute_scorecard(
             continue
         signal_counts[action] += 1
 
-        actual_dir = s.get("actual_dir_30s")
+        actual_dir = s.get("actual_dir_60s")
         if actual_dir is None:
             continue
 
@@ -592,8 +598,9 @@ def _compute_scorecard(
         entry = s.get("entry") or 0
         tp = s.get("tp") or 0
         sl = s.get("sl") or 0
-        actual_up = s.get("actual_up_30s") or 0
-        actual_dn = s.get("actual_dn_30s") or 0
+        # 2026-06-23: use 60s actuals (was 30s, now NaN for current model).
+        actual_up = s.get("actual_up_60s") or 0
+        actual_dn = s.get("actual_dn_60s") or 0
 
         if entry <= 0 or tp <= 0 or sl <= 0:
             continue

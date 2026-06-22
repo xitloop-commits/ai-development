@@ -355,6 +355,17 @@ class Wave2Thresholds:
     # the original Wave 2 gate ignored. Only enforced when prediction is
     # finite, so it's a no-op for legacy / Wave 1 callers.
     breakout_in_60s_min: float = 0.50
+    # Magnitude scaling (2026-06-23): the trainer's `max_upside_*` and
+    # `max_drawdown_*` regression heads systematically OVER-PREDICT move
+    # size — empirical 06-19 banknifty backtest showed avg predicted
+    # upside ≈ 2× actual. When TP is set at `entry + max_upside_pred`
+    # it lands ~30 pts above current price but actual move only reaches
+    # ~15 pts, so TP NEVER hits → trades time out → 0% precision even
+    # when DIRECTION is correct 60-70% of the time. This factor scales
+    # the predicted magnitude before TP/SL distance computation. Set
+    # to 0.5 by default (matches the 2× overshoot). Tune per-instrument
+    # via JSON config once observed precision is known.
+    magnitude_scale: float = 0.5
 
 
 def decide_action_wave2(
@@ -475,8 +486,11 @@ def decide_action_wave2(
         )
 
     leg_ltp_f = float(leg_ltp)
-    tp_dist = abs(up_pred)
-    sl_dist = abs(dn_pred)
+    # 2026-06-23: scale predicted magnitudes before TP/SL placement.
+    # See Wave2Thresholds.magnitude_scale docstring for rationale.
+    scale = max(0.05, min(2.0, wave2_thresholds.magnitude_scale))
+    tp_dist = abs(up_pred) * scale
+    sl_dist = abs(dn_pred) * scale
     entry = leg_ltp_f
     tp = leg_ltp_f + tp_dist
     sl = leg_ltp_f - sl_dist

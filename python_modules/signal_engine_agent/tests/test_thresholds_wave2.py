@@ -47,9 +47,11 @@ def test_all_conditions_pass_emits_long_ce():
     assert sig.gate_passed
     assert sig.action == "LONG_CE"
     assert sig.direction == "GO_CALL"
-    # CE TP from max_upside_300s=10: tp = 100 + 10 = 110
-    assert sig.tp == pytest.approx(110.0)
-    assert sig.sl == pytest.approx(95.0)
+    # CE TP from max_upside_300s=10 with default magnitude_scale=0.5:
+    # tp_dist = 10 * 0.5 = 5  →  tp = 100 + 5 = 105
+    # sl_dist =  5 * 0.5 = 2.5 → sl = 100 - 2.5 = 97.5
+    assert sig.tp == pytest.approx(105.0)
+    assert sig.sl == pytest.approx(97.5)
 
 
 def test_all_conditions_pass_emits_long_pe_with_pe_leg_targets():
@@ -58,10 +60,11 @@ def test_all_conditions_pass_emits_long_pe_with_pe_leg_targets():
     assert sig.gate_passed
     assert sig.action == "LONG_PE"
     assert sig.direction == "GO_PUT"
-    # PE TP from max_upside_pe_300s=8 → tp = 80 + 8 = 88
-    assert sig.tp == pytest.approx(88.0)
-    # PE SL from max_drawdown_pe_300s=4 → sl = 80 - 4 = 76
-    assert sig.sl == pytest.approx(76.0)
+    # PE TP from max_upside_pe_300s=8 with default magnitude_scale=0.5:
+    # tp_dist = 8 * 0.5 = 4 → tp = 80 + 4 = 84
+    # sl_dist = 4 * 0.5 = 2 → sl = 80 - 2 = 78
+    assert sig.tp == pytest.approx(84.0)
+    assert sig.sl == pytest.approx(78.0)
 
 
 # ── W1: direction_persists_60s ────────────────────────────────────────────
