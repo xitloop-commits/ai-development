@@ -36,7 +36,8 @@ import pyarrow.parquet as pq
 from model_training_agent.preprocessor import preprocess_live_tick
 from signal_engine_agent.model_loader import LoadedModels, load_models
 from signal_engine_agent.thresholds import (
-    decide_action,
+    Wave2Thresholds,
+    decide_action_wave2,
     load_thresholds,
 )
 
@@ -200,32 +201,58 @@ def run_scored_backtest(
             trend_dir_1800 = _pred("trend_direction_1800s")
             swing_dir_3600 = _pred("swing_direction_3600s")
             swing_dir_7200 = _pred("swing_direction_7200s")
+            # Wave 2 gate inputs (2026-06-21): SEA's live engine.py uses
+            # decide_action_wave2 with these; backtest now mirrors the
+            # production gate so signal counts match what Monday will see.
+            persists_60 = _pred("direction_persists_60s")
+            persists_300 = _pred("direction_persists_300s")
+            exit_60 = _pred("exit_signal_60s")
+            breakout_60 = _pred("breakout_in_60s")
 
             regime = row.get("regime")
             ce_ltp = row.get("opt_0_ce_ltp")
             pe_ltp = row.get("opt_0_pe_ltp")
 
-            # Per E9: upside_percentile_30s is a TFA-emitted live feature
-            # column (session rank), not a model target. Read it from the
-            # parquet row directly.
-            pctile_live = row.get("upside_percentile_30s")
+            # upside_percentile is TFA-emitted (session rank), not a model
+            # target -- read from the parquet row. Wave 2 uses the 60s
+            # window; fall back to 30s if the 60s column isn't present
+            # (older parquets pre-Wave-2 schema).
+            pctile_live = row.get("upside_percentile_60s")
+            if pctile_live is None:
+                pctile_live = row.get("upside_percentile_30s")
             try:
                 pctile_live_f = float(pctile_live) if pctile_live is not None else float("nan")
             except (TypeError, ValueError):
                 pctile_live_f = float("nan")
 
+            # Wave 2 preds dict (2026-06-21): mirrors what SEA's live
+            # engine.py passes to decide_action_wave2. The base 3-cond
+            # gate now reads the 60s window (was 30s pre-Wave-2); W1-W4
+            # add the new model-driven checks (persistence, exit,
+            # breakout). The legacy 30s entries are kept for the
+            # scorecard's MAE/correlation print, but the gate uses 60s.
             preds = {
-                "direction_prob_30s": dir_prob_30,
-                "risk_reward_ratio_30s": rr_pred_30,
-                "upside_percentile_30s": pctile_live_f,
-                "max_upside_30s": up_pred_30,
-                "max_drawdown_30s": dn_pred_30,
+                # Base 3-cond (60s window per Wave 2 spec)
+                "direction_prob_60s": dir_prob_60,
+                "risk_reward_ratio_60s": rr_pred_60,
+                "upside_percentile_60s": pctile_live_f,
+                # Wave 2 model gates
+                "direction_persists_60s": persists_60,
+                "direction_persists_300s": persists_300,
+                "exit_signal_60s": exit_60,
+                "breakout_in_60s": breakout_60,
+                # TP/SL inputs (60s + swing horizons)
+                "max_upside_60s": up_pred_60,
+                "max_drawdown_60s": dn_pred_60,
                 "max_upside_300s": up_pred_300,
                 "max_drawdown_300s": dn_pred_300,
                 "max_upside_900s": up_pred_900,
                 "max_drawdown_900s": dn_pred_900,
             }
-            sig = decide_action(preds, thresholds, ce_ltp=ce_ltp, pe_ltp=pe_ltp)
+            sig = decide_action_wave2(
+                preds, thresholds, Wave2Thresholds(),
+                ce_ltp=ce_ltp, pe_ltp=pe_ltp,
+            )
             action = sig.action
             result = {
                 "entry": sig.entry,
@@ -315,18 +342,26 @@ def run_scored_backtest(
             # thresholds offline. Mirrors the live engine's
             # `_filtered_signals.log` schema.
             gate_reasons = result.get("gate_reasons") or []
-            if not np.isnan(dir_prob_30) and gate_reasons:
+            # Wave 2 filtered-signal record: anchored on the 60s window
+            # the gate actually consumes (was 30s pre-Wave-2). The 30s
+            # cols are still printed in MAE/correlation, just not used
+            # for the gate.
+            if not np.isnan(dir_prob_60) and gate_reasons:
                 filtered_emitted += 1
-                would_be = "GO_CALL" if dir_prob_30 > 0.5 else "GO_PUT"
+                would_be = "GO_CALL" if dir_prob_60 > 0.5 else "GO_PUT"
                 filt_rec = {
                     "tick": i,
                     "timestamp": _safe(row.get("timestamp")),
                     "instrument": instrument.upper(),
                     "would_be_direction": would_be,
                     "fail_reasons": gate_reasons,
-                    "direction_prob_30s": _safe(dir_prob_30),
-                    "risk_reward_ratio_30s": _safe(rr_pred_30),
-                    "upside_percentile_30s": _safe(pctile_live_f),
+                    "direction_prob_60s": _safe(dir_prob_60),
+                    "risk_reward_ratio_60s": _safe(rr_pred_60),
+                    "upside_percentile_60s": _safe(pctile_live_f),
+                    "direction_persists_60s": _safe(persists_60),
+                    "direction_persists_300s": _safe(persists_300),
+                    "exit_signal_60s": _safe(exit_60),
+                    "breakout_in_60s": _safe(breakout_60),
                     "model_version": model_version,
                 }
                 filtered_list.append(filt_rec)
@@ -415,15 +450,25 @@ def _render_prediction_chart(
 
 
 def _compute_gate_diagnostics(filtered_signals: list[dict]) -> dict:
-    """3-condition gate diagnostic histogram.
+    """7-condition Wave-2 gate diagnostic histogram (2026-06-21).
 
     `filtered_signals` here is the stream of ticks that **failed** the
     gate (one record per failed tick). Reports per-condition fail
     counts so the PR body / scorecard can show where most ticks were
     rejected. There's no precision computation in this path because
     no trade was emitted.
+
+    Base (Wave 1): C1_prob, C2_rr, C3_pct
+    Wave 2 add-ons: W1_persists_60s, W2_persists_300s, W3_exit_signal,
+                    W4_breakout_in
+    Sentinel: MISSING_PREDICTION (one of the required inputs was NaN)
     """
-    fail_counts: dict[str, int] = {"C1_prob": 0, "C2_rr": 0, "C3_pct": 0}
+    fail_counts: dict[str, int] = {
+        "C1_prob": 0, "C2_rr": 0, "C3_pct": 0,
+        "W1_persists_60s": 0, "W2_persists_300s": 0,
+        "W3_exit_signal": 0, "W4_breakout_in": 0,
+        "MISSING_PREDICTION": 0,
+    }
     for s in filtered_signals:
         for r in s.get("fail_reasons", []) or []:
             if r in fail_counts:
@@ -663,18 +708,26 @@ def _print_scorecard(sc: dict) -> None:
         pct = count / max(sc["total_ticks"], 1) * 100
         print(f"      {r:<10}  {count:>6,}  ({pct:.1f}%)")
 
-    # 3-condition gate diagnostics.
+    # Wave 2 gate diagnostics (2026-06-21): 3 base + 4 Wave 2 model
+    # conditions + MISSING_PREDICTION sentinel. Sorted by frequency
+    # so the biggest blocker is most visible.
     filt = sc.get("filtered", {})
     raw_count = sc.get("total_signals", 0)
     fail_counts = filt.get("fail_counts", {})
     print()
-    print("    ─── 3-Condition Gate Diagnostics ───")
+    print("    ─── Wave 2 Gate Diagnostics ───")
     print(f"      Raw signals (gate-passed):  {raw_count}")
     print(f"      Gate-failed ticks:          {filt.get('count', 0)}")
     if filt.get("count"):
-        print(f"      C1_prob fails:  {fail_counts.get('C1_prob', 0)}")
-        print(f"      C2_rr   fails:  {fail_counts.get('C2_rr', 0)}")
-        print(f"      C3_pct  fails:  {fail_counts.get('C3_pct', 0)}")
+        # All 7 conditions + sentinel, sorted by count descending so
+        # the biggest blocker pops first.
+        ordered = sorted(
+            (k for k in fail_counts.keys()),
+            key=lambda k: -fail_counts.get(k, 0),
+        )
+        for key in ordered:
+            if fail_counts.get(key, 0) > 0:
+                print(f"      {key:25s} {fail_counts[key]:>6}")
 
     print()
     print("  ═══════════════════════════════════════════════════════════")
