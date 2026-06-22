@@ -94,24 +94,30 @@ export function TodaySummaryRow({
         </div>
       </td>
 
-      {/* 3-5 Capital flow */}
-      <td colSpan={3} className={`${cell} text-right`}>
-        <span className="text-[0.6875rem] tabular-nums text-foreground/90">
-          {fmt(day.tradeCapital, true)}
-          <span className="text-muted-foreground"> → </span>
-          {hasTrades && day.actualCapital > 0 ? fmt(day.actualCapital, true) : fmt(day.tradeCapital, true)}
-          {hasTrades && <span className={pnlColor(day.deviation)}> ({formatDeviation(day.deviation)})</span>}
-        </span>
+      {/* 3-5 Capital · Profit+ · Capital+ — spread full width across the span */}
+      <td colSpan={3} className={cell}>
+        <div className="flex items-center justify-between gap-2">
+          <Stat label="Capital" align="left">{fmt(day.tradeCapital, true)}</Stat>
+          <Stat label="Profit+" align="center">{day.targetAmount > 0 ? fmt(day.targetAmount) : '—'}</Stat>
+          <Stat label="Capital+" align="right">
+            {hasTrades && day.actualCapital > 0 ? (
+              <>
+                {fmt(day.actualCapital, true)}
+                <span className={pnlColor(day.deviation)}> ({formatDeviation(day.deviation)})</span>
+              </>
+            ) : '—'}
+          </Stat>
+        </div>
       </td>
 
       {/* 6 Instrument → W/L + controls */}
       <td colSpan={1} className={`${cell}`}>
         <div className="flex items-center justify-between gap-2">
-          <Stat label="W / L" align="left">
+          <span className="text-[0.6875rem] tabular-nums" title="Wins / Losses">
             <span className="text-bullish">{wins}</span>
             <span className="text-muted-foreground"> / </span>
             <span className="text-destructive">{losses}</span>
-          </Stat>
+          </span>
           <div className="flex items-center gap-1 shrink-0">
             {!canManageTrades && (
               <span className="text-[0.5625rem] italic text-muted-foreground">AI managed</span>
