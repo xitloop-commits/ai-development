@@ -209,6 +209,16 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  // Monday weekly-review gate has no dedicated page yet — let the block toast
+  // offer a one-click "Complete review" so trading isn't dead-ended.
+  const completeReviewMutation = trpc.discipline.completeReview.useMutation({
+    onSuccess: () => {
+      toast.success('Weekly review completed — you can place the trade now.');
+      void utils.discipline.invalidate();
+    },
+    onError: (err) => toast.error(err.message || 'Could not complete weekly review'),
+  });
+
   // Trade write operations route through the Trade Executor Agent
   // (TEA spec §3 single-writer rule). UI keeps the legacy input shape via
   // executor.placeTrade / executor.updateTrade; exit translates to the
@@ -227,7 +237,20 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
       // TEA + Discipline rejections come back as TRPCError BAD_REQUEST with
       // a human-readable reason (e.g. "Discipline blocked: timeWindow").
       // Without this toast they were vanishing into the console.
-      toast.error(err.message || 'Trade rejected');
+      const msg = err.message || 'Trade rejected';
+      // The Monday weekly-review block is the one with no in-app way out —
+      // attach a "Complete review" action so the user isn't stuck.
+      if (/weekly review/i.test(msg)) {
+        toast.error(msg, {
+          duration: 12000,
+          action: {
+            label: 'Complete review',
+            onClick: () => completeReviewMutation.mutate(),
+          },
+        });
+      } else {
+        toast.error(msg);
+      }
     },
   });
 
