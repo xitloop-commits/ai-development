@@ -114,6 +114,10 @@ export interface TradeRecord {
    *  `adapter.brokerId`. Null for legacy / paper trades that pre-date
    *  the field. */
   brokerId: string | null;
+  /** Strategy cohort by model-head horizon (scalp | trend | swing |
+   *  multi_day_swing). Stamped on AI-originated trades from the SEA signal so
+   *  P&L can be grouped by strategy. Null for manual / non-AI trades. */
+  cohort?: string | null;
   /** Dhan Super Order anchor id (== entry-leg / AlgoOrdNo). Set on live trades
    *  placed as a Super Order (broker-enforced SL+TP+trailing). Null for plain /
    *  paper trades. Distinct from brokerOrderId so the plain-order path is
@@ -263,6 +267,7 @@ const tradeRecordSchema = new Schema(
     tslActivatedAt: { type: Number, default: null },
     brokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },
+    cohort: { type: String, default: null },
     superOrderId: { type: String, default: null },
     slLegOrderId: { type: String, default: null },
     tpLegOrderId: { type: String, default: null },
@@ -733,6 +738,7 @@ async function migrateDayRecordTradesToPositionState(): Promise<void> {
         trailingStopEnabled: trade.trailingStopEnabled ?? false,
         brokerOrderId: trade.brokerOrderId ?? null,
         brokerId: trade.brokerId ?? null,
+        cohort: trade.cohort ?? null,
         openedAt: trade.openedAt ?? now,
         closedAt: trade.closedAt ?? null,
         exitReason: trade.exitReason,
@@ -928,6 +934,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       tslActivatedAt: t.tslActivatedAt ?? undefined,
       brokerOrderId: t.brokerOrderId ?? null,
       brokerId: t.brokerId ?? null,
+      cohort: t.cohort ?? null,
       superOrderId: t.superOrderId ?? null,
       slLegOrderId: t.slLegOrderId ?? null,
       tpLegOrderId: t.tpLegOrderId ?? null,

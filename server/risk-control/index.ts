@@ -319,6 +319,7 @@ class RcaMonitor {
     expiry?: string;
     contractSecurityId?: string;
     capitalPercent?: number;
+    cohort?: string;
     origin: "RCA" | "AI" | "USER";
   }): Promise<{
     decision: "APPROVE" | "REJECT" | "SIZE_ADJUST";
@@ -346,6 +347,7 @@ class RcaMonitor {
       expiry: input.expiry,
       contractSecurityId: input.contractSecurityId,
       capitalPercent: input.capitalPercent,
+      cohort: input.cohort,
       timestamp: Date.now(),
     });
     const decision = submitResult.success ? "APPROVE" : "REJECT";

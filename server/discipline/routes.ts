@@ -65,8 +65,16 @@ const validateTradeSchema = z
     expiry: z.string().optional(),
     contractSecurityId: z.string().optional(),
     entryPrice: z.number().positive(),
-    quantity: z.number().positive(),
-    estimatedValue: z.number(),
+    // quantity / estimatedValue are optional for the thin AI path: when omitted
+    // the server sizes the trade itself (lots × scrip-master lot size) and
+    // computes estimatedValue. UI/full callers still pass them through unchanged.
+    quantity: z.number().positive().optional(),
+    estimatedValue: z.number().optional(),
+    /** Lots to trade when the server sizes (AI path). Defaults to 1. */
+    lots: z.number().positive().optional(),
+    /** Strategy cohort (scalp | trend | swing | multi_day_swing) — stamped onto
+     *  the trade for P&L grouping. */
+    cohort: z.string().optional(),
 
     stopLoss: z.number().nullable(),
     takeProfit: z.number().nullable(),
@@ -78,8 +86,8 @@ const validateTradeSchema = z
     emotionalState: z.enum(["calm", "anxious", "revenge", "fomo", "greedy", "neutral"]).optional(),
     planAligned: z.boolean().optional(),
     checklistDone: z.boolean().optional(),
-    currentCapital: z.number().nonnegative(),
-    currentExposure: z.number().nonnegative(),
+    currentCapital: z.number().nonnegative().optional(),
+    currentExposure: z.number().nonnegative().optional(),
   })
   .strict();
 
@@ -130,6 +138,40 @@ export function registerDisciplineRoutes(app: Express): void {
       const body = req.body as z.infer<typeof validateTradeSchema>;
       const t0 = Date.now();
       try {
+        // 0. Thin AI path — when the caller omits quantity, the server sizes the
+        //    trade and sources capital/exposure itself (single source of truth),
+        //    and enforces one open position per instrument so the SEA's 30s
+        //    signal re-emits don't stack duplicate entries.
+        let quantity = body.quantity;
+        let estimatedValue = body.estimatedValue;
+        let currentCapital = body.currentCapital;
+        let currentExposure = body.currentExposure;
+        if (quantity == null) {
+          const { resolveLotSize } = await import("../executor/tradeResolution");
+          const { getCapitalState } = await import("../portfolio/state");
+          const { portfolioAgent } = await import("../portfolio");
+
+          const openTrades = await portfolioAgent.listOpenTrades(body.channel);
+          if (openTrades.some((t) => t.instrument === body.instrument)) {
+            log.info(`AI trade skipped — position already open channel=${body.channel} instrument=${body.instrument}`);
+            res.json({
+              success: false,
+              stage: "GUARD",
+              decision: "REJECT",
+              reason: `position already open for ${body.instrument}`,
+            });
+            return;
+          }
+
+          const lots = body.lots ?? 1;
+          const lotSize = (await resolveLotSize(body.instrument)) ?? 1;
+          quantity = Math.max(1, Math.round(lots * lotSize));
+          estimatedValue = quantity * body.entryPrice;
+          const cap = await getCapitalState(body.channel);
+          currentCapital = cap.tradingPool;
+          currentExposure = openTrades.reduce((s, t) => s + t.entryPrice * t.qty, 0);
+        }
+
         // 1. DA pre-trade gate. Pass channel through so per-channel
         //    sessionHalts (Module 8) and per-channel counters resolve.
         const validation = await disciplineAgent.validateTrade(
@@ -141,8 +183,8 @@ export function registerDisciplineRoutes(app: Express): void {
             optionType: body.optionType === "FUT" ? "CE" : body.optionType,
             strike: body.strike,
             entryPrice: body.entryPrice,
-            quantity: body.quantity,
-            estimatedValue: body.estimatedValue,
+            quantity: quantity ?? 0,
+            estimatedValue: estimatedValue ?? 0,
             aiConfidence: body.aiConfidence,
             aiRiskReward: body.aiRiskReward,
             emotionalState: body.emotionalState,
@@ -151,8 +193,8 @@ export function registerDisciplineRoutes(app: Express): void {
             stopLoss: body.stopLoss ?? undefined,
             target: body.takeProfit ?? undefined,
           },
-          body.currentCapital,
-          body.currentExposure,
+          currentCapital ?? 0,
+          currentExposure ?? 0,
           body.channel,
         );
         if (!validation.allowed) {
@@ -181,7 +223,7 @@ export function registerDisciplineRoutes(app: Express): void {
           channel: body.channel,
           instrument: body.instrument,
           direction: body.transactionType === "BUY" ? "BUY" : "SELL",
-          quantity: body.quantity,
+          quantity: quantity ?? 0,
           entryPrice: body.entryPrice,
           stopLoss: body.stopLoss,
           takeProfit: body.takeProfit,
@@ -190,6 +232,7 @@ export function registerDisciplineRoutes(app: Express): void {
           expiry: body.expiry,
           contractSecurityId: body.contractSecurityId,
           capitalPercent: body.capitalPercent,
+          cohort: body.cohort,
           origin: body.origin,
         });
 

@@ -1025,6 +1025,16 @@ In progress 2026-06-19. Plan: `~/.claude/plans/how-the-integration-is-synthetic-
   - **Known gaps:** `cancelSuperOrder` square-off-vs-cancel semantics unverified (we flatten anyway); `trailingJump` is a fixed-rupee step (not %-of-peak); recovery backstop deferred → don't restart the server mid-trade (a leg fill while down won't auto-reconcile yet).
 - **Cross-ref:** `server/broker/adapters/dhan/{index,types,constants}.ts`, `server/broker/{types,brokerConfig,brokerRouter}.ts`, `server/executor/tradeExecutor.ts`, `server/portfolio/{tickHandler,portfolioAgent,state,types}.ts`.
 
+### T61 [Execution] — Wire SEA signals → ai-paper auto-trade (+ cohort tagging) 🆕
+Done 2026-06-23 (paper only; **off by default**). The model emits wave-2 signals but `submit_new_trade()` was never called — signals never became trades. Now the SEA POSTs each emitted signal (both **scalp** and the new **trend** gate) to `/api/discipline/validateTrade` → DA → RCA → TEA.
+
+- **Python** (`signal_engine_agent/engine.py`): `_maybe_submit_ai_trade()` at both emit points; gated by env `SEA_AUTO_TRADE=<channel>` (unset = off), lots via `SEA_AUTO_TRADE_LOTS` (default 1); try/except so it never crashes the inference loop.
+- **Server thin-AI path** (`discipline/routes.ts`): when `quantity` omitted, the server **sizes** (`lots × scrip-master lot size`), **sources** capital/exposure from the channel portfolio, and enforces **one open position per instrument** (rejects re-emits while one is open). `validateTradeSchema` gains optional `lots` + `cohort`; `quantity`/`estimatedValue`/`currentCapital`/`currentExposure` now optional.
+- **Cohort end-to-end:** `signal → validateTrade → RCA → TEA → buildTradeRecord → TradeRecord.cohort`, persisted in day-record + position_state, exposed on the client type, and shown as a badge on the instrument card. Lets P&L group by scalp/trend/swing.
+- **Enable:** set `SEA_AUTO_TRADE=ai-paper` (+ optional `SEA_AUTO_TRADE_LOTS`) on the SEA processes; Node reachable at `BROKER_URL` with matching `INTERNAL_API_SECRET`. ai-paper = mock adapter (instant-fill, no real money).
+- **Verified:** tsc clean · py_compile clean · 58 server tests green. **Not yet run live in-market.**
+- **Cross-ref:** `python_modules/signal_engine_agent/{engine,risk_control_client}.py`, `server/discipline/routes.ts`, `server/risk-control/index.ts`, `server/executor/{types,tradeExecutor}.ts`, `server/portfolio/{state,storage,portfolioAgent}.ts`, `client/src/{lib/tradeTypes.ts,components/InstrumentCard.tsx}`.
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 _None yet._

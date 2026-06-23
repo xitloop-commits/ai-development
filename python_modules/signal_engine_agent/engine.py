@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -53,6 +54,60 @@ from signal_engine_agent.thresholds import (
 )
 
 _IST = timezone(timedelta(hours=5, minutes=30))
+
+# ─── AI auto-trade wire (optional, off by default) ───────────────
+# When the env var SEA_AUTO_TRADE is set to a channel (e.g. "ai-paper"), every
+# wave-2 signal that the engine emits is also POSTed to the Node trade pipeline
+# (/api/discipline/validateTrade → DA → RCA → TEA), which places the trade. The
+# server sizes it (lots × scrip-master lot size), sources capital/exposure, and
+# enforces one open position per instrument, so the 30s signal re-emits don't
+# stack duplicate entries. No POST happens unless the env var is set.
+_EXCHANGE_BY_INSTRUMENT = {
+    "NIFTY50": "NSE",
+    "BANKNIFTY": "NSE",
+    "CRUDEOIL": "MCX",
+    "NATURALGAS": "MCX",
+}
+
+
+def _maybe_submit_ai_trade(signal: dict) -> None:
+    channel = os.environ.get("SEA_AUTO_TRADE", "").strip()
+    if not channel:
+        return
+    try:
+        action = signal.get("action") or ""
+        side = "CE" if "CE" in action else "PE"
+        entry = signal.get("entry") or 0.0
+        sec_id = (
+            signal.get("atm_ce_security_id") if side == "CE"
+            else signal.get("atm_pe_security_id")
+        )
+        inst = str(signal.get("instrument", "")).upper()
+        if entry <= 0 or not sec_id:
+            return  # can't price the leg or route it — skip silently
+        from signal_engine_agent.risk_control_client import submit_new_trade
+
+        payload = {
+            "executionId": f"AI-{inst}-{int(time.time() * 1000)}",
+            "channel": channel,
+            "origin": "AI",
+            "instrument": inst,
+            "exchange": _EXCHANGE_BY_INSTRUMENT.get(inst, "NSE"),
+            "transactionType": "BUY" if action.startswith("LONG") else "SELL",
+            "optionType": side,
+            "strike": signal.get("atm_strike") or 0,
+            "contractSecurityId": str(sec_id),
+            "entryPrice": float(entry),
+            "stopLoss": signal.get("sl"),
+            "takeProfit": signal.get("tp"),
+            "aiConfidence": signal.get("direction_prob_30s"),
+            "aiRiskReward": signal.get("rr"),
+            "cohort": signal.get("cohort"),
+            "lots": int(os.environ.get("SEA_AUTO_TRADE_LOTS", "1") or "1"),
+        }
+        submit_new_trade(payload, timeout=5.0)
+    except Exception as exc:  # never let auto-trade crash the inference loop
+        print(f"  [auto-trade] skipped: {exc}", file=sys.stderr)
 
 
 def _decide_via_gate(
@@ -489,6 +544,8 @@ def run(
                     "direction": "GO_CALL" if "CE" in action else "GO_PUT",
                 }
                 raw_logger.log(signal)
+                # Optional: also place the trade (off unless SEA_AUTO_TRADE set).
+                _maybe_submit_ai_trade(signal)
 
             # ── Trend-cohort gate (2026-06-22) ─────────────────────
             # Independent of the scalp gate above -- can fire on the
@@ -543,6 +600,8 @@ def run(
                             "direction": trend_sig.direction,
                         }
                         raw_logger.log(trend_signal)
+                        # Optional: also place the trend trade (off unless SEA_AUTO_TRADE set).
+                        _maybe_submit_ai_trade(trend_signal)
 
             # ── Filtered output ──
             # Log the failed-gate diagnostic line per spec §3

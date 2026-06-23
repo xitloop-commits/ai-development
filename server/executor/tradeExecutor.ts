@@ -1151,6 +1151,7 @@ function buildTradeRecord(
     ltp: req.entryPrice,
     qty: req.quantity,
     capitalPercent: req.capitalPercent ?? 0,
+    cohort: req.cohort ?? null,
     pnl: 0,
     unrealizedPnl: 0,
     charges: 0,

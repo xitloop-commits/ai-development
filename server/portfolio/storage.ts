@@ -103,6 +103,8 @@ export interface PositionStateDoc {
   /** Broker identity (e.g. "dhan-primary-ac", "dhan-secondary-ac", "mock") that placed
    *  this order. Stamped at placeOrder time. */
   brokerId: string | null;
+  /** Strategy cohort (scalp | trend | swing | multi_day_swing) for AI trades. */
+  cohort?: string | null;
   openedAt: number;
   closedAt: number | null;
 
@@ -255,6 +257,7 @@ const positionStateSchema = new Schema(
 
     brokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },
+    cohort: { type: String, default: null },
     openedAt: { type: Number, default: () => Date.now() },
     closedAt: { type: Number, default: null },
 
@@ -497,6 +500,7 @@ function docToPositionState(doc: Record<string, any>): PositionStateDoc {
     trailingStopEnabled: doc.trailingStopEnabled ?? false,
     brokerOrderId: doc.brokerOrderId ?? null,
     brokerId: doc.brokerId ?? null,
+    cohort: doc.cohort ?? null,
     openedAt: doc.openedAt,
     closedAt: doc.closedAt ?? null,
     lastTickAt: doc.lastTickAt ?? undefined,

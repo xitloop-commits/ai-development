@@ -49,6 +49,10 @@ export interface SubmitTradeRequest {
   /** Position size as % of available capital, when applicable. */
   capitalPercent?: number;
 
+  /** Strategy cohort (scalp | trend | swing | multi_day_swing) for AI trades —
+   *  stamped onto the TradeRecord so P&L can be grouped by strategy. */
+  cohort?: string;
+
   timestamp: number;
 }
 
