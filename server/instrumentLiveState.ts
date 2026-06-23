@@ -81,6 +81,9 @@ export interface LatestSignal {
   max_upside_pred_30s: number;
   max_drawdown_pred_30s: number;
   regime: string | null;
+  /** Strategy cohort by model-head horizon: scalp | trend | swing | multi_day_swing.
+   *  Currently always "scalp" (live gate is scalp-driven; T29 adds trend/swing). */
+  cohort: string | null;
   entry: number | null;
   tp: number | null;
   sl: number | null;
@@ -247,6 +250,7 @@ export function getInstrumentLiveState(instrument: string): LiveState {
       max_upside_pred_30s: sigRow.max_upside_pred_30s ?? 0,
       max_drawdown_pred_30s: sigRow.max_drawdown_pred_30s ?? 0,
       regime: sigRow.regime ?? null,
+      cohort: sigRow.cohort ?? null,
       entry: sigRow.entry ?? null,
       tp: sigRow.tp ?? null,
       sl: sigRow.sl ?? null,

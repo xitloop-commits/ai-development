@@ -304,6 +304,14 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
                 <span className={`text-[0.6875rem] font-bold ${accentColor}`}>
                   {(signal.direction_prob_30s * 100).toFixed(0)}%
                 </span>
+                {(signal as any).cohort && (
+                  <span
+                    className="text-[0.5rem] uppercase tracking-wide px-1 rounded bg-info-cyan/15 text-info-cyan font-bold"
+                    title="Strategy cohort (scalp / trend / swing)"
+                  >
+                    {(signal as any).cohort}
+                  </span>
+                )}
                 {(signal as any).regime && (
                   <span className="text-[0.5625rem] text-muted-foreground">{(signal as any).regime}</span>
                 )}
