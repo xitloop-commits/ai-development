@@ -8,5 +8,13 @@
     "persists_300s_min": 0.0,
     "exit_signal_60s_max": 1.0,
     "breakout_in_60s_min": 0.30
+  },
+  "trend": {
+    "enabled": true,
+    "dir_prob_min": 0.60,
+    "continues_min": 0.55,
+    "breakout_min": 0.0,
+    "magnitude_scale": 0.5,
+    "min_seconds_between_signals": 600
   }
 }

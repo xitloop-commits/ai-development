@@ -156,6 +156,20 @@ _GATHER_KEYS = {
     "max_drawdown_120s",
     "max_drawdown_180s",
     "max_drawdown_240s",
+    # Trend-cohort heads (2026-06-22) — consumed by decide_action_trend
+    # at the 15-min / 30-min horizons. SEA gathers them on every tick;
+    # decide_action_trend stays gated by the per-instrument JSON's
+    # `trend.enabled` flag (defaults off).
+    "trend_direction_900s",
+    "trend_direction_1800s",
+    "trend_continues_900s",
+    "trend_continues_1800s",
+    "trend_breakout_imminent_900s",
+    "trend_breakout_imminent_1800s",
+    "trend_magnitude_900s",
+    "trend_magnitude_1800s",
+    "trend_max_drawdown_900s",
+    "trend_max_drawdown_1800s",
 }
 
 

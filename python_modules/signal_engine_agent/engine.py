@@ -41,12 +41,15 @@ from signal_engine_agent.sustain import SustainFilter
 from signal_engine_agent.thresholds import (
     SignalAction,
     Thresholds,
+    TrendThresholds,
     V2Thresholds,
     Wave2Thresholds,
     decide_action,
+    decide_action_trend,
     decide_action_v2,
     decide_action_wave2,
     load_thresholds_full,
+    load_thresholds_trend,
 )
 
 _IST = timezone(timedelta(hours=5, minutes=30))
@@ -140,6 +143,20 @@ _HEAD_PREDS: tuple[tuple[str, str], ...] = (
     ("max_drawdown_120s",        "max_drawdown_120s"),
     ("max_drawdown_180s",        "max_drawdown_180s"),
     ("max_drawdown_240s",        "max_drawdown_240s"),
+    # Trend-cohort heads (15-min / 30-min horizon). Consumed by
+    # decide_action_trend (2026-06-22). Off the hot path until the
+    # per-instrument JSON config's `trend.enabled: true` -- but always
+    # gathered so the prediction logger captures them for analysis.
+    ("trend_direction_900s",         "trend_direction_900s"),
+    ("trend_direction_1800s",        "trend_direction_1800s"),
+    ("trend_continues_900s",         "trend_continues_900s"),
+    ("trend_continues_1800s",        "trend_continues_1800s"),
+    ("trend_breakout_imminent_900s",  "trend_breakout_imminent_900s"),
+    ("trend_breakout_imminent_1800s", "trend_breakout_imminent_1800s"),
+    ("trend_magnitude_900s",         "trend_magnitude_900s"),
+    ("trend_magnitude_1800s",        "trend_magnitude_1800s"),
+    ("trend_max_drawdown_900s",       "trend_max_drawdown_900s"),
+    ("trend_max_drawdown_1800s",      "trend_max_drawdown_1800s"),
 )
 
 
@@ -223,6 +240,9 @@ def run(
     thresholds, v2_thresholds, wave2_thresholds, gate_mode = load_thresholds_full(
         instrument, config_dir,
     )
+    # Trend gate (cohort=trend, 30-min horizon). Loaded independently
+    # of the scalp gate mode so both can fire on the same tick.
+    trend_thresholds = load_thresholds_trend(instrument, config_dir)
     if gate_mode == "wave2":
         sustain_filter = None  # model handles persistence via direction_persists_*
         print(
@@ -251,6 +271,17 @@ def run(
             f"RR>={thresholds.rr_min}, "
             f"pctile>={thresholds.upside_percentile_min})"
         )
+    # Trend gate banner (2026-06-22).
+    if trend_thresholds.enabled:
+        print(
+            f"  Trend gate: ENABLED (cohort=trend, 30-min horizon)  "
+            f"(dir>={trend_thresholds.dir_prob_min}, "
+            f"continues>={trend_thresholds.continues_min}, "
+            f"breakout>={trend_thresholds.breakout_min}, "
+            f"cooldown={trend_thresholds.min_seconds_between_signals}s)"
+        )
+    else:
+        print(f"  Trend gate: disabled (no `trend` block in config)")
     print()
 
     raw_logger = SignalLogger(instrument)
@@ -297,6 +328,11 @@ def run(
     COOLDOWN_SEC = 30
     _last_action: str = ""
     _last_emit_ts: float = 0.0
+    # Per-instrument trend-cohort cooldown. Trend horizon is 30 min --
+    # spamming GO_CALL every tick is meaningless. One signal per
+    # `min_seconds_between_signals` (default 600s = 10 min).
+    _last_trend_emit_ts: float = 0.0
+    trend_emitted = 0
 
     try:
         for line in _tail(live_path):
@@ -453,6 +489,60 @@ def run(
                     "direction": "GO_CALL" if "CE" in action else "GO_PUT",
                 }
                 raw_logger.log(signal)
+
+            # ── Trend-cohort gate (2026-06-22) ─────────────────────
+            # Independent of the scalp gate above -- can fire on the
+            # same tick AND in addition to a scalp signal. Trend gate
+            # consumes the 30-min horizon heads (trend_direction_1800s,
+            # trend_continues_1800s, trend_breakout_imminent_1800s).
+            # Disabled-by-default; opt in via the per-instrument JSON
+            # config's `trend.enabled: true`.
+            if trend_thresholds.enabled:
+                trend_sig = decide_action_trend(
+                    preds, trend_thresholds,
+                    ce_ltp=ce_ltp, pe_ltp=pe_ltp,
+                )
+                if trend_sig.action != "WAIT" and trend_sig.gate_passed:
+                    # Per-instrument cooldown -- don't spam the same
+                    # 30-min trend over and over.
+                    seconds_since_last = now_ts - _last_trend_emit_ts
+                    if seconds_since_last >= trend_thresholds.min_seconds_between_signals:
+                        _last_trend_emit_ts = now_ts
+                        trend_emitted += 1
+                        trend_signal = {
+                            "timestamp": row.get("timestamp"),
+                            "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
+                            "instrument": instrument.upper(),
+                            "action": trend_sig.action,
+                            "cohort": "trend",
+                            "trend_dir_prob_1800s": round(
+                                float(preds.get("trend_direction_1800s") or 0.0), 4,
+                            ),
+                            "trend_continues_1800s": round(
+                                float(preds.get("trend_continues_1800s") or 0.0), 4,
+                            ),
+                            "trend_breakout_in_1800s": round(
+                                float(preds.get("trend_breakout_imminent_1800s") or 0.0), 4,
+                            ),
+                            "trend_magnitude_1800s": round(
+                                float(preds.get("trend_magnitude_1800s") or 0.0), 2,
+                            ),
+                            "regime": regime,
+                            "entry": trend_sig.entry,
+                            "tp": trend_sig.tp,
+                            "sl": trend_sig.sl,
+                            "rr": trend_sig.rr,
+                            "atm_strike": row.get("atm_strike"),
+                            "atm_ce_ltp": ce_ltp,
+                            "atm_pe_ltp": pe_ltp,
+                            "atm_ce_security_id": row.get("atm_ce_security_id"),
+                            "atm_pe_security_id": row.get("atm_pe_security_id"),
+                            "spot_price": row.get("spot_price"),
+                            "model_version": models.version,
+                            "gate_mode": "trend",
+                            "direction": trend_sig.direction,
+                        }
+                        raw_logger.log(trend_signal)
 
             # ── Filtered output ──
             # Log the failed-gate diagnostic line per spec §3

@@ -517,6 +517,163 @@ def _first_finite(predictions: Mapping[str, float], keys: tuple[str, ...]) -> fl
     return None
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Trend gate — fires the LONG-HORIZON cohort (~30 min hold)
+# (2026-06-22, added on top of the scalp-only Wave 2 stack)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+@dataclass(frozen=True)
+class TrendThresholds:
+    """Trend-cohort gate configuration. Fires LONG_CE / LONG_PE signals
+    tagged `cohort="trend"` driven by the trainer's longer-horizon heads:
+
+      trend_direction_1800s     — P(direction == 1) over 30 minutes
+      trend_continues_1800s     — P(trend will hold throughout 30 min)
+      trend_breakout_imminent_1800s — P(directional break above day high
+                                       or below day low in next 30 min)
+      trend_magnitude_1800s     — Predicted move size (used for TP/SL)
+      trend_max_drawdown_1800s  — Predicted adverse excursion (SL)
+
+    All thresholds are NaN-tolerant — missing predictions fail-closed
+    so the gate degrades gracefully on warmup / partial-recovery rows.
+
+    Tunable in `config/sea_thresholds/<inst>.json` via:
+      "trend": {
+        "enabled": true,
+        "dir_prob_min": 0.60,
+        "continues_min": 0.55,
+        "breakout_min": 0.0,
+        "magnitude_scale": 0.5,
+        "min_seconds_between_signals": 600
+      }
+    """
+    # Master switch. Default OFF -- existing callers keep scalp-only
+    # behaviour until per-instrument JSON flips this on.
+    enabled: bool = False
+    # T1: direction confidence on the 30-min horizon. Looser than scalp
+    # because longer-horizon heads have lower per-tick AUC.
+    dir_prob_min: float = 0.60
+    # T2: model says the trend will hold for the full window (not just
+    # the next tick). Without this the gate fires on any directional
+    # spike that's about to reverse.
+    continues_min: float = 0.55
+    # T3: optional breakout-imminent filter -- defaults to 0 (off) since
+    # trend can also be a mean-reversion play. Set > 0 to require the
+    # model's breakout head agrees.
+    breakout_min: float = 0.0
+    # Same magnitude_scale knob as Wave2 -- the magnitude heads tend to
+    # over-predict by ~2x on real data, so half is the empirical default.
+    magnitude_scale: float = 0.5
+    # Cooldown: SEA emits one trend signal at most every N seconds per
+    # instrument. Trend horizon is 30 min, so spamming GO_CALL every
+    # tick is meaningless -- the operator wants ONE entry per trend.
+    min_seconds_between_signals: int = 600  # 10 min
+
+
+def decide_action_trend(
+    predictions: Mapping[str, float],
+    trend_thresholds: TrendThresholds = TrendThresholds(),
+    ce_ltp: float | None = None,
+    pe_ltp: float | None = None,
+) -> SignalAction:
+    """Trend-cohort gate (30-min horizon).
+
+    Required predictions:
+        trend_direction_1800s          — P(direction == 1)
+        trend_continues_1800s          — P(trend holds)
+    Optional:
+        trend_breakout_imminent_1800s  — P(breakout within 30 min)
+        trend_magnitude_1800s          — Predicted move size for TP
+        trend_max_drawdown_1800s       — Predicted drawdown for SL
+
+    Returns a SignalAction with `direction` ∈ {GO_CALL, GO_PUT, WAIT}.
+    Caller is responsible for the cohort label and the cooldown
+    enforcement (decide_action_trend is pure / stateless).
+    """
+    if not trend_thresholds.enabled:
+        return SignalAction(
+            action="WAIT", direction="WAIT",
+            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+            gate_passed=False, gate_reasons=["TREND_DISABLED"],
+        )
+
+    dir_prob = predictions.get("trend_direction_1800s")
+    continues = predictions.get("trend_continues_1800s")
+    breakout = predictions.get("trend_breakout_imminent_1800s")
+
+    # Direction + continuation are MANDATORY. Missing → fail-closed.
+    if not (_is_finite(dir_prob) and _is_finite(continues)):
+        return SignalAction(
+            action="WAIT", direction="WAIT",
+            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+            gate_passed=False, gate_reasons=["MISSING_TREND_PREDICTION"],
+        )
+
+    dir_prob_f = float(dir_prob)
+    cont_f = float(continues)
+    prob = max(dir_prob_f, 1.0 - dir_prob_f)
+
+    reasons: list[str] = []
+    if prob < trend_thresholds.dir_prob_min:
+        reasons.append("T1_dir_prob")
+    if cont_f < trend_thresholds.continues_min:
+        reasons.append("T2_continues")
+    if (
+        trend_thresholds.breakout_min > 0
+        and _is_finite(breakout)
+        and float(breakout) < trend_thresholds.breakout_min
+    ):
+        reasons.append("T3_breakout")
+
+    is_call = dir_prob_f > 0.5
+    direction = "GO_CALL" if is_call else "GO_PUT"
+
+    if reasons:
+        return SignalAction(
+            action="WAIT", direction=direction,
+            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+            gate_passed=False, gate_reasons=reasons,
+        )
+
+    action = "LONG_CE" if is_call else "LONG_PE"
+    leg_ltp = ce_ltp if is_call else pe_ltp
+
+    # TP/SL from the trend-horizon magnitude heads. Fall back through
+    # 1800s -> 900s when the longer head is missing.
+    mag = _first_finite(predictions, ("trend_magnitude_1800s", "trend_magnitude_900s"))
+    dd = _first_finite(predictions, (
+        "trend_max_drawdown_1800s", "trend_max_drawdown_900s",
+    ))
+
+    if (
+        not _is_finite(leg_ltp) or leg_ltp is None or leg_ltp <= 0
+        or mag is None or dd is None
+    ):
+        # Gate passed but no executable price. Surface as WAIT so the
+        # caller doesn't log a phantom signal.
+        return SignalAction(
+            action="WAIT", direction=direction,
+            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+            gate_passed=True, gate_reasons=[],
+        )
+
+    leg_ltp_f = float(leg_ltp)
+    scale = max(0.05, min(2.0, trend_thresholds.magnitude_scale))
+    tp_dist = abs(mag) * scale
+    sl_dist = abs(dd) * scale
+    entry = leg_ltp_f
+    tp = leg_ltp_f + tp_dist
+    sl = leg_ltp_f - sl_dist
+    actual_rr = round(tp_dist / sl_dist, 2) if sl_dist > 0 else 0.0
+
+    return SignalAction(
+        action=action, direction=direction,
+        entry=round(entry, 2), tp=round(tp, 2), sl=round(sl, 2),
+        rr=actual_rr, gate_passed=True, gate_reasons=[],
+    )
+
+
 # ── Per-instrument config loader ──────────────────────────────────────────
 
 
@@ -540,6 +697,16 @@ def load_thresholds_v2(
     complete tuple including Wave 2 add-on + gate_mode."""
     base, v2, _, _ = load_thresholds_full(instrument, config_dir)
     return base, v2
+
+
+def load_thresholds_trend(
+    instrument: str,
+    config_dir: Path = Path("config/sea_thresholds"),
+) -> TrendThresholds:
+    """Load the per-instrument trend gate config. Returns defaults
+    (enabled=False) when no ``trend`` block is present in the JSON."""
+    _, _, _, _, trend = _load_thresholds_v3(instrument, config_dir)
+    return trend
 
 
 def load_thresholds_full(
@@ -580,6 +747,9 @@ def load_thresholds_full(
     raw = json.loads(path.read_text(encoding="utf-8"))
     v2_raw = raw.pop("v2", None)
     wave2_raw = raw.pop("wave2", None)
+    # `trend` block belongs to load_thresholds_trend; drop it here so
+    # Thresholds(**raw) below doesn't choke on the unknown kwarg.
+    raw.pop("trend", None)
     gate_mode = raw.pop("gate_mode", "current")
     if gate_mode not in ("current", "wave1", "wave2"):
         raise ValueError(
@@ -599,3 +769,24 @@ def load_thresholds_full(
     wave2 = Wave2Thresholds(**wave2_raw) if wave2_raw else Wave2Thresholds()
 
     return base, v2, wave2, gate_mode
+
+
+def _load_thresholds_v3(
+    instrument: str,
+    config_dir: Path = Path("config/sea_thresholds"),
+) -> tuple[Thresholds, V2Thresholds, Wave2Thresholds, str, TrendThresholds]:
+    """Internal v3 loader: returns (base, v2, wave2, gate_mode, trend).
+    Wraps load_thresholds_full and additionally parses the optional
+    ``trend`` block. Keeps load_thresholds_full's signature stable so
+    existing callers don't break."""
+    inst_path = config_dir / f"{instrument}.json"
+    default_path = config_dir / "default.json"
+    path = inst_path if inst_path.exists() else default_path
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    trend_raw = raw.pop("trend", None)
+    if trend_raw is None:
+        trend = TrendThresholds()
+    else:
+        trend = TrendThresholds(**trend_raw)
+    base, v2, wave2, gate_mode = load_thresholds_full(instrument, config_dir)
+    return base, v2, wave2, gate_mode, trend

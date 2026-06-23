@@ -149,8 +149,11 @@ def test_build_head_type_map_matches_engine_head_list():
         f"Unexpected cohort set in engine heads: {cohorts_present}. "
         f"If T29 added a new cohort family, extend this assertion."
     )
-    # Counts: the bulk are scalp; trend is just the two 900s heads.
+    # Counts: the bulk are scalp; trend was expanded 2026-06-22 from
+    # 2 (direction_900s/1800s) to 12 to support decide_action_trend
+    # (added trend_continues, trend_breakout_imminent, trend_magnitude,
+    # trend_max_drawdown at both 900s and 1800s windows).
     scalp_count = sum(1 for v in m.values() if v == COHORT_SCALP)
     trend_count = sum(1 for v in m.values() if v == COHORT_TREND)
     assert scalp_count >= 20, f"scalp head count dropped: {scalp_count}"
-    assert trend_count == 2, f"trend head count moved: {trend_count}"
+    assert trend_count == 12, f"trend head count moved: {trend_count}"
