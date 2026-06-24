@@ -199,7 +199,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                   <TooltipTrigger asChild>
                     <div className="flex-1 px-2 py-1 space-y-0.5 min-w-0 cursor-default">
                       {/* Line 1: instrument · strike · direction · cohort · time */}
-                      <div className="flex items-center gap-1.5 text-[0.6875rem]">
+                      <div className="flex items-center gap-1.5 text-[0.625rem]">
                         <span className="font-bold tabular-nums truncate" style={instStyle.text}>
                           {INST_SHORT[signal.instrument] ?? signal.instrument} {signal.atm_strike || ''}
                         </span>
@@ -216,7 +216,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                             ×{count}
                           </span>
                         )}
-                        <span className="ml-auto text-[0.5625rem] text-muted-foreground tabular-nums shrink-0">
+                        <span className="ml-auto text-[0.5rem] text-muted-foreground tabular-nums shrink-0">
                           {timeAgo(signal.timestamp_ist)}
                         </span>
                       </div>
@@ -224,7 +224,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                       {/* Line 2 + bar: entry / TP / SL / RR, then the SL·E·TP scale */}
                       {hasV2 && signal.entry ? (
                         <>
-                          <div className="flex items-center gap-2.5 text-[0.625rem] tabular-nums">
+                          <div className="flex items-center gap-2.5 text-[0.5625rem] tabular-nums">
                             <span><span className="text-muted-foreground">E </span><span className="font-bold text-foreground">{fmtNum(signal.entry ?? null)}</span></span>
                             <span><span className="text-muted-foreground">TP </span><span className="font-bold text-bullish">{fmtNum(signal.tp ?? null)}</span></span>
                             <span><span className="text-muted-foreground">SL </span><span className="font-bold text-destructive">{fmtNum(signal.sl ?? null)}</span></span>
@@ -245,7 +245,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                           )}
                         </>
                       ) : (
-                        <div className="flex items-center gap-2 text-[0.6875rem] tabular-nums">
+                        <div className="flex items-center gap-2 text-[0.625rem] tabular-nums">
                           <span className="text-muted-foreground">prob</span>
                           <span className={`font-bold ${accentColor}`}>{probLabel}</span>
                           <span className="text-muted-foreground/60">·</span>
