@@ -49,6 +49,14 @@ set PYTHONIOENCODING=utf-8
 chcp 65001 >nul 2>&1
 set PYTHONPATH=%ROOT%python_modules;%PYTHONPATH%
 
+REM --- Auto-trade (T61): route every emitted signal to the ai-paper desk ---
+REM   The SEA POSTs each scalp/trend signal to /api/discipline/validateTrade,
+REM   which sizes (1 lot) + places it on ai-paper (mock = simulated, no real
+REM   money). Comment the next line to disable auto-trade (signals + UI keep
+REM   working regardless). Change SEA_AUTO_TRADE_LOTS to size differently.
+set "SEA_AUTO_TRADE=ai-paper"
+set "SEA_AUTO_TRADE_LOTS=1"
+
 echo.
 echo ============================================================
 echo   SEA -- %INSTRUMENT%
