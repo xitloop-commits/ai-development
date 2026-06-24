@@ -293,10 +293,10 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
       </div>
 
       {/* ═══ 2. SEA SIGNAL ═══ */}
-      <div className="rounded border border-border bg-card/50 p-3 space-y-2">
+      <div className="rounded border p-3 space-y-2" style={{ ...instStyle.cardBg, ...instStyle.border }}>
         <div className="flex items-center gap-1.5">
-          <Zap className="h-3 w-3 text-info-cyan" />
-          <span className="text-[0.625rem] font-bold text-info-cyan tracking-wider uppercase">
+          <Zap className="h-3 w-3" style={instStyle.text} />
+          <span className="text-[0.625rem] font-bold tracking-wider uppercase" style={instStyle.text}>
             {aiTrade ? 'AI Trade · ai-paper' : 'SEA Signal'}
           </span>
         </div>
