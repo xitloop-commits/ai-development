@@ -186,7 +186,7 @@ export default function SignalChartDialog({ open, onOpenChange, target }: Props)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-none sm:max-w-none w-screen h-screen sm:rounded-none flex flex-col p-4">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3 text-sm font-bold tracking-wide">
             <span>{target?.displayName ?? "Signal Chart"}</span>
@@ -206,7 +206,7 @@ export default function SignalChartDialog({ open, onOpenChange, target }: Props)
           </DialogTitle>
         </DialogHeader>
 
-        <div className="relative h-[440px] w-full">
+        <div className="relative flex-1 min-h-0 w-full">
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center">
               <span className="text-[0.75rem] text-muted-foreground">Loading…</span>
