@@ -32,6 +32,7 @@ export interface SEASignal {
   // v2 fields (LONG/SHORT upgrade)
   action?: string;          // LONG_CE | LONG_PE | SHORT_CE | SHORT_PE
   regime?: string;
+  cohort?: string;          // scalp | trend | swing | multi_day_swing
   entry?: number;
   tp?: number;
   sl?: number;
@@ -148,6 +149,7 @@ export function getSEASignals(
           model_version: r.model_version ?? "",
           action: r.action ?? undefined,
           regime: r.regime ?? undefined,
+          cohort: r.cohort ?? undefined,
           entry: r.entry ?? undefined,
           tp: r.tp ?? undefined,
           sl: r.sl ?? undefined,

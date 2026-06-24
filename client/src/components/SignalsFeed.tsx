@@ -10,9 +10,10 @@
  */
 import { useRef, useEffect, useState } from 'react';
 // Uses native CSS scrollbar (scrollbar-thin + scrollbar-cyan) matching TradingDesk style
-import { TrendingUp, TrendingDown, Activity, Zap, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, Zap } from 'lucide-react';
 import { useCapital } from '@/contexts/CapitalContext';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { TradeBar } from './TradeBar';
 
 // ─── Instrument name mapping for trade placement ───────────
 const SIG_TO_UI_NAME: Record<string, string> = {
@@ -42,6 +43,7 @@ export interface SEASignal {
   model_version: string;
   action?: string;
   regime?: string;
+  cohort?: string;
   entry?: number;
   tp?: number;
   sl?: number;
@@ -204,11 +206,8 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
             const count = signal.count ?? 1;
             const hasV2 = !!signal.action;
 
-            const tpUp = signal.tp != null && signal.entry != null && signal.tp >= signal.entry;
-            const slDown = signal.sl != null && signal.entry != null && signal.sl <= signal.entry;
-            const TpArrow = tpUp ? ArrowUpRight : ArrowDownRight;
-            const SlArrow = slDown ? ArrowDownRight : ArrowUpRight;
             const probPct = Math.round(signal.direction_prob_30s * 100);
+            const probLabel = Number.isFinite(probPct) ? `${probPct}%` : '—';
 
             return (
               <div
@@ -219,16 +218,20 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="flex-1 px-3 py-2 space-y-1 min-w-0 cursor-default">
-                      {/* Line 1: Action · Instrument+strike — time */}
-                      <div className="flex items-center gap-2 text-[0.6875rem]">
+                      {/* Line 1: action · instrument · strike · cohort · time */}
+                      <div className="flex items-center gap-1.5 text-[0.6875rem]">
                         <Icon className={`h-3.5 w-3.5 shrink-0 ${accentColor}`} />
                         <span className={`font-bold tracking-wider ${accentColor}`}>
                           {hasV2 ? action.replace('_', ' ') : signal.direction?.replace('GO_', '')}
                         </span>
-                        <span className="text-muted-foreground/60">·</span>
                         <span className={`font-bold tabular-nums truncate ${INST_COLORS[signal.instrument] ?? ''}`}>
                           {INST_SHORT[signal.instrument] ?? signal.instrument} {signal.atm_strike || ''}
                         </span>
+                        {signal.cohort && (
+                          <span className="text-[0.5rem] uppercase tracking-wide px-1 rounded bg-info-cyan/15 text-info-cyan font-bold" title="Strategy cohort">
+                            {signal.cohort}
+                          </span>
+                        )}
                         {count > 1 && (
                           <span className="text-[0.5rem] px-1.5 py-0.5 rounded-full bg-secondary/50 text-muted-foreground font-bold tabular-nums">
                             ×{count}
@@ -239,27 +242,33 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                         </span>
                       </div>
 
-                      {/* Line 2: price strip — entry → TP · SL · RR */}
+                      {/* Line 2 + bar: entry / TP / SL / RR, then the SL·E·TP scale */}
                       {hasV2 && signal.entry ? (
-                        <div className="flex items-center gap-1.5 text-[0.6875rem] tabular-nums">
-                          <span className="font-bold text-foreground">{fmtNum(signal.entry ?? null)}</span>
-                          <TpArrow className={`h-3 w-3 shrink-0 ${tpUp ? 'text-bullish' : 'text-destructive'}`} />
-                          <span className="font-bold text-bullish">{fmtNum(signal.tp ?? null)}</span>
-                          <span className="text-muted-foreground/60 mx-0.5">·</span>
-                          <span className="font-bold text-destructive">{fmtNum(signal.sl ?? null)}</span>
-                          <SlArrow className={`h-3 w-3 shrink-0 ${slDown ? 'text-destructive' : 'text-bullish'}`} />
-                          {signal.rr != null && signal.rr > 0 && (
-                            <span className="ml-auto text-[0.625rem] text-muted-foreground shrink-0">
-                              RR <span className={`font-bold ${(signal.rr ?? 0) >= 1.5 ? 'text-bullish' : 'text-warning-amber'}`}>
-                                {signal.rr.toFixed(1)}
-                              </span>
-                            </span>
+                        <>
+                          <div className="flex items-center gap-2.5 text-[0.625rem] tabular-nums">
+                            <span><span className="text-muted-foreground">E </span><span className="font-bold text-foreground">{fmtNum(signal.entry ?? null)}</span></span>
+                            <span><span className="text-muted-foreground">TP </span><span className="font-bold text-bullish">{fmtNum(signal.tp ?? null)}</span></span>
+                            <span><span className="text-muted-foreground">SL </span><span className="font-bold text-destructive">{fmtNum(signal.sl ?? null)}</span></span>
+                            {signal.rr != null && signal.rr > 0 && (
+                              <span className="ml-auto"><span className="text-muted-foreground">RR </span><span className={`font-bold ${(signal.rr ?? 0) >= 1.5 ? 'text-bullish' : 'text-warning-amber'}`}>{signal.rr.toFixed(1)}</span></span>
+                            )}
+                          </div>
+                          {signal.sl != null && signal.tp != null && signal.entry > 0 && (
+                            <TradeBar
+                              compact
+                              frozen
+                              isBuy={isLong || signal.direction === 'GO_CALL'}
+                              entryPrice={signal.entry}
+                              ltp={signal.entry}
+                              slPercent={((signal.entry - signal.sl) / signal.entry) * 100}
+                              tpPercent={((signal.tp - signal.entry) / signal.entry) * 100}
+                            />
                           )}
-                        </div>
+                        </>
                       ) : (
                         <div className="flex items-center gap-2 text-[0.6875rem] tabular-nums">
                           <span className="text-muted-foreground">prob</span>
-                          <span className={`font-bold ${accentColor}`}>{probPct}%</span>
+                          <span className={`font-bold ${accentColor}`}>{probLabel}</span>
                           <span className="text-muted-foreground/60">·</span>
                           <span className="text-muted-foreground">ATM</span>
                           <span className="font-bold text-foreground">{signal.atm_strike}</span>
@@ -271,7 +280,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                     <div className="space-y-0.5">
                       <div className="flex justify-between gap-6">
                         <span className="text-muted-foreground">Prob</span>
-                        <span className={`font-bold ${accentColor}`}>{probPct}%</span>
+                        <span className={`font-bold ${accentColor}`}>{probLabel}</span>
                       </div>
                       {signal.regime && (
                         <div className="flex justify-between gap-6">
