@@ -297,23 +297,22 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                   </TooltipContent>
                 </Tooltip>
 
-                {/* Right: full-height TRADE CTA */}
+                {/* Right: compact icon TRADE CTA */}
                 {canTrade && (
                   <button
                     onClick={(e) => { e.stopPropagation(); handleTrade(signal); }}
-                    className={`flex flex-col items-center justify-center gap-0.5 px-3 shrink-0 transition-colors ${
+                    className={`flex items-center justify-center w-8 shrink-0 transition-colors ${
                       isLong
-                        ? 'bg-bullish/20 text-bullish hover:bg-bullish/35'
+                        ? 'bg-bullish/15 text-bullish hover:bg-bullish/30'
                         : isShort
-                          ? 'bg-warning-amber/20 text-warning-amber hover:bg-warning-amber/35'
+                          ? 'bg-warning-amber/15 text-warning-amber hover:bg-warning-amber/30'
                           : signal.direction === 'GO_CALL'
-                            ? 'bg-bullish/20 text-bullish hover:bg-bullish/35'
-                            : 'bg-destructive/20 text-destructive hover:bg-destructive/35'
+                            ? 'bg-bullish/15 text-bullish hover:bg-bullish/30'
+                            : 'bg-destructive/15 text-destructive hover:bg-destructive/30'
                     }`}
                     title={`Place ${action} trade`}
                   >
                     <Zap className="h-3.5 w-3.5" />
-                    <span className="text-[0.5625rem] font-bold tracking-wider">TRADE</span>
                   </button>
                 )}
               </div>
