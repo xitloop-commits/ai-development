@@ -21,6 +21,7 @@
 import { TrendingUp, TrendingDown, Activity, Zap, BarChart3, Shield } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
+import { TradeBar } from './TradeBar';
 
 // ── Tooltip wrapper ──────────────────────────────────────────
 function Tip({ children, text }: { children: React.ReactNode; text: string }) {
@@ -172,6 +173,14 @@ function timeAgo(ts_ist: string): string {
   } catch { return '-'; }
 }
 
+/** Wall-clock HH:MM from epoch ms (entry time). */
+function clockTime(ms: number | null | undefined): string {
+  if (!ms) return '-';
+  try {
+    return new Date(ms).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  } catch { return '-'; }
+}
+
 function arrow(v: number | null): string {
   if (v === null || v === undefined) return '';
   return v > 0.01 ? '▲' : v < -0.01 ? '▼' : '─';
@@ -216,6 +225,19 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
   const live = state?.live;
   const signal = state?.signal;
   const model = state?.model;
+
+  // Live ai-paper trade for this instrument (option b): when SEA auto-trade has
+  // an open position here, show the actual trade — same TradeBar + server data
+  // the trade rows use (entry/SL/TP/TSL all server-owned) — instead of the raw
+  // signal. Falls back to the signal view when there's no open trade.
+  const aiDay = trpc.portfolio.currentDay.useQuery(
+    { channel: 'ai-paper' },
+    { refetchInterval: 3000, retry: 1 },
+  ).data;
+  const _norm = (s: string) => (s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const aiTrade = (aiDay as any)?.trades?.find(
+    (t: any) => t.status === 'OPEN' && _norm(t.instrument) === _norm(instrumentKey),
+  ) ?? null;
 
   if (!live) {
     return (
@@ -280,11 +302,64 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
         <div className="flex items-center gap-1.5">
           <Zap className="h-3 w-3 text-info-cyan" />
           <span className="text-[0.625rem] font-bold text-info-cyan tracking-wider uppercase">
-            SEA Signal
+            {aiTrade ? 'AI Trade · ai-paper' : 'SEA Signal'}
           </span>
         </div>
 
-        {signal ? (() => {
+        {aiTrade ? (() => {
+          const side = aiTrade.type?.includes('CALL') ? 'CE' : aiTrade.type?.includes('PUT') ? 'PE' : 'FUT';
+          const isBuy = !!aiTrade.type?.includes('BUY');
+          const accentColor = isBuy ? 'text-bullish' : 'text-warning-amber';
+          const slPct = aiTrade.stopLossPrice > 0
+            ? ((aiTrade.entryPrice - aiTrade.stopLossPrice) / aiTrade.entryPrice) * 100
+            : undefined;
+          const tpPct = aiTrade.targetPrice > 0
+            ? ((aiTrade.targetPrice - aiTrade.entryPrice) / aiTrade.entryPrice) * 100
+            : undefined;
+          const be = aiTrade.breakevenPrice ?? aiTrade.entryPrice;
+          const gate = isBuy ? be * 1.02 : be * 0.98; // breakeven + 2% gate (favourable side)
+          return (
+          <>
+            {/* instrument · strike · CE/PE · cohort · entry time */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className={`text-[0.8125rem] font-bold tracking-wider ${accentColor}`}>
+                  {aiTrade.strike} {side}
+                </span>
+                {aiTrade.cohort && (
+                  <span className="text-[0.5rem] uppercase tracking-wide px-1 rounded bg-info-cyan/15 text-info-cyan font-bold" title="Strategy cohort">
+                    {aiTrade.cohort}
+                  </span>
+                )}
+              </div>
+              <span className="text-[0.5625rem] text-muted-foreground" title="Entry time">
+                {clockTime(aiTrade.openedAt)}
+              </span>
+            </div>
+
+            {/* entry · SL · TP · TSL */}
+            <div className="grid grid-cols-4 gap-x-2 gap-y-0.5 text-[0.625rem] tabular-nums">
+              <div><span className="text-muted-foreground">entry </span><span className="text-foreground font-bold">{fmt(aiTrade.entryPrice)}</span></div>
+              <div><span className="text-muted-foreground">SL </span><span className="text-destructive font-bold">{fmt(aiTrade.stopLossPrice)}</span></div>
+              <div><span className="text-muted-foreground">TP </span><span className="text-bullish font-bold">{fmt(aiTrade.targetPrice)}</span></div>
+              <div><span className="text-muted-foreground">TSL </span>{aiTrade.tslActivatedAt ? <span className="text-info-cyan font-bold">on</span> : <span className="text-muted-foreground">—</span>}</div>
+            </div>
+
+            {/* Same TradeBar the desk uses — all levels server-fed */}
+            <TradeBar
+              isBuy={isBuy}
+              entryPrice={aiTrade.entryPrice}
+              ltp={aiTrade.ltp}
+              slPercent={slPct}
+              tpPercent={tpPct}
+              trailingEnabled={aiTrade.trailingStopEnabled ?? false}
+              tslActivatedAt={aiTrade.tslActivatedAt ?? null}
+              tslGatePrice={gate}
+              units={aiTrade.qty}
+            />
+          </>
+          );
+        })() : signal ? (() => {
           const action = (signal as any).action ?? signal.direction?.replace('GO_', '');
           const isLong = action?.startsWith('LONG');
           const isShort = action?.startsWith('SHORT');
