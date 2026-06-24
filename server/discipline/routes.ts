@@ -146,10 +146,14 @@ export function registerDisciplineRoutes(app: Express): void {
         let estimatedValue = body.estimatedValue;
         let currentCapital = body.currentCapital;
         let currentExposure = body.currentExposure;
+        let entryPrice = body.entryPrice;
+        let stopLoss = body.stopLoss;
+        let takeProfit = body.takeProfit;
         if (quantity == null) {
           const { resolveLotSize } = await import("../executor/tradeResolution");
           const { getCapitalState } = await import("../portfolio/state");
           const { portfolioAgent } = await import("../portfolio");
+          const { tickBus } = await import("../broker/tickBus");
 
           const openTrades = await portfolioAgent.listOpenTrades(body.channel);
           if (openTrades.some((t) => t.instrument === body.instrument)) {
@@ -163,10 +167,27 @@ export function registerDisciplineRoutes(app: Express): void {
             return;
           }
 
+          // Re-price the entry to the LIVE tick the trade will actually track
+          // (the same WS feed trade.ltp uses). The SEA's `entry` is a TFA
+          // feature-file snapshot that lags on momentum signals, so without this
+          // every fill opened instantly green. Delta-shift SL/TP to keep their
+          // rupee distances. Falls back to the signal entry if no tick is cached.
+          if (body.contractSecurityId) {
+            const seg = body.exchange === "MCX" ? "MCX_COMM" : "NSE_FNO";
+            const liveLtp = tickBus.getLatestTick(seg, body.contractSecurityId)?.ltp;
+            if (liveLtp && liveLtp > 0 && entryPrice > 0) {
+              const delta = liveLtp - entryPrice;
+              if (stopLoss != null) stopLoss += delta;
+              if (takeProfit != null) takeProfit += delta;
+              log.info(`AI entry repriced ${body.instrument} ${entryPrice} → ${liveLtp} (live tick)`);
+              entryPrice = liveLtp;
+            }
+          }
+
           const lots = body.lots ?? 1;
           const lotSize = (await resolveLotSize(body.instrument)) ?? 1;
           quantity = Math.max(1, Math.round(lots * lotSize));
-          estimatedValue = quantity * body.entryPrice;
+          estimatedValue = quantity * entryPrice;
           const cap = await getCapitalState(body.channel);
           currentCapital = cap.tradingPool;
           currentExposure = openTrades.reduce((s, t) => s + t.entryPrice * t.qty, 0);
@@ -182,7 +203,7 @@ export function registerDisciplineRoutes(app: Express): void {
             transactionType: body.transactionType,
             optionType: body.optionType === "FUT" ? "CE" : body.optionType,
             strike: body.strike,
-            entryPrice: body.entryPrice,
+            entryPrice,
             quantity: quantity ?? 0,
             estimatedValue: estimatedValue ?? 0,
             aiConfidence: body.aiConfidence,
@@ -190,8 +211,8 @@ export function registerDisciplineRoutes(app: Express): void {
             emotionalState: body.emotionalState,
             planAligned: body.planAligned,
             checklistDone: body.checklistDone,
-            stopLoss: body.stopLoss ?? undefined,
-            target: body.takeProfit ?? undefined,
+            stopLoss: stopLoss ?? undefined,
+            target: takeProfit ?? undefined,
           },
           currentCapital ?? 0,
           currentExposure ?? 0,
@@ -224,9 +245,9 @@ export function registerDisciplineRoutes(app: Express): void {
           instrument: body.instrument,
           direction: body.transactionType === "BUY" ? "BUY" : "SELL",
           quantity: quantity ?? 0,
-          entryPrice: body.entryPrice,
-          stopLoss: body.stopLoss,
-          takeProfit: body.takeProfit,
+          entryPrice,
+          stopLoss,
+          takeProfit,
           optionType: body.optionType,
           strike: body.strike,
           expiry: body.expiry,
