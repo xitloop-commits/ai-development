@@ -342,6 +342,7 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
 
             {/* Same TradeBar the desk uses — all levels server-fed */}
             <TradeBar
+              compact
               isBuy={isBuy}
               entryPrice={aiTrade.entryPrice}
               ltp={aiTrade.ltp}
