@@ -163,7 +163,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
       {/* ── Signal list (scrollable with TradingDesk-style scrollbar) ── */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-auto scrollbar-thin scrollbar-cyan px-1.5 py-1.5 space-y-0.5"
+        className="flex-1 overflow-auto scrollbar-thin scrollbar-cyan px-1.5 py-1.5 space-y-2"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
