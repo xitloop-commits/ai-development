@@ -10,7 +10,7 @@
  */
 import { useRef, useEffect, useState } from 'react';
 // Uses native CSS scrollbar (scrollbar-thin + scrollbar-cyan) matching TradingDesk style
-import { TrendingUp, TrendingDown, Activity, Zap } from 'lucide-react';
+import { Activity, Zap } from 'lucide-react';
 import { useCapital } from '@/contexts/CapitalContext';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -180,7 +180,6 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
             const isLong = action.startsWith('LONG');
             const isShort = action.startsWith('SHORT');
             const _isCE = action.includes('CE');
-            const Icon = (isLong || signal.direction === 'GO_CALL') ? TrendingUp : TrendingDown;
             const accentColor = isLong ? 'text-bullish' : isShort ? 'text-warning-amber' : signal.direction === 'GO_CALL' ? 'text-bullish' : 'text-destructive';
             const instStyle = styleOf(signal.instrument);
             const count = signal.count ?? 1;
@@ -199,14 +198,13 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="flex-1 px-3 py-2 space-y-1 min-w-0 cursor-default">
-                      {/* Line 1: action · instrument · strike · cohort · time */}
+                      {/* Line 1: instrument · strike · direction · cohort · time */}
                       <div className="flex items-center gap-1.5 text-[0.6875rem]">
-                        <Icon className={`h-3.5 w-3.5 shrink-0 ${accentColor}`} />
-                        <span className={`font-bold tracking-wider ${accentColor}`}>
-                          {hasV2 ? action.replace('_', ' ') : signal.direction?.replace('GO_', '')}
-                        </span>
                         <span className="font-bold tabular-nums truncate" style={instStyle.text}>
                           {INST_SHORT[signal.instrument] ?? signal.instrument} {signal.atm_strike || ''}
+                        </span>
+                        <span className={`font-bold tracking-wider ${accentColor}`}>
+                          {hasV2 ? action.replace('_', ' ') : signal.direction?.replace('GO_', '')}
                         </span>
                         {signal.cohort && (
                           <span className="text-[0.5rem] uppercase tracking-wide px-1 rounded bg-info-cyan/15 text-info-cyan font-bold" title="Strategy cohort">
