@@ -81,6 +81,12 @@ def _finite(x: object) -> float | None:
     return f if math.isfinite(f) else None
 
 
+def _fmt(x: object, d: int = 2) -> str:
+    """Format a finite number to d decimals for the human-readable reason; '-' if absent."""
+    v = _finite(x)
+    return f"{v:.{d}f}" if v is not None else "-"
+
+
 def _maybe_submit_ai_trade(signal: dict) -> None:
     channel = os.environ.get("SEA_AUTO_TRADE", "").strip()
     if not channel:
@@ -543,12 +549,24 @@ def run(
                 # swing gates this will derive from the firing head's
                 # cohort instead of being a constant.
                 signal_cohort = "scalp"
+                # Human-readable "why this trade fired" — the gate drivers that
+                # cleared the threshold (logged with the signal for audit).
+                _dp = _finite(preds.get("direction_prob_30s")) or 0.0
+                reason = (
+                    f"{gate_mode} gate · conviction {max(_dp, 1.0 - _dp):.2f} · "
+                    f"RR {_fmt(preds.get('risk_reward_ratio_30s'), 1)} · "
+                    f"pctile {_fmt(preds.get('upside_percentile_30s'), 0)} · "
+                    f"persist60 {_fmt(preds.get('direction_persists_60s'))} · "
+                    f"persist300 {_fmt(preds.get('direction_persists_300s'))} · "
+                    f"exit60 {_fmt(preds.get('exit_signal_60s'))} · regime {regime}"
+                )
                 signal = {
                     "timestamp": row.get("timestamp"),
                     "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
                     "instrument": instrument.upper(),
                     "action": action,
                     "cohort": signal_cohort,
+                    "reason": reason,
                     "direction_prob_30s": round(preds["direction_prob_30s"], 4),
                     "risk_reward_ratio_30s": round(preds["risk_reward_ratio_30s"], 4),
                     "upside_percentile_30s": round(preds["upside_percentile_30s"], 2),
@@ -594,12 +612,19 @@ def run(
                     if seconds_since_last >= trend_thresholds.min_seconds_between_signals:
                         _last_trend_emit_ts = now_ts
                         trend_emitted += 1
+                        trend_reason = (
+                            f"trend gate · dir {_fmt(preds.get('trend_direction_1800s'))} · "
+                            f"continues {_fmt(preds.get('trend_continues_1800s'))} · "
+                            f"breakout {_fmt(preds.get('trend_breakout_imminent_1800s'))} · "
+                            f"mag {_fmt(preds.get('trend_magnitude_1800s'), 1)} · regime {regime}"
+                        )
                         trend_signal = {
                             "timestamp": row.get("timestamp"),
                             "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
                             "instrument": instrument.upper(),
                             "action": trend_sig.action,
                             "cohort": "trend",
+                            "reason": trend_reason,
                             "trend_dir_prob_1800s": round(
                                 float(preds.get("trend_direction_1800s") or 0.0), 4,
                             ),
