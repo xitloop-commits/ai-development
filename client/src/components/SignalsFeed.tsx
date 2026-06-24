@@ -191,7 +191,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
             return (
               <div
                 key={signal.id}
-                className="border-l-[3px] rounded-r flex items-stretch overflow-hidden"
+                className="group relative border-l-[3px] rounded-r flex items-stretch overflow-hidden"
                 style={{ ...instStyle.cardBg, ...instStyle.borderLeft }}
               >
                 {/* Left: details (wrapped in tooltip for metadata) */}
@@ -295,22 +295,23 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                   </TooltipContent>
                 </Tooltip>
 
-                {/* Right: compact icon TRADE CTA */}
+                {/* Hover-only overlay TRADE CTA (bottom-right) */}
                 {canTrade && (
                   <button
                     onClick={(e) => { e.stopPropagation(); handleTrade(signal); }}
-                    className={`flex items-center justify-center w-8 shrink-0 transition-colors ${
+                    className={`absolute bottom-1 right-1 flex items-center justify-center gap-1 px-2 py-1 rounded shadow-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity ${
                       isLong
-                        ? 'bg-bullish/15 text-bullish hover:bg-bullish/30'
+                        ? 'bg-bullish/90 text-background hover:bg-bullish'
                         : isShort
-                          ? 'bg-warning-amber/15 text-warning-amber hover:bg-warning-amber/30'
+                          ? 'bg-warning-amber/90 text-background hover:bg-warning-amber'
                           : signal.direction === 'GO_CALL'
-                            ? 'bg-bullish/15 text-bullish hover:bg-bullish/30'
-                            : 'bg-destructive/15 text-destructive hover:bg-destructive/30'
+                            ? 'bg-bullish/90 text-background hover:bg-bullish'
+                            : 'bg-destructive/90 text-background hover:bg-destructive'
                     }`}
                     title={`Place ${action} trade`}
                   >
-                    <Zap className="h-3.5 w-3.5" />
+                    <Zap className="h-3 w-3" />
+                    <span className="text-[0.5625rem] font-bold tracking-wider">TRADE</span>
                   </button>
                 )}
               </div>
