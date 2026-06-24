@@ -13,6 +13,7 @@ import { useRef, useEffect, useState } from 'react';
 import { Activity, Zap } from 'lucide-react';
 import { useCapital } from '@/contexts/CapitalContext';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
+import { withAlpha } from '@/lib/tradeThemes';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { TradeBar } from './TradeBar';
 
@@ -180,7 +181,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
             const isLong = action.startsWith('LONG');
             const isShort = action.startsWith('SHORT');
             const _isCE = action.includes('CE');
-            const accentColor = isLong ? 'text-bullish' : isShort ? 'text-warning-amber' : signal.direction === 'GO_CALL' ? 'text-bullish' : 'text-destructive';
+            const accentColor = isLong ? 'text-bullish/70' : isShort ? 'text-warning-amber/70' : signal.direction === 'GO_CALL' ? 'text-bullish/70' : 'text-destructive/70';
             const instStyle = styleOf(signal.instrument);
             const count = signal.count ?? 1;
             const hasV2 = !!signal.action;
@@ -192,7 +193,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
               <div
                 key={signal.id}
                 className="group relative border-l-[3px] rounded-r flex items-stretch overflow-hidden"
-                style={{ ...instStyle.cardBg, ...instStyle.borderLeft }}
+                style={{ ...instStyle.cardBg, borderLeftColor: withAlpha(instStyle.hex, 0.5) }}
               >
                 {/* Left: details (wrapped in tooltip for metadata) */}
                 <Tooltip>
