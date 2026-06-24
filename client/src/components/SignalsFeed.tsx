@@ -12,6 +12,7 @@ import { useRef, useEffect, useState } from 'react';
 // Uses native CSS scrollbar (scrollbar-thin + scrollbar-cyan) matching TradingDesk style
 import { TrendingUp, TrendingDown, Activity, Zap } from 'lucide-react';
 import { useCapital } from '@/contexts/CapitalContext';
+import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { TradeBar } from './TradeBar';
 
@@ -60,27 +61,6 @@ interface SignalsFeedProps {
   signals: SEASignal[];
 }
 
-const INST_COLORS: Record<string, string> = {
-  NIFTY: 'text-info-cyan',
-  BANKNIFTY: 'text-bullish',
-  CRUDEOIL: 'text-warning-amber',
-  NATURALGAS: 'text-destructive',
-};
-
-const INST_BG: Record<string, string> = {
-  NIFTY: 'bg-info-cyan/5',
-  BANKNIFTY: 'bg-bullish/5',
-  CRUDEOIL: 'bg-warning-amber/5',
-  NATURALGAS: 'bg-destructive/5',
-};
-
-const _INST_PILL: Record<string, string> = {
-  NIFTY: 'bg-info-cyan/15 text-info-cyan border-info-cyan/30',
-  BANKNIFTY: 'bg-bullish/15 text-bullish border-bullish/30',
-  CRUDEOIL: 'bg-warning-amber/15 text-warning-amber border-warning-amber/30',
-  NATURALGAS: 'bg-destructive/15 text-destructive border-destructive/30',
-};
-
 const INST_SHORT: Record<string, string> = {
   NIFTY: 'NIFTY',
   BANKNIFTY: 'BNIFTY',
@@ -117,6 +97,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
   const { channel, placeTrade } = useCapital() as any;
+  const { styleOf } = useInstrumentColors();
   const canTrade = channel !== 'ai-live' && channel !== 'ai-paper';
 
   const handleTrade = (signal: SEASignal) => {
@@ -202,7 +183,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
             const Icon = (isLong || signal.direction === 'GO_CALL') ? TrendingUp : TrendingDown;
             const accentColor = isLong ? 'text-bullish' : isShort ? 'text-warning-amber' : signal.direction === 'GO_CALL' ? 'text-bullish' : 'text-destructive';
             const borderColor = isLong ? 'border-l-bullish' : isShort ? 'border-l-warning-amber' : signal.direction === 'GO_CALL' ? 'border-l-bullish' : 'border-l-destructive';
-            const instBg = INST_BG[signal.instrument] ?? 'bg-secondary/10';
+            const instStyle = styleOf(signal.instrument);
             const count = signal.count ?? 1;
             const hasV2 = !!signal.action;
 
@@ -212,7 +193,8 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
             return (
               <div
                 key={signal.id}
-                className={`border-l-2 ${borderColor} ${instBg} rounded-r flex items-stretch overflow-hidden`}
+                className={`border-l-2 ${borderColor} rounded-r flex items-stretch overflow-hidden`}
+                style={instStyle.cardBg}
               >
                 {/* Left: details (wrapped in tooltip for metadata) */}
                 <Tooltip>
@@ -224,7 +206,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                         <span className={`font-bold tracking-wider ${accentColor}`}>
                           {hasV2 ? action.replace('_', ' ') : signal.direction?.replace('GO_', '')}
                         </span>
-                        <span className={`font-bold tabular-nums truncate ${INST_COLORS[signal.instrument] ?? ''}`}>
+                        <span className="font-bold tabular-nums truncate" style={instStyle.text}>
                           {INST_SHORT[signal.instrument] ?? signal.instrument} {signal.atm_strike || ''}
                         </span>
                         {signal.cohort && (

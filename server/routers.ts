@@ -30,6 +30,7 @@ import {
   addInstrument,
   removeInstrument,
   assignHotkey,
+  setInstrumentColor,
   type InstrumentConfig,
 } from "./instruments";
 import { searchByQuery, downloadScripMaster, needsRefresh } from "./broker/adapters/dhan/scripMaster";
@@ -153,10 +154,11 @@ export const appRouter = router({
           underlying: z.string().nullable(),
           autoResolve: z.boolean(),
           symbolName: z.string().nullable(),
+          color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "hex colour like #3B82F6").optional(),
         })
       )
       .mutation(async ({ input }) => {
-        const config: Omit<InstrumentConfig, "isDefault" | "addedAt"> = {
+        const config: Omit<InstrumentConfig, "isDefault" | "addedAt" | "color"> & { color?: string } = {
           key: input.key,
           displayName: input.displayName,
           exchange: input.exchange,
@@ -165,6 +167,7 @@ export const appRouter = router({
           autoResolve: input.autoResolve,
           symbolName: input.symbolName,
           hotkey: null,
+          color: input.color,
         };
         const result = await addInstrument(config);
         // Update in-memory store
@@ -198,6 +201,22 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         await assignHotkey(input.key, input.hotkey);
         // Update in-memory store so the live hotkey map sees the change.
+        const instruments = await getAllInstruments();
+        setConfiguredInstruments(instruments);
+        return { success: true };
+      }),
+
+    // Set an instrument's base colour (hex). Drives every instrument-specific
+    // UI shade (pill, cards, signals) via the shared client colour helper.
+    setColor: protectedProcedure
+      .input(
+        z.object({
+          key: z.string().min(1),
+          color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "hex colour like #3B82F6"),
+        })
+      )
+      .mutation(async ({ input }) => {
+        await setInstrumentColor(input.key, input.color);
         const instruments = await getAllInstruments();
         setConfiguredInstruments(instruments);
         return { success: true };

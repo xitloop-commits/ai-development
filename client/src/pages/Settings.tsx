@@ -12,6 +12,8 @@ import { useState, useEffect, createContext, useContext, useRef } from 'react';
 import { trpc } from '@/lib/trpc';
 import { useCapital } from '@/contexts/CapitalContext';
 import { toast } from 'sonner';
+import { useInstrumentColors } from '@/lib/useInstrumentColors';
+import { InstrumentColorPicker } from '@/components/InstrumentColorPicker';
 import {
   Settings as SettingsIcon,
   ShieldCheck,
@@ -1905,6 +1907,7 @@ export function TimeWindowsSection() {
 
 export function ExpiryControlsSection() {
   const settingsQuery = trpc.settings.get.useQuery();
+  const { styleOf } = useInstrumentColors();
   const [rules, setRules] = useState(settingsQuery.data?.expiryControls?.rules);
 
   useEffect(() => {
@@ -1947,13 +1950,6 @@ export function ExpiryControlsSection() {
     );
   }
 
-  const instrumentColors: Record<string, string> = {
-    NIFTY_50: 'text-info-cyan border-info-cyan/30',
-    BANKNIFTY: 'text-bullish border-bullish/30',
-    CRUDEOIL: 'text-warning-amber border-warning-amber/30',
-    NATURALGAS: 'text-destructive border-destructive/30',
-  };
-
   const instrumentLabels: Record<string, string> = {
     NIFTY_50: 'NIFTY 50',
     BANKNIFTY: 'BANK NIFTY',
@@ -1966,7 +1962,10 @@ export function ExpiryControlsSection() {
       {rules.map((rule, idx) => (
         <SettingsCard key={rule.instrument}>
           <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
-            <span className={`text-[0.6875rem] font-bold tracking-wider uppercase px-2 py-0.5 rounded border ${instrumentColors[rule.instrument] ?? 'text-foreground border-border'}`}>
+            <span
+              className="text-[0.6875rem] font-bold tracking-wider uppercase px-2 py-0.5 rounded border"
+              style={{ ...styleOf(rule.instrument).pill, ...styleOf(rule.instrument).border }}
+            >
               {instrumentLabels[rule.instrument] ?? rule.instrument}
             </span>
           </div>
@@ -2310,6 +2309,7 @@ export function InstrumentsSection() {
                   <div className="text-[0.5625rem] text-muted-foreground">{inst.exchange} • {inst.exchangeSegment}</div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
+                  <InstrumentColorPicker instrumentKey={inst.key} color={inst.color ?? '#64748B'} />
                   {inst.isDefault && (
                     <span className="px-2 py-0.5 text-[0.5625rem] bg-primary/10 text-primary rounded">default</span>
                   )}

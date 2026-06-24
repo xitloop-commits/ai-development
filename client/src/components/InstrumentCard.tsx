@@ -21,6 +21,7 @@
 import { TrendingUp, TrendingDown, Activity, Zap, BarChart3, Shield } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
+import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { TradeBar } from './TradeBar';
 
 // ── Tooltip wrapper ──────────────────────────────────────────
@@ -146,13 +147,6 @@ const INST_KEY_MAP: Record<string, string> = {
   NATURALGAS: 'naturalgas',
 };
 
-const INST_ACCENT: Record<string, string> = {
-  nifty50: 'text-info-cyan',
-  banknifty: 'text-bullish',
-  crudeoil: 'text-warning-amber',
-  naturalgas: 'text-destructive',
-};
-
 // ── Helpers ──────────────────────────────────────────────────
 
 function fmt(v: number | null | undefined, dec = 2): string {
@@ -215,7 +209,8 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
   const instrumentKey = data?.name ?? '';
   const displayName = data?.displayName ?? instrumentKey;
   const inst = INST_KEY_MAP[instrumentKey] ?? instrumentKey.toLowerCase();
-  const accent = INST_ACCENT[inst] ?? 'text-foreground';
+  const { styleOf } = useInstrumentColors();
+  const instStyle = styleOf(instrumentKey);
 
   const { data: state } = trpc.trading.instrumentLiveState.useQuery(
     { instrument: inst },
@@ -255,9 +250,9 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
     <div className="space-y-3 pb-2">
 
       {/* ═══ 1. LIVE SNAPSHOT ═══ */}
-      <div className="rounded border border-border bg-card/50 p-3 space-y-2">
+      <div className="rounded border p-3 space-y-2" style={{ ...instStyle.cardBg, ...instStyle.border }}>
         <div className="flex items-center justify-between">
-          <span className={`text-[0.8125rem] font-bold ${accent} tracking-wider`}>
+          <span className="text-[0.8125rem] font-bold tracking-wider" style={instStyle.text}>
             {displayName}
           </span>
           <span className="flex items-center gap-1.5">

@@ -1,4 +1,4 @@
-import { getInstrumentStyle } from '@/lib/tradeThemes';
+import { useInstrumentColors } from '@/lib/useInstrumentColors';
 
 export interface InstrumentTagProps {
   name: string;
@@ -7,9 +7,13 @@ export interface InstrumentTagProps {
 }
 
 export function InstrumentTag({ name, muted }: InstrumentTagProps) {
-  const style = getInstrumentStyle(name);
+  const { styleOf } = useInstrumentColors();
+  const style = styleOf(name);
   return (
-    <span className={`inline-flex max-w-full items-center truncate px-1.5 py-0.5 rounded text-[0.625rem] font-semibold ${muted ? '' : style.bg} ${style.text}`}>
+    <span
+      className="inline-flex max-w-full items-center truncate px-1.5 py-0.5 rounded text-[0.625rem] font-semibold"
+      style={muted ? style.text : style.pill}
+    >
       {name}
     </span>
   );

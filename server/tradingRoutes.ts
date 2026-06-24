@@ -207,7 +207,7 @@ export function registerTradingRoutes(app: Express): void {
     async (req: Request, res: Response) => {
       try {
         const body = req.body as z.infer<typeof addInstrumentSchema>;
-        const config: Omit<InstrumentConfig, "isDefault" | "addedAt"> = {
+        const config: Omit<InstrumentConfig, "isDefault" | "addedAt" | "color"> & { color?: string } = {
           key: body.key,
           displayName: body.displayName,
           exchange: body.exchange as InstrumentConfig["exchange"],
@@ -216,6 +216,7 @@ export function registerTradingRoutes(app: Express): void {
           autoResolve: body.autoResolve === true,
           symbolName: body.symbolName ?? null,
           hotkey: null,
+          // colour auto-assigned by addInstrument when omitted
         };
         const result = await addInstrument(config);
 

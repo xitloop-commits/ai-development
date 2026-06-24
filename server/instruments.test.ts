@@ -15,7 +15,10 @@ import {
   addInstrument,
   removeInstrument,
   seedDefaultInstruments,
+  setInstrumentColor,
+  pickNextColor,
   DEFAULT_INSTRUMENTS,
+  INSTRUMENT_PALETTE,
   InstrumentModel,
 } from "./instruments";
 import { searchByQuery, _loadRecordsForTesting, _resetForTesting, type ScripRecord } from "./broker/adapters/dhan/scripMaster";
@@ -297,6 +300,92 @@ describe("Instruments Management - CRUD", () => {
 
     expect(count1).toBe(count2);
     expect(count2).toBe(4);
+  });
+});
+
+// ─── Instrument Colour Tests ───────────────────────────────────
+
+describe("pickNextColor", () => {
+  it("returns the first palette colour when none are used", () => {
+    expect(pickNextColor([])).toBe(INSTRUMENT_PALETTE[0]);
+  });
+
+  it("skips colours already in use", () => {
+    const used = [INSTRUMENT_PALETTE[0], INSTRUMENT_PALETTE[1]];
+    expect(pickNextColor(used)).toBe(INSTRUMENT_PALETTE[2]);
+  });
+
+  it("wraps around when every palette colour is taken", () => {
+    const all = [...INSTRUMENT_PALETTE];
+    expect(pickNextColor(all)).toBe(INSTRUMENT_PALETTE[all.length % INSTRUMENT_PALETTE.length]);
+  });
+});
+
+describe("Instrument Colours - persistence", () => {
+  beforeEach(async () => {
+    await connectMongo();
+    await InstrumentModel.deleteMany({});
+  });
+
+  afterEach(async () => {
+    await InstrumentModel.deleteMany({});
+    await disconnectMongo();
+  });
+
+  it("seeds default instruments with their legacy pill colours", async () => {
+    await seedDefaultInstruments();
+    const byKey = Object.fromEntries((await getAllInstruments()).map(i => [i.key, i.color]));
+    expect(byKey["NIFTY_50"]).toBe("#3B82F6");
+    expect(byKey["BANKNIFTY"]).toBe("#A855F7");
+    expect(byKey["CRUDEOIL"]).toBe("#F59E0B");
+    expect(byKey["NATURALGAS"]).toBe("#10B981");
+  });
+
+  it("auto-assigns a palette colour to a new instrument", async () => {
+    await seedDefaultInstruments();
+    const created = await addInstrument({
+      key: "RELIANCE_EQ",
+      displayName: "RELIANCE",
+      exchange: "NSE",
+      exchangeSegment: "NSE_EQ",
+      underlying: "2001",
+      autoResolve: false,
+      symbolName: null,
+    });
+    expect(created.color).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    expect(INSTRUMENT_PALETTE).toContain(created.color);
+  });
+
+  it("honours an explicit colour on add", async () => {
+    await seedDefaultInstruments();
+    const created = await addInstrument({
+      key: "CUSTOM_HEX",
+      displayName: "CUSTOM",
+      exchange: "NSE",
+      exchangeSegment: "NSE_EQ",
+      underlying: "3000",
+      autoResolve: false,
+      symbolName: null,
+      color: "#123456",
+    });
+    expect(created.color).toBe("#123456");
+  });
+
+  it("updates an instrument's colour via setInstrumentColor", async () => {
+    await seedDefaultInstruments();
+    await setInstrumentColor("NIFTY_50", "#ABCDEF");
+    const inst = await getInstrumentByKey("NIFTY_50");
+    expect(inst?.color).toBe("#ABCDEF");
+  });
+
+  it("backfills colour on instruments saved before the colour field existed", async () => {
+    // Simulate a legacy doc with no colour by unsetting it after seeding.
+    await seedDefaultInstruments();
+    await InstrumentModel.updateOne({ key: "BANKNIFTY" }, { $unset: { color: "" } });
+
+    await seedDefaultInstruments(); // re-run triggers the backfill
+    const inst = await getInstrumentByKey("BANKNIFTY");
+    expect(inst?.color).toBe("#A855F7"); // restored to its default
   });
 });
 

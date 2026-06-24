@@ -21,6 +21,29 @@ export interface InstrumentConfig {
   isDefault: boolean;       // true = cannot be deleted from UI
   addedAt: number;          // UTC ms timestamp
   hotkey: string | null;    // keyboard hotkey (e.g., '1', '2', 'q', 'w') — null if not assigned
+  color: string;            // base hex colour (e.g. '#3B82F6') — single source for every
+                            // instrument-specific UI shade (pill, cards, signals). User-editable.
+}
+
+/**
+ * Curated preset palette for auto-assigning colours to new instruments.
+ * Mirrors INSTRUMENT_PALETTE on the client (client/src/lib/tradeThemes.ts) —
+ * keep the two in sync. First four match the legacy default pill colours.
+ */
+export const INSTRUMENT_PALETTE: string[] = [
+  "#3B82F6", "#A855F7", "#F59E0B", "#10B981",
+  "#EF4444", "#06B6D4", "#EC4899", "#84CC16",
+  "#F97316", "#8B5CF6", "#14B8A6", "#F43F5E",
+];
+
+const FALLBACK_INSTRUMENT_COLOR = "#64748B"; // slate-500
+
+/** Pick the first palette colour not already in use; wrap around if all taken. */
+export function pickNextColor(used: string[]): string {
+  return (
+    INSTRUMENT_PALETTE.find((c) => !used.includes(c)) ??
+    INSTRUMENT_PALETTE[used.length % INSTRUMENT_PALETTE.length]
+  );
 }
 
 const instrumentConfigSchema = new Schema<InstrumentConfig>(
@@ -35,6 +58,7 @@ const instrumentConfigSchema = new Schema<InstrumentConfig>(
     isDefault: { type: Boolean, default: false },
     addedAt: { type: Number, default: () => Date.now() },
     hotkey: { type: String, default: null, index: true },
+    color: { type: String, default: FALLBACK_INSTRUMENT_COLOR },
   },
   { collection: "instruments" }
 );
@@ -57,6 +81,7 @@ export const DEFAULT_INSTRUMENTS: InstrumentConfig[] = [
     isDefault: true,
     addedAt: 0,
     hotkey: "1",
+    color: "#3B82F6", // blue-500 (legacy pill colour)
   },
   {
     key: "BANKNIFTY",
@@ -69,6 +94,7 @@ export const DEFAULT_INSTRUMENTS: InstrumentConfig[] = [
     isDefault: true,
     addedAt: 0,
     hotkey: "2",
+    color: "#A855F7", // purple-500 (legacy pill colour)
   },
   {
     key: "CRUDEOIL",
@@ -81,6 +107,7 @@ export const DEFAULT_INSTRUMENTS: InstrumentConfig[] = [
     isDefault: true,
     addedAt: 0,
     hotkey: "3",
+    color: "#F59E0B", // amber-500 (legacy pill colour)
   },
   {
     key: "NATURALGAS",
@@ -93,6 +120,7 @@ export const DEFAULT_INSTRUMENTS: InstrumentConfig[] = [
     isDefault: true,
     addedAt: 0,
     hotkey: "4",
+    color: "#10B981", // emerald-500 (legacy pill colour)
   },
 ];
 
@@ -119,10 +147,17 @@ export async function getInstrumentByKey(
  * Throws if the key already exists.
  */
 export async function addInstrument(
-  config: Omit<InstrumentConfig, "isDefault" | "addedAt">
+  config: Omit<InstrumentConfig, "isDefault" | "addedAt" | "color"> & { color?: string }
 ): Promise<InstrumentConfig> {
+  // Auto-assign the next free palette colour when the caller doesn't pick one.
+  const existing = await getAllInstruments();
+  const color =
+    config.color ??
+    pickNextColor(existing.map((i) => i.color).filter(Boolean) as string[]);
+
   const newInstrument: InstrumentConfig = {
     ...config,
+    color,
     isDefault: false,
     addedAt: Date.now(),
   };
@@ -130,6 +165,18 @@ export async function addInstrument(
   await InstrumentModel.create(newInstrument);
   // Return the created instrument
   return newInstrument;
+}
+
+/**
+ * Set an instrument's base colour (hex like '#3B82F6').
+ * Applies to default and user-added instruments alike.
+ */
+export async function setInstrumentColor(key: string, color: string): Promise<void> {
+  const instrument = await getInstrumentByKey(key);
+  if (!instrument) {
+    throw new Error(`Instrument ${key} not found`);
+  }
+  await InstrumentModel.updateOne({ key }, { $set: { color } });
 }
 
 /**
@@ -207,6 +254,25 @@ export async function seedDefaultInstruments(): Promise<void> {
           { upsert: true }
         );
       }
+    }
+
+    // Backfill colour on any instrument saved before the colour field existed.
+    // Defaults get their canonical colour; user-added ones get the next free
+    // palette colour. Idempotent — only touches docs missing a colour.
+    const missing = await InstrumentModel.find({
+      $or: [{ color: { $exists: false } }, { color: null }, { color: "" }],
+    }).lean();
+    if (missing.length > 0) {
+      const used = (await getAllInstruments())
+        .map((i) => i.color)
+        .filter(Boolean) as string[];
+      for (const m of missing) {
+        const def = DEFAULT_INSTRUMENTS.find((d) => d.key === m.key)?.color;
+        const color = def ?? pickNextColor(used);
+        used.push(color);
+        await InstrumentModel.updateOne({ key: m.key }, { $set: { color } });
+      }
+      log.important(`Backfilled colour on ${missing.length} instrument(s)`);
     }
   } catch (err) {
     log.error("Error seeding default instruments", err as Error);

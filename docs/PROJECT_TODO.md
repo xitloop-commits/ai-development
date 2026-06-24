@@ -1035,6 +1035,15 @@ Done 2026-06-23 (paper only; **off by default**). The model emits wave-2 signals
 - **Verified:** tsc clean · py_compile clean · 58 server tests green. **Not yet run live in-market.**
 - **Cross-ref:** `python_modules/signal_engine_agent/{engine,risk_control_client}.py`, `server/discipline/routes.ts`, `server/risk-control/index.ts`, `server/executor/{types,tradeExecutor}.ts`, `server/portfolio/{state,storage,portfolioAgent}.ts`, `client/src/{lib/tradeTypes.ts,components/InstrumentCard.tsx}`.
 
+### T62 [UI] — Per-instrument colour system (user-editable, single source) ✅ DONE 2026-06-24
+Each instrument now has ONE base colour that drives every instrument-specific surface (pill, instrument cards, signal cards, expiry-control cards), and the user can change it from Settings → Instruments. Replaces three separate, inconsistent hard-coded colour maps (`tradeThemes.INSTRUMENT_COLORS` blue/purple/amber/emerald, `Settings.instrumentColors` cyan/green/…, `InstrumentCard.INST_ACCENT` + `SignalsFeed.INST_*` cyan/green/amber/red). New user-added instruments used to fall back to grey — now auto-assigned the next palette colour.
+
+- **Storage:** `InstrumentConfig.color` (hex) added to the Mongo model + the 4 default instruments seeded to their legacy pill colours (NIFTY `#3B82F6`, BANKNIFTY `#A855F7`, CRUDE `#F59E0B`, GAS `#10B981`), so day-one looks identical. Idempotent backfill in `seedDefaultInstruments` colours any pre-existing doc. `addInstrument` auto-assigns via `pickNextColor` (12-swatch palette); `setInstrumentColor` + `instruments.setColor` tRPC mutation for edits.
+- **Colours stored as hex + applied as inline styles, NOT Tailwind classes** — Tailwind purges classes absent at build time, so a runtime-picked colour as a class would silently not render. `tradeThemes.ts` gains the palette, `normalizeInstrumentKey` (collapses every label form — `NIFTY 50`/`NIFTY_50`/`nifty50`/`NIFTY` → one key), `withAlpha`, `instrumentStyleFromHex` (derives pill/cardBg/border/text from one hex via alpha), `resolveInstrumentHex`. New `useInstrumentColors()` hook binds the live `instruments.list` (tRPC-cached) to a `styleOf`/`hexOf` resolver.
+- **Picker:** `InstrumentColorPicker.tsx` — 12 preset swatches + a custom-hex / native colour input (option C). Saving invalidates the instruments query → whole app re-colours at once.
+- **Verified:** `tsc --noEmit` clean; 28 server instrument tests (incl. 8 new colour/backfill/pickNextColor) + 8 new client `tradeThemes.test.ts` all green.
+- **Cross-ref:** `server/{instruments,routers,tradingRoutes}.ts`, `client/src/lib/{tradeThemes,useInstrumentColors}.ts`, `client/src/components/{InstrumentTag,InstrumentCard,SignalsFeed,InstrumentColorPicker}.tsx`, `client/src/pages/Settings.tsx`.
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 _None yet._
