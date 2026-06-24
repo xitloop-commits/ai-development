@@ -36,7 +36,7 @@ describe('instrumentStyleFromHex', () => {
     expect(s.hex).toBe('#3B82F6');
     expect(s.text.color).toBe('#3B82F6');
     expect(s.pill).toEqual({ backgroundColor: 'rgba(59, 130, 246, 0.15)', color: '#3B82F6' });
-    expect(s.cardBg.backgroundColor).toBe('rgba(59, 130, 246, 0.07)');
+    expect(s.cardBg.backgroundColor).toBe('rgba(59, 130, 246, 0.12)');
     expect(s.border.borderColor).toBe('rgba(59, 130, 246, 0.3)');
     expect(s.borderLeft.borderLeftColor).toBe('#3B82F6');
   });

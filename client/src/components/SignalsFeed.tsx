@@ -182,7 +182,6 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
             const _isCE = action.includes('CE');
             const Icon = (isLong || signal.direction === 'GO_CALL') ? TrendingUp : TrendingDown;
             const accentColor = isLong ? 'text-bullish' : isShort ? 'text-warning-amber' : signal.direction === 'GO_CALL' ? 'text-bullish' : 'text-destructive';
-            const borderColor = isLong ? 'border-l-bullish' : isShort ? 'border-l-warning-amber' : signal.direction === 'GO_CALL' ? 'border-l-bullish' : 'border-l-destructive';
             const instStyle = styleOf(signal.instrument);
             const count = signal.count ?? 1;
             const hasV2 = !!signal.action;
@@ -193,8 +192,8 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
             return (
               <div
                 key={signal.id}
-                className={`border-l-2 ${borderColor} rounded-r flex items-stretch overflow-hidden`}
-                style={instStyle.cardBg}
+                className="border-l-[3px] rounded-r flex items-stretch overflow-hidden"
+                style={{ ...instStyle.cardBg, ...instStyle.borderLeft }}
               >
                 {/* Left: details (wrapped in tooltip for metadata) */}
                 <Tooltip>

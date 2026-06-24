@@ -85,7 +85,7 @@ export function instrumentStyleFromHex(hex: string): InstrumentStyle {
     hex: base,
     text: { color: base },
     pill: { backgroundColor: withAlpha(base, 0.15), color: base },
-    cardBg: { backgroundColor: withAlpha(base, 0.07) },
+    cardBg: { backgroundColor: withAlpha(base, 0.12) },
     border: { borderColor: withAlpha(base, 0.3) },
     borderLeft: { borderLeftColor: base },
   };
