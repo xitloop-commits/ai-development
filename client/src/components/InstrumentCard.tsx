@@ -18,11 +18,14 @@
  *
  * Data: tRPC trading.instrumentLiveState polling every 5s.
  */
-import { TrendingUp, TrendingDown, Activity, Zap, BarChart3, Shield } from 'lucide-react';
+import { useState } from 'react';
+import { TrendingUp, TrendingDown, Activity, Zap, BarChart3, Shield, LineChart } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { TradeBar } from './TradeBar';
+import SignalChartDialog, { type SignalChartTarget } from './SignalChartDialog';
+import { UNDERLYING_SECURITY_ID, istDateString } from '@/lib/signalChart';
 
 // ── Tooltip wrapper ──────────────────────────────────────────
 function Tip({ children, text }: { children: React.ReactNode; text: string }) {
@@ -205,7 +208,7 @@ interface InstrumentCardProps {
   feedSecurityId?: string;
 }
 
-export default function InstrumentCard({ data }: InstrumentCardProps) {
+export default function InstrumentCard({ data, feedExchange, feedSecurityId }: InstrumentCardProps) {
   const instrumentKey = data?.name ?? '';
   const displayName = data?.displayName ?? instrumentKey;
   const inst = INST_KEY_MAP[instrumentKey] ?? instrumentKey.toLowerCase();
@@ -234,12 +237,42 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
     (t: any) => t.status === 'OPEN' && _norm(t.instrument) === _norm(instrumentKey),
   ) ?? null;
 
+  // Chart popup — underlying chart for a chosen date with that day's signals
+  // plotted. Uses the resolved feed security id (index id, or commodity future
+  // id); falls back to the static index ids for NIFTY/BANKNIFTY.
+  const [chartOpen, setChartOpen] = useState(false);
+  const chartSecurityId = feedSecurityId ?? UNDERLYING_SECURITY_ID[instrumentKey] ?? '';
+  const chartSegment = feedExchange ?? (instrumentKey === 'CRUDEOIL' || instrumentKey === 'NATURALGAS' ? 'MCX_COMM' : 'IDX_I');
+  const chartTarget: SignalChartTarget | null = chartSecurityId
+    ? {
+        instrumentKey,
+        displayName,
+        securityId: chartSecurityId,
+        exchangeSegment: chartSegment,
+        initialDate: istDateString(),
+      }
+    : null;
+
   if (!live) {
+    // No live feed file for this instrument right now (e.g. NSE closed, TFA not
+    // running). The date-based chart still works — keep it reachable so past
+    // sessions + signals can be reviewed.
     return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-[0.6875rem] text-muted-foreground">
-          Waiting for data…
+      <div className="flex flex-col items-center justify-center h-full gap-3 px-3">
+        <p className="text-[0.6875rem] text-muted-foreground text-center">
+          {displayName} — no live data right now.
         </p>
+        {chartTarget && (
+          <button
+            onClick={() => setChartOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-border text-[0.625rem] font-bold tracking-wider uppercase text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+            title="Open chart — pick a date to see that day's price + signals"
+          >
+            <LineChart className="h-3.5 w-3.5" />
+            Open Chart
+          </button>
+        )}
+        <SignalChartDialog open={chartOpen} onOpenChange={setChartOpen} target={chartTarget} />
       </div>
     );
   }
@@ -299,6 +332,16 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
           <span className="text-[0.625rem] font-bold tracking-wider uppercase" style={instStyle.text}>
             {aiTrade ? 'AI Trade · ai-paper' : 'SEA Signal'}
           </span>
+          {chartTarget && (
+            <button
+              onClick={() => setChartOpen(true)}
+              className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.5625rem] font-bold tracking-wider uppercase text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+              title="Open chart — pick a date to see that day's price + signals"
+            >
+              <LineChart className="h-3 w-3" />
+              Chart
+            </button>
+          )}
         </div>
 
         {aiTrade ? (() => {
@@ -754,6 +797,13 @@ export default function InstrumentCard({ data }: InstrumentCardProps) {
           </Tip>
         </div>
       </div>
+
+      {/* Signal chart popup (Heikin Ashi underlying + all-signal markers, by date) */}
+      <SignalChartDialog
+        open={chartOpen}
+        onOpenChange={setChartOpen}
+        target={chartTarget}
+      />
     </div>
   );
 }

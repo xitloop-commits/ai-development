@@ -91,6 +91,9 @@ export interface LatestSignal {
   atm_strike: number;
   atm_ce_ltp: number | null;
   atm_pe_ltp: number | null;
+  /** Security IDs of the ATM CE/PE contracts — used to chart the option premium. */
+  atm_ce_security_id: string | null;
+  atm_pe_security_id: string | null;
   spot_price: number | null;
   timestamp_ist: string;
   model_version: string;
@@ -258,6 +261,8 @@ export function getInstrumentLiveState(instrument: string): LiveState {
       atm_strike: sigRow.atm_strike ?? 0,
       atm_ce_ltp: sigRow.atm_ce_ltp ?? null,
       atm_pe_ltp: sigRow.atm_pe_ltp ?? null,
+      atm_ce_security_id: sigRow.atm_ce_security_id != null ? String(sigRow.atm_ce_security_id) : null,
+      atm_pe_security_id: sigRow.atm_pe_security_id != null ? String(sigRow.atm_pe_security_id) : null,
       spot_price: sigRow.spot_price ?? null,
       timestamp_ist: sigRow.timestamp_ist ?? "",
       model_version: sigRow.model_version ?? "",

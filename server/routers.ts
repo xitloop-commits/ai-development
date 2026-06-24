@@ -18,6 +18,7 @@ import {
 } from "./holidays";
 import { getMongoHealth, pingMongo } from "./mongo";
 import { querySeaSignals } from "./seaSignalStore";
+import { getSEASignalsForChart } from "./seaSignals";
 import { getInstrumentLiveState } from "./instrumentLiveState";
 import { brokerRouter } from "./broker/brokerRouter";
 import { portfolioRouter } from "./portfolio/router";
@@ -74,6 +75,19 @@ export const appRouter = router({
           before: input?.before,
           allDays: input?.allDays,
         });
+      }),
+
+    // All SEA signals for one instrument on one date (YYYY-MM-DD IST), for the
+    // chart overlay. Reads the per-date log file — works without the live feed.
+    signalsForChart: publicProcedure
+      .input(
+        z.object({
+          instrument: z.string(),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        }),
+      )
+      .query(({ input }) => {
+        return getSEASignalsForChart(input.instrument, input.date);
       }),
 
     // Get active instruments list

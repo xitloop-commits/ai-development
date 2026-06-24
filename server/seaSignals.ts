@@ -219,6 +219,85 @@ export function getSEASignals(
   return result;
 }
 
+/** A signal occurrence for chart plotting (lightweight subset). */
+export interface ChartSignal {
+  timestamp: number;       // epoch seconds (real UTC)
+  timestamp_ist: string;
+  direction: "GO_CALL" | "GO_PUT";
+  action?: string;         // LONG_CE | LONG_PE | SHORT_CE | SHORT_PE
+  atm_strike: number;
+  spot_price: number | null;
+  entry?: number;
+  tp?: number;
+  sl?: number;
+  cohort?: string;
+}
+
+/** Map a UI instrument key (NIFTY_50 / BANKNIFTY / …) to its log folder name. */
+function logFolderFor(instrument: string): string {
+  const k = (instrument || "").toUpperCase().replace(/[^A-Z]/g, "");
+  if (k.startsWith("NIFTY50") || k === "NIFTY") return "nifty50";
+  if (k.startsWith("BANK")) return "banknifty";
+  if (k.startsWith("CRUDE")) return "crudeoil";
+  if (k.startsWith("NATURAL") || k.includes("GAS")) return "naturalgas";
+  return (instrument || "").toLowerCase();
+}
+
+/**
+ * All SEA signals for one instrument on one date (YYYY-MM-DD IST), for the
+ * chart overlay. Reads the per-date raw log file directly, dedups consecutive
+ * same-direction signals within 60s (so we plot one arrow per move, not 30/sec),
+ * and returns them chronological. Independent of the live feed — pure disk read.
+ */
+export function getSEASignalsForChart(instrument: string, date: string): ChartSignal[] {
+  const folder = logFolderFor(instrument);
+  const logPath = path.resolve(`logs/signals/${folder}/${date}_signals.log`);
+  if (!existsSync(logPath)) return [];
+
+  let content = "";
+  try {
+    content = readFileSync(logPath, "utf-8");
+  } catch {
+    return [];
+  }
+
+  const parsed: ChartSignal[] = [];
+  for (const line of content.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      const r = JSON.parse(t);
+      parsed.push({
+        timestamp: r.timestamp ?? 0,
+        timestamp_ist: r.timestamp_ist ?? "",
+        direction: r.direction === "GO_PUT" ? "GO_PUT" : "GO_CALL",
+        action: r.action ?? undefined,
+        atm_strike: r.atm_strike ?? 0,
+        spot_price: r.spot_price ?? null,
+        entry: r.entry ?? undefined,
+        tp: r.tp ?? undefined,
+        sl: r.sl ?? undefined,
+        cohort: r.cohort ?? undefined,
+      });
+    } catch {
+      /* skip malformed */
+    }
+  }
+
+  parsed.sort((a, b) => a.timestamp - b.timestamp);
+
+  // Dedup consecutive same-direction within 60s → one marker per move.
+  const out: ChartSignal[] = [];
+  for (const sig of parsed) {
+    const prev = out[out.length - 1];
+    if (prev && prev.direction === sig.direction && sig.timestamp - prev.timestamp < 60) {
+      continue;
+    }
+    out.push(sig);
+  }
+  return out.slice(0, 2000); // safety cap
+}
+
 /**
  * Get signal counts for today per instrument.
  */
