@@ -75,7 +75,7 @@ describe("formatExit", () => {
     expect(msg).toBe("target achieved 30.00% Rs.3,375 from NATURALGAS");
   });
 
-  it("SL_HIT → 'loss hit {pct} {rs} from {instrument}' (magnitude only)", () => {
+  it("SL_HIT in loss → 'stop-loss hit, lost {pct} {rs} from {instrument}'", () => {
     const msg = formatExit({
       ...base,
       realizedPnl: -750,
@@ -83,7 +83,18 @@ describe("formatExit", () => {
       reason: "SL_HIT",
       triggeredBy: "PA",
     });
-    expect(msg).toBe("loss hit 12.50% Rs.750 from NATURALGAS");
+    expect(msg).toBe("stop-loss hit, lost 12.50% Rs.750 from NATURALGAS");
+  });
+
+  it("SL_HIT in profit (trailing stop locked a gain) → 'trailing stop hit, gained ...'", () => {
+    const msg = formatExit({
+      ...base,
+      realizedPnl: 900,
+      realizedPnlPercent: 15.0,
+      reason: "SL_HIT",
+      triggeredBy: "PA",
+    });
+    expect(msg).toBe("trailing stop hit, gained 15.00% Rs.900 from NATURALGAS");
   });
 
   it("DISCIPLINE_EXIT → 'closed by risk rule, …' regardless of P&L sign", () => {

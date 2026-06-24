@@ -112,7 +112,12 @@ export function formatExit(ev: TradeExitEvent): string {
     return `target achieved ${tail}`;
   }
   if (ev.reason === "SL_HIT" || ev.reason === "STOP_LOSS") {
-    return `loss hit ${tail}`;
+    // A trailing stop also exits as SL_HIT but can be in PROFIT (the TSL locked
+    // gains), so let the realized P&L decide the wording — otherwise a winning
+    // trailing-stop exit gets reported as a "loss" while the desk shows profit.
+    return ev.realizedPnl >= 0
+      ? `trailing stop hit, gained ${tail}`
+      : `stop-loss hit, lost ${tail}`;
   }
   if (ev.reason === "DISCIPLINE_EXIT") {
     return `closed by risk rule, ${tail}`;
