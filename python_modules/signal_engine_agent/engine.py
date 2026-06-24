@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -70,6 +71,16 @@ _EXCHANGE_BY_INSTRUMENT = {
 }
 
 
+def _finite(x: object) -> float | None:
+    """Coerce to a finite float, else None. NaN/Inf are NOT valid JSON, so they
+    must never reach the payload (express's body parser rejects them)."""
+    try:
+        f = float(x)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
 def _maybe_submit_ai_trade(signal: dict) -> None:
     channel = os.environ.get("SEA_AUTO_TRADE", "").strip()
     if not channel:
@@ -77,13 +88,14 @@ def _maybe_submit_ai_trade(signal: dict) -> None:
     try:
         action = signal.get("action") or ""
         side = "CE" if "CE" in action else "PE"
-        entry = signal.get("entry") or 0.0
         sec_id = (
             signal.get("atm_ce_security_id") if side == "CE"
             else signal.get("atm_pe_security_id")
         )
         inst = str(signal.get("instrument", "")).upper()
-        if entry <= 0 or not sec_id:
+        entry = _finite(signal.get("entry"))
+        strike = _finite(signal.get("atm_strike"))
+        if not sec_id or entry is None or entry <= 0 or strike is None:
             return  # can't price the leg or route it — skip silently
         from signal_engine_agent.risk_control_client import submit_new_trade
 
@@ -95,16 +107,25 @@ def _maybe_submit_ai_trade(signal: dict) -> None:
             "exchange": _EXCHANGE_BY_INSTRUMENT.get(inst, "NSE"),
             "transactionType": "BUY" if action.startswith("LONG") else "SELL",
             "optionType": side,
-            "strike": signal.get("atm_strike") or 0,
+            "strike": strike,
             "contractSecurityId": str(sec_id),
-            "entryPrice": float(entry),
-            "stopLoss": signal.get("sl"),
-            "takeProfit": signal.get("tp"),
-            "aiConfidence": signal.get("direction_prob_30s"),
-            "aiRiskReward": signal.get("rr"),
-            "cohort": signal.get("cohort"),
+            "entryPrice": entry,
+            # stopLoss/takeProfit accept number OR null — send finite value or null.
+            "stopLoss": _finite(signal.get("sl")),
+            "takeProfit": _finite(signal.get("tp")),
             "lots": int(os.environ.get("SEA_AUTO_TRADE_LOTS", "1") or "1"),
         }
+        # Optional fields — include only when finite / present (schema rejects null).
+        cohort = signal.get("cohort")
+        if isinstance(cohort, str) and cohort:
+            payload["cohort"] = cohort
+        conf = _finite(signal.get("direction_prob_30s"))
+        if conf is not None:
+            payload["aiConfidence"] = conf
+        rr = _finite(signal.get("rr"))
+        if rr is not None:
+            payload["aiRiskReward"] = rr
+
         submit_new_trade(payload, timeout=5.0)
     except Exception as exc:  # never let auto-trade crash the inference loop
         print(f"  [auto-trade] skipped: {exc}", file=sys.stderr)
