@@ -277,14 +277,21 @@ def _gather_predictions_raw_cal(
 
 
 def _tail(path: Path, poll_sec: float = 0.2):
-    """Generator: yield each new line appended to `path`. Handles file
-    rotation (truncate / recreate → reopen from position 0)."""
-    pos = 0
+    """Generator: yield each NEW line appended to `path`.
+
+    Seeks to the END on first open (true `tail -f`) so a mid-session restart
+    resumes at the live tick immediately, instead of replaying the whole day's
+    feature file from the start (which can be hundreds of MB → many minutes of
+    backlog before any live signal). At market open the file is empty so this is
+    a no-op. Handles file rotation (truncate / recreate → reopen from 0)."""
+    pos: int | None = None
     while True:
         if not path.exists():
             time.sleep(poll_sec)
             continue
         size = path.stat().st_size
+        if pos is None:
+            pos = size  # start at end — skip the backlog on (re)start
         if size < pos:
             pos = 0
         with open(path, encoding="utf-8") as f:
