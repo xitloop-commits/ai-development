@@ -150,7 +150,7 @@ export function registerDisciplineRoutes(app: Express): void {
         let stopLoss = body.stopLoss;
         let takeProfit = body.takeProfit;
         if (quantity == null) {
-          const { resolveLotSize } = await import("../executor/tradeResolution");
+          const { resolveLotSize, resolveNearestExpiry, resolveContract } = await import("../executor/tradeResolution");
           const { getCapitalState } = await import("../portfolio/state");
           const { portfolioAgent } = await import("../portfolio");
           const { tickBus } = await import("../broker/tickBus");
@@ -167,19 +167,31 @@ export function registerDisciplineRoutes(app: Express): void {
             return;
           }
 
-          // Re-price the entry to the LIVE tick the trade will actually track
-          // (the same WS feed trade.ltp uses). The SEA's `entry` is a TFA
-          // feature-file snapshot that lags on momentum signals, so without this
-          // every fill opened instantly green. Delta-shift SL/TP to keep their
-          // rupee distances. Falls back to the signal entry if no tick is cached.
-          if (body.contractSecurityId) {
+          // Re-price the entry to the LIVE option price the trade will track,
+          // so a stale signal snapshot doesn't open the trade artificially in
+          // profit. The SEA's `entry` is a TFA feature-file snapshot that lags on
+          // momentum signals. Prefer the cached WS tick (exact match to
+          // trade.ltp); but the contract usually isn't subscribed until submit,
+          // so fall back to a fresh option-chain quote. Delta-shift SL/TP to keep
+          // their rupee distances; keep the signal entry only if both miss.
+          if (body.contractSecurityId && entryPrice > 0) {
             const seg = body.exchange === "MCX" ? "MCX_COMM" : "NSE_FNO";
-            const liveLtp = tickBus.getLatestTick(seg, body.contractSecurityId)?.ltp;
-            if (liveLtp && liveLtp > 0 && entryPrice > 0) {
+            let liveLtp = tickBus.getLatestTick(seg, body.contractSecurityId)?.ltp;
+            let src = "tick";
+            if (!(liveLtp && liveLtp > 0)) {
+              try {
+                const exp = body.expiry || (await resolveNearestExpiry(body.instrument)) || "";
+                if (exp) {
+                  const r = await resolveContract(body.instrument, exp, body.strike, body.optionType !== "PE");
+                  if (r && r.ltp > 0) { liveLtp = r.ltp; src = "chain"; }
+                }
+              } catch { /* keep signal entry */ }
+            }
+            if (liveLtp && liveLtp > 0) {
               const delta = liveLtp - entryPrice;
               if (stopLoss != null) stopLoss += delta;
               if (takeProfit != null) takeProfit += delta;
-              log.info(`AI entry repriced ${body.instrument} ${entryPrice} → ${liveLtp} (live tick)`);
+              log.info(`AI entry repriced ${body.instrument} ${entryPrice} → ${liveLtp} (${src})`);
               entryPrice = liveLtp;
             }
           }
