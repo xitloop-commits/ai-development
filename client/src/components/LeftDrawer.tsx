@@ -5,6 +5,7 @@
  */
 import { useState } from 'react';
 import InstrumentCard from '@/components/InstrumentCard';
+import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import type { InstrumentData } from '@/lib/types';
 
 const NIFTY_BG = 'https://d2xsxph8kpxj0f.cloudfront.net/310519663447231618/hZHDUL7Uaz8bz3VADXMZ3Y/nifty-card-bg-JXr3vgp8ArcCjeDYxuHp5e.webp';
@@ -25,13 +26,6 @@ const TAB_LABELS: Record<string, string> = {
   NATURALGAS: 'NATGAS',
 };
 
-const TAB_COLORS: Record<string, { active: string; text: string }> = {
-  NIFTY_50: { active: 'bg-info-cyan/15 text-info-cyan', text: 'text-info-cyan' },
-  BANKNIFTY: { active: 'bg-bullish/15 text-bullish', text: 'text-bullish' },
-  CRUDEOIL: { active: 'bg-warning-amber/15 text-warning-amber', text: 'text-warning-amber' },
-  NATURALGAS: { active: 'bg-destructive/15 text-destructive', text: 'text-destructive' },
-};
-
 interface ResolvedFeedInstrument {
   name: string;
   securityId: string;
@@ -47,6 +41,7 @@ interface LeftSidebarProps {
 
 export default function LeftSidebar({ visible, instruments, resolvedInstruments }: LeftSidebarProps) {
   const [activeTab, setActiveTab] = useState(0);
+  const { styleOf } = useInstrumentColors();
 
   const currentInstrument = instruments[activeTab] ?? instruments[0];
 
@@ -58,15 +53,13 @@ export default function LeftSidebar({ visible, instruments, resolvedInstruments 
       <div className="flex items-stretch border-b border-border">
         {instruments.map((inst, idx) => {
           const isActive = idx === activeTab;
-          const colors = TAB_COLORS[inst.name] ?? { active: 'bg-foreground/15 text-foreground', text: 'text-foreground' };
           return (
             <button
               key={inst.name}
               onClick={() => setActiveTab(idx)}
+              style={isActive ? styleOf(inst.name).pill : undefined}
               className={`flex-1 px-4 py-2 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border last:border-r-0 ${
-                isActive
-                  ? colors.active
-                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                isActive ? '' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
               }`}
             >
               {TAB_LABELS[inst.name] ?? inst.name}
