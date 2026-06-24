@@ -163,7 +163,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
       {/* ── Signal list (scrollable with TradingDesk-style scrollbar) ── */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-auto scrollbar-thin scrollbar-cyan px-2 py-2 space-y-2"
+        className="flex-1 overflow-auto scrollbar-thin scrollbar-cyan px-1.5 py-1.5 space-y-1"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
@@ -197,7 +197,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
                 {/* Left: details (wrapped in tooltip for metadata) */}
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div className="flex-1 px-3 py-2 space-y-1 min-w-0 cursor-default">
+                    <div className="flex-1 px-2 py-1 space-y-0.5 min-w-0 cursor-default">
                       {/* Line 1: instrument · strike · direction · cohort · time */}
                       <div className="flex items-center gap-1.5 text-[0.6875rem]">
                         <span className="font-bold tabular-nums truncate" style={instStyle.text}>
