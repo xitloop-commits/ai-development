@@ -25,6 +25,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { trpc } from '@/lib/trpc';
 import { useAlertMonitor } from '@/hooks/useAlertMonitor';
+import { useSeaSignals } from '@/hooks/useSeaSignals';
 import { useTickFeed } from '@/hooks/useTickStream';
 import { useFeedControl } from '@/hooks/useFeedControl';
 import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
@@ -143,9 +144,9 @@ export default function MainScreen() {
   const instrumentAnalysisQuery = trpc.trading.instruments.useQuery(undefined, {
     refetchInterval: POLL_INTERVAL,
   });
-  const signalsQuery = trpc.trading.signals.useQuery({ limit: 50 }, {
-    refetchInterval: POLL_INTERVAL,
-  });
+  // SEA signals — Mongo-backed store fed by initial query + live /ws/ticks push
+  // (no polling). loadOlder pages older signals on scroll (lazy-load).
+  const { signals: allSignalsRaw, loadOlder, loadingOlder, hasMore } = useSeaSignals();
   // TODO: migrate to channel-aware portfolio.positions query (requires
   // selecting a workspace channel). Until then, fall through to the
   // mockPositions fallback below — the legacy /api/trading/position REST
@@ -180,7 +181,7 @@ export default function MainScreen() {
     { key: 'NATURALGAS', displayName: 'NATURAL GAS', exchange: 'MCX', hotkey: '4' },
   ];
   const allInstruments = instrumentAnalysisQuery.data ?? [];
-  const allSignals = signalsQuery.data ?? [];
+  const allSignals = allSignalsRaw;
 
   // Discipline data with fallbacks
   const disciplineData = disciplineQuery.data as any;
@@ -215,7 +216,7 @@ export default function MainScreen() {
   useAlertMonitor({
     instruments: instrumentAnalysisQuery.data,
     modules: modulesQuery.data,
-    signals: signalsQuery.data as any,   // SEASignal[] shape differs from legacy Signal[]
+    signals: allSignalsRaw as any,   // SEASignal[] shape differs from legacy Signal[]
     positions: positionsQuery.data,
   });
 
@@ -301,6 +302,9 @@ export default function MainScreen() {
           <RightSidebar
             visible={rightSidebarVisible}
             signals={signals}
+            onLoadOlder={loadOlder}
+            loadingOlder={loadingOlder}
+            hasMore={hasMore}
           />
         </ErrorBoundary>
       </div>

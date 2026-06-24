@@ -87,6 +87,17 @@ def _fmt(x: object, d: int = 2) -> str:
     return f"{v:.{d}f}" if v is not None else "-"
 
 
+def _send_signal_to_tray(signal: dict) -> None:
+    """Push the emitted signal to the server for the live UI tray (Mongo +
+    /ws/ticks). Fire-and-forget — never let a delivery hiccup stall inference."""
+    try:
+        from signal_engine_agent.risk_control_client import send_signal
+
+        send_signal(signal, timeout=3.0)
+    except Exception as exc:  # pragma: no cover - convenience path only
+        print(f"  [signal-tray] push skipped: {exc}", file=sys.stderr)
+
+
 def _maybe_submit_ai_trade(signal: dict) -> None:
     channel = os.environ.get("SEA_AUTO_TRADE", "").strip()
     if not channel:
@@ -590,6 +601,7 @@ def run(
                     "direction": "GO_CALL" if "CE" in action else "GO_PUT",
                 }
                 raw_logger.log(signal)
+                _send_signal_to_tray(signal)  # live UI tray (Mongo + WS)
                 # Optional: also place the trade (off unless SEA_AUTO_TRADE set).
                 _maybe_submit_ai_trade(signal)
 
@@ -653,6 +665,7 @@ def run(
                             "direction": trend_sig.direction,
                         }
                         raw_logger.log(trend_signal)
+                        _send_signal_to_tray(trend_signal)  # live UI tray (Mongo + WS)
                         # Optional: also place the trend trade (off unless SEA_AUTO_TRADE set).
                         _maybe_submit_ai_trade(trend_signal)
 

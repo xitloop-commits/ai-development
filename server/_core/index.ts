@@ -205,6 +205,9 @@ async function startServer() {
   // to use the tRPC `discipline.validate` procedure.
   const { registerDisciplineRoutes } = await import("../discipline/routes");
   registerDisciplineRoutes(app);
+  // SEA signal ingest — POST /api/sea/signal: persist to Mongo + live WS push
+  const { registerSeaSignalRoutes } = await import("../seaSignalRoutes");
+  registerSeaSignalRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",

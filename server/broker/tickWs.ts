@@ -118,6 +118,14 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
   };
   tickBus.on("tick", onTick);
 
+  // Forward SEA signals as JSON text frames so the signal tray updates live
+  // (history is loaded separately from Mongo). Skip when no client connected.
+  const onSeaSignal = (signal: unknown) => {
+    if (wss.clients.size === 0) return;
+    sendToAllClients(wss, JSON.stringify({ type: "sea_signal", signal }));
+  };
+  tickBus.on("seaSignal", onSeaSignal);
+
   wss.on("connection", (ws, request) => {
     log.info(`Client connected (total: ${wss.clients.size})`);
 
@@ -162,6 +170,7 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
         tickBus.off("rawBinary", onRawBinary);
         tickBus.off("chainUpdate", onChainUpdate);
         tickBus.off("tick", onTick);
+        tickBus.off("seaSignal", onSeaSignal);
         // Send a clean close frame to every connected browser, then
         // shut the server.
         wss.clients.forEach((client) => {

@@ -160,6 +160,36 @@ def submit_new_trade(payload: dict[str, Any], timeout: float = 10.0) -> Validate
     return body
 
 
+# ─── /api/sea/signal ────────────────────────────────────────────
+
+
+def send_signal(signal: dict[str, Any], timeout: float = 5.0) -> bool:
+    """
+    Push one emitted SEA signal to the server for the UI tray.
+
+    The server persists it (Mongo sea_signals) and broadcasts it live over
+    /ws/ticks. Fire-and-forget: failures are logged and swallowed (the tray is
+    a convenience view, not the trade path) so a server hiccup never stalls the
+    engine. Returns True on HTTP 2xx.
+    """
+    url = f"{_broker_url()}/api/sea/signal"
+    instrument = str(signal.get("instrument", "?"))
+    try:
+        resp = requests.post(url, headers=_headers(), data=json.dumps(signal), timeout=timeout)
+    except requests.RequestException as exc:
+        logger.warning("sea/signal connect failed instrument=%s exc=%s", instrument, exc)
+        return False
+    if resp.status_code >= 400:
+        logger.warning(
+            "sea/signal status=%s instrument=%s body=%s",
+            resp.status_code,
+            instrument,
+            resp.text[:200],
+        )
+        return False
+    return True
+
+
 # ─── /api/risk-control/ai-signal ────────────────────────────────
 
 

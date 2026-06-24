@@ -17,7 +17,7 @@ import {
   getAllHolidays,
 } from "./holidays";
 import { getMongoHealth, pingMongo } from "./mongo";
-import { getSEASignals } from "./seaSignals";
+import { querySeaSignals } from "./seaSignalStore";
 import { getInstrumentLiveState } from "./instrumentLiveState";
 import { brokerRouter } from "./broker/brokerRouter";
 import { portfolioRouter } from "./portfolio/router";
@@ -55,11 +55,25 @@ export const appRouter = router({
         return getInstrumentLiveState(input.instrument);
       }),
 
-    // Get recent SEA signals (reads from logs/signals/<inst>/<date>_signals.log)
+    // Get SEA signals from Mongo (sea_signals), recent-first. Used for the
+    // signal tray's initial paint and lazy-load: pass `before` (the oldest
+    // `ts` already loaded) to page older. Live updates arrive over /ws/ticks.
     signals: publicProcedure
-      .input(z.object({ limit: z.number().min(1).max(200).optional() }).optional())
+      .input(
+        z
+          .object({
+            limit: z.number().min(1).max(200).optional(),
+            before: z.number().optional(),
+            allDays: z.boolean().optional(),
+          })
+          .optional(),
+      )
       .query(({ input }) => {
-        return getSEASignals(input?.limit ?? 50);
+        return querySeaSignals({
+          limit: input?.limit ?? 50,
+          before: input?.before,
+          allDays: input?.allDays,
+        });
       }),
 
     // Get active instruments list

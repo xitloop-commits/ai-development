@@ -13,16 +13,24 @@ import AlertHistory from '@/components/AlertHistory';
 interface RightSidebarProps {
   visible: boolean;
   signals: SEASignal[];
+  onLoadOlder?: () => void;
+  loadingOlder?: boolean;
+  hasMore?: boolean;
 }
 
-export default function RightSidebar({ visible, signals }: RightSidebarProps) {
+export default function RightSidebar({ visible, signals, onLoadOlder, loadingOlder, hasMore }: RightSidebarProps) {
   if (!visible) return null;
 
   return (
     <aside className="w-[320px] shrink-0 border-l border-border bg-background flex flex-col overflow-hidden">
       {/* SignalsFeed takes all available space — has its own sticky header + scroll */}
       <div className="flex-1 min-h-0 px-2 pt-2 pb-1">
-        <SignalsFeed signals={signals} />
+        <SignalsFeed
+          signals={signals}
+          onLoadOlder={onLoadOlder}
+          loadingOlder={loadingOlder}
+          hasMore={hasMore}
+        />
       </div>
 
       {/* AlertHistory at bottom — fixed height, collapsible */}

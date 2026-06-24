@@ -48,6 +48,12 @@ class TickBus extends EventEmitter {
     this.emit("orderUpdate", update);
   }
 
+  /** Emit a SEA signal for live push to browser clients. History lives in
+   *  Mongo (sea_signals); this is the real-time fan-out only — no caching. */
+  emitSeaSignal(signal: unknown): void {
+    this.emit("seaSignal", signal);
+  }
+
   /**
    * Emit an option-chain update and cache it. Cached so newly-connected
    * browser clients can hydrate their client store immediately without

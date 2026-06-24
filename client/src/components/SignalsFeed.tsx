@@ -27,6 +27,8 @@ const SIG_TO_UI_NAME: Record<string, string> = {
 
 export interface SEASignal {
   id: string;
+  /** Server ingest epoch ms — pagination cursor for lazy-load (Mongo store). */
+  ts?: number;
   timestamp: number;
   timestamp_ist: string;
   instrument: string;
@@ -60,6 +62,10 @@ export interface SEASignal {
 
 interface SignalsFeedProps {
   signals: SEASignal[];
+  /** Fetch the next older page (called when the user scrolls near the bottom). */
+  onLoadOlder?: () => void;
+  loadingOlder?: boolean;
+  hasMore?: boolean;
 }
 
 const INST_SHORT: Record<string, string> = {
@@ -91,7 +97,7 @@ function fmtNum(v: number | null, dec = 2): string {
   return v.toFixed(dec);
 }
 
-export default function SignalsFeed({ signals }: SignalsFeedProps) {
+export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMore }: SignalsFeedProps) {
   const hasFiltered = signals.some(s => s.filtered);
   const longs = signals.reduce((sum, s) => sum + ((s.action?.startsWith('LONG') || s.direction === 'GO_CALL') ? 1 : 0), 0);
   const shorts = signals.reduce((sum, s) => sum + ((s.action?.startsWith('SHORT') || s.direction === 'GO_PUT') ? 1 : 0), 0);
@@ -136,6 +142,15 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
     }
   }, [signals, hovered]);
 
+  // Lazy-load: newest are at the top, older at the bottom — so fetch the next
+  // older page when the user scrolls near the bottom.
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el || !onLoadOlder || !hasMore || loadingOlder) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (nearBottom) onLoadOlder();
+  };
+
   return (
     <div className="border border-border rounded-md bg-card overflow-hidden h-full flex flex-col">
       {/* ── Sticky header ── */}
@@ -167,6 +182,7 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
         className="flex-1 overflow-auto scrollbar-thin scrollbar-cyan px-1.5 py-1.5 space-y-2"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        onScroll={handleScroll}
       >
         {signals.length === 0 ? (
           <div className="flex items-center justify-center py-12">
@@ -318,6 +334,17 @@ export default function SignalsFeed({ signals }: SignalsFeedProps) {
               </div>
             );
           })
+        )}
+
+        {/* Lazy-load footer — loading spinner / end-of-list marker */}
+        {signals.length > 0 && (
+          <div className="flex items-center justify-center py-2">
+            {loadingOlder ? (
+              <span className="text-[0.5625rem] text-muted-foreground">Loading older…</span>
+            ) : hasMore === false ? (
+              <span className="text-[0.5rem] text-muted-foreground/60">— end of today —</span>
+            ) : null}
+          </div>
         )}
       </div>
     </div>
