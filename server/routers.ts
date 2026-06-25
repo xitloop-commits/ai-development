@@ -18,6 +18,7 @@ import { getMongoHealth, pingMongo } from "./mongo";
 import { querySeaSignals } from "./seaSignalStore";
 import { getSEASignalsForChart } from "./seaSignals";
 import { getInstrumentLiveState } from "./instrumentLiveState";
+import { analyzeInstrument } from "./signal-advisor";
 import { brokerRouter } from "./broker/brokerRouter";
 import { portfolioRouter } from "./portfolio/router";
 import { executorRouter } from "./executor";
@@ -328,6 +329,23 @@ export const appRouter = router({
 
   // Alerts (T52 — server-side AlertHistory persistence; client wiring pending)
   alerts: alertsRouter,
+
+  // "CLAUD SAYS" — per-instrument option-chain verdict via Claude. The server
+  // owns the rollover notebook (history); the client only names the instrument.
+  signalAdvisor: router({
+    analyze: publicProcedure
+      .input(z.object({ instrument: z.string() }))
+      .mutation(async ({ input }) => {
+        try {
+          return await analyzeInstrument(input.instrument);
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: err?.message ?? "Signal advisor failed.",
+          });
+        }
+      }),
+  }),
 
   // MongoDB health check
   mongo: router({

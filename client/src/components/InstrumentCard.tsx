@@ -19,7 +19,7 @@
  * Data: tRPC trading.instrumentLiveState polling every 5s.
  */
 import { useState } from 'react';
-import { TrendingUp, TrendingDown, Activity, Zap, BarChart3, Shield, LineChart } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, Zap, BarChart3, Shield, LineChart, Sparkles, Loader2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
@@ -218,6 +218,10 @@ export default function InstrumentCard({ data, feedExchange, feedSecurityId }: I
   const instStyle = styleOf(instrumentKey);
 
   const state = useInstrumentLiveState(inst);
+
+  // "CLAUD SAYS" — manual option-chain verdict. The server owns the rollover
+  // notebook; we just send the instrument key on click.
+  const claude = trpc.signalAdvisor.analyze.useMutation();
 
   const live = state?.live;
   const signal = state?.signal;
@@ -473,6 +477,69 @@ export default function InstrumentCard({ data, feedExchange, feedSecurityId }: I
         })() : (
           <div className="text-[0.625rem] text-muted-foreground py-2">
             No signal — SEA not running
+          </div>
+        )}
+      </div>
+
+      {/* ═══ CLAUD SAYS ═══ */}
+      <div className="rounded border p-3 space-y-2" style={{ ...instStyle.cardBg, ...instStyle.border }}>
+        <div className="flex items-center gap-1.5">
+          <Sparkles className="h-3 w-3" style={instStyle.text} />
+          <span className="text-[0.625rem] font-bold tracking-wider uppercase" style={instStyle.text}>
+            Claud Says
+          </span>
+          <button
+            onClick={() => claude.mutate({ instrument: instrumentKey })}
+            disabled={claude.isPending}
+            className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.5625rem] font-bold tracking-wider uppercase text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50"
+            title="Send this instrument's current option chain to Claude"
+          >
+            {claude.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+            {claude.isPending ? 'Asking…' : 'Ask Claude'}
+          </button>
+        </div>
+
+        {claude.error ? (
+          <div className="text-[0.625rem] text-destructive py-1">
+            {claude.error.message}
+          </div>
+        ) : claude.data ? (() => {
+          const v = claude.data;
+          const isEnter = v.action === 'ENTER';
+          const sideColor = v.side === 'CE' ? 'text-bullish' : v.side === 'PE' ? 'text-destructive' : 'text-muted-foreground';
+          return (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className={`text-[0.8125rem] font-bold tracking-wider ${isEnter ? 'text-bullish' : 'text-warning-amber'}`}>
+                    {v.action}
+                  </span>
+                  {isEnter && (
+                    <span className={`text-[0.8125rem] font-bold tracking-wider ${sideColor}`}>
+                      {v.longShort} {v.strike} {v.side}
+                    </span>
+                  )}
+                  <span className="text-[0.6875rem] font-bold text-info-cyan">{v.confidence}%</span>
+                </div>
+                <span className="text-[0.5rem] text-muted-foreground" title={`expiry ${v.expiry} · ${v.snapshotCount} snapshots`}>
+                  {v.snapshotCount}× · {fmt(v.spot, 1)}
+                </span>
+              </div>
+
+              {isEnter && (
+                <div className="grid grid-cols-3 gap-x-2 gap-y-0.5 text-[0.625rem] tabular-nums">
+                  <div><span className="text-muted-foreground">entry </span><span className="text-foreground font-bold">{fmt(v.entry)}</span></div>
+                  <div><span className="text-muted-foreground">SL </span><span className="text-destructive font-bold">{fmt(v.sl)}</span></div>
+                  <div><span className="text-muted-foreground">TP </span><span className="text-bullish font-bold">{fmt(v.tp)}</span></div>
+                </div>
+              )}
+
+              <p className="text-[0.625rem] text-muted-foreground leading-snug">{v.reason}</p>
+            </>
+          );
+        })() : (
+          <div className="text-[0.625rem] text-muted-foreground py-1">
+            Tap “Ask Claude” to read the live option chain and get a WAIT / ENTER call.
           </div>
         )}
       </div>
