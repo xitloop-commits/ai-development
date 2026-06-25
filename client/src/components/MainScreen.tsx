@@ -26,6 +26,7 @@ import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } fro
 import { trpc } from '@/lib/trpc';
 import { useAlertMonitor } from '@/hooks/useAlertMonitor';
 import { useSeaSignals } from '@/hooks/useSeaSignals';
+import { usePushInvalidations } from '@/hooks/usePushInvalidations';
 import { useTickFeed } from '@/hooks/useTickStream';
 import { useFeedControl } from '@/hooks/useFeedControl';
 import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
@@ -85,10 +86,13 @@ export default function MainScreen() {
   const { subscribe: feedSubscribe } = useFeedControl();
   const feedSubscribedRef = useRef(false);
 
-  // Watch broker status to trigger auto-subscribe when broker connects
-  const brokerStatusQuery = trpc.broker.status.useQuery(undefined, {
-    refetchInterval: 5_000,
-  });
+  // Refetch the status queries (broker / discipline) on server WS signals
+  // instead of polling — mounted once here.
+  usePushInvalidations();
+
+  // Watch broker status to trigger auto-subscribe when broker connects.
+  // Refetched via the broker_changed WS signal (no timer).
+  const brokerStatusQuery = trpc.broker.status.useQuery(undefined);
   const activeBrokerId = brokerStatusQuery.data?.activeBrokerId;
 
   // Resolve real security IDs from the server (IDX_I for NSE, MCX nearest future)
@@ -136,9 +140,10 @@ export default function MainScreen() {
   const modulesQuery = trpc.trading.moduleStatuses.useQuery(undefined, {
     refetchInterval: POLL_INTERVAL,
   });
-  // Configured instruments (for hotkey map)
+  // Configured instruments (for hotkey map). Near-static config — changes only
+  // on add/remove/colour mutations, which invalidate this. No polling.
   const configuredInstrumentsQuery = trpc.instruments.list.useQuery(undefined, {
-    refetchInterval: POLL_INTERVAL,
+    staleTime: Infinity,
   });
   // Full instrument analysis data (for left sidebar)
   const instrumentAnalysisQuery = trpc.trading.instruments.useQuery(undefined, {
@@ -158,9 +163,8 @@ export default function MainScreen() {
   // last consumer (`allInstruments` fallback below) so even the
   // dynamic-import code-path is gone in production builds.
 
-  // Discipline state from tRPC
+  // Discipline state — refetched via the discipline_changed WS signal (no poll).
   const disciplineQuery = trpc.discipline.getDashboard.useQuery(undefined, {
-    refetchInterval: 10000,
     retry: 1,
   });
 

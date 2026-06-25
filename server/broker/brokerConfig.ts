@@ -6,6 +6,7 @@
  */
 
 import mongoose, { Schema, type Document } from "mongoose";
+import { tickBus } from "./tickBus";
 import type {
   BrokerConfigDoc,
   BrokerCredentials,
@@ -234,6 +235,12 @@ export async function updateBrokerConnection(
     { $set: updateFields },
     { returnDocument: "after", lean: true }
   );
+  // Push a status-changed signal ONLY on real status transitions (connect /
+  // disconnect / error) — not the frequent lastApiCall / lastWsTick bookkeeping
+  // writes, which would fire per REST call / per tick.
+  if (connection.wsStatus !== undefined || connection.apiStatus !== undefined) {
+    tickBus.emitBrokerChanged();
+  }
   return doc ? docToConfig(doc) : null;
 }
 

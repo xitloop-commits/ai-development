@@ -31,7 +31,6 @@ export function CredentialGate({ children }: CredentialGateProps) {
   const [token, setToken] = useState("");
 
   const statusQuery = trpc.broker.status.useQuery(undefined, {
-    refetchInterval: 30_000,
     retry: 1,
   });
 

@@ -48,7 +48,6 @@ interface BrokerServiceStatusShape {
 
 function ApiIndicator() {
   const brokerStatusQuery = trpc.broker.status.useQuery(undefined, {
-    refetchInterval: 5000,
     retry: 1,
   });
   const status = brokerStatusQuery.data as BrokerServiceStatusShape | undefined;
@@ -92,7 +91,6 @@ function ApiIndicator() {
 
 function FeedIndicator() {
   const feedStateQuery = trpc.broker.feed.state.useQuery(undefined, {
-    refetchInterval: 10000,
     retry: 1,
   });
   const feedState = feedStateQuery.data as any;
@@ -363,7 +361,6 @@ function AiIndicator() {
 
 function DisciplineIndicator() {
   const disciplineQuery = trpc.discipline.getDashboard.useQuery(undefined, {
-    refetchInterval: 30000,
     retry: 1,
   });
   const data = disciplineQuery.data as any;

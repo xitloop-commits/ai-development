@@ -80,6 +80,18 @@ class TickBus extends EventEmitter {
     this.emit("instrumentState", payload);
   }
 
+  /** Signal a broker connection/token status change → client refetches
+   *  broker.status + broker.feed.state once (replaces their 5–10s polls). */
+  emitBrokerChanged(): void {
+    this.emit("brokerChanged", {});
+  }
+
+  /** Signal a discipline-state change → client refetches discipline.getDashboard
+   *  once (replaces its 10–30s polls). */
+  emitDisciplineChanged(): void {
+    this.emit("disciplineChanged", {});
+  }
+
   /**
    * Emit an option-chain update and cache it. Cached so newly-connected
    * browser clients can hydrate their client store immediately without

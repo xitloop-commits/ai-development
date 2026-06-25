@@ -26,7 +26,7 @@ export function useFeedControl() {
   const unsubscribeMutation = trpc.broker.feed.unsubscribe.useMutation();
 
   const stateQuery = trpc.broker.feed.state.useQuery(undefined, {
-    refetchInterval: 10_000, // refresh every 10s
+    // Refetched via the broker_changed WS signal (no timer).
   });
 
   const snapshotQuery = trpc.broker.feed.snapshot.useQuery(undefined, {

@@ -8,6 +8,7 @@
  */
 
 import mongoose, { Schema, type Document } from "mongoose";
+import { tickBus } from "../broker/tickBus";
 import {
   type DisciplineAgentSettings,
   type DisciplineState,
@@ -399,6 +400,7 @@ export async function updateDisciplineState(
     { $set: setFields },
     { returnDocument: "after", lean: true }
   );
+  tickBus.emitDisciplineChanged(); // live push → client refetches dashboard (no poll)
   return doc as unknown as DisciplineState;
 }
 

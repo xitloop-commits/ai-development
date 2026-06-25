@@ -165,6 +165,19 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
   };
   tickBus.on("instrumentState", onInstrumentState);
 
+  // Status-change signals → client refetches the matching query once (replaces
+  // the broker.status / broker.feed.state / discipline polls).
+  const onBrokerChanged = () => {
+    if (wss.clients.size === 0) return;
+    sendToAllClients(wss, JSON.stringify({ type: "broker_changed" }));
+  };
+  tickBus.on("brokerChanged", onBrokerChanged);
+  const onDisciplineChanged = () => {
+    if (wss.clients.size === 0) return;
+    sendToAllClients(wss, JSON.stringify({ type: "discipline_changed" }));
+  };
+  tickBus.on("disciplineChanged", onDisciplineChanged);
+
   wss.on("connection", (ws, request) => {
     log.info(`Client connected (total: ${wss.clients.size})`);
 
@@ -226,6 +239,8 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
         tickBus.off("portfolio", onPortfolio);
         tickBus.off("capitalChanged", onCapitalChanged);
         tickBus.off("instrumentState", onInstrumentState);
+        tickBus.off("brokerChanged", onBrokerChanged);
+        tickBus.off("disciplineChanged", onDisciplineChanged);
         clearInterval(seaStatusTimer);
         // Send a clean close frame to every connected browser, then
         // shut the server.

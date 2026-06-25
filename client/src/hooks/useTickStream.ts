@@ -15,6 +15,7 @@ import * as signalsStore from "@/stores/signalsStore";
 import * as seaStatusStore from "@/stores/seaStatusStore";
 import * as portfolioLiveStore from "@/stores/portfolioLiveStore";
 import * as instrumentStateStore from "@/stores/instrumentStateStore";
+import * as liveSignals from "@/stores/liveSignals";
 
 export interface TickData {
   securityId: string;
@@ -344,6 +345,10 @@ function connectWs() {
       } else if (data.type === "instrument_state" && data.instrument && data.state) {
         // TFA live state push (replaces the 2s instrumentLiveState poll).
         instrumentStateStore.setInstrumentState(data.instrument, data.state);
+      } else if (data.type === "broker_changed") {
+        liveSignals.bumpSignal("broker"); // → refetch broker.status + feed.state
+      } else if (data.type === "discipline_changed") {
+        liveSignals.bumpSignal("discipline"); // → refetch discipline.getDashboard
       }
     } catch {
       // ignore

@@ -353,7 +353,7 @@ export default function DisciplineOverlay({ open, onOpenChange }: DisciplineOver
   // ─── tRPC Queries ────────────────────────────────────────────
   const dashboardQuery = trpc.discipline.getDashboard.useQuery(undefined, {
     enabled: open,
-    refetchInterval: open ? 30000 : false,
+    // Refetched via the discipline_changed WS signal (no timer).
     retry: 1,
   });
 
