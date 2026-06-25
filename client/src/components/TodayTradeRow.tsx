@@ -272,6 +272,17 @@ function _TodayTradeRow({
                       ↗
                     </span>
                   )}
+                  {/* No contract id → the leg can't be subscribed, so the price
+                      is the last stored snapshot, not live. Surface it instead
+                      of silently showing a frozen number. */}
+                  {isOpen && !trade.contractSecurityId && (
+                    <span
+                      className="ml-0.5 text-[0.5625rem] text-warning-amber align-baseline"
+                      title="No live price — this trade has no contract id, so the shown price is the last stored snapshot, not the live LTP."
+                    >
+                      ⚠
+                    </span>
+                  )}
                 </span>
               </PopoverTrigger>
             </TooltipTrigger>

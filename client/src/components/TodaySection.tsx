@@ -5,7 +5,8 @@ import type {
   DayRecord,
   TradeRecord,
 } from '@/lib/tradeTypes';
-import { channelToWorkspace } from '@/lib/tradeTypes';
+import { channelToWorkspace, optionExchangeFor } from '@/lib/tradeTypes';
+import { useFeedSubscriptions } from '@/hooks/useFeedControl';
 import {
   formatCalendarDay,
   formatDateAgeLabel,
@@ -78,6 +79,20 @@ export function TodaySection({
 
   const trades = day.trades ?? [];
   const openTrades = trades.filter(t => t.status === 'OPEN');
+
+  // Keep every OPEN trade's option leg subscribed to the live feed so its
+  // TradeBar/LTP ticks live off the WS tick store instead of the stale value
+  // baked into the trade record. Diffed + refcounted + auto-released on unmount;
+  // no polling — these are one-shot subscribe/unsubscribe actions.
+  useFeedSubscriptions(
+    openTrades
+      .filter((t) => t.contractSecurityId)
+      .map((t) => ({
+        exchange: optionExchangeFor(t.instrument),
+        securityId: t.contractSecurityId as string,
+        mode: 'full' as const,
+      })),
+  );
   const totalPnl = showNet ? day.totalPnl : day.totalPnl + day.totalCharges;
   const canManageTrades = supportsManualControls(channel);
   const cycleDateLabel = formatDateAgeLabel(formatCalendarDay(), day.openedAt);
