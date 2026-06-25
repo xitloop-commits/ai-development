@@ -1311,19 +1311,21 @@ def replay(
             )
         return summary
 
-    # ── Memory headroom pre-flight (2026-06-23) ───────────────────────────
-    # Refuse to spawn workers when projected combined peak working set
-    # won't fit in available RAM. Prevents the 30-min validation-thrash
-    # observed on 6-worker MCX crudeoil where each worker ate 6-14 GB and
-    # the system swapped instead of completing. Override with env
-    # `TFA_SKIP_REPLAY_MEMORY_GUARD=1`.
-    from tick_feature_agent.replay.memory_guard import assert_headroom_or_advise
-    assert_headroom_or_advise(
+    # ── Memory headroom pre-flight (2026-06-23, auto-throttle 2026-06-24) ─
+    # Cap parallel workers to what fits in available RAM. Excess dates
+    # queue inside ProcessPoolExecutor and process serially as workers
+    # free up — same end state, no operator intervention. Prevents the
+    # 30-min validation-thrash observed on 6-worker MCX crudeoil where
+    # each worker ate 6-14 GB and the system swapped. Override with
+    # `TFA_SKIP_REPLAY_MEMORY_GUARD=1` to skip the check entirely.
+    from tick_feature_agent.replay.memory_guard import resolve_safe_workers
+    n_workers = resolve_safe_workers(
         instrument=instrument,
         dates=list(dates_iter),
         n_workers=n_workers,
         raw_root=raw_root,
     )
+    summary["workers"] = n_workers  # update with the throttled count
 
     # ── Unified pool + dashboard path ─────────────────────────────────────
     # 2026-06-14 (Partha): the pre-2026-06-14 serial ``if n_workers == 1:``

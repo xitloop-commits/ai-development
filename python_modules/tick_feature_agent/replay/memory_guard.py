@@ -144,58 +144,92 @@ def check_headroom(
     )
 
 
+def resolve_safe_workers(
+    *,
+    instrument: str,
+    dates: list[str],
+    n_workers: int,
+    raw_root: Path,
+) -> int:
+    """Return a worker count that fits the current free RAM, queueing
+    excess dates to be processed in batches by ProcessPoolExecutor's
+    built-in scheduler.
+
+    Behaviour:
+      * If requested ``n_workers`` already fits → return it unchanged.
+      * If it doesn't fit → silently cap to ``max_safe_workers`` and
+        print a one-block notice explaining what the operator asked for
+        vs what's running. Dates beyond the first batch wait in the
+        pool's queue and start as workers free up.
+      * If even 1 worker won't fit (system absolutely starved) → still
+        return 1 with a STRONG warning; the worker may fail mid-run
+        but we refuse to silently lock up.
+      * ``TFA_SKIP_REPLAY_MEMORY_GUARD=1`` env var bypasses all checks
+        and returns ``n_workers`` verbatim.
+
+    (Renamed 2026-06-24 from ``assert_headroom_or_advise`` which used
+    to RAISE on insufficient headroom. Refusal was rude when the
+    pool can simply queue and process serially — same end-state,
+    no operator action required. The diagnostic block is preserved
+    but framed as a notice, not an error.)
+    """
+    if os.environ.get(
+            "TFA_SKIP_REPLAY_MEMORY_GUARD", "").strip() in ("1", "true", "True"):
+        return n_workers
+
+    check = check_headroom(instrument, dates, n_workers, raw_root)
+    if check.headroom_ok:
+        return n_workers
+
+    safe = max(1, check.max_safe_workers)
+    print()
+    print("  " + "=" * 60)
+    print(f"   REPLAY MEMORY: AUTO-THROTTLING worker count")
+    print(f"   instrument: {instrument}   dates: {len(dates)}")
+    print(f"   requested workers: {n_workers}   →   running with: {safe}")
+    print(f"   remaining dates queue automatically (batched by the pool)")
+    print("  " + "=" * 60)
+    print(f"   biggest raw .gz on disk:  {check.max_raw_gz_bytes / (1024**2):>6.0f} MB")
+    print(f"   est. peak per worker:     {check.peak_per_worker_gb:>6.1f} GB")
+    print(f"   if we ran all {n_workers}:        {check.peak_total_gb:>6.1f} GB needed")
+    print(f"   currently available:      {check.available_gb:>6.1f} GB")
+    print(f"   running batch peak:       ~{safe * check.peak_per_worker_gb:>6.1f} GB"
+          f"  (fits)")
+    print()
+    if safe == 1 and check.peak_per_worker_gb > check.available_gb:
+        print("  WARNING: even 1 worker may exceed free RAM. Run is starting")
+        print("  anyway -- close apps if you see swap thrashing or OOM kills.")
+        print()
+    print("  To bypass throttling (advanced, may crash):")
+    print("    set TFA_SKIP_REPLAY_MEMORY_GUARD=1   (Windows)")
+    print("    export TFA_SKIP_REPLAY_MEMORY_GUARD=1   (POSIX)")
+    print()
+    return safe
+
+
+# Back-compat shim. Old callers that imported assert_headroom_or_advise
+# still work; they just get the auto-throttle behaviour now. The return
+# value is ignored by the old call sites (which used None-returning
+# semantics). New callers should use ``resolve_safe_workers`` directly.
 def assert_headroom_or_advise(
     *,
     instrument: str,
     dates: list[str],
     n_workers: int,
     raw_root: Path,
-) -> None:
-    """Refuse to start when projected workers won't fit. Prints a clear
-    diagnostic + recommended ``--workers N``. Raises RuntimeError so
-    the launcher / CLI surfaces a clean abort.
-
-    Override: ``TFA_SKIP_REPLAY_MEMORY_GUARD=1`` env var bypasses the
-    check (debugging, advanced operators).
+) -> int:
+    """Deprecated alias for ``resolve_safe_workers`` (2026-06-24).
+    Returns the safe worker count instead of raising.
     """
-    if os.environ.get(
-            "TFA_SKIP_REPLAY_MEMORY_GUARD", "").strip() in ("1", "true", "True"):
-        return
-    check = check_headroom(instrument, dates, n_workers, raw_root)
-    if check.headroom_ok:
-        return
-
-    print()
-    print("  " + "=" * 60)
-    print(f"   REPLAY MEMORY HEADROOM CHECK FAILED -- refusing to start")
-    print(f"   instrument: {instrument}   dates: {len(dates)}   workers: {n_workers}")
-    print("  " + "=" * 60)
-    print(f"   biggest raw .gz on disk:  {check.max_raw_gz_bytes / (1024**2):>6.0f} MB")
-    print(f"   est. peak per worker:     {check.peak_per_worker_gb:>6.1f} GB")
-    print(f"   est. peak total:          {check.peak_total_gb:>6.1f} GB")
-    print(f"   currently available:      {check.available_gb:>6.1f} GB")
-    print(f"   system total:             {check.total_gb:>6.1f} GB")
-    print(f"   deficit:                  {(check.peak_total_gb - check.available_gb):>6.1f} GB")
-    print()
-    print("  Recommended actions (pick ONE):")
-    print(f"    1. Drop workers to fit current free RAM:")
-    print(f"         --workers {check.max_safe_workers}")
-    print("    2. Close RAM-heavy apps (browsers, IDEs, replays of other instruments)")
-    print(f"       then retry with the original --workers {n_workers}.")
-    print("    3. Replay fewer dates per run (split the date range into batches).")
-    print("    4. Bypass the guard if you know what you're doing:")
-    print("         set TFA_SKIP_REPLAY_MEMORY_GUARD=1   (Windows)")
-    print("         export TFA_SKIP_REPLAY_MEMORY_GUARD=1   (POSIX)")
-    print()
-    raise RuntimeError(
-        f"Insufficient memory headroom for {instrument} replay with "
-        f"{n_workers} workers: need ~{check.peak_total_gb:.1f} GB, have "
-        f"{check.available_gb:.1f} GB. Try --workers {check.max_safe_workers}."
+    return resolve_safe_workers(
+        instrument=instrument, dates=dates,
+        n_workers=n_workers, raw_root=raw_root,
     )
 
 
 __all__ = [
     "ReplayHeadroomCheck",
     "check_headroom",
+    "resolve_safe_workers",
     "assert_headroom_or_advise",
 ]
