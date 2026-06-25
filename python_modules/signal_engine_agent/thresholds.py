@@ -366,6 +366,16 @@ class Wave2Thresholds:
     # to 0.5 by default (matches the 2× overshoot). Tune per-instrument
     # via JSON config once observed precision is known.
     magnitude_scale: float = 0.5
+    # Leg-aware quality gate (2026-06-25). The base C2 (risk_reward_ratio_60s)
+    # and C3 (upside_percentile_60s) conditions are CE/UPSIDE metrics. Applied
+    # to BOTH directions they let only calls through — a bearish (PUT) setup
+    # scores low on CE upside, so it can never clear C3, even though the
+    # direction head is balanced (~50/50). With this on, PUT candidates are
+    # judged on the PE leg instead: C2 uses the PE-leg RR from the Wave 2
+    # max_upside_pe / max_drawdown_pe heads, and C3 (CE percentile) is skipped
+    # for puts (no PE-side percentile head exists yet). Set false to restore the
+    # legacy call-only behaviour.
+    leg_aware_quality_gate: bool = True
 
 
 def decide_action_wave2(
@@ -415,13 +425,26 @@ def decide_action_wave2(
     rr_pred_f = float(rr_pred)
     pctile_f = float(pctile)
     prob = max(dir_prob_f, 1.0 - dir_prob_f)
+    is_call = dir_prob_f > 0.5
+
+    # ── Leg-aware quality gate ──────────────────────────────────────────────
+    # C3 (upside_percentile_60s) is a CE/UPSIDE session-rank: a bearish (PUT)
+    # setup scores low on it, so applying it to both directions blocked EVERY
+    # put — the gate emitted calls only, even though the direction head is
+    # balanced (~50/50). There is no PE-side percentile head yet, so for a put
+    # candidate C3 is skipped (the put is still gated by C1 conviction, C2 RR,
+    # and the W-conditions, same as a call). Set leg_aware_quality_gate=false to
+    # restore the legacy call-only behaviour. (C2's risk_reward_ratio_60s head
+    # is left as-is for both legs — the PE magnitude heads give RR≈1 and would
+    # over-block; a proper PE-RR / downside-percentile head is the follow-up.)
+    enforce_c3 = is_call or not wave2_thresholds.leg_aware_quality_gate
 
     reasons: list[str] = []
     if prob < thresholds.prob_min:
         reasons.append("C1_prob")
     if rr_pred_f < thresholds.rr_min:
         reasons.append("C2_rr")
-    if pctile_f < thresholds.upside_percentile_min:
+    if enforce_c3 and pctile_f < thresholds.upside_percentile_min:
         reasons.append("C3_pct")
 
     # ── Wave 2 conditions ───────────────────────────────────────────────────
@@ -439,7 +462,6 @@ def decide_action_wave2(
     if _is_finite(breakout_60) and float(breakout_60) < wave2_thresholds.breakout_in_60s_min:
         reasons.append("W4_breakout_in")
 
-    is_call = dir_prob_f > 0.5
     direction = "GO_CALL" if is_call else "GO_PUT"
 
     if reasons:
