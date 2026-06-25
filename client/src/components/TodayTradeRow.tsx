@@ -6,7 +6,7 @@ import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Channel, TradeRecord } from '@/lib/tradeTypes';
-import { channelToWorkspace, optionExchangeFor } from '@/lib/tradeTypes';
+import { channelToWorkspace, optionExchangeFor, isPaperChannel } from '@/lib/tradeTypes';
 import {
   fmt,
   pnlColor,
@@ -79,6 +79,10 @@ function _TodayTradeRow({
   const [tpPrice, setTpPrice] = useState('');
   const theme = getWorkspaceThemeMeta(channelToWorkspace(channel));
   const isOpen = trade.status === 'OPEN';
+  // The server only trails paper channels (the live exit engine is skipped —
+  // see T60 / gap #4). So only claim trailing protection on paper; a live
+  // trade must not show a TSL marker/badge that won't actually arm.
+  const serverTrails = globalTrailingEnabled && isPaperChannel(channel);
   // B4 follow-up — a trade is "desync'd" when the broker call failed but
   // local state hasn't been confirmed. Operator must reconcile before
   // any further actions on this trade are allowed.
@@ -189,7 +193,7 @@ function _TodayTradeRow({
                         trade.entryPrice) * 100
                     : undefined
                 }
-                trailingEnabled={globalTrailingEnabled}
+                trailingEnabled={serverTrails}
                 tslHoldSeconds={tslHoldSeconds}
                 tslActivatedAt={trade.tslActivatedAt ?? null}
                 tslGatePrice={(() => {
@@ -264,7 +268,7 @@ function _TodayTradeRow({
                   {/* Wave 1: small TSL indicator when trailing-stop is active. SL value
                       itself ratchets via tickHandler; this badge tells operator the
                       stop is moving without needing to hover for the tooltip. */}
-                  {isOpen && globalTrailingEnabled && (
+                  {isOpen && serverTrails && (
                     <span
                       className="ml-0.5 text-[0.5625rem] text-muted-foreground/80 align-baseline"
                       title="Trailing Stop active"
@@ -291,7 +295,7 @@ function _TodayTradeRow({
                 <div className="text-[0.625rem] space-y-0.5 tabular-nums">
                   {trade.stopLossPrice != null && (
                     <div className="flex justify-between gap-3">
-                      <span className="text-destructive font-bold">{globalTrailingEnabled ? 'TSL' : 'SL'}</span>
+                      <span className="text-destructive font-bold">{serverTrails ? 'TSL' : 'SL'}</span>
                       <span className="text-destructive">
                         {trade.stopLossPrice.toFixed(2)}
                         <span className="ml-1 text-destructive/70">
