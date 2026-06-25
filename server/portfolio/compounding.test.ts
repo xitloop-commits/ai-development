@@ -5,7 +5,7 @@
  * Covers: initialization, injection, day lifecycle, gift days, clawback,
  * position sizing, future projection, session management, and aggregation.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 import {
   initializeCapital,
   injectCapital,
@@ -21,6 +21,8 @@ import {
   checkSessionReset,
   resetSession,
   recalculateDayAggregates,
+  setReserveSplitPercent,
+  getReserveSplitPercent,
   TRADING_SPLIT,
   RESERVE_SPLIT,
   MAX_DAY_INDEX,
@@ -134,6 +136,41 @@ describe("initializeCapital", () => {
 });
 
 // ─── Capital Injection ──────────────────────────────────────────
+
+describe("configurable reserve split", () => {
+  // Module-global: always restore the default so other suites see 25%.
+  afterEach(() => setReserveSplitPercent(25));
+
+  it("defaults to 25%", () => {
+    expect(getReserveSplitPercent()).toBe(25);
+  });
+
+  it("clamps to 0–90 and ignores non-finite", () => {
+    setReserveSplitPercent(120);
+    expect(getReserveSplitPercent()).toBe(90);
+    setReserveSplitPercent(-5);
+    expect(getReserveSplitPercent()).toBe(0);
+    setReserveSplitPercent(NaN);
+    expect(getReserveSplitPercent()).toBe(0); // unchanged from previous (-5 → 0)
+  });
+
+  it("completeDayIndex honours the configured split", () => {
+    setReserveSplitPercent(40);
+    const state = makeState({ tradingPool: 75000, reservePool: 25000 });
+    const day = createDayRecord(1, 75000, 5, 75000, "live");
+    day.totalPnl = 1000;
+    const result = completeDayIndex(state, day);
+    expect(result.tradingPool).toBe(75600); // 75000 + 1000*0.60
+    expect(result.reservePool).toBe(25400); // 25000 + 1000*0.40
+  });
+
+  it("seed split (initializeCapital) honours the configured split", () => {
+    setReserveSplitPercent(10);
+    const state = initializeCapital("live", 100000, 5);
+    expect(state.tradingPool).toBe(90000);
+    expect(state.reservePool).toBe(10000);
+  });
+});
 
 describe("injectCapital", () => {
   it("adds the full amount to the trading pool, reserve untouched", () => {

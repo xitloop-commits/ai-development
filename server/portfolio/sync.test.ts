@@ -2,7 +2,7 @@
  * Capital Sync Tests — Inject → State → Day Records → Quarterly Projections
  *
  * Tests the full data sync chain when capital is injected:
- *   1. Pure engine: injectCapital splits 75/25 correctly
+ *   1. Pure engine: injectCapital adds the full amount to the trading pool
  *   2. Day record sync: current day's tradeCapital, targetAmount, projCapital update
  *   3. State sync: tradingPool, reservePool, initialFunding update
  *   4. Quarterly projections: use updated initialFunding baseline
@@ -23,8 +23,6 @@ import {
   calculateQuarterlyProjection,
   calculateAllQuarterlyProjections,
   projectFutureDays,
-  TRADING_SPLIT,
-  RESERVE_SPLIT,
 } from "./compounding";
 import type { CapitalState } from "./state";
 
@@ -79,18 +77,18 @@ function createMockContext(): TrpcContext {
 // ═══════════════════════════════════════════════════════════════════
 
 describe("Pure Engine: injectCapital", () => {
-  it("should split injected amount 75/25 and add to existing pools", () => {
+  it("should add the full injected amount to the trading pool, reserve untouched", () => {
     const state = makeState({ tradingPool: 75000, reservePool: 25000 });
     const result = injectCapital(state, 100000);
-    expect(result.tradingPool).toBe(150000); // 75000 + 100000*0.75
-    expect(result.reservePool).toBe(50000);  // 25000 + 100000*0.25
+    expect(result.tradingPool).toBe(175000); // 75000 + 100000 (full)
+    expect(result.reservePool).toBe(25000);  // unchanged
   });
 
   it("should handle fractional amounts correctly", () => {
     const state = makeState({ tradingPool: 75000, reservePool: 25000 });
     const result = injectCapital(state, 33333);
-    expect(result.tradingPool).toBe(round(75000 + 33333 * 0.75));
-    expect(result.reservePool).toBe(round(25000 + 33333 * 0.25));
+    expect(result.tradingPool).toBe(round(75000 + 33333));
+    expect(result.reservePool).toBe(25000);
   });
 
   it("should correctly recalculate day record after inject", () => {
@@ -236,8 +234,8 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
     // Get state after inject
     const stateAfter = await caller.portfolio.state({ channel: "my-live" });
 
-    expect(stateAfter.tradingPool).toBe(round(poolBefore + injectAmount * TRADING_SPLIT));
-    expect(stateAfter.reservePool).toBe(round(reserveBefore + injectAmount * RESERVE_SPLIT));
+    expect(stateAfter.tradingPool).toBe(round(poolBefore + injectAmount));
+    expect(stateAfter.reservePool).toBe(reserveBefore);
     expect(stateAfter.initialFunding).toBe(fundingBefore + injectAmount);
     expect(stateAfter.netWorth).toBe(
       round(stateAfter.tradingPool + stateAfter.reservePool)
@@ -259,7 +257,7 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
     await caller.portfolio.inject({ channel: "my-live", amount: injectAmount });
 
     const dayAfter = await caller.portfolio.currentDay({ channel: "my-live" });
-    const expectedTradingPool = round(stateBefore.tradingPool + injectAmount * TRADING_SPLIT);
+    const expectedTradingPool = round(stateBefore.tradingPool + injectAmount);
 
     expect(dayAfter.tradeCapital).toBe(expectedTradingPool);
     expect(dayAfter.targetAmount).toBe(
@@ -287,7 +285,7 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
     // allDays returns a structured response, not a flat array
     expect(allDays.currentDay).toBeDefined();
 
-    const expectedTradingPool = round(stateBefore.tradingPool + injectAmount * TRADING_SPLIT);
+    const expectedTradingPool = round(stateBefore.tradingPool + injectAmount);
     expect(allDays.currentDay.tradeCapital).toBe(expectedTradingPool);
   });
 
@@ -357,11 +355,9 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
     const paperStateAfter = await caller.portfolio.state({ channel: "my-paper" });
 
     expect(paperStateAfter.tradingPool).toBe(
-      round(paperStateBefore.tradingPool + injectAmount * TRADING_SPLIT)
+      round(paperStateBefore.tradingPool + injectAmount)
     );
-    expect(paperStateAfter.reservePool).toBe(
-      round(paperStateBefore.reservePool + injectAmount * RESERVE_SPLIT)
-    );
+    expect(paperStateAfter.reservePool).toBe(paperStateBefore.reservePool);
     expect(paperStateAfter.initialFunding).toBe(
       paperStateBefore.initialFunding + injectAmount
     );
@@ -435,11 +431,9 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
     const totalInjected = 6000;
 
     expect(stateAfter.tradingPool).toBe(
-      round(stateBefore.tradingPool + totalInjected * TRADING_SPLIT)
+      round(stateBefore.tradingPool + totalInjected)
     );
-    expect(stateAfter.reservePool).toBe(
-      round(stateBefore.reservePool + totalInjected * RESERVE_SPLIT)
-    );
+    expect(stateAfter.reservePool).toBe(stateBefore.reservePool);
     expect(stateAfter.initialFunding).toBe(
       stateBefore.initialFunding + totalInjected
     );

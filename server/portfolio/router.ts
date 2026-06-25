@@ -29,7 +29,7 @@ import {
   checkSessionReset,
   resetSession,
   recalculateDayAggregates,
-  TRADING_SPLIT,
+  tradingSplit,
 } from "./compounding";
 import type { ChargeRate } from "./charges";
 import { getUserSettings } from "../userSettings";
@@ -410,7 +410,7 @@ export const portfolioRouter = router({
 
       return projectFutureDays(
         startDay,
-        startCapital * TRADING_SPLIT, // only trading pool share compounds
+        startCapital * tradingSplit(), // only trading pool share compounds
         targetPercent,
         input.count,
         input.channel
@@ -499,8 +499,8 @@ export const portfolioRouter = router({
 
         // 2. Replace capital state with fresh initialization
         const freshState = {
-          tradingPool: Math.round(input.initialFunding * TRADING_SPLIT * 100) / 100,
-          reservePool: Math.round(input.initialFunding * (1 - TRADING_SPLIT) * 100) / 100,
+          tradingPool: Math.round(input.initialFunding * tradingSplit() * 100) / 100,
+          reservePool: Math.round(input.initialFunding * (1 - tradingSplit()) * 100) / 100,
           initialFunding: input.initialFunding,
           currentDayIndex: 1,
           targetPercent,
@@ -579,8 +579,8 @@ export const portfolioRouter = router({
       const deleted = await deleteAllDayRecords(input.channel);
 
       const freshState = {
-        tradingPool: Math.round(input.initialFunding * TRADING_SPLIT * 100) / 100,
-        reservePool: Math.round(input.initialFunding * (1 - TRADING_SPLIT) * 100) / 100,
+        tradingPool: Math.round(input.initialFunding * tradingSplit() * 100) / 100,
+        reservePool: Math.round(input.initialFunding * (1 - tradingSplit()) * 100) / 100,
         initialFunding: input.initialFunding,
         currentDayIndex: 1,
         targetPercent,

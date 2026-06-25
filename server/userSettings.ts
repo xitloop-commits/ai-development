@@ -84,6 +84,7 @@ export interface UserSettingsDoc {
   expiryControls: ExpiryControlSettings;
   charges: ChargesSettings;
   tradingMode: TradingModeSettings;
+  reserveSplitPercent: number;     // % of PROFIT routed to the Reserve Pool (default 25). Global.
   updatedAt: number;               // UTC ms
 }
 
@@ -282,6 +283,7 @@ const userSettingsSchema = new Schema<UserSettingsDoc & Document>(
       rates: { type: [chargeRateSchema], default: () => [...DEFAULT_CHARGES] },
     },
     tradingMode: { type: tradingModeSchema, default: () => ({ ...DEFAULT_TRADING_MODE }) },
+    reserveSplitPercent: { type: Number, default: 25 },
     updatedAt: { type: Number, default: () => Date.now() },
   },
   {
@@ -309,6 +311,7 @@ export async function getUserSettings(userId: number): Promise<UserSettingsDoc> 
     expiryControls: { rules: [...DEFAULT_EXPIRY_RULES] },
     charges: { rates: [...DEFAULT_CHARGES] },
     tradingMode: { ...DEFAULT_TRADING_MODE },
+    reserveSplitPercent: 25,
     updatedAt: Date.now(),
   };
 }
@@ -320,9 +323,14 @@ export async function updateUserSettings(
   userId: number,
   updates: Partial<Pick<UserSettingsDoc, "timeWindows" | "discipline" | "expiryControls" | "charges">> & {
     tradingMode?: Partial<TradingModeSettings>;
+    reserveSplitPercent?: number;
   }
 ): Promise<UserSettingsDoc> {
   const setFields: Record<string, unknown> = { updatedAt: Date.now() };
+
+  if (typeof updates.reserveSplitPercent === "number") {
+    setFields["reserveSplitPercent"] = updates.reserveSplitPercent;
+  }
 
   if (updates.timeWindows) {
     if (updates.timeWindows.nse) {
@@ -429,6 +437,7 @@ function docToSettings(doc: Record<string, any>): UserSettingsDoc {
       testingKillSwitch: doc.tradingMode?.testingKillSwitch ?? false,
       defaultWorkspace: doc.tradingMode?.defaultWorkspace ?? "my",
     },
+    reserveSplitPercent: doc.reserveSplitPercent ?? 25,
     updatedAt: doc.updatedAt ?? Date.now(),
   };
 }

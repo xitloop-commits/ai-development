@@ -735,6 +735,23 @@ export function CapitalManagementSection() {
   const [newFunding, setNewFunding] = useState(100000);
   const [confirmText, setConfirmText] = useState('');
 
+  // Reserve-split % (global; % of profit routed to the Reserve Pool).
+  const settingsQuery = trpc.settings.get.useQuery();
+  const utils = trpc.useUtils();
+  const reserveMutation = trpc.settings.updateReserveSplit.useMutation({
+    onSuccess: () => {
+      toast.success('Reserve split updated');
+      void utils.settings.get.invalidate();
+      void refetchAll();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const savedReservePct = settingsQuery.data?.reserveSplitPercent ?? 25;
+  const [reservePct, setReservePct] = useState(25);
+  useEffect(() => {
+    if (settingsQuery.data) setReservePct(settingsQuery.data.reserveSplitPercent);
+  }, [settingsQuery.data]);
+
   // Format number for display
   const fmt = (n: number) => {
     if (n >= 10000000) return `${(n / 10000000).toFixed(2)} Cr`;
@@ -795,26 +812,41 @@ export function CapitalManagementSection() {
         </div>
       </SettingsCard>
 
-      {/* Pool Allocation Info */}
+      {/* Pool Allocation — editable reserve split */}
       <SettingsCard title="Pool Allocation">
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[0.625rem] text-muted-foreground">Trading Pool share</span>
-            <span className="text-[0.6875rem] font-mono text-foreground font-bold">75%</span>
+          <FieldLabel hint="Percent of each day's PROFIT moved to the Reserve Pool. The rest stays in the Trading Pool and compounds. Applies to profit, gift days, and the 250-day projection — NOT to capital you add (injections go fully to the Trading Pool).">
+            Reserve % of profit
+          </FieldLabel>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={0}
+              max={90}
+              value={reservePct}
+              onChange={(e) => setReservePct(Math.max(0, Math.min(90, Number(e.target.value))))}
+              className="w-20 px-2 py-1 text-[0.6875rem] tabular-nums bg-background border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <span className="text-[0.625rem] text-muted-foreground">
+              → reserve · {100 - reservePct}% compounds
+            </span>
+            <button
+              onClick={() => reserveMutation.mutate({ reserveSplitPercent: reservePct })}
+              disabled={reserveMutation.isPending || reservePct === savedReservePct}
+              className="ml-auto px-3 py-1 text-[0.625rem] font-bold tracking-wider uppercase rounded border border-primary/30 text-primary hover:bg-primary/5 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Save
+            </button>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[0.625rem] text-muted-foreground">Reserve Pool share</span>
-            <span className="text-[0.6875rem] font-mono text-foreground font-bold">25%</span>
-          </div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between pt-1">
             <span className="text-[0.625rem] text-muted-foreground">Daily Target</span>
             <span className="text-[0.6875rem] font-mono text-primary font-bold">{capital.targetPercent}%</span>
           </div>
         </div>
         <div className="mt-3 pt-2 border-t border-border">
           <span className="text-[0.5625rem] text-muted-foreground">
-            New capital injections and profit distributions follow the 75/25 split.
-            Losses are absorbed entirely by the Trading Pool.
+            Profit distributions follow this split ({savedReservePct}/{100 - savedReservePct}).
+            Capital you add goes fully to the Trading Pool; losses are absorbed entirely by the Trading Pool.
           </span>
         </div>
       </SettingsCard>

@@ -23,11 +23,43 @@ import type {
 
 // ─── Constants ───────────────────────────────────────────────────
 
+/** Default split (used when the operator hasn't configured one). */
 export const TRADING_SPLIT = 0.75;
 export const RESERVE_SPLIT = 0.25;
+export const DEFAULT_RESERVE_SPLIT_PERCENT = 25;
 export const MAX_DAY_INDEX = 250;
 export const DEFAULT_TARGET_PERCENT = 5;
 export const DEFAULT_INITIAL_FUNDING = 100000;
+
+// ─── Configurable reserve split ──────────────────────────────────
+// Operator-tunable fraction of PROFIT routed to the Reserve Pool (the rest
+// compounds in the Trading Pool). One global policy for this single-user app —
+// loaded from settings at boot (setReserveSplitPercent) and updated when changed
+// in Settings → Capital Management. The whole engine (profit split, gift days,
+// clawback, projections, seed split) reads reserveSplit()/tradingSplit() so the
+// table and projections always agree with the configured value.
+let _reserveSplit = DEFAULT_RESERVE_SPLIT_PERCENT / 100;
+
+/** Set the reserve split from a percent (clamped to 0–90). */
+export function setReserveSplitPercent(percent: number): void {
+  if (!Number.isFinite(percent)) return;
+  _reserveSplit = Math.max(0, Math.min(90, percent)) / 100;
+}
+
+/** Current reserve split as a percent (0–90). */
+export function getReserveSplitPercent(): number {
+  return round(_reserveSplit * 100);
+}
+
+/** Fraction of profit routed to the Reserve Pool (0–0.9). */
+export function reserveSplit(): number {
+  return _reserveSplit;
+}
+
+/** Fraction of profit that stays in the Trading Pool and compounds (0.1–1). */
+export function tradingSplit(): number {
+  return 1 - _reserveSplit;
+}
 
 // ─── Initialization ──────────────────────────────────────────────
 
@@ -42,8 +74,8 @@ export function initializeCapital(
   const today = new Date().toISOString().slice(0, 10);
   return {
     channel,
-    tradingPool: round(initialFunding * TRADING_SPLIT),
-    reservePool: round(initialFunding * RESERVE_SPLIT),
+    tradingPool: round(initialFunding * tradingSplit()),
+    reservePool: round(initialFunding * reserveSplit()),
     initialFunding,
     currentDayIndex: 1,
     targetPercent,
@@ -150,8 +182,8 @@ export function completeDayIndex(
   rating: DayRating;
 } {
   const profit = dayRecord.totalPnl;
-  const tradingShare = round(profit * TRADING_SPLIT);
-  const reserveShare = round(profit * RESERVE_SPLIT);
+  const tradingShare = round(profit * tradingSplit());
+  const reserveShare = round(profit * reserveSplit());
 
   const profitEntry: ProfitHistoryEntry = {
     dayIndex: dayRecord.dayIndex,
@@ -207,8 +239,8 @@ export function calculateGiftDays(
 
     giftDays.push(day);
 
-    // Apply 75/25 split on the gift day's profit
-    const tradingShare = round(target * TRADING_SPLIT);
+    // Apply the configured split on the gift day's profit
+    const tradingShare = round(target * tradingSplit());
     pool = round(pool + tradingShare);
     remaining = round(remaining - target);
     dayIdx++;
@@ -260,7 +292,7 @@ export function processClawback(
       // Partially consume — this becomes the new active day
       const remaining = round(entry.tradingPoolShare - remainingLoss);
       const originalTarget = round(entry.totalProfit);
-      const remainingTarget = round(originalTarget - (entry.tradingPoolShare - remaining) / TRADING_SPLIT);
+      const remainingTarget = round(originalTarget - (entry.tradingPoolShare - remaining) / tradingSplit());
       remainingLoss = 0;
       partialDay = { dayIndex: entry.dayIndex, remainingTarget };
     }
@@ -366,8 +398,8 @@ export function projectFutureDays(
 
     days.push(day);
 
-    // Advance: only 75% of profit stays in trading pool for compounding
-    pool = round(pool + targetAmount * TRADING_SPLIT);
+    // Advance: only the trading-pool share of profit compounds
+    pool = round(pool + targetAmount * tradingSplit());
     dateObj.setDate(dateObj.getDate() + 1);
   }
 
@@ -396,12 +428,12 @@ function plannedNetWorthAtDay(
   targetPercent: number
 ): number {
   const rate = targetPercent / 100;
-  let tp = initialFunding * TRADING_SPLIT;   // 75% to trading pool
-  let rp = initialFunding * RESERVE_SPLIT;   // 25% to reserve pool
+  let tp = initialFunding * tradingSplit();   // trading-pool seed
+  let rp = initialFunding * reserveSplit();   // reserve-pool seed
   for (let d = 1; d <= dayIndex; d++) {
     const profit = tp * rate;
-    tp += profit * TRADING_SPLIT;
-    rp += profit * RESERVE_SPLIT;
+    tp += profit * tradingSplit();
+    rp += profit * reserveSplit();
   }
   return round(tp + rp);
 }

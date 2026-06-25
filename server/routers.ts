@@ -35,6 +35,7 @@ import {
   type InstrumentConfig,
 } from "./instruments";
 import { searchByQuery, downloadScripMaster, needsRefresh } from "./broker/adapters/dhan/scripMaster";
+import { setReserveSplitPercent } from "./portfolio/compounding";
 
 export const appRouter = router({
   // Trading data endpoints (read from in-memory store)
@@ -308,6 +309,18 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const updated = await updateUserSettings(1 /* single-user */, { tradingMode: input as any });
         return { success: true, tradingMode: updated.tradingMode };
+      }),
+
+    // Update the global reserve-split % (profit routed to the Reserve Pool).
+    // Persists + applies the value to the live compounding engine immediately.
+    updateReserveSplit: protectedProcedure
+      .input(z.object({ reserveSplitPercent: z.number().min(0).max(90) }))
+      .mutation(async ({ input }) => {
+        const updated = await updateUserSettings(1 /* single-user */, {
+          reserveSplitPercent: input.reserveSplitPercent,
+        });
+        setReserveSplitPercent(updated.reserveSplitPercent);
+        return { success: true, reserveSplitPercent: updated.reserveSplitPercent };
       }),
   }),
 

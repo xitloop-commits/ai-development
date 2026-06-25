@@ -9,6 +9,7 @@
 import mongoose, { Schema } from "mongoose";
 import { PortfolioStateModel, PositionStateModel } from "./storage";
 import { tickBus } from "../broker/tickBus";
+import { tradingSplit, reserveSplit } from "./compounding";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -324,8 +325,6 @@ export const DayRecordModel = mongoose.model("DayRecord", dayRecordSchema, "day_
 // ─── CRUD Helpers ────────────────────────────────────────────────
 
 const DEFAULT_INITIAL_FUNDING = 100000;
-const TRADING_SPLIT = 0.75;
-const RESERVE_SPLIT = 0.25;
 
 /**
  * Drop legacy capital_state / day_records collections if they still carry the
@@ -770,8 +769,8 @@ export async function getCapitalState(channel: Channel): Promise<CapitalState> {
 
   const initial: CapitalState = {
     channel,
-    tradingPool: DEFAULT_INITIAL_FUNDING * TRADING_SPLIT,
-    reservePool: DEFAULT_INITIAL_FUNDING * RESERVE_SPLIT,
+    tradingPool: DEFAULT_INITIAL_FUNDING * tradingSplit(),
+    reservePool: DEFAULT_INITIAL_FUNDING * reserveSplit(),
     initialFunding: DEFAULT_INITIAL_FUNDING,
     currentDayIndex: 1,
     targetPercent: 5,

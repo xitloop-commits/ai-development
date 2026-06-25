@@ -83,6 +83,17 @@ async function startServer() {
       const instruments = await getAllInstruments();
       setConfiguredInstruments(instruments);
 
+      // Load the operator's configured reserve-split % into the compounding
+      // engine (default 25). Idempotent; falls back to default on any error.
+      try {
+        const { getUserSettings } = await import("../userSettings");
+        const { setReserveSplitPercent } = await import("../portfolio/compounding");
+        const s = await getUserSettings(1);
+        setReserveSplitPercent(s.reserveSplitPercent);
+      } catch (err) {
+        bootLog.warn(`Reserve-split load failed (using default 25%): ${(err as Error)?.message ?? err}`);
+      }
+
       // Wipe legacy capital docs that still use the pre-channel `workspace` field.
       // Idempotent — once migrated, this is a no-op on every subsequent boot.
       const { wipeLegacyCapitalDocs } = await import("../portfolio/state");
