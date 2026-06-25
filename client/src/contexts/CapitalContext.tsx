@@ -17,6 +17,7 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
+import { useLiveDay } from '@/stores/portfolioLiveStore';
 import { type Channel, DEFAULT_LANDING_CHANNEL } from '@/lib/tradeTypes';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -184,10 +185,15 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   );
 
   // ─── Single shared query for all days ───────────────────────
+  // Loaded once per channel (no polling). Live changes to today arrive over
+  // /ws/ticks → portfolioLiveStore and are merged below; structural refetches
+  // happen on mutations (invalidateAll) and channel change (query key).
   const allDaysQuery = trpc.portfolio.allDays.useQuery(
     { channel, futureCount: 250 },
-    { refetchInterval: 2000, retry: 1 }
+    { retry: 1 }
   );
+  // Live day pushed over the WS for this channel (overrides today below).
+  const liveDay = useLiveDay(channel);
 
   // ─── Invalidate all capital queries ─────────────────────────
   const invalidateAll = useCallback(async () => {
@@ -338,12 +344,20 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
       return normalizeDayRecord(d);
     });
 
+    // Prefer the WS-pushed live day over the query's snapshot of today, but
+    // only when it's the SAME day (dayIndex match) — a push for a different
+    // day (e.g. rollover before the query refetched) is ignored.
+    const effectiveToday =
+      liveDay && currentDay && (liveDay as any).dayIndex === (currentDay as any).dayIndex
+        ? liveDay
+        : currentDay;
+
     return [
       ...pastNorm,
-      ...(currentDay ? [normalizeDayRecord(currentDay)] : []),
+      ...(effectiveToday ? [normalizeDayRecord(effectiveToday)] : []),
       ...(((futureDays as any[]) ?? []).map(normalizeDayRecord)),
     ];
-  }, [allDaysQuery.data, channel]);
+  }, [allDaysQuery.data, channel, liveDay]);
 
   const currentDay = useMemo(() => {
     return allDays.find((d) => d.dayIndex === capital.currentDayIndex) ?? null;

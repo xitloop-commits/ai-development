@@ -13,6 +13,7 @@ import { trpc } from "@/lib/trpc";
 import * as chainStore from "@/stores/optionChainStore";
 import * as signalsStore from "@/stores/signalsStore";
 import * as seaStatusStore from "@/stores/seaStatusStore";
+import * as portfolioLiveStore from "@/stores/portfolioLiveStore";
 
 export interface TickData {
   securityId: string;
@@ -332,6 +333,9 @@ function connectWs() {
       } else if (data.type === "sea_status" && data.status) {
         // SEA engine liveness snapshot (replaces the seaStatus tRPC poll).
         seaStatusStore.setSeaStatus(data.status);
+      } else if (data.type === "portfolio" && data.channel && data.day) {
+        // Live day-record update (replaces the 2s allDays poll).
+        portfolioLiveStore.setLiveDay(data.channel, data.day);
       }
     } catch {
       // ignore

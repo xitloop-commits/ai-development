@@ -141,6 +141,14 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
   }, 10_000);
   seaStatusTimer.unref?.();
 
+  // Forward portfolio day-record updates so the trade list stays live without
+  // polling allDays. The client swaps the pushed day in by (channel, dayIndex).
+  const onPortfolio = (payload: unknown) => {
+    if (wss.clients.size === 0) return;
+    sendToAllClients(wss, JSON.stringify({ type: "portfolio", ...(payload as object) }));
+  };
+  tickBus.on("portfolio", onPortfolio);
+
   wss.on("connection", (ws, request) => {
     log.info(`Client connected (total: ${wss.clients.size})`);
 
@@ -191,6 +199,7 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
         tickBus.off("tick", onTick);
         tickBus.off("seaSignal", onSeaSignal);
         tickBus.off("seaStatus", onSeaStatus);
+        tickBus.off("portfolio", onPortfolio);
         clearInterval(seaStatusTimer);
         // Send a clean close frame to every connected browser, then
         // shut the server.

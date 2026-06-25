@@ -8,6 +8,7 @@
  */
 import mongoose, { Schema } from "mongoose";
 import { PortfolioStateModel, PositionStateModel } from "./storage";
+import { tickBus } from "../broker/tickBus";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -836,7 +837,12 @@ export async function upsertDayRecord(
     { $set: { ...record, channel } },
     { upsert: true, returnDocument: "after", lean: true }
   );
-  return docToDayRecord(doc!);
+  const day = docToDayRecord(doc!);
+  // Live push: every day-record write fans out over /ws/ticks so the UI
+  // never has to poll allDays. The client swaps the pushed day in by
+  // (channel, dayIndex); past/future writes it simply ignores.
+  tickBus.emitPortfolio({ channel, day });
+  return day;
 }
 
 export async function deleteDayRecordsFrom(

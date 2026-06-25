@@ -60,6 +60,12 @@ class TickBus extends EventEmitter {
     this.emit("seaStatus", status);
   }
 
+  /** Emit a portfolio day-record update for live push to browser clients.
+   *  Replaces the 2s allDays poll — the client swaps in the pushed day. */
+  emitPortfolio(payload: { channel: string; day: unknown }): void {
+    this.emit("portfolio", payload);
+  }
+
   /**
    * Emit an option-chain update and cache it. Cached so newly-connected
    * browser clients can hydrate their client store immediately without
