@@ -17,6 +17,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Globe, Wifi, Shield, FlaskConical } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
+import { useInstrumentLiveState } from '@/hooks/useInstrumentLiveState';
 
 // ─── Cell separator (matches the AppBar pattern) ────────────────
 
@@ -176,7 +177,7 @@ interface AiRollup {
 }
 
 export function computeAiRollup(
-  queries: ReturnType<typeof trpc.trading.instrumentLiveState.useQuery>[],
+  queries: Array<{ data: unknown }>,
 ): AiRollup {
   let modelsLoadedCount = 0;
   let anyMarketOpen = false;
@@ -263,12 +264,8 @@ function fmtAge(sec: number | null): string {
 }
 
 function AiIndicator() {
-  const queries = AI_INSTRUMENTS.map((inst) =>
-    trpc.trading.instrumentLiveState.useQuery(
-      { instrument: inst },
-      { refetchInterval: 30_000, retry: 1 },
-    ),
-  );
+  // WS-pushed (no poll). Fixed-length map → stable hook order.
+  const queries = AI_INSTRUMENTS.map((inst) => ({ data: useInstrumentLiveState(inst) }));
   const rollup = computeAiRollup(queries);
 
   // Click toggles a sticky popover (shadcn Tooltip dismisses on

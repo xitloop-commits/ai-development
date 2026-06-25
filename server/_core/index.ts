@@ -230,6 +230,12 @@ async function startServer() {
   // tickWs closes BEFORE broker WS so browser clients don't dangle.
   registerShutdownHook("tickWs", () => tickWsHandle.close(), 400);
 
+  // Watch TFA feature files → push instrument live-state over /ws/ticks
+  // (replaces the 2s instrumentLiveState poll across 5 UI surfaces).
+  const { startInstrumentStateWatcher } = await import("../instrumentStateWatcher");
+  const stopInstrWatcher = startInstrumentStateWatcher();
+  registerShutdownHook("instrStateWatcher", () => { stopInstrWatcher(); }, 350);
+
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);
 

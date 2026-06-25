@@ -73,6 +73,13 @@ class TickBus extends EventEmitter {
     this.emit("capitalChanged", { channel });
   }
 
+  /** Emit one instrument's live TFA state for push to browser clients.
+   *  Replaces the 2s instrumentLiveState poll (5 consumers). Throttled by the
+   *  file watcher so it's ~1/s per instrument, not per-tick. */
+  emitInstrumentState(payload: { instrument: string; state: unknown }): void {
+    this.emit("instrumentState", payload);
+  }
+
   /**
    * Emit an option-chain update and cache it. Cached so newly-connected
    * browser clients can hydrate their client store immediately without

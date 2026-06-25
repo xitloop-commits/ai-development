@@ -27,6 +27,7 @@ import { TradeBar } from './TradeBar';
 import SignalChartDialog, { type SignalChartTarget } from './SignalChartDialog';
 import { UNDERLYING_SECURITY_ID, istDateString } from '@/lib/signalChart';
 import { useLiveDay } from '@/stores/portfolioLiveStore';
+import { useInstrumentLiveState } from '@/hooks/useInstrumentLiveState';
 
 // ── Tooltip wrapper ──────────────────────────────────────────
 function Tip({ children, text }: { children: React.ReactNode; text: string }) {
@@ -216,10 +217,7 @@ export default function InstrumentCard({ data, feedExchange, feedSecurityId }: I
   const { styleOf } = useInstrumentColors();
   const instStyle = styleOf(instrumentKey);
 
-  const { data: state } = trpc.trading.instrumentLiveState.useQuery(
-    { instrument: inst },
-    { refetchInterval: 5000 }
-  );
+  const state = useInstrumentLiveState(inst);
 
   const live = state?.live;
   const signal = state?.signal;

@@ -14,6 +14,7 @@ import { useFeedSubscriptions } from "./useFeedControl";
 import { useOptionPreview } from "./useOptionPreview";
 import { useOptionChainLevels } from "./useOptionChainLevels";
 import { useInstrumentTick, getTickFromStore } from "./useTickStream";
+import { useInstrumentLiveState } from "./useInstrumentLiveState";
 import { useCapital } from "@/contexts/CapitalContext";
 import type { OptionSide, TradeDirection } from "@/components/InstrumentBar";
 
@@ -36,11 +37,8 @@ export function useInstrumentBar(
   const [side, setSide] = useState<OptionSide>("CE");
   const [direction, setDirection] = useState<TradeDirection>("LONG");
 
-  const liveQuery = trpc.trading.instrumentLiveState.useQuery(
-    { instrument: key },
-    { refetchInterval: 2000, refetchOnWindowFocus: false },
-  );
-  const live = liveQuery.data?.live;
+  const liveState = useInstrumentLiveState<{ live?: any }>(key);
+  const live = liveState?.live;
 
   // Underlying LTP — always the real-time tick stream (no spot_price fallback).
   const resolvedName = UI_TO_RESOLVED[instrument] ?? instrument;

@@ -14,6 +14,7 @@ import * as chainStore from "@/stores/optionChainStore";
 import * as signalsStore from "@/stores/signalsStore";
 import * as seaStatusStore from "@/stores/seaStatusStore";
 import * as portfolioLiveStore from "@/stores/portfolioLiveStore";
+import * as instrumentStateStore from "@/stores/instrumentStateStore";
 
 export interface TickData {
   securityId: string;
@@ -340,6 +341,9 @@ function connectWs() {
         // Capital pools/projections changed → CapitalContext refetches state
         // once (replaces the 3s portfolio.state poll).
         portfolioLiveStore.bumpCapital(data.channel);
+      } else if (data.type === "instrument_state" && data.instrument && data.state) {
+        // TFA live state push (replaces the 2s instrumentLiveState poll).
+        instrumentStateStore.setInstrumentState(data.instrument, data.state);
       }
     } catch {
       // ignore

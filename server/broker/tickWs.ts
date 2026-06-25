@@ -16,6 +16,8 @@ import { tickBus, type ChainUpdate } from "./tickBus";
 import type { TickData } from "./types";
 import { isMockFeed } from "./brokerService";
 import { getSeaStatus } from "../seaHeartbeat";
+import { getInstrumentLiveState } from "../instrumentLiveState";
+import { WATCHED_INSTRUMENTS } from "../instrumentStateWatcher";
 
 import { createLogger } from "./logger";
 const log = createLogger("BSA", "TickWS");
@@ -156,6 +158,13 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
   };
   tickBus.on("capitalChanged", onCapitalChanged);
 
+  // Forward TFA live instrument state (replaces the 2s instrumentLiveState poll).
+  const onInstrumentState = (payload: unknown) => {
+    if (wss.clients.size === 0) return;
+    sendToAllClients(wss, JSON.stringify({ type: "instrument_state", ...(payload as object) }));
+  };
+  tickBus.on("instrumentState", onInstrumentState);
+
   wss.on("connection", (ws, request) => {
     log.info(`Client connected (total: ${wss.clients.size})`);
 
@@ -185,6 +194,14 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
     // without waiting for the next heartbeat/timer push.
     ws.send(JSON.stringify({ type: "sea_status", status: getSeaStatus() }));
 
+    // Seed the current TFA state for each instrument so cards/bars/lights have
+    // data immediately (cheap: getInstrumentLiveState is mtime-cached).
+    for (const inst of WATCHED_INSTRUMENTS) {
+      try {
+        ws.send(JSON.stringify({ type: "instrument_state", instrument: inst, state: getInstrumentLiveState(inst) }));
+      } catch { /* skip on read race */ }
+    }
+
     ws.on("close", () => {
       log.info(`Client disconnected (total: ${wss.clients.size})`);
     });
@@ -208,6 +225,7 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
         tickBus.off("seaStatus", onSeaStatus);
         tickBus.off("portfolio", onPortfolio);
         tickBus.off("capitalChanged", onCapitalChanged);
+        tickBus.off("instrumentState", onInstrumentState);
         clearInterval(seaStatusTimer);
         // Send a clean close frame to every connected browser, then
         // shut the server.

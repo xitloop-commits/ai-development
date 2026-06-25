@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { trpc } from '@/lib/trpc';
+import { useInstrumentLiveState } from '@/hooks/useInstrumentLiveState';
 
 /**
  * useMarketOpen — live per-instrument market-open status.
@@ -22,17 +22,12 @@ const MARKET_INSTRUMENTS = ['nifty50', 'banknifty', 'crudeoil', 'naturalgas'] as
 const norm = (s: string) => s.toUpperCase().replace(/\s+/g, '');
 
 export function useMarketOpen() {
-  const queries = MARKET_INSTRUMENTS.map((inst) =>
-    trpc.trading.instrumentLiveState.useQuery(
-      { instrument: inst },
-      { refetchInterval: 30_000, retry: 1 },
-    ),
-  );
+  // WS-pushed (no poll). Fixed-length map → stable hook order.
+  const data = MARKET_INSTRUMENTS.map((inst) => useInstrumentLiveState(inst));
 
   // Map normalized instrument key → open?  Only keys whose status has loaded
-  // appear here. Memoized on the query data so the map (and isClosed below)
-  // stays referentially stable between refetches that don't change anything.
-  const data = queries.map((q) => q.data);
+  // appear here. Memoized on the data so the map (and isClosed below) stays
+  // referentially stable between pushes that don't change anything.
   const openByKey = useMemo(() => {
     const map: Record<string, boolean> = {};
     MARKET_INSTRUMENTS.forEach((inst, i) => {
