@@ -7,50 +7,10 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  formatFill,
   formatExit,
   formatGateRejection,
   formatBrokerDisconnect,
 } from "./tradeEventNotifier";
-
-describe("formatFill", () => {
-  it("buy entry → 'bought {qty} {instrument} at Rs.{price}', no contract/strike noise", () => {
-    const msg = formatFill({
-      channel: "my-live",
-      instrument: "NIFTY 50",
-      type: "CALL_BUY",
-      strike: 24500,
-      expiry: "2026-06-26",
-      qty: 75,
-      entryPrice: 150,
-    });
-    expect(msg).toBe("bought 75 NIFTY 50 at Rs.150");
-  });
-
-  it("sell (short) entry → 'sold …'", () => {
-    const msg = formatFill({
-      channel: "ai-live",
-      instrument: "BANK NIFTY",
-      type: "PUT_SELL",
-      strike: 52000,
-      qty: 25,
-      entryPrice: 200,
-    });
-    expect(msg).toBe("sold 25 BANK NIFTY at Rs.200");
-  });
-
-  it("non-option buy reads the same plain way", () => {
-    const msg = formatFill({
-      channel: "testing-live",
-      instrument: "NATURALGAS",
-      type: "BUY",
-      strike: null,
-      qty: 1250,
-      entryPrice: 45,
-    });
-    expect(msg).toBe("bought 1250 NATURALGAS at Rs.45");
-  });
-});
 
 describe("formatExit", () => {
   const base = {
@@ -65,17 +25,17 @@ describe("formatExit", () => {
     durationSeconds: 22 * 60,
   };
 
-  it("TP_HIT → 'target achieved {pct} {rs} from {instrument}'", () => {
+  it("profit → 'profit Rs.{amount} {pct}% from {instrument}'", () => {
     const msg = formatExit({
       ...base,
       realizedPnl: 3375,
       realizedPnlPercent: 30.0,
       reason: "TP_HIT",
     });
-    expect(msg).toBe("target achieved 30.00% Rs.3,375 from NATURALGAS");
+    expect(msg).toBe("profit Rs.3,375 30.00% from NATURALGAS");
   });
 
-  it("SL_HIT in loss → 'stop-loss hit, lost {pct} {rs} from {instrument}'", () => {
+  it("loss → 'lost Rs.{amount} {pct}% from {instrument}'", () => {
     const msg = formatExit({
       ...base,
       realizedPnl: -750,
@@ -83,10 +43,10 @@ describe("formatExit", () => {
       reason: "SL_HIT",
       triggeredBy: "PA",
     });
-    expect(msg).toBe("stop-loss hit, lost 12.50% Rs.750 from NATURALGAS");
+    expect(msg).toBe("lost Rs.750 12.50% from NATURALGAS");
   });
 
-  it("SL_HIT in profit (trailing stop locked a gain) → 'trailing stop hit, gained ...'", () => {
+  it("reason no longer changes the wording — a profitable SL_HIT still reads 'profit'", () => {
     const msg = formatExit({
       ...base,
       realizedPnl: 900,
@@ -94,10 +54,10 @@ describe("formatExit", () => {
       reason: "SL_HIT",
       triggeredBy: "PA",
     });
-    expect(msg).toBe("trailing stop hit, gained 15.00% Rs.900 from NATURALGAS");
+    expect(msg).toBe("profit Rs.900 15.00% from NATURALGAS");
   });
 
-  it("DISCIPLINE_EXIT → 'closed by risk rule, …' regardless of P&L sign", () => {
+  it("a discipline exit in loss still reads 'lost'", () => {
     const msg = formatExit({
       ...base,
       realizedPnl: -900,
@@ -105,27 +65,17 @@ describe("formatExit", () => {
       reason: "DISCIPLINE_EXIT",
       triggeredBy: "DA",
     });
-    expect(msg).toBe("closed by risk rule, 10.00% Rs.900 from NATURALGAS");
+    expect(msg).toBe("lost Rs.900 10.00% from NATURALGAS");
   });
 
-  it("normal sell winner → 'gained …'", () => {
+  it("zero P&L reads as 'profit Rs.0 0.00%'", () => {
     const msg = formatExit({
       ...base,
-      realizedPnl: 750,
-      realizedPnlPercent: 6.67,
+      realizedPnl: 0,
+      realizedPnlPercent: 0,
       reason: "MANUAL",
     });
-    expect(msg).toBe("gained 6.67% Rs.750 from NATURALGAS");
-  });
-
-  it("normal sell loser → 'lost …'", () => {
-    const msg = formatExit({
-      ...base,
-      realizedPnl: -1200,
-      realizedPnlPercent: -3,
-      reason: "MANUAL",
-    });
-    expect(msg).toBe("lost 3.00% Rs.1,200 from NATURALGAS");
+    expect(msg).toBe("profit Rs.0 0.00% from NATURALGAS");
   });
 });
 

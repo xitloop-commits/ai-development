@@ -112,25 +112,16 @@ function fmtRupees(n: number): string {
   return `${sign}₹${Math.abs(Math.round(n)).toLocaleString("en-IN")}`;
 }
 
-/** Format a summary as a Telegram HTML message. */
+/**
+ * One-line close message: "<exchange> closed with <profit|loss> Rs.X Y%".
+ * word + magnitude only (the word carries direction), matching the exit-alert
+ * style. Totals are the day's net across the live channels for this exchange.
+ */
 export function formatSummary(exchange: Exchange, summary: SummaryStats): string {
-  const { totalTrades, wins, losses, breakevens, netPnl, netPnlPercent, bestTrade, worstTrade, currentCapital } = summary;
-  const emoji = netPnl > 0 ? "🟢" : netPnl < 0 ? "🔴" : "⚪";
-  const sign = netPnl >= 0 ? "+" : "";
-
-  const lines: string[] = [
-    `${emoji} <b>${exchange} session summary</b>`,
-    `Trades: <b>${totalTrades}</b> (W ${wins} · L ${losses}${breakevens > 0 ? ` · BE ${breakevens}` : ""})`,
-    `Net P&L: <b>${sign}${fmtRupees(netPnl)}</b> (${sign}${netPnlPercent.toFixed(2)}%)`,
-  ];
-  if (bestTrade) {
-    lines.push(`Best: ${bestTrade.instrument} ${fmtRupees(bestTrade.pnl)}`);
-  }
-  if (worstTrade && worstTrade.id !== bestTrade?.id) {
-    lines.push(`Worst: ${worstTrade.instrument} ${fmtRupees(worstTrade.pnl)}`);
-  }
-  lines.push(`Capital: ${fmtRupees(currentCapital)}`);
-  return lines.join("\n");
+  const word = summary.netPnl >= 0 ? "profit" : "loss";
+  const rs = `Rs.${Math.abs(Math.round(summary.netPnl)).toLocaleString("en-IN")}`;
+  const pct = `${Math.abs(summary.netPnlPercent).toFixed(2)}%`;
+  return `${exchange} closed with ${word} ${rs} ${pct}`;
 }
 
 // ─── Dedup state ─────────────────────────────────────────────────

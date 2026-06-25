@@ -21,7 +21,6 @@
 
 import { createLogger } from "../broker/logger";
 import {
-  notifyTradeFill,
   notifyTradeExit,
   notifyGateRejection,
 } from "../_core/tradeEventNotifier";
@@ -429,22 +428,8 @@ class TradeExecutorAgent {
         `submitTrade ok channel=${req.channel} trade=${tradeId} order=${orderResult.orderId} ` +
           `brokerStatus=${orderResult.status} tradeStatus=${tradeStatus}`,
       );
-      // T52: Telegram push for trade fills (fire-and-forget).
-      // Synthesize the CALL_BUY / PUT_SELL / BUY style string the formatter expects.
-      const fillType =
-        req.optionType === "CE" ? `CALL_${req.direction}` :
-        req.optionType === "PE" ? `PUT_${req.direction}` :
-        req.direction;
-      notifyTradeFill({
-        channel: req.channel,
-        instrument: req.instrument,
-        type: fillType,
-        strike: req.strike ?? null,
-        expiry: req.expiry ?? null,
-        qty: req.quantity,
-        entryPrice: req.entryPrice,
-        orderId: orderResult.orderId,
-      });
+      // Fill notifications intentionally removed (operator wants only
+      // profit/loss exit alerts + per-exchange close summary, no entry spam).
       return response;
     } catch (err: any) {
       const message = err?.message ?? String(err);

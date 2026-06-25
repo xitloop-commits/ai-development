@@ -100,38 +100,25 @@ describe("sessionSummaryScheduler — computeSummary", () => {
 });
 
 describe("sessionSummaryScheduler — formatSummary", () => {
-  it("uses green emoji + plus sign for positive P&L", () => {
+  it("one-line profit close: '<exchange> closed with profit Rs.X Y%'", () => {
     const summary = computeSummary([trade({ pnl: 1500 })], 100_000, 101_500);
     const msg = formatSummary("NSE", summary);
-    expect(msg).toContain("🟢");
-    expect(msg).toContain("NSE session summary");
-    expect(msg).toContain("+₹1,500");
+    expect(msg).toBe("NSE closed with profit Rs.1,500 1.50%");
   });
 
-  it("uses red emoji + leading minus for negative P&L", () => {
+  it("one-line loss close: '<exchange> closed with loss Rs.X Y%' (magnitude only)", () => {
     const summary = computeSummary([trade({ pnl: -800 })], 100_000, 99_200);
     const msg = formatSummary("MCX", summary);
-    expect(msg).toContain("🔴");
-    expect(msg).toContain("MCX session summary");
-    expect(msg).toContain("-₹800");
+    expect(msg).toBe("MCX closed with loss Rs.800 0.80%");
   });
 
-  it("includes best + worst trade lines when distinct", () => {
+  it("net across multiple trades", () => {
     const trades = [
       trade({ id: "A", pnl: 500, instrument: "NIFTY 50" }),
       trade({ id: "B", pnl: -300, instrument: "BANK NIFTY" }),
     ];
     const summary = computeSummary(trades, 100_000, 100_200);
     const msg = formatSummary("NSE", summary);
-    expect(msg).toContain("Best: NIFTY 50");
-    expect(msg).toContain("Worst: BANK NIFTY");
-  });
-
-  it("collapses Best/Worst when only one trade", () => {
-    const summary = computeSummary([trade({ id: "A", pnl: 500 })], 100_000, 100_500);
-    const msg = formatSummary("NSE", summary);
-    expect(msg).toContain("Best:");
-    // single trade → best === worst → worst line omitted
-    expect(msg).not.toContain("Worst:");
+    expect(msg).toBe("NSE closed with profit Rs.200 0.20%");
   });
 });

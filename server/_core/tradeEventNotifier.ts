@@ -68,23 +68,6 @@ function fmtPctAbs(n: number): string {
   return `${Math.abs(n).toFixed(2)}%`;
 }
 
-export interface TradeFillEvent {
-  channel: string;
-  instrument: string;
-  type: string; // "CALL_BUY" / "PUT_SELL" / "BUY" / "SELL"
-  strike?: number | null;
-  expiry?: string | null;
-  qty: number;
-  entryPrice: number;
-  orderId?: string;
-}
-
-/** "bought 1250 naturalgas at Rs.45" (or "sold …" for a short entry). */
-export function formatFill(ev: TradeFillEvent): string {
-  const verb = ev.type.includes("BUY") ? "bought" : "sold";
-  return `${verb} ${ev.qty} ${ev.instrument} at Rs.${ev.entryPrice}`;
-}
-
 export interface TradeExitEvent {
   channel: string;
   instrument: string;
@@ -101,28 +84,14 @@ export interface TradeExitEvent {
 }
 
 /**
- * Reason → opening phrase, then the shared "{pct} {rs} from {instrument}"
- * tail. Take-profit and stop-loss read by their trigger; a risk-rule
- * (discipline) exit is called out explicitly; anything else is a normal
- * sell, where "gained"/"lost" carries the direction.
+ * Two formats only, decided by realized P&L sign — the exit reason no longer
+ * changes the wording:
+ *   profit → "profit Rs.4,500 8.00% from naturalgas"
+ *   loss   → "lost Rs.2,000 5.00% from naturalgas"
  */
 export function formatExit(ev: TradeExitEvent): string {
-  const tail = `${fmtPctAbs(ev.realizedPnlPercent)} ${fmtRs(ev.realizedPnl)} from ${ev.instrument}`;
-  if (ev.reason === "TP_HIT" || ev.reason === "TARGET_PROFIT") {
-    return `target achieved ${tail}`;
-  }
-  if (ev.reason === "SL_HIT" || ev.reason === "STOP_LOSS") {
-    // A trailing stop also exits as SL_HIT but can be in PROFIT (the TSL locked
-    // gains), so let the realized P&L decide the wording — otherwise a winning
-    // trailing-stop exit gets reported as a "loss" while the desk shows profit.
-    return ev.realizedPnl >= 0
-      ? `trailing stop hit, gained ${tail}`
-      : `stop-loss hit, lost ${tail}`;
-  }
-  if (ev.reason === "DISCIPLINE_EXIT") {
-    return `closed by risk rule, ${tail}`;
-  }
-  return `${ev.realizedPnl >= 0 ? "gained" : "lost"} ${tail}`;
+  const word = ev.realizedPnl >= 0 ? "profit" : "lost";
+  return `${word} ${fmtRs(ev.realizedPnl)} ${fmtPctAbs(ev.realizedPnlPercent)} from ${ev.instrument}`;
 }
 
 export interface GateRejectionEvent {
@@ -165,19 +134,6 @@ async function safePush(message: string, eventLabel: string): Promise<void> {
   } catch (err) {
     log.warn(`Telegram push failed for ${eventLabel}: ${(err as Error).message}`);
   }
-}
-
-export function notifyTradeFill(ev: TradeFillEvent): void {
-  const message = formatFill(ev);
-  void safePush(message, `fill ${ev.channel}/${ev.instrument}`);
-  void persistAlert({
-    type: "position_opened",
-    priority: ev.channel.endsWith("-live") ? "high" : "medium",
-    title: `Fill · ${ev.channel}`,
-    message,
-    instrument: ev.instrument,
-    channel: ev.channel,
-  });
 }
 
 export function notifyTradeExit(ev: TradeExitEvent): void {
