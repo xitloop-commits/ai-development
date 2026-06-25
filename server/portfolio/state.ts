@@ -799,6 +799,7 @@ export async function updateCapitalState(
     { returnDocument: "after", lean: true }
   );
   if (!doc) throw new Error(`Capital state not found for channel: ${channel}`);
+  tickBus.emitCapitalChanged(channel); // live push → client refetches state (no poll)
   return docToCapitalState(doc);
 }
 
@@ -871,6 +872,7 @@ export async function replaceCapitalState(
     { upsert: true, returnDocument: "after", lean: true }
   );
   if (!doc) throw new Error(`Failed to replace capital state for channel: ${channel}`);
+  tickBus.emitCapitalChanged(channel); // live push → client refetches state (no poll)
   return docToCapitalState(doc);
 }
 

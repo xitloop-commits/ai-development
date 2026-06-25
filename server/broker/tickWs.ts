@@ -149,6 +149,13 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
   };
   tickBus.on("portfolio", onPortfolio);
 
+  // Capital-state changed (pools/projections) → client refetches state once.
+  const onCapitalChanged = (payload: unknown) => {
+    if (wss.clients.size === 0) return;
+    sendToAllClients(wss, JSON.stringify({ type: "capital_changed", ...(payload as object) }));
+  };
+  tickBus.on("capitalChanged", onCapitalChanged);
+
   wss.on("connection", (ws, request) => {
     log.info(`Client connected (total: ${wss.clients.size})`);
 
@@ -200,6 +207,7 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
         tickBus.off("seaSignal", onSeaSignal);
         tickBus.off("seaStatus", onSeaStatus);
         tickBus.off("portfolio", onPortfolio);
+        tickBus.off("capitalChanged", onCapitalChanged);
         clearInterval(seaStatusTimer);
         // Send a clean close frame to every connected browser, then
         // shut the server.

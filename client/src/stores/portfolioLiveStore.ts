@@ -31,6 +31,40 @@ export function setLiveDay(channel: string, day: RawDay): void {
   notify(channel);
 }
 
+// ── Capital-state change signal ─────────────────────────────────────────────
+// The server pushes `capital_changed` when a channel's pools/projections move
+// (trade close, inject/reset/transfer — infrequent, never per-tick). The epoch
+// bumps; CapitalContext refetches the state query on the bump, so the 3s poll
+// is gone but pools/projections still refresh on real change.
+
+const capEpoch = new Map<string, number>();
+const capListeners = new Map<string, Set<() => void>>();
+
+export function bumpCapital(channel: string): void {
+  if (!channel) return;
+  capEpoch.set(channel, (capEpoch.get(channel) ?? 0) + 1);
+  const set = capListeners.get(channel);
+  if (set) set.forEach((fn) => fn());
+}
+
+/** Subscribe to a channel's capital-change epoch (increments on each push). */
+export function useCapitalEpoch(channel: string): number {
+  return useSyncExternalStore(
+    (cb) => {
+      let set = capListeners.get(channel);
+      if (!set) {
+        set = new Set();
+        capListeners.set(channel, set);
+      }
+      set.add(cb);
+      return () => {
+        set!.delete(cb);
+      };
+    },
+    () => capEpoch.get(channel) ?? 0,
+  );
+}
+
 /** Subscribe a component to the live day for one channel. Returns undefined
  *  until the first push arrives (CapitalContext falls back to the query). */
 export function useLiveDay(channel: string): RawDay | undefined {

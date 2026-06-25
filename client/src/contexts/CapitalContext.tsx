@@ -18,7 +18,7 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
-import { useLiveDay } from '@/stores/portfolioLiveStore';
+import { useLiveDay, useCapitalEpoch } from '@/stores/portfolioLiveStore';
 import { type Channel, type Workspace, type Mode, channelOf, DEFAULT_LANDING_CHANNEL } from '@/lib/tradeTypes';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -196,10 +196,19 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
   });
 
   // ─── Single shared query for capital state ──────────────────
+  // No polling: pools/projections change on discrete events (trade close,
+  // inject/reset/transfer) which the server signals over /ws/ticks
+  // (capital_changed). today's P&L stays live via the pushed day record.
   const stateQuery = trpc.portfolio.state.useQuery(
     { channel },
-    { refetchInterval: 3000, retry: 1 }
+    { retry: 1 }
   );
+  // Refetch capital state when the server signals a change for this channel.
+  const capEpoch = useCapitalEpoch(channel);
+  useEffect(() => {
+    if (capEpoch > 0) void stateQuery.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capEpoch]);
 
   // ─── Single shared query for all days ───────────────────────
   // Loaded once per channel (no polling). Live changes to today arrive over

@@ -66,6 +66,13 @@ class TickBus extends EventEmitter {
     this.emit("portfolio", payload);
   }
 
+  /** Signal that a channel's capital state (pools / projections) changed.
+   *  Replaces the 3s portfolio.state poll — the client refetches state on this
+   *  (infrequent: trade close, inject/reset/transfer), not on a timer. */
+  emitCapitalChanged(channel: string): void {
+    this.emit("capitalChanged", { channel });
+  }
+
   /**
    * Emit an option-chain update and cache it. Cached so newly-connected
    * browser clients can hydrate their client store immediately without

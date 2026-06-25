@@ -336,6 +336,10 @@ function connectWs() {
       } else if (data.type === "portfolio" && data.channel && data.day) {
         // Live day-record update (replaces the 2s allDays poll).
         portfolioLiveStore.setLiveDay(data.channel, data.day);
+      } else if (data.type === "capital_changed" && data.channel) {
+        // Capital pools/projections changed → CapitalContext refetches state
+        // once (replaces the 3s portfolio.state poll).
+        portfolioLiveStore.bumpCapital(data.channel);
       }
     } catch {
       // ignore
