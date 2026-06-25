@@ -201,13 +201,13 @@ function _TodayTradeRow({
                 roundTripCharges={charges}
                 compact
                 onStopLossHit={() => {
-                  // TEMP DIAGNOSTIC ([XSYNC] exit-sync): client-side marker crossed.
+                  // Diagnostic only ([XSYNC] exit-sync): the client LTP crossed
+                  // the marker. NOT a user toast — that fires on the real
+                  // server exit (status transition below), which can differ.
                   if (import.meta.env.DEV) console.log(`[XSYNC-CLI] predict SL-HIT trade=${trade.id} ${trade.instrument} ltp=${displayLtp.toFixed(2)} stop=${trade.stopLossPrice}`);
-                  toast.error(`Stop hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`);
                 }}
                 onTakeProfitHit={() => {
                   if (import.meta.env.DEV) console.log(`[XSYNC-CLI] predict TP-HIT trade=${trade.id} ${trade.instrument} ltp=${displayLtp.toFixed(2)} target=${trade.targetPrice}`);
-                  toast.success(`TP hit · ${trade.instrument}${trade.strike ? ' ' + trade.strike : ''} @ ${displayLtp.toFixed(2)}`);
                 }}
               />
             </div>
@@ -460,17 +460,36 @@ export const TodayTradeRow = memo(function TodayTradeRow(props: TodayTradeRowPro
   const prevRef = useRef<{ status: string; stop: number | null }>({ status: t.status, stop: t.stopLossPrice ?? null });
   useEffect(() => {
     const prev = prevRef.current;
-    if (import.meta.env.DEV) {
-      if (prev.status === 'OPEN' && t.status !== 'OPEN') {
+    if (prev.status === 'OPEN' && t.status !== 'OPEN') {
+      // Real exit — the server actually closed the trade and pushed it over the
+      // WS. Toast from THIS (the confirmed exit + reason + fill), not from
+      // TradeBar's predicted LTP crossing, which can be early or never happen.
+      const label = `${t.instrument}${t.strike ? ' ' + t.strike : ''}`;
+      const at = t.exitPrice != null ? ` @ ${t.exitPrice.toFixed(2)}` : '';
+      if (t.exitReason === 'TP_HIT') {
+        toast.success(`Target hit · ${label}${at}`);
+      } else if (t.exitReason === 'SL_HIT') {
+        // SL_HIT also covers a trailing stop that locked in profit.
+        if (t.pnl >= 0) {
+          toast.success(`Trailing stop hit · ${label}${at} · +₹${Math.round(t.pnl).toLocaleString('en-IN')}`);
+        } else {
+          toast.error(`Stop-loss hit · ${label}${at}`);
+        }
+      } else {
+        toast.info(`Exited · ${label}${at}`);
+      }
+      if (import.meta.env.DEV) {
         console.log(`[XSYNC-CLI] CLOSED trade=${t.id} ${t.instrument} status=${t.status} reason=${t.exitReason ?? '?'} exit=${t.exitPrice ?? '?'}`);
       }
+    }
+    if (import.meta.env.DEV) {
       const stop = t.stopLossPrice ?? null;
       if (stop !== prev.stop) {
         console.log(`[XSYNC-CLI] STOP-MOVED trade=${t.id} ${t.instrument} ${prev.stop}→${stop}`);
       }
     }
     prevRef.current = { status: t.status, stop: t.stopLossPrice ?? null };
-  }, [t.status, t.stopLossPrice, t.id, t.instrument, t.exitPrice]);
+  }, [t.status, t.stopLossPrice, t.id, t.instrument, t.exitPrice, t.exitReason, t.pnl]);
 
   if (props.trade.status === 'OPEN') {
     return <LiveTodayTradeRow {...props} />;
