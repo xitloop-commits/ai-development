@@ -1044,6 +1044,21 @@ Each instrument now has ONE base colour that drives every instrument-specific su
 - **Verified:** `tsc --noEmit` clean; 28 server instrument tests (incl. 8 new colour/backfill/pickNextColor) + 8 new client `tradeThemes.test.ts` all green.
 - **Cross-ref:** `server/{instruments,routers,tradingRoutes}.ts`, `client/src/lib/{tradeThemes,useInstrumentColors}.ts`, `client/src/components/{InstrumentTag,InstrumentCard,SignalsFeed,InstrumentColorPicker}.tsx`, `client/src/pages/Settings.tsx`.
 
+### T63 [UI] — Project-wide connection / liveness health banner 🆕
+Requested 2026-06-25. One sticky banner under the AppBar that appears the moment **any** WebSocket connection or liveness signal across the system breaks, **lists exactly what is down**, and stays until it recovers (a short grace period avoids flicker on 1s auto-reconnects). Generalises the single-purpose FeedStatusBanner to cover everything.
+
+- **Signals to monitor (inventory done 2026-06-25):**
+  1. Browser ↔ server `/ws/ticks` — client `isFeedConnected()` (`useTickStream`). If this is down the banner shows "disconnected from server" since it can't receive pushes anyway.
+  2. Server ↔ Dhan **market-feed WS** (data acct `dhan-secondary-ac`) — `broker_configs.connection.wsStatus`.
+  3. Server ↔ Dhan **order-update WS** (primary + secondary) — broker adapter state.
+  4. **SEA engines** — `seaStatusStore` (already pushed over `/ws/ticks`, commit `9667857`).
+  5. **TFA feed freshness** (ticks flowing) — `useFeedHealth`.
+  6. Broker **API / token** — `getBrokerServiceStatus` (apiStatus, tokenStatus).
+  7. (TFA↔Dhan 4 WS, spouse — OFF-LIMITS; only observable via #5.)
+- **Architecture (consistent with the sea_status push):** a server-side health aggregator pushes a `health` snapshot over the existing `/ws/ticks` socket (on change + ~10s timer + on connect). Client `HealthBanner` combines the pushed snapshot with its own browser↔server WS state. Reuse the `tickBus.emitSeaStatus` → tickWs frame → client store pattern.
+- **Open decision (asked, not yet answered):** confirm monitored set = #1–6 (recommended), and whether to **fold** the existing `FeedStatusBanner` (#5) + `SecondaryBrokerBanner` (#6) into this one unified strip (recommended) vs leave them alongside.
+- **Cross-ref / prior art:** `client/src/components/{FeedStatusBanner,SecondaryBrokerBanner}.tsx`, `client/src/hooks/{useFeedHealth,useTickStream}.ts`, `client/src/stores/seaStatusStore.ts`, `server/{seaHeartbeat,broker/tickWs,broker/tickBus}.ts`, `server/broker/brokerService.getBrokerServiceStatus`. Related: T55 (Dhan WS self-heal), T58 (polling→WS push).
+
 ## Closed items (kept for one cycle as audit trail; delete on next pass)
 
 _None yet._
