@@ -1,40 +1,31 @@
 /**
- * G6 — recoveryEngine.
+ * Reconciler (event-driven, no polling).
  *
- * The engine is TEA's backstop for "broker filled the order but the
- * WebSocket event never arrived" scenarios — without it, a trade can
- * sit in PENDING forever while a real position is open at the broker.
- * Coverage targets the 4 behavioural contracts:
+ * The reconciler is TEA's backstop for "broker filled/rejected the order but
+ * the WS event never arrived because we were down/disconnected". It runs once
+ * on each order-WS (re)connect — NOT on a timer. Coverage:
  *
- *   1. PENDING + age < threshold → no broker poll (don't hammer the
- *      broker on every freshly-placed order)
- *   2. PENDING + age >= threshold + broker says FILLED → emit a
- *      synthetic OrderUpdate on tickBus (orderSync's existing handler
- *      will reconcile)
- *   3. PENDING + broker says STILL PENDING → no emit (let WS deliver
- *      the eventual fill)
- *   4. Same orderId polled twice within TICK_INTERVAL → second poll
- *      short-circuits (lastPollAt cache)
+ *   1. PENDING + broker says FILLED → emit a synthetic OrderUpdate on tickBus
+ *   2. PENDING + broker says REJECTED/CANCELLED/EXPIRED → emit (with reason)
+ *   3. PENDING + broker STILL PENDING → no emit (let the WS deliver it)
+ *   4. brokerId mismatch → channel skipped entirely
+ *   5. same orderId reconciled twice inside the throttle window → polled once
+ *   6. no brokerOrderId → skipped
+ *   7. broker error → swallowed, no throw
+ *   8. start() subscribes to the orderWsConnected event
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ─── Hoisted mocks ──────────────────────────────────────────────
 
-const getOpenPositionsMock = vi.fn();
+const getPendingPositionsMock = vi.fn();
 const getAdapterMock = vi.fn();
 const emitOrderUpdateMock = vi.fn();
-const getExecutorSettingsMock = vi.fn(async () => ({
-  rcaMaxAgeMs: 30 * 60_000,
-  rcaStaleTickMs: 5 * 60_000,
-  rcaVolThreshold: 0.7,
-  rcaChannels: [],
-  recoveryStuckMs: 60_000,
-  recoveryChannels: [],
-  aiLiveLotCap: 1,
-}));
+const onMock = vi.fn();
+const offMock = vi.fn();
 
 vi.mock("../portfolio/storage", () => ({
-  getOpenPositions: (...args: any[]) => getOpenPositionsMock(...args),
+  getPendingPositions: (...args: any[]) => getPendingPositionsMock(...args),
 }));
 
 vi.mock("../broker/brokerService", () => ({
@@ -44,11 +35,9 @@ vi.mock("../broker/brokerService", () => ({
 vi.mock("../broker/tickBus", () => ({
   tickBus: {
     emitOrderUpdate: (...args: any[]) => emitOrderUpdateMock(...args),
+    on: (...args: any[]) => onMock(...args),
+    off: (...args: any[]) => offMock(...args),
   },
-}));
-
-vi.mock("./settings", () => ({
-  getExecutorSettings: (...args: any[]) => getExecutorSettingsMock(...args),
 }));
 
 // ─── SUT ─────────────────────────────────────────────────────────
@@ -60,43 +49,48 @@ function makePosition(overrides: any = {}) {
     tradeId: "T-1",
     brokerOrderId: "ORD-1",
     status: "PENDING",
-    openedAt: Date.now() - 120_000, // 2 min ago by default → past threshold
     ...overrides,
   };
 }
 
-function makeAdapter(orderStatus: any) {
+function makeAdapter(orderStatus: any, brokerId = "dhan-primary-ac") {
   return {
-    brokerId: "dhan-primary-ac",
+    brokerId,
     getOrderStatus: vi.fn(async () => orderStatus),
   };
 }
 
-describe("recoveryEngine — stuck PENDING reconciliation", () => {
+/** Return the given positions only for one channel (so a single order isn't
+ *  swept once per live channel served by the same broker). */
+function pendingFor(channel: string, positions: any[]) {
+  getPendingPositionsMock.mockImplementation(async (ch: string) =>
+    ch === channel ? positions : [],
+  );
+}
+
+describe("Reconciler — reconcile-on-WS-connect", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Restart the singleton between tests so lastPollAt cache is fresh.
+    // start()+stop() resets the throttle map between tests.
+    recoveryEngine.start();
     recoveryEngine.stop();
-    recoveryEngine.start({ stuckThresholdMs: 60_000, channels: ["my-live"] });
+    getPendingPositionsMock.mockResolvedValue([]);
   });
 
-  it("ignores PENDING positions younger than the stuck threshold", async () => {
-    const fresh = makePosition({ openedAt: Date.now() - 10_000 }); // 10s old
-    getOpenPositionsMock.mockResolvedValue([fresh]);
-
-    await (recoveryEngine as any).tick();
-
-    expect(getAdapterMock).not.toHaveBeenCalled();
-    expect(emitOrderUpdateMock).not.toHaveBeenCalled();
+  it("start() subscribes to the orderWsConnected event", () => {
+    recoveryEngine.start();
+    expect(onMock).toHaveBeenCalledWith("orderWsConnected", expect.any(Function));
+    recoveryEngine.stop();
+    expect(offMock).toHaveBeenCalledWith("orderWsConnected", expect.any(Function));
   });
 
   it("emits a synthetic OrderUpdate when the broker reports FILLED", async () => {
-    getOpenPositionsMock.mockResolvedValue([makePosition()]);
+    pendingFor("my-live", [makePosition()]);
     getAdapterMock.mockReturnValue(
       makeAdapter({ status: "FILLED", filledQuantity: 75, averagePrice: 102.5 }),
     );
 
-    await (recoveryEngine as any).tick();
+    await recoveryEngine.reconcileNow("dhan-primary-ac");
 
     expect(emitOrderUpdateMock).toHaveBeenCalledTimes(1);
     expect(emitOrderUpdateMock).toHaveBeenCalledWith(
@@ -110,87 +104,84 @@ describe("recoveryEngine — stuck PENDING reconciliation", () => {
     );
   });
 
-  it("emits when broker reports CANCELLED / REJECTED / EXPIRED too", async () => {
-    for (const status of ["CANCELLED", "REJECTED", "EXPIRED"] as const) {
+  it("emits REJECTED with the broker reason carried through", async () => {
+    pendingFor("testing-live", [makePosition({ brokerOrderId: "ORD-REJ" })]);
+    getAdapterMock.mockReturnValue(
+      makeAdapter({ status: "REJECTED", filledQuantity: 0, averagePrice: 0, reason: "Insufficient funds" }),
+    );
+
+    await recoveryEngine.reconcileNow("dhan-primary-ac");
+
+    expect(emitOrderUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "REJECTED", reason: "Insufficient funds" }),
+    );
+  });
+
+  it("emits for CANCELLED / EXPIRED too", async () => {
+    for (const status of ["CANCELLED", "EXPIRED"] as const) {
       vi.clearAllMocks();
       recoveryEngine.stop();
-      recoveryEngine.start({ stuckThresholdMs: 60_000, channels: ["my-live"] });
+      pendingFor("my-live", [makePosition({ brokerOrderId: `ORD-${status}` })]);
+      getAdapterMock.mockReturnValue(makeAdapter({ status, filledQuantity: 0, averagePrice: 0 }));
 
-      getOpenPositionsMock.mockResolvedValue([
-        makePosition({ brokerOrderId: `ORD-${status}` }),
-      ]);
-      getAdapterMock.mockReturnValue(
-        makeAdapter({ status, filledQuantity: 0, averagePrice: 0 }),
-      );
+      await recoveryEngine.reconcileNow("dhan-primary-ac");
 
-      await (recoveryEngine as any).tick();
-
-      expect(emitOrderUpdateMock).toHaveBeenCalledWith(
-        expect.objectContaining({ status }),
-      );
+      expect(emitOrderUpdateMock).toHaveBeenCalledWith(expect.objectContaining({ status }));
     }
   });
 
   it("does NOT emit when broker still reports PENDING (let WS deliver the fill)", async () => {
-    getOpenPositionsMock.mockResolvedValue([makePosition()]);
+    pendingFor("my-live", [makePosition()]);
     getAdapterMock.mockReturnValue(
       makeAdapter({ status: "PENDING", filledQuantity: 0, averagePrice: 0 }),
     );
 
-    await (recoveryEngine as any).tick();
+    await recoveryEngine.reconcileNow("dhan-primary-ac");
 
     expect(emitOrderUpdateMock).not.toHaveBeenCalled();
   });
 
-  it("skips positions without a brokerOrderId (paper-only / not yet routed)", async () => {
-    const noBrokerId = makePosition({ brokerOrderId: undefined });
-    getOpenPositionsMock.mockResolvedValue([noBrokerId]);
+  it("skips channels served by a different broker", async () => {
+    pendingFor("my-live", [makePosition()]);
+    getAdapterMock.mockReturnValue(makeAdapter({ status: "FILLED" }, "dhan-primary-ac"));
 
-    await (recoveryEngine as any).tick();
+    // Reconcile for the secondary broker — primary's channels must be skipped.
+    await recoveryEngine.reconcileNow("dhan-secondary-ac");
 
-    expect(getAdapterMock).not.toHaveBeenCalled();
+    expect(getPendingPositionsMock).not.toHaveBeenCalled();
     expect(emitOrderUpdateMock).not.toHaveBeenCalled();
   });
 
-  it("skips non-PENDING positions (already reconciled)", async () => {
-    const open = makePosition({ status: "OPEN" });
-    getOpenPositionsMock.mockResolvedValue([open]);
+  it("skips positions without a brokerOrderId", async () => {
+    pendingFor("my-live", [makePosition({ brokerOrderId: undefined })]);
+    getAdapterMock.mockReturnValue(makeAdapter({ status: "FILLED" }));
 
-    await (recoveryEngine as any).tick();
+    await recoveryEngine.reconcileNow("dhan-primary-ac");
 
-    expect(getAdapterMock).not.toHaveBeenCalled();
+    expect(emitOrderUpdateMock).not.toHaveBeenCalled();
   });
 
-  it("does not poll the same orderId twice inside one TICK_INTERVAL window", async () => {
-    const stuck = makePosition();
-    getOpenPositionsMock.mockResolvedValue([stuck]);
-    const adapter = makeAdapter({
-      status: "PENDING",
-      filledQuantity: 0,
-      averagePrice: 0,
-    });
+  it("does not re-poll the same orderId inside the throttle window", async () => {
+    pendingFor("my-live", [makePosition()]);
+    const adapter = makeAdapter({ status: "PENDING", filledQuantity: 0, averagePrice: 0 });
     getAdapterMock.mockReturnValue(adapter);
 
-    await (recoveryEngine as any).tick();
-    await (recoveryEngine as any).tick();
+    await recoveryEngine.reconcileNow("dhan-primary-ac");
+    await recoveryEngine.reconcileNow("dhan-primary-ac");
 
-    // Adapter polled once across two ticks because lastPollAt deduped.
     expect(adapter.getOrderStatus).toHaveBeenCalledTimes(1);
   });
 
   it("survives broker errors without throwing (best-effort backstop)", async () => {
-    getOpenPositionsMock.mockResolvedValue([makePosition()]);
-    const adapter = {
+    pendingFor("my-live", [makePosition()]);
+    getAdapterMock.mockReturnValue({
       brokerId: "dhan-primary-ac",
       getOrderStatus: vi.fn(async () => {
         throw new Error("broker 503");
       }),
-    };
-    getAdapterMock.mockReturnValue(adapter);
+    });
 
-    // Throwing here would crash the polling timer; the engine must
-    // swallow per-position failures.
-    await expect((recoveryEngine as any).tick()).resolves.toBeUndefined();
+    await expect(recoveryEngine.reconcileNow("dhan-primary-ac")).resolves.toBeUndefined();
     expect(emitOrderUpdateMock).not.toHaveBeenCalled();
   });
 });

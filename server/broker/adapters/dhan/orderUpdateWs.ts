@@ -19,39 +19,16 @@ const ORDER_UPDATE_URL = "wss://api-order-update.dhan.co";
 const RECONNECT_DELAY_MS = 5000;
 const HEARTBEAT_INTERVAL_MS = 30000;
 
+/**
+ * Raw order-update frame. `Data` is intentionally untyped — Dhan's real wire
+ * format is camelCase (orderNo/status/legNo/reasonDescription/…), NOT the
+ * PascalCase the docs show, so `normalize()` reads it case-insensitively by
+ * lowercasing every key rather than accessing named fields. A typed field
+ * list here would be both unused and misleading about the casing.
+ */
 export interface DhanOrderUpdateRaw {
-  Data: {
-    Exchange: string;
-    Segment: string;
-    SecurityId: string;
-    ClientId: string;
-    ExchOrderNo: string;
-    OrderNo: string;
-    Product: string;       // C, I, M, F
-    TxnType: string;       // B, S
-    OrderType: string;     // LMT, MKT, SL, SLM
-    Quantity: number;
-    TradedQty: number;
-    RemainingQuantity: number;
-    Price: number;
-    TriggerPrice: number;
-    TradedPrice: number;
-    AvgTradedPrice: number;
-    Status: string;        // TRANSIT, PENDING, REJECTED, CANCELLED, TRADED, EXPIRED
-    LegNo: number;         // 1=Entry, 2=SL, 3=Target
-    Symbol: string;
-    StrikePrice: number | string;
-    ExpiryDate: string;
-    OptType: string;       // CE, PE, XX
-    LotSize: number;
-    CorrelationId: string;
-    Remarks: string;
-    LastUpdatedTime: string;
-    AlgoOrdNo: string;     // Entry leg order number for tracking related legs
-    ReasonDescription: string; // Reject/cancel reason text (e.g. "Invalid IP")
-    [key: string]: unknown;
-  };
-  Type: string;            // "order_alert"
+  Data: Record<string, unknown>;
+  Type: string; // "order_alert"
 }
 
 export interface NormalizedOrderUpdate {
@@ -119,6 +96,10 @@ export class DhanOrderUpdateWs extends EventEmitter {
       this.log.info("Connected, sending auth...");
       this.sendAuth();
       this.startHeartbeat();
+      // Signal (re)connect so listeners can run a one-shot reconcile of any
+      // order events missed while we were down/disconnected (Dhan does not
+      // replay them). Fires on first connect AND every reconnect.
+      this.emit("connected");
     });
 
     this.ws.on("message", (data: WebSocket.Data) => {

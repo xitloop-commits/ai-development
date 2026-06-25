@@ -2514,9 +2514,7 @@ function _ExecutorSettingsSection() {
     rcaMaxAgeMs: number;
     rcaStaleTickMs: number;
     rcaVolThreshold: number;
-    recoveryStuckMs: number;
     rcaChannels: string[];
-    recoveryChannels: string[];
   };
   const [draft, setDraft] = useState<ExecutorDraft | null>(null);
 
@@ -2528,9 +2526,7 @@ function _ExecutorSettingsSection() {
         rcaMaxAgeMs: settings.rcaMaxAgeMs,
         rcaStaleTickMs: settings.rcaStaleTickMs,
         rcaVolThreshold: settings.rcaVolThreshold,
-        recoveryStuckMs: settings.recoveryStuckMs,
         rcaChannels: settings.rcaChannels,
-        recoveryChannels: settings.recoveryChannels,
       });
     }
   }, [settings, draft]);
@@ -2550,9 +2546,7 @@ function _ExecutorSettingsSection() {
       draft.rcaMaxAgeMs !== settings.rcaMaxAgeMs ||
       draft.rcaStaleTickMs !== settings.rcaStaleTickMs ||
       draft.rcaVolThreshold !== settings.rcaVolThreshold ||
-      draft.recoveryStuckMs !== settings.recoveryStuckMs ||
-      !arrayEq(draft.rcaChannels, settings.rcaChannels) ||
-      !arrayEq(draft.recoveryChannels, settings.recoveryChannels));
+      !arrayEq(draft.rcaChannels, settings.rcaChannels));
 
   const onSave = () => {
     if (draft) updateMutation.mutate(draft as any);
@@ -2564,9 +2558,7 @@ function _ExecutorSettingsSection() {
         rcaMaxAgeMs: settings.rcaMaxAgeMs,
         rcaStaleTickMs: settings.rcaStaleTickMs,
         rcaVolThreshold: settings.rcaVolThreshold,
-        recoveryStuckMs: settings.recoveryStuckMs,
         rcaChannels: settings.rcaChannels,
-        recoveryChannels: settings.recoveryChannels,
       });
     }
   };
@@ -2657,28 +2649,9 @@ function _ExecutorSettingsSection() {
         </div>
       </SettingsCard>
 
-      <SettingsCard title="Order Recovery">
-        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
-          When the recovery engine polls the broker for stuck PENDING
-          live orders. Lower = more polling, faster recovery, more API calls.
-        </p>
-        <div className="flex items-center gap-3">
-          <FieldLabel hint="seconds — minimum age before polling">Stuck Threshold</FieldLabel>
-          <input
-            type="number"
-            min={10}
-            max={600}
-            value={Math.round(draft.recoveryStuckMs / 1000)}
-            onChange={(e) => setDraft({ ...draft, recoveryStuckMs: Math.max(10, parseInt(e.target.value) || 10) * 1000 })}
-            className="w-24 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground tabular-nums"
-          />
-        </div>
-      </SettingsCard>
-
       <SettingsCard title="Monitored Channels">
         <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
-          Which channels RCA watches for risk-driven exits, and which
-          channels Recovery polls for stuck PENDING orders. Add ai-live
+          Which channels RCA watches for risk-driven exits. Add ai-live
           to RCA when the canary launches.
         </p>
         <div className="space-y-3">
@@ -2692,28 +2665,6 @@ function _ExecutorSettingsSection() {
                     key={c.id}
                     type="button"
                     onClick={() => setDraft({ ...draft, rcaChannels: toggleArr(draft.rcaChannels, c.id) })}
-                    className={`px-2 py-1 text-[0.625rem] font-bold tracking-wider uppercase rounded border ${
-                      active
-                        ? 'bg-primary/15 border-primary/40 text-primary'
-                        : 'border-border text-muted-foreground hover:bg-accent'
-                    }`}
-                  >
-                    {c.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div>
-            <FieldLabel hint="poll broker for stuck PENDING orders (live channels only matter)">Recovery Engine</FieldLabel>
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {allChannels.map((c) => {
-                const active = draft.recoveryChannels.includes(c.id);
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => setDraft({ ...draft, recoveryChannels: toggleArr(draft.recoveryChannels, c.id) })}
                     className={`px-2 py-1 text-[0.625rem] font-bold tracking-wider uppercase rounded border ${
                       active
                         ? 'bg-primary/15 border-primary/40 text-primary'

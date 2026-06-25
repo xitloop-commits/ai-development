@@ -1,113 +1,104 @@
 /**
- * Trade Executor — Recovery Engine.
+ * Trade Executor — Reconciler (event-driven, no polling).
  *
- * Per TEA spec §9: backstop for stuck partial fills and missed WS
- * events. When a live broker order fills (or cancels) the broker
- * normally emits a WS event that orderSync picks up. If that event
- * is dropped (network blip, broker hiccup, server restart between
- * place and confirm), the trade sits in PENDING status forever.
+ * Per TEA spec §9: backstop for order events that the live order-update
+ * WS could not deliver because we were DOWN or DISCONNECTED at the moment
+ * the broker filled/rejected/cancelled the order. Dhan does NOT replay
+ * missed events on reconnect — so the only way to learn the order's fate
+ * is to ask the broker once, after we (re)connect.
  *
- * This engine polls the broker for every PENDING-status open
- * position older than `stuckThresholdMs` (default 60 s) and, when
- * the broker reports a terminal status (FILLED / CANCELLED /
- * REJECTED / EXPIRED), emits a synthetic OrderUpdate on tickBus.
- * orderSync subscribes to tickBus.orderUpdate and reconciles the
- * trade state via its existing pipeline — no duplicate write
- * paths.
+ * Trigger: the order-update WS emits `orderWsConnected` on every (re)connect
+ * (first connect at startup AND every reconnect). We then sweep that broker's
+ * live channels ONCE for PENDING orders, ask the broker each order's real
+ * status, and — for any terminal status — emit a synthetic OrderUpdate on
+ * tickBus. orderSync's existing handler reconciles via applyBrokerOrderEvent
+ * (single-writer rule — we never write to PA directly from here).
  *
- * Lifecycle: tradeExecutor.start() / stop().
+ * NO timer / NO polling. Steady state runs purely on the live WS stream.
+ *
+ * Lifecycle: tradeExecutor.start() subscribes / .stop() unsubscribes.
  */
 
 import { createLogger } from "../broker/logger";
 import { getAdapter } from "../broker/brokerService";
 import { tickBus } from "../broker/tickBus";
-import { getOpenPositions } from "../portfolio/storage";
+import { getPendingPositions } from "../portfolio/storage";
 import type { Channel } from "../portfolio/state";
-import { getExecutorSettings } from "./settings";
 
-const log = createLogger("TEA", "Recovery");
+const log = createLogger("TEA", "Reconciler");
 
 const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live"];
 
-/** Default age (ms) before a PENDING position is considered "stuck" and worth polling. */
-const DEFAULT_STUCK_THRESHOLD_MS = 60_000;
-/** Poll cadence — sweep all live channels once a minute. */
-const TICK_INTERVAL_MS = 60_000;
+/** Don't re-hit the same order within this window if reconnects flap. */
+const MIN_RECONCILE_INTERVAL_MS = 15_000;
 
-interface RecoveryEngineOptions {
-  stuckThresholdMs?: number;
-  channels?: Channel[];
-}
-
-class RecoveryEngine {
+class Reconciler {
   private running = false;
-  private tickHandle: NodeJS.Timeout | null = null;
-  private stuckThresholdMs: number = DEFAULT_STUCK_THRESHOLD_MS;
-  private channels: Channel[] = LIVE_CHANNELS;
-  /** Track recent reconciliation attempts to avoid hammering the broker. */
-  private lastPollAt = new Map<string, number>();
+  private handler: ((payload: { brokerId: string }) => void) | null = null;
+  /** Last reconcile attempt per brokerOrderId — guards against reconnect flaps. */
+  private lastReconcileAt = new Map<string, number>();
 
-  start(opts: RecoveryEngineOptions = {}): void {
+  /** Subscribe to order-WS (re)connect events. Idempotent. */
+  start(): void {
     if (this.running) return;
-    this.stuckThresholdMs = opts.stuckThresholdMs ?? DEFAULT_STUCK_THRESHOLD_MS;
-    this.channels = opts.channels ?? LIVE_CHANNELS;
     this.running = true;
-    this.tickHandle = setInterval(
-      () => this.tick().catch((err) => log.error(`tick: ${err?.message ?? err}`)),
-      TICK_INTERVAL_MS,
-    );
-    log.important(
-      `Started — stuckThreshold=${this.stuckThresholdMs}ms channels=[${this.channels.join(",")}]`,
-    );
+    this.handler = (payload) => {
+      this.reconcileNow(payload?.brokerId).catch((err) =>
+        log.error(`reconcileNow: ${err?.message ?? err}`),
+      );
+    };
+    tickBus.on("orderWsConnected", this.handler);
+    log.important("Started — reconcile-on-WS-connect (no polling)");
   }
 
   stop(): void {
-    if (!this.running) return;
-    this.running = false;
-    if (this.tickHandle) {
-      clearInterval(this.tickHandle);
-      this.tickHandle = null;
+    if (this.handler) {
+      tickBus.off("orderWsConnected", this.handler);
+      this.handler = null;
     }
-    this.lastPollAt.clear();
-    log.important("Stopped");
-  }
-
-  /** Scan every monitored live channel for stuck PENDING orders. */
-  private async tick(): Promise<void> {
-    if (!this.running) return;
-    const now = Date.now();
-    // Hot-reload threshold + monitored channels from executor_settings
-    // (cached 30 s).
-    try {
-      const s = await getExecutorSettings();
-      this.stuckThresholdMs = s.recoveryStuckMs;
-      if (s.recoveryChannels.length > 0) {
-        this.channels = s.recoveryChannels;
-      }
-    } catch {
-      // Defaults already applied.
-    }
-    for (const channel of this.channels) {
-      const positions = await getOpenPositions(channel).catch(() => []);
-      for (const p of positions) {
-        if (p.status !== "PENDING") continue;
-        if (!p.brokerOrderId) continue;
-        if (now - p.openedAt < this.stuckThresholdMs) continue;
-        // Avoid polling the same orderId more than once a minute.
-        const last = this.lastPollAt.get(p.brokerOrderId) ?? 0;
-        if (now - last < TICK_INTERVAL_MS) continue;
-        this.lastPollAt.set(p.brokerOrderId, now);
-        await this.reconcile(channel, p.brokerOrderId, p.tradeId);
-      }
+    this.lastReconcileAt.clear();
+    if (this.running) {
+      this.running = false;
+      log.important("Stopped");
     }
   }
 
   /**
-   * Poll the broker for the live order status. If the broker reports
-   * a terminal status, emit a synthetic OrderUpdate on tickBus so
-   * orderSync's existing handler reconciles the position. We never
-   * write directly to PA from here — orderSync owns the write path
-   * (single-writer rule).
+   * One-shot sweep: for every live channel served by `brokerId`, reconcile all
+   * PENDING orders against the broker. Cheap no-op when there are none.
+   */
+  async reconcileNow(brokerId: string): Promise<void> {
+    if (!brokerId) return;
+    let swept = 0;
+    for (const channel of LIVE_CHANNELS) {
+      let adapter;
+      try {
+        adapter = getAdapter(channel);
+      } catch {
+        continue;
+      }
+      if (adapter.brokerId !== brokerId) continue;
+
+      const positions = await getPendingPositions(channel).catch(() => []);
+      const now = Date.now();
+      for (const p of positions) {
+        if (!p.brokerOrderId) continue;
+        const last = this.lastReconcileAt.get(p.brokerOrderId) ?? 0;
+        if (now - last < MIN_RECONCILE_INTERVAL_MS) continue;
+        this.lastReconcileAt.set(p.brokerOrderId, now);
+        swept++;
+        await this.reconcile(channel, p.brokerOrderId, p.tradeId);
+      }
+    }
+    if (swept > 0) {
+      log.important(`reconcile-on-connect broker=${brokerId} swept ${swept} pending order(s)`);
+    }
+  }
+
+  /**
+   * Ask the broker for the live order status. If terminal, emit a synthetic
+   * OrderUpdate on tickBus so orderSync's existing handler reconciles the
+   * position (single-writer — we never write to PA from here).
    */
   private async reconcile(channel: Channel, orderId: string, tradeId: string): Promise<void> {
     try {
@@ -118,14 +109,13 @@ class RecoveryEngine {
         order.status === "CANCELLED" ||
         order.status === "REJECTED" ||
         order.status === "EXPIRED";
-      if (!isTerminal) return; // still live; orderSync will catch it on the next WS event
+      if (!isTerminal) return; // still live; the WS stream will carry the rest
 
       log.info(
         `recover orderId=${orderId} trade=${tradeId} channel=${channel} ` +
-          `status=${order.status} filled=${order.filledQuantity} avg=${order.averagePrice} — emitting`,
+          `status=${order.status} filled=${order.filledQuantity} avg=${order.averagePrice}` +
+          `${order.reason ? ` reason="${order.reason}"` : ""} — emitting`,
       );
-      // B11-followup 2/3 — stamp broker identity so orderSync's
-      // (brokerId, orderId) match works on synthetic recovery events too.
       tickBus.emitOrderUpdate({
         brokerId: adapter.brokerId,
         orderId,
@@ -133,6 +123,7 @@ class RecoveryEngine {
         filledQuantity: order.filledQuantity ?? 0,
         averagePrice: order.averagePrice ?? 0,
         timestamp: Date.now(),
+        reason: order.reason,
       });
     } catch (err: any) {
       log.warn(`reconcile orderId=${orderId} failed: ${err?.message ?? err}`);
@@ -140,4 +131,5 @@ class RecoveryEngine {
   }
 }
 
-export const recoveryEngine = new RecoveryEngine();
+/** Kept the `recoveryEngine` export name for existing import sites. */
+export const recoveryEngine = new Reconciler();

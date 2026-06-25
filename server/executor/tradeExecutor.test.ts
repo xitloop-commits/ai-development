@@ -49,7 +49,6 @@ vi.mock("./settings", () => ({
     rcaMaxAgeMs: 30 * 60 * 1000,
     rcaStaleTickMs: 5 * 60 * 1000,
     rcaVolThreshold: 0.7,
-    recoveryStuckMs: 60_000,
     updatedAt: 0,
   })),
   updateExecutorSettings: vi.fn(),

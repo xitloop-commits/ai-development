@@ -78,6 +78,9 @@ export interface Order {
   productType: ProductType;
   status: OrderStatus;
   tag?: string;
+  /** Broker reject/cancel reason text (Dhan omsErrorDescription) — populated
+   *  for REJECTED/CANCELLED order-book entries; carried into reconciliation. */
+  reason?: string;
   createdAt: number; // UTC ms
   updatedAt: number; // UTC ms
 }

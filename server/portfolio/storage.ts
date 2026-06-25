@@ -391,6 +391,14 @@ export async function getOpenPositions(channel: Channel): Promise<PositionStateD
   return docs.map(docToPositionState);
 }
 
+/** PENDING positions for a channel — orders placed at the broker but not yet
+ *  confirmed filled/rejected. Used by the reconciler to catch up order events
+ *  missed while the order-update WS was down (getOpenPositions is OPEN-only). */
+export async function getPendingPositions(channel: Channel): Promise<PositionStateDoc[]> {
+  const docs = await PositionStateModel.find({ channel, status: "PENDING" }).lean();
+  return docs.map(docToPositionState);
+}
+
 export async function getPositionsByDay(
   channel: Channel,
   dayIndex: number,

@@ -48,6 +48,12 @@ class TickBus extends EventEmitter {
     this.emit("orderUpdate", update);
   }
 
+  /** Emit when a broker's order-update WS (re)connects, so the reconciler can
+   *  catch up any order events missed while it was down. Event-driven, no poll. */
+  emitOrderWsConnected(brokerId: string): void {
+    this.emit("orderWsConnected", { brokerId });
+  }
+
   /** Emit a SEA signal for live push to browser clients. History lives in
    *  Mongo (sea_signals); this is the real-time fan-out only — no caching. */
   emitSeaSignal(signal: unknown): void {

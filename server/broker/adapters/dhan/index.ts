@@ -1251,6 +1251,11 @@ export class DhanAdapter implements BrokerAdapter {
         reason: update.reason || undefined,
       });
     });
+    // On every (re)connect, broadcast so the reconciler catches up anything
+    // missed while the WS was down (Dhan never replays). Event-driven, no poll.
+    this.orderUpdateWs.on("connected", () => {
+      void import("../../tickBus").then(({ tickBus }) => tickBus.emitOrderWsConnected(this.brokerId));
+    });
     this.orderUpdateWs.connect();
     this.log.important("Order update WS connected");
   }
@@ -1704,8 +1709,11 @@ export class DhanAdapter implements BrokerAdapter {
       triggerPrice: entry.triggerPrice,
       orderType: entry.orderType as Order["orderType"],
       productType: entry.productType as Order["productType"],
-      status: (DHAN_ORDER_STATUS_MAP[entry.orderStatus] ?? entry.orderStatus) as Order["status"],
+      // Upper-case before lookup: Dhan returns the status value in Title-case
+      // ("Rejected"/"Traded"), and DHAN_ORDER_STATUS_MAP keys are UPPERCASE.
+      status: (DHAN_ORDER_STATUS_MAP[String(entry.orderStatus).toUpperCase()] ?? "PENDING") as Order["status"],
       tag: entry.correlationId,
+      reason: entry.omsErrorDescription || undefined,
       createdAt: entry.createTime ? new Date(entry.createTime).getTime() : Date.now(),
       updatedAt: entry.updateTime ? new Date(entry.updateTime).getTime() : Date.now(),
     };

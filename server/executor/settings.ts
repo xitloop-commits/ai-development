@@ -27,11 +27,9 @@ export const EXECUTOR_DEFAULTS = {
   rcaMaxAgeMs: 30 * 60 * 1000,        // 30 min
   rcaStaleTickMs: 5 * 60 * 1000,       // 5 min
   rcaVolThreshold: 0.7,
-  recoveryStuckMs: 60_000,             // 60 s
 
   // Channels under monitoring
   rcaChannels: ["ai-paper"] as Channel[],
-  recoveryChannels: ["my-live", "ai-live", "testing-live"] as Channel[],
 
   // B4-followup — auto kill-switch on consecutive BROKER_DESYNC events.
   // When N desyncs happen on a single channel within `windowSeconds`,
@@ -50,10 +48,8 @@ export interface ExecutorSettings {
   rcaMaxAgeMs: number;
   rcaStaleTickMs: number;
   rcaVolThreshold: number;
-  recoveryStuckMs: number;
 
   rcaChannels: Channel[];
-  recoveryChannels: Channel[];
 
   // B4-followup — auto kill-switch on consecutive BROKER_DESYNC events.
   desyncKillSwitchEnabled: boolean;
@@ -72,10 +68,8 @@ const executorSettingsSchema = new Schema(
     rcaMaxAgeMs: { type: Number, default: EXECUTOR_DEFAULTS.rcaMaxAgeMs },
     rcaStaleTickMs: { type: Number, default: EXECUTOR_DEFAULTS.rcaStaleTickMs },
     rcaVolThreshold: { type: Number, default: EXECUTOR_DEFAULTS.rcaVolThreshold },
-    recoveryStuckMs: { type: Number, default: EXECUTOR_DEFAULTS.recoveryStuckMs },
 
     rcaChannels: { type: [String], default: () => [...EXECUTOR_DEFAULTS.rcaChannels] },
-    recoveryChannels: { type: [String], default: () => [...EXECUTOR_DEFAULTS.recoveryChannels] },
 
     desyncKillSwitchEnabled: { type: Boolean, default: EXECUTOR_DEFAULTS.desyncKillSwitchEnabled },
     desyncKillSwitchThreshold: { type: Number, default: EXECUTOR_DEFAULTS.desyncKillSwitchThreshold },
@@ -103,9 +97,7 @@ function defaultsFor(userId: string): ExecutorSettings {
     rcaMaxAgeMs: EXECUTOR_DEFAULTS.rcaMaxAgeMs,
     rcaStaleTickMs: EXECUTOR_DEFAULTS.rcaStaleTickMs,
     rcaVolThreshold: EXECUTOR_DEFAULTS.rcaVolThreshold,
-    recoveryStuckMs: EXECUTOR_DEFAULTS.recoveryStuckMs,
     rcaChannels: [...EXECUTOR_DEFAULTS.rcaChannels],
-    recoveryChannels: [...EXECUTOR_DEFAULTS.recoveryChannels],
     desyncKillSwitchEnabled: EXECUTOR_DEFAULTS.desyncKillSwitchEnabled,
     desyncKillSwitchThreshold: EXECUTOR_DEFAULTS.desyncKillSwitchThreshold,
     desyncKillSwitchWindowSeconds: EXECUTOR_DEFAULTS.desyncKillSwitchWindowSeconds,
@@ -120,13 +112,9 @@ function docToSettings(doc: any, userId: string): ExecutorSettings {
     rcaMaxAgeMs: doc?.rcaMaxAgeMs ?? EXECUTOR_DEFAULTS.rcaMaxAgeMs,
     rcaStaleTickMs: doc?.rcaStaleTickMs ?? EXECUTOR_DEFAULTS.rcaStaleTickMs,
     rcaVolThreshold: doc?.rcaVolThreshold ?? EXECUTOR_DEFAULTS.rcaVolThreshold,
-    recoveryStuckMs: doc?.recoveryStuckMs ?? EXECUTOR_DEFAULTS.recoveryStuckMs,
     rcaChannels: (doc?.rcaChannels && doc.rcaChannels.length > 0)
       ? doc.rcaChannels
       : [...EXECUTOR_DEFAULTS.rcaChannels],
-    recoveryChannels: (doc?.recoveryChannels && doc.recoveryChannels.length > 0)
-      ? doc.recoveryChannels
-      : [...EXECUTOR_DEFAULTS.recoveryChannels],
     desyncKillSwitchEnabled: doc?.desyncKillSwitchEnabled ?? EXECUTOR_DEFAULTS.desyncKillSwitchEnabled,
     desyncKillSwitchThreshold: doc?.desyncKillSwitchThreshold ?? EXECUTOR_DEFAULTS.desyncKillSwitchThreshold,
     desyncKillSwitchWindowSeconds: doc?.desyncKillSwitchWindowSeconds ?? EXECUTOR_DEFAULTS.desyncKillSwitchWindowSeconds,
