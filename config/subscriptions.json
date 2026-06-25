@@ -11,7 +11,7 @@
     {
       "brokerId": "dhan-secondary-ac",
       "label": "secondary",
-      "renewalDayOfMonth": 24,
+      "renewalDayOfMonth": 25,
       "autopayBank": "ICICI"
     }
   ]
