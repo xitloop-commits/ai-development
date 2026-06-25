@@ -16,7 +16,8 @@ import {
   getTradeContractLabel,
 } from '@/lib/tradeFormatters';
 import { tradePoints } from '@/lib/tradeCalculations';
-import { getWorkspaceThemeMeta } from '@/lib/tradeThemes';
+import { getWorkspaceThemeMeta, withAlpha } from '@/lib/tradeThemes';
+import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { useInstrumentTick } from '@/hooks/useTickStream';
 import { InstrumentTag } from './InstrumentTag';
 import { StatusBadge } from './StatusBadge';
@@ -78,6 +79,8 @@ function _TodayTradeRow({
   const [slPrice, setSlPrice] = useState('');
   const [tpPrice, setTpPrice] = useState('');
   const theme = getWorkspaceThemeMeta(channelToWorkspace(channel));
+  const { hexOf } = useInstrumentColors();
+  const instHex = hexOf(trade.instrument);
   const isOpen = trade.status === 'OPEN';
   // The server only trails paper channels (the live exit engine is skipped —
   // see T60 / gap #4). So only claim trailing protection on paper; a live
@@ -137,11 +140,10 @@ function _TodayTradeRow({
     <>
     <tr
       ref={todayRef}
-      className={`border-b border-border transition-colors text-foreground ${
-        isFirst
-          ? `${theme.todayBg} border-l-2 ${theme.borderStrong}`
-          : `${theme.todayAltBg} border-l-2 ${theme.borderSoft}`
+      className={`border-b border-border transition-colors text-foreground border-l-2 ${
+        isFirst ? theme.borderStrong : theme.borderSoft
       } ${isOpen ? '' : 'opacity-60'}`}
+      style={{ backgroundColor: withAlpha(instHex, isFirst ? 0.16 : 0.08) }}
     >
       {/* Instrument + TradeBar take the full left width (cols 0–5); the day-level
           numbers that used to sit here are now in the top summary banner. */}
