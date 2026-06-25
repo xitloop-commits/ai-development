@@ -551,6 +551,6 @@
     "premium_acceleration_drop_atm_pe",
     "strike_migration_persistence_ticks"
   ],
-  "written_at_utc": "2026-06-13T16:42:21Z",
+  "written_at_utc": "2026-06-19T08:42:32Z",
   "written_by": "tick_feature_agent.emitter"
 }

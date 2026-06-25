@@ -4,7 +4,7 @@ import { resolveDhanOrderPrice } from "./index";
 /**
  * Dhan rejects a MARKET-type order carrying a non-zero price (DH-905:
  * "Missing required fields, bad values for parameters"). resolveDhanOrderPrice
- * forces price=0 for MARKET / SL-M while leaving LIMIT / SL untouched.
+ * forces price=0 for MARKET / SL-M while snapping LIMIT / SL to a 0.05 tick.
  */
 describe("resolveDhanOrderPrice", () => {
   it("zeroes the price for a MARKET order", () => {
@@ -15,15 +15,30 @@ describe("resolveDhanOrderPrice", () => {
     expect(resolveDhanOrderPrice("SL-M", 200)).toBe(0);
   });
 
-  it("keeps the caller's price for a LIMIT order", () => {
+  it("keeps a clean tick price for a LIMIT order", () => {
     expect(resolveDhanOrderPrice("LIMIT", 123.45)).toBe(123.45);
   });
 
-  it("keeps the caller's price for an SL (stop-loss-limit) order", () => {
+  it("keeps a clean tick price for an SL (stop-loss-limit) order", () => {
     expect(resolveDhanOrderPrice("SL", 99.5)).toBe(99.5);
   });
 
   it("leaves a MARKET order with price 0 at 0", () => {
     expect(resolveDhanOrderPrice("MARKET", 0)).toBe(0);
+  });
+
+  it("strips 32-bit float junk from a LIMIT price (the DH-905 case)", () => {
+    // Live feed delivers 785.20 as a float32 → 785.2000122070312.
+    expect(resolveDhanOrderPrice("LIMIT", 785.2000122070312)).toBe(785.2);
+  });
+
+  it("snaps an off-tick LIMIT price to the nearest 0.05", () => {
+    expect(resolveDhanOrderPrice("LIMIT", 123.47)).toBe(123.45);
+    expect(resolveDhanOrderPrice("LIMIT", 123.48)).toBe(123.5);
+  });
+
+  it("returns a value free of floating-point tails", () => {
+    // Math.round(x/0.05)*0.05 alone would yield 785.2000000000001.
+    expect(Number.isInteger(resolveDhanOrderPrice("LIMIT", 785.2) * 100)).toBe(true);
   });
 });
