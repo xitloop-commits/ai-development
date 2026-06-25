@@ -11,6 +11,7 @@ import {
   CalendarClock,
   Receipt,
   Landmark,
+  Layers,
   ChevronRight,
   Settings,
   X,
@@ -24,6 +25,7 @@ import {
   ChargesSection,
   CapitalManagementSection,
   InstrumentsSection,
+  TradingModeSection,
   SettingsActionsContext,
   SaveButton,
   ResetButton,
@@ -37,7 +39,8 @@ type SettingsSection =
   | 'expiry'
   | 'charges'
   | 'capital'
-  | 'instruments';
+  | 'instruments'
+  | 'tradingMode';
 
 interface SectionItem {
   id: SettingsSection;
@@ -48,6 +51,7 @@ interface SectionItem {
 
 const SECTIONS: SectionItem[] = [
   { id: 'instruments', label: 'Instruments', icon: SettingsIcon, description: 'Configure tradable instruments' },
+  { id: 'tradingMode', label: 'Trading Mode', icon: Layers, description: 'Default tab and per-workspace kill switches' },
   { id: 'execution', label: 'Order Execution', icon: Zap, description: 'Entry offset, SL/TP, targets, trailing stop' },
   { id: 'discipline', label: 'Discipline', icon: ShieldCheck, description: 'Circuit breaker, trade limits, pre-trade gate, streaks' },
   { id: 'timeWindows', label: 'Time Windows', icon: Clock, description: 'NSE & MCX trading time restrictions' },
@@ -133,6 +137,8 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
         return <CapitalManagementSection />;
       case 'instruments':
         return <InstrumentsSection />;
+      case 'tradingMode':
+        return <TradingModeSection />;
       default:
         return null;
     }
