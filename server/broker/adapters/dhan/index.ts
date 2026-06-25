@@ -643,7 +643,9 @@ export class DhanAdapter implements BrokerAdapter {
     for (const pos of openPositions) {
       try {
         const exitResult = await this.placeOrder({
-          instrument: pos.instrument,
+          // Prefer the broker's numeric securityId so the exit resolves without
+          // the scrip master (instrument is the display symbol, which needs it).
+          instrument: pos.securityId ?? pos.instrument,
           exchange: pos.exchange,
           transactionType: pos.quantity > 0 ? "SELL" : "BUY",
           optionType: pos.optionType,
@@ -775,6 +777,7 @@ export class DhanAdapter implements BrokerAdapter {
       return {
         positionId: `${entry.securityId}-${entry.productType}`,
         instrument: entry.tradingSymbol,
+        securityId: entry.securityId,
         exchange: entry.exchangeSegment as Position["exchange"],
         transactionType: (entry.netQty >= 0 ? "BUY" : "SELL") as Position["transactionType"],
         optionType: parsed?.optionType ?? ("CE" as const),

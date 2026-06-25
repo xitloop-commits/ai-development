@@ -104,6 +104,10 @@ export interface Trade {
 export interface Position {
   positionId: string;
   instrument: string;
+  /** Broker's numeric securityId for the contract. Carried so a close/exit can
+   *  go straight to the broker without re-resolving the symbol through the
+   *  scrip master (which can be stale/unloaded). Optional: paper/mock omit it. */
+  securityId?: string;
   exchange: ExchangeSegment;
   transactionType: TransactionType;
   optionType: OptionType;

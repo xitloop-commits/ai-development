@@ -320,6 +320,59 @@ describe("DhanAdapter.placeOrder", () => {
     expect(result.timestamp).toBeGreaterThan(0);
   });
 
+  it("places a plain entry order (no bracket fields) even when SL + TP are present", async () => {
+    // SL / TP / TSL are applied as a separate step after the entry confirms, so
+    // the entry must go to the plain /orders endpoint and must NOT carry the
+    // bo* bracket fields that Dhan rejects with DH-905.
+    let capturedUrl = "";
+    let capturedBody: Record<string, unknown> = {};
+    mockFetch((url, init) => {
+      // Plain orders end with /orders; the super-order path (/super/orders)
+      // would also end with /orders, so assert on the captured URL below.
+      if (url.endsWith("/orders") && init?.method === "POST") {
+        capturedUrl = url;
+        capturedBody = JSON.parse(String(init?.body ?? "{}"));
+        return new Response(
+          JSON.stringify({ orderId: "ORD-77", orderStatus: "TRANSIT" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response("Not found", { status: 404 });
+    });
+
+    const adapter = new DhanAdapter();
+    adapter._setInternalState({
+      accessToken: TEST_TOKEN,
+      clientId: TEST_CLIENT_ID,
+      tokenUpdatedAt: Date.now(),
+    });
+
+    const result = await adapter.placeOrder({
+      instrument: "52175",
+      exchange: "NSE_FNO",
+      transactionType: "BUY",
+      optionType: "CE",
+      strike: 24000,
+      expiry: "2026-04-03",
+      quantity: 75,
+      price: 150,
+      orderType: "LIMIT",
+      productType: "INTRADAY",
+      stopLoss: 135.2,
+      target: 195.47,
+    });
+
+    expect(result.orderId).toBe("ORD-77");
+    expect(capturedUrl.endsWith("/orders")).toBe(true);
+    expect(capturedUrl).not.toContain("/super/");
+    // No bracket fields, and SL/TP are not sent at entry.
+    expect(capturedBody.boProfitValue).toBeUndefined();
+    expect(capturedBody.boStopLossValue).toBeUndefined();
+    expect(capturedBody.targetPrice).toBeUndefined();
+    expect(capturedBody.stopLossPrice).toBeUndefined();
+    expect(capturedBody.validity).toBe("DAY");
+  });
+
   it("should throw when no token is set", async () => {
     const adapter = new DhanAdapter();
     adapter._setInternalState({ accessToken: "" });
