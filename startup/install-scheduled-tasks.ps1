@@ -139,7 +139,7 @@ Register-ScheduledTask `
     -Settings $commonSettings `
     -RunLevel Limited `
     -User     $user `
-    -Description 'Starts Lubas API server + 4 TFA recorders at logon (Mon-Fri).' `
+    -Description 'Starts Lubas API server + 4 TFA recorders + 2 SEA engines (nifty50, banknifty) at logon (Mon-Fri).' `
     -Force | Out-Null
 Write-Host "Registered: Lubas-Startup  (logon trigger, weekday-guarded)"
 

@@ -200,9 +200,12 @@ export default function MainScreen() {
 
   const signals = useMemo(() => {
     return allSignals.filter((sig: any) => {
-      // SEA signals use uppercase instrument names: CRUDEOIL, NIFTY, etc.
+      // SEA emits uppercased instrument keys (NIFTY50, BANKNIFTY, CRUDEOIL,
+      // NATURALGAS). Map every form — incl. the SEA "NIFTY50" key — to the
+      // canonical instrument key isEnabled() checks. isEnabled fails CLOSED,
+      // so a missing mapping silently hides the signal.
       const keyMap: Record<string, string> = {
-        'NIFTY': 'NIFTY_50', 'NIFTY_50': 'NIFTY_50', 'NIFTY 50': 'NIFTY_50',
+        'NIFTY': 'NIFTY_50', 'NIFTY50': 'NIFTY_50', 'NIFTY_50': 'NIFTY_50', 'NIFTY 50': 'NIFTY_50',
         'BANKNIFTY': 'BANKNIFTY', 'BANK NIFTY': 'BANKNIFTY',
         'CRUDEOIL': 'CRUDEOIL', 'CRUDE OIL': 'CRUDEOIL',
         'NATURALGAS': 'NATURALGAS', 'NATURAL GAS': 'NATURALGAS',

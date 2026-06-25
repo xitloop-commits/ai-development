@@ -22,6 +22,7 @@ import json
 import math
 import os
 import sys
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -434,6 +435,27 @@ def run(
     _last_trend_emit_ts: float = 0.0
     trend_emitted = 0
 
+    # Liveness heartbeat — a daemon thread POSTs to the server every 5s
+    # INDEPENDENT of tick flow, so the UI shows SEA as running even when the
+    # feed is starved (the tail loop below blocks when there are no ticks).
+    _hb_stop = threading.Event()
+
+    def _heartbeat_loop() -> None:
+        from signal_engine_agent.risk_control_client import send_heartbeat
+
+        while True:
+            try:
+                send_heartbeat(instrument)
+            except Exception:  # pragma: no cover - never crash on heartbeat
+                pass
+            if _hb_stop.wait(5.0):
+                break
+
+    _hb_thread = threading.Thread(
+        target=_heartbeat_loop, name=f"sea-heartbeat-{instrument}", daemon=True
+    )
+    _hb_thread.start()
+
     try:
         for line in _tail(live_path):
             if not line.strip():
@@ -704,6 +726,7 @@ def run(
     except KeyboardInterrupt:
         print("\n  Stopping SEA...")
     finally:
+        _hb_stop.set()  # stop the liveness heartbeat thread
         raw_logger.close()
         filtered_logger.close()
         # T41: finalise the prediction log — merges in-progress chunks

@@ -12,6 +12,7 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { trpc } from "@/lib/trpc";
 import * as chainStore from "@/stores/optionChainStore";
 import * as signalsStore from "@/stores/signalsStore";
+import * as seaStatusStore from "@/stores/seaStatusStore";
 
 export interface TickData {
   securityId: string;
@@ -328,6 +329,9 @@ function connectWs() {
       } else if (data.type === "sea_signal" && data.signal) {
         // Live SEA signal pushed from the server — prepend to the tray store.
         signalsStore.addLive(data.signal);
+      } else if (data.type === "sea_status" && data.status) {
+        // SEA engine liveness snapshot (replaces the seaStatus tRPC poll).
+        seaStatusStore.setSeaStatus(data.status);
       }
     } catch {
       // ignore

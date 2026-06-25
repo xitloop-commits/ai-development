@@ -9,12 +9,25 @@
 
 import type { Express, Request, Response } from "express";
 import { insertSeaSignal } from "./seaSignalStore";
+import { recordSeaHeartbeat } from "./seaHeartbeat";
 import { tickBus } from "./broker/tickBus";
 import { createLogger } from "./broker/logger";
 
 const log = createLogger("SEA", "REST");
 
 export function registerSeaSignalRoutes(app: Express): void {
+  // Liveness heartbeat — SEA POSTs this every ~5s per engine, independent of
+  // tick flow, so the UI can show whether SEA is running.
+  app.post("/api/sea/heartbeat", (req: Request, res: Response) => {
+    const inst = req.body?.instrument;
+    if (!inst || typeof inst !== "string") {
+      res.status(400).json({ success: false, error: "missing instrument" });
+      return;
+    }
+    recordSeaHeartbeat(inst);
+    res.json({ success: true });
+  });
+
   app.post("/api/sea/signal", async (req: Request, res: Response) => {
     const body = req.body;
     if (!body || typeof body !== "object" || !body.instrument) {

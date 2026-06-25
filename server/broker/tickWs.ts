@@ -15,6 +15,7 @@ import type { Socket } from "net";
 import { tickBus, type ChainUpdate } from "./tickBus";
 import type { TickData } from "./types";
 import { isMockFeed } from "./brokerService";
+import { getSeaStatus } from "../seaHeartbeat";
 
 import { createLogger } from "./logger";
 const log = createLogger("BSA", "TickWS");
@@ -126,6 +127,20 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
   };
   tickBus.on("seaSignal", onSeaSignal);
 
+  // Forward SEA engine liveness over the same socket (replaces UI polling).
+  // Pushed on every heartbeat; a timer also re-pushes so the light greys out
+  // when an engine dies (heartbeats stop → no push without the timer).
+  const onSeaStatus = (status: unknown) => {
+    if (wss.clients.size === 0) return;
+    sendToAllClients(wss, JSON.stringify({ type: "sea_status", status }));
+  };
+  tickBus.on("seaStatus", onSeaStatus);
+  const seaStatusTimer = setInterval(() => {
+    if (wss.clients.size === 0) return;
+    sendToAllClients(wss, JSON.stringify({ type: "sea_status", status: getSeaStatus() }));
+  }, 10_000);
+  seaStatusTimer.unref?.();
+
   wss.on("connection", (ws, request) => {
     log.info(`Client connected (total: ${wss.clients.size})`);
 
@@ -151,6 +166,10 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
       }));
     }
 
+    // Send the current SEA liveness snapshot so the light is correct on connect
+    // without waiting for the next heartbeat/timer push.
+    ws.send(JSON.stringify({ type: "sea_status", status: getSeaStatus() }));
+
     ws.on("close", () => {
       log.info(`Client disconnected (total: ${wss.clients.size})`);
     });
@@ -171,6 +190,8 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
         tickBus.off("chainUpdate", onChainUpdate);
         tickBus.off("tick", onTick);
         tickBus.off("seaSignal", onSeaSignal);
+        tickBus.off("seaStatus", onSeaStatus);
+        clearInterval(seaStatusTimer);
         // Send a clean close frame to every connected browser, then
         // shut the server.
         wss.clients.forEach((client) => {

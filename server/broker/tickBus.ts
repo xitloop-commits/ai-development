@@ -54,6 +54,12 @@ class TickBus extends EventEmitter {
     this.emit("seaSignal", signal);
   }
 
+  /** Emit the SEA engine liveness snapshot for live push to browser clients.
+   *  Replaces UI polling of the seaStatus tRPC query. */
+  emitSeaStatus(status: unknown): void {
+    this.emit("seaStatus", status);
+  }
+
   /**
    * Emit an option-chain update and cache it. Cached so newly-connected
    * browser clients can hydrate their client store immediately without

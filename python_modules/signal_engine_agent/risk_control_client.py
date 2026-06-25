@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import time
 from typing import Any, TypedDict
@@ -80,6 +81,18 @@ def _headers() -> dict[str, str]:
 
 def _broker_url() -> str:
     return os.environ.get("BROKER_URL", "http://localhost:3000")
+
+
+def _json_safe(obj: Any) -> Any:
+    """Recursively replace non-finite floats (NaN/Inf) with None so the result
+    serializes to valid JSON. NaN is not legal JSON and Express rejects it."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
 
 
 def _log_call(endpoint: str, request_id: str, decision: str, dt_ms: float, extra: str = "") -> None:
@@ -175,7 +188,11 @@ def send_signal(signal: dict[str, Any], timeout: float = 5.0) -> bool:
     url = f"{_broker_url()}/api/sea/signal"
     instrument = str(signal.get("instrument", "?"))
     try:
-        resp = requests.post(url, headers=_headers(), data=json.dumps(signal), timeout=timeout)
+        # Sanitize NaN/Inf → null: Python json.dumps emits a bare `NaN` token
+        # which is invalid JSON, and Express rejects it with HTTP 400.
+        resp = requests.post(
+            url, headers=_headers(), data=json.dumps(_json_safe(signal)), timeout=timeout
+        )
     except requests.RequestException as exc:
         logger.warning("sea/signal connect failed instrument=%s exc=%s", instrument, exc)
         return False
@@ -188,6 +205,26 @@ def send_signal(signal: dict[str, Any], timeout: float = 5.0) -> bool:
         )
         return False
     return True
+
+
+# ─── /api/sea/heartbeat ─────────────────────────────────────────
+
+
+def send_heartbeat(instrument: str, timeout: float = 3.0) -> bool:
+    """
+    Tell the server this SEA engine is alive. Posted on a fixed cadence by a
+    background thread — independent of tick flow — so the UI can show SEA as
+    running even when the feed is starved (no ticks to process). Fire-and-forget;
+    failures are swallowed. Returns True on HTTP 2xx.
+    """
+    url = f"{_broker_url()}/api/sea/heartbeat"
+    try:
+        resp = requests.post(
+            url, headers=_headers(), data=json.dumps({"instrument": instrument}), timeout=timeout
+        )
+    except requests.RequestException:
+        return False
+    return resp.status_code < 400
 
 
 # ─── /api/risk-control/ai-signal ────────────────────────────────

@@ -1,6 +1,7 @@
 @echo off
 REM ================================================================
-REM   Lubas -- Start all 4 TFA instruments in separate windows
+REM   Lubas -- Start the server + 4 TFA instruments + 2 SEA engines
+REM   in separate windows
 REM
 REM   Pre-flight (this window, blocking):
 REM     1. Start the Lubas web server in a new window
@@ -167,11 +168,32 @@ start "TFA: banknifty" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup
 
 echo.
 echo ============================================================
-echo   All 4 TFA processes launched in separate windows.
+echo   Lubas -- Starting SEA (signal engine) for index instruments
+echo ============================================================
+echo.
+
+REM SEA tails each TFA's live feature file and emits signals, so it must
+REM start AFTER its TFA. SEA does NOT open a Dhan WS (it reads the TFA file
+REM and POSTs to the server), so it costs nothing against the 5-WS budget.
+REM Only the index instruments (nifty50, banknifty) have direction models
+REM today; crude/natgas have no SEA. Give TFA a head start first.
+timeout /t 8 /nobreak >nul
+
+echo [SEA 1/2] Starting nifty50...
+start "SEA: nifty50" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sea.bat nifty50 !EXTRA_ARGS!"
+
+timeout /t 5 /nobreak >nul
+
+echo [SEA 2/2] Starting banknifty...
+start "SEA: banknifty" cmd /k "chcp 65001 >nul && cd /d "%ROOT%" && call startup\start-sea.bat banknifty !EXTRA_ARGS!"
+
+echo.
+echo ============================================================
+echo   All 4 TFA + 2 SEA processes launched in separate windows.
 echo   Close each window individually to stop an instrument.
-echo   To stop all: close all "TFA: *" windows or use Task Manager.
+echo   To stop all: close all "TFA: *" / "SEA: *" windows or use Task Manager.
 echo ============================================================
 echo.
 
 REM Emit lifecycle event for the central log + Telegram (yow-partha).
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result starting -Process start-all -TfaCount 4 -Detail "Crude Oil, Natural Gas, NIFTY 50, Bank Nifty" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_emit-lifecycle.ps1" -Event start -Result starting -Process start-all -TfaCount 4 -Detail "Crude Oil, Natural Gas, NIFTY 50, Bank Nifty + SEA (nifty50, banknifty)" >nul 2>&1

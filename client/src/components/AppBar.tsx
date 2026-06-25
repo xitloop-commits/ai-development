@@ -17,6 +17,8 @@ import {
 import { trpc } from '@/lib/trpc';
 import { useCapital, useChannel } from '@/contexts/CapitalContext';
 import { useMarketOpen } from '@/hooks/useMarketOpen';
+import { useSeaStatus } from '@/stores/seaStatusStore';
+import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { formatINR } from '@/lib/formatINR';
 import type { MarketHoliday } from '@/lib/types';
 import {
@@ -69,8 +71,16 @@ function MarketStatusIndicator() {
   const nseOpen = isOpen('NIFTY 50') || isOpen('BANK NIFTY');
   const mcxOpen = isOpen('CRUDE OIL') || isOpen('NATURAL GAS');
 
-  const light = (label: string, open: boolean) => (
-    <span className="flex items-center gap-1" title={`${label} market ${open ? 'open' : 'closed'}`}>
+  // SEA engine liveness — pushed over /ws/ticks (no polling). One dot per
+  // engine, in the instrument's bright colour when live, grey when not.
+  const sea = useSeaStatus();
+  const { hexOf } = useInstrumentColors();
+  const seaByInst = new Map(sea.instruments.map((i) => [i.instrument, i]));
+  // Always show the engines we auto-start, plus any others that have pinged.
+  const seaInsts = Array.from(new Set(['nifty50', 'banknifty', ...sea.instruments.map((i) => i.instrument)]));
+
+  const light = (label: string, open: boolean, title: string) => (
+    <span className="flex items-center gap-1" title={title}>
       <span className={`inline-block h-2 w-2 rounded-full ${open ? 'bg-bullish' : 'bg-muted-foreground/40'}`} />
       <span className="text-[0.5625rem] tracking-wider text-muted-foreground">{label}</span>
     </span>
@@ -78,8 +88,25 @@ function MarketStatusIndicator() {
 
   return (
     <div className="flex items-center gap-2.5">
-      {light('NSE', nseOpen)}
-      {light('MCX', mcxOpen)}
+      {light('NSE', nseOpen, `NSE market ${nseOpen ? 'open' : 'closed'}`)}
+      {light('MCX', mcxOpen, `MCX market ${mcxOpen ? 'open' : 'closed'}`)}
+      {/* SEA — one coloured tick per signal engine */}
+      <span className="flex items-center gap-1">
+        <span className="text-[0.5625rem] tracking-wider text-muted-foreground">SEA</span>
+        {seaInsts.map((inst) => {
+          const st = seaByInst.get(inst);
+          const alive = !!st?.alive;
+          const title = `SEA ${inst}: ${alive ? 'running' : st ? `last ping ${st.ageSec}s ago` : 'not running'}`;
+          return (
+            <span
+              key={inst}
+              title={title}
+              className={`inline-block h-2 w-2 rounded-full ${alive ? '' : 'bg-muted-foreground/40'}`}
+              style={alive ? { backgroundColor: hexOf(inst) } : undefined}
+            />
+          );
+        })}
+      </span>
     </div>
   );
 }
