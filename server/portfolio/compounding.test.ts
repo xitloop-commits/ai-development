@@ -136,18 +136,18 @@ describe("initializeCapital", () => {
 // ─── Capital Injection ──────────────────────────────────────────
 
 describe("injectCapital", () => {
-  it("should split injected capital 75/25", () => {
+  it("adds the full amount to the trading pool, reserve untouched", () => {
     const state = makeState();
     const result = injectCapital(state, 100000);
-    expect(result.tradingPool).toBe(150000); // 75000 + 75000
-    expect(result.reservePool).toBe(50000);  // 25000 + 25000
+    expect(result.tradingPool).toBe(175000); // 75000 + 100000
+    expect(result.reservePool).toBe(25000);  // unchanged
   });
 
   it("should handle small injections", () => {
     const state = makeState();
     const result = injectCapital(state, 100);
-    expect(result.tradingPool).toBe(75075);
-    expect(result.reservePool).toBe(25025);
+    expect(result.tradingPool).toBe(75100);
+    expect(result.reservePool).toBe(25000);
   });
 
   it("should handle zero injection", () => {
@@ -624,7 +624,7 @@ describe("Full Trade Lifecycle (Pure Logic)", () => {
   it("should simulate capital injection mid-cycle", () => {
     const state = makeState({ tradingPool: 80000, reservePool: 27000 });
     const result = injectCapital(state, 50000);
-    expect(result.tradingPool).toBe(117500); // 80000 + 37500
-    expect(result.reservePool).toBe(39500);  // 27000 + 12500
+    expect(result.tradingPool).toBe(130000); // 80000 + 50000 (full amount)
+    expect(result.reservePool).toBe(27000);  // unchanged
   });
 });

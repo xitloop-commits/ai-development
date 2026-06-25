@@ -61,15 +61,21 @@ export function initializeCapital(
 // ─── Capital Injection ───────────────────────────────────────────
 
 /**
- * Add new capital with the universal 75/25 split.
+ * Add new capital to the Trading Pool in full.
+ *
+ * Injected capital is NOT split — the whole amount goes to the Trading Pool and
+ * the Reserve Pool is left untouched. The 75/25 split only ever applies to
+ * PROFIT earned (see completeDay), so the reserve grows from gains, not from
+ * capital the operator tops up. Move money to reserve manually via transferFunds
+ * if desired.
  */
 export function injectCapital(
   state: CapitalState,
   amount: number
 ): { tradingPool: number; reservePool: number } {
   return {
-    tradingPool: round(state.tradingPool + amount * TRADING_SPLIT),
-    reservePool: round(state.reservePool + amount * RESERVE_SPLIT),
+    tradingPool: round(state.tradingPool + amount),
+    reservePool: state.reservePool,
   };
 }
 
