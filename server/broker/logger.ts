@@ -67,6 +67,25 @@ const usePretty =
     ? false
     : process.env.NODE_ENV !== "production" && process.stdout?.isTTY === true;
 
+// ─── Inline message coloring ─────────────────────────────────────
+// pino-pretty colorizes by LEVEL only. To make a specific category of event
+// (e.g. token lifecycle) stand out regardless of level, wrap the message in an
+// ANSI color — but ONLY when we're rendering pretty/TTY output, so JSON/prod
+// logs stay clean (no raw escape codes leaking into the shipped JSON).
+const ANSI: Record<string, string> = {
+  magenta: "\x1b[95m",
+  red: "\x1b[91m",
+  yellow: "\x1b[93m",
+  green: "\x1b[92m",
+  cyan: "\x1b[96m",
+  reset: "\x1b[0m",
+};
+
+/** Wrap text in an ANSI color for pretty/TTY logs; pass-through otherwise. */
+export function logColor(text: string, color: keyof typeof ANSI): string {
+  return usePretty ? `${ANSI[color] ?? ""}${text}${ANSI.reset}` : text;
+}
+
 const root: PinoLogger = pino({
   level: process.env.LOG_LEVEL ?? "info",
   base: undefined, // strip pid/hostname; agent+module is enough

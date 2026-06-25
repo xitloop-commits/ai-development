@@ -98,9 +98,13 @@ import { SubscriptionManager } from "./subscriptionManager";
 import { DhanOrderUpdateWs } from "./orderUpdateWs";
 import { generateDhanToken } from "./tokenManager";
 import type { SubscriptionState, TickData } from "../../types";
-import { createLogger, type Logger } from "../../logger";
+import { createLogger, logColor, type Logger } from "../../logger";
 import { notifyBrokerDisconnect } from "../../../_core/tradeEventNotifier";
 import { dhanApiLatencyMs } from "../../../_core/metrics";
+
+/** After a failed mid-session token self-heal, back off this long before the
+ *  next attempt (so a persistently-rejected token can't loop on TOTP). */
+const SELF_HEAL_COOLDOWN_MS = 120_000;
 
 /**
  * Dhan rejects a MARKET-type order that carries a non-zero price with the
@@ -136,6 +140,9 @@ export class DhanAdapter implements BrokerAdapter {
   private clientId: string = "";
   private tokenUpdatedAt: number = 0;
   private killSwitchActive: boolean = false;
+  /** Mid-session self-heal guards — single-flight promise + last-attempt clock. */
+  private _selfHealInFlight: Promise<boolean> | null = null;
+  private _lastSelfHealAt: number = 0;
 
   // Order update callback (for real-time order updates)
   private orderUpdateCb: OrderUpdateCallback | null = null;
@@ -205,24 +212,53 @@ export class DhanAdapter implements BrokerAdapter {
   // ── Token Auto-Refresh ────────────────────────────────────────
 
   /**
-   * Generate a fresh token via TOTP and apply it in-memory + MongoDB.
-   * Returns true on success, false on any failure.
+   * Generate a fresh token via TOTP and apply it in-memory + MongoDB (and
+   * propagate to the feed WS + order-update WS via updateToken). Returns true
+   * on success, false on any failure.
    *
-   * Only invoked from startup paths (first-launch mint, startup refresh
-   * decision, startup post-validation recovery). Never called mid-session
-   * after the May 6 2026 refresh-on-startup-only policy change.
+   * Invoked from startup paths AND mid-session self-heal (see _selfHealToken).
    */
   private async _tryAutoRefresh(): Promise<boolean> {
     try {
-      this.log.info("Refreshing Dhan token via TOTP...");
+      this.log.important(logColor(`[token] ${this.brokerId} — refreshing via TOTP…`, "magenta"));
       const newToken = await generateDhanToken(this.brokerId);
       await this.updateToken(newToken);
-      this.log.info("Token refreshed successfully.");
+      this.log.important(logColor(`[token] ${this.brokerId} — refreshed ✓ (connections reconnecting)`, "green"));
       return true;
     } catch (err: any) {
-      this.log.error(`Token refresh failed: ${err.message}`);
+      this.log.error(logColor(`[token] ${this.brokerId} — refresh FAILED: ${err.message}`, "red"));
       return false;
     }
+  }
+
+  /**
+   * On a mid-session 401, self-heal the token ONCE: mint a fresh one via TOTP
+   * and apply it. Single-flight — a burst of 401s triggers exactly ONE refresh
+   * (the rest join the in-flight promise). Cooldown — a persistently-rejected
+   * token can't loop; after a failed heal we back off for SELF_HEAL_COOLDOWN_MS
+   * and fall back to mark-expired. Returns true if the token was refreshed.
+   */
+  private async _selfHealToken(): Promise<boolean> {
+    if (this._selfHealInFlight) return this._selfHealInFlight; // join the in-flight refresh
+    if (Date.now() - this._lastSelfHealAt < SELF_HEAL_COOLDOWN_MS) return false; // backoff
+    this._lastSelfHealAt = Date.now();
+    const p = this._tryAutoRefresh();
+    this._selfHealInFlight = p;
+    try {
+      return await p;
+    } finally {
+      this._selfHealInFlight = null;
+    }
+  }
+
+  /**
+   * Handle a 401 from a REST call: attempt a one-shot self-heal; if that fails
+   * (or we're inside the cooldown), fall back to marking the token expired so a
+   * restart re-mints it (the pre-self-heal behaviour).
+   */
+  private async _handleAuthFailure(): Promise<void> {
+    const healed = await this._selfHealToken();
+    if (!healed) await handleDhan401(this.brokerId);
   }
 
   // ── Auth ──────────────────────────────────────────────────────
@@ -355,7 +391,7 @@ export class DhanAdapter implements BrokerAdapter {
     );
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
     }
 
@@ -410,7 +446,7 @@ export class DhanAdapter implements BrokerAdapter {
     );
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
     }
 
@@ -438,7 +474,7 @@ export class DhanAdapter implements BrokerAdapter {
     );
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
     }
 
@@ -508,7 +544,7 @@ export class DhanAdapter implements BrokerAdapter {
     );
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
     }
     if (!result.ok || !result.data) {
@@ -562,7 +598,7 @@ export class DhanAdapter implements BrokerAdapter {
     );
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
     }
     if (!result.ok || !result.data) {
@@ -593,7 +629,7 @@ export class DhanAdapter implements BrokerAdapter {
     );
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
     }
     if (!result.ok || !result.data) {
@@ -680,7 +716,7 @@ export class DhanAdapter implements BrokerAdapter {
     );
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh.");
     }
 
@@ -701,7 +737,7 @@ export class DhanAdapter implements BrokerAdapter {
     );
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh.");
     }
 
@@ -722,7 +758,7 @@ export class DhanAdapter implements BrokerAdapter {
     );
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh.");
     }
 
@@ -760,7 +796,7 @@ export class DhanAdapter implements BrokerAdapter {
     );
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh.");
     }
 
@@ -805,7 +841,7 @@ export class DhanAdapter implements BrokerAdapter {
     );
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh.");
     }
 
@@ -874,7 +910,7 @@ export class DhanAdapter implements BrokerAdapter {
     this.log.debug(`getExpiryList(${underlying}, ${exchangeSegment}) → status=${result.status}, ok=${result.ok}, data=${JSON.stringify(result.data)?.slice(0, 200)}`);
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh.");
     }
 
@@ -908,7 +944,7 @@ export class DhanAdapter implements BrokerAdapter {
     }>("POST", DHAN_ENDPOINTS.MARKET_OHLC, request, { clientId: this.clientId });
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh.");
     }
 
@@ -1031,7 +1067,7 @@ export class DhanAdapter implements BrokerAdapter {
 
     if (result.isAuthError) {
       this.log.warn(`Token expired for underlying=${underlying}`);
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh.");
     }
 
@@ -1116,7 +1152,7 @@ export class DhanAdapter implements BrokerAdapter {
     );
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
     }
 
@@ -1166,7 +1202,7 @@ export class DhanAdapter implements BrokerAdapter {
     );
 
     if (result.isAuthError) {
-      await handleDhan401(this.brokerId);
+      await this._handleAuthFailure();
       throw new Error("Token expired. Restart BSA to refresh (refresh-on-startup policy).");
     }
 
@@ -1518,7 +1554,7 @@ export class DhanAdapter implements BrokerAdapter {
       );
 
       if (result.isAuthError) {
-        await handleDhan401(this.brokerId);
+        await this._handleAuthFailure();
         throw new Error("Token expired.");
       }
 
@@ -1536,7 +1572,7 @@ export class DhanAdapter implements BrokerAdapter {
       );
 
       if (result.isAuthError) {
-        await handleDhan401(this.brokerId);
+        await this._handleAuthFailure();
         throw new Error("Token expired.");
       }
 

@@ -8,7 +8,7 @@
  * 4. Centralized HTTP client with auth headers
  */
 
-import { createLogger } from "../../logger";
+import { createLogger, logColor } from "../../logger";
 
 const log = createLogger("BSA", "DhanAuth");
 
@@ -299,7 +299,7 @@ async function notifyTelegram(message: string): Promise<void> {
 }
 
 export async function handleDhan401(brokerId: string): Promise<null> {
-  log.warn(`401 detected for broker "${brokerId}" — marking expired (no auto-refresh).`);
+  log.warn(logColor(`[token] ${brokerId} — 401 and self-heal unavailable (failed/cooldown); marking expired — restart to mint fresh.`, "red"));
   await updateBrokerCredentials(brokerId, { status: "expired" });
   await updateBrokerConnection(brokerId, {
     apiStatus: "error",
