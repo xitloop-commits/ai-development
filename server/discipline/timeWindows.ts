@@ -51,15 +51,17 @@ export function isSimulationChannel(channel: string): boolean {
 
 /**
  * Master bypass: true when discipline should be SKIPPED entirely for this
- * channel. Only ever bypasses simulation (paper/sandbox) channels, and only
- * when the operator has explicitly flipped simulationEnforcement off. Live
- * channels are never bypassed; a missing flag defaults to enforced.
+ * channel. Paper channels are bypassed when simulationEnforcement is off; live
+ * (real-exchange) channels when liveEnforcement is off. Each toggle is per-mode
+ * and operator-controlled; a missing flag defaults to enforced.
  */
 export function isDisciplineBypassed(
   channel: string,
   settings: DisciplineAgentSettings,
 ): boolean {
-  return isSimulationChannel(channel) && settings.simulationEnforcement?.enabled === false;
+  return isSimulationChannel(channel)
+    ? settings.simulationEnforcement?.enabled === false
+    : settings.liveEnforcement?.enabled === false;
 }
 
 /**

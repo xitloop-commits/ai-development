@@ -1216,14 +1216,20 @@ export function DisciplineSection() {
 
   return (
     <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))" }}>
-      {/* Simulation Channels — master bypass for paper channels */}
-      <SettingsCard title="Simulation Channels">
+      {/* Discipline Gate — per-mode master switch */}
+      <SettingsCard title="Discipline Gate">
         <div className="space-y-4">
           <DisciplineRow
             label="Enforce on Paper"
-            hint="When OFF, ALL discipline checks (caps, cooldowns, limits, halts) are bypassed for paper channels so you can test freely. Live channels are always enforced."
+            hint="When OFF, ALL discipline checks (caps, cooldowns, limits, halts) are bypassed for paper channels so you can test freely."
             enabled={ds.simulationEnforcement?.enabled ?? true}
             onToggle={(v) => upd('simulationEnforcement.enabled', v)}
+          />
+          <DisciplineRow
+            label="Enforce on Live"
+            hint="⚠️ When OFF, ALL discipline checks are bypassed for LIVE (real-money) channels — orders skip every trade limit and loss cap. Leave ON unless you know what you're doing."
+            enabled={ds.liveEnforcement?.enabled ?? true}
+            onToggle={(v) => upd('liveEnforcement.enabled', v)}
           />
         </div>
       </SettingsCard>

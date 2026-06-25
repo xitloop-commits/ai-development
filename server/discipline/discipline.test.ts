@@ -815,32 +815,48 @@ describe("Full Discipline Pipeline (Pure Logic)", () => {
   });
 });
 
-// ─── Simulation-channel master bypass ─────────────────────────────
+// ─── Per-mode master bypass ───────────────────────────────────────
 describe("isDisciplineBypassed", () => {
-  const off = makeSettings({ simulationEnforcement: { enabled: false } });
-  const on = makeSettings({ simulationEnforcement: { enabled: true } });
+  const paperOff = makeSettings({ simulationEnforcement: { enabled: false } });
+  const on = makeSettings({ simulationEnforcement: { enabled: true }, liveEnforcement: { enabled: true } });
+  const liveOff = makeSettings({ liveEnforcement: { enabled: false } });
 
-  it("bypasses every simulation channel when enforcement is off", () => {
+  it("bypasses every simulation channel when paper enforcement is off", () => {
     for (const ch of ["my-paper", "ai-paper"]) {
-      expect(isDisciplineBypassed(ch, off)).toBe(true);
+      expect(isDisciplineBypassed(ch, paperOff)).toBe(true);
     }
   });
 
-  it("never bypasses simulation channels when enforcement is on", () => {
+  it("never bypasses simulation channels when paper enforcement is on", () => {
     for (const ch of ["my-paper", "ai-paper"]) {
       expect(isDisciplineBypassed(ch, on)).toBe(false);
     }
   });
 
-  it("never bypasses live channels, even with enforcement off", () => {
+  it("does NOT bypass live channels when only paper enforcement is off", () => {
     for (const ch of ["my-live", "ai-live", "testing-live"]) {
-      expect(isDisciplineBypassed(ch, off)).toBe(false);
+      expect(isDisciplineBypassed(ch, paperOff)).toBe(false);
     }
   });
 
-  it("defaults to enforced when the flag is missing (legacy records)", () => {
+  it("bypasses live channels when live enforcement is off", () => {
+    for (const ch of ["my-live", "ai-live", "testing-live"]) {
+      expect(isDisciplineBypassed(ch, liveOff)).toBe(true);
+    }
+  });
+
+  it("paper and live toggles are independent", () => {
+    // live off should NOT bypass paper channels
+    for (const ch of ["my-paper", "ai-paper"]) {
+      expect(isDisciplineBypassed(ch, liveOff)).toBe(false);
+    }
+  });
+
+  it("defaults to enforced when the flags are missing (legacy records)", () => {
     const legacy = makeSettings();
     delete (legacy as { simulationEnforcement?: unknown }).simulationEnforcement;
+    delete (legacy as { liveEnforcement?: unknown }).liveEnforcement;
     expect(isDisciplineBypassed("my-paper", legacy)).toBe(false);
+    expect(isDisciplineBypassed("my-live", legacy)).toBe(false);
   });
 });

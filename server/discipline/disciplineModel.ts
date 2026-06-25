@@ -96,6 +96,13 @@ const disciplineSettingsSchema = new Schema<DisciplineAgentSettings & Document>(
       ),
       default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.simulationEnforcement }),
     },
+    liveEnforcement: {
+      type: new Schema(
+        { enabled: { type: Boolean, default: DEFAULT_DISCIPLINE_AGENT_SETTINGS.liveEnforcement.enabled } },
+        { _id: false }
+      ),
+      default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.liveEnforcement }),
+    },
     history: { type: [historyEntrySchema], default: [] },
   },
   { timestamps: false, collection: "discipline_settings", strict: false }

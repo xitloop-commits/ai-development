@@ -318,12 +318,18 @@ export interface DisciplineAgentSettings {
     };
   };
 
-  // Simulation-channel enforcement master switch.
+  // Paper-channel enforcement master switch.
   // When `enabled` is false, ALL discipline activity (pre-trade gates,
   // outcome recording, caps, cooldowns, halts) is bypassed for the
-  // paper + sandbox channels (see isSimulationChannel). Live channels are
-  // never affected. Default true → behaviour unchanged until operator opts out.
+  // paper channels (see isSimulationChannel). Default true → behaviour
+  // unchanged until operator opts out.
   simulationEnforcement: { enabled: boolean };
+
+  // Live-channel enforcement master switch (mirrors simulationEnforcement for
+  // real-exchange channels: my-live, ai-live, testing-live). When `enabled` is
+  // false, ALL discipline activity is bypassed for live channels too.
+  // ⚠️ Default true — turning it off lets real-money orders skip every limit.
+  liveEnforcement: { enabled: boolean };
 
   // Change history
   history: Array<{ changedAt: Date; field: string; oldValue: unknown; newValue: unknown }>;
@@ -382,6 +388,8 @@ export const DEFAULT_DISCIPLINE_AGENT_SETTINGS: Omit<DisciplineAgentSettings, "u
   },
   // Discipline ON for paper/sandbox by default; operator flips off to test freely.
   simulationEnforcement: { enabled: true },
+  // Discipline ON for live by default; operator flips off at their own risk.
+  liveEnforcement: { enabled: true },
 };
 
 // ─── Default State ─────────────────────────────────────────────

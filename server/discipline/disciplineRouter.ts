@@ -169,6 +169,11 @@ export const disciplineSettingsUpdateSchema = z.object({
   simulationEnforcement: z.object({
     enabled: z.boolean(),
   }).optional(),
+
+  // Master switch: discipline ON/OFF for live (real-exchange) channels.
+  liveEnforcement: z.object({
+    enabled: z.boolean(),
+  }).optional(),
 }).strict();
 
 export const disciplineRouter = router({
