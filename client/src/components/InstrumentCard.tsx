@@ -26,6 +26,7 @@ import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { TradeBar } from './TradeBar';
 import SignalChartDialog, { type SignalChartTarget } from './SignalChartDialog';
 import { UNDERLYING_SECURITY_ID, istDateString } from '@/lib/signalChart';
+import { useLiveDay } from '@/stores/portfolioLiveStore';
 
 // ── Tooltip wrapper ──────────────────────────────────────────
 function Tip({ children, text }: { children: React.ReactNode; text: string }) {
@@ -228,10 +229,10 @@ export default function InstrumentCard({ data, feedExchange, feedSecurityId }: I
   // an open position here, show the actual trade — same TradeBar + server data
   // the trade rows use (entry/SL/TP/TSL all server-owned) — instead of the raw
   // signal. Falls back to the signal view when there's no open trade.
-  const aiDay = trpc.portfolio.currentDay.useQuery(
-    { channel: 'ai-paper' },
-    { refetchInterval: 3000, retry: 1 },
-  ).data;
+  // Load ai-paper's day once; live updates arrive over /ws/ticks (the same
+  // portfolio push the trade list uses) — no polling.
+  const aiDayQuery = trpc.portfolio.currentDay.useQuery({ channel: 'ai-paper' }, { retry: 1 });
+  const aiDay = useLiveDay('ai-paper') ?? aiDayQuery.data;
   const _norm = (s: string) => (s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const aiTrade = (aiDay as any)?.trades?.find(
     (t: any) => t.status === 'OPEN' && _norm(t.instrument) === _norm(instrumentKey),
