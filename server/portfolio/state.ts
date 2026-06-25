@@ -31,6 +31,9 @@ export type TradeStatus =
   | "OPEN"
   | "PENDING"
   | "CANCELLED"
+  /** Broker rejected the order (never reached the market) — distinct from a
+   *  user/EOD CANCELLED. The broker's reason text lives on `rejectReason`. */
+  | "REJECTED"
   /** Single closed state. The reason for the close lives on
    *  `exitReason` (TP_HIT / SL_HIT / MOMENTUM_EXIT / ...) — pre-2026-05
    *  the close vocabulary was duplicated as CLOSED_TP / CLOSED_SL /
@@ -145,6 +148,9 @@ export interface TradeRecord {
   lastTickAt?: number;
   /** PA spec §5.2 — exit audit trail. Stamped by portfolioAgent.recordTradeClosed. */
   exitReason?: ExitReason;
+  /** Broker's reject reason text (Dhan ReasonDescription) when status ===
+   *  "REJECTED". Surfaced as a tooltip on the REJECTED badge. */
+  rejectReason?: string;
   exitTriggeredBy?: ExitTriggeredBy;
   signalSource?: string;
   /** B4: present when a broker mutation failed. Cleared on successful reconcile. */
@@ -280,6 +286,7 @@ const tradeRecordSchema = new Schema(
     closedAt: { type: Number, default: null },
     lastTickAt: { type: Number, default: null },
     exitReason: { type: String, default: null },
+    rejectReason: { type: String, default: null },
     exitTriggeredBy: { type: String, default: null },
     signalSource: { type: String, default: null },
   },
@@ -952,6 +959,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       closedAt: t.closedAt ?? null,
       lastTickAt: t.lastTickAt ?? undefined,
       exitReason: t.exitReason ?? undefined,
+      rejectReason: t.rejectReason ?? undefined,
       exitTriggeredBy: t.exitTriggeredBy ?? undefined,
       signalSource: t.signalSource ?? undefined,
     })),

@@ -5,9 +5,12 @@ export interface StatusBadgeProps {
    *  CLOSED pill. Pass through from `trade.exitReason` (B11-followup
    *  unified vocab: TP_HIT / SL_HIT / MOMENTUM_EXIT / ...). */
   exitReason?: string;
+  /** Broker reject reason (Dhan ReasonDescription) — shown as the hover
+   *  tooltip on the REJECTED pill so you can see WHY it was rejected. */
+  reason?: string;
 }
 
-export function StatusBadge({ status, exitReason }: StatusBadgeProps) {
+export function StatusBadge({ status, exitReason, reason }: StatusBadgeProps) {
   switch (status) {
     case 'OPEN':
       return (
@@ -33,7 +36,10 @@ export function StatusBadge({ status, exitReason }: StatusBadgeProps) {
       );
     case 'REJECTED':
       return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold bg-destructive/20 text-destructive">
+        <span
+          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold bg-destructive/20 text-destructive cursor-help"
+          title={reason ? `Rejected: ${reason}` : 'Rejected by broker'}
+        >
           REJECTED
         </span>
       );

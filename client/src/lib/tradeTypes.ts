@@ -95,6 +95,9 @@ export interface TradeRecord {
    *  StatusBadge — TP_HIT shows green ✓ TP, SL_HIT shows red ✗ SL,
    *  anything else renders a neutral CLOSED pill. */
   exitReason?: string;
+  /** Broker's reject reason text (Dhan ReasonDescription) when status ===
+   *  "REJECTED" — shown as a tooltip on the REJECTED badge. */
+  rejectReason?: string;
   targetPrice: number | null;
   stopLossPrice: number | null;
   /** Breakeven price = entry ± round-trip charges per unit, frozen at placement.

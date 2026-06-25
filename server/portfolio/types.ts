@@ -158,6 +158,9 @@ export interface BrokerOrderEvent {
   legNo?: number;
   /** The Super Order's entry/anchor id (Dhan AlgoOrdNo) linking a leg → entry. */
   entryOrderId?: string;
+  /** Broker's reject reason text (Dhan ReasonDescription) when status ===
+   *  "REJECTED" — stamped onto trade.rejectReason for the UI tooltip. */
+  reason?: string;
 }
 
 export interface BrokerOrderEventResult {

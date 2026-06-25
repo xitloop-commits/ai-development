@@ -337,6 +337,9 @@ export interface OrderUpdate {
   /** The Super Order's entry/anchor order id (Dhan AlgoOrdNo) that links a
    *  leg update back to its parent order — matched against trade.superOrderId. */
   entryOrderId?: string;
+  /** Broker's reject/cancel reason text (Dhan ReasonDescription), e.g.
+   *  "Invalid IP" / "Insufficient funds". Surfaced on the REJECTED badge. */
+  reason?: string;
 }
 
 export type OrderUpdateCallback = (update: OrderUpdate) => void;

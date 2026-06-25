@@ -844,7 +844,12 @@ class PortfolioAgentImpl {
         if (trade.status === "PENDING") trade.status = "OPEN";
       } else {
         // CANCELLED / REJECTED / EXPIRED — order never made it to market.
-        trade.status = "CANCELLED";
+        // REJECTED is kept distinct (broker refused it) and carries the
+        // broker's reason text; CANCELLED/EXPIRED collapse to CANCELLED.
+        trade.status = update.status === "REJECTED" ? "REJECTED" : "CANCELLED";
+        if (update.status === "REJECTED" && update.reason) {
+          trade.rejectReason = update.reason;
+        }
         trade.exitPrice = trade.entryPrice;
         trade.pnl = 0;
         trade.unrealizedPnl = 0;

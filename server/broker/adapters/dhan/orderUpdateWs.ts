@@ -48,6 +48,7 @@ export interface DhanOrderUpdateRaw {
     Remarks: string;
     LastUpdatedTime: string;
     AlgoOrdNo: string;     // Entry leg order number for tracking related legs
+    ReasonDescription: string; // Reject/cancel reason text (e.g. "Invalid IP")
     [key: string]: unknown;
   };
   Type: string;            // "order_alert"
@@ -76,6 +77,7 @@ export interface NormalizedOrderUpdate {
   lotSize: number;
   correlationId: string;
   remarks: string;
+  reason: string;          // ReasonDescription — reject/cancel text, "" if none
   timestamp: string;
 }
 
@@ -123,8 +125,20 @@ export class DhanOrderUpdateWs extends EventEmitter {
       try {
         const msg = JSON.parse(data.toString());
         if (msg.Type === "order_alert" && msg.Data) {
+          // Lifecycle event. normalize() reads the real wire format, which is
+          // camelCase (orderNo/status/legNo/…) with a Title-case status value
+          // ("Rejected") — NOT the PascalCase shape Dhan's docs show. We log
+          // from the normalized result so the field stream is always visible.
           const normalized = this.normalize(msg as DhanOrderUpdateRaw);
+          this.log.important(
+            `order_alert order=${normalized.orderId} status=${normalized.status} legNo=${normalized.legNo} ` +
+              `symbol=${normalized.symbol}${normalized.reason ? ` reason="${normalized.reason}"` : ""}`,
+          );
           this.emit("orderUpdate", normalized);
+        } else {
+          // Non-order_alert frame — auth acknowledgement or error. Log it raw
+          // so a silent auth failure (which yields zero order events) shows up.
+          this.log.info(`frame ${JSON.stringify(msg).slice(0, 400)}`);
         }
       } catch (err) {
         this.log.error("Parse error:", err);
@@ -180,31 +194,43 @@ export class DhanOrderUpdateWs extends EventEmitter {
   }
 
   private normalize(raw: DhanOrderUpdateRaw): NormalizedOrderUpdate {
-    const d = raw.Data;
+    // Dhan's real order-update wire format is camelCase (orderNo/status/legNo/
+    // reasonDescription/…) with a Title-case status value ("Rejected"), even
+    // though the official docs show PascalCase. To be robust to either, index
+    // every Data key by its lowercased name and read case-insensitively.
+    const lc: Record<string, unknown> = {};
+    for (const k of Object.keys(raw.Data)) {
+      lc[k.toLowerCase()] = (raw.Data as Record<string, unknown>)[k];
+    }
+    const str = (v: unknown): string => (v === undefined || v === null ? "" : String(v));
+    const num = (v: unknown): number => (typeof v === "number" ? v : parseFloat(str(v)) || 0);
     return {
-      orderId: d.OrderNo,
-      exchOrderId: d.ExchOrderNo,
-      securityId: d.SecurityId,
-      exchange: d.Exchange,
-      symbol: d.Symbol,
-      txnType: d.TxnType === "B" ? "BUY" : "SELL",
-      status: d.Status as NormalizedOrderUpdate["status"],
-      legNo: d.LegNo,
-      entryOrderId: d.AlgoOrdNo || "",
-      quantity: d.Quantity,
-      tradedQty: d.TradedQty,
-      remainingQty: d.RemainingQuantity,
-      price: d.Price,
-      triggerPrice: d.TriggerPrice,
-      tradedPrice: d.TradedPrice,
-      avgTradedPrice: d.AvgTradedPrice,
-      strikePrice: typeof d.StrikePrice === "number" ? d.StrikePrice : parseFloat(d.StrikePrice as string) || 0,
-      expiryDate: d.ExpiryDate,
-      optionType: d.OptType,
-      lotSize: d.LotSize,
-      correlationId: d.CorrelationId || "",
-      remarks: d.Remarks || "",
-      timestamp: d.LastUpdatedTime,
+      orderId: str(lc["orderno"]),
+      exchOrderId: str(lc["exchorderno"]),
+      securityId: str(lc["securityid"]),
+      exchange: str(lc["exchange"]),
+      symbol: str(lc["symbol"]),
+      txnType: lc["txntype"] === "B" ? "BUY" : "SELL",
+      // Uppercase the status value so downstream maps (TRANSIT/PENDING/REJECTED/
+      // TRADED/…) match regardless of the Title-case Dhan sends ("Rejected").
+      status: str(lc["status"]).toUpperCase() as NormalizedOrderUpdate["status"],
+      legNo: num(lc["legno"]),
+      entryOrderId: str(lc["algoordno"]),
+      quantity: num(lc["quantity"]),
+      tradedQty: num(lc["tradedqty"]),
+      remainingQty: num(lc["remainingquantity"]),
+      price: num(lc["price"]),
+      triggerPrice: num(lc["triggerprice"]),
+      tradedPrice: num(lc["tradedprice"]),
+      avgTradedPrice: num(lc["avgtradedprice"]),
+      strikePrice: num(lc["strikeprice"]),
+      expiryDate: str(lc["expirydate"]),
+      optionType: str(lc["opttype"]),
+      lotSize: num(lc["lotsize"]),
+      correlationId: str(lc["correlationid"]),
+      remarks: str(lc["remarks"]),
+      reason: str(lc["reasondescription"]),
+      timestamp: str(lc["lastupdatedtime"]),
     };
   }
 

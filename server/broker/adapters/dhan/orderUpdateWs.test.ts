@@ -215,6 +215,56 @@ describe("DhanOrderUpdateWs", () => {
       mock.emit("message", JSON.stringify(makeRawAlert()));
     });
 
+    it("parses the REAL Dhan wire format (camelCase keys, Title-case status)", (done) => {
+      // Captured from a live Dhan order-update WS frame on 2026-06-25 — the
+      // actual wire format is camelCase (orderNo/status/legNo/reasonDescription),
+      // NOT the PascalCase the docs show, and the status value is Title-case
+      // ("Rejected"). This froze every live order at PENDING until fixed.
+      const realFrame = {
+        Type: "order_alert",
+        Data: {
+          exchange: "MCX",
+          securityId: "569921",
+          exchOrderNo: "0",
+          orderNo: "228260625316109",
+          txnType: "B",
+          quantity: 100,
+          remainingQuantity: 100,
+          price: 275,
+          reasonDescription:
+            "RMS:228260625316109:Intraday orders cannot be placed at this time.",
+          legNo: 1,
+          symbol: "CRUDEOIL-16Jul2",
+          status: "Rejected",
+          lotSize: 1,
+          strikePrice: 6850,
+          expiryDate: "2026-07-16 23:30:00",
+          optType: "XX",
+          correlationId: "NA",
+          lastUpdatedTime: "2026-06-25 23:25:15",
+        },
+      };
+
+      const client = new DhanOrderUpdateWs(TEST_CLIENT, TEST_TOKEN);
+      client.connect();
+      const mock = getInstances().at(-1)!;
+      mock.emit("open");
+
+      client.on("orderUpdate", (update: NormalizedOrderUpdate) => {
+        expect(update.orderId).toBe("228260625316109");
+        expect(update.status).toBe("REJECTED"); // "Rejected" → upper-cased
+        expect(update.legNo).toBe(1);
+        expect(update.symbol).toBe("CRUDEOIL-16Jul2");
+        expect(update.reason).toContain("Intraday orders cannot be placed");
+        expect(update.txnType).toBe("BUY");
+        expect(update.quantity).toBe(100);
+        expect(update.strikePrice).toBe(6850);
+        done();
+      });
+
+      mock.emit("message", JSON.stringify(realFrame));
+    });
+
     it("maps TxnType 'S' to SELL", (done) => {
       const client = new DhanOrderUpdateWs(TEST_CLIENT, TEST_TOKEN);
       client.connect();

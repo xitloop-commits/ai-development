@@ -256,21 +256,27 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     expect(t.closedAt).toBeGreaterThan(0);
   });
 
-  it("REJECTED + EXPIRED — same CANCELLED handling as CANCELLED", async () => {
-    for (const status of ["REJECTED", "EXPIRED"] as const) {
-      vi.clearAllMocks();
-      getCapitalStateMock.mockImplementation(async (c: any) =>
-        c === "my-live" ? makeState() : null,
-      );
-      getDayRecordMock.mockImplementation(async (c: any) =>
-        c === "my-live" ? makeDay([makeTrade()]) : null,
-      );
-      const result = await portfolioAgent.applyBrokerOrderEvent(
-        baseEvent({ status }),
-      );
-      expect(result.matched).toBe(true);
-      expect(result.newStatus).toBe("CANCELLED");
-    }
+  it("EXPIRED — same CANCELLED handling as CANCELLED", async () => {
+    const result = await portfolioAgent.applyBrokerOrderEvent(
+      baseEvent({ status: "EXPIRED" }),
+    );
+    expect(result.matched).toBe(true);
+    expect(result.newStatus).toBe("CANCELLED");
+  });
+
+  it("REJECTED — marks REJECTED (distinct from CANCELLED) + captures reason", async () => {
+    const result = await portfolioAgent.applyBrokerOrderEvent(
+      baseEvent({ status: "REJECTED", reason: "Invalid IP" }),
+    );
+    expect(result.matched).toBe(true);
+    expect(result.newStatus).toBe("REJECTED");
+
+    const written = upsertDayRecordMock.mock.calls[0][1] as DayRecord;
+    const t = written.trades[0];
+    expect(t.status).toBe("REJECTED");
+    expect(t.rejectReason).toBe("Invalid IP");
+    expect(t.pnl).toBe(0);
+    expect(t.closedAt).toBeGreaterThan(0);
   });
 
   it("intermediate statuses (PENDING, PARTIALLY_FILLED) are no-ops", async () => {

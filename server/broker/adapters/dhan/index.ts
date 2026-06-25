@@ -1248,6 +1248,7 @@ export class DhanAdapter implements BrokerAdapter {
         // (legNo 2/3) back to its parent trade via the entry/anchor id.
         legNo: update.legNo,
         entryOrderId: update.entryOrderId || undefined,
+        reason: update.reason || undefined,
       });
     });
     this.orderUpdateWs.connect();
