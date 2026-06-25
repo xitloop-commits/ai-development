@@ -86,12 +86,12 @@ export interface TradeExitEvent {
 /**
  * Two formats only, decided by realized P&L sign — the exit reason no longer
  * changes the wording:
- *   profit → "profit Rs.4,500 8.00% from naturalgas"
- *   loss   → "lost Rs.2,000 5.00% from naturalgas"
+ *   profit → "profit Rs.4,500 (8.00%) from naturalgas"
+ *   loss   → "lost Rs.2,000 (5.00%) from naturalgas"
  */
 export function formatExit(ev: TradeExitEvent): string {
   const word = ev.realizedPnl >= 0 ? "profit" : "lost";
-  return `${word} ${fmtRs(ev.realizedPnl)} ${fmtPctAbs(ev.realizedPnlPercent)} from ${ev.instrument}`;
+  return `${word} ${fmtRs(ev.realizedPnl)} (${fmtPctAbs(ev.realizedPnlPercent)}) from ${ev.instrument}`;
 }
 
 export interface GateRejectionEvent {
