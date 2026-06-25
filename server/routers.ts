@@ -303,6 +303,7 @@ export const appRouter = router({
         aiKillSwitch: z.boolean().optional(),
         myKillSwitch: z.boolean().optional(),
         testingKillSwitch: z.boolean().optional(),
+        defaultWorkspace: z.enum(["ai", "my", "testing"]).optional(),
       }))
       .mutation(async ({ input }) => {
         const updated = await updateUserSettings(1 /* single-user */, { tradingMode: input as any });

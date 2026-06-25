@@ -1009,6 +1009,38 @@ export function TradingModeSection() {
 
   return (
     <div className="space-y-4">
+      {/* Default landing tab */}
+      <SettingsCard title="Default Tab">
+        <div className="space-y-2">
+          <FieldLabel hint="Which workspace tab the app opens on at launch.">
+            Tab shown on startup
+          </FieldLabel>
+          <div className="flex gap-2">
+            {([
+              ['ai', 'AI Trades'],
+              ['my', 'My Trades'],
+              ['testing', 'Testing'],
+            ] as const).map(([ws, label]) => {
+              const active = (tm?.defaultWorkspace ?? 'my') === ws;
+              return (
+                <button
+                  key={ws}
+                  onClick={() => updateModeMutation.mutate({ defaultWorkspace: ws } as any)}
+                  disabled={updateModeMutation.isPending || isLoading}
+                  className={`flex-1 px-3 py-1.5 text-[0.625rem] font-bold tracking-wider uppercase rounded border transition-colors disabled:opacity-50 ${
+                    active
+                      ? 'border-primary text-primary bg-primary/10'
+                      : 'border-border text-muted-foreground hover:bg-accent'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </SettingsCard>
+
       {/* AI Trades Workspace */}
       <SettingsCard title="AI Trades">
         <div className="space-y-4">

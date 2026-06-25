@@ -13,12 +13,13 @@ import {
   useMemo,
   useCallback,
   useRef,
+  useEffect,
   type ReactNode,
 } from 'react';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { useLiveDay } from '@/stores/portfolioLiveStore';
-import { type Channel, DEFAULT_LANDING_CHANNEL } from '@/lib/tradeTypes';
+import { type Channel, type Workspace, type Mode, channelOf, DEFAULT_LANDING_CHANNEL } from '@/lib/tradeTypes';
 
 // ─── Types ──────────────────────────────────────────────────────
 type DayRating = 'trophy' | 'double_trophy' | 'crown' | 'jackpot' | 'gift' | 'star' | 'future' | 'finish';
@@ -169,6 +170,22 @@ function normalizeDayRecord(day: any): DayRecord {
 export function CapitalProvider({ children }: { children: ReactNode }) {
   const [channel, setChannel] = useState<Channel>(DEFAULT_LANDING_CHANNEL);
   const utils = trpc.useUtils();
+
+  // ─── Land on the user's default tab once on first load ──────
+  // Reads the persisted defaultWorkspace (Settings → Trading Mode) and opens
+  // that workspace's tab, using that workspace's current live/paper mode.
+  // Applied only once so it never fights a manual tab switch mid-session.
+  const settingsQuery = trpc.settings.get.useQuery(undefined, { staleTime: Infinity });
+  const appliedDefaultRef = useRef(false);
+  useEffect(() => {
+    if (appliedDefaultRef.current) return;
+    const tm = settingsQuery.data?.tradingMode;
+    if (!tm) return;
+    appliedDefaultRef.current = true;
+    const ws = (tm.defaultWorkspace ?? 'my') as Workspace;
+    const mode: Mode = ws === 'ai' ? tm.aiTradesMode : ws === 'my' ? tm.myTradesMode : 'live';
+    setChannel(channelOf(ws, mode));
+  }, [settingsQuery.data]);
 
   // Per-channel cache of normalized past-day records — past days never change
   // once closed, so we normalize each once (keyed by dayIndex) instead of
