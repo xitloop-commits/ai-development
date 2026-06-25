@@ -136,18 +136,12 @@ export default function MainScreen() {
     });
   }, [activeBrokerId, resolvedInstruments, feedSubscribe]);
 
-  // ─── tRPC Queries with Polling ─────────────────────────────────
-  const modulesQuery = trpc.trading.moduleStatuses.useQuery(undefined, {
-    refetchInterval: POLL_INTERVAL,
-  });
-  // Configured instruments (for hotkey map). Near-static config — changes only
-  // on add/remove/colour mutations, which invalidate this. No polling.
+  // Configured instruments (drives the left-sidebar tabs + hotkey map). Near-
+  // static config — changes only on add/remove/colour mutations, which
+  // invalidate this. No polling. (The old trading.instruments analyzer feed was
+  // removed — the cards' live data comes from instrumentLiveState / SEA.)
   const configuredInstrumentsQuery = trpc.instruments.list.useQuery(undefined, {
     staleTime: Infinity,
-  });
-  // Full instrument analysis data (for left sidebar)
-  const instrumentAnalysisQuery = trpc.trading.instruments.useQuery(undefined, {
-    refetchInterval: POLL_INTERVAL,
   });
   // SEA signals — Mongo-backed store fed by initial query + live /ws/ticks push
   // (no polling). loadOlder pages older signals on scroll (lazy-load).
@@ -184,7 +178,6 @@ export default function MainScreen() {
     { key: 'CRUDEOIL', displayName: 'CRUDE OIL', exchange: 'MCX', hotkey: '3' },
     { key: 'NATURALGAS', displayName: 'NATURAL GAS', exchange: 'MCX', hotkey: '4' },
   ];
-  const allInstruments = instrumentAnalysisQuery.data ?? [];
   const allSignals = allSignalsRaw;
 
   // Discipline data with fallbacks
@@ -194,13 +187,12 @@ export default function MainScreen() {
   const dailyLossPercent = disciplineData?.state?.dailyLossPercent ?? 0;
   const lossThreshold = disciplineData?.settings?.dailyLossLimit?.thresholdPercent ?? 3;
 
-  // ─── Filtered Data ─────────────────────────────────────────────
+  // ─── Sidebar instrument tabs (from config; cards pull live data themselves) ──
   const instruments = useMemo(() => {
-    return allInstruments.filter((inst) => {
-      const key = configuredInstruments.find(c => c.displayName === inst.displayName)?.key;
-      return key && isEnabled(key as any);
-    });
-  }, [allInstruments, configuredInstruments, isEnabled]);
+    return configuredInstruments
+      .filter((c: any) => isEnabled(c.key))
+      .map((c: any) => ({ name: c.key, displayName: c.displayName, exchange: c.exchange }));
+  }, [configuredInstruments, isEnabled]);
 
   const signals = useMemo(() => {
     return allSignals.filter((sig: any) => {
@@ -221,8 +213,6 @@ export default function MainScreen() {
 
   // ─── Alert Monitoring ──────────────────────────────────────────
   useAlertMonitor({
-    instruments: instrumentAnalysisQuery.data,
-    modules: modulesQuery.data,
     signals: allSignalsRaw as any,   // SEASignal[] shape differs from legacy Signal[]
     positions: positionsQuery.data,
   });

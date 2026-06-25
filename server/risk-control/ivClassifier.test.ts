@@ -26,7 +26,6 @@ import {
   _resetIvTunablesForTesting,
   _getIvSampleCountForTesting,
 } from "./ivClassifier";
-import { pushOptionChain } from "../tradingStore";
 
 // ─── Fixtures ────────────────────────────────────────────────────
 
@@ -177,37 +176,22 @@ describe("classifyAtmIv", () => {
   });
 });
 
-// ─── classifyIv (top-level) — integration with tradingStore ──────
+// ─── classifyIv (top-level) — classifies the latest recorded sample ──────
 
-describe("classifyIv (integrates with tradingStore)", () => {
-  it("returns null when no chain has been pushed", async () => {
-    const result = await classifyIv("UNKNOWN_INSTRUMENT");
-    expect(result).toBeNull();
+describe("classifyIv (classifies the latest recorded sample)", () => {
+  it("returns null when no IV has been recorded for the instrument", () => {
+    expect(classifyIv("UNKNOWN_INSTRUMENT")).toBeNull();
   });
 
-  it("returns null when history is below minSamples (single chain push)", async () => {
-    pushOptionChain("FLATCO", makeChain(100, {
-      "100": { ce: 18, pe: 20 },
-    }));
-    expect(await classifyIv("FLATCO")).toBeNull();
+  it("returns null when history is below minSamples", () => {
+    recordAtmIv("FLATCO", 19);
+    expect(classifyIv("FLATCO")).toBeNull();
   });
 
-  it("classifies after enough pushes have accumulated history", async () => {
-    // Seed history with enough varied samples: spread IV widely so
-    // current IV at 28 lands in the upper percentile.
-    for (let i = 0; i < 200; i++) {
-      const iv = 10 + (i / 200) * 20; // 10..30
-      pushOptionChain("HEAVY", makeChain(100, {
-        "100": { ce: iv, pe: iv },
-      }));
-    }
-    // Final push lands a high ATM IV (28 = ~p90). Chain stored is the
-    // latest, so classifyIv reads spot=100 + IV=28 from current chain.
-    pushOptionChain("HEAVY", makeChain(100, {
-      "100": { ce: 28, pe: 28 },
-    }));
-    const result = await classifyIv("HEAVY");
-    expect(result).toBe("expensive");
+  it("classifies the latest sample once enough history accumulates", () => {
+    for (let i = 0; i < 200; i++) recordAtmIv("HEAVY", 10 + (i / 200) * 20); // 10..30
+    recordAtmIv("HEAVY", 28); // latest, high → upper percentile
+    expect(classifyIv("HEAVY")).toBe("expensive");
   });
 
   it("recordAtmIvFromChain is a no-op when ATM IV can't be derived", () => {

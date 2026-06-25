@@ -14,9 +14,6 @@
 import type { Express, Request, Response } from 'express';
 import { z } from "zod";
 import {
-  pushOptionChain,
-  pushAnalyzerOutput,
-  updateModuleHeartbeat,
   getActiveInstruments,
   setActiveInstruments,
 } from './tradingStore';
@@ -30,22 +27,6 @@ import { createLogger } from "./broker/logger";
 const log = createLogger("BSA", "TradingAPI");
 
 // ─── Schemas ────────────────────────────────────────────────────
-
-const instrumentEnvelopeSchema = z
-  .object({
-    instrument: z.string().min(1),
-    // The chain / analyzer payloads are owned by the Python pipeline; we
-    // store them opaquely. Only the envelope is strict-validated.
-    data: z.unknown(),
-  })
-  .strict();
-
-const heartbeatSchema = z
-  .object({
-    module: z.string().min(1),
-    message: z.string().optional(),
-  })
-  .strict();
 
 const activeInstrumentsSchema = z
   .object({
@@ -87,54 +68,6 @@ const searchInstrumentsQuerySchema = z
 // ─── Routes ─────────────────────────────────────────────────────
 
 export function registerTradingRoutes(app: Express): void {
-  // Push option chain data from the Fetcher module
-  app.post(
-    '/api/trading/option-chain',
-    validateBody(instrumentEnvelopeSchema),
-    (req: Request, res: Response) => {
-      try {
-        const { instrument, data } = req.body as z.infer<typeof instrumentEnvelopeSchema>;
-        pushOptionChain(instrument, data as Parameters<typeof pushOptionChain>[1]);
-        res.json({ success: true, message: `Option chain updated for ${instrument}` });
-      } catch (err: any) {
-        log.error('Error pushing option chain', err);
-        res.status(500).json({ error: err.message });
-      }
-    },
-  );
-
-  // Push analyzer output from the Analyzer module
-  app.post(
-    '/api/trading/analyzer',
-    validateBody(instrumentEnvelopeSchema),
-    (req: Request, res: Response) => {
-      try {
-        const { instrument, data } = req.body as z.infer<typeof instrumentEnvelopeSchema>;
-        pushAnalyzerOutput(instrument, data as Parameters<typeof pushAnalyzerOutput>[1]);
-        res.json({ success: true, message: `Analyzer output updated for ${instrument}` });
-      } catch (err: any) {
-        log.error('Error pushing analyzer output', err);
-        res.status(500).json({ error: err.message });
-      }
-    },
-  );
-
-  // Module heartbeat endpoint
-  app.post(
-    '/api/trading/heartbeat',
-    validateBody(heartbeatSchema),
-    (req: Request, res: Response) => {
-      try {
-        const { module, message } = req.body as z.infer<typeof heartbeatSchema>;
-        updateModuleHeartbeat(module, message ?? 'Active');
-        res.json({ success: true });
-      } catch (err: any) {
-        log.error('Error updating heartbeat', err);
-        res.status(500).json({ error: err.message });
-      }
-    },
-  );
-
   // --- Active Instruments Control ---
   // GET: Python modules poll this to know which instruments to process
   app.get('/api/trading/active-instruments', (_req: Request, res: Response) => {

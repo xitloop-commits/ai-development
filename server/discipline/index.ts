@@ -172,7 +172,7 @@ class DisciplineAgent {
           //   - History below MIN_SAMPLES (low confidence).
           //   - ATM IV can't be derived (sparse chain).
           // Map null → "unknown", which the eval treats as a no-veto.
-          const ivClass = await classifyIv(t.instrument);
+          const ivClass = classifyIv(t.instrument);
           const ivLabel: "fair" | "cheap" | "expensive" | "unknown" = ivClass ?? "unknown";
 
           positions.push({

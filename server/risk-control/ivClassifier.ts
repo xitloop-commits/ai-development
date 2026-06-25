@@ -168,28 +168,20 @@ export function classifyAtmIv(instrument: string, currentIv: number | null | und
 }
 
 /**
- * Top-level classifier for callers (DA carry-forward eval). Resolves
- * the latest option chain for the instrument from tradingStore, derives
- * current ATM IV, and classifies. Returns null when:
- *   - No chain available for the instrument.
- *   - ATM IV can't be derived from the chain.
- *   - History below the runtime `minSamples`.
+ * Top-level classifier for callers (DA carry-forward eval). Classifies the
+ * MOST RECENT recorded ATM IV against the instrument's history. Returns null
+ * (the eval's no-veto sentinel) when no IV has been recorded yet or history is
+ * below the runtime `minSamples`.
  *
- * Caller maps null → "unknown" (the eval's no-veto sentinel).
- *
- * Implemented as a dynamic import to avoid risk-control → tradingStore
- * load-order coupling during boot.
+ * The history is fed via `recordAtmIv` / `recordAtmIvFromChain`. The legacy
+ * FETCHER→tradingStore push that used to feed it was removed; when carry-forward
+ * is enabled, wire `recordAtmIvFromChain` to a live option-chain source (e.g.
+ * the broker chain). Until then this returns null and carry-forward simply
+ * skips the IV condition.
  */
-export async function classifyIv(instrument: string): Promise<IvLabel | null> {
-  let chain: RawOptionChainData | null = null;
-  try {
-    const { getOptionChain } = await import("../tradingStore");
-    chain = getOptionChain(instrument) ?? null;
-  } catch {
-    return null;
-  }
-  if (!chain) return null;
-  const currentIv = atmIvFromChain(chain);
+export function classifyIv(instrument: string): IvLabel | null {
+  const samples = history.get(instrument) ?? [];
+  const currentIv = samples.length > 0 ? samples[samples.length - 1] : null;
   return classifyAtmIv(instrument, currentIv);
 }
 

@@ -5,8 +5,6 @@ import { createLogger } from "./broker/logger";
 
 const searchLog = createLogger("BSA", "InstrumentsSearch");
 import {
-  getModuleStatuses,
-  getInstrumentData,
   getActiveInstruments,
   setActiveInstruments,
   setConfiguredInstruments,
@@ -40,16 +38,6 @@ import { setReserveSplitPercent } from "./portfolio/compounding";
 export const appRouter = router({
   // Trading data endpoints (read from in-memory store)
   trading: router({
-    // Get all module statuses (heartbeats)
-    moduleStatuses: publicProcedure.query(() => {
-      return getModuleStatuses();
-    }),
-
-    // Get all instrument data (option chain + analyzer + AI decision combined)
-    instruments: publicProcedure.query(() => {
-      return getInstrumentData();
-    }),
-
     // Get live state for one instrument (InstrumentCard v2)
     instrumentLiveState: publicProcedure
       .input(z.object({ instrument: z.string() }))

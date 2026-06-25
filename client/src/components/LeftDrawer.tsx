@@ -6,7 +6,13 @@
 import { useState } from 'react';
 import InstrumentCard from '@/components/InstrumentCard';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
-import type { InstrumentData } from '@/lib/types';
+
+/** Minimal tab descriptor — the card pulls its own live data by name. */
+interface SidebarInstrument {
+  name: string;        // instrument key (NIFTY_50, BANKNIFTY, …)
+  displayName: string;
+  exchange?: string;
+}
 
 const NIFTY_BG = 'https://d2xsxph8kpxj0f.cloudfront.net/310519663447231618/hZHDUL7Uaz8bz3VADXMZ3Y/nifty-card-bg-JXr3vgp8ArcCjeDYxuHp5e.webp';
 const CRUDE_BG = 'https://d2xsxph8kpxj0f.cloudfront.net/310519663447231618/hZHDUL7Uaz8bz3VADXMZ3Y/crude-card-bg-9ALVSYhrmD5LJG7UAqvQuP.webp';
@@ -35,7 +41,7 @@ interface ResolvedFeedInstrument {
 
 interface LeftSidebarProps {
   visible: boolean;
-  instruments: InstrumentData[];
+  instruments: SidebarInstrument[];
   resolvedInstruments?: ResolvedFeedInstrument[];
 }
 

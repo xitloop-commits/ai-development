@@ -9,11 +9,9 @@
 import { useEffect, useRef } from 'react';
 import { useAlerts } from '@/contexts/AlertContext';
 import { formatINR } from '@/lib/formatINR';
-import type { InstrumentData, ModuleStatus, Signal, Position } from '@/lib/types';
+import type { Signal, Position } from '@/lib/types';
 
 interface MonitorData {
-  instruments: InstrumentData[] | undefined;
-  modules: ModuleStatus[] | undefined;
   signals: Signal[] | undefined;
   positions: Position[] | undefined;
 }
@@ -26,8 +24,6 @@ export function useAlertMonitor(data: MonitorData): void {
   const { dispatchAlert } = useAlerts();
 
   // Store previous state for comparison
-  const prevInstruments = useRef<Map<string, InstrumentData>>(new Map());
-  const prevModuleStatuses = useRef<Map<string, string>>(new Map());
   const prevSignalIds = useRef<Set<string>>(new Set());
   const prevPositionIds = useRef<Map<string, Position>>(new Map());
   const isInitialized = useRef(false);
@@ -36,16 +32,6 @@ export function useAlertMonitor(data: MonitorData): void {
     // Skip the first render to avoid alerting on initial data load
     if (!isInitialized.current) {
       // Populate initial state
-      if (data.instruments) {
-        for (const inst of data.instruments) {
-          prevInstruments.current.set(inst.name, inst);
-        }
-      }
-      if (data.modules) {
-        for (const mod of data.modules) {
-          prevModuleStatuses.current.set(mod.shortName, mod.status);
-        }
-      }
       if (data.signals) {
         for (const sig of data.signals) {
           prevSignalIds.current.add(sig.id);
@@ -58,36 +44,6 @@ export function useAlertMonitor(data: MonitorData): void {
       }
       isInitialized.current = true;
       return;
-    }
-
-    // --- Track instrument state for future ML model GO signals ---
-    if (data.instruments) {
-      for (const inst of data.instruments) {
-        prevInstruments.current.set(inst.name, inst);
-      }
-    }
-
-    // --- Check for module health degradation ---
-    if (data.modules) {
-      for (const mod of data.modules) {
-        const prevStatus = prevModuleStatuses.current.get(mod.shortName);
-
-        // Module went from active/warning to error
-        if (
-          mod.status === 'error' &&
-          prevStatus !== 'error' &&
-          prevStatus !== undefined &&
-          prevStatus !== 'idle'
-        ) {
-          dispatchAlert(
-            'module_down',
-            `${mod.name} — DOWN`,
-            `Module stopped responding. Last message: ${mod.message}`,
-          );
-        }
-
-        prevModuleStatuses.current.set(mod.shortName, mod.status);
-      }
     }
 
     // --- Check for new signals ---
@@ -158,5 +114,5 @@ export function useAlertMonitor(data: MonitorData): void {
       // Update previous positions
       prevPositionIds.current = currentPositionMap;
     }
-  }, [data.instruments, data.modules, data.signals, data.positions, dispatchAlert]);
+  }, [data.signals, data.positions, dispatchAlert]);
 }
