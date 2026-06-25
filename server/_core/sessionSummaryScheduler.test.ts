@@ -103,13 +103,13 @@ describe("sessionSummaryScheduler — formatSummary", () => {
   it("one-line profit close: '<exchange> closed with profit Rs.X Y%'", () => {
     const summary = computeSummary([trade({ pnl: 1500 })], 100_000, 101_500);
     const msg = formatSummary("NSE", summary);
-    expect(msg).toBe("NSE closed with profit Rs.1,500 (1.50%)");
+    expect(msg).toBe("NSE closed with profit Rs.1,500 - 1.50%");
   });
 
   it("one-line loss close: '<exchange> closed with loss Rs.X Y%' (magnitude only)", () => {
     const summary = computeSummary([trade({ pnl: -800 })], 100_000, 99_200);
     const msg = formatSummary("MCX", summary);
-    expect(msg).toBe("MCX closed with loss Rs.800 (0.80%)");
+    expect(msg).toBe("MCX closed with loss Rs.800 - 0.80%");
   });
 
   it("net across multiple trades", () => {
@@ -119,6 +119,6 @@ describe("sessionSummaryScheduler — formatSummary", () => {
     ];
     const summary = computeSummary(trades, 100_000, 100_200);
     const msg = formatSummary("NSE", summary);
-    expect(msg).toBe("NSE closed with profit Rs.200 (0.20%)");
+    expect(msg).toBe("NSE closed with profit Rs.200 - 0.20%");
   });
 });

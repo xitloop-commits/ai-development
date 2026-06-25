@@ -113,7 +113,7 @@ function fmtRupees(n: number): string {
 }
 
 /**
- * One-line close message: "<exchange> closed with <profit|loss> Rs.X (Y%)".
+ * One-line close message: "<exchange> closed with <profit|loss> Rs.X - Y%".
  * word + magnitude only (the word carries direction), matching the exit-alert
  * style. Totals are the day's net across the live channels for this exchange.
  */
@@ -121,7 +121,7 @@ export function formatSummary(exchange: Exchange, summary: SummaryStats): string
   const word = summary.netPnl >= 0 ? "profit" : "loss";
   const rs = `Rs.${Math.abs(Math.round(summary.netPnl)).toLocaleString("en-IN")}`;
   const pct = `${Math.abs(summary.netPnlPercent).toFixed(2)}%`;
-  return `${exchange} closed with ${word} ${rs} (${pct})`;
+  return `${exchange} closed with ${word} ${rs} - ${pct}`;
 }
 
 // ─── Dedup state ─────────────────────────────────────────────────

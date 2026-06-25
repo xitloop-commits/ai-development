@@ -25,17 +25,17 @@ describe("formatExit", () => {
     durationSeconds: 22 * 60,
   };
 
-  it("profit → 'profit Rs.{amount} {pct}% from {instrument}'", () => {
+  it("profit → 'profit Rs.{amount} from {instrument} - {pct}%'", () => {
     const msg = formatExit({
       ...base,
       realizedPnl: 3375,
       realizedPnlPercent: 30.0,
       reason: "TP_HIT",
     });
-    expect(msg).toBe("profit Rs.3,375 (30.00%) from NATURALGAS");
+    expect(msg).toBe("profit Rs.3,375 from NATURALGAS - 30.00%");
   });
 
-  it("loss → 'lost Rs.{amount} {pct}% from {instrument}'", () => {
+  it("loss → 'lost Rs.{amount} from {instrument} - {pct}%'", () => {
     const msg = formatExit({
       ...base,
       realizedPnl: -750,
@@ -43,7 +43,7 @@ describe("formatExit", () => {
       reason: "SL_HIT",
       triggeredBy: "PA",
     });
-    expect(msg).toBe("lost Rs.750 (12.50%) from NATURALGAS");
+    expect(msg).toBe("lost Rs.750 from NATURALGAS - 12.50%");
   });
 
   it("reason no longer changes the wording — a profitable SL_HIT still reads 'profit'", () => {
@@ -54,7 +54,7 @@ describe("formatExit", () => {
       reason: "SL_HIT",
       triggeredBy: "PA",
     });
-    expect(msg).toBe("profit Rs.900 (15.00%) from NATURALGAS");
+    expect(msg).toBe("profit Rs.900 from NATURALGAS - 15.00%");
   });
 
   it("a discipline exit in loss still reads 'lost'", () => {
@@ -65,7 +65,7 @@ describe("formatExit", () => {
       reason: "DISCIPLINE_EXIT",
       triggeredBy: "DA",
     });
-    expect(msg).toBe("lost Rs.900 (10.00%) from NATURALGAS");
+    expect(msg).toBe("lost Rs.900 from NATURALGAS - 10.00%");
   });
 
   it("zero P&L reads as 'profit Rs.0 0.00%'", () => {
@@ -75,7 +75,7 @@ describe("formatExit", () => {
       realizedPnlPercent: 0,
       reason: "MANUAL",
     });
-    expect(msg).toBe("profit Rs.0 (0.00%) from NATURALGAS");
+    expect(msg).toBe("profit Rs.0 from NATURALGAS - 0.00%");
   });
 });
 
