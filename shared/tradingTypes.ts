@@ -1,31 +1,11 @@
 /**
  * Shared trading types used by both server and client.
- * These define the contract between the Python backend data and the React frontend.
+ *
+ * (The large analyzer/option-chain UI type set — InstrumentData, ModuleStatus,
+ * SupportResistance, ActiveStrike, SRLevel, SRIntradayLevel, News*, RawAnalyzer-
+ * Output, TradingDataPayload, TradingMode, MarketEvent — was removed with the
+ * legacy FETCHER/ANALYZER pipeline.)
  */
-
-export interface ModuleStatus {
-  name: string;
-  shortName: string;
-  status: 'active' | 'warning' | 'error' | 'idle';
-  lastUpdate: string;
-  message: string;
-}
-
-export interface SupportResistance {
-  strike: number;
-  callOI: number;
-  putOI: number;
-  type: 'support' | 'resistance';
-}
-
-export interface ActiveStrike {
-  strike: number;
-  type: 'call' | 'put';
-  oi: number;
-  oiChange: number;
-  volume: number;
-  signal: string;
-}
 
 export type SignalType =
   | 'long_buildup'
@@ -49,41 +29,6 @@ export interface Signal {
   severity: 'high' | 'medium' | 'low';
 }
 
-export interface InstrumentData {
-  name: string;
-  displayName: string;
-  exchange: string;
-  hotkey?: string | null;
-  expiry: string;
-  lastPrice: number;
-  marketBias: 'BULLISH' | 'BEARISH' | 'RANGE_BOUND' | 'NEUTRAL';
-  aiDecision: 'GO' | 'NO_GO' | 'WAIT';
-  aiConfidence: number;
-  aiRationale: string;
-  supportLevels: SupportResistance[];
-  resistanceLevels: SupportResistance[];
-  activeStrikes: ActiveStrike[];
-  signals: Signal[];
-  totalCallOI: number;
-  totalPutOI: number;
-  pcrRatio: number;
-  strikesFound: number;
-
-  // Enhanced news sentiment
-  newsDetail?: NewsDetail | null;
-  newsEventFlags?: string[];
-
-  // Opening OI snapshot
-  openingSnapshot?: {
-    capturedAt: string;
-    openingLtp: number;
-  } | null;
-  srIntradayLevels?: SRIntradayLevel[];
-
-  // S/R Strength Line data (S5..ATM..R5) — built from option chain + analyzer
-  srLevels?: SRLevel[];
-}
-
 export interface Position {
   id: string;
   instrument: string;
@@ -100,47 +45,6 @@ export interface Position {
   entryTime: string;
 }
 
-export type TradingMode = 'LIVE' | 'PAPER';
-
-/** S/R Level detail for the horizontal strength line visualization */
-export interface SRLevel {
-  strike: number;
-  label: string;           // 'S5','S4','S3','S2','S1','ATM','R1','R2','R3','R4','R5'
-  type: 'support' | 'atm' | 'resistance';
-  oi: number;              // Current OI (put OI for support, call OI for resistance)
-  openOI: number;          // OI at market open (9:15 AM snapshot)
-  oiChangePct: number;     // Intraday % change since open
-  oiChangeAbs: number;     // Absolute OI change since open
-  strength: number;        // 0-100 wall strength
-  activityLabel: string;   // Layman label: 'Buyers Entering', 'Sellers Exiting', etc.
-  technicalLabel: string;  // Technical label: 'Long Buildup', 'Short Covering', etc.
-  trend: 'strong_up' | 'up' | 'flat' | 'down' | 'strong_down';
-  trendArrow: string;      // '▲▲' | '▲' | '─' | '▼' | '▼▼'
-  prediction?: 'BOUNCE' | 'BREAKOUT' | 'BREAKDOWN' | 'UNCERTAIN';
-  predictionProbability?: number; // 0-100
-  barStatus: 'strengthening' | 'weakening' | 'stable' | 'atm';
-}
-
-/** Enhanced news sentiment detail */
-export interface NewsArticle {
-  title: string;
-  source: string;
-  score: number; // net sentiment score
-}
-
-export interface NewsDetail {
-  sentiment: string;
-  strength: string;
-  confidence: number;
-  total_articles: number;
-  bull_score: number;
-  bear_score: number;
-  net_score: number;
-  queries_used: number;
-  event_flags: string[];
-  top_articles: NewsArticle[];
-}
-
 /** Market holiday for NSE or MCX */
 export interface MarketHoliday {
   date: string;          // ISO date string YYYY-MM-DD
@@ -153,14 +57,8 @@ export interface MarketHoliday {
   special?: string;      // e.g. 'Muhurat Trading'
 }
 
-/** Upcoming market event */
-export interface MarketEvent {
-  label: string;
-  date: string;  // 'Today', 'Tomorrow', 'In 2 days', or ISO date
-  category: string;
-}
-
-/** Shape of the raw option chain JSON from the Dhan API (fetcher output) */
+/** Shape of the raw option chain JSON from the Dhan API. Consumed by the IV
+ *  classifier (carry-forward) — kept though the fetcher that pushed it is gone. */
 export interface RawOptionChainData {
   last_price: number;
   oc: Record<string, {
@@ -197,58 +95,4 @@ export interface RawOptionChainData {
       top_bid_quantity: number;
     };
   }>;
-}
-
-/** S/R Intraday Level from the opening OI snapshot analysis */
-export interface SRIntradayLevel {
-  strike: number;
-  type: 'support' | 'atm' | 'resistance';
-  call_oi: number;
-  put_oi: number;
-  opening_call_oi: number;
-  opening_put_oi: number;
-  call_oi_intraday_change: number;
-  put_oi_intraday_change: number;
-  call_change_pct: number;
-  put_change_pct: number;
-  call_activity: string;
-  put_activity: string;
-  relevant_oi: number;
-  wall_strength: number;
-  is_atm: boolean;
-}
-
-/** Shape of the analyzer output JSON */
-export interface RawAnalyzerOutput {
-  instrument: string;
-  timestamp: string;
-  last_price: number;
-  active_strikes: {
-    call: number[];
-    put: number[];
-  };
-  main_support: number;
-  main_resistance: number;
-  support_levels: number[];
-  resistance_levels: number[];
-  market_bias: string;
-  oi_change_signals: string[];
-  entry_signals: string[];
-  real_time_signals: string[];
-  exit_signals: string[];
-  smart_money_signals: string[];
-
-  // Opening OI snapshot data
-  opening_snapshot?: {
-    captured_at: string;
-    opening_ltp: number;
-  } | null;
-  sr_intraday_levels?: SRIntradayLevel[];
-}
-
-/** Payload shape for the data push API */
-export interface TradingDataPayload {
-  instrument: string;
-  optionChain?: RawOptionChainData;
-  analyzerOutput?: RawAnalyzerOutput;
 }
