@@ -191,7 +191,7 @@ function _TodayTradeRow({
                 }
                 trailingEnabled={globalTrailingEnabled}
                 tslHoldSeconds={tslHoldSeconds}
-                tslActivatedAt={(trade as any).tslActivatedAt ?? null}
+                tslActivatedAt={trade.tslActivatedAt ?? null}
                 tslGatePrice={(() => {
                   const be = trade.breakevenPrice ?? trade.entryPrice;
                   const g = tslGatePercent ?? 2;
@@ -462,7 +462,7 @@ export const TodayTradeRow = memo(function TodayTradeRow(props: TodayTradeRowPro
     const prev = prevRef.current;
     if (import.meta.env.DEV) {
       if (prev.status === 'OPEN' && t.status !== 'OPEN') {
-        console.log(`[XSYNC-CLI] CLOSED trade=${t.id} ${t.instrument} status=${t.status} reason=${(t as any).exitReason ?? '?'} exit=${t.exitPrice ?? '?'}`);
+        console.log(`[XSYNC-CLI] CLOSED trade=${t.id} ${t.instrument} status=${t.status} reason=${t.exitReason ?? '?'} exit=${t.exitPrice ?? '?'}`);
       }
       const stop = t.stopLossPrice ?? null;
       if (stop !== prev.stop) {
