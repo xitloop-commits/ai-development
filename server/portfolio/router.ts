@@ -499,8 +499,8 @@ export const portfolioRouter = router({
 
         // 2. Replace capital state with fresh initialization
         const freshState = {
-          tradingPool: Math.round(input.initialFunding * tradingSplit() * 100) / 100,
-          reservePool: Math.round(input.initialFunding * (1 - tradingSplit()) * 100) / 100,
+          tradingPool: Math.round(input.initialFunding * 100) / 100,
+          reservePool: 0,
           initialFunding: input.initialFunding,
           currentDayIndex: 1,
           targetPercent,
@@ -579,8 +579,8 @@ export const portfolioRouter = router({
       const deleted = await deleteAllDayRecords(input.channel);
 
       const freshState = {
-        tradingPool: Math.round(input.initialFunding * tradingSplit() * 100) / 100,
-        reservePool: Math.round(input.initialFunding * (1 - tradingSplit()) * 100) / 100,
+        tradingPool: Math.round(input.initialFunding * 100) / 100,
+        reservePool: 0,
         initialFunding: input.initialFunding,
         currentDayIndex: 1,
         targetPercent,

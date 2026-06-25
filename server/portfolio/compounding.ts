@@ -74,8 +74,11 @@ export function initializeCapital(
   const today = new Date().toISOString().slice(0, 10);
   return {
     channel,
-    tradingPool: round(initialFunding * tradingSplit()),
-    reservePool: round(initialFunding * reserveSplit()),
+    // All seed capital goes to the Trading Pool; the Reserve Pool starts empty
+    // and grows only from booked profit (completeDayIndex). The reserve split
+    // applies to PROFIT, never to capital.
+    tradingPool: round(initialFunding),
+    reservePool: 0,
     initialFunding,
     currentDayIndex: 1,
     targetPercent,
@@ -428,8 +431,8 @@ function plannedNetWorthAtDay(
   targetPercent: number
 ): number {
   const rate = targetPercent / 100;
-  let tp = initialFunding * tradingSplit();   // trading-pool seed
-  let rp = initialFunding * reserveSplit();   // reserve-pool seed
+  let tp = initialFunding;   // all capital seeds the trading pool
+  let rp = 0;                // reserve grows only from profit
   for (let d = 1; d <= dayIndex; d++) {
     const profit = tp * rate;
     tp += profit * tradingSplit();

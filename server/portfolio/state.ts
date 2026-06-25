@@ -9,7 +9,6 @@
 import mongoose, { Schema } from "mongoose";
 import { PortfolioStateModel, PositionStateModel } from "./storage";
 import { tickBus } from "../broker/tickBus";
-import { tradingSplit, reserveSplit } from "./compounding";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -769,8 +768,8 @@ export async function getCapitalState(channel: Channel): Promise<CapitalState> {
 
   const initial: CapitalState = {
     channel,
-    tradingPool: DEFAULT_INITIAL_FUNDING * tradingSplit(),
-    reservePool: DEFAULT_INITIAL_FUNDING * reserveSplit(),
+    tradingPool: DEFAULT_INITIAL_FUNDING,
+    reservePool: 0,
     initialFunding: DEFAULT_INITIAL_FUNDING,
     currentDayIndex: 1,
     targetPercent: 5,

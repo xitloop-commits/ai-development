@@ -101,10 +101,10 @@ describe("Capital Engine Constants", () => {
 // ─── Initialization ─────────────────────────────────────────────
 
 describe("initializeCapital", () => {
-  it("should create state with 75/25 split", () => {
+  it("seeds all capital to the trading pool, reserve starts at 0", () => {
     const state = initializeCapital("live", 100000, 5);
-    expect(state.tradingPool).toBe(75000);
-    expect(state.reservePool).toBe(25000);
+    expect(state.tradingPool).toBe(100000);
+    expect(state.reservePool).toBe(0);
     expect(state.initialFunding).toBe(100000);
     expect(state.currentDayIndex).toBe(1);
     expect(state.targetPercent).toBe(5);
@@ -113,15 +113,15 @@ describe("initializeCapital", () => {
 
   it("should use default funding when not specified", () => {
     const state = initializeCapital("paper");
-    expect(state.tradingPool).toBe(75000);
-    expect(state.reservePool).toBe(25000);
+    expect(state.tradingPool).toBe(100000);
+    expect(state.reservePool).toBe(0);
     expect(state.initialFunding).toBe(100000);
   });
 
   it("should handle custom funding amounts", () => {
     const state = initializeCapital("live", 500000, 3);
-    expect(state.tradingPool).toBe(375000);
-    expect(state.reservePool).toBe(125000);
+    expect(state.tradingPool).toBe(500000);
+    expect(state.reservePool).toBe(0);
     expect(state.targetPercent).toBe(3);
   });
 
@@ -164,11 +164,11 @@ describe("configurable reserve split", () => {
     expect(result.reservePool).toBe(25400); // 25000 + 1000*0.40
   });
 
-  it("seed split (initializeCapital) honours the configured split", () => {
+  it("seed ignores the split — all capital to trading, reserve 0 (reserve is profit-only)", () => {
     setReserveSplitPercent(10);
     const state = initializeCapital("live", 100000, 5);
-    expect(state.tradingPool).toBe(90000);
-    expect(state.reservePool).toBe(10000);
+    expect(state.tradingPool).toBe(100000);
+    expect(state.reservePool).toBe(0);
   });
 });
 
@@ -597,15 +597,16 @@ describe("recalculateDayAggregates", () => {
 
 describe("Full Trade Lifecycle (Pure Logic)", () => {
   it("should simulate a profitable day from init to completion", () => {
-    // 1. Initialize
+    // 1. Initialize — all capital seeds the trading pool, reserve 0
     const state = initializeCapital("live", 100000, 5);
-    expect(state.tradingPool).toBe(75000);
+    expect(state.tradingPool).toBe(100000);
+    expect(state.reservePool).toBe(0);
 
     // 2. Create day 1
-    const day1 = createDayRecord(1, state.tradingPool, state.targetPercent, 75000, "live");
-    expect(day1.targetAmount).toBe(3750);
+    const day1 = createDayRecord(1, state.tradingPool, state.targetPercent, 100000, "live");
+    expect(day1.targetAmount).toBe(5000); // 100000 * 5%
 
-    // 3. Add a winning trade
+    // 3. Add winning trades (total 6000 > 5000 target)
     day1.trades.push(makeTrade({
       status: "CLOSED",
       entryPrice: 150,
@@ -617,25 +618,25 @@ describe("Full Trade Lifecycle (Pure Logic)", () => {
     day1.trades.push(makeTrade({
       status: "CLOSED",
       entryPrice: 200,
-      exitPrice: 250,
+      exitPrice: 290,
       qty: 50,
-      pnl: 2500,
+      pnl: 4500,
       charges: 55,
     }));
 
     // 4. Recalculate aggregates
     const updated = recalculateDayAggregates(day1);
-    expect(updated.totalPnl).toBe(4000); // trade.pnl already net of charges
+    expect(updated.totalPnl).toBe(6000); // trade.pnl already net of charges
 
     // 5. Check completion
     const completion = checkDayCompletion(updated);
     expect(completion.complete).toBe(true);
-    expect(completion.excessProfit).toBe(round(4000 - 3750)); // 250
+    expect(completion.excessProfit).toBe(round(6000 - 5000)); // 1000
 
-    // 6. Complete day
+    // 6. Complete day — profit splits, reserve grows from profit only
     const result = completeDayIndex(state, updated);
-    expect(result.tradingPool).toBe(round(75000 + 4000 * TRADING_SPLIT));
-    expect(result.reservePool).toBe(round(25000 + 4000 * RESERVE_SPLIT));
+    expect(result.tradingPool).toBe(round(100000 + 6000 * TRADING_SPLIT)); // 104500
+    expect(result.reservePool).toBe(round(0 + 6000 * RESERVE_SPLIT));       // 1500
     expect(result.profitEntry.consumed).toBe(false);
   });
 
