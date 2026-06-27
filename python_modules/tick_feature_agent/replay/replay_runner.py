@@ -1192,9 +1192,19 @@ def _worker_run_one_date(
             # don't clobber prior heartbeat fields like event_idx / rate.
             merged = dict(progress_dict.get(date_str) or {})
             merged.update(data)
-            # Worker is alive until the future resolves; parent's
-            # dashboard.mark_terminal sets the final status afterwards.
-            merged["status"] = "running"
+            # 2026-06-26 fix: only default to "running" when the worker is
+            # sending a normal heartbeat (no explicit status). When
+            # run_one_date posts a terminal verdict ({"status": "pass"|
+            # "warn"|"fail"}) at the end of validation -- the 2026-06-22
+            # "instant-green" path -- preserve it so the dashboard row
+            # flips colour without waiting for the parent's as_completed
+            # → mark_terminal roundtrip. Previously the unconditional
+            # ``merged["status"] = "running"`` here silently clobbered
+            # that verdict, leaving rows wedged at "validating..." for
+            # the entire elapsed time of the run (real observation:
+            # 4 PASSed crudeoil dates parked on screen for 31 hours).
+            if "status" not in data:
+                merged["status"] = "running"
             progress_dict[date_str] = merged
         except Exception:
             # Manager proxy may be torn down on parent shutdown — ignore.
@@ -1357,9 +1367,26 @@ def replay(
             progress_dict=progress_dict,
             mode_str=dashboard_mode_str,
         ) as dashboard:
+            # ── Per-date subprocess recycling (2026-06-26) ────────────────
+            # max_tasks_per_child=1 → ProcessPoolExecutor spawns a fresh
+            # subprocess for EVERY date, then tears it down once the
+            # date's verdict is returned. Reason: the previous "1 worker
+            # reused across all N dates" pattern leaked memory on
+            # Windows -- Python's GC + arena allocator never return
+            # pages to the OS, so each completed date's adapter state /
+            # validator parquet tables / monkey-patch caches inflate
+            # RSS monotonically. Real observation 2026-06-26: a single
+            # worker grew from ~4 GB on date 1 to ~7.2 GB by date 4 of
+            # an 18-date crudeoil batch; date 18 would have hit OOM.
+            # The OS reclaims everything cleanly at process exit, so
+            # forcing one task per child guarantees no leak across dates.
+            # Cost: ~2-5 s of spawn overhead per date (negligible vs the
+            # 1-2 hr per-date MCX event-loop). Python 3.11+ supports
+            # the kwarg; "spawn" context is already set above.
             with ProcessPoolExecutor(
                 max_workers=n_workers, mp_context=mp_ctx,
                 initializer=_worker_sigint_ignore,
+                max_tasks_per_child=1,
             ) as pool:
                 futures = {
                     pool.submit(
