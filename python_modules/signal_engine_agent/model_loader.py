@@ -9,6 +9,7 @@ isotonic sidecars (T25, V2_MASTER_SPEC D72).
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -91,6 +92,13 @@ def load_models(
             f"LATEST points to {version!r} but directory does not exist: {version_dir}"
         )
 
+    # 2026-06-30 — calibration kill switch. The per-head isotonic sidecars were
+    # found mis-fit (they collapse the raw model output to a near-constant,
+    # wrecking AUC — e.g. nifty50 trend_direction_900s raw 0.43 -> calib 0.08).
+    # When SEA_DISABLE_CALIBRATION is set we skip loading every sidecar, so
+    # apply_calibration() falls through to the raw probability for all heads.
+    disable_cal = os.environ.get("SEA_DISABLE_CALIBRATION", "").strip().lower() not in ("", "0", "false", "no")
+
     models: dict = {}
     calibrations: dict[str, CalibrationMap] = {}
     for target in MVP_TARGETS:
@@ -101,6 +109,8 @@ def load_models(
 
         # T25 sidecar — only present for binary heads the trainer
         # successfully calibrated. Missing sidecar → raw probs (graceful).
+        if disable_cal:
+            continue
         cal_path = version_dir / f"{target}.calibration.json"
         cmap = read_calibration_sidecar(cal_path)
         if cmap is not None:
