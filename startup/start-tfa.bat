@@ -89,6 +89,12 @@ if errorlevel 1 (
 set PYTHONIOENCODING=utf-8
 chcp 65001 >nul 2>&1
 
+REM The launcher owns the post-session label replay (runs INLINE below, after
+REM the live run exits, visible on this console). Tell TFA's in-process
+REM session-close hook to stand down so we don't get a duplicate detached
+REM replay window.
+set "LUBAS_LAUNCHER_OWNS_REPLAY=1"
+
 set "OUTPUT_FILE=data\features\%INSTRUMENT%_live.ndjson"
 
 REM Truncate the previous session's live NDJSON so the file stays bounded
@@ -120,6 +126,35 @@ if !EXIT_CODE! == 0 (
     set "EXIT_RESULT=error"
 )
 call powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%_emit-lifecycle.ps1" -Event stop -Result !EXIT_RESULT! -Process "tfa-%INSTRUMENT%" -Code !EXIT_CODE! >nul 2>&1
+
+REM --- Post-session labeling (logged on THIS console) ---------------------
+REM   If this was a LIVE run, replay today's recorded ticks NOW to produce the
+REM   labeled feature parquet (all horizons, incl. trend/swing). Runs inline so
+REM   you can see it, and fires even if live crashed before its own
+REM   session-close hook could (that hook stands down — LUBAS_LAUNCHER_OWNS_
+REM   REPLAY). Skips if today is already labeled. This replaces the old
+REM   detached auto-replay window + the separate scheduled backstop.
+echo %EXTRA_ARGS% | findstr /C:"--mode replay" >nul
+if !errorlevel! NEQ 0 (
+    for /f %%d in ('powershell -NoProfile -Command "(Get-Date).ToString('yyyy-MM-dd')"') do set "DAY=%%d"
+    echo.
+    echo ============================================================
+    echo   Label replay -- %INSTRUMENT% !DAY!
+    echo ============================================================
+    if exist "data\features\!DAY!\%INSTRUMENT%_features.parquet" (
+        echo   [labels] already present -- skipping replay.
+    ) else if exist "data\features\!DAY!\%INSTRUMENT%_features_part001.parquet" (
+        echo   [labels] already present ^(parts^) -- skipping replay.
+    ) else (
+        echo   [labels] producing labels for %INSTRUMENT% !DAY! ...
+        %PYTHON_CMD% python_modules\tick_feature_agent\main.py --instrument-profile %PROFILE_PATH% --mode replay --date !DAY!
+        if !errorlevel! == 0 (
+            echo   [labels] DONE -- %INSTRUMENT% !DAY! labeled.
+        ) else (
+            echo   [labels] FAILED -- %INSTRUMENT% !DAY! replay errored ^(exit !errorlevel!^). Re-run: startup\start-tfa.bat %INSTRUMENT% --mode replay --date !DAY!
+        )
+    )
+)
 
 REM --- Keep cmd window open after replay so the operator can read
 REM     the dashboard's final frame (printed as static text by

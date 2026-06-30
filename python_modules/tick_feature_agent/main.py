@@ -234,6 +234,19 @@ def _spawn_auto_replay(instrument_key: str, log) -> None:
     today_ist = datetime.now(_IST).strftime("%Y-%m-%d")
     inst = instrument_key
 
+    # The launcher (start-tfa.bat) now owns the post-session label replay so it
+    # runs INLINE on the operator's console (visible) and fires even if the live
+    # session crashed before session-close ever triggered. When the launcher is
+    # driving, stand down here to avoid a duplicate detached replay.
+    if os.environ.get("LUBAS_LAUNCHER_OWNS_REPLAY", "").strip() not in ("", "0", "false"):
+        log.info(
+            "AUTO_REPLAY_DELEGATED",
+            msg=f"Auto-replay delegated to launcher (inline) for {inst} {today_ist}",
+            instrument=inst,
+            date=today_ist,
+        )
+        return
+
     if _is_replay_already_running(inst, today_ist):
         log.info(
             "AUTO_REPLAY_SKIPPED",
