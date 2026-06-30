@@ -1060,6 +1060,13 @@ function validateOptionAgainstScrip(req: SubmitTradeRequest): string | null {
   if (req.optionType !== "CE" && req.optionType !== "PE") return null;
   const label = `${req.instrument} ${req.strike ?? "?"} ${req.optionType} ${req.expiry || "(no expiry)"}`;
 
+  // MOCK toggle: the mock adapter mints synthetic "MOCK-…" securityIds and
+  // resolves them against its OWN scrip list, not the real Dhan scrip master.
+  // Validating those against the real master would always (wrongly) reject —
+  // so exempt them. Real ids (paper-on-live-data and all live channels) still
+  // pass through the gate below.
+  if (req.contractSecurityId?.startsWith("MOCK-")) return null;
+
   if (!req.contractSecurityId) {
     return `Option ${label} has no resolved contract securityId — the option chain returned no match. Check the strike and expiry.`;
   }
