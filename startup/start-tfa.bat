@@ -154,6 +154,21 @@ if !errorlevel! NEQ 0 (
             echo   [labels] FAILED -- %INSTRUMENT% !DAY! replay errored ^(exit !errorlevel!^). Re-run: startup\start-tfa.bat %INSTRUMENT% --mode replay --date !DAY!
         )
     )
+
+    REM --- Backfill prediction outcomes (T41 feedback loop) -----------------
+    REM   Joins the finalized predictions parquet (written by SEA this session)
+    REM   against today's recorded underlying ticks and fills the outcome_*
+    REM   columns. Idempotent + non-fatal: skips cleanly if SEA didn't run or
+    REM   hasn't finalized its parquet yet. Predictions now carry the tick's
+    REM   own recv_ts (engine._derive_ts_ns), so this join is exact.
+    echo.
+    echo   [outcomes] backfilling prediction outcomes -- %INSTRUMENT% !DAY! ...
+    %PYTHON_CMD% -m signal_engine_agent.outcome_backfiller --instrument %INSTRUMENT% --date !DAY!
+    if !errorlevel! == 0 (
+        echo   [outcomes] DONE.
+    ) else (
+        echo   [outcomes] skipped/failed ^(exit !errorlevel!^) -- non-fatal.
+    )
 )
 
 REM --- Keep cmd window open after replay so the operator can read
