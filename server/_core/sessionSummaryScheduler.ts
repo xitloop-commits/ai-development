@@ -37,8 +37,36 @@ const STATE_PATH = join(process.cwd(), "data", "session-summary-state.json");
 const NSE_CLOSE_TIME = "15:30";
 const MCX_CLOSE_TIME = "23:30";
 
+/**
+ * Instrument-name filter for per-exchange summaries.
+ *
+ * TWO conventions coexist in the wider codebase:
+ *   - Exchange-standard names: "NIFTY 50", "BANK NIFTY", "CRUDE OIL",
+ *     "NATURAL GAS" (with spaces). Used in broker responses, index lists.
+ *   - Broker-adapter shorthand: "NIFTY50", "BANKNIFTY", "CRUDEOIL",
+ *     "NATURALGAS" (no spaces). Used in trade records the AI writes
+ *     (SEA_AUTO_TRADE path, dhan option orders, day_records.trades[]).
+ *
+ * The old filter `["NIFTY 50", "BANK NIFTY"].includes(t.instrument)`
+ * silently rejected every AI paper trade today (2026-07-01) because
+ * every trade record used the no-space form -- 28 CLOSED trades on
+ * ai-paper filtered to zero, digest pushed "profit Rs.0". Fixed with
+ * a normalise-both-sides comparison so both conventions match.
+ */
 const NSE_INSTRUMENTS = ["NIFTY 50", "BANK NIFTY"];
 const MCX_INSTRUMENTS = ["CRUDE OIL", "NATURAL GAS"];
+
+/** Normalise for filter comparison: uppercase + strip spaces. Matches
+ *  both "NIFTY 50" and "NIFTY50" -> "NIFTY50", "nifty 50" -> "NIFTY50",
+ *  etc. Keeps the exported constants readable while making the filter
+ *  robust to whichever form a caller uses. */
+function normaliseInstrumentName(s: string): string {
+  return s.toUpperCase().replace(/\s+/g, "");
+}
+function matchesInstrument(target: string[], actual: string): boolean {
+  const a = normaliseInstrumentName(actual);
+  return target.some((t) => normaliseInstrumentName(t) === a);
+}
 /**
  * Channels included in the session close-out digest. Narrowed
  * 2026-07-01 to AI-only per operator: manually-placed trades (my-live /
@@ -282,7 +310,7 @@ async function buildAndSend(exchange: Exchange, now: Date = new Date()): Promise
         continue;
       }
       const channelTrades = (day.trades ?? []).filter((t) =>
-        targetInstruments.includes(t.instrument),
+        matchesInstrument(targetInstruments, t.instrument),
       );
       perChannelInput.push({ channel, trades: channelTrades });
       totalStartingCapital += day.tradeCapital ?? 0;
