@@ -1013,19 +1013,42 @@ Done 2026-06-25 (orderUpdateWs suite 14/14, incl. a new test built from a **real
 - **Combines with T64:** now a real reject reaches `applyBrokerOrderEvent` → trade flips to **REJECTED** with the actual reason (e.g. `"RMS:…Intraday orders cannot be placed at this time."` / insufficient funds) shown on the badge tooltip. **Takes effect next server restart.**
 - **Follow-ups:** (1) the **11 already-stuck PENDING** testing-live trades self-heal on next restart now that T66 reconcile-on-connect is in. (2) testing-live appends to a **stale `2026-06-19` day record** (rollover bug — still open). (3) ~~recovery engine blind to PENDING~~ and ~~REST status casing~~ both fixed in T66.
 
-### T68 [Signal Engine] — SEA edge audit: scalp is a coin-flip, trend edge is real but gagged by broken calibration 🔬
+### T68 [Signal Engine] — ⚠️ CORRECTED 2026-07-01: the scalp model is FINE (~0.84 AUC live); the "0.49 coin-flip" was a MEASUREMENT ARTIFACT 🔬
+> **Read this correction before acting on anything below.** The 2026-06-30 investigation (preserved further down, now SUPERSEDED) concluded the scalp head was a coin-flip and the calibration was broken. **Both conclusions were wrong** — artifacts of a bad prediction↔label join. Do **not** retrain, refit calibration, or chase "no edge" on the strength of the old text.
+
+**Correction evidence (2026-07-01, all read-only; scratch scripts in session scratchpad):**
+- **The scalp direction model has real, stable edge.** Raw booster AUC on the 6 days the trees never trained on (cutoff 06-15: 06-16/17/18/19/22/30): banknifty `direction_60s` pooled **0.759** (194k rows), nifty50 **0.777**. Per-day 0.72–0.79. Measured the honest way: model's own raw output vs the exact training-label column, using the shared replay/train feature path.
+- **Calibration is fine, not broken.** Raw vs calibrated AUC identical (BN 0.759 vs 0.759, Spearman **1.000** — monotonic). The old "raw 0.43 → calib 0.08 / Spearman 0.385" collapse **does not reproduce**. `SEA_DISABLE_CALIBRATION=1` is therefore fixing a non-problem (harmless).
+- **The live path is NOT skewed.** Rebuilt every 06-30 live vector via the exact `LiveTickPreprocessor`, hashed it, and joined to the live prediction log by `feature_snapshot_hash`: **35,520 predictions, 100% identical, corr 1.0000.** Live scalp AUC on 06-30 (correct emit-time label join) = **0.836**, matching replay. The model worked live.
+- **Where the "0.49" came from:** the live feature ndjson carries **no `recv_ts_ns`**, so `prediction_logger` fell back to stamping each row with **wall-clock `time.time_ns()`**. Joining wall-clock-stamped predictions against **emit-time** labels mispairs ticks → AUC collapses to ~0.49. That is the entire "coin-flip." (Both the 06-30 audit and a 07-01 re-check reproduced the artifact, then dissolved it with the hash join.)
+
+**Revised conclusions:**
+- Scalp direction edge is real (~0.76–0.84). No skew, no runtime bug, calibration OK. **No retrain needed for "lack of edge."**
+- Trend heads are modest-but-real on banknifty (`trend_direction_900s/1800s` ~0.59–0.61 OOS), weak on nifty50 (~0.51). `trend_continues` genuinely is a dud (~0.54) — real, but a smaller issue than thought.
+- The ₹599/day bleed is **real but not a prediction problem** — with 0.84 direction and a 46% win rate, it points to **execution/cost** (≈26 tiny trades/day where ₹53 charges dominate, plus TP/SL magnitude scaling). *Not yet re-measured — see next.*
+
+**The ONE real bug (root of all the mismeasurement):** live features lack a stable tick timestamp/id, so predictions can't be reliably joined to outcomes — that is why `outcome_*` is 0% backfilled and why every AUC read has been wrong. **Fix:** TFA should emit `recv_ts_ns` (or a monotonic tick id) on each live feature row; `prediction_logger` should key off it; `outcome_backfiller` should join on it.
+
+**Open / next (revised):**
+1. **Fix the measurement bug** — emit `recv_ts_ns`/tick-id in live features → trustworthy prediction↔outcome joins (unblocks honest forward edge tracking).
+2. **Attack the real bleed** — measure trade economics (charges vs edge, TP-hit / SL-hit rates) to explain why a 0.84 model lost money; fix costs/sizing before re-enabling scalp auto-trade.
+3. Re-enabling scalp auto-trade is reasonable **after** (2), since the direction edge is genuine. `SEA_DISABLE_CALIBRATION` can stay or go (no measurable effect).
+4. Trend gate: banknifty edge is real but small; revisit after (1) gives clean forward labels.
+
+**Actions taken 2026-06-30 (now understood as based on a false diagnosis, but harmless / left in place):**
+- **Paused scalp auto-trade** — `SEA_AUTO_TRADE` commented in `startup/start-sea.bat`. Stopped the bleed (correct outcome, wrong reason — bleed is cost, not the model). Re-enable after item (2).
+- **Disabled calibration** — `SEA_DISABLE_CALIBRATION=1`. Now known unnecessary (calibration is monotonic/fine); harmless to keep.
+- **Inline post-session labeling** in `start-tfa.bat` — genuinely useful, keep.
+
+<details><summary>SUPERSEDED — original 2026-06-30 investigation text (kept for history; conclusions overturned above)</summary>
+
 2026-06-30 investigation (triggered by AI paper desk bleeding ~₹599/day on NIFTY/BankNifty scalps). Measured each model head's AUC against realized labels:
-- **Scalp `direction_prob_60s` = AUC ~0.49** across 3 instrument-days (06-22 BN/NF, 06-30 BN) — a **coin flip**. It's the only cohort auto-trading (26 trades/day, 46% win, charges ₹53/trade dominate). **No directional edge.**
+- **Scalp `direction_prob_60s` = AUC ~0.49** across 3 instrument-days (06-22 BN/NF, 06-30 BN) — a **coin flip**. It's the only cohort auto-trading (26 trades/day, 46% win, charges ₹53/trade dominate). **No directional edge.** — *WRONG: artifact of wall-clock vs emit-time label join; true AUC ~0.84.*
 - **Trend `trend_direction_1800s` = raw AUC ~0.57–0.67** (both instruments, 06-30) — **real edge**, but it barely fires: the gate also requires `trend_continues` (a genuine dud, raw ~0.5) and the predictions are mis-scaled.
-- **ROOT CAUSE of the trend silence = broken calibration.** The per-head isotonic `.calibration.json` sidecars are **mis-fit** — they collapse the raw output to a near-constant (e.g. nifty50 `trend_direction_900s`: raw AUC 0.43 → calibrated **0.08**; Spearman(raw,calib)=0.385, i.e. non-monotonic, which a valid calibration can never be). Confirmed it's calibration, not replay (labels 83% agree with realized spot) and not the raw model. Calibration also *degrades* good heads (BN `trend_direction_1800s` 0.666→0.609).
+- **ROOT CAUSE of the trend silence = broken calibration.** The per-head isotonic `.calibration.json` sidecars are **mis-fit** — they collapse the raw output to a near-constant (e.g. nifty50 `trend_direction_900s`: raw AUC 0.43 → calibrated **0.08**; Spearman(raw,calib)=0.385). — *WRONG: does not reproduce; raw vs calib Spearman = 1.000.*
 - **Reversals (the up-swings):** even un-blindfolded, on a down day the gate only fires puts; the model predicts "up" just 8% during actual up-moves. Catching reversals is a later model/retrain problem, not a config one.
 
-**Actions taken (2026-06-30, all reversible, take effect on next SEA restart):**
-- **Paused scalp auto-trade** — commented `SEA_AUTO_TRADE` in `startup/start-sea.bat`. Signals + UI + labeling keep running; only auto-placement stops (kills the bleed).
-- **Disabled the broken calibration** — `SEA_DISABLE_CALIBRATION=1` (new flag) + `model_loader.load_models` skips the sidecars → uses raw. Verified: flag on → 0 sidecars, off → 32 (default path intact).
-- **Reliable post-session labeling, on-console** — `start-tfa.bat` now runs the label replay **inline after the live run exits** (visible on the operator's console, fires even if live crashed before its own session-close hook could). TFA's in-process detached auto-replay stands down via `LUBAS_LAUNCHER_OWNS_REPLAY` (set by the launcher) so there's no duplicate. Skips if today is already labeled. Replaces both the old hidden detached window and the idea of a separate scheduled backstop.
-
-**Open / next:** (1) only **1 day** of trend predictions exists (heads deployed 06-30) — accumulate forward labeled days, then re-check trend AUC across up+down regimes before enabling the trend gate in paper. (2) **Refit the calibration** properly (currently bypassed). (3) Reversal capture likely needs a **retrain** (balanced regimes + bottoming features) — only after the forward data proves the trend edge holds. (4) Data-pipeline gaps found: raw purged for some days, prediction-log `outcome_*` 0% backfilled, EOD labeling was unreliable (now inline post-session in start-tfa.bat).
+</details>
 
 ### T67 [Execution] — Dhan token mid-session self-heal (replaces restart-only) + colored token logs ✅
 Done 2026-06-26 (typecheck clean; dhanAdapter 55/55, broker+executor 357/357). An expired Dhan token mid-session used to flood 401s ("marking expired, no auto-refresh") until an operator restarted. Now the adapter **self-heals**: on a REST 401 it mints a fresh token via the existing TOTP path (`generateDhanToken` → `updateToken`, which already propagates to feed WS + order-update WS), so connections recover with **no restart**.

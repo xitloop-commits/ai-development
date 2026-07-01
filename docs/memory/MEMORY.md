@@ -29,6 +29,7 @@ Working-style preferences:
 - [TFA + its Dhan WS connection are off-limits](feedback_tfa_do_not_touch.md) — never propose refactors that touch TFA's spouse-account WebSocket path.
 - [BrokerId rename in progress](project_broker_id_rename.md) — `dhan` → `dhan-primary-ac`, `dhan-ai-data` → `dhan-secondary-ac`. Code first, MongoDB migration LAST.
 - [SEA gate is call-only (bug)](project_sea_gate_call_bias.md) — wave2 gate's `upside_percentile_60s≥60` filter blocks all puts; direction head is balanced. Fix the GATE (leg-aware C2/C3), not the model. Confirmed 2026-06-25.
+- [BankNifty scalp edge is REAL — T68 "coin-flip" was a measurement artifact](project_banknifty_scalp_edge_real.md) — model ~0.84 AUC live; the 0.49 came from a wall-clock vs emit-time label join; real bug = live features lack `recv_ts_ns`; bleed is execution/cost, not prediction. Don't retrain / refit-calibration on the old T68 text. Verified 2026-07-01.
 - ["Claud Says" advisor resume (T63)](project_claud_says_resume.md) — option-chain → Claude verdict in InstrumentCard; built & typechecks, blocked only on Anthropic API credit (Max ≠ API). Resume: top up credits → smoke test → live click.
 
 This auto-memory directory intentionally kept minimal so that nothing important lives in a per-machine location.
