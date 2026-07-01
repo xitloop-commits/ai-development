@@ -39,6 +39,7 @@ from model_training_agent.preprocessor import LiveTickPreprocessor
 from signal_engine_agent.cohort import build_head_type_map
 from signal_engine_agent.model_loader import load_models
 from signal_engine_agent.prediction_logger import PredictionLogger
+from signal_engine_agent.signal_dashboard import SignalDashboard
 from signal_engine_agent.signal_logger import SignalLogger
 from signal_engine_agent.sustain import SustainFilter
 from signal_engine_agent.thresholds import (
@@ -86,6 +87,43 @@ def _fmt(x: object, d: int = 2) -> str:
     """Format a finite number to d decimals for the human-readable reason; '-' if absent."""
     v = _finite(x)
     return f"{v:.{d}f}" if v is not None else "-"
+
+
+def _derive_ts_ns(row: dict) -> int:
+    """Epoch-nanosecond timestamp for a live feature row, used to key the
+    prediction log so it joins to the recorded tick stream (outcome
+    backfiller) and to replay labels.
+
+    Priority:
+      1. explicit ``recv_ts_ns`` int, if TFA ever emits one;
+      2. the row's ``timestamp`` — TFA writes this as the tick's ``recv_ts``
+         in epoch SECONDS (float), so scale to ns; an ISO string is also
+         accepted;
+      3. wall-clock ``time.time_ns()`` ONLY when the row carries no usable
+         timestamp.
+
+    Using the tick's own time (not the processing wall-clock) is essential:
+    under any tail/backlog lag the processing clock drifts from the tick
+    clock, which scrambles every prediction↔outcome join — the T68 "0.49"
+    phantom. See docs/PROJECT_TODO.md T68 correction (2026-07-01).
+    """
+    ts = row.get("recv_ts_ns")
+    if isinstance(ts, int) and not isinstance(ts, bool):
+        return ts
+    ts = row.get("timestamp")
+    if isinstance(ts, bool):
+        return time.time_ns()
+    if isinstance(ts, (int, float)):
+        try:
+            return int(float(ts) * 1e9)
+        except (ValueError, OverflowError):
+            return time.time_ns()
+    if isinstance(ts, str):
+        try:
+            return int(datetime.fromisoformat(ts).timestamp() * 1e9)
+        except (ValueError, OSError):
+            return time.time_ns()
+    return time.time_ns()
 
 
 def _send_signal_to_tray(signal: dict) -> None:
@@ -324,10 +362,26 @@ def _tail(path: Path, poll_sec: float = 0.2):
         time.sleep(poll_sec)
 
 
+class _NullDashboard:
+    """No-op stand-in for SignalDashboard when --no-dashboard is passed.
+
+    Every public method matches SignalDashboard's signature but does
+    nothing, so the engine's hook points don't need conditional
+    branches everywhere. Falls back to today's scrolling print stream.
+    """
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def set_gate_config(self, **_kw): pass
+    def push_tick(self, **_kw): pass
+    def push_signal(self, **_kw): pass
+    def push_reject(self, **_kw): pass
+
+
 def run(
     instrument: str,
     features_root: Path = Path("data/features"),
     config_dir: Path = Path("config/sea_thresholds"),
+    use_dashboard: bool = True,
 ) -> None:
     live_path = features_root / f"{instrument}_live.ndjson"
 
@@ -456,6 +510,44 @@ def run(
     )
     _hb_thread.start()
 
+    # ── Dashboard setup (2026-07-01, replaces scrolling print heartbeat) ──
+    # Rich-based alt-screen showing model + gate config, feed liveness,
+    # signal counters, last predictions, recent signals with tick→fire
+    # latency, and reject-reason breakdowns. Falls back to a null shim
+    # when use_dashboard=False so --no-dashboard preserves the old
+    # print-scroll behaviour for debug sessions.
+    if use_dashboard:
+        dashboard: SignalDashboard | _NullDashboard = SignalDashboard(
+            instrument=instrument,
+            model_version=str(models.version),
+            feature_count=len(models.feature_names),
+        )
+        dashboard.set_gate_config(
+            mode=gate_mode,
+            prob_min=float(thresholds.prob_min),
+            rr_min=float(thresholds.rr_min),
+            pctile_min=float(thresholds.upside_percentile_min),
+            persists_60s_min=float(
+                getattr(wave2_thresholds, "persists_60s_min", 0.0) or 0.0
+            ),
+            exit_signal_60s_max=float(
+                getattr(wave2_thresholds, "exit_signal_60s_max", 0.0) or 0.0
+            ),
+            trend_enabled=bool(trend_thresholds.enabled),
+            trend_dir_prob_min=float(trend_thresholds.dir_prob_min or 0.0),
+            trend_continues_min=float(trend_thresholds.continues_min or 0.0),
+            trend_breakout_min=float(trend_thresholds.breakout_min or 0.0),
+            trend_magnitude_scale=float(getattr(
+                trend_thresholds, "magnitude_scale", 0.0,
+            ) or 0.0),
+            trend_cooldown_sec=int(
+                trend_thresholds.min_seconds_between_signals or 0
+            ),
+        )
+    else:
+        dashboard = _NullDashboard()
+
+    dashboard.__enter__()
     try:
         for line in _tail(live_path):
             if not line.strip():
@@ -487,6 +579,14 @@ def run(
             # smallest is 60s, so the column is upside_percentile_60s.
             _pct60 = row.get("upside_percentile_60s")
             preds["upside_percentile_60s"] = float(_pct60) if _pct60 is not None else float("nan")
+
+            # Push this tick's state to the dashboard (feed counter +
+            # last-preds panel). Broker ltt in row["timestamp"] is used
+            # by push_signal below to compute tick→fire latency.
+            dashboard.push_tick(
+                row_ts=row.get("timestamp") or 0.0,
+                preds=preds,
+            )
 
             regime = row.get("regime")
             ce_ltp = row.get("opt_0_ce_ltp")
@@ -536,18 +636,7 @@ def run(
             # that-didn't — so T34's reliability + calibration drift
             # analyses see the full distribution. Timestamp resolution
             # falls back to wall-clock when the row didn't carry one.
-            _row_ts_ns = row.get("recv_ts_ns")
-            if not isinstance(_row_ts_ns, int):
-                _ts_str = row.get("timestamp")
-                if isinstance(_ts_str, str):
-                    try:
-                        _row_ts_ns = int(
-                            datetime.fromisoformat(_ts_str).timestamp() * 1e9
-                        )
-                    except (ValueError, OSError):
-                        _row_ts_ns = time.time_ns()
-                else:
-                    _row_ts_ns = time.time_ns()
+            _row_ts_ns = _derive_ts_ns(row)
             try:
                 prediction_logger.log_eval(
                     ts_ns=_row_ts_ns,
@@ -626,6 +715,13 @@ def run(
                 _send_signal_to_tray(signal)  # live UI tray (Mongo + WS)
                 # Optional: also place the trade (off unless SEA_AUTO_TRADE set).
                 _maybe_submit_ai_trade(signal)
+                # Dashboard: tick→fire latency = wall_now - broker_ltt.
+                _tick_ts = row.get("timestamp")
+                _lat_ms = (
+                    max(0.0, (time.time() - float(_tick_ts)) * 1000.0)
+                    if _tick_ts else -1.0
+                )
+                dashboard.push_signal(signal=signal, latency_ms=_lat_ms)
 
             # ── Trend-cohort gate (2026-06-22) ─────────────────────
             # Independent of the scalp gate above -- can fire on the
@@ -690,6 +786,28 @@ def run(
                         _send_signal_to_tray(trend_signal)  # live UI tray (Mongo + WS)
                         # Optional: also place the trend trade (off unless SEA_AUTO_TRADE set).
                         _maybe_submit_ai_trade(trend_signal)
+                        # Dashboard: tick→fire latency for the trend leg.
+                        _t_tick_ts = row.get("timestamp")
+                        _t_lat_ms = (
+                            max(0.0, (time.time() - float(_t_tick_ts)) * 1000.0)
+                            if _t_tick_ts else -1.0
+                        )
+                        dashboard.push_signal(
+                            signal=trend_signal, latency_ms=_t_lat_ms,
+                        )
+                    else:
+                        # Trend fired the gate but was inside the cooldown
+                        # window -- count as a cooldown reject so the
+                        # dashboard's reject panel reflects reality.
+                        dashboard.push_reject(
+                            cohort="trend", reasons=["cooldown"],
+                        )
+                elif trend_sig.gate_reasons:
+                    # Trend gate rejected this tick -- surface WHY it
+                    # rejected in the dashboard's trend-reject breakdown.
+                    dashboard.push_reject(
+                        cohort="trend", reasons=trend_sig.gate_reasons,
+                    )
 
             # ── Filtered output ──
             # Log the failed-gate diagnostic line per spec §3
@@ -697,6 +815,8 @@ def run(
             # evaluable (i.e. we have a direction_prob_30s) — pure
             # noise rows are skipped.
             if not np.isnan(preds["direction_prob_30s"]) and gate_reasons:
+                # Dashboard: reject-by-reason tally (scalp cohort).
+                dashboard.push_reject(cohort="scalp", reasons=list(gate_reasons))
                 filtered_signals += 1
                 would_be = "GO_CALL" if preds["direction_prob_30s"] > 0.5 else "GO_PUT"
                 filtered_logger.log(
@@ -713,8 +833,11 @@ def run(
                     }
                 )
 
-            # Periodic heartbeat
-            if processed % 500 == 0:
+            # Periodic heartbeat (only when dashboard is disabled --
+            # otherwise the dashboard's tick counter already shows this
+            # information live, and writing '\r' into the alt-screen
+            # would scramble the rendered frame).
+            if not use_dashboard and processed % 500 == 0:
                 elapsed = time.time() - started
                 rate = processed / max(elapsed, 0.001)
                 sys.stdout.write(
@@ -726,6 +849,13 @@ def run(
     except KeyboardInterrupt:
         print("\n  Stopping SEA...")
     finally:
+        # Tear down alt-screen FIRST so subsequent prints (T41 finalise,
+        # heartbeat stop, etc.) land on the primary screen instead of
+        # scrambling the dashboard frame during exit.
+        try:
+            dashboard.__exit__(None, None, None)
+        except Exception:
+            pass
         _hb_stop.set()  # stop the liveness heartbeat thread
         raw_logger.close()
         filtered_logger.close()
@@ -752,12 +882,23 @@ def main() -> int:
         default="config/sea_thresholds",
         help="Per-instrument JSON thresholds dir (default config/sea_thresholds)",
     )
+    p.add_argument(
+        "--no-dashboard",
+        action="store_true",
+        help=(
+            "Disable the rich live dashboard and fall back to the "
+            "pre-2026-07-01 scrolling print stream. Use for debug "
+            "sessions where you need to grep the output or run "
+            "over SSH without a proper TTY."
+        ),
+    )
     args = p.parse_args()
 
     run(
         args.instrument,
         features_root=Path(args.features_root),
         config_dir=Path(args.config_dir),
+        use_dashboard=not args.no_dashboard,
     )
     return 0
 
