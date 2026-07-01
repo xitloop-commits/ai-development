@@ -1139,6 +1139,12 @@ function buildTradeRecord(
     expiry: req.expiry ?? null,
     contractSecurityId: req.contractSecurityId ?? null,
     entryPrice: req.entryPrice,
+    // Paper channels "fill" at the snapshot price we sent (mock has no real
+    // fill), which can lag the live option price and open the trade in profit.
+    // Mark the entry pending so tickHandler overwrites it with the first live
+    // tick for the contract. Live trades get the true fill from the broker
+    // event (applyBrokerOrderEvent), so they start non-pending.
+    entryPending: req.channel.endsWith("-paper"),
     exitPrice: null,
     ltp: req.entryPrice,
     qty: req.quantity,

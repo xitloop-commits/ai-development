@@ -82,6 +82,14 @@ export interface TradeRecord {
   expiry?: string | null;
   contractSecurityId?: string | null;
   entryPrice: number;
+  /** True while the entry is still a pre-fill placeholder that must be
+   *  corrected to the REAL fill price. Set on paper trades at submit (mock
+   *  "fills" at a snapshot); the first live tick for the contract overwrites
+   *  entryPrice (shifting SL/TP/breakeven by the same delta) and clears this.
+   *  Live trades set it only as a fallback when the broker fill event carries
+   *  no averagePrice. Prevents trades from opening artificially in profit off
+   *  a stale signal snapshot. */
+  entryPending?: boolean;
   exitPrice: number | null;
   ltp: number;
   qty: number;
@@ -258,6 +266,7 @@ const tradeRecordSchema = new Schema(
     expiry: { type: String, default: null },
     contractSecurityId: { type: String, default: null },
     entryPrice: { type: Number, required: true },
+    entryPending: { type: Boolean, default: false },
     exitPrice: { type: Number, default: null },
     ltp: { type: Number, default: 0 },
     qty: { type: Number, required: true },
@@ -931,6 +940,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       expiry: t.expiry ?? null,
       contractSecurityId: t.contractSecurityId ?? null,
       entryPrice: t.entryPrice,
+      entryPending: t.entryPending ?? false,
       exitPrice: t.exitPrice ?? null,
       ltp: t.ltp ?? 0,
       qty: t.qty,

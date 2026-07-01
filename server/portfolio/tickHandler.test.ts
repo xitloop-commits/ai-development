@@ -353,3 +353,89 @@ describe("tickHandler — persist must not clobber concurrently-placed trades", 
     expect(ids).toContain("TB"); // the just-placed trade — NOT clobbered
   });
 });
+
+/**
+ * Entry-pending fill — the paper-trade stale-entry fix.
+ *
+ * Paper trades open with a placeholder entry (mock "fills" at the snapshot we
+ * sent, which lags the live option price → artificial instant profit). The
+ * first live tick for the contract must overwrite entryPrice and shift
+ * SL/TP/breakeven by the same delta, then clear the pending flag. If no tick
+ * arrives within the grace window, the placeholder is kept.
+ */
+describe("tickHandler — entry-pending first-tick fill", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    tickHandler.clearStateCache();
+    getCapitalStateMock.mockResolvedValue({
+      channel: "ai-paper", tradingPool: 100_000, reservePool: 0,
+      initialFunding: 100_000, currentDayIndex: 1, targetPercent: 1,
+      profitHistory: [], cumulativePnl: 0, cumulativeCharges: 0, sessionTradeCount: 0,
+    });
+    getActiveBrokerConfigMock.mockResolvedValue(null);
+  });
+
+  it("first matching tick overwrites the placeholder entry and shifts SL/TP", async () => {
+    const handler = tickHandler as any;
+    const trade: any = {
+      id: "P1", instrument: "BANKNIFTY", type: "CALL_BUY", strike: 58200,
+      expiry: null, contractSecurityId: "OPT1",
+      entryPrice: 100, entryPending: true, exitPrice: null, ltp: 100, qty: 15,
+      status: "OPEN", targetPrice: 110, stopLossPrice: 95, breakevenPrice: 101,
+      trailingStopEnabled: false, lastTickAt: null, unrealizedPnl: 0,
+      openedAt: Date.now(),
+    };
+    getDayRecordMock.mockResolvedValue({ dayIndex: 1, date: "2026-07-01", trades: [trade], totalPnl: 0 });
+
+    // First live tick for the contract at 130 (option moved before our fill).
+    handler.pendingUpdates.set("NSE:OPT1", makeTick({ securityId: "OPT1", ltp: 130 }));
+    await handler.processPendingUpdates();
+
+    expect(trade.entryPending).toBe(false);
+    expect(trade.entryPrice).toBe(130);      // filled at the live tick, not 100
+    expect(trade.targetPrice).toBe(140);     // 110 + 30 delta
+    expect(trade.stopLossPrice).toBe(125);   // 95 + 30 delta
+    expect(trade.breakevenPrice).toBe(131);  // 101 + 30 delta
+    expect(trade.ltp).toBe(130);
+  });
+
+  it("does NOT re-fill a trade whose entry is already confirmed (entryPending false)", async () => {
+    const handler = tickHandler as any;
+    const trade: any = {
+      id: "P2", instrument: "BANKNIFTY", type: "CALL_BUY", strike: 58200,
+      expiry: null, contractSecurityId: "OPT2",
+      entryPrice: 100, entryPending: false, exitPrice: null, ltp: 100, qty: 15,
+      status: "OPEN", targetPrice: 110, stopLossPrice: 95,
+      trailingStopEnabled: false, lastTickAt: null, unrealizedPnl: 0, openedAt: Date.now(),
+    };
+    getDayRecordMock.mockResolvedValue({ dayIndex: 1, date: "2026-07-01", trades: [trade], totalPnl: 0 });
+
+    handler.pendingUpdates.set("NSE:OPT2", makeTick({ securityId: "OPT2", ltp: 130 }));
+    await handler.processPendingUpdates();
+
+    expect(trade.entryPrice).toBe(100);      // untouched
+    expect(trade.targetPrice).toBe(110);     // untouched
+    expect(trade.ltp).toBe(130);             // ltp still marks normally
+  });
+
+  it("clears entryPending after the grace window when no tick arrives (keeps placeholder)", async () => {
+    const handler = tickHandler as any;
+    const trade: any = {
+      id: "P3", instrument: "BANKNIFTY", type: "CALL_BUY", strike: 58200,
+      expiry: null, contractSecurityId: "OPT3",
+      entryPrice: 100, entryPending: true, exitPrice: null, ltp: 100, qty: 15,
+      status: "OPEN", targetPrice: 110, stopLossPrice: 95,
+      trailingStopEnabled: false, lastTickAt: null, unrealizedPnl: 0,
+      openedAt: Date.now() - 20_000, // older than the 15s grace window
+    };
+    getDayRecordMock.mockResolvedValue({ dayIndex: 1, date: "2026-07-01", trades: [trade], totalPnl: 0 });
+
+    // A tick for a DIFFERENT contract — never matches OPT3.
+    handler.pendingUpdates.set("NSE:OTHER", makeTick({ securityId: "OTHER", ltp: 130 }));
+    await handler.processPendingUpdates();
+
+    expect(trade.entryPending).toBe(false);  // gave up waiting
+    expect(trade.entryPrice).toBe(100);      // kept the placeholder
+    expect(trade.targetPrice).toBe(110);     // unchanged
+  });
+});

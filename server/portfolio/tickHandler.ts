@@ -154,6 +154,10 @@ const TP_TRAIL_PERCENT = 1.5;
 // total modifies per order). Keeps us well under Dhan's 25-modify-per-order limit.
 const TP_EMIT_THROTTLE_MS = 30_000;
 
+// Entry-pending grace window: how long to wait for the first live tick to fill a
+// placeholder entry before giving up and keeping the snapshot price.
+const ENTRY_FILL_TIMEOUT_MS = 15_000;
+
 class TickHandler extends EventEmitter {
   private running = false;
   /** Latest tick per instrument key, drained each processing pass. */
@@ -304,8 +308,39 @@ class TickHandler extends EventEmitter {
       // Exit already emitted for this trade; wait for TEA to close it rather
       // than firing the same exit again on the next tick.
       if (this.exitingTrades.has(trade.id)) continue;
+
+      // Entry-fill timeout: if the first live tick never arrives (illiquid
+      // contract / feed gap), stop waiting after a grace window and keep the
+      // placeholder entry so the trade isn't stuck unpriced forever.
+      if (
+        trade.entryPending &&
+        Date.now() - trade.openedAt > ENTRY_FILL_TIMEOUT_MS
+      ) {
+        trade.entryPending = false;
+        anyUpdated = true;
+      }
+
       for (const tick of ticks) {
         if (!tickMatchesTrade(tick, trade)) continue;
+
+        // Entry-pending fill: the first live tick for this contract IS the real
+        // fill. Overwrite the placeholder entry and shift SL/TP/breakeven by the
+        // same delta so their rupee distances hold. Runs BEFORE the TP/SL checks
+        // below so a corrected entry can't instantly trigger an exit.
+        if (trade.entryPending) {
+          const prev = trade.entryPrice;
+          const delta = tick.ltp - prev;
+          trade.entryPrice = tick.ltp;
+          if (trade.targetPrice != null) trade.targetPrice += delta;
+          if (trade.stopLossPrice != null) trade.stopLossPrice += delta;
+          if (trade.breakevenPrice != null) trade.breakevenPrice += delta;
+          if (trade.peakLtp != null) trade.peakLtp = tick.ltp;
+          trade.entryPending = false;
+          log.important(
+            `[XSYNC-SVR] ENTRY-FILL ${channel} trade=${trade.id} ${trade.instrument} ` +
+              `${Math.round(prev * 100) / 100}→${Math.round(tick.ltp * 100) / 100} (first live tick)`,
+          );
+        }
 
         // Update LTP + stamp the tick timestamp so RCA's stale-price
         // monitor can detect broker disconnects / illiquid contracts.
