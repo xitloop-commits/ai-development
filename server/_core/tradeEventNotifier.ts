@@ -28,6 +28,23 @@ import {
 const log = createLogger("BSA", "TradeNotify");
 
 /**
+ * Channels whose trade-lifecycle events (exit, order-rejected) push to
+ * telegram. Narrowed 2026-07-01 to AI-only per operator: only ai-live
+ * and ai-paper generate alerts today. `my-live` / `my-paper` are silent
+ * (operator placed those trades manually, already knows about them);
+ * `testing-live` is silent (developer sandbox). Widen this set later by
+ * appending channels — every notifier below reads from this one place.
+ */
+export const TELEGRAM_NOTIFY_CHANNELS: ReadonlySet<string> = new Set([
+  "ai-live",
+  "ai-paper",
+]);
+
+function isNotifyChannel(channel: string): boolean {
+  return TELEGRAM_NOTIFY_CHANNELS.has(channel);
+}
+
+/**
  * Best-effort persistence to the alerts collection so the in-app
  * AlertHistory drawer picks the event up on its next refetch. Failure
  * to write is non-fatal — the Telegram push already happened, and a
@@ -107,6 +124,52 @@ export function formatGateRejection(ev: GateRejectionEvent): string {
   return `blocked ${qty}${ev.instrument} — ${ev.reason}`;
 }
 
+/**
+ * Broker refused an order OR cancelled it before fill (never reached the
+ * market). Distinct from `notifyTradeExit` -- there is no realized P&L
+ * because the position never opened. Distinct from `notifyGateRejection`
+ * -- that's OUR pre-trade discipline blocking; this is the BROKER (or
+ * market) killing the order after we sent it.
+ */
+export interface OrderRejectedEvent {
+  channel: string;
+  instrument: string;
+  qty: number;
+  status: "REJECTED" | "CANCELLED";
+  reason: string | null;    // broker's rejection reason (may be null on CANCELLED)
+  triggeredBy?: string;     // "BROKER" / "USER" / "EXCHANGE_EXPIRED"
+}
+
+/**
+ * "REJECTED 150 NIFTY 50 — RMS: intraday cutoff hit"
+ * "CANCELLED 150 NIFTY 50 — order expired before fill"
+ * Verb + qty + underlying + broker's own words. Deliberately terse so it
+ * reads at a glance alongside the profit/loss messages.
+ */
+export function formatOrderRejected(ev: OrderRejectedEvent): string {
+  const verb = ev.status === "REJECTED" ? "REJECTED" : "CANCELLED";
+  const tail = ev.reason ? ` — ${ev.reason}` : "";
+  return `${verb} ${ev.qty} ${ev.instrument}${tail}`;
+}
+
+export function notifyOrderRejected(ev: OrderRejectedEvent): void {
+  const message = formatOrderRejected(ev);
+  // AI-only gate (see TELEGRAM_NOTIFY_CHANNELS). Manually-placed orders
+  // that get rejected don't need a telegram -- the operator sees the
+  // error inline in the UI toast that already fires.
+  if (isNotifyChannel(ev.channel)) {
+    void safePush(message, `order-rejected ${ev.channel}/${ev.instrument}`);
+  }
+  void persistAlert({
+    type: "module_down", // closest AlertEventType — trade is being blocked
+    priority: ev.status === "REJECTED" ? "high" : "medium",
+    title: `Order ${ev.status.toLowerCase()} · ${ev.channel}`,
+    message,
+    instrument: ev.instrument,
+    channel: ev.channel,
+  });
+}
+
 export interface BrokerDisconnectEvent {
   brokerId: string;
   kind: "ws_gave_up" | "ws_error" | "token_expired";
@@ -138,7 +201,13 @@ async function safePush(message: string, eventLabel: string): Promise<void> {
 
 export function notifyTradeExit(ev: TradeExitEvent): void {
   const message = formatExit(ev);
-  void safePush(message, `exit ${ev.channel}/${ev.instrument}`);
+  // Telegram push is scoped to AI channels (see TELEGRAM_NOTIFY_CHANNELS).
+  // AlertModel persistence continues for ALL channels so the in-app
+  // AlertHistory drawer never loses a record — silencing telegram is a
+  // per-operator preference; on-screen audit is a compliance concern.
+  if (isNotifyChannel(ev.channel)) {
+    void safePush(message, `exit ${ev.channel}/${ev.instrument}`);
+  }
   // Map exit reason → existing AlertEventType so the drawer renders with
   // the right icon (red shield for SL_HIT, green target for TP_HIT,
   // module-down red triangle for DISCIPLINE_EXIT, generic close otherwise).
@@ -162,7 +231,10 @@ export function notifyTradeExit(ev: TradeExitEvent): void {
 
 export function notifyGateRejection(ev: GateRejectionEvent): void {
   const message = formatGateRejection(ev);
-  void safePush(message, `gate-reject ${ev.channel}/${ev.instrument}`);
+  // Same AI-only gate as notifyTradeExit (see TELEGRAM_NOTIFY_CHANNELS).
+  if (isNotifyChannel(ev.channel)) {
+    void safePush(message, `gate-reject ${ev.channel}/${ev.instrument}`);
+  }
   void persistAlert({
     type: "module_down", // closest match — gate rejection = "trading is being blocked"
     priority: "high",

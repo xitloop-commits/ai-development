@@ -57,6 +57,7 @@ import type { ChargeRate } from "./charges";
 import { getUserSettings } from "../userSettings";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import { disciplineAgent } from "../discipline";
+import { notifyOrderRejected } from "../_core/tradeEventNotifier";
 import type {
   PortfolioSnapshot,
   TradeClosedRequest,
@@ -836,6 +837,10 @@ class PortfolioAgentImpl {
           trade.entryPrice = update.averagePrice;
           entryAdjusted = true;
         }
+        // The broker's fill price is authoritative when present. When the event
+        // carries NO averagePrice, don't silently keep the stale snapshot — mark
+        // the entry pending so tickHandler fills it from the first live tick.
+        trade.entryPending = !(update.averagePrice > 0);
         if (update.filledQuantity > 0 && update.filledQuantity !== trade.qty) {
           trade.qty = update.filledQuantity;
           qtyAdjusted = true;
@@ -854,6 +859,25 @@ class PortfolioAgentImpl {
         trade.pnl = 0;
         trade.unrealizedPnl = 0;
         trade.closedAt = Date.now();
+        // 2026-07-01: Telegram push for broker-side kills (REJECTED /
+        // CANCELLED / EXPIRED). Previously silent — the operator had no
+        // signal that the AI had tried to enter but was blocked at the
+        // broker. Fire-and-forget; the notifier gates on ai-live +
+        // ai-paper so manual and testing trades stay silent.
+        try {
+          notifyOrderRejected({
+            channel,
+            instrument: trade.instrument,
+            qty: trade.qty,
+            status: trade.status === "REJECTED" ? "REJECTED" : "CANCELLED",
+            reason: trade.rejectReason ?? null,
+            triggeredBy: "BROKER",
+          });
+        } catch (err) {
+          log.warn(
+            `notifyOrderRejected failed for ${trade.id}: ${(err as Error).message}`,
+          );
+        }
       }
 
       const updated = recalculateDayAggregates(day);

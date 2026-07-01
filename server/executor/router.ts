@@ -27,6 +27,7 @@ import {
 } from "./tradeResolution";
 import { getExecutorSettings, updateExecutorSettings } from "./settings";
 import { getCapitalState, getDayRecord } from "../portfolio/state";
+import { notifyTradeExit } from "../_core/tradeEventNotifier";
 import { calculateAvailableCapital, calculatePositionSize } from "../portfolio/compounding";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import { portfolioAgent } from "../portfolio";
@@ -455,6 +456,30 @@ export const executorRouter = router({
             input.exitReason,
           );
           // closeTrade already drops the desync marker on success.
+          // 2026-07-01: Telegram push for reconciled-closed trades.
+          // Previously this path was silent — the two other exit paths
+          // (tradeExecutor.exitTrade + recordAutoExit) fired notifications,
+          // but a trade closed via desync reconcile skipped the notifier.
+          // Result: whenever the operator confirmed a stuck trade closed
+          // via the UI, no yow-partha message went out. Now covered.
+          const grossEntryValue = result.trade.entryPrice * result.trade.qty;
+          notifyTradeExit({
+            channel: input.channel,
+            instrument: result.trade.instrument,
+            type: result.trade.type,
+            strike: result.trade.strike ?? null,
+            qty: result.trade.qty,
+            entryPrice: result.trade.entryPrice,
+            exitPrice: input.exitPrice,
+            realizedPnl: result.pnl,
+            realizedPnlPercent:
+              grossEntryValue > 0 ? (result.pnl / grossEntryValue) * 100 : 0,
+            reason: input.exitReason,
+            triggeredBy: "USER",
+            durationSeconds: Math.round(
+              ((result.trade.closedAt ?? Date.now()) - result.trade.openedAt) / 1000,
+            ),
+          });
           return {
             success: true as const,
             action: input.action,
