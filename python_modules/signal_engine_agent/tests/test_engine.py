@@ -41,6 +41,7 @@ import pytest
 from signal_engine_agent import engine as sea_engine
 from signal_engine_agent.engine import (
     _decide_via_gate,
+    _derive_ts_ns,
     _gather_predictions,
     _pred,
     _tail,
@@ -106,6 +107,54 @@ def test_pred_coerces_numpy_to_float():
     X = np.zeros((1, 3))
     out = _pred(models, X, "direction_30s")
     assert type(out) is float
+
+
+# ── _derive_ts_ns (T68 fix: stamp predictions with the tick's OWN time) ────
+
+
+def test_derive_ts_ns_from_float_timestamp_seconds():
+    """The live feature row carries `timestamp` as the tick's recv_ts in
+    epoch SECONDS (float). It must be scaled to ns — NOT replaced by the
+    processing wall-clock (the T68 '0.49' bug)."""
+    row = {"timestamp": 1782791100.3487399}
+    assert _derive_ts_ns(row) == int(1782791100.3487399 * 1e9)
+
+
+def test_derive_ts_ns_from_int_timestamp_seconds():
+    row = {"timestamp": 1782791100}
+    assert _derive_ts_ns(row) == 1782791100 * 1_000_000_000
+
+
+def test_derive_ts_ns_prefers_explicit_recv_ts_ns():
+    """If TFA ever emits recv_ts_ns (already ns), use it verbatim over the
+    seconds `timestamp`."""
+    row = {"recv_ts_ns": 1782791100348739900, "timestamp": 999.0}
+    assert _derive_ts_ns(row) == 1782791100348739900
+
+
+def test_derive_ts_ns_from_iso_string():
+    row = {"timestamp": "2026-06-30T09:15:00+05:30"}
+    from datetime import datetime as _dt
+
+    assert _derive_ts_ns(row) == int(
+        _dt.fromisoformat("2026-06-30T09:15:00+05:30").timestamp() * 1e9
+    )
+
+
+def test_derive_ts_ns_falls_back_to_wallclock_when_missing():
+    """No usable timestamp → wall-clock, and it must look like a real
+    recent epoch-ns value (not a seconds-scaled bool/garbage)."""
+    before = time.time_ns()
+    out = _derive_ts_ns({})
+    after = time.time_ns()
+    assert before <= out <= after
+
+
+def test_derive_ts_ns_bool_timestamp_is_not_scaled():
+    """bool is an int subclass — guard so `timestamp: True` doesn't become
+    1e9, it must fall through to wall-clock."""
+    out = _derive_ts_ns({"timestamp": True})
+    assert out > 1_000_000_000_000_000_000  # ns-scale wall clock, not 1e9
 
 
 # ── _gather_predictions ───────────────────────────────────────────────────
