@@ -54,10 +54,12 @@ REM   The SEA POSTs each scalp/trend signal to /api/discipline/validateTrade,
 REM   which sizes (1 lot) + places it on ai-paper (mock = simulated, no real
 REM   money). Comment the next line to disable auto-trade (signals + UI keep
 REM   working regardless). Change SEA_AUTO_TRADE_LOTS to size differently.
-REM   PAUSED 2026-06-30: the scalp direction head is a measured coin-flip
-REM   (AUC ~0.49 across 3 instrument-days) — auto-trading it only loses money
-REM   to charges. Signals + UI + labeling keep running. Un-comment to resume.
-REM set "SEA_AUTO_TRADE=ai-paper"
+REM   RE-ENABLED 2026-07-01: the 2026-06-30 "coin-flip" was a MEASUREMENT
+REM   artifact (wall-clock vs emit-time label join), NOT the model — live
+REM   direction_60s AUC is ~0.90 (banknifty) / ~0.87 (nifty50). ai-paper is a
+REM   mock desk (simulated, no real money); paper fills let us measure the real
+REM   cost / TP-SL economics. Comment the next line to disable auto-trade.
+set "SEA_AUTO_TRADE=ai-paper"
 set "SEA_AUTO_TRADE_LOTS=1"
 
 REM --- Calibration bypass (2026-06-30): the per-head isotonic calibration
