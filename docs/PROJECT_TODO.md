@@ -1013,6 +1013,11 @@ Done 2026-06-25 (orderUpdateWs suite 14/14, incl. a new test built from a **real
 - **Combines with T64:** now a real reject reaches `applyBrokerOrderEvent` → trade flips to **REJECTED** with the actual reason (e.g. `"RMS:…Intraday orders cannot be placed at this time."` / insufficient funds) shown on the badge tooltip. **Takes effect next server restart.**
 - **Follow-ups:** (1) the **11 already-stuck PENDING** testing-live trades self-heal on next restart now that T66 reconcile-on-connect is in. (2) testing-live appends to a **stale `2026-06-19` day record** (rollover bug — still open). (3) ~~recovery engine blind to PENDING~~ and ~~REST status casing~~ both fixed in T66.
 
+### T69 [Feature Eng] — Parity guard for the dual feature-row implementations (scalar live vs columnar replay) 🆕
+Parked 2026-07-01. Feature rows are built by TWO codebases: the **scalar** per-tick path (`features/*.py`) that live SEA consumes, and the **columnar** Polars ports (`features/*_columnar.py`, via `replay/max_pain_cache.py` + `targets_cache.py`) that build training parquets. Same recipe, two kitchens (perf: live=streaming, replay=batch). Risk = they silently drift → train/serve skew. Verified 2026-07-01 they're currently in sync (411/470 features matched exactly on 06-30; mismatches minor/no-impact), so this is a **latent risk, not an active bug**.
+- **Recommended fix (A):** a parity test that runs both builders on the same recorded ticks and asserts every column matches → keeps columnar speed, makes drift fail loudly in CI. (Alt B: single shared core — bigger refactor. Alt C: leave as-is.)
+- **Status:** ⏳ parked (do after current live-trading validation work).
+
 ### T68 [Signal Engine] — ⚠️ CORRECTED 2026-07-01: the scalp model is FINE (~0.84 AUC live); the "0.49 coin-flip" was a MEASUREMENT ARTIFACT 🔬
 > **Read this correction before acting on anything below.** The 2026-06-30 investigation (preserved further down, now SUPERSEDED) concluded the scalp head was a coin-flip and the calibration was broken. **Both conclusions were wrong** — artifacts of a bad prediction↔label join. Do **not** retrain, refit calibration, or chase "no edge" on the strength of the old text.
 
