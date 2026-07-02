@@ -394,6 +394,11 @@ export interface BrokerSettings {
   orderEntryOffset: number; // % below LTP for limit orders (default 1.0)
   defaultSL: number; // default stop loss % (default 2.0)
   defaultTP: number; // default target profit % (default 5.0)
+  /** SL/TP source for AI-originated trades: "ai" = use the model's own SL/TP from
+   *  the signal; "manual" = override with the configured defaultSL / trade-target %.
+   *  Manual (UI) trades always use the configured %; this only affects AI trades.
+   *  Global toggle. Default "ai" (model decides). */
+  aiRiskMode: "ai" | "manual";
   orderType: OrderType; // default order type (default "LIMIT")
   productType: ProductType; // default product type (default "INTRADAY")
   dailyTargetPercent: number; // daily compounding target % (default 5.0)

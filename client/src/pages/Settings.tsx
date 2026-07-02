@@ -374,6 +374,7 @@ export function OrderExecutionSection() {
   const [settings, setSettings] = useState({
     orderEntryOffset: 1.0,
     defaultSL: 2.0,
+    aiRiskMode: 'ai' as string,
     orderType: 'LIMIT' as string,
     productType: 'INTRADAY' as string,
     // Daily target
@@ -401,6 +402,7 @@ export function OrderExecutionSection() {
         ...prev,
         orderEntryOffset: config.settings.orderEntryOffset,
         defaultSL: config.settings.defaultSL,
+        aiRiskMode: (config.settings as any).aiRiskMode ?? prev.aiRiskMode,
         orderType: config.settings.orderType,
         productType: config.settings.productType,
         // These may not exist yet in broker config, use defaults
@@ -442,6 +444,7 @@ export function OrderExecutionSection() {
       settings: {
         orderEntryOffset: settings.orderEntryOffset,
         defaultSL: settings.defaultSL,
+        aiRiskMode: settings.aiRiskMode as any,
         orderType: settings.orderType as any,
         productType: settings.productType as any,
         dailyTargetPercent: settings.dailyTargetPercent,
@@ -461,6 +464,7 @@ export function OrderExecutionSection() {
       setSettings({
         orderEntryOffset: config.settings.orderEntryOffset,
         defaultSL: config.settings.defaultSL,
+        aiRiskMode: (config.settings as any).aiRiskMode ?? 'ai',
         orderType: config.settings.orderType,
         productType: config.settings.productType,
         dailyTargetPercent: (config.settings as any).dailyTargetPercent ?? 5,
@@ -621,6 +625,15 @@ export function OrderExecutionSection() {
       {/* Risk Management */}
       <SettingsCard title="Risk Management">
         <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <FieldLabel hint="ON: AI trades use the model's own SL/TP from each signal. OFF: AI trades use the configured Default Stop Loss and Trade Target below. Manual trades always use the configured values.">
+              AI-Decided Risk (SL/TP)
+            </FieldLabel>
+            <ToggleSwitch
+              checked={settings.aiRiskMode === 'ai'}
+              onChange={(v) => setSettings((s) => ({ ...s, aiRiskMode: v ? 'ai' : 'manual' }))}
+            />
+          </div>
           <div className="flex items-center justify-between">
             <FieldLabel hint="Default stop loss percentage from entry price">
               Default Stop Loss

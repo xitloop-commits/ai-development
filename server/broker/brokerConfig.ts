@@ -56,6 +56,7 @@ const settingsSchema = new Schema<BrokerSettings>(
     orderEntryOffset: { type: Number, default: 1.0 },
     defaultSL: { type: Number, default: 2.0 },
     defaultTP: { type: Number, default: 5.0 },
+    aiRiskMode: { type: String, enum: ["ai", "manual"], default: "ai" },
     orderType: {
       type: String,
       enum: ["LIMIT", "MARKET", "SL", "SL-M"],
@@ -294,6 +295,7 @@ function docToConfig(doc: Record<string, any>): BrokerConfigDoc {
       orderEntryOffset: doc.settings?.orderEntryOffset ?? 1.0,
       defaultSL: doc.settings?.defaultSL ?? 2.0,
       defaultTP: doc.settings?.defaultTP ?? 5.0,
+      aiRiskMode: doc.settings?.aiRiskMode ?? "ai",
       orderType: doc.settings?.orderType ?? "LIMIT",
       productType: doc.settings?.productType ?? "INTRADAY",
       dailyTargetPercent: doc.settings?.dailyTargetPercent ?? 5.0,

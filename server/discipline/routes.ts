@@ -196,6 +196,23 @@ export function registerDisciplineRoutes(app: Express): void {
             }
           }
 
+          // AI-risk toggle (global): "manual" overrides the model's SL/TP with the
+          // configured Risk-Management percentages (SL = defaultSL%, TP =
+          // tradeTargetOptions% — AI trades are always long options), computed off
+          // the re-priced entry. "ai" (default) keeps the model's own SL/TP from the
+          // signal. Only AI trades hit this path (manual UI trades send `quantity`).
+          const { getActiveBrokerConfig } = await import("../broker/brokerConfig");
+          const brokerCfg = await getActiveBrokerConfig();
+          if (brokerCfg?.settings?.aiRiskMode === "manual" && entryPrice > 0) {
+            const { manualRiskSlTp } = await import("./riskMode");
+            const slPct = brokerCfg.settings.defaultSL ?? 2;
+            const tpPct = brokerCfg.settings.tradeTargetOptions ?? 30;
+            ({ stopLoss, takeProfit } = manualRiskSlTp(entryPrice, slPct, tpPct));
+            log.info(
+              `AI risk=manual ${body.instrument} SL=${stopLoss} (${slPct}%) TP=${takeProfit} (${tpPct}%)`,
+            );
+          }
+
           const lots = body.lots ?? 1;
           const lotSize = (await resolveLotSize(body.instrument)) ?? 1;
           quantity = Math.max(1, Math.round(lots * lotSize));
