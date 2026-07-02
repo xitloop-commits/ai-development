@@ -213,12 +213,22 @@ export function registerDisciplineRoutes(app: Express): void {
             );
           }
 
-          const lots = body.lots ?? 1;
           const lotSize = (await resolveLotSize(body.instrument)) ?? 1;
-          quantity = Math.max(1, Math.round(lots * lotSize));
-          estimatedValue = quantity * entryPrice;
           const cap = await getCapitalState(body.channel);
           currentCapital = cap.tradingPool;
+          // AI position sizing from the configured instrumentSizing (matches the
+          // manual instrument bar): "lots" = fixed lots; "percent" = % of the
+          // channel's trading pool spent on premium / (premium * lotSize). Falls
+          // back to the SEA-sent lots only if no sizing is configured.
+          const { sizedLots } = await import("../executor/positionSizing");
+          const sizing = (brokerCfg?.settings?.instrumentSizing as any)?.[
+            body.instrument.toLowerCase()
+          ];
+          const lots = sizing
+            ? sizedLots(sizing, cap.tradingPool, entryPrice, lotSize)
+            : (body.lots ?? 1);
+          quantity = Math.max(1, Math.round(lots * lotSize));
+          estimatedValue = quantity * entryPrice;
           currentExposure = openTrades.reduce((s, t) => s + t.entryPrice * t.qty, 0);
         }
 
