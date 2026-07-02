@@ -255,13 +255,13 @@ class TradeExecutorAgent {
         return resp;
       }
 
-      // Pre-flight: AI Live 1-lot cap. Applies to both ai-live and
-      // ai-paper — the dhan-secondary-ac broker fans out to both, and an
-      // accidentally-oversized order on ai-paper would still corrupt the
-      // canary's paper-P&L validation. The canary protocol launches at
-      // 1 lot per trade; bigger orders on either AI channel are rejected
-      // here even if the caller (UI / RCA / SEA-live) tries to size up.
-      if (req.channel === "ai-live" || req.channel === "ai-paper") {
+      // Pre-flight: AI Live lot cap — REAL-MONEY canary guardrail. Enforced on
+      // ai-live only: the canary protocol launches at 1 lot per trade, so bigger
+      // real-money AI orders are rejected here even if the caller tries to size up.
+      // ai-paper is exempt so it honours the configured instrumentSizing (paper
+      // is for realistic validation; no real money at risk). Raise aiLiveLotCap
+      // in settings to let ai-live size up when the canary graduates.
+      if (req.channel === "ai-live") {
         const cap = await this.checkAiLiveLotCap(req);
         if (cap) {
           const resp = rejection(req.executionId, cap);
