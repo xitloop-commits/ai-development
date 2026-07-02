@@ -596,6 +596,16 @@ class TickHandler extends EventEmitter {
       if (live.targetPrice != null) ft.targetPrice = live.targetPrice;
       // TSL activation timestamp (for the UI stopwatch) — stamp once, never clear.
       if (live.tslActivatedAt != null) ft.tslActivatedAt = live.tslActivatedAt;
+      // Entry-fill correction (paper first-tick / live avg-missing fallback):
+      // the fill overwrites entryPrice + clears entryPending on the cached trade.
+      // Persist BOTH — otherwise the reload resurrects entryPending=true and the
+      // entry re-fills every tick, so the entry crawls with price and SL/TP drift
+      // (2026-07-02 regression). Once filled, entryPending stays false → fills once.
+      ft.entryPending = live.entryPending;
+      if (!live.entryPending) {
+        ft.entryPrice = live.entryPrice;
+        if (live.breakevenPrice != null) ft.breakevenPrice = live.breakevenPrice;
+      }
     }
     const updated = recalculateDayAggregates(fresh);
     await upsertDayRecord(channel, updated);
