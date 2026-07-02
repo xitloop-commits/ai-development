@@ -227,9 +227,17 @@ export function registerDisciplineRoutes(app: Express): void {
           const sizing = (brokerCfg?.settings?.instrumentSizing as any)?.[
             body.instrument.toLowerCase()
           ];
-          const lots = sizing
+          let lots = sizing
             ? sizedLots(sizing, cap.tradingPool, entryPrice, lotSize)
             : (body.lots ?? 1);
+          // Clamp to the AI lot cap (canary safety, default 1 lot). AI channels
+          // enforce this hard cap in TEA; sizing above it would be rejected
+          // outright, so honour instrumentSizing only up to the cap.
+          try {
+            const { getExecutorSettings } = await import("../executor/settings");
+            const aiCap = (await getExecutorSettings()).aiLiveLotCap ?? 1;
+            if (aiCap > 0) lots = Math.min(lots, aiCap);
+          } catch { /* keep sized lots if settings unavailable */ }
           quantity = Math.max(1, Math.round(lots * lotSize));
           estimatedValue = quantity * entryPrice;
           currentExposure = openTrades.reduce((s, t) => s + t.entryPrice * t.qty, 0);
