@@ -14,6 +14,7 @@ import { Activity, Zap } from 'lucide-react';
 import { useCapital } from '@/contexts/CapitalContext';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { withAlpha } from '@/lib/tradeThemes';
+import { setSelectedSignalSeq, useSelectedSignalSeq } from '@/lib/selectionStore';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 // ─── Instrument name mapping for trade placement ───────────
@@ -130,6 +131,7 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
     return s;
   }, [currentDay]);
   const activeSeqs = activeSignalSeqs ?? openSeqs;
+  const selectedSeq = useSelectedSignalSeq();
   const canTrade = channel !== 'ai-live' && channel !== 'ai-paper';
 
   const handleTrade = (signal: SEASignal) => {
@@ -232,6 +234,8 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
 
             // Item 4: pulse the card while its signal has an open trade.
             const isActive = signal.signalSeq != null && activeSeqs.has(signal.signalSeq);
+            // Selection: clicking a card highlights the matching trade row on the desk.
+            const isSelected = signal.signalSeq != null && signal.signalSeq === selectedSeq;
             // Item 6: tick time (market) vs arrived-to-tray time.
             const tickMs = signal.timestamp ? signal.timestamp * 1000 : null;
             const arrivalMs = signal.timestamp_ist ? Date.parse(signal.timestamp_ist) : null;
@@ -239,7 +243,9 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
             return (
               <div
                 key={signal.id}
-                className={`group relative border-l-[3px] rounded-r flex items-stretch overflow-hidden ${isActive ? 'animate-pulse ring-1 ring-info-cyan/60' : ''}`}
+                onClick={() => setSelectedSignalSeq(signal.signalSeq ?? null)}
+                title={signal.signalSeq != null ? 'Click to highlight the matching trade on the desk' : undefined}
+                className={`group relative border-l-[3px] rounded-r flex items-stretch overflow-hidden cursor-pointer ${isActive ? 'animate-pulse ' : ''}${isSelected ? 'ring-2 ring-info-cyan' : isActive ? 'ring-1 ring-info-cyan/60' : ''}`}
                 style={{ ...instStyle.cardBg, borderLeftColor: withAlpha(instStyle.hex, 0.5) }}
               >
                 {/* Left: details (wrapped in tooltip for metadata) */}

@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { estimateSingleLegCharges, DEFAULT_CHARGES } from '@shared/chargesEngine';
@@ -19,6 +19,7 @@ import {
 import { tradePoints } from '@/lib/tradeCalculations';
 import { getWorkspaceThemeMeta, withAlpha } from '@/lib/tradeThemes';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
+import { useSelectedSignalSeq } from '@/lib/selectionStore';
 import { useInstrumentTick } from '@/hooks/useTickStream';
 import { InstrumentTag } from './InstrumentTag';
 import { StatusBadge } from './StatusBadge';
@@ -137,13 +138,25 @@ function _TodayTradeRow({
   const contractLabel = getTradeContractLabel(trade.type);
   const expiryLabel = formatExpiryLabel(trade.expiry);
 
+  // Tray→desk selection: highlight + scroll this row when its signal card is clicked.
+  const selectedSeq = useSelectedSignalSeq();
+  const isSelected = trade.signalSeq != null && trade.signalSeq === selectedSeq;
+  const rowElRef = useRef<HTMLTableRowElement | null>(null);
+  const attachRow = useCallback((el: HTMLTableRowElement | null) => {
+    rowElRef.current = el;
+    if (todayRef) todayRef.current = el;
+  }, [todayRef]);
+  useEffect(() => {
+    if (isSelected) rowElRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [isSelected]);
+
   return (
     <>
     <tr
-      ref={todayRef}
+      ref={attachRow}
       className={`border-b border-border transition-colors text-foreground border-l-2 ${
         isFirst ? theme.borderStrong : theme.borderSoft
-      } ${isOpen ? '' : 'opacity-60'}`}
+      } ${isOpen ? '' : 'opacity-60'} ${isSelected ? 'outline outline-2 -outline-offset-2 outline-info-cyan' : ''}`}
       style={{ backgroundColor: withAlpha(instHex, isFirst ? 0.16 : 0.08) }}
     >
       {/* Instrument + TradeBar take the full left width (cols 0–5); the day-level
@@ -152,12 +165,12 @@ function _TodayTradeRow({
         <div className="flex items-center gap-2 w-full">
           {/* Instrument identity (left) */}
           <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0 shrink-0">
-            {(trade.signalSeq ?? tradeNo) != null && (
+            {trade.signalSeq != null && (
               <span
-                className="text-[0.625rem] font-semibold tabular-nums text-muted-foreground shrink-0"
-                title={trade.signalSeq != null ? 'Signal # (matches the tray card)' : 'Trade #'}
+                className="text-[0.625rem] font-semibold tabular-nums text-info-cyan shrink-0"
+                title="Signal # — matches the tray card"
               >
-                #{trade.signalSeq ?? tradeNo}
+                #{trade.signalSeq}
               </span>
             )}
             {/* Instrument identity (the whole closed row is dimmed at row level). */}
