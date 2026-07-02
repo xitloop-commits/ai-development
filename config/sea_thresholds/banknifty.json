@@ -11,8 +11,8 @@
   },
   "trend": {
     "enabled": true,
-    "dir_prob_min": 0.60,
-    "continues_min": 0.55,
+    "dir_prob_min": 0.55,
+    "continues_min": 0.0,
     "breakout_min": 0.0,
     "magnitude_scale": 0.5,
     "min_seconds_between_signals": 600

@@ -63,9 +63,19 @@ def test_all_conditions_pass_emits_long_ce():
     assert sig.sl == pytest.approx(85.0)
 
 
-def test_low_dir_prob_emits_long_pe():
+def test_low_dir_prob_suppressed_when_calls_only():
+    # Default calls_only=True: the up-only direction head can't reliably call
+    # downs, so a put-side signal is suppressed (Part A). Part B's down head lifts this.
     th = TrendThresholds(enabled=True)
-    # dir_prob 0.25 → prob = 0.75, side = PUT
+    sig = decide_action_trend(_preds(dir_prob=0.25), th, ce_ltp=100, pe_ltp=80)
+    assert not sig.gate_passed
+    assert sig.direction == "GO_PUT"
+    assert "TREND_CALLS_ONLY" in sig.gate_reasons
+
+
+def test_low_dir_prob_emits_long_pe_when_calls_only_false():
+    # With calls_only disabled (Part B, real down head present), a put fires.
+    th = TrendThresholds(enabled=True, calls_only=False)
     sig = decide_action_trend(_preds(dir_prob=0.25), th, ce_ltp=100, pe_ltp=80)
     assert sig.gate_passed
     assert sig.action == "LONG_PE"

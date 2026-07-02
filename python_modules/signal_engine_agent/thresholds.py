@@ -591,6 +591,11 @@ class TrendThresholds:
     # instrument. Trend horizon is 30 min, so spamming GO_CALL every
     # tick is meaningless -- the operator wants ONE entry per trend.
     min_seconds_between_signals: int = 600  # 10 min
+    # Calls-only until a dedicated down-direction head exists (Part B). The
+    # trend `direction` head only learned "big UP vs not", so a low value means
+    # "not a big up" (flat OR down), NOT "big down". Firing puts off it is
+    # unreliable, so suppress them. Flip to false once the down head is wired.
+    calls_only: bool = True
 
 
 def decide_action_trend(
@@ -650,6 +655,15 @@ def decide_action_trend(
 
     is_call = dir_prob_f > 0.5
     direction = "GO_CALL" if is_call else "GO_PUT"
+
+    # Calls-only guard: the up-only direction head can't reliably call downs, so
+    # suppress trend puts until a real down head is wired (Part B).
+    if not is_call and trend_thresholds.calls_only:
+        return SignalAction(
+            action="WAIT", direction="GO_PUT",
+            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+            gate_passed=False, gate_reasons=["TREND_CALLS_ONLY"],
+        )
 
     if reasons:
         return SignalAction(

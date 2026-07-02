@@ -62,12 +62,13 @@ REM   cost / TP-SL economics. Comment the next line to disable auto-trade.
 set "SEA_AUTO_TRADE=ai-paper"
 set "SEA_AUTO_TRADE_LOTS=1"
 
-REM --- Calibration bypass (2026-06-30): the per-head isotonic calibration
-REM   sidecars are mis-fit (collapse the model's raw output to a near-constant,
-REM   wrecking AUC — e.g. nifty50 trend_direction_900s 0.43 raw -> 0.08 calib).
-REM   Setting this makes model_loader skip the sidecars and use the raw model
-REM   output until the calibration is refit. Remove this line to restore.
-set "SEA_DISABLE_CALIBRATION=1"
+REM --- Calibration RE-ENABLED 2026-07-02: the 2026-06-30 "mis-fit calibration"
+REM   claim was disproven — scalp calibration is monotonic (Spearman 1.0) and
+REM   neutral (conviction 78%%->75%%). Calibration is REQUIRED for the trend gate:
+REM   raw trend_direction tops out at 0.48 (can't clear the call threshold), but
+REM   calibrated it reaches ~0.60. So we run calibrated. To bypass again (raw),
+REM   uncomment the next line.
+REM set "SEA_DISABLE_CALIBRATION=1"
 
 echo.
 echo ============================================================
