@@ -23,6 +23,7 @@ import { TrendingUp, TrendingDown, Activity, Zap, BarChart3, Shield, LineChart, 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
+import { cohortPillStyle, cohortLabel } from '@/lib/tradeThemes';
 import { TradeBar } from './TradeBar';
 import SignalChartDialog, { type SignalChartTarget } from './SignalChartDialog';
 import { UNDERLYING_SECURITY_ID, istDateString } from '@/lib/signalChart';
@@ -368,8 +369,8 @@ export default function InstrumentCard({ data, feedExchange, feedSecurityId }: I
                   {aiTrade.strike} {side}
                 </span>
                 {aiTrade.cohort && (
-                  <span className="text-[0.5rem] uppercase tracking-wide px-1 rounded bg-info-cyan/15 text-info-cyan font-bold" title="Strategy cohort">
-                    {aiTrade.cohort}
+                  <span className="text-[0.5rem] uppercase tracking-wide px-1 rounded font-bold" style={cohortPillStyle(aiTrade.cohort)} title="Strategy cohort">
+                    {cohortLabel(aiTrade.cohort)}
                   </span>
                 )}
               </div>
@@ -423,10 +424,11 @@ export default function InstrumentCard({ data, feedExchange, feedSecurityId }: I
                 </span>
                 {(signal as any).cohort && (
                   <span
-                    className="text-[0.5rem] uppercase tracking-wide px-1 rounded bg-info-cyan/15 text-info-cyan font-bold"
+                    className="text-[0.5rem] uppercase tracking-wide px-1 rounded font-bold"
+                    style={cohortPillStyle((signal as any).cohort)}
                     title="Strategy cohort (scalp / trend / swing)"
                   >
-                    {(signal as any).cohort}
+                    {cohortLabel((signal as any).cohort)}
                   </span>
                 )}
                 {(signal as any).regime && (

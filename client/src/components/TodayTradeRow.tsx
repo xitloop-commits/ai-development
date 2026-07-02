@@ -17,7 +17,7 @@ import {
   getTradeContractLabel,
 } from '@/lib/tradeFormatters';
 import { tradePoints } from '@/lib/tradeCalculations';
-import { getWorkspaceThemeMeta, withAlpha } from '@/lib/tradeThemes';
+import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel } from '@/lib/tradeThemes';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { useSelectedSignalSeq } from '@/lib/selectionStore';
 import { useInstrumentTick } from '@/hooks/useTickStream';
@@ -176,6 +176,15 @@ function _TodayTradeRow({
             {/* Instrument identity (the whole closed row is dimmed at row level). */}
             <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0">
               <InstrumentTag name={trade.instrument} muted={!isOpen} />
+              {trade.cohort && (
+                <span
+                  className="text-[0.5rem] font-semibold uppercase tracking-wide rounded px-1 py-0.5 shrink-0"
+                  style={cohortPillStyle(trade.cohort)}
+                  title={`Signal cohort: ${trade.cohort}`}
+                >
+                  {cohortLabel(trade.cohort)}
+                </span>
+              )}
               {expiryLabel && (
                 <>
                   <span className="text-border">|</span>

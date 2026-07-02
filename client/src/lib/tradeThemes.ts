@@ -105,6 +105,37 @@ export function resolveInstrumentHex(
   return FALLBACK_INSTRUMENT_COLOR;
 }
 
+// ─── Cohort colour system ──────────────────────────────────────────────────
+// Each signal cohort (model-head horizon) has ONE bright colour, used
+// consistently wherever a cohort pill appears (trade rows, signal cards, …).
+// Reuses instrumentStyleFromHex so the pill/text shades match the instrument
+// pills on the dark theme. Kept distinct from the core instrument hues.
+export const COHORT_COLORS: Record<string, string> = {
+  scalp: '#22D3EE',           // bright cyan  — <= 5 min
+  trend: '#4ADE80',           // bright green — 15-30 min
+  swing: '#FBBF24',           // bright amber — 1-2 hr
+  multi_day_swing: '#C084FC', // bright violet — overnight+
+};
+
+const FALLBACK_COHORT_COLOR = '#94A3B8'; // slate-400
+
+/** Resolve a cohort's bright hex (case-insensitive); slate for unknown / null. */
+export function resolveCohortHex(cohort: string | null | undefined): string {
+  if (!cohort) return FALLBACK_COHORT_COLOR;
+  return COHORT_COLORS[cohort.toLowerCase()] ?? FALLBACK_COHORT_COLOR;
+}
+
+/** Short display label for a cohort pill (keeps the long one compact). */
+export function cohortLabel(cohort: string): string {
+  return cohort === 'multi_day_swing' ? 'multiday' : cohort;
+}
+
+/** Cohort pill style (bright text + tint bg) — matches the instrument pill so
+ *  cohort colours stay consistent across every surface that shows them. */
+export function cohortPillStyle(cohort: string | null | undefined) {
+  return instrumentStyleFromHex(resolveCohortHex(cohort)).pill;
+}
+
 /** Manual order controls allowed on My-* and Testing-* channels (not on AI channels). */
 export function supportsManualControls(channel: Channel): boolean {
   const ws = channelToWorkspace(channel);

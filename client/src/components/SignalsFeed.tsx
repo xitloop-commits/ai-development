@@ -13,7 +13,7 @@ import { useRef, useEffect, useState, useMemo } from 'react';
 import { Activity, Zap } from 'lucide-react';
 import { useCapital } from '@/contexts/CapitalContext';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
-import { withAlpha } from '@/lib/tradeThemes';
+import { withAlpha, cohortPillStyle, cohortLabel } from '@/lib/tradeThemes';
 import { setSelectedSignalSeq, useSelectedSignalSeq } from '@/lib/selectionStore';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -266,8 +266,8 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
                           {hasV2 ? action.replace('_', ' ') : signal.direction?.replace('GO_', '')}
                         </span>
                         {signal.cohort && (
-                          <span className="text-[0.5rem] uppercase tracking-wide px-1 rounded bg-info-cyan/15 text-info-cyan font-bold" title="Strategy cohort">
-                            {signal.cohort}
+                          <span className="text-[0.5rem] uppercase tracking-wide px-1 rounded font-bold" style={cohortPillStyle(signal.cohort)} title="Strategy cohort">
+                            {cohortLabel(signal.cohort)}
                           </span>
                         )}
                         {count > 1 && (
