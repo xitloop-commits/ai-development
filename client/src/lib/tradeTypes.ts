@@ -84,6 +84,11 @@ export interface TradeRecord {
   /** Strategy cohort (scalp | trend | swing | multi_day_swing) for AI trades;
    *  null/absent for manual trades. Lets the desk group P&L by strategy. */
   cohort?: string | null;
+  /** Global daily signal sequence (server-assigned) — shown on the row so it
+   *  matches its originating SEA tray-signal card. Null for manual trades. */
+  signalSeq?: number | null;
+  /** Hold duration in ms (closedAt − openedAt), stamped on close. */
+  durationMs?: number | null;
   pnl: number;
   unrealizedPnl: number;
   charges: number;

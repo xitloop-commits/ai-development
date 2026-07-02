@@ -130,6 +130,13 @@ export interface TradeRecord {
    *  multi_day_swing). Stamped on AI-originated trades from the SEA signal so
    *  P&L can be grouped by strategy. Null for manual / non-AI trades. */
   cohort?: string | null;
+  /** Global daily signal sequence (server-assigned, 1,2,3… per IST day) linking
+   *  this trade to its originating SEA tray-signal card. Shown on the trade row
+   *  in place of the old positional index. Null for manual / non-AI trades. */
+  signalSeq?: number | null;
+  /** How long the trade was held, in ms (closedAt − openedAt). Stamped on close
+   *  so reports/analytics can read hold duration without recomputing. */
+  durationMs?: number | null;
   /** Dhan Super Order anchor id (== entry-leg / AlgoOrdNo). Set on live trades
    *  placed as a Super Order (broker-enforced SL+TP+trailing). Null for plain /
    *  paper trades. Distinct from brokerOrderId so the plain-order path is
@@ -284,6 +291,8 @@ const tradeRecordSchema = new Schema(
     brokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },
     cohort: { type: String, default: null },
+    signalSeq: { type: Number, default: null },
+    durationMs: { type: Number, default: null },
     superOrderId: { type: String, default: null },
     slLegOrderId: { type: String, default: null },
     tpLegOrderId: { type: String, default: null },
@@ -958,6 +967,8 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       brokerOrderId: t.brokerOrderId ?? null,
       brokerId: t.brokerId ?? null,
       cohort: t.cohort ?? null,
+      signalSeq: t.signalSeq ?? null,
+      durationMs: t.durationMs ?? null,
       superOrderId: t.superOrderId ?? null,
       slLegOrderId: t.slLegOrderId ?? null,
       tpLegOrderId: t.tpLegOrderId ?? null,

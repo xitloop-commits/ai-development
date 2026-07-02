@@ -1150,6 +1150,7 @@ function buildTradeRecord(
     qty: req.quantity,
     capitalPercent: req.capitalPercent ?? 0,
     cohort: req.cohort ?? null,
+    signalSeq: req.signalSeq ?? null,
     pnl: 0,
     unrealizedPnl: 0,
     charges: 0,

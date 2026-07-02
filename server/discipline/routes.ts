@@ -75,6 +75,9 @@ const validateTradeSchema = z
     /** Strategy cohort (scalp | trend | swing | multi_day_swing) — stamped onto
      *  the trade for P&L grouping. */
     cohort: z.string().optional(),
+    /** SEA per-signal uuid — links this trade to its tray signal so the server
+     *  can stamp the shared global signalSeq onto the trade. */
+    correlationId: z.string().optional(),
 
     stopLoss: z.number().nullable(),
     takeProfit: z.number().nullable(),
@@ -278,6 +281,13 @@ export function registerDisciplineRoutes(app: Express): void {
         //    Imported lazily to break a server-startup module-load cycle
         //    (DA/RCA both lift wire imports through _core/index.ts).
         const { rcaMonitor } = await import("../risk-control");
+        // Global signal sequence: the tray signal was ingested before this trade
+        // POST, so look up its shared seq by correlationId and stamp it on the trade.
+        let signalSeq: number | null = null;
+        if (body.correlationId) {
+          const { getSignalSeqByCorrelation } = await import("../seaSignalStore");
+          signalSeq = await getSignalSeqByCorrelation(body.correlationId).catch(() => null);
+        }
         const evalResult = await rcaMonitor.evaluateTrade({
           executionId: body.executionId,
           channel: body.channel,
@@ -293,6 +303,7 @@ export function registerDisciplineRoutes(app: Express): void {
           contractSecurityId: body.contractSecurityId,
           capitalPercent: body.capitalPercent,
           cohort: body.cohort,
+          signalSeq: signalSeq ?? undefined,
           origin: body.origin,
         });
 

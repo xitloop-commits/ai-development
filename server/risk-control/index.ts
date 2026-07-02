@@ -320,6 +320,7 @@ class RcaMonitor {
     contractSecurityId?: string;
     capitalPercent?: number;
     cohort?: string;
+    signalSeq?: number;
     origin: "RCA" | "AI" | "USER";
   }): Promise<{
     decision: "APPROVE" | "REJECT" | "SIZE_ADJUST";
@@ -348,6 +349,7 @@ class RcaMonitor {
       contractSecurityId: input.contractSecurityId,
       capitalPercent: input.capitalPercent,
       cohort: input.cohort,
+      signalSeq: input.signalSeq,
       timestamp: Date.now(),
     });
     const decision = submitResult.success ? "APPROVE" : "REJECT";

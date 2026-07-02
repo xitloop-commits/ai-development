@@ -562,6 +562,8 @@ class PortfolioAgentImpl {
     trade.unrealizedPnl = 0;
     trade.ltp = exitPrice;
     trade.closedAt = Date.now();
+    // Hold duration (ms) — persisted so reports read it without recomputing.
+    if (trade.openedAt) trade.durationMs = trade.closedAt - trade.openedAt;
     trade.status = "CLOSED";
     if (exitReason) trade.exitReason = exitReason;
     // Reconciliation may close a previously-desync'd trade — drop the marker.

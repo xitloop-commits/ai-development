@@ -11,6 +11,7 @@ import {
   fmt,
   pnlColor,
   formatAge,
+  formatDuration,
   formatExpiryLabel,
   getTradeDirectionLabel,
   getTradeContractLabel,
@@ -151,8 +152,13 @@ function _TodayTradeRow({
         <div className="flex items-center gap-2 w-full">
           {/* Instrument identity (left) */}
           <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0 shrink-0">
-            {tradeNo != null && (
-              <span className="text-[0.625rem] font-semibold tabular-nums text-muted-foreground shrink-0">#{tradeNo}</span>
+            {(trade.signalSeq ?? tradeNo) != null && (
+              <span
+                className="text-[0.625rem] font-semibold tabular-nums text-muted-foreground shrink-0"
+                title={trade.signalSeq != null ? 'Signal # (matches the tray card)' : 'Trade #'}
+              >
+                #{trade.signalSeq ?? tradeNo}
+              </span>
             )}
             {/* Instrument identity (the whole closed row is dimmed at row level). */}
             <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0">
@@ -221,10 +227,20 @@ function _TodayTradeRow({
 
           {/* Age + exit / reconcile controls (right) */}
           <div className="flex items-center gap-1 shrink-0 ml-auto">
-            {isOpen && (
-              <span className="text-[0.5rem] text-muted-foreground/60 tabular-nums">
+            {/* Sustained duration: live age while open, final hold once closed */}
+            {isOpen ? (
+              <span className="text-[0.5rem] text-muted-foreground/60 tabular-nums" title="Time in trade (live)">
                 {formatAge(trade.openedAt)}
               </span>
+            ) : (
+              (() => {
+                const held = trade.durationMs ?? (trade.closedAt && trade.openedAt ? trade.closedAt - trade.openedAt : null);
+                return held != null ? (
+                  <span className="text-[0.5rem] text-muted-foreground/60 tabular-nums" title="Trade duration (held)">
+                    {formatDuration(held)}
+                  </span>
+                ) : null;
+              })()
             )}
             {isDesync && canManageTrades && (
               <button

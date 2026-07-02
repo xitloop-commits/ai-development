@@ -22,6 +22,21 @@ export function formatAge(openedAt?: number): string {
   return `${diffDays}d`;
 }
 
+/** Format a hold duration (ms) with seconds precision — for how long a trade was
+ *  sustained (scalps last seconds–minutes). e.g. 45s, 3m 12s, 1h 4m. */
+export function formatDuration(ms?: number | null): string {
+  if (ms == null || ms < 0 || !Number.isFinite(ms)) return '';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) {
+    const rem = s % 60;
+    return rem ? `${m}m ${rem}s` : `${m}m`;
+  }
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
 export function ordinal(n: number): string {
   if (n >= 11 && n <= 13) return n + 'th';
   switch (n % 10) {

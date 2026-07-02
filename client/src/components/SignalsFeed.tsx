@@ -8,14 +8,13 @@
  *   - Instrument colour coding
  *   - Clean spacing and hierarchy
  */
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useMemo } from 'react';
 // Uses native CSS scrollbar (scrollbar-thin + scrollbar-cyan) matching TradingDesk style
 import { Activity, Zap } from 'lucide-react';
 import { useCapital } from '@/contexts/CapitalContext';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { withAlpha } from '@/lib/tradeThemes';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { TradeBar } from './TradeBar';
 
 // ─── Instrument name mapping for trade placement ───────────
 const SIG_TO_UI_NAME: Record<string, string> = {
@@ -29,6 +28,9 @@ export interface SEASignal {
   id: string;
   /** Server ingest epoch ms — pagination cursor for lazy-load (Mongo store). */
   ts?: number;
+  /** Global daily sequence (server-assigned, 1,2,3… per IST day) — shown on the
+   *  card and matched to the trade row of the same seq. */
+  signalSeq?: number;
   timestamp: number;
   timestamp_ist: string;
   instrument: string;
@@ -66,6 +68,8 @@ interface SignalsFeedProps {
   onLoadOlder?: () => void;
   loadingOlder?: boolean;
   hasMore?: boolean;
+  /** signalSeq values that currently have an OPEN trade — their cards pulse. */
+  activeSignalSeqs?: Set<number>;
 }
 
 const INST_SHORT: Record<string, string> = {
@@ -90,6 +94,16 @@ function timeAgo(ts_ist: string): string {
   }
 }
 
+/** HH:MM:SS.mmm (24h) from epoch ms. Used for the tick time + tray-arrival time. */
+function fmtClock(ms: number | null): string {
+  if (ms == null || !Number.isFinite(ms)) return '—';
+  const d = new Date(ms);
+  return (
+    d.toLocaleTimeString('en-GB', { hour12: false }) +
+    '.' + String(d.getMilliseconds()).padStart(3, '0')
+  );
+}
+
 function fmtNum(v: number | null, dec = 2): string {
   if (v === null || v === undefined) return '-';
   if (Math.abs(v) >= 10000) return v.toLocaleString('en-IN', { maximumFractionDigits: 0 });
@@ -97,14 +111,25 @@ function fmtNum(v: number | null, dec = 2): string {
   return v.toFixed(dec);
 }
 
-export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMore }: SignalsFeedProps) {
+export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMore, activeSignalSeqs }: SignalsFeedProps) {
   const hasFiltered = signals.some(s => s.filtered);
   const longs = signals.reduce((sum, s) => sum + ((s.action?.startsWith('LONG') || s.direction === 'GO_CALL') ? 1 : 0), 0);
   const shorts = signals.reduce((sum, s) => sum + ((s.action?.startsWith('SHORT') || s.direction === 'GO_PUT') ? 1 : 0), 0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
-  const { channel, placeTrade } = useCapital() as any;
+  const { channel, placeTrade, currentDay } = useCapital() as any;
   const { styleOf } = useInstrumentColors();
+
+  // Item 4: signalSeqs that currently have an OPEN trade on the active channel —
+  // their cards pulse. A caller-supplied set (activeSignalSeqs) overrides this.
+  const openSeqs = useMemo(() => {
+    const s = new Set<number>();
+    for (const t of (currentDay?.trades ?? [])) {
+      if (t?.status === 'OPEN' && typeof t.signalSeq === 'number') s.add(t.signalSeq);
+    }
+    return s;
+  }, [currentDay]);
+  const activeSeqs = activeSignalSeqs ?? openSeqs;
   const canTrade = channel !== 'ai-live' && channel !== 'ai-paper';
 
   const handleTrade = (signal: SEASignal) => {
@@ -205,18 +230,29 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
             const probPct = Math.round(signal.direction_prob_30s * 100);
             const probLabel = Number.isFinite(probPct) ? `${probPct}%` : '—';
 
+            // Item 4: pulse the card while its signal has an open trade.
+            const isActive = signal.signalSeq != null && activeSeqs.has(signal.signalSeq);
+            // Item 6: tick time (market) vs arrived-to-tray time.
+            const tickMs = signal.timestamp ? signal.timestamp * 1000 : null;
+            const arrivalMs = signal.timestamp_ist ? Date.parse(signal.timestamp_ist) : null;
+
             return (
               <div
                 key={signal.id}
-                className="group relative border-l-[3px] rounded-r flex items-stretch overflow-hidden"
+                className={`group relative border-l-[3px] rounded-r flex items-stretch overflow-hidden ${isActive ? 'animate-pulse ring-1 ring-info-cyan/60' : ''}`}
                 style={{ ...instStyle.cardBg, borderLeftColor: withAlpha(instStyle.hex, 0.5) }}
               >
                 {/* Left: details (wrapped in tooltip for metadata) */}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="flex-1 px-2 py-1 space-y-0.5 min-w-0 cursor-default">
-                      {/* Line 1: instrument · strike · direction · cohort · time */}
+                      {/* Line 1: #seq · instrument · strike · direction · cohort · time */}
                       <div className="flex items-center gap-1.5 text-[0.625rem]">
+                        {signal.signalSeq != null && (
+                          <span className="text-[0.5rem] font-bold tabular-nums px-1 rounded bg-info-cyan/15 text-info-cyan shrink-0" title="Signal #">
+                            #{signal.signalSeq}
+                          </span>
+                        )}
                         <span className="font-bold tabular-nums truncate" style={instStyle.text}>
                           {INST_SHORT[signal.instrument] ?? signal.instrument} {signal.atm_strike || ''}
                         </span>
@@ -249,17 +285,6 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
                               <span className="ml-auto"><span className="text-muted-foreground">RR </span><span className={`font-bold ${(signal.rr ?? 0) >= 1.5 ? 'text-bullish' : 'text-warning-amber'}`}>{signal.rr.toFixed(1)}</span></span>
                             )}
                           </div>
-                          {signal.sl != null && signal.tp != null && signal.entry > 0 && (
-                            <TradeBar
-                              compact
-                              frozen
-                              isBuy={isLong || signal.direction === 'GO_CALL'}
-                              entryPrice={signal.entry}
-                              ltp={signal.entry}
-                              slPercent={((signal.entry - signal.sl) / signal.entry) * 100}
-                              tpPercent={((signal.tp - signal.entry) / signal.entry) * 100}
-                            />
-                          )}
                         </>
                       ) : (
                         <div className="flex items-center gap-2 text-[0.625rem] tabular-nums">
@@ -270,6 +295,16 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
                           <span className="font-bold text-foreground">{signal.atm_strike}</span>
                         </div>
                       )}
+
+                      {/* Item 6: tick time (market, left) vs arrived-to-tray time (right) */}
+                      <div className="flex items-center justify-between text-[0.5rem] text-muted-foreground/80 tabular-nums pt-0.5">
+                        <span title="Tick time — the market tick the signal was computed from">
+                          tick {fmtClock(tickMs)}
+                        </span>
+                        <span title="Time the signal arrived in the tray (SEA emit)">
+                          tray {fmtClock(arrivalMs)}
+                        </span>
+                      </div>
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="left" className="text-[0.625rem] tabular-nums">

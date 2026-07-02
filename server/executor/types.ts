@@ -53,6 +53,10 @@ export interface SubmitTradeRequest {
    *  stamped onto the TradeRecord so P&L can be grouped by strategy. */
   cohort?: string;
 
+  /** Global daily signal sequence (server-assigned) — shown on the trade row so
+   *  it matches its originating tray signal card. */
+  signalSeq?: number;
+
   timestamp: number;
 }
 

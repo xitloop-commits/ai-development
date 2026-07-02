@@ -24,6 +24,7 @@ import os
 import sys
 import threading
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -175,6 +176,11 @@ def _maybe_submit_ai_trade(signal: dict) -> None:
         cohort = signal.get("cohort")
         if isinstance(cohort, str) and cohort:
             payload["cohort"] = cohort
+        # Links this trade to its tray signal so the server can stamp the shared
+        # global signalSeq (assigned when the signal was ingested) onto the trade.
+        correlation_id = signal.get("correlationId")
+        if isinstance(correlation_id, str) and correlation_id:
+            payload["correlationId"] = correlation_id
         conf = _finite(signal.get("direction_prob_30s"))
         if conf is not None:
             payload["aiConfidence"] = conf
@@ -685,6 +691,7 @@ def run(
                 signal = {
                     "timestamp": row.get("timestamp"),
                     "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
+                    "correlationId": uuid.uuid4().hex,
                     "instrument": instrument.upper(),
                     "action": action,
                     "cohort": signal_cohort,
@@ -751,6 +758,7 @@ def run(
                         trend_signal = {
                             "timestamp": row.get("timestamp"),
                             "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
+                            "correlationId": uuid.uuid4().hex,
                             "instrument": instrument.upper(),
                             "action": trend_sig.action,
                             "cohort": "trend",
