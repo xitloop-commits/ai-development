@@ -303,8 +303,8 @@ class SignalDashboard:
                 # ref to the full preds dict (may contain many megabytes
                 # of head predictions).
                 self._state.last_preds = {
-                    "prob_up_60s": preds.get("direction_prob_30s"),
-                    "rr": preds.get("risk_reward_ratio_30s"),
+                    "prob_up_60s": preds.get("direction_prob_60s"),
+                    "rr": preds.get("risk_reward_ratio_60s"),
                     "upside_pctile": preds.get("upside_percentile_60s")
                     or preds.get("upside_percentile_30s"),
                     "exit_signal_60s": preds.get("exit_signal_60s"),

@@ -679,10 +679,12 @@ def run(
                 signal_cohort = "scalp"
                 # Human-readable "why this trade fired" — the gate drivers that
                 # cleared the threshold (logged with the signal for audit).
-                _dp = _finite(preds.get("direction_prob_30s")) or 0.0
+                # Wave-2 scalp window is 60s (the 30s heads were dropped);
+                # read the 60s heads the gate actually consumed.
+                _dp = _finite(preds.get("direction_prob_60s")) or 0.0
                 reason = (
                     f"{gate_mode} gate · conviction {max(_dp, 1.0 - _dp):.2f} · "
-                    f"RR {_fmt(preds.get('risk_reward_ratio_30s'), 1)} · "
+                    f"RR {_fmt(preds.get('risk_reward_ratio_60s'), 1)} · "
                     f"pctile {_fmt(preds.get('upside_percentile_30s'), 0)} · "
                     f"persist60 {_fmt(preds.get('direction_persists_60s'))} · "
                     f"persist300 {_fmt(preds.get('direction_persists_300s'))} · "
@@ -696,8 +698,11 @@ def run(
                     "action": action,
                     "cohort": signal_cohort,
                     "reason": reason,
-                    "direction_prob_30s": round(preds["direction_prob_30s"], 4),
-                    "risk_reward_ratio_30s": round(preds["risk_reward_ratio_30s"], 4),
+                    # Legacy field names kept for the downstream contract
+                    # (Mongo schema, UI card, RCA); Wave-2 fills them with
+                    # the 60s scalp heads (the 30s heads no longer exist).
+                    "direction_prob_30s": round(preds["direction_prob_60s"], 4),
+                    "risk_reward_ratio_30s": round(preds["risk_reward_ratio_60s"], 4),
                     "upside_percentile_30s": round(preds["upside_percentile_30s"], 2),
                     "max_upside_pred_30s": round(preds["max_upside_30s"], 2),
                     "max_drawdown_pred_30s": round(preds["max_drawdown_30s"], 2),
@@ -820,13 +825,15 @@ def run(
             # ── Filtered output ──
             # Log the failed-gate diagnostic line per spec §3
             # (filtered_signals.log). Only emit when prediction was
-            # evaluable (i.e. we have a direction_prob_30s) — pure
-            # noise rows are skipped.
-            if not np.isnan(preds["direction_prob_30s"]) and gate_reasons:
+            # evaluable (i.e. we have a direction_prob_60s) — pure
+            # noise rows are skipped. Wave-2 uses the 60s head; the 30s
+            # head is always NaN, so guarding on it silently disabled the
+            # scalp reject counter + filtered log (dashboard showed 0).
+            if not np.isnan(preds["direction_prob_60s"]) and gate_reasons:
                 # Dashboard: reject-by-reason tally (scalp cohort).
                 dashboard.push_reject(cohort="scalp", reasons=list(gate_reasons))
                 filtered_signals += 1
-                would_be = "GO_CALL" if preds["direction_prob_30s"] > 0.5 else "GO_PUT"
+                would_be = "GO_CALL" if preds["direction_prob_60s"] > 0.5 else "GO_PUT"
                 filtered_logger.log(
                     {
                         "timestamp": row.get("timestamp"),
@@ -834,8 +841,8 @@ def run(
                         "instrument": instrument.upper(),
                         "would_be_direction": would_be,
                         "fail_reasons": gate_reasons,
-                        "direction_prob_30s": round(preds["direction_prob_30s"], 4),
-                        "risk_reward_ratio_30s": round(preds["risk_reward_ratio_30s"], 4),
+                        "direction_prob_30s": round(preds["direction_prob_60s"], 4),
+                        "risk_reward_ratio_30s": round(preds["risk_reward_ratio_60s"], 4),
                         "upside_percentile_30s": round(preds["upside_percentile_30s"], 2),
                         "model_version": models.version,
                     }
