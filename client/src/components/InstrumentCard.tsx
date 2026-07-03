@@ -25,8 +25,7 @@ import { trpc } from '@/lib/trpc';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { cohortPillStyle, cohortLabel } from '@/lib/tradeThemes';
 import { TradeBar } from './TradeBar';
-import SignalChartDialog, { type SignalChartTarget } from './SignalChartDialog';
-import { UNDERLYING_SECURITY_ID, istDateString } from '@/lib/signalChart';
+import { UNDERLYING_SECURITY_ID, istDateString, signalChartUrl, type SignalChartTarget } from '@/lib/signalChart';
 import { useLiveDay } from '@/stores/portfolioLiveStore';
 import { useInstrumentLiveState } from '@/hooks/useInstrumentLiveState';
 
@@ -244,7 +243,6 @@ export default function InstrumentCard({ data, feedExchange, feedSecurityId }: I
   // Chart popup — underlying chart for a chosen date with that day's signals
   // plotted. Uses the resolved feed security id (index id, or commodity future
   // id); falls back to the static index ids for NIFTY/BANKNIFTY.
-  const [chartOpen, setChartOpen] = useState(false);
   const chartSecurityId = feedSecurityId ?? UNDERLYING_SECURITY_ID[instrumentKey] ?? '';
   const chartSegment = feedExchange ?? (instrumentKey === 'CRUDEOIL' || instrumentKey === 'NATURALGAS' ? 'MCX_COMM' : 'IDX_I');
   const chartTarget: SignalChartTarget | null = chartSecurityId
@@ -256,6 +254,10 @@ export default function InstrumentCard({ data, feedExchange, feedSecurityId }: I
         initialDate: istDateString(),
       }
     : null;
+  // Open the full-page signal chart in a new browser tab (no popup).
+  const openChart = () => {
+    if (chartTarget) window.open(signalChartUrl(chartTarget), '_blank', 'noopener');
+  };
 
   if (!live) {
     // No live feed file for this instrument right now (e.g. NSE closed, TFA not
@@ -268,7 +270,7 @@ export default function InstrumentCard({ data, feedExchange, feedSecurityId }: I
         </p>
         {chartTarget && (
           <button
-            onClick={() => setChartOpen(true)}
+            onClick={openChart}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-border text-[0.625rem] font-bold tracking-wider uppercase text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
             title="Open chart — pick a date to see that day's price + signals"
           >
@@ -276,7 +278,6 @@ export default function InstrumentCard({ data, feedExchange, feedSecurityId }: I
             Open Chart
           </button>
         )}
-        <SignalChartDialog open={chartOpen} onOpenChange={setChartOpen} target={chartTarget} />
       </div>
     );
   }
@@ -338,7 +339,7 @@ export default function InstrumentCard({ data, feedExchange, feedSecurityId }: I
           </span>
           {chartTarget && (
             <button
-              onClick={() => setChartOpen(true)}
+              onClick={openChart}
               className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.5625rem] font-bold tracking-wider uppercase text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
               title="Open chart — pick a date to see that day's price + signals"
             >
@@ -865,13 +866,6 @@ export default function InstrumentCard({ data, feedExchange, feedSecurityId }: I
           </Tip>
         </div>
       </div>
-
-      {/* Signal chart popup (Heikin Ashi underlying + all-signal markers, by date) */}
-      <SignalChartDialog
-        open={chartOpen}
-        onOpenChange={setChartOpen}
-        target={chartTarget}
-      />
     </div>
   );
 }

@@ -12,6 +12,7 @@
  */
 
 import mongoose, { Schema } from "mongoose";
+import { logFolderFor, type ChartSignal } from "./seaSignals";
 
 export interface SeaSignalDoc {
   /** Unique id (the SEA's `sea-...` id, or a generated one). */
@@ -113,6 +114,54 @@ export async function getSignalSeqByCorrelation(
     .select("signalSeq -_id")
     .lean();
   return ((row as any)?.signalSeq as number | undefined) ?? null;
+}
+
+/**
+ * Chart-overlay signals for one instrument on one date, pulled from the durable
+ * store so each marker's id === the tray card's `signalSeq` (the number the user
+ * sees). Dedups consecutive same-direction signals within 60s (one arrow per
+ * move) keeping the FIRST signal's real seq for the label. Returns [] when the
+ * store has no rows for that day (old date predating the store) so the caller
+ * can fall back to the raw log file.
+ */
+export async function getSeaSignalsForChartFromStore(
+  instrument: string,
+  date: string,
+): Promise<ChartSignal[]> {
+  const wantFolder = logFolderFor(instrument);
+  const rows = (await SeaSignalModel.find({ date })
+    .select("-_id -__v")
+    .lean()) as unknown as SeaSignalDoc[];
+
+  const mine = rows
+    .filter((r) => logFolderFor(r.instrument) === wantFolder)
+    .map<ChartSignal>((r) => ({
+      // The tray card shows "#{signalSeq}" — use the same number so the chart
+      // marker and the tray/trade row can be cross-referenced by eye.
+      id: r.signalSeq != null ? String(r.signalSeq) : undefined,
+      timestamp: r.timestamp ?? 0,
+      timestamp_ist: r.timestamp_ist ?? "",
+      direction: r.direction === "GO_PUT" ? "GO_PUT" : "GO_CALL",
+      action: r.action,
+      atm_strike: r.atm_strike ?? 0,
+      spot_price: r.spot_price ?? null,
+      entry: r.entry,
+      tp: r.tp,
+      sl: r.sl,
+      cohort: r.cohort,
+    }))
+    .filter((s) => s.timestamp > 0)
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const out: ChartSignal[] = [];
+  for (const sig of mine) {
+    const prev = out[out.length - 1];
+    if (prev && prev.direction === sig.direction && sig.timestamp - prev.timestamp < 60) {
+      continue;
+    }
+    out.push(sig);
+  }
+  return out.slice(0, 2000);
 }
 
 /** Today's IST date string (YYYY-MM-DD). */

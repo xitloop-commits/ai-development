@@ -15,8 +15,9 @@ import {
   getAllHolidays,
 } from "./holidays";
 import { getMongoHealth, pingMongo } from "./mongo";
-import { querySeaSignals } from "./seaSignalStore";
-import { getSEASignalsForChart } from "./seaSignals";
+import { querySeaSignals, getSeaSignalsForChartFromStore } from "./seaSignalStore";
+import { getSEASignalsForChart, logFolderFor } from "./seaSignals";
+import { getTradesForDate } from "./portfolio/state";
 import { getInstrumentLiveState } from "./instrumentLiveState";
 import { analyzeInstrument } from "./signal-advisor";
 import { brokerRouter } from "./broker/brokerRouter";
@@ -68,7 +69,10 @@ export const appRouter = router({
       }),
 
     // All SEA signals for one instrument on one date (YYYY-MM-DD IST), for the
-    // chart overlay. Reads the per-date log file — works without the live feed.
+    // chart overlay. Prefers the durable store so each marker's id === the tray
+    // card's signalSeq; falls back to the raw log file for older dates that
+    // predate the store (those carry a synthetic sequence id). Works without
+    // the live feed either way.
     signalsForChart: publicProcedure
       .input(
         z.object({
@@ -76,8 +80,50 @@ export const appRouter = router({
           date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         }),
       )
-      .query(({ input }) => {
+      .query(async ({ input }) => {
+        const fromStore = await getSeaSignalsForChartFromStore(
+          input.instrument,
+          input.date,
+        );
+        if (fromStore.length > 0) return fromStore;
         return getSEASignalsForChart(input.instrument, input.date);
+      }),
+
+    // All trades on one option strike (instrument + strike + CE/PE) for one
+    // channel + date, shaped for the option-strike chart overlay (entry/exit
+    // markers labelled with signalSeq). Reads the channel's day record.
+    optionTradesForChart: publicProcedure
+      .input(
+        z.object({
+          channel: z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live"]),
+          instrument: z.string(),
+          strike: z.number(),
+          side: z.enum(["CE", "PE"]),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        }),
+      )
+      .query(async ({ input }) => {
+        const wantFolder = logFolderFor(input.instrument);
+        const trades = await getTradesForDate(input.channel as any, input.date);
+        return trades
+          .filter((t) => {
+            if (logFolderFor(t.instrument) !== wantFolder) return false;
+            if (t.strike !== input.strike) return false;
+            const side = t.type.startsWith("CALL_") ? "CE" : t.type.startsWith("PUT_") ? "PE" : null;
+            return side === input.side;
+          })
+          .map((t) => ({
+            signalSeq: t.signalSeq ?? null,
+            side: input.side,
+            entryTime: Math.round(t.openedAt / 1000), // ms → epoch seconds
+            entryPrice: t.entryPrice,
+            exitTime: t.closedAt != null ? Math.round(t.closedAt / 1000) : null,
+            exitPrice: t.exitPrice,
+            status: t.status,
+            exitReason: t.exitReason,
+            pnl: t.pnl,
+          }))
+          .sort((a, b) => a.entryTime - b.entryTime);
       }),
 
     // Get active instruments list

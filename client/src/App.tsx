@@ -13,6 +13,7 @@ import { CredentialGate } from "./components/CredentialGate";
 // so they shouldn't be in the main bundle. Lazy-load them.
 const TradingDeskMockupPage = lazy(() => import("./mockups/TradingDeskMockupPage"));
 const HeadToHeadPage = lazy(() => import("./pages/HeadToHeadPage"));
+const SignalChartPage = lazy(() => import("./components/SignalChartPage"));
 
 function isTradingDeskMockupRoute() {
   if (typeof window === "undefined") return false;
@@ -36,9 +37,16 @@ function isHeadToHeadRoute() {
   return params.get("view") === "h2h" || window.location.pathname === "/h2h";
 }
 
+function isSignalChartRoute() {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get("view") === "chart";
+}
+
 function App() {
   const showTradingDeskMockup = isTradingDeskMockupRoute();
   const showHeadToHead = isHeadToHeadRoute();
+  const showSignalChart = isSignalChartRoute();
 
   // H6 — in production, if a user lands on a mockup URL, redirect to
   // home instead of silently rendering MainScreen at the wrong URL.
@@ -107,6 +115,10 @@ function App() {
               ) : showHeadToHead ? (
                 <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading…</div>}>
                   <HeadToHeadPage />
+                </Suspense>
+              ) : showSignalChart ? (
+                <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading chart…</div>}>
+                  <SignalChartPage />
                 </Suspense>
               ) : (
                 <CredentialGate>

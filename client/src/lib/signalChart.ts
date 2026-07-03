@@ -83,6 +83,9 @@ export function toHeikinAshi(raw: RawCandles): Candle[] {
 
 /** A signal occurrence to plot as a marker on the underlying chart. */
 export interface ChartSignal {
+  /** Server signal id, e.g. "sea-banknifty-42". The trailing number is the
+   *  per-instrument signal sequence shown on the chart marker. */
+  id?: string;
   timestamp: number; // epoch SECONDS (real UTC)
   timestamp_ist: string;
   direction: "GO_CALL" | "GO_PUT";
@@ -111,4 +114,79 @@ export const UNDERLYING_SECURITY_ID: Record<string, string> = {
 /** Today's date in IST as "YYYY-MM-DD" (used to bound the intraday window). */
 export function istDateString(d: Date = new Date()): string {
   return d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
+/** What the standalone Signal Chart page needs to render one instrument. */
+export interface SignalChartTarget {
+  instrumentKey: string;   // NIFTY_50 / BANKNIFTY / CRUDEOIL / NATURALGAS
+  displayName: string;
+  securityId: string;      // underlying feed security id
+  exchangeSegment: string; // underlying feed segment (IDX_I / MCX_COMM)
+  initialDate: string;     // YYYY-MM-DD (IST)
+}
+
+/** Build the standalone chart-page URL (?view=chart&…) — opened in a new tab.
+ *  This is the UNDERLYING (index/future) chart with all SEA signal arrows. */
+export function signalChartUrl(t: SignalChartTarget): string {
+  const p = new URLSearchParams({
+    view: "chart",
+    kind: "underlying",
+    instrument: t.instrumentKey,
+    name: t.displayName,
+    securityId: t.securityId,
+    segment: t.exchangeSegment,
+    date: t.initialDate,
+  });
+  return `${window.location.origin}/?${p.toString()}`;
+}
+
+/** What the option-strike chart needs: one specific option contract + the
+ *  channel/date whose trades to overlay. */
+export interface OptionChartTarget {
+  instrumentKey: string;   // NIFTY_50 / BANKNIFTY / …
+  displayName: string;     // e.g. "BANKNIFTY 58500 CE"
+  securityId: string;      // the OPTION contract's security id (contractSecurityId)
+  exchangeSegment: string; // NSE_FNO / MCX_COMM
+  strike: number;
+  optionType: "CE" | "PE";
+  channel: string;         // which channel's trades to plot
+  date: string;            // YYYY-MM-DD (IST)
+}
+
+/** Build the option-strike chart-page URL — opened in a new tab. Shows the
+ *  option contract's own candles with that day's trades marked (entry ↑ / exit
+ *  ↓) and labelled by signal id. */
+export function optionChartUrl(t: OptionChartTarget): string {
+  const p = new URLSearchParams({
+    view: "chart",
+    kind: "option",
+    instrument: t.instrumentKey,
+    name: t.displayName,
+    securityId: t.securityId,
+    segment: t.exchangeSegment,
+    strike: String(t.strike),
+    side: t.optionType,
+    channel: t.channel,
+    date: t.date,
+  });
+  return `${window.location.origin}/?${p.toString()}`;
+}
+
+/** Dhan instrument type for an OPTION contract, from its exchange segment.
+ *  Index options (NSE_FNO) → OPTIDX; commodity options (MCX_COMM) → OPTFUT. */
+export function optionInstrumentType(segment: string): "OPTIDX" | "OPTFUT" {
+  return segment === "MCX_COMM" ? "OPTFUT" : "OPTIDX";
+}
+
+/** A trade to plot on the option-strike chart (entry + exit markers). */
+export interface ChartTrade {
+  signalSeq: number | null;
+  side: "CE" | "PE";
+  entryTime: number;        // epoch SECONDS (real UTC)
+  entryPrice: number;
+  exitTime: number | null;  // epoch SECONDS (real UTC), null while OPEN
+  exitPrice: number | null;
+  status: string;           // OPEN / CLOSED / …
+  exitReason?: string;
+  pnl: number;
 }

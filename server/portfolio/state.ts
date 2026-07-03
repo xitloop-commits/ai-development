@@ -852,6 +852,17 @@ export async function getDayRecord(
   return doc ? docToDayRecord(doc) : null;
 }
 
+/** All trades recorded on a given IST calendar date (YYYY-MM-DD) for a channel.
+ *  Used by the option-strike chart overlay to plot that day's entries/exits.
+ *  Empty when no day record exists for that date. */
+export async function getTradesForDate(
+  channel: Channel,
+  date: string
+): Promise<TradeRecord[]> {
+  const doc = await DayRecordModel.findOne({ channel, date }).lean();
+  return doc ? docToDayRecord(doc).trades : [];
+}
+
 export async function upsertDayRecord(
   channel: Channel,
   record: DayRecord

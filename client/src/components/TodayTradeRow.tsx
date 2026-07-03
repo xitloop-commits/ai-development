@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, LineChart } from 'lucide-react';
 import { toast } from 'sonner';
 import { estimateSingleLegCharges, DEFAULT_CHARGES } from '@shared/chargesEngine';
 import { ChargesBreakdownTip } from './ChargesBreakdownTip';
@@ -19,6 +19,7 @@ import {
 import { tradePoints } from '@/lib/tradeCalculations';
 import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel } from '@/lib/tradeThemes';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
+import { optionChartUrl, istDateString } from '@/lib/signalChart';
 import { useSelectedSignalSeq } from '@/lib/selectionStore';
 import { useInstrumentTick } from '@/hooks/useTickStream';
 import { InstrumentTag } from './InstrumentTag';
@@ -201,6 +202,33 @@ function _TodayTradeRow({
               <span className={`text-[0.5625rem] ${isOpen ? 'font-bold' : ''} ${theme.buttonActive} rounded px-1 py-0.5`}>{contractLabel}</span>
               <span className="text-border">|</span>
               <span className={`text-[0.5625rem] ${isOpen ? 'font-semibold' : ''} ${isBuy ? 'text-bullish' : 'text-destructive'}`}>{directionLabel}</span>
+              {(contractLabel === 'CE' || contractLabel === 'PE') &&
+                trade.contractSecurityId &&
+                trade.strike != null && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      window.open(
+                        optionChartUrl({
+                          instrumentKey: trade.instrument,
+                          displayName: `${trade.instrument} ${trade.strike} ${contractLabel}`,
+                          securityId: trade.contractSecurityId!,
+                          exchangeSegment: optionExchangeFor(trade.instrument),
+                          strike: trade.strike!,
+                          optionType: contractLabel,
+                          channel,
+                          date: istDateString(new Date(trade.openedAt)),
+                        }),
+                        '_blank',
+                        'noopener',
+                      )
+                    }
+                    className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                    title="Open this strike's option chart with all trades + signal ids"
+                  >
+                    <LineChart className="h-3 w-3" />
+                  </button>
+                )}
             </div>
           </div>
 

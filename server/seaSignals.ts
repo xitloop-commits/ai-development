@@ -221,6 +221,9 @@ export function getSEASignals(
 
 /** A signal occurrence for chart plotting (lightweight subset). */
 export interface ChartSignal {
+  /** Chronological per-day signal id (e.g. "sea-banknifty-42") — assigned in
+   *  getSEASignalsForChart; the trailing number labels the chart marker. */
+  id?: string;
   timestamp: number;       // epoch seconds (real UTC)
   timestamp_ist: string;
   direction: "GO_CALL" | "GO_PUT";
@@ -233,8 +236,9 @@ export interface ChartSignal {
   cohort?: string;
 }
 
-/** Map a UI instrument key (NIFTY_50 / BANKNIFTY / …) to its log folder name. */
-function logFolderFor(instrument: string): string {
+/** Map a UI instrument key (NIFTY_50 / BANKNIFTY / …) to its log folder name.
+ *  Also used as a canonical instrument key for matching store rows. */
+export function logFolderFor(instrument: string): string {
   const k = (instrument || "").toUpperCase().replace(/[^A-Z]/g, "");
   if (k.startsWith("NIFTY50") || k === "NIFTY") return "nifty50";
   if (k.startsWith("BANK")) return "banknifty";
@@ -295,6 +299,11 @@ export function getSEASignalsForChart(instrument: string, date: string): ChartSi
     }
     out.push(sig);
   }
+  // Assign a chronological per-day signal id to each displayed marker so the
+  // chart can label it (the raw log lines carry no id of their own).
+  out.forEach((s, i) => {
+    s.id = `sea-${folder}-${i + 1}`;
+  });
   return out.slice(0, 2000); // safety cap
 }
 
