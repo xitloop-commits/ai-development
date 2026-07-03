@@ -22,9 +22,10 @@ from tick_feature_agent.features.trend_swing_targets import (
 
 class TestColumnNames:
 
-    def test_emits_24_names_in_default(self):
+    def test_emits_28_names_in_default(self):
+        # 7 types × 4 horizons = 28 (Part B added direction_down).
         names = trend_swing_target_column_names()
-        assert len(names) == 24
+        assert len(names) == 28
 
     def test_names_are_unique(self):
         names = trend_swing_target_column_names()
@@ -34,28 +35,30 @@ class TestColumnNames:
         names = trend_swing_target_column_names()
         trend = [n for n in names if n.startswith("trend_")]
         swing = [n for n in names if n.startswith("swing_")]
-        assert len(trend) == 12
-        assert len(swing) == 12
+        assert len(trend) == 14
+        assert len(swing) == 14
 
     def test_horizon_coverage(self):
         names = set(trend_swing_target_column_names())
-        # Six types × four horizons.
+        # Seven types × four horizons (direction_down added in Part B).
         for w in (900, 1800):
-            for t in ("direction", "magnitude", "max_excursion",
-                      "max_drawdown", "continues", "breakout_imminent"):
+            for t in ("direction", "direction_down", "magnitude",
+                      "max_excursion", "max_drawdown", "continues",
+                      "breakout_imminent"):
                 assert f"trend_{t}_{w}s" in names
         for w in (3600, 7200):
-            for t in ("direction", "magnitude", "max_excursion",
-                      "max_drawdown", "continues", "breakout_imminent"):
+            for t in ("direction", "direction_down", "magnitude",
+                      "max_excursion", "max_drawdown", "continues",
+                      "breakout_imminent"):
                 assert f"swing_{t}_{w}s" in names
 
 
 # ── Null helper ───────────────────────────────────────────────────────────
 
 
-def test_null_targets_returns_24_nans():
+def test_null_targets_returns_28_nans():
     out = null_trend_swing_targets()
-    assert len(out) == 24
+    assert len(out) == 28
     for v in out.values():
         assert math.isnan(v)
 
@@ -155,6 +158,39 @@ class TestDirectionAndMagnitude:
         out = _compute(buf, t0=0.0, spot_at_t0=24000.0, instrument="UNKNOWN")
         assert math.isnan(out["trend_direction_900s"])
         assert out["trend_magnitude_900s"] == pytest.approx(20.0)
+
+
+class TestDirectionDown:
+    """Part B: direction_down is the symmetric down-leg mirror of direction —
+    1 iff spot fell more than the noise floor. The two are mutually exclusive
+    (a move can't clear +floor and −floor at once)."""
+
+    def test_down_one_when_move_clears_noise_floor_downward(self):
+        buf = SpotTargetBuffer()
+        _seed(buf, [(900.0, 23980.0)])  # -20 pts, below NIFTY's 8 pt floor
+        out = _compute(buf, t0=0.0, spot_at_t0=24000.0)
+        assert out["trend_direction_down_900s"] == 1.0
+        assert out["trend_direction_900s"] == 0.0  # not up
+
+    def test_down_zero_when_move_is_up(self):
+        buf = SpotTargetBuffer()
+        _seed(buf, [(900.0, 24020.0)])  # +20 pts
+        out = _compute(buf, t0=0.0, spot_at_t0=24000.0)
+        assert out["trend_direction_down_900s"] == 0.0
+        assert out["trend_direction_900s"] == 1.0  # up
+
+    def test_down_zero_when_move_within_noise_floor(self):
+        buf = SpotTargetBuffer()
+        _seed(buf, [(900.0, 23997.0)])  # -3 pts, inside the 8 pt floor
+        out = _compute(buf, t0=0.0, spot_at_t0=24000.0)
+        assert out["trend_direction_down_900s"] == 0.0
+        assert out["trend_direction_900s"] == 0.0  # flat → neither
+
+    def test_unknown_instrument_yields_nan_down(self):
+        buf = SpotTargetBuffer()
+        _seed(buf, [(900.0, 23980.0)])
+        out = _compute(buf, t0=0.0, spot_at_t0=24000.0, instrument="UNKNOWN")
+        assert math.isnan(out["trend_direction_down_900s"])
 
 
 # ── max_excursion / max_drawdown ──────────────────────────────────────────

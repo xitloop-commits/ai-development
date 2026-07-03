@@ -4,7 +4,7 @@ features/trend_swing_targets_columnar.py — T50 B.3b scaffold.
 Polars vectorisation of ``trend_swing_targets.SpotTargetBuffer.compute_targets``.
 
 Both replay-only — trend + swing targets are computed at end-of-day
-backfill, never in live mode (live emits NaN for these 24 columns per
+backfill, never in live mode (live emits NaN for these 28 columns per
 V2_MASTER_SPEC §2.2.2 Option B). The scalar implementation iterates
 emit rows in Python and scans a deque per horizon; this columnar
 version runs all emit rows for the date in one Polars expression chain.
@@ -13,7 +13,7 @@ Scope (this session — scaffold only):
 
     - One public function, ``compute_trend_swing_targets_batch``, that
       consumes a DataFrame of emit rows plus a full-date spot history
-      DataFrame and emits the 24 trend+swing target columns per emit
+      DataFrame and emits the 28 trend+swing target columns per emit
       row.
     - Verified bit-equivalent to the scalar implementation on the one
       synthetic test in ``tests/test_trend_swing_targets_columnar.py``.
@@ -58,7 +58,7 @@ def compute_trend_swing_targets_batch(
     hist_ts_col: str = "ts_sec",
     hist_spot_col: str = "spot",
 ) -> pl.DataFrame:
-    """Compute the 24 trend + swing target columns for every emit row.
+    """Compute the 28 trend + swing target columns for every emit row.
 
     Args:
         emit_df: One row per emit point. Must contain ``ts_sec`` (epoch
@@ -72,7 +72,7 @@ def compute_trend_swing_targets_batch(
             NaN (matches scalar's past_boundary guard).
 
     Returns:
-        emit_df with 24 new columns appended (6 stats × 4 horizons):
+        emit_df with 28 new columns appended (7 stats × 4 horizons):
             trend_direction_900s, trend_magnitude_900s,
             trend_max_excursion_900s, trend_max_drawdown_900s,
             trend_continues_900s, trend_breakout_imminent_900s,
@@ -92,8 +92,9 @@ def compute_trend_swing_targets_batch(
               for layer, horizons in (("trend", TREND_HORIZONS_SEC),
                                       ("swing", SWING_HORIZONS_SEC))
               for w in horizons
-              for stat in ("direction", "magnitude", "max_excursion",
-                           "max_drawdown", "continues", "breakout_imminent")]
+              for stat in ("direction", "direction_down", "magnitude",
+                           "max_excursion", "max_drawdown", "continues",
+                           "breakout_imminent")]
         )
 
     noise_floor = NOISE_FLOOR_PTS.get(instrument_name)
@@ -190,6 +191,21 @@ def compute_trend_swing_targets_batch(
                       )
                 )
 
+            # direction_down: scalar mirror (Part B) —
+            #   if noise_floor is None: NaN
+            #   else: 1.0 if magnitude < -noise_floor else 0.0
+            if noise_floor is None:
+                direction_down_expr = pl.when(mask_null).then(None).otherwise(
+                    pl.lit(None).cast(pl.Float64)
+                )
+            else:
+                direction_down_expr = (
+                    pl.when(mask_null).then(None)
+                      .otherwise(
+                          pl.when(magnitude < -noise_floor).then(1.0).otherwise(0.0)
+                      )
+                )
+
             # continues: scalar (lines 267-284):
             #   NaN if noise_floor is None OR earliest_lookback_spot is None
             #   else if prior_change == 0 or magnitude == 0:   0.0
@@ -240,12 +256,13 @@ def compute_trend_swing_targets_batch(
                 pl.when(mask_null).then(None).otherwise(drawdown)
                     .alias(_col_name(layer, w, "max_drawdown")),
                 direction_expr.alias(_col_name(layer, w, "direction")),
+                direction_down_expr.alias(_col_name(layer, w, "direction_down")),
                 continues_expr.alias(_col_name(layer, w, "continues")),
                 breakout_expr.alias(_col_name(layer, w, "breakout_imminent")),
             ).drop(["_end_spot", "_max_spot", "_min_spot"])
 
     # Strip the internal helper columns; restore original emit_df shape
-    # plus the 24 new target columns.
+    # plus the 28 new target columns.
     return result.drop(["_emit_idx", "_t0", "_spot0",
                         "_earliest_lookback_spot", "_dominant_dir"]).rename(
         {}  # no renames needed; we used aliases above

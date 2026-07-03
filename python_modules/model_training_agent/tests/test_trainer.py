@@ -66,7 +66,7 @@ def _build_day_df(
       - Step 1 filter cols all set to TRADING.
       - Identifier cols.
       - The 10 numeric features.
-      - All 84 MVP target columns (60 scalp + 12 trend + 12 swing per D55).
+      - All 88 MVP target columns (60 scalp + 14 trend + 14 swing per D55 + Part B).
         Binary targets get a balanced 0/1 mix; regression targets get
         standard-normal noise.
 
@@ -90,7 +90,7 @@ def _build_day_df(
     for col in _FEATURE_COLS:
         data[col] = rng.normal(size=n).astype("float64")
 
-    # All 84 MVP targets (60 scalp + 12 trend + 12 swing)
+    # All 88 MVP targets (60 scalp + 14 trend + 14 swing)
     for name, objective in MVP_TARGET_OBJECTIVES.items():
         if objective == "binary":
             # Balanced 0/1 to keep AUC well-defined
@@ -578,14 +578,14 @@ def test_latest_heads_json_written_with_full_schema(tmp_path: Path) -> None:
     assert payload["version"] == 1
     assert payload["instrument"] == "nifty50"
     assert payload["schema_version"] == 8
-    assert payload["head_count"] == 84
+    assert payload["head_count"] == 88
     assert set(payload["heads"].keys()) == set(MVP_TARGET_NAMES)
 
-    # Spot-check head_type distribution
+    # Spot-check head_type distribution (Part B: +2 trend, +2 swing direction_down)
     head_types = [h["head_type"] for h in payload["heads"].values()]
     assert head_types.count("scalp") == 60
-    assert head_types.count("trend") == 12
-    assert head_types.count("swing") == 12
+    assert head_types.count("trend") == 14
+    assert head_types.count("swing") == 14
 
     # Spot-check schema_version stamped on each head
     for h in payload["heads"].values():

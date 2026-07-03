@@ -7,10 +7,13 @@ Trend and swing model heads predict on the UNDERLYING SPOT — per V2_MASTER_SPE
 §2.2.2 D75 Gap 3, the layers are intentionally asymmetric. So trend/swing
 targets need only the spot price series, not option ticks.
 
-Six target types per horizon (V2_MASTER_SPEC §2.2.2):
+Seven target types per horizon (V2_MASTER_SPEC §2.2.2 + Part B 2026-07-02):
 
     direction_{w}s             Binary. 1 if spot(t+w) > spot(t) + noise_floor.
-                               Labels only economically-significant moves.
+                               Labels only economically-significant UP moves.
+    direction_down_{w}s        Binary. 1 if spot(t+w) < spot(t) − noise_floor.
+                               Mirror of `direction` for DOWN moves (Part B) —
+                               lets the trend gate fire puts on real down-legs.
     magnitude_{w}s             Signed regression. spot(t+w) − spot(t).
     max_excursion_{w}s         Regression. max(spot(t..t+w)) − spot(t).
                                Best upward move reached anytime in window.
@@ -33,7 +36,7 @@ Per-layer column names use the `{layer}_` prefix per spec:
 Horizons (V2_MASTER_SPEC §2.2.1):
     trend = 900s (15 min), 1800s (30 min)
     swing = 3600s (1 hr), 7200s (2 hr)
-    → 6 types × 4 horizons = 24 new target columns.
+    → 7 types × 4 horizons = 28 new target columns.
 
 Noise floor (V2_MASTER_SPEC §7, locked 2026-05-16):
     nifty50    : 8 pts
@@ -46,7 +49,7 @@ Replay-only design (Option B, locked 2026-05-18):
     at 7200s. Live runs hold tens-of-thousands of pending rows × 4 KB each
     if they backfill — ~600 MB across the fleet. The model itself doesn't
     need targets at inference time (it only emits predictions), so live
-    emits NaN for the 24 trend/swing target columns; the end-of-day
+    emits NaN for the 28 trend/swing target columns; the end-of-day
     replay pipeline re-reads the recorded raw ticks and writes a training
     parquet with the targets populated.
 """
@@ -183,6 +186,7 @@ class SpotTargetBuffer:
             ):
                 for w in horizons:
                     out[f"{layer}_direction_{w}s"] = _NAN
+                    out[f"{layer}_direction_down_{w}s"] = _NAN
                     out[f"{layer}_magnitude_{w}s"] = _NAN
                     out[f"{layer}_max_excursion_{w}s"] = _NAN
                     out[f"{layer}_max_drawdown_{w}s"] = _NAN
@@ -213,6 +217,7 @@ class SpotTargetBuffer:
 
             for w in horizons:
                 feat_dir = f"{layer}_direction_{w}s"
+                feat_dir_down = f"{layer}_direction_down_{w}s"
                 feat_mag = f"{layer}_magnitude_{w}s"
                 feat_excur = f"{layer}_max_excursion_{w}s"
                 feat_draw = f"{layer}_max_drawdown_{w}s"
@@ -222,6 +227,7 @@ class SpotTargetBuffer:
                 # Past session-end? All NaN for this window.
                 if session_end_sec is not None and (t0 + w) > session_end_sec:
                     out[feat_dir] = _NAN
+                    out[feat_dir_down] = _NAN
                     out[feat_mag] = _NAN
                     out[feat_excur] = _NAN
                     out[feat_draw] = _NAN
@@ -237,6 +243,7 @@ class SpotTargetBuffer:
                 ]
                 if not lookahead:
                     out[feat_dir] = _NAN
+                    out[feat_dir_down] = _NAN
                     out[feat_mag] = _NAN
                     out[feat_excur] = _NAN
                     out[feat_draw] = _NAN
@@ -259,10 +266,15 @@ class SpotTargetBuffer:
                 out[feat_draw] = max_drawdown
 
                 # direction: 1 iff move clears the noise floor upward.
+                # direction_down: 1 iff move clears the noise floor DOWNWARD
+                # (Part B) — the symmetric mirror so the trend gate can call
+                # puts on genuine down-legs instead of guessing from up-prob.
                 if noise_floor is None:
                     out[feat_dir] = _NAN
+                    out[feat_dir_down] = _NAN
                 else:
                     out[feat_dir] = 1.0 if magnitude > noise_floor else 0.0
+                    out[feat_dir_down] = 1.0 if magnitude < -noise_floor else 0.0
 
                 # continues: 1 iff direction at t+w matches dominant
                 # direction over [t-300s, t] AND |magnitude| ≥ noise_floor.
@@ -314,6 +326,7 @@ def trend_swing_target_column_names(
         for w in sorted(horizons):
             for t in (
                 "direction",
+                "direction_down",
                 "magnitude",
                 "max_excursion",
                 "max_drawdown",
@@ -330,7 +343,7 @@ def null_trend_swing_targets(
 ) -> dict[str, float]:
     """Return a dict mapping every trend/swing target column to NaN.
 
-    Used by the live path (Option B): live emits NaN for all 24 trend/swing
+    Used by the live path (Option B): live emits NaN for all 28 trend/swing
     target columns since live doesn't run the 2-hour backfill buffer.
     """
     return {name: _NAN for name in trend_swing_target_column_names(

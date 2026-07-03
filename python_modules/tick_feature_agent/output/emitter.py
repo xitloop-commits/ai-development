@@ -546,18 +546,20 @@ assert len(set(_PHASE2_BC_COLUMNS)) == len(_PHASE2_BC_COLUMNS), (
 )
 
 
-# ── Phase 3 trend + swing target columns (24, v8 schema) ─────────────────
-# Six target types × four horizons (trend 900s/1800s + swing 3600s/7200s).
+# ── Phase 3 trend + swing target columns (28, v8 schema + Part B) ────────
+# Seven target types × four horizons (trend 900s/1800s + swing 3600s/7200s).
+# Part B (2026-07-02) added `direction_down` per layer/horizon (+4 cols).
 # See features/trend_swing_targets.py for the compute logic. Replay
 # populates these from end-of-day raw recordings; live emits NaN per the
-# Option B decision (2026-05-18).
+# Option B decision (2026-05-18). This is a label-only addition — the model
+# feature vector is unchanged, so LATEST_SCHEMA_VERSION stays at 11.
 from tick_feature_agent.features.trend_swing_targets import (  # noqa: E402
     trend_swing_target_column_names as _trend_swing_target_column_names,
 )
 
 _TREND_SWING_TARGET_COLUMNS: tuple[str, ...] = _trend_swing_target_column_names()
-assert len(_TREND_SWING_TARGET_COLUMNS) == 24, (
-    f"_TREND_SWING_TARGET_COLUMNS expected 24 (6 types × 4 horizons), "
+assert len(_TREND_SWING_TARGET_COLUMNS) == 28, (
+    f"_TREND_SWING_TARGET_COLUMNS expected 28 (7 types × 4 horizons), "
     f"got {len(_TREND_SWING_TARGET_COLUMNS)}"
 )
 

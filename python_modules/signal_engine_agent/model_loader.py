@@ -15,8 +15,8 @@ from pathlib import Path
 
 import lightgbm as lgb
 
-# Single source of truth — the 84 canonical targets (60 scalp + 12 trend
-# + 12 swing per V2_MASTER_SPEC §2.2 D55, locked 2026-05-17), surfaced
+# Single source of truth — the 88 canonical targets (60 scalp + 14 trend
+# + 14 swing per V2_MASTER_SPEC §2.2 D55 + Part B direction_down), surfaced
 # through `_shared.targets` per Phase E9 so the trainer + SEA loader can
 # never drift again. Old local 29-entry tuple dropped 2026-04-30; the
 # orphan `upside_percentile_30s` is no longer trained — it remains a

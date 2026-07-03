@@ -42,24 +42,25 @@ from _shared.targets import (
     TargetSpec,
 )
 
-# ── Cardinality (the 84-head invariant: 60 scalp + 12 trend + 12 swing) ────
+# ── Cardinality (the 88-head invariant: 60 scalp + 14 trend + 14 swing) ────
+# Part B (2026-07-02) added direction_down to trend + swing (+4 heads).
 
 
-def test_mvp_targets_has_exactly_84_entries() -> None:
-    assert len(MVP_TARGETS) == 84
+def test_mvp_targets_has_exactly_88_entries() -> None:
+    assert len(MVP_TARGETS) == 88
 
 
-def test_mvp_target_names_has_84_unique_entries() -> None:
-    assert len(MVP_TARGET_NAMES) == 84
-    assert len(set(MVP_TARGET_NAMES)) == 84, "duplicate target names"
+def test_mvp_target_names_has_88_unique_entries() -> None:
+    assert len(MVP_TARGET_NAMES) == 88
+    assert len(set(MVP_TARGET_NAMES)) == 88, "duplicate target names"
 
 
-def test_mvp_target_objectives_has_84_entries() -> None:
-    assert len(MVP_TARGET_OBJECTIVES) == 84
+def test_mvp_target_objectives_has_88_entries() -> None:
+    assert len(MVP_TARGET_OBJECTIVES) == 88
 
 
-def test_mvp_target_head_types_has_84_entries() -> None:
-    assert len(MVP_TARGET_HEAD_TYPES) == 84
+def test_mvp_target_head_types_has_88_entries() -> None:
+    assert len(MVP_TARGET_HEAD_TYPES) == 88
 
 
 # ── Window coverage ───────────────────────────────────────────────────────
@@ -88,7 +89,7 @@ def test_every_scalp_window_has_exactly_twelve_targets() -> None:
         assert len(names) == 12, f"scalp window {w}s has {len(names)} targets, expected 12"
 
 
-def test_every_trend_horizon_has_exactly_six_targets() -> None:
+def test_every_trend_horizon_has_exactly_seven_targets() -> None:
     by_w: dict[int, list[str]] = {}
     for spec in MVP_TARGETS:
         if spec.head_type != "trend":
@@ -96,10 +97,10 @@ def test_every_trend_horizon_has_exactly_six_targets() -> None:
         by_w.setdefault(spec.lookahead_seconds, []).append(spec.name)
     assert set(by_w) == set(TREND_HORIZONS_SEC)
     for w, names in by_w.items():
-        assert len(names) == 6, f"trend horizon {w}s has {len(names)} targets, expected 6"
+        assert len(names) == 7, f"trend horizon {w}s has {len(names)} targets, expected 7"
 
 
-def test_every_swing_horizon_has_exactly_six_targets() -> None:
+def test_every_swing_horizon_has_exactly_seven_targets() -> None:
     by_w: dict[int, list[str]] = {}
     for spec in MVP_TARGETS:
         if spec.head_type != "swing":
@@ -107,7 +108,7 @@ def test_every_swing_horizon_has_exactly_six_targets() -> None:
         by_w.setdefault(spec.lookahead_seconds, []).append(spec.name)
     assert set(by_w) == set(SWING_HORIZONS_SEC)
     for w, names in by_w.items():
-        assert len(names) == 6, f"swing horizon {w}s has {len(names)} targets, expected 6"
+        assert len(names) == 7, f"swing horizon {w}s has {len(names)} targets, expected 7"
 
 
 # ── Target-type families (locked Phase D4 + Wave 2) ──────────────────────
@@ -198,7 +199,7 @@ def test_trend_target_names_match_tfa_writer() -> None:
     """Trend column names registered here MUST match what
     `tick_feature_agent.features.trend_swing_targets` writes to parquet."""
     expected_types = (
-        "direction", "magnitude", "max_excursion",
+        "direction", "direction_down", "magnitude", "max_excursion",
         "max_drawdown", "continues", "breakout_imminent",
     )
     for w in TREND_HORIZONS_SEC:
@@ -208,7 +209,7 @@ def test_trend_target_names_match_tfa_writer() -> None:
 
 def test_swing_target_names_match_tfa_writer() -> None:
     expected_types = (
-        "direction", "magnitude", "max_excursion",
+        "direction", "direction_down", "magnitude", "max_excursion",
         "max_drawdown", "continues", "breakout_imminent",
     )
     for w in SWING_HORIZONS_SEC:
@@ -216,17 +217,18 @@ def test_swing_target_names_match_tfa_writer() -> None:
             assert f"swing_{t}_{w}s" in MVP_TARGET_NAMES
 
 
-def test_head_type_distribution_is_60_scalp_12_trend_12_swing() -> None:
+def test_head_type_distribution_is_60_scalp_14_trend_14_swing() -> None:
     counts = {
         ht: sum(1 for s in MVP_TARGETS if s.head_type == ht)
         for ht in ("scalp", "trend", "swing")
     }
-    assert counts == {"scalp": 60, "trend": 12, "swing": 12}
+    assert counts == {"scalp": 60, "trend": 14, "swing": 14}
 
 
 def test_trend_swing_objectives() -> None:
-    """direction/continues/breakout_imminent = binary; mag/exc/draw = regression."""
-    binary_types = {"direction", "continues", "breakout_imminent"}
+    """direction/direction_down/continues/breakout_imminent = binary;
+    mag/exc/draw = regression."""
+    binary_types = {"direction", "direction_down", "continues", "breakout_imminent"}
     regression_types = {"magnitude", "max_excursion", "max_drawdown"}
     for spec in MVP_TARGETS:
         if spec.head_type == "scalp":
@@ -292,7 +294,7 @@ def test_trainer_imports_shared_targets() -> None:
 
     # trainer aliases MVP_TARGET_OBJECTIVES → MVP_TARGETS; both must agree.
     assert trainer.MVP_TARGETS == MVP_TARGET_OBJECTIVES
-    assert len(trainer.MVP_TARGETS) == 84
+    assert len(trainer.MVP_TARGETS) == 88
 
 
 def test_model_loader_imports_shared_targets() -> None:
@@ -300,4 +302,4 @@ def test_model_loader_imports_shared_targets() -> None:
     from signal_engine_agent import model_loader
 
     assert model_loader.MVP_TARGETS == MVP_TARGET_NAMES
-    assert len(model_loader.MVP_TARGETS) == 84
+    assert len(model_loader.MVP_TARGETS) == 88

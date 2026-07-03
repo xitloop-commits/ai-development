@@ -8,13 +8,13 @@ model trainer (`model_training_agent.trainer`) and the SEA model loader
 of 84 ML targets. Before this module they each kept private copies that
 silently drifted.
 
-The 84 targets per instrument:
+The 88 targets per instrument:
 
     60 scalp  =  12 target types × 5 windows (60/120/180/240/300s)
-    12 trend  =   6 target types × 2 windows (900/1800s)        ← D55
-    12 swing  =   6 target types × 2 windows (3600/7200s)       ← D55
+    14 trend  =   7 target types × 2 windows (900/1800s)        ← D55 + Part B
+    14 swing  =   7 target types × 2 windows (3600/7200s)       ← D55 + Part B
     ────────────────────────────────────────────────
-    84 heads total
+    88 heads total  (Part B 2026-07-02 added direction_down to trend + swing)
 
 Each `TargetSpec` carries a `head_type ∈ {scalp, trend, swing}` so
 callers can route per-layer logic (gate selection, isotonic calibration,
@@ -76,7 +76,7 @@ from typing import Literal
 
 @dataclass(frozen=True)
 class TargetSpec:
-    """One row of the 84-head target matrix.
+    """One row of the 88-head target matrix.
 
     Fields:
         name              the .lgbm filename root + the metrics.json key
@@ -109,11 +109,17 @@ LOOKAHEAD_WINDOWS_SECONDS: tuple[int, ...] = (60, 120, 180, 240, 300)
 TREND_HORIZONS_SEC: tuple[int, ...] = (900, 1800)
 SWING_HORIZONS_SEC: tuple[int, ...] = (3600, 7200)
 
-# Trend + swing target types (6 per horizon — V2_MASTER_SPEC §2.2.2).
+# Trend + swing target types (7 per horizon — V2_MASTER_SPEC §2.2.2 + Part B).
 # Listed in the same order as `trend_swing_target_column_names()` writes them
 # to parquet so trainer iteration order matches column order.
 _TREND_SWING_TYPES: tuple[tuple[str, Literal["binary", "regression"]], ...] = (
     ("direction",         "binary"),
+    # Part B (2026-07-02): mirror of `direction` for the DOWN leg. `direction`
+    # is up-only (1 iff move > +noise_floor), so a low value means "not up"
+    # (flat OR down) — it can't call a down-leg. `direction_down` is the
+    # symmetric 1-iff-(move < −noise_floor) head, letting the trend gate fire
+    # puts on genuine down-legs instead of guessing from (1 − up_prob).
+    ("direction_down",    "binary"),
     ("magnitude",         "regression"),
     ("max_excursion",     "regression"),
     ("max_drawdown",      "regression"),
@@ -123,7 +129,7 @@ _TREND_SWING_TYPES: tuple[tuple[str, Literal["binary", "regression"]], ...] = (
 
 
 def _build_mvp_targets() -> tuple[TargetSpec, ...]:
-    """Build the 84-head target list deterministically.
+    """Build the 88-head target list deterministically.
 
     Built once at import time. The naming convention is intentionally
     irregular within scalp (direction uses an inline `_magnitude` suffix
@@ -152,12 +158,12 @@ def _build_mvp_targets() -> tuple[TargetSpec, ...]:
         out.append(TargetSpec(f"max_upside_pe_{w}s", "regression", w, "scalp"))
         out.append(TargetSpec(f"max_drawdown_pe_{w}s", "regression", w, "scalp"))
 
-    # ── Trend: 12 heads (6 types × 2 horizons, on SPOT not option leg) ──
+    # ── Trend: 14 heads (7 types × 2 horizons, on SPOT not option leg) ──
     for w in TREND_HORIZONS_SEC:
         for type_name, obj in _TREND_SWING_TYPES:
             out.append(TargetSpec(f"trend_{type_name}_{w}s", obj, w, "trend"))
 
-    # ── Swing: 12 heads (6 types × 2 horizons, on SPOT not option leg) ──
+    # ── Swing: 14 heads (7 types × 2 horizons, on SPOT not option leg) ──
     for w in SWING_HORIZONS_SEC:
         for type_name, obj in _TREND_SWING_TYPES:
             out.append(TargetSpec(f"swing_{type_name}_{w}s", obj, w, "swing"))
@@ -185,12 +191,12 @@ T25 calibration grouping, T34 SHAP-by-layer reports)."""
 
 # ── Self-validation at import time ────────────────────────────────────────
 
-# Fail-fast guards: if anyone edits this file and breaks the 84-head
-# invariant (60 scalp + 12 trend + 12 swing), the import explodes
-# immediately rather than letting the trainer/loader run with a
-# malformed target set.
-assert len(MVP_TARGETS) == 84, f"MVP_TARGETS must be 84, got {len(MVP_TARGETS)}"
-assert len(set(MVP_TARGET_NAMES)) == 84, "MVP_TARGETS contains duplicates"
+# Fail-fast guards: if anyone edits this file and breaks the 88-head
+# invariant (60 scalp + 14 trend + 14 swing — Part B added direction_down
+# to trend + swing, 2026-07-02), the import explodes immediately rather
+# than letting the trainer/loader run with a malformed target set.
+assert len(MVP_TARGETS) == 88, f"MVP_TARGETS must be 88, got {len(MVP_TARGETS)}"
+assert len(set(MVP_TARGET_NAMES)) == 88, "MVP_TARGETS contains duplicates"
 
 # Per-layer window coverage
 _scalp_windows = {t.lookahead_seconds for t in MVP_TARGETS if t.head_type == "scalp"}
@@ -211,6 +217,6 @@ _by_layer = {
     ht: sum(1 for t in MVP_TARGETS if t.head_type == ht)
     for ht in ("scalp", "trend", "swing")
 }
-assert _by_layer == {"scalp": 60, "trend": 12, "swing": 12}, (
+assert _by_layer == {"scalp": 60, "trend": 14, "swing": 14}, (
     f"head_type distribution wrong: {_by_layer}"
 )
