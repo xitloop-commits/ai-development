@@ -2,6 +2,20 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
+## P0 — active (2026-07-04 weekend batch)
+
+### LEAK — `upside_percentile_60s` is a look-ahead feature (FIXED for banknifty, nifty50 pending)
+`upside_percentile_60s` is the session-**rank of `max_upside_60s`**, a FORWARD-looking target. It sat in the model's `final_features`, so heads trained on a rank-transform of their own future. Evidence (2026-07-04, banknifty):
+- Spearman **0.99** with `max_upside_60s` (the future target it's built from); corr 0.52 with `direction_60s` label.
+- Drives **44%** of `direction_60s` gain, 38% RR, 16% exit.
+- A/B (80/20 time split, 4 days): `direction_60s` val AUC **0.73 → 0.60** when removed (~0.12 pure leak). Honest edge ≈ 0.60 (base rate 0.47). Very likely a big part of the offline-vs-live gap (T68).
+- **Fix applied:** removed from `config/model_feature_config/banknifty_feature_config.json` (`final_features` 470→469; backup `.bak-leak`). No replay — column still emitted for the gate; model just won't train on it. Uncommitted on purpose — commit WITH the retrained model (old 470 model + 469 config = mismatch until new model lands).
+- **Expected:** headline val AUC drops (honest, not a regression); model now leans on real S/R / OI-buildup / order-flow features the leak was crowding out.
+- **Follow-ups:** (1) de-leak nifty50 config when nifty50 is retrained (same leak); (2) reconsider the gate's C3 (`upside_percentile ≥ 60`) — it also keys off this value; (3) optional: recompute a leak-free percentile from a PAST/current observable (would need replay).
+
+### Part B — down-direction + trend-gate puts (in progress)
+Added `trend_direction_down` / `swing_direction_down` heads (84→88) so the trend gate can call puts, not just calls. Scaffold + tests committed (`538c945`); Part A dashboard-honesty fix (`a92d6f1`). Remaining: replay (regen parquets w/ `direction_down`) → retrain (89 heads*, 469 feats) → validate down head OOS → wire `decide_action_trend` to fire puts + flip `calls_only=False`. Batch candidates still open per operator: `risk_reward_ratio_pe` (scalp), `reversal` (trend+swing), `exit_signal` (trend+swing), `buildup_state` feature. (*88 heads + any batch adds.)
+
 ## P1 — design work while data accumulates
 
 ### T3 — Trend-capture retrain (P1 blocker for paper trading)
@@ -1012,6 +1026,11 @@ Done 2026-06-25 (orderUpdateWs suite 14/14, incl. a new test built from a **real
 - **Fix** (`orderUpdateWs.ts` `normalize`): index every `Data` key by its **lowercased** name and read case-insensitively (robust to camelCase *and* the docs' PascalCase); **upper-case the status value** so downstream maps (TRANSIT/PENDING/REJECTED/TRADED) hit. Plus per-frame `order_alert` logging (order/status/legNo/symbol/reason) so the lifecycle stream is always visible.
 - **Combines with T64:** now a real reject reaches `applyBrokerOrderEvent` → trade flips to **REJECTED** with the actual reason (e.g. `"RMS:…Intraday orders cannot be placed at this time."` / insufficient funds) shown on the badge tooltip. **Takes effect next server restart.**
 - **Follow-ups:** (1) the **11 already-stuck PENDING** testing-live trades self-heal on next restart now that T66 reconcile-on-connect is in. (2) testing-live appends to a **stale `2026-06-19` day record** (rollover bug — still open). (3) ~~recovery engine blind to PENDING~~ and ~~REST status casing~~ both fixed in T66.
+
+### T70 [Feature Eng + Signal Engine] — 5-minute signal latency KILLED: live rows now emit at tick time + TFA→SEA socket push 🆕
+Done 2026-07-03 (live validation pending next market session). **Root cause of the stale-entry mystery** (signal card E 886.2 vs fill 862.35, tick 09:51 vs tray 09:56): every live feature row sat in `tick_processor._pending` for `max_window_sec` (300s on BankNifty) so training labels ("did price rise in the next 60–300s?") could be backfilled before the row hit `banknifty_live.ndjson` — so **every SEA signal was exactly ~5 min stale** (measured: 108/108 signals on 2026-07-02, lag min 300.1s / median 300.6s). Engine inference itself is ~6ms; the hold was 99.7% of total latency, and it also explains the inflated paper P&L from entry-price drift.
+- **Fix (Option A, two parts):** (1) live mode emits each row IMMEDIATELY with NaN labels — nothing downstream of the live stream reads labels (SEA inputs come from `final_features`; training reads the replay parquet, replay path unchanged). `upside_percentile_60s` — the one label-block column SEA consumes (C3 gate + model input) — now carries the last MATURED window's percentile (~60s lag, no future peek). (2) TFA's emitter socket sink (fixed: never worked — non-blocking connect always failed) now pushes rows to SEA over localhost TCP (`_shared/feature_stream.py`, per-instrument ports 7761–7764) with 3s auto-reconnect; SEA listens, file tail stays as fallback. Plus a **staleness guard** in SEA (skip rows older than 5s, `--max-row-age`, 0 for backtests) so this class of bug can never silently return.
+- **Watch next session:** signal-card entry ≈ fill price; tray lag <1s; scalp gate C3 behaviour with the lagged percentile. **Retrain tie-in:** redefine `upside_percentile_60s` as the lagged version in training so train == serve exactly (fold into the approved down-direction retrain).
 
 ### T69 [Feature Eng] — Parity guard for the dual feature-row implementations (scalar live vs columnar replay) 🆕
 Parked 2026-07-01. Feature rows are built by TWO codebases: the **scalar** per-tick path (`features/*.py`) that live SEA consumes, and the **columnar** Polars ports (`features/*_columnar.py`, via `replay/max_pain_cache.py` + `targets_cache.py`) that build training parquets. Same recipe, two kitchens (perf: live=streaming, replay=batch). Risk = they silently drift → train/serve skew. Verified 2026-07-01 they're currently in sync (411/470 features matched exactly on 06-30; mismatches minor/no-impact), so this is a **latent risk, not an active bug**.
