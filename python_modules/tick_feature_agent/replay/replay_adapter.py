@@ -143,6 +143,13 @@ class _PendingRow:
     # determines whether a future breakout occurred.
     day_high_at_t0: float | None = None
     day_low_at_t0: float | None = None
+    # Option B leak fix (2026-07-04): the upside_percentile the LIVE path
+    # serves is `UpsidePercentileTracker.last_percentile` captured at TICK
+    # time (no future peek). We snapshot the same value here when the row is
+    # queued so the training parquet carries the identical lagged value —
+    # train == serve. Was: stamped with add_and_query(own future upside) at
+    # flush = look-ahead leak.
+    upside_pct_at_t0: float = float("nan")
 
 
 # ── ChainSnapshot construction ────────────────────────────────────────────────
@@ -815,6 +822,9 @@ class ReplayAdapter:
             ltps_at_t0=strike_ltps,
             day_high_at_t0=self._day_high,
             day_low_at_t0=self._day_low,
+            # Option B: lagged percentile as of THIS tick (post-flush) — the
+            # same value the live path stamps. No future peek.
+            upside_pct_at_t0=self._upside_pct.last_percentile,
         )
         self._pending.append(pending)
 
@@ -1175,7 +1185,11 @@ class ReplayAdapter:
                     day_low_at_t0=pending.day_low_at_t0,
                 )
                 upside_val = targets.get(upside_key, _NAN)
-                targets[upside_pct_key] = self._upside_pct.add_and_query(upside_val)
+                # Option B: stamp the tick-time lagged percentile (matches live,
+                # no future peek); still advance the tracker so later rows rank
+                # against this row's now-matured upside.
+                targets[upside_pct_key] = pending.upside_pct_at_t0
+                self._upside_pct.add_and_query(upside_val)
                 pending.row.update(targets)
                 trend_swing = self._spot_target_buf.compute_targets(
                     t0=pending.t0,
@@ -1201,7 +1215,10 @@ class ReplayAdapter:
             # upside_percentile must stay sequential — UpsidePercentileTracker
             # carries state across calls and we must preserve FIFO ordering.
             upside_val = pending.row.get(upside_key, _NAN)
-            pending.row[upside_pct_key] = self._upside_pct.add_and_query(upside_val)
+            # Option B: tick-time lagged percentile (matches live); advance
+            # the tracker after stamping so ordering/state stay sequential.
+            pending.row[upside_pct_key] = pending.upside_pct_at_t0
+            self._upside_pct.add_and_query(upside_val)
             self._emitter.emit(pending.row)
 
     def _get_atm_strike_ltps(self) -> dict[int, tuple[float, float]]:

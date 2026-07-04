@@ -24,11 +24,13 @@ Single source of truth for the **Signal Engine Agent** — per-tick inference ac
 ## 2. Data flow
 
 ```
-TFA live emitter (data/features/<inst>_live.ndjson)
+TFA live emitter ──┬─ TCP push 127.0.0.1:776x (primary, T70)
+                   └─ data/features/<inst>_live.ndjson (fallback + UI)
                           │
                           ▼
-                 engine.run() — tail file
-                          │
+                 engine.run() — socket listener + file-tail fallback
+                          │  T70 staleness guard: rows older than 5s skipped
+                          │  (--max-row-age, set 0 for backtest.py replays)
                           ▼
         model_loader.load_models()      (at startup)
         ├─ read models/<inst>/LATEST_HEADS.json

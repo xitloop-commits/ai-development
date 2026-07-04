@@ -97,6 +97,12 @@ set "LUBAS_LAUNCHER_OWNS_REPLAY=1"
 
 set "OUTPUT_FILE=data\features\%INSTRUMENT%_live.ndjson"
 
+REM T70: besides the file, TFA pushes each row to SEA over a localhost TCP
+REM socket (nifty50 7761 / banknifty 7762 / crudeoil 7763 / naturalgas 7764,
+REM see python_modules/_shared/feature_stream.py). SEA listens; TFA connects
+REM and auto-retries, so start order doesn't matter. Set FEATURE_SOCKET_PORT=0
+REM to force file-only transport.
+
 REM Truncate the previous session's live NDJSON so the file stays bounded
 REM to a single session's data. `watch-features` reads this file; raw
 REM recordings (data/raw/<date>/) keep the durable copy used by replay.

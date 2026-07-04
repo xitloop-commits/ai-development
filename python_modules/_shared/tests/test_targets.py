@@ -9,9 +9,9 @@ head_type), CI fails here before the trainer or loader can ship a
 bad target list.
 
 Composition (V2_MASTER_SPEC §2.2 / D55, locked 2026-05-17):
-    60 scalp  =  12 types × 5 windows (60/120/180/240/300s)
-    12 trend  =   6 types × 2 windows (900/1800s)
-    12 swing  =   6 types × 2 windows (3600/7200s)
+    65 scalp  =  13 types × 5 windows (60/120/180/240/300s)
+    18 trend  =   9 types × 2 windows (900/1800s)
+    18 swing  =   9 types × 2 windows (3600/7200s)
 
 Wave 2 lock May 11 2026: scalp windows (60,120,180,240,300), 12 types.
 Trend/swing addition May 17 2026: spot-based, 6 types per horizon.
@@ -42,25 +42,25 @@ from _shared.targets import (
     TargetSpec,
 )
 
-# ── Cardinality (the 88-head invariant: 60 scalp + 14 trend + 14 swing) ────
+# ── Cardinality (the 101-head invariant: 65 scalp + 18 trend + 18 swing) ────
 # Part B (2026-07-02) added direction_down to trend + swing (+4 heads).
 
 
-def test_mvp_targets_has_exactly_88_entries() -> None:
-    assert len(MVP_TARGETS) == 88
+def test_mvp_targets_has_exactly_101_entries() -> None:
+    assert len(MVP_TARGETS) == 101
 
 
-def test_mvp_target_names_has_88_unique_entries() -> None:
-    assert len(MVP_TARGET_NAMES) == 88
-    assert len(set(MVP_TARGET_NAMES)) == 88, "duplicate target names"
+def test_mvp_target_names_has_101_unique_entries() -> None:
+    assert len(MVP_TARGET_NAMES) == 101
+    assert len(set(MVP_TARGET_NAMES)) == 101, "duplicate target names"
 
 
-def test_mvp_target_objectives_has_88_entries() -> None:
-    assert len(MVP_TARGET_OBJECTIVES) == 88
+def test_mvp_target_objectives_has_101_entries() -> None:
+    assert len(MVP_TARGET_OBJECTIVES) == 101
 
 
-def test_mvp_target_head_types_has_88_entries() -> None:
-    assert len(MVP_TARGET_HEAD_TYPES) == 88
+def test_mvp_target_head_types_has_101_entries() -> None:
+    assert len(MVP_TARGET_HEAD_TYPES) == 101
 
 
 # ── Window coverage ───────────────────────────────────────────────────────
@@ -78,7 +78,7 @@ def test_swing_horizons_are_3600_7200() -> None:
     assert SWING_HORIZONS_SEC == (3600, 7200)
 
 
-def test_every_scalp_window_has_exactly_twelve_targets() -> None:
+def test_every_scalp_window_has_exactly_thirteen_targets() -> None:
     by_window: dict[int, list[str]] = {}
     for spec in MVP_TARGETS:
         if spec.head_type != "scalp":
@@ -86,10 +86,10 @@ def test_every_scalp_window_has_exactly_twelve_targets() -> None:
         by_window.setdefault(spec.lookahead_seconds, []).append(spec.name)
     assert set(by_window) == set(LOOKAHEAD_WINDOWS_SECONDS)
     for w, names in by_window.items():
-        assert len(names) == 12, f"scalp window {w}s has {len(names)} targets, expected 12"
+        assert len(names) == 13, f"scalp window {w}s has {len(names)} targets, expected 13"
 
 
-def test_every_trend_horizon_has_exactly_seven_targets() -> None:
+def test_every_trend_horizon_has_exactly_nine_targets() -> None:
     by_w: dict[int, list[str]] = {}
     for spec in MVP_TARGETS:
         if spec.head_type != "trend":
@@ -97,10 +97,10 @@ def test_every_trend_horizon_has_exactly_seven_targets() -> None:
         by_w.setdefault(spec.lookahead_seconds, []).append(spec.name)
     assert set(by_w) == set(TREND_HORIZONS_SEC)
     for w, names in by_w.items():
-        assert len(names) == 7, f"trend horizon {w}s has {len(names)} targets, expected 7"
+        assert len(names) == 9, f"trend horizon {w}s has {len(names)} targets, expected 9"
 
 
-def test_every_swing_horizon_has_exactly_seven_targets() -> None:
+def test_every_swing_horizon_has_exactly_nine_targets() -> None:
     by_w: dict[int, list[str]] = {}
     for spec in MVP_TARGETS:
         if spec.head_type != "swing":
@@ -108,7 +108,7 @@ def test_every_swing_horizon_has_exactly_seven_targets() -> None:
         by_w.setdefault(spec.lookahead_seconds, []).append(spec.name)
     assert set(by_w) == set(SWING_HORIZONS_SEC)
     for w, names in by_w.items():
-        assert len(names) == 7, f"swing horizon {w}s has {len(names)} targets, expected 7"
+        assert len(names) == 9, f"swing horizon {w}s has {len(names)} targets, expected 9"
 
 
 # ── Target-type families (locked Phase D4 + Wave 2) ──────────────────────
@@ -129,7 +129,7 @@ _EXPECTED_TYPE_PREFIXES = {
 }
 
 
-def test_each_window_contains_all_twelve_target_types() -> None:
+def test_each_window_contains_all_thirteen_target_types() -> None:
     for w in LOOKAHEAD_WINDOWS_SECONDS:
         names_for_w = {s.name for s in MVP_TARGETS if s.lookahead_seconds == w}
         # direction has no `_magnitude` tail; magnitudes do.
@@ -146,6 +146,7 @@ def test_each_window_contains_all_twelve_target_types() -> None:
             f"exit_signal_{w}s",
             f"max_upside_pe_{w}s",
             f"max_drawdown_pe_{w}s",
+            f"risk_reward_ratio_pe_{w}s",  # Part B
         }
         assert names_for_w == expected, f"window {w}s mismatch: {names_for_w ^ expected}"
 
@@ -201,6 +202,7 @@ def test_trend_target_names_match_tfa_writer() -> None:
     expected_types = (
         "direction", "direction_down", "magnitude", "max_excursion",
         "max_drawdown", "continues", "breakout_imminent",
+        "reversal", "exit_signal",
     )
     for w in TREND_HORIZONS_SEC:
         for t in expected_types:
@@ -211,24 +213,26 @@ def test_swing_target_names_match_tfa_writer() -> None:
     expected_types = (
         "direction", "direction_down", "magnitude", "max_excursion",
         "max_drawdown", "continues", "breakout_imminent",
+        "reversal", "exit_signal",
     )
     for w in SWING_HORIZONS_SEC:
         for t in expected_types:
             assert f"swing_{t}_{w}s" in MVP_TARGET_NAMES
 
 
-def test_head_type_distribution_is_60_scalp_14_trend_14_swing() -> None:
+def test_head_type_distribution_is_65_scalp_18_trend_18_swing() -> None:
     counts = {
         ht: sum(1 for s in MVP_TARGETS if s.head_type == ht)
         for ht in ("scalp", "trend", "swing")
     }
-    assert counts == {"scalp": 60, "trend": 14, "swing": 14}
+    assert counts == {"scalp": 65, "trend": 18, "swing": 18}
 
 
 def test_trend_swing_objectives() -> None:
-    """direction/direction_down/continues/breakout_imminent = binary;
-    mag/exc/draw = regression."""
-    binary_types = {"direction", "direction_down", "continues", "breakout_imminent"}
+    """direction/direction_down/continues/breakout_imminent/reversal/
+    exit_signal = binary; mag/exc/draw = regression."""
+    binary_types = {"direction", "direction_down", "continues",
+                    "breakout_imminent", "reversal", "exit_signal"}
     regression_types = {"magnitude", "max_excursion", "max_drawdown"}
     for spec in MVP_TARGETS:
         if spec.head_type == "scalp":
@@ -294,7 +298,7 @@ def test_trainer_imports_shared_targets() -> None:
 
     # trainer aliases MVP_TARGET_OBJECTIVES → MVP_TARGETS; both must agree.
     assert trainer.MVP_TARGETS == MVP_TARGET_OBJECTIVES
-    assert len(trainer.MVP_TARGETS) == 88
+    assert len(trainer.MVP_TARGETS) == 101
 
 
 def test_model_loader_imports_shared_targets() -> None:
@@ -302,4 +306,4 @@ def test_model_loader_imports_shared_targets() -> None:
     from signal_engine_agent import model_loader
 
     assert model_loader.MVP_TARGETS == MVP_TARGET_NAMES
-    assert len(model_loader.MVP_TARGETS) == 88
+    assert len(model_loader.MVP_TARGETS) == 101

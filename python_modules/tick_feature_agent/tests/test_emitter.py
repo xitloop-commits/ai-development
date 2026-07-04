@@ -9,8 +9,10 @@ from __future__ import annotations
 import io
 import json
 import math
+import socket
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -96,11 +98,11 @@ class TestColumnNames:
         # Wave 2: +5 target types per window × 2 default windows = +10 → 402.
         # Phase 2 (Schema-22/23): +69 trend/swing L1 (23 B-block + 46 C-block) → 495.
         # T37 (Schema v9, 2026-06-13): +26 ATM-only depth (2 sides × 13 keys) → 524.
-        # Part B (2026-07-02): +4 trend/swing direction_down target cols → 528.
-        assert len(COLUMN_NAMES) == 528
+        # Part B (2026-07-02): +4 trend/swing direction_down target cols → 538.
+        assert len(COLUMN_NAMES) == 538
 
     def test_no_duplicates(self):
-        assert len(set(COLUMN_NAMES)) == 528
+        assert len(set(COLUMN_NAMES)) == 538
 
     def test_first_column_is_timestamp(self):
         assert COLUMN_NAMES[0] == "timestamp"
@@ -168,19 +170,19 @@ class TestColumnNames:
 
     def test_target_columns_default_windows(self):
         assert COLUMN_NAMES[368] == "max_upside_30s"
-        # Wave 2 added 10 target cols (5 types × 2 default windows) before
-        # upside_percentile_30s, shifting it by +10.
-        assert COLUMN_NAMES[392] == "upside_percentile_30s"
+        # Part B added risk_reward_ratio_pe per window (+2 for the 2-window
+        # default) before upside_percentile_30s, shifting it +2 (392→394).
+        assert COLUMN_NAMES[394] == "upside_percentile_30s"
 
     def test_trading_state_columns(self):
-        # Wave 2: shifted +10 from old indices.
-        assert COLUMN_NAMES[393] == "trading_state"
-        assert COLUMN_NAMES[396] == "stale_reason"
+        # Part B: shifted +2 from the RR-PE columns.
+        assert COLUMN_NAMES[395] == "trading_state"
+        assert COLUMN_NAMES[398] == "stale_reason"
 
     def test_metadata_last_column(self):
-        # Wave 2: shifted +10 from old indices.
-        assert COLUMN_NAMES[397] == "exchange"
-        assert COLUMN_NAMES[405] == "is_market_open"
+        # Part B: shifted +2 from the RR-PE columns.
+        assert COLUMN_NAMES[399] == "exchange"
+        assert COLUMN_NAMES[407] == "is_market_open"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -190,19 +192,19 @@ class TestColumnNames:
 
 class TestBuildTargetColumns:
 
-    def test_default_windows_25_columns(self):
-        # Wave 2: 12 target types per window × 2 + 1 percentile = 25
+    def test_default_windows_27_columns(self):
+        # Part B: 13 target types per window × 2 + 1 percentile = 27
         cols = _build_target_columns((30, 60))
-        assert len(cols) == 25
+        assert len(cols) == 27
 
-    def test_single_window_13_columns(self):
+    def test_single_window_14_columns(self):
         cols = _build_target_columns((30,))
-        # 12 per-window types + 1 upside_percentile = 13 (Wave 2)
-        assert len(cols) == 13
+        # 13 per-window types + 1 upside_percentile = 14 (Part B)
+        assert len(cols) == 14
 
-    def test_three_windows_37_columns(self):
+    def test_three_windows_40_columns(self):
         cols = _build_target_columns((30, 60, 120))
-        assert len(cols) == 37  # Wave 2: 12×3 + 1 percentile
+        assert len(cols) == 40  # Part B: 13×3 + 1 percentile
 
     def test_upside_percentile_uses_smallest_window(self):
         cols = _build_target_columns((60, 30))  # unsorted input
@@ -240,46 +242,46 @@ class TestDynamicColumnCount:
     appends 69 trend/swing L1 features, lifting the totals to 495 / 519.
     T37 (Schema v9, 2026-06-13) appends 26 ATM-only depth columns,
     lifting to 524 / 548. Part B (2026-07-02) adds 4 direction_down target
-    columns → 528 / 552."""
+    columns → 538 / 564."""
 
     def test_count_is_528_for_2window_profile(self):
         # Wave 1 +22 cols, Wave 2 +10 (5 target types × 2 windows),
         # Phase 2 +69 trend/swing L1, T37 +26 ATM depth,
         # Part B +4 trend/swing direction_down
-        # → 380 + 22 + 10 + 69 + 26 + 4 = 528.
+        # → 380 + 22 + 10 + 69 + 26 + 4 = 538.
         cols = column_names_for((30, 60))
-        assert len(cols) == 528
-        assert len(set(cols)) == 528, "duplicate column names in 2-window profile"
+        assert len(cols) == 538
+        assert len(set(cols)) == 538, "duplicate column names in 2-window profile"
 
     def test_count_is_552_for_4window_profile(self):
         """Canonical Phase D4 layout + Wave 1 (22) + Wave 2 (4×5=20)
-        + Phase 2 (69) + T37 ATM depth (26) + Part B direction_down (4) = 552."""
+        + Phase 2 (69) + T37 ATM depth (26) + Part B direction_down (4) = 564."""
         cols = column_names_for((30, 60, 300, 900))
-        assert len(cols) == 552
-        assert len(set(cols)) == 552, "duplicate column names in 4-window profile"
+        assert len(cols) == 564
+        assert len(set(cols)) == 564, "duplicate column names in 4-window profile"
 
     @pytest.mark.parametrize(
         "windows,expected_count",
         [
-            ((30,), 516),       # single-window: 475 + 12×1 + 1 + 28 = 516
-            ((30, 60), 528),    # 2-window legacy MVP: 475 + 24 + 1 + 28 = 528
-            ((30, 60, 300), 540),         # 3-window: 475 + 36 + 1 + 28 = 540
-            ((30, 60, 300, 900), 552),    # canonical D4: 475 + 48 + 1 + 28 = 552
-            ((30, 60, 120, 300, 900), 564),  # 5-window: 475 + 60 + 1 + 28 = 564
+            ((30,), 525),       # single-window: 475 + 12×1 + 1 + 28 = 525
+            ((30, 60), 538),    # 2-window legacy MVP: 475 + 24 + 1 + 28 = 538
+            ((30, 60, 300), 551),         # 3-window: 475 + 36 + 1 + 28 = 551
+            ((30, 60, 300, 900), 564),    # canonical D4: 475 + 48 + 1 + 28 = 564
+            ((30, 60, 120, 300, 900), 577),  # 5-window: 475 + 60 + 1 + 28 = 577
         ],
     )
     def test_count_formula(self, windows, expected_count):
         """Total = 475 (window-independent: 355 base + 22 Wave 1 + 69
         Phase 2 + 26 T37 ATM depth + 28 trend/swing targets incl. Part B
-        direction_down) + 12 × len(windows) + 1
+        direction_down) + 13 × len(windows) + 1
         (upside_percentile_<min(windows)>s). Each extra target window
-        adds exactly 12 columns."""
+        adds exactly 13 columns."""
         assert len(column_names_for(windows)) == expected_count
 
     def test_legacy_module_global_is_2window_default(self):
         """`COLUMN_NAMES` exists as backward-compat for pre-E8 callers
         and resolves to the 2-window default."""
-        assert len(COLUMN_NAMES) == 528
+        assert len(COLUMN_NAMES) == 538
         assert COLUMN_NAMES == column_names_for((30, 60))
 
     def test_4window_includes_300s_and_900s_target_cols(self):
@@ -427,7 +429,7 @@ class TestAssembleFlatVector:
 
     def test_key_count_is_528(self):
         row = _build()
-        assert len(row) == 528
+        assert len(row) == 538
 
     def test_key_order_matches_column_names(self):
         row = _build()
@@ -753,7 +755,7 @@ class TestSerializeRow:
         row = _build()
         line = serialize_row(row)
         parsed = json.loads(line)
-        assert len(parsed) == 528
+        assert len(parsed) == 538
 
     def test_allow_nan_false_satisfied(self):
         """NaN converted to null → json.loads should not raise."""
@@ -781,7 +783,7 @@ class TestEmitterFileSink:
         lines = Path(out_file).read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 1
         parsed = json.loads(lines[0])
-        assert len(parsed) == 528
+        assert len(parsed) == 538
 
     def test_emit_multiple_rows(self, tmp_path):
         out_file = str(tmp_path / "test_multi.ndjson")
@@ -1047,7 +1049,7 @@ class TestSchemaRegistry:
         payload = json.loads(out_file.read_text(encoding="utf-8"))
         assert payload["schema_version"] == LATEST_SCHEMA_VERSION
         assert payload["feature_count"] == len(payload["columns"])
-        assert payload["feature_count"] == 552  # 4-window canonical (+4 Part B)
+        assert payload["feature_count"] == 564  # 4-window canonical (+4 Part B)
         assert payload["columns"][0] == "timestamp"
         assert "india_vix" in payload["columns"]
         assert "days_to_expiry_bucket" in payload["columns"]
@@ -1119,7 +1121,7 @@ class TestSchemaRegistry:
         payload = json.loads(latest.read_text(encoding="utf-8"))
         assert payload["schema_version"] == LATEST_SCHEMA_VERSION
         assert payload["feature_count"] == len(payload["columns"])
-        assert payload["feature_count"] == 552, (
+        assert payload["feature_count"] == 564, (
             "real-repo schema registry must reflect canonical 4-window profile"
         )
         assert payload["columns"][0] == "timestamp"
@@ -1129,3 +1131,136 @@ class TestSchemaRegistry:
         assert "days_to_expiry_bucket" in payload["columns"]
         assert "trend_direction_900s" in payload["columns"]
         assert "swing_breakout_imminent_7200s" in payload["columns"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Emitter socket sink — connect / reconnect (T70, 2026-07-03)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# The socket sink is the low-latency transport carrying live feature rows
+# to SEA (TFA connects OUT to SEA's listener). SEA may start after TFA or
+# restart mid-session, so the sink must (a) come up cleanly with no
+# listener, (b) deliver NDJSON lines when one exists, and (c) reconnect
+# after the listener dies and returns. Retry cadence is _SOCK_RETRY_SEC
+# (3s), driven from emit(); tests force the window via _sock_next_retry.
+
+
+def _free_tcp_port() -> int:
+    """Grab an OS-assigned free port, then release it (no listener left)."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    return port
+
+
+@pytest.fixture()
+def _af_unix_shim(monkeypatch):
+    """KNOWN SOURCE BUG (reported upstream, not fixed here): Emitter.__init__
+    evaluates `socket.AF_UNIX` unconditionally whenever socket_addr is set,
+    but AF_UNIX does not exist on Windows → AttributeError before the
+    AF_INET path even runs. Shim a sentinel in so the TCP behaviour under
+    test is reachable; harmless once the source guards with getattr()."""
+    if not hasattr(socket, "AF_UNIX"):
+        monkeypatch.setattr(socket, "AF_UNIX", -1, raising=False)
+
+
+def _recv_line(conn: socket.socket, timeout: float = 2.0) -> bytes:
+    """Read from `conn` until a newline arrives (or the peer closes)."""
+    conn.settimeout(timeout)
+    buf = b""
+    while b"\n" not in buf:
+        chunk = conn.recv(65536)
+        if not chunk:
+            break
+        buf += chunk
+    return buf
+
+
+class TestEmitterSocketSink:
+
+    def test_no_listener_constructor_does_not_raise(self, tmp_path, _af_unix_shim):
+        """No listener on the port → ctor swallows the refused connect,
+        _sock stays None, and emit() still works file-only."""
+        port = _free_tcp_port()
+        out_file = str(tmp_path / "no_listener.ndjson")
+        emitter = Emitter(
+            file_path=out_file,
+            socket_addr=port,
+            schema_registry_dir=tmp_path / "_sr",
+        )
+        try:
+            assert emitter._sock is None
+            emitter.emit(_build(timestamp=1.0))  # must not raise
+            assert emitter.socket_drops == 0  # no sock → skip, not a drop
+        finally:
+            emitter.close()
+        lines = Path(out_file).read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) == 1
+        assert json.loads(lines[0])["timestamp"] == pytest.approx(1.0)
+
+    def test_listener_receives_ndjson_line(self, tmp_path, _af_unix_shim):
+        srv = socket.create_server(("127.0.0.1", 0))
+        srv.settimeout(2.0)
+        port = srv.getsockname()[1]
+        emitter = Emitter(socket_addr=port, schema_registry_dir=tmp_path / "_sr")
+        conn = None
+        try:
+            assert emitter._sock is not None
+            conn, _ = srv.accept()
+            emitter.emit(_build(timestamp=42.0))
+            raw = _recv_line(conn)
+            assert raw.endswith(b"\n")
+            parsed = json.loads(raw.decode("utf-8"))
+            assert parsed["timestamp"] == pytest.approx(42.0)
+            assert len(parsed) == 538
+        finally:
+            if conn is not None:
+                conn.close()
+            emitter.close()
+            srv.close()
+
+    def test_reconnects_after_listener_restart(self, tmp_path, _af_unix_shim):
+        """Kill the listener → send fails → sock torn down + drop counted;
+        restart the listener on the SAME port, force the retry window, and
+        the next emit() reconnects and delivers."""
+        srv1 = socket.create_server(("127.0.0.1", 0))
+        srv1.settimeout(2.0)
+        port = srv1.getsockname()[1]
+        emitter = Emitter(socket_addr=port, schema_registry_dir=tmp_path / "_sr")
+        srv2 = conn2 = None
+        try:
+            conn1, _ = srv1.accept()
+            emitter.emit(_build(timestamp=1.0))
+            assert b"\n" in _recv_line(conn1)
+
+            # ── Kill the listener ─────────────────────────────────────────
+            conn1.close()
+            srv1.close()
+            # The first send after the peer dies may still land in the local
+            # buffer (RST arrives async) — the failure surfaces within a few
+            # emits. Bounded loop keeps the suite fast (<1s worst case).
+            for _ in range(20):
+                emitter.emit(_build(timestamp=2.0))
+                if emitter._sock is None:
+                    break
+                time.sleep(0.05)
+            assert emitter._sock is None, "socket should be torn down after peer death"
+            assert emitter.socket_drops >= 1
+
+            # ── Restart on the SAME port; force the 3s retry window ──────
+            srv2 = socket.create_server(("127.0.0.1", port))
+            srv2.settimeout(2.0)
+            emitter._sock_next_retry = 0.0
+            emitter.emit(_build(timestamp=3.0))
+            assert emitter._sock is not None, "emit() should have reconnected"
+            conn2, _ = srv2.accept()
+            raw = _recv_line(conn2)
+            parsed = json.loads(raw.decode("utf-8"))
+            assert parsed["timestamp"] == pytest.approx(3.0)
+        finally:
+            if conn2 is not None:
+                conn2.close()
+            emitter.close()
+            if srv2 is not None:
+                srv2.close()

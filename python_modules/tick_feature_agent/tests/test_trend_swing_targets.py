@@ -22,10 +22,10 @@ from tick_feature_agent.features.trend_swing_targets import (
 
 class TestColumnNames:
 
-    def test_emits_28_names_in_default(self):
-        # 7 types × 4 horizons = 28 (Part B added direction_down).
+    def test_emits_36_names_in_default(self):
+        # 9 types × 4 horizons = 36 (Part B: direction_down + reversal + exit_signal).
         names = trend_swing_target_column_names()
-        assert len(names) == 28
+        assert len(names) == 36
 
     def test_names_are_unique(self):
         names = trend_swing_target_column_names()
@@ -35,30 +35,30 @@ class TestColumnNames:
         names = trend_swing_target_column_names()
         trend = [n for n in names if n.startswith("trend_")]
         swing = [n for n in names if n.startswith("swing_")]
-        assert len(trend) == 14
-        assert len(swing) == 14
+        assert len(trend) == 18
+        assert len(swing) == 18
 
     def test_horizon_coverage(self):
         names = set(trend_swing_target_column_names())
-        # Seven types × four horizons (direction_down added in Part B).
+        # Nine types × four horizons (direction_down + reversal + exit_signal added in Part B).
         for w in (900, 1800):
             for t in ("direction", "direction_down", "magnitude",
                       "max_excursion", "max_drawdown", "continues",
-                      "breakout_imminent"):
+                      "breakout_imminent", "reversal", "exit_signal"):
                 assert f"trend_{t}_{w}s" in names
         for w in (3600, 7200):
             for t in ("direction", "direction_down", "magnitude",
                       "max_excursion", "max_drawdown", "continues",
-                      "breakout_imminent"):
+                      "breakout_imminent", "reversal", "exit_signal"):
                 assert f"swing_{t}_{w}s" in names
 
 
 # ── Null helper ───────────────────────────────────────────────────────────
 
 
-def test_null_targets_returns_28_nans():
+def test_null_targets_returns_36_nans():
     out = null_trend_swing_targets()
-    assert len(out) == 28
+    assert len(out) == 36
     for v in out.values():
         assert math.isnan(v)
 
@@ -191,6 +191,59 @@ class TestDirectionDown:
         _seed(buf, [(900.0, 23980.0)])
         out = _compute(buf, t0=0.0, spot_at_t0=24000.0, instrument="UNKNOWN")
         assert math.isnan(out["trend_direction_down_900s"])
+
+
+class TestReversal:
+    """Part B: reversal = 1 iff the forward move is OPPOSITE the prior
+    dominant direction AND clears the noise floor (inverse of continues)."""
+
+    def test_reversal_up_then_down(self):
+        # prior leg UP (t-300→t0), forward leg DOWN >floor → reversal.
+        buf = SpotTargetBuffer()
+        _seed(buf, [(-300.0, 23980.0), (0.0, 24000.0), (900.0, 23970.0)])
+        out = _compute(buf, t0=0.0, spot_at_t0=24000.0)
+        assert out["trend_reversal_900s"] == 1.0
+        assert out["trend_continues_900s"] == 0.0
+
+    def test_no_reversal_when_continuation(self):
+        # prior UP, forward UP → continuation, not reversal.
+        buf = SpotTargetBuffer()
+        _seed(buf, [(-300.0, 23980.0), (0.0, 24000.0), (900.0, 24030.0)])
+        out = _compute(buf, t0=0.0, spot_at_t0=24000.0)
+        assert out["trend_reversal_900s"] == 0.0
+        assert out["trend_continues_900s"] == 1.0
+
+    def test_reversal_zero_when_forward_move_below_floor(self):
+        # prior UP, forward tiny down (<floor) → not a real reversal.
+        buf = SpotTargetBuffer()
+        _seed(buf, [(-300.0, 23980.0), (0.0, 24000.0), (900.0, 23997.0)])
+        out = _compute(buf, t0=0.0, spot_at_t0=24000.0)
+        assert out["trend_reversal_900s"] == 0.0
+
+    def test_reversal_nan_without_lookback(self):
+        buf = SpotTargetBuffer()
+        _seed(buf, [(900.0, 23970.0)])  # no pre-t0 sample → no prior direction
+        out = _compute(buf, t0=0.0, spot_at_t0=24000.0)
+        assert math.isnan(out["trend_reversal_900s"])
+
+
+class TestExitSignal:
+    """Part B: exit_signal = 1 iff the path visited BOTH sides of entry
+    (went above AND below spot_at_t0) within the window."""
+
+    def test_exit_when_path_crosses_both_sides(self):
+        # dips below entry then rises above → visited both sides.
+        buf = SpotTargetBuffer()
+        _seed(buf, [(300.0, 23950.0), (900.0, 24040.0)])
+        out = _compute(buf, t0=0.0, spot_at_t0=24000.0)
+        assert out["trend_exit_signal_900s"] == 1.0
+
+    def test_no_exit_when_stays_one_side(self):
+        # entirely above entry → never crossed.
+        buf = SpotTargetBuffer()
+        _seed(buf, [(300.0, 24010.0), (900.0, 24040.0)])
+        out = _compute(buf, t0=0.0, spot_at_t0=24000.0)
+        assert out["trend_exit_signal_900s"] == 0.0
 
 
 # ── max_excursion / max_drawdown ──────────────────────────────────────────

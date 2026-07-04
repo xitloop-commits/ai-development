@@ -320,6 +320,17 @@ class TargetBuffer:
                 out[f"max_upside_pe_{x}s"] = max(pe_upsides) if pe_upsides else _NAN
                 out[f"max_drawdown_pe_{x}s"] = max(pe_drawdowns) if pe_drawdowns else _NAN
 
+            # ── PE-leg risk-reward ratio ─────────────────────────────────────
+            # Mirror of the CE risk_reward_ratio (line ~219) on the PE leg, so
+            # the scalp gate can quality-gate PUTS with the correct leg's RR
+            # instead of borrowing the CE RR.
+            up_pe = out[f"max_upside_pe_{x}s"]
+            dn_pe = out[f"max_drawdown_pe_{x}s"]
+            if math.isnan(up_pe) or math.isnan(dn_pe):
+                out[f"risk_reward_ratio_pe_{x}s"] = _NAN
+            else:
+                out[f"risk_reward_ratio_pe_{x}s"] = up_pe / max(dn_pe, 0.01)
+
         return out
 
 
@@ -343,6 +354,11 @@ class UpsidePercentileTracker:
 
     def __init__(self) -> None:
         self._sorted: list[float] = []
+        # Percentile of the most recently matured window (NaN until the
+        # first post-warmup add). The live fast-emit path stamps this
+        # onto rows whose own window hasn't elapsed yet — the freshest
+        # value that exists without peeking forward.
+        self.last_percentile: float = _NAN
 
     def add_and_query(self, value: float | None) -> float:
         """
@@ -359,11 +375,14 @@ class UpsidePercentileTracker:
 
         # rank = count of values <= current
         rank = bisect.bisect_right(self._sorted, value)
-        return rank / n * 100.0
+        pct = rank / n * 100.0
+        self.last_percentile = pct
+        return pct
 
     def reset(self) -> None:
         """Clear session distribution at session_start."""
         self._sorted = []
+        self.last_percentile = _NAN
 
 
 # ── Public helpers ─────────────────────────────────────────────────────────────
@@ -407,6 +426,8 @@ def null_target_features(
         out[f"max_upside_pe_{x}s"] = _NAN
     for x in windows:
         out[f"max_drawdown_pe_{x}s"] = _NAN
+    for x in windows:
+        out[f"risk_reward_ratio_pe_{x}s"] = _NAN
     min_w = min(windows)
     out[f"upside_percentile_{min_w}s"] = _NAN
     return out

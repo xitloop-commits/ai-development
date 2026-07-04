@@ -6,6 +6,7 @@ Run: python -m pytest python_modules/tick_feature_agent/tests/test_tick_processo
 
 from __future__ import annotations
 
+import json
 import math
 import sys
 import time
@@ -251,10 +252,11 @@ class TestTickProcessorOutput:
         proc._emitter.write_parquet(path)
         table = pq.read_table(path)
         # 2-window default profile: 402 legacy + 69 Phase 2 trend/swing
-        # + 26 T37 ATM depth = 524. +2 for atm_ce_security_id /
-        # atm_pe_security_id which the tick processor appends to the
-        # row but aren't in COLUMN_NAMES = 526.
-        assert len(table.schema.names) == 526
+        # + 26 T37 ATM depth + Part B (direction_down + reversal + exit_signal
+        # trend/swing = +8, risk_reward_ratio_pe scalp = +2) = 538. +2 for
+        # atm_ce_security_id / atm_pe_security_id which the tick processor
+        # appends to the row but aren't in COLUMN_NAMES = 540.
+        assert len(table.schema.names) == 540
 
     def test_parquet_column_names_match_spec(self, tmp_path):
         import pyarrow.parquet as pq
@@ -772,3 +774,146 @@ class TestVixFeed:
         )
         assert out["india_vix"] == pytest.approx(14.5)
         assert out["india_vix_change_5min"] == pytest.approx(1.5)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TestLiveFastEmit (T70)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _make_live_processor(tmp_path, warm_up=1, **profile_overrides):
+    """Build a TickProcessor with a live-mode Emitter writing to a tmp
+    NDJSON file (no socket). T70 (2026-07-03): in live mode every row
+    ships at tick time — previously rows sat in _pending for
+    max_window_sec so labels could backfill, which made every SEA signal
+    lag its tick by exactly the max target window (measured median
+    300.6s on 2026-07-02)."""
+    p = _profile(warm_up_duration_sec=warm_up, **profile_overrides)
+    sm = StateMachine(warm_up_duration_sec=p.warm_up_duration_sec)
+    buf = CircularBuffer(maxlen=50)
+    opt = OptionBufferStore()
+    cc = ChainCache()
+    out_path = tmp_path / "live_features.ndjson"
+    em = Emitter(
+        file_path=str(out_path),
+        mode="live",
+        target_windows_sec=p.target_windows_sec,
+        schema_registry_dir=tmp_path / "_sr",
+    )
+    proc = TickProcessor(
+        profile=p,
+        state_machine=sm,
+        tick_buffer=buf,
+        option_store=opt,
+        chain_cache=cc,
+        emitter=em,
+    )
+    return proc, out_path
+
+
+def _read_ndjson(path: Path) -> list[dict]:
+    text = Path(path).read_text(encoding="utf-8").strip()
+    if not text:
+        return []
+    return [json.loads(line) for line in text.split("\n")]
+
+
+class TestLiveFastEmit:
+    """T70: live mode emits each row IMMEDIATELY at tick time with NaN
+    target labels; the _pending queue still matures windows but only to
+    feed the upside-percentile tracker (no second emission). Replay mode
+    is unchanged — labeled rows land in the parquet buffer only after
+    the full target window elapses."""
+
+    # 2-window default profile → max window 60s, min window 30s.
+    _BASE_TS = datetime(2026, 4, 14, 10, 0, 0, tzinfo=_IST).timestamp()
+
+    def test_row_emitted_immediately_with_nan_targets(self, tmp_path):
+        proc, out_path = _make_live_processor(tmp_path)
+        proc.on_session_open(_session_end_sec())
+        proc.on_chain_snapshot(_make_snapshot())
+
+        proc.on_underlying_tick(_tick(24150.0, ts=self._BASE_TS))
+
+        # The row must be on disk NOW — no target window has elapsed.
+        rows = _read_ndjson(out_path)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["timestamp"] == pytest.approx(self._BASE_TS)
+        # Target labels need the future → emitted as JSON null in live mode.
+        assert row["direction_30s"] is None
+        assert row["direction_60s"] is None
+        assert row["max_upside_30s"] is None
+        assert row["max_drawdown_60s"] is None
+        # upside_percentile_30s = tracker.last_percentile, which is NaN
+        # (→ null) this early in the session (warm-up not done).
+        assert row["upside_percentile_30s"] is None
+
+    def test_upside_percentile_stamped_from_tracker(self, tmp_path):
+        """The one target-block column SEA consumes gets the last MATURED
+        window's percentile — exactly `UpsidePercentileTracker.last_percentile`."""
+        proc, out_path = _make_live_processor(tmp_path)
+        proc.on_session_open(_session_end_sec())
+        proc.on_chain_snapshot(_make_snapshot())
+
+        proc.on_underlying_tick(_tick(24150.0, ts=self._BASE_TS))
+        # Simulate a matured percentile between ticks.
+        proc._upside_pct.last_percentile = 37.5
+        proc.on_underlying_tick(_tick(24151.0, ts=self._BASE_TS + 1))
+
+        rows = _read_ndjson(out_path)
+        assert len(rows) == 2
+        assert rows[0]["upside_percentile_30s"] is None
+        assert rows[1]["upside_percentile_30s"] == pytest.approx(37.5)
+
+    def test_no_second_emission_when_window_matures(self, tmp_path):
+        """A tick past t0+max_window matures the first pending row; in
+        live mode that must NOT re-emit it — line count grows only with
+        new ticks and every line's timestamp is unique."""
+        proc, out_path = _make_live_processor(tmp_path)
+        proc.on_session_open(_session_end_sec())
+        proc.on_chain_snapshot(_make_snapshot())
+
+        t0 = self._BASE_TS
+        proc.on_underlying_tick(_tick(24150.0, ts=t0))
+        # 61s later — past the 60s max window → row t0 matures in _pending.
+        proc.on_underlying_tick(_tick(24152.0, ts=t0 + 61))
+
+        rows = _read_ndjson(out_path)
+        assert len(rows) == 2  # one line per tick, no duplicate of row t0
+        timestamps = [r["timestamp"] for r in rows]
+        assert len(set(timestamps)) == len(timestamps)
+        assert timestamps == [pytest.approx(t0), pytest.approx(t0 + 61)]
+        # The matured row was popped from the queue (percentile bookkeeping
+        # only) — just the newest tick's row remains pending.
+        assert len(proc._pending) == 1
+        assert proc._pending[0].t0 == pytest.approx(t0 + 61)
+
+    def test_replay_mode_still_defers_until_window_elapses(self, tmp_path):
+        """Regression: replay emitters get NOTHING at tick time; the
+        labeled row lands in the parquet buffer only after the full max
+        window elapses. This is what keeps training output byte-identical
+        to the pre-T70 pipeline."""
+        proc = _make_processor(warm_up=1)  # replay-mode emitter
+        assert proc._emitter.mode == "replay"
+        proc.on_session_open(_session_end_sec())
+        proc.on_chain_snapshot(_make_snapshot())
+
+        t0 = self._BASE_TS
+        # Ticks inside the lookahead windows, rising spot so direction=1.
+        for i, dt in enumerate((0, 10, 20, 30, 40, 50)):
+            proc.on_underlying_tick(_tick(24150.0 + i, ts=t0 + dt))
+        # Nothing may have been emitted at tick time.
+        assert proc._emitter.row_count == 0
+
+        # Tick past t0+60 (max window) matures row t0 → emitted with labels.
+        proc.on_underlying_tick(_tick(24160.0, ts=t0 + 61))
+        assert proc._emitter.row_count == 1
+
+        buffered = proc._emitter._parquet_rows[0]
+        assert buffered["timestamp"] == pytest.approx(t0)
+        # Spot rose within both windows → direction targets computable.
+        assert buffered["direction_30s"] == 1
+        assert buffered["direction_60s"] == 1
+        assert not math.isnan(buffered["direction_30s_magnitude"])
+        assert not math.isnan(buffered["direction_60s_magnitude"])

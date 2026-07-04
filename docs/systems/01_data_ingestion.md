@@ -89,6 +89,8 @@ Each TFA process writes its own 4-file set. India VIX is duplicated across instr
 
 **Replay.** Raw `.ndjson.gz` files are full-fidelity (all 5 depth levels, all metadata, original `recv_ts`). The replay path in `tick_feature_agent/replay/replay_runner.py` re-emits ticks at recorded timestamps, runs them through the same feature emitter, and writes parquet rows. Target columns are emitted as NaN by live; replay backfills the 24 target cols end-of-day via `SpotTargetBuffer` (Option B per V2 design). Schema-version mismatch between recording and replay is not currently handled — older `v7` recordings cannot be replayed against the live `v8` emitter without manual schema conversion.
 
+**Live emission latency (T70, 2026-07-03).** Live rows emit AT TICK TIME with NaN scalp labels — previously `tick_processor._pending` held every row `max_window_sec` (300s on BankNifty) to backfill labels first, which made every SEA signal ~5 min stale (measured median 300.6s on 2026-07-02). The matured windows still flow through `_flush_pending`, but in live mode they only update the upside-percentile history (fast rows carry the last matured percentile, ~60s lag, no future peek); labeled emission is replay-only. Transport: emitter also pushes each row to SEA over localhost TCP (`_shared/feature_stream.py`, ports 7761–7764, TFA connects out with 3s auto-retry); the ndjson file stays as fallback + UI/health source.
+
 ## 5. Token lifecycle
 
 **Policy:** startup-only refresh. No dual-refresh races, no in-flight TOTP retries.

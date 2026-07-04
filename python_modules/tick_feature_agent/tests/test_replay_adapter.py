@@ -419,8 +419,8 @@ class TestReplayAdapterWithChain:
         adapter.emitter.write_parquet(path)
         table = pq.read_table(path)
         # 2-window default profile: 402 legacy + 69 Phase 2 trend/swing + 26 T37 ATM depth
-        # + 4 Part B direction_down = 528.
-        assert len(table.schema.names) == 528
+        # + 12 Part B trend/swing labels = 538.
+        assert len(table.schema.names) == 538
 
     def test_parquet_column_names_match_spec(self, tmp_path):
         import pyarrow.parquet as pq
@@ -628,6 +628,42 @@ class TestTargetBackfill:
             assert "direction_30s" in cols
             assert "max_upside_60s" in cols
             assert "direction_60s" in cols
+
+    def test_upside_percentile_is_lagged_not_self_ranked(self, tmp_path):
+        """Option B leak fix (2026-07-04): the training `upside_percentile`
+        must be the LAGGED session-rank captured at tick time (matches the
+        live path, no future peek), NOT the rank of the row's OWN future
+        upside. Distinguishing property: under the old leak a finite
+        `max_upside` ALWAYS yields a finite percentile (ranked against
+        itself); under the lag fix, early rows have finite upside but NaN
+        percentile because no prior window had matured yet."""
+        import pyarrow.parquet as pq
+
+        profile = _make_profile(warm_up_duration_sec=1, target_windows_sec=(30, 60))
+        adapter = ReplayAdapter(profile, _DATE)
+        adapter.process_event(_chain_event(24150.0, 9, 15, 0))
+
+        # ~150s of underlying + rising ATM CE ticks → positive/finite
+        # max_upside, and 30/60s windows mature.
+        for i in range(150):
+            m, s = divmod(i + 1, 60)
+            adapter.process_event(_underlying_event(24150.0, 9, 15 + m, s))
+            adapter.process_event(_option_event(24150, "CE", 200.0 + i, 9, 15 + m, s))
+            adapter.process_event(_option_event(24150, "PE", 100.0, 9, 15 + m, s))
+        adapter.flush_all()
+
+        path = tmp_path / "lag.parquet"
+        adapter.emitter.write_parquet(path)
+        df = pq.read_table(path).to_pandas()
+        up = df["max_upside_30s"]
+        pct = df["upside_percentile_30s"]
+        # At least one row with finite upside but NaN percentile — impossible
+        # under the self-ranking leak, expected under the lag.
+        finite_upside_nan_pct = int(((up.notna()) & (pct.isna())).sum())
+        assert finite_upside_nan_pct > 0, (
+            "upside_percentile appears self-ranked (leak): every finite "
+            "max_upside got a finite percentile"
+        )
 
     def test_option_tick_updates_option_store(self):
         """Option ticks should be stored in the option buffer."""

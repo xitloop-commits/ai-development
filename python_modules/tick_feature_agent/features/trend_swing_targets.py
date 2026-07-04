@@ -192,6 +192,8 @@ class SpotTargetBuffer:
                     out[f"{layer}_max_drawdown_{w}s"] = _NAN
                     out[f"{layer}_continues_{w}s"] = _NAN
                     out[f"{layer}_breakout_imminent_{w}s"] = _NAN
+                    out[f"{layer}_reversal_{w}s"] = _NAN
+                    out[f"{layer}_exit_signal_{w}s"] = _NAN
             return out
 
         # Dominant direction of [t0 - CONTINUES_LOOKBACK_SEC, t0], used by
@@ -223,6 +225,8 @@ class SpotTargetBuffer:
                 feat_draw = f"{layer}_max_drawdown_{w}s"
                 feat_cont = f"{layer}_continues_{w}s"
                 feat_brk = f"{layer}_breakout_imminent_{w}s"
+                feat_rev = f"{layer}_reversal_{w}s"
+                feat_exit = f"{layer}_exit_signal_{w}s"
 
                 # Past session-end? All NaN for this window.
                 if session_end_sec is not None and (t0 + w) > session_end_sec:
@@ -233,6 +237,8 @@ class SpotTargetBuffer:
                     out[feat_draw] = _NAN
                     out[feat_cont] = _NAN
                     out[feat_brk] = _NAN
+                    out[feat_rev] = _NAN
+                    out[feat_exit] = _NAN
                     continue
 
                 # Lookahead window: (t0, t0+w]
@@ -249,6 +255,8 @@ class SpotTargetBuffer:
                     out[feat_draw] = _NAN
                     out[feat_cont] = _NAN
                     out[feat_brk] = _NAN
+                    out[feat_rev] = _NAN
+                    out[feat_exit] = _NAN
                     continue
 
                 # End-of-window spot — use the LAST sample in the window
@@ -295,6 +303,24 @@ class SpotTargetBuffer:
                             1.0 if (same_sign and big_enough) else 0.0
                         )
 
+                # reversal (Part B): 1 iff the forward move is OPPOSITE the
+                # prior dominant direction AND clears the noise floor — the
+                # inverse of `continues`, isolating turning points from flats.
+                if noise_floor is None or earliest_lookback_spot is None:
+                    out[feat_rev] = _NAN
+                else:
+                    prior_change = spot_at_t0 - earliest_lookback_spot
+                    if prior_change == 0 or magnitude == 0:
+                        out[feat_rev] = 0.0
+                    else:
+                        opp_sign = (prior_change > 0 and magnitude < 0) or (
+                            prior_change < 0 and magnitude > 0
+                        )
+                        big_enough = abs(magnitude) >= noise_floor
+                        out[feat_rev] = (
+                            1.0 if (opp_sign and big_enough) else 0.0
+                        )
+
                 # breakout_imminent: 1 iff max excursion ≥ noise_floor × scale.
                 if breakout_threshold is None:
                     out[feat_brk] = _NAN
@@ -302,6 +328,16 @@ class SpotTargetBuffer:
                     out[feat_brk] = (
                         1.0 if max_excursion >= breakout_threshold else 0.0
                     )
+
+                # exit_signal (Part B): 1 iff the spot path visited BOTH sides
+                # of entry within the window (went above AND below spot_at_t0)
+                # — i.e. the position's direction flipped through entry.
+                # "Would want to close" for a trend/swing hold. Spot-only, no
+                # noise floor. Columnar mirrors this exactly via
+                # (max_spot > spot0) AND (min_spot < spot0).
+                out[feat_exit] = (
+                    1.0 if (max_spot > spot_at_t0 and min_spot < spot_at_t0) else 0.0
+                )
 
         return out
 
@@ -332,6 +368,8 @@ def trend_swing_target_column_names(
                 "max_drawdown",
                 "continues",
                 "breakout_imminent",
+                "reversal",
+                "exit_signal",
             ):
                 names.append(f"{layer}_{t}_{w}s")
     return tuple(names)

@@ -84,6 +84,7 @@ import math
 import os
 import socket
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO
@@ -546,9 +547,10 @@ assert len(set(_PHASE2_BC_COLUMNS)) == len(_PHASE2_BC_COLUMNS), (
 )
 
 
-# ── Phase 3 trend + swing target columns (28, v8 schema + Part B) ────────
-# Seven target types × four horizons (trend 900s/1800s + swing 3600s/7200s).
-# Part B (2026-07-02) added `direction_down` per layer/horizon (+4 cols).
+# ── Phase 3 trend + swing target columns (36, v8 schema + Part B) ────────
+# Nine target types × four horizons (trend 900s/1800s + swing 3600s/7200s).
+# Part B added direction_down (2026-07-02) + reversal + exit_signal
+# (2026-07-04) per layer/horizon (+12 cols total over the original 24).
 # See features/trend_swing_targets.py for the compute logic. Replay
 # populates these from end-of-day raw recordings; live emits NaN per the
 # Option B decision (2026-05-18). This is a label-only addition — the model
@@ -558,8 +560,8 @@ from tick_feature_agent.features.trend_swing_targets import (  # noqa: E402
 )
 
 _TREND_SWING_TARGET_COLUMNS: tuple[str, ...] = _trend_swing_target_column_names()
-assert len(_TREND_SWING_TARGET_COLUMNS) == 28, (
-    f"_TREND_SWING_TARGET_COLUMNS expected 28 (7 types × 4 horizons), "
+assert len(_TREND_SWING_TARGET_COLUMNS) == 36, (
+    f"_TREND_SWING_TARGET_COLUMNS expected 36 (9 types × 4 horizons), "
     f"got {len(_TREND_SWING_TARGET_COLUMNS)}"
 )
 
@@ -615,6 +617,8 @@ def _build_target_columns(target_windows_sec: tuple[int, ...]) -> tuple[str, ...
         cols.append(f"max_upside_pe_{x}s")
     for x in target_windows_sec:
         cols.append(f"max_drawdown_pe_{x}s")
+    for x in target_windows_sec:
+        cols.append(f"risk_reward_ratio_pe_{x}s")  # Part B: PE-leg RR
     cols.append(f"upside_percentile_{min(target_windows_sec)}s")
     return tuple(cols)
 
@@ -1376,6 +1380,9 @@ class Emitter:
         self._lock = threading.Lock()
         self._file: IO[str] | None = None
         self._sock: socket.socket | None = None
+        self._sock_addr: str | tuple[str, int] | None = None
+        self._sock_family: int = socket_family
+        self._sock_next_retry: float = 0.0
         self.socket_drops: int = 0
         self._mode = mode
         self._parquet_rows: list[dict] | None = [] if mode == "replay" else None
@@ -1404,19 +1411,56 @@ class Emitter:
         # ── Socket sink ───────────────────────────────────────────────────────
         if socket_addr is not None:
             if socket_family == socket.AF_UNIX:
-                addr = socket_addr
+                self._sock_addr = socket_addr
             elif isinstance(socket_addr, int):
-                addr = ("127.0.0.1", socket_addr)
+                self._sock_addr = ("127.0.0.1", socket_addr)
             else:
-                addr = socket_addr
-            try:
-                s = socket.socket(socket_family, socket.SOCK_STREAM)
-                s.setblocking(False)
-                s.connect(addr)
-                self._sock = s
-            except (OSError, ConnectionRefusedError):
-                # Consumer not yet available — socket sink silent no-op until connected
-                pass
+                self._sock_addr = socket_addr
+            self._try_connect_socket()
+
+    @property
+    def mode(self) -> str:
+        """'live' or 'replay' — lets callers branch without reaching into _mode."""
+        return self._mode
+
+    # ── Socket connect / reconnect ────────────────────────────────────────────
+    #
+    # The consumer (SEA) may start after TFA, or restart mid-session — the
+    # whole point of keeping the agents as separate processes. So the sink
+    # retries the connect from emit() at most every _SOCK_RETRY_SEC, and a
+    # broken pipe during send tears the socket down for the next retry.
+    # NOTE: connect must run BLOCKING with a short timeout — a non-blocking
+    # TCP connect raises BlockingIOError before completing, which the old
+    # code swallowed, leaving the sink permanently dead.
+
+    _SOCK_RETRY_SEC = 3.0
+
+    def _try_connect_socket(self) -> None:
+        """One connect attempt; on failure the next retry comes via emit()."""
+        self._sock_next_retry = time.monotonic() + self._SOCK_RETRY_SEC
+        s: socket.socket | None = None
+        try:
+            s = socket.socket(self._sock_family, socket.SOCK_STREAM)
+            s.settimeout(0.5)
+            s.connect(self._sock_addr)
+            s.setblocking(False)
+            self._sock = s
+        except OSError:
+            # Consumer not yet available — silent no-op until the retry
+            if s is not None:
+                try:
+                    s.close()
+                except OSError:
+                    pass
+            self._sock = None
+
+    def _maybe_reconnect_socket(self) -> None:
+        if (
+            self._sock is None
+            and self._sock_addr is not None
+            and time.monotonic() >= self._sock_next_retry
+        ):
+            self._try_connect_socket()
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -1450,13 +1494,22 @@ class Emitter:
                 except OSError:
                     pass  # caller handles logging
 
+            self._maybe_reconnect_socket()
             if self._sock is not None:
                 try:
                     self._sock.sendall(line_bytes)
                 except BlockingIOError:
+                    # Send buffer full — consumer alive but slow. Drop this
+                    # row (it's still in the ndjson file) but keep the socket.
                     self.socket_drops += 1
                 except OSError:
+                    # Consumer went away — tear down, reconnect on retry.
                     self.socket_drops += 1
+                    try:
+                        self._sock.close()
+                    except OSError:
+                        pass
+                    self._sock = None
 
     def roll_file(self, new_path: str) -> None:
         """

@@ -53,6 +53,7 @@ def stream_parquet(
     print(f"    Target:   {live_path}")
     print(f"    Speed:    {speed}x" if speed > 0 else "    Speed:    no-sleep (max rate)")
     print(f"    Mode:     {'truncate + overwrite' if truncate else 'append'}")
+    print("    NOTE: start SEA with --max-row-age 0 (historical timestamps look stale to the T70 guard)")
     print("  ═══════════════════════════════════════════════════════════")
     print()
 

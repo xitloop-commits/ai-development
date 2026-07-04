@@ -219,6 +219,19 @@ def compute_targets_batch_per_strike(
             ).alias(f"risk_reward_ratio_{w}s"),
         )
 
+        # risk_reward_ratio_pe = PE upside / max(PE drawdown, 0.01) — mirror of
+        # the CE RR on the PE leg (Part B). NaN if either PE magnitude is NaN.
+        result = result.with_columns(
+            pl.when(
+                guard_null
+                | pl.col(f"max_upside_pe_{w}s").is_null()
+                | pl.col(f"max_drawdown_pe_{w}s").is_null()
+            ).then(None).otherwise(
+                pl.col(f"max_upside_pe_{w}s")
+                / pl.max_horizontal(pl.col(f"max_drawdown_pe_{w}s"), pl.lit(0.01))
+            ).alias(f"risk_reward_ratio_pe_{w}s"),
+        )
+
         # total_premium_decay + avg_decay: scalar NaNs when
         # past_boundary, not has_active, OR not lookahead (the latter we
         # detect by the agg returning null).

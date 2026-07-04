@@ -322,6 +322,8 @@ class TickProcessor:
         """
         while self._pending:
             p = self._pending.popleft()
+            if self._emitter.mode == "live":
+                continue  # T70: live rows already shipped at tick time
             targets = self._target_buf.compute_targets(
                 t0=p.t0,
                 spot_at_t0=p.spot_at_t0,
@@ -471,7 +473,26 @@ class TickProcessor:
         # ── Compute features and assemble row ─────────────────────────────────
         row = self._compute_row(ts, ltp, bid, ask, is_open)
 
+        # ── Live mode: emit NOW (T70 latency fix, 2026-07-03) ────────────────
+        # The row previously sat in _pending for max_window_sec (300s on
+        # BankNifty) so its target labels could be backfilled — which made
+        # every SEA signal 5 minutes stale. Labels need the future, but no
+        # live consumer reads them (SEA's model inputs come from
+        # final_features; training reads the replay parquet), so the live
+        # row ships immediately with NaN targets. The one target-block
+        # column SEA does consume — upside_percentile_{min}s (C3 gate +
+        # model input) — gets the last MATURED window's percentile: the
+        # freshest value that exists without peeking forward.
+        if self._emitter.mode == "live":
+            min_w = min(self._profile.target_windows_sec)
+            row[f"upside_percentile_{min_w}s"] = self._upside_pct.last_percentile
+            self._emitter.emit(row)
+
         # ── Queue for target backfill ─────────────────────────────────────────
+        # Replay mode: _flush_pending() emits the labeled row once the full
+        # window elapses (the training parquet needs the labels).
+        # Live mode: the queue only maintains the upside-percentile history —
+        # the row itself was already emitted above.
         self._pending.append(
             _PendingRow(
                 row=row,
@@ -899,7 +920,14 @@ class TickProcessor:
     # ── Target backfill helpers ───────────────────────────────────────────────
 
     def _flush_pending(self, current_ts: float) -> None:
-        """Emit rows whose full target window has elapsed."""
+        """Process rows whose full target window has elapsed.
+
+        Replay mode: computes the target labels and emits the labeled row
+        (this is what builds the training parquet).
+        Live mode (T70): the row was already emitted at tick time, so this
+        only feeds the matured upside value into the percentile tracker —
+        the history behind the `last_percentile` stamped on fast rows.
+        """
         while self._pending:
             head = self._pending[0]
             if current_ts < head.t0 + self._max_window_sec:
@@ -915,7 +943,10 @@ class TickProcessor:
             )
             min_w = min(self._profile.target_windows_sec)
             upside = targets.get(f"max_upside_{min_w}s", _NAN)
-            targets[f"upside_percentile_{min_w}s"] = self._upside_pct.add_and_query(upside)
+            pct = self._upside_pct.add_and_query(upside)
+            if self._emitter.mode == "live":
+                continue  # row already shipped at tick time (T70)
+            targets[f"upside_percentile_{min_w}s"] = pct
             p.row.update(targets)
             self._emitter.emit(p.row)
 

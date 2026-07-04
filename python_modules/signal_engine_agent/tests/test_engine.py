@@ -1,15 +1,19 @@
 """
 tests/test_engine.py — Phase E10 PR2 lock for the SEA engine helper
-functions plus a single happy-path tail() smoke test.
+functions plus row-source (tail / socket) and T70 staleness-guard tests.
 
 Scope: only the pure helpers that decide trades:
     * `_pred(models, X, name)`       — single-model wrapper, NaN on miss
     * `_gather_predictions(models, X)` — batch wrapper for the gate
     * `_decide_via_gate(...)`        — thin forward to thresholds.decide_action
 
-Plus one minimal `_tail()` happy-path test (write 3 lines → consume 3,
-append 2 more → consume 2). We deliberately do NOT test file rotation,
-truncation, or `run()`'s infinite loop:
+Plus the row-source plumbing added for T70 (tick→signal latency fix):
+    * `_tail()`      — file tail; seeks to END on first open (backlog skip)
+    * `_row_stream()`— socket listener + file fallback (port=None → _tail)
+    * `_is_stale()`  — T70 staleness guard (old rows skipped pre-inference)
+
+We deliberately do NOT test file rotation, truncation, or `run()`'s
+infinite loop:
 
     File-tail is generic plumbing borrowed from `tail -f`; integration-
     testing it brings little value vs the helpers which decide trades.
@@ -24,6 +28,7 @@ Run: python -m pytest python_modules/signal_engine_agent/tests/test_engine.py -v
 from __future__ import annotations
 
 import math
+import socket
 import sys
 import threading
 import time
@@ -43,7 +48,9 @@ from signal_engine_agent.engine import (
     _decide_via_gate,
     _derive_ts_ns,
     _gather_predictions,
+    _is_stale,
     _pred,
+    _row_stream,
     _tail,
 )
 from signal_engine_agent.thresholds import SignalAction, Thresholds

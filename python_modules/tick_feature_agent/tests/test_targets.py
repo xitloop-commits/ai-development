@@ -77,10 +77,10 @@ def _filled_buf(
 
 class TestNullTargetFeatures:
 
-    def test_default_windows_25_keys(self):
-        # Wave 2: 12 target types per window × 2 windows + 1 upside_percentile = 25
+    def test_default_windows_27_keys(self):
+        # Part B: 13 target types per window × 2 windows + 1 upside_percentile = 27
         out = null_target_features()
-        assert len(out) == 25
+        assert len(out) == 27
 
     def test_all_nan(self):
         out = null_target_features()
@@ -114,23 +114,25 @@ class TestNullTargetFeatures:
             "max_upside_pe_60s",
             "max_drawdown_pe_30s",
             "max_drawdown_pe_60s",
+            "risk_reward_ratio_pe_30s",  # Part B
+            "risk_reward_ratio_pe_60s",  # Part B
             "upside_percentile_30s",
         }
         assert set(out.keys()) == expected
 
-    def test_single_window_13_keys(self):
+    def test_single_window_14_keys(self):
         out = null_target_features((45,))
-        # 12 target types per window + 1 upside_percentile = 13 (Wave 2)
-        assert len(out) == 13
+        # 13 target types per window + 1 upside_percentile = 14 (Part B)
+        assert len(out) == 14
 
     def test_upside_percentile_uses_min_window(self):
         out = null_target_features((60, 30))  # unsorted input
         assert "upside_percentile_30s" in out
         assert "upside_percentile_60s" not in out
 
-    def test_three_windows_37_keys(self):
+    def test_three_windows_40_keys(self):
         out = null_target_features((30, 60, 120))
-        assert len(out) == 37  # Wave 2: 12×3 + 1
+        assert len(out) == 40  # Part B: 13×3 + 1
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -817,6 +819,73 @@ class TestUpsidePercentileTracker:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# TestLastPercentile (T70 live fast-emit support)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestLastPercentile:
+    """`.last_percentile` carries the most recently MATURED window's
+    percentile so the live fast-emit path (T70, 2026-07-03) can stamp
+    tick-time rows without peeking forward. Motivation: rows used to sit
+    in the pending queue for max_window_sec (~300s measured median lag
+    2026-07-02) purely so labels could backfill — live rows now ship
+    immediately and read this attribute instead."""
+
+    def test_nan_on_fresh_tracker(self):
+        pct = UpsidePercentileTracker()
+        assert _nan(pct.last_percentile)
+
+    def test_nan_before_warmup(self):
+        """Fewer than 10 adds → still warming up → last_percentile stays NaN."""
+        pct = UpsidePercentileTracker()
+        for i in range(9):
+            pct.add_and_query(float(i))
+        assert _nan(pct.last_percentile)
+
+    def test_matches_add_and_query_return_after_warmup(self):
+        """The 10th add exits warm-up; add_and_query's return value and
+        last_percentile must be the SAME number."""
+        pct = UpsidePercentileTracker()
+        result = None
+        for i in range(1, 11):  # 1..10, ascending
+            result = pct.add_and_query(float(i))
+        assert not _nan(result)
+        assert result == pytest.approx(100.0)  # 10 is the max of 10 values
+        assert pct.last_percentile == pytest.approx(result)
+
+    def test_subsequent_add_updates_last_percentile(self):
+        pct = UpsidePercentileTracker()
+        for i in range(1, 11):
+            pct.add_and_query(float(i))
+        assert pct.last_percentile == pytest.approx(100.0)
+        # 11th value = 0.0 (new minimum): rank 1 of 11 → 100/11 ≈ 9.09
+        result = pct.add_and_query(0.0)
+        assert result == pytest.approx(100.0 / 11.0)
+        assert pct.last_percentile == pytest.approx(result)
+
+    def test_nan_input_does_not_clobber_last_percentile(self):
+        """A NaN upside (window matured with no data) returns NaN but must
+        keep the previous matured percentile — it is still the freshest
+        real value for the live fast-emit stamp."""
+        pct = UpsidePercentileTracker()
+        for i in range(1, 11):
+            pct.add_and_query(float(i))
+        before = pct.last_percentile
+        assert not _nan(before)
+        result = pct.add_and_query(float("nan"))
+        assert _nan(result)
+        assert pct.last_percentile == pytest.approx(before)
+
+    def test_reset_returns_last_percentile_to_nan(self):
+        pct = UpsidePercentileTracker()
+        for i in range(1, 11):
+            pct.add_and_query(float(i))
+        assert not _nan(pct.last_percentile)
+        pct.reset()
+        assert _nan(pct.last_percentile)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # TestMultipleWindows
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -857,6 +926,8 @@ class TestMultipleWindows:
             "max_upside_pe_60s",
             "max_drawdown_pe_30s",
             "max_drawdown_pe_60s",
+            "risk_reward_ratio_pe_30s",  # Part B
+            "risk_reward_ratio_pe_60s",  # Part B
         }
         assert set(result.keys()) == expected
 

@@ -94,7 +94,7 @@ def compute_trend_swing_targets_batch(
               for w in horizons
               for stat in ("direction", "direction_down", "magnitude",
                            "max_excursion", "max_drawdown", "continues",
-                           "breakout_imminent")]
+                           "breakout_imminent", "reversal", "exit_signal")]
         )
 
     noise_floor = NOISE_FLOOR_PTS.get(instrument_name)
@@ -248,6 +248,41 @@ def compute_trend_swing_targets_batch(
                       )
                 )
 
+            # reversal: scalar mirror (Part B) — inverse of continues:
+            #   NaN if noise_floor is None OR earliest_lookback_spot is None
+            #   else if prior_change == 0 or magnitude == 0: 0.0
+            #   else if opp_sign(prior, mag) AND |mag| >= noise_floor: 1.0 else 0.0
+            if noise_floor is None:
+                reversal_expr = pl.when(mask_null).then(None).otherwise(
+                    pl.lit(None).cast(pl.Float64)
+                )
+            else:
+                prior_change = pl.col("_spot0") - pl.col("_earliest_lookback_spot")
+                opp_sign = (
+                    ((prior_change > 0) & (magnitude < 0))
+                    | ((prior_change < 0) & (magnitude > 0))
+                )
+                big_enough = magnitude.abs() >= noise_floor
+                reversal_expr = (
+                    pl.when(mask_null | pl.col("_earliest_lookback_spot").is_null())
+                      .then(None)
+                      .when((prior_change == 0) | (magnitude == 0))
+                      .then(0.0)
+                      .otherwise(
+                          pl.when(opp_sign & big_enough).then(1.0).otherwise(0.0)
+                      )
+                )
+
+            # exit_signal: scalar mirror (Part B) — 1 iff the path visited BOTH
+            # sides of entry: (max_spot > spot0) AND (min_spot < spot0), i.e.
+            # (excursion > 0) AND (drawdown > 0). No noise floor.
+            exit_signal_expr = (
+                pl.when(mask_null).then(None)
+                  .otherwise(
+                      pl.when((excursion > 0) & (drawdown > 0)).then(1.0).otherwise(0.0)
+                  )
+            )
+
             result = result.with_columns(
                 pl.when(mask_null).then(None).otherwise(magnitude)
                     .alias(_col_name(layer, w, "magnitude")),
@@ -259,6 +294,8 @@ def compute_trend_swing_targets_batch(
                 direction_down_expr.alias(_col_name(layer, w, "direction_down")),
                 continues_expr.alias(_col_name(layer, w, "continues")),
                 breakout_expr.alias(_col_name(layer, w, "breakout_imminent")),
+                reversal_expr.alias(_col_name(layer, w, "reversal")),
+                exit_signal_expr.alias(_col_name(layer, w, "exit_signal")),
             ).drop(["_end_spot", "_max_spot", "_min_spot"])
 
     # Strip the internal helper columns; restore original emit_df shape

@@ -21,6 +21,8 @@ import argparse
 import json
 import math
 import os
+import queue
+import socket
 import sys
 import threading
 import time
@@ -36,6 +38,7 @@ if str(_PYTHON_MODULES) not in sys.path:
 
 import numpy as np
 
+from _shared.feature_stream import FEATURE_SOCKET_HOST, feature_socket_port
 from model_training_agent.preprocessor import LiveTickPreprocessor
 from signal_engine_agent.cohort import build_head_type_map
 from signal_engine_agent.model_loader import load_models
@@ -368,6 +371,153 @@ def _tail(path: Path, poll_sec: float = 0.2):
         time.sleep(poll_sec)
 
 
+def _row_stream(live_path: Path, port: int | None, poll_sec: float = 0.2):
+    """Generator: yield feature-row lines from the TCP feature socket,
+    with the ndjson file as fallback (T70 tick→signal latency fix).
+
+    Context: every SEA signal used to lag its tick by ~300s because TFA
+    held rows back to backfill training labels, and SEA then discovered
+    them via a 0.2s file poll (measured median 300.6s on 2026-07-02).
+    TFA now emits live rows immediately; this socket removes the
+    remaining file-poll hop so tick→signal is sub-second.
+
+    Transports:
+      * ``port is None`` → pure file tail; identical to ``_tail``.
+      * else → listen on ``FEATURE_SOCKET_HOST:port`` (SEA is the
+        listener; TFA's emitter connects OUT to us and pushes one
+        NDJSON line per row, reconnecting every 3s if we restart).
+
+    File fallback: while NO socket client is attached (TFA not started,
+    an older TFA build without a socket sink, or a reconnect gap) the
+    ndjson file is polled exactly like ``_tail`` — seek to end on first
+    open, then yield newly appended lines. While a client IS attached
+    the file is NOT read: the socket is the source of truth, and every
+    socket row is also written to the file, so reading both would
+    double-process. On client disconnect the file offset is
+    repositioned to the file's CURRENT END before file reads resume,
+    for the same reason.
+
+    If the bind fails (port busy — e.g. a second SEA instance) a
+    one-line warning is printed and we fall back to ``_tail`` forever.
+
+    Plumbing is threads + queue (no asyncio), matching codebase style:
+    one daemon thread owns accept+recv, the generator drains the queue.
+    """
+    if port is None:
+        yield from _tail(live_path, poll_sec)
+        return
+
+    try:
+        # create_server sets SO_REUSEADDR on POSIX (restart across
+        # TIME_WAIT); Windows uses exclusive-bind semantics, which is
+        # exactly what makes a genuinely busy port fail fast here.
+        server = socket.create_server((FEATURE_SOCKET_HOST, port))
+    except OSError as exc:
+        print(
+            f"  [row-stream] bind {FEATURE_SOCKET_HOST}:{port} failed "
+            f"({exc}) -- falling back to file tail"
+        )
+        yield from _tail(live_path, poll_sec)
+        return
+
+    q: queue.Queue[str] = queue.Queue()
+    connected = threading.Event()  # set while a TFA client is attached
+
+    def _serve() -> None:
+        while True:
+            try:
+                conn, _addr = server.accept()
+            except OSError:  # listener closed — process exiting
+                return
+            connected.set()
+            buf = b""
+            try:
+                while True:
+                    chunk = conn.recv(65536)
+                    if not chunk:  # TFA went away; it retries every 3s
+                        break
+                    buf += chunk
+                    while b"\n" in buf:
+                        raw, buf = buf.split(b"\n", 1)
+                        if raw:
+                            q.put(raw.decode("utf-8", errors="replace"))
+            except OSError:
+                pass  # hard disconnect — treat like a clean close
+            finally:
+                connected.clear()
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+
+    threading.Thread(
+        target=_serve, name=f"sea-feature-socket-{port}", daemon=True
+    ).start()
+
+    pos: int | None = None  # fallback-tail file offset
+    client_seen = False  # connect→disconnect edge detector
+    while True:
+        is_connected = connected.is_set()
+        if client_seen and not is_connected:
+            # Disconnect edge: rows that came via socket were ALSO
+            # appended to the file — jump the fallback offset past them
+            # so they are not processed twice.
+            pos = live_path.stat().st_size if live_path.exists() else 0
+        client_seen = is_connected
+
+        try:
+            yield q.get(timeout=poll_sec)
+            continue
+        except queue.Empty:
+            pass
+
+        if is_connected:
+            continue  # socket attached: never read the file
+
+        # ── file fallback (mirrors _tail) ──
+        if not live_path.exists():
+            continue
+        size = live_path.stat().st_size
+        if pos is None:
+            pos = size  # start at end — skip the backlog, like _tail
+        if size < pos:
+            pos = 0  # rotation / truncation → reread from start
+        if size > pos:
+            with open(live_path, encoding="utf-8") as f:
+                f.seek(pos)
+                while True:
+                    line = f.readline()
+                    if not line:
+                        break
+                    yield line.rstrip("\n")
+                pos = f.tell()
+
+
+def _is_stale(row: dict, max_age_sec: float, now: float | None = None) -> bool:
+    """T70 staleness guard: True when ``row``'s tick ``timestamp`` is more
+    than ``max_age_sec`` seconds behind ``now`` (wall-clock by default).
+
+    A stale backlog (file replay after a restart, reconnect floods) must
+    never fire live signals — the tick the signal describes is long gone.
+    Rows without a usable numeric ``timestamp`` count as stale: an
+    unstampable row cannot prove it is fresh, and TFA always stamps live
+    rows. ``max_age_sec <= 0`` disables the guard (every row passes).
+
+    NOTE: backtest.py replays historical rows whose timestamps are
+    hours/days old — run SEA with ``--max-row-age 0`` for backtests, or
+    this guard will skip every replayed row.
+    """
+    if max_age_sec <= 0:
+        return False
+    if now is None:
+        now = time.time()
+    try:
+        ts = float(row.get("timestamp") or 0)
+    except (TypeError, ValueError):
+        ts = 0.0
+    return (now - ts) > max_age_sec
+
+
 class _NullDashboard:
     """No-op stand-in for SignalDashboard when --no-dashboard is passed.
 
@@ -388,12 +538,31 @@ def run(
     features_root: Path = Path("data/features"),
     config_dir: Path = Path("config/sea_thresholds"),
     use_dashboard: bool = True,
+    max_row_age_sec: float = 5.0,
 ) -> None:
+    """SEA main inference loop for one instrument.
+
+    Rows arrive via ``_row_stream``: the TCP feature socket pushed by
+    TFA when available (sub-second tick→signal, T70), with the ndjson
+    file tail as fallback.
+
+    ``max_row_age_sec`` (T70 staleness guard): rows whose tick
+    ``timestamp`` is older than this many seconds are skipped BEFORE
+    preprocessing/inference — a stale backlog must never fire live
+    signals. 0 disables the guard. NOTE: backtest.py replays historical
+    rows with old timestamps → run SEA with ``--max-row-age 0`` for
+    backtests, or the guard will skip every replayed row.
+    """
     live_path = features_root / f"{instrument}_live.ndjson"
+    port = feature_socket_port(instrument)
 
     print()
     print(f"  SEA -- {instrument}")
     print(f"  Tail: {live_path}")
+    if port is not None:
+        print(f"  Rows: socket {FEATURE_SOCKET_HOST}:{port} + file fallback")
+    else:
+        print("  Rows: file tail (socket disabled)")
     models = load_models(instrument)
     print(f"  Model version: {models.version}")
     print(f"  Features: {len(models.feature_names)}")
@@ -483,6 +652,7 @@ def run(
     processed = 0
     raw_signals = 0
     filtered_signals = 0
+    stale_rows = 0  # T70 staleness-guard skip counter
     started = time.time()
 
     # Cooldown for raw signal feed (existing UI behavior, both modes)
@@ -555,12 +725,23 @@ def run(
 
     dashboard.__enter__()
     try:
-        for line in _tail(live_path):
+        for line in _row_stream(live_path, port):
             if not line.strip():
                 continue
             try:
                 row = json.loads(line)
             except json.JSONDecodeError:
+                continue
+
+            # T70 staleness guard — BEFORE preprocessing/inference. Skip
+            # silently; surface one summary line every 200 skips.
+            if _is_stale(row, max_row_age_sec):
+                stale_rows += 1
+                if stale_rows % 200 == 0:
+                    print(
+                        f"  [stale] skipped {stale_rows} rows older than "
+                        f"{max_row_age_sec}s"
+                    )
                 continue
 
             vec = live_preprocessor.process(row)
@@ -907,13 +1088,34 @@ def main() -> int:
             "over SSH without a proper TTY."
         ),
     )
+    p.add_argument(
+        "--max-row-age",
+        type=float,
+        default=None,
+        help=(
+            "T70 staleness guard: skip rows whose tick timestamp is older "
+            "than this many seconds. Default: env SEA_MAX_ROW_AGE_SEC if "
+            "set, else 5.0. 0 disables. Backtests MUST pass 0 — "
+            "backtest.py replays historical rows whose timestamps look "
+            "stale to the guard."
+        ),
+    )
     args = p.parse_args()
+
+    max_row_age = args.max_row_age
+    if max_row_age is None:
+        env_age = os.environ.get("SEA_MAX_ROW_AGE_SEC", "").strip()
+        try:
+            max_row_age = float(env_age) if env_age else 5.0
+        except ValueError:
+            max_row_age = 5.0
 
     run(
         args.instrument,
         features_root=Path(args.features_root),
         config_dir=Path(args.config_dir),
         use_dashboard=not args.no_dashboard,
+        max_row_age_sec=max_row_age,
     )
     return 0
 
