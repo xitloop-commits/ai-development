@@ -13,8 +13,26 @@ Single source of truth for open project tasks. Top = highest priority. Add new i
 - **Expected:** headline val AUC drops (honest, not a regression — the leak was ~0.12 of `direction_60s` AUC); model now leans on real S/R / OI-buildup / order-flow features the leak was crowding out.
 - **Follow-ups:** (1) de-leak nifty50 the same way when nifty50 is retrained; (2) reconsider the gate's C3 (`upside_percentile ≥ 60`) — it keys off the (now lagged) value; (3) the fix lives in T70-uncommitted `replay_adapter.py` — commit together with the T70 latency work + the retrained model.
 
-### Part B — down-direction + trend-gate puts (in progress)
-Added `trend_direction_down` / `swing_direction_down` heads (84→88) so the trend gate can call puts, not just calls. Scaffold + tests committed (`538c945`); Part A dashboard-honesty fix (`a92d6f1`). Remaining: replay (regen parquets w/ `direction_down`) → retrain (89 heads*, 469 feats) → validate down head OOS → wire `decide_action_trend` to fire puts + flip `calls_only=False`. Batch candidates still open per operator: `risk_reward_ratio_pe` (scalp), `reversal` (trend+swing), `exit_signal` (trend+swing), `buildup_state` feature. (*88 heads + any batch adds.)
+### Part B — down-direction + trend-gate puts (banknifty replay done; retrain in progress 2026-07-05)
+Model **84 → 101 heads** (label-only, schema_version stays 11). Added, all with scalar+columnar parity tests: `direction_down` + `reversal` + `exit_signal` (trend+swing, +12) and `risk_reward_ratio_pe` (scalp ×5). Committed `28c995a` (bundled with T70 latency work — inseparable in shared files). Banknifty re-replayed from scratch (35 dates; leak confirmed gone, Spearman 0.99→0.011; end-to-end smoke train verified 101 heads / 0 fail). Old model pointer moved to `LATEST.bak-preretrain` to unlock the launcher Train submenu (per-date lock keyed off the old model's `trained_dates`).
+
+**After banknifty retrain — B-6/B-7 (Claude picks up on "done"):**
+- **B-6 validate:** read `metrics.json` per-head `val_auc` for the new heads; confirm de-leak (`direction_60s`/`risk_reward_ratio_60s` AUC should DROP vs old inflated); leakage re-check; decide which new heads earned wiring (`reversal` may come back weak).
+- **B-7 wire (code):** trend uses `direction_down` for puts → flip `calls_only=False`; `risk_reward_ratio_pe` → PE-leg quality gate for scalp puts; `reversal`/`exit_signal` wired only if validated. Update `decide_action_trend`/`decide_action_wave2` + tests.
+
+**SEA gate filters — decision-layer, NO retrain (do with B-7):**
+1. **Scalp-trend-alignment** — scalp only fires in the trend head's direction (kills call+put firing in one trend). Depends on `direction_down` giving a reliable both-way trend.
+2. **Cooldown + suppress-while-open** — kills the every-~30s re-emit spam during a trend (one signal per position).
+3. **`buildup_state` filter** — long/short buildup vs unwinding/covering (OI×price); don't fight fresh positioning. (Chosen as a gate filter, not a model feature — marginal model value.)
+4. **Aggressor/footprint filter** — tick-rule (Lee-Ready) executed-flow delta on the option legs; confirm/veto. Needs `ltq` passthrough (light).
+5. **Structure-based TP/SL** 🆕 — set TP/SL at real price levels (day/prev-day high-low, opening range, VWAP, OI walls — all already emitted) instead of the over-predicting `max_upside`/`max_drawdown` heads (the `magnitude_scale=0.5` hack). Start with existing emitted levels; convert underlying level → option premium via delta. Directly attacks the 2× magnitude over-prediction.
+
+### nifty50 re-replay batch 🆕 (operator starts nifty50 replay after banknifty training completes)
+When nifty50 is re-replayed + retrained, fold in ALL of:
+- **De-leak** `upside_percentile_60s` the same way (Option-B lag is already in `replay_adapter.py` — just re-replay + retrain nifty50; feature stays in `final_features`).
+- **The 4 Part B labels** are already in the code (shared) → nifty50's re-replay picks them up automatically → nifty50 retrain also produces 101 heads.
+- **Pivot-structure FEATURE (swing pivots + trend pivots, HH/HL/LH/LL)** 🆕 — detect pivots at TWO scales (swing + trend), classify each as **HH / HL / LH / LL**, and derive the market-structure state: `HH+HL = uptrend`, `LH+LL = downtrend`, and the flip (first LL after HH/HL, or first HH after LH/LL) = **break-of-structure / reversal**. Emit per-scale: current structure state + distance to the last swing/trend pivot high & low (the natural TP/SL anchors) + bars-since-last-pivot. As a MODEL INPUT (helps prediction; distinct from the SEA-side TP/SL use above, which can reuse these same pivot levels). Net-new feature → add to scalar+columnar feature builders + `final_features` + parity test BEFORE the nifty50 replay so it lands in the parquets. (Also backfill into banknifty on its next weekly replay.) Ties into the `reversal` head: pivot break-of-structure is the deterministic cousin of the learned reversal signal.
+- **Per-instrument thresholds** for nifty50 (T71 finding — lower breakout floor; nifty50 `breakout_in_60s` maxes ~0.36 vs the 0.30 gate).
 
 ### T71 [SEA/MTA] — Nifty50 vs banknifty model + gate audit (2026-07-04) 🆕
 
