@@ -391,6 +391,15 @@ export async function getOpenPositions(channel: Channel): Promise<PositionStateD
   return docs.map(docToPositionState);
 }
 
+/** Delete every position_state doc for a channel. Used by the workspace
+ *  CLEAR / reset: day_records alone left OPEN positions orphaned here, and
+ *  RCA reads position_state — so a cleared trade kept firing endless
+ *  "Trade not found" age exits. Wiping both keeps the two collections in sync. */
+export async function deleteAllPositions(channel: Channel): Promise<number> {
+  const result = await PositionStateModel.deleteMany({ channel });
+  return result.deletedCount;
+}
+
 /** PENDING positions for a channel — orders placed at the broker but not yet
  *  confirmed filled/rejected. Used by the reconciler to catch up order events
  *  missed while the order-update WS was down (getOpenPositions is OPEN-only). */

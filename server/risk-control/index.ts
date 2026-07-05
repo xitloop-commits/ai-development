@@ -620,9 +620,13 @@ class RcaMonitor {
       );
     } else {
       log.warn(`exit failed kind=${kind} trade=${trade.id}: ${resp.error}`);
-      // Allow retry next tick — transient errors shouldn't permanently
-      // block the exit.
-      this.exitAttempted.delete(trade.id);
+      // "Trade not found" / "already closed" are PERMANENT — the trade is gone
+      // from the current day record (cleared, or a cross-day orphan in
+      // position_state). Retrying every 30s just spams forever, so keep it in
+      // exitAttempted to stop. Only genuine transient errors (broker/network)
+      // get another attempt next tick.
+      const permanent = /not found|already closed/i.test(resp.error ?? "");
+      if (!permanent) this.exitAttempted.delete(trade.id);
     }
   }
 }

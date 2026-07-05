@@ -18,6 +18,7 @@ import {
   deleteAllDayRecords,
   replaceCapitalState,
 } from "./state";
+import { deleteAllPositions } from "./storage";
 import type { Channel, DayRecord } from "./state";
 import {
   injectCapital,
@@ -494,8 +495,10 @@ export const portfolioRouter = router({
 
       // Helper to reset a single workspace
       async function resetWorkspace(ws: typeof input.channel) {
-        // 1. Delete all day records
+        // 1. Delete all day records + position_state (keep the two in sync so no
+        //    OPEN position is orphaned for RCA to endlessly age-exit).
         const deleted = await deleteAllDayRecords(ws);
+        await deleteAllPositions(ws);
 
         // 2. Replace capital state with fresh initialization
         const freshState = {
@@ -577,6 +580,9 @@ export const portfolioRouter = router({
       const today = new Date().toISOString().slice(0, 10);
 
       const deleted = await deleteAllDayRecords(input.channel);
+      // Also wipe position_state — otherwise a still-OPEN position lingers here
+      // (RCA reads it) and fires endless "Trade not found" age exits after clear.
+      await deleteAllPositions(input.channel);
 
       const freshState = {
         tradingPool: Math.round(input.initialFunding * 100) / 100,
