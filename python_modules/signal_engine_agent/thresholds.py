@@ -376,6 +376,13 @@ class Wave2Thresholds:
     # for puts (no PE-side percentile head exists yet). Set false to restore the
     # legacy call-only behaviour.
     leg_aware_quality_gate: bool = True
+    # Scalp-trend alignment (Part B SEA filter, 2026-07-05). When on, a scalp
+    # signal that fights a confident 30-min trend is vetoed (COUNTER_TREND) —
+    # the scalp head flip-flops on 60s micro-moves, so only trend-aligned
+    # scalps are kept. No-op when the trend is neutral or the trend heads are
+    # absent. Applied in the engine after the scalp gate via
+    # apply_trend_alignment(). Set false to run the scalp gate unconstrained.
+    scalp_trend_align: bool = True
 
 
 def decide_action_wave2(
@@ -545,6 +552,65 @@ def _first_finite(predictions: Mapping[str, float], keys: tuple[str, ...]) -> fl
         if _is_finite(v):
             return float(v)
     return None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Scalp-trend alignment (Part B SEA filter, 2026-07-05)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def trend_bias(predictions: Mapping[str, float], dir_prob_min: float) -> str:
+    """The prevailing 30-min trend direction from the trend heads.
+
+    Returns "up" / "down" / "neutral". Neutral when neither head clears
+    `dir_prob_min` (or the heads are absent) — i.e. no trend to align to, so
+    the scalp gate should run unconstrained. Needs the Part B down head to be
+    meaningful for "down"; without it (pre-Part-B model) only "up"/"neutral"
+    are reachable, which is safe (never blocks a scalp put on a stale up head).
+    """
+    up = predictions.get("trend_direction_1800s")
+    down = predictions.get("trend_direction_down_1800s")
+    up_ok = _is_finite(up) and float(up) >= dir_prob_min
+    down_ok = _is_finite(down) and float(down) >= dir_prob_min
+    if up_ok and (not down_ok or float(up) >= float(down)):
+        return "up"
+    if down_ok:
+        return "down"
+    return "neutral"
+
+
+def apply_trend_alignment(
+    sig: SignalAction,
+    predictions: Mapping[str, float],
+    dir_prob_min: float,
+    *,
+    enabled: bool = True,
+) -> SignalAction:
+    """Suppress a SCALP signal that fights a confident 30-min trend.
+
+    The scalp gate predicts a 60s move; inside a trend it flip-flops call/put
+    on every micro-pullback (73% of 60s moves are below the noise floor). This
+    filter keeps only scalps aligned with the trend head's direction:
+      trend up   → allow calls, veto puts
+      trend down → allow puts, veto calls
+      neutral    → allow both (pure scalp, no trend to align to)
+    Returns `sig` untouched when disabled, when the signal isn't a scalp
+    entry, or when the trend is neutral. A veto returns WAIT/COUNTER_TREND.
+    """
+    if not enabled or not sig.gate_passed or sig.action not in ("LONG_CE", "LONG_PE"):
+        return sig
+    bias = trend_bias(predictions, dir_prob_min)
+    counter = (
+        (sig.action == "LONG_CE" and bias == "down")
+        or (sig.action == "LONG_PE" and bias == "up")
+    )
+    if counter:
+        return SignalAction(
+            action="WAIT", direction=sig.direction,
+            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+            gate_passed=False, gate_reasons=["COUNTER_TREND"],
+        )
+    return sig
 
 
 # ══════════════════════════════════════════════════════════════════════════════

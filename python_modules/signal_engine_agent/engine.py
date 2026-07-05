@@ -52,6 +52,7 @@ from signal_engine_agent.thresholds import (
     TrendThresholds,
     V2Thresholds,
     Wave2Thresholds,
+    apply_trend_alignment,
     decide_action,
     decide_action_trend,
     decide_action_v2,
@@ -663,8 +664,15 @@ def run(
     stale_rows = 0  # T70 staleness-guard skip counter
     started = time.time()
 
-    # Cooldown for raw signal feed (existing UI behavior, both modes)
-    COOLDOWN_SEC = 30
+    # Cooldown for raw signal feed (existing UI behavior, both modes). During a
+    # sustained trend the scalp gate returns the same action every tick; this
+    # re-emits it at most once per COOLDOWN_SEC. Part B SEA filter (2026-07-05):
+    # raise via SEA_RAW_COOLDOWN_SEC to cut mid-trend spam (scalp-trend
+    # alignment already vetoes the counter-trend flips). Default 30s (legacy).
+    try:
+        COOLDOWN_SEC = float(os.environ.get("SEA_RAW_COOLDOWN_SEC", "") or 30)
+    except ValueError:
+        COOLDOWN_SEC = 30.0
     _last_action: str = ""
     _last_emit_ts: float = 0.0
     # Per-instrument trend-cohort cooldown. Trend horizon is 30 min --
@@ -794,6 +802,14 @@ def run(
                 sig = decide_action_wave2(
                     preds, thresholds, wave2_thresholds,
                     ce_ltp=ce_ltp, pe_ltp=pe_ltp,
+                )
+                # Part B SEA filter (2026-07-05): veto scalp signals that
+                # fight a confident 30-min trend (COUNTER_TREND). No-op when
+                # the trend is neutral / heads absent / flag off.
+                sig = apply_trend_alignment(
+                    sig, preds, trend_thresholds.dir_prob_min,
+                    enabled=wave2_thresholds.scalp_trend_align
+                    and trend_thresholds.enabled,
                 )
             elif gate_mode == "wave1":
                 # Wave 1 deterministic gate: 3-condition + regime + momentum + S/R + sustained-N
