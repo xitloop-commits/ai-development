@@ -218,7 +218,7 @@ def train_multiple_instruments(
     # Confirmed-stop here triggers SIGINT in the parent, which the broadcast
     # block below propagates to every worker before re-raising.
     from model_training_agent.esc_watcher import start_esc_watcher
-    esc_stop_event, _ = start_esc_watcher(set_banner=None)
+    esc_stop_event, esc_thread = start_esc_watcher(set_banner=None)
 
     results: dict[str, dict[str, Any]] = {}
     started = time.monotonic()
@@ -267,9 +267,18 @@ def train_multiple_instruments(
         # Collect any results that landed before the broadcast.
         raise
     finally:
+        # Tear the Esc watcher down DETERMINISTICALLY: set the stop flag AND
+        # join the daemon so it cannot fire a late SIGINT after this function
+        # returns (which the CLI would misread as a restart request → the
+        # train-parallel.bat exit-75 loop would re-launch a finished run).
         if esc_stop_event is not None:
             try:
                 esc_stop_event.set()
+            except Exception:
+                pass
+        if esc_thread is not None:
+            try:
+                esc_thread.join(timeout=0.5)
             except Exception:
                 pass
         if executor is not None:

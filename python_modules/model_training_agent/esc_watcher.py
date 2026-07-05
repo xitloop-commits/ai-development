@@ -104,6 +104,12 @@ def start_esc_watcher(
                             _mc.getch()
                             continue
                         if pending and now <= pending_until:
+                            # If the caller has already torn the watcher down
+                            # (training finished), do NOT fire — a SIGINT here
+                            # would land after completion and be misread as a
+                            # restart request by the CLI's Ctrl+C handler.
+                            if stop_event.is_set():
+                                return
                             _set(stopping_text, _STOPPING_STYLE)
                             try:
                                 os.kill(os.getpid(), signal.SIGINT)

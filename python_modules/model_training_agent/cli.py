@@ -25,6 +25,14 @@ from holdout_utils import check_train_holdout_leak, resolve_holdout_dates
 
 VALID_INSTRUMENTS = ("nifty50", "banknifty", "crudeoil", "naturalgas")
 
+# Set once training has finished writing its model(s). Guards the top-level
+# Ctrl+C→restart handler: a KeyboardInterrupt that arrives AFTER a completed
+# run (e.g. a late/stray Esc-watcher SIGINT firing near the completion
+# boundary) must NOT be read as "restart", or the train-parallel.bat exit-75
+# loop would re-launch an already-finished training. Mutated by main(),
+# read by the __main__ guard.
+_STATE = {"completed": False}
+
 
 def main() -> int:
     p = argparse.ArgumentParser(
@@ -339,6 +347,9 @@ def main() -> int:
             print("  individually with: --instrument <name> --resume")
             print()
             return 1
+        # Models are written — from here a stray Esc-watcher SIGINT must not
+        # be mistaken for a restart request (see _STATE docstring).
+        _STATE["completed"] = True
         n_failed = sum(1 for r in results.values() if not r["ok"])
         return 0 if n_failed == 0 else 2
 
@@ -412,14 +423,29 @@ def main() -> int:
     print(f"   Models:     {len(result.metrics)}")
     print("  " + "=" * 56)
     print()
+    _STATE["completed"] = True
     return 0
+
+
+def _exit_code_after_interrupt() -> int:
+    """Resolve the process exit code when a KeyboardInterrupt reaches the top
+    level.
+
+    If training already finished writing its model(s) (`_STATE["completed"]`),
+    a stray/late Esc-watcher SIGINT must NOT be read as a restart request —
+    return 0 so train-parallel.bat's exit-75 loop does not re-launch an
+    already-completed run. Otherwise it's a genuine mid-run Ctrl+C: show the
+    R/X prompt so the operator can re-run with code edits.
+    """
+    if _STATE["completed"]:
+        return 0
+    from _shared.restart_prompt import prompt_restart_or_exit
+    return prompt_restart_or_exit("Training")
 
 
 if __name__ == "__main__":
     try:
-        sys.exit(main())
+        _rc = main()
     except KeyboardInterrupt:
-        # Ctrl+C: prompt restart vs exit so the user can re-run with code
-        # edits without manually relaunching the bat wrapper.
-        from _shared.restart_prompt import prompt_restart_or_exit
-        sys.exit(prompt_restart_or_exit("Training"))
+        _rc = _exit_code_after_interrupt()
+    sys.exit(_rc)
