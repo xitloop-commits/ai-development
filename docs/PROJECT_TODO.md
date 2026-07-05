@@ -21,11 +21,13 @@ Model **84 → 101 heads** (label-only, schema_version stays 11). Added, all wit
 - **B-7 wire (code):** trend uses `direction_down` for puts → flip `calls_only=False`; `risk_reward_ratio_pe` → PE-leg quality gate for scalp puts; `reversal`/`exit_signal` wired only if validated. Update `decide_action_trend`/`decide_action_wave2` + tests.
 
 **SEA gate filters — decision-layer, NO retrain (do with B-7):**
-1. **Scalp-trend-alignment** — scalp only fires in the trend head's direction (kills call+put firing in one trend). Depends on `direction_down` giving a reliable both-way trend.
-2. **Cooldown + suppress-while-open** — kills the every-~30s re-emit spam during a trend (one signal per position).
-3. **`buildup_state` filter** — long/short buildup vs unwinding/covering (OI×price); don't fight fresh positioning. (Chosen as a gate filter, not a model feature — marginal model value.)
-4. **Aggressor/footprint filter** — tick-rule (Lee-Ready) executed-flow delta on the option legs; confirm/veto. Needs `ltq` passthrough (light).
-5. **Structure-based TP/SL** 🆕 — set TP/SL at real price levels (day/prev-day high-low, opening range, VWAP, OI walls — all already emitted) instead of the over-predicting `max_upside`/`max_drawdown` heads (the `magnitude_scale=0.5` hack). Start with existing emitted levels; convert underlying level → option premium via delta. Directly attacks the 2× magnitude over-prediction.
+1. **Scalp-trend-alignment** ✅ SHIPPED (`scalp_trend_align`, ON banknifty) — scalp only fires in the trend head's direction; vetoes counter-trend (`COUNTER_TREND`). `apply_trend_alignment` in thresholds.py.
+2. **Cooldown + suppress-while-open** — cooldown SHIPPED (`SEA_RAW_COOLDOWN_SEC`); suppress-while-open still pending (needs position state).
+3. **`buildup_state` filter** ✅ SHIPPED (main `15f0800`, flag `buildup_filter`, OFF) — per-leg **OI change × that leg's ATM premium momentum** (premium direction resolves the write-vs-buy ambiguity that OI-vs-underlying-price can't). Only OI-INCREASING states vote; vetoes counter-buildup scalp (`COUNTER_BUILDUP`). `apply_buildup_filter`. Enable per-instrument via `"buildup_filter": true`.
+4. **Aggressor/footprint filter** — tick-rule (Lee-Ready) executed-flow delta on the option legs; confirm/veto. Needs `ltq` passthrough (light). STILL PENDING — the one remaining higher-value candidate; prototype SEA-side, then consider as a model feature on next replay.
+5. **Structure-based TP/SL** ✅ SHIPPED (main `e04b1d1`, flag `structure_tp_sl`, OFF) — clip/blend: caps TP at the nearest favourable wall, widens SL just beyond the nearest adverse wall (validated pivot levels + OI walls), underlying→premium via leg delta; falls back to model TP/SL when RR < `structure_min_rr`. `_apply_structure_tp_sl` + `StructureContext`. Enable via `"structure_tp_sl": true`.
+
+**Operator to activate all of the above:** restart SEA (loads new pivot+de-leak+Part B models — `LATEST` already points to them → both-direction signals + trend-alignment). Then flip `structure_tp_sl` / `buildup_filter` one at a time in `config/sea_thresholds/<inst>.json` and A/B.
 
 ### nifty50 re-replay batch 🆕 (operator starts nifty50 replay after banknifty training completes)
 When nifty50 is re-replayed + retrained, fold in ALL of:
