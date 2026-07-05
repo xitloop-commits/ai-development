@@ -7,7 +7,11 @@
     "persists_60s_min": 0.0,
     "persists_300s_min": 0.0,
     "exit_signal_60s_max": 1.0,
-    "breakout_in_60s_min": 0.30
+    "breakout_in_60s_min": 0.30,
+    "structure_tp_sl": false,
+    "structure_sl_buffer_pct": 0.05,
+    "structure_sl_widen_cap": 1.5,
+    "structure_min_rr": 0.8
   },
   "trend": {
     "enabled": true,

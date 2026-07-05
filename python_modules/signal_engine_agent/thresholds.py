@@ -383,6 +383,102 @@ class Wave2Thresholds:
     # absent. Applied in the engine after the scalp gate via
     # apply_trend_alignment(). Set false to run the scalp gate unconstrained.
     scalp_trend_align: bool = True
+    # Structure-aware TP/SL (Part B SEA rule, 2026-07-06). When on, the model
+    # TP/SL (magnitude) is clipped/blended toward real S/R structure (the
+    # validated pivot levels + OI walls): TP is CAPPED so it never targets
+    # beyond the nearest wall in the trade's favour, and SL is WIDENED (bounded)
+    # to sit just beyond the nearest adverse wall so a wick doesn't stop us
+    # early. Underlying levels → option premium via the leg delta. No-op when
+    # off, when structure/delta inputs are missing, or when the result would be
+    # nonsense (RR < structure_min_rr → falls back to the model TP/SL).
+    structure_tp_sl: bool = False
+    # Buffer placed just beyond the adverse wall for the SL, as a % of spot
+    # (converted to premium via |delta|). Keeps the stop off the exact level.
+    structure_sl_buffer_pct: float = 0.05
+    # Cap on how far structure may WIDEN the SL, as a multiple of the model SL
+    # distance. Stops a far wall from creating an absurd stop.
+    structure_sl_widen_cap: float = 1.5
+    # If the structure-adjusted RR drops below this, discard the structure
+    # adjustment and keep the model TP/SL (the wall is too close to be useful).
+    structure_min_rr: float = 0.8
+
+
+@dataclass(frozen=True)
+class StructureContext:
+    """Real S/R structure for structure-aware TP/SL (Wave2Thresholds.structure_tp_sl).
+
+    The engine resolves the nearest resistance (above spot) and support (below
+    spot) in UNDERLYING price from the live feature row — the validated pivot
+    levels + OI walls — and supplies the per-leg deltas so an underlying level
+    can be converted to an option-premium target. All fields may be None/NaN;
+    the helper degrades to the model TP/SL when so.
+    """
+
+    spot: float
+    ce_delta: float
+    pe_delta: float
+    nearest_resistance: float | None  # underlying price strictly above spot
+    nearest_support: float | None     # underlying price strictly below spot
+
+
+def _apply_structure_tp_sl(
+    *,
+    is_call: bool,
+    entry: float,
+    delta: float,
+    spot: float,
+    nearest_resistance: float | None,
+    nearest_support: float | None,
+    model_tp: float,
+    model_sl: float,
+    cfg: Wave2Thresholds,
+) -> tuple[float, float]:
+    """Clip/blend the model TP/SL toward real structure. Pure; never raises.
+
+    The model gives the magnitude (how far a move is realistic); structure
+    gives the walls (where price actually stalls). The favourable wall (the one
+    the trade profits INTO) caps the TP; the adverse wall widens the SL so a
+    wick doesn't stop us early. For a CALL the favourable wall is resistance
+    above and the adverse wall is support below; for a PUT (delta<0, premium
+    rises as spot FALLS) it's the mirror. Premium at a level L is
+    ``entry + delta * (L - spot)`` for both legs. Returns the model values
+    unchanged if inputs are unusable or the adjusted RR < cfg.structure_min_rr.
+    """
+    if not (math.isfinite(delta) and delta != 0.0 and math.isfinite(spot) and spot > 0):
+        return model_tp, model_sl
+
+    tp_level = nearest_resistance if is_call else nearest_support
+    sl_level = nearest_support if is_call else nearest_resistance
+
+    tp = model_tp
+    sl = model_sl
+
+    # TP: cap at the favourable wall (never target beyond it). Only when the
+    # wall maps to a premium above entry (correct positive-R direction).
+    if tp_level is not None and math.isfinite(tp_level):
+        tp_wall = entry + delta * (tp_level - spot)
+        if tp_wall > entry:
+            tp = min(model_tp, tp_wall)
+
+    # SL: widen toward "just beyond" the adverse wall, bounded by widen_cap so a
+    # far wall can't create an absurd stop. Never TIGHTEN (that would add
+    # premature stops).
+    if sl_level is not None and math.isfinite(sl_level):
+        buffer_prem = abs(delta) * (cfg.structure_sl_buffer_pct / 100.0) * spot
+        sl_target = entry + delta * (sl_level - spot) - buffer_prem
+        model_sl_dist = entry - model_sl
+        if sl_target < entry and model_sl_dist > 0:
+            max_sl = entry - cfg.structure_sl_widen_cap * model_sl_dist
+            sl_candidate = max(sl_target, max_sl)   # cap the widening
+            sl = min(model_sl, sl_candidate)         # only widen, never tighten
+
+    # Guardrail: a too-close wall can crush RR — discard structure then.
+    sl_dist = entry - sl
+    tp_dist = tp - entry
+    if sl_dist <= 0 or tp_dist <= 0 or (tp_dist / sl_dist) < cfg.structure_min_rr:
+        return model_tp, model_sl
+
+    return tp, sl
 
 
 def decide_action_wave2(
@@ -391,6 +487,7 @@ def decide_action_wave2(
     wave2_thresholds: Wave2Thresholds = Wave2Thresholds(),
     ce_ltp: float | None = None,
     pe_ltp: float | None = None,
+    structure: "StructureContext | None" = None,
 ) -> SignalAction:
     """Wave 2 model-driven gate.
 
@@ -531,7 +628,28 @@ def decide_action_wave2(
     entry = leg_ltp_f
     tp = leg_ltp_f + tp_dist
     sl = leg_ltp_f - sl_dist
-    actual_rr = round(tp_dist / sl_dist, 2) if sl_dist > 0 else 0.0
+
+    # Structure-aware TP/SL (2026-07-06): clip TP to the nearest favourable
+    # wall and widen SL just beyond the nearest adverse wall. Behind a flag;
+    # no-op when off or when the structure context is absent.
+    if wave2_thresholds.structure_tp_sl and structure is not None:
+        leg_delta = structure.ce_delta if is_call else structure.pe_delta
+        tp, sl = _apply_structure_tp_sl(
+            is_call=is_call,
+            entry=entry,
+            delta=leg_delta,
+            spot=structure.spot,
+            nearest_resistance=structure.nearest_resistance,
+            nearest_support=structure.nearest_support,
+            model_tp=tp,
+            model_sl=sl,
+            cfg=wave2_thresholds,
+        )
+
+    # RR reflects the FINAL (possibly structure-adjusted) levels.
+    final_sl_dist = entry - sl
+    final_tp_dist = tp - entry
+    actual_rr = round(final_tp_dist / final_sl_dist, 2) if final_sl_dist > 0 else 0.0
 
     return SignalAction(
         action=action,

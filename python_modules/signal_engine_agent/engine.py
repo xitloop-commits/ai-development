@@ -48,6 +48,7 @@ from signal_engine_agent.signal_logger import SignalLogger
 from signal_engine_agent.sustain import SustainFilter
 from signal_engine_agent.thresholds import (
     SignalAction,
+    StructureContext,
     Thresholds,
     TrendThresholds,
     V2Thresholds,
@@ -60,6 +61,49 @@ from signal_engine_agent.thresholds import (
     load_thresholds_full,
     load_thresholds_trend,
 )
+
+
+def _build_structure_context(row: dict) -> StructureContext | None:
+    """Resolve nearest S/R structure from the live feature row for
+    structure-aware TP/SL. Uses the validated pivot levels (spot-denominator:
+    level = spot·(1 − pct/100)) plus the absolute OI-wall strikes, bucketed
+    into resistance (> spot) and support (< spot). Returns None if spot is
+    unusable; deltas may be NaN (the helper degrades gracefully)."""
+    try:
+        spot = float(row.get("underlying_ltp"))
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(spot) or spot <= 0:
+        return None
+
+    def _f(key: str) -> float:
+        try:
+            return float(row.get(key))
+        except (TypeError, ValueError):
+            return float("nan")
+
+    levels: list[float] = []
+    for key in (
+        "pivot_swing_dist_high_pct", "pivot_swing_dist_low_pct",
+        "pivot_trend_dist_high_pct", "pivot_trend_dist_low_pct",
+    ):
+        pct = _f(key)
+        if math.isfinite(pct):
+            levels.append(spot * (1.0 - pct / 100.0))
+    for key in ("max_call_oi_strike", "max_put_oi_strike"):
+        v = _f(key)
+        if math.isfinite(v) and v > 0:
+            levels.append(v)
+
+    resistances = [lv for lv in levels if lv > spot]
+    supports = [lv for lv in levels if lv < spot]
+    return StructureContext(
+        spot=spot,
+        ce_delta=_f("atm_ce_delta"),
+        pe_delta=_f("atm_pe_delta"),
+        nearest_resistance=min(resistances) if resistances else None,
+        nearest_support=max(supports) if supports else None,
+    )
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -799,9 +843,15 @@ def run(
                 # Wave 2 model-driven gate: base 3-cond + direction_persists +
                 # exit_signal + per-leg PE targets. Model handles persistence
                 # so no sustained-tick filter needed.
+                # Structure-aware TP/SL: build the S/R context only when the
+                # flag is on (zero overhead otherwise).
+                structure = (
+                    _build_structure_context(row)
+                    if wave2_thresholds.structure_tp_sl else None
+                )
                 sig = decide_action_wave2(
                     preds, thresholds, wave2_thresholds,
-                    ce_ltp=ce_ltp, pe_ltp=pe_ltp,
+                    ce_ltp=ce_ltp, pe_ltp=pe_ltp, structure=structure,
                 )
                 # Part B SEA filter (2026-07-05): veto scalp signals that
                 # fight a confident 30-min trend (COUNTER_TREND). No-op when
