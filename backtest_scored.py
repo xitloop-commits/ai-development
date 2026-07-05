@@ -34,6 +34,7 @@ import numpy as np
 import pyarrow.parquet as pq
 
 from model_training_agent.preprocessor import preprocess_live_tick
+from signal_engine_agent.engine import _build_structure_context
 from signal_engine_agent.model_loader import LoadedModels, load_models
 from signal_engine_agent.thresholds import (
     Wave2Thresholds,
@@ -269,9 +270,13 @@ def run_scored_backtest(
                 "max_upside_pe_300s": up_pe_300,
                 "max_drawdown_pe_300s": dn_pe_300,
             }
+            structure = (
+                _build_structure_context(row)
+                if wave2_thresholds.structure_tp_sl else None
+            )
             sig = decide_action_wave2(
                 preds, thresholds, wave2_thresholds,
-                ce_ltp=ce_ltp, pe_ltp=pe_ltp,
+                ce_ltp=ce_ltp, pe_ltp=pe_ltp, structure=structure,
             )
             action = sig.action
             result = {

@@ -2,6 +2,16 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
+## ⚑ Backtest verdict (2026-07-06) — see [BACKTEST_FINDINGS_2026-07-06.md](BACKTEST_FINDINGS_2026-07-06.md)
+
+OOS backtest of the retrained models (8 days). **Direction is validated (62–72%, both ways),
+but no option-BUYING config monetizes it generalizably** — the best banknifty config
+(pullback + trend-align + daily-stop, +₹312k, 7/8 days) **LOST on nifty50 (−₹307k, 0/8)** =
+overfit to one instrument's 8 days. **Nothing is deploy-ready.** Fixed 3 real bugs along the
+way (gate MISSING_PREDICTION `9b34c63`, sim-pnl cols `b271bc1`, backtest 0-puts `351f890`).
+Next honest step = **forward paper-test at tiny size** + gather many more OOS days; cross-
+instrument agreement is now a hard gate on any backtest claim.
+
 ## P0 — active (2026-07-04 weekend batch)
 
 ### LEAK — `upside_percentile_60s` is a look-ahead feature (FIXED for banknifty, nifty50 pending)
