@@ -98,11 +98,11 @@ class TestColumnNames:
         # Wave 2: +5 target types per window × 2 default windows = +10 → 402.
         # Phase 2 (Schema-22/23): +69 trend/swing L1 (23 B-block + 46 C-block) → 495.
         # T37 (Schema v9, 2026-06-13): +26 ATM-only depth (2 sides × 13 keys) → 524.
-        # Part B (2026-07-02): +4 trend/swing direction_down target cols → 538.
-        assert len(COLUMN_NAMES) == 538
+        # Part B (2026-07-02): +4 trend/swing direction_down target cols → 550.
+        assert len(COLUMN_NAMES) == 550
 
     def test_no_duplicates(self):
-        assert len(set(COLUMN_NAMES)) == 538
+        assert len(set(COLUMN_NAMES)) == 550
 
     def test_first_column_is_timestamp(self):
         assert COLUMN_NAMES[0] == "timestamp"
@@ -242,32 +242,33 @@ class TestDynamicColumnCount:
     appends 69 trend/swing L1 features, lifting the totals to 495 / 519.
     T37 (Schema v9, 2026-06-13) appends 26 ATM-only depth columns,
     lifting to 524 / 548. Part B (2026-07-02) adds 4 direction_down target
-    columns → 538 / 564."""
+    columns → 550 / 576."""
 
     def test_count_is_528_for_2window_profile(self):
         # Wave 1 +22 cols, Wave 2 +10 (5 target types × 2 windows),
         # Phase 2 +69 trend/swing L1, T37 +26 ATM depth,
-        # Part B +4 trend/swing direction_down
-        # → 380 + 22 + 10 + 69 + 26 + 4 = 538.
+        # Part B +4 trend/swing direction_down, v12 +12 pivot structure
+        # → 380 + 22 + 10 + 69 + 26 + 4 + 12 = 550.
         cols = column_names_for((30, 60))
-        assert len(cols) == 538
-        assert len(set(cols)) == 538, "duplicate column names in 2-window profile"
+        assert len(cols) == 550
+        assert len(set(cols)) == 550, "duplicate column names in 2-window profile"
 
     def test_count_is_552_for_4window_profile(self):
         """Canonical Phase D4 layout + Wave 1 (22) + Wave 2 (4×5=20)
-        + Phase 2 (69) + T37 ATM depth (26) + Part B direction_down (4) = 564."""
+        + Phase 2 (69) + T37 ATM depth (26) + Part B direction_down (4)
+        + v12 pivot structure (12) = 576."""
         cols = column_names_for((30, 60, 300, 900))
-        assert len(cols) == 564
-        assert len(set(cols)) == 564, "duplicate column names in 4-window profile"
+        assert len(cols) == 576
+        assert len(set(cols)) == 576, "duplicate column names in 4-window profile"
 
     @pytest.mark.parametrize(
         "windows,expected_count",
         [
-            ((30,), 525),       # single-window: 475 + 12×1 + 1 + 28 = 525
-            ((30, 60), 538),    # 2-window legacy MVP: 475 + 24 + 1 + 28 = 538
-            ((30, 60, 300), 551),         # 3-window: 475 + 36 + 1 + 28 = 551
-            ((30, 60, 300, 900), 564),    # canonical D4: 475 + 48 + 1 + 28 = 564
-            ((30, 60, 120, 300, 900), 577),  # 5-window: 475 + 60 + 1 + 28 = 577
+            ((30,), 537),       # single-window: 475 + 12×1 + 1 + 28 = 537
+            ((30, 60), 550),    # 2-window legacy MVP: 475 + 24 + 1 + 28 = 550
+            ((30, 60, 300), 563),         # 3-window: 475 + 36 + 1 + 28 = 563
+            ((30, 60, 300, 900), 576),    # canonical D4: 475 + 48 + 1 + 28 = 576
+            ((30, 60, 120, 300, 900), 589),  # 5-window: 475 + 60 + 1 + 28 = 589
         ],
     )
     def test_count_formula(self, windows, expected_count):
@@ -281,7 +282,7 @@ class TestDynamicColumnCount:
     def test_legacy_module_global_is_2window_default(self):
         """`COLUMN_NAMES` exists as backward-compat for pre-E8 callers
         and resolves to the 2-window default."""
-        assert len(COLUMN_NAMES) == 538
+        assert len(COLUMN_NAMES) == 550
         assert COLUMN_NAMES == column_names_for((30, 60))
 
     def test_4window_includes_300s_and_900s_target_cols(self):
@@ -429,7 +430,7 @@ class TestAssembleFlatVector:
 
     def test_key_count_is_528(self):
         row = _build()
-        assert len(row) == 538
+        assert len(row) == 550
 
     def test_key_order_matches_column_names(self):
         row = _build()
@@ -755,7 +756,7 @@ class TestSerializeRow:
         row = _build()
         line = serialize_row(row)
         parsed = json.loads(line)
-        assert len(parsed) == 538
+        assert len(parsed) == 550
 
     def test_allow_nan_false_satisfied(self):
         """NaN converted to null → json.loads should not raise."""
@@ -783,7 +784,7 @@ class TestEmitterFileSink:
         lines = Path(out_file).read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 1
         parsed = json.loads(lines[0])
-        assert len(parsed) == 538
+        assert len(parsed) == 550
 
     def test_emit_multiple_rows(self, tmp_path):
         out_file = str(tmp_path / "test_multi.ndjson")
@@ -1049,7 +1050,7 @@ class TestSchemaRegistry:
         payload = json.loads(out_file.read_text(encoding="utf-8"))
         assert payload["schema_version"] == LATEST_SCHEMA_VERSION
         assert payload["feature_count"] == len(payload["columns"])
-        assert payload["feature_count"] == 564  # 4-window canonical (+4 Part B)
+        assert payload["feature_count"] == 576  # 4-window canonical (+4 Part B)
         assert payload["columns"][0] == "timestamp"
         assert "india_vix" in payload["columns"]
         assert "days_to_expiry_bucket" in payload["columns"]
@@ -1121,7 +1122,7 @@ class TestSchemaRegistry:
         payload = json.loads(latest.read_text(encoding="utf-8"))
         assert payload["schema_version"] == LATEST_SCHEMA_VERSION
         assert payload["feature_count"] == len(payload["columns"])
-        assert payload["feature_count"] == 564, (
+        assert payload["feature_count"] == 576, (
             "real-repo schema registry must reflect canonical 4-window profile"
         )
         assert payload["columns"][0] == "timestamp"
@@ -1213,7 +1214,7 @@ class TestEmitterSocketSink:
             assert raw.endswith(b"\n")
             parsed = json.loads(raw.decode("utf-8"))
             assert parsed["timestamp"] == pytest.approx(42.0)
-            assert len(parsed) == 538
+            assert len(parsed) == 550
         finally:
             if conn is not None:
                 conn.close()

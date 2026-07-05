@@ -132,7 +132,11 @@ _NAN = float("nan")
 #   (direction_120s/180s/240s + persists/breakout/exit/upside/drawdown
 #   per window). Net +12 columns to 560. MVP_TARGETS already targets
 #   the new windows; v10.json was structurally inconsistent until now.
-LATEST_SCHEMA_VERSION: int = 11
+# v12 (2026-07-05 — pivot structure): added 12 intraday market-structure
+#   FEATURE columns from the stateful PivotStructureTracker — swing + trend
+#   fractal pivots, each emitting dist_high/low_pct, structure (+1/0/-1),
+#   high_is_hh, low_is_hl, bars_since. Pure additive; prior columns unchanged.
+LATEST_SCHEMA_VERSION: int = 12
 
 _log = logging.getLogger("tick_feature_agent.emitter")
 
@@ -565,6 +569,19 @@ assert len(_TREND_SWING_TARGET_COLUMNS) == 36, (
     f"got {len(_TREND_SWING_TARGET_COLUMNS)}"
 )
 
+# Intraday market-structure pivots (swing + trend). These are model FEATURES
+# (not labels), sourced from the stateful PivotStructureTracker. Additive →
+# LATEST_SCHEMA_VERSION bumped 11 → 12.
+from tick_feature_agent.features.pivot_structure import (  # noqa: E402
+    pivot_structure_column_names as _pivot_structure_column_names,
+)
+
+_PIVOT_STRUCTURE_KEYS: tuple[str, ...] = _pivot_structure_column_names()
+assert len(_PIVOT_STRUCTURE_KEYS) == 12, (
+    f"_PIVOT_STRUCTURE_KEYS expected 12 (6 per scale × swing/trend), "
+    f"got {len(_PIVOT_STRUCTURE_KEYS)}"
+)
+
 # ── Target column generation ──────────────────────────────────────────────────
 
 
@@ -736,6 +753,10 @@ def _build_column_names(
     # ATM premium-acceleration drop per leg + strike-migration counter.
     cols.extend(_T14F_KEYS)
 
+    # Intraday market-structure pivots (Schema v12, 2026-07-05): 12 features —
+    # swing + trend fractal pivots (HH/HL/LH/LL structure + S/R distances).
+    cols.extend(_PIVOT_STRUCTURE_KEYS)
+
     return tuple(cols)
 
 
@@ -814,6 +835,9 @@ def assemble_flat_vector(
     # persistence. 3 keys: premium_acceleration_drop_atm_ce,
     # premium_acceleration_drop_atm_pe, strike_migration_persistence_ticks.
     t14_feats: dict | None = None,
+    # ── Intraday market-structure pivots (v12): 12 swing/trend pivot features.
+    # Dict from PivotStructureTracker.update(); None → all 12 emit NaN/neutral.
+    pivot_feats: dict | None = None,
     # ── Phase 3 trend + swing target labels (v8 schema) ─────────────────────
     # Replay backfills these from end-of-day raw data; live emits NaN per
     # the Option B decision (2026-05-18). Pass None to emit NaN for all 24
@@ -1078,6 +1102,11 @@ def assemble_flat_vector(
     _t14 = t14_feats or {}
     for k in _T14F_KEYS:
         row[k] = _t14.get(k, _NAN)
+
+    # ── Intraday market-structure pivots (v12): swing + trend ───────────────
+    _pivot = pivot_feats or {}
+    for k in _PIVOT_STRUCTURE_KEYS:
+        row[k] = _pivot.get(k, _NAN)
 
     return row
 

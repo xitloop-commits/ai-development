@@ -61,6 +61,7 @@ from tick_feature_agent.features.levels import compute_level_features
 from tick_feature_agent.features.meta import compute_meta_features
 from tick_feature_agent.features.ofi import compute_ofi_features
 from tick_feature_agent.features.option_tick import compute_option_tick_features
+from tick_feature_agent.features.pivot_structure import PivotStructureTracker
 from tick_feature_agent.features.realized_vol import compute_realized_vol_features
 from tick_feature_agent.features.multi_tf import compute_multi_tf_features
 from tick_feature_agent.features.premium_acceleration import PremiumAccelerationState
@@ -152,6 +153,10 @@ class TickProcessor:
         self._compression = CompressionState()
         self._time_to_move = TimeToMoveState()
         self._decay = DecayState()
+        # Intraday market-structure pivots (swing + trend). Fed one spot per
+        # underlying tick; the replay path feeds the identical stream, so the
+        # two paths agree by construction (no columnar port needed).
+        self._pivot = PivotStructureTracker()
 
         # Phase 2d: shared trend/swing feature pipeline state. Owns the
         # history buffers + 6 stateful trackers + event calendar + cross-day
@@ -642,6 +647,7 @@ class TickProcessor:
         ofi = compute_ofi_features(self._tick_buf)
         rv = compute_realized_vol_features(self._tick_buf)
         hf = compute_horizon_features(uf, ofi, rv)
+        pivot_f = self._pivot.update(ltp)
 
         # ATM context (partial refresh if spot moved)
         cache.refresh_atm_zone(ltp)
@@ -906,6 +912,8 @@ class TickProcessor:
             event_calendar_feats=pipeline["event_calendar_feats"],
             # T14 (scope F)
             t14_feats=t14_feats,
+            # Intraday market-structure pivots (swing + trend)
+            pivot_feats=pivot_f,
         )
 
         # ── Attach ATM option security IDs (non-feature metadata) ───────────

@@ -253,10 +253,11 @@ class TestTickProcessorOutput:
         table = pq.read_table(path)
         # 2-window default profile: 402 legacy + 69 Phase 2 trend/swing
         # + 26 T37 ATM depth + Part B (direction_down + reversal + exit_signal
-        # trend/swing = +8, risk_reward_ratio_pe scalp = +2) = 538. +2 for
-        # atm_ce_security_id / atm_pe_security_id which the tick processor
-        # appends to the row but aren't in COLUMN_NAMES = 540.
-        assert len(table.schema.names) == 540
+        # trend/swing = +8, risk_reward_ratio_pe scalp = +2) = 538,
+        # + v12 pivot structure (12) = 550. +2 for atm_ce_security_id /
+        # atm_pe_security_id which the tick processor appends to the row but
+        # aren't in COLUMN_NAMES = 552.
+        assert len(table.schema.names) == 552
 
     def test_parquet_column_names_match_spec(self, tmp_path):
         import pyarrow.parquet as pq

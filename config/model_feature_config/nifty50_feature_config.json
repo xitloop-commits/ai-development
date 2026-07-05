@@ -469,6 +469,18 @@
     "days_to_expiry_bucket",
     "premium_acceleration_drop_atm_ce",
     "premium_acceleration_drop_atm_pe",
-    "strike_migration_persistence_ticks"
+    "strike_migration_persistence_ticks",
+    "pivot_swing_dist_high_pct",
+    "pivot_swing_dist_low_pct",
+    "pivot_swing_structure",
+    "pivot_swing_high_is_hh",
+    "pivot_swing_low_is_hl",
+    "pivot_swing_bars_since",
+    "pivot_trend_dist_high_pct",
+    "pivot_trend_dist_low_pct",
+    "pivot_trend_structure",
+    "pivot_trend_high_is_hh",
+    "pivot_trend_low_is_hl",
+    "pivot_trend_bars_since"
   ]
 }

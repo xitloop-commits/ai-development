@@ -419,8 +419,8 @@ class TestReplayAdapterWithChain:
         adapter.emitter.write_parquet(path)
         table = pq.read_table(path)
         # 2-window default profile: 402 legacy + 69 Phase 2 trend/swing + 26 T37 ATM depth
-        # + 12 Part B trend/swing labels = 538.
-        assert len(table.schema.names) == 538
+        # + 12 Part B trend/swing labels = 538, + v12 pivot structure (12) = 550.
+        assert len(table.schema.names) == 550
 
     def test_parquet_column_names_match_spec(self, tmp_path):
         import pyarrow.parquet as pq

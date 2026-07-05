@@ -14,6 +14,7 @@ Run: python -m pytest python_modules/tick_feature_agent/tests/test_rollover_reso
 
 from __future__ import annotations
 
+import datetime as _dt
 import sys
 import types
 from pathlib import Path
@@ -27,6 +28,25 @@ if str(_PKG) not in sys.path:
 import pytest
 
 from tick_feature_agent import main as tfa_main
+
+
+# ── Frozen clock ──────────────────────────────────────────────────────────
+# Every expiry date below was written to be "future" relative to a fixed
+# 2026-05-01 test day. The resolver reads the *real* system date
+# (`from datetime import date as _date; _date.today()`), so without pinning
+# it these tests rot once the hard-coded expiries pass. Pin the clock so the
+# suite stays deterministic and asserts the intended rollover behaviour
+# rather than accidentally exercising the fallback path.
+class _FixedDate(_dt.date):
+    @classmethod
+    def today(cls):
+        return cls(2026, 5, 1)
+
+
+@pytest.fixture(autouse=True)
+def _freeze_today():
+    with patch("datetime.date", _FixedDate):
+        yield
 
 # ── Profile stubs ─────────────────────────────────────────────────────────
 

@@ -671,13 +671,18 @@ class TestDhanFeedDispatch:
         _run(feed._handle_message(b"\x00" * 12))
         assert tracker.vix_calls == []  # callback was None
 
-    def test_subscribe_vix_adds_to_subscription_registry(self):
-        """Subscription survives reconnects — verify the entry exists in
-        _subscriptions so the resubscribe-on-reconnect path covers VIX."""
+    def test_subscribe_vix_stored_in_dedicated_ticker_slot(self):
+        """Phase 2d-01: VIX must NOT live in the shared _subscriptions dict —
+        that batch is replayed FULL-mode on reconnect, which silently breaks
+        IDX_I. Instead it lives in its own _vix_entry slot in TICKER mode, sent
+        separately at subscribe and on reconnect. Verify that split so the
+        resubscribe-on-reconnect path still covers VIX correctly."""
         feed, _ = _make_feed()
-        feed.subscribe_vix("264969")
-        # Key format: "<segment>:<sec_id>"
-        assert "IDX_I:264969" in feed._subscriptions
-        entry = feed._subscriptions["IDX_I:264969"]
-        assert entry["exchange"] == "IDX_I"
-        assert entry["security_id"] == "264969"
+        feed.subscribe_vix("21")
+        # Dedicated slot, TICKER mode — NOT in the FULL-mode reconnect batch.
+        assert feed._vix_entry is not None
+        assert feed._vix_entry["exchange"] == "IDX_I"
+        assert feed._vix_entry["security_id"] == "21"
+        assert feed._vix_entry["mode"] == "ticker"
+        assert "IDX_I:21" not in feed._subscriptions
+        assert feed._vix_security_id == "21"
