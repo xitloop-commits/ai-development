@@ -60,6 +60,12 @@ export class MockAdapter implements BrokerAdapter {
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private tickCallback: TickCallback | null = null;
   private subscribedInstruments = new Map<string, SubscribeParams>();
+  // Ref-count per instrument key so a contract subscribed by several independent
+  // subscribers (e.g. an open trade AND the client's ATM strike window) is only
+  // dropped once ALL of them unsubscribe — mirrors the live Dhan
+  // SubscriptionManager. Without this the strike window's unsubscribe deleted an
+  // open trade's still-needed contract and its LTP froze.
+  private subCounts = new Map<string, number>();
 
   constructor(
     brokerId = "mock",
@@ -440,7 +446,12 @@ export class MockAdapter implements BrokerAdapter {
   subscribeLTP(instruments: SubscribeParams[], callback: TickCallback): void {
     this.tickCallback = callback;
     for (const inst of instruments) {
-      this.subscribedInstruments.set(`${inst.exchange}:${inst.securityId}`, inst);
+      const key = `${inst.exchange}:${inst.securityId}`;
+      this.subCounts.set(key, (this.subCounts.get(key) ?? 0) + 1);
+      // Only record the instrument on the FIRST subscribe for this key.
+      if (!this.subscribedInstruments.has(key)) {
+        this.subscribedInstruments.set(key, inst);
+      }
     }
     if (!this.tickTimer && this.subscribedInstruments.size > 0) {
       this.startTickSimulation();
@@ -450,7 +461,15 @@ export class MockAdapter implements BrokerAdapter {
 
   unsubscribeLTP(instruments: SubscribeParams[]): void {
     for (const inst of instruments) {
-      this.subscribedInstruments.delete(`${inst.exchange}:${inst.securityId}`);
+      const key = `${inst.exchange}:${inst.securityId}`;
+      const next = (this.subCounts.get(key) ?? 0) - 1;
+      // Only stop ticking a key once its LAST subscriber leaves.
+      if (next > 0) {
+        this.subCounts.set(key, next);
+      } else {
+        this.subCounts.delete(key);
+        this.subscribedInstruments.delete(key);
+      }
     }
     if (this.subscribedInstruments.size === 0 && this.tickTimer) {
       clearInterval(this.tickTimer);

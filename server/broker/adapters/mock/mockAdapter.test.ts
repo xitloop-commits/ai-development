@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { MockAdapter } from "./index";
 import type { OrderParams } from "../../types";
 import { transformCandleData } from "../../types";
@@ -720,6 +720,49 @@ describe("MockAdapter", () => {
       const margin = await adapter.getMargin();
       expect(margin.total).toBe(1000000);
       expect(margin.available).toBe(1000000);
+    });
+  });
+
+  describe("LTP subscription ref-counting", () => {
+    const K = { exchange: "NSE_FNO", securityId: "61901", mode: "full" } as any;
+    const key = "NSE_FNO:61901";
+
+    it("keeps a contract subscribed until ALL subscribers unsubscribe", () => {
+      const subs = () => (adapter as any).subscribedInstruments as Map<string, unknown>;
+      const counts = () => (adapter as any).subCounts as Map<string, number>;
+
+      // Two independent subscribers (e.g. an open trade + the strike window).
+      adapter.subscribeLTP([K], () => {});
+      adapter.subscribeLTP([K], () => {});
+      expect(subs().has(key)).toBe(true);
+      expect(counts().get(key)).toBe(2);
+
+      // One unsubscribe → still subscribed (the other subscriber remains).
+      adapter.unsubscribeLTP([K]);
+      expect(subs().has(key)).toBe(true);
+      expect(counts().get(key)).toBe(1);
+      expect((adapter as any).tickTimer).not.toBeNull(); // still ticking
+
+      // Last unsubscribe → removed + timer stops (nothing else subscribed).
+      adapter.unsubscribeLTP([K]);
+      expect(subs().has(key)).toBe(false);
+      expect(counts().has(key)).toBe(false);
+      expect((adapter as any).tickTimer).toBeNull();
+    });
+
+    it("still emits ticks for a key that has one remaining subscriber", () => {
+      vi.useFakeTimers();
+      try {
+        const ticks: string[] = [];
+        adapter.subscribeLTP([K], (t) => ticks.push(t.securityId));
+        adapter.subscribeLTP([K], (t) => ticks.push(t.securityId));
+        adapter.unsubscribeLTP([K]); // drop one — the key must keep ticking
+        vi.advanceTimersByTime(1000); // > the 800ms tick interval
+        expect(ticks).toContain("61901");
+      } finally {
+        adapter.unsubscribeLTP([K]);
+        vi.useRealTimers();
+      }
     });
   });
 });
