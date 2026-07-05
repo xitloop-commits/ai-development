@@ -401,6 +401,17 @@ class Wave2Thresholds:
     # If the structure-adjusted RR drops below this, discard the structure
     # adjustment and keep the model TP/SL (the wall is too close to be useful).
     structure_min_rr: float = 0.8
+    # Option-buildup veto (Part B SEA rule, 2026-07-06). Reads fresh directional
+    # buildup by pairing each leg's 5-min OI change with that leg's ATM premium
+    # momentum — the premium direction resolves the write-vs-buy ambiguity that
+    # OI alone can't. Vetoes a scalp that fights a strong bias (COUNTER_BUILDUP).
+    # Only OI-INCREASING states (fresh conviction) vote; unwinding/covering is
+    # neutral. Off by default; applied in the engine after the scalp gate.
+    buildup_filter: bool = False
+    # Min |5-min OI change %| for a leg's buildup to count as "strong".
+    buildup_min_oi_change_pct: float = 0.5
+    # Min |ATM premium momentum| for the premium direction to count (0 = any).
+    buildup_min_premium_mom: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -727,6 +738,77 @@ def apply_trend_alignment(
             action="WAIT", direction=sig.direction,
             entry=0.0, tp=0.0, sl=0.0, rr=0.0,
             gate_passed=False, gate_reasons=["COUNTER_TREND"],
+        )
+    return sig
+
+
+def buildup_bias(predictions: Mapping[str, float], cfg: Wave2Thresholds) -> str:
+    """Directional bias for the UNDERLYING from per-leg option BUILDUP.
+
+    Pairs each leg's 5-min OI change with that leg's ATM premium momentum. The
+    premium direction resolves the write-vs-buy ambiguity OI alone can't: an OI
+    rise with premium RISING is buyers lifting offers (longs); with premium
+    FALLING it's writers hitting bids. Only OI-INCREASING states vote (fresh
+    conviction); unwinding/covering (OI falling = exits) is neutral.
+
+        call OI↑ & call prem↑ → call long buildup → bullish
+        call OI↑ & call prem↓ → call writing      → bearish (resistance)
+        put  OI↑ & put  prem↑ → put long buildup   → bearish
+        put  OI↑ & put  prem↓ → put writing       → bullish (support)
+
+    `predictions` here is the live feature ROW (buildup inputs are features, not
+    model heads). Returns "bullish" / "bearish" / "neutral".
+    """
+    thr = cfg.buildup_min_oi_change_pct
+    pthr = cfg.buildup_min_premium_mom
+    bull = bear = 0
+
+    ce_oi = predictions.get("ce_oi_change_5min_pct")
+    ce_pm = predictions.get("opt_0_ce_premium_momentum")
+    if _is_finite(ce_oi) and float(ce_oi) > thr and _is_finite(ce_pm) and abs(float(ce_pm)) > pthr:
+        bull += 1 if float(ce_pm) > 0 else 0
+        bear += 1 if float(ce_pm) < 0 else 0
+
+    pe_oi = predictions.get("pe_oi_change_5min_pct")
+    pe_pm = predictions.get("opt_0_pe_premium_momentum")
+    if _is_finite(pe_oi) and float(pe_oi) > thr and _is_finite(pe_pm) and abs(float(pe_pm)) > pthr:
+        bear += 1 if float(pe_pm) > 0 else 0
+        bull += 1 if float(pe_pm) < 0 else 0
+
+    if bull > bear:
+        return "bullish"
+    if bear > bull:
+        return "bearish"
+    return "neutral"
+
+
+def apply_buildup_filter(
+    sig: SignalAction,
+    predictions: Mapping[str, float],
+    cfg: Wave2Thresholds,
+    *,
+    enabled: bool = True,
+) -> SignalAction:
+    """Suppress a SCALP signal that fights a strong option-buildup bias.
+
+    bullish buildup → allow calls, veto puts
+    bearish buildup → allow puts, veto calls
+    neutral         → allow both. No-op when disabled, when the signal isn't a
+    scalp entry, or when the buildup is neutral. A veto returns
+    WAIT/COUNTER_BUILDUP. `predictions` is the live feature row.
+    """
+    if not enabled or not sig.gate_passed or sig.action not in ("LONG_CE", "LONG_PE"):
+        return sig
+    bias = buildup_bias(predictions, cfg)
+    counter = (
+        (sig.action == "LONG_CE" and bias == "bearish")
+        or (sig.action == "LONG_PE" and bias == "bullish")
+    )
+    if counter:
+        return SignalAction(
+            action="WAIT", direction=sig.direction,
+            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+            gate_passed=False, gate_reasons=["COUNTER_BUILDUP"],
         )
     return sig
 

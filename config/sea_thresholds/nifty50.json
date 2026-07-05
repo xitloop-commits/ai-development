@@ -11,7 +11,10 @@
     "structure_tp_sl": false,
     "structure_sl_buffer_pct": 0.05,
     "structure_sl_widen_cap": 1.5,
-    "structure_min_rr": 0.8
+    "structure_min_rr": 0.8,
+    "buildup_filter": false,
+    "buildup_min_oi_change_pct": 0.5,
+    "buildup_min_premium_mom": 0.0
   },
   "trend": {
     "enabled": true,

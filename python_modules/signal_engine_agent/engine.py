@@ -53,6 +53,7 @@ from signal_engine_agent.thresholds import (
     TrendThresholds,
     V2Thresholds,
     Wave2Thresholds,
+    apply_buildup_filter,
     apply_trend_alignment,
     decide_action,
     decide_action_trend,
@@ -860,6 +861,14 @@ def run(
                     sig, preds, trend_thresholds.dir_prob_min,
                     enabled=wave2_thresholds.scalp_trend_align
                     and trend_thresholds.enabled,
+                )
+                # Option-buildup veto (2026-07-06): block a scalp fighting a
+                # strong per-leg OI×premium buildup. Reads the feature `row`
+                # (buildup inputs are features, not heads). No-op when off /
+                # neutral.
+                sig = apply_buildup_filter(
+                    sig, row, wave2_thresholds,
+                    enabled=wave2_thresholds.buildup_filter,
                 )
             elif gate_mode == "wave1":
                 # Wave 1 deterministic gate: 3-condition + regime + momentum + S/R + sustained-N
