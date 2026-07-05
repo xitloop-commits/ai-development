@@ -126,10 +126,10 @@ def _make_val_df_with_option_cols(n_rows: int = 5) -> pd.DataFrame:
         # 1-second cadence so horizon=60s steps 60 rows; we make 5 rows
         # at 60s cadence each so horizon=60s lands on row+1.
         "tick_ts_ns": [base_ts_ns + i * 60 * 1_000_000_000 for i in range(n_rows)],
-        "opt_atm_ce_bid": [180.0 + i for i in range(n_rows)],
-        "opt_atm_ce_ask": [182.0 + i for i in range(n_rows)],
-        "opt_atm_pe_bid": [150.0 - i for i in range(n_rows)],
-        "opt_atm_pe_ask": [152.0 - i for i in range(n_rows)],
+        "opt_0_ce_bid": [180.0 + i for i in range(n_rows)],
+        "opt_0_ce_ask": [182.0 + i for i in range(n_rows)],
+        "opt_0_pe_bid": [150.0 - i for i in range(n_rows)],
+        "opt_0_pe_ask": [152.0 - i for i in range(n_rows)],
     })
 
 

@@ -1442,8 +1442,8 @@ def train_instrument(
         dir_model_path = output_dir / "direction_60s.lgbm"
         has_option_cols = all(
             c in df_val.columns for c in (
-                "opt_atm_ce_bid", "opt_atm_ce_ask",
-                "opt_atm_pe_bid", "opt_atm_pe_ask",
+                "opt_0_ce_bid", "opt_0_ce_ask",
+                "opt_0_pe_bid", "opt_0_pe_ask",
             )
         )
         if dir_model_path.exists() and has_option_cols and len(df_val_filt) > 0:
@@ -1506,7 +1506,7 @@ def train_instrument(
             if not dir_model_path.exists():
                 reasons.append("direction_60s.lgbm not on disk")
             if not has_option_cols:
-                reasons.append("val data missing opt_atm_{ce,pe}_{bid,ask} cols")
+                reasons.append("val data missing opt_0_{ce,pe}_{bid,ask} cols")
             if len(df_val_filt) == 0:
                 reasons.append("empty val")
             print(f"  Sim-PnL: SKIPPED — {', '.join(reasons)}")

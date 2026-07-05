@@ -51,8 +51,8 @@ DATA REQUIREMENTS
 -----------------
 A val row participates in sim-PnL only when ALL these columns are
 present and finite:
-  - `opt_atm_ce_bid`, `opt_atm_ce_ask`  (for LONG_CE entry/exit)
-  - `opt_atm_pe_bid`, `opt_atm_pe_ask`  (for LONG_PE entry/exit)
+  - `opt_0_ce_bid`, `opt_0_ce_ask`  (for LONG_CE entry/exit)
+  - `opt_0_pe_bid`, `opt_0_pe_ask`  (for LONG_PE entry/exit)
   - `tick_ts_ns`                          (for horizon-based exit)
 Rows missing these are silently SKIPPED (counted in `n_skipped_no_data`
 on the scorecard). Synthetic test fixtures don't carry option bid/ask
@@ -213,8 +213,8 @@ def compute_scorecard(
 
 
 # Required option-price columns per side; rows missing any are skipped.
-_REQUIRED_LONG_CE_COLS = ("opt_atm_ce_bid", "opt_atm_ce_ask")
-_REQUIRED_LONG_PE_COLS = ("opt_atm_pe_bid", "opt_atm_pe_ask")
+_REQUIRED_LONG_CE_COLS = ("opt_0_ce_bid", "opt_0_ce_ask")
+_REQUIRED_LONG_PE_COLS = ("opt_0_pe_bid", "opt_0_pe_ask")
 
 
 def _row_has_finite(row: pd.Series, cols: tuple[str, ...]) -> bool:
@@ -318,11 +318,11 @@ def simulate_trades(
             continue
 
         if action == "LONG_CE":
-            entry = float(row["opt_atm_ce_ask"])
-            exit_price = float(exit_row["opt_atm_ce_bid"])
+            entry = float(row["opt_0_ce_ask"])
+            exit_price = float(exit_row["opt_0_ce_bid"])
         else:
-            entry = float(row["opt_atm_pe_ask"])
-            exit_price = float(exit_row["opt_atm_pe_bid"])
+            entry = float(row["opt_0_pe_ask"])
+            exit_price = float(exit_row["opt_0_pe_bid"])
 
         trades.append(Trade(
             signal_idx=int(i),

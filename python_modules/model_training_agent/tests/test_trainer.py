@@ -626,7 +626,7 @@ def test_latest_heads_json_uses_zero_when_no_schema_registry(tmp_path: Path, cap
 
 
 def test_sim_pnl_skipped_when_val_lacks_option_columns(tmp_path: Path, capsys) -> None:
-    """Default test fixture has no opt_atm_*_bid/ask cols → sim-PnL
+    """Default test fixture has no opt_0_*_bid/ask cols → sim-PnL
     harness skips gracefully; manifest carries zero sim_pnl fields."""
     features_root = tmp_path / "features"
     instrument = "nifty50"
@@ -656,7 +656,7 @@ def test_sim_pnl_skipped_when_val_lacks_option_columns(tmp_path: Path, capsys) -
 
 
 def test_sim_pnl_writes_scorecard_when_option_cols_present(tmp_path: Path) -> None:
-    """When the val parquet carries opt_atm_*_bid/ask + tick_ts_ns, the
+    """When the val parquet carries opt_0_*_bid/ask + tick_ts_ns, the
     trainer's sim-PnL pass produces a scorecard JSON and surfaces the
     summary on the manifest. The synthetic fixture is unlikely to
     produce enough signals to trade, but the structure must be present."""
@@ -672,10 +672,10 @@ def test_sim_pnl_writes_scorecard_when_option_cols_present(tmp_path: Path) -> No
         df["tick_ts_ns"] = base_ns + np.arange(n) * 1_000_000_000
         ce_mid = 180.0 + rng.normal(0, 2, n).cumsum() * 0.05
         pe_mid = 150.0 + rng.normal(0, 2, n).cumsum() * 0.05
-        df["opt_atm_ce_bid"] = ce_mid - 1.0
-        df["opt_atm_ce_ask"] = ce_mid + 1.0
-        df["opt_atm_pe_bid"] = pe_mid - 1.0
-        df["opt_atm_pe_ask"] = pe_mid + 1.0
+        df["opt_0_ce_bid"] = ce_mid - 1.0
+        df["opt_0_ce_ask"] = ce_mid + 1.0
+        df["opt_0_pe_bid"] = pe_mid - 1.0
+        df["opt_0_pe_ask"] = pe_mid + 1.0
         return df
 
     for i, ds in enumerate(["2026-04-01", "2026-04-02", "2026-04-03"]):
