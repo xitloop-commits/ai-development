@@ -309,6 +309,9 @@ class SignalDashboard:
                     or preds.get("upside_percentile_30s"),
                     "exit_signal_60s": preds.get("exit_signal_60s"),
                     "trend_dir_1800s": preds.get("trend_direction_1800s"),
+                    # Part B down head — makes the PUT-side trend conviction as
+                    # visible as the call side (both-direction signals).
+                    "trend_dir_down_1800s": preds.get("trend_direction_down_1800s"),
                     "magnitude": preds.get("trend_magnitude_1800s")
                     or preds.get("max_upside_30s"),
                 }
@@ -473,6 +476,7 @@ class SignalDashboard:
             ("upside_pctile",   "upside_pctile",   s.pctile_min,             "ge"),
             ("exit_signal_60s", "exit_signal_60s", s.exit_signal_60s_max,    "lt"),
             ("trend_dir_1800s", "trend_dir_1800s", t.dir_prob_min,           "ge"),
+            ("trend_dn_1800s",  "trend_dir_down_1800s", t.dir_prob_min,      "ge"),
             ("magnitude",       "magnitude",       0.0,                      "any"),
         ]:
             v = snap["last_preds"].get(key)
