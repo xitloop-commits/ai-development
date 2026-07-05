@@ -298,6 +298,9 @@ class TickHandler extends EventEmitter {
     // are the single source the UI TradeBar reads too, so both behave identically.
     const trailingStopEnabled = brokerConfig?.settings?.trailingStopEnabled ?? false;
     const trailingStopPercent = brokerConfig?.settings?.trailingStopPercent ?? 2.0;
+    // Paper trailing distance source: "config" = fixed gap% below the peak;
+    // "signal" = the trade's own initial (model) SL distance. Default signal.
+    const trailingDistanceSource = brokerConfig?.settings?.trailingDistanceSource ?? "signal";
     const tslGatePercent = brokerConfig?.settings?.trailingActivationGatePercent ?? 2.0;
     const tslHoldMs = (brokerConfig?.settings?.trailingActivationHoldSeconds ?? 10) * 1000;
 
@@ -426,61 +429,30 @@ class TickHandler extends EventEmitter {
           trade.peakLtp = newPeak;
         }
 
-        // Trailing stop is a workspace-wide switch (broker config), not a
-        // per-trade flag. It does NOT trail immediately: price must first clear
-        // breakeven by the gate %, held continuously for the hold time, before
-        // the stop arms. Once armed, the stop trails the peak by the gap % and
-        // is floored at breakeven so a pullback can never give back charges.
+        // Trailing stop (workspace-wide switch). Trails from the FIRST tick — no
+        // activation gate, no hold, no breakeven floor: the stop sits a fixed gap
+        // below the running peak from the start. The gap comes from the setting:
+        //   "config" → trailingStopPercent % of the peak (widens as price runs)
+        //   "signal" → the trade's own initial SL distance in rupees (fixed)
+        // It only ever ratchets in the favourable direction — never crawls back.
         if (trailingStopEnabled && trade.stopLossPrice !== null) {
-          const breakeven = trade.breakevenPrice ?? trade.entryPrice;
-          const gatePrice = isBuy
-            ? breakeven * (1 + tslGatePercent / 100)
-            : breakeven * (1 - tslGatePercent / 100);
-          const pastGate = isBuy ? tick.ltp >= gatePrice : tick.ltp <= gatePrice;
-
-          // Activation: arm on first gate-clear, activate once the hold elapses,
-          // reset if the gate breaks before then.
-          if (!this.tslActivated.has(trade.id)) {
-            if (pastGate) {
-              const armedAt = this.tslArmedAt.get(trade.id);
-              if (armedAt == null) {
-                this.tslArmedAt.set(trade.id, Date.now());
-              } else if (Date.now() - armedAt >= tslHoldMs) {
-                this.tslActivated.add(trade.id);
-                this.tslArmedAt.delete(trade.id);
-                // Stamp activation time ONCE (survives restart — don't overwrite
-                // if already set). Drives the UI's "TSL running" stopwatch.
-                if (trade.tslActivatedAt == null) {
-                  trade.tslActivatedAt = Date.now();
-                  anyUpdated = true;
-                }
-                // TEMP DIAGNOSTIC ([XSYNC] client/server exit-sync confirmation).
-                log.important(`[XSYNC-SVR] TSL-ACTIVATED ${channel} trade=${trade.id} ${trade.instrument} ltp=${tick.ltp} gate=${Math.round(gatePrice * 100) / 100} stop=${trade.stopLossPrice} held=${tslHoldMs}ms`);
-              }
-            } else {
-              this.tslArmedAt.delete(trade.id);
-            }
-          }
-
-          if (this.tslActivated.has(trade.id)) {
-            const trailedRaw = isBuy
-              ? newPeak * (1 - trailingStopPercent / 100)
-              : newPeak * (1 + trailingStopPercent / 100);
-            // Floor at breakeven — the stop never gives back the charges.
-            const floored = isBuy
-              ? Math.max(trailedRaw, breakeven)
-              : Math.min(trailedRaw, breakeven);
-            const trailedSL = Math.round(floored * 100) / 100;
-            // Only trail in the favorable direction (never widen the stop).
-            const shouldTrail = isBuy
-              ? trailedSL > trade.stopLossPrice
-              : trailedSL < trade.stopLossPrice;
-            if (shouldTrail) {
-              // TEMP DIAGNOSTIC ([XSYNC] exit-sync): stop trailed up.
-              log.info(`[XSYNC-SVR] TSL-TRAIL ${channel} trade=${trade.id} ltp=${tick.ltp} peak=${newPeak} stop ${trade.stopLossPrice}→${trailedSL}`);
-              trade.stopLossPrice = trailedSL;
-              anyUpdated = true;
-            }
+          const useSignal =
+            trailingDistanceSource === "signal" && trade.slDistance != null && trade.slDistance > 0;
+          const trailedRaw = useSignal
+            ? (isBuy ? newPeak - (trade.slDistance as number) : newPeak + (trade.slDistance as number))
+            : (isBuy ? newPeak * (1 - trailingStopPercent / 100) : newPeak * (1 + trailingStopPercent / 100));
+          const trailedSL = Math.round(trailedRaw * 100) / 100;
+          const shouldTrail = isBuy
+            ? trailedSL > trade.stopLossPrice
+            : trailedSL < trade.stopLossPrice;
+          if (shouldTrail) {
+            // Stamp activation time once, on the first upward trail (survives
+            // restart) — drives the UI's "TSL running" stopwatch.
+            if (trade.tslActivatedAt == null) trade.tslActivatedAt = Date.now();
+            // TEMP DIAGNOSTIC ([XSYNC] exit-sync): stop trailed up.
+            log.info(`[XSYNC-SVR] TSL-TRAIL ${channel} trade=${trade.id} src=${trailingDistanceSource} ltp=${tick.ltp} peak=${newPeak} stop ${trade.stopLossPrice}→${trailedSL}`);
+            trade.stopLossPrice = trailedSL;
+            anyUpdated = true;
           }
         }
 

@@ -406,6 +406,10 @@ export interface BrokerSettings {
   tradeTargetOther: number; // per-trade target % for equities/futures (default 2)
   trailingStopEnabled: boolean; // whether trailing stop is active (default false)
   trailingStopPercent: number; // trailing stop distance % from peak (default 2.0)
+  /** Where the paper trailing distance comes from: "config" = fixed
+   *  trailingStopPercent below the peak; "signal" = the trade's own initial
+   *  (model) SL distance in rupees. Default "signal". */
+  trailingDistanceSource: "config" | "signal";
   trailingActivationGatePercent: number; // % past breakeven before TSL arms (default 2.0)
   trailingActivationHoldSeconds: number; // seconds the gate must hold before TSL arms (default 10)
   /** When true, LIVE entries are placed as a Dhan Super Order (broker-enforced

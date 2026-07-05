@@ -1,22 +1,24 @@
 /**
- * TSL activation + ratchet + auto-exit tests for tickHandler.
+ * TSL trail-from-start + ratchet + auto-exit tests for tickHandler.
  *
- * Trailing is now GATED: the stop does not trail immediately. Price must clear
- * breakeven by the activation-gate %, held for the hold time, before the stop
- * arms. Once armed, the stop trails the peak by the gap % and is floored at
- * breakeven so a pullback can never give back charges. Gate/hold/gap come from
- * broker settings (the same source the UI TradeBar reads).
+ * Trailing now trails from the FIRST tick — no activation gate, no hold, no
+ * breakeven floor. The stop sits a fixed gap below the running peak from the
+ * start; the gap comes from the setting:
+ *   - "config" → trailingStopPercent % of the peak
+ *   - "signal" → the trade's own initial SL distance (trade.slDistance, rupees)
+ * It only ratchets in the favourable direction — never crawls back.
  *
  * Covered:
- *   1. BUY: trails UP only AFTER activation (gate cleared + hold elapsed)
+ *   1. BUY: trails UP from the first favourable tick
  *   2. BUY: SL never moves down (no widening)
- *   3. SELL: trails DOWN after activation
- *   4. SL_HIT fires at the ratched SL level
+ *   3. SELL: trails DOWN from the first favourable tick
+ *   4. SL_HIT fires at the ratcheted SL level
  *   5. trailingStopEnabled=false → never trails
- *   6. price below the gate → never arms → never trails
- *   7. hold timer: gate must hold N seconds before activation
- *   8. breakeven floor: trailed stop never drops below breakeven
- *   9. peak tracking (peakLtp) is independent of activation + restart-safe
+ *   6. trails even on a small move (no gate to clear)
+ *   7. signal mode: trails at the trade's slDistance, not the config gap
+ *   8. no breakeven floor: the stop can trail below breakeven
+ *   9. peak tracking (peakLtp) is restart-safe
+ *  10. peakLtp updates on a new high
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -117,8 +119,7 @@ function makeSellTrade(overrides: Partial<any> = {}): any {
 
 async function processWith(trade: any, tick: TickData): Promise<void> {
   // Only my-paper holds the trade; the other paper channels return an empty day
-  // so the same trade isn't processed multiple times per tick (which would let
-  // the per-trade activation state collide across channels in the test).
+  // so the same trade isn't processed multiple times per tick.
   getDayRecordMock.mockImplementation((channel: string) =>
     Promise.resolve(
       channel === "my-paper"
@@ -136,7 +137,7 @@ async function processTicks(trade: any, ltps: number[]): Promise<void> {
   for (const ltp of ltps) await processWith(trade, makeTick({ ltp }));
 }
 
-describe("tickHandler TSL — activation gate, ratchet, breakeven floor", () => {
+describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     tickHandler.clearStateCache();
@@ -157,49 +158,46 @@ describe("tickHandler TSL — activation gate, ratchet, breakeven floor", () => 
       cumulativeCharges: 0,
       sessionTradeCount: 0,
     });
-    // TSL on, 1.5% gap, 2% gate, 0s hold (so 2 ticks activate without real time).
+    // TSL on, config source, 1.5% gap. Gate/hold present but ignored (no gate).
     getActiveBrokerConfigMock.mockResolvedValue({
       brokerId: "test",
       settings: {
         trailingStopEnabled: true,
         trailingStopPercent: 1.5,
+        trailingDistanceSource: "config",
         trailingActivationGatePercent: 2,
         trailingActivationHoldSeconds: 0,
       },
     });
   });
 
-  it("BUY: trails UP only after activation (arm tick, then activate tick)", async () => {
+  it("BUY: trails UP from the first favourable tick (no gate)", async () => {
     const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
-    // First tick clears the gate (>102) → arms but does NOT trail yet.
-    await processWith(trade, makeTick({ ltp: 103 }));
-    expect(trade.stopLossPrice).toBe(95);
-    // Second tick (hold=0) activates → trails: peak 110 → 110 × 0.985 = 108.35.
+    // One tick: peak 110 → 110 × 0.985 = 108.35, immediately.
     await processWith(trade, makeTick({ ltp: 110 }));
     expect(trade.stopLossPrice).toBeCloseTo(108.35, 2);
   });
 
   it("BUY: SL does NOT move DOWN if price retraces (no widening)", async () => {
     const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
-    await processTicks(trade, [103, 110]); // arm + activate → 108.35
+    await processWith(trade, makeTick({ ltp: 110 })); // → 108.35
     const ratchedSL = trade.stopLossPrice;
     await processWith(trade, makeTick({ ltp: 105 })); // retrace
     expect(trade.stopLossPrice).toBe(ratchedSL); // unchanged
   });
 
-  it("SELL: trails DOWN after activation", async () => {
+  it("SELL: trails DOWN from the first favourable tick", async () => {
     const trade = makeSellTrade({ entryPrice: 100, stopLossPrice: 105 });
-    // Gate for SELL = breakeven × (1 − 2%) = 98. Arm at 97, activate at 90.
-    await processTicks(trade, [97, 90]); // peak(min)=90 → 90 × 1.015 = 91.35
+    await processWith(trade, makeTick({ ltp: 90 })); // peak(min)=90 → 90 × 1.015 = 91.35
     expect(trade.stopLossPrice).toBeCloseTo(91.35, 2);
   });
 
-  it("BUY: SL_HIT fires at the ratched SL level", async () => {
+  it("BUY: SL_HIT fires at the ratcheted SL level", async () => {
     const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
     let exitEvent: any = null;
     tickHandler.once("autoExitDetected", (e) => { exitEvent = e; });
 
-    await processTicks(trade, [103, 110]); // SL trails to 108.35
+    await processWith(trade, makeTick({ ltp: 110 })); // SL trails to 108.35
     expect(trade.stopLossPrice).toBeCloseTo(108.35, 2);
 
     await processWith(trade, makeTick({ ltp: 108 })); // breaches 108.35
@@ -216,83 +214,71 @@ describe("tickHandler TSL — activation gate, ratchet, breakeven floor", () => 
       settings: {
         trailingStopEnabled: false,
         trailingStopPercent: 1.5,
+        trailingDistanceSource: "config",
         trailingActivationGatePercent: 2,
         trailingActivationHoldSeconds: 0,
       },
     });
     const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
-    await processTicks(trade, [103, 110]);
+    await processWith(trade, makeTick({ ltp: 110 }));
     expect(trade.stopLossPrice).toBe(95); // unchanged
   });
 
-  it("price never clears the gate → never arms → SL stays put", async () => {
-    // Gate = 102. A 101 tick is in profit but below the gate.
+  it("trails on a small favourable move (no gate to clear)", async () => {
+    // A 101 tick — barely in profit, well under the old 102 gate — still trails.
     const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
-    await processTicks(trade, [101, 101.5]);
-    expect(trade.stopLossPrice).toBe(95);
-    expect((tickHandler as any).tslActivated.has("T-BUY")).toBe(false);
+    await processWith(trade, makeTick({ ltp: 101 })); // peak 101 → 101 × 0.985 = 99.485
+    expect(trade.stopLossPrice).toBeCloseTo(99.49, 2);
   });
 
-  it("hold timer: gate must hold the full hold-time before activation", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+  it("signal mode: trails at the trade's slDistance, not the config gap", async () => {
     getActiveBrokerConfigMock.mockResolvedValue({
       brokerId: "test",
       settings: {
         trailingStopEnabled: true,
-        trailingStopPercent: 1.5,
+        trailingStopPercent: 1.5, // ignored in signal mode
+        trailingDistanceSource: "signal",
         trailingActivationGatePercent: 2,
-        trailingActivationHoldSeconds: 10, // 10s hold
+        trailingActivationHoldSeconds: 0,
       },
     });
-    const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
-
-    await processWith(trade, makeTick({ ltp: 110 })); // arm at t=0
-    expect(trade.stopLossPrice).toBe(95);
-
-    vi.setSystemTime(5000); // 5s — not enough
+    // slDistance 5 (rupees). peak 110 → 110 − 5 = 105 (config gap would be 108.35).
+    const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95, slDistance: 5 });
     await processWith(trade, makeTick({ ltp: 110 }));
-    expect(trade.stopLossPrice).toBe(95);
-
-    vi.setSystemTime(11000); // 11s — hold elapsed → activate + trail
-    await processWith(trade, makeTick({ ltp: 110 }));
-    expect(trade.stopLossPrice).toBeCloseTo(108.35, 2);
+    expect(trade.stopLossPrice).toBeCloseTo(105, 2);
   });
 
-  it("breakeven floor: trailed stop never drops below breakeven (recover charges)", async () => {
-    // Wide gap (5%) vs small gate (1%): the raw trailed stop would be below
-    // breakeven, so the floor must clamp it to breakeven.
+  it("no breakeven floor: the stop can trail below breakeven", async () => {
+    // Wide 5% gap: peak 102 → 102 × 0.95 = 96.9, which is below breakeven 100.
+    // With the floor removed, the stop trails there (96.9), not clamped to 100.
     getActiveBrokerConfigMock.mockResolvedValue({
       brokerId: "test",
       settings: {
         trailingStopEnabled: true,
         trailingStopPercent: 5,
+        trailingDistanceSource: "config",
         trailingActivationGatePercent: 1,
         trailingActivationHoldSeconds: 0,
       },
     });
     const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95, breakevenPrice: 100 });
-    // Gate = 101. Arm at 101.5, activate at 102. peak 102 → 102 × 0.95 = 96.9,
-    // which is below breakeven 100 → floored to 100.
-    await processTicks(trade, [101.5, 102]);
-    expect(trade.stopLossPrice).toBeCloseTo(100, 2);
+    await processWith(trade, makeTick({ ltp: 102 }));
+    expect(trade.stopLossPrice).toBeCloseTo(96.9, 2);
   });
 
-  it("peak tracking is independent of activation + restart-safe", async () => {
-    // Persisted peak survives an in-memory Map clear (restart); a lower tick
-    // does not lower the peak, and without re-activation the SL is untouched.
+  it("peak tracking is restart-safe (persisted peakLtp survives a Map clear)", async () => {
     const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 108.35, peakLtp: 110 });
     (tickHandler as any).peakPrices.clear(); // simulate restart
 
     await processWith(trade, makeTick({ ltp: 105 })); // below peak
     expect(trade.peakLtp).toBe(110);
-    expect(trade.stopLossPrice).toBeCloseTo(108.35, 2);
+    expect(trade.stopLossPrice).toBeCloseTo(108.35, 2); // no new high → unchanged
   });
 
-  it("peakLtp updates on a new high regardless of activation", async () => {
+  it("peakLtp updates on a new high", async () => {
     const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95, peakLtp: 105 });
     await processWith(trade, makeTick({ ltp: 112 }));
-    expect(trade.peakLtp).toBe(112); // peak tracked even on the arming tick
+    expect(trade.peakLtp).toBe(112);
   });
 
   afterEach(() => {

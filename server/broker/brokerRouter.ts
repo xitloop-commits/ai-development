@@ -174,6 +174,7 @@ const brokerSettingsSchema = z.object({
   tradeTargetOther: z.number().min(0.5).max(50).optional(),
   trailingStopEnabled: z.boolean().optional(),
   trailingStopPercent: z.number().min(0.1).max(50).optional(),
+  trailingDistanceSource: z.enum(["config", "signal"]).optional(),
   trailingActivationGatePercent: z.number().min(0).max(50).optional(),
   trailingActivationHoldSeconds: z.number().min(0).max(120).optional(),
   useSuperOrderForLive: z.boolean().optional(),

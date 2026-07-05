@@ -385,6 +385,7 @@ export function OrderExecutionSection() {
     // Trailing stop (moved from Discipline per spec v1.2)
     trailingStopEnabled: false,
     trailingStopPercent: 2,
+    trailingDistanceSource: 'signal' as 'config' | 'signal',
     trailingActivationGatePercent: 2,
     trailingActivationHoldSeconds: 10,
     // Per-instrument default sizing (used by the instrument bar)
@@ -411,6 +412,7 @@ export function OrderExecutionSection() {
         tradeTargetOther: (config.settings as any).tradeTargetOther ?? prev.tradeTargetOther,
         trailingStopEnabled: (config.settings as any).trailingStopEnabled ?? prev.trailingStopEnabled,
         trailingStopPercent: (config.settings as any).trailingStopPercent ?? prev.trailingStopPercent,
+        trailingDistanceSource: (config.settings as any).trailingDistanceSource ?? prev.trailingDistanceSource,
         trailingActivationGatePercent: (config.settings as any).trailingActivationGatePercent ?? prev.trailingActivationGatePercent,
         trailingActivationHoldSeconds: (config.settings as any).trailingActivationHoldSeconds ?? prev.trailingActivationHoldSeconds,
         instrumentSizing: (config.settings as any).instrumentSizing ?? prev.instrumentSizing,
@@ -452,6 +454,7 @@ export function OrderExecutionSection() {
         tradeTargetOther: settings.tradeTargetOther,
         trailingStopEnabled: settings.trailingStopEnabled,
         trailingStopPercent: settings.trailingStopPercent,
+        trailingDistanceSource: settings.trailingDistanceSource,
         trailingActivationGatePercent: settings.trailingActivationGatePercent,
         trailingActivationHoldSeconds: settings.trailingActivationHoldSeconds,
         instrumentSizing: settings.instrumentSizing,
@@ -472,6 +475,7 @@ export function OrderExecutionSection() {
         tradeTargetOther: (config.settings as any).tradeTargetOther ?? 2,
         trailingStopEnabled: (config.settings as any).trailingStopEnabled ?? false,
         trailingStopPercent: (config.settings as any).trailingStopPercent ?? 2,
+        trailingDistanceSource: (config.settings as any).trailingDistanceSource ?? 'signal',
         trailingActivationGatePercent: (config.settings as any).trailingActivationGatePercent ?? 2,
         trailingActivationHoldSeconds: (config.settings as any).trailingActivationHoldSeconds ?? 10,
         instrumentSizing: (config.settings as any).instrumentSizing ?? {
@@ -691,6 +695,16 @@ export function OrderExecutionSection() {
           {settings.trailingStopEnabled && (
             <>
               <div className="flex items-center justify-between">
+                <FieldLabel hint="Where the trailing gap comes from. ON (Model SL): the stop trails at the distance the model set for this trade — per trade, fewer noise stop-outs. OFF (Fixed %): a fixed % below the peak, set below.">
+                  Trailing Distance · Model SL
+                </FieldLabel>
+                <ToggleSwitch
+                  checked={settings.trailingDistanceSource === 'signal'}
+                  onChange={(v) => setSettings((s) => ({ ...s, trailingDistanceSource: v ? 'signal' : 'config' }))}
+                />
+              </div>
+              {settings.trailingDistanceSource === 'config' && (
+              <div className="flex items-center justify-between">
                 <FieldLabel hint="Trailing gap: how far the stop sits below the highest price reached. Smaller = locks profit tighter, exits sooner on a pullback.">
                   Trailing Gap
                 </FieldLabel>
@@ -703,9 +717,10 @@ export function OrderExecutionSection() {
                   suffix="%"
                 />
               </div>
+              )}
               <div className="flex items-center justify-between">
-                <FieldLabel hint="How far past breakeven (entry + charges) the price must move before the trailing stop switches on. Stops it from arming on small noise.">
-                  Activation Gate
+                <FieldLabel hint="LIVE only. How far past breakeven the price must move before the broker trailing stop arms. Paper trails from the first tick and ignores this.">
+                  Activation Gate · live
                 </FieldLabel>
                 <NumberInput
                   value={settings.trailingActivationGatePercent}
@@ -717,8 +732,8 @@ export function OrderExecutionSection() {
                 />
               </div>
               <div className="flex items-center justify-between">
-                <FieldLabel hint="How long the price must hold above the gate before the trailing stop arms. Prevents a one-tick spike from triggering it.">
-                  Activation Hold
+                <FieldLabel hint="LIVE only. How long the price must hold above the gate before the broker trailing stop arms. Paper ignores this.">
+                  Activation Hold · live
                 </FieldLabel>
                 <NumberInput
                   value={settings.trailingActivationHoldSeconds}
@@ -730,8 +745,9 @@ export function OrderExecutionSection() {
                 />
               </div>
               <p className="text-[0.6875rem] text-muted-foreground leading-snug">
-                Once trailing is on, the stop can never drop below breakeven + charges — you always
-                recover your charges.
+                Paper: the stop trails from the first tick — Model SL keeps the model's stop distance
+                below the peak; Fixed % keeps the set gap. It only ratchets up, never back. (Activation
+                gate/hold apply to live broker trailing only.)
               </p>
             </>
           )}

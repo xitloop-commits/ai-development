@@ -1158,6 +1158,13 @@ function buildTradeRecord(
     status,
     targetPrice: req.takeProfit ?? null,
     stopLossPrice: req.stopLoss ?? null,
+    // Initial (model) SL distance in rupees — the fixed gap "signal"-mode
+    // trailing keeps below the peak. Captured now; the first-tick-fill shift
+    // moves entry + SL together so this distance stays valid.
+    slDistance:
+      req.stopLoss != null && req.entryPrice > 0
+        ? Math.abs(req.entryPrice - req.stopLoss)
+        : undefined,
     // Callers resolve the trailing-stop default before submitting (the UI
     // adapter folds in the broker-wide trailingStopEnabled setting). When a
     // formal caller omits it entirely, default to off.

@@ -1143,6 +1143,13 @@ In progress 2026-06-19. Plan: `~/.claude/plans/how-the-integration-is-synthetic-
   - **Known gaps:** `cancelSuperOrder` square-off-vs-cancel semantics unverified (we flatten anyway); `trailingJump` is a fixed-rupee step (not %-of-peak); recovery backstop deferred → don't restart the server mid-trade (a leg fill while down won't auto-reconcile yet).
 - **Cross-ref:** `server/broker/adapters/dhan/{index,types,constants}.ts`, `server/broker/{types,brokerConfig,brokerRouter}.ts`, `server/executor/tradeExecutor.ts`, `server/portfolio/{tickHandler,portfolioAgent,state,types}.ts`.
 
+### T72 [Execution] — Extend trail-from-start + `trailingDistanceSource` to LIVE 🆕
+Deferred from the 2026-07-05 paper-first trailing rewrite. **PAPER** now trails from the **first tick** — no activation gate, no hold, no breakeven floor; the stop is a fixed gap below the running peak, gap source = new `trailingDistanceSource` setting (`config` = `trailingStopPercent` %; `signal` = the trade's `slDistance` = initial model SL distance in rupees; **default `signal`**). **LIVE still uses the OLD gated model** (T60 Phase 2: arm `STOP_LOSS_LEG` at breakeven once price holds past gate%, then native Dhan `trailingJump`).
+
+- **To do:** rework the live Super-Order trailing so live matches the paper model — arm at entry (no gate/hold), set the stop distance from `trailingDistanceSource` (config gap% → `trailingJump`; signal → `slDistance`), drop the breakeven floor. Reconcile with the **25-modify cap** and native `trailingJump` (a fixed-rupee step, not %-of-peak — the signal-distance case may need a modify-per-new-peak strategy).
+- **Risk:** live money — validate at 1 lot on `testing-live` with a fresh token (Super Orders 404 on sandbox). Re-verify `armBrokerTsl` / the Super-Order path are still current before starting.
+- **Cross-ref:** paper impl `server/portfolio/tickHandler.ts` (trailing block), `server/executor/tradeExecutor.ts` (`armBrokerTsl`), `server/broker/{brokerConfig,types,brokerRouter}.ts` (`trailingDistanceSource`), `server/portfolio/state.ts` (`slDistance`), `client/src/pages/Settings.tsx`. Related: **T60**.
+
 ### T61 [Execution] — Wire SEA signals → ai-paper auto-trade (+ cohort tagging) 🆕
 Done 2026-06-23 (paper only; **off by default**). The model emits wave-2 signals but `submit_new_trade()` was never called — signals never became trades. Now the SEA POSTs each emitted signal (both **scalp** and the new **trend** gate) to `/api/discipline/validateTrade` → DA → RCA → TEA.
 

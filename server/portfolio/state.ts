@@ -116,6 +116,11 @@ export interface TradeRecord {
    *  both the server (exit) and the UI (TradeBar) read this same absolute price.
    *  Absent on trades that pre-date the field → callers fall back to entryPrice. */
   breakevenPrice?: number;
+  /** Initial (model) stop-loss distance in rupees = |entryPrice − initial SL|,
+   *  captured at open. Used by "signal"-mode paper trailing as the fixed gap the
+   *  stop keeps below the peak. Preserved through the first-tick-fill shift
+   *  (entry + SL move together). Absent on manual trades / pre-date the field. */
+  slDistance?: number;
   /** Broker-assigned order ID returned by placeOrder. Used by orderSync /
    *  recoveryEngine to match broker events back to this trade.
    *  Pre-2026-05 docs stored this on the (now-renamed) `brokerId` field;
@@ -287,6 +292,7 @@ const tradeRecordSchema = new Schema(
     targetPrice: { type: Number, default: null },
     stopLossPrice: { type: Number, default: null },
     breakevenPrice: { type: Number, default: null },
+    slDistance: { type: Number, default: null },
     tslActivatedAt: { type: Number, default: null },
     brokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },
@@ -974,6 +980,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       targetPrice: t.targetPrice ?? null,
       stopLossPrice: t.stopLossPrice ?? null,
       breakevenPrice: t.breakevenPrice ?? undefined,
+      slDistance: t.slDistance ?? undefined,
       tslActivatedAt: t.tslActivatedAt ?? undefined,
       brokerOrderId: t.brokerOrderId ?? null,
       brokerId: t.brokerId ?? null,
