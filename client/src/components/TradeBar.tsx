@@ -118,12 +118,6 @@ export function TradeBar({
   const profitAtFav = (fav: number): number | null =>
     units && units > 0 ? (fav / 100) * entryPrice * units - (roundTripCharges ?? 0) : null;
   const fmtMoney = (v: number) => `${v >= 0 ? "+" : "-"}₹${Math.abs(Math.round(v)).toLocaleString("en-IN")}`;
-  // Pending TSL: trailing is on but the stop hasn't trailed into profit yet — show
-  // a thin marker at the gate so it's clear the TSL exists, just not armed.
-  const gateFav = trailingEnabled && tslGatePrice && tslGatePrice > 0 ? toFav(tslGatePrice) : null;
-  const tslPending = trailingEnabled && !stopLocked && gateFav != null;
-  const gateProfit = gateFav != null ? profitAtFav(gateFav) : null;
-
   // Scale anchored to the trade's own levels: stop on the left (+ a little pad,
   // but never above entry) and TP on the right (+ headroom). The upper bound
   // auto-extends if price runs past TP.
@@ -199,10 +193,10 @@ export function TradeBar({
   const isFavourable = ltpFav >= 0;
   const profitStart = stopLocked ? stopPos : entryPos;
 
-  // The TSL point in profit space: the locked trailing stop, or — before it
-  // arms — the pending activation gate. Used both for the colour bands below
-  // and the reward-gap breakdown further down.
-  const tslFav = stopLocked ? stopFav : gateFav ?? null;
+  // The TSL point in profit space: the locked trailing stop once it has trailed
+  // into profit (null while the stop is still at/below entry). Used by the
+  // colour bands and the reward-gap breakdown below.
+  const tslFav = stopLocked ? stopFav : null;
   const tslPos = tslFav != null && tslFav > 0 && tslFav < tpPercent ? pos(tslFav) : null;
   // The green buffer is specifically the TSL → LTP gap (profit beyond the
   // protected stop). Anchor it at the TSL marker whenever price is above it;
@@ -224,10 +218,13 @@ export function TradeBar({
   const fmtSign = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
   const stopPrice = favToPrice(stopFav);
   const tpPrice = favToPrice(tpPercent);
+  // Trailing on → the stop IS a trailing stop (label TSL) even before it trails
+  // into profit; trailing off → a plain fixed SL. Colour still shows the phase:
+  // red while at-risk (below entry), gold once it has locked profit.
   const stopColor = stopLocked ? TSL_COLOR : SL_COLOR;
-  const stopText = stopLocked ? "TSL" : "SL";
+  const stopText = trailingEnabled ? "TSL" : "SL";
   const stopProfit = profitAtFav(stopFav);
-  const stopTip = `${stopLocked ? "Trailing stop" : "Stop loss"} ${formatPrice(stopPrice)} (${fmtSign(stopFav)})${stopProfit != null ? ` · ${fmtMoney(stopProfit)}` : ""}`;
+  const stopTip = `${trailingEnabled ? "Trailing stop" : "Stop loss"} ${formatPrice(stopPrice)} (${fmtSign(stopFav)})${stopProfit != null ? ` · ${fmtMoney(stopProfit)}` : ""}`;
   const entryTip = `Entry ${formatPrice(entryPrice)}`;
   const tpTip = `TP ${formatPrice(tpPrice)} (${fmtSign(tpPercent)})`;
   const ltpTip = `LTP ${formatPrice(ltp)} (${fmtSign(ltpFav)})`;
@@ -415,20 +412,6 @@ export function TradeBar({
           </span>
         )}
 
-        {/* Pending TSL — thin marker at the activation gate (trailing on, not armed). */}
-        {tslPending && (
-          <div
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 pointer-events-auto cursor-help"
-            style={{ left: `${pos(gateFav as number)}%`, width: '7px', height: '16px', zIndex: 10 }}
-            title={`TSL pending — arms at ${formatPrice(tslGatePrice as number)}${tslHoldSeconds ? ` after holding ${tslHoldSeconds}s` : ""}${gateProfit != null ? ` · locks ${fmtMoney(gateProfit)}` : ""}`}
-          >
-            <div
-              className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0"
-              style={{ borderLeft: `2px solid ${TSL_COLOR}`, opacity: 0.85 }}
-            />
-          </div>
-        )}
-
         {/* LTP triangle pointer + live price above it */}
         <div
           className="absolute -translate-x-1/2 pointer-events-auto cursor-help transition-[left] duration-300 ease-out"
@@ -457,17 +440,6 @@ export function TradeBar({
             LEFT of its marker so the two never overlap. */}
         <Label at={stopPos} color={stopColor} text={stopText} price={stopPrice} hideText={compact} align={stopLocked ? "right" : "center"} />
         <Label at={entryPos} color={ENTRY_COLOR} text="E" price={entryPrice} hideText={compact} align="left" />
-        {tslPending && (
-          <span
-            className="absolute flex flex-col items-start pl-1 gap-px leading-none"
-            style={{ left: `${clamp(pos(gateFav as number), 4, 96)}%`, color: TSL_COLOR, opacity: 0.6, transform: "translateX(0)" }}
-          >
-            {!compact && <span className="text-[0.5rem] font-bold tabular-nums">TSL</span>}
-            {tslGatePrice != null && tslGatePrice > 0 && (
-              <span className="text-[0.5rem] font-bold tabular-nums">{scalePrice(tslGatePrice)}</span>
-            )}
-          </span>
-        )}
         <Label at={tpPos} color={TP_COLOR} text="TP" price={tpPrice} hideText={compact} />
       </div>
     </div>
