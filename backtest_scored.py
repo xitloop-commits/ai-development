@@ -213,6 +213,15 @@ def run_scored_backtest(
             persists_300 = _pred("direction_persists_300s")
             exit_60 = _pred("exit_signal_60s")
             breakout_60 = _pred("breakout_in_60s")
+            # Part B PE-leg heads (2026-07-06): the live engine passes these;
+            # without them a PUT gets no PE-leg RR (C2) or TP/SL → the gate
+            # returns WAIT on every put. Their absence is why the backtest
+            # showed 0 puts across all OOS days. Feed them like production.
+            rr_pe_60 = _pred("risk_reward_ratio_pe_60s")
+            up_pe_60 = _pred("max_upside_pe_60s")
+            dn_pe_60 = _pred("max_drawdown_pe_60s")
+            up_pe_300 = _pred("max_upside_pe_300s")
+            dn_pe_300 = _pred("max_drawdown_pe_300s")
 
             regime = row.get("regime")
             ce_ltp = row.get("opt_0_ce_ltp")
@@ -253,6 +262,12 @@ def run_scored_backtest(
                 "max_drawdown_300s": dn_pred_300,
                 "max_upside_900s": up_pred_900,
                 "max_drawdown_900s": dn_pred_900,
+                # Part B PE-leg targets — put RR (C2) + put TP/SL.
+                "risk_reward_ratio_pe_60s": rr_pe_60,
+                "max_upside_pe_60s": up_pe_60,
+                "max_drawdown_pe_60s": dn_pe_60,
+                "max_upside_pe_300s": up_pe_300,
+                "max_drawdown_pe_300s": dn_pe_300,
             }
             sig = decide_action_wave2(
                 preds, thresholds, wave2_thresholds,
