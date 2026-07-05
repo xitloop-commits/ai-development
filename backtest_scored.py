@@ -38,8 +38,11 @@ from signal_engine_agent.engine import _build_structure_context
 from signal_engine_agent.model_loader import LoadedModels, load_models
 from signal_engine_agent.thresholds import (
     Wave2Thresholds,
+    apply_buildup_filter,
+    apply_trend_alignment,
     decide_action_wave2,
     load_thresholds_full,
+    load_thresholds_trend,
 )
 
 _IST = timezone(timedelta(hours=5, minutes=30))
@@ -109,6 +112,7 @@ def run_scored_backtest(
     # 2026-06-23 fix: load BOTH the base 3-cond and the Wave 2 add-on
     # from the per-instrument JSON (was passing Wave2Thresholds() defaults
     # which ignored every tuning override in config/sea_thresholds/*.json).
+    trend_thresholds = load_thresholds_trend(instrument, config_dir)
     thresholds, _v2, wave2_thresholds, _gate_mode = load_thresholds_full(
         instrument, config_dir,
     )
@@ -177,6 +181,15 @@ def run_scored_backtest(
             def _pred(name: str) -> float:
                 m = models.models.get(name)
                 return float(m.predict(X)[0]) if m else float("nan")
+
+            def _pred_cal(name: str) -> float:
+                # Calibrated (isotonic) — the gate/filters key off calibrated
+                # probs. Raw trend_direction tops ~0.48 and would never clear
+                # dir_prob_min, so trend-alignment needs the calibrated value.
+                m = models.models.get(name)
+                if m is None:
+                    return float("nan")
+                return float(models.apply_calibration(name, float(m.predict(X)[0])))
 
             dir_prob_30 = _pred("direction_30s")
             dir_prob_60 = _pred("direction_60s")
@@ -269,6 +282,9 @@ def run_scored_backtest(
                 "max_drawdown_pe_60s": dn_pe_60,
                 "max_upside_pe_300s": up_pe_300,
                 "max_drawdown_pe_300s": dn_pe_300,
+                # Calibrated 30-min trend heads — for apply_trend_alignment.
+                "trend_direction_1800s": _pred_cal("trend_direction_1800s"),
+                "trend_direction_down_1800s": _pred_cal("trend_direction_down_1800s"),
             }
             structure = (
                 _build_structure_context(row)
@@ -277,6 +293,15 @@ def run_scored_backtest(
             sig = decide_action_wave2(
                 preds, thresholds, wave2_thresholds,
                 ce_ltp=ce_ltp, pe_ltp=pe_ltp, structure=structure,
+            )
+            # Post-gate filters — mirror the live engine so buildup/trend-align
+            # are actually exercised in the backtest (they were absent before).
+            sig = apply_trend_alignment(
+                sig, preds, trend_thresholds.dir_prob_min,
+                enabled=wave2_thresholds.scalp_trend_align and trend_thresholds.enabled,
+            )
+            sig = apply_buildup_filter(
+                sig, row, wave2_thresholds, enabled=wave2_thresholds.buildup_filter,
             )
             action = sig.action
             result = {
