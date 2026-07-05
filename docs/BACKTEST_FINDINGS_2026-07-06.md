@@ -37,8 +37,12 @@ nifty50 lot 75).
   at the *mid*, before any cost** (direction is right on *spot*, but the premium has already
   moved; you're buying the spike and it fades). Spread (~₹55) + charges (₹125) pile on → −₹297.
 - **Selectivity** (conviction / magnitude / RR, top 5–50%): **no profitable subset** (best −₹206).
-- **Trend-alignment, cooldown, structure-TP/SL:** none rescue it — they *select* or change the
-  *exit*, but can't fix a negative-before-costs edge (structure-TP: −₹1.31M, same as model-TP).
+- **Trend-alignment, cooldown, structure-TP/SL, buildup-veto:** none rescue it — they *select*
+  or change the *exit*, but can't fix a negative-before-costs edge. Tested with all three
+  wired into the gate (structure_tp_sl + buildup_filter + real calibrated trend-align, 8 days):
+  naive buy still **−₹2.58M**; pullback +₹266k ≈ trend-align alone → the two OFF filters
+  (`structure_tp_sl`, `buildup_filter`) **add essentially nothing** — leaving them off is correct.
+  (Note: real `apply_trend_alignment` on *calibrated* trend rarely clears 0.55, so it barely bites.)
 - **Trend cohort (30-min):** too sparse (11 trades / 5 days, 0 on 3 days) + broken tight-TP.
 
 ## The pullback strategy — looked great, then failed the generalization test
