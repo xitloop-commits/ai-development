@@ -252,6 +252,9 @@ _HEAD_PREDS: tuple[tuple[str, str], ...] = (
     # Wave 2 base 3-cond on 60s window
     ("direction_prob_60s",       "direction_60s"),
     ("risk_reward_ratio_60s",    "risk_reward_ratio_60s"),
+    # Part B (2026-07-05): PE-leg RR — the scalp gate's C2 uses this for PUTS
+    # (the CE risk_reward_ratio is the wrong leg for a put).
+    ("risk_reward_ratio_pe_60s", "risk_reward_ratio_pe_60s"),
     # Wave 2 direction_persists across windows
     ("direction_persists_60s",   "direction_persists_60s"),
     ("direction_persists_120s",  "direction_persists_120s"),
@@ -290,6 +293,11 @@ _HEAD_PREDS: tuple[tuple[str, str], ...] = (
     # gathered so the prediction logger captures them for analysis.
     ("trend_direction_900s",         "trend_direction_900s"),
     ("trend_direction_1800s",        "trend_direction_1800s"),
+    # Part B (2026-07-05): down-direction heads — the gate fires puts off
+    # these (validated val_auc 0.63/0.64) instead of guessing from the
+    # up head's inverse.
+    ("trend_direction_down_900s",    "trend_direction_down_900s"),
+    ("trend_direction_down_1800s",   "trend_direction_down_1800s"),
     ("trend_continues_900s",         "trend_continues_900s"),
     ("trend_continues_1800s",        "trend_continues_1800s"),
     ("trend_breakout_imminent_900s",  "trend_breakout_imminent_900s"),

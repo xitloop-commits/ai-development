@@ -67,6 +67,44 @@ def test_all_conditions_pass_emits_long_pe_with_pe_leg_targets():
     assert sig.sl == pytest.approx(78.0)
 
 
+# ── Part B: C2 uses the PE-leg RR for puts ────────────────────────────────
+
+
+def test_put_uses_pe_leg_rr_for_c2():
+    # Put candidate: CE RR passes (2.0) but the PE-leg RR is bad (0.5) → Part B
+    # gates the put on the PE RR → blocked on C2_rr.
+    preds = _passing_preds(prob=0.20)  # put side
+    preds["risk_reward_ratio_pe_60s"] = 0.5
+    sig = decide_action_wave2(preds, ce_ltp=100, pe_ltp=80)
+    assert not sig.gate_passed
+    assert "C2_rr" in sig.gate_reasons
+
+
+def test_put_passes_when_pe_rr_ok():
+    preds = _passing_preds(prob=0.20)
+    preds["risk_reward_ratio_pe_60s"] = 2.5  # healthy PE RR
+    sig = decide_action_wave2(preds, ce_ltp=100, pe_ltp=80)
+    assert sig.gate_passed
+    assert sig.action == "LONG_PE"
+
+
+def test_call_ignores_pe_leg_rr():
+    # For a CALL, C2 uses the CE RR; a bad PE RR must NOT block it.
+    preds = _passing_preds(prob=0.80)  # call side
+    preds["risk_reward_ratio_pe_60s"] = 0.1
+    sig = decide_action_wave2(preds, ce_ltp=100, pe_ltp=80)
+    assert sig.gate_passed
+    assert sig.action == "LONG_CE"
+
+
+def test_put_falls_back_to_ce_rr_when_pe_missing():
+    # Pre-Part-B model (no PE RR head): put uses the CE RR (backward compat).
+    preds = _passing_preds(prob=0.20)  # no risk_reward_ratio_pe_60s key
+    sig = decide_action_wave2(preds, ce_ltp=100, pe_ltp=80)
+    assert sig.gate_passed
+    assert sig.action == "LONG_PE"
+
+
 # ── W1: direction_persists_60s ────────────────────────────────────────────
 
 

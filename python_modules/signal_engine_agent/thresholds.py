@@ -434,15 +434,23 @@ def decide_action_wave2(
     # balanced (~50/50). There is no PE-side percentile head yet, so for a put
     # candidate C3 is skipped (the put is still gated by C1 conviction, C2 RR,
     # and the W-conditions, same as a call). Set leg_aware_quality_gate=false to
-    # restore the legacy call-only behaviour. (C2's risk_reward_ratio_60s head
-    # is left as-is for both legs — the PE magnitude heads give RR≈1 and would
-    # over-block; a proper PE-RR / downside-percentile head is the follow-up.)
+    # restore the legacy call-only behaviour.
     enforce_c3 = is_call or not wave2_thresholds.leg_aware_quality_gate
+
+    # Part B (2026-07-05): C2 now uses the leg-appropriate RR — the PE-leg
+    # risk_reward_ratio_pe for PUTS (the CE risk_reward_ratio_60s is the wrong
+    # leg for a put). Falls back to the CE RR when the PE head is missing
+    # (pre-Part-B model), preserving old behaviour.
+    rr_gate = rr_pred_f
+    if not is_call:
+        rr_pe = predictions.get("risk_reward_ratio_pe_60s")
+        if _is_finite(rr_pe):
+            rr_gate = float(rr_pe)
 
     reasons: list[str] = []
     if prob < thresholds.prob_min:
         reasons.append("C1_prob")
-    if rr_pred_f < thresholds.rr_min:
+    if rr_gate < thresholds.rr_min:
         reasons.append("C2_rr")
     if enforce_c3 and pctile_f < thresholds.upside_percentile_min:
         reasons.append("C3_pct")
@@ -591,10 +599,13 @@ class TrendThresholds:
     # instrument. Trend horizon is 30 min, so spamming GO_CALL every
     # tick is meaningless -- the operator wants ONE entry per trend.
     min_seconds_between_signals: int = 600  # 10 min
-    # Calls-only until a dedicated down-direction head exists (Part B). The
-    # trend `direction` head only learned "big UP vs not", so a low value means
-    # "not a big up" (flat OR down), NOT "big down". Firing puts off it is
-    # unreliable, so suppress them. Flip to false once the down head is wired.
+    # Calls-only guard. Default True for safety / pre-Part-B models whose only
+    # direction head is up-only ("big UP vs not" — a low value means flat OR
+    # down, not "big down", so puts off it are unreliable). Part B (2026-07-05)
+    # added the `trend_direction_down` head (val_auc ~0.63/0.64), so
+    # `decide_action_trend` fires puts on genuine down-conviction — set
+    # calls_only=false per-instrument (banknifty done) once the down head is
+    # validated. Absent-down-head models keep the up-only fallback.
     calls_only: bool = True
 
 
@@ -625,24 +636,39 @@ def decide_action_trend(
             gate_passed=False, gate_reasons=["TREND_DISABLED"],
         )
 
-    dir_prob = predictions.get("trend_direction_1800s")
+    up_prob = predictions.get("trend_direction_1800s")
+    down_prob = predictions.get("trend_direction_down_1800s")
     continues = predictions.get("trend_continues_1800s")
     breakout = predictions.get("trend_breakout_imminent_1800s")
 
-    # Direction + continuation are MANDATORY. Missing → fail-closed.
-    if not (_is_finite(dir_prob) and _is_finite(continues)):
+    # Up head + continuation are MANDATORY. Missing → fail-closed.
+    if not (_is_finite(up_prob) and _is_finite(continues)):
         return SignalAction(
             action="WAIT", direction="WAIT",
             entry=0.0, tp=0.0, sl=0.0, rr=0.0,
             gate_passed=False, gate_reasons=["MISSING_TREND_PREDICTION"],
         )
 
-    dir_prob_f = float(dir_prob)
+    up_prob_f = float(up_prob)
     cont_f = float(continues)
-    prob = max(dir_prob_f, 1.0 - dir_prob_f)
+
+    # Part B (2026-07-05): symmetric direction from the up + down heads.
+    # When the down head is present, a PUT fires on genuine DOWN-conviction
+    # (P(down) from trend_direction_down, val_auc ~0.63/0.64) — not the up
+    # head's inverse (which meant "not up" = flat OR down). Falls back to the
+    # old up-only conviction (max(p, 1−p)) when the down head is absent
+    # (pre-Part-B model), so old models behave exactly as before.
+    if _is_finite(down_prob):
+        down_prob_f = float(down_prob)
+        is_call = up_prob_f >= down_prob_f
+        conviction = up_prob_f if is_call else down_prob_f
+    else:
+        conviction = max(up_prob_f, 1.0 - up_prob_f)
+        is_call = up_prob_f > 0.5
+    direction = "GO_CALL" if is_call else "GO_PUT"
 
     reasons: list[str] = []
-    if prob < trend_thresholds.dir_prob_min:
+    if conviction < trend_thresholds.dir_prob_min:
         reasons.append("T1_dir_prob")
     if cont_f < trend_thresholds.continues_min:
         reasons.append("T2_continues")
@@ -653,11 +679,9 @@ def decide_action_trend(
     ):
         reasons.append("T3_breakout")
 
-    is_call = dir_prob_f > 0.5
-    direction = "GO_CALL" if is_call else "GO_PUT"
-
-    # Calls-only guard: the up-only direction head can't reliably call downs, so
-    # suppress trend puts until a real down head is wired (Part B).
+    # Calls-only guard: retained for pre-Part-B models / safety. Per-instrument
+    # config sets calls_only=false once the down head is validated, so puts
+    # fire; with the down head present + calls_only=false this is a no-op.
     if not is_call and trend_thresholds.calls_only:
         return SignalAction(
             action="WAIT", direction="GO_PUT",

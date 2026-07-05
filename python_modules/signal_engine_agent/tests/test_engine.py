@@ -180,6 +180,7 @@ _GATHER_KEYS = {
     # Wave 2 base 3-cond on 60s window
     "direction_prob_60s",
     "risk_reward_ratio_60s",
+    "risk_reward_ratio_pe_60s",  # Part B: PE-leg RR (scalp put gate C2)
     # Wave 2 direction_persists across 5 windows
     "direction_persists_60s",
     "direction_persists_120s",
@@ -218,6 +219,8 @@ _GATHER_KEYS = {
     # `trend.enabled` flag (defaults off).
     "trend_direction_900s",
     "trend_direction_1800s",
+    "trend_direction_down_900s",   # Part B: down heads (trend puts)
+    "trend_direction_down_1800s",
     "trend_continues_900s",
     "trend_continues_1800s",
     "trend_breakout_imminent_900s",

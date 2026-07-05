@@ -20,14 +20,60 @@ from signal_engine_agent.thresholds import (
 
 
 def _preds(dir_prob=0.75, continues=0.70, breakout=0.55,
-           mag=40.0, dd=30.0):
-    return {
+           mag=40.0, dd=30.0, down=None):
+    p = {
         "trend_direction_1800s": dir_prob,
         "trend_continues_1800s": continues,
         "trend_breakout_imminent_1800s": breakout,
         "trend_magnitude_1800s": mag,
         "trend_max_drawdown_1800s": dd,
     }
+    # Part B: include the down head only when a test opts in — absent → the
+    # gate uses the legacy up-only fallback (pre-Part-B model behaviour).
+    if down is not None:
+        p["trend_direction_down_1800s"] = down
+    return p
+
+
+# ── Part B: down head → symmetric puts ──────────────────────────────────
+
+
+def test_down_head_fires_put_on_down_conviction():
+    # Down head confident (0.65 > up 0.30) + calls_only=false → LONG_PE priced
+    # off the PE leg. This is the payoff: puts fire on genuine down-conviction.
+    th = TrendThresholds(enabled=True, calls_only=False)
+    sig = decide_action_trend(_preds(dir_prob=0.30, down=0.65), th, ce_ltp=100, pe_ltp=80)
+    assert sig.gate_passed
+    assert sig.action == "LONG_PE"
+    assert sig.direction == "GO_PUT"
+    # priced off pe_ltp=80: mag 40*0.5=20 → tp=100 ; dd 30*0.5=15 → sl=65
+    assert sig.tp == pytest.approx(100.0)
+    assert sig.sl == pytest.approx(65.0)
+
+
+def test_down_head_still_suppressed_when_calls_only():
+    # Even a confident down head is blocked while calls_only=True (safety /
+    # pre-validation).
+    th = TrendThresholds(enabled=True, calls_only=True)
+    sig = decide_action_trend(_preds(dir_prob=0.30, down=0.65), th, ce_ltp=100, pe_ltp=80)
+    assert not sig.gate_passed
+    assert "TREND_CALLS_ONLY" in sig.gate_reasons
+
+
+def test_up_head_wins_when_higher_than_down():
+    # up 0.62 >= down 0.20 → CALL (down head present but weaker).
+    th = TrendThresholds(enabled=True, calls_only=False)
+    sig = decide_action_trend(_preds(dir_prob=0.62, down=0.20), th, ce_ltp=100, pe_ltp=80)
+    assert sig.gate_passed
+    assert sig.action == "LONG_CE"
+
+
+def test_neither_head_confident_waits():
+    # up 0.40, down 0.50 — both below dir_prob_min 0.60 → WAIT T1.
+    th = TrendThresholds(enabled=True, calls_only=False)
+    sig = decide_action_trend(_preds(dir_prob=0.40, down=0.50), th, ce_ltp=100, pe_ltp=80)
+    assert not sig.gate_passed
+    assert "T1_dir_prob" in sig.gate_reasons
 
 
 # ── Disabled-by-default behaviour ────────────────────────────────────────
