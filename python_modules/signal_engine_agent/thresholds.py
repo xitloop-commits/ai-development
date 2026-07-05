@@ -524,12 +524,18 @@ def decide_action_wave2(
         W3_exit_signal               — model says we'd exit shortly
         W4_breakout_in               — no directional break expected in 60s
     """
-    # ── Base 3-cond gate on 60s window (was 30s pre-Wave-2) ─────────────────
+    # ── Base gate on 60s window (was 30s pre-Wave-2) ────────────────────────
     dir_prob = predictions.get("direction_prob_60s")
     rr_pred = predictions.get("risk_reward_ratio_60s")
     pctile = predictions.get("upside_percentile_60s")
 
-    if not (_is_finite(dir_prob) and _is_finite(rr_pred) and _is_finite(pctile)):
+    # Only the CORE inputs (direction + RR) are required. `upside_percentile`
+    # is a QUALITY filter (C3), not a core signal — and since the 2026-07 leak
+    # fix serves it LAGGED, it is NaN for ~64% of the session (valid only mid-
+    # day). Requiring it here turned every warmup/edge row into
+    # MISSING_PREDICTION → the gate emitted 0 signals on OOS data. C3 below is
+    # applied only when the percentile is actually present.
+    if not (_is_finite(dir_prob) and _is_finite(rr_pred)):
         return SignalAction(
             action="WAIT", direction="WAIT",
             entry=0.0, tp=0.0, sl=0.0, rr=0.0,
@@ -538,7 +544,6 @@ def decide_action_wave2(
 
     dir_prob_f = float(dir_prob)
     rr_pred_f = float(rr_pred)
-    pctile_f = float(pctile)
     prob = max(dir_prob_f, 1.0 - dir_prob_f)
     is_call = dir_prob_f > 0.5
 
@@ -567,7 +572,7 @@ def decide_action_wave2(
         reasons.append("C1_prob")
     if rr_gate < thresholds.rr_min:
         reasons.append("C2_rr")
-    if enforce_c3 and pctile_f < thresholds.upside_percentile_min:
+    if enforce_c3 and _is_finite(pctile) and float(pctile) < thresholds.upside_percentile_min:
         reasons.append("C3_pct")
 
     # ── Wave 2 conditions ───────────────────────────────────────────────────

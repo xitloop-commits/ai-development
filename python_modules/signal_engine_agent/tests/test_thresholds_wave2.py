@@ -174,6 +174,39 @@ def test_missing_base_prediction_returns_wait():
     assert "MISSING_PREDICTION" in sig.gate_reasons
 
 
+# ── De-leak fix: NaN/absent upside_percentile must NOT block the gate ──────
+# The 2026-07 leak fix serves upside_percentile LAGGED → NaN ~64% of the
+# session. It's a quality filter (C3), not a core input; a NaN there must not
+# fail the whole gate (that produced 0 signals on OOS data), and C3 is simply
+# skipped when the percentile is unavailable.
+
+
+def test_nan_percentile_does_not_cause_missing():
+    preds = _passing_preds(prob=0.80)
+    preds["upside_percentile_60s"] = float("nan")
+    sig = decide_action_wave2(preds, ce_ltp=100, pe_ltp=80)
+    assert sig.gate_passed
+    assert sig.action == "LONG_CE"
+    assert "MISSING_PREDICTION" not in sig.gate_reasons
+    assert "C3_pct" not in sig.gate_reasons  # C3 skipped, not failed
+
+
+def test_absent_percentile_key_does_not_cause_missing():
+    preds = _passing_preds(prob=0.80)
+    del preds["upside_percentile_60s"]
+    sig = decide_action_wave2(preds, ce_ltp=100, pe_ltp=80)
+    assert sig.gate_passed
+    assert "MISSING_PREDICTION" not in sig.gate_reasons
+
+
+def test_finite_percentile_still_enforces_c3():
+    # When the percentile IS present, C3 must still bite below threshold.
+    preds = _passing_preds(prob=0.80, pct=40.0)  # below default 60
+    sig = decide_action_wave2(preds, ce_ltp=100, pe_ltp=80)
+    assert not sig.gate_passed
+    assert "C3_pct" in sig.gate_reasons
+
+
 # ── Multiple failures stack ───────────────────────────────────────────────
 
 
