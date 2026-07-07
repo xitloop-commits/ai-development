@@ -175,6 +175,47 @@ describe("rcaMonitor — exit triggers", () => {
     expect(exitTradeMock).not.toHaveBeenCalled();
   });
 
+  it("MOMENTUM_FLIP fires for a non-scalp trade on a confident opposite signal", async () => {
+    const trade = makeOpenTrade({ cohort: "trend" }); // CALL_BUY = bullish
+    getPositionsMock.mockResolvedValueOnce([trade as any]);
+    getSEASignalsMock.mockReturnValue([
+      // GO_PUT is opposite to a long call; 0.7 → confidence 70 ≥ 60.
+      { instrument: "NIFTY", direction: "GO_PUT", direction_prob_30s: 0.7, timestamp: Date.now() },
+    ] as any);
+
+    await (rcaMonitor as any).tick();
+
+    expect(exitTradeMock).toHaveBeenCalledTimes(1);
+    expect(exitTradeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "MOMENTUM_EXIT" }),
+    );
+  });
+
+  it("MOMENTUM_FLIP is skipped for scalps even on a confident opposite signal", async () => {
+    const trade = makeOpenTrade({ cohort: "scalp" });
+    getPositionsMock.mockResolvedValueOnce([trade as any]);
+    getSEASignalsMock.mockReturnValue([
+      { instrument: "NIFTY", direction: "GO_PUT", direction_prob_30s: 0.7, timestamp: Date.now() },
+    ] as any);
+
+    await (rcaMonitor as any).tick();
+
+    expect(exitTradeMock).not.toHaveBeenCalled();
+  });
+
+  it("MOMENTUM_FLIP is skipped when the opposite signal is not confident enough", async () => {
+    const trade = makeOpenTrade({ cohort: "trend" });
+    getPositionsMock.mockResolvedValueOnce([trade as any]);
+    getSEASignalsMock.mockReturnValue([
+      // 0.5 → confidence 50 < 60 → no flip even though direction is opposite.
+      { instrument: "NIFTY", direction: "GO_PUT", direction_prob_30s: 0.5, timestamp: Date.now() },
+    ] as any);
+
+    await (rcaMonitor as any).tick();
+
+    expect(exitTradeMock).not.toHaveBeenCalled();
+  });
+
   it("skips trades that are not OPEN status", async () => {
     const closed = makeOpenTrade({
       status: "CLOSED",

@@ -64,6 +64,10 @@ const DEFAULT_MAX_AGE_MS = 30 * 60 * 1000;          // 30 min — Phase 1 trigge
 const DEFAULT_STALE_TICK_MS = 5 * 60 * 1000;         // 5 min — Phase 2 trigger
 const DEFAULT_VOL_THRESHOLD = 0.7;                   // max_drawdown_pred_30s above which RCA exits
 const TICK_INTERVAL_MS = 30_000;                     // 30 s monitor cadence
+// Momentum-flip guardrails: only cut a position when the opposite signal is
+// CONFIDENT (≥ this 0..100 score), and never on scalps (their direction flips
+// too often to trust a single read). Keeps the flip-exit from firing on noise.
+const MOMENTUM_FLIP_MIN_CONFIDENCE = 60;
 
 interface RcaMonitorOptions {
   /** Max position age before age-exit. Default 30 min. */
@@ -196,10 +200,19 @@ class RcaMonitor {
           continue;
         }
 
-        if (volSignal && this.isFlippedAgainst(trade, volSignal)) {
+        // Momentum-flip exit — cut a position when the model's live read has
+        // reversed against it. Two guards stop it firing on noisy scalp flips:
+        //   1. Skip scalps (their direction flips too often for a single read).
+        //   2. Require the opposite signal to be CONFIDENT (≥ threshold).
+        if (
+          volSignal &&
+          trade.cohort !== "scalp" &&
+          this.isFlippedAgainst(trade, volSignal) &&
+          this.signalConfidence(volSignal) >= MOMENTUM_FLIP_MIN_CONFIDENCE
+        ) {
           await this.exit(channel, trade, "MOMENTUM_FLIP", {
             reason: "MOMENTUM_EXIT",
-            detail: "Latest filtered SEA signal flipped opposite to position",
+            detail: `Model reversed against position (confidence ${Math.round(this.signalConfidence(volSignal))} ≥ ${MOMENTUM_FLIP_MIN_CONFIDENCE})`,
           });
         }
       }
@@ -287,6 +300,16 @@ class RcaMonitor {
       case "PUT_SELL":  return sigBearish; // PE writer flips if model turns bearish
       default:          return false;
     }
+  }
+
+  /** The signal's confidence on its chosen direction, 0..100. Prefers the
+   *  model's `momentum` score; falls back to `direction_prob_30s` (0..1 → 0..100).
+   *  Returns 0 when neither is present, so an unscored signal never trips the
+   *  momentum-flip gate. */
+  private signalConfidence(sig: SEASignal): number {
+    if (typeof sig.momentum === "number") return sig.momentum;
+    if (typeof sig.direction_prob_30s === "number") return sig.direction_prob_30s * 100;
+    return 0;
   }
 
   // ─── C2: inbound APIs ──────────────────────────────────────────
