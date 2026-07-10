@@ -178,6 +178,34 @@ export function optionInstrumentType(segment: string): "OPTIDX" | "OPTFUT" {
   return segment === "MCX_COMM" ? "OPTFUT" : "OPTIDX";
 }
 
+/** Map a UI instrument key to its TradingView underlying symbol + exchange. */
+function tvUnderlying(instrument: string): { exchange: string; symbol: string } | null {
+  const u = instrument.toUpperCase().replace(/[^A-Z]/g, "");
+  if (u.includes("BANK")) return { exchange: "NSE", symbol: "BANKNIFTY" };
+  if (u.startsWith("NIFTY")) return { exchange: "NSE", symbol: "NIFTY" };
+  if (u.includes("CRUDE")) return { exchange: "MCX", symbol: "CRUDEOIL" };
+  if (u.includes("NATURAL") || u.includes("GAS")) return { exchange: "MCX", symbol: "NATURALGAS" };
+  return null;
+}
+
+/** TradingView deep-link to an option contract's LIVE chart, or null when it
+ *  can't be built (missing/invalid expiry, unknown instrument). Symbol format:
+ *  {EXCH}:{UNDERLYING}{YYMMDD}{C|P}{STRIKE}, e.g. NSE:NIFTY260728P24200. */
+export function tradingViewOptionUrl(opts: {
+  instrument: string;
+  strike: number;
+  optionType: "CE" | "PE";
+  expiry?: string | null; // YYYY-MM-DD
+}): string | null {
+  const under = tvUnderlying(opts.instrument);
+  const m = opts.expiry ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(opts.expiry) : null;
+  if (!under || !m) return null;
+  const yymmdd = `${m[1].slice(2)}${m[2]}${m[3]}`;
+  const cp = opts.optionType === "CE" ? "C" : "P";
+  const sym = `${under.exchange}:${under.symbol}${yymmdd}${cp}${Math.round(opts.strike)}`;
+  return `https://www.tradingview.com/chart/?symbol=${sym}`;
+}
+
 /** A trade to plot on the option-strike chart (entry + exit markers). */
 export interface ChartTrade {
   signalSeq: number | null;

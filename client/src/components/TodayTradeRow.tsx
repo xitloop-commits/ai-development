@@ -19,7 +19,7 @@ import {
 import { tradePoints } from '@/lib/tradeCalculations';
 import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel } from '@/lib/tradeThemes';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
-import { optionChartUrl, istDateString } from '@/lib/signalChart';
+import { optionChartUrl, tradingViewOptionUrl, istDateString } from '@/lib/signalChart';
 import { useSelectedSignalSeq } from '@/lib/selectionStore';
 import { useInstrumentTick } from '@/hooks/useTickStream';
 import { InstrumentTag } from './InstrumentTag';
@@ -207,8 +207,18 @@ function _TodayTradeRow({
                 trade.strike != null && (
                   <button
                     type="button"
-                    onClick={() =>
-                      window.open(
+                    onClick={() => {
+                      // Prefer TradingView's LIVE chart for this exact option
+                      // contract; fall back to our signal-marker chart when the
+                      // expiry isn't resolved (can't build the TV symbol).
+                      const tv = tradingViewOptionUrl({
+                        instrument: trade.instrument,
+                        strike: trade.strike!,
+                        optionType: contractLabel,
+                        expiry: trade.expiry,
+                      });
+                      const url =
+                        tv ??
                         optionChartUrl({
                           instrumentKey: trade.instrument,
                           displayName: `${trade.instrument} ${trade.strike} ${contractLabel}`,
@@ -218,13 +228,11 @@ function _TodayTradeRow({
                           optionType: contractLabel,
                           channel,
                           date: istDateString(new Date(trade.openedAt)),
-                        }),
-                        '_blank',
-                        'noopener',
-                      )
-                    }
+                        });
+                      window.open(url, '_blank', 'noopener');
+                    }}
                     className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                    title="Open this strike's option chart with all trades + signal ids"
+                    title="Open the live TradingView chart for this strike (falls back to our signal chart if expiry is unresolved)"
                   >
                     <LineChart className="h-3 w-3" />
                   </button>
