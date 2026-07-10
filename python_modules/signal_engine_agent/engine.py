@@ -221,7 +221,9 @@ def _maybe_submit_ai_trade(signal: dict) -> None:
             # stopLoss/takeProfit accept number OR null — send finite value or null.
             "stopLoss": _finite(signal.get("sl")),
             "takeProfit": _finite(signal.get("tp")),
-            "lots": int(os.environ.get("SEA_AUTO_TRADE_LOTS", "10") or "10"),
+            # No `lots` — SEA only signals. The server sizes the position from
+            # its per-instrument `instrumentSizing` config (fixed lots or % of
+            # capital) via sizedLots(); a lot count sent here would be ignored.
         }
         # Optional fields — include only when finite / present (schema rejects null).
         cohort = signal.get("cohort")
