@@ -98,7 +98,7 @@ async function nextSignalSeq(date: string): Promise<number> {
   const doc = await CounterModel.findByIdAndUpdate(
     `seaSignalSeq:${date}`,
     { $inc: { seq: 1 } },
-    { upsert: true, new: true },
+    { upsert: true, returnDocument: "after" },
   ).lean();
   return (doc as any)?.seq ?? 1;
 }
