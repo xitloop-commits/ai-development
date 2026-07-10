@@ -2,7 +2,7 @@
   "prob_min": 0.75,
   "rr_min": 1.5,
   "upside_percentile_min": 60.0,
-  "gate_mode": "wave2",
+  "gate_mode": "legstart",
   "wave2": {
     "persists_60s_min": 0.0,
     "persists_300s_min": 0.0,
@@ -16,8 +16,21 @@
     "buildup_min_oi_change_pct": 0.5,
     "buildup_min_premium_mom": 0.0
   },
-  "trend": {
+  "legstart": {
     "enabled": true,
+    "ng_ce": 2,
+    "dir_ce": 0.52,
+    "ng_pe": 3,
+    "pe_look": 5,
+    "dir_pe": 0.42,
+    "ema_period": 21,
+    "trend_slope": 5,
+    "sl_pct": 12.0,
+    "tp_pct": 0.0,
+    "maxhold_candles": 20
+  },
+  "trend": {
+    "enabled": false,
     "dir_prob_min": 0.55,
     "continues_min": 0.0,
     "breakout_min": 0.0,
