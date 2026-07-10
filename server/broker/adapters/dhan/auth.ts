@@ -121,11 +121,13 @@ export async function dhanRequest<T>(
       }
 
       // Diagnostic — surface WHICH call failed, the exact status (401 vs 403),
-      // and Dhan's own error code/message, so a recurring "token expired" can be
-      // pinned to a real cause instead of a generic 401.
-      if (isAuthError) {
+      // and Dhan's own error code/message. Logs BOTH 401 and 403; note that only
+      // 401 flips isAuthError (→ token refresh). A 403 is forbidden/entitlement,
+      // logged here for visibility but NOT treated as a dead token.
+      if (response.status === 401 || response.status === 403) {
         log.warn(
           `[dhan-4xx] ${method} ${endpoint} → HTTP ${response.status}` +
+            (response.status === 403 ? " (forbidden — not a token error)" : "") +
             (errorData ? ` · ${errorData.errorCode ?? "?"}: ${errorData.errorMessage ?? ""}` : ""),
         );
       }

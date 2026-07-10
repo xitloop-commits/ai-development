@@ -125,8 +125,13 @@ export const DHAN_RATE_LIMITS = {
 
 // ─── Error Codes ───────────────────────────────────────────────
 
-/** HTTP status codes that indicate token issues */
-export const DHAN_AUTH_ERROR_CODES = [401, 403];
+/** HTTP status codes that mean the TOKEN is bad and a refresh may help.
+ *  Only 401 (Unauthorized). 403 (Forbidden) is an entitlement/permission
+ *  problem — a fresh token won't fix it, so it must NOT trigger the
+ *  self-heal / mark-expired cascade (that produced a recurring, misleading
+ *  "token expired" loop when one endpoint returned 403). 403s are still
+ *  logged via the [dhan-4xx] diagnostic in dhanRequest. */
+export const DHAN_AUTH_ERROR_CODES = [401];
 
 /** Common Dhan error types */
 export const DHAN_ERROR_TYPES = {
