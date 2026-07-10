@@ -244,6 +244,9 @@ export default function SignalChartPage() {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: "#94a3b8",
         fontSize: 11,
+        // Hide the lightweight-charts TradingView attribution logo — it made our
+        // own chart look like the TradingView site.
+        attributionLogo: false,
       },
       grid: {
         vertLines: { color: "rgba(148,163,184,0.08)" },

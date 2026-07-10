@@ -865,8 +865,21 @@ export async function getTradesForDate(
   channel: Channel,
   date: string
 ): Promise<TradeRecord[]> {
-  const doc = await DayRecordModel.findOne({ channel, date }).lean();
-  return doc ? docToDayRecord(doc).trades : [];
+  // Match trades by their OWN openedAt IST date, not the day-record's `date`
+  // field. The paper day record can span multiple calendar days (the day
+  // doesn't always roll over), so a lookup keyed on the record's `date` misses
+  // trades sitting in an earlier-dated record. Scanning is bounded (paper).
+  const docs = await DayRecordModel.find({ channel }).lean();
+  const out: TradeRecord[] = [];
+  for (const doc of docs) {
+    for (const t of docToDayRecord(doc).trades) {
+      const iso = new Date(t.openedAt).toLocaleDateString("en-CA", {
+        timeZone: "Asia/Kolkata",
+      });
+      if (iso === date) out.push(t);
+    }
+  }
+  return out;
 }
 
 export async function upsertDayRecord(
