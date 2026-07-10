@@ -120,6 +120,16 @@ export async function dhanRequest<T>(
         // Response body may not be JSON
       }
 
+      // Diagnostic — surface WHICH call failed, the exact status (401 vs 403),
+      // and Dhan's own error code/message, so a recurring "token expired" can be
+      // pinned to a real cause instead of a generic 401.
+      if (isAuthError) {
+        log.warn(
+          `[dhan-4xx] ${method} ${endpoint} → HTTP ${response.status}` +
+            (errorData ? ` · ${errorData.errorCode ?? "?"}: ${errorData.errorMessage ?? ""}` : ""),
+        );
+      }
+
       return {
         ok: false,
         status: response.status,
