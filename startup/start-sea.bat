@@ -60,7 +60,7 @@ REM   direction_60s AUC is ~0.90 (banknifty) / ~0.87 (nifty50). ai-paper is a
 REM   mock desk (simulated, no real money); paper fills let us measure the real
 REM   cost / TP-SL economics. Comment the next line to disable auto-trade.
 set "SEA_AUTO_TRADE=ai-paper"
-set "SEA_AUTO_TRADE_LOTS=1"
+set "SEA_AUTO_TRADE_LOTS=10"
 
 REM --- Calibration RE-ENABLED 2026-07-02: the 2026-06-30 "mis-fit calibration"
 REM   claim was disproven — scalp calibration is monotonic (Spearman 1.0) and
