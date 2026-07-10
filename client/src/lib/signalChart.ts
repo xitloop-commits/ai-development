@@ -151,6 +151,7 @@ export interface OptionChartTarget {
   optionType: "CE" | "PE";
   channel: string;         // which channel's trades to plot
   date: string;            // YYYY-MM-DD (IST)
+  expiry?: string | null;  // YYYY-MM-DD — enables the "Open in TradingView" link
 }
 
 /** Build the option-strike chart-page URL — opened in a new tab. Shows the
@@ -169,6 +170,7 @@ export function optionChartUrl(t: OptionChartTarget): string {
     channel: t.channel,
     date: t.date,
   });
+  if (t.expiry) p.set("expiry", t.expiry);
   return `${window.location.origin}/?${p.toString()}`;
 }
 
@@ -203,10 +205,13 @@ export function tradingViewOptionUrl(opts: {
   const yymmdd = `${m[1].slice(2)}${m[2]}${m[3]}`;
   const cp = opts.optionType === "CE" ? "C" : "P";
   const sym = `${under.exchange}:${under.symbol}${yymmdd}${cp}${Math.round(opts.strike)}`;
-  return `https://www.tradingview.com/chart/?symbol=${sym}`;
+  // interval=30S → 30-second candles. NOTE: TradingView's sub-minute intervals
+  // need a paid plan; free accounts fall back to 1-minute (switchable in-chart).
+  return `https://www.tradingview.com/chart/?symbol=${sym}&interval=30S`;
 }
 
-/** A trade to plot on the option-strike chart (entry + exit markers). */
+/** A trade to plot on the option-strike chart (entry + exit markers, and
+ *  entry/SL/TP price lines for open trades). */
 export interface ChartTrade {
   signalSeq: number | null;
   side: "CE" | "PE";
@@ -217,4 +222,6 @@ export interface ChartTrade {
   status: string;           // OPEN / CLOSED / …
   exitReason?: string;
   pnl: number;
+  stopLossPrice?: number | null; // current stop (trails) — drawn as a price line
+  targetPrice?: number | null;   // current target — drawn as a price line
 }

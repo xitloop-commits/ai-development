@@ -19,7 +19,7 @@ import {
 import { tradePoints } from '@/lib/tradeCalculations';
 import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel } from '@/lib/tradeThemes';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
-import { optionChartUrl, tradingViewOptionUrl, istDateString } from '@/lib/signalChart';
+import { optionChartUrl, istDateString } from '@/lib/signalChart';
 import { useSelectedSignalSeq } from '@/lib/selectionStore';
 import { useInstrumentTick } from '@/hooks/useTickStream';
 import { InstrumentTag } from './InstrumentTag';
@@ -207,18 +207,11 @@ function _TodayTradeRow({
                 trade.strike != null && (
                   <button
                     type="button"
-                    onClick={() => {
-                      // Prefer TradingView's LIVE chart for this exact option
-                      // contract; fall back to our signal-marker chart when the
-                      // expiry isn't resolved (can't build the TV symbol).
-                      const tv = tradingViewOptionUrl({
-                        instrument: trade.instrument,
-                        strike: trade.strike!,
-                        optionType: contractLabel,
-                        expiry: trade.expiry,
-                      });
-                      const url =
-                        tv ??
+                    onClick={() =>
+                      // Our chart: live-ish candles + entry/exit markers + SL/TP
+                      // lines. It also carries an "Open in TradingView" button
+                      // (needs the expiry, so we pass it through).
+                      window.open(
                         optionChartUrl({
                           instrumentKey: trade.instrument,
                           displayName: `${trade.instrument} ${trade.strike} ${contractLabel}`,
@@ -228,11 +221,14 @@ function _TodayTradeRow({
                           optionType: contractLabel,
                           channel,
                           date: istDateString(new Date(trade.openedAt)),
-                        });
-                      window.open(url, '_blank', 'noopener');
-                    }}
+                          expiry: trade.expiry,
+                        }),
+                        '_blank',
+                        'noopener',
+                      )
+                    }
                     className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                    title="Open the live TradingView chart for this strike (falls back to our signal chart if expiry is unresolved)"
+                    title="Open this strike's chart — candles + your entry/exit + SL/TP (with a TradingView link inside)"
                   >
                     <LineChart className="h-3 w-3" />
                   </button>

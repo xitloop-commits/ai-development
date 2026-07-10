@@ -122,6 +122,9 @@ export const appRouter = router({
             status: t.status,
             exitReason: t.exitReason,
             pnl: t.pnl,
+            // Current SL/TP (they trail) — drawn as price lines on the chart.
+            stopLossPrice: t.stopLossPrice ?? null,
+            targetPrice: t.targetPrice ?? null,
           }))
           .sort((a, b) => a.entryTime - b.entryTime);
       }),

@@ -25,6 +25,7 @@ import {
   createSeriesMarkers,
   ColorType,
   CrosshairMode,
+  LineStyle,
   type IChartApi,
   type UTCTimestamp,
   type SeriesMarker,
@@ -35,6 +36,7 @@ import {
   toCandles,
   underlyingInstrumentType,
   optionInstrumentType,
+  tradingViewOptionUrl,
   istDateString,
   IST_OFFSET_SECONDS,
   type RawCandles,
@@ -60,6 +62,7 @@ interface PageTarget {
   strike?: number;
   side?: "CE" | "PE";
   channel?: string;
+  expiry?: string | null;
 }
 
 /** Read the target off the URL query string (set by signalChartUrl / optionChartUrl). */
@@ -79,6 +82,7 @@ function targetFromUrl(): PageTarget | null {
     strike: p.get("strike") ? Number(p.get("strike")) : undefined,
     side: p.get("side") === "PE" ? "PE" : p.get("side") === "CE" ? "CE" : undefined,
     channel: p.get("channel") ?? undefined,
+    expiry: p.get("expiry") ?? undefined,
   };
 }
 
@@ -118,7 +122,13 @@ export default function SignalChartPage() {
       fromDate: `${date} 00:00:00`,
       toDate: `${date} 23:59:59`,
     },
-    { enabled: !!target?.securityId, retry: 1, refetchOnWindowFocus: false },
+    {
+      enabled: !!target?.securityId,
+      retry: 1,
+      refetchOnWindowFocus: false,
+      // Near-live: refresh candles every 30s while viewing today's chart.
+      refetchInterval: date === istDateString() ? 30_000 : false,
+    },
   );
 
   const signalQuery = trpc.trading.signalsForChart.useQuery(
@@ -135,7 +145,12 @@ export default function SignalChartPage() {
       side: (target?.side ?? "CE") as "CE" | "PE",
       date,
     },
-    { enabled: isOption && !!target?.channel && target?.strike != null, retry: 1, refetchOnWindowFocus: false },
+    {
+      enabled: isOption && !!target?.channel && target?.strike != null,
+      retry: 1,
+      refetchOnWindowFocus: false,
+      refetchInterval: date === istDateString() ? 30_000 : false,
+    },
   );
 
   // Option chart shows the real option premium → plain candles (Heikin Ashi
@@ -204,6 +219,22 @@ export default function SignalChartPage() {
 
   const markers = isOption ? tradeMarkers : signalMarkers;
 
+  // Option-mode: entry / SL / TP horizontal price lines for OPEN trades (their
+  // SL/TP trail, so this reflects the live protection levels).
+  const tradeLines = useMemo(() => {
+    if (!isOption) return [] as { price: number; color: string; title: string }[];
+    const trades = (tradeQuery.data as ChartTrade[] | undefined) ?? [];
+    const out: { price: number; color: string; title: string }[] = [];
+    for (const t of trades) {
+      if (t.status !== "OPEN") continue;
+      const tag = t.signalSeq != null ? `#${t.signalSeq} ` : "";
+      if (t.entryPrice > 0) out.push({ price: t.entryPrice, color: ENTRY, title: `${tag}entry` });
+      if (t.stopLossPrice) out.push({ price: t.stopLossPrice, color: DOWN, title: `${tag}SL` });
+      if (t.targetPrice) out.push({ price: t.targetPrice, color: UP, title: `${tag}TP` });
+    }
+    return out;
+  }, [isOption, tradeQuery.data]);
+
   // (Re)build the chart whenever data changes.
   useEffect(() => {
     if (!containerRef.current || candles.length === 0) return;
@@ -249,13 +280,25 @@ export default function SignalChartPage() {
 
     if (markers.length > 0) createSeriesMarkers(series, markers);
 
+    // Entry / SL / TP horizontal lines for open trades (option mode).
+    for (const l of tradeLines) {
+      series.createPriceLine({
+        price: l.price,
+        color: l.color,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: l.title,
+      });
+    }
+
     chart.timeScale().fitContent();
 
     return () => {
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, markers]);
+  }, [candles, markers, tradeLines]);
 
   const dataQuery = isOption ? tradeQuery : signalQuery;
   const loading =
@@ -277,6 +320,17 @@ export default function SignalChartPage() {
     );
   }
 
+  // "Open in TradingView" link for the exact option — needs the expiry.
+  const tvUrl =
+    isOption && target.strike != null && target.side
+      ? tradingViewOptionUrl({
+          instrument: target.instrumentKey,
+          strike: target.strike,
+          optionType: target.side,
+          expiry: target.expiry,
+        })
+      : null;
+
   return (
     <div className="flex h-screen w-screen flex-col bg-background text-foreground p-4">
       {/* Header */}
@@ -294,6 +348,17 @@ export default function SignalChartPage() {
           onChange={(e) => setDate(e.target.value)}
           className="ml-auto bg-secondary/50 border border-border rounded px-2 py-0.5 text-[0.6875rem] text-foreground"
         />
+        {tvUrl && (
+          <a
+            href={tvUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[0.625rem] font-semibold rounded border border-border px-2 py-0.5 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+            title="Open this exact contract's live chart on TradingView"
+          >
+            TradingView ↗
+          </a>
+        )}
         <span className="text-[0.625rem] text-muted-foreground tabular-nums">
           {overlayCount} {isOption ? "trade" : "signal"}{overlayCount === 1 ? "" : "s"}
         </span>
