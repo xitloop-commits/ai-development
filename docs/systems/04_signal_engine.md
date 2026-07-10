@@ -111,6 +111,16 @@ Tested in `test_thresholds_wave2.py`. Disabled by default — pre-v2 artifact th
 
 V2 design (V2_MASTER_SPEC §2.4 D55) replaces all of the above with three head-type-specific decision functions (`decide_action_scalp`, `decide_action_trend`, `decide_action_swing`) plus a 3-way ensemble combinator with agreement-window upgrade rule and bias-filter magnitude guard. **Largest pending engineering gap before paper-trade ramp.** See [PROJECT_TODO T29](../PROJECT_TODO.md).
 
+### 3.5 Leg-start gate (`gate_mode:"legstart"`, ACTIVE for the forward test — 2026-07-10)
+
+A **stateful** gate that departs from the per-tick model gates above: it aggregates spot ticks into **1-min Heikin-Ashi candles**, tracks a **21-EMA trend line**, and fires ONE trend-aligned signal at the **start of a small leg** — replacing the per-candle flood (banknifty 237/day → ~20). `leg_start.py:LegStartDetector` holds the candle/EMA/lock state; `engine.py` feeds it `(timestamp, spot_price, direction_prob_60s)` each tick when `gate_mode=="legstart"`.
+- **CALL (up-leg):** `ng_ce` green candles + higher-low + `direction_prob_60s ≥ dir_ce` + EMA rising over `trend_slope`.
+- **PUT (down-leg):** `ng_pe` red candles + a fresh lower-low over `pe_look` + `direction_prob_60s ≤ dir_pe` + EMA falling. Tighter than calls (puts on shallow dips are noise).
+- **One-per-leg lock:** no re-fire until the leg breaks (opposite candle takes out the prior extreme) or `maxhold_candles` pass.
+- **Exit = option B:** fixed `sl_pct` stop on the premium + the execution side's time/momentum exits; `tp_pct ≤ 0` → no fixed target (ride the leg), engine sends `tp:null`.
+
+Config block `"legstart"` (`LegStartThresholds`, `load_thresholds_legstart`). Tests: `test_leg_start.py`. **Honest status:** noise *hygiene*, not a proven edge — ~55% raw direction over 10 days, unliftable by extension/conviction/trend-strength filters; buying still loses after fade+costs. Shipped as a discretionary overlay + forward paper test. Revert = `gate_mode:"wave2"` + `trend.enabled:true`.
+
 ## 4. Model loading + calibration apply
 
 `model_loader.py:load_models()` at startup:

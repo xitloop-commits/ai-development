@@ -60,8 +60,10 @@ from signal_engine_agent.thresholds import (
     decide_action_v2,
     decide_action_wave2,
     load_thresholds_full,
+    load_thresholds_legstart,
     load_thresholds_trend,
 )
+from signal_engine_agent.leg_start import LegStartDetector
 
 
 def _build_structure_context(row: dict) -> StructureContext | None:
@@ -627,6 +629,14 @@ def run(
     # Trend gate (cohort=trend, 30-min horizon). Loaded independently
     # of the scalp gate mode so both can fire on the same tick.
     trend_thresholds = load_thresholds_trend(instrument, config_dir)
+    # Leg-start gate (gate_mode="legstart", 2026-07-10). Stateful detector that
+    # fires one trend-aligned signal per leg on the 1-min Heikin-Ashi underlying.
+    # Only instantiated when active so the per-tick candle machinery is free
+    # otherwise.
+    legstart_thresholds = load_thresholds_legstart(instrument, config_dir)
+    legstart_detector = (
+        LegStartDetector(legstart_thresholds) if gate_mode == "legstart" else None
+    )
     if gate_mode == "wave2":
         sustain_filter = None  # model handles persistence via direction_persists_*
         print(
@@ -646,6 +656,16 @@ def run(
             f"momentum>={v2_thresholds.momentum_persistence_min}, "
             f"sr_clearance>={v2_thresholds.sr_clearance_pct}%, "
             f"sustain_n={sustain_filter.window_n})"
+        )
+    elif gate_mode == "legstart":
+        sustain_filter = None  # detector owns dedup (one signal per leg)
+        _ls = legstart_thresholds
+        print(
+            f"  Filter: leg-start gate (1-min Heikin-Ashi, trend-aligned)  "
+            f"(CE {_ls.ng_ce}-green+HL dir>={_ls.dir_ce}, "
+            f"PE {_ls.ng_pe}-red+freshLL dir<={_ls.dir_pe}, "
+            f"EMA{_ls.ema_period} slope{_ls.trend_slope}, "
+            f"SL {_ls.sl_pct}% TP {_ls.tp_pct or 'ride'})"
         )
     else:
         sustain_filter = None
@@ -893,6 +913,47 @@ def run(
                             ["C7_not_sustained"] if confirmed == "WAIT" and raw_sig.gate_passed else []
                         ),
                     )
+            elif gate_mode == "legstart":
+                # Stateful leg-start gate: feed the tick's spot + model
+                # direction into the detector; it fires at most once per leg
+                # (on the candle that starts a trend-aligned move). Exit is
+                # fixed-% SL + the execution side's time/momentum exits (no
+                # fixed TP when tp_pct <= 0 → ride the leg).
+                _ts = _finite(row.get("timestamp"))
+                _spot = _finite(row.get("spot_price"))
+                _dprob = _finite(preds.get("direction_prob_60s"))
+                leg = (
+                    legstart_detector.on_tick(_ts, _spot, _dprob)
+                    if legstart_detector is not None
+                    and _ts is not None and _spot is not None else None
+                )
+                if leg is None:
+                    sig = SignalAction(
+                        action="WAIT", direction="WAIT",
+                        entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+                        gate_passed=False, gate_reasons=["LEG_WAIT"],
+                    )
+                else:
+                    _is_call = "CE" in leg
+                    _ent = _finite(ce_ltp if _is_call else pe_ltp)
+                    if _ent is None or _ent <= 0:
+                        sig = SignalAction(
+                            action="WAIT", direction="WAIT",
+                            entry=0.0, tp=0.0, sl=0.0, rr=0.0,
+                            gate_passed=False, gate_reasons=["NO_LTP"],
+                        )
+                    else:
+                        _slp = legstart_thresholds.sl_pct
+                        _tpp = legstart_thresholds.tp_pct
+                        _sl = _ent * (1.0 - _slp / 100.0)
+                        _tp = _ent * (1.0 + _tpp / 100.0) if _tpp > 0 else 0.0
+                        _rr = round(_tpp / _slp, 2) if (_tpp > 0 and _slp > 0) else 0.0
+                        sig = SignalAction(
+                            action=leg,
+                            direction="GO_CALL" if _is_call else "GO_PUT",
+                            entry=_ent, tp=_tp, sl=_sl, rr=_rr,
+                            gate_passed=True, gate_reasons=[],
+                        )
             else:
                 sig = _decide_via_gate(preds, thresholds, ce_ltp, pe_ltp)
             action = sig.action
@@ -927,7 +988,9 @@ def run(
             # ── Raw signal emission (cooldown, UI feed) ──
             now_ts = time.time()
             should_emit_raw = action != "WAIT" and (
-                action != _last_action or now_ts - _last_emit_ts >= COOLDOWN_SEC
+                # legstart already fires at most once per leg — never suppress it
+                gate_mode == "legstart"
+                or action != _last_action or now_ts - _last_emit_ts >= COOLDOWN_SEC
             )
 
             if should_emit_raw:
@@ -946,14 +1009,21 @@ def run(
                 # Wave-2 scalp window is 60s (the 30s heads were dropped);
                 # read the 60s heads the gate actually consumed.
                 _dp = _finite(preds.get("direction_prob_60s")) or 0.0
-                reason = (
-                    f"{gate_mode} gate · conviction {max(_dp, 1.0 - _dp):.2f} · "
-                    f"RR {_fmt(preds.get('risk_reward_ratio_60s'), 1)} · "
-                    f"pctile {_fmt(preds.get('upside_percentile_30s'), 0)} · "
-                    f"persist60 {_fmt(preds.get('direction_persists_60s'))} · "
-                    f"persist300 {_fmt(preds.get('direction_persists_300s'))} · "
-                    f"exit60 {_fmt(preds.get('exit_signal_60s'))} · regime {regime}"
-                )
+                if gate_mode == "legstart":
+                    reason = (
+                        f"legstart · "
+                        f"{'CALL up-leg' if 'CE' in action else 'PUT down-leg'} "
+                        f"· trend-aligned · conviction {max(_dp, 1.0 - _dp):.2f}"
+                    )
+                else:
+                    reason = (
+                        f"{gate_mode} gate · conviction {max(_dp, 1.0 - _dp):.2f} · "
+                        f"RR {_fmt(preds.get('risk_reward_ratio_60s'), 1)} · "
+                        f"pctile {_fmt(preds.get('upside_percentile_30s'), 0)} · "
+                        f"persist60 {_fmt(preds.get('direction_persists_60s'))} · "
+                        f"persist300 {_fmt(preds.get('direction_persists_300s'))} · "
+                        f"exit60 {_fmt(preds.get('exit_signal_60s'))} · regime {regime}"
+                    )
                 signal = {
                     "timestamp": row.get("timestamp"),
                     "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
@@ -972,7 +1042,9 @@ def run(
                     "max_drawdown_pred_30s": round(preds["max_drawdown_30s"], 2),
                     "regime": regime,
                     "entry": round(entry, 2),
-                    "tp": round(tp, 2),
+                    # legstart with tp_pct<=0 rides the leg (no fixed target) →
+                    # send null so the trade uses time/momentum + SL exits only.
+                    "tp": (None if (gate_mode == "legstart" and tp <= 0) else round(tp, 2)),
                     "sl": round(sl, 2),
                     "rr": rr,
                     "atm_strike": row.get("atm_strike"),

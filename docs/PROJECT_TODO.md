@@ -12,6 +12,26 @@ way (gate MISSING_PREDICTION `9b34c63`, sim-pnl cols `b271bc1`, backtest 0-puts 
 Next honest step = **forward paper-test at tiny size** + gather many more OOS days; cross-
 instrument agreement is now a hard gate on any backtest claim.
 
+## ⚑ Leg-start gate SHIPPED to SEA (2026-07-10) — branch `feat/legstart-gate`, forward-test
+
+New SEA gate mode **`legstart`** — fires ONE trend-aligned signal at the start of a small
+1-min Heikin-Ashi leg instead of the per-tick flood (banknifty 237/day → ~20). Rules:
+CALL = 2 green + higher-low + model up-prob ≥ 0.52 + rising EMA-21; PUT = 3 red + fresh
+lower-low(5) + up-prob ≤ 0.42 + falling EMA-21; one-per-leg lock until the leg breaks.
+Exit = **option B**: fixed % SL (12%) + the execution side's time/momentum exits, no fixed TP
+(rides the leg). Code: new `leg_start.py` (`LegStartDetector`) + `LegStartThresholds`/
+`load_thresholds_legstart` + `"legstart"` registered in `load_thresholds_full` + engine
+dispatch/emit branch. Configs flipped `gate_mode:"legstart"` and **`trend.enabled:false`**
+(isolate the test) for both instruments. Tests: `test_leg_start.py` (7). Parity verified —
+the production detector reproduces the 07-09 chart exactly (21 sigs, 13 CE/8 PE).
+
+**Honest status:** this is signal *hygiene*, NOT a proven money edge — across 10 days the raw
+leg-start direction is only ~55% and no filter (extension / conviction / trend-strength) lifts
+it; buying still loses after fade+costs. Shipped as a **discretionary overlay + forward paper
+test**, not an auto-profit claim. **Next:** run SEA paper (`SEA_AUTO_TRADE`) to accumulate live
+days; revert = set `gate_mode` back to `"wave2"` + `trend.enabled:true`. Consider exit-mode A
+(explicit leg-break exit) only if entries prove out.
+
 ## P0 — active (2026-07-04 weekend batch)
 
 ### LEAK — `upside_percentile_60s` is a look-ahead feature (FIXED for banknifty, nifty50 pending)

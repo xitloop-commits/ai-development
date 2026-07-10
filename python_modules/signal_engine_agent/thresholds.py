@@ -1008,6 +1008,64 @@ def decide_action_trend(
 # ── Per-instrument config loader ──────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class LegStartThresholds:
+    """Leg-start gate configuration (gate_mode="legstart", 2026-07-10).
+
+    Fires ONE trend-aligned signal at the start of a small directional leg on
+    the 1-min Heikin-Ashi underlying, replacing the per-tick model gate's
+    flood. See ``signal_engine_agent.leg_start.LegStartDetector`` for the
+    algorithm.
+
+    Tunable in `config/sea_thresholds/<inst>.json` via:
+      "legstart": {
+        "enabled": true,
+        "ng_ce": 2, "dir_ce": 0.52,
+        "ng_pe": 3, "pe_look": 5, "dir_pe": 0.42,
+        "ema_period": 21, "trend_slope": 5,
+        "sl_pct": 12.0, "tp_pct": 0.0, "maxhold_candles": 20
+      }
+    """
+    # Master switch. Default OFF so the mode is inert unless the JSON opts in.
+    enabled: bool = False
+    # CALL (up-leg): N consecutive green HA candles + higher-low + model up-prob.
+    ng_ce: int = 2
+    dir_ce: float = 0.52
+    # PUT (down-leg): N consecutive red HA candles + a FRESH lower-low over the
+    # last `pe_look` candles + model down-conviction (up-prob <= dir_pe). Tighter
+    # than the call side on purpose — puts on shallow dips are noise.
+    ng_pe: int = 3
+    pe_look: int = 5
+    dir_pe: float = 0.42
+    # Trend line: EMA of HA-close. A call fires only when it is rising over the
+    # last `trend_slope` candles, a put only when it is falling — kills
+    # counter-trend entries.
+    ema_period: int = 21
+    trend_slope: int = 5
+    # Exit (option B): fixed % stop-loss on the option premium. tp_pct <= 0 means
+    # NO fixed target — ride the leg; the execution side's time/momentum exits
+    # close it. maxhold_candles caps how long one leg holds the one-per-leg lock.
+    sl_pct: float = 12.0
+    tp_pct: float = 0.0
+    maxhold_candles: int = 20
+
+
+def load_thresholds_legstart(
+    instrument: str,
+    config_dir: Path = Path("config/sea_thresholds"),
+) -> LegStartThresholds:
+    """Load the per-instrument leg-start gate config. Returns defaults
+    (enabled=False) when no ``legstart`` block is present in the JSON."""
+    inst_path = config_dir / f"{instrument}.json"
+    default_path = config_dir / "default.json"
+    path = inst_path if inst_path.exists() else default_path
+    if not path.exists():
+        return LegStartThresholds()
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    ls_raw = raw.get("legstart")
+    return LegStartThresholds(**ls_raw) if ls_raw else LegStartThresholds()
+
+
 def load_thresholds(
     instrument: str,
     config_dir: Path = Path("config/sea_thresholds"),
@@ -1078,13 +1136,15 @@ def load_thresholds_full(
     raw = json.loads(path.read_text(encoding="utf-8"))
     v2_raw = raw.pop("v2", None)
     wave2_raw = raw.pop("wave2", None)
-    # `trend` block belongs to load_thresholds_trend; drop it here so
-    # Thresholds(**raw) below doesn't choke on the unknown kwarg.
+    # `trend` and `legstart` blocks belong to their own loaders; drop them here
+    # so Thresholds(**raw) below doesn't choke on the unknown kwarg.
     raw.pop("trend", None)
+    raw.pop("legstart", None)
     gate_mode = raw.pop("gate_mode", "current")
-    if gate_mode not in ("current", "wave1", "wave2"):
+    if gate_mode not in ("current", "wave1", "wave2", "legstart"):
         raise ValueError(
-            f"gate_mode must be 'current', 'wave1', or 'wave2', got {gate_mode!r}"
+            "gate_mode must be 'current', 'wave1', 'wave2', or 'legstart', "
+            f"got {gate_mode!r}"
         )
     base = Thresholds(**raw)
 
