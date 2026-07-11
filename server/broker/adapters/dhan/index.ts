@@ -264,11 +264,14 @@ export class DhanAdapter implements BrokerAdapter {
   // ── Auth ──────────────────────────────────────────────────────
 
   async validateToken(): Promise<{ valid: boolean; expiresAt?: number }> {
-    // First check local expiry
+    // PASSIVE health check — polled ~every 30s by the UI status light. It only
+    // REPORTS validity; it must NOT mark-expired / self-heal / print the
+    // "restart to mint fresh" warning. Those belong to a REAL operation failure
+    // (_handleAuthFailure on an actual order/data call). Firing them here made
+    // the warning spam the console on every poll forever.
     if (this.tokenUpdatedAt > 0) {
       const expiry = calculateTokenExpiry(this.tokenUpdatedAt);
       if (expiry.isExpired) {
-        await handleDhan401(this.brokerId);
         return { valid: false };
       }
     }
@@ -290,8 +293,12 @@ export class DhanAdapter implements BrokerAdapter {
       return { valid: true, expiresAt };
     }
 
-    // Token is invalid
-    await handleDhan401(this.brokerId);
+    // Invalid on the health check — reflect it in the connection status for the
+    // UI light, but stay quiet (no warning / mark-expired / refresh here).
+    await updateBrokerConnection(this.brokerId, {
+      apiStatus: "error",
+      lastApiCall: Date.now(),
+    });
     return { valid: false };
   }
 

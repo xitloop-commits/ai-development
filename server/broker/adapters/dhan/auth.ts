@@ -196,6 +196,14 @@ export async function validateDhanToken(
     };
   }
 
+  // 403 Forbidden: the token AUTHENTICATED (a bad token returns 401) — it's just
+  // not permitted for this endpoint (entitlement). The token is VALID; treat it
+  // so, otherwise every 30s status poll marks it "expired" and spams
+  // "restart to mint fresh" forever (a restart can't fix an entitlement).
+  if (result.status === 403) {
+    return { valid: true };
+  }
+
   if (result.isAuthError) {
     return {
       valid: false,
