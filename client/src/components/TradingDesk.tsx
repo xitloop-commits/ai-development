@@ -106,16 +106,7 @@ export default function TradingDesk({
           <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Cash</span>
           <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
         </div>
-        {/* Net (after charges) vs Gross (before charges) P&L display toggle. */}
-        <button
-          type="button"
-          onClick={() => setShowNet((v) => !v)}
-          className="px-3 py-1.5 flex flex-col items-center justify-center hover:bg-muted/40 transition-colors"
-          title={showNet ? 'Showing P&L net of charges — click for gross' : 'Showing gross P&L — click for net'}
-        >
-          <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">P&amp;L</span>
-          <span className="text-xs font-bold tabular-nums text-foreground">{showNet ? 'Net' : 'Gross'}</span>
-        </button>
+        {/* Net/Gross P&L toggle moved to the P&L column header of the table. */}
         {canManageTrades && (
           <button
             type="button"
@@ -181,7 +172,19 @@ export default function TradingDesk({
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Invested</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Charges</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Points</th>
-                  <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L</th>
+                  <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">
+                    <button
+                      type="button"
+                      onClick={() => setShowNet((v) => !v)}
+                      className="inline-flex items-center gap-1 font-bold uppercase hover:text-foreground transition-colors cursor-pointer"
+                      title={showNet ? 'P&L is NET of charges — click for gross' : 'P&L is GROSS (before charges) — click for net'}
+                    >
+                      <span className={`text-[0.5rem] normal-case rounded px-1 py-0.5 ${showNet ? 'bg-bullish/20 text-bullish' : 'bg-warning-amber/20 text-warning-amber'}`}>
+                        {showNet ? 'Net' : 'Gross'}
+                      </span>
+                      P&amp;L
+                    </button>
+                  </th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">P&amp;L %</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Capital</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Dev.</th>
