@@ -62,6 +62,33 @@ export function formatExpiryLabel(expiry?: string | null): string {
   return formatCalendarDay(time);
 }
 
+/** Exchange symbol (as on NSE/MCX) for an instrument key — used for copy/search. */
+export function exchangeSymbol(instrument: string): string | null {
+  const u = (instrument || '').toUpperCase().replace(/[^A-Z]/g, '');
+  if (u.includes('BANK')) return 'BANKNIFTY';
+  if (u.startsWith('NIFTY')) return 'NIFTY';
+  if (u.includes('CRUDE')) return 'CRUDEOIL';
+  if (u.includes('NATURAL') || u.includes('GAS')) return 'NATURALGAS';
+  return null;
+}
+
+const COPY_MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+/** Exchange contract string for clicking the instrument pill to copy, e.g.
+ *  "BANKNIFTY 28 JUL 58000 PUT". Null if any part is missing (expiry/strike/side). */
+export function contractCopyText(
+  instrument: string,
+  expiry: string | null | undefined,
+  strike: number | null | undefined,
+  contractLabel: 'CE' | 'PE' | 'DIR',
+): string | null {
+  const sym = exchangeSymbol(instrument);
+  const side = contractLabel === 'CE' ? 'CALL' : contractLabel === 'PE' ? 'PUT' : null;
+  const m = expiry ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(expiry) : null;
+  if (!sym || !side || strike == null || !m) return null;
+  return `${sym} ${parseInt(m[3], 10)} ${COPY_MONTHS[parseInt(m[2], 10) - 1]} ${Math.round(strike)} ${side}`;
+}
+
 export function formatDateStr(dateStr: string): string {
   if (!dateStr) return '';
   try {

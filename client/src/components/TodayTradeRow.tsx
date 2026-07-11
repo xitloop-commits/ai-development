@@ -15,11 +15,13 @@ import {
   formatExpiryLabel,
   getTradeDirectionLabel,
   getTradeContractLabel,
+  contractCopyText,
 } from '@/lib/tradeFormatters';
 import { tradePoints } from '@/lib/tradeCalculations';
 import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel } from '@/lib/tradeThemes';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
-import { optionChartUrl, istDateString } from '@/lib/signalChart';
+import { istDateString } from '@/lib/signalChart';
+import OptionChartDialog, { type OptionChartTargetLite } from './OptionChartDialog';
 import { useSelectedSignalSeq } from '@/lib/selectionStore';
 import { useInstrumentTick } from '@/hooks/useTickStream';
 import { InstrumentTag } from './InstrumentTag';
@@ -79,6 +81,7 @@ function _TodayTradeRow({
 }: RenderProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [chartOpen, setChartOpen] = useState(false);
   const [slPrice, setSlPrice] = useState('');
   const [tpPrice, setTpPrice] = useState('');
   const theme = getWorkspaceThemeMeta(channelToWorkspace(channel));
@@ -137,6 +140,21 @@ function _TodayTradeRow({
 
   const directionLabel = getTradeDirectionLabel(trade.type);
   const contractLabel = getTradeContractLabel(trade.type);
+  // Target for the popup option chart (only for CE/PE trades with a contract id).
+  const chartTarget: OptionChartTargetLite | null =
+    (contractLabel === 'CE' || contractLabel === 'PE') && trade.contractSecurityId && trade.strike != null
+      ? {
+          instrumentKey: trade.instrument,
+          displayName: `${trade.instrument} ${trade.strike} ${contractLabel}`,
+          securityId: trade.contractSecurityId,
+          exchangeSegment: optionExchangeFor(trade.instrument),
+          strike: trade.strike,
+          side: contractLabel,
+          channel,
+          date: istDateString(new Date(trade.openedAt)),
+          expiry: trade.expiry,
+        }
+      : null;
   const expiryLabel = formatExpiryLabel(trade.expiry);
 
   // Tray→desk selection: highlight + scroll this row when its signal card is clicked.
@@ -176,7 +194,28 @@ function _TodayTradeRow({
             )}
             {/* Instrument identity (the whole closed row is dimmed at row level). */}
             <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0">
-              <InstrumentTag name={trade.instrument} muted={!isOpen} />
+              {(() => {
+                const copyText = contractCopyText(trade.instrument, trade.expiry, trade.strike, contractLabel);
+                return copyText ? (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigator.clipboard?.writeText(copyText).then(
+                        () => toast.success(`Copied: ${copyText}`),
+                        () => toast.error('Copy failed'),
+                      );
+                    }}
+                    className="cursor-pointer"
+                    title={`Click to copy: ${copyText}`}
+                  >
+                    <InstrumentTag name={trade.instrument} muted={!isOpen} />
+                  </span>
+                ) : (
+                  <InstrumentTag name={trade.instrument} muted={!isOpen} />
+                );
+              })()}
               {trade.cohort && (
                 <span
                   className="text-[0.5rem] font-semibold uppercase tracking-wide rounded px-1 py-0.5 shrink-0"
@@ -207,28 +246,9 @@ function _TodayTradeRow({
                 trade.strike != null && (
                   <button
                     type="button"
-                    onClick={() =>
-                      // Our chart: live-ish candles + entry/exit markers + SL/TP
-                      // lines. It also carries an "Open in TradingView" button
-                      // (needs the expiry, so we pass it through).
-                      window.open(
-                        optionChartUrl({
-                          instrumentKey: trade.instrument,
-                          displayName: `${trade.instrument} ${trade.strike} ${contractLabel}`,
-                          securityId: trade.contractSecurityId!,
-                          exchangeSegment: optionExchangeFor(trade.instrument),
-                          strike: trade.strike!,
-                          optionType: contractLabel,
-                          channel,
-                          date: istDateString(new Date(trade.openedAt)),
-                          expiry: trade.expiry,
-                        }),
-                        '_blank',
-                        'noopener',
-                      )
-                    }
+                    onClick={() => setChartOpen(true)}
                     className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                    title="Open this strike's chart — candles + your entry/exit + SL/TP (with a TradingView link inside)"
+                    title="Open this strike's chart popup — candles + your entry/exit + SL/TP, live 5s"
                   >
                     <LineChart className="h-3 w-3" />
                   </button>
@@ -472,6 +492,7 @@ function _TodayTradeRow({
       channel={channel}
       onClose={() => setReconcileOpen(false)}
     />
+    <OptionChartDialog open={chartOpen} onOpenChange={setChartOpen} target={chartTarget} />
     </>
   );
 }
