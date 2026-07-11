@@ -32,6 +32,12 @@ test**, not an auto-profit claim. **Next:** run SEA paper (`SEA_AUTO_TRADE`) to 
 days; revert = set `gate_mode` back to `"wave2"` + `trend.enabled:true`. Consider exit-mode A
 (explicit leg-break exit) only if entries prove out.
 
+### T73 [OPS] — Retraining as a launcher menu item (deferred 2026-07-10) 🆕
+Partha wants retraining (replay → train, per-instrument) to be a **Lubas launcher menu option** he can start whenever needed — not a manual CLI dance. There is already a **Train submenu** in the launcher (old-model pointer moved to `LATEST.bak-preretrain` unlocked it via the per-date lock keyed off `trained_dates`), but it's unconfirmed whether it's wired for the current v12/de-leak/Part-B retrain and easy to fire on demand. **To do:** verify the launcher Train submenu works end-to-end for a fresh retrain; if missing/broken, add/fix the menu entry. Deferred by Partha ("will do it later").
+
+### T74 [ML] — Trade-outcome filter (learn which signals to take) — ON HOLD (data-thin)
+Train a "trade filter" (LightGBM) that predicts *is this leg-start signal worth taking?* — label each historical signal with its realistic-fill trade P&L (buy@ask → ride → sell@bid − ₹125; computed from price history, NO DB trades needed), features = the parquet feature vector at signal time. **Blocker:** only **5 fully-clean days** (07-06/07/08/09/10 — model never saw them; weights trained ≤06-16, val 06-17/18/19, calibration 06-22→07-03). Options: (A) train on the 8 semi-clean days + test on the 5 clean (rosy train), or (B) let the forward paper test accumulate more clean days first. Awaiting Partha's A/B call. Single-feature filters (stretch/conviction/trend-slope) already failed to separate winners over 10 days — multi-feature might, but overfit risk is high on so few days. Cross-instrument + held-out lift is the hard gate.
+
 ## P0 — active (2026-07-04 weekend batch)
 
 ### LEAK — `upside_percentile_60s` is a look-ahead feature (FIXED for banknifty, nifty50 pending)
