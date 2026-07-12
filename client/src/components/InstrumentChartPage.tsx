@@ -55,12 +55,13 @@ const RSI_COLOR = "#a855f7";
 const ENTRY = "#22d3ee";
 
 type ChartStyle = "candle" | "ha" | "line";
-type IndicatorKey = "ma" | "sma" | "ema" | "rsi" | "supertrend";
+type IndicatorKey = "ma" | "sma" | "ema" | "sma9ema9" | "rsi" | "supertrend";
 
 const INDICATOR_OPTIONS: { key: IndicatorKey; label: string }[] = [
   { key: "ma", label: "MA (violet)" },
   { key: "sma", label: "SMA 9 + 21" },
   { key: "ema", label: "EMA 9 + 21" },
+  { key: "sma9ema9", label: "SMA 9 + EMA 9" },
   { key: "rsi", label: "RSI" },
   { key: "supertrend", label: "Supertrend" },
 ];
@@ -302,6 +303,7 @@ export default function InstrumentChartPage() {
     if (indicators.has("ma")) addOverlay(ema(closes, MA_PERIOD), MA_COLOR, 2);
     if (indicators.has("sma")) { addOverlay(sma(closes, 9), SMA9); addOverlay(sma(closes, 21), SMA21); }
     if (indicators.has("ema")) { addOverlay(ema(closes, 9), EMA9); addOverlay(ema(closes, 21), EMA21); }
+    if (indicators.has("sma9ema9")) { addOverlay(sma(closes, 9), SMA9); addOverlay(ema(closes, 9), EMA9); }
 
     if (indicators.has("supertrend")) {
       const st = supertrend(ohlc);
