@@ -182,24 +182,46 @@ def _merge_chunks_to_final(
 ) -> None:
     """Concatenate chunk parquets into one final parquet, write atomically.
 
-    Optional ``on_progress(i, total, stage)`` callback fires at the
-    start ("reading"), once polars completes the streaming pass
-    ("concat"), and once after the atomic rename ("writing"). The
-    previous per-chunk "reading" callbacks are gone — polars handles
-    the whole streaming pass as one operation.
+    Optional ``on_progress(i, total, stage)`` callback fires
+    per-chunk during "reading" (i=1, 2, ..., total), then once each
+    for "concat" (post-writer-close) and "writing" (post-rename).
+    The dashboard consumes "reading" i/total to render the "merging
+    chunks {i}/{total}" line so the operator sees real motion.
 
-    2026-06-19: switched from pyarrow load-all + concat to polars
-    ``scan_parquet([files]).sink_parquet(tmp)`` streaming. The old
-    path read every chunk parquet into RAM as a pyarrow Table, then
-    held BOTH the table list AND the concat result simultaneously
-    while writing — peaked at 3–4 GB on crude oil's ~25-chunk days,
-    on top of the worker's already-fat steady state. Combined with
-    flush_all peak and the targets-cache Polars frames, the worker
-    hit 100% RAM and Windows OOM-killed it, losing the operator's
-    progress. The streaming path keeps merge memory at ~one row-batch
-    (~50-100 MB) regardless of input size. Chunks on disk are still
-    only deleted by the caller AFTER the atomic rename succeeds, so
-    a mid-merge crash leaves the chunks intact for resume.
+    Journey:
+
+    * pre-2026-06-19: pyarrow load-all-tables + pyarrow.concat_tables +
+      write_table. Peaked at 3-4 GB on ~25-chunk crude days because
+      BOTH the table list AND the concat result lived in RAM at once
+      -> OOM on 250+ chunk MCX days.
+
+    * 2026-06-19: switched to polars ``scan_parquet([files]).sink_parquet``
+      streaming. The docstring claimed constant ~50-100 MB memory
+      regardless of chunk count, but that was only true POST-plan --
+      polars still had to read all N chunks' schemas + metadata to
+      build the plan first. On 227-chunk crude oil (2026-06-11) this
+      spiked memory and Windows OOM-killed the worker mid-``sink_parquet``,
+      leaving a 65 KB header-only ``.tmp`` and a dead subprocess. The
+      dashboard also showed frozen "merging chunks 0/227" for the full
+      duration because polars couldn't emit per-chunk progress from
+      inside its single blocking call.
+
+    * 2026-07-02 (this rewrite): reintroduce a chunk-at-a-time pyarrow
+      loop but STREAM through a single ``ParquetWriter`` -- open the
+      writer with chunk 1's schema, then read+write each chunk one at
+      a time. Peak memory is ONE chunk (~1-5 MB for MCX crude, ~30 MB
+      worst case) plus writer buffers. No plan-building phase. And we
+      fire ``on_progress(i, total, "reading")`` every 4 chunks so the
+      dashboard actually moves. Chunks on disk are still only deleted
+      by the caller AFTER the atomic rename succeeds, so a mid-merge
+      crash leaves the chunks intact for resume.
+
+    Schema drift: all chunks come from the same replay session
+    through the same emitter, so schemas match by construction. If a
+    future ingest bug ever produces a chunk with a different schema,
+    pyarrow's ``write_table`` will raise a clear "schema mismatch"
+    error naming the offending column -- we fail fast rather than
+    silently reordering or dropping columns.
     """
     if not chunk_files:
         return
@@ -210,13 +232,36 @@ def _merge_chunks_to_final(
         except Exception:
             pass
 
-    import polars as pl
+    import pyarrow.parquet as pq
 
     tmp = final_path.with_suffix(final_path.suffix + ".tmp")
-    # ``scan_parquet`` accepts a list of paths and treats them as one
-    # logical lazy frame. ``sink_parquet`` writes incrementally without
-    # materialising the full frame.
-    pl.scan_parquet([str(f) for f in chunk_files]).sink_parquet(str(tmp))
+    # Emit "reading" progress every N chunks so the dashboard refreshes
+    # without spamming the Manager dict on hundreds of near-simultaneous
+    # updates. N=4 → an operator watching a 227-chunk merge sees ~57
+    # ticks; plenty of visible motion, negligible IPC cost.
+    _PROGRESS_EVERY = 4
+    writer: pq.ParquetWriter | None = None
+    try:
+        for i, cf in enumerate(chunk_files, 1):
+            table = pq.read_table(str(cf))
+            if writer is None:
+                writer = pq.ParquetWriter(
+                    str(tmp), table.schema, compression="snappy",
+                )
+            writer.write_table(table)
+            # Release the chunk's memory immediately so peak stays at
+            # ~one chunk's worth (~1-5 MB MCX) instead of accumulating.
+            del table
+            if on_progress is not None and (
+                i % _PROGRESS_EVERY == 0 or i == total
+            ):
+                try:
+                    on_progress(i, total, "reading")
+                except Exception:
+                    pass
+    finally:
+        if writer is not None:
+            writer.close()
 
     if on_progress is not None:
         try:
