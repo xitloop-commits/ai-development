@@ -42,9 +42,9 @@ import {
 import { sma, ema, rsi, supertrend, type OHLC } from "@/lib/indicators";
 import { formatDateStr } from "@/lib/tradeFormatters";
 
-const UP = "#22c55e"; // green — up candle / GO_CALL / profit
-const DOWN = "#ef5350"; // red — down candle / GO_PUT / loss
-const BG = "#0e1117"; // dark navy background
+const UP = "#0ecb81"; // teal-green — up candle / GO_CALL / profit
+const DOWN = "#f6465d"; // vivid red — down candle / GO_PUT / loss
+const BG = "#131722"; // dark navy background (TradingView-style)
 const GRID = "rgba(148,163,184,0.06)";
 const MA_COLOR = "#a855f7"; // violet MA
 const SMA9 = "#f59e0b";
