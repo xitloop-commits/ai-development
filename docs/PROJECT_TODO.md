@@ -41,6 +41,22 @@ Train a "trade filter" (LightGBM) that predicts *is this leg-start signal worth 
 ### T75 [UI/SEA] — AI trades save with no expiry → instrument pill not clickable (deferred 2026-07-11) 🆕
 AI (SEA auto-trade) trades store `trade.expiry = null`, so `contractCopyText` returns null and the instrument pill can't build its copy text (e.g. "BANKNIFTY 28 JUL 58000 PUT") nor the option-chart / TradingView link. Manual trades already carry expiry (via `resolveContract`) and work. **Root cause:** the SEA payload (`engine.py _maybe_submit_ai_trade`) sends no expiry; the server plumb already accepts it (`routes.ts:302 → RCA:371 → buildTradeRecord:1139`). **Fix (signal-carries-expiry, NO scrip-master lookup — Partha's call):** (1) `tick_processor.py:~925` attach `row["atm_expiry"] = self._cache.snapshot.expiry` in the same non-feature metadata block as the ATM security ids (the snapshot the ids come from — exact match, not a guess; NOT the WS path); (2) `engine.py` signal dict (~1052-1056 & ~1126-1130) read `row.get("atm_expiry")`; (3) `engine.py` payload (~228-243) add `payload["expiry"]` when present. Server needs NO change. **Forward-only:** new AI trades get expiry; already-saved trades stay blank (backfilling old closed contracts would need the scrip master Partha ruled out). Deferred by Partha 2026-07-11 ("will do it later").
 
+### T76 [UI] — Pop-out per-instrument underlying chart windows (spec locked 2026-07-12; awaiting "go" to build) 🆕
+Separate pop-out browser chart windows to watch/review the market from **our own tick data — NO Dhan**. Brainstormed + **spec locked with Partha 2026-07-12**. **Do NOT build until Partha says "go" (design only for now).**
+
+**Phase 1 — NIFTY + BANK (2 windows):**
+- **Windows / open:** 2 real browser windows, one per instrument (nifty50, banknifty), opened by a single **"Open charts"** button in the app. Lubas runs in a **plain browser** (UI at `localhost:3000`, no Electron/Tauri shell) so auto-popup on page load is popup-blocked — a single click can spawn both. Each window **remembers position, size, interval, date** (localStorage). Needs a dedicated chart **route** (e.g. `/chart?instrument=nifty50`); a pop-out opens its own WS connection + underlying subscription.
+- **Chart content:** the **underlying index** chart (IDX_I securityId from `broker.feed.resolveInstruments`), built entirely from **our ticks** — live WS ticks for today (streaming), recorded disk ticks for past dates from `data/raw/<date>/<instrument>_underlying_ticks.ndjson.gz` (fields `recv_ts` + `ltp` + `security_id`). Underlying files are small (~1.4 MB/day) → past-date loads are fast. (The giant 0.5–1 GB **option** files are NOT used here — that perf problem only bites option charts.) Same tick→candle bucketing whether fed by live WS or disk.
+- **Controls (in-window):** **interval** 1s/15s/30s/1m/2m/3m/4m/5m (default **1m**; bars = ticks bucketed, re-bucket on switch) · **date** picker (recorded dates + today; **default = today if a session is live → live streaming, else the most recent completed session**) · **chart-style** toggle candlestick(default)/Heikin-Ashi/line · **layer toggles** signals on/off + trades on/off.
+- **Candle colors:** green ↑ `#22c55e` / red ↓ `#ef5350` on dark-navy bg `#0e1117` — match Partha's reference screenshot (tune hex to image).
+- **Indicators dropdown (multi-select; each remembers on/off):** violet **MA line** (default on, settable period) · **RSI** (own sub-pane, 0–100) · **SMA 9+21** (price overlay) · **EMA 9+21** (price overlay) · **TREND = Supertrend** (price overlay, green/red bands).
+- **Overlays (for selected date):** **signals** = every SEA signal for that instrument (arrow + signal id + direction; signals are shared, NOT per-channel). **trades** = **ai-paper only** (entry/exit triangle markers green ▲ in / amber ▼ out, P&L, SL/TP price lines).
+- **Past-date behavior:** static full-day view by default **+ optional play button** to replay the day tick-by-tick (DVR; replay-speed control TBD).
+
+**Phase 2 — later (parked by Partha 2026-07-12):** add **CRUDEOIL + NATURALGAS** windows (same design). Option-contract chart overlay / other extras considered later.
+
+**Data to reuse:** signals from `sea_signals` (by date+instrument), trades from ai-paper `day_records` (by date), underlying securityId from `broker.feed.resolveInstruments`.
+
 ## P0 — active (2026-07-04 weekend batch)
 
 ### LEAK — `upside_percentile_60s` is a look-ahead feature (FIXED for banknifty, nifty50 pending)
