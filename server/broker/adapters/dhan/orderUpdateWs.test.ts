@@ -8,6 +8,7 @@
  * - TxnType B/S → BUY/SELL mapping
  * - Reconnection on unexpected close
  * - No reconnection after disconnect()
+ * - Halt after repeated instant rejections + revive via updateCredentials()
  */
 
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -354,6 +355,65 @@ describe("DhanOrderUpdateWs", () => {
       // Advance timers — no reconnect should occur
       vi.advanceTimersByTime(10000);
       expect(getInstances().length).toBe(instanceCountAfterDisconnect);
+    });
+  });
+
+  describe("Rejection halt", () => {
+    // One credentials-rejected cycle as seen live on 2026-07-12: connect →
+    // auth → 5-byte binary refusal → close 1006 → 5s reconnect delay.
+    function rejectCycles(n: number) {
+      for (let i = 0; i < n; i++) {
+        const mock = getInstances().at(-1)!;
+        mock.emit("open");
+        mock.emit("message", Buffer.from([1, 2, 3, 4, 5]), true);
+        mock.emit("close", 1006, "abnormal");
+        vi.advanceTimersByTime(5000);
+      }
+    }
+
+    it("stops reconnecting after 10 consecutive instant rejections", () => {
+      const client = new DhanOrderUpdateWs(TEST_CLIENT, TEST_TOKEN);
+      client.connect();
+
+      rejectCycles(10);
+      const instancesAtHalt = getInstances().length;
+
+      // Halted — no further reconnects no matter how long we wait
+      vi.advanceTimersByTime(60_000);
+      expect(getInstances().length).toBe(instancesAtHalt);
+    });
+
+    it("resumes connecting when credentials are updated after halt", () => {
+      const client = new DhanOrderUpdateWs(TEST_CLIENT, TEST_TOKEN);
+      client.connect();
+
+      rejectCycles(10);
+      const instancesAtHalt = getInstances().length;
+      getInstances().at(-1)!.readyState = MockWs.CLOSED;
+
+      client.updateCredentials(TEST_CLIENT, "fresh-token");
+      expect(getInstances().length).toBe(instancesAtHalt + 1);
+    });
+
+    it("a parsed frame clears the rejection streak", () => {
+      const client = new DhanOrderUpdateWs(TEST_CLIENT, TEST_TOKEN);
+      client.connect(); // instance 1
+
+      // 9 rejections (one short of the halt threshold)… → instances 2..10
+      rejectCycles(9);
+
+      // …then a connection that parses a frame resets the streak to 0 before
+      // its own (instant) close bumps it back to 1. Without the reset this
+      // close would be the 10th and halt reconnects.
+      const healthy = getInstances().at(-1)!;
+      healthy.emit("open");
+      healthy.emit("message", JSON.stringify({ Type: "auth_ack" }));
+      healthy.emit("close", 1006, "abnormal");
+      vi.advanceTimersByTime(5000); // → instance 11
+
+      // 8 more rejections (streak reaches 9) stay below the threshold → 12..19
+      rejectCycles(8);
+      expect(getInstances().length).toBe(19);
     });
   });
 

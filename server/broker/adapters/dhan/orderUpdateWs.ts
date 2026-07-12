@@ -18,6 +18,12 @@ import { createLogger, type Logger } from "../../logger";
 const ORDER_UPDATE_URL = "wss://api-order-update.dhan.co";
 const RECONNECT_DELAY_MS = 5000;
 const HEARTBEAT_INTERVAL_MS = 30000;
+// A close this soon after open, with no parsed frame in between, counts as the
+// server rejecting us (bad/expired token → 5-byte binary refusal + close 1006).
+const RAPID_CLOSE_MS = 10_000;
+// After this many consecutive rapid closes, stop reconnecting until new
+// credentials arrive via updateCredentials(). ~1 min at 5s reconnect delay.
+const MAX_RAPID_CLOSES = 10;
 
 /**
  * Raw order-update frame. `Data` is intentionally untyped — Dhan's real wire
@@ -65,6 +71,9 @@ export class DhanOrderUpdateWs extends EventEmitter {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private shouldReconnect = true;
+  private connectedAt = 0;
+  private rapidCloses = 0;
+  private halted = false;
   private readonly log: Logger;
 
   /**
@@ -90,9 +99,11 @@ export class DhanOrderUpdateWs extends EventEmitter {
     }
 
     this.log.info(`Connecting to ${ORDER_UPDATE_URL}`);
+    this.halted = false;
     this.ws = new WebSocket(ORDER_UPDATE_URL);
 
     this.ws.on("open", () => {
+      this.connectedAt = Date.now();
       this.log.info("Connected, sending auth...");
       this.sendAuth();
       this.startHeartbeat();
@@ -107,11 +118,15 @@ export class DhanOrderUpdateWs extends EventEmitter {
       // Dhan occasionally sends binary frames whose bytes hold no readable
       // JSON (observed 2026-07-12). Nothing to parse — note them and move on.
       if (isBinary || !/^[[{]/.test(text.trimStart())) {
-        this.log.info(`Received unknown values (non-JSON frame, ${text.length} chars)`);
+        const hex = Buffer.isBuffer(data) ? data.toString("hex") : Buffer.from(text).toString("hex");
+        this.log.info(`Received unknown values (non-JSON frame, ${text.length} chars, hex=${hex.slice(0, 64)})`);
         return;
       }
       try {
         const msg = JSON.parse(text);
+        // Any parseable frame means the server accepted us — this is not a
+        // credentials-rejected connection, so clear the rapid-close streak.
+        this.rapidCloses = 0;
         if (msg.Type === "order_alert" && msg.Data) {
           // Lifecycle event. normalize() reads the real wire format, which is
           // camelCase (orderNo/status/legNo/…) with a Title-case status value
@@ -138,7 +153,21 @@ export class DhanOrderUpdateWs extends EventEmitter {
     this.ws.on("close", (code, reason) => {
       this.log.info(`Closed: ${code} ${reason}`);
       this.stopHeartbeat();
-      if (this.shouldReconnect) this.scheduleReconnect();
+      if (!this.shouldReconnect) return;
+      if (Date.now() - this.connectedAt < RAPID_CLOSE_MS) {
+        this.rapidCloses++;
+        if (this.rapidCloses >= MAX_RAPID_CLOSES) {
+          this.halted = true;
+          this.log.error(
+            `Halting reconnects: server dropped the socket ${this.rapidCloses} times in a row right after auth — ` +
+              `credentials are likely rejected. Update the token to resume.`,
+          );
+          return;
+        }
+      } else {
+        this.rapidCloses = 0;
+      }
+      this.scheduleReconnect();
     });
 
     this.ws.on("error", (err) => {
@@ -161,10 +190,15 @@ export class DhanOrderUpdateWs extends EventEmitter {
   updateCredentials(clientId: string, accessToken: string): void {
     this.clientId = clientId;
     this.accessToken = accessToken;
+    this.rapidCloses = 0;
     if (this.connected) {
       // Reconnect with new credentials
       this.disconnect();
       this.shouldReconnect = true;
+      this.connect();
+    } else if (this.halted) {
+      // Reconnects were halted after repeated rejections — new credentials
+      // are the cure, so resume connecting.
       this.connect();
     }
   }
