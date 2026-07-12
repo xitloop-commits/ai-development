@@ -122,7 +122,9 @@ export class DhanOrderUpdateWs extends EventEmitter {
           this.log.info(`frame ${JSON.stringify(msg).slice(0, 400)}`);
         }
       } catch (err) {
-        this.log.error("Parse error:", err);
+        // Log the raw frame so we can see exactly what Dhan sent (e.g. the
+        // multi-line non-JSON frames observed 2026-07-12).
+        this.log.error(`Parse error on raw frame: ${JSON.stringify(data.toString().slice(0, 800))}`, err);
       }
     });
 
