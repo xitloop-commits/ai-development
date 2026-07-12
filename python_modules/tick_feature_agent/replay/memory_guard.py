@@ -33,11 +33,24 @@ from pathlib import Path
 
 # Per-worker peak working-set ceilings (empirical, GB). Pick the
 # high end of observed variation so the guard errs on the safe side.
+#
+# MCX values bumped 2026-07-02 from 10.0 -> 14.0 after crude oil
+# 2026-06-11 (227 chunks) + 2026-06-12 (192 chunks) OOM-killed both
+# workers mid-merge with 2 parallel workers at 10 GB budgeting. The
+# 10 GB constant was empirical for the event-loop steady-state only;
+# on 200+ chunk MCX days the merge phase adds another 3-4 GB of
+# transient pressure (pyarrow ParquetWriter row-group metadata + one
+# decompressed chunk table) on TOP of the still-live adapter state.
+# 14 GB reflects the true peak: 10 (steady) + 4 (merge overhead) with
+# a small margin. Consequence: on a 32 GB box with ~20 GB free, the
+# guard now throttles to 1 crudeoil/naturalgas worker instead of 2 --
+# 2x wall-clock, but zero OOM. If Q1 gets a 64 GB box we can retire
+# the throttle and both dates run parallel again.
 _PER_WORKER_PEAK_GB = {
     "nifty50": 4.0,
     "banknifty": 4.0,
-    "crudeoil": 10.0,
-    "naturalgas": 10.0,
+    "crudeoil": 14.0,
+    "naturalgas": 14.0,
 }
 _DEFAULT_PEAK_GB = 6.0  # unknown instrument → middle ground
 

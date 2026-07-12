@@ -192,12 +192,16 @@ export default function InstrumentChartPage() {
         const key = `${nearest}:${s.direction}`;
         if (seen.has(key)) continue;
         seen.add(key);
+        // Marker text = the model's confidence SCORE (0–100), not the signal id.
+        // direction_prob_30s is a 0–1 probability; guard in case it's already 0–100.
+        const conf = s.confidence;
+        const score = conf == null ? "" : String(Math.round(conf <= 1 ? conf * 100 : conf));
         out.push({
           time: nearest as UTCTimestamp,
           position: isCall ? "belowBar" : "aboveBar",
           color: isCall ? UP : DOWN,
           shape: isCall ? "arrowUp" : "arrowDown",
-          text: s.id ? (s.id.match(/\d+$/)?.[0] ?? "") : "",
+          text: score,
         });
       }
     }

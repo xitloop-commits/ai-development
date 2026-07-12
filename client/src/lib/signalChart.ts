@@ -96,6 +96,8 @@ export interface ChartSignal {
   tp?: number;
   sl?: number;
   cohort?: string;
+  /** Model direction probability (0–1) — shown on the chart marker as a 0–100 score. */
+  confidence?: number | null;
 }
 
 /** Dhan instrument type for the UNDERLYING, derived from its feed segment.

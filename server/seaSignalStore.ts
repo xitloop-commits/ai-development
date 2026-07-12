@@ -149,6 +149,7 @@ export async function getSeaSignalsForChartFromStore(
       tp: r.tp,
       sl: r.sl,
       cohort: r.cohort,
+      confidence: r.direction_prob_30s ?? null,
     }))
     .filter((s) => s.timestamp > 0)
     .sort((a, b) => a.timestamp - b.timestamp);

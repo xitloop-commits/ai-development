@@ -234,6 +234,8 @@ export interface ChartSignal {
   tp?: number;
   sl?: number;
   cohort?: string;
+  /** Model direction probability (0–1) — shown on the chart marker as a 0–100 score. */
+  confidence?: number | null;
 }
 
 /** Map a UI instrument key (NIFTY_50 / BANKNIFTY / …) to its log folder name.
@@ -282,6 +284,7 @@ export function getSEASignalsForChart(instrument: string, date: string): ChartSi
         tp: r.tp ?? undefined,
         sl: r.sl ?? undefined,
         cohort: r.cohort ?? undefined,
+        confidence: r.direction_prob_30s ?? null,
       });
     } catch {
       /* skip malformed */
