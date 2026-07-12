@@ -102,9 +102,16 @@ export class DhanOrderUpdateWs extends EventEmitter {
       this.emit("connected");
     });
 
-    this.ws.on("message", (data: WebSocket.Data) => {
+    this.ws.on("message", (data: WebSocket.RawData, isBinary: boolean) => {
+      const text = data.toString();
+      // Dhan occasionally sends binary frames whose bytes hold no readable
+      // JSON (observed 2026-07-12). Nothing to parse — note them and move on.
+      if (isBinary || !/^[[{]/.test(text.trimStart())) {
+        this.log.info(`Received unknown values (non-JSON frame, ${text.length} chars)`);
+        return;
+      }
       try {
-        const msg = JSON.parse(data.toString());
+        const msg = JSON.parse(text);
         if (msg.Type === "order_alert" && msg.Data) {
           // Lifecycle event. normalize() reads the real wire format, which is
           // camelCase (orderNo/status/legNo/…) with a Title-case status value
@@ -122,9 +129,9 @@ export class DhanOrderUpdateWs extends EventEmitter {
           this.log.info(`frame ${JSON.stringify(msg).slice(0, 400)}`);
         }
       } catch (err) {
-        // Log the raw frame so we can see exactly what Dhan sent (e.g. the
-        // multi-line non-JSON frames observed 2026-07-12).
-        this.log.error(`Parse error on raw frame: ${JSON.stringify(data.toString().slice(0, 800))}`, err);
+        // Text frame that looked like JSON but failed to parse — log the raw
+        // frame so we can see exactly what Dhan sent.
+        this.log.error(`Parse error on raw frame: ${JSON.stringify(text.slice(0, 800))}`, err);
       }
     });
 
