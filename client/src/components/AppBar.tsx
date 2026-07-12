@@ -34,6 +34,26 @@ import {
 // imports the shared `lastModeForWs` from ChannelTabs.
 import { ConfirmPopover } from './ConfirmPopover';
 import { ChannelTabs, lastModeForWs } from './ChannelTabs';
+import { instrumentChartUrl, PHASE1_CHART_INSTRUMENTS } from '@/lib/instrumentChart';
+
+/**
+ * Pop out one chart window per Phase-1 instrument (NIFTY + BANK). A stable
+ * window name per instrument means re-clicking reuses/refocuses the existing
+ * window instead of spawning duplicates; the two open side-by-side so each can
+ * be dragged to its own monitor. Triggered by a click (browsers block windows
+ * opened without a user gesture).
+ */
+function openInstrumentCharts() {
+  const w = Math.round((window.screen.availWidth || 1280) / 2);
+  const h = Math.round((window.screen.availHeight || 800) * 0.9);
+  PHASE1_CHART_INSTRUMENTS.forEach((key, i) => {
+    window.open(
+      instrumentChartUrl(key),
+      `lubas-chart-${key}`,
+      `popup=yes,width=${w},height=${h},left=${i * w},top=0`,
+    );
+  });
+}
 
 // ── Right-side status cluster (API · FEED · AI · Discipline) ──
 // All four indicators consolidated into a single component so AppBar
@@ -468,6 +488,17 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
           title="Open Head-to-Head — AI vs My, paper vs live"
         >
           <span className="font-display text-[0.625rem] font-bold tracking-wider text-info-cyan">H2H</span>
+        </button>
+
+        <div className="w-px self-stretch bg-border shrink-0" />
+
+        {/* Open pop-out instrument charts — NIFTY + BANK (drag to 2nd monitor) */}
+        <button
+          onClick={openInstrumentCharts}
+          className="px-2.5 flex items-center justify-center hover:bg-accent transition-colors shrink-0"
+          title="Open pop-out charts — NIFTY + BANK (each a separate window; drag to a second monitor)"
+        >
+          <span className="font-display text-[0.625rem] font-bold tracking-wider text-violet-pulse">CHARTS</span>
         </button>
 
         <div className="w-px self-stretch bg-border shrink-0" />

@@ -19,6 +19,7 @@ import { querySeaSignals, getSeaSignalsForChartFromStore } from "./seaSignalStor
 import { getSEASignalsForChart, logFolderFor } from "./seaSignals";
 import { getTradesForDate } from "./portfolio/state";
 import { getInstrumentLiveState } from "./instrumentLiveState";
+import { readUnderlyingTicks, listRecordedDates } from "./chartData";
 import { analyzeInstrument } from "./signal-advisor";
 import { brokerRouter } from "./broker/brokerRouter";
 import { portfolioRouter } from "./portfolio/router";
@@ -125,6 +126,57 @@ export const appRouter = router({
             // Current SL/TP (they trail) — drawn as price lines on the chart.
             stopLossPrice: t.stopLossPrice ?? null,
             targetPrice: t.targetPrice ?? null,
+          }))
+          .sort((a, b) => a.entryTime - b.entryTime);
+      }),
+
+    // Recorded underlying ticks for one instrument + date, from our own disk
+    // recording (data/raw/<date>/<inst>_underlying_ticks.ndjson.gz). Parallel
+    // {t, ltp} arrays in epoch SECONDS (UTC); the client buckets them into
+    // candles at any interval. Pure disk read — no Dhan, no live feed. For
+    // "today" the client re-polls to pick up freshly-flushed ticks (near-live).
+    underlyingTicks: publicProcedure
+      .input(
+        z.object({
+          instrument: z.string(),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        }),
+      )
+      .query(({ input }) => readUnderlyingTicks(input.instrument, input.date)),
+
+    // Dates (YYYY-MM-DD, ascending) this instrument has a recorded underlying
+    // tick file for — drives the chart window's date picker.
+    recordedChartDates: publicProcedure
+      .input(z.object({ instrument: z.string() }))
+      .query(({ input }) => listRecordedDates(input.instrument)),
+
+    // All trades for one instrument on one channel + date (ANY strike/side),
+    // shaped for the underlying-chart overlay (entry/exit markers labelled with
+    // signalSeq). Like optionTradesForChart but not strike-scoped.
+    tradesForChart: publicProcedure
+      .input(
+        z.object({
+          channel: z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live"]),
+          instrument: z.string(),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        }),
+      )
+      .query(async ({ input }) => {
+        const wantFolder = logFolderFor(input.instrument);
+        const trades = await getTradesForDate(input.channel as any, input.date);
+        return trades
+          .filter((t) => logFolderFor(t.instrument) === wantFolder)
+          .map((t) => ({
+            signalSeq: t.signalSeq ?? null,
+            side: (t.type.startsWith("CALL_") ? "CE" : t.type.startsWith("PUT_") ? "PE" : "CE") as "CE" | "PE",
+            strike: t.strike ?? null,
+            entryTime: Math.round(t.openedAt / 1000), // ms → epoch seconds
+            entryPrice: t.entryPrice,
+            exitTime: t.closedAt != null ? Math.round(t.closedAt / 1000) : null,
+            exitPrice: t.exitPrice,
+            status: t.status,
+            exitReason: t.exitReason,
+            pnl: t.pnl,
           }))
           .sort((a, b) => a.entryTime - b.entryTime);
       }),
