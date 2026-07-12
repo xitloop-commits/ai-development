@@ -51,14 +51,18 @@ const SMA9 = "#f59e0b";
 const SMA21 = "#3b82f6";
 const EMA9 = "#ec4899";
 const EMA21 = "#84cc16";
+const SMA5 = "#eab308"; // yellow
+const EMA5 = "#f97316"; // orange
 const RSI_COLOR = "#a855f7";
 const ENTRY = "#22d3ee";
 
 type ChartStyle = "candle" | "ha" | "line";
-type IndicatorKey = "ma" | "sma" | "ema" | "sma9ema9" | "rsi" | "supertrend";
+type IndicatorKey = "ma" | "sma" | "ema" | "sma9ema9" | "sma5" | "ema5" | "rsi" | "supertrend";
 
 const INDICATOR_OPTIONS: { key: IndicatorKey; label: string }[] = [
   { key: "ma", label: "MA (violet)" },
+  { key: "sma5", label: "SMA 5" },
+  { key: "ema5", label: "EMA 5" },
   { key: "sma", label: "SMA 9 + 21" },
   { key: "ema", label: "EMA 9 + 21" },
   { key: "sma9ema9", label: "SMA 9 + EMA 9" },
@@ -301,6 +305,8 @@ export default function InstrumentChartPage() {
     };
 
     if (indicators.has("ma")) addOverlay(ema(closes, MA_PERIOD), MA_COLOR, 2);
+    if (indicators.has("sma5")) addOverlay(sma(closes, 5), SMA5);
+    if (indicators.has("ema5")) addOverlay(ema(closes, 5), EMA5);
     if (indicators.has("sma")) { addOverlay(sma(closes, 9), SMA9); addOverlay(sma(closes, 21), SMA21); }
     if (indicators.has("ema")) { addOverlay(ema(closes, 9), EMA9); addOverlay(ema(closes, 21), EMA21); }
     if (indicators.has("sma9ema9")) { addOverlay(sma(closes, 9), SMA9); addOverlay(ema(closes, 9), EMA9); }
