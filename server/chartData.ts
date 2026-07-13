@@ -50,7 +50,13 @@ export function readUnderlyingTicks(instrument: string, date: string): Underlyin
 
   let text: string;
   try {
-    text = zlib.gunzipSync(readFileSync(file)).toString("utf8");
+    // TODAY's file is a LIVE-appended gzip whose final member isn't closed yet,
+    // so a strict gunzip throws "unexpected end of file". Z_SYNC_FLUSH returns
+    // everything decompressed so far (all closed members + the partial tail);
+    // the half-written trailing line is skipped by the per-line guard below.
+    text = zlib
+      .gunzipSync(readFileSync(file), { finishFlush: zlib.constants.Z_SYNC_FLUSH })
+      .toString("utf8");
   } catch {
     return { t: [], ltp: [] };
   }
