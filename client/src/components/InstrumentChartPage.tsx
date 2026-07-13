@@ -33,7 +33,7 @@ import {
 } from "@/lib/instrumentChart";
 import { formatDateStr, formatCalendarDay } from "@/lib/tradeFormatters";
 import { TickChart } from "./TickChart";
-import { useLiveCandles, usePolledSpotCandles } from "@/hooks/useLiveCandles";
+import { useLiveCandles } from "@/hooks/useLiveCandles";
 
 const REPLAY_STEP_MS = 250;
 
@@ -152,11 +152,17 @@ export default function InstrumentChartPage() {
     () => (undData && undData.t?.length ? { t: undData.t, ltp: undData.ltp } : undefined),
     [undData],
   );
-  // Live leg = the feature-stream spot (polled ~2s). The index isn't on the WS
-  // feed the chart window can reach (options are, and stream fine; the index
-  // market-data sits on the spouse feed). alignToSeed shifts the live spot onto
-  // the disk future's last price so there's no basis jump at the seam.
-  const und = usePolledSpotCandles(isToday ? spot : null, intervalSec, undSeed, true);
+  // Live leg = the recorded near-month FUTURE on the primary WS (same F&O segment
+  // as the options that stream fine, and the same contract as the disk history →
+  // no basis offset). NOTE: needs the server restarted so underlyingTicks returns
+  // the contract id.
+  const und = useLiveCandles(
+    isToday ? undData?.securityId ?? null : null,
+    undData?.exchangeSegment ?? "NSE_FNO",
+    intervalSec,
+    isToday,
+    undSeed,
+  );
   const baseCandles = und.candles;
 
   const candles = useMemo<Candle[]>(() => {
