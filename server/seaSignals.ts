@@ -236,6 +236,10 @@ export interface ChartSignal {
   cohort?: string;
   /** Model direction probability (0–1) — shown on the chart marker as a 0–100 score. */
   confidence?: number | null;
+  /** Human-readable rationale the SEA attached to the signal (may be empty). */
+  reason?: string | null;
+  /** Risk-reward ratio at signal time. */
+  rr?: number | null;
 }
 
 /** Map a UI instrument key (NIFTY_50 / BANKNIFTY / …) to its log folder name.
@@ -285,6 +289,8 @@ export function getSEASignalsForChart(instrument: string, date: string): ChartSi
         sl: r.sl ?? undefined,
         cohort: r.cohort ?? undefined,
         confidence: r.direction_prob_30s ?? null,
+        reason: r.reason ?? null,
+        rr: r.rr ?? null,
       });
     } catch {
       /* skip malformed */

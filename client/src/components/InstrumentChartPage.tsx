@@ -41,9 +41,13 @@ const REPLAY_STEP_MS = 250;
 interface ChartTradeRow {
   signalSeq: number | null;
   side: "CE" | "PE";
+  strike: number | null;
   entryTime: number;
+  entryPrice: number;
   exitTime: number | null;
+  exitPrice: number | null;
   status: string;
+  exitReason?: string;
   pnl: number;
 }
 
@@ -77,6 +81,7 @@ export default function InstrumentChartPage() {
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   const [replayCount, setReplayCount] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [selectedSeq, setSelectedSeq] = useState<number | null>(null); // null = latest trade
 
   const today = istDateString();
   const isToday = date === today;
@@ -182,6 +187,33 @@ export default function InstrumentChartPage() {
     return out;
   }, [candles, cutoffTime, showSignals, showTrades, signalsQuery.data, tradesQuery.data]);
 
+  // ── Trade-reason panel: selected trade (else latest) + its signal ───
+  const tradeRows = useMemo(() => (tradesQuery.data as ChartTradeRow[] | undefined) ?? [], [tradesQuery.data]);
+  const signalRows = useMemo(() => (signalsQuery.data as ChartSignal[] | undefined) ?? [], [signalsQuery.data]);
+  const activeTrade = useMemo(() => {
+    if (tradeRows.length === 0) return null;
+    if (selectedSeq != null) {
+      const hit = tradeRows.find((r) => r.signalSeq === selectedSeq);
+      if (hit) return hit;
+    }
+    return tradeRows.reduce((a, b) => (b.entryTime > a.entryTime ? b : a));
+  }, [tradeRows, selectedSeq]);
+  const activeSignal = useMemo(
+    () => (activeTrade?.signalSeq != null ? signalRows.find((s) => s.id === String(activeTrade.signalSeq)) ?? null : null),
+    [signalRows, activeTrade],
+  );
+  const onUnderlyingClick = (clickedSec: number) => {
+    if (tradeRows.length === 0) return;
+    let best = tradeRows[0];
+    let bestD = Infinity;
+    for (const r of tradeRows) {
+      const d = Math.abs(r.entryTime + IST_OFFSET_SECONDS - clickedSec);
+      if (d < bestD) { bestD = d; best = r; }
+    }
+    setSelectedSeq(best.signalSeq ?? null);
+  };
+  const conf01 = (v: number) => Math.round(v <= 1 ? v * 100 : v);
+
   if (!inst || !meta) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-background text-foreground">
@@ -261,12 +293,51 @@ export default function InstrumentChartPage() {
             loading={ticksLoading}
             emptyText={`No recorded ticks for ${formatDateStr(date)}${isToday ? " yet (waiting for the recorder)" : ""}.`}
             className="flex-1"
+            onTimeClick={onUnderlyingClick}
             header={<>
               <span className="font-bold">{meta.displayName}</span>
               <span className="text-muted-foreground">underlying · {intervalLabel}</span>
+              <span className="ml-auto text-[0.5625rem] text-muted-foreground">click a trade marker → reason ↓</span>
             </>}
           />
-          {/* Trade-reason panel lands here (next slice). */}
+          {/* Trade-reason panel — why the selected (else latest) trade was taken. */}
+          <div className="shrink-0 max-h-[30%] overflow-auto rounded border border-border bg-background/40 p-2 text-[0.6875rem]">
+            {activeTrade ? (
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold">Why this trade</span>
+                  {activeTrade.signalSeq != null && <span className="text-muted-foreground">#{activeTrade.signalSeq}</span>}
+                  <span style={{ color: activeTrade.side === "CE" ? CHART_UP : CHART_DOWN }}>
+                    {meta.displayName} {activeTrade.strike ?? ""} {activeTrade.side}
+                  </span>
+                  <span className="ml-auto tabular-nums" style={{ color: activeTrade.pnl >= 0 ? CHART_UP : CHART_DOWN }}>
+                    {activeTrade.status === "OPEN" ? "OPEN" : `${activeTrade.pnl >= 0 ? "+" : ""}${activeTrade.pnl.toFixed(0)}`}
+                    {activeTrade.exitReason ? ` · ${activeTrade.exitReason}` : ""}
+                  </span>
+                </div>
+                {activeSignal && (
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-muted-foreground">
+                    <span>dir <b className="text-foreground">{activeSignal.direction === "GO_CALL" ? "CALL" : "PUT"}</b></span>
+                    {activeSignal.confidence != null && <span>conf <b className="text-foreground">{conf01(activeSignal.confidence)}</b></span>}
+                    {activeSignal.cohort && <span>cohort <b className="text-foreground">{activeSignal.cohort}</b></span>}
+                    {activeSignal.rr != null && <span>R:R <b className="text-foreground">{activeSignal.rr.toFixed(2)}</b></span>}
+                    {activeSignal.entry != null && <span>entry <b className="text-foreground">{activeSignal.entry.toFixed(2)}</b></span>}
+                    {activeSignal.sl != null && <span>SL <b className="text-foreground">{activeSignal.sl.toFixed(2)}</b></span>}
+                    {activeSignal.tp != null && <span>TP <b className="text-foreground">{activeSignal.tp.toFixed(2)}</b></span>}
+                  </div>
+                )}
+                {activeSignal?.reason ? (
+                  <div className="text-foreground/90">{activeSignal.reason}</div>
+                ) : (
+                  <div className="italic text-muted-foreground">
+                    {activeSignal ? "No reason text on this signal." : "Signal detail not found for this trade."}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-muted-foreground">No trades {isToday ? "yet today" : "on this date"}.</div>
+            )}
+          </div>
         </div>
         <div className="flex flex-col min-h-0 w-1/2 gap-2">
           <TickChart

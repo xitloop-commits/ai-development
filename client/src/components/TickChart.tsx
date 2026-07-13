@@ -51,6 +51,9 @@ export interface TickChartProps {
   loading?: boolean;
   emptyText?: string;
   className?: string;
+  /** Fired with the clicked time (IST-shifted epoch seconds) — used to pick the
+   *  nearest trade for the reason panel. */
+  onTimeClick?: (timeSec: number) => void;
 }
 
 export function TickChart({
@@ -64,9 +67,12 @@ export function TickChart({
   loading,
   emptyText,
   className,
+  onTimeClick,
 }: TickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const onTimeClickRef = useRef(onTimeClick);
+  onTimeClickRef.current = onTimeClick;
 
   const candles = useMemo(
     () => (style === "ha" ? heikinAshi(rawCandles) : rawCandles),
@@ -98,6 +104,9 @@ export function TickChart({
       autoSize: true,
     });
     chartRef.current = chart;
+    chart.subscribeClick((param) => {
+      if (param.time != null) onTimeClickRef.current?.(param.time as number);
+    });
 
     const closes = candles.map((c) => c.close);
     const ohlc: OHLC[] = candles.map((c) => ({ high: c.high, low: c.low, close: c.close }));

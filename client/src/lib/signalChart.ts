@@ -98,6 +98,10 @@ export interface ChartSignal {
   cohort?: string;
   /** Model direction probability (0–1) — shown on the chart marker as a 0–100 score. */
   confidence?: number | null;
+  /** Human-readable rationale the SEA attached to the signal (may be empty). */
+  reason?: string | null;
+  /** Risk-reward ratio at signal time. */
+  rr?: number | null;
 }
 
 /** Dhan instrument type for the UNDERLYING, derived from its feed segment.
