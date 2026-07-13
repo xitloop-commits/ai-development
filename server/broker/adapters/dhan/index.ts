@@ -147,8 +147,6 @@ export class DhanAdapter implements BrokerAdapter {
   // Order update callback (for real-time order updates)
   private orderUpdateCb: OrderUpdateCallback | null = null;
   private orderUpdateWs: DhanOrderUpdateWs | null = null;
-  /** [TICKDIAG] contracts already logged as delivering a first tick on this feed. */
-  private _diagSeen = new Set<string>();
 
   // Rate limiter for Dhan API calls
   private rateLimiter = new RateLimiter(10, 250);
@@ -1332,14 +1330,6 @@ export class DhanAdapter implements BrokerAdapter {
       clientId: this.clientId,
       brokerTag: this.brokerId,
       onTick: (tick: TickData) => {
-        // [TICKDIAG] log the FIRST tick seen per contract on this feed so we can
-        // tell which segments the account actually delivers (index/future vs
-        // options). One line per new contract; harmless.
-        const k = `${tick.exchange}:${tick.securityId}`;
-        if (!this._diagSeen.has(k)) {
-          this._diagSeen.add(k);
-          this.log.important(`[TICKDIAG] ${this.brokerId} first tick ${k} ltp=${tick.ltp}`);
-        }
         if (this.tickCallback) this.tickCallback(tick);
       },
       onRawMessage: (data: Buffer) => {
@@ -1379,21 +1369,19 @@ export class DhanAdapter implements BrokerAdapter {
     // Initialize Subscription Manager
     this.subManager = new SubscriptionManager({
       onSubscribe: (instruments) => {
-        const ids = instruments.map((i) => `${i.exchange}:${i.securityId}`).join(",");
         if (this.ws) {
           this.ws.subscribe(instruments);
-          this.log.important(`[SUBDIAG] ${this.brokerId} WS.subscribe → ${instruments.length}: ${ids}`);
         } else {
-          this.log.warn(`[SUBDIAG] ${this.brokerId} WS.subscribe DROPPED (feed WS null) → ${ids}`);
+          const ids = instruments.map((i) => `${i.exchange}:${i.securityId}`).join(",");
+          this.log.warn(`WS.subscribe skipped — feed WS not connected → ${ids}`);
         }
       },
       onUnsubscribe: (instruments) => {
-        const ids = instruments.map((i) => `${i.exchange}:${i.securityId}`).join(",");
         if (this.ws) {
           this.ws.unsubscribe(instruments);
-          this.log.important(`[SUBDIAG] ${this.brokerId} WS.unsubscribe → ${instruments.length}: ${ids}`);
         } else {
-          this.log.warn(`[SUBDIAG] ${this.brokerId} WS.unsubscribe DROPPED (feed WS null) → ${ids}`);
+          const ids = instruments.map((i) => `${i.exchange}:${i.securityId}`).join(",");
+          this.log.warn(`WS.unsubscribe skipped — feed WS not connected → ${ids}`);
         }
       },
     });
