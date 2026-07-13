@@ -157,17 +157,28 @@ export function registerDisciplineRoutes(app: Express): void {
           const { getCapitalState } = await import("../portfolio/state");
           const { portfolioAgent } = await import("../portfolio");
           const { tickBus } = await import("../broker/tickBus");
+          const { getDisciplineSettings } = await import("./disciplineModel");
 
-          const openTrades = await portfolioAgent.listOpenTrades(body.channel);
-          if (openTrades.some((t) => t.instrument === body.instrument)) {
-            log.info(`AI trade skipped — position already open channel=${body.channel} instrument=${body.instrument}`);
-            res.json({
-              success: false,
-              stage: "GUARD",
-              decision: "REJECT",
-              reason: `position already open for ${body.instrument}`,
-            });
-            return;
+          // 2026-07-02: the "one open position per instrument" guard is now
+          // OPT-IN via disciplineSettings.preventDuplicatePositions.enabled.
+          // Default is OFF so SEA's 30s re-emits stack normally -- the
+          // operator can flip it back on from the Settings UI if they want
+          // the pre-2026-07-02 rejection behaviour. maxOpenPositions still
+          // enforces the CHANNEL-wide cap, so this doesn't remove all
+          // stacking limits, just the per-instrument slot.
+          const settings = await getDisciplineSettings("1");
+          if (settings.preventDuplicatePositions?.enabled) {
+            const openTrades = await portfolioAgent.listOpenTrades(body.channel);
+            if (openTrades.some((t) => t.instrument === body.instrument)) {
+              log.info(`AI trade skipped — position already open channel=${body.channel} instrument=${body.instrument}`);
+              res.json({
+                success: false,
+                stage: "GUARD",
+                decision: "REJECT",
+                reason: `position already open for ${body.instrument}`,
+              });
+              return;
+            }
           }
 
           // Re-price the entry to the LIVE option price the trade will track,

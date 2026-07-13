@@ -1473,6 +1473,13 @@ export function DisciplineSection() {
           </DisciplineRow>
 
           <DisciplineRow
+            label="Prevent Duplicate Positions"
+            hint="Skip AI signals for an underlying that already has an OPEN position (per channel). OFF = SEA can stack multiple entries on the same instrument until Max Open Positions is hit."
+            enabled={ds.preventDuplicatePositions?.enabled ?? false}
+            onToggle={(v) => upd('preventDuplicatePositions.enabled', v)}
+          />
+
+          <DisciplineRow
             label="Revenge Trade Cooldown"
             hint="Mandatory cooldown after a stop-loss hit"
             enabled={ds.revengeCooldown?.enabled ?? true}

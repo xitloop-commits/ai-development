@@ -38,6 +38,10 @@ const disciplineSettingsSchema = new Schema<DisciplineAgentSettings & Document>(
     maxConsecutiveLosses: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.maxConsecutiveLosses }) },
     maxTradesPerDay: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.maxTradesPerDay }) },
     maxOpenPositions: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.maxOpenPositions }) },
+    preventDuplicatePositions: {
+      type: new Schema({ enabled: { type: Boolean, default: false } }, { _id: false, strict: false }),
+      default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.preventDuplicatePositions }),
+    },
     revengeCooldown: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.revengeCooldown }) },
     noTradingAfterOpen: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.noTradingAfterOpen }) },
     noTradingBeforeClose: { type: enabledNumberSchema, default: () => ({ ...DEFAULT_DISCIPLINE_AGENT_SETTINGS.noTradingBeforeClose }) },

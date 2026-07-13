@@ -67,6 +67,9 @@ export const disciplineSettingsUpdateSchema = z.object({
     enabled: z.boolean(),
     limit: z.number().int().min(1).max(50),
   }).optional(),
+  preventDuplicatePositions: z.object({
+    enabled: z.boolean(),
+  }).optional(),
   revengeCooldown: z.object({
     enabled: z.boolean(),
     durationMinutes: z.number().int().min(0).max(720),

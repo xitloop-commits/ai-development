@@ -247,6 +247,19 @@ export interface DisciplineAgentSettings {
   // Module 2: Trade Limits
   maxTradesPerDay: { enabled: boolean; limit: number };
   maxOpenPositions: { enabled: boolean; limit: number };
+  /**
+   * Prevent the AI from opening a second position on the same underlying
+   * (per channel) while a first one is still OPEN. When ENABLED, a signal
+   * whose instrument matches an already-open trade in the same channel is
+   * rejected at GUARD stage with reason "position already open".
+   *
+   * DEFAULT: enabled=false -> stacking is allowed. Set enabled=true from
+   * the Settings UI to restore the pre-2026-07-02 behaviour (one position
+   * per instrument per channel at a time). Introduced 2026-07-02 after
+   * the operator asked for a toggle so they could let SEA fire multiple
+   * BANKNIFTY signals on a strong trend day without hitting the guard.
+   */
+  preventDuplicatePositions: { enabled: boolean };
   revengeCooldown: { enabled: boolean; durationMinutes: number; requireAcknowledgment: boolean };
 
   // Module 3: Time Windows (reads from userSettings)
@@ -342,6 +355,10 @@ export const DEFAULT_DISCIPLINE_AGENT_SETTINGS: Omit<DisciplineAgentSettings, "u
   maxConsecutiveLosses: { enabled: true, maxLosses: 3, cooldownMinutes: 30 },
   maxTradesPerDay: { enabled: true, limit: 5 },
   maxOpenPositions: { enabled: true, limit: 3 },
+  // Default OFF (2026-07-02, per operator): let SEA stack signals on the
+  // same underlying until maxOpenPositions is hit. Flip to enabled=true
+  // from Settings UI if the guard behaviour is desired again.
+  preventDuplicatePositions: { enabled: false },
   revengeCooldown: { enabled: true, durationMinutes: 15, requireAcknowledgment: true },
   noTradingAfterOpen: { enabled: true, nseMinutes: 15, mcxMinutes: 15 },
   noTradingBeforeClose: { enabled: true, nseMinutes: 15, mcxMinutes: 15 },
