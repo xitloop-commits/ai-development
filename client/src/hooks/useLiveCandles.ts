@@ -96,3 +96,54 @@ export function useLiveCandles(
 
   return { candles, tickCount: count };
 }
+
+/**
+ * usePolledSpotCandles — like useLiveCandles but fed by a POLLED value (the live
+ * feature-stream spot) instead of the WS tick stream. Used for the underlying,
+ * whose index market-data isn't on the WS feed the chart window can reach.
+ * Accumulates each distinct spot into a buffer and buckets it, seeded (and
+ * optionally basis-aligned) with the disk history.
+ */
+export function usePolledSpotCandles(
+  spot: number | null | undefined,
+  intervalSec: number,
+  seed?: { t: number[]; ltp: number[] } | null,
+  alignToSeed = false,
+): { candles: Candle[]; tickCount: number } {
+  const bufRef = useRef<{ t: number[]; ltp: number[] }>({ t: [], ltp: [] });
+  const lastRef = useRef(0);
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    if (spot == null || !(spot > 0) || spot === lastRef.current) return;
+    lastRef.current = spot;
+    const buf = bufRef.current;
+    buf.t.push(Date.now() / 1000);
+    buf.ltp.push(spot);
+    if (buf.t.length > MAX_TICKS) {
+      buf.t.shift();
+      buf.ltp.shift();
+    }
+    setCount((c) => c + 1);
+  }, [spot]);
+
+  const candles = useMemo(
+    () => {
+      const live = bufRef.current;
+      if (!seed || seed.t.length === 0) return bucketTicks(live.t, live.ltp, intervalSec);
+      const liveStart = live.t.length ? live.t[0] : Infinity;
+      const off = alignToSeed && live.ltp.length ? seed.ltp[seed.ltp.length - 1] - live.ltp[0] : 0;
+      const t: number[] = [];
+      const ltp: number[] = [];
+      for (let i = 0; i < seed.t.length; i++) {
+        if (seed.t[i] < liveStart) { t.push(seed.t[i]); ltp.push(seed.ltp[i]); }
+      }
+      for (let i = 0; i < live.t.length; i++) { t.push(live.t[i]); ltp.push(live.ltp[i] + off); }
+      return bucketTicks(t, ltp, intervalSec);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- bufRef mutated in place; re-bucket on count/interval/seed
+    [count, intervalSec, seed, alignToSeed],
+  );
+
+  return { candles, tickCount: count };
+}

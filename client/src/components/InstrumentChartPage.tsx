@@ -14,7 +14,6 @@ import { trpc } from "@/lib/trpc";
 import {
   IST_OFFSET_SECONDS,
   istDateString,
-  UNDERLYING_SECURITY_ID,
   type Candle,
   type ChartSignal,
 } from "@/lib/signalChart";
@@ -34,7 +33,7 @@ import {
 } from "@/lib/instrumentChart";
 import { formatDateStr, formatCalendarDay } from "@/lib/tradeFormatters";
 import { TickChart } from "./TickChart";
-import { useLiveCandles } from "@/hooks/useLiveCandles";
+import { useLiveCandles, usePolledSpotCandles } from "@/hooks/useLiveCandles";
 
 const REPLAY_STEP_MS = 250;
 
@@ -113,7 +112,7 @@ export default function InstrumentChartPage() {
   // ── Current ATM CE/PE (live) ────────────────────────────────────
   const liveStateQuery = trpc.trading.instrumentLiveState.useQuery(
     { instrument: inst ?? "" },
-    { enabled: !!inst, refetchOnWindowFocus: false, refetchInterval: isToday ? 5000 : false },
+    { enabled: !!inst, refetchOnWindowFocus: false, refetchInterval: isToday ? 2000 : false },
   );
   // instrumentLiveState returns { live, signal, model }; the ATM CE/PE ids live
   // on `live` (fresh feature row) with `signal` as a fallback between rows.
@@ -153,17 +152,11 @@ export default function InstrumentChartPage() {
     () => (undData && undData.t?.length ? { t: undData.t, ltp: undData.ltp } : undefined),
     [undData],
   );
-  // Live leg = the INDEX (IDX_I), which ticks reliably (the recorded future isn't
-  // pushed on the primary feed). alignToSeed shifts the live index onto the disk
-  // future's last price so there's no basis jump at the seam.
-  const und = useLiveCandles(
-    isToday ? UNDERLYING_SECURITY_ID[inst ?? ""] ?? null : null,
-    "IDX_I",
-    intervalSec,
-    isToday,
-    undSeed,
-    true,
-  );
+  // Live leg = the feature-stream spot (polled ~2s). The index isn't on the WS
+  // feed the chart window can reach (options are, and stream fine; the index
+  // market-data sits on the spouse feed). alignToSeed shifts the live spot onto
+  // the disk future's last price so there's no basis jump at the seam.
+  const und = usePolledSpotCandles(isToday ? spot : null, intervalSec, undSeed, true);
   const baseCandles = und.candles;
 
   const candles = useMemo<Candle[]>(() => {
