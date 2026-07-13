@@ -32,7 +32,7 @@ import {
   type ChartStyle,
   type IndicatorKey,
 } from "@/lib/instrumentChart";
-import { formatDateStr } from "@/lib/tradeFormatters";
+import { formatDateStr, formatCalendarDay } from "@/lib/tradeFormatters";
 import { TickChart } from "./TickChart";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 
@@ -117,11 +117,16 @@ export default function InstrumentChartPage() {
   );
   // instrumentLiveState returns { live, signal, model }; the ATM CE/PE ids live
   // on `live` (fresh feature row) with `signal` as a fallback between rows.
-  type AtmShape = { atm_strike?: number; atm_ce_security_id?: string | null; atm_pe_security_id?: string | null } | null;
+  type AtmShape = { atm_strike?: number; atm_ce_security_id?: string | null; atm_pe_security_id?: string | null; hours_to_expiry?: number | null; spot_price?: number | null } | null;
   const ls = liveStateQuery.data as { live?: AtmShape; signal?: AtmShape } | undefined;
   const atmCeId = ls?.live?.atm_ce_security_id ?? ls?.signal?.atm_ce_security_id ?? null;
   const atmPeId = ls?.live?.atm_pe_security_id ?? ls?.signal?.atm_pe_security_id ?? null;
   const atmStrike = ls?.live?.atm_strike ?? ls?.signal?.atm_strike ?? null;
+  const spot = ls?.live?.spot_price ?? ls?.signal?.spot_price ?? null;
+  // Expiry DATE derived from hours-to-expiry on the live feature row (options
+  // expire at 15:30 IST; now + hours lands on the expiry day).
+  const hoursToExp = ls?.live?.hours_to_expiry ?? null;
+  const expiryLabel = hoursToExp != null && hoursToExp > 0 ? formatCalendarDay(Date.now() + hoursToExp * 3600000) : null;
   const optSeg = optionSegmentFor(inst ?? "");
   const optionsEnabled = isToday; // options are live-only (no cheap disk history)
   const ce = useLiveCandles(atmCeId, optSeg, intervalSec, optionsEnabled);
@@ -300,6 +305,8 @@ export default function InstrumentChartPage() {
             header={<>
               <span className="font-bold">{meta.displayName}</span>
               <span className="text-muted-foreground">underlying · {intervalLabel}</span>
+              {spot != null && <span className="tabular-nums" style={{ color: CHART_UP }}>spot {spot.toFixed(2)}</span>}
+              {expiryLabel && <span className="text-muted-foreground">exp {expiryLabel}</span>}
               <span className="ml-auto text-[0.5625rem] text-muted-foreground">click a trade marker → reason ↓</span>
             </>}
           />
@@ -352,7 +359,7 @@ export default function InstrumentChartPage() {
             className="flex-1"
             header={<>
               <span className="font-bold" style={{ color: CHART_UP }}>CE</span>
-              <span className="text-muted-foreground">{atmStrike ?? "ATM"} call · {intervalLabel}</span>
+              <span className="text-muted-foreground">{atmStrike ?? "ATM"} call · {intervalLabel}{expiryLabel ? ` · ${expiryLabel}` : ""}</span>
             </>}
           />
           <TickChart
@@ -364,7 +371,7 @@ export default function InstrumentChartPage() {
             className="flex-1"
             header={<>
               <span className="font-bold" style={{ color: CHART_DOWN }}>PE</span>
-              <span className="text-muted-foreground">{atmStrike ?? "ATM"} put · {intervalLabel}</span>
+              <span className="text-muted-foreground">{atmStrike ?? "ATM"} put · {intervalLabel}{expiryLabel ? ` · ${expiryLabel}` : ""}</span>
             </>}
           />
         </div>

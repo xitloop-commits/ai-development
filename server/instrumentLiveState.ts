@@ -26,6 +26,8 @@ export interface LiveTick {
    *  the option premium (fresher than the signal's, which lags between signals). */
   atm_ce_security_id: string | null;
   atm_pe_security_id: string | null;
+  /** Hours until the traded option expiry — the chart derives the expiry DATE. */
+  hours_to_expiry: number | null;
   strike_step: number;
   data_quality_flag: number;
   time_since_chain_sec: number;
@@ -162,7 +164,10 @@ export function clearLiveStateCache(): void {
 }
 
 export function getInstrumentLiveState(instrument: string): LiveState {
-  const inst = INSTRUMENT_MAP[instrument.toLowerCase()] ?? instrument.toLowerCase();
+  // Normalize the key so "NIFTY_50" / "NIFTY 50" / "nifty50" all resolve to the
+  // "nifty50" file stem (the chart passes "NIFTY_50", which otherwise misses).
+  const norm = instrument.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const inst = INSTRUMENT_MAP[norm] ?? norm;
   const today = todayIST();
 
   // Fingerprint the three files this call would read. Cheap statSync each
@@ -208,6 +213,7 @@ export function getInstrumentLiveState(instrument: string): LiveState {
       atm_strike: row.atm_strike ?? 0,
       atm_ce_security_id: row.atm_ce_security_id != null ? String(row.atm_ce_security_id) : null,
       atm_pe_security_id: row.atm_pe_security_id != null ? String(row.atm_pe_security_id) : null,
+      hours_to_expiry: row.hours_to_expiry ?? null,
       strike_step: row.strike_step ?? 0,
       data_quality_flag: row.data_quality_flag ?? 0,
       time_since_chain_sec: row.time_since_chain_sec ?? 999,
