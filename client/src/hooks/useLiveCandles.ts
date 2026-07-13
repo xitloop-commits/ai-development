@@ -24,11 +24,17 @@ export function useLiveCandles(
   /** Optional disk history (epoch-seconds ticks) to back-fill before the live
    *  buffer — prepended for ticks that predate the first live tick. */
   seed?: { t: number[]; ltp: number[] } | null,
+  /** When the live contract differs from the seed's contract (e.g. seed = future
+   *  disk, live = index), shift live prices so they continue from the seed's last
+   *  price — removes the basis jump at the seam. */
+  alignToSeed = false,
 ): { candles: Candle[]; tickCount: number } {
+  // Index feeds are ticker-mode (no depth); options/futures use full.
+  const mode = exchangeSegment === "IDX_I" ? ("ticker" as const) : ("full" as const);
   // Keep the contract subscribed on the live feed while mounted + enabled.
   const contracts = useMemo(
-    () => (enabled && securityId ? [{ securityId, exchange: exchangeSegment, mode: "full" as const }] : []),
-    [enabled, securityId, exchangeSegment],
+    () => (enabled && securityId ? [{ securityId, exchange: exchangeSegment, mode }] : []),
+    [enabled, securityId, exchangeSegment, mode],
   );
   useFeedSubscriptions(contracts);
 
@@ -74,16 +80,18 @@ export function useLiveCandles(
       if (!seed || seed.t.length === 0) return bucketTicks(live.t, live.ltp, intervalSec);
       // Back-fill: seed ticks that predate the earliest live tick, then live.
       const liveStart = live.t.length ? live.t[0] : Infinity;
+      // Basis shift so live continues from the seed's last price (no seam jump).
+      const off = alignToSeed && live.ltp.length ? seed.ltp[seed.ltp.length - 1] - live.ltp[0] : 0;
       const t: number[] = [];
       const ltp: number[] = [];
       for (let i = 0; i < seed.t.length; i++) {
         if (seed.t[i] < liveStart) { t.push(seed.t[i]); ltp.push(seed.ltp[i]); }
       }
-      for (let i = 0; i < live.t.length; i++) { t.push(live.t[i]); ltp.push(live.ltp[i]); }
+      for (let i = 0; i < live.t.length; i++) { t.push(live.t[i]); ltp.push(live.ltp[i] + off); }
       return bucketTicks(t, ltp, intervalSec);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- bufRef is mutated in place; re-bucket on tick count / interval / contract / seed
-    [count, intervalSec, key, seed],
+    [count, intervalSec, key, seed, alignToSeed],
   );
 
   return { candles, tickCount: count };

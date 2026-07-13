@@ -14,6 +14,7 @@ import { trpc } from "@/lib/trpc";
 import {
   IST_OFFSET_SECONDS,
   istDateString,
+  UNDERLYING_SECURITY_ID,
   type Candle,
   type ChartSignal,
 } from "@/lib/signalChart";
@@ -152,12 +153,16 @@ export default function InstrumentChartPage() {
     () => (undData && undData.t?.length ? { t: undData.t, ltp: undData.ltp } : undefined),
     [undData],
   );
+  // Live leg = the INDEX (IDX_I), which ticks reliably (the recorded future isn't
+  // pushed on the primary feed). alignToSeed shifts the live index onto the disk
+  // future's last price so there's no basis jump at the seam.
   const und = useLiveCandles(
-    isToday ? undData?.securityId ?? null : null,
-    undData?.exchangeSegment ?? "NSE_FNO",
+    isToday ? UNDERLYING_SECURITY_ID[inst ?? ""] ?? null : null,
+    "IDX_I",
     intervalSec,
     isToday,
     undSeed,
+    true,
   );
   const baseCandles = und.candles;
 
