@@ -709,9 +709,9 @@ export function OrderExecutionSection() {
             </>
           )}
 
-          {/* Trade Target — % of entry, or fixed (₹ premium for options / points for others) */}
+          {/* Trade Target — % of entry, or fixed NET ₹ profit (after charges) */}
           <div className="flex items-center justify-between">
-            <FieldLabel hint="OFF: target is a % of entry price. ON: target is a fixed distance — ₹ of option premium, or points for futures/others.">
+            <FieldLabel hint="OFF: target is a % of entry price. ON: target is a fixed NET profit in ₹ (after charges) for the whole trade — the exit is set so P&L net of charges reaches it.">
               Trade Target — Fixed value
             </FieldLabel>
             <ToggleSwitch
@@ -745,23 +745,23 @@ export function OrderExecutionSection() {
           ) : (
             <>
               <div className="flex items-center justify-between">
-                <FieldLabel hint="Fixed target distance for options, in ₹ of premium (above entry).">
-                  Trade Target (Options)
+                <FieldLabel hint="Net profit target (₹, after charges) for an OPTION trade — exit when the trade's net P&L reaches this amount.">
+                  Net Profit Target (Options)
                 </FieldLabel>
                 <NumberInput
                   value={settings.tradeTargetOptionsFixed}
                   onChange={(v) => setSettings((s) => ({ ...s, tradeTargetOptionsFixed: v }))}
-                  min={0} max={100000} step={1} suffix="₹"
+                  min={0} max={100000} step={10} suffix="₹ net"
                 />
               </div>
               <div className="flex items-center justify-between">
-                <FieldLabel hint="Fixed target distance for futures/others, in points.">
-                  Trade Target (Other)
+                <FieldLabel hint="Net profit target (₹, after charges) for a FUTURES/OTHER trade — exit when the trade's net P&L reaches this amount.">
+                  Net Profit Target (Other)
                 </FieldLabel>
                 <NumberInput
                   value={settings.tradeTargetOtherFixed}
                   onChange={(v) => setSettings((s) => ({ ...s, tradeTargetOtherFixed: v }))}
-                  min={0} max={100000} step={1} suffix="pts"
+                  min={0} max={100000} step={10} suffix="₹ net"
                 />
               </div>
             </>

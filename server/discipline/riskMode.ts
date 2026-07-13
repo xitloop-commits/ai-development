@@ -8,6 +8,9 @@
  *
  * "ai" mode (the default) does not call this — the model's signal SL/TP are used.
  */
+import { calculateTradeCharges, type ChargeRate } from "../portfolio/charges";
+import { getUserSettings } from "../userSettings";
+
 export function manualRiskSlTp(
   entry: number,
   slPct: number,
@@ -62,4 +65,63 @@ export function riskSlTp(
   return opts.isLong
     ? { stopLoss: round2(entry - slDist), takeProfit: round2(entry + tpDist) }
     : { stopLoss: round2(entry + slDist), takeProfit: round2(entry - tpDist) };
+}
+
+/**
+ * Target PRICE that leaves `netTarget` ₹ of profit AFTER round-trip charges, for
+ * the whole position. `roundTripCharges(exitPrice)` estimates total charges for
+ * the position at a candidate exit. One-pass estimate (charges are turnover-based
+ * so they depend on exit): rough exit → charges there → final exit. Good to the
+ * rupee. Degrades to entry±netTarget when qty is unknown.
+ */
+export function netProfitTargetPrice(
+  entry: number,
+  isLong: boolean,
+  qty: number,
+  netTarget: number,
+  roundTripCharges: (exitPrice: number) => number,
+): number {
+  const round2 = (x: number) => Math.round(x * 100) / 100;
+  if (!(qty > 0)) return round2(isLong ? entry + netTarget : entry - netTarget);
+  const rough = isLong ? entry + netTarget / qty : entry - netTarget / qty;
+  const est = roundTripCharges(rough);
+  const tpDist = (netTarget + est) / qty;
+  return round2(isLong ? entry + tpDist : entry - tpDist);
+}
+
+/**
+ * SL/TP honouring percent|fixed, with the FIXED target interpreted as the desired
+ * NET profit (₹, after charges) for the whole position — converted to a target
+ * price via qty + estimated round-trip charges (the trade-row Charges formula).
+ * Stoploss and the percent target come straight from riskSlTp (charges-free).
+ */
+export async function resolveRiskLevels(
+  entry: number,
+  opts: {
+    isOption: boolean;
+    isLong: boolean;
+    qty: number;
+    exchange: "NSE" | "MCX";
+    settings: RiskSettingsLite;
+  },
+): Promise<{ stopLoss: number; takeProfit: number }> {
+  const base = riskSlTp(entry, {
+    isOption: opts.isOption,
+    isLong: opts.isLong,
+    settings: opts.settings,
+  });
+  if (opts.settings.targetMode !== "fixed") return base;
+
+  const netTarget = opts.isOption
+    ? (opts.settings.tradeTargetOptionsFixed ?? 40)
+    : (opts.settings.tradeTargetOtherFixed ?? 5);
+  const userSettings = await getUserSettings(1);
+  const rates = userSettings.charges.rates as ChargeRate[];
+  const takeProfit = netProfitTargetPrice(entry, opts.isLong, opts.qty, netTarget, (exitPrice) =>
+    calculateTradeCharges(
+      { entryPrice: entry, exitPrice, qty: opts.qty, isBuy: opts.isLong, exchange: opts.exchange },
+      rates,
+    ).total,
+  );
+  return { stopLoss: base.stopLoss, takeProfit };
 }

@@ -199,27 +199,11 @@ export function registerDisciplineRoutes(app: Express): void {
             }
           }
 
-          // AI-risk toggle (global): "manual" overrides the model's SL/TP with the
-          // configured Risk-Management percentages (SL = defaultSL%, TP =
-          // tradeTargetOptions% — AI trades are always long options), computed off
-          // the re-priced entry. "ai" (default) keeps the model's own SL/TP from the
-          // signal. Only AI trades hit this path (manual UI trades send `quantity`).
+          // Broker config drives both position sizing (below) and the AI-risk
+          // SL/TP override (applied after quantity is known — a fixed target is a
+          // NET-₹ profit that needs qty + charges).
           const { getActiveBrokerConfig } = await import("../broker/brokerConfig");
           const brokerCfg = await getActiveBrokerConfig();
-          if (brokerCfg?.settings?.aiRiskMode === "manual" && entryPrice > 0) {
-            const { riskSlTp } = await import("./riskMode");
-            // AI trades are always LONG options → isOption/isLong true. riskSlTp
-            // honours the configured slMode/targetMode (percent or fixed ₹).
-            ({ stopLoss, takeProfit } = riskSlTp(entryPrice, {
-              isOption: true,
-              isLong: true,
-              settings: brokerCfg.settings,
-            }));
-            log.info(
-              `AI risk=manual ${body.instrument} SL=${stopLoss} TP=${takeProfit} ` +
-                `(sl=${brokerCfg.settings.slMode}, tp=${brokerCfg.settings.targetMode})`,
-            );
-          }
 
           const lotSize = (await resolveLotSize(body.instrument)) ?? 1;
           const cap = await getCapitalState(body.channel);
@@ -238,6 +222,26 @@ export function registerDisciplineRoutes(app: Express): void {
           quantity = Math.max(1, Math.round(lots * lotSize));
           estimatedValue = quantity * entryPrice;
           currentExposure = openTrades.reduce((s, t) => s + t.entryPrice * t.qty, 0);
+
+          // AI-risk toggle (global): "manual" overrides the model's SL/TP with the
+          // configured Risk-Management values, off the re-priced entry + now-known
+          // quantity. A FIXED target is a NET-₹ profit (after charges), so it needs
+          // qty. "ai" (default) keeps the model's own SL/TP. AI trades are always
+          // LONG options. Only AI trades hit this path (manual UI trades send qty).
+          if (brokerCfg?.settings?.aiRiskMode === "manual" && entryPrice > 0) {
+            const { resolveRiskLevels } = await import("./riskMode");
+            ({ stopLoss, takeProfit } = await resolveRiskLevels(entryPrice, {
+              isOption: true,
+              isLong: true,
+              qty: quantity,
+              exchange: body.exchange === "MCX" ? "MCX" : "NSE",
+              settings: brokerCfg.settings,
+            }));
+            log.info(
+              `AI risk=manual ${body.instrument} SL=${stopLoss} TP=${takeProfit} ` +
+                `(sl=${brokerCfg.settings.slMode}, tp=${brokerCfg.settings.targetMode})`,
+            );
+          }
         }
 
         // 1. DA pre-trade gate. Pass channel through so per-channel

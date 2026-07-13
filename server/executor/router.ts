@@ -24,7 +24,7 @@ import {
   resolveLotSize,
   resolveNearestExpiry,
 } from "./tradeResolution";
-import { riskSlTp } from "../discipline/riskMode";
+import { resolveRiskLevels } from "../discipline/riskMode";
 import { getExecutorSettings, updateExecutorSettings } from "./settings";
 import { getCapitalState, getDayRecord } from "../portfolio/state";
 import { notifyTradeExit } from "../_core/tradeEventNotifier";
@@ -325,9 +325,13 @@ export const executorRouter = router({
       //    default (percent OR fixed ₹, per slMode/targetMode) ─
       const isBuy = input.type.includes("BUY");
       const config = await getActiveBrokerConfig();
-      const riskDefault = riskSlTp(entryPrice, {
+      // A FIXED target is a NET-₹ profit → needs qty + charges; resolveRiskLevels
+      // converts it to a target price. SL + percent target are charges-free.
+      const riskDefault = await resolveRiskLevels(entryPrice, {
         isOption, // declared above (CALL_/PUT_ prefix)
         isLong: isBuy,
+        qty,
+        exchange: /CRUDE|NATURAL/i.test(input.instrument) ? "MCX" : "NSE",
         settings: config?.settings ?? {},
       });
 
