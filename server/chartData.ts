@@ -16,7 +16,8 @@
  * NOTE: the OPTION tick files (…_option_ticks.ndjson.gz) are 0.5–1 GB (every
  * strike) and are deliberately NOT read here — only the tiny underlying files.
  */
-import { readFileSync, existsSync, readdirSync } from "fs";
+import { readFileSync, existsSync, readdirSync, createReadStream } from "fs";
+import readline from "readline";
 import path from "path";
 import zlib from "zlib";
 import { logFolderFor } from "./seaSignals";
@@ -83,6 +84,60 @@ export function readUnderlyingTicks(instrument: string, date: string): Underlyin
     ltp.push(price);
   }
   return { t, ltp };
+}
+
+/**
+ * Read ONE option contract's ticks for a date from the recorded option file
+ * (data/raw/<date>/<inst>_option_ticks.ndjson.gz — all strikes, so we filter by
+ * security_id). These files are large (0.2–1 GB), so this STREAMS the gunzip
+ * (never blocks the loop on a giant sync inflate) and does a cheap substring
+ * pre-filter before the regex extract. Live "today" file is a gzip still being
+ * appended → the gunzip stream errors on the unfinished tail; we resolve with
+ * whatever decoded so far. Meant to be called in the background (~15–30s) to
+ * back-fill the live option panels; do NOT poll it.
+ */
+export function readOptionContractTicks(
+  instrument: string,
+  date: string,
+  securityId: string,
+): Promise<UnderlyingTicks> {
+  if (!DATE_RE.test(date) || !securityId) return Promise.resolve({ t: [], ltp: [] });
+  const folder = logFolderFor(instrument);
+  const file = path.resolve(DATA_RAW, date, `${folder}_option_ticks.ndjson.gz`);
+  if (!existsSync(file)) return Promise.resolve({ t: [], ltp: [] });
+
+  const needle = `"security_id": "${securityId}"`;
+  const t: number[] = [];
+  const ltp: number[] = [];
+
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve({ t, ltp });
+    };
+    const gunzip = zlib.createGunzip();
+    gunzip.on("error", finish); // unfinished tail of a live-appended gzip
+    const stream = createReadStream(file);
+    stream.on("error", finish);
+    const rl = readline.createInterface({ input: stream.pipe(gunzip) });
+    rl.on("line", (line) => {
+      if (line.length < 8 || !line.includes(needle)) return;
+      const lm = LTP_RE.exec(line);
+      if (!lm) return;
+      const tm = RECV_TS_RE.exec(line);
+      if (!tm) return;
+      const price = parseFloat(lm[1]);
+      const ts = parseFloat(tm[1]);
+      if (price > 0 && ts > 0) {
+        t.push(ts);
+        ltp.push(price);
+      }
+    });
+    rl.on("close", finish);
+    rl.on("error", finish);
+  });
 }
 
 /**

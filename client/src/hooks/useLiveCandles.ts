@@ -21,6 +21,9 @@ export function useLiveCandles(
   exchangeSegment: string,
   intervalSec: number,
   enabled = true,
+  /** Optional disk history (epoch-seconds ticks) to back-fill before the live
+   *  buffer — prepended for ticks that predate the first live tick. */
+  seed?: { t: number[]; ltp: number[] } | null,
 ): { candles: Candle[]; tickCount: number } {
   // Keep the contract subscribed on the live feed while mounted + enabled.
   const contracts = useMemo(
@@ -66,9 +69,21 @@ export function useLiveCandles(
   }, [tick?.timestamp, tick?.ltp, enabled]);
 
   const candles = useMemo(
-    () => bucketTicks(bufRef.current.t, bufRef.current.ltp, intervalSec),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- bufRef is mutated in place; re-bucket on tick count / interval / contract
-    [count, intervalSec, key],
+    () => {
+      const live = bufRef.current;
+      if (!seed || seed.t.length === 0) return bucketTicks(live.t, live.ltp, intervalSec);
+      // Back-fill: seed ticks that predate the earliest live tick, then live.
+      const liveStart = live.t.length ? live.t[0] : Infinity;
+      const t: number[] = [];
+      const ltp: number[] = [];
+      for (let i = 0; i < seed.t.length; i++) {
+        if (seed.t[i] < liveStart) { t.push(seed.t[i]); ltp.push(seed.ltp[i]); }
+      }
+      for (let i = 0; i < live.t.length; i++) { t.push(live.t[i]); ltp.push(live.ltp[i]); }
+      return bucketTicks(t, ltp, intervalSec);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- bufRef is mutated in place; re-bucket on tick count / interval / contract / seed
+    [count, intervalSec, key, seed],
   );
 
   return { candles, tickCount: count };

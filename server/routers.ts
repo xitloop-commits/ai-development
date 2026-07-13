@@ -19,7 +19,7 @@ import { querySeaSignals, getSeaSignalsForChartFromStore } from "./seaSignalStor
 import { getSEASignalsForChart, logFolderFor } from "./seaSignals";
 import { getTradesForDate } from "./portfolio/state";
 import { getInstrumentLiveState } from "./instrumentLiveState";
-import { readUnderlyingTicks, listRecordedDates } from "./chartData";
+import { readUnderlyingTicks, listRecordedDates, readOptionContractTicks } from "./chartData";
 import { analyzeInstrument } from "./signal-advisor";
 import { brokerRouter } from "./broker/brokerRouter";
 import { portfolioRouter } from "./portfolio/router";
@@ -143,6 +143,19 @@ export const appRouter = router({
         }),
       )
       .query(({ input }) => readUnderlyingTicks(input.instrument, input.date)),
+
+    // One option contract's recorded ticks for a date (filtered from the big
+    // all-strikes option file). SLOW (~15–30s on a 0.2–1 GB gz) — used ONCE to
+    // back-fill the live CE/PE panels on chart open, never polled.
+    optionTicksForContract: publicProcedure
+      .input(
+        z.object({
+          instrument: z.string(),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          securityId: z.string().min(1),
+        }),
+      )
+      .query(({ input }) => readOptionContractTicks(input.instrument, input.date, input.securityId)),
 
     // Dates (YYYY-MM-DD, ascending) this instrument has a recorded underlying
     // tick file for — drives the chart window's date picker.

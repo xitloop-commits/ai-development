@@ -128,9 +128,19 @@ export default function InstrumentChartPage() {
   const hoursToExp = ls?.live?.hours_to_expiry ?? null;
   const expiryLabel = hoursToExp != null && hoursToExp > 0 ? formatCalendarDay(Date.now() + hoursToExp * 3600000) : null;
   const optSeg = optionSegmentFor(inst ?? "");
-  const optionsEnabled = isToday; // options are live-only (no cheap disk history)
-  const ce = useLiveCandles(atmCeId, optSeg, intervalSec, optionsEnabled);
-  const pe = useLiveCandles(atmPeId, optSeg, intervalSec, optionsEnabled);
+  const optionsEnabled = isToday; // live options today; disk back-fill below seeds history
+  // One-time background disk read of each ATM contract's day history (slow scan
+  // of the big option file) — prepended to the live candles when it lands.
+  const ceHist = trpc.trading.optionTicksForContract.useQuery(
+    { instrument: inst ?? "", date, securityId: atmCeId ?? "" },
+    { enabled: !!inst && !!date && !!atmCeId && optionsEnabled, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
+  );
+  const peHist = trpc.trading.optionTicksForContract.useQuery(
+    { instrument: inst ?? "", date, securityId: atmPeId ?? "" },
+    { enabled: !!inst && !!date && !!atmPeId && optionsEnabled, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
+  );
+  const ce = useLiveCandles(atmCeId, optSeg, intervalSec, optionsEnabled, ceHist.data as { t: number[]; ltp: number[] } | undefined);
+  const pe = useLiveCandles(atmPeId, optSeg, intervalSec, optionsEnabled, peHist.data as { t: number[]; ltp: number[] } | undefined);
 
   // ── Underlying candles + replay ─────────────────────────────────
   const baseCandles = useMemo<Candle[]>(() => {
