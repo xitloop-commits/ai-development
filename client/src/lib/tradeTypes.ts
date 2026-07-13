@@ -117,6 +117,11 @@ export interface TradeRecord {
   /** Epoch ms when the trailing stop activated — drives the TradeBar's "TSL
    *  running" stopwatch next to the TP. Absent until TSL arms. */
   tslActivatedAt?: number | null;
+  /** Per-trade risk overrides (paper). `stopLossDisabled`: the hard-floor SL
+   *  won't exit the trade (trailing stop still does). `tslMode`: "auto" (default,
+   *  server auto-trails) or "manual" (frozen; operator sets the stop). */
+  stopLossDisabled?: boolean;
+  tslMode?: 'auto' | 'manual';
   openedAt: number;
   closedAt: number | null;
   /**

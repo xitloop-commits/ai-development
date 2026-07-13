@@ -24,6 +24,7 @@ import { istDateString } from '@/lib/signalChart';
 import OptionChartDialog, { type OptionChartTargetLite } from './OptionChartDialog';
 import { useSelectedSignalSeq } from '@/lib/selectionStore';
 import { useInstrumentTick } from '@/hooks/useTickStream';
+import { trpc } from '@/lib/trpc';
 import { InstrumentTag } from './InstrumentTag';
 import { StatusBadge } from './StatusBadge';
 import { TpSlMergedBody, pctFromPrice } from './TpSlMergedBody';
@@ -92,6 +93,15 @@ function _TodayTradeRow({
   // see T60 / gap #4). So only claim trailing protection on paper; a live
   // trade must not show a TSL marker/badge that won't actually arm.
   const serverTrails = globalTrailingEnabled && isPaperChannel(channel);
+  // Per-trade risk overrides (paper): toggle the hard stoploss and TSL auto/manual.
+  const utils = trpc.useUtils();
+  const setRiskMutation = trpc.executor.setTradeRisk.useMutation({
+    onSuccess: () => {
+      void utils.portfolio.allDays.invalidate();
+      void utils.portfolio.state.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
   // B4 follow-up — a trade is "desync'd" when the broker call failed but
   // local state hasn't been confirmed. Operator must reconcile before
   // any further actions on this trade are allowed.
@@ -323,6 +333,46 @@ function _TodayTradeRow({
                 title={`BROKER_DESYNC (${trade.desync?.kind}): ${trade.desync?.reason ?? ''} — click to reconcile`}
               >
                 ⚠ Reconcile
+              </button>
+            )}
+            {/* Per-trade risk toggles (paper only). SL: disable the hard stoploss
+                (trailing stop still exits). TSL: auto ↔ manual (freeze trailing). */}
+            {isOpen && !isDesync && canManageTrades && isPaperChannel(channel) && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRiskMutation.mutate({ channel, tradeId: trade.id, stopLossDisabled: !(trade.stopLossDisabled ?? false) });
+                }}
+                disabled={setRiskMutation.isPending}
+                className={`px-1 py-0.5 rounded text-[0.5rem] font-bold border transition-colors disabled:opacity-40 ${
+                  trade.stopLossDisabled
+                    ? 'bg-warning-amber/20 text-warning-amber border-warning-amber/40'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+                title={trade.stopLossDisabled
+                  ? 'Hard stoploss OFF — click to re-enable (trailing stop still active either way)'
+                  : 'Hard stoploss ON — click to disable it (keeps the trailing stop)'}
+              >
+                SL {trade.stopLossDisabled ? 'off' : 'on'}
+              </button>
+            )}
+            {isOpen && !isDesync && canManageTrades && serverTrails && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRiskMutation.mutate({ channel, tradeId: trade.id, tslMode: (trade.tslMode ?? 'auto') === 'manual' ? 'auto' : 'manual' });
+                }}
+                disabled={setRiskMutation.isPending}
+                className={`px-1 py-0.5 rounded text-[0.5rem] font-bold border transition-colors disabled:opacity-40 ${
+                  trade.tslMode === 'manual'
+                    ? 'bg-info-cyan/20 text-info-cyan border-info-cyan/40'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+                title={trade.tslMode === 'manual'
+                  ? 'Trailing stop MANUAL (frozen — you set the stop) — click for AUTO'
+                  : 'Trailing stop AUTO (server trails) — click to freeze (MANUAL)'}
+              >
+                TSL {trade.tslMode === 'manual' ? 'M' : 'A'}
               </button>
             )}
             {isOpen && !isDesync && canManageTrades && (

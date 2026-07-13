@@ -281,6 +281,35 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
     expect(trade.peakLtp).toBe(112);
   });
 
+  // ── Per-trade risk overrides: SL-disabled + TSL auto/manual ──────────────
+  it("per-trade tslMode=manual freezes auto-trailing (stop stays put)", async () => {
+    const trade = makeBuyTrade({ tslMode: "manual", stopLossPrice: 95, originalStopLossPrice: 95, slDistance: 5 });
+    await processTicks(trade, [110]); // auto (config 1.5%) would trail to 108.35
+    expect(trade.stopLossPrice).toBe(95); // manual → frozen
+  });
+
+  it("stopLossDisabled suppresses the hard-floor SL exit while the stop is unmoved", async () => {
+    getActiveBrokerConfigMock.mockResolvedValue({ brokerId: "test", settings: { trailingStopEnabled: false } });
+    const trade = makeBuyTrade({ stopLossDisabled: true, stopLossPrice: 95, originalStopLossPrice: 95 });
+    let exitEvent: any = null;
+    tickHandler.once("autoExitDetected", (e) => { exitEvent = e; });
+    await processTicks(trade, [94]); // ltp 94 <= stop 95 → would be SL_HIT
+    expect(exitEvent).toBeNull(); // suppressed
+    expect(trade.status).toBe("OPEN");
+  });
+
+  it("stopLossDisabled STILL exits once the stop has trailed up (TSL live)", async () => {
+    getActiveBrokerConfigMock.mockResolvedValue({ brokerId: "test", settings: { trailingStopEnabled: true, trailingDistanceSource: "signal" } });
+    const trade = makeBuyTrade({ stopLossDisabled: true, stopLossPrice: 95, originalStopLossPrice: 95, slDistance: 5 });
+    let exitEvent: any = null;
+    tickHandler.once("autoExitDetected", (e) => { exitEvent = e; });
+    await processTicks(trade, [110]); // peak 110 → stop trails to 105 (moved from 95)
+    expect(trade.stopLossPrice).toBeCloseTo(105, 2);
+    await processWith(trade, makeTick({ ltp: 104 })); // hits the trailed stop
+    expect(exitEvent).not.toBeNull();
+    expect(exitEvent.reason).toBe("SL_HIT");
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });

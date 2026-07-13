@@ -336,6 +336,7 @@ class TickHandler extends EventEmitter {
           trade.entryPrice = tick.ltp;
           if (trade.targetPrice != null) trade.targetPrice += delta;
           if (trade.stopLossPrice != null) trade.stopLossPrice += delta;
+          if (trade.originalStopLossPrice != null) trade.originalStopLossPrice += delta;
           if (trade.breakevenPrice != null) trade.breakevenPrice += delta;
           if (trade.peakLtp != null) trade.peakLtp = tick.ltp;
           trade.entryPending = false;
@@ -435,7 +436,9 @@ class TickHandler extends EventEmitter {
         //   "config" → trailingStopPercent % of the peak (widens as price runs)
         //   "signal" → the trade's own initial SL distance in rupees (fixed)
         // It only ever ratchets in the favourable direction — never crawls back.
-        if (trailingStopEnabled && trade.stopLossPrice !== null) {
+        // Per-trade TSL mode: "manual" freezes auto-trailing (operator sets the
+        // stop themselves via updateTrade); "auto" (default) trails as configured.
+        if (trailingStopEnabled && trade.tslMode !== "manual" && trade.stopLossPrice !== null) {
           const useSignal =
             trailingDistanceSource === "signal" && trade.slDistance != null && trade.slDistance > 0;
           const trailedRaw = useSignal
@@ -498,6 +501,16 @@ class TickHandler extends EventEmitter {
             ? tick.ltp <= trade.stopLossPrice
             : tick.ltp >= trade.stopLossPrice;
           if (slHit) {
+            // Per-trade SL-disabled: suppress the HARD-floor stop exit while the
+            // stop is still at its original level. Once it has moved (auto-trail
+            // or a manual edit), it's the trailing/user stop → let it exit. Falls
+            // through (allows exit) when originalStopLossPrice is unknown.
+            const stopUnmoved =
+              trade.originalStopLossPrice != null &&
+              Math.abs(trade.stopLossPrice - trade.originalStopLossPrice) < 0.005;
+            if (trade.stopLossDisabled && stopUnmoved) {
+              continue; // hard SL suppressed for this trade — keep it open
+            }
             // TEMP DIAGNOSTIC ([XSYNC] exit-sync): SL/TSL hit → exit emit. tsl=true
             // means this was a trailed-stop exit, false a hard-SL exit.
             log.important(`[XSYNC-SVR] SL-HIT ${channel} trade=${trade.id} ${trade.instrument} ltp=${tick.ltp} stop=${trade.stopLossPrice} tsl=${this.tslActivated.has(trade.id)} → emit exit`);

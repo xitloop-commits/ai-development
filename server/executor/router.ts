@@ -563,4 +563,28 @@ export const executorRouter = router({
       const trade = day.trades.find((t) => t.id === input.tradeId);
       return { trade };
     }),
+
+  /**
+   * Toggle per-trade risk overrides (paper): `stopLossDisabled` suppresses the
+   * hard-floor stoploss exit (the trailing stop still exits once the stop moves);
+   * `tslMode` switches the trailing stop between "auto" (server trails) and
+   * "manual" (frozen — operator sets the stop via updateTrade). Direct
+   * portfolio-state edit — no broker call, since these govern the paper exit loop.
+   */
+  setTradeRisk: protectedProcedure
+    .input(
+      z.object({
+        channel: channelSchema,
+        tradeId: z.string(),
+        stopLossDisabled: z.boolean().optional(),
+        tslMode: z.enum(["auto", "manual"]).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { trade } = await portfolioAgent.updateTrade(input.channel, input.tradeId, {
+        stopLossDisabled: input.stopLossDisabled,
+        tslMode: input.tslMode,
+      });
+      return { trade };
+    }),
 });

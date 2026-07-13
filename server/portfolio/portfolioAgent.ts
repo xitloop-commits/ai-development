@@ -624,6 +624,8 @@ class PortfolioAgentImpl {
       stopLossPrice?: number | null;
       targetPrice?: number | null;
       trailingStopEnabled?: boolean;
+      stopLossDisabled?: boolean;
+      tslMode?: "auto" | "manual";
     },
   ): Promise<{ trade: TradeRecord; day: DayRecord; oldSL: number | null; oldTP: number | null }> {
     const day = await this.ensureCurrentDay(channel);
@@ -638,6 +640,8 @@ class PortfolioAgentImpl {
     if (modifications.stopLossPrice !== undefined) trade.stopLossPrice = modifications.stopLossPrice;
     if (modifications.targetPrice !== undefined) trade.targetPrice = modifications.targetPrice;
     if (modifications.trailingStopEnabled !== undefined) trade.trailingStopEnabled = modifications.trailingStopEnabled;
+    if (modifications.stopLossDisabled !== undefined) trade.stopLossDisabled = modifications.stopLossDisabled;
+    if (modifications.tslMode !== undefined) trade.tslMode = modifications.tslMode;
 
     await upsertDayRecord(channel, day);
     await this.mirrorPosition(channel, day.dayIndex, trade).catch((err) =>

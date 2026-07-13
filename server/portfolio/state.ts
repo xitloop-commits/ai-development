@@ -121,6 +121,16 @@ export interface TradeRecord {
    *  stop keeps below the peak. Preserved through the first-tick-fill shift
    *  (entry + SL move together). Absent on manual trades / pre-date the field. */
   slDistance?: number;
+  /** Per-trade risk overrides (paper). `stopLossDisabled`: the fixed-floor SL
+   *  won't exit the trade until the stop has MOVED from its original level (auto-
+   *  trail or a manual edit) — the trailing stop still books the exit. `tslMode`:
+   *  "auto" (default) trails automatically; "manual" freezes auto-trailing so the
+   *  operator sets the stop themselves via updateTrade. `originalStopLossPrice`:
+   *  the stop at open (delta-shifted with entry on the first-tick reprice) — the
+   *  "has the stop moved?" reference for the SL-disabled gate. */
+  stopLossDisabled?: boolean;
+  tslMode?: "auto" | "manual";
+  originalStopLossPrice?: number | null;
   /** Broker-assigned order ID returned by placeOrder. Used by orderSync /
    *  recoveryEngine to match broker events back to this trade.
    *  Pre-2026-05 docs stored this on the (now-renamed) `brokerId` field;
@@ -293,6 +303,9 @@ const tradeRecordSchema = new Schema(
     stopLossPrice: { type: Number, default: null },
     breakevenPrice: { type: Number, default: null },
     slDistance: { type: Number, default: null },
+    stopLossDisabled: { type: Boolean, default: false },
+    tslMode: { type: String, enum: ["auto", "manual"], default: "auto" },
+    originalStopLossPrice: { type: Number, default: null },
     tslActivatedAt: { type: Number, default: null },
     brokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },
@@ -994,6 +1007,9 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       stopLossPrice: t.stopLossPrice ?? null,
       breakevenPrice: t.breakevenPrice ?? undefined,
       slDistance: t.slDistance ?? undefined,
+      stopLossDisabled: t.stopLossDisabled ?? undefined,
+      tslMode: t.tslMode ?? undefined,
+      originalStopLossPrice: t.originalStopLossPrice ?? undefined,
       tslActivatedAt: t.tslActivatedAt ?? undefined,
       brokerOrderId: t.brokerOrderId ?? null,
       brokerId: t.brokerId ?? null,
