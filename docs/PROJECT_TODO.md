@@ -2,6 +2,17 @@
 
 Single source of truth for open project tasks. Top = highest priority. Add new items at the appropriate slot; mark closed items by deleting (git history of this file = audit trail).
 
+## ⚑ BUY-SIDE VERDICT (2026-07-12) — exhaustive test: buying doesn't work; the edge is a SELL signal
+
+The definitive finding after a full session of testing. **The model is good; buying options on it is not.**
+
+1. **The 1-minute direction is the model's ONE real, verified edge.** AUC ~0.66 (rises to ~0.70 on virgin days it never trained on), and it **holds on non-overlapping/independent samples**. Every longer horizon (5m→2hr) collapses to ~0.50–0.58 once overlap inflation is stripped — the metrics.json **2-hour "0.828" is a mirage (real ~0.56)**. So the 1-min is the right horizon; "trade a longer horizon" is dead.
+2. **Buying structurally loses (fade + theta + cost) — proven at scale (135k call-buy samples).** Direction is **ANTI-correlated with a winning buy (AUC 0.42)**: high P(up) marks the premium peak → you buy the top and it fades. Direction is a **SELL signal (0.58), not a buy signal.**
+3. **No model head predicts a winning buy.** max_upside/max_drawdown/risk_reward/premium_decay, direction_persists, trend_continues, trend_reversal/swing_reversal — **all ~0.50 AUC** vs buy P&L. The "use the model's own heads as a trade-filter" idea (was T74) **is empirically dead.**
+4. **The ONLY buy-side lever that helped = the PULLBACK ENTRY.** Do not buy at the signal (the peak); wait for the premium to dip **~5% (banknifty) / ~8% (nifty)** and buy the dip, ride to the leg-break. Flipped banknifty **−Rs411k → +Rs28k** (52% win, 5/10 days), nifty **−Rs174k → +Rs1k** (50% win). But **marginal, small samples, no single pullback% wins solidly on BOTH** (bn likes 5%, nf 8%) → promising, not proven; needs forward paper data.
+5. **SEA today uses only the 1-min direction for the buy decision (legstart)** — correct given the above; other horizons/heads add no reliable signal.
+6. **Honest paths forward:** **(A)** forward paper-test the *pullback* buy at tiny size (the one buy-only lever) — a discipline playbook artifact was built 2026-07-12; **(B)** the *reliable* edge is the **sell / defined-risk-spread** side (direction is a sell signal) — a credit/vertical spread collects the fade with **capped** loss (no naked-selling tail). "We don't sell" was really "no unlimited risk" → spreads solve that; revisit when ready.
+
 ## ⚑ Backtest verdict (2026-07-06) — see [BACKTEST_FINDINGS_2026-07-06.md](BACKTEST_FINDINGS_2026-07-06.md)
 
 OOS backtest of the retrained models (8 days). **Direction is validated (62–72%, both ways),
@@ -35,7 +46,7 @@ days; revert = set `gate_mode` back to `"wave2"` + `trend.enabled:true`. Conside
 ### T73 [OPS] — Retraining as a launcher menu item (deferred 2026-07-10) 🆕
 Partha wants retraining (replay → train, per-instrument) to be a **Lubas launcher menu option** he can start whenever needed — not a manual CLI dance. There is already a **Train submenu** in the launcher (old-model pointer moved to `LATEST.bak-preretrain` unlocked it via the per-date lock keyed off `trained_dates`), but it's unconfirmed whether it's wired for the current v12/de-leak/Part-B retrain and easy to fire on demand. **To do:** verify the launcher Train submenu works end-to-end for a fresh retrain; if missing/broken, add/fix the menu entry. Deferred by Partha ("will do it later").
 
-### T74 [ML] — Trade-outcome filter (learn which signals to take) — ON HOLD (data-thin)
+### T74 [ML] — Trade-outcome filter — ❌ CLOSED (2026-07-12): tested, no model head separates winning buys (all ~0.50 AUC). See Buy-side verdict. The lever is the PULLBACK entry, not a learned filter.
 Train a "trade filter" (LightGBM) that predicts *is this leg-start signal worth taking?* — label each historical signal with its realistic-fill trade P&L (buy@ask → ride → sell@bid − ₹125; computed from price history, NO DB trades needed), features = the parquet feature vector at signal time. **Blocker:** only **5 fully-clean days** (07-06/07/08/09/10 — model never saw them; weights trained ≤06-16, val 06-17/18/19, calibration 06-22→07-03). Options: (A) train on the 8 semi-clean days + test on the 5 clean (rosy train), or (B) let the forward paper test accumulate more clean days first. Awaiting Partha's A/B call. Single-feature filters (stretch/conviction/trend-slope) already failed to separate winners over 10 days — multi-feature might, but overfit risk is high on so few days. Cross-instrument + held-out lift is the hard gate.
 
 ### T75 [UI/SEA] — AI trades save with no expiry → instrument pill not clickable (deferred 2026-07-11) 🆕
