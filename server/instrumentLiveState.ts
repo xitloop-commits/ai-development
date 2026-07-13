@@ -22,6 +22,10 @@ export interface LiveTick {
   timestamp: number;
   spot_price: number;
   atm_strike: number;
+  /** Current ATM CE/PE contract ids from the live feature row — used to chart
+   *  the option premium (fresher than the signal's, which lags between signals). */
+  atm_ce_security_id: string | null;
+  atm_pe_security_id: string | null;
   strike_step: number;
   data_quality_flag: number;
   time_since_chain_sec: number;
@@ -202,6 +206,8 @@ export function getInstrumentLiveState(instrument: string): LiveState {
       timestamp: row.timestamp ?? 0,
       spot_price: row.spot_price ?? 0,
       atm_strike: row.atm_strike ?? 0,
+      atm_ce_security_id: row.atm_ce_security_id != null ? String(row.atm_ce_security_id) : null,
+      atm_pe_security_id: row.atm_pe_security_id != null ? String(row.atm_pe_security_id) : null,
       strike_step: row.strike_step ?? 0,
       data_quality_flag: row.data_quality_flag ?? 0,
       time_since_chain_sec: row.time_since_chain_sec ?? 999,

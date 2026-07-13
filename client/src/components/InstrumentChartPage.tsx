@@ -115,13 +115,17 @@ export default function InstrumentChartPage() {
     { instrument: inst ?? "" },
     { enabled: !!inst, refetchOnWindowFocus: false, refetchInterval: isToday ? 5000 : false },
   );
-  const live = liveStateQuery.data as
-    | { atm_strike?: number; atm_ce_security_id?: string | null; atm_pe_security_id?: string | null }
-    | undefined;
+  // instrumentLiveState returns { live, signal, model }; the ATM CE/PE ids live
+  // on `live` (fresh feature row) with `signal` as a fallback between rows.
+  type AtmShape = { atm_strike?: number; atm_ce_security_id?: string | null; atm_pe_security_id?: string | null } | null;
+  const ls = liveStateQuery.data as { live?: AtmShape; signal?: AtmShape } | undefined;
+  const atmCeId = ls?.live?.atm_ce_security_id ?? ls?.signal?.atm_ce_security_id ?? null;
+  const atmPeId = ls?.live?.atm_pe_security_id ?? ls?.signal?.atm_pe_security_id ?? null;
+  const atmStrike = ls?.live?.atm_strike ?? ls?.signal?.atm_strike ?? null;
   const optSeg = optionSegmentFor(inst ?? "");
   const optionsEnabled = isToday; // options are live-only (no cheap disk history)
-  const ce = useLiveCandles(live?.atm_ce_security_id, optSeg, intervalSec, optionsEnabled);
-  const pe = useLiveCandles(live?.atm_pe_security_id, optSeg, intervalSec, optionsEnabled);
+  const ce = useLiveCandles(atmCeId, optSeg, intervalSec, optionsEnabled);
+  const pe = useLiveCandles(atmPeId, optSeg, intervalSec, optionsEnabled);
 
   // ── Underlying candles + replay ─────────────────────────────────
   const baseCandles = useMemo<Candle[]>(() => {
@@ -224,7 +228,6 @@ export default function InstrumentChartPage() {
 
   const dateOptions = recordedDates.includes(today) ? recordedDates : [...recordedDates, today];
   const ticksLoading = ticksQuery.isLoading && ticksQuery.fetchStatus !== "idle";
-  const atmStrike = live?.atm_strike ?? null;
   const intervalLabel = CHART_INTERVALS.find((i) => i.seconds === intervalSec)?.label ?? "";
   const optEmpty = optionsEnabled ? "Waiting for live ticks…" : "Options are live-only (open during market hours).";
 
