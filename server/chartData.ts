@@ -38,7 +38,14 @@ function underlyingFilePath(instrument: string, date: string): string {
 export interface UnderlyingTicks {
   t: number[];   // recv_ts, epoch seconds (UTC)
   ltp: number[]; // last price
+  /** The recorded contract (near-month future) id + segment — so the client can
+   *  subscribe the SAME contract live and append to this disk history. */
+  securityId?: string | null;
+  exchangeSegment?: string | null;
 }
+
+const SECID_RE = /"security_id":\s*"?([0-9]+)"?/;
+const SEG_RE = /"exchange_segment":\s*"([A-Z_]+)"/;
 
 /**
  * Read one instrument's recorded underlying ticks for a date. Returns empty
@@ -64,6 +71,8 @@ export function readUnderlyingTicks(instrument: string, date: string): Underlyin
 
   const t: number[] = [];
   const ltp: number[] = [];
+  let securityId: string | null = null;
+  let exchangeSegment: string | null = null;
   let start = 0;
   const len = text.length;
   // Iterate lines without allocating a giant array (split would double memory).
@@ -82,8 +91,15 @@ export function readUnderlyingTicks(instrument: string, date: string): Underlyin
     if (!(price > 0) || !(ts > 0)) continue;
     t.push(ts);
     ltp.push(price);
+    // Capture the recorded contract id/segment once (one security per file).
+    if (securityId == null) {
+      const sm = SECID_RE.exec(line);
+      if (sm) securityId = sm[1];
+      const gm = SEG_RE.exec(line);
+      if (gm) exchangeSegment = gm[1];
+    }
   }
-  return { t, ltp };
+  return { t, ltp, securityId, exchangeSegment };
 }
 
 /**

@@ -18,7 +18,6 @@ import {
   type ChartSignal,
 } from "@/lib/signalChart";
 import {
-  bucketTicks,
   CHART_INTERVALS,
   DEFAULT_INTERVAL_SECONDS,
   INSTRUMENT_CHART_META,
@@ -99,7 +98,7 @@ export default function InstrumentChartPage() {
 
   const ticksQuery = trpc.trading.underlyingTicks.useQuery(
     { instrument: inst ?? "", date },
-    { enabled: !!inst && !!date, refetchOnWindowFocus: false, refetchInterval: isToday ? 4000 : false },
+    { enabled: !!inst && !!date, refetchOnWindowFocus: false, refetchInterval: false, staleTime: Infinity },
   );
   const signalsQuery = trpc.trading.signalsForChart.useQuery(
     { instrument: inst ?? "", date },
@@ -143,11 +142,24 @@ export default function InstrumentChartPage() {
   const pe = useLiveCandles(atmPeId, optSeg, intervalSec, optionsEnabled, peHist.data as { t: number[]; ltp: number[] } | undefined);
 
   // ── Underlying candles + replay ─────────────────────────────────
-  const baseCandles = useMemo<Candle[]>(() => {
-    const d = ticksQuery.data as { t: number[]; ltp: number[] } | undefined;
-    if (!d || !d.t?.length) return [];
-    return bucketTicks(d.t, d.ltp, intervalSec);
-  }, [ticksQuery.data, intervalSec]);
+  // Disk history (seed) + live WS on the SAME recorded contract (near-month
+  // future) so today streams tick-by-tick with no basis jump at the seam. Past
+  // dates: live disabled → the seed alone renders the full recorded day.
+  const undData = ticksQuery.data as
+    | { t: number[]; ltp: number[]; securityId?: string | null; exchangeSegment?: string | null }
+    | undefined;
+  const undSeed = useMemo(
+    () => (undData && undData.t?.length ? { t: undData.t, ltp: undData.ltp } : undefined),
+    [undData],
+  );
+  const und = useLiveCandles(
+    isToday ? undData?.securityId ?? null : null,
+    undData?.exchangeSegment ?? "NSE_FNO",
+    intervalSec,
+    isToday,
+    undSeed,
+  );
+  const baseCandles = und.candles;
 
   const candles = useMemo<Candle[]>(() => {
     if (replayCount == null) return baseCandles;
