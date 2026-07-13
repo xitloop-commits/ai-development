@@ -112,6 +112,13 @@ export function readUnderlyingTicks(instrument: string, date: string): Underlyin
  * whatever decoded so far. Meant to be called in the background (~15–30s) to
  * back-fill the live option panels; do NOT poll it.
  */
+// Serialize option back-fill scans across the whole server. Each scan reads the
+// 0.2–1 GB option file; running several at once (both chart windows × CE+PE = 4,
+// plus every refresh spawns more) saturates the event loop / libuv threadpool and
+// STARVES the live WS tick broadcast — the bar and chart freeze. One-at-a-time +
+// periodic yielding keeps the loop responsive so live ticks always get through.
+let optionScanChain: Promise<unknown> = Promise.resolve();
+
 export function readOptionContractTicks(
   instrument: string,
   date: string,
@@ -122,23 +129,42 @@ export function readOptionContractTicks(
   const file = path.resolve(DATA_RAW, date, `${folder}_option_ticks.ndjson.gz`);
   if (!existsSync(file)) return Promise.resolve({ t: [], ltp: [] });
 
+  const run = () => scanOptionFile(file, securityId);
+  const result = optionScanChain.then(run, run);
+  // Keep the chain alive even if a scan rejects, so one failure can't wedge the queue.
+  optionScanChain = result.catch(() => {});
+  return result;
+}
+
+/** One serialized option-file scan: filters to `securityId`, yields the event
+ *  loop every ~131k lines, and self-caps at 90s so a stuck stream can't wedge
+ *  the shared queue. Live-appended "today" file → gunzip errors on the unfinished
+ *  tail; we resolve with whatever decoded so far. */
+function scanOptionFile(file: string, securityId: string): Promise<UnderlyingTicks> {
   const needle = `"security_id": "${securityId}"`;
   const t: number[] = [];
   const ltp: number[] = [];
 
   return new Promise((resolve) => {
     let done = false;
+    const gunzip = zlib.createGunzip();
+    const stream = createReadStream(file);
+    const rl = readline.createInterface({ input: stream.pipe(gunzip) });
     const finish = () => {
       if (done) return;
       done = true;
+      clearTimeout(timer);
+      try { rl.close(); stream.destroy(); } catch { /* already closed */ }
       resolve({ t, ltp });
     };
-    const gunzip = zlib.createGunzip();
+    const timer = setTimeout(finish, 90_000); // safety: never hold the queue > 90s
     gunzip.on("error", finish); // unfinished tail of a live-appended gzip
-    const stream = createReadStream(file);
     stream.on("error", finish);
-    const rl = readline.createInterface({ input: stream.pipe(gunzip) });
+    let seen = 0;
     rl.on("line", (line) => {
+      // Breathe every ~131k lines so the live WS broadcast isn't starved while
+      // scanning this giant file.
+      if ((++seen & 0x1ffff) === 0) { rl.pause(); setImmediate(() => rl.resume()); }
       if (line.length < 8 || !line.includes(needle)) return;
       const lm = LTP_RE.exec(line);
       if (!lm) return;
