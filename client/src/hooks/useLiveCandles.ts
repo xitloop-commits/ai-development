@@ -45,7 +45,10 @@ export function useLiveCandles(
     }
   }, [key]);
 
-  // Append each genuinely-new tick (timestamp advanced) to the buffer.
+  // Append each genuinely-new tick to the buffer. NOTE: useInstrumentTick returns
+  // the SAME tick object mutated in place, so we depend on its VALUE (timestamp +
+  // ltp), not the object reference — otherwise the effect never re-fires and we
+  // capture only the first tick.
   useEffect(() => {
     if (!enabled || !tick || !(tick.ltp > 0)) return;
     const ts = tick.timestamp; // epoch ms (receive time)
@@ -59,7 +62,8 @@ export function useLiveCandles(
       buf.ltp.shift();
     }
     setCount((c) => c + 1);
-  }, [tick, enabled]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tick is mutated in place; fire on value change
+  }, [tick?.timestamp, tick?.ltp, enabled]);
 
   const candles = useMemo(
     () => bucketTicks(bufRef.current.t, bufRef.current.ltp, intervalSec),
