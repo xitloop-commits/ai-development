@@ -147,6 +147,8 @@ export class DhanAdapter implements BrokerAdapter {
   // Order update callback (for real-time order updates)
   private orderUpdateCb: OrderUpdateCallback | null = null;
   private orderUpdateWs: DhanOrderUpdateWs | null = null;
+  /** [TICKDIAG] contracts already logged as delivering a first tick on this feed. */
+  private _diagSeen = new Set<string>();
 
   // Rate limiter for Dhan API calls
   private rateLimiter = new RateLimiter(10, 250);
@@ -1330,6 +1332,14 @@ export class DhanAdapter implements BrokerAdapter {
       clientId: this.clientId,
       brokerTag: this.brokerId,
       onTick: (tick: TickData) => {
+        // [TICKDIAG] log the FIRST tick seen per contract on this feed so we can
+        // tell which segments the account actually delivers (index/future vs
+        // options). One line per new contract; harmless.
+        const k = `${tick.exchange}:${tick.securityId}`;
+        if (!this._diagSeen.has(k)) {
+          this._diagSeen.add(k);
+          this.log.important(`[TICKDIAG] ${this.brokerId} first tick ${k} ltp=${tick.ltp}`);
+        }
         if (this.tickCallback) this.tickCallback(tick);
       },
       onRawMessage: (data: Buffer) => {
