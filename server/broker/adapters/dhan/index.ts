@@ -1369,10 +1369,22 @@ export class DhanAdapter implements BrokerAdapter {
     // Initialize Subscription Manager
     this.subManager = new SubscriptionManager({
       onSubscribe: (instruments) => {
-        if (this.ws) this.ws.subscribe(instruments);
+        const ids = instruments.map((i) => `${i.exchange}:${i.securityId}`).join(",");
+        if (this.ws) {
+          this.ws.subscribe(instruments);
+          this.log.important(`[SUBDIAG] ${this.brokerId} WS.subscribe → ${instruments.length}: ${ids}`);
+        } else {
+          this.log.warn(`[SUBDIAG] ${this.brokerId} WS.subscribe DROPPED (feed WS null) → ${ids}`);
+        }
       },
       onUnsubscribe: (instruments) => {
-        if (this.ws) this.ws.unsubscribe(instruments);
+        const ids = instruments.map((i) => `${i.exchange}:${i.securityId}`).join(",");
+        if (this.ws) {
+          this.ws.unsubscribe(instruments);
+          this.log.important(`[SUBDIAG] ${this.brokerId} WS.unsubscribe → ${instruments.length}: ${ids}`);
+        } else {
+          this.log.warn(`[SUBDIAG] ${this.brokerId} WS.unsubscribe DROPPED (feed WS null) → ${ids}`);
+        }
       },
     });
 

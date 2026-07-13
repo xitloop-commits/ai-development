@@ -73,6 +73,7 @@ export class SubscriptionManager {
       const existing = this.subscriptions.get(key);
       if (existing) {
         existing.refCount += 1;
+        log.info(`[SUBDIAG] +ref ${key} → refCount=${existing.refCount}`);
         continue;
       }
       if (this.subscriptions.size >= this.maxInstruments) {
@@ -80,6 +81,7 @@ export class SubscriptionManager {
         continue;
       }
       this.subscriptions.set(key, { exchange: inst.exchange, mode: inst.mode, refCount: 1 });
+      log.important(`[SUBDIAG] NEW-SUB ${key} mode=${inst.mode} → total=${this.subscriptions.size}`);
       toAdd.push({
         exchange: inst.exchange,
         securityId: inst.securityId,
@@ -89,6 +91,7 @@ export class SubscriptionManager {
 
     if (toAdd.length > 0) {
       this.callbacks.onSubscribe(toAdd);
+      log.important(`[SUBDIAG] sent ${toAdd.length} subscribe(s) to Dhan feed · total instruments=${this.subscriptions.size}`);
     }
   }
 
@@ -108,11 +111,15 @@ export class SubscriptionManager {
       if (entry.refCount <= 0) {
         this.subscriptions.delete(key);
         toRemove.push(inst);
+        log.important(`[SUBDIAG] DROP-SUB ${key} → total=${this.subscriptions.size}`);
+      } else {
+        log.info(`[SUBDIAG] -ref ${key} → refCount=${entry.refCount}`);
       }
     }
 
     if (toRemove.length > 0) {
       this.callbacks.onUnsubscribe(toRemove);
+      log.important(`[SUBDIAG] sent ${toRemove.length} unsubscribe(s) to Dhan feed · total instruments=${this.subscriptions.size}`);
     }
   }
 
