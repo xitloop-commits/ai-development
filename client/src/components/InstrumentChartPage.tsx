@@ -331,7 +331,7 @@ export default function InstrumentChartPage() {
             onTimeClick={onUnderlyingClick}
             header={<>
               <span className="font-bold">{meta.displayName}</span>
-              <span className="text-muted-foreground">underlying · {intervalLabel}</span>
+              <span className="text-muted-foreground">underlying · {intervalLabel} · {und.tickCount} tk</span>
               {spot != null && <span className="tabular-nums" style={{ color: CHART_UP }}>spot {spot.toFixed(2)}</span>}
               {expiryLabel && <span className="text-muted-foreground">exp {expiryLabel}</span>}
               <span className="ml-auto text-[0.5625rem] text-muted-foreground">click a trade marker → reason ↓</span>
@@ -386,7 +386,7 @@ export default function InstrumentChartPage() {
             className="flex-1"
             header={<>
               <span className="font-bold" style={{ color: CHART_UP }}>CE</span>
-              <span className="text-muted-foreground">{atmStrike ?? "ATM"} call · {intervalLabel}{expiryLabel ? ` · ${expiryLabel}` : ""}</span>
+              <span className="text-muted-foreground">{atmStrike ?? "ATM"} call · {intervalLabel} · {ce.tickCount} tk{expiryLabel ? ` · ${expiryLabel}` : ""}</span>
             </>}
           />
           <TickChart
@@ -398,7 +398,7 @@ export default function InstrumentChartPage() {
             className="flex-1"
             header={<>
               <span className="font-bold" style={{ color: CHART_DOWN }}>PE</span>
-              <span className="text-muted-foreground">{atmStrike ?? "ATM"} put · {intervalLabel}{expiryLabel ? ` · ${expiryLabel}` : ""}</span>
+              <span className="text-muted-foreground">{atmStrike ?? "ATM"} put · {intervalLabel} · {pe.tickCount} tk{expiryLabel ? ` · ${expiryLabel}` : ""}</span>
             </>}
           />
         </div>
