@@ -280,6 +280,25 @@ let wsInstance: WebSocket | null = null;
 let wsConnected = false;
 let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
+// WS "generation" — bumped every time the socket RE-opens (not the first open).
+// A server restart drops all feed subscriptions server-side while the client
+// silently reconnects; consumers watch this to re-send their subscriptions so
+// the feed self-heals without a manual page refresh.
+let wsGeneration = 0;
+let wsEverOpened = false;
+const wsGenListeners = new Set<() => void>();
+function subscribeWsGeneration(cb: () => void): () => void {
+  wsGenListeners.add(cb);
+  return () => wsGenListeners.delete(cb);
+}
+function getWsGeneration(): number {
+  return wsGeneration;
+}
+/** Re-renders when the WS reconnects — use to re-subscribe after a server restart. */
+export function useWsGeneration(): number {
+  return useSyncExternalStore(subscribeWsGeneration, getWsGeneration, getWsGeneration);
+}
+
 function getWsUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${window.location.host}/ws/ticks`;
@@ -299,6 +318,13 @@ function connectWs() {
   ws.onopen = () => {
     if (import.meta.env.DEV) console.log("[TickWS] Connected");
     wsConnected = true;
+    // On a RE-open (server restarted / dropped), tell subscribers to re-send
+    // their feed subscriptions — the server's subscription list is now empty.
+    if (wsEverOpened) {
+      wsGeneration++;
+      wsGenListeners.forEach((l) => l());
+    }
+    wsEverOpened = true;
   };
 
   ws.onmessage = (event) => {

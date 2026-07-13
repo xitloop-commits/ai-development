@@ -27,7 +27,7 @@ import { trpc } from '@/lib/trpc';
 import { useAlertMonitor } from '@/hooks/useAlertMonitor';
 import { useSeaSignals } from '@/hooks/useSeaSignals';
 import { usePushInvalidations } from '@/hooks/usePushInvalidations';
-import { useTickFeed } from '@/hooks/useTickStream';
+import { useTickFeed, useWsGeneration } from '@/hooks/useTickStream';
 import { useFeedControl } from '@/hooks/useFeedControl';
 import { useInstrumentFilter } from '@/contexts/InstrumentFilterContext';
 
@@ -83,6 +83,7 @@ export default function MainScreen() {
   // Keep the live feed connected without re-rendering the whole app on every
   // tick — rows read prices via per-contract useInstrumentTick instead.
   useTickFeed();
+  const wsGen = useWsGeneration(); // bumps on WS reconnect → re-subscribe underlyings
   const { subscribe: feedSubscribe } = useFeedControl();
   const feedSubscribedRef = useRef(false);
 
@@ -112,11 +113,19 @@ export default function MainScreen() {
 
   // Auto-subscribe underlyings when broker connects and instruments are resolved
   const subscribedCountRef = useRef(0);
+  const lastWsGenRef = useRef(wsGen);
   useEffect(() => {
     if (!activeBrokerId || !resolvedInstruments?.length) {
       feedSubscribedRef.current = false;
       subscribedCountRef.current = 0;
       return;
+    }
+    // WS reconnected (server restart) → the feed dropped our underlying subs;
+    // force a re-subscribe so the index streams again without a page refresh.
+    if (lastWsGenRef.current !== wsGen) {
+      lastWsGenRef.current = wsGen;
+      feedSubscribedRef.current = false;
+      subscribedCountRef.current = 0;
     }
     if (feedSubscribedRef.current && resolvedInstruments.length === subscribedCountRef.current) return;
     feedSubscribedRef.current = true;
@@ -134,7 +143,7 @@ export default function MainScreen() {
       if (import.meta.env.DEV) console.warn('[Feed] Auto-subscribe failed:', err);
       feedSubscribedRef.current = false;
     });
-  }, [activeBrokerId, resolvedInstruments, feedSubscribe]);
+  }, [activeBrokerId, resolvedInstruments, feedSubscribe, wsGen]);
 
   // Configured instruments (drives the left-sidebar tabs + hotkey map). Near-
   // static config — changes only on add/remove/colour mutations, which

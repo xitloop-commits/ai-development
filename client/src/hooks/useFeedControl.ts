@@ -11,6 +11,7 @@
 
 import { useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
+import { useWsGeneration } from "@/hooks/useTickStream";
 
 export interface SubscribeInstrument {
   securityId: string;
@@ -61,10 +62,21 @@ export function useFeedSubscriptions(contracts: SubscribeInstrument[]) {
   const unsubscribeMutation = trpc.broker.feed.unsubscribe.useMutation();
   const subbedRef = useRef<Map<string, SubscribeInstrument>>(new Map());
 
+  // Re-send subscriptions after a WS reconnect (server restart drops them).
+  const wsGen = useWsGeneration();
+  const lastGenRef = useRef(wsGen);
+
   // Stable signature — the effect only runs when the desired SET changes.
   const sig = contracts.map((c) => `${c.exchange}:${c.securityId}`).sort().join(",");
 
   useEffect(() => {
+    // WS reconnected → the server forgot our subs; drop our record so the diff
+    // below re-adds the FULL desired set.
+    if (lastGenRef.current !== wsGen) {
+      lastGenRef.current = wsGen;
+      subbedRef.current = new Map();
+    }
+
     const desired = new Map<string, SubscribeInstrument>();
     for (const c of contracts) desired.set(`${c.exchange}:${c.securityId}`, c);
     if (desired.size === 0) return; // transient empty → keep current subs (no flap)
@@ -76,10 +88,13 @@ export function useFeedSubscriptions(contracts: SubscribeInstrument[]) {
     cur.forEach((c, k) => { if (!desired.has(k)) toRemove.push(c); });
 
     if (toRemove.length) void unsubscribeMutation.mutateAsync({ instruments: toRemove });
-    if (toAdd.length) void subscribeMutation.mutateAsync({ instruments: toAdd.map((c) => ({ ...c, mode: "full" as const })) });
+    // Respect each contract's mode (index = ticker; options/futures = full) —
+    // forcing "full" made index subscriptions invalid, so the chart could never
+    // subscribe IDX_I itself and relied on the main app doing it.
+    if (toAdd.length) void subscribeMutation.mutateAsync({ instruments: toAdd.map((c) => ({ ...c, mode: c.mode ?? ("full" as const) })) });
     subbedRef.current = desired;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sig]);
+  }, [sig, wsGen]);
 
   // Release everything on unmount.
   useEffect(
