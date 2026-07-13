@@ -14,6 +14,7 @@ import { trpc } from "@/lib/trpc";
 import {
   IST_OFFSET_SECONDS,
   istDateString,
+  UNDERLYING_SECURITY_ID,
   type Candle,
   type ChartSignal,
 } from "@/lib/signalChart";
@@ -148,38 +149,32 @@ export default function InstrumentChartPage() {
   const undData = ticksQuery.data as
     | { t: number[]; ltp: number[]; securityId?: string | null; exchangeSegment?: string | null }
     | undefined;
-  const undSeed = useMemo(
-    () => (undData && undData.t?.length ? { t: undData.t, ltp: undData.ltp } : undefined),
-    [undData],
-  );
-  // Live leg = the recorded near-month FUTURE on the primary WS (same F&O segment
-  // as the options that stream fine, and the same contract as the disk history →
-  // no basis offset). NOTE: needs the server restarted so underlyingTicks returns
-  // the contract id.
+  // Live leg = the INDEX itself (IDX_I:13/25) — the SAME contract the instrument
+  // bar reads via useInstrumentTick — so the chart's underlying matches the bar
+  // tick-for-tick. The disk history is the near-month FUTURE (a few pts above
+  // spot); shift it DOWN to index level ONCE (spot − last future price) so the
+  // seed is continuous with the live index. Frozen after the first spot so the
+  // history doesn't wobble as the basis drifts.
+  const [seedShift, setSeedShift] = useState<number | null>(null);
+  useEffect(() => {
+    if (isToday && seedShift == null && spot != null && spot > 0 && undData?.ltp?.length) {
+      const last = undData.ltp[undData.ltp.length - 1];
+      if (last > 0) setSeedShift(spot - last);
+    }
+  }, [spot, undData, seedShift, isToday]);
+  const undSeed = useMemo(() => {
+    if (!undData || !undData.t?.length) return undefined;
+    const s = isToday ? seedShift ?? 0 : 0;
+    return { t: undData.t, ltp: s ? undData.ltp.map((l) => l + s) : undData.ltp };
+  }, [undData, seedShift, isToday]);
   const und = useLiveCandles(
-    isToday ? undData?.securityId ?? null : null,
-    undData?.exchangeSegment ?? "NSE_FNO",
+    isToday ? UNDERLYING_SECURITY_ID[inst ?? ""] ?? null : null,
+    "IDX_I",
     intervalSec,
     isToday,
     undSeed,
   );
-  // The underlying contract is the near-month FUTURE (what ticks on the primary),
-  // which trades a few points above spot (the basis). Re-anchor a constant offset
-  // to the live spot on each spot update so the chart reads at INDEX level while
-  // keeping the future's tick-by-tick movement between anchors.
-  const [undOffset, setUndOffset] = useState(0);
-  useEffect(() => {
-    const c = und.candles;
-    if (isToday && spot != null && spot > 0 && c.length > 0) {
-      setUndOffset(spot - c[c.length - 1].close);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-anchor on spot change only
-  }, [spot, isToday]);
-  const baseCandles = useMemo(() => {
-    const c = und.candles;
-    if (Math.abs(undOffset) < 0.01 || c.length === 0) return c;
-    return c.map((k) => ({ time: k.time, open: k.open + undOffset, high: k.high + undOffset, low: k.low + undOffset, close: k.close + undOffset }));
-  }, [und.candles, undOffset]);
+  const baseCandles = und.candles;
 
   const candles = useMemo<Candle[]>(() => {
     if (replayCount == null) return baseCandles;
