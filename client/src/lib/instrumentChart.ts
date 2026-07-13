@@ -6,6 +6,36 @@
  */
 import { type Candle, IST_OFFSET_SECONDS, istDateString } from "./signalChart";
 
+// ── Chart palette (shared by the page + the TickChart renderer) ──
+export const CHART_UP = "#089981";      // green — up candle / GO_CALL / profit
+export const CHART_DOWN = "#f23645";    // red — down candle / GO_PUT / loss
+export const CHART_BG = "#131722";      // dark navy background
+export const CHART_GRID = "rgba(148,163,184,0.06)";
+export const CHART_ENTRY = "#22d3ee";   // trade entry marker
+export const MA_COLOR = "#a855f7";      // violet MA
+export const SMA9_COLOR = "#f59e0b";
+export const SMA21_COLOR = "#3b82f6";
+export const EMA9_COLOR = "#ec4899";
+export const EMA21_COLOR = "#84cc16";
+export const SMA5_COLOR = "#eab308";
+export const EMA5_COLOR = "#f97316";
+export const RSI_COLOR = "#a855f7";
+export const MA_PERIOD = 20;
+
+export type ChartStyle = "candle" | "ha" | "line";
+export type IndicatorKey = "ma" | "sma" | "ema" | "sma9ema9" | "sma5" | "ema5" | "rsi" | "supertrend";
+
+export const INDICATOR_OPTIONS: { key: IndicatorKey; label: string }[] = [
+  { key: "ma", label: "MA (violet)" },
+  { key: "sma5", label: "SMA 5" },
+  { key: "ema5", label: "EMA 5" },
+  { key: "sma", label: "SMA 9 + 21" },
+  { key: "ema", label: "EMA 9 + 21" },
+  { key: "sma9ema9", label: "SMA 9 + EMA 9" },
+  { key: "rsi", label: "RSI" },
+  { key: "supertrend", label: "Supertrend" },
+];
+
 /** Selectable candle intervals (label + bucket size in seconds). */
 export const CHART_INTERVALS: { label: string; seconds: number }[] = [
   { label: "1s", seconds: 1 },

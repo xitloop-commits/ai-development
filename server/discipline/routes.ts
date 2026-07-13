@@ -232,7 +232,10 @@ export function registerDisciplineRoutes(app: Express): void {
             : (body.lots ?? 1);
           quantity = Math.max(1, Math.round(lots * lotSize));
           estimatedValue = quantity * entryPrice;
-          currentExposure = openTrades.reduce((s, t) => s + t.entryPrice * t.qty, 0);
+          // Current channel exposure (the duplicate-guard's openTrades is scoped to
+          // its opt-in block, so fetch a fresh list here for the exposure sum).
+          const openForExposure = await portfolioAgent.listOpenTrades(body.channel);
+          currentExposure = openForExposure.reduce((s: number, t) => s + t.entryPrice * t.qty, 0);
 
           // AI-risk toggle (global): "manual" overrides the model's SL/TP with the
           // configured Risk-Management values, off the re-priced entry + now-known
