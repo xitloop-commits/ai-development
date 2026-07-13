@@ -163,7 +163,23 @@ export default function InstrumentChartPage() {
     isToday,
     undSeed,
   );
-  const baseCandles = und.candles;
+  // The underlying contract is the near-month FUTURE (what ticks on the primary),
+  // which trades a few points above spot (the basis). Re-anchor a constant offset
+  // to the live spot on each spot update so the chart reads at INDEX level while
+  // keeping the future's tick-by-tick movement between anchors.
+  const [undOffset, setUndOffset] = useState(0);
+  useEffect(() => {
+    const c = und.candles;
+    if (isToday && spot != null && spot > 0 && c.length > 0) {
+      setUndOffset(spot - c[c.length - 1].close);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-anchor on spot change only
+  }, [spot, isToday]);
+  const baseCandles = useMemo(() => {
+    const c = und.candles;
+    if (Math.abs(undOffset) < 0.01 || c.length === 0) return c;
+    return c.map((k) => ({ time: k.time, open: k.open + undOffset, high: k.high + undOffset, low: k.low + undOffset, close: k.close + undOffset }));
+  }, [und.candles, undOffset]);
 
   const candles = useMemo<Candle[]>(() => {
     if (replayCount == null) return baseCandles;
