@@ -73,6 +73,9 @@ Separate pop-out browser chart windows to watch/review the market from **our own
 
 **Data to reuse:** signals from `sea_signals` (by date+instrument), trades from ai-paper `day_records` (by date), underlying securityId from `broker.feed.resolveInstruments`.
 
+### T77 [OPS/TUNING] — Daily AI-paper P&L log + tune stop/TP/filter at 10 clean days (2026-07-13) 🆕
+Auto-log shipped: `scripts/pnl-log.mjs` rebuilds `data/reports/AI_PAPER_PNL.md` from MongoDB (channel `ai-paper`) — one row per day×instrument (trades, win%, net, worst trade, TP/SL/Age, running total) + a tuning-readiness counter. Runs each trading day **15:45 Mon–Fri** via Windows task **`Lubas-PnL-Log-Daily`** (wrapper `startup/pnl-log-daily.bat`, full node path). Read-only on the DB; rebuilt from scratch each run (no dup). **Purpose:** accumulate clean forward-test days to tune the **decision layer** (stop % / TP % / one trend filter) — NOT retrain the model (10 days ≈ 130 trades = far too few for RL/refit). **Milestones:** rough first-cut tune at **10 days**, real tune at **20 days**, always splitting tune/verify halves so it isn't curve-fit. **As of 2026-07-13 = 2 days** (bn +₹60k = 1 washout −₹16.5k + 1 jackpot +₹76.6k; nf +₹11.6k). **Regime coverage** (trend / sideways / up-down) matters more than raw day count. Biggest lever to test first = the wide ~**−25% stop** (the fat tail behind the −₹16.5k / −₹12.6k days).
+
 ## P0 — active (2026-07-04 weekend batch)
 
 ### LEAK — `upside_percentile_60s` is a look-ahead feature (FIXED for banknifty, nifty50 pending)
