@@ -19,3 +19,47 @@ export function manualRiskSlTp(
     takeProfit: round2(entry * (1 + tpPct / 100)),
   };
 }
+
+/** Just the Risk-Management fields riskSlTp reads (a subset of BrokerSettings). */
+export interface RiskSettingsLite {
+  slMode?: "percent" | "fixed";
+  targetMode?: "percent" | "fixed";
+  defaultSL?: number;                // SL %
+  slFixedOptions?: number;           // fixed SL, option premium ₹
+  slFixedOther?: number;             // fixed SL, others (points)
+  tradeTargetOptions?: number;       // options target %
+  tradeTargetOther?: number;         // others target %
+  tradeTargetOptionsFixed?: number;  // fixed options target ₹
+  tradeTargetOtherFixed?: number;    // fixed others target (points)
+}
+
+/**
+ * Resolve SL/TP prices from the configured Risk-Management settings, honouring
+ * the percent|fixed mode for each of stoploss and target. Distances are picked
+ * per instrument type (option premium ₹ vs others' points) and applied around
+ * the entry by side (long stop below / target above; short reversed).
+ *
+ * percent mode: distance = entry × pct/100.  fixed mode: distance = the ₹/points value.
+ */
+export function riskSlTp(
+  entry: number,
+  opts: { isOption: boolean; isLong: boolean; settings: RiskSettingsLite },
+): { stopLoss: number; takeProfit: number } {
+  const s = opts.settings;
+  const round2 = (x: number) => Math.round(x * 100) / 100;
+
+  const slDist =
+    s.slMode === "fixed"
+      ? (opts.isOption ? (s.slFixedOptions ?? 10) : (s.slFixedOther ?? 5))
+      : entry * ((s.defaultSL ?? 2) / 100);
+
+  const tpPct = opts.isOption ? (s.tradeTargetOptions ?? 30) : (s.tradeTargetOther ?? 2);
+  const tpDist =
+    s.targetMode === "fixed"
+      ? (opts.isOption ? (s.tradeTargetOptionsFixed ?? 40) : (s.tradeTargetOtherFixed ?? 5))
+      : entry * (tpPct / 100);
+
+  return opts.isLong
+    ? { stopLoss: round2(entry - slDist), takeProfit: round2(entry + tpDist) }
+    : { stopLoss: round2(entry + slDist), takeProfit: round2(entry - tpDist) };
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { manualRiskSlTp } from "./riskMode";
+import { manualRiskSlTp, riskSlTp, type RiskSettingsLite } from "./riskMode";
 
 describe("manualRiskSlTp — configured SL/TP for AI trades in manual risk mode", () => {
   it("derives SL below and TP above entry from the configured %", () => {
@@ -17,5 +17,36 @@ describe("manualRiskSlTp — configured SL/TP for AI trades in manual risk mode"
   it("a tight SL% keeps the stop just under entry (no 5-19% blowups)", () => {
     const { stopLoss } = manualRiskSlTp(940.85, 2, 30);
     expect(stopLoss).toBeCloseTo(922.03, 2); // 2% stop, not the model's drift
+  });
+});
+
+describe("riskSlTp — percent | fixed risk resolution", () => {
+  const PCT: RiskSettingsLite = { slMode: "percent", targetMode: "percent", defaultSL: 2, tradeTargetOptions: 30, tradeTargetOther: 2 };
+  const FIXED: RiskSettingsLite = { slMode: "fixed", targetMode: "fixed", slFixedOptions: 10, slFixedOther: 5, tradeTargetOptionsFixed: 40, tradeTargetOtherFixed: 5 };
+
+  it("percent mode, long option: % of entry around entry", () => {
+    expect(riskSlTp(100, { isOption: true, isLong: true, settings: PCT })).toEqual({ stopLoss: 98, takeProfit: 130 });
+  });
+
+  it("fixed mode, long option: absolute ₹ distances", () => {
+    expect(riskSlTp(100, { isOption: true, isLong: true, settings: FIXED })).toEqual({ stopLoss: 90, takeProfit: 140 });
+  });
+
+  it("fixed mode, others: uses the others (points) distances", () => {
+    expect(riskSlTp(100, { isOption: false, isLong: true, settings: FIXED })).toEqual({ stopLoss: 95, takeProfit: 105 });
+  });
+
+  it("short position reverses stop/target", () => {
+    expect(riskSlTp(100, { isOption: true, isLong: false, settings: PCT })).toEqual({ stopLoss: 102, takeProfit: 70 });
+  });
+
+  it("mixed: fixed SL + percent target", () => {
+    const mixed: RiskSettingsLite = { ...FIXED, targetMode: "percent", tradeTargetOptions: 30 };
+    expect(riskSlTp(100, { isOption: true, isLong: true, settings: mixed })).toEqual({ stopLoss: 90, takeProfit: 130 });
+  });
+
+  it("falls back to sane defaults when settings are empty", () => {
+    const r = riskSlTp(100, { isOption: true, isLong: true, settings: {} });
+    expect(r).toEqual({ stopLoss: 98, takeProfit: 130 });
   });
 });

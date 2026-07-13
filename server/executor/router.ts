@@ -20,11 +20,11 @@ import { TRPCError } from "@trpc/server";
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { tradeExecutor } from "./tradeExecutor";
 import {
-  getTradeTargetPercent,
   resolveContract,
   resolveLotSize,
   resolveNearestExpiry,
 } from "./tradeResolution";
+import { riskSlTp } from "../discipline/riskMode";
 import { getExecutorSettings, updateExecutorSettings } from "./settings";
 import { getCapitalState, getDayRecord } from "../portfolio/state";
 import { notifyTradeExit } from "../_core/tradeEventNotifier";
@@ -321,32 +321,39 @@ export const executorRouter = router({
         });
       }
 
-      // ── 5. Resolve TP / SL — absolute → %-from-entry → defaults ─
+      // ── 5. Resolve TP / SL — absolute → explicit %-from-entry → configured
+      //    default (percent OR fixed ₹, per slMode/targetMode) ─
       const isBuy = input.type.includes("BUY");
-      const tradeDefaults = await getTradeTargetPercent(input.type);
+      const config = await getActiveBrokerConfig();
+      const riskDefault = riskSlTp(entryPrice, {
+        isOption, // declared above (CALL_/PUT_ prefix)
+        isLong: isBuy,
+        settings: config?.settings ?? {},
+      });
 
       let resolvedTakeProfit: number | null;
       if (input.targetPrice !== undefined) {
         resolvedTakeProfit = targetPriceOverride; // absolute override (delta-shifted)
-      } else {
-        const tpPercent = input.targetPercent ?? tradeDefaults.tpPercent;
+      } else if (input.targetPercent !== undefined) {
         resolvedTakeProfit = isBuy
-          ? Math.round(entryPrice * (1 + tpPercent / 100) * 100) / 100
-          : Math.round(entryPrice * (1 - tpPercent / 100) * 100) / 100;
+          ? Math.round(entryPrice * (1 + input.targetPercent / 100) * 100) / 100
+          : Math.round(entryPrice * (1 - input.targetPercent / 100) * 100) / 100;
+      } else {
+        resolvedTakeProfit = riskDefault.takeProfit; // configured %/fixed default
       }
 
       let resolvedStopLoss: number | null;
       if (input.stopLossPrice !== undefined) {
         resolvedStopLoss = stopLossPriceOverride;
-      } else {
-        const slPercent = input.stopLossPercent ?? tradeDefaults.slPercent;
+      } else if (input.stopLossPercent !== undefined) {
         resolvedStopLoss = isBuy
-          ? Math.round(entryPrice * (1 - slPercent / 100) * 100) / 100
-          : Math.round(entryPrice * (1 + slPercent / 100) * 100) / 100;
+          ? Math.round(entryPrice * (1 - input.stopLossPercent / 100) * 100) / 100
+          : Math.round(entryPrice * (1 + input.stopLossPercent / 100) * 100) / 100;
+      } else {
+        resolvedStopLoss = riskDefault.stopLoss; // configured %/fixed default
       }
 
-      // ── 6. Resolve order type / product type from broker config ─
-      const config = await getActiveBrokerConfig();
+      // ── 6. Resolve order type / product type from broker config (reuses `config`) ─
       const orderType = (config?.settings?.orderType as "MARKET" | "LIMIT" | undefined) ?? "LIMIT";
       const productType = (config?.settings?.productType as "INTRADAY" | "CNC" | undefined) ?? "INTRADAY";
 

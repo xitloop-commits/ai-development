@@ -207,12 +207,17 @@ export function registerDisciplineRoutes(app: Express): void {
           const { getActiveBrokerConfig } = await import("../broker/brokerConfig");
           const brokerCfg = await getActiveBrokerConfig();
           if (brokerCfg?.settings?.aiRiskMode === "manual" && entryPrice > 0) {
-            const { manualRiskSlTp } = await import("./riskMode");
-            const slPct = brokerCfg.settings.defaultSL ?? 2;
-            const tpPct = brokerCfg.settings.tradeTargetOptions ?? 30;
-            ({ stopLoss, takeProfit } = manualRiskSlTp(entryPrice, slPct, tpPct));
+            const { riskSlTp } = await import("./riskMode");
+            // AI trades are always LONG options → isOption/isLong true. riskSlTp
+            // honours the configured slMode/targetMode (percent or fixed ₹).
+            ({ stopLoss, takeProfit } = riskSlTp(entryPrice, {
+              isOption: true,
+              isLong: true,
+              settings: brokerCfg.settings,
+            }));
             log.info(
-              `AI risk=manual ${body.instrument} SL=${stopLoss} (${slPct}%) TP=${takeProfit} (${tpPct}%)`,
+              `AI risk=manual ${body.instrument} SL=${stopLoss} TP=${takeProfit} ` +
+                `(sl=${brokerCfg.settings.slMode}, tp=${brokerCfg.settings.targetMode})`,
             );
           }
 

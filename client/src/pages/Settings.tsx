@@ -382,6 +382,13 @@ export function OrderExecutionSection() {
     // Per-instrument trade targets
     tradeTargetOptions: 30,
     tradeTargetOther: 2,
+    // Fixed (₹/points) risk values + per-block mode selector
+    slMode: 'percent' as 'percent' | 'fixed',
+    targetMode: 'percent' as 'percent' | 'fixed',
+    slFixedOptions: 10,
+    slFixedOther: 5,
+    tradeTargetOptionsFixed: 40,
+    tradeTargetOtherFixed: 5,
     // Trailing stop (moved from Discipline per spec v1.2)
     trailingStopEnabled: false,
     trailingStopPercent: 2,
@@ -410,6 +417,12 @@ export function OrderExecutionSection() {
         dailyTargetPercent: (config.settings as any).dailyTargetPercent ?? prev.dailyTargetPercent,
         tradeTargetOptions: (config.settings as any).tradeTargetOptions ?? prev.tradeTargetOptions,
         tradeTargetOther: (config.settings as any).tradeTargetOther ?? prev.tradeTargetOther,
+        slMode: (config.settings as any).slMode ?? prev.slMode,
+        targetMode: (config.settings as any).targetMode ?? prev.targetMode,
+        slFixedOptions: (config.settings as any).slFixedOptions ?? prev.slFixedOptions,
+        slFixedOther: (config.settings as any).slFixedOther ?? prev.slFixedOther,
+        tradeTargetOptionsFixed: (config.settings as any).tradeTargetOptionsFixed ?? prev.tradeTargetOptionsFixed,
+        tradeTargetOtherFixed: (config.settings as any).tradeTargetOtherFixed ?? prev.tradeTargetOtherFixed,
         trailingStopEnabled: (config.settings as any).trailingStopEnabled ?? prev.trailingStopEnabled,
         trailingStopPercent: (config.settings as any).trailingStopPercent ?? prev.trailingStopPercent,
         trailingDistanceSource: (config.settings as any).trailingDistanceSource ?? prev.trailingDistanceSource,
@@ -452,6 +465,12 @@ export function OrderExecutionSection() {
         dailyTargetPercent: settings.dailyTargetPercent,
         tradeTargetOptions: settings.tradeTargetOptions,
         tradeTargetOther: settings.tradeTargetOther,
+        slMode: settings.slMode,
+        targetMode: settings.targetMode,
+        slFixedOptions: settings.slFixedOptions,
+        slFixedOther: settings.slFixedOther,
+        tradeTargetOptionsFixed: settings.tradeTargetOptionsFixed,
+        tradeTargetOtherFixed: settings.tradeTargetOtherFixed,
         trailingStopEnabled: settings.trailingStopEnabled,
         trailingStopPercent: settings.trailingStopPercent,
         trailingDistanceSource: settings.trailingDistanceSource,
@@ -473,6 +492,12 @@ export function OrderExecutionSection() {
         dailyTargetPercent: (config.settings as any).dailyTargetPercent ?? 5,
         tradeTargetOptions: (config.settings as any).tradeTargetOptions ?? 30,
         tradeTargetOther: (config.settings as any).tradeTargetOther ?? 2,
+        slMode: (config.settings as any).slMode ?? 'percent',
+        targetMode: (config.settings as any).targetMode ?? 'percent',
+        slFixedOptions: (config.settings as any).slFixedOptions ?? 10,
+        slFixedOther: (config.settings as any).slFixedOther ?? 5,
+        tradeTargetOptionsFixed: (config.settings as any).tradeTargetOptionsFixed ?? 40,
+        tradeTargetOtherFixed: (config.settings as any).tradeTargetOtherFixed ?? 5,
         trailingStopEnabled: (config.settings as any).trailingStopEnabled ?? false,
         trailingStopPercent: (config.settings as any).trailingStopPercent ?? 2,
         trailingDistanceSource: (config.settings as any).trailingDistanceSource ?? 'signal',
@@ -638,45 +663,109 @@ export function OrderExecutionSection() {
               onChange={(v) => setSettings((s) => ({ ...s, aiRiskMode: v ? 'ai' : 'manual' }))}
             />
           </div>
+          {/* Stop Loss — % of entry, or fixed (₹ premium for options / points for others) */}
           <div className="flex items-center justify-between">
-            <FieldLabel hint="Default stop loss percentage from entry price">
-              Default Stop Loss
+            <FieldLabel hint="OFF: stop loss is a % of entry price. ON: stop loss is a fixed distance — ₹ of option premium, or points for futures/others.">
+              Stop Loss — Fixed value
             </FieldLabel>
-            <NumberInput
-              value={settings.defaultSL}
-              onChange={(v) => setSettings((s) => ({ ...s, defaultSL: v }))}
-              min={0}
-              max={50}
-              step={0.5}
-              suffix="%"
+            <ToggleSwitch
+              checked={settings.slMode === 'fixed'}
+              onChange={(v) => setSettings((s) => ({ ...s, slMode: v ? 'fixed' : 'percent' }))}
             />
           </div>
+          {settings.slMode === 'percent' ? (
+            <div className="flex items-center justify-between">
+              <FieldLabel hint="Default stop loss percentage from entry price">
+                Default Stop Loss
+              </FieldLabel>
+              <NumberInput
+                value={settings.defaultSL}
+                onChange={(v) => setSettings((s) => ({ ...s, defaultSL: v }))}
+                min={0} max={50} step={0.5} suffix="%"
+              />
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <FieldLabel hint="Fixed stop-loss distance for options, in ₹ of premium (below entry).">
+                  Stop Loss (Options)
+                </FieldLabel>
+                <NumberInput
+                  value={settings.slFixedOptions}
+                  onChange={(v) => setSettings((s) => ({ ...s, slFixedOptions: v }))}
+                  min={0} max={100000} step={1} suffix="₹"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <FieldLabel hint="Fixed stop-loss distance for futures/others, in points.">
+                  Stop Loss (Other)
+                </FieldLabel>
+                <NumberInput
+                  value={settings.slFixedOther}
+                  onChange={(v) => setSettings((s) => ({ ...s, slFixedOther: v }))}
+                  min={0} max={100000} step={1} suffix="pts"
+                />
+              </div>
+            </>
+          )}
+
+          {/* Trade Target — % of entry, or fixed (₹ premium for options / points for others) */}
           <div className="flex items-center justify-between">
-            <FieldLabel hint="Default per-trade target for Options">
-              Trade Target (Options)
+            <FieldLabel hint="OFF: target is a % of entry price. ON: target is a fixed distance — ₹ of option premium, or points for futures/others.">
+              Trade Target — Fixed value
             </FieldLabel>
-            <NumberInput
-              value={settings.tradeTargetOptions}
-              onChange={(v) => setSettings((s) => ({ ...s, tradeTargetOptions: v }))}
-              min={5}
-              max={100}
-              step={1}
-              suffix="%"
+            <ToggleSwitch
+              checked={settings.targetMode === 'fixed'}
+              onChange={(v) => setSettings((s) => ({ ...s, targetMode: v ? 'fixed' : 'percent' }))}
             />
           </div>
-          <div className="flex items-center justify-between">
-            <FieldLabel hint="Default per-trade target for Equities/Futures">
-              Trade Target (Other)
-            </FieldLabel>
-            <NumberInput
-              value={settings.tradeTargetOther}
-              onChange={(v) => setSettings((s) => ({ ...s, tradeTargetOther: v }))}
-              min={0.5}
-              max={20}
-              step={0.5}
-              suffix="%"
-            />
-          </div>
+          {settings.targetMode === 'percent' ? (
+            <>
+              <div className="flex items-center justify-between">
+                <FieldLabel hint="Default per-trade target for Options">
+                  Trade Target (Options)
+                </FieldLabel>
+                <NumberInput
+                  value={settings.tradeTargetOptions}
+                  onChange={(v) => setSettings((s) => ({ ...s, tradeTargetOptions: v }))}
+                  min={5} max={100} step={1} suffix="%"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <FieldLabel hint="Default per-trade target for Equities/Futures">
+                  Trade Target (Other)
+                </FieldLabel>
+                <NumberInput
+                  value={settings.tradeTargetOther}
+                  onChange={(v) => setSettings((s) => ({ ...s, tradeTargetOther: v }))}
+                  min={0.5} max={20} step={0.5} suffix="%"
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <FieldLabel hint="Fixed target distance for options, in ₹ of premium (above entry).">
+                  Trade Target (Options)
+                </FieldLabel>
+                <NumberInput
+                  value={settings.tradeTargetOptionsFixed}
+                  onChange={(v) => setSettings((s) => ({ ...s, tradeTargetOptionsFixed: v }))}
+                  min={0} max={100000} step={1} suffix="₹"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <FieldLabel hint="Fixed target distance for futures/others, in points.">
+                  Trade Target (Other)
+                </FieldLabel>
+                <NumberInput
+                  value={settings.tradeTargetOtherFixed}
+                  onChange={(v) => setSettings((s) => ({ ...s, tradeTargetOtherFixed: v }))}
+                  min={0} max={100000} step={1} suffix="pts"
+                />
+              </div>
+            </>
+          )}
         </div>
       </SettingsCard>
 

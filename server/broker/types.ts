@@ -404,6 +404,13 @@ export interface BrokerSettings {
   dailyTargetPercent: number; // daily compounding target % (default 5.0)
   tradeTargetOptions: number; // per-trade target % for options (default 30)
   tradeTargetOther: number; // per-trade target % for equities/futures (default 2)
+  /** Risk-value mode per block: "percent" (%-of-entry, default) or "fixed" (absolute ₹/points). */
+  slMode: "percent" | "fixed";
+  targetMode: "percent" | "fixed";
+  slFixedOptions: number; // fixed SL distance, option premium ₹ (default 10)
+  slFixedOther: number; // fixed SL distance, futures/others points (default 5)
+  tradeTargetOptionsFixed: number; // fixed target distance, option premium ₹ (default 40)
+  tradeTargetOtherFixed: number; // fixed target distance, futures/others points (default 5)
   trailingStopEnabled: boolean; // whether trailing stop is active (default false)
   trailingStopPercent: number; // trailing stop distance % from peak (default 2.0)
   /** Where the paper trailing distance comes from: "config" = fixed
