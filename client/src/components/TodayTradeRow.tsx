@@ -296,6 +296,7 @@ function _TodayTradeRow({
                 units={trade.qty}
                 roundTripCharges={charges}
                 compact
+                onSetTp={isPaperChannel(channel) ? (price) => onUpdateTpSl(trade.id, { targetPrice: price }) : undefined}
                 onStopLossHit={() => {
                   // Diagnostic only ([XSYNC] exit-sync): the client LTP crossed
                   // the marker. NOT a user toast — that fires on the real

@@ -20,7 +20,7 @@
  * EVENTS (emitted once each): onStopLossHit · onTakeProfitHit.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { formatPrice, formatINR } from "@/lib/formatINR";
 
 /** Compact price for the scale (no ₹, no K/L shorthand): 135.4, 1,234.5. */
@@ -64,6 +64,10 @@ export interface TradeBarProps {
   onStopLossHit?: () => void;
   /** Fired once when ltp first reaches the take profit. */
   onTakeProfitHit?: () => void;
+  /** Click-to-set: called with the price under a click on the favourable (right)
+   *  side of the scale, so the operator can move the TP by clicking the bar. When
+   *  absent the bar isn't click-interactive. */
+  onSetTp?: (price: number) => void;
 }
 
 // ─── Tunables ───────────────────────────────────────────────────────────
@@ -104,6 +108,7 @@ export function TradeBar({
   className,
   onStopLossHit,
   onTakeProfitHit,
+  onSetTp,
 }: TradeBarProps) {
   // Favourable-% of a price relative to entry (BUY: up is +, SELL: down is +).
   const toFav = (p: number) => ((isBuy ? p - entryPrice : entryPrice - p) / entryPrice) * 100;
@@ -189,6 +194,22 @@ export function TradeBar({
   const entryPos = pos(0);
   const tpPos = pos(tpPercent);
   const ltpPos = pos(ltpFav);
+
+  // Click-to-set take-profit: map the clicked x back through the scale to a price
+  // and hand it up. Only the favourable (right-of-entry) side sets a TP — a click
+  // on the loss side is ignored. Inverse of pos().
+  const trackRef = useRef<HTMLDivElement>(null);
+  const handleBarClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (!onSetTp || frozen) return;
+    e.stopPropagation(); // don't let a TP-set click also select/expand the row
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0) return;
+    const clickPct = ((e.clientX - rect.left) / rect.width) * 100;
+    const fav = lowFav + ((clickPct - EDGE) / (100 - 2 * EDGE)) * span;
+    if (!(fav > 0)) return; // TP lives on the favourable side only
+    const price = favToPrice(fav);
+    if (price > 0) onSetTp(Math.round(price * 100) / 100);
+  };
 
   const isFavourable = ltpFav >= 0;
   const profitStart = stopLocked ? stopPos : entryPos;
@@ -368,7 +389,12 @@ export function TradeBar({
         })}
       </div>
 
-      <div className="relative w-full h-1.5">
+      <div
+        ref={trackRef}
+        className={`relative w-full h-1.5 ${onSetTp && !frozen ? "cursor-pointer" : ""}`}
+        onClick={onSetTp && !frozen ? handleBarClick : undefined}
+        title={onSetTp && !frozen ? "Click the favourable side of the bar to move the take-profit here" : undefined}
+      >
         {/* Track + colour bands (clipped to the rounded track) */}
         <div className="absolute inset-0 rounded-full bg-muted-foreground/20 overflow-hidden">
           {bands.map((b, i) => {
