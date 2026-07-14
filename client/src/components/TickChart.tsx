@@ -38,6 +38,9 @@ import {
 } from "@/lib/instrumentChart";
 import { sma, ema, rsi, supertrend, type OHLC } from "@/lib/indicators";
 
+/** Empty bars of margin kept to the right of the last candle. */
+const RIGHT_MARGIN_BARS = 10;
+
 export interface TickChartProps {
   /** Raw bucketed candles; Heikin-Ashi is applied internally when style==="ha". */
   candles: Candle[];
@@ -100,6 +103,7 @@ export function TickChart({
         borderColor: "rgba(148,163,184,0.2)",
         timeVisible: true,
         secondsVisible: intervalSec < 60,
+        rightOffset: RIGHT_MARGIN_BARS, // empty bars of breathing room on the right edge
       },
       autoSize: true,
     });
@@ -205,6 +209,9 @@ export function TickChart({
 
     if (prevRange) {
       try { chart.timeScale().setVisibleRange(prevRange); } catch { chart.timeScale().fitContent(); }
+    } else if (candles.length > 0) {
+      // Fit all candles but keep a right-side margin (fitContent alone ignores rightOffset).
+      chart.timeScale().setVisibleLogicalRange({ from: 0, to: candles.length - 1 + RIGHT_MARGIN_BARS });
     } else {
       chart.timeScale().fitContent();
     }
