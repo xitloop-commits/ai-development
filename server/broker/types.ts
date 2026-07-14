@@ -432,6 +432,15 @@ export interface BrokerSettings {
     crudeoil: InstrumentSizing;
     naturalgas: InstrumentSizing;
   };
+  // Per-instrument default STOP-LOSS override, keyed by instrumentLiveState key.
+  // Interpreted in the global `slMode` (percent → %, fixed → ₹/points). 0 (or
+  // absent) means "inherit the global default SL for this instrument".
+  instrumentSl: {
+    nifty50: number;
+    banknifty: number;
+    crudeoil: number;
+    naturalgas: number;
+  };
 }
 
 export interface BrokerConnection {

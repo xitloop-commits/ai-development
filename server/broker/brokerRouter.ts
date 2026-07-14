@@ -194,6 +194,14 @@ const brokerSettingsSchema = z.object({
       naturalgas: instrumentSizingEntrySchema,
     })
     .optional(),
+  instrumentSl: z
+    .object({
+      nifty50: z.number(),
+      banknifty: z.number(),
+      crudeoil: z.number(),
+      naturalgas: z.number(),
+    })
+    .optional(),
 });
 
 const channelSchema = z.enum([

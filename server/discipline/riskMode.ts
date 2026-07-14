@@ -30,6 +30,9 @@ export interface RiskSettingsLite {
   defaultSL?: number;                // SL %
   slFixedOptions?: number;           // fixed SL, option premium ₹
   slFixedOther?: number;             // fixed SL, others (points)
+  /** Per-instrument SL override (keyed by instrumentLiveState key), interpreted
+   *  in `slMode`. >0 overrides the option/other default for that instrument. */
+  instrumentSl?: { nifty50?: number; banknifty?: number; crudeoil?: number; naturalgas?: number };
   tradeTargetOptions?: number;       // options target %
   tradeTargetOther?: number;         // others target %
   tradeTargetOptionsFixed?: number;  // fixed options target ₹
@@ -46,15 +49,21 @@ export interface RiskSettingsLite {
  */
 export function riskSlTp(
   entry: number,
-  opts: { isOption: boolean; isLong: boolean; settings: RiskSettingsLite },
+  opts: { isOption: boolean; isLong: boolean; settings: RiskSettingsLite; instrument?: string },
 ): { stopLoss: number; takeProfit: number } {
   const s = opts.settings;
   const round2 = (x: number) => Math.round(x * 100) / 100;
 
+  // Per-instrument SL override (>0). Interpreted in slMode: fixed → the ₹/points
+  // value directly; percent → % of entry. Falls back to the option/other default.
+  const instKey = (opts.instrument ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const perInst = (s.instrumentSl as Record<string, number> | undefined)?.[instKey];
   const slDist =
-    s.slMode === "fixed"
-      ? (opts.isOption ? (s.slFixedOptions ?? 10) : (s.slFixedOther ?? 5))
-      : entry * ((s.defaultSL ?? 2) / 100);
+    perInst != null && perInst > 0
+      ? (s.slMode === "fixed" ? perInst : entry * (perInst / 100))
+      : s.slMode === "fixed"
+        ? (opts.isOption ? (s.slFixedOptions ?? 10) : (s.slFixedOther ?? 5))
+        : entry * ((s.defaultSL ?? 2) / 100);
 
   const tpPct = opts.isOption ? (s.tradeTargetOptions ?? 30) : (s.tradeTargetOther ?? 2);
   const tpDist =
@@ -103,12 +112,14 @@ export async function resolveRiskLevels(
     qty: number;
     exchange: "NSE" | "MCX";
     settings: RiskSettingsLite;
+    instrument?: string;
   },
 ): Promise<{ stopLoss: number; takeProfit: number }> {
   const base = riskSlTp(entry, {
     isOption: opts.isOption,
     isLong: opts.isLong,
     settings: opts.settings,
+    instrument: opts.instrument,
   });
   if (opts.settings.targetMode !== "fixed") return base;
 

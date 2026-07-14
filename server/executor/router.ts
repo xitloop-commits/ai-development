@@ -333,6 +333,7 @@ export const executorRouter = router({
         qty,
         exchange: /CRUDE|NATURAL/i.test(input.instrument) ? "MCX" : "NSE",
         settings: config?.settings ?? {},
+        instrument: input.instrument,
       });
 
       let resolvedTakeProfit: number | null;

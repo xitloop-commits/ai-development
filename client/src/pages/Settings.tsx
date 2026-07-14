@@ -402,6 +402,13 @@ export function OrderExecutionSection() {
       crudeoil: { mode: 'lots', value: 10 },
       naturalgas: { mode: 'lots', value: 10 },
     } as Record<string, { mode: string; value: number }>,
+    // Per-instrument default stop-loss (in the global slMode units; 0 = inherit)
+    instrumentSl: {
+      nifty50: 0,
+      banknifty: 0,
+      crudeoil: 0,
+      naturalgas: 0,
+    } as Record<string, number>,
   });
 
   useEffect(() => {
@@ -429,6 +436,7 @@ export function OrderExecutionSection() {
         trailingActivationGatePercent: (config.settings as any).trailingActivationGatePercent ?? prev.trailingActivationGatePercent,
         trailingActivationHoldSeconds: (config.settings as any).trailingActivationHoldSeconds ?? prev.trailingActivationHoldSeconds,
         instrumentSizing: (config.settings as any).instrumentSizing ?? prev.instrumentSizing,
+        instrumentSl: (config.settings as any).instrumentSl ?? prev.instrumentSl,
       }));
     }
   }, [config]);
@@ -477,6 +485,7 @@ export function OrderExecutionSection() {
         trailingActivationGatePercent: settings.trailingActivationGatePercent,
         trailingActivationHoldSeconds: settings.trailingActivationHoldSeconds,
         instrumentSizing: settings.instrumentSizing,
+        instrumentSl: settings.instrumentSl,
       } as any,
     });
   };
@@ -509,6 +518,7 @@ export function OrderExecutionSection() {
           crudeoil: { mode: 'lots', value: 10 },
           naturalgas: { mode: 'lots', value: 10 },
         },
+        instrumentSl: { nifty50: 0, banknifty: 0, crudeoil: 0, naturalgas: 0 },
       });
     }
   };
@@ -708,6 +718,34 @@ export function OrderExecutionSection() {
               </div>
             </>
           )}
+
+          {/* Per-instrument default Stop Loss — overrides the default above for
+              that instrument (0 = inherit). Interpreted in the mode selected above. */}
+          <div className="space-y-2 pt-3 border-t border-border/40">
+            <FieldLabel hint="Per-instrument default stop loss, overriding the default above for that instrument. Uses the mode selected above (% of entry, or fixed ₹ premium). 0 = inherit the default.">
+              Default Stop Loss (per instrument)
+            </FieldLabel>
+            {([
+              ['nifty50', 'NIFTY 50'],
+              ['banknifty', 'BANK NIFTY'],
+              ['crudeoil', 'CRUDE OIL'],
+              ['naturalgas', 'NATURAL GAS'],
+            ] as const).map(([key, label]) => (
+              <div key={key} className="flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">{label}</span>
+                <NumberInput
+                  value={settings.instrumentSl[key] ?? 0}
+                  onChange={(v) =>
+                    setSettings((st) => ({ ...st, instrumentSl: { ...st.instrumentSl, [key]: v } }))
+                  }
+                  min={0}
+                  max={settings.slMode === 'percent' ? 50 : 100000}
+                  step={settings.slMode === 'percent' ? 0.5 : 1}
+                  suffix={settings.slMode === 'percent' ? '%' : '₹'}
+                />
+              </div>
+            ))}
+          </div>
 
           {/* Trade Target — % of entry, or fixed NET ₹ profit (after charges) */}
           <div className="flex items-center justify-between">

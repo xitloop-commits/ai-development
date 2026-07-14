@@ -51,6 +51,16 @@ const instrumentSizingSchema = new Schema(
   { _id: false }
 );
 
+const instrumentSlSchema = new Schema(
+  {
+    nifty50: { type: Number, default: 0 },
+    banknifty: { type: Number, default: 0 },
+    crudeoil: { type: Number, default: 0 },
+    naturalgas: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
 const settingsSchema = new Schema<BrokerSettings>(
   {
     orderEntryOffset: { type: Number, default: 1.0 },
@@ -86,6 +96,7 @@ const settingsSchema = new Schema<BrokerSettings>(
     useSuperOrderForLive: { type: Boolean, default: false },
     defaultQty: { type: Number, default: 1 },
     instrumentSizing: { type: instrumentSizingSchema, default: () => ({}) },
+    instrumentSl: { type: instrumentSlSchema, default: () => ({}) },
   },
   { _id: false }
 );
@@ -328,6 +339,12 @@ function docToConfig(doc: Record<string, any>): BrokerConfigDoc {
         banknifty: doc.settings?.instrumentSizing?.banknifty ?? { mode: "lots", value: 10 },
         crudeoil: doc.settings?.instrumentSizing?.crudeoil ?? { mode: "lots", value: 10 },
         naturalgas: doc.settings?.instrumentSizing?.naturalgas ?? { mode: "lots", value: 10 },
+      },
+      instrumentSl: {
+        nifty50: doc.settings?.instrumentSl?.nifty50 ?? 0,
+        banknifty: doc.settings?.instrumentSl?.banknifty ?? 0,
+        crudeoil: doc.settings?.instrumentSl?.crudeoil ?? 0,
+        naturalgas: doc.settings?.instrumentSl?.naturalgas ?? 0,
       },
     },
     connection: {
