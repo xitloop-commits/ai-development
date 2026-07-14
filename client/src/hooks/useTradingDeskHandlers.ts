@@ -11,6 +11,8 @@ type PlaceTradeInput = {
   qty: number;
   lotSize?: number;
   contractSecurityId?: string | null;
+  /** Equity only — MIS (INTRADAY) or CNC (delivery). */
+  productType?: 'INTRADAY' | 'CNC';
   targetPrice?: number | null;
   stopLossPrice?: number | null;
   trailingStopEnabled?: boolean;

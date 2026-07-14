@@ -12,20 +12,26 @@
  */
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
+/** MIS = intraday (INTRADAY), CNC = delivery. */
+export type StockProductType = "INTRADAY" | "CNC";
+
 export interface StagedOrder {
   securityId: string;
   symbol: string;
   qty: number;
+  productType: StockProductType;
 }
 
 interface StagedOrdersValue {
   orders: StagedOrder[];
-  /** Stage a stock (default qty 1). No-op if it's already staged. */
+  /** Stage a stock (default qty 1, MIS). No-op if it's already staged. */
   stage: (stock: { securityId: string; symbol: string }) => void;
   /** Drop a staged order (placed or cancelled). */
   unstage: (securityId: string) => void;
   /** Set a staged order's quantity (floored to a positive integer). */
   setQty: (securityId: string, qty: number) => void;
+  /** Switch a staged order between MIS (intraday) and CNC (delivery). */
+  setProductType: (securityId: string, productType: StockProductType) => void;
 }
 
 const StagedOrdersContext = createContext<StagedOrdersValue>({
@@ -33,6 +39,7 @@ const StagedOrdersContext = createContext<StagedOrdersValue>({
   stage: () => {},
   unstage: () => {},
   setQty: () => {},
+  setProductType: () => {},
 });
 
 export function useStagedOrders() {
@@ -46,7 +53,7 @@ export function StagedOrdersProvider({ children }: { children: ReactNode }) {
     setOrders((prev) =>
       prev.some((o) => o.securityId === stock.securityId)
         ? prev
-        : [...prev, { securityId: stock.securityId, symbol: stock.symbol, qty: 1 }],
+        : [...prev, { securityId: stock.securityId, symbol: stock.symbol, qty: 1, productType: "INTRADAY" }],
     );
   }, []);
 
@@ -59,6 +66,13 @@ export function StagedOrdersProvider({ children }: { children: ReactNode }) {
     setOrders((prev) => prev.map((o) => (o.securityId === securityId ? { ...o, qty: clean } : o)));
   }, []);
 
-  const value = useMemo(() => ({ orders, stage, unstage, setQty }), [orders, stage, unstage, setQty]);
+  const setProductType = useCallback((securityId: string, productType: StockProductType) => {
+    setOrders((prev) => prev.map((o) => (o.securityId === securityId ? { ...o, productType } : o)));
+  }, []);
+
+  const value = useMemo(
+    () => ({ orders, stage, unstage, setQty, setProductType }),
+    [orders, stage, unstage, setQty, setProductType],
+  );
   return <StagedOrdersContext.Provider value={value}>{children}</StagedOrdersContext.Provider>;
 }

@@ -8,16 +8,17 @@
  */
 import { fmt } from "@/lib/tradeFormatters";
 import { useInstrumentTick } from "@/hooks/useTickStream";
-import type { StagedOrder } from "@/contexts/StagedOrdersContext";
+import type { StagedOrder, StockProductType } from "@/contexts/StagedOrdersContext";
 
 interface StagedOrderRowProps {
   order: StagedOrder;
   onBuy: (entryPrice: number) => void;
   onCancel: () => void;
   onQty: (qty: number) => void;
+  onProductType: (productType: StockProductType) => void;
 }
 
-export function StagedOrderRow({ order, onBuy, onCancel, onQty }: StagedOrderRowProps) {
+export function StagedOrderRow({ order, onBuy, onCancel, onQty, onProductType }: StagedOrderRowProps) {
   const tick = useInstrumentTick("NSE_EQ", order.securityId);
   const ltp = tick?.ltp ?? 0;
   const invested = ltp > 0 ? ltp * order.qty : 0;
@@ -25,11 +26,30 @@ export function StagedOrderRow({ order, onBuy, onCancel, onQty }: StagedOrderRow
 
   return (
     <tr className="border-b border-border bg-info-cyan/5">
-      {/* Day … Capital+ */}
+      {/* Day … Capital+ : "New Buy" tag + MIS/CNC (intraday/delivery) toggle */}
       <td colSpan={5} className="px-2 py-1.5 text-left">
-        <span className="text-[0.5rem] font-bold uppercase tracking-wider text-info-cyan bg-info-cyan/15 rounded px-1.5 py-0.5">
-          New Buy
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[0.5rem] font-bold uppercase tracking-wider text-info-cyan bg-info-cyan/15 rounded px-1.5 py-0.5">
+            New Buy
+          </span>
+          <div className="inline-flex rounded border border-border overflow-hidden">
+            {(["INTRADAY", "CNC"] as const).map((pt) => (
+              <button
+                key={pt}
+                type="button"
+                onClick={() => onProductType(pt)}
+                className={`px-1.5 py-0.5 text-[0.5rem] font-bold uppercase tracking-wider transition-colors ${
+                  order.productType === pt
+                    ? "bg-info-cyan/20 text-info-cyan"
+                    : "text-muted-foreground hover:bg-accent"
+                }`}
+                title={pt === "INTRADAY" ? "Intraday (MIS) — squares off same day" : "Delivery (CNC) — held in demat"}
+              >
+                {pt === "INTRADAY" ? "MIS" : "CNC"}
+              </button>
+            ))}
+          </div>
+        </div>
       </td>
 
       {/* Instrument */}

@@ -138,7 +138,7 @@ export function TodaySection({
   // Staged BUY orders — only in the Stocks workspace, paper only (live equity
   // execution is not enabled yet). Clicking a watchlist stock stages a draft
   // here; Buy places a market order for `qty` shares and clears the draft.
-  const { orders: stagedOrders, unstage, setQty } = useStagedOrders();
+  const { orders: stagedOrders, unstage, setQty, setProductType } = useStagedOrders();
   const showStaged = channelToWorkspace(channel) === 'stocks' && isPaperChannel(channel);
 
   return (
@@ -149,6 +149,7 @@ export function TodaySection({
             key={order.securityId}
             order={order}
             onQty={(q) => setQty(order.securityId, q)}
+            onProductType={(pt) => setProductType(order.securityId, pt)}
             onCancel={() => unstage(order.securityId)}
             onBuy={(entryPrice) => {
               if (entryPrice <= 0) return;
@@ -162,6 +163,7 @@ export function TodaySection({
                 qty: order.qty,
                 lotSize: 1,
                 contractSecurityId: order.securityId,
+                productType: order.productType,
               });
               unstage(order.securityId);
             }}
