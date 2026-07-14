@@ -9,6 +9,7 @@ import { useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { useInstrumentTick } from "@/hooks/useTickStream";
 import { useFeedSubscriptions } from "@/hooks/useFeedControl";
+import { useStagedOrders } from "@/contexts/StagedOrdersContext";
 
 export function WatchlistPane() {
   const [query, setQuery] = useState("");
@@ -44,6 +45,9 @@ export function WatchlistPane() {
   const watchlist = listQ.data ?? [];
   const added = new Set(watchlist.map((s) => s.securityId));
   const results = searchQ.data ?? [];
+
+  // Clicking a watchlist stock stages a draft BUY order in the desk (right pane).
+  const { stage } = useStagedOrders();
 
   // Subscribe every watchlist stock on the live feed (full mode → LTP ticks + a
   // prev-close packet, so each row shows a real-time price and today's change).
@@ -107,6 +111,7 @@ export function WatchlistPane() {
             <WatchlistRow
               key={s.securityId}
               stock={s}
+              onPick={() => stage({ securityId: s.securityId, symbol: s.symbol })}
               onRemove={() => removeMut.mutate({ securityId: s.securityId })}
             />
           ))
@@ -118,6 +123,7 @@ export function WatchlistPane() {
 
 interface WatchlistRowProps {
   stock: { securityId: string; symbol: string; name: string };
+  onPick: () => void;
   onRemove: () => void;
 }
 
@@ -125,8 +131,9 @@ interface WatchlistRowProps {
  * One watchlist row — subscribes to its OWN stock's live ticks so it re-renders
  * only on its own tick (never a global fan-out). LTP comes from each tick;
  * today's change = LTP − prevClose (prevClose arrives once, right after subscribe).
+ * Clicking the row stages a draft BUY order; the ✕ removes it from the watchlist.
  */
-function WatchlistRow({ stock, onRemove }: WatchlistRowProps) {
+function WatchlistRow({ stock, onPick, onRemove }: WatchlistRowProps) {
   const tick = useInstrumentTick("NSE_EQ", stock.securityId);
   const ltp = tick?.ltp ?? 0;
   const prevClose = tick?.prevClose ?? 0;
@@ -136,7 +143,11 @@ function WatchlistRow({ stock, onRemove }: WatchlistRowProps) {
   const up = change >= 0;
 
   return (
-    <div className="group flex items-center gap-2 px-2 py-1.5 border-b border-border/50 hover:bg-muted/30">
+    <div
+      onClick={onPick}
+      className="group flex items-center gap-2 px-2 py-1.5 border-b border-border/50 hover:bg-muted/30 cursor-pointer"
+      title={`Add a buy order for ${stock.symbol}`}
+    >
       <div className="flex flex-col min-w-0 flex-1">
         <span className="text-xs font-bold text-foreground truncate">{stock.symbol}</span>
         <span className="text-[0.5625rem] text-muted-foreground truncate">{stock.name}</span>
@@ -155,7 +166,7 @@ function WatchlistRow({ stock, onRemove }: WatchlistRowProps) {
       </div>
 
       <button
-        onClick={onRemove}
+        onClick={(e) => { e.stopPropagation(); onRemove(); }}
         className="opacity-0 group-hover:opacity-100 text-[0.625rem] text-destructive px-1.5 py-0.5 rounded hover:bg-destructive/10 transition-opacity shrink-0"
         title="Remove from watchlist"
       >

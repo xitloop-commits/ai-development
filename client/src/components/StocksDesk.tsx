@@ -15,6 +15,7 @@
  */
 import { useCapital } from "@/contexts/CapitalContext";
 import { channelToWorkspace, type ResolvedInstrument } from "@/lib/tradeTypes";
+import { StagedOrdersProvider } from "@/contexts/StagedOrdersContext";
 import TradingDesk from "./TradingDesk";
 import { WatchlistPane } from "./WatchlistPane";
 
@@ -32,15 +33,17 @@ export function CenterDesk({ resolvedInstruments }: CenterDeskProps) {
 
 function StocksDesk({ resolvedInstruments }: CenterDeskProps) {
   return (
-    <div className="flex h-full">
-      {/* Left — watchlist (30%) */}
-      <div className="w-[30%] min-w-[220px] max-w-[380px] h-full shrink-0">
-        <WatchlistPane />
+    <StagedOrdersProvider>
+      <div className="flex h-full">
+        {/* Left — watchlist (30%) */}
+        <div className="w-[30%] min-w-[220px] max-w-[380px] h-full shrink-0">
+          <WatchlistPane />
+        </div>
+        {/* Right — trading desk (70%) */}
+        <div className="flex-1 h-full overflow-y-auto min-w-0">
+          <TradingDesk resolvedInstruments={resolvedInstruments} />
+        </div>
       </div>
-      {/* Right — trading desk (70%) */}
-      <div className="flex-1 h-full overflow-y-auto min-w-0">
-        <TradingDesk resolvedInstruments={resolvedInstruments} />
-      </div>
-    </div>
+    </StagedOrdersProvider>
   );
 }

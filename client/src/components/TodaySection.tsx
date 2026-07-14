@@ -5,8 +5,10 @@ import type {
   DayRecord,
   TradeRecord,
 } from '@/lib/tradeTypes';
-import { channelToWorkspace, optionExchangeFor } from '@/lib/tradeTypes';
+import { channelToWorkspace, isPaperChannel, optionExchangeFor } from '@/lib/tradeTypes';
 import { useFeedSubscriptions } from '@/hooks/useFeedControl';
+import { useStagedOrders } from '@/contexts/StagedOrdersContext';
+import { StagedOrderRow } from './StagedOrderRow';
 import {
   formatCalendarDay,
   formatDateAgeLabel,
@@ -133,8 +135,39 @@ export function TodaySection({
 
   const lastClosedTrade = getLastClosedTrade();
 
+  // Staged BUY orders — only in the Stocks workspace, paper only (live equity
+  // execution is not enabled yet). Clicking a watchlist stock stages a draft
+  // here; Buy places a market order for `qty` shares and clears the draft.
+  const { orders: stagedOrders, unstage, setQty } = useStagedOrders();
+  const showStaged = channelToWorkspace(channel) === 'stocks' && isPaperChannel(channel);
+
   return (
     <>
+      {showStaged &&
+        stagedOrders.map((order) => (
+          <StagedOrderRow
+            key={order.securityId}
+            order={order}
+            onQty={(q) => setQty(order.securityId, q)}
+            onCancel={() => unstage(order.securityId)}
+            onBuy={(entryPrice) => {
+              if (entryPrice <= 0) return;
+              void onPlaceTrade({
+                instrument: order.symbol,
+                type: 'BUY',
+                strike: null,
+                expiry: '',
+                entryPrice,
+                capitalPercent: 0,
+                qty: order.qty,
+                lotSize: 1,
+                contractSecurityId: order.securityId,
+              });
+              unstage(order.securityId);
+            }}
+          />
+        ))}
+
       {trades.map((trade, idx) => (
         <TodayTradeRow
           key={trade.id}
