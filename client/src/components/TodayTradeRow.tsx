@@ -405,8 +405,9 @@ function _TodayTradeRow({
               </button>
             )}
             {/* Exit is allowed for the option workspaces (manual controls) and,
-                additionally, for paper stock trades in the Stocks workspace. */}
-            {isOpen && !isDesync && (canManageTrades || (isPaperChannel(channel) && isEquityTrade(trade))) && (
+                additionally, for stock trades in the Stocks workspace (paper or
+                live) — a live exit closes the real position at market. */}
+            {isOpen && !isDesync && (canManageTrades || isEquityTrade(trade)) && (
               <button
                 onClick={(e) => { e.stopPropagation(); onExit(trade.id, trade.instrument); }}
                 disabled={exitLoading}

@@ -1,4 +1,5 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   CapitalState,
   Channel,
@@ -7,8 +8,9 @@ import type {
 } from '@/lib/tradeTypes';
 import { channelToWorkspace, isPaperChannel, feedExchangeForTrade } from '@/lib/tradeTypes';
 import { useFeedSubscriptions } from '@/hooks/useFeedControl';
-import { useStagedOrders } from '@/contexts/StagedOrdersContext';
+import { useStagedOrders, type StagedOrder } from '@/contexts/StagedOrdersContext';
 import { StagedOrderRow } from './StagedOrderRow';
+import { ConfirmDialog } from './ConfirmDialog';
 import {
   formatCalendarDay,
   formatDateAgeLabel,
@@ -139,7 +141,30 @@ export function TodaySection({
   // execution is not enabled yet). Clicking a watchlist stock stages a draft
   // here; Buy places a market order for `qty` shares and clears the draft.
   const { orders: stagedOrders, unstage, setQty, setProductType } = useStagedOrders();
-  const showStaged = channelToWorkspace(channel) === 'stocks' && isPaperChannel(channel);
+  const showStaged = channelToWorkspace(channel) === 'stocks';
+  const isPaper = isPaperChannel(channel);
+  // Live buys route to the real Dhan account, so they go through a confirmation
+  // dialog first. Paper buys place immediately.
+  const [liveConfirm, setLiveConfirm] = useState<{ order: StagedOrder; entryPrice: number } | null>(null);
+
+  const placeStockOrder = useCallback(
+    (order: StagedOrder, entryPrice: number) => {
+      void onPlaceTrade({
+        instrument: order.symbol,
+        type: 'BUY',
+        strike: null,
+        expiry: '',
+        entryPrice,
+        capitalPercent: 0,
+        qty: order.qty,
+        lotSize: 1,
+        contractSecurityId: order.securityId,
+        productType: order.productType,
+      });
+      unstage(order.securityId);
+    },
+    [onPlaceTrade, unstage],
+  );
 
   return (
     <>
@@ -153,22 +178,31 @@ export function TodaySection({
             onCancel={() => unstage(order.securityId)}
             onBuy={(entryPrice) => {
               if (entryPrice <= 0) return;
-              void onPlaceTrade({
-                instrument: order.symbol,
-                type: 'BUY',
-                strike: null,
-                expiry: '',
-                entryPrice,
-                capitalPercent: 0,
-                qty: order.qty,
-                lotSize: 1,
-                contractSecurityId: order.securityId,
-                productType: order.productType,
-              });
-              unstage(order.securityId);
+              if (isPaper) placeStockOrder(order, entryPrice);
+              else setLiveConfirm({ order, entryPrice });
             }}
           />
         ))}
+
+      {liveConfirm &&
+        createPortal(
+          <ConfirmDialog
+            open
+            title="Place LIVE stock order?"
+            message={
+              `BUY ${liveConfirm.order.qty} ${liveConfirm.order.symbol} ` +
+              `(${liveConfirm.order.productType === 'CNC' ? 'Delivery / CNC' : 'Intraday / MIS'}) ` +
+              `at market ≈ ₹${Math.round(liveConfirm.entryPrice * liveConfirm.order.qty).toLocaleString('en-IN')}. ` +
+              `This is a REAL order on your live Dhan account.`
+            }
+            onConfirm={() => {
+              placeStockOrder(liveConfirm.order, liveConfirm.entryPrice);
+              setLiveConfirm(null);
+            }}
+            onCancel={() => setLiveConfirm(null)}
+          />,
+          document.body,
+        )}
 
       {trades.map((trade, idx) => (
         <TodayTradeRow
