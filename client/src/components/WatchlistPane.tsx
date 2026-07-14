@@ -7,6 +7,8 @@
  */
 import { useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
+import { useInstrumentTick } from "@/hooks/useTickStream";
+import { useFeedSubscriptions } from "@/hooks/useFeedControl";
 
 export function WatchlistPane() {
   const [query, setQuery] = useState("");
@@ -36,24 +38,18 @@ export function WatchlistPane() {
     { query: debounced },
     { enabled: debounced.length >= 1, staleTime: 60_000, refetchOnWindowFocus: false },
   );
-  const addMut = trpc.stocks.add.useMutation({
-    onSuccess: () => { utils.stocks.list.invalidate(); utils.stocks.quotes.invalidate(); },
-  });
-  const removeMut = trpc.stocks.remove.useMutation({
-    onSuccess: () => { utils.stocks.list.invalidate(); utils.stocks.quotes.invalidate(); },
-  });
+  const addMut = trpc.stocks.add.useMutation({ onSuccess: () => utils.stocks.list.invalidate() });
+  const removeMut = trpc.stocks.remove.useMutation({ onSuccess: () => utils.stocks.list.invalidate() });
 
   const watchlist = listQ.data ?? [];
   const added = new Set(watchlist.map((s) => s.securityId));
   const results = searchQ.data ?? [];
 
-  // Live LTP + today's change per stock, polled every 3s (one batched call).
-  const quotesQ = trpc.stocks.quotes.useQuery(undefined, {
-    enabled: watchlist.length > 0,
-    refetchInterval: 3_000,
-    refetchOnWindowFocus: true,
-  });
-  const quotes = quotesQ.data ?? {};
+  // Subscribe every watchlist stock on the live feed (full mode → LTP ticks + a
+  // prev-close packet, so each row shows a real-time price and today's change).
+  // useFeedSubscriptions only re-subscribes when the id-set changes and releases
+  // all subs when this pane unmounts (leaving the Stocks workspace).
+  useFeedSubscriptions(watchlist.map((s) => ({ securityId: s.securityId, exchange: "NSE_EQ" })));
 
   return (
     <div className="flex flex-col h-full border-r border-border bg-card/40">
@@ -107,48 +103,64 @@ export function WatchlistPane() {
             Search and add NSE stocks to build your watchlist.
           </div>
         ) : (
-          watchlist.map((s) => {
-            const q = quotes[s.securityId];
-            const hasChange = q && q.ltp > 0 && q.prevClose > 0;
-            const up = (q?.change ?? 0) >= 0;
-            return (
-              <div
-                key={s.securityId}
-                className="group flex items-center gap-2 px-2 py-1.5 border-b border-border/50 hover:bg-muted/30"
-              >
-                <div className="flex flex-col min-w-0 flex-1">
-                  <span className="text-xs font-bold text-foreground truncate">{s.symbol}</span>
-                  <span className="text-[0.5625rem] text-muted-foreground truncate">{s.name}</span>
-                </div>
-
-                {/* Live LTP + today's change (polled every 3s). */}
-                <div className="flex flex-col items-end tabular-nums shrink-0 min-w-[64px]">
-                  <span className="text-xs font-bold text-foreground">
-                    {q && q.ltp > 0
-                      ? q.ltp.toFixed(2)
-                      : q && q.prevClose > 0
-                        ? q.prevClose.toFixed(2)
-                        : "—"}
-                  </span>
-                  {hasChange && (
-                    <span className={`text-[0.5625rem] font-semibold ${up ? "text-bullish" : "text-destructive"}`}>
-                      {up ? "+" : ""}{q.change.toFixed(2)} ({up ? "+" : ""}{q.changePct.toFixed(2)}%)
-                    </span>
-                  )}
-                </div>
-
-                <button
-                  onClick={() => removeMut.mutate({ securityId: s.securityId })}
-                  className="opacity-0 group-hover:opacity-100 text-[0.625rem] text-destructive px-1.5 py-0.5 rounded hover:bg-destructive/10 transition-opacity shrink-0"
-                  title="Remove from watchlist"
-                >
-                  ✕
-                </button>
-              </div>
-            );
-          })
+          watchlist.map((s) => (
+            <WatchlistRow
+              key={s.securityId}
+              stock={s}
+              onRemove={() => removeMut.mutate({ securityId: s.securityId })}
+            />
+          ))
         )}
       </div>
+    </div>
+  );
+}
+
+interface WatchlistRowProps {
+  stock: { securityId: string; symbol: string; name: string };
+  onRemove: () => void;
+}
+
+/**
+ * One watchlist row — subscribes to its OWN stock's live ticks so it re-renders
+ * only on its own tick (never a global fan-out). LTP comes from each tick;
+ * today's change = LTP − prevClose (prevClose arrives once, right after subscribe).
+ */
+function WatchlistRow({ stock, onRemove }: WatchlistRowProps) {
+  const tick = useInstrumentTick("NSE_EQ", stock.securityId);
+  const ltp = tick?.ltp ?? 0;
+  const prevClose = tick?.prevClose ?? 0;
+  const hasChange = ltp > 0 && prevClose > 0;
+  const change = hasChange ? ltp - prevClose : 0;
+  const changePct = hasChange ? (change / prevClose) * 100 : 0;
+  const up = change >= 0;
+
+  return (
+    <div className="group flex items-center gap-2 px-2 py-1.5 border-b border-border/50 hover:bg-muted/30">
+      <div className="flex flex-col min-w-0 flex-1">
+        <span className="text-xs font-bold text-foreground truncate">{stock.symbol}</span>
+        <span className="text-[0.5625rem] text-muted-foreground truncate">{stock.name}</span>
+      </div>
+
+      {/* Live LTP + today's change (real-time ticks). */}
+      <div className="flex flex-col items-end tabular-nums shrink-0 min-w-[64px]">
+        <span className="text-xs font-bold text-foreground">
+          {ltp > 0 ? ltp.toFixed(2) : prevClose > 0 ? prevClose.toFixed(2) : "—"}
+        </span>
+        {hasChange && (
+          <span className={`text-[0.5625rem] font-semibold ${up ? "text-bullish" : "text-destructive"}`}>
+            {up ? "+" : ""}{change.toFixed(2)} ({up ? "+" : ""}{changePct.toFixed(2)}%)
+          </span>
+        )}
+      </div>
+
+      <button
+        onClick={onRemove}
+        className="opacity-0 group-hover:opacity-100 text-[0.625rem] text-destructive px-1.5 py-0.5 rounded hover:bg-destructive/10 transition-opacity shrink-0"
+        title="Remove from watchlist"
+      >
+        ✕
+      </button>
     </div>
   );
 }

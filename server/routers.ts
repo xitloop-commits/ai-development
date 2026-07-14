@@ -28,7 +28,6 @@ import { executorRouter } from "./executor";
 import { disciplineRouter } from "./discipline/disciplineRouter";
 import { alertsRouter } from "./alerts/alertRouter";
 import { searchStocks, addStock, listStocks, removeStock } from "./stockMaster";
-import { getActiveBroker } from "./broker/brokerService";
 import { getUserSettings, updateUserSettings } from "./userSettings";
 import {
   getAllInstruments,
@@ -375,49 +374,6 @@ export const appRouter = router({
   stocks: router({
     // The watchlist: all added stocks, oldest first.
     list: publicProcedure.query(() => listStocks()),
-
-    // Live quotes for every watchlist stock: LTP + today's change, from one
-    // batched Dhan OHLC call (ohlc.close is the previous-day close). Keyed by
-    // securityId. Poll this from the UI. Missing/failed ids are simply absent.
-    quotes: publicProcedure.query(async () => {
-      const out: Record<
-        string,
-        { ltp: number; prevClose: number; change: number; changePct: number }
-      > = {};
-      const stocks = await listStocks();
-      if (stocks.length === 0) return out;
-
-      const broker = getActiveBroker();
-      if (!broker?.getOhlcQuote) return out; // no live broker → empty (UI shows —)
-
-      const ids = stocks
-        .map((s) => Number(s.securityId))
-        .filter((n) => Number.isFinite(n));
-      if (ids.length === 0) return out;
-
-      let raw: Awaited<ReturnType<NonNullable<typeof broker.getOhlcQuote>>> = {};
-      try {
-        raw = await broker.getOhlcQuote({ NSE_EQ: ids });
-      } catch {
-        return out; // transient broker/network error → empty this poll
-      }
-
-      const bySeg = raw.NSE_EQ ?? {};
-      for (const s of stocks) {
-        const q = bySeg[s.securityId];
-        if (!q) continue;
-        const ltp = q.lastPrice ?? 0;
-        const prevClose = q.close ?? 0;
-        const live = ltp > 0 && prevClose > 0;
-        out[s.securityId] = {
-          ltp,
-          prevClose,
-          change: live ? ltp - prevClose : 0,
-          changePct: live ? ((ltp - prevClose) / prevClose) * 100 : 0,
-        };
-      }
-      return out;
-    }),
 
     // Search the Dhan scrip master for NSE cash equities by name/symbol.
     search: publicProcedure
