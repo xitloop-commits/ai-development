@@ -48,7 +48,7 @@ const SettingsOverlay = lazy(() => import('@/components/SettingsOverlay'));
 const DisciplineOverlay = lazy(() => import('@/components/DisciplineOverlay'));
 
 // Center content
-import TradingDesk from '@/components/TradingDesk';
+import { CenterDesk } from '@/components/StocksDesk';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
 // Discipline — system-triggered overlay only
@@ -299,7 +299,7 @@ export default function MainScreen() {
         {/* Center: Trading Desk — fills remaining space */}
         <main className="flex-1 overflow-y-auto">
           <ErrorBoundary section="Trading Desk">
-            <TradingDesk resolvedInstruments={resolvedInstruments} />
+            <CenterDesk resolvedInstruments={resolvedInstruments} />
           </ErrorBoundary>
         </main>
 

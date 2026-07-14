@@ -43,6 +43,12 @@ vi.mock("@/lib/trpc", () => ({
     },
     broker: {
       config: { get: { useQuery: () => ({ data: undefined }) } },
+      feed: {
+        subscribe: { useMutation: () => noopMutation },
+        unsubscribe: { useMutation: () => noopMutation },
+        state: { useQuery: () => ({ data: undefined }) },
+        snapshot: { useQuery: () => ({ data: undefined }) },
+      },
     },
     useUtils: () => ({
       portfolio: {
