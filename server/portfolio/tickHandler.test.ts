@@ -382,7 +382,7 @@ describe("tickHandler — entry-pending first-tick fill", () => {
       expiry: null, contractSecurityId: "OPT1",
       entryPrice: 100, entryPending: true, exitPrice: null, ltp: 100, qty: 15,
       status: "OPEN", targetPrice: 110, stopLossPrice: 95, breakevenPrice: 101,
-      trailingStopEnabled: false, lastTickAt: null, unrealizedPnl: 0,
+      tslMode: "manual", trailingStopEnabled: false, lastTickAt: null, unrealizedPnl: 0,
       openedAt: Date.now(),
     };
     getDayRecordMock.mockResolvedValue({ dayIndex: 1, date: "2026-07-01", trades: [trade], totalPnl: 0 });
@@ -406,7 +406,7 @@ describe("tickHandler — entry-pending first-tick fill", () => {
       expiry: null, contractSecurityId: "OPT2",
       entryPrice: 100, entryPending: false, exitPrice: null, ltp: 100, qty: 15,
       status: "OPEN", targetPrice: 110, stopLossPrice: 95,
-      trailingStopEnabled: false, lastTickAt: null, unrealizedPnl: 0, openedAt: Date.now(),
+      tslMode: "manual", trailingStopEnabled: false, lastTickAt: null, unrealizedPnl: 0, openedAt: Date.now(),
     };
     getDayRecordMock.mockResolvedValue({ dayIndex: 1, date: "2026-07-01", trades: [trade], totalPnl: 0 });
 
