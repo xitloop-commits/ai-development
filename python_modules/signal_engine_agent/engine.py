@@ -703,7 +703,7 @@ def run(
         print(
             f"  MA-Signal: ENABLED (cohort=ma_signal, EMA{_ms.ema_period} "
             f"slope{_ms.slope_lookback} sticky hi>{_ms.thr_hi}/lo>{_ms.thr_lo}, "
-            f"SIGNAL-ONLY — not auto-traded)"
+            f"SL {_ms.sl_pct}% — auto-trades entries alongside scalp)"
         )
     else:
         print(f"  MA-Signal: disabled (no `ma_signal` block in config)")
@@ -1198,6 +1198,12 @@ def run(
                         _ma_call = "CE" in _ev
                         _ma_exit = _ev.startswith("EXIT")
                         _ma_ltp = _finite(ce_ltp if _ma_call else pe_ltp)
+                        # Entries carry a % stop like leg-start so the executor has
+                        # a protective level; exits get no stop (chart-only marker).
+                        _ma_sl = (
+                            round(_ma_ltp * (1.0 - ma_signal_thresholds.sl_pct / 100.0), 2)
+                            if (_ma_ltp and not _ma_exit) else None
+                        )
                         ma_signal_out = {
                             "timestamp": row.get("timestamp"),
                             "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
@@ -1208,12 +1214,12 @@ def run(
                             "reason": (
                                 f"MA-Signal · {'exit' if _ma_exit else 'enter'} "
                                 f"{'CE up-leg' if _ma_call else 'PE down-leg'} "
-                                f"· 20-EMA slope (sticky, signal-only)"
+                                f"· 20-EMA slope (sticky)"
                             ),
                             "regime": regime,
                             "entry": round(_ma_ltp, 2) if _ma_ltp else None,
                             "tp": None,
-                            "sl": None,
+                            "sl": _ma_sl,
                             "rr": 0.0,
                             "atm_strike": row.get("atm_strike"),
                             "atm_ce_ltp": ce_ltp,
@@ -1227,7 +1233,11 @@ def run(
                         }
                         raw_logger.log(ma_signal_out)
                         _send_signal_to_tray(ma_signal_out)  # Mongo + WS (chart)
-                        # SIGNAL-ONLY: intentionally NOT auto-traded.
+                        # Auto-trade the leg ENTRY alongside scalp (exit handled by
+                        # the executor's SL/TP/age, like leg-start). EXIT markers are
+                        # chart-only — never routed (would submit a spurious SELL).
+                        if not _ma_exit:
+                            _maybe_submit_ai_trade(ma_signal_out)
                         ma_emitted += 1
                 except Exception as exc:
                     # Never let the MA-Signal cohort crash the inference loop.

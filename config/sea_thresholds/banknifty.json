@@ -35,7 +35,8 @@
     "ema_period": 20,
     "slope_lookback": 10,
     "thr_hi": 0.025,
-    "thr_lo": 0.006
+    "thr_lo": 0.006,
+    "sl_pct": 12.0
   },
   "trend": {
     "enabled": false,

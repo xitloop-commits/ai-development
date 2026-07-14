@@ -239,12 +239,14 @@ export default function InstrumentChartPage() {
         seen.add(key);
         const conf = s.confidence;
         const score = conf == null ? "" : String(Math.round(conf <= 1 ? conf * 100 : conf));
-        // MA-Signal reads distinctly: pink entry arrow, grey "out" circle at the
-        // leg end; every other cohort keeps its up/down green/red direction arrow.
+        // MA-Signal's enter AND exit both use its pink cohort-pill colour so both
+        // markers read as one strategy; shape + label distinguish them (arrow "in"
+        // vs ring "out"). Other cohorts keep their up/down green/red arrows.
         const isMa = s.cohort === "ma_signal";
-        const color = isExit ? "#94A3B8" : isMa ? "#F472B6" : isCall ? CHART_UP : CHART_DOWN;
+        const color = isMa ? "#F472B6" : isCall ? CHART_UP : CHART_DOWN;
         const shape = isExit ? "circle" : isCall ? "arrowUp" : "arrowDown";
-        out.push({ time: nearest as UTCTimestamp, position: isCall ? "belowBar" : "aboveBar", color, shape, text: isExit ? "out" : score });
+        const text = isExit ? "out" : isMa ? "in" : score;
+        out.push({ time: nearest as UTCTimestamp, position: isCall ? "belowBar" : "aboveBar", color, shape, text });
       }
     }
     if (showTrades) {

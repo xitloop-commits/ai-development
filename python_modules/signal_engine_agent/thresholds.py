@@ -1096,6 +1096,9 @@ class MASignalThresholds:
     slope_lookback: int = 10
     thr_hi: float = 0.025
     thr_lo: float = 0.006
+    # % stop-loss stamped on the ENTRY when MA-Signal auto-trades; the exit is
+    # otherwise the executor's time/momentum exits (same as leg-start's ride).
+    sl_pct: float = 12.0
 
 
 def load_thresholds_ma_signal(
