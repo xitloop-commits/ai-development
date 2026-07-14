@@ -335,9 +335,13 @@ function _TodayTradeRow({
                 ⚠ Reconcile
               </button>
             )}
-            {/* Per-trade risk toggles (paper only). SL: disable the hard stoploss
-                (trailing stop still exits). TSL: auto ↔ manual (freeze trailing). */}
-            {isOpen && !isDesync && canManageTrades && isPaperChannel(channel) && (
+            {/* Per-trade risk toggles — shown on EVERY paper workspace (ai / my /
+                testing), so you can override the SEA's risk on its own auto-trades.
+                Paper-only: hidden on live channels where the stop is a real broker
+                order, not the software-managed one these toggles control.
+                SL: disable the hard stoploss (trailing stop still exits).
+                TSL: auto ↔ manual (freeze trailing). */}
+            {isOpen && !isDesync && isPaperChannel(channel) && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -356,7 +360,7 @@ function _TodayTradeRow({
                 SL {trade.stopLossDisabled ? 'off' : 'on'}
               </button>
             )}
-            {isOpen && !isDesync && canManageTrades && serverTrails && (
+            {isOpen && !isDesync && serverTrails && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
