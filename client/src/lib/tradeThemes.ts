@@ -115,6 +115,7 @@ export const COHORT_COLORS: Record<string, string> = {
   trend: '#4ADE80',           // bright green — 15-30 min
   swing: '#FBBF24',           // bright amber — 1-2 hr
   multi_day_swing: '#C084FC', // bright violet — overnight+
+  ma_signal: '#F472B6',       // bright pink — 20-EMA slope legs (signal-only)
 };
 
 const FALLBACK_COHORT_COLOR = '#94A3B8'; // slate-400
@@ -127,7 +128,9 @@ export function resolveCohortHex(cohort: string | null | undefined): string {
 
 /** Short display label for a cohort pill (keeps the long one compact). */
 export function cohortLabel(cohort: string): string {
-  return cohort === 'multi_day_swing' ? 'multiday' : cohort;
+  if (cohort === 'multi_day_swing') return 'multiday';
+  if (cohort === 'ma_signal') return 'MA-Signal';
+  return cohort;
 }
 
 /** Cohort pill style (bright text + tint bg) — matches the instrument pill so
