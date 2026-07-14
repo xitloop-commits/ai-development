@@ -117,3 +117,15 @@ def test_lock_rearms_after_leg_breaks():
         if r:
             second.append(r)
     assert "LONG_CE" in second
+
+
+# ── put mirror toggle (experiment, 2026-07-14) ──────────────────────────────
+
+def test_put_mirror_fires_via_lower_high_path():
+    """With pe_mirror on (call-symmetric put: 2 red + lower-high + dir<=0.48), a
+    clean downtrend fires exactly one PUT through the mirror branch. dirp=0.45
+    would be BLOCKED by the default dir_pe=0.42, so a fire here also confirms the
+    loosened threshold is in effect."""
+    det = _det(pe_mirror=True, ng_pe=2, dir_pe=0.48)
+    fires = _run_trend(det, rising=False, n=15, dirp=0.45)
+    assert fires == ["LONG_PE"]

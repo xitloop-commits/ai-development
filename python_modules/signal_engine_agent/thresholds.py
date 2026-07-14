@@ -1037,6 +1037,12 @@ class LegStartThresholds:
     ng_pe: int = 3
     pe_look: int = 5
     dir_pe: float = 0.42
+    # Experiment toggle (2026-07-14): when True the PUT side MIRRORS the call
+    # rule instead of the tighter default — `ng_pe` red candles + a lower-high
+    # (vs the prior candle) + up-prob <= `dir_pe`, DROPPING the fresh-lower-low
+    # (`pe_look`) breakdown test. Backtest says this is worse (floods low-quality
+    # puts); left as a flip-back toggle, default False = keep the tight put rule.
+    pe_mirror: bool = False
     # Trend line: EMA of HA-close. A call fires only when it is rising over the
     # last `trend_slope` candles, a put only when it is falling — kills
     # counter-trend entries.

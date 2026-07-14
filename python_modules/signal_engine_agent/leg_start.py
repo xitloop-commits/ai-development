@@ -155,9 +155,16 @@ class LegStartDetector:
             and cc.dir >= cfg.dir_ce
             and trend_up
         )
+        if cfg.pe_mirror:
+            # Experiment: exact mirror of the call's higher-low — a lower-high
+            # vs the prior candle (no fresh-lower-low breakdown test).
+            struct_dn = cc.ha_high < C[i - 1].ha_high
+        else:
+            # Default (tighter): a FRESH lower-low breaking the last pe_look candles.
+            struct_dn = cc.ha_low < min(C[k].ha_low for k in range(i - cfg.pe_look, i))
         dn = (
             all(not C[k].green for k in range(i - cfg.ng_pe + 1, i + 1))
-            and cc.ha_low < min(C[k].ha_low for k in range(i - cfg.pe_look, i))
+            and struct_dn
             and cc.dir <= cfg.dir_pe
             and trend_dn
         )
