@@ -436,9 +436,11 @@ class TickHandler extends EventEmitter {
         //   "config" → trailingStopPercent % of the peak (widens as price runs)
         //   "signal" → the trade's own initial SL distance in rupees (fixed)
         // It only ever ratchets in the favourable direction — never crawls back.
-        // Per-trade TSL mode: "manual" freezes auto-trailing (operator sets the
-        // stop themselves via updateTrade); "auto" (default) trails as configured.
-        if (trailingStopEnabled && trade.tslMode !== "manual" && trade.stopLossPrice !== null) {
+        // Per-trade TSL mode drives trailing independent of the global switch
+        // (which only SEEDED this trade's mode at open): "manual" freezes
+        // auto-trailing (operator sets the stop via updateTrade); "auto" trails
+        // using the settings config (percent / gate / hold / distance source).
+        if (trade.tslMode !== "manual" && trade.stopLossPrice !== null) {
           const useSignal =
             trailingDistanceSource === "signal" && trade.slDistance != null && trade.slDistance > 0;
           const trailedRaw = useSignal
@@ -464,7 +466,7 @@ class TickHandler extends EventEmitter {
         // ratcheting only in the favorable direction (never retreats when price
         // pulls back). The trailing stop books the actual exit on a reversal;
         // this TP only fires if price gaps past it in a single tick.
-        if (trailingStopEnabled && trade.targetPrice !== null) {
+        if (trade.tslMode !== "manual" && !trade.targetDisabled && trade.targetPrice !== null) {
           const candidateTP = isBuy
             ? tick.ltp * (1 + TP_TRAIL_PERCENT / 100)
             : tick.ltp * (1 - TP_TRAIL_PERCENT / 100);
@@ -478,7 +480,9 @@ class TickHandler extends EventEmitter {
           }
         }
 
-        if (trade.targetPrice !== null) {
+        // Per-trade TP-disabled: suppress the take-profit auto-exit so the trade
+        // rides on SL/TSL only (mirror of stopLossDisabled).
+        if (trade.targetPrice !== null && !trade.targetDisabled) {
           const tpHit = isBuy
             ? tick.ltp >= trade.targetPrice
             : tick.ltp <= trade.targetPrice;

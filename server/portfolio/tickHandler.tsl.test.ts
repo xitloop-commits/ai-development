@@ -13,7 +13,7 @@
  *   2. BUY: SL never moves down (no widening)
  *   3. SELL: trails DOWN from the first favourable tick
  *   4. SL_HIT fires at the ratcheted SL level
- *   5. trailingStopEnabled=false → never trails
+ *   5. per-trade auto TSL trails even when the global switch is off (independence)
  *   6. trails even on a small move (no gate to clear)
  *   7. signal mode: trails at the trade's slDistance, not the config gap
  *   8. no breakeven floor: the stop can trail below breakeven
@@ -208,7 +208,10 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
     expect(exitEvent.exitPrice).toBeCloseTo(108.35, 2);
   });
 
-  it("trailingStopEnabled=false → SL never moves", async () => {
+  it("global trailing OFF no longer blocks a per-trade auto TSL (independence)", async () => {
+    // Decision A: the broker-wide switch only SEEDS a trade's mode at open; the
+    // tickHandler then trails on the trade's own tslMode. A trade left on "auto"
+    // trails even when the global trailingStopEnabled is off.
     getActiveBrokerConfigMock.mockResolvedValue({
       brokerId: "test",
       settings: {
@@ -219,9 +222,9 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
         trailingActivationHoldSeconds: 0,
       },
     });
-    const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
-    await processWith(trade, makeTick({ ltp: 110 }));
-    expect(trade.stopLossPrice).toBe(95); // unchanged
+    const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95, tslMode: "auto" });
+    await processWith(trade, makeTick({ ltp: 110 })); // peak 110 → 110 × 0.985 = 108.35
+    expect(trade.stopLossPrice).toBeCloseTo(108.35, 2); // trails despite global off
   });
 
   it("trails on a small favourable move (no gate to clear)", async () => {
@@ -290,10 +293,21 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
 
   it("stopLossDisabled suppresses the hard-floor SL exit while the stop is unmoved", async () => {
     getActiveBrokerConfigMock.mockResolvedValue({ brokerId: "test", settings: { trailingStopEnabled: false } });
-    const trade = makeBuyTrade({ stopLossDisabled: true, stopLossPrice: 95, originalStopLossPrice: 95 });
+    // tslMode=manual so auto-trailing doesn't move the stop off its hard floor —
+    // that's the scenario the SL-disabled gate protects.
+    const trade = makeBuyTrade({ stopLossDisabled: true, tslMode: "manual", stopLossPrice: 95, originalStopLossPrice: 95 });
     let exitEvent: any = null;
     tickHandler.once("autoExitDetected", (e) => { exitEvent = e; });
     await processTicks(trade, [94]); // ltp 94 <= stop 95 → would be SL_HIT
+    expect(exitEvent).toBeNull(); // suppressed
+    expect(trade.status).toBe("OPEN");
+  });
+
+  it("targetDisabled suppresses the take-profit auto-exit (rides on SL/TSL only)", async () => {
+    const trade = makeBuyTrade({ targetDisabled: true, tslMode: "manual", targetPrice: 105, stopLossPrice: 95, originalStopLossPrice: 95 });
+    let exitEvent: any = null;
+    tickHandler.once("autoExitDetected", (e) => { exitEvent = e; });
+    await processTicks(trade, [106]); // ltp 106 >= target 105 → would be TP_HIT
     expect(exitEvent).toBeNull(); // suppressed
     expect(trade.status).toBe("OPEN");
   });

@@ -118,9 +118,12 @@ export interface TradeRecord {
    *  running" stopwatch next to the TP. Absent until TSL arms. */
   tslActivatedAt?: number | null;
   /** Per-trade risk overrides (paper). `stopLossDisabled`: the hard-floor SL
-   *  won't exit the trade (trailing stop still does). `tslMode`: "auto" (default,
-   *  server auto-trails) or "manual" (frozen; operator sets the stop). */
+   *  won't exit the trade (trailing stop still does). `targetDisabled`: the
+   *  take-profit won't auto-exit (trade rides on SL/TSL only). `tslMode`: "auto"
+   *  (server auto-trails) or "manual" (frozen; operator sets the stop) — the
+   *  per-trade toggle, independent of the global trailing switch. */
   stopLossDisabled?: boolean;
+  targetDisabled?: boolean;
   tslMode?: 'auto' | 'manual';
   openedAt: number;
   closedAt: number | null;

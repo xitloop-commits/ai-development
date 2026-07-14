@@ -129,6 +129,9 @@ export interface TradeRecord {
    *  the stop at open (delta-shifted with entry on the first-tick reprice) — the
    *  "has the stop moved?" reference for the SL-disabled gate. */
   stopLossDisabled?: boolean;
+  /** `targetDisabled`: the take-profit won't auto-exit — the trade rides on
+   *  SL/TSL only (mirror of stopLossDisabled). */
+  targetDisabled?: boolean;
   tslMode?: "auto" | "manual";
   originalStopLossPrice?: number | null;
   /** Broker-assigned order ID returned by placeOrder. Used by orderSync /
@@ -304,6 +307,7 @@ const tradeRecordSchema = new Schema(
     breakevenPrice: { type: Number, default: null },
     slDistance: { type: Number, default: null },
     stopLossDisabled: { type: Boolean, default: false },
+    targetDisabled: { type: Boolean, default: false },
     tslMode: { type: String, enum: ["auto", "manual"], default: "auto" },
     originalStopLossPrice: { type: Number, default: null },
     tslActivatedAt: { type: Number, default: null },
@@ -1008,6 +1012,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       breakevenPrice: t.breakevenPrice ?? undefined,
       slDistance: t.slDistance ?? undefined,
       stopLossDisabled: t.stopLossDisabled ?? undefined,
+      targetDisabled: t.targetDisabled ?? undefined,
       tslMode: t.tslMode ?? undefined,
       originalStopLossPrice: t.originalStopLossPrice ?? undefined,
       tslActivatedAt: t.tslActivatedAt ?? undefined,

@@ -625,6 +625,7 @@ class PortfolioAgentImpl {
       targetPrice?: number | null;
       trailingStopEnabled?: boolean;
       stopLossDisabled?: boolean;
+      targetDisabled?: boolean;
       tslMode?: "auto" | "manual";
     },
   ): Promise<{ trade: TradeRecord; day: DayRecord; oldSL: number | null; oldTP: number | null }> {
@@ -641,6 +642,7 @@ class PortfolioAgentImpl {
     if (modifications.targetPrice !== undefined) trade.targetPrice = modifications.targetPrice;
     if (modifications.trailingStopEnabled !== undefined) trade.trailingStopEnabled = modifications.trailingStopEnabled;
     if (modifications.stopLossDisabled !== undefined) trade.stopLossDisabled = modifications.stopLossDisabled;
+    if (modifications.targetDisabled !== undefined) trade.targetDisabled = modifications.targetDisabled;
     if (modifications.tslMode !== undefined) trade.tslMode = modifications.tslMode;
 
     await upsertDayRecord(channel, day);

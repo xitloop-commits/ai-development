@@ -577,12 +577,14 @@ export const executorRouter = router({
         channel: channelSchema,
         tradeId: z.string(),
         stopLossDisabled: z.boolean().optional(),
+        targetDisabled: z.boolean().optional(),
         tslMode: z.enum(["auto", "manual"]).optional(),
       }),
     )
     .mutation(async ({ input }) => {
       const { trade } = await portfolioAgent.updateTrade(input.channel, input.tradeId, {
         stopLossDisabled: input.stopLossDisabled,
+        targetDisabled: input.targetDisabled,
         tslMode: input.tslMode,
       });
       return { trade };

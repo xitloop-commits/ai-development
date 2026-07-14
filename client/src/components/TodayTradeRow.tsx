@@ -89,10 +89,10 @@ function _TodayTradeRow({
   const { hexOf } = useInstrumentColors();
   const instHex = hexOf(trade.instrument);
   const isOpen = trade.status === 'OPEN';
-  // The server only trails paper channels (the live exit engine is skipped —
-  // see T60 / gap #4). So only claim trailing protection on paper; a live
-  // trade must not show a TSL marker/badge that won't actually arm.
-  const serverTrails = globalTrailingEnabled && isPaperChannel(channel);
+  // Whether THIS trade is actively trailing: paper-only (the live exit engine is
+  // skipped — see T60 / gap #4) and only when its per-trade TSL mode is "auto".
+  // Independent of the global trailing switch, which only SEEDS the mode at open.
+  const serverTrails = isPaperChannel(channel) && (trade.tslMode ?? 'auto') !== 'manual';
   // Per-trade risk overrides (paper): toggle the hard stoploss and TSL auto/manual.
   const utils = trpc.useUtils();
   const setRiskMutation = trpc.executor.setTradeRisk.useMutation({
@@ -337,10 +337,12 @@ function _TodayTradeRow({
             )}
             {/* Per-trade risk toggles — shown on EVERY paper workspace (ai / my /
                 testing), so you can override the SEA's risk on its own auto-trades.
-                Paper-only: hidden on live channels where the stop is a real broker
-                order, not the software-managed one these toggles control.
+                Paper-only: hidden on live channels where the stops are real broker
+                orders, not the software-managed ones these toggles control.
                 SL: disable the hard stoploss (trailing stop still exits).
-                TSL: auto ↔ manual (freeze trailing). */}
+                TP: disable the take-profit (trade rides on SL/TSL only).
+                TSL: auto ↔ manual (freeze trailing) — independent of the global
+                     trailing switch, which only seeds the mode at open. */}
             {isOpen && !isDesync && isPaperChannel(channel) && (
               <button
                 onClick={(e) => {
@@ -360,7 +362,26 @@ function _TodayTradeRow({
                 SL {trade.stopLossDisabled ? 'off' : 'on'}
               </button>
             )}
-            {isOpen && !isDesync && serverTrails && (
+            {isOpen && !isDesync && isPaperChannel(channel) && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRiskMutation.mutate({ channel, tradeId: trade.id, targetDisabled: !(trade.targetDisabled ?? false) });
+                }}
+                disabled={setRiskMutation.isPending}
+                className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold border transition-colors disabled:opacity-40 ${
+                  trade.targetDisabled
+                    ? 'bg-warning-amber/25 text-warning-amber border-warning-amber/60'
+                    : 'bg-foreground/10 text-foreground border-foreground/30 hover:bg-foreground/20'
+                }`}
+                title={trade.targetDisabled
+                  ? 'Take-profit OFF — click to re-enable (trade rides on SL/TSL only while off)'
+                  : 'Take-profit ON — click to disable it (let the trade run past target on SL/TSL)'}
+              >
+                TP {trade.targetDisabled ? 'off' : 'on'}
+              </button>
+            )}
+            {isOpen && !isDesync && isPaperChannel(channel) && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();

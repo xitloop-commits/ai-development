@@ -1165,11 +1165,14 @@ function buildTradeRecord(
       req.stopLoss != null && req.entryPrice > 0
         ? Math.abs(req.entryPrice - req.stopLoss)
         : undefined,
-    // Per-trade risk overrides start at their defaults (SL active, TSL auto).
-    // originalStopLossPrice snapshots the stop at open so the SL-disabled gate
-    // can tell whether the stop has since moved (trail or manual edit).
+    // Per-trade risk overrides start at their defaults (SL + TP active). TSL
+    // mode is SEEDED from the broker-wide trailing switch — on → "auto" (trails),
+    // off → "manual" (frozen) — after which the per-trade toggle rules regardless
+    // of the global switch. originalStopLossPrice snapshots the stop at open so
+    // the SL-disabled gate can tell whether the stop has since moved.
     stopLossDisabled: false,
-    tslMode: "auto",
+    targetDisabled: false,
+    tslMode: (req.trailingStopLoss?.enabled ?? false) ? "auto" : "manual",
     originalStopLossPrice: req.stopLoss ?? null,
     // Callers resolve the trailing-stop default before submitting (the UI
     // adapter folds in the broker-wide trailingStopEnabled setting). When a
