@@ -51,7 +51,7 @@ describe("calculateTradeCharges — Round Trip", () => {
     // Verify STT: percent_sell on sell turnover
     // Sell turnover for BUY trade = exitPrice * qty = 170 * 50 = 8500
     const stt = result.breakdown.find((b) => b.name === "STT");
-    expect(stt?.amount).toBe(round(8500 * 0.0625 / 100));
+    expect(stt?.amount).toBe(Math.round(8500 * 0.0625 / 100)); // STT rounded to nearest rupee
   });
 
   it("should calculate charges for a sell trade", () => {
@@ -67,7 +67,7 @@ describe("calculateTradeCharges — Round Trip", () => {
 
     // For SELL trade: sell turnover = entryPrice * qty = 170 * 50 = 8500
     const stt = result.breakdown.find((b) => b.name === "STT");
-    expect(stt?.amount).toBe(round(8500 * 0.0625 / 100));
+    expect(stt?.amount).toBe(Math.round(8500 * 0.0625 / 100)); // STT rounded to nearest rupee
   });
 
   it("should calculate GST on brokerage + exchange txn", () => {
@@ -109,7 +109,7 @@ describe("calculateTradeCharges — Round Trip", () => {
 
     // Buy turnover = 200 * 100 = 20000
     const stamp = result.breakdown.find((b) => b.name === "Stamp Duty");
-    expect(stamp?.amount).toBe(round(20000 * 0.003 / 100));
+    expect(stamp?.amount).toBe(Math.round(20000 * 0.003 / 100)); // Stamp rounded to nearest rupee
   });
 
   it("should skip disabled charges", () => {
@@ -162,7 +162,7 @@ describe("estimateSingleLegCharges", () => {
 
     // Stamp Duty: percent_buy — should be present
     const stamp = result.breakdown.find((b) => b.name === "Stamp Duty");
-    expect(stamp?.amount).toBe(round(20000 * 0.003 / 100));
+    expect(stamp?.amount).toBe(Math.round(20000 * 0.003 / 100)); // Stamp rounded to nearest rupee
   });
 
   it("should estimate sell-side charges", () => {
@@ -170,7 +170,7 @@ describe("estimateSingleLegCharges", () => {
 
     // STT: percent_sell — should be present for sell side
     const stt = result.breakdown.find((b) => b.name === "STT");
-    expect(stt?.amount).toBe(round(20000 * 0.0625 / 100));
+    expect(stt?.amount).toBe(Math.round(20000 * 0.0625 / 100)); // STT rounded to nearest rupee
 
     // Stamp Duty: percent_buy — should be 0 for sell side
     const stamp = result.breakdown.find((b) => b.name === "Stamp Duty");

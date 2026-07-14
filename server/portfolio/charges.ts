@@ -95,8 +95,9 @@ export function calculateTradeCharges(
     });
 
     if (amount > 0) {
-      breakdown.push({ name: rate.name, amount: round(amount) });
-      total += amount;
+      const chargeAmt = roundCharge(rate.name, amount);
+      breakdown.push({ name: rate.name, amount: chargeAmt });
+      total += chargeAmt;
     }
   }
 
@@ -163,8 +164,9 @@ export function estimateSingleLegCharges(
         break;
     }
     if (amount > 0) {
-      breakdown.push({ name: rate.name, amount: round(amount) });
-      total += amount;
+      const chargeAmt = roundCharge(rate.name, amount);
+      breakdown.push({ name: rate.name, amount: chargeAmt });
+      total += chargeAmt;
     }
   }
 
@@ -209,4 +211,14 @@ function calculateSingleCharge(rate: ChargeRate, ctx: ChargeContext): number {
 
 function round(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Per-charge rounding matching broker contract notes: STT and Stamp Duty are
+ *  levied ROUNDED to the nearest rupee; every other charge to 2 decimals. */
+function roundCharge(name: string, amount: number): number {
+  const n = name.toLowerCase();
+  if (n.includes("stt") || n.includes("securities transaction") || n.includes("stamp")) {
+    return Math.round(amount);
+  }
+  return round(amount);
 }
