@@ -61,9 +61,11 @@ from signal_engine_agent.thresholds import (
     decide_action_wave2,
     load_thresholds_full,
     load_thresholds_legstart,
+    load_thresholds_ma_signal,
     load_thresholds_trend,
 )
 from signal_engine_agent.leg_start import LegStartDetector
+from signal_engine_agent.ma_signal import MASignalDetector
 
 
 def _build_structure_context(row: dict) -> StructureContext | None:
@@ -639,6 +641,13 @@ def run(
     legstart_detector = (
         LegStartDetector(legstart_thresholds) if gate_mode == "legstart" else None
     )
+    # MA-Signal gate (cohort="ma_signal", 2026-07-14). Independent of the scalp
+    # gate mode (like the trend gate) — pure 20-EMA slope segmentation on the
+    # underlying, fires each trend leg's start/end. SIGNAL-ONLY: never traded.
+    ma_signal_thresholds = load_thresholds_ma_signal(instrument, config_dir)
+    ma_signal_detector = (
+        MASignalDetector(ma_signal_thresholds) if ma_signal_thresholds.enabled else None
+    )
     if gate_mode == "wave2":
         sustain_filter = None  # model handles persistence via direction_persists_*
         print(
@@ -688,6 +697,16 @@ def run(
         )
     else:
         print(f"  Trend gate: disabled (no `trend` block in config)")
+    # MA-Signal banner (2026-07-14).
+    if ma_signal_thresholds.enabled:
+        _ms = ma_signal_thresholds
+        print(
+            f"  MA-Signal: ENABLED (cohort=ma_signal, EMA{_ms.ema_period} "
+            f"slope{_ms.slope_lookback} sticky hi>{_ms.thr_hi}/lo>{_ms.thr_lo}, "
+            f"SIGNAL-ONLY — not auto-traded)"
+        )
+    else:
+        print(f"  MA-Signal: disabled (no `ma_signal` block in config)")
     print()
 
     raw_logger = SignalLogger(instrument)
@@ -747,6 +766,7 @@ def run(
     # `min_seconds_between_signals` (default 600s = 10 min).
     _last_trend_emit_ts: float = 0.0
     trend_emitted = 0
+    ma_emitted = 0
 
     # Liveness heartbeat — a daemon thread POSTs to the server every 5s
     # INDEPENDENT of tick flow, so the UI shows SEA as running even when the
@@ -1159,6 +1179,59 @@ def run(
                     dashboard.push_reject(
                         cohort="trend", reasons=trend_sig.gate_reasons,
                     )
+
+            # ── MA-Signal cohort (2026-07-14) ──────────────────────
+            # Independent of the scalp/trend gates. Pure 20-EMA slope
+            # segmentation (sticky) on the underlying — fires LONG_CE /
+            # LONG_PE at a trend leg START and EXIT_CE / EXIT_PE at its
+            # END. SIGNAL-ONLY: emitted + charted, never auto-traded (it
+            # loses as a standalone buy). Opt in via `ma_signal.enabled`.
+            if ma_signal_detector is not None:
+                try:
+                    _ma_ts = _finite(row.get("timestamp"))
+                    _ma_spot = _finite(row.get("spot_price"))
+                    ma_events = (
+                        ma_signal_detector.on_tick(_ma_ts, _ma_spot)
+                        if _ma_ts is not None and _ma_spot is not None else []
+                    )
+                    for _ev in ma_events:
+                        _ma_call = "CE" in _ev
+                        _ma_exit = _ev.startswith("EXIT")
+                        _ma_ltp = _finite(ce_ltp if _ma_call else pe_ltp)
+                        ma_signal_out = {
+                            "timestamp": row.get("timestamp"),
+                            "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
+                            "correlationId": uuid.uuid4().hex,
+                            "instrument": instrument.upper(),
+                            "action": _ev,
+                            "cohort": "ma_signal",
+                            "reason": (
+                                f"MA-Signal · {'exit' if _ma_exit else 'enter'} "
+                                f"{'CE up-leg' if _ma_call else 'PE down-leg'} "
+                                f"· 20-EMA slope (sticky, signal-only)"
+                            ),
+                            "regime": regime,
+                            "entry": round(_ma_ltp, 2) if _ma_ltp else None,
+                            "tp": None,
+                            "sl": None,
+                            "rr": 0.0,
+                            "atm_strike": row.get("atm_strike"),
+                            "atm_ce_ltp": ce_ltp,
+                            "atm_pe_ltp": pe_ltp,
+                            "atm_ce_security_id": row.get("atm_ce_security_id"),
+                            "atm_pe_security_id": row.get("atm_pe_security_id"),
+                            "spot_price": row.get("spot_price"),
+                            "model_version": models.version,
+                            "gate_mode": "ma_signal",
+                            "direction": "GO_CALL" if _ma_call else "GO_PUT",
+                        }
+                        raw_logger.log(ma_signal_out)
+                        _send_signal_to_tray(ma_signal_out)  # Mongo + WS (chart)
+                        # SIGNAL-ONLY: intentionally NOT auto-traded.
+                        ma_emitted += 1
+                except Exception as exc:
+                    # Never let the MA-Signal cohort crash the inference loop.
+                    print(f"  MA-Signal error: {exc}", file=sys.stderr)
 
             # ── Filtered output ──
             # Log the failed-gate diagnostic line per spec §3

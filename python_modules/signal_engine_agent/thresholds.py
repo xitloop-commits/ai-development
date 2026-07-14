@@ -1072,6 +1072,48 @@ def load_thresholds_legstart(
     return LegStartThresholds(**ls_raw) if ls_raw else LegStartThresholds()
 
 
+@dataclass(frozen=True)
+class MASignalThresholds:
+    """MA-Signal gate configuration (cohort="ma_signal", 2026-07-14).
+
+    Segments the underlying by the slope of its 20-EMA (the chart's violet MA
+    line) and fires at each trend leg's start/end. SIGNAL-ONLY — charted and
+    logged, never auto-traded. See ``signal_engine_agent.ma_signal``.
+
+    Tunable in `config/sea_thresholds/<inst>.json` via:
+      "ma_signal": {
+        "enabled": true,
+        "ema_period": 20, "slope_lookback": 10,
+        "thr_hi": 0.025, "thr_lo": 0.006
+      }
+    """
+    # Master switch. Default OFF so the cohort is inert unless the JSON opts in.
+    enabled: bool = False
+    ema_period: int = 20
+    # Slope = % change of the EMA over the last `slope_lookback` candles. A leg
+    # opens when |slope| > thr_hi and is held (sticky) until |slope| falls back
+    # through thr_lo — so brief pauses inside a trend don't fragment it.
+    slope_lookback: int = 10
+    thr_hi: float = 0.025
+    thr_lo: float = 0.006
+
+
+def load_thresholds_ma_signal(
+    instrument: str,
+    config_dir: Path = Path("config/sea_thresholds"),
+) -> MASignalThresholds:
+    """Load the per-instrument MA-Signal config. Returns defaults
+    (enabled=False) when no ``ma_signal`` block is present in the JSON."""
+    inst_path = config_dir / f"{instrument}.json"
+    default_path = config_dir / "default.json"
+    path = inst_path if inst_path.exists() else default_path
+    if not path.exists():
+        return MASignalThresholds()
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    ms_raw = raw.get("ma_signal")
+    return MASignalThresholds(**ms_raw) if ms_raw else MASignalThresholds()
+
+
 def load_thresholds(
     instrument: str,
     config_dir: Path = Path("config/sea_thresholds"),

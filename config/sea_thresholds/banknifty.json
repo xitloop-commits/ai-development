@@ -30,6 +30,13 @@
     "tp_pct": 0.0,
     "maxhold_candles": 20
   },
+  "ma_signal": {
+    "enabled": true,
+    "ema_period": 20,
+    "slope_lookback": 10,
+    "thr_hi": 0.025,
+    "thr_lo": 0.006
+  },
   "trend": {
     "enabled": false,
     "dir_prob_min": 0.55,
