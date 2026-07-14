@@ -178,12 +178,36 @@ export const DEFAULT_TRADING_MODE: TradingModeSettings = {
 
 export const DEFAULT_CHARGES: ChargeRate[] = [
   { name: "Brokerage", rate: 20, unit: "flat_per_order", description: "₹20/order flat (Dhan)", enabled: true },
-  { name: "STT", rate: 0.0625, unit: "percent_sell", description: "0.0625% sell side", enabled: true },
-  { name: "Exchange Transaction", rate: 0.053, unit: "percent", description: "0.053% (NSE)", enabled: true },
+  { name: "STT", rate: 0.15, unit: "percent_sell", description: "0.15% on sell premium (from 1-Apr-2026; was 0.10% Oct-2024–Mar-2026, 0.0625% before)", enabled: true },
+  { name: "Exchange Transaction", rate: 0.03503, unit: "percent", description: "0.03503% of premium (NSE options, from 1-Oct-2024)", enabled: true },
   { name: "GST", rate: 18, unit: "percent_on_brokerage", description: "18% on brokerage + exchange transaction", enabled: true },
-  { name: "SEBI", rate: 0.0001, unit: "percent", description: "0.0001%", enabled: true },
+  { name: "SEBI", rate: 0.0001, unit: "percent", description: "0.0001% (₹10/crore turnover fee)", enabled: true },
   { name: "Stamp Duty", rate: 0.003, unit: "percent_buy", description: "0.003% buy side", enabled: true },
 ];
+
+/** Statutory rates that must always be the current official values regardless of
+ *  what's stored — they're not user-tunable (govt/exchange set them). Keyed by
+ *  charge name. Bump these when the official rate changes; getUserSettings then
+ *  self-heals any stale saved config on the next read. */
+const CURRENT_STATUTORY_RATES: Record<string, number> = {
+  STT: 0.15,
+  "Exchange Transaction": 0.03503,
+};
+
+/** Force the current statutory rates onto a rate list. Returns the corrected list
+ *  and whether anything changed (drives the one-time DB self-heal). */
+function applyCurrentStatutoryRates(rates: ChargeRate[]): { rates: ChargeRate[]; changed: boolean } {
+  let changed = false;
+  const out = rates.map((r) => {
+    const official = CURRENT_STATUTORY_RATES[r.name];
+    if (official != null && r.rate !== official) {
+      changed = true;
+      return { ...r, rate: official };
+    }
+    return r;
+  });
+  return { rates: out, changed };
+}
 
 // ─── Mongoose Schema ───────────────────────────────────────────
 
@@ -301,7 +325,17 @@ export const UserSettingsModel = mongoose.model("UserSettings", userSettingsSche
  */
 export async function getUserSettings(userId: number): Promise<UserSettingsDoc> {
   const doc = await UserSettingsModel.findOne({ userId }).lean();
-  if (doc) return docToSettings(doc);
+  if (doc) {
+    const settings = docToSettings(doc);
+    // Always serve the current official STT / exchange-txn rates; if the stored
+    // config was stale (e.g. pre-2024 STT 0.0625%), self-heal the DB once.
+    const { rates, changed } = applyCurrentStatutoryRates(settings.charges.rates);
+    if (changed) {
+      settings.charges.rates = rates;
+      void UserSettingsModel.updateOne({ userId }, { $set: { "charges.rates": rates } }).catch(() => {});
+    }
+    return settings;
+  }
 
   // Return defaults if no settings exist yet
   return {

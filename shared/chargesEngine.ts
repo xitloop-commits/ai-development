@@ -25,10 +25,10 @@ export interface ChargesResult {
 
 export const DEFAULT_CHARGES: ChargeRate[] = [
   { name: "Brokerage", rate: 20, unit: "flat_per_order", description: "₹20/order flat (Dhan)", enabled: true },
-  { name: "STT", rate: 0.0625, unit: "percent_sell", description: "0.0625% sell side", enabled: true },
-  { name: "Exchange Transaction", rate: 0.053, unit: "percent", description: "0.053% (NSE)", enabled: true },
+  { name: "STT", rate: 0.15, unit: "percent_sell", description: "0.15% on sell premium (from 1-Apr-2026)", enabled: true },
+  { name: "Exchange Transaction", rate: 0.03503, unit: "percent", description: "0.03503% of premium (NSE options, from 1-Oct-2024)", enabled: true },
   { name: "GST", rate: 18, unit: "percent_on_brokerage", description: "18% on brokerage + exchange transaction", enabled: true },
-  { name: "SEBI", rate: 0.0001, unit: "percent", description: "0.0001%", enabled: true },
+  { name: "SEBI", rate: 0.0001, unit: "percent", description: "0.0001% (₹10/crore turnover fee)", enabled: true },
   { name: "Stamp Duty", rate: 0.003, unit: "percent_buy", description: "0.003% buy side", enabled: true },
 ];
 
