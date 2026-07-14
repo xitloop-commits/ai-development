@@ -85,6 +85,9 @@ export interface TradeRecord {
   ltp: number;
   qty: number;
   lotSize?: number;
+  /** Equity (stock) product type — "INTRADAY" (MIS) or "CNC" (delivery). Absent
+   *  for options. */
+  productType?: 'INTRADAY' | 'CNC';
   capitalPercent: number;
   /** Strategy cohort (scalp | trend | swing | multi_day_swing) for AI trades;
    *  null/absent for manual trades. Lets the desk group P&L by strategy. */

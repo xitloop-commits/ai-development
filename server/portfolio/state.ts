@@ -96,6 +96,10 @@ export interface TradeRecord {
   ltp: number;
   qty: number;
   lotSize?: number;
+  /** Equity (stock) product type — "INTRADAY" (MIS) or "CNC" (delivery). Set on
+   *  stock trades so the exit squares off on the same product; undefined for
+   *  options (which exit INTRADAY). */
+  productType?: "INTRADAY" | "CNC";
   capitalPercent: number;
   pnl: number;
   unrealizedPnl: number;
@@ -298,6 +302,7 @@ const tradeRecordSchema = new Schema(
     ltp: { type: Number, default: 0 },
     qty: { type: Number, required: true },
     lotSize: { type: Number, default: null },
+    productType: { type: String, default: null },
     capitalPercent: { type: Number, default: 0 },
     pnl: { type: Number, default: 0 },
     unrealizedPnl: { type: Number, default: 0 },
@@ -776,6 +781,7 @@ async function migrateDayRecordTradesToPositionState(): Promise<void> {
         ltp: trade.ltp ?? 0,
         qty: trade.qty,
         lotSize: trade.lotSize,
+        productType: trade.productType ?? null,
         capitalPercent: trade.capitalPercent ?? 0,
         pnl: trade.pnl ?? 0,
         unrealizedPnl: trade.unrealizedPnl ?? 0,
@@ -1003,6 +1009,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       ltp: t.ltp ?? 0,
       qty: t.qty,
       lotSize: t.lotSize ?? undefined,
+      productType: (t.productType as "INTRADAY" | "CNC" | undefined) ?? undefined,
       capitalPercent: t.capitalPercent ?? 0,
       pnl: t.pnl ?? 0,
       unrealizedPnl: t.unrealizedPnl ?? 0,

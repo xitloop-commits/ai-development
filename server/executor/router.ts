@@ -148,6 +148,8 @@ const placeTradeUiSchema = z.object({
   contractSecurityId: z.string().optional().nullable(),
   qty: z.number().int().positive().optional(),
   lotSize: z.number().int().positive().optional(),
+  // Equity only: MIS (intraday) or CNC (delivery). Ignored for options.
+  productType: z.enum(["INTRADAY", "CNC"]).optional(),
   targetPercent: z.number().optional(),
   stopLossPercent: z.number().optional(),
   targetPrice: z.number().nullable().optional(),
@@ -362,11 +364,18 @@ export const executorRouter = router({
 
       // ── 6. Resolve order type / product type from broker config (reuses `config`) ─
       const orderType = (config?.settings?.orderType as "MARKET" | "LIMIT" | undefined) ?? "LIMIT";
-      const productType = (config?.settings?.productType as "INTRADAY" | "CNC" | undefined) ?? "INTRADAY";
+      // Equity (stock) trades route to NSE_EQ cash and carry their own product
+      // type — MIS→INTRADAY (default) or CNC (delivery); options keep the config
+      // default. `isEquity` is the plain BUY/SELL side (options are CALL_/PUT_).
+      const isEquity = input.type === "BUY" || input.type === "SELL";
+      const productType = isEquity
+        ? (input.productType ?? "INTRADAY")
+        : ((config?.settings?.productType as "INTRADAY" | "CNC" | undefined) ?? "INTRADAY");
 
       // ── 7. Hand off to TEA's formal API ─────────────────────────
-      const optionTypeForExec: "CE" | "PE" | "FUT" =
-        input.type.startsWith("CALL") ? "CE" : input.type.startsWith("PUT") ? "PE" : "FUT";
+      const optionTypeForExec: "CE" | "PE" | "FUT" | undefined = isEquity
+        ? undefined
+        : input.type.startsWith("CALL") ? "CE" : input.type.startsWith("PUT") ? "PE" : "FUT";
       const direction: "BUY" | "SELL" = isBuy ? "BUY" : "SELL";
 
       const submitResp = await tradeExecutor.submitTrade({
@@ -391,6 +400,7 @@ export const executorRouter = router({
         },
         orderType,
         productType,
+        assetClass: isEquity ? "equity" : "option",
         optionType: optionTypeForExec,
         strike: strike ?? undefined,
         expiry: expiry || undefined,

@@ -46,6 +46,10 @@ export interface SubmitTradeRequest {
   expiry?: string;
   contractSecurityId?: string;
 
+  /** Asset class — "equity" routes the order to NSE_EQ cash (stocks); absent or
+   *  "option" keeps the existing option/future routing. */
+  assetClass?: "equity" | "option";
+
   /** Position size as % of available capital, when applicable. */
   capitalPercent?: number;
 

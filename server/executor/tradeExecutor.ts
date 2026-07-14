@@ -697,7 +697,7 @@ class TradeExecutorAgent {
           // ONLY be exited this way — the underlying name ("NIFTY 50") never
           // resolves. Futures resolve by symbol, so they fall back to the name.
           instrument: trade.contractSecurityId ?? trade.instrument,
-          exchange: resolveExchange(trade.instrument),
+          exchange: isEquityTradeRecord(trade) ? "NSE_EQ" : resolveExchange(trade.instrument),
           transactionType: trade.type.includes("BUY") ? "SELL" : "BUY",
           optionType: exitOptionType,
           strike: trade.strike ?? 0,
@@ -705,7 +705,9 @@ class TradeExecutorAgent {
           quantity: trade.qty,
           price: exitPrice,
           orderType: exitOrderType,
-          productType: "INTRADAY",
+          // Square off on the same product the entry used (CNC delivery must sell
+          // CNC). Options + legacy trades have no stored product → INTRADAY.
+          productType: (trade.productType as "INTRADAY" | "CNC" | undefined) ?? "INTRADAY",
           tag: `EXIT-${trade.id}`,
         };
         try {
@@ -781,7 +783,7 @@ class TradeExecutorAgent {
       // same option keep streaming). Mirrors ensureOptionLtpSubscription's
       // routing: paper channels released via the primary live adapter,
       // live channels via the channel's own adapter.
-      releaseOptionLtpSubscription(channel, closed.contractSecurityId, closed.instrument);
+      releaseOptionLtpSubscription(channel, closed.contractSecurityId, closed.instrument, isEquityTradeRecord(closed));
 
       void charges;
       const response: ExitTradeResponse = {
@@ -875,7 +877,7 @@ class TradeExecutorAgent {
       });
       // Release this contract's WS subscription (refCount-safe — see
       // exitTrade for the same call pattern).
-      releaseOptionLtpSubscription(req.channel, closed.contractSecurityId, closed.instrument);
+      releaseOptionLtpSubscription(req.channel, closed.contractSecurityId, closed.instrument, isEquityTradeRecord(closed));
 
       // TEMP DIAGNOSTIC ([XSYNC] exit-sync): the trade is now actually closed.
       log.important(
@@ -1039,6 +1041,22 @@ function resolveExchange(instrument: string): ExchangeSegment {
   return "NSE_FNO";
 }
 
+/**
+ * A cash-equity (stock) trade record: a plain BUY/SELL with no option strike.
+ * Options always carry a strike + CALL_/PUT_ type, so this never matches them.
+ * Used to route the exit + LTP feed to NSE_EQ for stored trades (which have no
+ * `assetClass` on the request shape).
+ */
+function isEquityTradeRecord(t: { strike?: number | null; type?: string }): boolean {
+  return t.strike == null && (t.type === "BUY" || t.type === "SELL");
+}
+
+/** WS feed segment for a stored trade: NSE_EQ for stocks, else option routing. */
+function feedSegmentForTrade(t: { instrument: string; strike?: number | null; type?: string }): ExchangeSegment {
+  if (isEquityTradeRecord(t)) return "NSE_EQ";
+  return resolveExchange(t.instrument) === "MCX_COMM" ? "MCX_COMM" : "NSE_FNO";
+}
+
 function resolveOptionType(req: SubmitTradeRequest): OptionType {
   if (req.optionType === "CE") return "CE";
   if (req.optionType === "PE") return "PE";
@@ -1099,7 +1117,7 @@ function mapToOrderParams(req: SubmitTradeRequest): OrderParams {
     // to the name only when no contract id is present (e.g. futures-by-symbol
     // that the adapter itself resolves via scrip master).
     instrument: req.contractSecurityId ?? req.instrument,
-    exchange: resolveExchange(req.instrument),
+    exchange: req.assetClass === "equity" ? "NSE_EQ" : resolveExchange(req.instrument),
     transactionType: resolveTransactionType(req.direction),
     optionType: resolveOptionType(req),
     strike: req.strike ?? 0,
@@ -1138,6 +1156,10 @@ function buildTradeRecord(
     strike: req.strike ?? null,
     expiry: req.expiry ?? null,
     contractSecurityId: req.contractSecurityId ?? null,
+    // Stocks persist their product type (MIS→INTRADAY | CNC) so the exit squares
+    // off on the same product. Options leave it undefined (exit defaults INTRADAY).
+    productType:
+      req.assetClass === "equity" ? (req.productType === "CNC" ? "CNC" : "INTRADAY") : undefined,
     entryPrice: req.entryPrice,
     // Paper channels "fill" at the snapshot price we sent (mock has no real
     // fill), which can lag the live option price and open the trade in profit.
@@ -1250,11 +1272,13 @@ function _subscribeContractLtp(
   instrument: string,
   contractSecurityId: string,
   label: string,
+  isEquity = false,
 ): void {
   if (!feedAdapter?.subscribeLTP) return;
   try {
-    const exchange = resolveExchange(instrument);
-    const wsExchange = exchange === "MCX_COMM" ? "MCX_COMM" : "NSE_FNO";
+    const wsExchange = isEquity
+      ? "NSE_EQ"
+      : resolveExchange(instrument) === "MCX_COMM" ? "MCX_COMM" : "NSE_FNO";
     feedAdapter.subscribeLTP(
       [{ exchange: wsExchange as any, securityId: contractSecurityId, mode: "full" }] as any,
       (tick) => tickBus.emitTick(tick),
@@ -1273,7 +1297,13 @@ function ensureOptionLtpSubscription(
 ): void {
   if (!req.contractSecurityId) return;
   const feedAdapter = _isPaperChannel(req.channel) ? getActiveBroker() : adapter;
-  _subscribeContractLtp(feedAdapter, req.instrument, req.contractSecurityId, `for trade ${req.executionId}`);
+  _subscribeContractLtp(
+    feedAdapter,
+    req.instrument,
+    req.contractSecurityId,
+    `for trade ${req.executionId}`,
+    req.assetClass === "equity",
+  );
 }
 
 /**
@@ -1289,6 +1319,7 @@ function releaseOptionLtpSubscription(
   channel: Channel,
   contractSecurityId: string | null | undefined,
   instrument: string,
+  isEquity = false,
 ): void {
   if (!contractSecurityId) return;
   const adapter = (() => {
@@ -1298,8 +1329,9 @@ function releaseOptionLtpSubscription(
   const feedAdapter = _isPaperChannel(channel) ? getActiveBroker() : adapter;
   if (!feedAdapter?.unsubscribeLTP) return;
   try {
-    const exchange = resolveExchange(instrument);
-    const wsExchange = exchange === "MCX_COMM" ? "MCX_COMM" : "NSE_FNO";
+    const wsExchange = isEquity
+      ? "NSE_EQ"
+      : resolveExchange(instrument) === "MCX_COMM" ? "MCX_COMM" : "NSE_FNO";
     feedAdapter.unsubscribeLTP(
       [{ exchange: wsExchange as any, securityId: contractSecurityId }] as any,
     );
