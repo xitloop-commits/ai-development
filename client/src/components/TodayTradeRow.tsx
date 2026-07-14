@@ -348,10 +348,10 @@ function _TodayTradeRow({
                   setRiskMutation.mutate({ channel, tradeId: trade.id, stopLossDisabled: !(trade.stopLossDisabled ?? false) });
                 }}
                 disabled={setRiskMutation.isPending}
-                className={`px-1 py-0.5 rounded text-[0.5rem] font-bold border transition-colors disabled:opacity-40 ${
+                className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold border transition-colors disabled:opacity-40 ${
                   trade.stopLossDisabled
-                    ? 'bg-warning-amber/20 text-warning-amber border-warning-amber/40'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                    ? 'bg-warning-amber/25 text-warning-amber border-warning-amber/60'
+                    : 'bg-foreground/10 text-foreground border-foreground/30 hover:bg-foreground/20'
                 }`}
                 title={trade.stopLossDisabled
                   ? 'Hard stoploss OFF — click to re-enable (trailing stop still active either way)'
@@ -367,10 +367,10 @@ function _TodayTradeRow({
                   setRiskMutation.mutate({ channel, tradeId: trade.id, tslMode: (trade.tslMode ?? 'auto') === 'manual' ? 'auto' : 'manual' });
                 }}
                 disabled={setRiskMutation.isPending}
-                className={`px-1 py-0.5 rounded text-[0.5rem] font-bold border transition-colors disabled:opacity-40 ${
+                className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold border transition-colors disabled:opacity-40 ${
                   trade.tslMode === 'manual'
-                    ? 'bg-info-cyan/20 text-info-cyan border-info-cyan/40'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                    ? 'bg-info-cyan/25 text-info-cyan border-info-cyan/60'
+                    : 'bg-foreground/10 text-foreground border-foreground/30 hover:bg-foreground/20'
                 }`}
                 title={trade.tslMode === 'manual'
                   ? 'Trailing stop MANUAL (frozen — you set the stop) — click for AUTO'
