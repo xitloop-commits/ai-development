@@ -137,6 +137,9 @@ export function estimateSingleLegCharges(
       case "percent_buy":
         amount = isBuySide ? turnover * rate.rate / 100 : 0;
         break;
+      case "flat_per_scrip_sell":
+        amount = isBuySide ? 0 : rate.rate;
+        break;
     }
     if (rate.name.toLowerCase().includes("brokerage")) brokerageAmount = amount;
     if (rate.name.toLowerCase().includes("exchange")) exchangeTxnAmount = amount;
@@ -161,6 +164,9 @@ export function estimateSingleLegCharges(
         break;
       case "percent_on_brokerage":
         amount = (brokerageAmount + exchangeTxnAmount) * rate.rate / 100;
+        break;
+      case "flat_per_scrip_sell":
+        amount = isBuySide ? 0 : rate.rate;
         break;
     }
     if (amount > 0) {
@@ -203,6 +209,10 @@ function calculateSingleCharge(rate: ChargeRate, ctx: ChargeContext): number {
     case "percent_on_brokerage":
       // % on (brokerage + exchange transaction charges)
       return ctx.brokerageBase * rate.rate / 100;
+
+    case "flat_per_scrip_sell":
+      // Flat DP charge, levied once on the sell leg of the round-trip.
+      return rate.rate;
 
     default:
       return 0;

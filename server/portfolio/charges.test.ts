@@ -11,6 +11,11 @@ import {
   type ChargeRate,
   type TradeParams,
 } from "./charges";
+import {
+  DEFAULT_EQUITY_INTRADAY_CHARGES,
+  DEFAULT_EQUITY_DELIVERY_CHARGES,
+  chargeRatesForTrade,
+} from "../../shared/chargesEngine";
 
 // ─── Default Rates (mirrors DEFAULT_CHARGES from userSettings) ──
 
@@ -254,5 +259,57 @@ describe("Edge Cases", () => {
     const result = calculateTradeCharges(trade, rates);
     // Unknown unit should produce 0
     expect(result.total).toBe(0);
+  });
+});
+
+// ─── Equity (stock) profiles ────────────────────────────────────
+
+describe("equity charge profiles", () => {
+  const eqTrade: TradeParams = {
+    entryPrice: 1400,
+    exitPrice: 1420,
+    qty: 10,
+    isBuy: true,
+    exchange: "NSE",
+  };
+
+  it("delivery (CNC): charges the DP fee once and applies STT both sides", () => {
+    const result = calculateTradeCharges(eqTrade, DEFAULT_EQUITY_DELIVERY_CHARGES as ChargeRate[]);
+    const dp = result.breakdown.find((b) => b.name === "DP Charge");
+    expect(dp?.amount).toBe(13.5); // once per round-trip (sell leg)
+    // STT = 0.1% of (buy 14000 + sell 14200) = 28.2 → rounded to 28
+    const stt = result.breakdown.find((b) => b.name === "STT");
+    expect(stt?.amount).toBe(28);
+    // Delivery brokerage is free
+    expect(result.breakdown.find((b) => b.name === "Brokerage")).toBeUndefined();
+  });
+
+  it("intraday (MIS): STT is sell-side only and there is no DP fee", () => {
+    const result = calculateTradeCharges(eqTrade, DEFAULT_EQUITY_INTRADAY_CHARGES as ChargeRate[]);
+    expect(result.breakdown.find((b) => b.name === "DP Charge")).toBeUndefined();
+    // STT = 0.025% of sell turnover 14200 = 3.55 → rounded to 4
+    const stt = result.breakdown.find((b) => b.name === "STT");
+    expect(stt?.amount).toBe(4);
+    // ₹20/order × 2 legs
+    expect(result.breakdown.find((b) => b.name === "Brokerage")?.amount).toBe(40);
+  });
+
+  it("DP fee only hits the sell leg in single-leg estimates", () => {
+    const buy = estimateSingleLegCharges(1400, 10, true, DEFAULT_EQUITY_DELIVERY_CHARGES as ChargeRate[]);
+    const sell = estimateSingleLegCharges(1420, 10, false, DEFAULT_EQUITY_DELIVERY_CHARGES as ChargeRate[]);
+    expect(buy.breakdown.find((b) => b.name === "DP Charge")).toBeUndefined();
+    expect(sell.breakdown.find((b) => b.name === "DP Charge")?.amount).toBe(13.5);
+  });
+
+  it("chargeRatesForTrade picks the profile by product type", () => {
+    expect(chargeRatesForTrade({ strike: null, type: "BUY", productType: "CNC" })).toBe(
+      DEFAULT_EQUITY_DELIVERY_CHARGES,
+    );
+    expect(chargeRatesForTrade({ strike: null, type: "BUY", productType: "INTRADAY" })).toBe(
+      DEFAULT_EQUITY_INTRADAY_CHARGES,
+    );
+    // Options fall back to the passed option profile.
+    const optionRates: ChargeRate[] = [{ name: "Brokerage", rate: 20, unit: "flat_per_order" }];
+    expect(chargeRatesForTrade({ strike: 24000, type: "CALL_BUY" }, optionRates)).toBe(optionRates);
   });
 });

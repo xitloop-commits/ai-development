@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, LineChart } from 'lucide-react';
 import { toast } from 'sonner';
-import { estimateSingleLegCharges, DEFAULT_CHARGES } from '@shared/chargesEngine';
+import { estimateSingleLegCharges, DEFAULT_CHARGES, chargeRatesForTrade } from '@shared/chargesEngine';
 import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -133,8 +133,10 @@ function _TodayTradeRow({
   // trades, and as a fallback breakdown for closed trades that don't carry a
   // stored one. Closed trades otherwise show the real figures from the server.
   const exitRef = isOpen ? displayLtp : (trade.exitPrice ?? trade.entryPrice);
-  const entryLeg = estimateSingleLegCharges(trade.entryPrice, trade.qty, isBuy, DEFAULT_CHARGES);
-  const exitLeg = estimateSingleLegCharges(exitRef, trade.qty, !isBuy, DEFAULT_CHARGES);
+  // Stocks estimate with their equity (intraday/delivery) profile; options use the default.
+  const estRates = chargeRatesForTrade(trade, DEFAULT_CHARGES);
+  const entryLeg = estimateSingleLegCharges(trade.entryPrice, trade.qty, isBuy, estRates);
+  const exitLeg = estimateSingleLegCharges(exitRef, trade.qty, !isBuy, estRates);
   const estByName = new Map<string, number>();
   for (const b of [...entryLeg.breakdown, ...exitLeg.breakdown]) {
     estByName.set(b.name, (estByName.get(b.name) ?? 0) + b.amount);

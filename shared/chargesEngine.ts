@@ -32,6 +32,44 @@ export const DEFAULT_CHARGES: ChargeRate[] = [
   { name: "Stamp Duty", rate: 0.003, unit: "percent_buy", description: "0.003% buy side", enabled: true },
 ];
 
+// ── NSE cash-equity charge profiles (stocks) ─────────────────────────────────
+// Rates per the standard Indian equity schedule (Dhan/NSE). VERIFY against the
+// Dhan brokerage calculator before enabling live. `flat_per_scrip_sell` = DP
+// (CDSL depository) charge, levied once per scrip on the SELL, delivery only.
+
+export const DEFAULT_EQUITY_INTRADAY_CHARGES: ChargeRate[] = [
+  { name: "Brokerage", rate: 20, unit: "flat_per_order", description: "₹20/order (Dhan intraday; or 0.03% if lower)", enabled: true },
+  { name: "STT", rate: 0.025, unit: "percent_sell", description: "0.025% on sell (intraday)", enabled: true },
+  { name: "Exchange Transaction", rate: 0.00297, unit: "percent", description: "0.00297% turnover (NSE cash)", enabled: true },
+  { name: "GST", rate: 18, unit: "percent_on_brokerage", description: "18% on brokerage + exchange transaction", enabled: true },
+  { name: "SEBI", rate: 0.0001, unit: "percent", description: "0.0001% (₹10/crore turnover fee)", enabled: true },
+  { name: "Stamp Duty", rate: 0.003, unit: "percent_buy", description: "0.003% buy side (intraday)", enabled: true },
+];
+
+export const DEFAULT_EQUITY_DELIVERY_CHARGES: ChargeRate[] = [
+  { name: "Brokerage", rate: 0, unit: "flat_per_order", description: "₹0 (Dhan delivery is free)", enabled: true },
+  { name: "STT", rate: 0.1, unit: "percent", description: "0.1% on buy + sell (delivery)", enabled: true },
+  { name: "Exchange Transaction", rate: 0.00297, unit: "percent", description: "0.00297% turnover (NSE cash)", enabled: true },
+  { name: "GST", rate: 18, unit: "percent_on_brokerage", description: "18% on brokerage + exchange transaction", enabled: true },
+  { name: "SEBI", rate: 0.0001, unit: "percent", description: "0.0001% (₹10/crore turnover fee)", enabled: true },
+  { name: "Stamp Duty", rate: 0.015, unit: "percent_buy", description: "0.015% buy side (delivery)", enabled: true },
+  { name: "DP Charge", rate: 13.5, unit: "flat_per_scrip_sell", description: "₹13.5/scrip on sell (CDSL depository)", enabled: true },
+];
+
+/**
+ * Pick the charge profile for a trade. Stocks (no strike + plain BUY/SELL) use
+ * the equity intraday/delivery profile by product type; options use the passed
+ * option profile (defaults to the global DEFAULT_CHARGES).
+ */
+export function chargeRatesForTrade(
+  trade: { strike?: number | null; type?: string; productType?: string | null },
+  optionRates: ChargeRate[] = DEFAULT_CHARGES,
+): ChargeRate[] {
+  const isEquity = trade.strike == null && (trade.type === "BUY" || trade.type === "SELL");
+  if (!isEquity) return optionRates;
+  return trade.productType === "CNC" ? DEFAULT_EQUITY_DELIVERY_CHARGES : DEFAULT_EQUITY_INTRADAY_CHARGES;
+}
+
 /**
  * Calculate charges for a single leg (entry or exit only).
  * Used for estimating charges before trade completion.
@@ -65,6 +103,9 @@ export function estimateSingleLegCharges(
       case "percent_buy":
         amount = isBuySide ? turnover * rate.rate / 100 : 0;
         break;
+      case "flat_per_scrip_sell":
+        amount = isBuySide ? 0 : rate.rate;
+        break;
     }
     if (rate.name.toLowerCase().includes("brokerage")) brokerageAmount = amount;
     if (rate.name.toLowerCase().includes("exchange")) exchangeTxnAmount = amount;
@@ -89,6 +130,9 @@ export function estimateSingleLegCharges(
         break;
       case "percent_on_brokerage":
         amount = (brokerageAmount + exchangeTxnAmount) * rate.rate / 100;
+        break;
+      case "flat_per_scrip_sell":
+        amount = isBuySide ? 0 : rate.rate;
         break;
     }
     if (amount > 0) {

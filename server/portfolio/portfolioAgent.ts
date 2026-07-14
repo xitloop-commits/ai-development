@@ -54,6 +54,7 @@ import {
 } from "./compounding";
 import { calculateTradeCharges, estimateSingleLegCharges } from "./charges";
 import type { ChargeRate } from "./charges";
+import { chargeRatesForTrade } from "../../shared/chargesEngine";
 import { getUserSettings } from "../userSettings";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import { disciplineAgent } from "../discipline";
@@ -308,7 +309,8 @@ class PortfolioAgentImpl {
   private async computeBreakevenPrice(trade: TradeRecord): Promise<number> {
     try {
       const settings = await getUserSettings(1);
-      const rates = settings.charges.rates as ChargeRate[];
+      // Stocks use their equity (intraday/delivery) profile; options use settings.
+      const rates = chargeRatesForTrade(trade, settings.charges.rates as ChargeRate[]) as ChargeRate[];
       const isBuy = trade.type.includes("BUY");
       const entryLeg = estimateSingleLegCharges(trade.entryPrice, trade.qty, isBuy, rates).total;
       const exitLeg = estimateSingleLegCharges(trade.entryPrice, trade.qty, !isBuy, rates).total;
@@ -539,7 +541,8 @@ class PortfolioAgentImpl {
 
     // Charges
     const settings = await getUserSettings(1);
-    const chargeRates = settings.charges.rates as ChargeRate[];
+    // Stocks use their equity (intraday/delivery) profile; options use settings.
+    const chargeRates = chargeRatesForTrade(trade, settings.charges.rates as ChargeRate[]) as ChargeRate[];
     const charges = calculateTradeCharges(
       {
         entryPrice: trade.entryPrice,

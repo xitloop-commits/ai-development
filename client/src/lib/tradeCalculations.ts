@@ -1,5 +1,5 @@
 import type { TradeRecord } from './tradeTypes';
-import { estimateSingleLegCharges, DEFAULT_CHARGES } from '@shared/chargesEngine';
+import { estimateSingleLegCharges, DEFAULT_CHARGES, chargeRatesForTrade } from '@shared/chargesEngine';
 
 export function calculatePotentialPnl(trade: TradeRecord, price: number): number {
   const isBuy = trade.type.includes('BUY');
@@ -22,8 +22,9 @@ export function aggregateChargesBreakdown(
     if (breakdown.length === 0 && t.charges > 0) {
       const isBuy = t.type.includes('BUY');
       const exitPx = t.exitPrice ?? t.entryPrice;
-      const entry = estimateSingleLegCharges(t.entryPrice, t.qty, isBuy, DEFAULT_CHARGES);
-      const exit = estimateSingleLegCharges(exitPx, t.qty, !isBuy, DEFAULT_CHARGES);
+      const estRates = chargeRatesForTrade(t, DEFAULT_CHARGES);
+      const entry = estimateSingleLegCharges(t.entryPrice, t.qty, isBuy, estRates);
+      const exit = estimateSingleLegCharges(exitPx, t.qty, !isBuy, estRates);
       breakdown = [...entry.breakdown, ...exit.breakdown];
     }
     for (const b of breakdown) {
