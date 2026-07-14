@@ -1208,6 +1208,7 @@ export function TradingModeSection() {
               ['ai', 'AI Trades'],
               ['my', 'My Trades'],
               ['testing', 'Testing'],
+              ['stocks', 'Stocks'],
             ] as const).map(([ws, label]) => {
               const active = (tm?.defaultWorkspace ?? 'my') === ws;
               return (
