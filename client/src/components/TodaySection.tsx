@@ -5,7 +5,7 @@ import type {
   DayRecord,
   TradeRecord,
 } from '@/lib/tradeTypes';
-import { channelToWorkspace, isPaperChannel, optionExchangeFor } from '@/lib/tradeTypes';
+import { channelToWorkspace, isPaperChannel, feedExchangeForTrade } from '@/lib/tradeTypes';
 import { useFeedSubscriptions } from '@/hooks/useFeedControl';
 import { useStagedOrders } from '@/contexts/StagedOrdersContext';
 import { StagedOrderRow } from './StagedOrderRow';
@@ -90,7 +90,7 @@ export function TodaySection({
     openTrades
       .filter((t) => t.contractSecurityId)
       .map((t) => ({
-        exchange: optionExchangeFor(t.instrument),
+        exchange: feedExchangeForTrade(t),
         securityId: t.contractSecurityId as string,
         mode: 'full' as const,
       })),

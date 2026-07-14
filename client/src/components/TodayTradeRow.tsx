@@ -6,7 +6,7 @@ import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Channel, TradeRecord } from '@/lib/tradeTypes';
-import { channelToWorkspace, optionExchangeFor, isPaperChannel } from '@/lib/tradeTypes';
+import { channelToWorkspace, optionExchangeFor, feedExchangeForTrade, isEquityTrade, isPaperChannel } from '@/lib/tradeTypes';
 import {
   fmt,
   pnlColor,
@@ -402,7 +402,9 @@ function _TodayTradeRow({
                 TSL {trade.tslMode === 'manual' ? 'M' : 'A'}
               </button>
             )}
-            {isOpen && !isDesync && canManageTrades && (
+            {/* Exit is allowed for the option workspaces (manual controls) and,
+                additionally, for paper stock trades in the Stocks workspace. */}
+            {isOpen && !isDesync && (canManageTrades || (isPaperChannel(channel) && isEquityTrade(trade))) && (
               <button
                 onClick={(e) => { e.stopPropagation(); onExit(trade.id, trade.instrument); }}
                 disabled={exitLoading}
@@ -583,7 +585,7 @@ function LiveTodayTradeRow(props: TodayTradeRowProps) {
   const { trade } = props;
   // Per-instrument subscription: this row re-renders only on its own contract's
   // ticks, not on every tick across the desk.
-  const tick = useInstrumentTick(optionExchangeFor(trade.instrument), trade.contractSecurityId ?? null);
+  const tick = useInstrumentTick(feedExchangeForTrade(trade), trade.contractSecurityId ?? null);
   return <_TodayTradeRow {...props} liveLtp={tick?.ltp} />;
 }
 

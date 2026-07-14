@@ -216,6 +216,25 @@ export function optionExchangeFor(instrument: string): 'MCX_COMM' | 'NSE_FNO' {
 }
 
 /**
+ * A cash-equity (stock) trade — no strike and a plain BUY/SELL side. Options
+ * always carry a strike + a CALL_/PUT_ type, so this never matches them.
+ */
+export function isEquityTrade(t: { strike?: number | null; type?: string }): boolean {
+  return t.strike == null && (t.type === 'BUY' || t.type === 'SELL');
+}
+
+/**
+ * Feed exchange segment for a trade's live ticks. Stocks live on NSE_EQ; every
+ * option routes through `optionExchangeFor` exactly as before (additive — option
+ * behaviour is unchanged).
+ */
+export function feedExchangeForTrade(
+  t: { instrument: string; strike?: number | null; type?: string },
+): string {
+  return isEquityTrade(t) ? 'NSE_EQ' : optionExchangeFor(t.instrument);
+}
+
+/**
  * Fallback strike spacing per instrument, used only when the live
  * `strike_step` hasn't arrived yet. Keyed by instrumentLiveState key
  * ("nifty50" / "banknifty" / "crudeoil" / "naturalgas").

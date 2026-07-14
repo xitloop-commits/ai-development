@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Channel, ResolvedInstrument } from '@/lib/tradeTypes';
-import { UI_TO_RESOLVED, optionExchangeFor } from '@/lib/tradeTypes';
+import { UI_TO_RESOLVED, optionExchangeFor, feedExchangeForTrade } from '@/lib/tradeTypes';
 import { trpc } from '@/lib/trpc';
 import { useTickFeed, getTickFromStore } from './useTickStream';
 
@@ -10,7 +10,7 @@ interface UseTradingDeskDataParams {
   channel: Channel;
   capitalReady: boolean;
   allDaysLength: number;
-  currentDay: { trades?: Array<{ id: string; status: string; instrument: string; contractSecurityId?: string | null }> } | null | undefined;
+  currentDay: { trades?: Array<{ id: string; status: string; instrument: string; contractSecurityId?: string | null; strike?: number | null; type?: string }> } | null | undefined;
   updateLtp: (prices: Record<string, number>) => void;
   todayRef: React.RefObject<HTMLTableRowElement | null>;
 }
@@ -50,11 +50,11 @@ export function useTradingDeskData({
     return map;
   }, [resolvedInstruments]);
 
-  const getLiveLtp = useCallback((trade: { id?: string; instrument: string; contractSecurityId?: string | null }): number | undefined => {
-    // Option trades: read the contract's own tick (premium). Hot path — no
-    // logging / window globals here (called per open trade per tick).
+  const getLiveLtp = useCallback((trade: { id?: string; instrument: string; contractSecurityId?: string | null; strike?: number | null; type?: string }): number | undefined => {
+    // Contract trades: read the leg's own tick (option premium, or stock LTP on
+    // NSE_EQ). Hot path — no logging / window globals here (per open trade per tick).
     if (trade.contractSecurityId) {
-      return getTickFromStore(optionExchangeFor(trade.instrument), trade.contractSecurityId)?.ltp;
+      return getTickFromStore(feedExchangeForTrade(trade), trade.contractSecurityId)?.ltp;
     }
     // No contract id → fall back to the underlying feed.
     const resolvedName = UI_TO_RESOLVED[trade.instrument] ?? trade.instrument;
@@ -93,7 +93,7 @@ export function useTradingDeskData({
     if (openTrades.length === 0) return;
     feedSubscribeMutation.mutate({
       instruments: openTrades.map((t) => ({
-        exchange: optionExchangeFor(t.instrument),
+        exchange: feedExchangeForTrade(t),
         securityId: t.contractSecurityId!,
         mode: 'full',
       })),
