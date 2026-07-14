@@ -68,6 +68,30 @@ function snapToCandle(times: number[], tShifted: number): number {
   return nearest;
 }
 
+/** In/out markers for a set of trades, snapped to `times`. Direction placement:
+ *  CALL (CE) below the bar, PUT (PE) above. `cutoff` hides markers past a replay
+ *  position (pass Infinity when not replaying). */
+function buildTradeMarkers(
+  trades: ChartTradeRow[],
+  times: number[],
+  cutoff: number,
+): SeriesMarker<UTCTimestamp>[] {
+  const out: SeriesMarker<UTCTimestamp>[] = [];
+  for (const t of trades) {
+    const position: "aboveBar" | "belowBar" = t.side === "CE" ? "belowBar" : "aboveBar";
+    const label = t.signalSeq != null ? `#${t.signalSeq}` : "";
+    const entT = snapToCandle(times, t.entryTime + IST_OFFSET_SECONDS);
+    if (entT <= cutoff)
+      out.push({ time: entT as UTCTimestamp, position, color: CHART_ENTRY, shape: "arrowUp", text: label ? `${label} in` : "in" });
+    if (t.exitTime != null) {
+      const exT = snapToCandle(times, t.exitTime + IST_OFFSET_SECONDS);
+      if (exT <= cutoff)
+        out.push({ time: exT as UTCTimestamp, position, color: t.pnl >= 0 ? CHART_UP : CHART_DOWN, shape: "arrowDown", text: label ? `${label} out` : "out" });
+    }
+  }
+  return out;
+}
+
 export default function InstrumentChartPage() {
   const inst = useMemo(chartInstrumentFromUrl, []);
   const meta = inst ? INSTRUMENT_CHART_META[inst] : undefined;
@@ -218,16 +242,7 @@ export default function InstrumentChartPage() {
       }
     }
     if (showTrades) {
-      const trades = (tradesQuery.data as ChartTradeRow[] | undefined) ?? [];
-      for (const t of trades) {
-        const label = t.signalSeq != null ? `#${t.signalSeq}` : "";
-        const entT = snapToCandle(times, t.entryTime + IST_OFFSET_SECONDS);
-        if (entT <= cutoffTime) out.push({ time: entT as UTCTimestamp, position: "belowBar", color: CHART_ENTRY, shape: "arrowUp", text: label ? `${label} in` : "in" });
-        if (t.exitTime != null) {
-          const exT = snapToCandle(times, t.exitTime + IST_OFFSET_SECONDS);
-          if (exT <= cutoffTime) out.push({ time: exT as UTCTimestamp, position: "aboveBar", color: t.pnl >= 0 ? CHART_UP : CHART_DOWN, shape: "arrowDown", text: label ? `${label} out` : "out" });
-        }
-      }
+      out.push(...buildTradeMarkers((tradesQuery.data as ChartTradeRow[] | undefined) ?? [], times, cutoffTime));
     }
     out.sort((a, b) => (a.time as number) - (b.time as number));
     return out;
@@ -275,6 +290,15 @@ export default function InstrumentChartPage() {
   const peEntryLine = useMemo(
     () => (openTrade?.side === "PE" ? [{ price: openTrade.entryPrice, color: CHART_ENTRY, title: "Entry" }] : []),
     [openTrade],
+  );
+  // In/out markers on the option charts (each shows only its own leg's trades).
+  const ceMarkers = useMemo<SeriesMarker<UTCTimestamp>[]>(
+    () => (showTrades && ce.candles.length ? buildTradeMarkers(tradeRows.filter((t) => t.side === "CE"), ce.candles.map((c) => c.time), Infinity) : []),
+    [showTrades, ce.candles, tradeRows],
+  );
+  const peMarkers = useMemo<SeriesMarker<UTCTimestamp>[]>(
+    () => (showTrades && pe.candles.length ? buildTradeMarkers(tradeRows.filter((t) => t.side === "PE"), pe.candles.map((c) => c.time), Infinity) : []),
+    [showTrades, pe.candles, tradeRows],
   );
   const onUnderlyingClick = (clickedSec: number) => {
     if (tradeRows.length === 0) return;
@@ -418,6 +442,7 @@ export default function InstrumentChartPage() {
         <div className="flex flex-col min-h-0 w-1/2 gap-2">
           <TickChart
             candles={ce.candles}
+            markers={ceMarkers}
             tradeLines={ceEntryLine}
             style={style}
             indicators={indicators}
@@ -431,6 +456,7 @@ export default function InstrumentChartPage() {
           />
           <TickChart
             candles={pe.candles}
+            markers={peMarkers}
             tradeLines={peEntryLine}
             style={style}
             indicators={indicators}
