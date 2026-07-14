@@ -36,12 +36,24 @@ export function WatchlistPane() {
     { query: debounced },
     { enabled: debounced.length >= 1, staleTime: 60_000, refetchOnWindowFocus: false },
   );
-  const addMut = trpc.stocks.add.useMutation({ onSuccess: () => utils.stocks.list.invalidate() });
-  const removeMut = trpc.stocks.remove.useMutation({ onSuccess: () => utils.stocks.list.invalidate() });
+  const addMut = trpc.stocks.add.useMutation({
+    onSuccess: () => { utils.stocks.list.invalidate(); utils.stocks.quotes.invalidate(); },
+  });
+  const removeMut = trpc.stocks.remove.useMutation({
+    onSuccess: () => { utils.stocks.list.invalidate(); utils.stocks.quotes.invalidate(); },
+  });
 
   const watchlist = listQ.data ?? [];
   const added = new Set(watchlist.map((s) => s.securityId));
   const results = searchQ.data ?? [];
+
+  // Live LTP + today's change per stock, polled every 3s (one batched call).
+  const quotesQ = trpc.stocks.quotes.useQuery(undefined, {
+    enabled: watchlist.length > 0,
+    refetchInterval: 3_000,
+    refetchOnWindowFocus: true,
+  });
+  const quotes = quotesQ.data ?? {};
 
   return (
     <div className="flex flex-col h-full border-r border-border bg-card/40">
@@ -95,25 +107,46 @@ export function WatchlistPane() {
             Search and add NSE stocks to build your watchlist.
           </div>
         ) : (
-          watchlist.map((s) => (
-            <div
-              key={s.securityId}
-              className="group flex items-center gap-2 px-2 py-1.5 border-b border-border/50 hover:bg-muted/30"
-            >
-              <div className="flex flex-col min-w-0 flex-1">
-                <span className="text-xs font-bold text-foreground">{s.symbol}</span>
-                <span className="text-[0.5625rem] text-muted-foreground truncate">{s.name}</span>
-              </div>
-              {/* LTP + buy/sell arrive in the next iteration. */}
-              <button
-                onClick={() => removeMut.mutate({ securityId: s.securityId })}
-                className="opacity-0 group-hover:opacity-100 text-[0.625rem] text-destructive px-1.5 py-0.5 rounded hover:bg-destructive/10 transition-opacity"
-                title="Remove from watchlist"
+          watchlist.map((s) => {
+            const q = quotes[s.securityId];
+            const hasChange = q && q.ltp > 0 && q.prevClose > 0;
+            const up = (q?.change ?? 0) >= 0;
+            return (
+              <div
+                key={s.securityId}
+                className="group flex items-center gap-2 px-2 py-1.5 border-b border-border/50 hover:bg-muted/30"
               >
-                ✕
-              </button>
-            </div>
-          ))
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="text-xs font-bold text-foreground truncate">{s.symbol}</span>
+                  <span className="text-[0.5625rem] text-muted-foreground truncate">{s.name}</span>
+                </div>
+
+                {/* Live LTP + today's change (polled every 3s). */}
+                <div className="flex flex-col items-end tabular-nums shrink-0 min-w-[64px]">
+                  <span className="text-xs font-bold text-foreground">
+                    {q && q.ltp > 0
+                      ? q.ltp.toFixed(2)
+                      : q && q.prevClose > 0
+                        ? q.prevClose.toFixed(2)
+                        : "—"}
+                  </span>
+                  {hasChange && (
+                    <span className={`text-[0.5625rem] font-semibold ${up ? "text-bullish" : "text-destructive"}`}>
+                      {up ? "+" : ""}{q.change.toFixed(2)} ({up ? "+" : ""}{q.changePct.toFixed(2)}%)
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => removeMut.mutate({ securityId: s.securityId })}
+                  className="opacity-0 group-hover:opacity-100 text-[0.625rem] text-destructive px-1.5 py-0.5 rounded hover:bg-destructive/10 transition-opacity shrink-0"
+                  title="Remove from watchlist"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })
         )}
       </div>
     </div>
