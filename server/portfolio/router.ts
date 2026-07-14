@@ -43,7 +43,7 @@ const log = createLogger("PA", "Router");
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-const channelSchema = z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live"]);
+const channelSchema = z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "stocks-live", "stocks-paper"]);
 /** Channels that mirror My Trades LIVE capital ops for shadow tracking. */
 const mirroredChannels: Channel[] = ["my-paper", "ai-paper"];
 
@@ -636,7 +636,7 @@ export const portfolioRouter = router({
    */
   headToHead: publicProcedure
     .input(z.object({
-      channels: z.array(channelSchema).min(1).max(6),
+      channels: z.array(channelSchema).min(1).max(7),
     }))
     .query(async ({ input }) => {
       const { getMetrics: getMetricsFromStorage } = await import("./storage");

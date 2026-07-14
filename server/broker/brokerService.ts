@@ -2,12 +2,13 @@
  * Broker Service — Multi-Adapter Singleton (BSA v1.7)
  *
  * Manages named adapter slots, each serving specific trading channels:
- *   dhanLive    → my-live, testing-live           (brokerId: "dhan-primary-ac")
+ *   dhanLive    → my-live, testing-live, stocks-live  (brokerId: "dhan-primary-ac")
  *   dhanAiData  → ai-live + TFA data feed         (brokerId: "dhan-secondary-ac")
  *   mockAi      → ai-paper                        (brokerId: "mock-ai")
  *   mockMy      → my-paper                        (brokerId: "mock-my")
+ *   mockStocks  → stocks-paper                    (brokerId: "mock-stocks")
  *
- * Kill switches are per-workspace and independent (ai / my / testing).
+ * Kill switches are per-workspace and independent (ai / my / testing / stocks).
  * Kill switch state is persisted to user_settings and loaded at startup.
  */
 
@@ -44,17 +45,20 @@ export type Channel =
   | "ai-paper"
   | "my-live"
   | "my-paper"
-  | "testing-live";
+  | "testing-live"
+  | "stocks-live"
+  | "stocks-paper";
 
-export type Workspace = "ai" | "my" | "testing";
+export type Workspace = "ai" | "my" | "testing" | "stocks";
 
 // ─── Singleton State ────────────────────────────────────────────
 
 interface BSAAdapters {
-  dhanLive: DhanAdapter | null;       // my-live, testing-live  (user's primary Dhan account)
+  dhanLive: DhanAdapter | null;       // my-live, testing-live, stocks-live  (user's primary Dhan account)
   dhanAiData: DhanAdapter | null;     // ai-live + TFA data feed (spouse's Dhan account)
   mockAi: MockAdapter | null;         // ai-paper
   mockMy: MockAdapter | null;         // my-paper
+  mockStocks: MockAdapter | null;     // stocks-paper
 }
 
 const adapters: BSAAdapters = {
@@ -62,18 +66,21 @@ const adapters: BSAAdapters = {
   dhanAiData: null,
   mockAi: null,
   mockMy: null,
+  mockStocks: null,
 };
 
 interface KillSwitchState {
   ai: boolean;
   my: boolean;
   testing: boolean;
+  stocks: boolean;
 }
 
 const killSwitch: KillSwitchState = {
   ai: false,
   my: false,
   testing: false,
+  stocks: false,
 };
 
 // ─── Legacy registry (kept for backward compat with setup flow) ──
@@ -121,7 +128,7 @@ async function renameLegacyBrokerIds(): Promise<void> {
 // ─── Seed Documents ─────────────────────────────────────────────
 
 /**
- * Ensure the 4 required broker_configs documents exist in MongoDB.
+ * Ensure the 5 required broker_configs documents exist in MongoDB.
  * Uses upsert — will NOT overwrite existing tokens or settings.
  */
 async function seedBrokerConfigs(): Promise<void> {
@@ -136,6 +143,7 @@ async function seedBrokerConfigs(): Promise<void> {
     { brokerId: "dhan-secondary-ac",   displayName: "Dhan (AI + Data)",    isPaperBroker: false, role: "data-and-ai" },
     { brokerId: "mock-ai",            displayName: "Paper (AI Trades)",   isPaperBroker: true,  role: "paper"       },
     { brokerId: "mock-my",            displayName: "Paper (My Trades)",   isPaperBroker: true,  role: "paper"       },
+    { brokerId: "mock-stocks",        displayName: "Paper (Stocks)",      isPaperBroker: true,  role: "paper"       },
   ];
 
   for (const seed of seeds) {
@@ -210,6 +218,7 @@ export function getAdapter(channel: Channel): BrokerAdapter {
       throw new Error("Neither DhanAdapter (ai-data) nor (live) is initialised");
     case "my-live":
     case "testing-live":
+    case "stocks-live":
       if (!adapters.dhanLive) throw new Error("DhanAdapter (live) not initialised");
       return adapters.dhanLive;
     case "ai-paper":
@@ -218,6 +227,9 @@ export function getAdapter(channel: Channel): BrokerAdapter {
     case "my-paper":
       if (!adapters.mockMy) throw new Error("MockAdapter (mock-my) not initialised");
       return adapters.mockMy;
+    case "stocks-paper":
+      if (!adapters.mockStocks) throw new Error("MockAdapter (mock-stocks) not initialised");
+      return adapters.mockStocks;
     default:
       throw new Error(`Unknown channel "${channel}"`);
   }
@@ -234,6 +246,7 @@ export function _getAdapterByBrokerId(brokerId: string): BrokerAdapter | null {
     case "dhan-secondary-ac": return adapters.dhanAiData;
     case "mock-ai": return adapters.mockAi;
     case "mock-my": return adapters.mockMy;
+    case "mock-stocks": return adapters.mockStocks;
   }
   return null;
 }
@@ -249,6 +262,7 @@ export function isChannelKillSwitchActive(channel: Channel): boolean {
     case "ai-live":     return killSwitch.ai;
     case "my-live":     return killSwitch.my;
     case "testing-live": return killSwitch.testing;
+    case "stocks-live": return killSwitch.stocks;
     default:            return false; // paper / sandbox never blocked
   }
 }
@@ -270,15 +284,17 @@ export async function toggleWorkspaceKillSwitch(
       aiKillSwitch: killSwitch.ai,
       myKillSwitch: killSwitch.my,
       testingKillSwitch: killSwitch.testing,
+      stocksKillSwitch: killSwitch.stocks,
     },
   });
 
   // If activating, call killSwitch on the live channel adapter
   if (active) {
-    const channelMap: Record<Workspace, "ai-live" | "my-live" | "testing-live"> = {
+    const channelMap: Record<Workspace, "ai-live" | "my-live" | "testing-live" | "stocks-live"> = {
       ai: "ai-live",
       my: "my-live",
       testing: "testing-live",
+      stocks: "stocks-live",
     };
     try {
       const adapter = getAdapter(channelMap[workspace]);
@@ -405,6 +421,7 @@ export async function toggleKillSwitch(
   await toggleWorkspaceKillSwitch("ai", action);
   await toggleWorkspaceKillSwitch("my", action);
   await toggleWorkspaceKillSwitch("testing", action);
+  await toggleWorkspaceKillSwitch("stocks", action);
   return {
     status: action === "ACTIVATE" ? "activated" : "deactivated",
     message: `All kill switches ${action === "ACTIVATE" ? "activated" : "deactivated"}.`,
@@ -413,7 +430,7 @@ export async function toggleKillSwitch(
 
 /** @deprecated use isChannelKillSwitchActive(channel) */
 export function isKillSwitchActive(): boolean {
-  return killSwitch.ai || killSwitch.my || killSwitch.testing;
+  return killSwitch.ai || killSwitch.my || killSwitch.testing || killSwitch.stocks;
 }
 
 // ─── Registration (legacy, kept for setup flow) ─────────────────
@@ -473,7 +490,8 @@ export async function initBrokerService(): Promise<void> {
     killSwitch.ai      = settings.tradingMode.aiKillSwitch;
     killSwitch.my      = settings.tradingMode.myKillSwitch;
     killSwitch.testing = settings.tradingMode.testingKillSwitch;
-    log.info(`Kill switches loaded — ai:${killSwitch.ai} my:${killSwitch.my} testing:${killSwitch.testing}`);
+    killSwitch.stocks  = settings.tradingMode.stocksKillSwitch;
+    log.info(`Kill switches loaded — ai:${killSwitch.ai} my:${killSwitch.my} testing:${killSwitch.testing} stocks:${killSwitch.stocks}`);
   } catch (err) {
     log.warn("Could not load kill switch state, defaulting to OFF:", err);
   }
@@ -535,6 +553,15 @@ export async function initBrokerService(): Promise<void> {
     log.warn("MockAdapter (mock-my) failed:", err);
   }
 
+  // 7. Instantiate MockAdapter (mock-stocks) → no-op connect
+  try {
+    adapters.mockStocks = new MockAdapter("mock-stocks", "Paper (Stocks)");
+    await adapters.mockStocks.connect();
+    log.important("MockAdapter (mock-stocks) ready");
+  } catch (err) {
+    log.warn("MockAdapter (mock-stocks) failed:", err);
+  }
+
   log.info("All adapters initialised.");
 }
 
@@ -561,6 +588,7 @@ export async function switchBroker(brokerId: string): Promise<BrokerAdapter> {
   killSwitch.ai = false;
   killSwitch.my = false;
   killSwitch.testing = false;
+  killSwitch.stocks = false;
   return adapters.dhanLive;
 }
 
@@ -578,6 +606,7 @@ export async function disconnectAllAdapters(): Promise<void> {
     ["dhanAiData", adapters.dhanAiData],
     ["mockAi", adapters.mockAi],
     ["mockMy", adapters.mockMy],
+    ["mockStocks", adapters.mockStocks],
   ];
   for (const [name, adapter] of all) {
     if (!adapter) continue;
@@ -618,7 +647,7 @@ export async function getBrokerServiceStatus(): Promise<BrokerServiceStatus> {
     tokenStatus,
     apiStatus,
     wsStatus,
-    killSwitchActive: killSwitch.ai || killSwitch.my || killSwitch.testing,
+    killSwitchActive: killSwitch.ai || killSwitch.my || killSwitch.testing || killSwitch.stocks,
     registeredAdapters: getRegisteredAdapters(),
   };
 }
@@ -643,9 +672,11 @@ export function _resetForTesting(): void {
   adapters.dhanAiData = null;
   adapters.mockAi = null;
   adapters.mockMy = null;
+  adapters.mockStocks = null;
   killSwitch.ai = false;
   killSwitch.my = false;
   killSwitch.testing = false;
+  killSwitch.stocks = false;
   adapterFactories.clear();
   adapterMeta.clear();
 }
@@ -661,9 +692,11 @@ export function _setAdaptersForTesting(stubs: Partial<{
   dhanAiData: BrokerAdapter;
   mockAi: BrokerAdapter;
   mockMy: BrokerAdapter;
+  mockStocks: BrokerAdapter;
 }>): void {
   if ("dhanLive" in stubs) adapters.dhanLive = stubs.dhanLive as DhanAdapter;
   if ("dhanAiData" in stubs) adapters.dhanAiData = stubs.dhanAiData as DhanAdapter;
   if ("mockAi" in stubs) adapters.mockAi = stubs.mockAi as MockAdapter;
   if ("mockMy" in stubs) adapters.mockMy = stubs.mockMy as MockAdapter;
+  if ("mockStocks" in stubs) adapters.mockStocks = stubs.mockStocks as MockAdapter;
 }

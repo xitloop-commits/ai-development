@@ -38,6 +38,8 @@ const channelSchema = z.enum([
   "my-live",
   "my-paper",
   "testing-live",
+  "stocks-live",
+  "stocks-paper",
 ]);
 
 const trailingStopSchema = z.object({
@@ -424,7 +426,7 @@ export const executorRouter = router({
         rcaMaxAgeMs: z.number().int().min(60_000).max(24 * 60 * 60 * 1000).optional(),
         rcaStaleTickMs: z.number().int().min(30_000).max(60 * 60 * 1000).optional(),
         rcaVolThreshold: z.number().min(0).max(2).optional(),
-        rcaChannels: z.array(channelSchema).min(0).max(6).optional(),
+        rcaChannels: z.array(channelSchema).min(0).max(7).optional(),
         // B4-followup — desync auto kill-switch
         desyncKillSwitchEnabled: z.boolean().optional(),
         desyncKillSwitchThreshold: z.number().int().min(1).max(50).optional(),

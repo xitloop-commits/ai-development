@@ -74,7 +74,8 @@ export interface TradingModeSettings {
   aiKillSwitch: boolean;              // Kill switch for ai-live channel
   myKillSwitch: boolean;              // Kill switch for my-live channel
   testingKillSwitch: boolean;         // Kill switch for testing-live channel
-  defaultWorkspace: "ai" | "my" | "testing"; // Tab the app opens on at launch (default "my")
+  stocksKillSwitch: boolean;          // Kill switch for stocks-live channel
+  defaultWorkspace: "ai" | "my" | "testing" | "stocks"; // Tab the app opens on at launch (default "my")
 }
 
 export interface UserSettingsDoc {
@@ -173,6 +174,7 @@ export const DEFAULT_TRADING_MODE: TradingModeSettings = {
   aiKillSwitch: false,
   myKillSwitch: false,
   testingKillSwitch: false,
+  stocksKillSwitch: false,
   defaultWorkspace: "my",
 };
 
@@ -290,7 +292,8 @@ const tradingModeSchema = new Schema(
     aiKillSwitch: { type: Boolean, default: false },
     myKillSwitch: { type: Boolean, default: false },
     testingKillSwitch: { type: Boolean, default: false },
-    defaultWorkspace: { type: String, enum: ["ai", "my", "testing"], default: "my" },
+    stocksKillSwitch: { type: Boolean, default: false },
+    defaultWorkspace: { type: String, enum: ["ai", "my", "testing", "stocks"], default: "my" },
   },
   { _id: false }
 );
@@ -469,6 +472,7 @@ function docToSettings(doc: Record<string, any>): UserSettingsDoc {
       aiKillSwitch: doc.tradingMode?.aiKillSwitch ?? false,
       myKillSwitch: doc.tradingMode?.myKillSwitch ?? false,
       testingKillSwitch: doc.tradingMode?.testingKillSwitch ?? false,
+      stocksKillSwitch: doc.tradingMode?.stocksKillSwitch ?? false,
       defaultWorkspace: doc.tradingMode?.defaultWorkspace ?? "my",
     },
     reserveSplitPercent: doc.reserveSplitPercent ?? 25,

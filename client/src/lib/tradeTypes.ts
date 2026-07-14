@@ -2,14 +2,14 @@
  * Shared types and constants for the TradingDesk table and its row components.
  *
  * Canonical state vocabulary (BSA v1.8):
- *   workspace ∈ { ai, my, testing }
+ *   workspace ∈ { ai, my, testing, stocks }
  *   mode      ∈ { live, paper }            (testing is live-only)
- *   channel   = `${workspace}-${mode}`     // 5 valid combinations
+ *   channel   = `${workspace}-${mode}`     // 7 valid combinations
  *
  * `channel` is the single source of truth on the wire and in storage.
  */
 
-export type Workspace = 'ai' | 'my' | 'testing';
+export type Workspace = 'ai' | 'my' | 'testing' | 'stocks';
 export type Mode = 'live' | 'paper';
 
 export type Channel =
@@ -17,7 +17,9 @@ export type Channel =
   | 'ai-paper'
   | 'my-live'
   | 'my-paper'
-  | 'testing-live';
+  | 'testing-live'
+  | 'stocks-live'
+  | 'stocks-paper';
 
 export const ALL_CHANNELS: readonly Channel[] = [
   'ai-live',
@@ -25,6 +27,8 @@ export const ALL_CHANNELS: readonly Channel[] = [
   'my-live',
   'my-paper',
   'testing-live',
+  'stocks-live',
+  'stocks-paper',
 ] as const;
 
 /** Default mode for each workspace tab on first launch (paper = safer side; testing is live-only). */
@@ -32,6 +36,7 @@ export const DEFAULT_CHANNEL_FOR_WORKSPACE: Record<Workspace, Channel> = {
   ai: 'ai-paper',
   my: 'my-paper',
   testing: 'testing-live',
+  stocks: 'stocks-paper',
 };
 
 /** First-launch landing channel — Testing workspace (live-only). */

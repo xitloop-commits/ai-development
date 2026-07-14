@@ -164,7 +164,7 @@ afterAll(async () => {
   await BrokerConfigModel.deleteMany({
     brokerId: {
       $in: ["test_dhan", "test_mock", "test_broker_a", "test_broker_b",
-            "dhan-primary-ac", "mock-ai", "mock-my"],
+            "dhan-primary-ac", "mock-ai", "mock-my", "mock-stocks"],
     },
   });
   await mongoose.disconnect();
@@ -357,7 +357,7 @@ describe("Broker Service", () => {
   beforeEach(async () => {
     _resetForTesting();
     await BrokerConfigModel.deleteMany({
-      brokerId: { $in: ["dhan-primary-ac", "mock-ai", "mock-my", "test_broker_a", "test_broker_b"] },
+      brokerId: { $in: ["dhan-primary-ac", "mock-ai", "mock-my", "mock-stocks", "test_broker_a", "test_broker_b"] },
     });
   });
 

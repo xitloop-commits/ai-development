@@ -3,8 +3,8 @@
  *
  * Single source of truth for capital data across the entire app.
  * Channel-aware: provides per-channel capital state. The active channel can
- * be switched via setChannel(). Five channels per BSA v1.8:
- *   ai-live, ai-paper, my-live, my-paper, testing-live.
+ * be switched via setChannel(). Seven channels per BSA v1.8:
+ *   ai-live, ai-paper, my-live, my-paper, testing-live, stocks-live, stocks-paper.
  */
 import {
   createContext,
@@ -183,7 +183,11 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
     if (!tm) return;
     appliedDefaultRef.current = true;
     const ws = (tm.defaultWorkspace ?? 'my') as Workspace;
-    const mode: Mode = ws === 'ai' ? tm.aiTradesMode : ws === 'my' ? tm.myTradesMode : 'live';
+    const mode: Mode =
+      ws === 'ai' ? tm.aiTradesMode
+      : ws === 'my' ? tm.myTradesMode
+      : ws === 'stocks' ? 'paper'
+      : 'live';
     setChannel(channelOf(ws, mode));
   }, [settingsQuery.data]);
 

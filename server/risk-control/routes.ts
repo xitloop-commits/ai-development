@@ -29,6 +29,8 @@ const channelSchema = z.enum([
   "my-live",
   "my-paper",
   "testing-live",
+  "stocks-live",
+  "stocks-paper",
 ]);
 
 const evaluateSchema = z

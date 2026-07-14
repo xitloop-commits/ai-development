@@ -265,6 +265,7 @@ const MODES_FOR: Record<Workspace, Mode[]> = {
   ai: ['paper', 'live'],
   my: ['paper', 'live'],
   testing: ['live'],
+  stocks: ['paper', 'live'],
 };
 
 function ChannelModeToggle() {

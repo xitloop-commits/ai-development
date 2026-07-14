@@ -3,8 +3,8 @@
  *
  * Locked behaviours:
  *
- *   1. Three workspace tabs render (AI / My / Testing) with the current
- *      workspace marked active.
+ *   1. Four workspace tabs render (AI / My / Testing / Stocks) with the
+ *      current workspace marked active.
  *   2. A live-mode active tab shows the green pulse dot.
  *   3. Clicking the active tab is a no-op (no confirm popover).
  *   4. Clicking a non-active tab opens a confirm popover; cancelling
@@ -66,6 +66,7 @@ describe("ChannelTabs — render", () => {
     lastModeForWs.ai = "paper";
     lastModeForWs.my = "paper";
     lastModeForWs.testing = "live";
+    lastModeForWs.stocks = "paper";
   });
 
   it("renders the three workspace tab labels in TAB_DEFS order", () => {
@@ -96,6 +97,7 @@ describe("ChannelTabs — switch confirmation", () => {
     lastModeForWs.ai = "paper";
     lastModeForWs.my = "paper";
     lastModeForWs.testing = "live";
+    lastModeForWs.stocks = "paper";
   });
 
   it("clicking the active tab is a no-op (no confirm shown)", () => {
@@ -158,6 +160,14 @@ describe("ChannelTabs — switch confirmation", () => {
     act(() => { screen.getByText(/Testing/).click(); });
     expect(screen.getByText(/Switch from my-paper to testing-live/)).toBeInTheDocument();
   });
+
+  it("targets stocks-paper for stocks workspace (paper default)", () => {
+    const setChannel = vi.fn();
+    renderWith("my-paper", setChannel);
+
+    act(() => { screen.getByText(/Stocks/).click(); });
+    expect(screen.getByText(/Switch from my-paper to stocks-paper/)).toBeInTheDocument();
+  });
 });
 
 describe("ChannelTabs — last-mode memory mirror", () => {
@@ -165,6 +175,7 @@ describe("ChannelTabs — last-mode memory mirror", () => {
     lastModeForWs.ai = "paper";
     lastModeForWs.my = "paper";
     lastModeForWs.testing = "live";
+    lastModeForWs.stocks = "paper";
   });
 
   it("updates lastModeForWs[ai] when the active channel is ai-live", () => {

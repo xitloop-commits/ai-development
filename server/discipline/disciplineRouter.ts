@@ -266,6 +266,8 @@ export const disciplineRouter = router({
           "my-live",
           "my-paper",
           "testing-live",
+          "stocks-live",
+          "stocks-paper",
         ]),
         tradeId: z.string().min(1),
         realizedPnl: z.number(),

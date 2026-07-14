@@ -205,10 +205,10 @@ const brokerSettingsSchema = z.object({
 });
 
 const channelSchema = z.enum([
-  "ai-live", "ai-paper", "my-live", "my-paper", "testing-live",
+  "ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "stocks-live", "stocks-paper",
 ]);
 
-const workspaceSchema = z.enum(["ai", "my", "testing"]);
+const workspaceSchema = z.enum(["ai", "my", "testing", "stocks"]);
 
 const subscribeParamsSchema = z.object({
   instruments: z.array(

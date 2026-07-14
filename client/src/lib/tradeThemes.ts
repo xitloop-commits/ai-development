@@ -162,6 +162,10 @@ export function getChannelBadgeMeta(channel: Channel): { label: string; classNam
       return live
         ? { label: 'TEST LIVE', className: 'bg-warning-amber/20 text-warning-amber' }
         : { label: 'TEST', className: 'bg-warning-amber/15 text-warning-amber/80' };
+    case 'stocks':
+      return live
+        ? { label: 'STOCKS LIVE', className: 'bg-info-cyan/20 text-info-cyan' }
+        : { label: 'STOCKS PAPER', className: 'bg-info-cyan/15 text-info-cyan/80' };
   }
 }
 
@@ -215,6 +219,22 @@ export function getWorkspaceThemeMeta(workspace: Workspace): WorkspaceThemeMeta 
         borderSoft: 'border-l-warning-amber/50',
         button: 'bg-warning-amber/15 text-warning-amber hover:bg-warning-amber/25',
         buttonActive: 'bg-warning-amber/20 text-warning-amber',
+      };
+    case 'stocks':
+      return {
+        text: 'text-info-cyan',
+        textSoft: 'text-info-cyan/80',
+        textDim: 'text-info-cyan/60',
+        rowBg: 'bg-info-cyan/[0.04]',
+        rowBgHover: 'hover:bg-info-cyan/[0.08]',
+        todayBg: 'bg-info-cyan/[0.08]',
+        todayAltBg: 'bg-info-cyan/[0.04]',
+        summaryBg: 'bg-info-cyan/20',
+        summaryBorder: 'border-info-cyan/30',
+        borderStrong: 'border-l-info-cyan',
+        borderSoft: 'border-l-info-cyan/50',
+        button: 'bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25',
+        buttonActive: 'bg-info-cyan/20 text-info-cyan',
       };
     case 'ai':
     default:

@@ -159,7 +159,7 @@ class TradeExecutorAgent {
    */
   async resubscribeOpenTradeLtps(): Promise<void> {
     const ALL_CHANNELS: Channel[] = [
-      "ai-live", "ai-paper", "my-live", "my-paper", "testing-live",
+      "ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "stocks-live", "stocks-paper",
     ];
     let count = 0;
     for (const channel of ALL_CHANNELS) {

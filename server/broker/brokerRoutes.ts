@@ -32,10 +32,10 @@ const log = createLogger("BSA", "REST");
 // ─── Helpers ────────────────────────────────────────────────────
 
 const VALID_CHANNELS = new Set<Channel>([
-  "ai-live", "ai-paper", "my-live", "my-paper", "testing-live",
+  "ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "stocks-live", "stocks-paper",
 ]);
 
-const _VALID_WORKSPACES = new Set<Workspace>(["ai", "my", "testing"]);
+const _VALID_WORKSPACES = new Set<Workspace>(["ai", "my", "testing", "stocks"]);
 
 function sendError(res: Response, status: number, message: string) {
   res.status(status).json({ success: false, error: message });
@@ -92,7 +92,7 @@ const tokenUpdateSchema = z
 
 const killSwitchSchema = z
   .object({
-    workspace: z.enum(["ai", "my", "testing"]),
+    workspace: z.enum(["ai", "my", "testing", "stocks"]),
     action: z.enum(["ACTIVATE", "DEACTIVATE"]),
   })
   .strict();

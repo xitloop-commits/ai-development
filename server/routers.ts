@@ -110,7 +110,7 @@ export const appRouter = router({
     optionTradesForChart: publicProcedure
       .input(
         z.object({
-          channel: z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live"]),
+          channel: z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "stocks-live", "stocks-paper"]),
           instrument: z.string(),
           strike: z.number(),
           side: z.enum(["CE", "PE"]),
@@ -183,7 +183,7 @@ export const appRouter = router({
     tradesForChart: publicProcedure
       .input(
         z.object({
-          channel: z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live"]),
+          channel: z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "stocks-live", "stocks-paper"]),
           instrument: z.string(),
           date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         }),
@@ -421,7 +421,8 @@ export const appRouter = router({
         aiKillSwitch: z.boolean().optional(),
         myKillSwitch: z.boolean().optional(),
         testingKillSwitch: z.boolean().optional(),
-        defaultWorkspace: z.enum(["ai", "my", "testing"]).optional(),
+        stocksKillSwitch: z.boolean().optional(),
+        defaultWorkspace: z.enum(["ai", "my", "testing", "stocks"]).optional(),
       }))
       .mutation(async ({ input }) => {
         const updated = await updateUserSettings(1 /* single-user */, { tradingMode: input as any });

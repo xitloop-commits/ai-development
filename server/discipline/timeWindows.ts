@@ -46,7 +46,7 @@ function formatTime(totalMinutes: number): string {
  * testing-live) always keep the guard.
  */
 export function isSimulationChannel(channel: string): boolean {
-  return channel === "my-paper" || channel === "ai-paper";
+  return channel === "my-paper" || channel === "ai-paper" || channel === "stocks-paper";
 }
 
 /**
