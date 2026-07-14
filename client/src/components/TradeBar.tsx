@@ -68,6 +68,9 @@ export interface TradeBarProps {
    *  side of the scale, so the operator can move the TP by clicking the bar. When
    *  absent the bar isn't click-interactive. */
   onSetTp?: (price: number) => void;
+  /** Click-to-set the stop: fired with the price under a click on the LOSS (left)
+   *  side of the scale. Same interaction as onSetTp, opposite side. */
+  onSetSl?: (price: number) => void;
 }
 
 // ─── Tunables ───────────────────────────────────────────────────────────
@@ -109,6 +112,7 @@ export function TradeBar({
   onStopLossHit,
   onTakeProfitHit,
   onSetTp,
+  onSetSl,
 }: TradeBarProps) {
   // Favourable-% of a price relative to entry (BUY: up is +, SELL: down is +).
   const toFav = (p: number) => ((isBuy ? p - entryPrice : entryPrice - p) / entryPrice) * 100;
@@ -199,16 +203,20 @@ export function TradeBar({
   // and hand it up. Only the favourable (right-of-entry) side sets a TP — a click
   // on the loss side is ignored. Inverse of pos().
   const trackRef = useRef<HTMLDivElement>(null);
+  const interactive = (!!onSetTp || !!onSetSl) && !frozen;
   const handleBarClick = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (!onSetTp || frozen) return;
-    e.stopPropagation(); // don't let a TP-set click also select/expand the row
+    if (!interactive) return;
+    e.stopPropagation(); // don't let a set click also select/expand the row
     const rect = trackRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0) return;
     const clickPct = ((e.clientX - rect.left) / rect.width) * 100;
     const fav = lowFav + ((clickPct - EDGE) / (100 - 2 * EDGE)) * span;
-    if (!(fav > 0)) return; // TP lives on the favourable side only
     const price = favToPrice(fav);
-    if (price > 0) onSetTp(Math.round(price * 100) / 100);
+    if (!(price > 0)) return;
+    const rounded = Math.round(price * 100) / 100;
+    // Right of entry (favourable) → take-profit; left of entry (loss) → stop-loss.
+    if (fav > 0) onSetTp?.(rounded);
+    else if (fav < 0) onSetSl?.(rounded);
   };
 
   const isFavourable = ltpFav >= 0;
@@ -391,9 +399,9 @@ export function TradeBar({
 
       <div
         ref={trackRef}
-        className={`relative w-full h-1.5 ${onSetTp && !frozen ? "cursor-pointer" : ""}`}
-        onClick={onSetTp && !frozen ? handleBarClick : undefined}
-        title={onSetTp && !frozen ? "Click the favourable side of the bar to move the take-profit here" : undefined}
+        className={`relative w-full h-1.5 ${interactive ? "cursor-pointer" : ""}`}
+        onClick={interactive ? handleBarClick : undefined}
+        title={interactive ? "Click the bar to move the take-profit (right of entry) or stop-loss (left of entry)" : undefined}
       >
         {/* Track + colour bands (clipped to the rounded track) */}
         <div className="absolute inset-0 rounded-full bg-muted-foreground/20 overflow-hidden">
