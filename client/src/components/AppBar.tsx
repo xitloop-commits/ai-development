@@ -18,6 +18,7 @@ import { trpc } from '@/lib/trpc';
 import { useCapital, useChannel } from '@/contexts/CapitalContext';
 import { useMarketOpen } from '@/hooks/useMarketOpen';
 import { useSeaStatus } from '@/stores/seaStatusStore';
+import { SeaControl } from '@/components/SeaControl';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { formatINR } from '@/lib/formatINR';
 import type { MarketHoliday } from '@/lib/types';
@@ -478,6 +479,11 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
 
         {/* Right-side status cluster: 🌐 API · 📶 FEED · 🧪 AI · 🛡 Score */}
         <Indicators />
+
+        <div className="w-px self-stretch bg-border shrink-0" />
+
+        {/* SEA cohort control — scalp / trend / MA on-off, live over ws */}
+        <SeaControl />
 
         <div className="w-px self-stretch bg-border shrink-0" />
 

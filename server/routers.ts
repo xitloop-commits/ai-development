@@ -17,6 +17,7 @@ import {
 import { getMongoHealth, pingMongo } from "./mongo";
 import { querySeaSignals, getSeaSignalsForChartFromStore } from "./seaSignalStore";
 import { getSEASignalsForChart, logFolderFor } from "./seaSignals";
+import { getCohortState, setCohort } from "./seaControl";
 import { getTradesForDate } from "./portfolio/state";
 import { getInstrumentLiveState } from "./instrumentLiveState";
 import { readUnderlyingTicks, listRecordedDates, readOptionContractTicks } from "./chartData";
@@ -89,6 +90,19 @@ export const appRouter = router({
         if (fromStore.length > 0) return fromStore;
         return getSEASignalsForChart(input.instrument, input.date);
       }),
+
+    // SEA cohort control — global on/off for the toggleable signal cohorts
+    // (scalp / trend / ma). Read the current state; flip a cohort (persists to
+    // config + pushes live to SEA over /ws/sea-control).
+    seaCohortState: publicProcedure.query(() => getCohortState()),
+    setSeaCohort: publicProcedure
+      .input(
+        z.object({
+          cohort: z.enum(["scalp", "trend", "ma"]),
+          enabled: z.boolean(),
+        }),
+      )
+      .mutation(({ input }) => setCohort(input.cohort, input.enabled)),
 
     // All trades on one option strike (instrument + strike + CE/PE) for one
     // channel + date, shaped for the option-strike chart overlay (entry/exit

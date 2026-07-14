@@ -143,6 +143,15 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
   }, 10_000);
   seaStatusTimer.unref?.();
 
+  // Forward the global SEA cohort on/off state so open control panels update
+  // live when anyone toggles a cohort (the SEA processes get it over the
+  // dedicated /ws/sea-control channel).
+  const onSeaControl = (state: unknown) => {
+    if (wss.clients.size === 0) return;
+    sendToAllClients(wss, JSON.stringify({ type: "sea_control", state }));
+  };
+  tickBus.on("seaControl", onSeaControl);
+
   // Forward portfolio day-record updates so the trade list stays live without
   // polling allDays. The client swaps the pushed day in by (channel, dayIndex).
   const onPortfolio = (payload: unknown) => {
@@ -236,6 +245,7 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
         tickBus.off("tick", onTick);
         tickBus.off("seaSignal", onSeaSignal);
         tickBus.off("seaStatus", onSeaStatus);
+        tickBus.off("seaControl", onSeaControl);
         tickBus.off("portfolio", onPortfolio);
         tickBus.off("capitalChanged", onCapitalChanged);
         tickBus.off("instrumentState", onInstrumentState);

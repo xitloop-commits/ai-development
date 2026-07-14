@@ -16,6 +16,7 @@ import { registerBrokerRoutes } from "../broker/brokerRoutes";
 import { portfolioAgent } from "../portfolio";
 import { tradeExecutor } from "../executor";
 import { setupTickWebSocket } from "../broker/tickWs";
+import { initSeaControl } from "../seaControl";
 import { seedDefaultInstruments, getAllInstruments } from "../instruments";
 import { setConfiguredInstruments } from "../tradingStore";
 import { printAgentLegend, createLogger } from "../broker/logger";
@@ -240,6 +241,9 @@ async function startServer() {
   markReady("tickWs");
   // tickWs closes BEFORE broker WS so browser clients don't dangle.
   registerShutdownHook("tickWs", () => tickWsHandle.close(), 400);
+
+  // SEA cohort control: dedicated /ws/sea-control channel + config hydrate.
+  initSeaControl(server);
 
   // Watch TFA feature files → push instrument live-state over /ws/ticks
   // (replaces the 2s instrumentLiveState poll across 5 UI surfaces).

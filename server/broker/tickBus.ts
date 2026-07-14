@@ -66,6 +66,12 @@ class TickBus extends EventEmitter {
     this.emit("seaStatus", status);
   }
 
+  /** Emit the global SEA cohort on/off state so open control panels stay in
+   *  sync (the authoritative push to SEA goes over /ws/sea-control). */
+  emitSeaControl(state: unknown): void {
+    this.emit("seaControl", state);
+  }
+
   /** Emit a portfolio day-record update for live push to browser clients.
    *  Replaces the 2s allDays poll — the client swaps in the pushed day. */
   emitPortfolio(payload: { channel: string; day: unknown }): void {

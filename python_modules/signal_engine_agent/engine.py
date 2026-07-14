@@ -66,6 +66,7 @@ from signal_engine_agent.thresholds import (
 )
 from signal_engine_agent.leg_start import LegStartDetector
 from signal_engine_agent.ma_signal import MASignalDetector
+from signal_engine_agent.control_client import start_control_listener
 
 
 def _build_structure_context(row: dict) -> StructureContext | None:
@@ -789,6 +790,17 @@ def run(
     )
     _hb_thread.start()
 
+    # ── Live cohort control (2026-07-14) ──────────────────────────────────
+    # Cohorts toggled from the UI over the dedicated /ws/sea-control websocket.
+    # Init from config; a daemon listener updates this dict in real time. The
+    # gate branches in the tick loop read it every tick — no restart to toggle.
+    _live_cohorts = {
+        "scalp": legstart_thresholds.enabled if gate_mode == "legstart" else True,
+        "trend": trend_thresholds.enabled,
+        "ma": ma_signal_thresholds.enabled,
+    }
+    start_control_listener(_live_cohorts)
+
     # ── Dashboard setup (2026-07-01, replaces scrolling print heartbeat) ──
     # Rich-based alt-screen showing model + gate config, feed liveness,
     # signal counters, last predictions, recent signals with tick→fire
@@ -1009,7 +1021,7 @@ def run(
 
             # ── Raw signal emission (cooldown, UI feed) ──
             now_ts = time.time()
-            should_emit_raw = action != "WAIT" and (
+            should_emit_raw = _live_cohorts["scalp"] and action != "WAIT" and (
                 # legstart already fires at most once per leg — never suppress it
                 gate_mode == "legstart"
                 or action != _last_action or now_ts - _last_emit_ts >= COOLDOWN_SEC
@@ -1100,7 +1112,7 @@ def run(
             # trend_continues_1800s, trend_breakout_imminent_1800s).
             # Disabled-by-default; opt in via the per-instrument JSON
             # config's `trend.enabled: true`.
-            if trend_thresholds.enabled:
+            if _live_cohorts["trend"]:
                 trend_sig = decide_action_trend(
                     preds, trend_thresholds,
                     ce_ltp=ce_ltp, pe_ltp=pe_ltp,
@@ -1194,6 +1206,10 @@ def run(
                         ma_signal_detector.on_tick(_ma_ts, _ma_spot)
                         if _ma_ts is not None and _ma_spot is not None else []
                     )
+                    # Keep the detector FED even when the cohort is toggled off so
+                    # its candles stay current; just suppress the emit while off.
+                    if not _live_cohorts["ma"]:
+                        ma_events = []
                     for _ev in ma_events:
                         _ma_call = "CE" in _ev
                         _ma_exit = _ev.startswith("EXIT")
