@@ -248,6 +248,34 @@ export default function InstrumentChartPage() {
     () => (activeTrade?.signalSeq != null ? signalRows.find((s) => s.id === String(activeTrade.signalSeq)) ?? null : null),
     [signalRows, activeTrade],
   );
+
+  // ── Entry-price lines for the CURRENT open trade only ───────────────
+  // Underlying: a line at the index level when the trade was entered (snap the
+  // entry time to a candle). CE/PE: a line at the option entry price on the leg
+  // that was traded. Closed trades already show in/out markers, so lines are the
+  // live open trade only.
+  const openTrade = useMemo(
+    () =>
+      tradeRows
+        .filter((t) => t.status === "OPEN")
+        .reduce<ChartTradeRow | null>((a, b) => (!a || b.entryTime > a.entryTime ? b : a), null),
+    [tradeRows],
+  );
+  const underlyingEntryLine = useMemo(() => {
+    if (!openTrade || baseCandles.length === 0) return [];
+    const times = baseCandles.map((c) => c.time);
+    const t = snapToCandle(times, openTrade.entryTime + IST_OFFSET_SECONDS);
+    const candle = baseCandles.find((c) => c.time === t);
+    return candle ? [{ price: candle.close, color: CHART_ENTRY, title: "Entry" }] : [];
+  }, [openTrade, baseCandles]);
+  const ceEntryLine = useMemo(
+    () => (openTrade?.side === "CE" ? [{ price: openTrade.entryPrice, color: CHART_ENTRY, title: "Entry" }] : []),
+    [openTrade],
+  );
+  const peEntryLine = useMemo(
+    () => (openTrade?.side === "PE" ? [{ price: openTrade.entryPrice, color: CHART_ENTRY, title: "Entry" }] : []),
+    [openTrade],
+  );
   const onUnderlyingClick = (clickedSec: number) => {
     if (tradeRows.length === 0) return;
     let best = tradeRows[0];
@@ -332,6 +360,7 @@ export default function InstrumentChartPage() {
           <TickChart
             candles={candles}
             markers={markers}
+            tradeLines={underlyingEntryLine}
             style={style}
             indicators={indicators}
             intervalSec={intervalSec}
@@ -389,6 +418,7 @@ export default function InstrumentChartPage() {
         <div className="flex flex-col min-h-0 w-1/2 gap-2">
           <TickChart
             candles={ce.candles}
+            tradeLines={ceEntryLine}
             style={style}
             indicators={indicators}
             intervalSec={intervalSec}
@@ -401,6 +431,7 @@ export default function InstrumentChartPage() {
           />
           <TickChart
             candles={pe.candles}
+            tradeLines={peEntryLine}
             style={style}
             indicators={indicators}
             intervalSec={intervalSec}
