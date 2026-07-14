@@ -646,6 +646,15 @@ class PortfolioAgentImpl {
     if (modifications.tslMode !== undefined) trade.tslMode = modifications.tslMode;
 
     await upsertDayRecord(channel, day);
+    // Push a manual SL/TP price edit into the tickHandler's live cache too — its
+    // per-tick reconcile copies the cached targetPrice/stopLossPrice, so without
+    // this the edit is clobbered back on the next persist ("moves then resets").
+    if (modifications.stopLossPrice !== undefined || modifications.targetPrice !== undefined) {
+      tickHandler.applyTradeEdit(channel, tradeId, {
+        stopLossPrice: modifications.stopLossPrice,
+        targetPrice: modifications.targetPrice,
+      });
+    }
     await this.mirrorPosition(channel, day.dayIndex, trade).catch((err) =>
       log.warn(`mirrorPosition (update) failed for ${trade.id}: ${(err as Error).message}`),
     );

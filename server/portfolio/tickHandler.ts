@@ -194,6 +194,24 @@ class TickHandler extends EventEmitter {
     this.stateCache.clear();
   }
 
+  /** Push a manual SL/TP price edit into the LIVE cached day so the per-tick
+   *  reconcile copies the edited value rather than the stale cached one. Without
+   *  this a user's TP/SL edit is clobbered on the next persist (the reconcile
+   *  copies live.targetPrice/stopLossPrice onto the fresh DB read). No-op when
+   *  the channel isn't cached (next read is fresh anyway). */
+  applyTradeEdit(
+    channel: Channel,
+    tradeId: string,
+    patch: { stopLossPrice?: number | null; targetPrice?: number | null },
+  ): void {
+    const cached = this.stateCache.get(channel);
+    if (!cached || !cached.day) return;
+    const trade = cached.day.trades.find((t) => t.id === tradeId);
+    if (!trade) return;
+    if (patch.stopLossPrice !== undefined) trade.stopLossPrice = patch.stopLossPrice;
+    if (patch.targetPrice !== undefined) trade.targetPrice = patch.targetPrice;
+  }
+
   private async getChannelStateCached(channel: Channel): Promise<ChannelStateCache | null> {
     const now = Date.now();
     const cached = this.stateCache.get(channel);
