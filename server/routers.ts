@@ -27,6 +27,7 @@ import { portfolioRouter } from "./portfolio/router";
 import { executorRouter } from "./executor";
 import { disciplineRouter } from "./discipline/disciplineRouter";
 import { alertsRouter } from "./alerts/alertRouter";
+import { searchStocks, addStock, listStocks, removeStock } from "./stockMaster";
 import { getUserSettings, updateUserSettings } from "./userSettings";
 import {
   getAllInstruments,
@@ -365,6 +366,51 @@ export const appRouter = router({
         await setInstrumentColor(input.key, input.color);
         const instruments = await getAllInstruments();
         setConfiguredInstruments(instruments);
+        return { success: true };
+      }),
+  }),
+
+  // Stock master — NSE cash equities for the Stocks workspace watchlist.
+  stocks: router({
+    // The watchlist: all added stocks, oldest first.
+    list: publicProcedure.query(() => listStocks()),
+
+    // Search the Dhan scrip master for NSE cash equities by name/symbol.
+    search: publicProcedure
+      .input(z.object({ query: z.string().min(1).max(100) }))
+      .query(async ({ input }) => {
+        // Make sure the scrip master is loaded (first run / >24h stale).
+        if (needsRefresh(24)) {
+          try {
+            await downloadScripMaster();
+          } catch {
+            /* fall back to whatever's cached (may be empty on first run) */
+          }
+        }
+        return searchStocks(input.query, 25);
+      }),
+
+    // Add a searched stock to the watchlist/master (idempotent by securityId).
+    add: protectedProcedure
+      .input(
+        z.object({
+          securityId: z.string().min(1),
+          symbol: z.string().min(1),
+          name: z.string().default(""),
+          exchange: z.string().default("NSE"),
+          segment: z.string().default("E"),
+          series: z.string().default("EQ"),
+          lotSize: z.number().default(1),
+          tickSize: z.number().default(0.05),
+        }),
+      )
+      .mutation(({ input }) => addStock(input)),
+
+    // Remove a stock from the watchlist/master.
+    remove: protectedProcedure
+      .input(z.object({ securityId: z.string().min(1) }))
+      .mutation(async ({ input }) => {
+        await removeStock(input.securityId);
         return { success: true };
       }),
   }),

@@ -88,6 +88,8 @@ let isLoading: boolean = false;
 let bySymbol: Map<string, ScripRecord[]> = new Map();
 let byExchange: Map<string, ScripRecord[]> = new Map();
 let bySecurityId: Map<string, ScripRecord> = new Map();
+// Tradable NSE cash-equity subset, for the stock search (built on download).
+let equityRecords: ScripRecord[] = [];
 
 // ─── CSV Parsing ───────────────────────────────────────────────
 
@@ -255,6 +257,7 @@ export async function downloadScripMaster(): Promise<number> {
 
     scripRecords = records;
     buildIndexes(records);
+    equityRecords = records.filter(isSearchableEquity);
 
     lastDownload = Date.now();
     downloadTimeMs = Date.now() - startTime;
@@ -268,6 +271,69 @@ export async function downloadScripMaster(): Promise<number> {
   } finally {
     isLoading = false;
   }
+}
+
+// ─── Equity search (stock master) ──────────────────────────────
+
+/** One NSE cash-equity match, shaped for the stock watchlist / master. */
+export interface EquitySearchResult {
+  securityId: string;   // NSE_EQ security id (permanent)
+  symbol: string;       // trading symbol, e.g. RELIANCE
+  name: string;         // display name, e.g. Reliance Industries
+  lotSize: number;      // 1 for cash equity
+  tickSize: number;
+  exchange: string;     // NSE
+  segment: string;      // E
+  series: string;       // EQ | BE
+}
+
+/** Tradable NSE cash equity: EQUITY instrument in the EQ (rolling) or BE
+ *  (trade-to-trade) series — excludes bonds/NCDs/ETFs/govt-securities/SME rows
+ *  that also live in the NSE "E" segment. */
+function isSearchableEquity(r: ScripRecord): boolean {
+  return (
+    r.exchange === "NSE" &&
+    r.segment === "E" &&
+    r.instrumentName === "EQUITY" &&
+    (r.series === "EQ" || r.series === "BE")
+  );
+}
+
+/**
+ * Search the cached scrip master for NSE cash equities by symbol or name
+ * (case-insensitive), ranked exact → symbol-prefix → name-prefix → contains.
+ * In-memory over the ~2.7k tradable-equity subset — no network call.
+ */
+export function searchEquities(query: string, limit = 25): EquitySearchResult[] {
+  const q = query.trim().toUpperCase();
+  if (q.length < 1) return [];
+  // Lazily build the index if the master was loaded before this code existed.
+  if (equityRecords.length === 0 && scripRecords.length > 0) {
+    equityRecords = scripRecords.filter(isSearchableEquity);
+  }
+  const scored: Array<{ r: ScripRecord; score: number }> = [];
+  for (const r of equityRecords) {
+    const sym = r.tradingSymbol.toUpperCase();
+    const name = (r.customSymbol || r.symbolName).toUpperCase();
+    let score = -1;
+    if (sym === q) score = 0;
+    else if (sym.startsWith(q)) score = 1;
+    else if (name.startsWith(q)) score = 2;
+    else if (sym.includes(q)) score = 3;
+    else if (name.includes(q)) score = 4;
+    if (score >= 0) scored.push({ r, score });
+  }
+  scored.sort((a, b) => a.score - b.score || a.r.tradingSymbol.localeCompare(b.r.tradingSymbol));
+  return scored.slice(0, limit).map(({ r }) => ({
+    securityId: r.securityId,
+    symbol: r.tradingSymbol,
+    name: r.customSymbol || r.symbolName,
+    lotSize: r.lotSize,
+    tickSize: r.tickSize,
+    exchange: r.exchange,
+    segment: r.segment,
+    series: r.series,
+  }));
 }
 
 // ─── Lookup ────────────────────────────────────────────────────
