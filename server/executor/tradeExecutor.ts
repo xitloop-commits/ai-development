@@ -1192,8 +1192,12 @@ function buildTradeRecord(
     // off → "manual" (frozen) — after which the per-trade toggle rules regardless
     // of the global switch. originalStopLossPrice snapshots the stop at open so
     // the SL-disabled gate can tell whether the stop has since moved.
-    stopLossDisabled: false,
-    targetDisabled: false,
+    // MA-Signal trades ride until MA-Signal's own EXIT signal — suppress every
+    // auto-exit: SL/TP here, and age/stale/volatility/momentum in RcaMonitor
+    // (which skips manualExitOnly trades). Trailing is already off (tslMode manual).
+    manualExitOnly: req.cohort === "ma_signal",
+    stopLossDisabled: req.cohort === "ma_signal",
+    targetDisabled: req.cohort === "ma_signal",
     tslMode: (req.trailingStopLoss?.enabled ?? false) ? "auto" : "manual",
     originalStopLossPrice: req.stopLoss ?? null,
     // Callers resolve the trailing-stop default before submitting (the UI

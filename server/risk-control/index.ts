@@ -169,6 +169,10 @@ class RcaMonitor {
       for (const trade of positions) {
         if (trade.status !== "OPEN") continue;
         if (this.exitAttempted.has(trade.id)) continue;
+        // MA-Signal (manual-exit-only) trades ride until an explicit external
+        // close — skip every reconcile auto-exit (age / stale / volatility /
+        // momentum). They are closed only by MA-Signal's own EXIT signal.
+        if (trade.manualExitOnly) continue;
 
         const ageMs = now - trade.openedAt;
         if (ageMs >= this.maxAgeMs) {

@@ -138,6 +138,10 @@ export interface TradeRecord {
   /** `targetDisabled`: the take-profit won't auto-exit — the trade rides on
    *  SL/TSL only (mirror of stopLossDisabled). */
   targetDisabled?: boolean;
+  /** `manualExitOnly`: NO auto-exit at all — the trade rides until an explicit
+   *  external close (e.g. MA-Signal's own EXIT signal). Set for the ma_signal
+   *  cohort; suppresses TP/SL here + age/stale/volatility/momentum in RcaMonitor. */
+  manualExitOnly?: boolean;
   tslMode?: "auto" | "manual";
   originalStopLossPrice?: number | null;
   /** Broker-assigned order ID returned by placeOrder. Used by orderSync /
@@ -315,6 +319,7 @@ const tradeRecordSchema = new Schema(
     slDistance: { type: Number, default: null },
     stopLossDisabled: { type: Boolean, default: false },
     targetDisabled: { type: Boolean, default: false },
+    manualExitOnly: { type: Boolean, default: false },
     tslMode: { type: String, enum: ["auto", "manual"], default: "auto" },
     originalStopLossPrice: { type: Number, default: null },
     tslActivatedAt: { type: Number, default: null },

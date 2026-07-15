@@ -173,6 +173,19 @@ def submit_new_trade(payload: dict[str, Any], timeout: float = 10.0) -> Validate
     return body
 
 
+def close_trade(trade_id: str, reason: str = "AI_EXIT", timeout: float = 5.0) -> bool:
+    """Close ONE specific open trade by its server tradeId, via the discipline
+    request path (scope=TRADE_IDS). Used to exit an MA-Signal position on the
+    detector's own EXIT signal. Returns True on HTTP 2xx; never raises."""
+    url = f"{_broker_url()}/api/risk-control/discipline-request"
+    payload = {"reason": reason, "scope": {"kind": "TRADE_IDS", "tradeIds": [str(trade_id)]}}
+    try:
+        resp = requests.post(url, headers=_headers(), data=json.dumps(payload), timeout=timeout)
+        return resp.status_code < 400
+    except Exception:
+        return False
+
+
 # ─── /api/sea/signal ────────────────────────────────────────────
 
 

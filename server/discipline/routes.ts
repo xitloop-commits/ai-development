@@ -244,7 +244,7 @@ export function registerDisciplineRoutes(app: Express): void {
           // quantity. A FIXED target is a NET-₹ profit (after charges), so it needs
           // qty. "ai" (default) keeps the model's own SL/TP. AI trades are always
           // LONG options. Only AI trades hit this path (manual UI trades send qty).
-          if (brokerCfg?.settings?.aiRiskMode === "manual" && entryPrice > 0) {
+          if (brokerCfg?.settings?.aiRiskMode === "manual" && entryPrice > 0 && body.cohort !== "ma_signal") {
             const { resolveRiskLevels } = await import("./riskMode");
             ({ stopLoss, takeProfit } = await resolveRiskLevels(entryPrice, {
               isOption: true,

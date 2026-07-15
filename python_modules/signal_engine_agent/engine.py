@@ -192,7 +192,7 @@ def _send_signal_to_tray(signal: dict) -> None:
         print(f"  [signal-tray] push skipped: {exc}", file=sys.stderr)
 
 
-def _maybe_submit_ai_trade(signal: dict) -> None:
+def _maybe_submit_ai_trade(signal: dict) -> "str | None":
     channel = os.environ.get("SEA_AUTO_TRADE", "").strip()
     if not channel:
         return
@@ -244,9 +244,12 @@ def _maybe_submit_ai_trade(signal: dict) -> None:
         if rr is not None:
             payload["aiRiskReward"] = rr
 
-        submit_new_trade(payload, timeout=5.0)
+        resp = submit_new_trade(payload, timeout=5.0)
+        if isinstance(resp, dict):
+            return resp.get("tradeId")  # server tradeId, for a later targeted close
     except Exception as exc:  # never let auto-trade crash the inference loop
         print(f"  [auto-trade] skipped: {exc}", file=sys.stderr)
+    return None
 
 
 def _decide_via_gate(
@@ -800,6 +803,9 @@ def run(
         "ma": ma_signal_thresholds.enabled,
     }
     start_control_listener(_live_cohorts)
+    # MA-Signal open positions (side "CE"/"PE" -> server tradeId) so the leg-end
+    # EXIT signal can close the exact trade — they ride with no auto-exit.
+    _ma_open: dict[str, str] = {}
 
     # ── Dashboard setup (2026-07-01, replaces scrolling print heartbeat) ──
     # Rich-based alt-screen showing model + gate config, feed liveness,
@@ -1214,12 +1220,7 @@ def run(
                         _ma_call = "CE" in _ev
                         _ma_exit = _ev.startswith("EXIT")
                         _ma_ltp = _finite(ce_ltp if _ma_call else pe_ltp)
-                        # Entries carry a % stop like leg-start so the executor has
-                        # a protective level; exits get no stop (chart-only marker).
-                        _ma_sl = (
-                            round(_ma_ltp * (1.0 - ma_signal_thresholds.sl_pct / 100.0), 2)
-                            if (_ma_ltp and not _ma_exit) else None
-                        )
+                        _ma_side = "CE" if _ma_call else "PE"
                         ma_signal_out = {
                             "timestamp": row.get("timestamp"),
                             "timestamp_ist": datetime.now(_IST).isoformat(timespec="milliseconds"),
@@ -1235,7 +1236,7 @@ def run(
                             "regime": regime,
                             "entry": round(_ma_ltp, 2) if _ma_ltp else None,
                             "tp": None,
-                            "sl": _ma_sl,
+                            "sl": None,
                             "rr": 0.0,
                             "atm_strike": row.get("atm_strike"),
                             "atm_ce_ltp": ce_ltp,
@@ -1249,11 +1250,21 @@ def run(
                         }
                         raw_logger.log(ma_signal_out)
                         _send_signal_to_tray(ma_signal_out)  # Mongo + WS (chart)
-                        # Auto-trade the leg ENTRY alongside scalp (exit handled by
-                        # the executor's SL/TP/age, like leg-start). EXIT markers are
-                        # chart-only — never routed (would submit a spurious SELL).
-                        if not _ma_exit:
-                            _maybe_submit_ai_trade(ma_signal_out)
+                        # MA-Signal rides with NO auto-exit (server flags cohort=
+                        # ma_signal manual-exit-only); it is closed ONLY here, on its
+                        # own EXIT. Entry captures the tradeId; EXIT closes that leg.
+                        if _ma_exit:
+                            _tid = _ma_open.pop(_ma_side, None)
+                            if _tid:
+                                try:
+                                    from signal_engine_agent.risk_control_client import close_trade
+                                    close_trade(_tid)
+                                except Exception as exc:
+                                    print(f"  MA-Signal close error: {exc}", file=sys.stderr)
+                        else:
+                            _tid = _maybe_submit_ai_trade(ma_signal_out)
+                            if _tid:
+                                _ma_open[_ma_side] = _tid
                         ma_emitted += 1
                 except Exception as exc:
                     # Never let the MA-Signal cohort crash the inference loop.
