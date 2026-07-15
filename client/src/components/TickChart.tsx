@@ -165,7 +165,7 @@ export function TickChart({
     // green = rising up-leg, red = falling down-leg, amber = flat/sideways (sticky).
     const addMaSlopeLine = (cl: number[]) => {
       const ev = ema(cl, MA_PERIOD);
-      const L = 10, HI = 0.025, LO = 0.006;
+      const L = 10, HI = 0.015, LO = 0.006;
       const s = chart.addSeries(LineSeries, {
         color: "#e0a63a", lineWidth: 2,
         priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,

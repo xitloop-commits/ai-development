@@ -1,20 +1,20 @@
 {
   "prob_min": 0.68,
   "rr_min": 1.5,
-  "upside_percentile_min": 60.0,
+  "upside_percentile_min": 60,
   "gate_mode": "legstart",
   "wave2": {
-    "persists_60s_min": 0.0,
-    "persists_300s_min": 0.0,
-    "exit_signal_60s_max": 1.0,
-    "breakout_in_60s_min": 0.0,
+    "persists_60s_min": 0,
+    "persists_300s_min": 0,
+    "exit_signal_60s_max": 1,
+    "breakout_in_60s_min": 0,
     "structure_tp_sl": false,
     "structure_sl_buffer_pct": 0.05,
     "structure_sl_widen_cap": 1.5,
     "structure_min_rr": 0.8,
     "buildup_filter": false,
     "buildup_min_oi_change_pct": 0.5,
-    "buildup_min_premium_mom": 0.0
+    "buildup_min_premium_mom": 0
   },
   "legstart": {
     "enabled": true,
@@ -26,23 +26,23 @@
     "pe_mirror": true,
     "ema_period": 21,
     "trend_slope": 5,
-    "sl_pct": 12.0,
-    "tp_pct": 0.0,
+    "sl_pct": 12,
+    "tp_pct": 0,
     "maxhold_candles": 20
   },
   "ma_signal": {
     "enabled": true,
     "ema_period": 20,
     "slope_lookback": 10,
-    "thr_hi": 0.025,
+    "thr_hi": 0.015,
     "thr_lo": 0.006,
-    "sl_pct": 12.0
+    "sl_pct": 12
   },
   "trend": {
-    "enabled": false,
+    "enabled": true,
     "dir_prob_min": 0.55,
-    "continues_min": 0.0,
-    "breakout_min": 0.0,
+    "continues_min": 0,
+    "breakout_min": 0,
     "magnitude_scale": 0.5,
     "min_seconds_between_signals": 600
   }

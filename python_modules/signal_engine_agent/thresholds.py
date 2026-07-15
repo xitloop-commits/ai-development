@@ -1084,7 +1084,7 @@ class MASignalThresholds:
       "ma_signal": {
         "enabled": true,
         "ema_period": 20, "slope_lookback": 10,
-        "thr_hi": 0.025, "thr_lo": 0.006
+        "thr_hi": 0.015, "thr_lo": 0.006
       }
     """
     # Master switch. Default OFF so the cohort is inert unless the JSON opts in.
@@ -1094,7 +1094,7 @@ class MASignalThresholds:
     # opens when |slope| > thr_hi and is held (sticky) until |slope| falls back
     # through thr_lo — so brief pauses inside a trend don't fragment it.
     slope_lookback: int = 10
-    thr_hi: float = 0.025
+    thr_hi: float = 0.015
     thr_lo: float = 0.006
     # % stop-loss stamped on the ENTRY when MA-Signal auto-trades; the exit is
     # otherwise the executor's time/momentum exits (same as leg-start's ride).
