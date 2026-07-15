@@ -26,7 +26,6 @@ import {
   CHART_DOWN,
   CHART_BG,
   CHART_GRID,
-  MA_COLOR,
   SMA9_COLOR,
   SMA21_COLOR,
   EMA9_COLOR,
@@ -162,7 +161,33 @@ export function TickChart({
       s.setData(data);
     };
 
-    if (indicators.has("ma")) addOverlay(ema(closes, MA_PERIOD), MA_COLOR, 2);
+    // MA line tri-coloured by its 20-EMA slope state — matches the MA-Signal gate:
+    // green = rising up-leg, red = falling down-leg, amber = flat/sideways (sticky).
+    const addMaSlopeLine = (cl: number[]) => {
+      const ev = ema(cl, MA_PERIOD);
+      const L = 10, HI = 0.025, LO = 0.006;
+      const s = chart.addSeries(LineSeries, {
+        color: "#e0a63a", lineWidth: 2,
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
+      const data: { time: UTCTimestamp; value: number; color: string }[] = [];
+      let st = "FLAT";
+      for (let i = 0; i < candles.length; i++) {
+        const v = ev[i];
+        if (v == null) continue;
+        const base = i >= L ? ev[i - L] : null;
+        if (base != null && base !== 0) {
+          const sl = ((v - base) / base) * 100;
+          if (st === "FLAT") st = sl > HI ? "UP" : sl < -HI ? "DOWN" : "FLAT";
+          else if (st === "UP") st = sl < -HI ? "DOWN" : sl < LO ? "FLAT" : "UP";
+          else st = sl > HI ? "UP" : sl > -LO ? "FLAT" : "DOWN";
+        }
+        const color = st === "UP" ? "#22c55e" : st === "DOWN" ? "#ef4444" : "#e0a63a";
+        data.push({ time: candles[i].time as UTCTimestamp, value: v, color });
+      }
+      s.setData(data);
+    };
+    if (indicators.has("ma")) addMaSlopeLine(closes);
     if (indicators.has("sma5")) addOverlay(sma(closes, 5), SMA5_COLOR);
     if (indicators.has("ema5")) addOverlay(ema(closes, 5), EMA5_COLOR);
     if (indicators.has("sma")) { addOverlay(sma(closes, 9), SMA9_COLOR); addOverlay(sma(closes, 21), SMA21_COLOR); }
