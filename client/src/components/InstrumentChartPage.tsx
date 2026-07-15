@@ -33,7 +33,7 @@ import {
   type IndicatorKey,
 } from "@/lib/instrumentChart";
 import { formatDateStr, formatCalendarDay } from "@/lib/tradeFormatters";
-import { TickChart } from "./TickChart";
+import { TickChart, type MaLeg } from "./TickChart";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 
 const REPLAY_STEP_MS = 250;
@@ -256,6 +256,29 @@ export default function InstrumentChartPage() {
     return out;
   }, [candles, cutoffTime, showSignals, showTrades, signalsQuery.data, tradesQuery.data]);
 
+  // ── MA-Signal legs → colour the spot MA line off SEA's own events, so the
+  //    green/red transitions land exactly on the entry/exit markers ──────
+  const maLegs = useMemo<MaLeg[]>(() => {
+    if (candles.length === 0) return [];
+    const times = candles.map((c) => c.time);
+    const sigs = ((signalsQuery.data as ChartSignal[] | undefined) ?? [])
+      .filter((s) => s.cohort === "ma_signal")
+      .slice()
+      .sort((a, b) => a.timestamp - b.timestamp);
+    const legs: MaLeg[] = [];
+    let openCe: MaLeg | null = null;
+    let openPe: MaLeg | null = null;
+    for (const s of sigs) {
+      const a = s.action ?? "";
+      const t = snapToCandle(times, s.timestamp + IST_OFFSET_SECONDS) as UTCTimestamp;
+      if (a === "LONG_CE") { openCe = { start: t, end: null, side: "CE" }; legs.push(openCe); }
+      else if (a === "EXIT_CE") { if (openCe) { openCe.end = t; openCe = null; } }
+      else if (a === "LONG_PE") { openPe = { start: t, end: null, side: "PE" }; legs.push(openPe); }
+      else if (a === "EXIT_PE") { if (openPe) { openPe.end = t; openPe = null; } }
+    }
+    return legs;
+  }, [candles, signalsQuery.data]);
+
   // ── Trade-reason panel: selected trade (else latest) + its signal ───
   const tradeRows = useMemo(() => (tradesQuery.data as ChartTradeRow[] | undefined) ?? [], [tradesQuery.data]);
   const signalRows = useMemo(() => (signalsQuery.data as ChartSignal[] | undefined) ?? [], [signalsQuery.data]);
@@ -392,6 +415,7 @@ export default function InstrumentChartPage() {
           <TickChart
             candles={candles}
             markers={markers}
+            maLegs={maLegs.length ? maLegs : undefined}
             tradeLines={underlyingEntryLine}
             style={style}
             indicators={indicators}

@@ -40,10 +40,23 @@ import { sma, ema, rsi, supertrend, type OHLC } from "@/lib/indicators";
 /** Empty bars of margin kept to the right of the last candle. */
 const RIGHT_MARGIN_BARS = 10;
 
+/** One MA-Signal leg from SEA (authoritative). When passed, the MA line is
+ *  coloured by these legs instead of a browser-side slope recompute — so the
+ *  colour transitions land exactly on the entry/exit markers. `end === null`
+ *  means the leg is still open (colours up to the live bar). */
+export interface MaLeg {
+  start: UTCTimestamp;
+  end: UTCTimestamp | null;
+  side: "CE" | "PE";
+}
+
 export interface TickChartProps {
   /** Raw bucketed candles; Heikin-Ashi is applied internally when style==="ha". */
   candles: Candle[];
   markers?: SeriesMarker<UTCTimestamp>[];
+  /** SEA MA-Signal legs. When provided, the MA line follows these (guaranteed to
+   *  match the markers); when omitted, it falls back to a local slope recompute. */
+  maLegs?: MaLeg[];
   /** Dashed horizontal price lines (e.g. entry/SL/TP for the option panels). */
   tradeLines?: { price: number; color: string; title: string }[];
   style: ChartStyle;
@@ -61,6 +74,7 @@ export interface TickChartProps {
 export function TickChart({
   candles: rawCandles,
   markers = [],
+  maLegs,
   tradeLines = [],
   style,
   indicators,
@@ -161,13 +175,23 @@ export function TickChart({
       s.setData(data);
     };
 
-    // MA line tri-coloured by its 20-EMA slope state — matches the MA-Signal gate:
-    // green = rising up-leg, red = falling down-leg, amber = flat/sideways (sticky).
+    // MA line tri-coloured green = CE up-leg, red = PE down-leg, amber = flat.
+    // Preferred source is SEA's actual legs (`maLegs`) so the colour transitions
+    // land EXACTLY on the entry/exit markers. Without legs (e.g. the option
+    // panels), fall back to a browser-side 20-EMA slope recompute of the gate.
+    const UP = "#22c55e", DOWN = "#ef4444", FLAT = "#e0a63a";
+    const colorFromLegs = (t: number): string => {
+      for (const leg of maLegs!) {
+        const end = leg.end == null ? Infinity : (leg.end as number);
+        if (t >= (leg.start as number) && t <= end) return leg.side === "CE" ? UP : DOWN;
+      }
+      return FLAT;
+    };
     const addMaSlopeLine = (cl: number[]) => {
       const ev = ema(cl, MA_PERIOD);
       const L = 10, HI = 0.015, LO = 0.006;
       const s = chart.addSeries(LineSeries, {
-        color: "#e0a63a", lineWidth: 2,
+        color: FLAT, lineWidth: 2,
         priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
       });
       const data: { time: UTCTimestamp; value: number; color: string }[] = [];
@@ -175,14 +199,19 @@ export function TickChart({
       for (let i = 0; i < candles.length; i++) {
         const v = ev[i];
         if (v == null) continue;
-        const base = i >= L ? ev[i - L] : null;
-        if (base != null && base !== 0) {
-          const sl = ((v - base) / base) * 100;
-          if (st === "FLAT") st = sl > HI ? "UP" : sl < -HI ? "DOWN" : "FLAT";
-          else if (st === "UP") st = sl < -HI ? "DOWN" : sl < LO ? "FLAT" : "UP";
-          else st = sl > HI ? "UP" : sl > -LO ? "FLAT" : "DOWN";
+        let color: string;
+        if (maLegs) {
+          color = colorFromLegs(candles[i].time as number);
+        } else {
+          const base = i >= L ? ev[i - L] : null;
+          if (base != null && base !== 0) {
+            const sl = ((v - base) / base) * 100;
+            if (st === "FLAT") st = sl > HI ? "UP" : sl < -HI ? "DOWN" : "FLAT";
+            else if (st === "UP") st = sl < -HI ? "DOWN" : sl < LO ? "FLAT" : "UP";
+            else st = sl > HI ? "UP" : sl > -LO ? "FLAT" : "DOWN";
+          }
+          color = st === "UP" ? UP : st === "DOWN" ? DOWN : FLAT;
         }
-        const color = st === "UP" ? "#22c55e" : st === "DOWN" ? "#ef4444" : "#e0a63a";
         data.push({ time: candles[i].time as UTCTimestamp, value: v, color });
       }
       s.setData(data);
@@ -245,7 +274,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, markers, style, intervalSec, indicatorsKey, indicators, tradeLines]);
+  }, [candles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines]);
 
   const noData = !loading && rawCandles.length === 0;
   return (
