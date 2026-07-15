@@ -145,6 +145,14 @@ export function supportsManualControls(channel: Channel): boolean {
   return ws === 'my' || ws === 'testing';
 }
 
+/** Manual EXIT is allowed wherever full manual controls are (my/testing) AND in
+ *  the AI workspace — the operator can square off an AI-managed position by hand
+ *  without enabling manual entry. Stocks are handled separately (isEquityTrade). */
+export function canExitTrades(channel: Channel): boolean {
+  const ws = channelToWorkspace(channel);
+  return ws === 'my' || ws === 'testing' || ws === 'ai';
+}
+
 /** Badge label + classes for a channel (workspace × mode). */
 export function getChannelBadgeMeta(channel: Channel): { label: string; className: string } {
   const ws = channelToWorkspace(channel);

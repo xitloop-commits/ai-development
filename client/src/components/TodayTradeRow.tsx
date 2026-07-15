@@ -18,7 +18,7 @@ import {
   contractCopyText,
 } from '@/lib/tradeFormatters';
 import { tradePoints } from '@/lib/tradeCalculations';
-import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel } from '@/lib/tradeThemes';
+import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel, canExitTrades } from '@/lib/tradeThemes';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { istDateString } from '@/lib/signalChart';
 import OptionChartDialog, { type OptionChartTargetLite } from './OptionChartDialog';
@@ -404,10 +404,11 @@ function _TodayTradeRow({
                 TSL {trade.tslMode === 'manual' ? 'M' : 'A'}
               </button>
             )}
-            {/* Exit is allowed for the option workspaces (manual controls) and,
-                additionally, for stock trades in the Stocks workspace (paper or
-                live) — a live exit closes the real position at market. */}
-            {isOpen && !isDesync && (canManageTrades || isEquityTrade(trade)) && (
+            {/* Exit is allowed for the option workspaces (manual controls), the
+                AI workspace (square off an AI-managed position by hand), and for
+                stock trades in the Stocks workspace (paper or live) — a live exit
+                closes the real position at market. */}
+            {isOpen && !isDesync && (canExitTrades(channel) || isEquityTrade(trade)) && (
               <button
                 onClick={(e) => { e.stopPropagation(); onExit(trade.id, trade.instrument); }}
                 disabled={exitLoading}
