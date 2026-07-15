@@ -33,6 +33,7 @@ import {
   type IndicatorKey,
 } from "@/lib/instrumentChart";
 import { formatDateStr, formatCalendarDay } from "@/lib/tradeFormatters";
+import { resolveCohortHex } from "@/lib/tradeThemes";
 import { TickChart, type MaLeg } from "./TickChart";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 
@@ -239,14 +240,20 @@ export default function InstrumentChartPage() {
         seen.add(key);
         const conf = s.confidence;
         const score = conf == null ? "" : String(Math.round(conf <= 1 ? conf * 100 : conf));
-        // MA-Signal's enter AND exit both use its pink cohort-pill colour so both
-        // markers read as one strategy; shape + label distinguish them (arrow "in"
-        // vs ring "out"). Other cohorts keep their up/down green/red arrows.
         const isMa = s.cohort === "ma_signal";
-        const color = isMa ? "#F472B6" : isCall ? CHART_UP : CHART_DOWN;
+        // Every marker takes its cohort's pill colour (pink=MA, cyan=scalp, …);
+        // shape marks lifecycle (entry = arrow, exit = ● circle); direction is
+        // the arrow's way + the side of the bar. Entry and exit sit on OPPOSITE
+        // sides so they read distinctly:
+        //   CE (call): entry ▲ below the bar,  exit ● above.
+        //   PE (put):  entry ▼ above the bar,  exit ● below.
+        const color = resolveCohortHex(s.cohort);
         const shape = isExit ? "circle" : isCall ? "arrowUp" : "arrowDown";
+        const position: "aboveBar" | "belowBar" = isExit
+          ? (isCall ? "aboveBar" : "belowBar")
+          : (isCall ? "belowBar" : "aboveBar");
         const text = isExit ? "out" : isMa ? "in" : score;
-        out.push({ time: nearest as UTCTimestamp, position: isCall ? "belowBar" : "aboveBar", color, shape, text });
+        out.push({ time: nearest as UTCTimestamp, position, color, shape, text });
       }
     }
     if (showTrades) {
