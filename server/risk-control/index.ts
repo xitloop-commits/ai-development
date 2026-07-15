@@ -68,6 +68,10 @@ const TICK_INTERVAL_MS = 30_000;                     // 30 s monitor cadence
 // CONFIDENT (≥ this 0..100 score), and never on scalps (their direction flips
 // too often to trust a single read). Keeps the flip-exit from firing on noise.
 const MOMENTUM_FLIP_MIN_CONFIDENCE = 60;
+// Momentum-flip exit turned OFF globally per Partha 2026-07-15 — cutting a
+// position on a single reversed read whipsaws more than it saves. Flip to true
+// to re-enable for all non-scalp cohorts.
+const MOMENTUM_EXIT_ENABLED = false;
 
 interface RcaMonitorOptions {
   /** Max position age before age-exit. Default 30 min. */
@@ -209,6 +213,7 @@ class RcaMonitor {
         //   1. Skip scalps (their direction flips too often for a single read).
         //   2. Require the opposite signal to be CONFIDENT (≥ threshold).
         if (
+          MOMENTUM_EXIT_ENABLED &&
           volSignal &&
           trade.cohort !== "scalp" &&
           this.isFlippedAgainst(trade, volSignal) &&
