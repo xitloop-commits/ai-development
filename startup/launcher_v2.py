@@ -1578,7 +1578,7 @@ def act_yow_partha() -> None:
 def act_tools() -> None:
     """Tools menu — token refresh, credentials info, ops utilities."""
     items = [
-        ("Refresh Dhan token (TOTP)",       "refresh-token"),
+        ("Generate Dhan token (mint / check)", "refresh-token"),
         ("Show Dhan credentials info",      "creds-info"),
         ("Today's raw file sizes",          "file-sizes"),
         ("Replay checkpoint status",        "checkpoint"),
@@ -1628,8 +1628,34 @@ def act_tools() -> None:
 
         if kind == "refresh-token":
             print()
-            subprocess.run(["cmd", "/c", str(ROOT / "scripts" / "run-dhan-refresh.bat")],
-                           cwd=str(ROOT))
+            print(f"  {BOLD('Dhan token — mint (via TOTP) or check')}")
+            print(f"    1. primary    — mint + store   (dhan-primary-ac)")
+            print(f"    2. secondary  — mint + store   (dhan-secondary-ac)")
+            print(f"    3. primary    — check TOTP only (no login)")
+            print(f"    4. secondary  — check TOTP only (no login)")
+            print(f"    {DIM('Esc = cancel')}")
+            print()
+            bk = _getkey()
+            choice = {
+                "1": ("dhan-primary-ac", False),
+                "2": ("dhan-secondary-ac", False),
+                "3": ("dhan-primary-ac", True),
+                "4": ("dhan-secondary-ac", True),
+            }.get(bk)
+            if choice:
+                broker, is_check = choice
+                extra = ["--check"] if is_check else []
+                print()
+                # Mints via TOTP and writes broker_configs.credentials on success.
+                # Single attempt on a pin error (no retry) — repeated failures can
+                # lock the Dhan account. --check makes NO login call.
+                subprocess.run(["cmd", "/c", "node",
+                                str(ROOT / "scripts" / "dhan-token-refresh.mjs"),
+                                "--brokerId", broker, *extra],
+                               cwd=str(ROOT))
+                if not is_check:
+                    print()
+                    print(f"  {YELLOW('If it minted OK, restart BSA so it loads the new token.')}")
             _pause_briefly()
         elif kind == "creds-info":
             print()
