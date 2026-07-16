@@ -149,6 +149,18 @@ class PortfolioAgentImpl {
   private started = false;
 
   /**
+   * Early app-fill buffer (race guard). An app-placed order can fill so fast
+   * that its order_alert WS event beats the submitTrade DB persist — the trade
+   * isn't in any day record yet, so no reconciler branch matches it. Rather than
+   * adopt it (which would create a bogus EXT- duplicate + strand the real trade
+   * as PENDING), buffer the event here keyed by broker orderId; submitTrade calls
+   * `replayBufferedFills(orderId)` the moment its trade is persisted. Keyed by
+   * orderId, timestamped so an orphan (submitTrade threw after placeOrder) is
+   * purged after a grace window instead of leaking. */
+  private earlyFills = new Map<string, { event: BrokerOrderEvent; at: number }[]>();
+  private static readonly EARLY_FILL_TTL_MS = 60_000;
+
+  /**
    * Lifecycle — called from server startup. Boots the internal tickHandler
    * (MTM + auto-exit on TP/SL) under PA's ownership. Idempotent.
    */
@@ -749,7 +761,12 @@ class PortfolioAgentImpl {
     const price = update.averagePrice;
     if (!securityId || !direction || !(qty > 0) || !(price > 0)) return { matched: false };
 
-    const channel: Channel = update.assetKind === "equity" ? "stocks-live" : "my-live";
+    // Only EQUITY (stocks) is adopted for now. Options/commodities need a
+    // securityId → strike/expiry contract resolution before they can be mirrored
+    // correctly (buildExternalTrade would otherwise create an equity-shaped
+    // trade for a CE/PE) — deferred to step ③.
+    if (update.assetKind !== "equity") return { matched: false };
+    const channel: Channel = "stocks-live";
     const symbol = update.symbol ?? securityId;
 
     const state = await getCapitalState(channel).catch(() => null);
@@ -1141,6 +1158,36 @@ class PortfolioAgentImpl {
       }
     }
 
+    // ── Early app-fill buffer (race guard) ────────────────────────────────
+    // Nothing above matched. If this is an APP order (correlationId "TEA-…"),
+    // its trade record simply hasn't persisted yet — the order filled within
+    // milliseconds of being placed, beating submitTrade's DB write. Buffer it;
+    // submitTrade replays it via replayBufferedFills() once the trade exists.
+    // NEVER adopt an app order (that stole this trade's fill in the pre-fix bug).
+    if (
+      (update.status === "FILLED" || update.status === "PARTIALLY_FILLED") &&
+      update.correlationId?.startsWith("TEA-")
+    ) {
+      const now = Date.now();
+      // Purge orphaned buffers (submitTrade threw after placeOrder → never drained).
+      for (const [oid, evs] of Array.from(this.earlyFills.entries())) {
+        const fresh = evs.filter(
+          (e: { event: BrokerOrderEvent; at: number }) =>
+            now - e.at < PortfolioAgentImpl.EARLY_FILL_TTL_MS,
+        );
+        if (fresh.length === 0) this.earlyFills.delete(oid);
+        else if (fresh.length !== evs.length) this.earlyFills.set(oid, fresh);
+      }
+      const buf = this.earlyFills.get(update.orderId) ?? [];
+      buf.push({ event: update, at: now });
+      this.earlyFills.set(update.orderId, buf);
+      log.important(
+        `early app-fill buffered order=${update.orderId} corr=${update.correlationId} ` +
+          `— awaiting trade persist (${buf.length} queued)`,
+      );
+      return { matched: false };
+    }
+
     // ── External-order adoption ───────────────────────────────────────────
     // A fill from the PRIMARY account that matched no local trade (entry or
     // exit) was placed outside the app — mirror it via position netting. Primary
@@ -1156,6 +1203,27 @@ class PortfolioAgentImpl {
     }
 
     return { matched: false };
+  }
+
+  /**
+   * Replay any early app-fills buffered for this broker order id. Called by
+   * submitTrade the instant its trade record is persisted, closing the
+   * fill-beats-persist race: the buffered fill now finds its trade via the
+   * normal entry-match path (promote PENDING → OPEN, correct entry price/qty).
+   * No-op when nothing was buffered (the common, non-racing case).
+   */
+  async replayBufferedFills(orderId: string): Promise<void> {
+    const buf = this.earlyFills.get(orderId);
+    if (!buf || buf.length === 0) return;
+    this.earlyFills.delete(orderId);
+    log.important(`replaying ${buf.length} buffered fill(s) for order=${orderId}`);
+    for (const { event } of buf) {
+      try {
+        await this.applyBrokerOrderEvent(event);
+      } catch (err) {
+        log.warn(`replay of buffered fill order=${orderId} failed: ${(err as Error).message}`);
+      }
+    }
   }
 
   /**

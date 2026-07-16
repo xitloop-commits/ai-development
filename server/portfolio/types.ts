@@ -172,6 +172,11 @@ export interface BrokerOrderEvent {
   productType?: string;
   /** "equity" (cash stock) vs "option" — drives external-order attribution. */
   assetKind?: "equity" | "option";
+  /** Broker order tag. App-placed orders carry "TEA-<executionId>"; external
+   *  (Dhan app) orders carry "NA". An unmatched fill with a TEA- tag is an app
+   *  order whose trade hasn't persisted yet (race) — buffer + replay, never
+   *  adopt it. */
+  correlationId?: string;
 }
 
 export interface BrokerOrderEventResult {

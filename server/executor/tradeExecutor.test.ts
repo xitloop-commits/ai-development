@@ -125,6 +125,7 @@ vi.mock("../portfolio", () => ({
       ],
     })),
     recordTradePlaced: vi.fn(async () => undefined),
+    replayBufferedFills: vi.fn(async () => undefined),
     recordTradeRejected: vi.fn(async () => undefined),
     recordTradeClosed: vi.fn(async () => undefined),
     onAutoExit: vi.fn(() => () => undefined),

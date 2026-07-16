@@ -409,6 +409,13 @@ class TradeExecutorAgent {
         timestamp: Date.now(),
       });
 
+      // Race guard: a live order can fill within milliseconds of placement, so
+      // its order_alert WS event may have already arrived and been buffered
+      // (couldn't match — this trade didn't exist yet). Replay it now that the
+      // trade is persisted, so it promotes PENDING → OPEN at the real fill price
+      // instead of being wrongly adopted as an external (EXT-) position.
+      await portfolioAgent.replayBufferedFills(orderResult.orderId);
+
       const response: SubmitTradeResponse = {
         success: true,
         executionId: req.executionId,
@@ -1353,10 +1360,19 @@ function releaseOptionLtpSubscription(
   }
 }
 
-/** TEA generates positionId as POS-{tradeId-without-T-prefix}. Reverse it. */
+/**
+ * TEA generates positionId as POS-{tradeId-with-leading-"T"-stripped}. Reverse it.
+ *
+ * The encode strips a leading "T" from app trade ids ("T1784…" → "1784…"), which
+ * come back digit-first and need the "T" restored. Adopted ids ("EXT-322…") never
+ * start with "T", so the encode strips nothing and the decode must NOT prepend one
+ * — otherwise "POS-EXT-322…" wrongly becomes "TEXT-322…" and the exit fails to find
+ * the trade (the bug that broke exiting externally-adopted positions).
+ */
 function tradeIdFromPositionId(positionId: string): string {
-  if (positionId.startsWith("POS-")) return "T" + positionId.slice(4);
-  return positionId; // caller passed the tradeId directly
+  if (!positionId.startsWith("POS-")) return positionId; // caller passed the tradeId directly
+  const rest = positionId.slice(4);
+  return /^\d/.test(rest) ? "T" + rest : rest;
 }
 
 export const tradeExecutor = new TradeExecutorAgent();

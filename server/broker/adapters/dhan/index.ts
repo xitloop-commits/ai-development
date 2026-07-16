@@ -1345,6 +1345,10 @@ export class DhanAdapter implements BrokerAdapter {
         transactionType: update.txnType,
         productType: update.productName || undefined,
         assetKind: update.optionType === "CE" || update.optionType === "PE" ? "option" : "equity",
+        // App orders echo their "TEA-<executionId>" tag here; external (Dhan app)
+        // orders report "NA". The reconciler uses this to avoid adopting an app
+        // order's fast fill before its own trade record has persisted.
+        correlationId: update.correlationId || undefined,
       });
     });
     // On every (re)connect, broadcast so the reconciler catches up anything

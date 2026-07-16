@@ -389,6 +389,70 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     expect(t!.contractSecurityId).toBe("15355");
   });
 
+  it("race guard — an app fill (TEA- tag) that beats its trade's persist is BUFFERED, then replayed to OPEN", async () => {
+    // 1) The order fills within ms of placement — its order_alert arrives before
+    //    submitTrade has written the trade. Nothing matches. It must be buffered,
+    //    NOT adopted as an external EXT- position (the bug that stranded the real
+    //    trade as PENDING + created a bogus duplicate).
+    getCapitalStateMock.mockResolvedValue(null);
+    getDayRecordMock.mockResolvedValue(null);
+    const early = baseEvent({
+      orderId: "APP-ORD-RACE",
+      status: "FILLED",
+      averagePrice: 120.7,
+      filledQuantity: 65,
+      brokerId: "dhan-primary-ac",
+      securityId: "57344",
+      symbol: "NIFTY-Jul2026-2",
+      transactionType: "BUY",
+      assetKind: "option",
+      correlationId: "TEA-UI-race",
+    });
+    const buffered = await portfolioAgent.applyBrokerOrderEvent(early);
+    expect(buffered.matched).toBe(false);
+    expect(upsertDayRecordMock).not.toHaveBeenCalled(); // buffered, not adopted
+
+    // 2) submitTrade persists the PENDING trade, then replays the buffered fill.
+    const pending = makeTrade({
+      id: "T-RACE",
+      brokerOrderId: "APP-ORD-RACE",
+      status: "PENDING",
+      entryPrice: 122,
+      qty: 65,
+    });
+    getCapitalStateMock.mockImplementation(async (c: any) => (c === "my-live" ? makeState() : null));
+    getDayRecordMock.mockImplementation(async (c: any) => (c === "my-live" ? makeDay([pending]) : null));
+
+    await portfolioAgent.replayBufferedFills("APP-ORD-RACE");
+
+    const written = upsertDayRecordMock.mock.calls.at(-1)![1] as DayRecord;
+    const t = written.trades.find((x) => x.id === "T-RACE")!;
+    expect(t.status).toBe("OPEN"); // promoted PENDING → OPEN
+    expect(t.entryPrice).toBe(120.7); // corrected to the real fill
+    expect(written.trades.find((x) => x.id.startsWith("EXT-"))).toBeUndefined(); // no bogus duplicate
+  });
+
+  it("external OPTION fill (no app tag) is NOT adopted — options need contract resolution (deferred to ③)", async () => {
+    getCapitalStateMock.mockResolvedValue(null);
+    getDayRecordMock.mockResolvedValue(null);
+    const result = await portfolioAgent.applyBrokerOrderEvent(
+      baseEvent({
+        orderId: "EXT-OPT-1",
+        status: "FILLED",
+        averagePrice: 117.3,
+        filledQuantity: 65,
+        brokerId: "dhan-primary-ac",
+        securityId: "57344",
+        symbol: "NIFTY-Jul2026-2",
+        transactionType: "SELL",
+        assetKind: "option",
+        correlationId: "NA",
+      }),
+    );
+    expect(result.matched).toBe(false);
+    expect(upsertDayRecordMock).not.toHaveBeenCalled(); // equity-only gate holds
+  });
+
   it("no-match — orderId not in any open trade returns matched=false", async () => {
     const result = await portfolioAgent.applyBrokerOrderEvent(
       baseEvent({ orderId: "UNKNOWN-ORD" }),

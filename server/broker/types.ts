@@ -370,6 +370,11 @@ export interface OrderUpdate {
   transactionType?: "BUY" | "SELL";
   productType?: string; // INTRADAY | CNC | MTF | MARGIN
   assetKind?: "equity" | "option";
+  /** Broker order tag echoed back on the update. App-placed orders carry the
+   *  "TEA-<executionId>" correlationId set at placement; externally-placed
+   *  (Dhan app / other) orders carry "NA". Lets the reconciler tell an app
+   *  order's fill (must wait for its trade) from a genuine external one. */
+  correlationId?: string;
 }
 
 export type OrderUpdateCallback = (update: OrderUpdate) => void;
