@@ -3,13 +3,14 @@
  *
  * Laid out as real <td> cells whose colSpans match the TradingDesk colgroup, so
  * each summary figure lines up directly under its trade-table header:
- *   Day+Date(1-2) · Capital flow(3-5) · W/L + controls(6, Instrument) ·
- *   Realized/Open/Exposure(7-9) · Invested(10) · Charges(11) · P&L(12-14) · ∅(15-17)
+ *   Day+Date(1-2) · Capital flow(3-5) · Cohort-wise W/L + controls(6-10) ·
+ *   Charges(11) · P&L(12-14) · ∅(15-17)
  * The row tints green when the target is hit and red on a heavy-loss day.
  */
 import type { DayRecord, TradeRecord } from '@/lib/tradeTypes';
 import { fmt, pnlColor, formatDeviation } from '@/lib/tradeFormatters';
 import { aggregateChargesBreakdown } from '@/lib/tradeCalculations';
+import { cohortLabel, cohortPillStyle } from '@/lib/tradeThemes';
 import { ChargesBreakdownTip } from './ChargesBreakdownTip';
 
 export interface TodaySummaryRowProps {
@@ -62,13 +63,20 @@ export function TodaySummaryRow({
   // Day-health aggregates.
   const hasTrades = trades.length > 0;
   const closed = trades.filter((t) => t.status === 'CLOSED' || t.status === 'EXITED');
-  const open = trades.filter((t) => t.status === 'OPEN');
-  const wins = closed.filter((t) => (t.pnl ?? 0) > 0).length;
-  const losses = closed.filter((t) => (t.pnl ?? 0) < 0).length;
-  const realized = closed.reduce((s, t) => s + (t.pnl ?? 0), 0);
-  const openUnrealized = open.reduce((s, t) => s + (t.unrealizedPnl ?? 0), 0);
-  const openExposure = open.reduce((s, t) => s + t.entryPrice * t.qty, 0);
-  const invested = trades.reduce((s, t) => s + t.entryPrice * t.qty, 0);
+  // Win/Loss broken down by strategy cohort; manual trades (no cohort) bucket
+  // under "manual". Only settled trades count toward W/L.
+  const cohortStats = (() => {
+    const m = new Map<string, { wins: number; losses: number }>();
+    for (const t of closed) {
+      const key = t.cohort ?? 'manual';
+      const g = m.get(key) ?? { wins: 0, losses: 0 };
+      const pnl = t.pnl ?? 0;
+      if (pnl > 0) g.wins++;
+      else if (pnl < 0) g.losses++;
+      m.set(key, g);
+    }
+    return Array.from(m, ([cohort, s]) => ({ cohort, ...s }));
+  })();
   const pctToTarget = day.targetAmount > 0 ? (totalPnl / day.targetAmount) * 100 : 0;
   const targetHit = day.targetAmount > 0 && totalPnl >= day.targetAmount;
   const heavyLoss = day.targetAmount > 0 && totalPnl <= -day.targetAmount;
@@ -110,14 +118,32 @@ export function TodaySummaryRow({
         </div>
       </td>
 
-      {/* 6 Instrument → W/L + controls */}
-      <td colSpan={1} className={`${cell}`}>
+      {/* 6-10 Cohort-wise Win/Loss + controls */}
+      <td colSpan={5} className={`${cell}`}>
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[0.6875rem] tabular-nums" title="Wins / Losses">
-            <span className="text-bullish">{wins}</span>
-            <span className="text-muted-foreground"> / </span>
-            <span className="text-destructive">{losses}</span>
-          </span>
+          <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap">
+            {cohortStats.length === 0 ? (
+              <span className="text-[0.625rem] text-muted-foreground">— no closed trades —</span>
+            ) : (
+              cohortStats.map(({ cohort, wins, losses }) => (
+                <span
+                  key={cohort}
+                  className="inline-flex items-center gap-1 text-[0.6875rem] tabular-nums"
+                  title={`${cohortLabel(cohort)}: ${wins} win / ${losses} loss`}
+                >
+                  <span
+                    className="px-1 py-px rounded text-[0.5rem] font-semibold leading-none uppercase tracking-wide"
+                    style={cohortPillStyle(cohort === 'manual' ? null : cohort)}
+                  >
+                    {cohortLabel(cohort)}
+                  </span>
+                  <span className="text-bullish">{wins}</span>
+                  <span className="text-muted-foreground">/</span>
+                  <span className="text-destructive">{losses}</span>
+                </span>
+              ))
+            )}
+          </div>
           <div className="flex items-center gap-1 shrink-0">
             {!canManageTrades && (
               <span className="text-[0.5625rem] italic text-muted-foreground">AI managed</span>
@@ -142,20 +168,6 @@ export function TodaySummaryRow({
             )}
           </div>
         </div>
-      </td>
-
-      {/* 7-9 Realized · Open · Exposure */}
-      <td colSpan={3} className={`${cell}`}>
-        <div className="flex items-center justify-end gap-3">
-          <Stat label="Realized" color={pnlColor(realized)}>{hasTrades ? fmt(Math.round(realized), false) : '—'}</Stat>
-          <Stat label="Open" color={pnlColor(openUnrealized)}>{open.length > 0 ? fmt(Math.round(openUnrealized), false) : '—'}</Stat>
-          <Stat label="Exposure">{open.length > 0 ? fmt(openExposure) : '—'}</Stat>
-        </div>
-      </td>
-
-      {/* 10 Invested */}
-      <td colSpan={1} className={`${cell} text-right`}>
-        <Stat label="Invested">{hasTrades ? fmt(invested) : '—'}</Stat>
       </td>
 
       {/* 11 Charges */}
