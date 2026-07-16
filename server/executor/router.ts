@@ -328,6 +328,10 @@ export const executorRouter = router({
       // ── 5. Resolve TP / SL — absolute → explicit %-from-entry → configured
       //    default (percent OR fixed ₹, per slMode/targetMode) ─
       const isBuy = input.type.includes("BUY");
+      // Equity = a plain BUY/SELL (options are CALL_/PUT_). A discretionary stock
+      // market-buy carries no auto SL/TP — the option-tuned defaults produce a
+      // nonsensical R:R and would trip the pre-trade gate. Managed manually.
+      const isEquity = input.type === "BUY" || input.type === "SELL";
       const config = await getActiveBrokerConfig();
       // A FIXED target is a NET-₹ profit → needs qty + charges; resolveRiskLevels
       // converts it to a target price. SL + percent target are charges-free.
@@ -347,6 +351,8 @@ export const executorRouter = router({
         resolvedTakeProfit = isBuy
           ? Math.round(entryPrice * (1 + input.targetPercent / 100) * 100) / 100
           : Math.round(entryPrice * (1 - input.targetPercent / 100) * 100) / 100;
+      } else if (isEquity) {
+        resolvedTakeProfit = null; // no auto target on a discretionary stock buy
       } else {
         resolvedTakeProfit = riskDefault.takeProfit; // configured %/fixed default
       }
@@ -358,6 +364,8 @@ export const executorRouter = router({
         resolvedStopLoss = isBuy
           ? Math.round(entryPrice * (1 - input.stopLossPercent / 100) * 100) / 100
           : Math.round(entryPrice * (1 + input.stopLossPercent / 100) * 100) / 100;
+      } else if (isEquity) {
+        resolvedStopLoss = null; // no auto stop on a discretionary stock buy (skips R:R gate)
       } else {
         resolvedStopLoss = riskDefault.stopLoss; // configured %/fixed default
       }
@@ -366,8 +374,7 @@ export const executorRouter = router({
       const orderType = (config?.settings?.orderType as "MARKET" | "LIMIT" | undefined) ?? "LIMIT";
       // Equity (stock) trades route to NSE_EQ cash and carry their own product
       // type — MIS→INTRADAY (default) or CNC (delivery); options keep the config
-      // default. `isEquity` is the plain BUY/SELL side (options are CALL_/PUT_).
-      const isEquity = input.type === "BUY" || input.type === "SELL";
+      // default. (`isEquity` computed above.)
       const productType = isEquity
         ? (input.productType ?? "INTRADAY")
         : ((config?.settings?.productType as "INTRADAY" | "CNC" | undefined) ?? "INTRADAY");
