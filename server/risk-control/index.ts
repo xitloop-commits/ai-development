@@ -363,27 +363,43 @@ class RcaMonitor {
     log.info(`evaluate channel=${input.channel} instrument=${input.instrument} qty=${input.quantity}`);
     // Phase 1 pass-through to TEA — APPROVE every well-formed input.
     // C3 will replace this body with real risk math.
-    const submitResult = await tradeExecutor.submitTrade({
-      executionId: input.executionId,
-      channel: input.channel,
-      origin: input.origin,
-      instrument: input.instrument,
-      direction: input.direction,
-      quantity: input.quantity,
-      entryPrice: input.entryPrice,
-      stopLoss: input.stopLoss,
-      takeProfit: input.takeProfit,
-      orderType: "MARKET",
-      productType: "INTRADAY",
-      optionType: input.optionType,
-      strike: input.strike,
-      expiry: input.expiry,
-      contractSecurityId: input.contractSecurityId,
-      capitalPercent: input.capitalPercent,
-      cohort: input.cohort,
-      signalSeq: input.signalSeq,
-      timestamp: Date.now(),
-    });
+    // Multi-strategy race (T84): every ai-paper signal spawns one FULL-SIZE twin
+    // per exit strategy (sprint/runway/anchor) so they compete live on the same
+    // entry. Other channels place a single (sprint) trade. Each twin needs a
+    // DISTINCT executionId — idempotency is keyed on it, else twins collapse to one.
+    const strategies: Array<"sprint" | "runway" | "anchor"> =
+      input.channel === "ai-paper" ? ["sprint", "runway", "anchor"] : ["sprint"];
+    const placedAt = Date.now();
+    let submitResult: Awaited<ReturnType<typeof tradeExecutor.submitTrade>> | undefined;
+    for (const strat of strategies) {
+      const r = await tradeExecutor.submitTrade({
+        executionId: strategies.length > 1 ? `${input.executionId}-${strat}` : input.executionId,
+        channel: input.channel,
+        origin: input.origin,
+        instrument: input.instrument,
+        direction: input.direction,
+        quantity: input.quantity,
+        entryPrice: input.entryPrice,
+        stopLoss: input.stopLoss,
+        takeProfit: input.takeProfit,
+        orderType: "MARKET",
+        productType: "INTRADAY",
+        optionType: input.optionType,
+        strike: input.strike,
+        expiry: input.expiry,
+        contractSecurityId: input.contractSecurityId,
+        capitalPercent: input.capitalPercent,
+        cohort: input.cohort,
+        signalSeq: input.signalSeq,
+        exitStrategy: strat,
+        // Option A: the signal already passed the DA gate once; don't re-gate each
+        // twin (would reject twin 2/3 on accumulated exposure). Twins only.
+        skipDisciplinePreCheck: strategies.length > 1,
+        timestamp: placedAt,
+      });
+      if (submitResult === undefined) submitResult = r; // report the sprint twin as the decision
+    }
+    submitResult = submitResult!;
     const decision = submitResult.success ? "APPROVE" : "REJECT";
     rcaEvalTotal.labels({ decision }).inc();
     return {

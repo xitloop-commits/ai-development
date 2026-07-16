@@ -137,6 +137,8 @@ export interface TradeRecord {
    *  (SL/TP/TSL + age/stale/vol/momentum). Default for MA-Signal; per-trade
    *  togglable. The trade still exits on EOD square-off or a manual ✕. */
   manualExitOnly?: boolean;
+  /** Which pluggable exit strategy runs this trade (T84): sprint/runway/anchor. */
+  exitStrategy?: 'sprint' | 'runway' | 'anchor';
   openedAt: number;
   closedAt: number | null;
   /**

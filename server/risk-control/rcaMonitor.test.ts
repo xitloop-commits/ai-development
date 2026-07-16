@@ -175,20 +175,18 @@ describe("rcaMonitor — exit triggers", () => {
     expect(exitTradeMock).not.toHaveBeenCalled();
   });
 
-  it("MOMENTUM_FLIP fires for a non-scalp trade on a confident opposite signal", async () => {
+  it("MOMENTUM_FLIP is disabled globally — no exit even on a confident opposite signal", async () => {
     const trade = makeOpenTrade({ cohort: "trend" }); // CALL_BUY = bullish
     getPositionsMock.mockResolvedValueOnce([trade as any]);
     getSEASignalsMock.mockReturnValue([
-      // GO_PUT is opposite to a long call; 0.7 → confidence 70 ≥ 60.
+      // GO_PUT opposite a long call, 0.7 → conf 70 ≥ 60 — WOULD have fired the
+      // momentum-flip, but MOMENTUM_EXIT_ENABLED=false turns it off.
       { instrument: "NIFTY", direction: "GO_PUT", direction_prob_30s: 0.7, timestamp: Date.now() },
     ] as any);
 
     await (rcaMonitor as any).tick();
 
-    expect(exitTradeMock).toHaveBeenCalledTimes(1);
-    expect(exitTradeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ reason: "MOMENTUM_EXIT" }),
-    );
+    expect(exitTradeMock).not.toHaveBeenCalled();
   });
 
   it("MOMENTUM_FLIP is skipped for scalps even on a confident opposite signal", async () => {

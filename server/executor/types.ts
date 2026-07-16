@@ -57,6 +57,16 @@ export interface SubmitTradeRequest {
    *  stamped onto the TradeRecord so P&L can be grouped by strategy. */
   cohort?: string;
 
+  /** Which pluggable exit strategy manages this trade (T84): sprint/runway/anchor.
+   *  Set per-twin by the RCA fan-out; defaults to "sprint" in buildTradeRecord. */
+  exitStrategy?: "sprint" | "runway" | "anchor";
+
+  /** T84 multi-strategy twin: skip TEA's per-submit discipline re-check. The
+   *  signal already passed the DA gate once (discipline/routes.ts) before the
+   *  fan-out, so the twins aren't re-gated per-twin (else the 2nd/3rd twin's
+   *  accumulated exposure would reject it). Option A — twins exempt. */
+  skipDisciplinePreCheck?: boolean;
+
   /** Global daily signal sequence (server-assigned) — shown on the trade row so
    *  it matches its originating tray signal card. */
   signalSeq?: number;

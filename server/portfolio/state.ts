@@ -142,6 +142,10 @@ export interface TradeRecord {
    *  external close (e.g. MA-Signal's own EXIT signal). Set for the ma_signal
    *  cohort; suppresses TP/SL here + age/stale/volatility/momentum in RcaMonitor. */
   manualExitOnly?: boolean;
+  /** `exitStrategy`: which pluggable exit strategy runs this trade (T84).
+   *  "sprint" = today's TP/SL/TSL/age + honours external EXIT signals;
+   *  "runway"/"anchor" = staged stops, ignore external signals. Default sprint. */
+  exitStrategy?: "sprint" | "runway" | "anchor";
   tslMode?: "auto" | "manual";
   originalStopLossPrice?: number | null;
   /** Broker-assigned order ID returned by placeOrder. Used by orderSync /
@@ -324,6 +328,7 @@ const tradeRecordSchema = new Schema(
     stopLossDisabled: { type: Boolean, default: false },
     targetDisabled: { type: Boolean, default: false },
     manualExitOnly: { type: Boolean, default: false },
+    exitStrategy: { type: String, enum: ["sprint", "runway", "anchor"], default: "sprint" },
     tslMode: { type: String, enum: ["auto", "manual"], default: "auto" },
     originalStopLossPrice: { type: Number, default: null },
     tslActivatedAt: { type: Number, default: null },
@@ -1034,6 +1039,8 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       stopLossDisabled: t.stopLossDisabled ?? undefined,
       targetDisabled: t.targetDisabled ?? undefined,
       tslMode: t.tslMode ?? undefined,
+      manualExitOnly: t.manualExitOnly ?? undefined,
+      exitStrategy: t.exitStrategy ?? undefined,
       originalStopLossPrice: t.originalStopLossPrice ?? undefined,
       tslActivatedAt: t.tslActivatedAt ?? undefined,
       brokerOrderId: t.brokerOrderId ?? null,

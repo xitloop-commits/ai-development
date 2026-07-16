@@ -281,7 +281,7 @@ class TradeExecutorAgent {
       // rules would be violated. Skipped silently if Discipline state can't
       // be read so a transient discipline-engine failure doesn't halt
       // trading — Phase 4 will harden this to fail-closed.
-      const blockReason = await this.disciplinePreCheck(req);
+      const blockReason = req.skipDisciplinePreCheck ? null : await this.disciplinePreCheck(req);
       if (blockReason) {
         const resp = rejection(req.executionId, `Discipline blocked: ${blockReason}`);
         idempotencyStore.fail(req.executionId, resp.error!);
@@ -1219,6 +1219,9 @@ function buildTradeRecord(
     // auto-exit: SL/TP here, and age/stale/volatility/momentum in RcaMonitor
     // (which skips manualExitOnly trades). Trailing is already off (tslMode manual).
     manualExitOnly: req.cohort === "ma_signal",
+    // Pluggable exit strategy (T84). Defaults to "sprint" = today's behaviour;
+    // the RCA twin fan-out overrides per-twin (sprint/runway/anchor).
+    exitStrategy: req.exitStrategy ?? "sprint",
     stopLossDisabled: req.cohort === "ma_signal",
     targetDisabled: req.cohort === "ma_signal",
     tslMode: (req.trailingStopLoss?.enabled ?? false) ? "auto" : "manual",

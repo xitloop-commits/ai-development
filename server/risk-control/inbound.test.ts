@@ -109,15 +109,15 @@ beforeEach(() => {
 // ─── evaluateTrade ───────────────────────────────────────────────
 
 describe("rcaMonitor.evaluateTrade", () => {
-  it("APPROVE on TEA success — forwards to submitTrade", async () => {
+  it("APPROVE on TEA success — fans out one twin per exit strategy (ai-paper, T84)", async () => {
     const result = await rcaMonitor.evaluateTrade(sampleEvalReq);
     expect(result.decision).toBe("APPROVE");
-    expect(tradeExecutor.submitTrade).toHaveBeenCalledTimes(1);
-    expect((tradeExecutor.submitTrade as any).mock.calls[0][0]).toMatchObject({
-      executionId: "test-1",
-      instrument: "NIFTY_50",
-      origin: "AI",
-    });
+    // ai-paper spawns 3 full-size twins (sprint/runway/anchor), distinct executionIds.
+    expect(tradeExecutor.submitTrade).toHaveBeenCalledTimes(3);
+    const reqs = (tradeExecutor.submitTrade as any).mock.calls.map((c: any[]) => c[0]);
+    expect(reqs.map((r: any) => r.exitStrategy)).toEqual(["sprint", "runway", "anchor"]);
+    expect(reqs.map((r: any) => r.executionId)).toEqual(["test-1-sprint", "test-1-runway", "test-1-anchor"]);
+    expect(reqs[0]).toMatchObject({ instrument: "NIFTY_50", origin: "AI", skipDisciplinePreCheck: true });
   });
 
   it("REJECT when TEA returns success=false", async () => {
