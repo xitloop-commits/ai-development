@@ -133,6 +133,14 @@ export class DhanOrderUpdateWs extends EventEmitter {
           // ("Rejected") — NOT the PascalCase shape Dhan's docs show. We log
           // from the normalized result so the field stream is always visible.
           const normalized = this.normalize(msg as DhanOrderUpdateRaw);
+          // Debug capture (DHAN_ORDER_WS_RAW=1): dump the FULL raw Data + the
+          // normalized event so every field Dhan sends (tradedQty, avgTradedPrice,
+          // all timestamps, per-leg fields) is visible for wiring the order
+          // lifecycle. Off by default — noisy; enable only while capturing.
+          if (process.env.DHAN_ORDER_WS_RAW) {
+            this.log.important(`[order_alert RAW] ${JSON.stringify(msg.Data)}`);
+            this.log.important(`[order_alert NORMALIZED] ${JSON.stringify(normalized)}`);
+          }
           this.log.important(
             `order_alert order=${normalized.orderId} status=${normalized.status} legNo=${normalized.legNo} ` +
               `symbol=${normalized.symbol}${normalized.reason ? ` reason="${normalized.reason}"` : ""}`,
