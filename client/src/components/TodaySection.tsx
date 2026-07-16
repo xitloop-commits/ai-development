@@ -236,6 +236,7 @@ export function TodaySection({
         day={day}
         trades={trades}
         totalPnl={totalPnl}
+        showNet={showNet}
         canManageTrades={canManageTrades}
         openTradeCount={openTrades.length}
         cycleDateLabel={cycleDateLabel}

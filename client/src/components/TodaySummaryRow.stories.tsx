@@ -39,6 +39,7 @@ const meta = {
     day,
     trades: day.trades,
     totalPnl: day.totalPnl,
+    showNet: true,
     canManageTrades: true,
     openTradeCount: openCount,
     cycleDateLabel: "Today",

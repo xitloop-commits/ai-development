@@ -18,6 +18,8 @@ export interface TodaySummaryRowProps {
   trades: TradeRecord[];
   /** Net (showNet) or gross day P&L — computed by the parent. */
   totalPnl: number;
+  /** Net-vs-gross toggle — so per-cohort P&L uses the same basis as the day P&L. */
+  showNet: boolean;
   canManageTrades: boolean;
   openTradeCount: number;
   cycleDateLabel: string;
@@ -50,6 +52,7 @@ export function TodaySummaryRow({
   day,
   trades,
   totalPnl,
+  showNet,
   canManageTrades,
   openTradeCount,
   cycleDateLabel,
@@ -63,20 +66,27 @@ export function TodaySummaryRow({
   // Day-health aggregates.
   const hasTrades = trades.length > 0;
   const closed = trades.filter((t) => t.status === 'CLOSED' || t.status === 'EXITED');
-  // Win/Loss broken down by strategy cohort; manual trades (no cohort) bucket
-  // under "manual". Only settled trades count toward W/L.
+  // Per-cohort performance (W/L + realized P&L); manual trades (no cohort) bucket
+  // under "manual". Only settled trades count. Wins/losses classify on NET P&L;
+  // the shown P&L follows the desk's net/gross toggle so it matches the day total.
   const cohortStats = (() => {
-    const m = new Map<string, { wins: number; losses: number }>();
+    const m = new Map<string, { wins: number; losses: number; pnl: number }>();
     for (const t of closed) {
       const key = t.cohort ?? 'manual';
-      const g = m.get(key) ?? { wins: 0, losses: 0 };
-      const pnl = t.pnl ?? 0;
-      if (pnl > 0) g.wins++;
-      else if (pnl < 0) g.losses++;
+      const g = m.get(key) ?? { wins: 0, losses: 0, pnl: 0 };
+      const net = t.pnl ?? 0;
+      if (net > 0) g.wins++;
+      else if (net < 0) g.losses++;
+      g.pnl += showNet ? net : net + (t.charges ?? 0);
       m.set(key, g);
     }
     return Array.from(m, ([cohort, s]) => ({ cohort, ...s }));
   })();
+  // Today overall = sum across every cohort (the whole day's settled performance).
+  const overall = cohortStats.reduce(
+    (a, c) => ({ wins: a.wins + c.wins, losses: a.losses + c.losses, pnl: a.pnl + c.pnl }),
+    { wins: 0, losses: 0, pnl: 0 },
+  );
   const pctToTarget = day.targetAmount > 0 ? (totalPnl / day.targetAmount) * 100 : 0;
   const targetHit = day.targetAmount > 0 && totalPnl >= day.targetAmount;
   const heavyLoss = day.targetAmount > 0 && totalPnl <= -day.targetAmount;
@@ -94,11 +104,11 @@ export function TodaySummaryRow({
 
   return (
     <tr data-day={day.dayIndex} className={`border-y ${summaryBorder} ${rowBg}`} ref={rowRef}>
-      {/* 1-2 Day · Date */}
+      {/* 1-2 Date · Day (flipped — date on top, day below) */}
       <td colSpan={2} className={`${cell} text-left`}>
         <div className="flex flex-col leading-tight">
-          <span className="text-xs font-semibold text-foreground">Day {day.dayIndex}</span>
           <span className="text-[0.5625rem] text-muted-foreground">{cycleDateLabel}</span>
+          <span className="text-xs font-semibold text-foreground">Day {day.dayIndex}</span>
         </div>
       </td>
 
@@ -125,23 +135,37 @@ export function TodaySummaryRow({
             {cohortStats.length === 0 ? (
               <span className="text-[0.625rem] text-muted-foreground">— no closed trades —</span>
             ) : (
-              cohortStats.map(({ cohort, wins, losses }) => (
-                <span
-                  key={cohort}
-                  className="inline-flex items-center gap-1 text-[0.6875rem] tabular-nums"
-                  title={`${cohortLabel(cohort)}: ${wins} win / ${losses} loss`}
-                >
+              <>
+                {cohortStats.map(({ cohort, wins, losses, pnl }) => (
                   <span
-                    className="px-1 py-px rounded text-[0.5rem] font-semibold leading-none uppercase tracking-wide"
-                    style={cohortPillStyle(cohort === 'manual' ? null : cohort)}
+                    key={cohort}
+                    className="inline-flex items-center gap-1 text-[0.6875rem] tabular-nums"
+                    title={`${cohortLabel(cohort)}: ${wins}W / ${losses}L · ${fmt(Math.round(pnl), false)}`}
                   >
-                    {cohortLabel(cohort)}
+                    <span
+                      className="px-1 py-px rounded text-[0.5rem] font-semibold leading-none uppercase tracking-wide"
+                      style={cohortPillStyle(cohort === 'manual' ? null : cohort)}
+                    >
+                      {cohortLabel(cohort)}
+                    </span>
+                    <span className="text-bullish">{wins}</span>
+                    <span className="text-muted-foreground">/</span>
+                    <span className="text-destructive">{losses}</span>
+                    <span className={`ml-0.5 ${pnlColor(pnl)}`}>{fmt(Math.round(pnl), false)}</span>
                   </span>
-                  <span className="text-bullish">{wins}</span>
+                ))}
+                {/* Today overall — the whole day's settled performance across cohorts */}
+                <span
+                  className="inline-flex items-center gap-1 text-[0.6875rem] tabular-nums font-bold border-l border-border/70 pl-3"
+                  title={`Today overall: ${overall.wins}W / ${overall.losses}L`}
+                >
+                  <span className="text-[0.5rem] uppercase tracking-wide text-muted-foreground">Today</span>
+                  <span className="text-bullish">{overall.wins}</span>
                   <span className="text-muted-foreground">/</span>
-                  <span className="text-destructive">{losses}</span>
+                  <span className="text-destructive">{overall.losses}</span>
+                  <span className={`ml-0.5 ${pnlColor(overall.pnl)}`}>{fmt(Math.round(overall.pnl), false)}</span>
                 </span>
-              ))
+              </>
             )}
           </div>
           <div className="flex items-center gap-1 shrink-0">
