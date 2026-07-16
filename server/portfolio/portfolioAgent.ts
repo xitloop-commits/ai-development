@@ -852,15 +852,18 @@ class PortfolioAgentImpl {
     if (modifications.manualExitOnly !== undefined) trade.manualExitOnly = modifications.manualExitOnly;
 
     await upsertDayRecord(channel, day);
-    // Push a manual SL/TP price edit into the tickHandler's live cache too — its
-    // per-tick reconcile copies the cached targetPrice/stopLossPrice, so without
-    // this the edit is clobbered back on the next persist ("moves then resets").
-    if (modifications.stopLossPrice !== undefined || modifications.targetPrice !== undefined) {
-      tickHandler.applyTradeEdit(channel, tradeId, {
-        stopLossPrice: modifications.stopLossPrice,
-        targetPrice: modifications.targetPrice,
-      });
-    }
+    // Push EVERY edit into the tickHandler's live cache — its per-tick persist
+    // writes the cached trade, so any field not mirrored here is clobbered back
+    // on the next tick ("moves then resets"). Covers prices AND the risk-flag
+    // toggles (SL/TP-disable, TSL mode, manual-exit-only).
+    tickHandler.applyTradeEdit(channel, tradeId, {
+      stopLossPrice: modifications.stopLossPrice,
+      targetPrice: modifications.targetPrice,
+      stopLossDisabled: modifications.stopLossDisabled,
+      targetDisabled: modifications.targetDisabled,
+      tslMode: modifications.tslMode,
+      manualExitOnly: modifications.manualExitOnly,
+    });
     await this.mirrorPosition(channel, day.dayIndex, trade).catch((err) =>
       log.warn(`mirrorPosition (update) failed for ${trade.id}: ${(err as Error).message}`),
     );

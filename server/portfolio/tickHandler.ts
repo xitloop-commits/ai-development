@@ -202,14 +202,29 @@ class TickHandler extends EventEmitter {
   applyTradeEdit(
     channel: Channel,
     tradeId: string,
-    patch: { stopLossPrice?: number | null; targetPrice?: number | null },
+    patch: {
+      stopLossPrice?: number | null;
+      targetPrice?: number | null;
+      stopLossDisabled?: boolean;
+      targetDisabled?: boolean;
+      tslMode?: "auto" | "manual";
+      manualExitOnly?: boolean;
+    },
   ): void {
     const cached = this.stateCache.get(channel);
     if (!cached || !cached.day) return;
     const trade = cached.day.trades.find((t) => t.id === tradeId);
     if (!trade) return;
+    // Mirror the edit onto the LIVE cached trade so the per-tick persist writes
+    // the new value instead of clobbering it back to the cached one. Covers the
+    // risk-flag toggles too (SL/TP-disable, TSL mode, manual-exit-only) — without
+    // this the flag "moves then resets" every tick.
     if (patch.stopLossPrice !== undefined) trade.stopLossPrice = patch.stopLossPrice;
     if (patch.targetPrice !== undefined) trade.targetPrice = patch.targetPrice;
+    if (patch.stopLossDisabled !== undefined) trade.stopLossDisabled = patch.stopLossDisabled;
+    if (patch.targetDisabled !== undefined) trade.targetDisabled = patch.targetDisabled;
+    if (patch.tslMode !== undefined) trade.tslMode = patch.tslMode;
+    if (patch.manualExitOnly !== undefined) trade.manualExitOnly = patch.manualExitOnly;
   }
 
   private async getChannelStateCached(channel: Channel): Promise<ChannelStateCache | null> {
