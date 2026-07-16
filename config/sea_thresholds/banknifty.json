@@ -36,10 +36,11 @@
     "slope_lookback": 10,
     "thr_hi": 0.015,
     "thr_lo": 0.006,
+    "rev_pct": 0.18,
     "sl_pct": 12
   },
   "trend": {
-    "enabled": true,
+    "enabled": false,
     "dir_prob_min": 0.55,
     "continues_min": 0,
     "breakout_min": 0,
