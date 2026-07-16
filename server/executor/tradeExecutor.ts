@@ -837,6 +837,8 @@ class TradeExecutorAgent {
         reason: req.reason,
         triggeredBy: req.triggeredBy,
         durationSeconds: Math.round((closedAt - closed.openedAt) / 1000),
+        cohort: closed.cohort ?? null,
+        exitStrategy: closed.exitStrategy,
       });
       teaExitTotal.labels({ channel, trigger: req.reason }).inc();
       return response;
@@ -920,6 +922,8 @@ class TradeExecutorAgent {
         reason: req.reason,
         triggeredBy: "PA",
         durationSeconds: Math.round((closedAt - closed.openedAt) / 1000),
+        cohort: closed.cohort ?? null,
+        exitStrategy: closed.exitStrategy,
       });
       teaExitTotal.labels({ channel: req.channel, trigger: req.reason }).inc();
     } catch (err: any) {

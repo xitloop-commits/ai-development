@@ -77,6 +77,30 @@ describe("formatExit", () => {
     });
     expect(msg).toBe("profit Rs.0 from NATURALGAS - 0.00%");
   });
+
+  it("appends '[cohort · Strategy]' when both are known (the T84 race twins)", () => {
+    const msg = formatExit({
+      ...base,
+      realizedPnl: 4500,
+      realizedPnlPercent: 8,
+      reason: "TP_HIT",
+      cohort: "scalp",
+      exitStrategy: "runway",
+    });
+    expect(msg).toBe("profit Rs.4,500 from NATURALGAS [scalp · Runway] - 8.00%");
+  });
+
+  it("shows only the strategy when cohort is null (bare manual trade)", () => {
+    const msg = formatExit({
+      ...base,
+      realizedPnl: -750,
+      realizedPnlPercent: -12.5,
+      reason: "SL_HIT",
+      cohort: null,
+      exitStrategy: "sprint",
+    });
+    expect(msg).toBe("lost Rs.750 from NATURALGAS [Sprint] - 12.50%");
+  });
 });
 
 describe("formatGateRejection", () => {

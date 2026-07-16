@@ -98,17 +98,29 @@ export interface TradeExitEvent {
   reason: string;            // "TP_HIT" / "SL_HIT" / "MANUAL" / "DISCIPLINE_EXIT" / "EOD" / ...
   triggeredBy: string;       // "USER" / "PA" / "RCA" / "DA"
   durationSeconds: number;
+  cohort?: string | null;    // signal cohort: scalp / trend / ma_signal / ... (null = manual)
+  exitStrategy?: string;     // T84 race: sprint / runway / anchor
+}
+
+/** " [scalp · Runway]" — the signal cohort + exit strategy, so the profit/loss
+ *  line tells you WHICH twin this was (essential for the 3-way race). Empty when
+ *  neither is known (a bare manual trade). Strategy is Title-cased to match the UI. */
+function fmtCohortStrategy(cohort?: string | null, exitStrategy?: string): string {
+  const parts: string[] = [];
+  if (cohort) parts.push(cohort);
+  if (exitStrategy) parts.push(exitStrategy.charAt(0).toUpperCase() + exitStrategy.slice(1));
+  return parts.length ? ` [${parts.join(" · ")}]` : "";
 }
 
 /**
  * Two formats only, decided by realized P&L sign — the exit reason no longer
  * changes the wording:
- *   profit → "profit Rs.4,500 from naturalgas - 8.00%"
- *   loss   → "lost Rs.2,000 from naturalgas - 5.00%"
+ *   profit → "profit Rs.4,500 from naturalgas [scalp · Runway] - 8.00%"
+ *   loss   → "lost Rs.2,000 from naturalgas [scalp · Sprint] - 5.00%"
  */
 export function formatExit(ev: TradeExitEvent): string {
   const word = ev.realizedPnl >= 0 ? "profit" : "lost";
-  return `${word} ${fmtRs(ev.realizedPnl)} from ${ev.instrument} - ${fmtPctAbs(ev.realizedPnlPercent)}`;
+  return `${word} ${fmtRs(ev.realizedPnl)} from ${ev.instrument}${fmtCohortStrategy(ev.cohort, ev.exitStrategy)} - ${fmtPctAbs(ev.realizedPnlPercent)}`;
 }
 
 export interface GateRejectionEvent {

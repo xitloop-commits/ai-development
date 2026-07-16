@@ -543,6 +543,8 @@ export const executorRouter = router({
             durationSeconds: Math.round(
               ((result.trade.closedAt ?? Date.now()) - result.trade.openedAt) / 1000,
             ),
+            cohort: result.trade.cohort ?? null,
+            exitStrategy: result.trade.exitStrategy,
           });
           return {
             success: true as const,
