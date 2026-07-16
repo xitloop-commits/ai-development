@@ -632,6 +632,7 @@ export const executorRouter = router({
         stopLossDisabled: z.boolean().optional(),
         targetDisabled: z.boolean().optional(),
         tslMode: z.enum(["auto", "manual"]).optional(),
+        manualExitOnly: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -639,6 +640,7 @@ export const executorRouter = router({
         stopLossDisabled: input.stopLossDisabled,
         targetDisabled: input.targetDisabled,
         tslMode: input.tslMode,
+        manualExitOnly: input.manualExitOnly,
       });
       return { trade };
     }),

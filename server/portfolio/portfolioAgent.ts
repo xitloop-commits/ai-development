@@ -814,6 +814,7 @@ class PortfolioAgentImpl {
       stopLossDisabled?: boolean;
       targetDisabled?: boolean;
       tslMode?: "auto" | "manual";
+      manualExitOnly?: boolean;
     },
   ): Promise<{ trade: TradeRecord; day: DayRecord; oldSL: number | null; oldTP: number | null }> {
     const day = await this.ensureCurrentDay(channel);
@@ -831,6 +832,7 @@ class PortfolioAgentImpl {
     if (modifications.stopLossDisabled !== undefined) trade.stopLossDisabled = modifications.stopLossDisabled;
     if (modifications.targetDisabled !== undefined) trade.targetDisabled = modifications.targetDisabled;
     if (modifications.tslMode !== undefined) trade.tslMode = modifications.tslMode;
+    if (modifications.manualExitOnly !== undefined) trade.manualExitOnly = modifications.manualExitOnly;
 
     await upsertDayRecord(channel, day);
     // Push a manual SL/TP price edit into the tickHandler's live cache too — its

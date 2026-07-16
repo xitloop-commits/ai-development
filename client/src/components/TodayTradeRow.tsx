@@ -404,6 +404,28 @@ function _TodayTradeRow({
                 TSL {trade.tslMode === 'manual' ? 'M' : 'A'}
               </button>
             )}
+            {/* Manual-exit-only (master): ride to the trade's OWN exit signal —
+                suppresses SL/TP/TSL + age/stale/vol/momentum. On by default for
+                MA-Signal; togglable per trade here. Still exits on EOD / the ×. */}
+            {isOpen && !isDesync && isPaperChannel(channel) && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRiskMutation.mutate({ channel, tradeId: trade.id, manualExitOnly: !(trade.manualExitOnly ?? false) });
+                }}
+                disabled={setRiskMutation.isPending}
+                className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold border transition-colors disabled:opacity-40 ${
+                  trade.manualExitOnly
+                    ? 'bg-info-cyan/25 text-info-cyan border-info-cyan/60'
+                    : 'bg-foreground/10 text-foreground border-foreground/30 hover:bg-foreground/20'
+                }`}
+                title={trade.manualExitOnly
+                  ? 'Ride ON — exits ONLY on its own exit signal; SL/TP/TSL/age/momentum all suppressed (still exits on EOD square-off or the ✕). Click to restore auto-exits.'
+                  : 'Auto-exits ON (SL/TP/TSL/age/momentum). Click to make this trade ride to its own exit signal only.'}
+              >
+                RIDE {trade.manualExitOnly ? 'on' : 'off'}
+              </button>
+            )}
             {/* Exit is allowed for the option workspaces (manual controls), the
                 AI workspace (square off an AI-managed position by hand), and for
                 stock trades in the Stocks workspace (paper or live) — a live exit

@@ -133,6 +133,10 @@ export interface TradeRecord {
   stopLossDisabled?: boolean;
   targetDisabled?: boolean;
   tslMode?: 'auto' | 'manual';
+  /** Master "ride to its own exit signal" flag — suppresses every auto-exit
+   *  (SL/TP/TSL + age/stale/vol/momentum). Default for MA-Signal; per-trade
+   *  togglable. The trade still exits on EOD square-off or a manual ✕. */
+  manualExitOnly?: boolean;
   openedAt: number;
   closedAt: number | null;
   /**

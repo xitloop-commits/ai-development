@@ -448,6 +448,13 @@ class TickHandler extends EventEmitter {
           trade.peakLtp = newPeak;
         }
 
+        // Manual-exit-only (master switch): this trade rides until its OWN exit
+        // signal (or EOD square-off / the operator's ×). Price + peak above stay
+        // live for the UI/P&L, but skip EVERY auto-exit below — trailing, hard
+        // SL and take-profit. (RcaMonitor already skips age/stale/vol/momentum for
+        // these.) Set for MA-Signal at open and togglable per-trade from the row.
+        if (trade.manualExitOnly) continue;
+
         // Trailing stop (workspace-wide switch). Trails from the FIRST tick — no
         // activation gate, no hold, no breakeven floor: the stop sits a fixed gap
         // below the running peak from the start. The gap comes from the setting:
