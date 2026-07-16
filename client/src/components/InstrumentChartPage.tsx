@@ -133,8 +133,8 @@ export default function InstrumentChartPage() {
   // Pinned option contracts — clicking a trade on the underlying loads THAT
   // trade's contract into the matching pane (call → CE/top, put → PE/bottom).
   // null = show the live ATM contract.
-  const [pinnedCe, setPinnedCe] = useState<{ securityId: string; strike: number | null } | null>(null);
-  const [pinnedPe, setPinnedPe] = useState<{ securityId: string; strike: number | null } | null>(null);
+  const [pinnedCe, setPinnedCe] = useState<{ securityId: string; strike: number | null; entryTime: number } | null>(null);
+  const [pinnedPe, setPinnedPe] = useState<{ securityId: string; strike: number | null; entryTime: number } | null>(null);
   // Pinned contracts are day-specific — reset them when the viewed date changes.
   useEffect(() => { setPinnedCe(null); setPinnedPe(null); }, [date]);
 
@@ -332,15 +332,27 @@ export default function InstrumentChartPage() {
     () => (openTrade?.side === "PE" ? [{ price: openTrade.entryPrice, color: CHART_ENTRY, title: "Entry" }] : []),
     [openTrade],
   );
-  // In/out markers on the option charts (each shows only its own leg's trades;
-  // when a pane is pinned to a specific contract, only that contract's trades so
-  // the entry/exit prices line up with the displayed chart).
+  // In/out markers on the option charts. Live ATM view: every trade on that leg.
+  // Pinned (a trade was clicked): ONLY that one clicked trade — matched by its
+  // contract + entry time — so the pane shows the single trade in isolation.
   const ceMarkers = useMemo<SeriesMarker<UTCTimestamp>[]>(
-    () => (showTrades && ce.candles.length ? buildTradeMarkers(tradeRows.filter((t) => t.side === "CE" && (!pinnedCe || t.contractSecurityId === pinnedCe.securityId)), ce.candles.map((c) => c.time), Infinity) : []),
+    () => {
+      if (!showTrades || !ce.candles.length) return [];
+      const rows = pinnedCe
+        ? tradeRows.filter((t) => t.side === "CE" && t.contractSecurityId === pinnedCe.securityId && t.entryTime === pinnedCe.entryTime)
+        : tradeRows.filter((t) => t.side === "CE");
+      return buildTradeMarkers(rows, ce.candles.map((c) => c.time), Infinity);
+    },
     [showTrades, ce.candles, tradeRows, pinnedCe],
   );
   const peMarkers = useMemo<SeriesMarker<UTCTimestamp>[]>(
-    () => (showTrades && pe.candles.length ? buildTradeMarkers(tradeRows.filter((t) => t.side === "PE" && (!pinnedPe || t.contractSecurityId === pinnedPe.securityId)), pe.candles.map((c) => c.time), Infinity) : []),
+    () => {
+      if (!showTrades || !pe.candles.length) return [];
+      const rows = pinnedPe
+        ? tradeRows.filter((t) => t.side === "PE" && t.contractSecurityId === pinnedPe.securityId && t.entryTime === pinnedPe.entryTime)
+        : tradeRows.filter((t) => t.side === "PE");
+      return buildTradeMarkers(rows, pe.candles.map((c) => c.time), Infinity);
+    },
     [showTrades, pe.candles, tradeRows, pinnedPe],
   );
   const onUnderlyingClick = (clickedSec: number) => {
@@ -358,7 +370,7 @@ export default function InstrumentChartPage() {
     // Load the clicked trade's contract into the matching pane (call → CE/top,
     // put → PE/bottom). Only today's contracts have chart data (optionsEnabled).
     if (best.contractSecurityId) {
-      const pin = { securityId: best.contractSecurityId, strike: best.strike };
+      const pin = { securityId: best.contractSecurityId, strike: best.strike, entryTime: best.entryTime };
       if (best.side === "CE") setPinnedCe(pin);
       else setPinnedPe(pin);
     }
