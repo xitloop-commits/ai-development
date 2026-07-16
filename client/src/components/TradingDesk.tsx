@@ -8,9 +8,10 @@
  * Presentational children: PastRow, TodaySection, FutureRow, TodayPnlBar, ConfirmDialog.
  * Shared helpers: @/lib/tradeTypes, @/lib/tradeFormatters, @/lib/tradeCalculations, @/lib/tradeThemes.
  */
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import { useCapital } from '@/contexts/CapitalContext';
 import { TodayPnlBar } from './TodayPnlBar';
+import { TradeFilterBar, EMPTY_TRADE_FILTER, type TradeFilter } from './TradeFilterBar';
 import { TradingDeskSkeleton, NoCapitalEmpty, ErrorState } from './LoadingStates';
 import type { ResolvedInstrument } from '@/lib/tradeTypes';
 import { channelToWorkspace } from '@/lib/tradeTypes';
@@ -45,6 +46,8 @@ export default function TradingDesk({
   const workspace = channelToWorkspace(channel);
 
   const [showNet, setShowNet] = useState(true);
+  // Client-only view filter for today's trade rows (right of the P&L bar).
+  const [tradeFilter, setTradeFilter] = useState<TradeFilter>(EMPTY_TRADE_FILTER);
   // The always-on instrument bars now live in a draggable floating window.
   const [barsPanelOpen, setBarsPanelOpen] = useState(true);
   const [expandedDays, setExpandedDays] = useState<Set<number>>(() => new Set());
@@ -100,6 +103,12 @@ export default function TradingDesk({
 
   const openTradeCount = allDays.find(d => d.dayIndex === capital.currentDayIndex)?.trades?.filter(t => t.status === 'OPEN').length ?? 0;
 
+  // Distinct instruments traded today — populate the filter's instrument dropdown.
+  const todayInstruments = useMemo(() => {
+    const t = allDays.find((d) => d.dayIndex === capital.currentDayIndex)?.trades ?? [];
+    return Array.from(new Set(t.map((x) => x.instrument)));
+  }, [allDays, capital.currentDayIndex]);
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-stretch divide-x divide-border border-b border-border bg-secondary backdrop-blur-sm">
@@ -125,6 +134,11 @@ export default function TradingDesk({
           exitAllEnabled={canManageTrades}
           openTradeCount={openTradeCount}
           onExitAll={handleExitAll}
+        />
+        <TradeFilterBar
+          value={tradeFilter}
+          onChange={setTradeFilter}
+          instruments={todayInstruments}
         />
       </div>
 
@@ -214,6 +228,7 @@ export default function TradingDesk({
                         todayRef={todayRef}
                         channel={channel}
                         allDays={allDays}
+                        filter={tradeFilter}
                       />
                     );
                   }

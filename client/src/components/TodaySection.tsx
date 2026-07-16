@@ -22,6 +22,7 @@ import {
 import { trpc } from '@/lib/trpc';
 import { TodayTradeRow } from './TodayTradeRow';
 import { TodaySummaryRow } from './TodaySummaryRow';
+import { tradeMatchesFilter, type TradeFilter } from './TradeFilterBar';
 
 /** TradingDesk table column count (see TradingDesk.tsx colgroup). */
 const TABLE_COLSPAN = 17;
@@ -41,6 +42,9 @@ export interface TodaySectionProps {
   todayRef: React.RefObject<HTMLTableRowElement | null>;
   channel: Channel;
   allDays: DayRecord[];
+  /** Client-only view filter (from the P&L-bar filter). Narrows only the visible
+   *  trade rows — the day summary + live feed subscriptions stay on the full day. */
+  filter?: TradeFilter;
 }
 
 export function TodaySection({
@@ -57,6 +61,7 @@ export function TodaySection({
   todayRef,
   channel,
   allDays,
+  filter,
 }: TodaySectionProps) {
   // Trailing stop is a workspace-wide switch (Settings), no longer per-trade.
   // Read it once here and pass to every row so the TSL status reflects the
@@ -82,6 +87,9 @@ export function TodaySection({
   }, [updateTradeMutation, channel, utils]);
 
   const trades = day.trades ?? [];
+  // Rows honour the P&L-bar filter; the summary + feed subs below stay on the
+  // full day so the day's P&L/exposure and live ticks are never hidden.
+  const visibleTrades = filter ? trades.filter((t) => tradeMatchesFilter(t, filter)) : trades;
   const openTrades = trades.filter(t => t.status === 'OPEN');
 
   // Keep every OPEN trade's option leg subscribed to the live feed so its
@@ -204,7 +212,7 @@ export function TodaySection({
           document.body,
         )}
 
-      {trades.map((trade, idx) => (
+      {visibleTrades.map((trade, idx) => (
         <TodayTradeRow
           key={trade.id}
           trade={trade}
@@ -219,7 +227,7 @@ export function TodaySection({
           slPercent={slPercent}
           tslGatePercent={tslGatePercent}
           tslHoldSeconds={tslHoldSeconds}
-          tradeNo={idx + 1}
+          tradeNo={trades.indexOf(trade) + 1}
         />
       ))}
 
