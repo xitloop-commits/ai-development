@@ -108,8 +108,6 @@ function _TradeFilterBar({ value, onChange, instruments }: TradeFilterBarProps) 
 
   return (
     <div className="px-2 py-1.5 flex items-center gap-1.5 shrink-0">
-      <Filter className="w-3 h-3 text-muted-foreground shrink-0" aria-hidden />
-
       {/* Instrument — dropdown (options come from today's trades) */}
       <select
         value={value.instrument ?? ''}
@@ -155,16 +153,24 @@ function _TradeFilterBar({ value, onChange, instruments }: TradeFilterBarProps) 
         Loss
       </Pill>
 
-      {dirty && (
+      <Divider />
+
+      {/* Trailing icon slot — fixed width so the pills never shift. Shows a clear
+          (×) button when a filter is active, else the (decorative) funnel icon. */}
+      {dirty ? (
         <button
           type="button"
           onClick={() => onChange(EMPTY_TRADE_FILTER)}
           title="Clear filter"
           aria-label="Clear filter"
-          className="ml-0.5 p-0.5 rounded text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors shrink-0"
+          className="p-0.5 rounded text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors shrink-0"
         >
           <X className="w-3 h-3" />
         </button>
+      ) : (
+        <span className="p-0.5 shrink-0" aria-hidden>
+          <Filter className="w-3 h-3 text-muted-foreground" />
+        </span>
       )}
     </div>
   );
