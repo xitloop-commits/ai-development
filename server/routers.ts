@@ -211,6 +211,7 @@ export const appRouter = router({
             exitReason: t.exitReason,
             pnl: t.pnl,
             cohort: t.cohort ?? null,
+            contractSecurityId: t.contractSecurityId ?? null,
           }))
           .sort((a, b) => a.entryTime - b.entryTime);
       }),

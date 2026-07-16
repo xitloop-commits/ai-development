@@ -51,6 +51,7 @@ interface ChartTradeRow {
   exitReason?: string;
   pnl: number;
   cohort: string | null;
+  contractSecurityId: string | null;
 }
 
 /** Option feed segment for an instrument's F&O contracts (Phase 1 = NSE). */
@@ -129,6 +130,13 @@ export default function InstrumentChartPage() {
   const [replayCount, setReplayCount] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [selectedSeq, setSelectedSeq] = useState<number | null>(null); // null = latest trade
+  // Pinned option contracts — clicking a trade on the underlying loads THAT
+  // trade's contract into the matching pane (call → CE/top, put → PE/bottom).
+  // null = show the live ATM contract.
+  const [pinnedCe, setPinnedCe] = useState<{ securityId: string; strike: number | null } | null>(null);
+  const [pinnedPe, setPinnedPe] = useState<{ securityId: string; strike: number | null } | null>(null);
+  // Pinned contracts are day-specific — reset them when the viewed date changes.
+  useEffect(() => { setPinnedCe(null); setPinnedPe(null); }, [date]);
 
   const today = istDateString();
   const isToday = date === today;
@@ -170,6 +178,11 @@ export default function InstrumentChartPage() {
   const atmPeId = ls?.live?.atm_pe_security_id ?? ls?.signal?.atm_pe_security_id ?? null;
   const atmStrike = ls?.live?.atm_strike ?? ls?.signal?.atm_strike ?? null;
   const spot = ls?.live?.spot_price ?? ls?.signal?.spot_price ?? null;
+  // Effective contract per pane: the pinned (clicked-trade) contract, else live ATM.
+  const effCeId = pinnedCe?.securityId ?? atmCeId;
+  const effPeId = pinnedPe?.securityId ?? atmPeId;
+  const ceStrike = pinnedCe?.strike ?? atmStrike;
+  const peStrike = pinnedPe?.strike ?? atmStrike;
   // Expiry DATE derived from hours-to-expiry on the live feature row (options
   // expire at 15:30 IST; now + hours lands on the expiry day).
   const hoursToExp = ls?.live?.hours_to_expiry ?? null;
@@ -179,15 +192,15 @@ export default function InstrumentChartPage() {
   // One-time background disk read of each ATM contract's day history (slow scan
   // of the big option file) — prepended to the live candles when it lands.
   const ceHist = trpc.trading.optionTicksForContract.useQuery(
-    { instrument: inst ?? "", date, securityId: atmCeId ?? "" },
-    { enabled: !!inst && !!date && !!atmCeId && optionsEnabled, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
+    { instrument: inst ?? "", date, securityId: effCeId ?? "" },
+    { enabled: !!inst && !!date && !!effCeId && optionsEnabled, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
   );
   const peHist = trpc.trading.optionTicksForContract.useQuery(
-    { instrument: inst ?? "", date, securityId: atmPeId ?? "" },
-    { enabled: !!inst && !!date && !!atmPeId && optionsEnabled, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
+    { instrument: inst ?? "", date, securityId: effPeId ?? "" },
+    { enabled: !!inst && !!date && !!effPeId && optionsEnabled, refetchOnWindowFocus: false, staleTime: Infinity, retry: false },
   );
-  const ce = useLiveCandles(atmCeId, optSeg, intervalSec, optionsEnabled, ceHist.data as { t: number[]; ltp: number[] } | undefined);
-  const pe = useLiveCandles(atmPeId, optSeg, intervalSec, optionsEnabled, peHist.data as { t: number[]; ltp: number[] } | undefined);
+  const ce = useLiveCandles(effCeId, optSeg, intervalSec, optionsEnabled, ceHist.data as { t: number[]; ltp: number[] } | undefined);
+  const pe = useLiveCandles(effPeId, optSeg, intervalSec, optionsEnabled, peHist.data as { t: number[]; ltp: number[] } | undefined);
 
   // ── Underlying candles + replay ─────────────────────────────────
   // Disk history (seed) + live WS on the SAME recorded contract (near-month
@@ -319,24 +332,36 @@ export default function InstrumentChartPage() {
     () => (openTrade?.side === "PE" ? [{ price: openTrade.entryPrice, color: CHART_ENTRY, title: "Entry" }] : []),
     [openTrade],
   );
-  // In/out markers on the option charts (each shows only its own leg's trades).
+  // In/out markers on the option charts (each shows only its own leg's trades;
+  // when a pane is pinned to a specific contract, only that contract's trades so
+  // the entry/exit prices line up with the displayed chart).
   const ceMarkers = useMemo<SeriesMarker<UTCTimestamp>[]>(
-    () => (showTrades && ce.candles.length ? buildTradeMarkers(tradeRows.filter((t) => t.side === "CE"), ce.candles.map((c) => c.time), Infinity) : []),
-    [showTrades, ce.candles, tradeRows],
+    () => (showTrades && ce.candles.length ? buildTradeMarkers(tradeRows.filter((t) => t.side === "CE" && (!pinnedCe || t.contractSecurityId === pinnedCe.securityId)), ce.candles.map((c) => c.time), Infinity) : []),
+    [showTrades, ce.candles, tradeRows, pinnedCe],
   );
   const peMarkers = useMemo<SeriesMarker<UTCTimestamp>[]>(
-    () => (showTrades && pe.candles.length ? buildTradeMarkers(tradeRows.filter((t) => t.side === "PE"), pe.candles.map((c) => c.time), Infinity) : []),
-    [showTrades, pe.candles, tradeRows],
+    () => (showTrades && pe.candles.length ? buildTradeMarkers(tradeRows.filter((t) => t.side === "PE" && (!pinnedPe || t.contractSecurityId === pinnedPe.securityId)), pe.candles.map((c) => c.time), Infinity) : []),
+    [showTrades, pe.candles, tradeRows, pinnedPe],
   );
   const onUnderlyingClick = (clickedSec: number) => {
     if (tradeRows.length === 0) return;
     let best = tradeRows[0];
     let bestD = Infinity;
     for (const r of tradeRows) {
-      const d = Math.abs(r.entryTime + IST_OFFSET_SECONDS - clickedSec);
+      // Nearest by entry OR exit time — clicking either marker selects the trade.
+      const dEntry = Math.abs(r.entryTime + IST_OFFSET_SECONDS - clickedSec);
+      const dExit = r.exitTime != null ? Math.abs(r.exitTime + IST_OFFSET_SECONDS - clickedSec) : Infinity;
+      const d = Math.min(dEntry, dExit);
       if (d < bestD) { bestD = d; best = r; }
     }
     setSelectedSeq(best.signalSeq ?? null);
+    // Load the clicked trade's contract into the matching pane (call → CE/top,
+    // put → PE/bottom). Only today's contracts have chart data (optionsEnabled).
+    if (best.contractSecurityId) {
+      const pin = { securityId: best.contractSecurityId, strike: best.strike };
+      if (best.side === "CE") setPinnedCe(pin);
+      else setPinnedPe(pin);
+    }
   };
   const conf01 = (v: number) => Math.round(v <= 1 ? v * 100 : v);
 
@@ -479,7 +504,10 @@ export default function InstrumentChartPage() {
             className="flex-1"
             header={<>
               <span className="font-bold" style={{ color: CHART_UP }}>CE</span>
-              <span className="text-muted-foreground">{atmStrike ?? "ATM"} call · {intervalLabel} · {ce.tickCount} tk{expiryLabel ? ` · ${expiryLabel}` : ""}</span>
+              <span className="text-muted-foreground">{ceStrike ?? "ATM"} call · {intervalLabel} · {ce.tickCount} tk{expiryLabel ? ` · ${expiryLabel}` : ""}</span>
+              {pinnedCe && (
+                <button onClick={() => setPinnedCe(null)} className="ml-1 px-1 rounded text-[0.5625rem] font-semibold bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25" title="Back to the live ATM contract">live</button>
+              )}
             </>}
           />
           <TickChart
@@ -493,7 +521,10 @@ export default function InstrumentChartPage() {
             className="flex-1"
             header={<>
               <span className="font-bold" style={{ color: CHART_DOWN }}>PE</span>
-              <span className="text-muted-foreground">{atmStrike ?? "ATM"} put · {intervalLabel} · {pe.tickCount} tk{expiryLabel ? ` · ${expiryLabel}` : ""}</span>
+              <span className="text-muted-foreground">{peStrike ?? "ATM"} put · {intervalLabel} · {pe.tickCount} tk{expiryLabel ? ` · ${expiryLabel}` : ""}</span>
+              {pinnedPe && (
+                <button onClick={() => setPinnedPe(null)} className="ml-1 px-1 rounded text-[0.5625rem] font-semibold bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25" title="Back to the live ATM contract">live</button>
+              )}
             </>}
           />
         </div>
