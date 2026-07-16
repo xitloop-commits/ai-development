@@ -151,7 +151,9 @@ export function TodaySummaryRow({
                     <span className="text-bullish">{wins}</span>
                     <span className="text-muted-foreground">/</span>
                     <span className="text-destructive">{losses}</span>
-                    <span className={`ml-0.5 ${pnlColor(pnl)}`}>{fmt(Math.round(pnl), false)}</span>
+                    <span className={`ml-1 font-semibold ${pnlColor(pnl)}`}>
+                      {pnl > 0 ? '+' : ''}{fmt(Math.round(pnl), false)}
+                    </span>
                   </span>
                 ))}
                 {/* Today overall — the whole day's settled performance across cohorts */}
@@ -163,7 +165,9 @@ export function TodaySummaryRow({
                   <span className="text-bullish">{overall.wins}</span>
                   <span className="text-muted-foreground">/</span>
                   <span className="text-destructive">{overall.losses}</span>
-                  <span className={`ml-0.5 ${pnlColor(overall.pnl)}`}>{fmt(Math.round(overall.pnl), false)}</span>
+                  <span className={`ml-1 ${pnlColor(overall.pnl)}`}>
+                    {overall.pnl > 0 ? '+' : ''}{fmt(Math.round(overall.pnl), false)}
+                  </span>
                 </span>
               </>
             )}
