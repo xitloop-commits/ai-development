@@ -36,6 +36,7 @@ import {
 import { ConfirmPopover } from './ConfirmPopover';
 import { ChannelTabs, lastModeForWs } from './ChannelTabs';
 import { instrumentChartUrl, PHASE1_CHART_INSTRUMENTS } from '@/lib/instrumentChart';
+import { toast } from 'sonner';
 
 /**
  * Pop out one chart window per Phase-1 instrument (NIFTY + BANK). A stable
@@ -43,17 +44,30 @@ import { instrumentChartUrl, PHASE1_CHART_INSTRUMENTS } from '@/lib/instrumentCh
  * window instead of spawning duplicates; the two open side-by-side so each can
  * be dragged to its own monitor. Triggered by a click (browsers block windows
  * opened without a user gesture).
+ *
+ * Chrome/Edge let the FIRST window.open per click through and silently block the
+ * rest as pop-ups — so without the browser allowing pop-ups you'd get only the
+ * first chart. We detect the blocked ones (window.open returns null) and toast a
+ * one-time instruction, so it never fails silently.
  */
 function openInstrumentCharts() {
   const w = Math.round((window.screen.availWidth || 1280) / 2);
   const h = Math.round((window.screen.availHeight || 800) * 0.9);
+  const blocked: string[] = [];
   PHASE1_CHART_INSTRUMENTS.forEach((key, i) => {
-    window.open(
+    const win = window.open(
       instrumentChartUrl(key),
       `lubas-chart-${key}`,
       `popup=yes,width=${w},height=${h},left=${i * w},top=0`,
     );
+    if (!win) blocked.push(key.replace('_', ' '));  // null ⇒ blocked by the pop-up blocker
   });
+  if (blocked.length) {
+    toast.error(
+      `Pop-up blocked: ${blocked.join(' + ')} chart didn't open. Click the pop-up-blocked icon in the address bar → “Always allow pop-ups from this site”, then click CHARTS again.`,
+      { duration: 9000 },
+    );
+  }
 }
 
 // ── Right-side status cluster (API · FEED · AI · Discipline) ──
