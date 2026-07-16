@@ -93,6 +93,18 @@ export default function TradingDesk({
     channel,
   });
 
+  // Distinct instruments + cohorts traded today — populate the filter's options.
+  // MUST stay above the early returns below so hook order never changes.
+  const { todayInstruments, todayCohorts } = useMemo(() => {
+    const t = allDays.find((d) => d.dayIndex === capital?.currentDayIndex)?.trades ?? [];
+    return {
+      todayInstruments: Array.from(new Set(t.map((x) => x.instrument))),
+      todayCohorts: Array.from(
+        new Set(t.map((x) => x.cohort).filter((c): c is string => !!c)),
+      ),
+    };
+  }, [allDays, capital?.currentDayIndex]);
+
   if (capitalLoading) {
     return <TradingDeskSkeleton />;
   }
@@ -102,17 +114,6 @@ export default function TradingDesk({
   }
 
   const openTradeCount = allDays.find(d => d.dayIndex === capital.currentDayIndex)?.trades?.filter(t => t.status === 'OPEN').length ?? 0;
-
-  // Distinct instruments + cohorts traded today — populate the filter's options.
-  const { todayInstruments, todayCohorts } = useMemo(() => {
-    const t = allDays.find((d) => d.dayIndex === capital.currentDayIndex)?.trades ?? [];
-    return {
-      todayInstruments: Array.from(new Set(t.map((x) => x.instrument))),
-      todayCohorts: Array.from(
-        new Set(t.map((x) => x.cohort).filter((c): c is string => !!c)),
-      ),
-    };
-  }, [allDays, capital.currentDayIndex]);
 
   return (
     <div className="flex flex-col h-full">
