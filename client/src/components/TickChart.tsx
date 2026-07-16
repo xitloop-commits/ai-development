@@ -179,6 +179,12 @@ export function TickChart({
     // Preferred source is SEA's actual legs (`maLegs`) so the colour transitions
     // land EXACTLY on the entry/exit markers. Without legs (e.g. the option
     // panels), fall back to a browser-side 20-EMA slope recompute of the gate.
+    //
+    // When leg-coloured, SEA's reversal detector works on PRICE (not the slow
+    // 20-EMA), so we draw a light price-HUGGING line (5-EMA) instead of the
+    // 20-EMA — that way the curve turns where the colour flips, at the real
+    // top/bottom, instead of trailing behind it. The 20-EMA is kept for the
+    // slope-fallback path where the gate itself is the 20-EMA slope.
     const UP = "#22c55e", DOWN = "#ef4444", FLAT = "#e0a63a";
     const colorFromLegs = (t: number): string => {
       for (const leg of maLegs!) {
@@ -188,7 +194,7 @@ export function TickChart({
       return FLAT;
     };
     const addMaSlopeLine = (cl: number[]) => {
-      const ev = ema(cl, MA_PERIOD);
+      const ev = ema(cl, maLegs ? 5 : MA_PERIOD);
       const L = 10, HI = 0.015, LO = 0.006;
       const s = chart.addSeries(LineSeries, {
         color: FLAT, lineWidth: 2,
