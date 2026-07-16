@@ -87,6 +87,8 @@ export interface PositionStateDoc {
   targetPrice: number | null;
   stopLossPrice: number | null;
   trailingStopEnabled?: boolean;
+  /** Ride to its own exit — RcaMonitor skips age/stale/vol/momentum for these. */
+  manualExitOnly?: boolean;
 
   /**
    * Wave 1: peak ltp seen since entry — used by tickHandler's TSL
@@ -251,6 +253,7 @@ const positionStateSchema = new Schema(
     targetPrice: { type: Number, default: null },
     stopLossPrice: { type: Number, default: null },
     trailingStopEnabled: { type: Boolean, default: false },
+    manualExitOnly: { type: Boolean, default: false },
 
     // Wave 1: peak ltp persisted for restart-safe TSL ratchet.
     peakLtp: { type: Number, default: null },
@@ -515,6 +518,7 @@ function docToPositionState(doc: Record<string, any>): PositionStateDoc {
     targetPrice: doc.targetPrice ?? null,
     stopLossPrice: doc.stopLossPrice ?? null,
     trailingStopEnabled: doc.trailingStopEnabled ?? false,
+    manualExitOnly: doc.manualExitOnly ?? false,
     brokerOrderId: doc.brokerOrderId ?? null,
     brokerId: doc.brokerId ?? null,
     cohort: doc.cohort ?? null,
