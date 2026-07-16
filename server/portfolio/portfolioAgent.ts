@@ -698,6 +698,108 @@ class PortfolioAgentImpl {
     return { corrected: true };
   }
 
+  /** Build a TradeRecord mirroring an externally-placed fill (id prefix EXT-). */
+  private buildExternalTrade(
+    update: BrokerOrderEvent,
+    symbol: string,
+    direction: "BUY" | "SELL",
+    qty: number,
+    price: number,
+  ): TradeRecord {
+    return {
+      id: `EXT-${update.orderId}`,
+      instrument: symbol,
+      type: direction, // BUY = long, SELL = short
+      strike: null,
+      expiry: null,
+      contractSecurityId: update.securityId ?? null,
+      productType: update.productType === "CNC" ? "CNC" : "INTRADAY",
+      entryPrice: price,
+      entryPending: false,
+      exitPrice: null,
+      ltp: price,
+      qty,
+      lotSize: 1,
+      capitalPercent: 0,
+      pnl: 0,
+      unrealizedPnl: 0,
+      charges: 0,
+      chargesBreakdown: [],
+      status: "OPEN",
+      targetPrice: null,
+      stopLossPrice: null,
+      brokerOrderId: update.orderId,
+      brokerId: update.brokerId,
+      openedAt: Date.now(),
+      closedAt: null,
+    } as TradeRecord;
+  }
+
+  /**
+   * Adopt an externally-placed order (not placed through the app) by mirroring
+   * it into the app via position netting. Called when a FILLED event from the
+   * PRIMARY account matched no local trade. Attribution: equity → stocks-live,
+   * else my-live. A fill either opens a position in its own direction or
+   * closes/reduces an existing opposite one (handles sell-first-then-cover).
+   */
+  private async adoptExternalFill(update: BrokerOrderEvent): Promise<BrokerOrderEventResult> {
+    const securityId = update.securityId;
+    const direction = update.transactionType;
+    const qty = update.filledQuantity;
+    const price = update.averagePrice;
+    if (!securityId || !direction || !(qty > 0) || !(price > 0)) return { matched: false };
+
+    const channel: Channel = update.assetKind === "equity" ? "stocks-live" : "my-live";
+    const symbol = update.symbol ?? securityId;
+
+    const state = await getCapitalState(channel).catch(() => null);
+    if (!state) return { matched: false };
+    const day = await getDayRecord(channel, state.currentDayIndex).catch(() => null);
+    if (!day) return { matched: false };
+
+    // Net against an OPEN opposite-side position for this security.
+    const oppSide = direction === "BUY" ? "SELL" : "BUY";
+    const open = day.trades.find(
+      (t) => t.status === "OPEN" && t.contractSecurityId === securityId && t.type === oppSide,
+    );
+
+    if (open) {
+      if (qty >= open.qty) {
+        // Full close (cover) — realize P&L at the fill price; any excess opens a
+        // fresh position in this fill's direction.
+        await this.closeTrade(channel, open.id, price, "MANUAL", update.orderId);
+        const excess = qty - open.qty;
+        if (excess > 0) {
+          await this.appendTrade(channel, this.buildExternalTrade(update, symbol, direction, excess, price));
+        }
+        return { matched: true, channel, tradeId: open.id, newStatus: "CLOSED" };
+      }
+      // Partial close — shrink the open position; book the realized P&L on the
+      // closed portion into the capital counters.
+      const dir = open.type.includes("BUY") ? 1 : -1;
+      const grossPnl = (price - open.entryPrice) * qty * dir;
+      open.qty -= qty;
+      const updated = recalculateDayAggregates(day);
+      await upsertDayRecord(channel, updated);
+      await updateCapitalState(channel, {
+        sessionPnl: state.sessionPnl + Math.round(grossPnl * 100) / 100,
+        cumulativePnl: state.cumulativePnl + Math.round(grossPnl * 100) / 100,
+      });
+      await this.audit("BROKER_ORDER_EVENT", channel, open.id, {
+        note: "external partial close (netting)",
+        closedQty: qty,
+        price,
+        realizedPnl: Math.round(grossPnl * 100) / 100,
+      });
+      return { matched: true, channel, tradeId: open.id, newStatus: "OPEN" };
+    }
+
+    // No opposite position — open a new one in this fill's direction.
+    const trade = this.buildExternalTrade(update, symbol, direction, qty, price);
+    await this.appendTrade(channel, trade);
+    return { matched: true, channel, tradeId: trade.id, newStatus: "OPEN" };
+  }
+
   /**
    * Update SL / TP / trailing-stop on an open trade. Used by TEA.modifyOrder.
    * Pure local state mutation — TEA handles any broker-side modify call.
@@ -1035,6 +1137,20 @@ class PortfolioAgentImpl {
         await this.correctExitFill(channel, trade.id, update.averagePrice);
         return { matched: true, channel, tradeId: trade.id, newStatus: trade.status };
       }
+    }
+
+    // ── External-order adoption ───────────────────────────────────────────
+    // A fill from the PRIMARY account that matched no local trade (entry or
+    // exit) was placed outside the app — mirror it via position netting. Primary
+    // account only; the secondary/ai-live (spouse/TFA) account stays off-limits.
+    if (
+      update.status === "FILLED" &&
+      update.brokerId === "dhan-primary-ac" &&
+      !!update.securityId &&
+      !!update.transactionType &&
+      update.averagePrice > 0
+    ) {
+      return await this.adoptExternalFill(update);
     }
 
     return { matched: false };

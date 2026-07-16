@@ -1338,6 +1338,13 @@ export class DhanAdapter implements BrokerAdapter {
         legNo: update.legNo,
         entryOrderId: update.entryOrderId || undefined,
         reason: update.reason || undefined,
+        // Security context — lets PA adopt externally-placed orders (mirror into
+        // the app via position netting).
+        securityId: update.securityId || undefined,
+        symbol: update.symbol || undefined,
+        transactionType: update.txnType,
+        productType: update.productName || undefined,
+        assetKind: update.optionType === "CE" || update.optionType === "PE" ? "option" : "equity",
       });
     });
     // On every (re)connect, broadcast so the reconciler catches up anything

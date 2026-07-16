@@ -161,6 +161,17 @@ export interface BrokerOrderEvent {
   /** Broker's reject reason text (Dhan ReasonDescription) when status ===
    *  "REJECTED" — stamped onto trade.rejectReason for the UI tooltip. */
   reason?: string;
+  // ── Security context (for adopting externally-placed orders) ──────────────
+  /** Broker security id of the instrument the order is on. */
+  securityId?: string;
+  /** Trading symbol (e.g. "RECLTD"). */
+  symbol?: string;
+  /** Order side. */
+  transactionType?: "BUY" | "SELL";
+  /** Product: "INTRADAY" | "CNC" | "MTF" | "MARGIN". */
+  productType?: string;
+  /** "equity" (cash stock) vs "option" — drives external-order attribution. */
+  assetKind?: "equity" | "option";
 }
 
 export interface BrokerOrderEventResult {

@@ -354,6 +354,41 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     );
   });
 
+  it("external-order adoption — an unmatched primary-account fill opens a position in stocks-live", async () => {
+    // No local trade anywhere; stocks-live is empty. An external BUY on the
+    // primary account should be mirrored as a new OPEN long in stocks-live.
+    getCapitalStateMock.mockImplementation(async (c: any) =>
+      c === "stocks-live" ? { ...makeState(), channel: "stocks-live" } : null,
+    );
+    getDayRecordMock.mockImplementation(async (c: any) =>
+      c === "stocks-live" ? { ...makeDay([]), channel: "stocks-live" } : null,
+    );
+    const result = await portfolioAgent.applyBrokerOrderEvent(
+      baseEvent({
+        orderId: "OBUY1",
+        status: "FILLED",
+        filledQuantity: 1,
+        averagePrice: 353,
+        brokerId: "dhan-primary-ac",
+        securityId: "15355",
+        symbol: "RECLTD",
+        transactionType: "BUY",
+        assetKind: "equity",
+        productType: "INTRADAY",
+      }),
+    );
+    expect(result.matched).toBe(true);
+    expect(result.channel).toBe("stocks-live");
+
+    const written = upsertDayRecordMock.mock.calls.at(-1)![1] as DayRecord;
+    const t = written.trades.find((x) => x.id === "EXT-OBUY1");
+    expect(t).toBeDefined();
+    expect(t!.type).toBe("BUY"); // long
+    expect(t!.status).toBe("OPEN");
+    expect(t!.entryPrice).toBe(353);
+    expect(t!.contractSecurityId).toBe("15355");
+  });
+
   it("no-match — orderId not in any open trade returns matched=false", async () => {
     const result = await portfolioAgent.applyBrokerOrderEvent(
       baseEvent({ orderId: "UNKNOWN-ORD" }),

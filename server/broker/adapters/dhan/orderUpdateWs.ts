@@ -44,7 +44,9 @@ export interface NormalizedOrderUpdate {
   exchange: string;
   symbol: string;
   txnType: "BUY" | "SELL";
-  status: "TRANSIT" | "PENDING" | "REJECTED" | "CANCELLED" | "TRADED" | "EXPIRED";
+  status: "TRANSIT" | "PENDING" | "REJECTED" | "CANCELLED" | "TRADED" | "EXPIRED" | "PART-TRADED" | "MODIFIED";
+  product: string;         // Dhan code: I=intraday, C=CNC, F=MTF, M=margin
+  productName: string;     // INTRADAY | CNC | MTF | ...
   legNo: number;           // 1=Entry, 2=SL, 3=Target
   entryOrderId: string;    // AlgoOrdNo — links SL/Target legs to entry
   quantity: number;
@@ -243,6 +245,8 @@ export class DhanOrderUpdateWs extends EventEmitter {
       exchange: str(lc["exchange"]),
       symbol: str(lc["symbol"]),
       txnType: lc["txntype"] === "B" ? "BUY" : "SELL",
+      product: str(lc["product"]),         // I=intraday, C=CNC, F=MTF, M=margin
+      productName: str(lc["productname"]), // INTRADAY | CNC | MTF | ...
       // Uppercase the status value so downstream maps (TRANSIT/PENDING/REJECTED/
       // TRADED/…) match regardless of the Title-case Dhan sends ("Rejected").
       status: str(lc["status"]).toUpperCase() as NormalizedOrderUpdate["status"],

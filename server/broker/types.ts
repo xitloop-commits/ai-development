@@ -364,6 +364,12 @@ export interface OrderUpdate {
   /** Broker's reject/cancel reason text (Dhan ReasonDescription), e.g.
    *  "Invalid IP" / "Insufficient funds". Surfaced on the REJECTED badge. */
   reason?: string;
+  // ── Security context (for adopting externally-placed orders) ──────────────
+  securityId?: string;
+  symbol?: string;
+  transactionType?: "BUY" | "SELL";
+  productType?: string; // INTRADAY | CNC | MTF | MARGIN
+  assetKind?: "equity" | "option";
 }
 
 export type OrderUpdateCallback = (update: OrderUpdate) => void;
