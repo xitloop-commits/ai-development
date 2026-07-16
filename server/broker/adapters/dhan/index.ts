@@ -1277,10 +1277,12 @@ export class DhanAdapter implements BrokerAdapter {
       // Map to generic OrderUpdate for the broker interface
       const statusMap: Record<string, string> = {
         TRADED: "FILLED",
+        "PART-TRADED": "PARTIALLY_FILLED", // Dhan "Part-Traded" — some of qty filled, rest working
         CANCELLED: "CANCELLED",
         REJECTED: "REJECTED",
         PENDING: "PENDING",
         TRANSIT: "PENDING",
+        MODIFIED: "PENDING", // price/qty amended, order still live
         EXPIRED: "CANCELLED",
       };
       this.orderUpdateCb({

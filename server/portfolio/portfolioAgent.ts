@@ -775,6 +775,7 @@ class PortfolioAgentImpl {
   ): Promise<BrokerOrderEventResult> {
     if (
       update.status !== "FILLED" &&
+      update.status !== "PARTIALLY_FILLED" &&
       update.status !== "CANCELLED" &&
       update.status !== "REJECTED" &&
       update.status !== "EXPIRED"
@@ -850,27 +851,41 @@ class PortfolioAgentImpl {
       let entryAdjusted = false;
       let qtyAdjusted = false;
 
-      if (update.status === "FILLED") {
-        // Correct entry price + qty if the broker filled at a different
-        // value than we sent (slippage on market orders, partial fills).
+      // A fill event (full or partial), OR a cancel/expire that leaves a filled
+      // portion behind (remainder killed after a partial) — all mean the trade
+      // holds a real position. `filledQuantity` is cumulative; `averagePrice` is
+      // the running weighted average across fills.
+      const isFill = update.status === "FILLED" || update.status === "PARTIALLY_FILLED";
+      // A cancel/expire that reports a filled qty is only the UNFILLED remainder
+      // dying after a partial fill — the filled portion is a real position, so
+      // keep it open. A cancel/expire with nothing filled falls through to close.
+      const remainderKill =
+        (update.status === "CANCELLED" || update.status === "EXPIRED") &&
+        update.filledQuantity > 0;
+
+      if (isFill || remainderKill) {
+        // Correct entry price + qty to the broker's actual fill. `filledQuantity`
+        // is cumulative; `averagePrice` is the running weighted average.
         if (update.averagePrice > 0 && update.averagePrice !== trade.entryPrice) {
           trade.entryPrice = update.averagePrice;
           entryAdjusted = true;
         }
-        // The broker's fill price is authoritative when present. When the event
-        // carries NO averagePrice, don't silently keep the stale snapshot — mark
-        // the entry pending so tickHandler fills it from the first live tick.
-        trade.entryPending = !(update.averagePrice > 0);
+        // On a real fill event, re-arm entryPending when no avg price came (so
+        // tickHandler fills from the first live tick). A remainder-kill carries
+        // no new fill price — keep the price already set by the earlier fill.
+        if (isFill) trade.entryPending = !(update.averagePrice > 0);
         if (update.filledQuantity > 0 && update.filledQuantity !== trade.qty) {
           trade.qty = update.filledQuantity;
           qtyAdjusted = true;
         }
-        // Promote PENDING → OPEN once the broker confirms the fill.
+        // Promote PENDING → OPEN once the broker confirms any fill. A later
+        // PARTIALLY_FILLED/FILLED just grows the filled qty; a remainder-kill
+        // leaves the (partial) position open.
         if (trade.status === "PENDING") trade.status = "OPEN";
       } else {
-        // CANCELLED / REJECTED / EXPIRED — order never made it to market.
-        // REJECTED is kept distinct (broker refused it) and carries the
-        // broker's reason text; CANCELLED/EXPIRED collapse to CANCELLED.
+        // CANCELLED / REJECTED / EXPIRED with nothing filled — order never made
+        // it to market. REJECTED is kept distinct (broker refused it) and carries
+        // the broker's reason text; CANCELLED/EXPIRED collapse to CANCELLED.
         trade.status = update.status === "REJECTED" ? "REJECTED" : "CANCELLED";
         if (update.status === "REJECTED" && update.reason) {
           trade.rejectReason = update.reason;

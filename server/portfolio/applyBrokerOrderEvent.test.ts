@@ -256,9 +256,9 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     expect(t.closedAt).toBeGreaterThan(0);
   });
 
-  it("EXPIRED — same CANCELLED handling as CANCELLED", async () => {
+  it("EXPIRED (nothing filled) — same CANCELLED handling as CANCELLED", async () => {
     const result = await portfolioAgent.applyBrokerOrderEvent(
-      baseEvent({ status: "EXPIRED" }),
+      baseEvent({ status: "EXPIRED", filledQuantity: 0 }),
     );
     expect(result.matched).toBe(true);
     expect(result.newStatus).toBe("CANCELLED");
@@ -279,21 +279,43 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     expect(t.closedAt).toBeGreaterThan(0);
   });
 
-  it("intermediate statuses (PENDING, PARTIALLY_FILLED) are no-ops", async () => {
-    for (const status of ["PENDING", "PARTIALLY_FILLED"] as const) {
-      vi.clearAllMocks();
-      getCapitalStateMock.mockImplementation(async (c: any) =>
-        c === "my-live" ? makeState() : null,
-      );
-      getDayRecordMock.mockImplementation(async (c: any) =>
-        c === "my-live" ? makeDay([makeTrade()]) : null,
-      );
-      const result = await portfolioAgent.applyBrokerOrderEvent(
-        baseEvent({ status }),
-      );
-      expect(result.matched).toBe(false);
-      expect(upsertDayRecordMock).not.toHaveBeenCalled();
-    }
+  it("intermediate status PENDING is a no-op", async () => {
+    const result = await portfolioAgent.applyBrokerOrderEvent(
+      baseEvent({ status: "PENDING" }),
+    );
+    expect(result.matched).toBe(false);
+    expect(upsertDayRecordMock).not.toHaveBeenCalled();
+  });
+
+  it("PARTIALLY_FILLED — promotes PENDING → OPEN, sets filled qty + avg price", async () => {
+    getDayRecordMock.mockImplementation(async (c: any) =>
+      c === "my-live" ? makeDay([makeTrade({ status: "PENDING", qty: 75 })]) : null,
+    );
+    const result = await portfolioAgent.applyBrokerOrderEvent(
+      baseEvent({ status: "PARTIALLY_FILLED", filledQuantity: 50, averagePrice: 101 }),
+    );
+    expect(result.matched).toBe(true);
+    expect(result.newStatus).toBe("OPEN");
+
+    const t = (upsertDayRecordMock.mock.calls[0][1] as DayRecord).trades[0];
+    expect(t.status).toBe("OPEN");
+    expect(t.qty).toBe(50); // only the filled portion so far
+    expect(t.entryPrice).toBe(101); // running avg
+  });
+
+  it("CANCELLED after a partial fill — keeps the filled position open, not cancelled", async () => {
+    getDayRecordMock.mockImplementation(async (c: any) =>
+      c === "my-live" ? makeDay([makeTrade({ status: "OPEN", qty: 75, entryPrice: 101 })]) : null,
+    );
+    const result = await portfolioAgent.applyBrokerOrderEvent(
+      baseEvent({ status: "CANCELLED", filledQuantity: 50, averagePrice: 101 }),
+    );
+    expect(result.matched).toBe(true);
+
+    const t = (upsertDayRecordMock.mock.calls[0][1] as DayRecord).trades[0];
+    expect(t.status).toBe("OPEN"); // NOT cancelled — the filled 50 is a real position
+    expect(t.qty).toBe(50); // only the filled remainder
+    expect(t.closedAt).toBeNull();
   });
 
   it("no-match — orderId not in any open trade returns matched=false", async () => {
