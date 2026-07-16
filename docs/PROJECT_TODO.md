@@ -114,6 +114,22 @@ Partha's design, **locked 2026-07-16.** A staged exit that protects early then r
 **Backtest code:** scratchpad `sim_exits.py` / `sim_trail.py` / `sim_runway.py`.
 **Next:** validate on more days → build into the exit engine (tickHandler) with cooling as a live input → TradeBar reflects the staged stop.
 
+### T84 [EXEC/UI] — Multi-strategy pluggable exit framework + live 3-way race — DESIGN LOCKED, build pending (2026-07-16) 🆕
+**Goal:** make exit strategies a **pluggable, future-proof, live-controllable** system, and run several **side-by-side on the same signals** to find the best. Partha's design, locked 2026-07-16.
+**First 3 strategies:** **Sprint** = today's exit logic (fixed TP/SL/TSL/30-min age), wrapped as a named strategy = the baseline/control · **Runway** = staged stops then ride winners (T83) · **Anchor** = Runway's staged stops but bank at the fixed target, no ride (backtested *worse* than Sprint, built anyway for live confirmation).
+**Core design (future-proof — "very important"):**
+1. **One clean strategy interface** — per tick, given trade state + price + elapsed, a strategy returns (a) the exit decision (stop level / exit-now / hold) AND (b) its **display state for the TradeBar** (current stop, phase label, target, trailing on/off).
+2. **Registry** — strategies are plug-in modules keyed by name; adding one later = drop in a module, no rewiring.
+3. **Per-trade `exitStrategy` tag** — threaded through the trade record (state.ts type + Mongo schema + `position_state` mirror + `docToPositionState` + `positionDocToTradeRecord` — the 5-hop pattern used for manualExitOnly). Engine dispatches by tag each tick.
+4. **Live-switchable, even mid-trade** — change a trade's strategy → new logic runs next tick.
+5. **Restart-safe per-trade state** — cooling-start / phase / peak / armed flags persist on the trade (also **fix the broken `peakLtp` tracking** as part of this).
+6. **Per-strategy live inputs** — e.g. Runway's **cooling** period, tunable live via the **SEA panel** (like rev_pct, over /ws/sea-control).
+**Live 3-way race (the test):** every SEA signal spawns **3 paper trades**, one per strategy, **full size each**, same strike + moment, sharing a signal id → compare P&L one-to-one.
+**UI:** SEA panel (**bottom** of the dropdown, below the cohort toggles + rev slider) → strategy controls (cooling + params/enable). `TradeFilterBar` (right of day-P&L bar) → a **strategy FILTER** to show only one strategy's trades in the table (view only). Trade row → **live per-trade switch**. **TradeBar → strategy-driven**: renders whatever the active strategy reports (Sprint = today; Runway = wide stop + cooling countdown → tighten → breakeven → extended target + trail; Anchor = staged stops + fixed target). **Markers ALWAYS hand-adjustable on every strategy** — a manual drag overrides that marker; the strategy respects it and keeps managing the rest.
+**Build order:** (1) `exitStrategy` tag + registry + place 3 twins per signal; (2) staged-exit engine (Sprint path untouched) + restart-safe state; (3) strategy-driven TradeBar + TradeFilterBar filter + SEA-panel controls.
+**Backtest basis (190 real scalp trades, 4 days):** Runway +242k vs Sprint +116k (~2×); Anchor *worse* than Sprint. Promising-not-proven → the live race settles it. Sims: scratchpad `sim_exits/sim_trail/sim_runway/sim_compare.py`.
+**Risks:** touches the just-stabilised exit engine (keep Sprint intact + tests); 3× trades/charges/capital (paper); discipline pre-trade gate must allow 3 rapid same-signal trades.
+
 ### T82 [EXEC/STOCKS] — Manual stock (NSE_EQ) trading + LIVE order-lifecycle test (2026-07-15) 🆕
 Built the `stocks` workspace end-to-end: watchlist (search/add + live WS ticks + today's change), staged buy rows (click watchlist → row with QTY stepper + MIS/CNC toggle, default MIS), exit button, equity **NSE_EQ order routing** (entry/exit/LTP + `productType` persisted), and equity **charge profiles** (intraday STT 0.025% sell; delivery STT 0.1% both + ₹13.5 DP fee; new `flat_per_scrip_sell` unit). Live Buy is **un-gated** with a confirmation dialog. Commits: 052b0b9 (search) → d57b960 (routing) → 57bcf57 (MIS/CNC) → 0524818 (charges) → 0b191ab (live un-gate).
 
