@@ -410,11 +410,21 @@ class TradeExecutorAgent {
       });
 
       // Race guard: a live order can fill within milliseconds of placement, so
-      // its order_alert WS event may have already arrived and been buffered
-      // (couldn't match — this trade didn't exist yet). Replay it now that the
-      // trade is persisted, so it promotes PENDING → OPEN at the real fill price
-      // instead of being wrongly adopted as an external (EXT-) position.
-      await portfolioAgent.replayBufferedFills(orderResult.orderId);
+      // its order_alert WS event may buffer either just BEFORE or just AFTER this
+      // persist — the fill's cross-channel match is async and can start before the
+      // trade exists yet finish after it's written. Replay immediately AND on a
+      // short schedule so the buffered fill is applied whichever side of the
+      // persist it lands on, promoting the trade PENDING → OPEN at the real fill
+      // instead of being stranded. Idempotent: replayBufferedFills drains the
+      // buffer first, so once the trade matches, later attempts are no-ops.
+      const orderIdForReplay = orderResult.orderId;
+      await portfolioAgent.replayBufferedFills(orderIdForReplay);
+      for (const delayMs of [750, 2500]) {
+        const t = setTimeout(() => {
+          void portfolioAgent.replayBufferedFills(orderIdForReplay);
+        }, delayMs);
+        if (typeof t.unref === "function") t.unref();
+      }
 
       const response: SubmitTradeResponse = {
         success: true,
