@@ -801,6 +801,7 @@ def run(
         "scalp": legstart_thresholds.enabled if gate_mode == "legstart" else True,
         "trend": trend_thresholds.enabled,
         "ma": ma_signal_thresholds.enabled,
+        "rev_pct": ma_signal_thresholds.rev_pct,  # MA reversal size, live-tunable
     }
     start_control_listener(_live_cohorts)
     # MA-Signal open positions (side "CE"/"PE" -> server tradeId) so the leg-end
@@ -1206,6 +1207,11 @@ def run(
             # loses as a standalone buy). Opt in via `ma_signal.enabled`.
             if ma_signal_detector is not None:
                 try:
+                    # Apply the live reversal size from the control panel (0 =
+                    # slope mode). Takes effect on the next candle — no restart.
+                    _rp = _live_cohorts.get("rev_pct")
+                    if _rp is not None:
+                        ma_signal_detector.rev_pct = _rp
                     _ma_ts = _finite(row.get("timestamp"))
                     _ma_spot = _finite(row.get("spot_price"))
                     ma_events = (

@@ -58,6 +58,12 @@ def start_control_listener(live: dict) -> threading.Thread | None:
                         for c in _COHORTS:
                             if c in st:
                                 live[c] = bool(st[c])
+                        # MA-Signal reversal size (%) — live-tunable from the panel.
+                        if "revPct" in st:
+                            try:
+                                live["rev_pct"] = float(st["revPct"])
+                            except (TypeError, ValueError):
+                                pass
             except Exception:
                 await asyncio.sleep(3.0)  # reconnect backoff
 

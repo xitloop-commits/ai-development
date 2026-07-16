@@ -30,7 +30,21 @@ export function SeaControl() {
   const setCohort = trpc.trading.setSeaCohort.useMutation({
     onSuccess: (next) => utils.trading.seaCohortState.setData(undefined, next),
   });
+  const setRev = trpc.trading.setSeaRevPct.useMutation({
+    onSuccess: (next) => utils.trading.seaCohortState.setData(undefined, next),
+  });
   const state = stateQuery.data;
+
+  // MA-Signal reversal size — local input synced to server state, committed on
+  // blur / Enter so we don't fire a mutation on every keystroke.
+  const [revInput, setRevInput] = useState("");
+  useEffect(() => {
+    if (state?.revPct != null) setRevInput(String(state.revPct));
+  }, [state?.revPct]);
+  const commitRev = () => {
+    const v = parseFloat(revInput);
+    if (!Number.isNaN(v) && v !== state?.revPct) setRev.mutate({ value: v });
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -87,6 +101,28 @@ export function SeaControl() {
                 <span className="text-[0.625rem] text-muted-foreground leading-tight">not built — no gate</span>
               </div>
               <Switch checked={false} disabled aria-label="Swing cohort (not available)" />
+            </div>
+
+            {/* MA-Signal reversal size — live-tunable (0.02–0.6%). Lower = flips
+                on smaller swings = more signals; higher = fewer, cleaner legs. */}
+            <div className="flex items-center justify-between gap-3 pt-2 mt-0.5 border-t border-border">
+              <div className="flex flex-col">
+                <span className="text-[0.8125rem] font-medium leading-tight">MA reversal size</span>
+                <span className="text-[0.625rem] text-muted-foreground leading-tight">% pullback to flip · lower = more signals</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number" step={0.02} min={0.02} max={0.6}
+                  value={revInput}
+                  disabled={!state || setRev.isPending}
+                  onChange={(e) => setRevInput(e.target.value)}
+                  onBlur={commitRev}
+                  onKeyDown={(e) => { if (e.key === "Enter") { commitRev(); (e.target as HTMLInputElement).blur(); } }}
+                  className="w-14 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan"
+                  aria-label="MA reversal size percent"
+                />
+                <span className="text-[0.625rem] text-muted-foreground">%</span>
+              </div>
             </div>
           </div>
 

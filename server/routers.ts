@@ -17,7 +17,7 @@ import {
 import { getMongoHealth, pingMongo } from "./mongo";
 import { querySeaSignals, getSeaSignalsForChartFromStore } from "./seaSignalStore";
 import { getSEASignalsForChart, logFolderFor } from "./seaSignals";
-import { getCohortState, setCohort } from "./seaControl";
+import { getCohortState, setCohort, setRevPct } from "./seaControl";
 import { getTradesForDate } from "./portfolio/state";
 import { getInstrumentLiveState } from "./instrumentLiveState";
 import { readUnderlyingTicks, listRecordedDates, readOptionContractTicks } from "./chartData";
@@ -105,6 +105,10 @@ export const appRouter = router({
         }),
       )
       .mutation(({ input }) => setCohort(input.cohort, input.enabled)),
+    // MA-Signal reversal size (%). Live-tunable slider in the SEA panel.
+    setSeaRevPct: publicProcedure
+      .input(z.object({ value: z.number() }))
+      .mutation(({ input }) => setRevPct(input.value)),
 
     // All trades on one option strike (instrument + strike + CE/PE) for one
     // channel + date, shaped for the option-strike chart overlay (entry/exit

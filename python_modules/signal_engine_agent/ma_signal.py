@@ -51,6 +51,9 @@ class MASignalDetector:
         self._state = "FLAT"               # "FLAT" | "UP" | "DOWN"
         self._hi: float | None = None      # reversal-mode running peak
         self._lo: float | None = None      # reversal-mode running trough
+        # Live-tunable reversal size (%). Seeded from the (frozen) cfg; the engine
+        # overwrites it from the control panel so a change applies with no restart.
+        self.rev_pct: float = cfg.rev_pct
 
     def on_tick(self, ts: float, spot: float) -> list[str]:
         if not (math.isfinite(ts) and math.isfinite(spot)):
@@ -71,7 +74,7 @@ class MASignalDetector:
 
     def _close_and_eval(self) -> list[str]:
         cfg = self.cfg
-        if cfg.rev_pct > 0.0:
+        if self.rev_pct > 0.0:
             return self._eval_reversal()   # peak/trough reversal — no averaging
         a = 2.0 / (cfg.ema_period + 1)
         ema = self._c if self._ema_prev is None else a * self._c + (1.0 - a) * self._ema_prev
@@ -126,7 +129,7 @@ class MASignalDetector:
             return []
         self._hi = max(self._hi, c)
         self._lo = min(self._lo, c)
-        rev = self.cfg.rev_pct / 100.0
+        rev = self.rev_pct / 100.0
         prev = self._state
         st = prev
         # A peak confirmed → downtrend; a trough confirmed → uptrend.
