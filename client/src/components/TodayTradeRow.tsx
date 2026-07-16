@@ -18,7 +18,7 @@ import {
   contractCopyText,
 } from '@/lib/tradeFormatters';
 import { tradePoints } from '@/lib/tradeCalculations';
-import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel, canExitTrades } from '@/lib/tradeThemes';
+import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel, strategyPillStyle, strategyLabel, canExitTrades } from '@/lib/tradeThemes';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { istDateString } from '@/lib/signalChart';
 import OptionChartDialog, { type OptionChartTargetLite } from './OptionChartDialog';
@@ -235,6 +235,18 @@ function _TodayTradeRow({
                   title={`Signal cohort: ${trade.cohort}`}
                 >
                   {cohortLabel(trade.cohort)}
+                </span>
+              )}
+              {/* T84 race: only the experimental twins (Runway/Anchor) get a
+                  strategy pill — Sprint is the unlabelled baseline, so normal
+                  rows stay clean. */}
+              {trade.exitStrategy && trade.exitStrategy !== 'sprint' && (
+                <span
+                  className="text-[0.5rem] font-semibold uppercase tracking-wide rounded px-1 py-0.5 shrink-0"
+                  style={strategyPillStyle(trade.exitStrategy)}
+                  title={`Exit strategy: ${strategyLabel(trade.exitStrategy)}`}
+                >
+                  {strategyLabel(trade.exitStrategy)}
                 </span>
               )}
               {expiryLabel && (

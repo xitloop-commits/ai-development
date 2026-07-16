@@ -35,6 +35,13 @@ export function SeaControl() {
   });
   const state = stateQuery.data;
 
+  // T84 exit-strategy race — the Runway/Anchor cooling window (live-tunable).
+  const cfgQuery = trpc.trading.exitStrategyConfig.useQuery(undefined, { enabled: open });
+  const setCooling = trpc.trading.setExitCooling.useMutation({
+    onSuccess: (next) => utils.trading.exitStrategyConfig.setData(undefined, next),
+  });
+  const cfg = cfgQuery.data;
+
   // MA-Signal reversal size — local input synced to server state, committed on
   // blur / Enter so we don't fire a mutation on every keystroke.
   const [revInput, setRevInput] = useState("");
@@ -44,6 +51,18 @@ export function SeaControl() {
   const commitRev = () => {
     const v = parseFloat(revInput);
     if (!Number.isNaN(v) && v !== state?.revPct) setRev.mutate({ value: v });
+  };
+
+  // Cooling window shown in MINUTES (human), stored server-side in seconds.
+  const [coolInput, setCoolInput] = useState("");
+  useEffect(() => {
+    if (cfg?.coolingSec != null) setCoolInput(String(cfg.coolingSec / 60));
+  }, [cfg?.coolingSec]);
+  const commitCool = () => {
+    const mins = parseFloat(coolInput);
+    if (Number.isNaN(mins)) return;
+    const sec = Math.round(mins * 60);
+    if (sec !== cfg?.coolingSec) setCooling.mutate({ coolingSec: sec });
   };
 
   useEffect(() => {
@@ -122,6 +141,29 @@ export function SeaControl() {
                   aria-label="MA reversal size percent"
                 />
                 <span className="text-[0.625rem] text-muted-foreground">%</span>
+              </div>
+            </div>
+
+            {/* T84 exit-strategy race — cooling window for Runway/Anchor. During
+                cooling the stop sits wide (−25%) so a fresh entry isn't whipsawed;
+                after it, the stop tightens. Live-tunable (1–20 min). */}
+            <div className="flex items-center justify-between gap-3 pt-2 mt-0.5 border-t border-border">
+              <div className="flex flex-col">
+                <span className="text-[0.8125rem] font-medium leading-tight">Exit cooling</span>
+                <span className="text-[0.625rem] text-muted-foreground leading-tight">Runway/Anchor wide-stop window</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number" step={1} min={1} max={20}
+                  value={coolInput}
+                  disabled={!cfg || setCooling.isPending}
+                  onChange={(e) => setCoolInput(e.target.value)}
+                  onBlur={commitCool}
+                  onKeyDown={(e) => { if (e.key === "Enter") { commitCool(); (e.target as HTMLInputElement).blur(); } }}
+                  className="w-14 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan"
+                  aria-label="Exit cooling window (minutes)"
+                />
+                <span className="text-[0.625rem] text-muted-foreground">min</span>
               </div>
             </div>
           </div>

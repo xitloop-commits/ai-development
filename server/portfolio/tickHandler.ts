@@ -22,6 +22,7 @@ import {
 import type { Channel, TradeRecord, CapitalState, DayRecord } from "./state";
 import { recalculateDayAggregates } from "./compounding";
 import { decideExit } from "./exitStrategies";
+import { getExitCfg } from "./exitConfig";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { TickData } from "../broker/types";
 
@@ -476,7 +477,7 @@ class TickHandler extends EventEmitter {
             target: trade.targetPrice,
             openedAt: trade.openedAt,
             now: Date.now(),
-          });
+          }, getExitCfg()); // live cooling from the SEA panel
           if (out) {
             trade.stopLossPrice = out.stop; // ratchet the visible stop
             anyUpdated = true;

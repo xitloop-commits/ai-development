@@ -71,6 +71,14 @@ describe('tradeMatchesFilter', () => {
     expect(tradeMatchesFilter(trade({ cohort: null }), f({ cohort: 'scalp' }))).toBe(false);
   });
 
+  it('exitStrategy — exact match; missing strategy defaults to sprint', () => {
+    expect(tradeMatchesFilter(trade({ exitStrategy: 'runway' }), f({ exitStrategy: 'runway' }))).toBe(true);
+    expect(tradeMatchesFilter(trade({ exitStrategy: 'anchor' }), f({ exitStrategy: 'runway' }))).toBe(false);
+    // A pre-T84 trade (no exitStrategy) counts as sprint.
+    expect(tradeMatchesFilter(trade({ exitStrategy: undefined }), f({ exitStrategy: 'sprint' }))).toBe(true);
+    expect(tradeMatchesFilter(trade({ exitStrategy: undefined }), f({ exitStrategy: 'runway' }))).toBe(false);
+  });
+
   it('axes are AND-ed', () => {
     const open_ce = trade({ status: 'OPEN', type: 'CALL_BUY' });
     expect(tradeMatchesFilter(open_ce, f({ status: 'OPEN', side: 'CE' }))).toBe(true);

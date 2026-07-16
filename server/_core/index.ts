@@ -245,6 +245,10 @@ async function startServer() {
   // SEA cohort control: dedicated /ws/sea-control channel + config hydrate.
   initSeaControl(server);
 
+  // T84 exit-strategy race: hydrate live cooling override (config/exit_strategy.json).
+  const { initExitConfig } = await import("../portfolio/exitConfig");
+  initExitConfig();
+
   // Watch TFA feature files → push instrument live-state over /ws/ticks
   // (replaces the 2s instrumentLiveState poll across 5 UI surfaces).
   const { startInstrumentStateWatcher } = await import("../instrumentStateWatcher");

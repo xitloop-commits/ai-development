@@ -18,6 +18,7 @@ import { getMongoHealth, pingMongo } from "./mongo";
 import { querySeaSignals, getSeaSignalsForChartFromStore } from "./seaSignalStore";
 import { getSEASignalsForChart, logFolderFor } from "./seaSignals";
 import { getCohortState, setCohort, setRevPct } from "./seaControl";
+import { getExitCfg, setCoolingSec } from "./portfolio/exitConfig";
 import { getTradesForDate } from "./portfolio/state";
 import { getInstrumentLiveState } from "./instrumentLiveState";
 import { readUnderlyingTicks, listRecordedDates, readOptionContractTicks } from "./chartData";
@@ -109,6 +110,13 @@ export const appRouter = router({
     setSeaRevPct: publicProcedure
       .input(z.object({ value: z.number() }))
       .mutation(({ input }) => setRevPct(input.value)),
+
+    // T84 exit-strategy race config (Runway/Anchor). Read the effective config;
+    // set the cooling window live from the SEA panel (applied on the next tick).
+    exitStrategyConfig: publicProcedure.query(() => getExitCfg()),
+    setExitCooling: publicProcedure
+      .input(z.object({ coolingSec: z.number() }))
+      .mutation(({ input }) => setCoolingSec(input.coolingSec)),
 
     // All trades on one option strike (instrument + strike + CE/PE) for one
     // channel + date, shaped for the option-strike chart overlay (entry/exit

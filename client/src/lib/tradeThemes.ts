@@ -139,6 +139,36 @@ export function cohortPillStyle(cohort: string | null | undefined) {
   return instrumentStyleFromHex(resolveCohortHex(cohort)).pill;
 }
 
+// ─── Exit-strategy colour system ───────────────────────────────────────────
+// The T84 multi-strategy race: every ai-paper signal spawns one full-size
+// trade per strategy so they compete on identical entries. Each strategy has
+// ONE bright colour, used wherever a strategy pill/tag appears (trade rows,
+// filter bar, trade bar). Kept distinct from the cohort hues above.
+export const STRATEGY_COLORS: Record<string, string> = {
+  sprint: '#38BDF8', // sky blue   — the legacy TP/SL/TSL engine (default)
+  runway: '#34D399', // emerald    — staged stops then ride the winner
+  anchor: '#F59E0B', // amber      — staged stops, bank at fixed target
+};
+
+const FALLBACK_STRATEGY_COLOR = '#94A3B8'; // slate-400
+
+/** Resolve a strategy's bright hex (case-insensitive); slate for unknown / null. */
+export function resolveStrategyHex(strategy: string | null | undefined): string {
+  if (!strategy) return FALLBACK_STRATEGY_COLOR;
+  return STRATEGY_COLORS[strategy.toLowerCase()] ?? FALLBACK_STRATEGY_COLOR;
+}
+
+/** Title-case display label for a strategy pill (Sprint / Runway / Anchor). */
+export function strategyLabel(strategy: string): string {
+  return strategy.charAt(0).toUpperCase() + strategy.slice(1);
+}
+
+/** Strategy pill style (bright text + tint bg) — matches the cohort/instrument
+ *  pills so strategy colours stay consistent across every surface. */
+export function strategyPillStyle(strategy: string | null | undefined) {
+  return instrumentStyleFromHex(resolveStrategyHex(strategy)).pill;
+}
+
 /** Manual order controls allowed on My-* and Testing-* channels (not on AI channels). */
 export function supportsManualControls(channel: Channel): boolean {
   const ws = channelToWorkspace(channel);

@@ -10,7 +10,7 @@
 import { memo } from 'react';
 import { Filter, X } from 'lucide-react';
 import type { TradeRecord } from '@/lib/tradeTypes';
-import { cohortLabel, cohortPillStyle } from '@/lib/tradeThemes';
+import { cohortLabel, cohortPillStyle, strategyLabel, strategyPillStyle } from '@/lib/tradeThemes';
 
 export type StatusFilter = 'OPEN' | 'CLOSED';
 export type SideFilter = 'CE' | 'PE';
@@ -24,6 +24,8 @@ export interface TradeFilter {
   outcome: OutcomeFilter | null;
   /** Strategy cohort (scalp | trend | swing | multi_day_swing | ma_signal), or null = all. */
   cohort: string | null;
+  /** Exit strategy (sprint | runway | anchor) from the T84 race, or null = all. */
+  exitStrategy: string | null;
 }
 
 export const EMPTY_TRADE_FILTER: TradeFilter = {
@@ -32,11 +34,12 @@ export const EMPTY_TRADE_FILTER: TradeFilter = {
   side: null,
   outcome: null,
   cohort: null,
+  exitStrategy: null,
 };
 
 /** True when no axis is active (used to hide the reset button). */
 export function isEmptyTradeFilter(f: TradeFilter): boolean {
-  return !f.instrument && !f.status && !f.side && !f.outcome && !f.cohort;
+  return !f.instrument && !f.status && !f.side && !f.outcome && !f.cohort && !f.exitStrategy;
 }
 
 /** Does a trade pass the active filter? Empty axes are ignored. */
@@ -66,6 +69,9 @@ export function tradeMatchesFilter(t: TradeRecord, f: TradeFilter): boolean {
   }
 
   if (f.cohort && t.cohort !== f.cohort) return false;
+
+  // exitStrategy defaults to "sprint" when a trade predates the T84 race.
+  if (f.exitStrategy && (t.exitStrategy ?? 'sprint') !== f.exitStrategy) return false;
 
   return true;
 }
@@ -111,11 +117,14 @@ export interface TradeFilterBarProps {
   /** Distinct `trade.cohort` values present in the current day (toggle pills);
    *  empty (e.g. manual-only workspaces) hides the cohort group. */
   cohorts: string[];
+  /** Distinct `trade.exitStrategy` values present today (T84 race); empty hides
+   *  the strategy group so single-strategy days stay uncluttered. */
+  strategies: string[];
 }
 
-function _TradeFilterBar({ value, onChange, instruments, cohorts }: TradeFilterBarProps) {
+function _TradeFilterBar({ value, onChange, instruments, cohorts, strategies }: TradeFilterBarProps) {
   // Single-select toggle: click an active value clears it, else it becomes active.
-  const toggle = <K extends 'status' | 'side' | 'outcome' | 'cohort'>(axis: K, v: TradeFilter[K]) =>
+  const toggle = <K extends 'status' | 'side' | 'outcome' | 'cohort' | 'exitStrategy'>(axis: K, v: TradeFilter[K]) =>
     onChange({ ...value, [axis]: value[axis] === v ? null : v });
 
   const dirty = !isEmptyTradeFilter(value);
@@ -180,6 +189,24 @@ function _TradeFilterBar({ value, onChange, instruments, cohorts }: TradeFilterB
               title={`Show only ${cohortLabel(c)} trades`}
             >
               {cohortLabel(c)}
+            </Pill>
+          ))}
+        </>
+      )}
+
+      {/* Exit strategy (T84 race) — colour-coded pills, only when present today. */}
+      {strategies.length > 0 && (
+        <>
+          <Divider />
+          {strategies.map((s) => (
+            <Pill
+              key={s}
+              active={value.exitStrategy === s}
+              activeStyle={strategyPillStyle(s)}
+              onClick={() => toggle('exitStrategy', s)}
+              title={`Show only ${strategyLabel(s)}-strategy trades`}
+            >
+              {strategyLabel(s)}
             </Pill>
           ))}
         </>
