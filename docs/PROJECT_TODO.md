@@ -117,6 +117,7 @@ Partha's design, **locked 2026-07-16.** A staged exit that protects early then r
 ### T84 [EXEC/UI] — Multi-strategy pluggable exit framework + live 3-way race — DESIGN LOCKED, build pending (2026-07-16) 🆕
 **Goal:** make exit strategies a **pluggable, future-proof, live-controllable** system, and run several **side-by-side on the same signals** to find the best. Partha's design, locked 2026-07-16.
 **First 3 strategies:** **Sprint** = today's exit logic (fixed TP/SL/TSL/30-min age), wrapped as a named strategy = the baseline/control · **Runway** = staged stops then ride winners (T83) · **Anchor** = Runway's staged stops but bank at the fixed target, no ride (backtested *worse* than Sprint, built anyway for live confirmation).
+**External exit signals (SEA/MA leg-end EXIT) are honoured ONLY by Sprint.** Runway + Anchor ignore them and run purely on their own price rules. So an MA-Signal entry's Sprint twin exits on the MA EXIT (+ its TP/SL/age); its Runway/Anchor twins ride/bank on price and never listen to the reversal. (No separate "Signal" strategy — this is a Sprint property.)
 **Core design (future-proof — "very important"):**
 1. **One clean strategy interface** — per tick, given trade state + price + elapsed, a strategy returns (a) the exit decision (stop level / exit-now / hold) AND (b) its **display state for the TradeBar** (current stop, phase label, target, trailing on/off).
 2. **Registry** — strategies are plug-in modules keyed by name; adding one later = drop in a module, no rewiring.
