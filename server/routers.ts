@@ -28,6 +28,7 @@ import { executorRouter } from "./executor";
 import { disciplineRouter } from "./discipline/disciplineRouter";
 import { alertsRouter } from "./alerts/alertRouter";
 import { searchStocks, addStock, listStocks, removeStock } from "./stockMaster";
+import { getActiveBroker } from "./broker/brokerService";
 import { getUserSettings, updateUserSettings } from "./userSettings";
 import {
   getAllInstruments,
@@ -374,6 +375,34 @@ export const appRouter = router({
   stocks: router({
     // The watchlist: all added stocks, oldest first.
     list: publicProcedure.query(() => listStocks()),
+
+    // Batched OHLC quote (LTP + prev-day close) for every watchlist stock, keyed
+    // by securityId. Seeds/falls back the watchlist rows so EVERY stock shows a
+    // price immediately — the live WS tick only fires once a stock trades, so
+    // illiquid names (or ones whose initial packet was missed) would otherwise
+    // stay blank. Missing/failed ids are simply absent.
+    quotes: publicProcedure.query(async () => {
+      const out: Record<string, { ltp: number; prevClose: number }> = {};
+      const stocks = await listStocks();
+      if (stocks.length === 0) return out;
+      const broker = getActiveBroker();
+      if (!broker?.getOhlcQuote) return out; // no live broker → empty (rows show —)
+      const ids = stocks.map((s) => Number(s.securityId)).filter((n) => Number.isFinite(n));
+      if (ids.length === 0) return out;
+      let raw: Awaited<ReturnType<NonNullable<typeof broker.getOhlcQuote>>> = {};
+      try {
+        raw = await broker.getOhlcQuote({ NSE_EQ: ids });
+      } catch {
+        return out; // transient broker/network error → empty this poll
+      }
+      const bySeg = raw.NSE_EQ ?? {};
+      for (const s of stocks) {
+        const q = bySeg[s.securityId];
+        if (!q) continue;
+        out[s.securityId] = { ltp: q.lastPrice ?? 0, prevClose: q.close ?? 0 };
+      }
+      return out;
+    }),
 
     // Search the Dhan scrip master for NSE cash equities by name/symbol.
     search: publicProcedure

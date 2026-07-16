@@ -39,8 +39,12 @@ export function WatchlistPane() {
     { query: debounced },
     { enabled: debounced.length >= 1, staleTime: 60_000, refetchOnWindowFocus: false },
   );
-  const addMut = trpc.stocks.add.useMutation({ onSuccess: () => utils.stocks.list.invalidate() });
-  const removeMut = trpc.stocks.remove.useMutation({ onSuccess: () => utils.stocks.list.invalidate() });
+  const addMut = trpc.stocks.add.useMutation({
+    onSuccess: () => { utils.stocks.list.invalidate(); utils.stocks.quotes.invalidate(); },
+  });
+  const removeMut = trpc.stocks.remove.useMutation({
+    onSuccess: () => { utils.stocks.list.invalidate(); utils.stocks.quotes.invalidate(); },
+  });
 
   const watchlist = listQ.data ?? [];
   const added = new Set(watchlist.map((s) => s.securityId));
@@ -50,10 +54,19 @@ export function WatchlistPane() {
   const { stage } = useStagedOrders();
 
   // Subscribe every watchlist stock on the live feed (full mode → LTP ticks + a
-  // prev-close packet, so each row shows a real-time price and today's change).
-  // useFeedSubscriptions only re-subscribes when the id-set changes and releases
-  // all subs when this pane unmounts (leaving the Stocks workspace).
+  // prev-close packet) for REAL-TIME updates. useFeedSubscriptions re-subscribes
+  // only when the id-set changes and releases all subs when this pane unmounts.
   useFeedSubscriptions(watchlist.map((s) => ({ securityId: s.securityId, exchange: "NSE_EQ" })));
+
+  // Fallback/seed: a batched OHLC quote (LTP + prev close) for the whole
+  // watchlist, polled slowly. The WS tick only fires once a stock trades, so
+  // illiquid names would stay blank; this guarantees every row shows a price.
+  const quotesQ = trpc.stocks.quotes.useQuery(undefined, {
+    enabled: watchlist.length > 0,
+    refetchInterval: 5_000,
+    refetchOnWindowFocus: true,
+  });
+  const quotes = quotesQ.data ?? {};
 
   return (
     <div className="flex flex-col h-full border-r border-border bg-card/40">
@@ -111,6 +124,7 @@ export function WatchlistPane() {
             <WatchlistRow
               key={s.securityId}
               stock={s}
+              fallback={quotes[s.securityId]}
               onPick={() => stage({ securityId: s.securityId, symbol: s.symbol })}
               onRemove={() => removeMut.mutate({ securityId: s.securityId })}
             />
@@ -123,20 +137,24 @@ export function WatchlistPane() {
 
 interface WatchlistRowProps {
   stock: { securityId: string; symbol: string; name: string };
+  /** Batched-quote seed (LTP + prev close) used until/unless the WS ticks. */
+  fallback?: { ltp: number; prevClose: number };
   onPick: () => void;
   onRemove: () => void;
 }
 
 /**
  * One watchlist row — subscribes to its OWN stock's live ticks so it re-renders
- * only on its own tick (never a global fan-out). LTP comes from each tick;
- * today's change = LTP − prevClose (prevClose arrives once, right after subscribe).
- * Clicking the row stages a draft BUY order; the ✕ removes it from the watchlist.
+ * only on its own tick (never a global fan-out). Price = the live WS LTP when it
+ * has ticked, otherwise the batched-quote fallback (so illiquid names that never
+ * tick still show a price). Change = LTP − prevClose. Clicking the row stages a
+ * draft BUY order; the ✕ removes it from the watchlist.
  */
-function WatchlistRow({ stock, onPick, onRemove }: WatchlistRowProps) {
+function WatchlistRow({ stock, fallback, onPick, onRemove }: WatchlistRowProps) {
   const tick = useInstrumentTick("NSE_EQ", stock.securityId);
-  const ltp = tick?.ltp ?? 0;
-  const prevClose = tick?.prevClose ?? 0;
+  // Prefer the live WS tick; fall back to the polled quote when it hasn't ticked.
+  const ltp = tick && tick.ltp > 0 ? tick.ltp : fallback?.ltp ?? 0;
+  const prevClose = tick && tick.prevClose > 0 ? tick.prevClose : fallback?.prevClose ?? 0;
   const hasChange = ltp > 0 && prevClose > 0;
   const change = hasChange ? ltp - prevClose : 0;
   const changePct = hasChange ? (change / prevClose) * 100 : 0;
