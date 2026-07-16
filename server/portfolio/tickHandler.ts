@@ -625,6 +625,13 @@ class TickHandler extends EventEmitter {
       if (live.targetPrice != null) ft.targetPrice = live.targetPrice;
       // TSL activation timestamp (for the UI stopwatch) — stamp once, never clear.
       if (live.tslActivatedAt != null) ft.tslActivatedAt = live.tslActivatedAt;
+      // Operator-owned risk flags: toggled via updateTrade, which pushes them into
+      // this live cache (applyTradeEdit). Copy them so the persist writes the
+      // toggle instead of reverting to the stale `fresh` read on the next tick.
+      if (live.stopLossDisabled !== undefined) ft.stopLossDisabled = live.stopLossDisabled;
+      if (live.targetDisabled !== undefined) ft.targetDisabled = live.targetDisabled;
+      if (live.tslMode !== undefined) ft.tslMode = live.tslMode;
+      if (live.manualExitOnly !== undefined) ft.manualExitOnly = live.manualExitOnly;
       // Entry-fill correction (paper first-tick / live avg-missing fallback):
       // the fill overwrites entryPrice + clears entryPending on the cached trade.
       // Persist BOTH — otherwise the reload resurrects entryPending=true and the
