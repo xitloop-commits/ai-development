@@ -520,6 +520,7 @@ function docToPositionState(doc: Record<string, any>): PositionStateDoc {
     status: doc.status,
     targetPrice: doc.targetPrice ?? null,
     stopLossPrice: doc.stopLossPrice ?? null,
+    peakLtp: doc.peakLtp ?? undefined,
     trailingStopEnabled: doc.trailingStopEnabled ?? false,
     manualExitOnly: doc.manualExitOnly ?? false,
     exitStrategy: doc.exitStrategy ?? "sprint",

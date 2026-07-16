@@ -173,6 +173,10 @@ class RcaMonitor {
       for (const trade of positions) {
         if (trade.status !== "OPEN") continue;
         if (this.exitAttempted.has(trade.id)) continue;
+        // T84: runway/anchor trades are managed entirely by the tick engine's
+        // staged strategy — RcaMonitor's age/stale/vol/momentum never apply to
+        // them (Runway rides, Anchor banks at target). Sprint keeps them.
+        if (trade.exitStrategy === "runway" || trade.exitStrategy === "anchor") continue;
         // MA-Signal (manual-exit-only) trades ride until an explicit external
         // close — skip every reconcile auto-exit (age / stale / volatility /
         // momentum). They are closed only by MA-Signal's own EXIT signal.
@@ -587,6 +591,11 @@ class RcaMonitor {
       for (const trade of positions) {
         if (trade.status !== "OPEN") continue;
         if (trade.instrument !== input.instrument) continue;
+        // T84: external SEA signals (EXIT / MODIFY_SL / MODIFY_TP) are honoured
+        // ONLY by Sprint. runway/anchor run purely on their own price engine and
+        // ignore the model's signal — so the MA leg-end EXIT hits only the Sprint
+        // twin, never flattens the Runway/Anchor twins.
+        if (trade.exitStrategy === "runway" || trade.exitStrategy === "anchor") continue;
         const positionId = `POS-${trade.id.replace(/^T/, "")}`;
 
         try {

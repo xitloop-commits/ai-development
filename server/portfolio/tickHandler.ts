@@ -21,6 +21,7 @@ import {
 } from "./state";
 import type { Channel, TradeRecord, CapitalState, DayRecord } from "./state";
 import { recalculateDayAggregates } from "./compounding";
+import { decideExit } from "./exitStrategies";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { TickData } from "../broker/types";
 
@@ -461,6 +462,34 @@ class TickHandler extends EventEmitter {
           // every tick (the upsertDayRecord call below already persists
           // the trade record when anyUpdated is set).
           trade.peakLtp = newPeak;
+        }
+
+        // T84 — pluggable exit strategy. runway/anchor trades run the staged
+        // engine (cooling → 12.5% → breakeven → ride/bank) instead of the legacy
+        // TP/SL/TSL below. Sprint (or undefined) falls through unchanged. Uses the
+        // live `newPeak` so it works even while persisted peakLtp lags.
+        if (trade.exitStrategy === "runway" || trade.exitStrategy === "anchor") {
+          const out = decideExit(trade.exitStrategy, {
+            entry: trade.entryPrice,
+            ltp: tick.ltp,
+            peak: newPeak,
+            target: trade.targetPrice,
+            openedAt: trade.openedAt,
+            now: Date.now(),
+          });
+          if (out) {
+            trade.stopLossPrice = out.stop; // ratchet the visible stop
+            anyUpdated = true;
+            if (out.exit && !this.exitingTrades.has(trade.id)) {
+              this.exitingTrades.add(trade.id);
+              tradesToExit.push({
+                trade,
+                reason: out.phase === "target-bank" ? "TP_HIT" : "SL_HIT",
+                exitPrice: out.exitPrice ?? tick.ltp,
+              });
+            }
+          }
+          continue; // the strategy owns the exit — skip legacy TP/SL/TSL
         }
 
         // Manual-exit-only (master switch): this trade rides until its OWN exit

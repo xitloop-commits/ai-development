@@ -495,6 +495,7 @@ class PortfolioAgentImpl {
       status: trade.status,
       targetPrice: trade.targetPrice,
       stopLossPrice: trade.stopLossPrice,
+      peakLtp: trade.peakLtp,
       trailingStopEnabled: trade.trailingStopEnabled,
       manualExitOnly: trade.manualExitOnly ?? false,
       exitStrategy: trade.exitStrategy ?? "sprint",
