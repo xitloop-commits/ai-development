@@ -790,7 +790,7 @@ class PortfolioAgentImpl {
     // notify (single-writer invariant preserved).
     if (update.status === "FILLED" && (update.legNo === 2 || update.legNo === 3)) {
       const reason: AutoExitEvent["reason"] = update.legNo === 2 ? "SL_HIT" : "TP_HIT";
-      const legChannels: Channel[] = ["my-live", "ai-live", "testing-live"];
+      const legChannels: Channel[] = ["my-live", "ai-live", "testing-live", "stocks-live"];
       for (const channel of legChannels) {
         const state = await getCapitalState(channel).catch(() => null);
         if (!state) continue;
@@ -829,7 +829,7 @@ class PortfolioAgentImpl {
 
     // Brokers don't tell us which channel the order belongs to. Each live
     // channel could have placed it — scan and stop at the first match.
-    const liveChannels: Channel[] = ["my-live", "ai-live", "testing-live"];
+    const liveChannels: Channel[] = ["my-live", "ai-live", "testing-live", "stocks-live"];
     for (const channel of liveChannels) {
       const state = await getCapitalState(channel).catch(() => null);
       if (!state) continue;

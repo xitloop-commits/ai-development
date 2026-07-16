@@ -371,7 +371,12 @@ export const executorRouter = router({
       }
 
       // ── 6. Resolve order type / product type from broker config (reuses `config`) ─
-      const orderType = (config?.settings?.orderType as "MARKET" | "LIMIT" | undefined) ?? "LIMIT";
+      // Equity is a discretionary market buy/sell — send MARKET so it fills
+      // reliably (a LIMIT-at-LTP can hang if the price moves). Options keep the
+      // configured order type.
+      const orderType = isEquity
+        ? "MARKET"
+        : ((config?.settings?.orderType as "MARKET" | "LIMIT" | undefined) ?? "LIMIT");
       // Equity (stock) trades route to NSE_EQ cash and carry their own product
       // type — MIS→INTRADAY (default) or CNC (delivery); options keep the config
       // default. (`isEquity` computed above.)

@@ -27,7 +27,7 @@ import type { Channel } from "../portfolio/state";
 
 const log = createLogger("TEA", "Reconciler");
 
-const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live"];
+const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live", "stocks-live"];
 
 /** Don't re-hit the same order within this window if reconnects flap. */
 const MIN_RECONCILE_INTERVAL_MS = 15_000;

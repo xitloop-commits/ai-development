@@ -61,7 +61,7 @@ import type {
 const log = createLogger("TEA", "Executor");
 
 const PAPER_CHANNELS: Channel[] = ["my-paper", "ai-paper"];
-const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live"];
+const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live", "stocks-live"];
 
 // AI_LIVE_LOT_CAP is now sourced from executor_settings (default 1).
 // TEA Settings page surfaces it; checkAiLiveLotCap reads through the
