@@ -50,6 +50,7 @@ interface ChartTradeRow {
   status: string;
   exitReason?: string;
   pnl: number;
+  cohort: string | null;
 }
 
 /** Option feed segment for an instrument's F&O contracts (Phase 1 = NSE). */
@@ -69,9 +70,14 @@ function snapToCandle(times: number[], tShifted: number): number {
   return nearest;
 }
 
-/** In/out markers for a set of trades, snapped to `times`. Direction placement:
- *  CALL (CE) below the bar, PUT (PE) above. `cutoff` hides markers past a replay
- *  position (pass Infinity when not replaying). */
+/** In/out markers for a set of trades, snapped to `times`. Matches the SEA
+ *  signal-marker convention (commit dadaf82): every marker takes its trade's
+ *  COHORT colour; the shape marks lifecycle (entry = direction arrow, exit = ●
+ *  circle); entry and exit sit on OPPOSITE sides of the bar so they read
+ *  distinctly:
+ *    CE (call): entry ▲ below the bar,  exit ● above.
+ *    PE (put):  entry ▼ above the bar,  exit ● below.
+ *  `cutoff` hides markers past a replay position (pass Infinity when not replaying). */
 function buildTradeMarkers(
   trades: ChartTradeRow[],
   times: number[],
@@ -79,15 +85,30 @@ function buildTradeMarkers(
 ): SeriesMarker<UTCTimestamp>[] {
   const out: SeriesMarker<UTCTimestamp>[] = [];
   for (const t of trades) {
-    const position: "aboveBar" | "belowBar" = t.side === "CE" ? "belowBar" : "aboveBar";
+    const isCall = t.side === "CE";
+    const color = resolveCohortHex(t.cohort);
     const label = t.signalSeq != null ? `#${t.signalSeq}` : "";
+    // Entry — direction arrow on the "home" side (CALL below, PUT above).
     const entT = snapToCandle(times, t.entryTime + IST_OFFSET_SECONDS);
     if (entT <= cutoff)
-      out.push({ time: entT as UTCTimestamp, position, color: CHART_ENTRY, shape: "arrowUp", text: label ? `${label} in` : "in" });
+      out.push({
+        time: entT as UTCTimestamp,
+        position: isCall ? "belowBar" : "aboveBar",
+        color,
+        shape: isCall ? "arrowUp" : "arrowDown",
+        text: label ? `${label} in` : "in",
+      });
+    // Exit — ● circle on the OPPOSITE side (CALL above, PUT below).
     if (t.exitTime != null) {
       const exT = snapToCandle(times, t.exitTime + IST_OFFSET_SECONDS);
       if (exT <= cutoff)
-        out.push({ time: exT as UTCTimestamp, position, color: t.pnl >= 0 ? CHART_UP : CHART_DOWN, shape: "arrowDown", text: label ? `${label} out` : "out" });
+        out.push({
+          time: exT as UTCTimestamp,
+          position: isCall ? "aboveBar" : "belowBar",
+          color,
+          shape: "circle",
+          text: label ? `${label} out` : "out",
+        });
     }
   }
   return out;
@@ -100,7 +121,8 @@ export default function InstrumentChartPage() {
   const [date, setDate] = useState<string>("");
   const [intervalSec, setIntervalSec] = useState<number>(DEFAULT_INTERVAL_SECONDS);
   const [style, setStyle] = useState<ChartStyle>("candle");
-  const [showSignals, setShowSignals] = useState(true);
+  // SEA signals still power the MA-line colouring + the trade-reason panel, but
+  // are no longer drawn as chart markers (trades only).
   const [showTrades, setShowTrades] = useState(true);
   const [indicators, setIndicators] = useState<Set<IndicatorKey>>(() => new Set<IndicatorKey>(["ma"]));
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
@@ -128,7 +150,7 @@ export default function InstrumentChartPage() {
   );
   const signalsQuery = trpc.trading.signalsForChart.useQuery(
     { instrument: inst ?? "", date },
-    { enabled: !!inst && !!date && showSignals, refetchOnWindowFocus: false, refetchInterval: isToday && showSignals ? 15000 : false },
+    { enabled: !!inst && !!date, refetchOnWindowFocus: false, refetchInterval: isToday ? 15000 : false },
   );
   const tradesQuery = trpc.trading.tradesForChart.useQuery(
     { channel: "ai-paper", instrument: inst ?? "", date },
@@ -222,46 +244,14 @@ export default function InstrumentChartPage() {
 
   const cutoffTime = candles.length ? (candles[candles.length - 1].time as number) : Infinity;
 
-  // ── Underlying overlays (signals + trades) ──────────────────────
+  // ── Underlying overlays (trades only) ───────────────────────────
   const markers = useMemo<SeriesMarker<UTCTimestamp>[]>(() => {
-    if (candles.length === 0) return [];
+    if (candles.length === 0 || !showTrades) return [];
     const times = candles.map((c) => c.time);
-    const out: SeriesMarker<UTCTimestamp>[] = [];
-    if (showSignals) {
-      const sigs = (signalsQuery.data as ChartSignal[] | undefined) ?? [];
-      const seen = new Set<string>();
-      for (const s of sigs) {
-        const nearest = snapToCandle(times, s.timestamp + IST_OFFSET_SECONDS);
-        if (nearest > cutoffTime) continue;
-        const isCall = s.direction === "GO_CALL";
-        const isExit = (s.action ?? "").startsWith("EXIT");
-        const key = `${nearest}:${s.direction}:${isExit ? "x" : "e"}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const conf = s.confidence;
-        const score = conf == null ? "" : String(Math.round(conf <= 1 ? conf * 100 : conf));
-        const isMa = s.cohort === "ma_signal";
-        // Every marker takes its cohort's pill colour (pink=MA, cyan=scalp, …);
-        // shape marks lifecycle (entry = arrow, exit = ● circle); direction is
-        // the arrow's way + the side of the bar. Entry and exit sit on OPPOSITE
-        // sides so they read distinctly:
-        //   CE (call): entry ▲ below the bar,  exit ● above.
-        //   PE (put):  entry ▼ above the bar,  exit ● below.
-        const color = resolveCohortHex(s.cohort);
-        const shape = isExit ? "circle" : isCall ? "arrowUp" : "arrowDown";
-        const position: "aboveBar" | "belowBar" = isExit
-          ? (isCall ? "aboveBar" : "belowBar")
-          : (isCall ? "belowBar" : "aboveBar");
-        const text = isExit ? "out" : isMa ? "in" : score;
-        out.push({ time: nearest as UTCTimestamp, position, color, shape, text });
-      }
-    }
-    if (showTrades) {
-      out.push(...buildTradeMarkers((tradesQuery.data as ChartTradeRow[] | undefined) ?? [], times, cutoffTime));
-    }
+    const out = buildTradeMarkers((tradesQuery.data as ChartTradeRow[] | undefined) ?? [], times, cutoffTime);
     out.sort((a, b) => (a.time as number) - (b.time as number));
     return out;
-  }, [candles, cutoffTime, showSignals, showTrades, signalsQuery.data, tradesQuery.data]);
+  }, [candles, cutoffTime, showTrades, tradesQuery.data]);
 
   // ── MA-Signal legs → colour the spot MA line off SEA's own events, so the
   //    green/red transitions land exactly on the entry/exit markers ──────
@@ -382,7 +372,6 @@ export default function InstrumentChartPage() {
           <button className={btn(style === "line")} onClick={() => setStyle("line")}>Line</button>
         </div>
         <div className="flex items-center gap-0.5">
-          <button className={btn(showSignals)} onClick={() => setShowSignals((v) => !v)} title="Toggle SEA signal arrows">Signals</button>
           <button className={btn(showTrades)} onClick={() => setShowTrades((v) => !v)} title="Toggle ai-paper trade markers">Trades</button>
         </div>
         <div className="relative">

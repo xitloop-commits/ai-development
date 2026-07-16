@@ -210,6 +210,7 @@ export const appRouter = router({
             status: t.status,
             exitReason: t.exitReason,
             pnl: t.pnl,
+            cohort: t.cohort ?? null,
           }))
           .sort((a, b) => a.entryTime - b.entryTime);
       }),
