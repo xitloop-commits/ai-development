@@ -65,6 +65,12 @@ describe('tradeMatchesFilter', () => {
     expect(tradeMatchesFilter(trade({ pnl: 0 }), f({ outcome: 'LOSS' }))).toBe(false);
   });
 
+  it('cohort — exact match; manual (null cohort) excluded when a cohort is set', () => {
+    expect(tradeMatchesFilter(trade({ cohort: 'scalp' }), f({ cohort: 'scalp' }))).toBe(true);
+    expect(tradeMatchesFilter(trade({ cohort: 'trend' }), f({ cohort: 'scalp' }))).toBe(false);
+    expect(tradeMatchesFilter(trade({ cohort: null }), f({ cohort: 'scalp' }))).toBe(false);
+  });
+
   it('axes are AND-ed', () => {
     const open_ce = trade({ status: 'OPEN', type: 'CALL_BUY' });
     expect(tradeMatchesFilter(open_ce, f({ status: 'OPEN', side: 'CE' }))).toBe(true);

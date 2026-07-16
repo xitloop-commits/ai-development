@@ -103,10 +103,15 @@ export default function TradingDesk({
 
   const openTradeCount = allDays.find(d => d.dayIndex === capital.currentDayIndex)?.trades?.filter(t => t.status === 'OPEN').length ?? 0;
 
-  // Distinct instruments traded today — populate the filter's instrument dropdown.
-  const todayInstruments = useMemo(() => {
+  // Distinct instruments + cohorts traded today — populate the filter's options.
+  const { todayInstruments, todayCohorts } = useMemo(() => {
     const t = allDays.find((d) => d.dayIndex === capital.currentDayIndex)?.trades ?? [];
-    return Array.from(new Set(t.map((x) => x.instrument)));
+    return {
+      todayInstruments: Array.from(new Set(t.map((x) => x.instrument))),
+      todayCohorts: Array.from(
+        new Set(t.map((x) => x.cohort).filter((c): c is string => !!c)),
+      ),
+    };
   }, [allDays, capital.currentDayIndex]);
 
   return (
@@ -139,6 +144,7 @@ export default function TradingDesk({
           value={tradeFilter}
           onChange={setTradeFilter}
           instruments={todayInstruments}
+          cohorts={todayCohorts}
         />
       </div>
 

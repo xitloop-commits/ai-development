@@ -10,6 +10,7 @@
 import { memo } from 'react';
 import { Filter, X } from 'lucide-react';
 import type { TradeRecord } from '@/lib/tradeTypes';
+import { cohortLabel, cohortPillStyle } from '@/lib/tradeThemes';
 
 export type StatusFilter = 'OPEN' | 'CLOSED';
 export type SideFilter = 'CE' | 'PE';
@@ -21,6 +22,8 @@ export interface TradeFilter {
   status: StatusFilter | null;
   side: SideFilter | null;
   outcome: OutcomeFilter | null;
+  /** Strategy cohort (scalp | trend | swing | multi_day_swing | ma_signal), or null = all. */
+  cohort: string | null;
 }
 
 export const EMPTY_TRADE_FILTER: TradeFilter = {
@@ -28,11 +31,12 @@ export const EMPTY_TRADE_FILTER: TradeFilter = {
   status: null,
   side: null,
   outcome: null,
+  cohort: null,
 };
 
 /** True when no axis is active (used to hide the reset button). */
 export function isEmptyTradeFilter(f: TradeFilter): boolean {
-  return !f.instrument && !f.status && !f.side && !f.outcome;
+  return !f.instrument && !f.status && !f.side && !f.outcome && !f.cohort;
 }
 
 /** Does a trade pass the active filter? Empty axes are ignored. */
@@ -61,26 +65,33 @@ export function tradeMatchesFilter(t: TradeRecord, f: TradeFilter): boolean {
     if (f.outcome === 'LOSS' && !(t.pnl < 0)) return false;
   }
 
+  if (f.cohort && t.cohort !== f.cohort) return false;
+
   return true;
 }
 
 interface PillProps {
   active: boolean;
-  activeClass: string;
+  /** Active-state Tailwind classes (used by the fixed status/side/outcome pills). */
+  activeClass?: string;
+  /** Active-state inline style — used by cohort pills, which are colour-coded by
+   *  the shared cohortPillStyle (hex-derived, not a Tailwind class). */
+  activeStyle?: React.CSSProperties;
   onClick: () => void;
   title: string;
   children: React.ReactNode;
 }
 
-function Pill({ active, activeClass, onClick, title, children }: PillProps) {
+function Pill({ active, activeClass, activeStyle, onClick, title, children }: PillProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
       aria-pressed={active}
+      style={active ? activeStyle : undefined}
       className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-semibold leading-none transition-colors ${
-        active ? activeClass : 'text-muted-foreground hover:bg-muted/50'
+        active ? (activeClass ?? '') : 'text-muted-foreground hover:bg-muted/50'
       }`}
     >
       {children}
@@ -97,11 +108,14 @@ export interface TradeFilterBarProps {
   onChange: (next: TradeFilter) => void;
   /** Distinct `trade.instrument` values present in the current day (dropdown options). */
   instruments: string[];
+  /** Distinct `trade.cohort` values present in the current day (toggle pills);
+   *  empty (e.g. manual-only workspaces) hides the cohort group. */
+  cohorts: string[];
 }
 
-function _TradeFilterBar({ value, onChange, instruments }: TradeFilterBarProps) {
+function _TradeFilterBar({ value, onChange, instruments, cohorts }: TradeFilterBarProps) {
   // Single-select toggle: click an active value clears it, else it becomes active.
-  const toggle = <K extends 'status' | 'side' | 'outcome'>(axis: K, v: TradeFilter[K]) =>
+  const toggle = <K extends 'status' | 'side' | 'outcome' | 'cohort'>(axis: K, v: TradeFilter[K]) =>
     onChange({ ...value, [axis]: value[axis] === v ? null : v });
 
   const dirty = !isEmptyTradeFilter(value);
@@ -152,6 +166,24 @@ function _TradeFilterBar({ value, onChange, instruments }: TradeFilterBarProps) 
       <Pill active={value.outcome === 'LOSS'} activeClass="bg-destructive/20 text-destructive" onClick={() => toggle('outcome', 'LOSS')} title="Show only losing trades">
         Loss
       </Pill>
+
+      {/* Cohort — colour-coded toggle pills, only for cohorts present today. */}
+      {cohorts.length > 0 && (
+        <>
+          <Divider />
+          {cohorts.map((c) => (
+            <Pill
+              key={c}
+              active={value.cohort === c}
+              activeStyle={cohortPillStyle(c)}
+              onClick={() => toggle('cohort', c)}
+              title={`Show only ${cohortLabel(c)} trades`}
+            >
+              {cohortLabel(c)}
+            </Pill>
+          ))}
+        </>
+      )}
 
       <Divider />
 
