@@ -87,6 +87,7 @@ export default function TradingDesk({
     subscribeOptionFeed,
     getLiveLtp,
     tableContainerRef,
+    channel,
   });
 
   if (capitalLoading) {

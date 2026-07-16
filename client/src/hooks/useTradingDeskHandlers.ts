@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
-import type { TradeRecord } from '@/lib/tradeTypes';
+import type { TradeRecord, Channel } from '@/lib/tradeTypes';
+import { isLiveChannel } from '@/lib/tradeTypes';
 
 type PlaceTradeInput = {
   instrument: string;
@@ -38,6 +39,8 @@ interface UseTradingDeskHandlersParams {
   subscribeOptionFeed: (instrument: string, contractSecurityId: string) => void;
   getLiveLtp: (trade: { id?: string; instrument: string; contractSecurityId?: string | null; ltp?: number; entryPrice?: number }) => number | undefined;
   tableContainerRef: React.RefObject<HTMLDivElement | null>;
+  /** Active channel — live option placement is confirmed before firing. */
+  channel: Channel;
 }
 
 /**
@@ -52,6 +55,7 @@ export function useTradingDeskHandlers({
   subscribeOptionFeed,
   getLiveLtp,
   tableContainerRef,
+  channel,
 }: UseTradingDeskHandlersParams) {
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>({
     open: false,
@@ -71,11 +75,31 @@ export function useTradingDeskHandlers({
   );
 
   const handlePlaceTrade = useCallback(async (trade: PlaceTradeInput) => {
-    ctxPlaceTrade(trade);
-    if (trade.contractSecurityId) {
-      subscribeOptionFeed(trade.instrument, trade.contractSecurityId);
+    const doPlace = () => {
+      ctxPlaceTrade(trade);
+      if (trade.contractSecurityId) {
+        subscribeOptionFeed(trade.instrument, trade.contractSecurityId);
+      }
+    };
+    // LIVE option orders fire real money — confirm first. (Stocks confirm in
+    // TodaySection's staged-buy flow, so only guard option trades here.)
+    const isOption = /^(CALL|PUT)_/.test(trade.type);
+    if (isLiveChannel(channel) && isOption) {
+      const ceOrPe = trade.type.startsWith('CALL') ? 'CE' : 'PE';
+      const side = trade.type.includes('BUY') ? 'BUY' : 'SELL';
+      const value = Math.round(trade.entryPrice * trade.qty);
+      setConfirmDialog({
+        open: true,
+        title: 'Place LIVE option order?',
+        message:
+          `${side} ${trade.instrument} ${trade.strike ?? ''} ${ceOrPe} × ${trade.qty} ` +
+          `@ ~₹${value.toLocaleString('en-IN')} premium. This is a REAL order on your live account.`,
+        onConfirm: () => { doPlace(); closeConfirmDialog(); },
+      });
+      return;
     }
-  }, [ctxPlaceTrade, subscribeOptionFeed]);
+    doPlace();
+  }, [ctxPlaceTrade, subscribeOptionFeed, channel, closeConfirmDialog]);
 
   const handleExitTrade = useCallback((tradeId: string, _instrument: string) => {
     const trade = currentDay?.trades?.find((t) => t.id === tradeId);
