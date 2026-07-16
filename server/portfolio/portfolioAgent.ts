@@ -517,6 +517,9 @@ class PortfolioAgentImpl {
      *  sets exitReason; this parameter exists for callers (e.g.
      *  reconcileDesync) that close out without going through that path. */
     exitReason?: import("./state").ExitReason,
+    /** Broker order id of the reverse (exit) order — stamped so the exit fill
+     *  can later correct the realized price (B1: correct-after-close). */
+    exitBrokerOrderId?: string | null,
   ): Promise<{ trade: TradeRecord; day: DayRecord; pnl: number; charges: number }> {
     const state = await getCapitalState(channel);
     const day = await this.ensureCurrentDay(channel);
@@ -569,6 +572,7 @@ class PortfolioAgentImpl {
     if (trade.openedAt) trade.durationMs = trade.closedAt - trade.openedAt;
     trade.status = "CLOSED";
     if (exitReason) trade.exitReason = exitReason;
+    if (exitBrokerOrderId) trade.exitBrokerOrderId = exitBrokerOrderId;
     // Reconciliation may close a previously-desync'd trade — drop the marker.
     if (trade.desync) delete trade.desync;
 
@@ -614,6 +618,84 @@ class PortfolioAgentImpl {
     );
 
     return { trade, day: updated, pnl: trade.pnl, charges: charges.total };
+  }
+
+  /**
+   * B1 (correct-after-close): the reverse (exit) order filled at `realExitPrice`
+   * AFTER we optimistically closed the trade at the requested/LTP price. Restate
+   * the realized exit price, recompute net P&L + charges, and adjust the capital
+   * counters by the delta. No-op if the price already matches or the trade isn't
+   * a matching closed trade.
+   */
+  async correctExitFill(
+    channel: Channel,
+    tradeId: string,
+    realExitPrice: number,
+  ): Promise<{ corrected: boolean }> {
+    if (!(realExitPrice > 0)) return { corrected: false };
+    const state = await getCapitalState(channel).catch(() => null);
+    if (!state) return { corrected: false };
+    const day = await getDayRecord(channel, state.currentDayIndex).catch(() => null);
+    if (!day) return { corrected: false };
+    const trade = day.trades.find((t) => t.id === tradeId);
+    if (!trade || trade.status !== "CLOSED") {
+      return { corrected: false };
+    }
+    if (trade.exitPrice === realExitPrice) return { corrected: false };
+
+    const oldPnl = trade.pnl;
+    const oldCharges = trade.charges;
+
+    const isBuy = trade.type.includes("BUY");
+    const direction = isBuy ? 1 : -1;
+    const grossPnl = (realExitPrice - trade.entryPrice) * trade.qty * direction;
+    const settings = await getUserSettings(1);
+    const chargeRates = chargeRatesForTrade(trade, settings.charges.rates as ChargeRate[]) as ChargeRate[];
+    const charges = calculateTradeCharges(
+      {
+        entryPrice: trade.entryPrice,
+        exitPrice: realExitPrice,
+        qty: trade.qty,
+        isBuy,
+        exchange:
+          trade.instrument.includes("CRUDE") || trade.instrument.includes("NATURAL") ? "MCX" : "NSE",
+      },
+      chargeRates,
+    );
+
+    trade.exitPrice = realExitPrice;
+    trade.ltp = realExitPrice;
+    trade.pnl = Math.round((grossPnl - charges.total) * 100) / 100;
+    trade.charges = charges.total;
+    trade.chargesBreakdown = charges.breakdown;
+
+    const pnlDelta = Math.round((trade.pnl - oldPnl) * 100) / 100;
+    const chargeDelta = Math.round((charges.total - oldCharges) * 100) / 100;
+
+    const updated = recalculateDayAggregates(day);
+    await upsertDayRecord(channel, updated);
+    await this.mirrorPosition(channel, updated.dayIndex, trade).catch((err) =>
+      log.warn(`mirrorPosition (exit-correct) failed for ${trade.id}: ${(err as Error).message}`),
+    );
+
+    // Apply only the DELTA — closeTrade already booked the optimistic P&L.
+    await updateCapitalState(channel, {
+      sessionPnl: state.sessionPnl + pnlDelta,
+      cumulativePnl: state.cumulativePnl + pnlDelta,
+      cumulativeCharges: state.cumulativeCharges + chargeDelta,
+    });
+
+    await this.audit("BROKER_ORDER_EVENT", channel, trade.id, {
+      note: "exit-fill price correction",
+      newExitPrice: realExitPrice,
+      oldPnl,
+      newPnl: trade.pnl,
+      pnlDelta,
+    });
+    await this.refreshMetrics(channel).catch(() => {});
+    await this.refreshDrawdown(channel).catch(() => {});
+
+    return { corrected: true };
   }
 
   /**
@@ -931,6 +1013,28 @@ class PortfolioAgentImpl {
       });
 
       return { matched: true, channel, tradeId: trade.id, newStatus: trade.status };
+    }
+
+    // ── Exit-fill correction (B1) ────────────────────────────────────────
+    // No OPEN/PENDING trade matched this fill by its ENTRY order id — so it may
+    // be the fill of a REVERSE (exit) order. Match a recently-CLOSED trade by its
+    // exitBrokerOrderId and restate the realized exit price to the real fill.
+    if (update.status === "FILLED" && update.averagePrice > 0) {
+      for (const channel of liveChannels) {
+        const state = await getCapitalState(channel).catch(() => null);
+        if (!state) continue;
+        const day = await getDayRecord(channel, state.currentDayIndex).catch(() => null);
+        if (!day) continue;
+        const trade = day.trades.find(
+          (t) =>
+            t.exitBrokerOrderId === update.orderId &&
+            (t.brokerId === null || t.brokerId === update.brokerId) &&
+            t.status === "CLOSED",
+        );
+        if (!trade) continue;
+        await this.correctExitFill(channel, trade.id, update.averagePrice);
+        return { matched: true, channel, tradeId: trade.id, newStatus: trade.status };
+      }
     }
 
     return { matched: false };

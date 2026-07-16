@@ -668,6 +668,10 @@ class TradeExecutorAgent {
       // possibly drifting against us with no SL active. Mark the trade
       // BROKER_DESYNC, fail the request, and let the operator reconcile
       // (POST /api/executor/reconcile-desync) once they verify true state.
+      // B1 (correct-after-close): the reverse (exit) order id, captured so the
+      // exit fill's avgTradedPrice can correct the realized price after we close
+      // the position optimistically below.
+      let exitBrokerOrderId: string | null = null;
       if (isLiveChannel(channel) && trade.brokerOrderId) {
         const adapter = getAdapter(channel);
 
@@ -720,6 +724,7 @@ class TradeExecutorAgent {
             );
           }
           const result = await adapter.placeOrder(exitParams);
+          exitBrokerOrderId = result.orderId ?? null;
           log.info(
             `exitTrade live broker exit channel=${channel} trade=${tradeId} ` +
               `order=${result.orderId} status=${result.status}`,
@@ -752,6 +757,7 @@ class TradeExecutorAgent {
         tradeId,
         exitPrice,
         req.reason,
+        exitBrokerOrderId,
       );
 
       // Audit + Discipline push

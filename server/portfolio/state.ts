@@ -149,6 +149,10 @@ export interface TradeRecord {
    *  Pre-2026-05 docs stored this on the (now-renamed) `brokerId` field;
    *  a one-time Mongo $rename runs at boot. */
   brokerOrderId: string | null;
+  /** Broker order id of the REVERSE (exit) order, stamped when a live exit is
+   *  placed. Lets the exit fill's `avgTradedPrice` correct the realized exit
+   *  price after the optimistic close (see applyBrokerOrderEvent). */
+  exitBrokerOrderId?: string | null;
   /** Identity of the broker that placed this order (e.g. "dhan-primary-ac",
    *  "dhan-secondary-ac", "mock"). Stamped at placeOrder time from
    *  `adapter.brokerId`. Null for legacy / paper trades that pre-date
@@ -324,6 +328,7 @@ const tradeRecordSchema = new Schema(
     originalStopLossPrice: { type: Number, default: null },
     tslActivatedAt: { type: Number, default: null },
     brokerOrderId: { type: String, default: null },
+    exitBrokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },
     cohort: { type: String, default: null },
     signalSeq: { type: Number, default: null },
@@ -797,6 +802,7 @@ async function migrateDayRecordTradesToPositionState(): Promise<void> {
         stopLossPrice: trade.stopLossPrice ?? null,
         trailingStopEnabled: trade.trailingStopEnabled ?? false,
         brokerOrderId: trade.brokerOrderId ?? null,
+        exitBrokerOrderId: trade.exitBrokerOrderId ?? null,
         brokerId: trade.brokerId ?? null,
         cohort: trade.cohort ?? null,
         openedAt: trade.openedAt ?? now,
@@ -1031,6 +1037,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       originalStopLossPrice: t.originalStopLossPrice ?? undefined,
       tslActivatedAt: t.tslActivatedAt ?? undefined,
       brokerOrderId: t.brokerOrderId ?? null,
+      exitBrokerOrderId: t.exitBrokerOrderId ?? null,
       brokerId: t.brokerId ?? null,
       cohort: t.cohort ?? null,
       signalSeq: t.signalSeq ?? null,

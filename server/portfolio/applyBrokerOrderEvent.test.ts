@@ -23,6 +23,7 @@ const upsertDayRecordMock = vi.fn(async (_channel: any, day: DayRecord) => day);
 const getCapitalStateMock = vi.fn();
 const getDayRecordMock = vi.fn();
 const recalculateMock = vi.fn((day: DayRecord) => day);
+const updateCapitalStateMock = vi.fn(async () => undefined);
 
 vi.mock("./state", async () => {
   const actual = await vi.importActual<typeof import("./state")>("./state");
@@ -31,6 +32,7 @@ vi.mock("./state", async () => {
     getCapitalState: (...args: any[]) => getCapitalStateMock(...args),
     getDayRecord: (...args: any[]) => getDayRecordMock(...args),
     upsertDayRecord: (...args: any[]) => upsertDayRecordMock(...args),
+    updateCapitalState: (...args: any[]) => updateCapitalStateMock(...args),
   };
 });
 
@@ -316,6 +318,40 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     expect(t.status).toBe("OPEN"); // NOT cancelled — the filled 50 is a real position
     expect(t.qty).toBe(50); // only the filled remainder
     expect(t.closedAt).toBeNull();
+  });
+
+  it("exit-fill correction (B1) — restates a CLOSED trade's exit price + P&L via exitBrokerOrderId", async () => {
+    getDayRecordMock.mockImplementation(async (c: any) =>
+      c === "my-live"
+        ? makeDay([
+            makeTrade({
+              status: "CLOSED",
+              entryPrice: 100,
+              qty: 75,
+              exitPrice: 105, // optimistic close
+              pnl: 375, // (105-100)*75, no charges (empty option rates)
+              charges: 0,
+              brokerOrderId: "ENTRY-9",
+              exitBrokerOrderId: "EXIT-9",
+              closedAt: 1700000000000,
+            }),
+          ])
+        : null,
+    );
+    // The reverse (exit) order's fill — different orderId, real avg 104.
+    const result = await portfolioAgent.applyBrokerOrderEvent(
+      baseEvent({ orderId: "EXIT-9", status: "FILLED", averagePrice: 104, filledQuantity: 75 }),
+    );
+    expect(result.matched).toBe(true);
+
+    const t = (upsertDayRecordMock.mock.calls.at(-1)![1] as DayRecord).trades[0];
+    expect(t.exitPrice).toBe(104); // corrected to the real fill
+    expect(t.pnl).toBe(300); // (104-100)*75, recomputed
+    // Capital was adjusted by the delta only (375 → 300 = -75).
+    expect(updateCapitalStateMock).toHaveBeenCalledWith(
+      "my-live",
+      expect.objectContaining({ sessionPnl: expect.any(Number) }),
+    );
   });
 
   it("no-match — orderId not in any open trade returns matched=false", async () => {
