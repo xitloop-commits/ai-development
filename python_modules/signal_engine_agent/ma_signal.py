@@ -49,6 +49,8 @@ class MASignalDetector:
         self._c = 0.0                      # in-progress candle close (last spot)
         self._ema_prev: float | None = None
         self._state = "FLAT"               # "FLAT" | "UP" | "DOWN"
+        self._hi: float | None = None      # reversal-mode running peak
+        self._lo: float | None = None      # reversal-mode running trough
 
     def on_tick(self, ts: float, spot: float) -> list[str]:
         if not (math.isfinite(ts) and math.isfinite(spot)):
@@ -69,6 +71,8 @@ class MASignalDetector:
 
     def _close_and_eval(self) -> list[str]:
         cfg = self.cfg
+        if cfg.rev_pct > 0.0:
+            return self._eval_reversal()   # peak/trough reversal — no averaging
         a = 2.0 / (cfg.ema_period + 1)
         ema = self._c if self._ema_prev is None else a * self._c + (1.0 - a) * self._ema_prev
         self._ema_prev = ema
@@ -95,6 +99,43 @@ class MASignalDetector:
                 st = "UP"
             elif slope > -cfg.thr_lo:
                 st = "FLAT"
+
+        if st == prev:
+            return []
+        self._state = st
+        events: list[str] = []
+        if prev == "UP":
+            events.append("EXIT_CE")
+        elif prev == "DOWN":
+            events.append("EXIT_PE")
+        if st == "UP":
+            events.append("LONG_CE")
+        elif st == "DOWN":
+            events.append("LONG_PE")
+        return events
+
+    def _eval_reversal(self) -> list[str]:
+        """Reversal (swing) segmentation on the PRICE itself — no averaging, no
+        lag. Track the running high/low; flip DOWN the moment price pulls back
+        ``rev_pct`` from a peak, flip UP the moment it bounces ``rev_pct`` off a
+        trough. Symmetric for up and down. The ``rev_pct`` size is the noise
+        filter: bigger = fewer, cleaner flips; smaller = earlier but noisier."""
+        c = self._c
+        if self._hi is None:               # bootstrap on the first closed candle
+            self._hi = self._lo = c
+            return []
+        self._hi = max(self._hi, c)
+        self._lo = min(self._lo, c)
+        rev = self.cfg.rev_pct / 100.0
+        prev = self._state
+        st = prev
+        # A peak confirmed → downtrend; a trough confirmed → uptrend.
+        if prev != "DOWN" and self._hi > 0 and c <= self._hi * (1.0 - rev):
+            st = "DOWN"
+            self._lo = c                   # start tracking the new trough here
+        elif prev != "UP" and self._lo > 0 and c >= self._lo * (1.0 + rev):
+            st = "UP"
+            self._hi = c                   # start tracking the new peak here
 
         if st == prev:
             return []

@@ -1096,6 +1096,12 @@ class MASignalThresholds:
     slope_lookback: int = 10
     thr_hi: float = 0.015
     thr_lo: float = 0.006
+    # REVERSAL MODE (2026-07-16). When > 0, the detector ignores the EMA/slope
+    # entirely and segments by PRICE swings: flip DOWN the instant price pulls
+    # back `rev_pct`% from a peak, flip UP the instant it bounces `rev_pct`% off
+    # a trough. No averaging → no lag; fixes "green line while price falls".
+    # 0.0 keeps the legacy 20-EMA slope mode.
+    rev_pct: float = 0.0
     # % stop-loss stamped on the ENTRY when MA-Signal auto-trades; the exit is
     # otherwise the executor's time/momentum exits (same as leg-start's ride).
     sl_pct: float = 12.0
