@@ -66,26 +66,31 @@ export function TodaySummaryRow({
   // Day-health aggregates.
   const hasTrades = trades.length > 0;
   const closed = trades.filter((t) => t.status === 'CLOSED' || t.status === 'EXITED');
-  // Per-cohort performance (W/L + realized P&L); manual trades (no cohort) bucket
-  // under "manual". Only settled trades count. Wins/losses classify on NET P&L;
-  // the shown P&L follows the desk's net/gross toggle so it matches the day total.
+  // Per-cohort performance; manual trades (no cohort) bucket under "manual". Only
+  // settled trades count. `earned` sums the winning trades, `lost` the losing ones
+  // (negative), so the two are shown separately — net = earned + lost. Values
+  // follow the desk's net/gross toggle so they match the day total.
   const cohortStats = (() => {
-    const m = new Map<string, { wins: number; losses: number; pnl: number }>();
+    const m = new Map<string, { wins: number; losses: number; earned: number; lost: number }>();
     for (const t of closed) {
       const key = t.cohort ?? 'manual';
-      const g = m.get(key) ?? { wins: 0, losses: 0, pnl: 0 };
-      const net = t.pnl ?? 0;
-      if (net > 0) g.wins++;
-      else if (net < 0) g.losses++;
-      g.pnl += showNet ? net : net + (t.charges ?? 0);
+      const g = m.get(key) ?? { wins: 0, losses: 0, earned: 0, lost: 0 };
+      const v = showNet ? (t.pnl ?? 0) : (t.pnl ?? 0) + (t.charges ?? 0);
+      if (v > 0) { g.wins++; g.earned += v; }
+      else if (v < 0) { g.losses++; g.lost += v; }
       m.set(key, g);
     }
     return Array.from(m, ([cohort, s]) => ({ cohort, ...s }));
   })();
   // Today overall = sum across every cohort (the whole day's settled performance).
   const overall = cohortStats.reduce(
-    (a, c) => ({ wins: a.wins + c.wins, losses: a.losses + c.losses, pnl: a.pnl + c.pnl }),
-    { wins: 0, losses: 0, pnl: 0 },
+    (a, c) => ({
+      wins: a.wins + c.wins,
+      losses: a.losses + c.losses,
+      earned: a.earned + c.earned,
+      lost: a.lost + c.lost,
+    }),
+    { wins: 0, losses: 0, earned: 0, lost: 0 },
   );
   const pctToTarget = day.targetAmount > 0 ? (totalPnl / day.targetAmount) * 100 : 0;
   const targetHit = day.targetAmount > 0 && totalPnl >= day.targetAmount;
@@ -136,11 +141,11 @@ export function TodaySummaryRow({
               <span className="text-[0.625rem] text-muted-foreground">— no closed trades —</span>
             ) : (
               <>
-                {cohortStats.map(({ cohort, wins, losses, pnl }) => (
+                {cohortStats.map(({ cohort, wins, losses, earned, lost }) => (
                   <span
                     key={cohort}
                     className="inline-flex items-center gap-1 text-[0.6875rem] tabular-nums"
-                    title={`${cohortLabel(cohort)}: ${wins}W / ${losses}L · ${fmt(Math.round(pnl), false)}`}
+                    title={`${cohortLabel(cohort)} — earned ${fmt(Math.round(earned), false)}, lost ${fmt(Math.round(Math.abs(lost)), false)}  (net ${fmt(Math.round(earned + lost), false)}, ${wins}W/${losses}L)`}
                   >
                     <span
                       className="px-1 py-px rounded text-[0.5rem] font-semibold leading-none uppercase tracking-wide"
@@ -148,25 +153,31 @@ export function TodaySummaryRow({
                     >
                       {cohortLabel(cohort)}
                     </span>
-                    <span className="text-bullish">{wins}</span>
-                    <span className="text-muted-foreground">/</span>
-                    <span className="text-destructive">{losses}</span>
-                    <span className={`ml-1 font-semibold ${pnlColor(pnl)}`}>
-                      {pnl > 0 ? '+' : ''}{fmt(Math.round(pnl), false)}
+                    <span className="text-bullish/70">{wins}</span>
+                    <span className="text-muted-foreground/70">/</span>
+                    <span className="text-destructive/70">{losses}</span>
+                    <span className="ml-1.5 font-semibold text-bullish" title="earned">
+                      +{fmt(Math.round(earned), false)}
+                    </span>
+                    <span className="text-muted-foreground/70">/</span>
+                    <span className="font-semibold text-destructive" title="lost">
+                      {lost < 0 ? fmt(Math.round(lost), false) : '0'}
                     </span>
                   </span>
                 ))}
                 {/* Today overall — the whole day's settled performance across cohorts */}
                 <span
                   className="inline-flex items-center gap-1 text-[0.6875rem] tabular-nums font-bold border-l border-border/70 pl-3"
-                  title={`Today overall: ${overall.wins}W / ${overall.losses}L`}
+                  title={`Today overall — earned ${fmt(Math.round(overall.earned), false)}, lost ${fmt(Math.round(Math.abs(overall.lost)), false)} (net ${fmt(Math.round(overall.earned + overall.lost), false)})`}
                 >
                   <span className="text-[0.5rem] uppercase tracking-wide text-muted-foreground">Today</span>
-                  <span className="text-bullish">{overall.wins}</span>
-                  <span className="text-muted-foreground">/</span>
-                  <span className="text-destructive">{overall.losses}</span>
-                  <span className={`ml-1 ${pnlColor(overall.pnl)}`}>
-                    {overall.pnl > 0 ? '+' : ''}{fmt(Math.round(overall.pnl), false)}
+                  <span className="text-bullish/70">{overall.wins}</span>
+                  <span className="text-muted-foreground/70">/</span>
+                  <span className="text-destructive/70">{overall.losses}</span>
+                  <span className="ml-1.5 text-bullish" title="earned">+{fmt(Math.round(overall.earned), false)}</span>
+                  <span className="text-muted-foreground/70">/</span>
+                  <span className="text-destructive" title="lost">
+                    {overall.lost < 0 ? fmt(Math.round(overall.lost), false) : '0'}
                   </span>
                 </span>
               </>
