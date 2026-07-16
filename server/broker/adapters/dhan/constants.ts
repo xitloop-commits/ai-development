@@ -23,6 +23,7 @@ export const DHAN_ENDPOINTS = {
   ORDER_STATUS: (orderId: string) => `/orders/${orderId}`,
   TRADE_BOOK: "/trades",
   TRADES_BY_ORDER: (orderId: string) => `/trades/${orderId}`,
+  MARGIN_CALCULATOR: "/margincalculator",
 
   // Super Orders — single order carrying target + stop-loss + trailing legs,
   // with Dhan managing the exits. Modify/cancel are per-leg (ENTRY_LEG /

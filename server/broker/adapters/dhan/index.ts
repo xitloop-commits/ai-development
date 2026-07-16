@@ -20,6 +20,8 @@ import type {
   Trade,
   Position,
   MarginInfo,
+  OrderMarginParams,
+  OrderMarginResult,
   Instrument,
   OptionChainData,
   OhlcQuoteResult,
@@ -974,6 +976,45 @@ export class DhanAdapter implements BrokerAdapter {
       }
     }
     return out;
+  }
+
+  /**
+   * Required margin for a hypothetical order via Dhan's /margincalculator.
+   * `totalMargin` bakes in the per-stock intraday leverage (e.g. REC 1000
+   * INTRADAY → ~₹71k, ~5x). Returns totalMargin 0 on failure so callers fall
+   * back to full value.
+   */
+  async getOrderMargin(params: OrderMarginParams): Promise<OrderMarginResult> {
+    this._ensureToken();
+    const result = await this._dhanRequest<{ totalMargin?: number; leverage?: string }>(
+      "POST",
+      DHAN_ENDPOINTS.MARGIN_CALCULATOR,
+      {
+        dhanClientId: this.clientId,
+        exchangeSegment: params.exchangeSegment,
+        transactionType: params.transactionType,
+        quantity: params.quantity,
+        productType: params.productType,
+        securityId: params.securityId,
+        price: params.price,
+        triggerPrice: 0,
+      },
+      { clientId: this.clientId },
+    );
+
+    if (result.isAuthError) {
+      await this._handleAuthFailure();
+      throw new Error("Token expired. Restart BSA to refresh.");
+    }
+    if (!result.ok || !result.data) {
+      this.log.warn(`getOrderMargin failed: status=${result.status}`);
+      return { totalMargin: 0 };
+    }
+    const lev = parseFloat(String(result.data.leverage ?? "").replace(/x/i, ""));
+    return {
+      totalMargin: result.data.totalMargin ?? 0,
+      leverage: Number.isFinite(lev) ? lev : undefined,
+    };
   }
 
    async getOptionChain(underlying: string, expiry: string, exchangeSegment?: string): Promise<OptionChainData> {

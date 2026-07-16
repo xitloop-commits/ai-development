@@ -30,6 +30,7 @@ import { getCapitalState, getDayRecord } from "../portfolio/state";
 import { notifyTradeExit } from "../_core/tradeEventNotifier";
 import { calculateAvailableCapital, calculatePositionSize } from "../portfolio/compounding";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
+import { getActiveBroker } from "../broker/brokerService";
 import { portfolioAgent } from "../portfolio";
 
 const channelSchema = z.enum([
@@ -318,6 +319,33 @@ export const executorRouter = router({
           message: "Provide either qty (lots) or capitalPercent to size the trade",
         });
       }
+
+      // Intraday stocks are leveraged — block the REAL Dhan margin (per-stock
+      // 1x–5x, e.g. REC 1000 = ~₹71k not ₹355k), not full value. Falls back to
+      // full value if the margin quote is unavailable (conservative). Delivery
+      // (CNC) + options stay at full value / premium.
+      const equityIntraday =
+        (input.type === "BUY" || input.type === "SELL") &&
+        (input.productType ?? "INTRADAY") === "INTRADAY";
+      if (equityIntraday && input.contractSecurityId) {
+        const broker = getActiveBroker();
+        if (broker?.getOrderMargin) {
+          try {
+            const m = await broker.getOrderMargin({
+              securityId: input.contractSecurityId,
+              exchangeSegment: "NSE_EQ",
+              transactionType: input.type === "SELL" ? "SELL" : "BUY",
+              quantity: qty,
+              productType: "INTRADAY",
+              price: entryPrice,
+            });
+            if (m.totalMargin > 0) margin = m.totalMargin;
+          } catch {
+            /* keep full-value margin — conservative fallback */
+          }
+        }
+      }
+
       if (margin > available) {
         throw new TRPCError({
           code: "BAD_REQUEST",

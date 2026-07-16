@@ -131,6 +131,23 @@ export interface MarginInfo {
   total: number;
 }
 
+/** Inputs for a per-order margin quote (leverage-aware). */
+export interface OrderMarginParams {
+  securityId: string;
+  exchangeSegment: ExchangeSegment;
+  transactionType: "BUY" | "SELL";
+  quantity: number;
+  productType: ProductType;
+  price: number;
+}
+
+/** Required margin for a hypothetical order — `totalMargin` is what the broker
+ *  blocks (intraday leverage baked in); `leverage` = value ÷ totalMargin. */
+export interface OrderMarginResult {
+  totalMargin: number;
+  leverage?: number;
+}
+
 // ─── Market Data Types ──────────────────────────────────────────
 
 export interface Instrument {
@@ -561,6 +578,10 @@ export interface BrokerAdapter {
 
   /** Get margin/fund information. */
   getMargin(): Promise<MarginInfo>;
+
+  /** Required margin for a hypothetical order (leverage-aware). Optional — not
+   *  every adapter supports it; callers fall back to full value when absent. */
+  getOrderMargin?(params: OrderMarginParams): Promise<OrderMarginResult>;
 
   // ── Market Data ───────────────────────────────────────────────
   /** Get scrip master (instrument list) for an exchange. */
