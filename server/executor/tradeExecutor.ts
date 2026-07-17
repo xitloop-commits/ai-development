@@ -1161,6 +1161,42 @@ function mapToOrderParams(req: SubmitTradeRequest): OrderParams {
   };
 }
 
+/**
+ * T84 — resolve the open-time exit-control flags for a new trade.
+ *
+ * On **ai-paper** (the strategy race) the pluggable exit STRATEGY owns the trade
+ * end-to-end: Sprint runs full auto TP/SL/TSL with trailing ON (so both the TP
+ * and the stop trail the winner) and STILL exits on the MA reversal EXIT (the
+ * aiSignal handler doesn't require manualExitOnly). Runway/Anchor run on their
+ * own price engine — these flags don't gate them (the tick dispatch runs before
+ * the manualExitOnly skip). So no cohort special-casing on the race channel.
+ *
+ * On every other channel prior behaviour is preserved: MA-Signal rides until its
+ * own EXIT (SL/TP/age all suppressed), and TSL follows the broker-wide trailing
+ * switch. Pure + exported for unit testing.
+ */
+export function resolveOpenExitFlags(
+  channel: string,
+  cohort: string | null | undefined,
+  trailingEnabled: boolean,
+): {
+  manualExitOnly: boolean;
+  stopLossDisabled: boolean;
+  targetDisabled: boolean;
+  tslMode: "auto" | "manual";
+} {
+  if (channel === "ai-paper") {
+    return { manualExitOnly: false, stopLossDisabled: false, targetDisabled: false, tslMode: "auto" };
+  }
+  const isMaSignal = cohort === "ma_signal";
+  return {
+    manualExitOnly: isMaSignal,
+    stopLossDisabled: isMaSignal,
+    targetDisabled: isMaSignal,
+    tslMode: trailingEnabled ? "auto" : "manual",
+  };
+}
+
 function buildTradeRecord(
   req: SubmitTradeRequest,
   tradeId: string,
@@ -1175,6 +1211,14 @@ function buildTradeRecord(
       : req.optionType === "PE"
       ? req.direction === "BUY" ? "PUT_BUY" : "PUT_SELL"
       : req.direction === "BUY" ? "BUY" : "SELL";
+
+  // T84: open-time exit-control flags — on ai-paper the exit strategy drives; on
+  // other channels prior behaviour (MA-Signal rides, TSL follows the broker switch).
+  const exitFlags = resolveOpenExitFlags(
+    req.channel,
+    req.cohort,
+    req.trailingStopLoss?.enabled ?? false,
+  );
 
   return {
     id: tradeId,
@@ -1219,16 +1263,13 @@ function buildTradeRecord(
     // off → "manual" (frozen) — after which the per-trade toggle rules regardless
     // of the global switch. originalStopLossPrice snapshots the stop at open so
     // the SL-disabled gate can tell whether the stop has since moved.
-    // MA-Signal trades ride until MA-Signal's own EXIT signal — suppress every
-    // auto-exit: SL/TP here, and age/stale/volatility/momentum in RcaMonitor
-    // (which skips manualExitOnly trades). Trailing is already off (tslMode manual).
-    manualExitOnly: req.cohort === "ma_signal",
+    manualExitOnly: exitFlags.manualExitOnly,
     // Pluggable exit strategy (T84). Defaults to "sprint" = today's behaviour;
     // the RCA twin fan-out overrides per-twin (sprint/runway/anchor).
     exitStrategy: req.exitStrategy ?? "sprint",
-    stopLossDisabled: req.cohort === "ma_signal",
-    targetDisabled: req.cohort === "ma_signal",
-    tslMode: (req.trailingStopLoss?.enabled ?? false) ? "auto" : "manual",
+    stopLossDisabled: exitFlags.stopLossDisabled,
+    targetDisabled: exitFlags.targetDisabled,
+    tslMode: exitFlags.tslMode,
     originalStopLossPrice: req.stopLoss ?? null,
     // Callers resolve the trailing-stop default before submitting (the UI
     // adapter folds in the broker-wide trailingStopEnabled setting). When a
