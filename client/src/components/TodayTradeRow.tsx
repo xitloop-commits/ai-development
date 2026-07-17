@@ -93,15 +93,6 @@ function _TodayTradeRow({
   // skipped — see T60 / gap #4) and only when its per-trade TSL mode is "auto".
   // Independent of the global trailing switch, which only SEEDS the mode at open.
   const serverTrails = isPaperChannel(channel) && (trade.tslMode ?? 'auto') !== 'manual';
-  // Per-trade risk overrides (paper): toggle the hard stoploss and TSL auto/manual.
-  const utils = trpc.useUtils();
-  const setRiskMutation = trpc.executor.setTradeRisk.useMutation({
-    onSuccess: () => {
-      void utils.portfolio.allDays.invalidate();
-      void utils.portfolio.state.invalidate();
-    },
-    onError: (e) => toast.error(e.message),
-  });
   // B4 follow-up — a trade is "desync'd" when the broker call failed but
   // local state hasn't been confirmed. Operator must reconcile before
   // any further actions on this trade are allowed.
@@ -351,93 +342,9 @@ function _TodayTradeRow({
                 ⚠ Reconcile
               </button>
             )}
-            {/* Per-trade risk toggles — shown on EVERY paper workspace (ai / my /
-                testing), so you can override the SEA's risk on its own auto-trades.
-                Paper-only: hidden on live channels where the stops are real broker
-                orders, not the software-managed ones these toggles control.
-                SL: disable the hard stoploss (trailing stop still exits).
-                TP: disable the take-profit (trade rides on SL/TSL only).
-                TSL: auto ↔ manual (freeze trailing) — independent of the global
-                     trailing switch, which only seeds the mode at open. */}
-            {isOpen && !isDesync && isPaperChannel(channel) && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setRiskMutation.mutate({ channel, tradeId: trade.id, stopLossDisabled: !(trade.stopLossDisabled ?? false) });
-                }}
-                disabled={setRiskMutation.isPending}
-                className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold border transition-colors disabled:opacity-40 ${
-                  trade.stopLossDisabled
-                    ? 'bg-warning-amber/25 text-warning-amber border-warning-amber/60'
-                    : 'bg-foreground/10 text-foreground border-foreground/30 hover:bg-foreground/20'
-                }`}
-                title={trade.stopLossDisabled
-                  ? 'Hard stoploss OFF — click to re-enable (trailing stop still active either way)'
-                  : 'Hard stoploss ON — click to disable it (keeps the trailing stop)'}
-              >
-                SL {trade.stopLossDisabled ? 'off' : 'on'}
-              </button>
-            )}
-            {isOpen && !isDesync && isPaperChannel(channel) && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setRiskMutation.mutate({ channel, tradeId: trade.id, targetDisabled: !(trade.targetDisabled ?? false) });
-                }}
-                disabled={setRiskMutation.isPending}
-                className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold border transition-colors disabled:opacity-40 ${
-                  trade.targetDisabled
-                    ? 'bg-warning-amber/25 text-warning-amber border-warning-amber/60'
-                    : 'bg-foreground/10 text-foreground border-foreground/30 hover:bg-foreground/20'
-                }`}
-                title={trade.targetDisabled
-                  ? 'Take-profit OFF — click to re-enable (trade rides on SL/TSL only while off)'
-                  : 'Take-profit ON — click to disable it (let the trade run past target on SL/TSL)'}
-              >
-                TP {trade.targetDisabled ? 'off' : 'on'}
-              </button>
-            )}
-            {isOpen && !isDesync && isPaperChannel(channel) && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setRiskMutation.mutate({ channel, tradeId: trade.id, tslMode: (trade.tslMode ?? 'auto') === 'manual' ? 'auto' : 'manual' });
-                }}
-                disabled={setRiskMutation.isPending}
-                className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold border transition-colors disabled:opacity-40 ${
-                  trade.tslMode === 'manual'
-                    ? 'bg-info-cyan/25 text-info-cyan border-info-cyan/60'
-                    : 'bg-foreground/10 text-foreground border-foreground/30 hover:bg-foreground/20'
-                }`}
-                title={trade.tslMode === 'manual'
-                  ? 'Trailing stop MANUAL (frozen — you set the stop) — click for AUTO'
-                  : 'Trailing stop AUTO (server trails) — click to freeze (MANUAL)'}
-              >
-                TSL {trade.tslMode === 'manual' ? 'M' : 'A'}
-              </button>
-            )}
-            {/* Manual-exit-only (master): ride to the trade's OWN exit signal —
-                suppresses SL/TP/TSL + age/stale/vol/momentum. On by default for
-                MA-Signal; togglable per trade here. Still exits on EOD / the ×. */}
-            {isOpen && !isDesync && isPaperChannel(channel) && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setRiskMutation.mutate({ channel, tradeId: trade.id, manualExitOnly: !(trade.manualExitOnly ?? false) });
-                }}
-                disabled={setRiskMutation.isPending}
-                className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-bold border transition-colors disabled:opacity-40 ${
-                  trade.manualExitOnly
-                    ? 'bg-info-cyan/25 text-info-cyan border-info-cyan/60'
-                    : 'bg-foreground/10 text-foreground border-foreground/30 hover:bg-foreground/20'
-                }`}
-                title={trade.manualExitOnly
-                  ? 'Ride ON — exits ONLY on its own exit signal; SL/TP/TSL/age/momentum all suppressed (still exits on EOD square-off or the ✕). Click to restore auto-exits.'
-                  : 'Auto-exits ON (SL/TP/TSL/age/momentum). Click to make this trade ride to its own exit signal only.'}
-              >
-                RIDE {trade.manualExitOnly ? 'on' : 'off'}
-              </button>
-            )}
+            {/* Per-trade SL/TP/TSL/RIDE toggles removed (2026-07-17, T84): the
+                chosen exit STRATEGY drives each trade end-to-end now — no manual
+                per-trade overrides. Strategy is set at open + shown as the row pill. */}
             {/* Exit is allowed for the option workspaces (manual controls), the
                 AI workspace (square off an AI-managed position by hand), and for
                 stock trades in the Stocks workspace (paper or live) — a live exit
