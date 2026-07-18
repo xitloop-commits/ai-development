@@ -49,6 +49,7 @@ import {
   checkSessionReset,
   resetSession,
   checkDayCompletion,
+  checkCombinedDayCompletion,
   completeDayIndex,
   calculateGiftDays,
   processClawback,
@@ -1247,9 +1248,27 @@ class PortfolioAgentImpl {
    * Phase 2 will have this be the only home; the legacy router is removed
    * in TEA Phase 1 commit 6.
    */
+  /** The two live books share ONE 250-day staircase (T87). Kept in lockstep. */
+  private static readonly LIVE_JOURNEY_CHANNELS: Channel[] = ["ai-live", "my-live"];
+
   private async maybeCompleteOrClawback(
     channel: Channel,
     stateBeforeClose: CapitalState,
+    day: DayRecord,
+  ): Promise<void> {
+    // Live books (ai-live + my-live) share one journey: a live day completes on the
+    // COMBINED result, but each account compounds/claws only its OWN capital
+    // (T87 option a — shared staircase, separate wallets). Paper is a single book.
+    if (channel === "ai-live" || channel === "my-live") {
+      return this.completeOrClawbackLive();
+    }
+    return this.completeOrClawbackSingle(channel, day);
+  }
+
+  /** Single-book day completion / clawback (paper). Advances that book's own
+   *  counter when its own P&L clears its own target. */
+  private async completeOrClawbackSingle(
+    channel: Channel,
     day: DayRecord,
   ): Promise<void> {
     // Re-read state since closeTrade just updated session/cumulative P&L.
@@ -1302,6 +1321,84 @@ class PortfolioAgentImpl {
       });
       // Note: caller (router or TEA) handles deleting consumed day records;
       // PA only updates the in-memory view here.
+    }
+  }
+
+  /**
+   * Shared LIVE journey (T87): ai-live + my-live climb ONE staircase together but
+   * keep SEPARATE capital ("shared staircase, separate wallets"). A live day
+   * completes when the COMBINED (ai-live + my-live) P&L clears the COMBINED target
+   * and neither book has an open trade; on completion each account compounds its
+   * OWN day profit (75/25) and both counters advance together. A combined loss ≥
+   * the combined target claws each account back by its OWN loss and rewinds both
+   * counters to the furthest-back point (keeping lockstep).
+   *
+   * Deferred (follow-up): gift-day SKIPPING on the shared staircase. For now a
+   * combined overshoot just advances the staircase one day — the excess still
+   * accrues to each pool (each already compounded its own day profit), so no money
+   * is lost; the staircase simply climbs one step at a time. Single-book gift-day
+   * skipping is unchanged for paper.
+   */
+  private async completeOrClawbackLive(): Promise<void> {
+    const chans = PortfolioAgentImpl.LIVE_JOURNEY_CHANNELS;
+    const states = await Promise.all(chans.map((c) => getCapitalState(c)));
+    // The two books advance in lockstep, so their indices should match; if they
+    // ever drift, use the higher index as the shared day.
+    const sharedIdx = Math.max(...states.map((s) => s.currentDayIndex));
+    const days = await Promise.all(
+      chans.map((c) => getDayRecord(c, sharedIdx).catch(() => null)),
+    );
+
+    const decision = checkCombinedDayCompletion(
+      days.map((d) => ({
+        totalPnl: d?.totalPnl ?? 0,
+        targetAmount: d?.targetAmount ?? 0,
+        hasOpen: (d?.trades ?? []).some((t) => t.status === "OPEN"),
+      })),
+    );
+    if (decision.status === "none") return;
+
+    // ── Combined completion: each account compounds its OWN profit; counter +1 ──
+    if (decision.status === "complete") {
+      for (let i = 0; i < chans.length; i++) {
+        const c = chans[i];
+        const st = states[i];
+        const d = days[i];
+        if (!d) {
+          // Book has no record at the shared day — just keep it in lockstep.
+          await updateCapitalState(c, { currentDayIndex: sharedIdx + 1 });
+          continue;
+        }
+        const result = completeDayIndex(st, d);
+        d.status = "COMPLETED";
+        d.rating = result.rating;
+        await upsertDayRecord(c, d);
+        await updateCapitalState(c, {
+          tradingPool: result.tradingPool,
+          reservePool: result.reservePool,
+          currentDayIndex: sharedIdx + 1,
+          profitHistory: [...st.profitHistory, result.profitEntry],
+        });
+      }
+      return;
+    }
+
+    // ── Combined clawback: each account claws its OWN loss; counters rewind ──
+    if (decision.status === "clawback") {
+      const clawbacks = chans.map((_c, i) => {
+        const dayPnl = days[i]?.totalPnl ?? 0;
+        // A book that was profitable this day keeps its money; pass 0 loss.
+        return processClawback(dayPnl < 0 ? dayPnl : 0, states[i]);
+      });
+      // Rewind the shared staircase to the furthest-back point either book reached.
+      const sharedNewIdx = Math.min(...clawbacks.map((cb) => cb.newDayIndex));
+      for (let i = 0; i < chans.length; i++) {
+        await updateCapitalState(chans[i], {
+          tradingPool: clawbacks[i].newTradingPool,
+          currentDayIndex: sharedNewIdx,
+          profitHistory: clawbacks[i].updatedHistory,
+        });
+      }
     }
   }
 

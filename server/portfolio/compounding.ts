@@ -172,6 +172,33 @@ export function checkDayCompletion(
 }
 
 /**
+ * Shared LIVE journey (T87) — combined completion/clawback decision across the
+ * two live books (ai-live + my-live). PURE: takes each book's current-day P&L,
+ * target, and whether it has an open trade; decides whether the SHARED day
+ * completes, claws back, or nothing. Per-account capital is applied by the
+ * caller (each book runs completeDayIndex / processClawback on its OWN state).
+ *
+ * Rules (option a — shared staircase, separate wallets):
+ *   - no completion while EITHER book has an open trade
+ *   - complete when COMBINED P&L ≥ COMBINED target
+ *   - clawback when the COMBINED result is a loss ≥ the COMBINED target
+ */
+export function checkCombinedDayCompletion(
+  books: Array<{ totalPnl: number; targetAmount: number; hasOpen: boolean }>,
+): { status: "complete" | "clawback" | "none"; combinedPnl: number; combinedTarget: number } {
+  const combinedPnl = round(books.reduce((s, b) => s + b.totalPnl, 0));
+  const combinedTarget = round(books.reduce((s, b) => s + b.targetAmount, 0));
+  const anyOpen = books.some((b) => b.hasOpen);
+
+  if (anyOpen || combinedTarget <= 0) return { status: "none", combinedPnl, combinedTarget };
+  if (combinedPnl >= combinedTarget) return { status: "complete", combinedPnl, combinedTarget };
+  if (combinedPnl < 0 && Math.abs(combinedPnl) >= combinedTarget) {
+    return { status: "clawback", combinedPnl, combinedTarget };
+  }
+  return { status: "none", combinedPnl, combinedTarget };
+}
+
+/**
  * Complete a day index: apply profit split, generate profit history entry.
  * Returns updated pool values and the profit history entry.
  */

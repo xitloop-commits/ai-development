@@ -11,6 +11,7 @@ import {
   injectCapital,
   createDayRecord,
   checkDayCompletion,
+  checkCombinedDayCompletion,
   completeDayIndex,
   calculateGiftDays,
   processClawback,
@@ -664,5 +665,50 @@ describe("Full Trade Lifecycle (Pure Logic)", () => {
     const result = injectCapital(state, 50000);
     expect(result.tradingPool).toBe(130000); // 80000 + 50000 (full amount)
     expect(result.reservePool).toBe(27000);  // unchanged
+  });
+});
+
+// ─── Shared LIVE journey — combined completion (T87) ────────────────
+describe("checkCombinedDayCompletion (shared live staircase)", () => {
+  const book = (totalPnl: number, targetAmount: number, hasOpen = false) => ({
+    totalPnl, targetAmount, hasOpen,
+  });
+
+  it("completes when the two books' COMBINED P&L clears the COMBINED target", () => {
+    // ai-live +3000 / target 5000, my-live +4000 / target 5000 → combined 7000 ≥ 10000? No.
+    // Bump my-live to +8000 → combined 11000 ≥ 10000 → complete.
+    const r = checkCombinedDayCompletion([book(3000, 5000), book(8000, 5000)]);
+    expect(r.status).toBe("complete");
+    expect(r.combinedPnl).toBe(11000);
+    expect(r.combinedTarget).toBe(10000);
+  });
+
+  it("does NOT complete when one book beats its own target but the COMBINED falls short", () => {
+    // ai-live +6000 (beats its 5000) but my-live -3000 → combined 3000 < 10000 → none.
+    const r = checkCombinedDayCompletion([book(6000, 5000), book(-3000, 5000)]);
+    expect(r.status).toBe("none");
+    expect(r.combinedPnl).toBe(3000);
+  });
+
+  it("never completes while EITHER book has an open trade (even past the target)", () => {
+    const r = checkCombinedDayCompletion([book(8000, 5000, true), book(8000, 5000)]);
+    expect(r.status).toBe("none");
+  });
+
+  it("claws back when the COMBINED result is a loss ≥ the COMBINED target", () => {
+    // ai-live -7000, my-live -4000 → combined -11000, |−11000| ≥ 10000 → clawback.
+    const r = checkCombinedDayCompletion([book(-7000, 5000), book(-4000, 5000)]);
+    expect(r.status).toBe("clawback");
+    expect(r.combinedPnl).toBe(-11000);
+  });
+
+  it("does nothing for a small combined loss below the combined target", () => {
+    const r = checkCombinedDayCompletion([book(-2000, 5000), book(1000, 5000)]);
+    expect(r.status).toBe("none");
+  });
+
+  it("returns none when no target is set yet (empty day)", () => {
+    const r = checkCombinedDayCompletion([book(0, 0), book(0, 0)]);
+    expect(r.status).toBe("none");
   });
 });
