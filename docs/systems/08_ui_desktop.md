@@ -199,6 +199,7 @@ tRPC queries used by the main loop:
 - [T50 [H2H]](../PROJECT_TODO.md) — HeadToHead backend. Frontend exists; tRPC endpoint is stub.
 - [T22](../PROJECT_TODO.md) — Launcher blue-tick (terminated-state indicator on the pipeline view). Cross-cuts with launcher but UI piece lives here too.
 - [T44](../PROJECT_TODO.md) — Per-day trade-chart HTML report + launcher menu (added externally).
+- [T88 [UI]](../PROJECT_TODO.md) — Chart-first per-instrument trading pages (TradingView-style). Design locked 2026-07-18 — full spec in §15 below. Build pending (do NOT start without Partha's go).
 
 **Shipped 2026-05-31:** T52 Notifications backend — session-close P&L summary push (NSE 15:30 + MCX 23:30 IST) → yow-partha; server-side AlertHistory persistence (Mongo + 30-day nightly purge); client AlertContext hydrates from + writes to server; trade-event Telegram routing (fill / exit / auto-exit / DISCIPLINE_EXIT / gate rejection / broker WS gave-up) all wired with try/catch fire-and-forget. Email layer formally dropped from scope. Preferences UI not built — every event currently pushes per the locked default route table; future task if per-event toggles are wanted.
 
@@ -230,3 +231,36 @@ tRPC queries used by the main loop:
 | Toast notifications | `client/src/components/Toaster.tsx` (sonner) |
 | Themes + workspace mapping | `client/src/lib/tradeThemes.ts`, `channels.ts` |
 | tRPC client | `client/src/lib/trpc.ts` |
+
+## 15. Chart-first per-instrument trading pages (T88 — DESIGN LOCKED 2026-07-18, build pending)
+
+New TradingView-style trading surface. The current UI is **NOT retired** — it stays exactly as-is and loads as the home page. These are **additional routes**, one per instrument (NIFTY / BANKNIFTY / CRUDEOIL / NATURALGAS), following the existing `?view=` pattern in `App.tsx` (e.g. `?view=trade&inst=NIFTY_50`), wrapped in `CredentialGate` + `CapitalProvider` (pop-out chart pages today render outside them).
+
+**Page layout:** simplified AppBar (ONLY instrument name + expiry as logo + a LIVE/PAPER toggle — default **PAPER**; more later) · left **Today Trades** panel · center **premium chart grid** · right **signal drawer** · empty footer (more later).
+
+**Center = option premium chart(s) ONLY** (no underlying main chart):
+- **Zero open trades:** ATM CE + PE stacked panes; clicking Buy on a pane picks that side.
+- **Open trades:** center splits one pane per open order — max 4 per instrument (= the system's trade cap), so a 2×2 grid always fits.
+- Each pane: contract candles, entry/exit markers (cohort-colored per `buildTradeMarkers` convention), SL/TSL/TP lines, and the **TradeBar strip overlaid at the pane bottom** (same live data as the lines).
+- **Small underlying overlay window** — read-only mini-view of the underlying; entry/exit marks only, no order controls.
+
+**Order placement — TradingView style** (per Partha's reference screenshot): hover a price → on-chart Buy ticket at that level; draggable TP/SL lines with live ₹ amounts; Bid/Ask/High/Low axis tags. Wire to the existing `placeAt` (`useInstrumentBar`) / `placeTrade` (CapitalContext) executor path.
+
+**Live + two-way rules:**
+- SL/TSL/TP lines bind to the same engine state that drives the TradeBar — trailing ratchets move the chart line in real time.
+- **Manual trades:** dragging SL/TP on the chart updates the real order (two-way).
+- **AI trades:** lines locked, display-only (no accidental drags).
+
+**Merged trade view:** AI + My trades of the selected mode shown together, each tagged by origin (🤖 AI / ✋ manual) — aligns with the T87 per-trade `source` tag model.
+
+**Left panel — Today Trades** (no tabs; watchlist rejected here — the watchlist lives on the home desk per T87 #15): TradeNo · Instrument (expiry, strike, CE/PE, cohort, strategy, long/short) · Lot/Qty · Entry · LTP · Net Profit. Bottom strip: today Win/Loss count + today P&L. Row click highlights that trade's chart pane.
+
+**Right panel — signal drawer:** SEA signals filtered to this instrument, latest first; each actionable GO_CALL/GO_PUT row has a **"Take manually" button** that pre-arms the order ticket on the chart (right strike + side) — one click on Buy confirms.
+
+**Reuse (all verified to exist):** `TickChart.tsx` (markers + price lines + click hook — the pane renderer) · `OptionChartDialog.tsx` incremental-update pattern · `InstrumentChartPage.tsx` ATM CE/PE + `buildTradeMarkers` + tRPC wiring · `useLiveCandles` · `useInstrumentBar.placeAt` · `TradeBar.tsx` (has `frozen` mode) · `tradeThemes.ts` cohort colors.
+
+**Build order (when greenlit):** 1) route scaffold + shell → 2) chart grid read-only (zero-state + per-trade panes + live lines + TradeBar overlay) → 3) visual order placement (ticket + draggable SL/TP + axis tags) → 4) extras (underlying mini-overlay, Take-manually, row-click highlight, Win/Loss strip).
+
+**Open items (deferred):** AppBar additions · footer contents · navigation entry point from home (direct URL meanwhile) · confirm underlying mini-window exclusions.
+
+**T87 dependency note:** T87 removes the instrument bar UI (Phase 5) — lift the `placeAt` strike-resolution logic before/when that lands; the merged AI+My view should read the T87 `source` tag once it exists (until then: two channel queries client-side).
