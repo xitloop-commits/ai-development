@@ -172,6 +172,8 @@ Partha's revamp, to run **before** the T86 engine fixes (it reduces the T86 surf
 - **Q2 — balance model = SEPARATE (option a).** The one desk shows **two balances side-by-side**: an **AI** balance (paper play-money) + a **My** balance (Partha's money), each with its own P&L. Never blend AI-race paper money with real money. Keep the per-channel capital pools underneath.
 - **Terminology:** just **"My trades"** and **"AI trades"** (stocks are part of My trades).
 - **Q3 — "remove mock trading" = remove the MOCK-FEED TOGGLE on the app bar** (the dev/off-hours simulated market feed, `isMockFeed`). This is NOT about paper trading — **paper mode stays** (real ticks + simulated fills). So point #5's "remove mock trading" means kill the app-bar mock-feed toggle + its plumbing, and delete the Testing workspace; the paper-fill engine is untouched.
+- **Q4 — stocks fold into the My book (option a).** ONE "My" capital pool + P&L covers both manual options AND stocks (mirrors Partha's single real primary account — separate pools would be fiction). Stock-vs-option split is a **filter/breakdown within the My book**, not a separate channel.
+- **CHANNEL MODEL 7 → 4 (final):** keep `ai-paper`, `ai-live`, `my-paper`, `my-live`. REMOVE `testing-live` (Testing workspace gone) and fold `stocks-paper`/`stocks-live` into `my-paper`/`my-live`. UI shows **2 groups** (AI, My) each with a paper/live toggle; My has a stock/option filter. Routing: My-live → PRIMARY (options+equity), AI-live → SECONDARY.
 (All blocking decisions resolved. Remaining = design work: manual order-entry surface to replace the instrument bar, and stock placement folded into the one desk.)
 
 ### T86 [BUG · P0] — Trades stuck OPEN forever after their stop fires ("half-exited") (2026-07-18) 🆕🔴
