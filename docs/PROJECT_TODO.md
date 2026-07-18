@@ -190,6 +190,7 @@ Partha's revamp, to run **before** the T86 engine fixes (it reduces the T86 surf
 17. **Paper/Live switch = TAB style, not a toggle button.** Replace the current paper/live toggle button with a **`Paper | Live` tab pair** in the **workspace-tab style** (reusing the tab bar freed up by removing the workspace tabs). Applies to the **My** switch on the app bar; AI's switch is the SEA-menu 1st item (point 6) — TBD whether that one is also tab-style.
 18. **Net worth in the app footer/status bar follows the Paper/Live mode** — shows paper net worth in paper mode, live net worth (real Dhan account value) in live mode; the footer number always matches the active mode.
 19. **Remove the Milestone / "Day-250 Journey" progress bar** from the footer (`MainFooter.tsx` ~L406-454, the horizontal milestone scale).
+20. **Right-side drawer (Signal + Alert) → restyle as instrument-cards-style tabs.** Modify the right drawer so Signal/Alert use the same **card-style tab** look. (Instrument cards themselves are removed per #15, so this adopts that tab *style*, not the cards.)
 (All blocking decisions resolved. Remaining = design work: manual order-entry surface in the desk table, stock placement + watchlist on instrument cards, trade-# scheme, paper/live tab styling.)
 
 ### T86 [BUG · P0] — Trades stuck OPEN forever after their stop fires ("half-exited") (2026-07-18) 🆕🔴
