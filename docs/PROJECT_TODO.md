@@ -214,6 +214,18 @@ Principle: keep the `Channel` union internally but **collapse it to 4** (don't r
 **Phase 3 — Capital: two books-pairs shown as two balances; live from Dhan.**
 - Two balances (AI, My), never blended. **My** pool = ONE pool covering options + stocks; stock/option = a filter. **Live** books read real Dhan funds (my-live→primary, ai-live→secondary funds/margin API); **paper** books keep configured play-money. Un-hardcode the `my-live`-pinned pool ops (`CapitalContext.tsx:399-466`).
 
+**═══ T87 MODEL LOCK (2026-07-18, Partha) — supersedes Phase 2/3 channel+capital thinking ═══**
+The single-workspace desk needs a deeper backend model than the 4-channel collapse. LOCKED after a Q&A with Partha:
+- **2 books, 2 journeys:** **PAPER** + **LIVE**, each with its OWN shared 250-day journey (one day counter per book). Both AI and My trades **contribute together** to completing that book's current day.
+- **PAPER = fully merged:** `ai-paper` + `my-paper` become a single book named **`paper`** — ONE capital pool, ONE journey, ONE adapter. (Fake money → fine to merge.)
+- **LIVE = separate capital, shared journey:** `ai-live` + `my-live` keep **separate** capital pools (they're **real, separate Dhan accounts** — my-live=primary, ai-live=secondary, can't merge real balances) but share **one** live journey; a live day completes on **combined** ai-live+my-live P&L vs their combined target.
+- **AI vs My = a per-trade `source` tag** (`"ai"|"my"`), display/filter only — NOT a channel/capital split. New DB field (none exists today; AI/My is currently encoded only by the `ai-*`/`my-*` channel prefix).
+- **End state:** 3 capital pools (`paper`, `ai-live`, `my-live`), 2 journeys (paper, live), `source` tag on trades.
+- **Migration:** trivial — `paper` book = surviving `ai-paper` data; `ai-live` unchanged; `my-*` already purged.
+- **Dhan-safety workflow (Partha):** dev runs under `tsx watch` → every server save auto-restarts + reconnects to Dhan. So backend steps are built + verified via **tsc + vitest only** (no Dhan) with the dev server STOPPED; ONE deliberate restart at the end to integration-test. UI step is client-only → HMR, no restart.
+- **Impact:** ~66 files, ~247 server + 56 client refs; touches the capital-compounding engine (`compounding.ts`+`portfolioAgent`) — the highest-risk part. Hardest spots: shared-live-journey day counter (lift out of per-channel CapitalState), the new `source` tag (miss a read-site → mis-attribution), the `mirroredChannels` pool-mirror plumbing dissolving.
+- **BUILD ORDER (each ships green + tested):** (1) add persisted `source` tag [safe/additive], (2) merge paper→`paper` book [type/adapter/enum/UI + trivial migration], (3) shared LIVE journey [money-engine, behind tests; live not trading yet = lower urgency], (4) one-desk UI on top.
+
 **Phase 4 — UI shell: one desk, no tabs, two toggles, footer.**
 - Remove `ChannelTabs` + app-bar `ChannelModeToggle`. One default desk always. **Paper/Live = tab pair** (My) on the app bar; **AI paper/live = 1st SEA-menu item**. Trade table **aggregates AI + My**; add a **source filter** (AI/My) beside the strategy filter. Footer: **remove the milestone bar**, show two balances, net worth follows mode. **Remove the app-bar Mock-feed toggle**.
 
