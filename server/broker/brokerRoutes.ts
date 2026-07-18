@@ -766,9 +766,13 @@ export function registerBrokerRoutes(app: Express): void {
 
         const { instruments, mode } = req.body as z.infer<typeof feedSubscribeSchema>;
         const feedMode = mode ?? "full";
+        // Registers the instruments for streaming only. Tick forwarding is
+        // centralized in the adapter's onTick → tickBus (T87 Phase 1), so this
+        // callback is intentionally unused and can NO LONGER starve the exit
+        // engine by overwriting a shared slot (the old deaf-feed bug α).
         broker.subscribeLTP(
           instruments.map((i: any) => ({ ...i, mode: feedMode })),
-          () => {} // tick forwarding handled by tickBus inside the adapter
+          () => {}
         );
 
         const state = broker.getSubscriptionState?.();

@@ -169,7 +169,6 @@ export class DhanAdapter implements BrokerAdapter {
   // WebSocket and Subscription Manager
   private ws: DhanWebSocket | null = null;
   private subManager: SubscriptionManager | null = null;
-  private tickCallback: TickCallback | null = null;
 
   // Per-instance logger so logs carry the brokerId, distinguishing the
   // primary "dhan-primary-ac" from "dhan-secondary-ac" in shared output.
@@ -1274,9 +1273,10 @@ export class DhanAdapter implements BrokerAdapter {
 
   // ── Real-time (WebSocket) ─────────────────────────────────────
 
-  subscribeLTP(instruments: SubscribeParams[], callback: TickCallback): void {
-    this.tickCallback = callback;
-
+  subscribeLTP(instruments: SubscribeParams[], _callback: TickCallback): void {
+    // T87 Phase 1: tick forwarding is centralized in onTick → tickBus (see
+    // connect()), so this per-call callback is no longer used for delivery.
+    // Kept in the signature for BrokerAdapter interface compat.
     if (!this.subManager) {
       this.log.warn("SubscriptionManager not initialized. Call connect() first.");
       return;
@@ -1384,7 +1384,14 @@ export class DhanAdapter implements BrokerAdapter {
       clientId: this.clientId,
       brokerTag: this.brokerId,
       onTick: (tick: TickData) => {
-        if (this.tickCallback) this.tickCallback(tick);
+        // T87 Phase 1 (deaf-feed fix / bug α): forward EVERY parsed tick to the
+        // bus UNCONDITIONALLY — exactly like onRawMessage below — instead of
+        // routing through the single `this.tickCallback` slot. That slot was
+        // overwritable by any subscribeLTP caller (incl. the no-op Python
+        // feed/subscribe route), which silently starved the exit engine. The
+        // bus fans out to all listeners (tickHandler, tickWs, …), so a lost or
+        // clobbered subscribe callback can no longer make the engine go deaf.
+        tickBus.emitTick(tick);
       },
       onRawMessage: (data: Buffer) => {
         tickBus.emitRawBinary(data);
@@ -1593,7 +1600,6 @@ export class DhanAdapter implements BrokerAdapter {
     this.tokenUpdatedAt = 0;
     this.killSwitchActive = false;
     this.orderUpdateCb = null;
-    this.tickCallback = null;
 
     await updateBrokerConnection(this.brokerId, {
       apiStatus: "disconnected",
