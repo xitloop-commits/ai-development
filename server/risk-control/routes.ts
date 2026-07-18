@@ -59,6 +59,7 @@ const exitReasonEnum = z.enum([
   "AI_EXIT",
   "MANUAL",
   "EOD",
+  "EOD_SQUAREOFF",
   "EXPIRY",
 ]);
 

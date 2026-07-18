@@ -30,6 +30,7 @@ import { metricsHandler } from "./metrics";
 import { startSubscriptionAlertScheduler } from "./subscriptionAlert";
 import { startMcxLotScheduler } from "../broker/adapters/dhan/mcxLots";
 import { startSessionSummaryScheduler, stopSessionSummaryScheduler } from "./sessionSummaryScheduler";
+import { startEodSquareoffScheduler, stopEodSquareoffScheduler } from "../executor/eodSquareoffScheduler";
 import { startAlertPurgeScheduler, stopAlertPurgeScheduler } from "./alertPurgeScheduler";
 
 const bootLog = createLogger("BOOT", "Server");
@@ -276,6 +277,11 @@ async function startServer() {
     // bounded to the 30-day rolling window locked in T52.
     startAlertPurgeScheduler();
     registerShutdownHook("alertPurge", () => stopAlertPurgeScheduler(), 200);
+    // T86 γ — EOD auto square-off: flattens leftover open intraday positions a
+    // few minutes before each bell (configurable, NSE 15:25 / MCX 23:25). The
+    // backstop that stops trades riding overnight.
+    startEodSquareoffScheduler();
+    registerShutdownHook("eodSquareoff", () => stopEodSquareoffScheduler(), 200);
   });
 }
 

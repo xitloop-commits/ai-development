@@ -111,6 +111,7 @@ const exitTradeSchema = z.object({
     "AI_EXIT",
     "MANUAL",
     "EOD",
+    "EOD_SQUAREOFF",
     "EXPIRY",
   ]),
   triggeredBy: z.enum(["RCA", "BROKER", "DISCIPLINE", "AI", "USER", "PA"]),
@@ -198,6 +199,7 @@ const reconcileDesyncSchema = z
         "AI_EXIT",
         "MANUAL",
         "EOD",
+        "EOD_SQUAREOFF",
         "EXPIRY",
       ])
       .optional(),
@@ -477,6 +479,10 @@ export const executorRouter = router({
         desyncKillSwitchEnabled: z.boolean().optional(),
         desyncKillSwitchThreshold: z.number().int().min(1).max(50).optional(),
         desyncKillSwitchWindowSeconds: z.number().int().min(60).max(86_400).optional(),
+        // T86 γ — EOD auto square-off (IST "HH:mm" per exchange)
+        eodSquareoffEnabled: z.boolean().optional(),
+        eodSquareoffNseTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "HH:mm").optional(),
+        eodSquareoffMcxTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "HH:mm").optional(),
       }),
     )
     .mutation(({ input }) => updateExecutorSettings(input)),

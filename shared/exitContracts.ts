@@ -39,6 +39,7 @@ export type ExitReasonCode =
   | "AI_EXIT"
   | "MANUAL"
   | "EOD"
+  | "EOD_SQUAREOFF"
   | "EXPIRY";
 
 /**

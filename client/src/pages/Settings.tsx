@@ -2647,6 +2647,9 @@ function _ExecutorSettingsSection() {
     rcaStaleTickMs: number;
     rcaVolThreshold: number;
     rcaChannels: string[];
+    eodSquareoffEnabled: boolean;
+    eodSquareoffNseTime: string;
+    eodSquareoffMcxTime: string;
   };
   const [draft, setDraft] = useState<ExecutorDraft | null>(null);
 
@@ -2659,6 +2662,9 @@ function _ExecutorSettingsSection() {
         rcaStaleTickMs: settings.rcaStaleTickMs,
         rcaVolThreshold: settings.rcaVolThreshold,
         rcaChannels: settings.rcaChannels,
+        eodSquareoffEnabled: settings.eodSquareoffEnabled,
+        eodSquareoffNseTime: settings.eodSquareoffNseTime,
+        eodSquareoffMcxTime: settings.eodSquareoffMcxTime,
       });
     }
   }, [settings, draft]);
@@ -2678,7 +2684,10 @@ function _ExecutorSettingsSection() {
       draft.rcaMaxAgeMs !== settings.rcaMaxAgeMs ||
       draft.rcaStaleTickMs !== settings.rcaStaleTickMs ||
       draft.rcaVolThreshold !== settings.rcaVolThreshold ||
-      !arrayEq(draft.rcaChannels, settings.rcaChannels));
+      !arrayEq(draft.rcaChannels, settings.rcaChannels) ||
+      draft.eodSquareoffEnabled !== settings.eodSquareoffEnabled ||
+      draft.eodSquareoffNseTime !== settings.eodSquareoffNseTime ||
+      draft.eodSquareoffMcxTime !== settings.eodSquareoffMcxTime);
 
   const onSave = () => {
     if (draft) updateMutation.mutate(draft as any);
@@ -2691,6 +2700,9 @@ function _ExecutorSettingsSection() {
         rcaStaleTickMs: settings.rcaStaleTickMs,
         rcaVolThreshold: settings.rcaVolThreshold,
         rcaChannels: settings.rcaChannels,
+        eodSquareoffEnabled: settings.eodSquareoffEnabled,
+        eodSquareoffNseTime: settings.eodSquareoffNseTime,
+        eodSquareoffMcxTime: settings.eodSquareoffMcxTime,
       });
     }
   };
@@ -2735,6 +2747,47 @@ function _ExecutorSettingsSection() {
             onChange={(e) => setDraft({ ...draft, aiLiveLotCap: Math.max(1, parseInt(e.target.value) || 1) })}
             className="w-20 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground tabular-nums"
           />
+        </div>
+      </SettingsCard>
+
+      <SettingsCard title="EOD Auto Square-Off">
+        <p className="text-[0.6875rem] text-muted-foreground/80 leading-relaxed mb-3">
+          Flattens every open option / intraday trade a few minutes before the
+          bell so orders fill before the broker force-squares (with a penalty).
+          Delivery (CNC) holdings are never touched. Times are IST.
+        </p>
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={draft.eodSquareoffEnabled}
+              onChange={(e) => setDraft({ ...draft, eodSquareoffEnabled: e.target.checked })}
+              className="accent-primary"
+            />
+            <span className="text-xs">Enabled</span>
+          </label>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+            <div className="flex flex-col gap-1">
+              <FieldLabel hint="NSE cash + F&O bell 15:30">NSE Square-Off</FieldLabel>
+              <input
+                type="time"
+                value={draft.eodSquareoffNseTime}
+                disabled={!draft.eodSquareoffEnabled}
+                onChange={(e) => setDraft({ ...draft, eodSquareoffNseTime: e.target.value })}
+                className="w-28 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground tabular-nums disabled:opacity-40"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <FieldLabel hint="MCX bell 23:30">MCX Square-Off</FieldLabel>
+              <input
+                type="time"
+                value={draft.eodSquareoffMcxTime}
+                disabled={!draft.eodSquareoffEnabled}
+                onChange={(e) => setDraft({ ...draft, eodSquareoffMcxTime: e.target.value })}
+                className="w-28 px-2 py-1 text-xs font-mono bg-background border border-border rounded text-foreground tabular-nums disabled:opacity-40"
+              />
+            </div>
+          </div>
         </div>
       </SettingsCard>
 

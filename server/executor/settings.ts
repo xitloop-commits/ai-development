@@ -40,6 +40,15 @@ export const EXECUTOR_DEFAULTS = {
   desyncKillSwitchEnabled: true,
   desyncKillSwitchThreshold: 3,
   desyncKillSwitchWindowSeconds: 600,
+
+  // T86 γ — EOD auto square-off. A safety-net scheduler flattens every open
+  // option/intraday trade at each exchange's configured time (a few minutes
+  // BEFORE the actual bell, so our closing orders fill before the broker
+  // force-squares intraday positions with a penalty). CNC/delivery holdings are
+  // never touched. Times are IST "HH:mm"; NSE covers cash+F&O, MCX commodities.
+  eodSquareoffEnabled: true,
+  eodSquareoffNseTime: "15:25",
+  eodSquareoffMcxTime: "23:25",
 } as const;
 
 export interface ExecutorSettings {
@@ -55,6 +64,11 @@ export interface ExecutorSettings {
   desyncKillSwitchEnabled: boolean;
   desyncKillSwitchThreshold: number;
   desyncKillSwitchWindowSeconds: number;
+
+  // T86 γ — EOD auto square-off (IST "HH:mm" per exchange).
+  eodSquareoffEnabled: boolean;
+  eodSquareoffNseTime: string;
+  eodSquareoffMcxTime: string;
 
   updatedAt: number;
 }
@@ -74,6 +88,10 @@ const executorSettingsSchema = new Schema(
     desyncKillSwitchEnabled: { type: Boolean, default: EXECUTOR_DEFAULTS.desyncKillSwitchEnabled },
     desyncKillSwitchThreshold: { type: Number, default: EXECUTOR_DEFAULTS.desyncKillSwitchThreshold },
     desyncKillSwitchWindowSeconds: { type: Number, default: EXECUTOR_DEFAULTS.desyncKillSwitchWindowSeconds },
+
+    eodSquareoffEnabled: { type: Boolean, default: EXECUTOR_DEFAULTS.eodSquareoffEnabled },
+    eodSquareoffNseTime: { type: String, default: EXECUTOR_DEFAULTS.eodSquareoffNseTime },
+    eodSquareoffMcxTime: { type: String, default: EXECUTOR_DEFAULTS.eodSquareoffMcxTime },
 
     updatedAt: { type: Number, default: () => Date.now() },
   },
@@ -101,6 +119,9 @@ function defaultsFor(userId: string): ExecutorSettings {
     desyncKillSwitchEnabled: EXECUTOR_DEFAULTS.desyncKillSwitchEnabled,
     desyncKillSwitchThreshold: EXECUTOR_DEFAULTS.desyncKillSwitchThreshold,
     desyncKillSwitchWindowSeconds: EXECUTOR_DEFAULTS.desyncKillSwitchWindowSeconds,
+    eodSquareoffEnabled: EXECUTOR_DEFAULTS.eodSquareoffEnabled,
+    eodSquareoffNseTime: EXECUTOR_DEFAULTS.eodSquareoffNseTime,
+    eodSquareoffMcxTime: EXECUTOR_DEFAULTS.eodSquareoffMcxTime,
     updatedAt: 0,
   };
 }
@@ -118,6 +139,9 @@ function docToSettings(doc: any, userId: string): ExecutorSettings {
     desyncKillSwitchEnabled: doc?.desyncKillSwitchEnabled ?? EXECUTOR_DEFAULTS.desyncKillSwitchEnabled,
     desyncKillSwitchThreshold: doc?.desyncKillSwitchThreshold ?? EXECUTOR_DEFAULTS.desyncKillSwitchThreshold,
     desyncKillSwitchWindowSeconds: doc?.desyncKillSwitchWindowSeconds ?? EXECUTOR_DEFAULTS.desyncKillSwitchWindowSeconds,
+    eodSquareoffEnabled: doc?.eodSquareoffEnabled ?? EXECUTOR_DEFAULTS.eodSquareoffEnabled,
+    eodSquareoffNseTime: doc?.eodSquareoffNseTime ?? EXECUTOR_DEFAULTS.eodSquareoffNseTime,
+    eodSquareoffMcxTime: doc?.eodSquareoffMcxTime ?? EXECUTOR_DEFAULTS.eodSquareoffMcxTime,
     updatedAt: doc?.updatedAt ?? 0,
   };
 }

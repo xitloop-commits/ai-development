@@ -706,7 +706,7 @@ export const portfolioRouter = router({
       exitTime: z.number(),
       realizedPnl: z.number(),
       realizedPnlPercent: z.number(),
-      exitReason: z.enum(["SL_HIT", "TP_HIT", "MOMENTUM_EXIT", "VOLATILITY_EXIT", "AGE_EXIT", "STALE_PRICE_EXIT", "DISCIPLINE_EXIT", "AI_EXIT", "MANUAL", "EOD", "EXPIRY"]),
+      exitReason: z.enum(["SL_HIT", "TP_HIT", "MOMENTUM_EXIT", "VOLATILITY_EXIT", "AGE_EXIT", "STALE_PRICE_EXIT", "DISCIPLINE_EXIT", "AI_EXIT", "MANUAL", "EOD", "EOD_SQUAREOFF", "EXPIRY"]),
       exitTriggeredBy: z.enum(["RCA", "BROKER", "DISCIPLINE", "AI", "USER", "PA"]),
       duration: z.number(),
       pnlCategory: z.enum(["win", "loss", "breakeven"]),

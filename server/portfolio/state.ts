@@ -234,6 +234,7 @@ export type ExitReason =
   | "AI_EXIT"
   | "MANUAL"
   | "EOD"
+  | "EOD_SQUAREOFF"
   | "EXPIRY";
 
 export type ExitTriggeredBy =

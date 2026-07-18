@@ -281,6 +281,7 @@ export const disciplineRouter = router({
             "AI_EXIT",
             "MANUAL",
             "EOD",
+            "EOD_SQUAREOFF",
             "EXPIRY",
           ])
           .optional(),

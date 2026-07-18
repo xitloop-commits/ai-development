@@ -149,6 +149,7 @@ export type ExitTradeReason =
   | "AI_EXIT"
   | "MANUAL"
   | "EOD"
+  | "EOD_SQUAREOFF"
   | "EXPIRY";
 
 export interface ExitTradeRequest {
