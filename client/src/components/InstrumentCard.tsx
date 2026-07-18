@@ -233,8 +233,8 @@ export default function InstrumentCard({ data, feedExchange, feedSecurityId }: I
   // signal. Falls back to the signal view when there's no open trade.
   // Load ai-paper's day once; live updates arrive over /ws/ticks (the same
   // portfolio push the trade list uses) — no polling.
-  const aiDayQuery = trpc.portfolio.currentDay.useQuery({ channel: 'ai-paper' }, { retry: 1 });
-  const aiDay = useLiveDay('ai-paper') ?? aiDayQuery.data;
+  const aiDayQuery = trpc.portfolio.currentDay.useQuery({ channel: 'paper' }, { retry: 1 });
+  const aiDay = useLiveDay('paper') ?? aiDayQuery.data;
   const _norm = (s: string) => (s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const aiTrade = (aiDay as any)?.trades?.find(
     (t: any) => t.status === 'OPEN' && _norm(t.instrument) === _norm(instrumentKey),

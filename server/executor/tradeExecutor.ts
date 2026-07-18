@@ -60,7 +60,7 @@ import type {
 
 const log = createLogger("TEA", "Executor");
 
-const PAPER_CHANNELS: Channel[] = ["my-paper", "ai-paper"];
+const PAPER_CHANNELS: Channel[] = ["paper"];
 const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live"];
 
 // AI_LIVE_LOT_CAP is now sourced from executor_settings (default 1).
@@ -159,7 +159,7 @@ class TradeExecutorAgent {
    */
   async resubscribeOpenTradeLtps(): Promise<void> {
     const ALL_CHANNELS: Channel[] = [
-      "ai-live", "ai-paper", "my-live", "my-paper",
+      "paper", "ai-live", "my-live",
     ];
     let count = 0;
     for (const channel of ALL_CHANNELS) {
@@ -1167,28 +1167,29 @@ function mapToOrderParams(req: SubmitTradeRequest): OrderParams {
 /**
  * T84 — resolve the open-time exit-control flags for a new trade.
  *
- * On **ai-paper** (the strategy race) the pluggable exit STRATEGY owns the trade
- * end-to-end: Sprint runs full auto TP/SL/TSL with trailing ON (so both the TP
- * and the stop trail the winner) and STILL exits on the MA reversal EXIT (the
- * aiSignal handler doesn't require manualExitOnly). Runway/Anchor run on their
- * own price engine — these flags don't gate them (the tick dispatch runs before
- * the manualExitOnly skip). So no cohort special-casing on the race channel.
+ * On **AI paper** (the strategy race — the paper book, `source === "ai"`) the
+ * pluggable exit STRATEGY owns the trade end-to-end: Sprint runs full auto
+ * TP/SL/TSL with trailing ON (so both the TP and the stop trail the winner) and
+ * STILL exits on the MA reversal EXIT (the aiSignal handler doesn't require
+ * manualExitOnly). Runway/Anchor run on their own price engine — these flags
+ * don't gate them. So no cohort special-casing on the race book.
  *
- * On every other channel prior behaviour is preserved: MA-Signal rides until its
- * own EXIT (SL/TP/age all suppressed), and TSL follows the broker-wide trailing
- * switch. Pure + exported for unit testing.
+ * Everywhere else (manual paper, live) prior behaviour is preserved: MA-Signal
+ * rides until its own EXIT (SL/TP/age all suppressed), and TSL follows the
+ * broker-wide trailing switch. Pure + exported for unit testing.
  */
 export function resolveOpenExitFlags(
   channel: string,
   cohort: string | null | undefined,
   trailingEnabled: boolean,
+  source?: "ai" | "my",
 ): {
   manualExitOnly: boolean;
   stopLossDisabled: boolean;
   targetDisabled: boolean;
   tslMode: "auto" | "manual";
 } {
-  if (channel === "ai-paper") {
+  if (channel === "paper" && source === "ai") {
     return { manualExitOnly: false, stopLossDisabled: false, targetDisabled: false, tslMode: "auto" };
   }
   const isMaSignal = cohort === "ma_signal";
@@ -1215,12 +1216,17 @@ function buildTradeRecord(
       ? req.direction === "BUY" ? "PUT_BUY" : "PUT_SELL"
       : req.direction === "BUY" ? "BUY" : "SELL";
 
-  // T84: open-time exit-control flags — on ai-paper the exit strategy drives; on
-  // other channels prior behaviour (MA-Signal rides, TSL follows the broker switch).
+  // AI-vs-My attribution (T87): derive from the placement origin, NOT the channel
+  // — on the shared `paper` book the channel can't tell AI from manual.
+  const source: "ai" | "my" = req.origin === "AI" ? "ai" : "my";
+
+  // T84: open-time exit-control flags — on AI paper the exit strategy drives; on
+  // other books prior behaviour (MA-Signal rides, TSL follows the broker switch).
   const exitFlags = resolveOpenExitFlags(
     req.channel,
     req.cohort,
     req.trailingStopLoss?.enabled ?? false,
+    source,
   );
 
   return {
@@ -1247,6 +1253,7 @@ function buildTradeRecord(
     capitalPercent: req.capitalPercent ?? 0,
     cohort: req.cohort ?? null,
     signalSeq: req.signalSeq ?? null,
+    source,
     pnl: 0,
     unrealizedPnl: 0,
     charges: 0,

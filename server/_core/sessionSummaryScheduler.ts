@@ -79,7 +79,10 @@ function matchesInstrument(target: string[], actual: string): boolean {
  * invisible to the EOD summary -- that's why the operator saw "zero"
  * on every push despite the AI actively trading paper all day.
  */
-const AI_CHANNELS: Channel[] = ["ai-live", "ai-paper"];
+// The digest books: the AI live account + the shared paper book (paper now
+// carries both AI and My trades — T87 follow-up: filter the paper line by
+// trade `source` if an AI-only figure is wanted).
+const AI_CHANNELS: Channel[] = ["ai-live", "paper"];
 
 export type Exchange = "NSE" | "MCX";
 

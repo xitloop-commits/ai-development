@@ -93,7 +93,7 @@ class RcaMonitor {
   private maxAgeMs: number = DEFAULT_MAX_AGE_MS;
   private staleTickMs: number = DEFAULT_STALE_TICK_MS;
   private volThreshold: number = DEFAULT_VOL_THRESHOLD;
-  private channels: Channel[] = ["ai-paper"];
+  private channels: Channel[] = ["paper"];
   /** Trade ids we've already attempted an exit on; prevents retry storms. */
   private exitAttempted = new Set<string>();
 
@@ -114,7 +114,7 @@ class RcaMonitor {
     this.maxAgeMs = opts.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
     this.staleTickMs = opts.staleTickMs ?? DEFAULT_STALE_TICK_MS;
     this.volThreshold = opts.volThreshold ?? DEFAULT_VOL_THRESHOLD;
-    this.channels = opts.channels ?? ["ai-paper"];
+    this.channels = opts.channels ?? ["paper"];
     this.running = true;
     this.tickHandle = setInterval(
       () => this.tick().catch((err) => log.error(`tick: ${err?.message ?? err}`)),
@@ -367,12 +367,13 @@ class RcaMonitor {
     log.info(`evaluate channel=${input.channel} instrument=${input.instrument} qty=${input.quantity}`);
     // Phase 1 pass-through to TEA — APPROVE every well-formed input.
     // C3 will replace this body with real risk math.
-    // Multi-strategy race (T84): every ai-paper signal spawns one FULL-SIZE twin
+    // Multi-strategy race (T84): every AI paper signal spawns one FULL-SIZE twin
     // per exit strategy (sprint/runway/anchor) so they compete live on the same
-    // entry. Other channels place a single (sprint) trade. Each twin needs a
-    // DISTINCT executionId — idempotency is keyed on it, else twins collapse to one.
+    // entry. Live places a single (sprint) trade. Each twin needs a DISTINCT
+    // executionId — idempotency is keyed on it, else twins collapse to one.
+    // (Only AI signals reach evaluate(), so the `paper` book here is AI paper.)
     const strategies: Array<"sprint" | "runway" | "anchor"> =
-      input.channel === "ai-paper" ? ["sprint", "runway", "anchor"] : ["sprint"];
+      input.channel === "paper" ? ["sprint", "runway", "anchor"] : ["sprint"];
     const placedAt = Date.now();
     let submitResult: Awaited<ReturnType<typeof tradeExecutor.submitTrade>> | undefined;
     for (const strat of strategies) {
@@ -527,12 +528,10 @@ class RcaMonitor {
   }
 
   private async tripKillSwitchForChannel(channel: Channel, count: number, reason: string): Promise<void> {
-    // Map channel → workspace. The kill switch is per-workspace ("ai" /
-    // "my" / "testing"); a desync on ai-live trips the AI workspace
-    // (which halts ai-paper too — paper trades on a broken pipeline are
-    // also untrustworthy).
-    const workspace =
-      channel === "ai-live" || channel === "ai-paper" ? "ai" : "my";
+    // Map channel → workspace. The kill switch is per-workspace ("ai" / "my").
+    // Desyncs only occur on live (broker) channels, so a desync on ai-live
+    // trips the AI workspace and my-live the My workspace.
+    const workspace = channel === "ai-live" ? "ai" : "my";
 
     log.error(
       `BROKER_DESYNC threshold breached — tripping kill switch workspace=${workspace} channel=${channel} count=${count}`,

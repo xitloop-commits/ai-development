@@ -18,13 +18,9 @@ import { tickBus } from "../broker/tickBus";
  * paper + live. See client/src/lib/tradeTypes.ts for the helper functions.
  */
 export type Channel =
+  | "paper"
   | "ai-live"
-  | "ai-paper"
-  | "my-live"
-  | "my-paper";
-
-/** @deprecated Kept only to silence transitional callers; use Channel. */
-export type Workspace = Channel;
+  | "my-live";
 
 /** AI-vs-My attribution of a trade — display/filter only, independent of the
  *  capital channel. Stamped at placement from the channel prefix and persisted,

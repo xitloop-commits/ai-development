@@ -114,7 +114,9 @@ function makeDay(overrides: Partial<DayRecord> = {}): DayRecord {
 
 function makeCtx(overrides: Partial<CapitalContextValue> = {}): CapitalContextValue {
   return {
-    channel: "ai-paper",
+    // ai-live → AI workspace: read-only desk (no manual-controls stack), so these
+    // branch-render tests stay lean (paper would pull the whole order-entry tree).
+    channel: "ai-live",
     setChannel: vi.fn(),
     capital: {
       tradingPool: 100_000,

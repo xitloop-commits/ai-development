@@ -164,7 +164,7 @@ afterAll(async () => {
   await BrokerConfigModel.deleteMany({
     brokerId: {
       $in: ["test_dhan", "test_mock", "test_broker_a", "test_broker_b",
-            "dhan-primary-ac", "mock-ai", "mock-my"],
+            "dhan-primary-ac", "mock-paper"],
     },
   });
   await mongoose.disconnect();
@@ -357,7 +357,7 @@ describe("Broker Service", () => {
   beforeEach(async () => {
     _resetForTesting();
     await BrokerConfigModel.deleteMany({
-      brokerId: { $in: ["dhan-primary-ac", "mock-ai", "mock-my", "test_broker_a", "test_broker_b"] },
+      brokerId: { $in: ["dhan-primary-ac", "mock-paper", "test_broker_a", "test_broker_b"] },
     });
   });
 
@@ -368,7 +368,7 @@ describe("Broker Service", () => {
   });
 
   it("getAdapter throws before init", () => {
-    expect(() => getAdapter("ai-paper")).toThrow();
+    expect(() => getAdapter("paper")).toThrow();
   });
 
   it("registerAdapter stores adapter factory", () => {
@@ -383,22 +383,13 @@ describe("Broker Service", () => {
 
   // ── initBrokerService ─────────────────────────────────────────
 
-  it("after init, getAdapter('ai-paper') returns a MockAdapter (brokerId: mock-ai)", async () => {
+  it("after init, getAdapter('paper') returns the shared MockAdapter (brokerId: mock-paper)", async () => {
     await initBrokerService();
 
-    const adapter = getAdapter("ai-paper");
+    const adapter = getAdapter("paper");
     expect(adapter).not.toBeNull();
-    expect(adapter.brokerId).toBe("mock-ai");
-    expect(adapter.displayName).toBe("Paper (AI Trades)");
-  }, 15000);
-
-  it("after init, getAdapter('my-paper') returns a MockAdapter (brokerId: mock-my)", async () => {
-    await initBrokerService();
-
-    const adapter = getAdapter("my-paper");
-    expect(adapter).not.toBeNull();
-    expect(adapter.brokerId).toBe("mock-my");
-    expect(adapter.displayName).toBe("Paper (My Trades)");
+    expect(adapter.brokerId).toBe("mock-paper");
+    expect(adapter.displayName).toBe("Paper");
   }, 15000);
 
   it("after init, getActiveBroker returns the dhan live adapter", async () => {
@@ -420,7 +411,7 @@ describe("Broker Service", () => {
     expect(activateResult.active).toBe(true);
     expect(isChannelKillSwitchActive("ai-live")).toBe(true);
     // Paper channels are never affected
-    expect(isChannelKillSwitchActive("ai-paper")).toBe(false);
+    expect(isChannelKillSwitchActive("paper")).toBe(false);
 
     const deactivateResult = await toggleWorkspaceKillSwitch("ai", "DEACTIVATE");
     expect(deactivateResult.status).toBe("deactivated");

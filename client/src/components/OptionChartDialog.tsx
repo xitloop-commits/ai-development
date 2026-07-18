@@ -97,7 +97,7 @@ function OptionChart({
 
   const tradeQuery = trpc.trading.optionTradesForChart.useQuery(
     {
-      channel: target.channel as "ai-live" | "ai-paper" | "my-live" | "my-paper",
+      channel: target.channel as "paper" | "ai-live" | "my-live",
       instrument: target.instrumentKey,
       strike: target.strike,
       side: target.side,

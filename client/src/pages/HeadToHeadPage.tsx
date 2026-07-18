@@ -21,14 +21,12 @@ import { trpc } from "@/lib/trpc";
 import { formatINR as fmt } from "@/lib/formatINR";
 
 type Channel =
+  | "paper"
   | "ai-live"
-  | "ai-paper"
-  | "my-live"
-  | "my-paper";
+  | "my-live";
 
 const ALL_CHANNELS: Channel[] = [
-  "ai-paper",
-  "my-paper",
+  "paper",
   "ai-live",
   "my-live",
 ];
@@ -38,7 +36,7 @@ function getChannelsFromUrl(): Channel[] {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get("channels");
   if (!raw) return ALL_CHANNELS;
-  const valid: Channel[] = ["ai-live", "ai-paper", "my-live", "my-paper"];
+  const valid: Channel[] = ["paper", "ai-live", "my-live"];
   return raw.split(",").filter((c): c is Channel => valid.includes(c as Channel));
 }
 

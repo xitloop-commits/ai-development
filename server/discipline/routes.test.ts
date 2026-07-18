@@ -105,7 +105,7 @@ async function runPipeline(handlers: Handler[], req: Request, res: Response) {
 
 const validBody = {
   executionId: "EX-1",
-  channel: "ai-paper" as const,
+  channel: "paper" as const,
   origin: "AI" as const,
   instrument: "NIFTY_50",
   exchange: "NSE" as const,
@@ -252,7 +252,7 @@ describe("POST /api/discipline/validateTrade", () => {
 
 describe("POST /api/discipline/recordTradeOutcome", () => {
   const validOutcome = {
-    channel: "ai-paper",
+    channel: "paper",
     tradeId: "T-1",
     realizedPnl: -250,
     openingCapital: 100000,
@@ -273,7 +273,7 @@ describe("POST /api/discipline/recordTradeOutcome", () => {
     expect(json).toHaveBeenCalledWith({ success: true });
     expect(disciplineAgent.recordTradeOutcome).toHaveBeenCalledTimes(1);
     expect((disciplineAgent.recordTradeOutcome as any).mock.calls[0][0]).toMatchObject({
-      channel: "ai-paper",
+      channel: "paper",
       tradeId: "T-1",
       realizedPnl: -250,
       exitReason: "SL_HIT",
@@ -309,16 +309,16 @@ describe("GET /api/discipline/status", () => {
     const { res, json } = makeRes();
     await runPipeline(
       pipelineFor("get", "/api/discipline/status"),
-      makeQueryReq({ channel: "ai-paper" }),
+      makeQueryReq({ channel: "paper" }),
       res,
     );
 
     expect(json).toHaveBeenCalled();
     const body = (json as any).mock.calls[0][0];
-    expect(body.channel).toBe("ai-paper");
+    expect(body.channel).toBe("paper");
     expect(body.sessionHalts).toEqual({ nse: null, mcx: null });
     expect(body.activeCooldown).toBe(false);
-    expect(disciplineAgent.getSessionStatus).toHaveBeenCalledWith("1", "ai-paper");
+    expect(disciplineAgent.getSessionStatus).toHaveBeenCalledWith("1", "paper");
   });
 
   it("rejects missing channel query param with 400", async () => {

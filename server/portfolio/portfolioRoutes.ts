@@ -19,10 +19,9 @@ import { createLogger } from "../broker/logger";
 const log = createLogger("PA", "REST");
 
 const channelSchema = z.enum([
+  "paper",
   "ai-live",
-  "ai-paper",
   "my-live",
-  "my-paper",
 ]);
 
 const dailyPnlQuerySchema = z

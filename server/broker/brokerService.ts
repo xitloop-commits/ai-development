@@ -2,13 +2,11 @@
  * Broker Service — Multi-Adapter Singleton (BSA v1.7)
  *
  * Manages named adapter slots, each serving specific trading channels:
- *   dhanLive    → my-live, testing-live, stocks-live  (brokerId: "dhan-primary-ac")
- *   dhanAiData  → ai-live + TFA data feed         (brokerId: "dhan-secondary-ac")
- *   mockAi      → ai-paper                        (brokerId: "mock-ai")
- *   mockMy      → my-paper                        (brokerId: "mock-my")
- *   mockStocks  → stocks-paper                    (brokerId: "mock-stocks")
+ *   dhanLive    → my-live               (brokerId: "dhan-primary-ac")
+ *   dhanAiData  → ai-live + TFA data feed (brokerId: "dhan-secondary-ac")
+ *   mockPaper   → paper (shared AI + My) (brokerId: "mock-paper")
  *
- * Kill switches are per-workspace and independent (ai / my / testing / stocks).
+ * Kill switches are per-workspace and independent (ai / my).
  * Kill switch state is persisted to user_settings and loaded at startup.
  */
 
@@ -41,11 +39,11 @@ export interface AdapterMeta {
 // ─── Channel → Adapter mapping ──────────────────────────────────
 
 export type Channel =
+  | "paper"
   | "ai-live"
-  | "ai-paper"
-  | "my-live"
-  | "my-paper";
+  | "my-live";
 
+/** Per-trade attribution / kill-switch grouping. */
 export type Workspace = "ai" | "my";
 
 // ─── Singleton State ────────────────────────────────────────────
@@ -53,15 +51,13 @@ export type Workspace = "ai" | "my";
 interface BSAAdapters {
   dhanLive: DhanAdapter | null;       // my-live (options + equity)  (user's primary Dhan account)
   dhanAiData: DhanAdapter | null;     // ai-live + TFA data feed (spouse's Dhan account)
-  mockAi: MockAdapter | null;         // ai-paper
-  mockMy: MockAdapter | null;         // my-paper (options + equity)
+  mockPaper: MockAdapter | null;      // paper (shared AI + My book; options + equity)
 }
 
 const adapters: BSAAdapters = {
   dhanLive: null,
   dhanAiData: null,
-  mockAi: null,
-  mockMy: null,
+  mockPaper: null,
 };
 
 interface KillSwitchState {
@@ -132,8 +128,7 @@ async function seedBrokerConfigs(): Promise<void> {
   const seeds: Seed[] = [
     { brokerId: "dhan-primary-ac", displayName: "Dhan (Trading)",      isPaperBroker: false, role: "trading"     },
     { brokerId: "dhan-secondary-ac",   displayName: "Dhan (AI + Data)",    isPaperBroker: false, role: "data-and-ai" },
-    { brokerId: "mock-ai",            displayName: "Paper (AI Trades)",   isPaperBroker: true,  role: "paper"       },
-    { brokerId: "mock-my",            displayName: "Paper (My Trades)",   isPaperBroker: true,  role: "paper"       },
+    { brokerId: "mock-paper",         displayName: "Paper",               isPaperBroker: true,  role: "paper"       },
   ];
 
   for (const seed of seeds) {
@@ -210,13 +205,10 @@ export function getAdapter(channel: Channel): BrokerAdapter {
       // my-live routes options AND equity to the primary account.
       if (!adapters.dhanLive) throw new Error("DhanAdapter (live) not initialised");
       return adapters.dhanLive;
-    case "ai-paper":
-      if (!adapters.mockAi) throw new Error("MockAdapter (mock-ai) not initialised");
-      return adapters.mockAi;
-    case "my-paper":
-      // my-paper handles both option AND equity paper fills (stocks folded in).
-      if (!adapters.mockMy) throw new Error("MockAdapter (mock-my) not initialised");
-      return adapters.mockMy;
+    case "paper":
+      // The shared paper book (AI + My); options AND equity paper fills.
+      if (!adapters.mockPaper) throw new Error("MockAdapter (mock-paper) not initialised");
+      return adapters.mockPaper;
     default:
       throw new Error(`Unknown channel "${channel}"`);
   }
@@ -231,8 +223,7 @@ export function _getAdapterByBrokerId(brokerId: string): BrokerAdapter | null {
   switch (brokerId) {
     case "dhan-primary-ac": return adapters.dhanLive;
     case "dhan-secondary-ac": return adapters.dhanAiData;
-    case "mock-ai": return adapters.mockAi;
-    case "mock-my": return adapters.mockMy;
+    case "mock-paper": return adapters.mockPaper;
   }
   return null;
 }
@@ -419,22 +410,14 @@ export async function initBrokerService(): Promise<void> {
     log.warn("DhanAdapter (ai-data) initialization error:", err);
   }
 
-  // 5. Instantiate MockAdapter (mock-ai) → no-op connect
+  // 5. Instantiate MockAdapter (mock-paper) → no-op connect. One shared paper
+  //    book for AI + My (T87); AI-vs-My is the per-trade source tag.
   try {
-    adapters.mockAi = new MockAdapter("mock-ai", "Paper (AI Trades)");
-    await adapters.mockAi.connect();
-    log.important("MockAdapter (mock-ai) ready");
+    adapters.mockPaper = new MockAdapter("mock-paper", "Paper");
+    await adapters.mockPaper.connect();
+    log.important("MockAdapter (mock-paper) ready");
   } catch (err) {
-    log.warn("MockAdapter (mock-ai) failed:", err);
-  }
-
-  // 6. Instantiate MockAdapter (mock-my) → no-op connect
-  try {
-    adapters.mockMy = new MockAdapter("mock-my", "Paper (My Trades)");
-    await adapters.mockMy.connect();
-    log.important("MockAdapter (mock-my) ready");
-  } catch (err) {
-    log.warn("MockAdapter (mock-my) failed:", err);
+    log.warn("MockAdapter (mock-paper) failed:", err);
   }
 
   log.info("All adapters initialised.");
@@ -477,8 +460,7 @@ export async function disconnectAllAdapters(): Promise<void> {
   const all: Array<[string, BrokerAdapter | null]> = [
     ["dhanLive", adapters.dhanLive],
     ["dhanAiData", adapters.dhanAiData],
-    ["mockAi", adapters.mockAi],
-    ["mockMy", adapters.mockMy],
+    ["mockPaper", adapters.mockPaper],
   ];
   for (const [name, adapter] of all) {
     if (!adapter) continue;
@@ -542,8 +524,7 @@ function wireTickBus(adapter: BrokerAdapter): void {
 export function _resetForTesting(): void {
   adapters.dhanLive = null;
   adapters.dhanAiData = null;
-  adapters.mockAi = null;
-  adapters.mockMy = null;
+  adapters.mockPaper = null;
   killSwitch.ai = false;
   killSwitch.my = false;
   adapterFactories.clear();
@@ -559,11 +540,9 @@ export function _resetForTesting(): void {
 export function _setAdaptersForTesting(stubs: Partial<{
   dhanLive: BrokerAdapter;
   dhanAiData: BrokerAdapter;
-  mockAi: BrokerAdapter;
-  mockMy: BrokerAdapter;
+  mockPaper: BrokerAdapter;
 }>): void {
   if ("dhanLive" in stubs) adapters.dhanLive = stubs.dhanLive as DhanAdapter;
   if ("dhanAiData" in stubs) adapters.dhanAiData = stubs.dhanAiData as DhanAdapter;
-  if ("mockAi" in stubs) adapters.mockAi = stubs.mockAi as MockAdapter;
-  if ("mockMy" in stubs) adapters.mockMy = stubs.mockMy as MockAdapter;
+  if ("mockPaper" in stubs) adapters.mockPaper = stubs.mockPaper as MockAdapter;
 }

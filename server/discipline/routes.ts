@@ -36,10 +36,9 @@ const log = createLogger("DA", "REST");
 // ─── Schema ────────────────────────────────────────────────────
 
 const channelSchema = z.enum([
+  "paper",
   "ai-live",
-  "ai-paper",
   "my-live",
-  "my-paper",
 ]);
 
 /**

@@ -29,7 +29,7 @@ export const EXECUTOR_DEFAULTS = {
   rcaVolThreshold: 0.7,
 
   // Channels under monitoring
-  rcaChannels: ["ai-paper"] as Channel[],
+  rcaChannels: ["paper"] as Channel[],
 
   // B4-followup — auto kill-switch on consecutive BROKER_DESYNC events.
   // When N desyncs happen on a single channel within `windowSeconds`,

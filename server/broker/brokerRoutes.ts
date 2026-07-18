@@ -32,7 +32,7 @@ const log = createLogger("BSA", "REST");
 // ─── Helpers ────────────────────────────────────────────────────
 
 const VALID_CHANNELS = new Set<Channel>([
-  "ai-live", "ai-paper", "my-live", "my-paper",
+  "paper", "ai-live", "my-live",
 ]);
 
 const _VALID_WORKSPACES = new Set<Workspace>(["ai", "my"]);

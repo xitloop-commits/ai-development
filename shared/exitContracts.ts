@@ -60,10 +60,9 @@ export type ExitTriggeredBy =
  * dragging the full server graph into a build.
  */
 export type ChannelCode =
+  | "paper"
   | "ai-live"
-  | "ai-paper"
-  | "my-live"
-  | "my-paper";
+  | "my-live";
 
 // ─── DA → RCA: DisciplineExitRequest ─────────────────────────────
 

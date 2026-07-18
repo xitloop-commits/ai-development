@@ -118,11 +118,11 @@ function makeSellTrade(overrides: Partial<any> = {}): any {
 }
 
 async function processWith(trade: any, tick: TickData): Promise<void> {
-  // Only my-paper holds the trade; the other paper channels return an empty day
+  // Only paper holds the trade; the other paper channels return an empty day
   // so the same trade isn't processed multiple times per tick.
   getDayRecordMock.mockImplementation((channel: string) =>
     Promise.resolve(
-      channel === "my-paper"
+      channel === "paper"
         ? { dayIndex: 1, date: "2024-11-14", trades: [trade], totalPnl: 0 }
         : { dayIndex: 1, date: "2024-11-14", trades: [], totalPnl: 0 },
     ),
@@ -147,7 +147,7 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
     (tickHandler as any).exitingTrades.clear();
 
     getCapitalStateMock.mockResolvedValue({
-      channel: "my-paper",
+      channel: "paper",
       tradingPool: 100_000,
       reservePool: 0,
       initialFunding: 100_000,

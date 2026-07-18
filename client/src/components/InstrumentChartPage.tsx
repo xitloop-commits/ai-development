@@ -161,7 +161,7 @@ export default function InstrumentChartPage() {
     { enabled: !!inst && !!date, refetchOnWindowFocus: false, refetchInterval: isToday ? 15000 : false },
   );
   const tradesQuery = trpc.trading.tradesForChart.useQuery(
-    { channel: "ai-paper", instrument: inst ?? "", date },
+    { channel: "paper", instrument: inst ?? "", date },
     { enabled: !!inst && !!date && showTrades, refetchOnWindowFocus: false, refetchInterval: isToday && showTrades ? 10000 : false },
   );
 

@@ -168,7 +168,7 @@ describe("portfolio.transferFundsCrossChannel", () => {
 describe("portfolio.recordTradeUpdated", () => {
   it("appends a TRADE_MODIFIED event to the audit log", async () => {
     const result = await caller.recordTradeUpdated({
-      channel: "ai-paper",
+      channel: "paper",
       tradeId: "T-1",
       modifications: { stopLoss: 95, takeProfit: 110 },
       timestamp: 1700000000000,
@@ -178,7 +178,7 @@ describe("portfolio.recordTradeUpdated", () => {
     expect(appendEventMock).toHaveBeenCalledTimes(1);
     const evt = appendEventMock.mock.calls[0][0];
     expect(evt).toMatchObject({
-      channel: "ai-paper",
+      channel: "paper",
       eventType: "TRADE_MODIFIED",
       tradeId: "T-1",
       payload: { modifications: { stopLoss: 95, takeProfit: 110 } },

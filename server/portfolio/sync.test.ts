@@ -341,31 +341,9 @@ describe("Router Integration: Capital Inject → Sync Chain", () => {
     }
   });
 
-  // ── Test 6: Paper workspace syncs independently ────────────────
-
-  it("paper workspace should also sync after inject", async () => {
-    if (!mongoConnected) return;
-
-    const paperStateBefore = await caller.portfolio.state({ channel: "my-paper" });
-
-    const injectAmount = 8000;
-    // Inject is called with workspace: 'live' but syncs both
-    await caller.portfolio.inject({ channel: "my-live", amount: injectAmount });
-
-    const paperStateAfter = await caller.portfolio.state({ channel: "my-paper" });
-
-    expect(paperStateAfter.tradingPool).toBe(
-      round(paperStateBefore.tradingPool + injectAmount)
-    );
-    expect(paperStateAfter.reservePool).toBe(paperStateBefore.reservePool);
-    expect(paperStateAfter.initialFunding).toBe(
-      paperStateBefore.initialFunding + injectAmount
-    );
-
-    // Paper current day should also be synced
-    const paperDay = await caller.portfolio.currentDay({ channel: "my-paper" });
-    expect(paperDay.tradeCapital).toBe(paperStateAfter.tradingPool);
-  });
+  // (T87: the my-live → paper capital mirror was removed — paper is now an
+  //  independent book, so inject on my-live no longer syncs paper. The former
+  //  "paper workspace should also sync after inject" test was dropped.)
 
   // ── Test 7: Past days are NOT modified ─────────────────────────
 

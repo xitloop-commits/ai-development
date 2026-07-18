@@ -360,14 +360,13 @@ describe("Time Windows", () => {
 
   describe("isSimulationChannel — market-hours bypass set", () => {
     it("bypasses paper channels (testable any time)", () => {
-      expect(isSimulationChannel("my-paper")).toBe(true);
-      expect(isSimulationChannel("ai-paper")).toBe(true);
+      expect(isSimulationChannel("paper")).toBe(true);
+      expect(isSimulationChannel("paper")).toBe(true);
     });
 
     it("does NOT bypass real-exchange channels", () => {
       expect(isSimulationChannel("my-live")).toBe(false);
       expect(isSimulationChannel("ai-live")).toBe(false);
-      expect(isSimulationChannel("testing-live")).toBe(false);
     });
   });
 });
@@ -822,32 +821,32 @@ describe("isDisciplineBypassed", () => {
   const liveOff = makeSettings({ liveEnforcement: { enabled: false } });
 
   it("bypasses every simulation channel when paper enforcement is off", () => {
-    for (const ch of ["my-paper", "ai-paper"]) {
+    for (const ch of ["paper"]) {
       expect(isDisciplineBypassed(ch, paperOff)).toBe(true);
     }
   });
 
   it("never bypasses simulation channels when paper enforcement is on", () => {
-    for (const ch of ["my-paper", "ai-paper"]) {
+    for (const ch of ["paper"]) {
       expect(isDisciplineBypassed(ch, on)).toBe(false);
     }
   });
 
   it("does NOT bypass live channels when only paper enforcement is off", () => {
-    for (const ch of ["my-live", "ai-live", "testing-live"]) {
+    for (const ch of ["my-live", "ai-live"]) {
       expect(isDisciplineBypassed(ch, paperOff)).toBe(false);
     }
   });
 
   it("bypasses live channels when live enforcement is off", () => {
-    for (const ch of ["my-live", "ai-live", "testing-live"]) {
+    for (const ch of ["my-live", "ai-live"]) {
       expect(isDisciplineBypassed(ch, liveOff)).toBe(true);
     }
   });
 
   it("paper and live toggles are independent", () => {
     // live off should NOT bypass paper channels
-    for (const ch of ["my-paper", "ai-paper"]) {
+    for (const ch of ["paper"]) {
       expect(isDisciplineBypassed(ch, liveOff)).toBe(false);
     }
   });
@@ -856,7 +855,7 @@ describe("isDisciplineBypassed", () => {
     const legacy = makeSettings();
     delete (legacy as { simulationEnforcement?: unknown }).simulationEnforcement;
     delete (legacy as { liveEnforcement?: unknown }).liveEnforcement;
-    expect(isDisciplineBypassed("my-paper", legacy)).toBe(false);
+    expect(isDisciplineBypassed("paper", legacy)).toBe(false);
     expect(isDisciplineBypassed("my-live", legacy)).toBe(false);
   });
 });

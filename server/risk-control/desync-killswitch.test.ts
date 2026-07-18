@@ -61,7 +61,7 @@ import { rcaMonitor } from "./index";
 beforeEach(() => {
   vi.clearAllMocks();
   // Reset every channel's counter so tests don't bleed state.
-  (["ai-live", "ai-paper", "my-live", "my-paper", "testing-live"] as const).forEach(
+  (["ai-live", "my-live", "paper"] as const).forEach(
     (c) => rcaMonitor.clearDesyncCounter(c),
   );
   settingsMock.desyncKillSwitchEnabled = true;
@@ -71,9 +71,9 @@ beforeEach(() => {
 
 describe("rcaMonitor desync kill switch", () => {
   it("increments per-channel counter on each notify", async () => {
-    await rcaMonitor.notifyDesync("ai-paper", "T1", "exch-down");
-    await rcaMonitor.notifyDesync("ai-paper", "T2", "exch-down");
-    expect(rcaMonitor.getDesyncCount("ai-paper")).toBe(2);
+    await rcaMonitor.notifyDesync("paper", "T1", "exch-down");
+    await rcaMonitor.notifyDesync("paper", "T2", "exch-down");
+    expect(rcaMonitor.getDesyncCount("paper")).toBe(2);
     expect(toggleKillSwitch).not.toHaveBeenCalled();
   });
 
@@ -98,14 +98,14 @@ describe("rcaMonitor desync kill switch", () => {
 
   it("evicts timestamps outside the window", async () => {
     settingsMock.desyncKillSwitchWindowSeconds = 1; // 1 second window
-    await rcaMonitor.notifyDesync("ai-paper", "T1", "old");
-    await rcaMonitor.notifyDesync("ai-paper", "T2", "old");
-    expect(rcaMonitor.getDesyncCount("ai-paper")).toBe(2);
+    await rcaMonitor.notifyDesync("paper", "T1", "old");
+    await rcaMonitor.notifyDesync("paper", "T2", "old");
+    expect(rcaMonitor.getDesyncCount("paper")).toBe(2);
     // Wait past the window.
     await new Promise((r) => setTimeout(r, 1100));
-    await rcaMonitor.notifyDesync("ai-paper", "T3", "fresh");
+    await rcaMonitor.notifyDesync("paper", "T3", "fresh");
     // The two old timestamps should have been evicted.
-    expect(rcaMonitor.getDesyncCount("ai-paper")).toBe(1);
+    expect(rcaMonitor.getDesyncCount("paper")).toBe(1);
   });
 
   it("suppresses duplicate trips until clearDesyncCounter", async () => {
@@ -139,17 +139,19 @@ describe("rcaMonitor desync kill switch", () => {
   });
 
   it("maps channel → workspace correctly", async () => {
-    await rcaMonitor.notifyDesync("my-paper", "T1", "x");
-    await rcaMonitor.notifyDesync("my-paper", "T2", "x");
-    await rcaMonitor.notifyDesync("my-paper", "T3", "x");
+    // Desyncs only occur on live (broker) channels: my-live → "my" workspace.
+    await rcaMonitor.notifyDesync("my-live", "T1", "x");
+    await rcaMonitor.notifyDesync("my-live", "T2", "x");
+    await rcaMonitor.notifyDesync("my-live", "T3", "x");
     expect(toggleKillSwitch).toHaveBeenCalledWith("my", "ACTIVATE");
 
-    rcaMonitor.clearDesyncCounter("my-paper");
+    rcaMonitor.clearDesyncCounter("my-live");
     toggleKillSwitch.mockClear();
 
-    await rcaMonitor.notifyDesync("testing-live", "T1", "x");
-    await rcaMonitor.notifyDesync("testing-live", "T2", "x");
-    await rcaMonitor.notifyDesync("testing-live", "T3", "x");
-    expect(toggleKillSwitch).toHaveBeenCalledWith("testing", "ACTIVATE");
+    // ai-live → "ai" workspace.
+    await rcaMonitor.notifyDesync("ai-live", "T1", "x");
+    await rcaMonitor.notifyDesync("ai-live", "T2", "x");
+    await rcaMonitor.notifyDesync("ai-live", "T3", "x");
+    expect(toggleKillSwitch).toHaveBeenCalledWith("ai", "ACTIVATE");
   });
 });

@@ -43,9 +43,13 @@ const log = createLogger("PA", "Router");
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-const channelSchema = z.enum(["ai-live", "ai-paper", "my-live", "my-paper"]);
+const channelSchema = z.enum(["paper", "ai-live", "my-live"]);
 /** Channels that mirror My Trades LIVE capital ops for shadow tracking. */
-const mirroredChannels: Channel[] = ["my-paper", "ai-paper"];
+// T87: the `paper` book is now an independent pool (no longer a shadow of
+// my-live), so my-live pool ops (inject/reset/transfer) no longer mirror into
+// paper. Paper is seeded on first use / by the migration. Phase 3 reworks the
+// my-live-pinned pool ops properly. Empty = no mirroring.
+const mirroredChannels: Channel[] = [];
 
 function _generateTradeId(): string {
   return `T${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -571,7 +575,7 @@ export const portfolioRouter = router({
   /** Clear all trades and reset a paper channel to zero. Only allowed for paper channels. */
   clearWorkspace: protectedProcedure
     .input(z.object({
-      channel: z.enum(['my-paper', 'ai-paper']),
+      channel: z.enum(['paper']),
       initialFunding: z.number().positive().default(100000),
     }))
     .mutation(async ({ input }) => {

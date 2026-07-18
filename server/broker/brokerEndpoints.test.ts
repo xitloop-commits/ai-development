@@ -47,7 +47,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await BrokerConfigModel.deleteMany({
-    brokerId: { $in: ["dhan-primary-ac", "mock-ai", "mock-my"] },
+    brokerId: { $in: ["dhan-primary-ac", "mock-paper", "mock-paper"] },
   });
   await mongoose.disconnect();
 }, 10000);
@@ -61,14 +61,14 @@ beforeEach(async () => {
 
 describe("Broker Service Status", () => {
   it("returns active broker info when mock is loaded", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     expect(broker).not.toBeNull();
-    expect(broker.brokerId).toBe("mock-ai");
+    expect(broker.brokerId).toBe("mock-paper");
     expect(broker.displayName).toBeDefined();
   });
 
   it("reports token as valid for mock adapter", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     const result = await broker.validateToken();
     expect(result.valid).toBe(true);
   });
@@ -78,7 +78,7 @@ describe("Broker Service Status", () => {
 
 describe("Order Placement via Broker", () => {
   it("places a BUY order and gets FILLED status", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     const result = await broker.placeOrder(sampleOrder);
 
     expect(result.orderId).toBeDefined();
@@ -87,7 +87,7 @@ describe("Order Placement via Broker", () => {
   });
 
   it("creates a position after order fill", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     await broker.placeOrder(sampleOrder);
 
     const positions = await broker.getPositions();
@@ -100,7 +100,7 @@ describe("Order Placement via Broker", () => {
   });
 
   it("deducts margin after order fill", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     const marginBefore = await broker.getMargin();
     expect(marginBefore.total).toBe(500000);
 
@@ -112,7 +112,7 @@ describe("Order Placement via Broker", () => {
   });
 
   it("records the order in order book", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     const result = await broker.placeOrder(sampleOrder);
 
     const orders = await broker.getOrderBook();
@@ -122,7 +122,7 @@ describe("Order Placement via Broker", () => {
   });
 
   it("records the trade in trade book", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     await broker.placeOrder(sampleOrder);
 
     const trades = await broker.getTradeBook();
@@ -137,7 +137,7 @@ describe("Order Placement via Broker", () => {
 
 describe("Exit Position via Broker", () => {
   it("exits a position with opposite SELL order", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     await broker.placeOrder(sampleOrder);
 
     // Exit with opposite order
@@ -154,7 +154,7 @@ describe("Exit Position via Broker", () => {
   });
 
   it("exitAll closes all open positions", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
 
     // Open 3 positions
     await broker.placeOrder(sampleOrder);
@@ -183,7 +183,7 @@ describe("Exit Position via Broker", () => {
 
 describe("Kill Switch via Broker Service", () => {
   it("blocks orders when kill switch is active", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     await broker.killSwitch("ACTIVATE");
 
     // MockAdapter returns REJECTED status instead of throwing
@@ -193,7 +193,7 @@ describe("Kill Switch via Broker Service", () => {
   });
 
   it("resumes orders after kill switch deactivation", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     await broker.killSwitch("ACTIVATE");
     await broker.killSwitch("DEACTIVATE");
 
@@ -202,7 +202,7 @@ describe("Kill Switch via Broker Service", () => {
   });
 
   it("exits all positions on kill switch activation", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     await broker.placeOrder(sampleOrder);
     await broker.placeOrder({
       ...sampleOrder,
@@ -224,7 +224,7 @@ describe("Kill Switch via Broker Service", () => {
 
 describe("Market Data via Broker", () => {
   it("returns scrip master for NSE_FNO", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     const instruments = await broker.getScripMaster("NSE_FNO");
     expect(instruments.length).toBeGreaterThan(0);
     // MockAdapter returns simplified exchange names
@@ -232,13 +232,13 @@ describe("Market Data via Broker", () => {
   });
 
   it("returns expiry list for NIFTY", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     const expiries = await broker.getExpiryList("NIFTY");
     expect(expiries.length).toBeGreaterThan(0);
   });
 
   it("returns option chain for NIFTY", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     const chain = await broker.getOptionChain("NIFTY", "2026-04-02");
     expect(chain.underlying).toBe("NIFTY");
     expect(chain.expiry).toBe("2026-04-02");
@@ -246,7 +246,7 @@ describe("Market Data via Broker", () => {
   });
 
   it("returns intraday candle data", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     const data = await broker.getIntradayData({
       securityId: "13",
       exchangeSegment: "IDX_I",
@@ -263,7 +263,7 @@ describe("Market Data via Broker", () => {
   });
 
   it("returns historical candle data", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     const data = await broker.getHistoricalData({
       securityId: "13",
       exchangeSegment: "IDX_I",
@@ -279,7 +279,7 @@ describe("Market Data via Broker", () => {
   });
 
   it("returns intraday data with open interest", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     const data = await broker.getIntradayData({
       securityId: "13",
       exchangeSegment: "NSE_FNO",
@@ -300,8 +300,8 @@ describe("Broker Config via Service", () => {
   it("stores access token in MongoDB config", async () => {
     const { upsertBrokerConfig } = await import("./brokerConfig");
     await upsertBrokerConfig({
-      brokerId: "mock-ai",
-      displayName: "Paper (AI Trades)",
+      brokerId: "mock-paper",
+      displayName: "Paper",
       credentials: {
         accessToken: "eyJhbGciOiJIUzI1NiJ9.test_token_1234",
         clientId: "",
@@ -311,7 +311,7 @@ describe("Broker Config via Service", () => {
       },
     });
 
-    const rawConfig = await BrokerConfigModel.findOne({ brokerId: "mock-ai" }).lean();
+    const rawConfig = await BrokerConfigModel.findOne({ brokerId: "mock-paper" }).lean();
     expect(rawConfig?.credentials.accessToken).toBe(
       "eyJhbGciOiJIUzI1NiJ9.test_token_1234"
     );
@@ -319,7 +319,7 @@ describe("Broker Config via Service", () => {
 
   it("updates broker settings", async () => {
     const { updateBrokerSettings } = await import("./brokerConfig");
-    const updated = await updateBrokerSettings("mock-ai", {
+    const updated = await updateBrokerSettings("mock-paper", {
       defaultSL: 5,
       defaultTP: 10,
     });
@@ -333,7 +333,7 @@ describe("Broker Config via Service", () => {
 
 describe("Margin Info", () => {
   it("returns correct initial margin", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
     const margin = await broker.getMargin();
     expect(margin.total).toBe(500000);
     expect(margin.used).toBe(0);
@@ -341,7 +341,7 @@ describe("Margin Info", () => {
   });
 
   it("updates margin after multiple orders", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
 
     await broker.placeOrder(sampleOrder); // 150 * 50 = 7500
     await broker.placeOrder({
@@ -361,7 +361,7 @@ describe("Margin Info", () => {
 
 describe("Full Round-Trip: Place → Check → Exit → Verify", () => {
   it("completes a full trade lifecycle", async () => {
-    const broker = getAdapter("ai-paper");
+    const broker = getAdapter("paper");
 
     // 1. Place BUY order
     const buyResult = await broker.placeOrder(sampleOrder);

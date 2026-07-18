@@ -68,7 +68,7 @@ describe("ChannelTabs — render", () => {
   });
 
   it("renders the workspace tab labels in TAB_DEFS order", () => {
-    renderWith("ai-paper");
+    renderWith("paper");
     const labels = screen.getAllByRole("button").map((b) => b.textContent?.trim());
     // The labels include the green dot suffix when live, but the
     // base label is always present at the start.
@@ -77,8 +77,8 @@ describe("ChannelTabs — render", () => {
     }
   });
 
-  it("does not render the live pulse dot for paper channels", () => {
-    const { container } = renderWith("ai-paper");
+  it("does not render the live pulse dot for the paper book", () => {
+    const { container } = renderWith("paper");
     const dots = container.querySelectorAll(".animate-pulse");
     expect(dots.length).toBe(0);
   });
@@ -92,13 +92,16 @@ describe("ChannelTabs — render", () => {
 
 describe("ChannelTabs — switch confirmation", () => {
   beforeEach(() => {
-    lastModeForWs.ai = "paper";
-    lastModeForWs.my = "paper";
+    // Live mode: AI↔My tabs map to distinct channels (ai-live / my-live). In
+    // paper mode both tabs map to the single shared `paper` book (a no-op), so
+    // the meaningful cross-book switch is exercised in live mode.
+    lastModeForWs.ai = "live";
+    lastModeForWs.my = "live";
   });
 
   it("clicking the active tab is a no-op (no confirm shown)", () => {
     const setChannel = vi.fn();
-    renderWith("ai-paper", setChannel);
+    renderWith("ai-live", setChannel);
 
     const aiButton = screen.getByText(/AI Trades/);
     act(() => { aiButton.click(); });
@@ -108,26 +111,26 @@ describe("ChannelTabs — switch confirmation", () => {
   });
 
   it("clicking a non-active tab opens a confirm popover", () => {
-    renderWith("ai-paper");
+    renderWith("ai-live");
     const myButton = screen.getByText(/My Trades/);
     act(() => { myButton.click(); });
 
-    expect(screen.getByText(/Switch from ai-paper to my-paper/)).toBeInTheDocument();
+    expect(screen.getByText(/Switch from ai-live to my-live/)).toBeInTheDocument();
   });
 
   it("confirming the popover calls setChannel with the target channel", () => {
     const setChannel = vi.fn();
-    renderWith("ai-paper", setChannel);
+    renderWith("ai-live", setChannel);
 
     act(() => { screen.getByText(/My Trades/).click(); });
     act(() => { screen.getByText(/Confirm/).click(); });
 
-    expect(setChannel).toHaveBeenCalledWith("my-paper");
+    expect(setChannel).toHaveBeenCalledWith("my-live");
   });
 
   it("cancel hides the popover and does not switch", () => {
     const setChannel = vi.fn();
-    renderWith("ai-paper", setChannel);
+    renderWith("ai-live", setChannel);
 
     act(() => { screen.getByText(/My Trades/).click(); });
     act(() => { screen.getByText(/Cancel/).click(); });
@@ -136,17 +139,17 @@ describe("ChannelTabs — switch confirmation", () => {
     expect(screen.queryByText(/Switch from/)).not.toBeInTheDocument();
   });
 
-  it("uses lastModeForWs to pick the target mode (not always 'paper')", () => {
-    // Pretend the user previously visited `my-live`; that mode should
-    // be remembered when switching back to the My workspace from AI.
-    lastModeForWs.my = "live";
+  it("uses lastModeForWs to pick the target mode — paper collapses to the shared book", () => {
+    // The My tab was last visited in paper: switching back to My lands on the
+    // shared `paper` book, not `my-live`.
+    lastModeForWs.my = "paper";
     const setChannel = vi.fn();
-    renderWith("ai-paper", setChannel);
+    renderWith("ai-live", setChannel);
 
     act(() => { screen.getByText(/My Trades/).click(); });
     act(() => { screen.getByText(/Confirm/).click(); });
 
-    expect(setChannel).toHaveBeenCalledWith("my-live");
+    expect(setChannel).toHaveBeenCalledWith("paper");
   });
 
 });
@@ -164,8 +167,8 @@ describe("ChannelTabs — last-mode memory mirror", () => {
   });
 
 
-  it("updates lastModeForWs[my] when the active channel is my-paper", () => {
-    renderWith("my-paper");
+  it("updates lastModeForWs[my] when the active channel is the paper book", () => {
+    renderWith("paper");
     expect(lastModeForWs.my).toBe("paper");
   });
 });

@@ -53,4 +53,4 @@ export const GiftDay: Story = { args: { day: mockGiftDay, showNet: true, channel
 export const JackpotDay: Story = { args: { day: mockJackpotDay, showNet: true, channel: "my-live" } };
 export const HighlightedDay: Story = { args: { day: mockGreenDay, showNet: true, channel: "my-live", highlighted: true } };
 export const Gross: Story = { args: { day: mockGreenDay, showNet: false, channel: "my-live" } };
-export const PaperWorkspace: Story = { args: { day: mockGreenDay, showNet: true, channel: "ai-paper" } };
+export const PaperWorkspace: Story = { args: { day: mockGreenDay, showNet: true, channel: "paper" } };

@@ -124,7 +124,7 @@ export const appRouter = router({
     optionTradesForChart: publicProcedure
       .input(
         z.object({
-          channel: z.enum(["ai-live", "ai-paper", "my-live", "my-paper"]),
+          channel: z.enum(["paper", "ai-live", "my-live"]),
           instrument: z.string(),
           strike: z.number(),
           side: z.enum(["CE", "PE"]),
@@ -197,7 +197,7 @@ export const appRouter = router({
     tradesForChart: publicProcedure
       .input(
         z.object({
-          channel: z.enum(["ai-live", "ai-paper", "my-live", "my-paper"]),
+          channel: z.enum(["paper", "ai-live", "my-live"]),
           instrument: z.string(),
           date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         }),

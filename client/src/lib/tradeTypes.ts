@@ -1,58 +1,80 @@
 /**
  * Shared types and constants for the TradingDesk table and its row components.
  *
- * Canonical state vocabulary (T87 single-workspace revamp, 2026-07-18):
- *   workspace ∈ { ai, my }                 (testing + stocks workspaces removed;
- *                                            stocks fold into `my` as equity trades)
- *   mode      ∈ { live, paper }
- *   channel   = `${workspace}-${mode}`     // 4 valid combinations
+ * Canonical state vocabulary (T87 two-book model, 2026-07-18):
+ *   mode    ∈ { live, paper }
+ *   source  ∈ { ai, my }                   // per-trade attribution (display/filter)
+ *   channel ∈ { paper, ai-live, my-live }  // capital/journey key = the "book"
+ *
+ * PAPER is ONE merged book: AI + My share its capital pool and 250-day journey;
+ * AI-vs-My is the per-trade `source` tag, not a separate channel.
+ * LIVE stays split by real Dhan account (ai-live = secondary, my-live = primary),
+ * but the two share one live journey.
  *
  * `channel` is the single source of truth on the wire and in storage.
  */
 
-export type Workspace = 'ai' | 'my';
 export type Mode = 'live' | 'paper';
+/** Per-trade attribution: AI engine vs manual ("my"). Display/filter only. */
+export type Source = 'ai' | 'my';
+/** AI-vs-My grouping (kill switches, theming, the AI/My source filter). The
+ *  shared `paper` book has no single workspace — use a trade's `source` tag for
+ *  AI-vs-My of individual paper trades. */
+export type Workspace = 'ai' | 'my';
 
 export type Channel =
+  | 'paper'
   | 'ai-live'
-  | 'ai-paper'
-  | 'my-live'
-  | 'my-paper';
+  | 'my-live';
 
 export const ALL_CHANNELS: readonly Channel[] = [
+  'paper',
   'ai-live',
-  'ai-paper',
   'my-live',
-  'my-paper',
 ] as const;
 
-/** Default mode for each workspace group on first launch (paper = safer side). */
+/** The two live books (share one live journey; separate real-account capital). */
+export const LIVE_CHANNELS: readonly Channel[] = ['ai-live', 'my-live'] as const;
+
+/** First-launch landing channel — the shared paper book. */
+export const DEFAULT_LANDING_CHANNEL: Channel = 'paper';
+
+/** Default channel for each workspace group. Both default to the shared paper
+ *  book (paper = safer side). */
 export const DEFAULT_CHANNEL_FOR_WORKSPACE: Record<Workspace, Channel> = {
-  ai: 'ai-paper',
-  my: 'my-paper',
+  ai: 'paper',
+  my: 'paper',
 };
 
-/** First-launch landing channel — My trades, paper (AI + My both show in one desk). */
-export const DEFAULT_LANDING_CHANNEL: Channel = 'my-paper';
-
-export function channelToWorkspace(channel: Channel): Workspace {
-  return channel.split('-')[0] as Workspace;
-}
-
 export function channelToMode(channel: Channel): Mode {
-  return channel.split('-')[1] as Mode;
+  return channel === 'paper' ? 'paper' : 'live';
 }
 
+/** Build a channel from a workspace + mode. Paper is the shared book (both
+ *  workspaces map to it); live is split by workspace/account. */
 export function channelOf(workspace: Workspace, mode: Mode): Channel {
-  return `${workspace}-${mode}` as Channel;
+  return mode === 'paper' ? 'paper' : (`${workspace}-live` as Channel);
+}
+
+/** The workspace a channel belongs to. The shared `paper` book maps to 'my'
+ *  (manual controls enabled); for AI-vs-My of an individual paper trade use its
+ *  `source` tag, not the channel. */
+export function channelToWorkspace(channel: Channel): Workspace {
+  return channel === 'ai-live' ? 'ai' : 'my';
 }
 
 export function isLiveChannel(channel: Channel): boolean {
-  return channelToMode(channel) === 'live';
+  return channel !== 'paper';
 }
 
 export function isPaperChannel(channel: Channel): boolean {
-  return channelToMode(channel) === 'paper';
+  return channel === 'paper';
+}
+
+/** AI/My source implied by a LIVE channel. Paper trades carry their own `source`
+ *  tag (the paper book is shared), so this is only meaningful for live channels. */
+export function liveChannelSource(channel: Channel): Source {
+  return channel === 'ai-live' ? 'ai' : 'my';
 }
 
 export type DayStatus = 'ACTIVE' | 'COMPLETED' | 'GIFT' | 'FUTURE';

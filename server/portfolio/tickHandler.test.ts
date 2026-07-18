@@ -64,7 +64,7 @@ describe("tickHandler — F1 per-channel state cache", () => {
     tickHandler.clearStateCache();
 
     getCapitalStateMock.mockResolvedValue({
-      channel: "my-paper",
+      channel: "paper",
       tradingPool: 100_000,
       reservePool: 0,
       initialFunding: 100_000,
@@ -168,7 +168,7 @@ describe("tickHandler — F1 per-channel state cache", () => {
     await handler.processPendingUpdates();
 
     // upsertDayRecord must have been called for at least one channel
-    // (the match channels, e.g. my-paper) — proving anyUpdated path ran.
+    // (the match channels, e.g. paper) — proving anyUpdated path ran.
     expect(upsertDayRecordMock).toHaveBeenCalled();
 
     vi.clearAllMocks();
@@ -225,7 +225,7 @@ describe("tickHandler — clear-workspace cache invalidation", () => {
     h.peakPrices.clear();
     h.exitingTrades.clear();
     getCapitalStateMock.mockResolvedValue({
-      channel: "my-paper",
+      channel: "paper",
       tradingPool: 100_000,
       reservePool: 0,
       initialFunding: 100_000,
@@ -310,7 +310,7 @@ describe("tickHandler — persist must not clobber concurrently-placed trades", 
     h.peakPrices.clear();
     h.exitingTrades.clear();
     getCapitalStateMock.mockResolvedValue({
-      channel: "my-paper", tradingPool: 100_000, reservePool: 0, initialFunding: 100_000,
+      channel: "paper", tradingPool: 100_000, reservePool: 0, initialFunding: 100_000,
       currentDayIndex: 1, targetPercent: 1, profitHistory: [], cumulativePnl: 0,
       cumulativeCharges: 0, sessionTradeCount: 0,
     });
@@ -326,7 +326,7 @@ describe("tickHandler — persist must not clobber concurrently-placed trades", 
     let dayTrades: any[] = [tradeA];
     getDayRecordMock.mockImplementation((ch: string) =>
       Promise.resolve(
-        ch === "my-paper"
+        ch === "paper"
           ? { dayIndex: 1, date: "2024-11-14", trades: dayTrades, totalPnl: 0 }
           : { dayIndex: 1, date: "2024-11-14", trades: [], totalPnl: 0 },
       ),
@@ -347,7 +347,7 @@ describe("tickHandler — persist must not clobber concurrently-placed trades", 
     await handler.processPendingUpdates();
 
     expect(upsertDayRecordMock).toHaveBeenCalled();
-    const persisted = upsertDayRecordMock.mock.calls.find((c) => c[0] === "my-paper")?.[1];
+    const persisted = upsertDayRecordMock.mock.calls.find((c) => c[0] === "paper")?.[1];
     const ids = (persisted?.trades ?? []).map((t: any) => t.id);
     expect(ids).toContain("TA"); // the live trade
     expect(ids).toContain("TB"); // the just-placed trade — NOT clobbered
@@ -368,7 +368,7 @@ describe("tickHandler — entry-pending first-tick fill", () => {
     vi.clearAllMocks();
     tickHandler.clearStateCache();
     getCapitalStateMock.mockResolvedValue({
-      channel: "ai-paper", tradingPool: 100_000, reservePool: 0,
+      channel: "paper", tradingPool: 100_000, reservePool: 0,
       initialFunding: 100_000, currentDayIndex: 1, targetPercent: 1,
       profitHistory: [], cumulativePnl: 0, cumulativeCharges: 0, sessionTradeCount: 0,
     });

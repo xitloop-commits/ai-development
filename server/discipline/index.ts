@@ -142,7 +142,7 @@ class DisciplineAgent {
       const { rcaMonitor } = await import("../risk-control");
       const { classifyIv } = await import("../risk-control/ivClassifier");
       // Channels we monitor for carry-forward — same as RCA's set.
-      const channels = ["my-live", "ai-live", "ai-paper"] as const;
+      const channels = ["my-live", "ai-live", "paper"] as const;
       for (const channel of channels) {
         // Master bypass: skip carry-forward for simulation channels when
         // discipline is turned off for them.

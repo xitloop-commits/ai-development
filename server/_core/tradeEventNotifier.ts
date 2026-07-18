@@ -37,8 +37,11 @@ const log = createLogger("BSA", "TradeNotify");
  */
 export const TELEGRAM_NOTIFY_CHANNELS: ReadonlySet<string> = new Set([
   "ai-live",
-  "ai-paper",
+  "paper",
 ]);
+// T87 follow-up: the `paper` book is now shared (AI + My). This gate fires for
+// the whole book; to restore AI-only alerts, thread the trade `source` into the
+// notifier events and gate paper on `source === "ai"`.
 
 function isNotifyChannel(channel: string): boolean {
   return TELEGRAM_NOTIFY_CHANNELS.has(channel);

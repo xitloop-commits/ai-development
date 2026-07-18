@@ -74,7 +74,7 @@ import { getSEASignals } from "../seaSignals";
 
 const sampleEvalReq = {
   executionId: "test-1",
-  channel: "ai-paper" as const,
+  channel: "paper" as const,
   instrument: "NIFTY_50",
   direction: "BUY" as const,
   quantity: 75,
@@ -109,10 +109,10 @@ beforeEach(() => {
 // ─── evaluateTrade ───────────────────────────────────────────────
 
 describe("rcaMonitor.evaluateTrade", () => {
-  it("APPROVE on TEA success — fans out one twin per exit strategy (ai-paper, T84)", async () => {
+  it("APPROVE on TEA success — fans out one twin per exit strategy (paper, T84)", async () => {
     const result = await rcaMonitor.evaluateTrade(sampleEvalReq);
     expect(result.decision).toBe("APPROVE");
-    // ai-paper spawns 3 full-size twins (sprint/runway/anchor), distinct executionIds.
+    // paper spawns 3 full-size twins (sprint/runway/anchor), distinct executionIds.
     expect(tradeExecutor.submitTrade).toHaveBeenCalledTimes(3);
     const reqs = (tradeExecutor.submitTrade as any).mock.calls.map((c: any[]) => c[0]);
     expect(reqs.map((r: any) => r.exitStrategy)).toEqual(["sprint", "runway", "anchor"]);
@@ -162,14 +162,14 @@ describe("rcaMonitor.disciplineRequest", () => {
 
   it("scope=ALL exits every open position on the requested channels", async () => {
     (portfolioAgent.getPositions as any).mockImplementation(async (channel: string) => {
-      if (channel === "ai-paper") return [openTrade("T1", channel, "NIFTY_50")];
+      if (channel === "paper") return [openTrade("T1", channel, "NIFTY_50")];
       if (channel === "my-live") return [openTrade("T2", channel, "BANKNIFTY")];
       return [];
     });
 
     const result = await rcaMonitor.disciplineRequest({
       reason: "DISCIPLINE_EXIT",
-      channels: ["ai-paper", "my-live"],
+      channels: ["paper", "my-live"],
       scope: { kind: "ALL" },
     });
 
@@ -181,7 +181,7 @@ describe("rcaMonitor.disciplineRequest", () => {
 
   it("scope=INSTRUMENT exits only matching trades", async () => {
     (portfolioAgent.getPositions as any).mockImplementation(async (channel: string) => {
-      if (channel === "ai-paper") {
+      if (channel === "paper") {
         return [openTrade("T1", channel, "NIFTY_50"), openTrade("T2", channel, "BANKNIFTY")];
       }
       return [];
@@ -189,7 +189,7 @@ describe("rcaMonitor.disciplineRequest", () => {
 
     const result = await rcaMonitor.disciplineRequest({
       reason: "DISCIPLINE_EXIT",
-      channels: ["ai-paper"],
+      channels: ["paper"],
       scope: { kind: "INSTRUMENT", instrument: "NIFTY_50" },
     });
 
@@ -199,13 +199,13 @@ describe("rcaMonitor.disciplineRequest", () => {
 
   it("scope=TRADE_IDS exits only listed ids", async () => {
     (portfolioAgent.getPositions as any).mockImplementation(async () => [
-      openTrade("T1", "ai-paper", "NIFTY_50"),
-      openTrade("T2", "ai-paper", "NIFTY_50"),
-      openTrade("T3", "ai-paper", "NIFTY_50"),
+      openTrade("T1", "paper", "NIFTY_50"),
+      openTrade("T2", "paper", "NIFTY_50"),
+      openTrade("T3", "paper", "NIFTY_50"),
     ]);
     const result = await rcaMonitor.disciplineRequest({
       reason: "DISCIPLINE_EXIT",
-      channels: ["ai-paper"],
+      channels: ["paper"],
       scope: { kind: "TRADE_IDS", tradeIds: ["T1", "T3"] },
     });
     expect(result.exited).toBe(2);
@@ -213,7 +213,7 @@ describe("rcaMonitor.disciplineRequest", () => {
   });
 
   it("counts failed exits correctly", async () => {
-    (portfolioAgent.getPositions as any).mockResolvedValueOnce([openTrade("T1", "ai-paper", "NIFTY_50")]);
+    (portfolioAgent.getPositions as any).mockResolvedValueOnce([openTrade("T1", "paper", "NIFTY_50")]);
     (tradeExecutor.exitTrade as any).mockResolvedValueOnce({
       success: false,
       positionId: "POS-1",
@@ -227,7 +227,7 @@ describe("rcaMonitor.disciplineRequest", () => {
     });
     const result = await rcaMonitor.disciplineRequest({
       reason: "DISCIPLINE_EXIT",
-      channels: ["ai-paper"],
+      channels: ["paper"],
       scope: { kind: "ALL" },
     });
     expect(result.exited).toBe(0);

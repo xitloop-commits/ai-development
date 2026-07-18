@@ -38,4 +38,4 @@ export const Default: Story = { args: { day: mockFutureDay, isDay250: false, cha
 export const Playground: Story = { args: { day: mockFutureDay, isDay250: false, channel: "my-live" } };
 export const Day250: Story = { args: { day: day250, isDay250: true, channel: "my-live" } };
 export const Highlighted: Story = { args: { day: mockFutureDay, isDay250: false, channel: "my-live", highlighted: true } };
-export const PaperWorkspace: Story = { args: { day: mockFutureDay, isDay250: false, channel: "ai-paper" } };
+export const PaperWorkspace: Story = { args: { day: mockFutureDay, isDay250: false, channel: "paper" } };

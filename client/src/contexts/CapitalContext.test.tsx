@@ -25,7 +25,7 @@ import {
 
 function makeStaticValue(overrides: Partial<CapitalContextValue> = {}): CapitalContextValue {
   return {
-    channel: "ai-paper",
+    channel: "paper",
     setChannel: vi.fn(),
     capital: {
       tradingPool: 100_000,
@@ -114,7 +114,7 @@ describe("StaticCapitalProvider — provider/consumer wiring", () => {
 
   it("forwards setChannel calls to the provided handler (mutation invalidation seam)", () => {
     const setChannel = vi.fn();
-    const value = makeStaticValue({ channel: "ai-paper", setChannel });
+    const value = makeStaticValue({ channel: "paper", setChannel });
     function Child() {
       const ctx = useCapital();
       return (
@@ -137,7 +137,7 @@ describe("StaticCapitalProvider — provider/consumer wiring", () => {
   it("re-renders children when the parent advances the value", () => {
     function Wrapper() {
       const [value, setValue] = useState(() =>
-        makeStaticValue({ channel: "ai-paper" }),
+        makeStaticValue({ channel: "paper" }),
       );
       function Child() {
         const ctx = useCapital();
@@ -157,7 +157,7 @@ describe("StaticCapitalProvider — provider/consumer wiring", () => {
       );
     }
     render(<Wrapper />);
-    expect(screen.getByTestId("cycle")).toHaveTextContent("ai-paper");
+    expect(screen.getByTestId("cycle")).toHaveTextContent("paper");
     act(() => {
       screen.getByTestId("cycle").click();
     });

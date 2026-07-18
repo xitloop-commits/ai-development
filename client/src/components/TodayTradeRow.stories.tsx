@@ -56,9 +56,9 @@ export const TrailingStop: Story = {
 };
 export const ShortTrade: Story = { args: { trade: mockShortTrade } };
 export const SecondaryRow: Story = { args: { trade: mockOpenTrade, isFirst: false } };
-export const PaperWorkspace: Story = { args: { trade: mockOpenTrade, channel: "my-paper" } };
+export const PaperWorkspace: Story = { args: { trade: mockOpenTrade, channel: "paper" } };
 export const AiManaged: Story = {
-  args: { trade: mockOpenTrade, channel: "ai-paper", canManageTrades: false },
+  args: { trade: mockOpenTrade, channel: "paper", canManageTrades: false },
 };
 export const Gross: Story = { args: { trade: mockClosedTpTrade, showNet: false } };
 export const ExitLoading: Story = { args: { trade: mockOpenTrade, exitLoading: true } };

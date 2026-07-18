@@ -529,9 +529,8 @@ function buildWorkspaceData(): Record<Channel, WorkspaceData> {
 
   return {
     'my-live':         { capital: liveCapital, allDays: liveDays },
-    'my-paper':        { capital: paperManualCapital, allDays: paperManualDays },
     'ai-live':         { capital: paperCapital, allDays: paperDays },
-    'ai-paper':        { capital: paperCapital, allDays: paperDays },
+    'paper':           { capital: paperManualCapital, allDays: paperManualDays },
   };
 }
 

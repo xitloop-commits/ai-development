@@ -164,7 +164,7 @@ async function startServer() {
       // 3 inbound REST endpoints (evaluate, discipline-request, ai-signal)
       // are registered separately below.
       const { rcaMonitor } = await import("../risk-control");
-      rcaMonitor.start({ channels: ["ai-paper"] });
+      rcaMonitor.start({ channels: ["paper"] });
       registerShutdownHook("riskControl", () => rcaMonitor.stop(), 100);
     })
     .catch((err) =>
