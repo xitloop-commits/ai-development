@@ -164,7 +164,12 @@ Partha's revamp, to run **before** the T86 engine fixes (it reduces the T86 surf
 8. Removing the my-trades workspace **also removes the instrument bar** — so the default workspace needs a **new way for the user to place manual trades** (design required).
 9. **Remove the stocks workspace** too — but the user must **still be able to place stock orders** from the default workspace (stock trading capability moves into the default workspace).
 10. **Remove the workspace tabs entirely** (AI trades / My trades / Testing / Stocks) — always just the **one default workspace**, no tabs.
-(Not yet specified: paper-fill mechanism.)
+11. **Manual trades and stock trades are ONE group** ("my" trades = user-placed options + stocks together).
+12. **My (manual+stock) trades also default to PAPER only** — same as AI. So by default nothing is live; live is opt-in via the two toggles (SEA menu for AI, app bar for my).
+
+**DECISIONS (Q&A with Partha, 2026-07-18):**
+- **Q1 — the "one connection" = the TICK/DATA feed, not order routing (option a).** One shared live tick feed (what we clean up for the deaf-feed bug). Live ORDERS still route per account: **my trades (manual+stocks) → PRIMARY (Partha's own account); AI trades → SECONDARY (spouse).** Both AI and my default to paper. (So the secondary/TFA-off-limits account is NOT used for Partha's own manual/stock money.)
+(Not yet specified: paper-fill mechanism; capital-pool model.)
 
 ### T86 [BUG · P0] — Trades stuck OPEN forever after their stop fires ("half-exited") (2026-07-18) 🆕🔴
 **Symptom:** Runway/Anchor (and old Sprint-MA) trades sit OPEN for days at −35% to −38%, far past their stops, never squared off. 8+ stuck across 07-14 → 07-17.
