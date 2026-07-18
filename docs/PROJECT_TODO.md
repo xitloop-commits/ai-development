@@ -169,7 +169,10 @@ Partha's revamp, to run **before** the T86 engine fixes (it reduces the T86 surf
 
 **DECISIONS (Q&A with Partha, 2026-07-18):**
 - **Q1 — the "one connection" = the TICK/DATA feed, not order routing (option a).** One shared live tick feed (what we clean up for the deaf-feed bug). Live ORDERS still route per account: **my trades (manual+stocks) → PRIMARY (Partha's own account); AI trades → SECONDARY (spouse).** Both AI and my default to paper. (So the secondary/TFA-off-limits account is NOT used for Partha's own manual/stock money.)
-(Not yet specified: paper-fill mechanism; capital-pool model.)
+- **Q2 — balance model = SEPARATE (option a).** The one desk shows **two balances side-by-side**: an **AI** balance (paper play-money) + a **My** balance (Partha's money), each with its own P&L. Never blend AI-race paper money with real money. Keep the per-channel capital pools underneath.
+- **Terminology:** just **"My trades"** and **"AI trades"** (stocks are part of My trades).
+- **Q3 — "remove mock trading" = remove the MOCK-FEED TOGGLE on the app bar** (the dev/off-hours simulated market feed, `isMockFeed`). This is NOT about paper trading — **paper mode stays** (real ticks + simulated fills). So point #5's "remove mock trading" means kill the app-bar mock-feed toggle + its plumbing, and delete the Testing workspace; the paper-fill engine is untouched.
+(All blocking decisions resolved. Remaining = design work: manual order-entry surface to replace the instrument bar, and stock placement folded into the one desk.)
 
 ### T86 [BUG · P0] — Trades stuck OPEN forever after their stop fires ("half-exited") (2026-07-18) 🆕🔴
 **Symptom:** Runway/Anchor (and old Sprint-MA) trades sit OPEN for days at −35% to −38%, far past their stops, never squared off. 8+ stuck across 07-14 → 07-17.
