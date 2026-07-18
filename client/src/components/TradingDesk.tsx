@@ -21,7 +21,6 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { PastRow } from './PastRow';
 import { FutureRow } from './FutureRow';
 import { TodaySection } from './TodaySection';
-import { Watchlist } from './Watchlist';
 import { useTradingDeskData } from '@/hooks/useTradingDeskData';
 import { useTradingDeskHandlers } from '@/hooks/useTradingDeskHandlers';
 
@@ -48,8 +47,6 @@ export default function TradingDesk({
   const [showNet, setShowNet] = useState(true);
   // Client-only view filter for today's trade rows (right of the P&L bar).
   const [tradeFilter, setTradeFilter] = useState<TradeFilter>(EMPTY_TRADE_FILTER);
-  // The always-on instrument bars now live in a draggable floating window.
-  const [barsPanelOpen, setBarsPanelOpen] = useState(true);
   const [expandedDays, setExpandedDays] = useState<Set<number>>(() => new Set());
   const toggleExpand = useCallback((dayIndex: number) => {
     setExpandedDays((prev) => {
@@ -130,17 +127,6 @@ export default function TradingDesk({
           <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
         </div>
         {/* Net/Gross P&L toggle moved to the P&L column header of the table. */}
-        {canManageTrades && (
-          <button
-            type="button"
-            onClick={() => setBarsPanelOpen((v) => !v)}
-            className="px-3 py-1.5 flex flex-col items-center justify-center hover:bg-muted/40 transition-colors"
-            title="Toggle the Watchlist window (indices + stocks)"
-          >
-            <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Watch</span>
-            <span className="text-xs font-bold tabular-nums text-foreground">{barsPanelOpen ? 'On' : 'Off'}</span>
-          </button>
-        )}
         <TodayPnlBar
           pnl={capital.todayPnl}
           tradingPool={capital.tradingPool}
@@ -305,16 +291,6 @@ export default function TradingDesk({
         onCancel={closeConfirmDialog}
       />
 
-      {/* Unified Watchlist — indices (option picker) + stocks (stage), draggable
-          floating window. Replaces the old instrument-bars panel (T87). */}
-      {canManageTrades && barsPanelOpen && (
-        <Watchlist
-          resolvedInstruments={resolvedInstruments}
-          trades={ctxCurrentDay?.trades ?? []}
-          onPlaceTrade={handlePlaceTrade}
-          onClose={() => setBarsPanelOpen(false)}
-        />
-      )}
     </div>
   );
 }

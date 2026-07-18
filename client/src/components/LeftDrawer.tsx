@@ -1,36 +1,23 @@
 /**
- * LeftSidebar — In-flow push sidebar for Instrument Analysis Cards.
- * Visible by default, pushes center content. Fully disappears when hidden.
- * Tabbed navigation for each instrument.
+ * LeftDrawer — Watchlist (T87).
+ *
+ * A single "Watchlist" tab replacing the old instrument-analysis cards. Two
+ * sections, both a simple live-LTP list (no strike bar / no option picker —
+ * the instrument bar is gone):
+ *   • Indices — NIFTY / BANK NIFTY / CRUDE OIL / NATURAL GAS, underlying LTP.
+ *   • Stocks  — search the Dhan scrip master, add, watch live LTP.
+ * Pushes the center content; fully disappears when hidden.
  */
-import { useState } from 'react';
-import InstrumentCard from '@/components/InstrumentCard';
+import { useInstrumentLiveState } from '@/hooks/useInstrumentLiveState';
+import { WatchlistPane } from '@/components/WatchlistPane';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 
-/** Minimal tab descriptor — the card pulls its own live data by name. */
+/** Minimal tab descriptor (kept for the MainScreen prop shape). */
 interface SidebarInstrument {
   name: string;        // instrument key (NIFTY_50, BANKNIFTY, …)
   displayName: string;
   exchange?: string;
 }
-
-const NIFTY_BG = 'https://d2xsxph8kpxj0f.cloudfront.net/310519663447231618/hZHDUL7Uaz8bz3VADXMZ3Y/nifty-card-bg-JXr3vgp8ArcCjeDYxuHp5e.webp';
-const CRUDE_BG = 'https://d2xsxph8kpxj0f.cloudfront.net/310519663447231618/hZHDUL7Uaz8bz3VADXMZ3Y/crude-card-bg-9ALVSYhrmD5LJG7UAqvQuP.webp';
-const NATGAS_BG = 'https://d2xsxph8kpxj0f.cloudfront.net/310519663447231618/hZHDUL7Uaz8bz3VADXMZ3Y/natgas-card-bg-9652MS4YtP9ssiQqHZSrhd.webp';
-
-const bgMap: Record<string, string> = {
-  NIFTY_50: NIFTY_BG,
-  BANKNIFTY: NIFTY_BG,
-  CRUDEOIL: CRUDE_BG,
-  NATURALGAS: NATGAS_BG,
-};
-
-const TAB_LABELS: Record<string, string> = {
-  NIFTY_50: 'NIFTY',
-  BANKNIFTY: 'BNIFTY',
-  CRUDEOIL: 'CRUDE',
-  NATURALGAS: 'NATGAS',
-};
 
 interface ResolvedFeedInstrument {
   name: string;
@@ -39,57 +26,71 @@ interface ResolvedFeedInstrument {
   mode: string;
 }
 
+const INDEX_LABELS: Record<string, string> = {
+  NIFTY_50: 'NIFTY 50',
+  BANKNIFTY: 'BANK NIFTY',
+  CRUDEOIL: 'CRUDE OIL',
+  NATURALGAS: 'NATURAL GAS',
+};
+
 interface LeftSidebarProps {
   visible: boolean;
   instruments: SidebarInstrument[];
   resolvedInstruments?: ResolvedFeedInstrument[];
 }
 
-export default function LeftSidebar({ visible, instruments, resolvedInstruments }: LeftSidebarProps) {
-  const [activeTab, setActiveTab] = useState(0);
-  const { styleOf } = useInstrumentColors();
+/** One index row — underlying LTP from the WS-pushed TFA live state (no poll).
+ *  Keeps the per-instrument colour (a leading dot). */
+function IndexRow({ name, label, color }: { name: string; label: string; color: string }) {
+  // Canonical live-state key: NIFTY_50 → nifty50, BANKNIFTY → banknifty, …
+  const key = name.toLowerCase().replace(/_/g, '');
+  const state = useInstrumentLiveState<any>(key);
+  const spot = state?.live?.spot_price ?? 0;
+  return (
+    <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-border/50 hover:bg-muted/30">
+      <span className="h-2 w-2 rounded-full shrink-0" style={{ background: color }} />
+      <span className="text-xs font-bold flex-1 truncate" style={{ color }}>{label}</span>
+      <span className="text-xs font-bold tabular-nums text-foreground min-w-[64px] text-right">
+        {spot > 0
+          ? spot.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+          : <span className="text-[0.625rem] italic text-muted-foreground">…</span>}
+      </span>
+    </div>
+  );
+}
 
-  const currentInstrument = instruments[activeTab] ?? instruments[0];
-
+export default function LeftSidebar({ visible, instruments }: LeftSidebarProps) {
+  const { hexOf } = useInstrumentColors();
   if (!visible) return null;
 
   return (
     <aside className="w-[360px] shrink-0 border-r border-border bg-background flex flex-col overflow-hidden">
-      {/* Tabs — same style as workspace tabs */}
+      {/* Single Watchlist tab */}
       <div className="flex items-stretch border-b border-border">
-        {instruments.map((inst, idx) => {
-          const isActive = idx === activeTab;
-          return (
-            <button
-              key={inst.name}
-              onClick={() => setActiveTab(idx)}
-              style={isActive ? styleOf(inst.name).pill : undefined}
-              className={`flex-1 px-4 py-2 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border last:border-r-0 ${
-                isActive ? '' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-              }`}
-            >
-              {TAB_LABELS[inst.name] ?? inst.name}
-            </button>
-          );
-        })}
+        <div className="flex-1 px-4 py-2 text-[0.625rem] font-bold tracking-wider uppercase text-foreground bg-secondary/50">
+          Watchlist
+        </div>
       </div>
 
-      {/* Instrument Card */}
-      <div className="flex-1 overflow-y-auto px-2 py-2">
-        {currentInstrument ? (
-          <InstrumentCard
-            data={currentInstrument}
-            bgImage={bgMap[currentInstrument.name]}
-            feedExchange={resolvedInstruments?.find(r => r.name === currentInstrument.name)?.exchange}
-            feedSecurityId={resolvedInstruments?.find(r => r.name === currentInstrument.name)?.securityId}
-          />
-        ) : (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-[0.6875rem] text-muted-foreground">
-              No instruments available
-            </p>
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        {/* Indices — underlying LTP list */}
+        <div className="shrink-0 pt-1">
+          {instruments.map((inst) => (
+            <IndexRow
+              key={inst.name}
+              name={inst.name}
+              label={INDEX_LABELS[inst.name] ?? inst.name}
+              color={hexOf(inst.name)}
+            />
+          ))}
+        </div>
+
+        {/* Stocks — search + watchlist (live LTP) */}
+        <div className="flex-1 min-h-0 flex flex-col mt-1 border-t border-border">
+          <div className="flex-1 min-h-0">
+            <WatchlistPane />
           </div>
-        )}
+        </div>
       </div>
     </aside>
   );
