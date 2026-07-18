@@ -15,6 +15,7 @@ import { cohortLabel, cohortPillStyle, strategyLabel, strategyPillStyle } from '
 export type StatusFilter = 'OPEN' | 'CLOSED';
 export type SideFilter = 'CE' | 'PE';
 export type OutcomeFilter = 'WIN' | 'LOSS';
+export type SourceFilter = 'ai' | 'my';
 
 export interface TradeFilter {
   /** Exact `trade.instrument` value, or null = all instruments. */
@@ -26,6 +27,8 @@ export interface TradeFilter {
   cohort: string | null;
   /** Exit strategy (sprint | runway | anchor) from the T84 race, or null = all. */
   exitStrategy: string | null;
+  /** Trade source — AI engine vs My (manual), or null = all (T87). */
+  source: SourceFilter | null;
 }
 
 export const EMPTY_TRADE_FILTER: TradeFilter = {
@@ -35,11 +38,12 @@ export const EMPTY_TRADE_FILTER: TradeFilter = {
   outcome: null,
   cohort: null,
   exitStrategy: null,
+  source: null,
 };
 
 /** True when no axis is active (used to hide the reset button). */
 export function isEmptyTradeFilter(f: TradeFilter): boolean {
-  return !f.instrument && !f.status && !f.side && !f.outcome && !f.cohort && !f.exitStrategy;
+  return !f.instrument && !f.status && !f.side && !f.outcome && !f.cohort && !f.exitStrategy && !f.source;
 }
 
 /** Does a trade pass the active filter? Empty axes are ignored. */
@@ -72,6 +76,9 @@ export function tradeMatchesFilter(t: TradeRecord, f: TradeFilter): boolean {
 
   // exitStrategy defaults to "sprint" when a trade predates the T84 race.
   if (f.exitStrategy && (t.exitStrategy ?? 'sprint') !== f.exitStrategy) return false;
+
+  // Source defaults to "my" (manual) when a trade predates the T87 source tag.
+  if (f.source && (t.source ?? 'my') !== f.source) return false;
 
   return true;
 }
@@ -124,7 +131,7 @@ export interface TradeFilterBarProps {
 
 function _TradeFilterBar({ value, onChange, instruments, cohorts, strategies }: TradeFilterBarProps) {
   // Single-select toggle: click an active value clears it, else it becomes active.
-  const toggle = <K extends 'status' | 'side' | 'outcome' | 'cohort' | 'exitStrategy'>(axis: K, v: TradeFilter[K]) =>
+  const toggle = <K extends 'status' | 'side' | 'outcome' | 'cohort' | 'exitStrategy' | 'source'>(axis: K, v: TradeFilter[K]) =>
     onChange({ ...value, [axis]: value[axis] === v ? null : v });
 
   const dirty = !isEmptyTradeFilter(value);
@@ -174,6 +181,16 @@ function _TradeFilterBar({ value, onChange, instruments, cohorts, strategies }: 
       </Pill>
       <Pill active={value.outcome === 'LOSS'} activeClass="bg-destructive/20 text-destructive" onClick={() => toggle('outcome', 'LOSS')} title="Show only losing trades">
         Loss
+      </Pill>
+
+      <Divider />
+
+      {/* Source — AI engine vs My (manual). The paper book holds both (T87). */}
+      <Pill active={value.source === 'ai'} activeClass="bg-violet-pulse/20 text-violet-pulse" onClick={() => toggle('source', 'ai')} title="Show only AI trades">
+        AI
+      </Pill>
+      <Pill active={value.source === 'my'} activeClass="bg-info-cyan/20 text-info-cyan" onClick={() => toggle('source', 'my')} title="Show only My (manual) trades">
+        My
       </Pill>
 
       {/* Cohort — colour-coded toggle pills, only for cohorts present today. */}

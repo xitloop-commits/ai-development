@@ -30,11 +30,10 @@ import {
   channelToWorkspace,
   channelToMode,
 } from '@/lib/tradeTypes';
-// UI-119 — extracted to ChannelTabs.tsx + ConfirmPopover.tsx so they
-// have their own test surface. AppBar still owns ChannelModeToggle and
-// imports the shared `lastModeForWs` from ChannelTabs.
+// ConfirmPopover extracted for its own test surface (was UI-119). The AI/My
+// workspace tabs (ChannelTabs) were removed in T87 — one desk always; the
+// app bar keeps only the My Paper/Live toggle (ChannelModeToggle).
 import { ConfirmPopover } from './ConfirmPopover';
-import { ChannelTabs, lastModeForWs } from './ChannelTabs';
 import { instrumentChartUrl, PHASE1_CHART_INSTRUMENTS } from '@/lib/instrumentChart';
 import { toast } from 'sonner';
 
@@ -302,7 +301,6 @@ function ChannelModeToggle() {
 
   const onConfirmSwitch = () => {
     if (!confirmTarget) return;
-    lastModeForWs[currentWs] = channelToMode(confirmTarget);
     setChannel(confirmTarget);
     setConfirmTarget(null);
   };
@@ -449,14 +447,7 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
         {/* Spacer to push right items to the end */}
         <div className="flex-1" />
 
-        {/* Center: Workspace tabs (absolute center of screen) */}
-        <div className="absolute left-1/2 top-0 bottom-0 -translate-x-1/2 flex items-stretch z-10">
-          <ChannelTabs />
-        </div>
-
-        <div className="w-px self-stretch bg-border shrink-0" />
-
-        {/* Channel mode toggle (LIVE/PAPER + CLEAR; testing is live-only) — separated from tabs */}
+        {/* My Paper/Live toggle (T87 — workspace tabs removed; one desk always) */}
         <div className="px-3 flex items-center shrink-0">
           <ChannelModeToggle />
         </div>
