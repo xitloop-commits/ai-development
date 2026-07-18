@@ -105,7 +105,7 @@ describe("Reconciler — reconcile-on-WS-connect", () => {
   });
 
   it("emits REJECTED with the broker reason carried through", async () => {
-    pendingFor("testing-live", [makePosition({ brokerOrderId: "ORD-REJ" })]);
+    pendingFor("ai-live", [makePosition({ brokerOrderId: "ORD-REJ" })]);
     getAdapterMock.mockReturnValue(
       makeAdapter({ status: "REJECTED", filledQuantity: 0, averagePrice: 0, reason: "Insufficient funds" }),
     );

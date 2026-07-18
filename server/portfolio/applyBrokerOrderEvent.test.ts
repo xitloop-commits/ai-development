@@ -354,14 +354,14 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
     );
   });
 
-  it("external-order adoption — an unmatched primary-account fill opens a position in stocks-live", async () => {
-    // No local trade anywhere; stocks-live is empty. An external BUY on the
-    // primary account should be mirrored as a new OPEN long in stocks-live.
+  it("external-order adoption — an unmatched primary-account fill opens a position in my-live", async () => {
+    // No local trade anywhere; my-live is empty. An external BUY on the
+    // primary account should be mirrored as a new OPEN long in my-live.
     getCapitalStateMock.mockImplementation(async (c: any) =>
-      c === "stocks-live" ? { ...makeState(), channel: "stocks-live" } : null,
+      c === "my-live" ? { ...makeState(), channel: "my-live" } : null,
     );
     getDayRecordMock.mockImplementation(async (c: any) =>
-      c === "stocks-live" ? { ...makeDay([]), channel: "stocks-live" } : null,
+      c === "my-live" ? { ...makeDay([]), channel: "my-live" } : null,
     );
     const result = await portfolioAgent.applyBrokerOrderEvent(
       baseEvent({
@@ -378,7 +378,7 @@ describe("portfolioAgent.applyBrokerOrderEvent", () => {
       }),
     );
     expect(result.matched).toBe(true);
-    expect(result.channel).toBe("stocks-live");
+    expect(result.channel).toBe("my-live");
 
     const written = upsertDayRecordMock.mock.calls.at(-1)![1] as DayRecord;
     const t = written.trades.find((x) => x.id === "EXT-OBUY1");
