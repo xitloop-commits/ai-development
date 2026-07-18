@@ -175,9 +175,12 @@ class TradeExecutorAgent {
       }
       if (positions.length === 0) continue;
       const feedAdapter = (() => {
+        // T87 Phase 1: ALL channels read live ticks from the primary market
+        // feed (market data is account-independent; orders still route per
+        // channel via getAdapter). ai-live no longer pulls ticks from the
+        // secondary — one shared tick feed on the primary.
         try {
-          const adapter = getAdapter(channel);
-          return _isPaperChannel(channel) ? getActiveBroker() : adapter;
+          return getActiveBroker();
         } catch {
           return null;
         }
@@ -326,7 +329,7 @@ class TradeExecutorAgent {
 
       // Subscribe to the option-leg LTP feed before placing so ticks start
       // flowing immediately. No-op for futures / non-option trades.
-      ensureOptionLtpSubscription(adapter, req);
+      ensureOptionLtpSubscription(req);
 
       // Decide Super Order vs plain order. Live channels get a broker-enforced
       // Super Order (entry + SL + TP) when the setting is on, the adapter
@@ -806,7 +809,7 @@ class TradeExecutorAgent {
       // same option keep streaming). Mirrors ensureOptionLtpSubscription's
       // routing: paper channels released via the primary live adapter,
       // live channels via the channel's own adapter.
-      releaseOptionLtpSubscription(channel, closed.contractSecurityId, closed.instrument, isEquityTradeRecord(closed));
+      releaseOptionLtpSubscription(closed.contractSecurityId, closed.instrument, isEquityTradeRecord(closed));
 
       void charges;
       const response: ExitTradeResponse = {
@@ -902,7 +905,7 @@ class TradeExecutorAgent {
       });
       // Release this contract's WS subscription (refCount-safe — see
       // exitTrade for the same call pattern).
-      releaseOptionLtpSubscription(req.channel, closed.contractSecurityId, closed.instrument, isEquityTradeRecord(closed));
+      releaseOptionLtpSubscription(closed.contractSecurityId, closed.instrument, isEquityTradeRecord(closed));
 
       // TEMP DIAGNOSTIC ([XSYNC] exit-sync): the trade is now actually closed.
       log.important(
@@ -1367,11 +1370,13 @@ function _subscribeContractLtp(
 }
 
 function ensureOptionLtpSubscription(
-  adapter: BrokerAdapter,
   req: SubmitTradeRequest,
 ): void {
   if (!req.contractSecurityId) return;
-  const feedAdapter = _isPaperChannel(req.channel) ? getActiveBroker() : adapter;
+  // T87 Phase 1: ticks always come from the primary market feed
+  // (getActiveBroker), live channels included. Orders still route via
+  // getAdapter(req.channel) at the call site.
+  const feedAdapter = getActiveBroker();
   _subscribeContractLtp(
     feedAdapter,
     req.instrument,
@@ -1391,17 +1396,15 @@ function ensureOptionLtpSubscription(
  * subscription is at worst a minor inefficiency.
  */
 function releaseOptionLtpSubscription(
-  channel: Channel,
   contractSecurityId: string | null | undefined,
   instrument: string,
   isEquity = false,
 ): void {
   if (!contractSecurityId) return;
-  const adapter = (() => {
-    try { return getAdapter(channel); } catch { return null; }
+  // T87 Phase 1: unsubscribe from the same primary market feed we subscribed on.
+  const feedAdapter = (() => {
+    try { return getActiveBroker(); } catch { return null; }
   })();
-  if (!adapter) return;
-  const feedAdapter = _isPaperChannel(channel) ? getActiveBroker() : adapter;
   if (!feedAdapter?.unsubscribeLTP) return;
   try {
     const wsExchange = isEquity

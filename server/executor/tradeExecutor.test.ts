@@ -139,7 +139,7 @@ vi.mock("../portfolio", () => ({
 
 import { tradeExecutor } from "./tradeExecutor";
 import { idempotencyStore } from "./idempotency";
-import { getAdapter, isChannelKillSwitchActive } from "../broker/brokerService";
+import { getAdapter, getActiveBroker, isChannelKillSwitchActive } from "../broker/brokerService";
 import { portfolioAgent } from "../portfolio";
 
 function paperRequest(overrides: Partial<Parameters<typeof tradeExecutor.submitTrade>[0]> = {}) {
@@ -640,7 +640,9 @@ describe("B4 — BROKER_DESYNC handling", () => {
 describe("resubscribeOpenTradeLtps (startup frozen-LTP fix)", () => {
   it("re-subscribes each open trade's contract, skipping those without contractSecurityId", async () => {
     const subscribeLTP = vi.fn();
-    vi.mocked(getAdapter).mockReturnValue({ brokerId: "dhan-primary-ac", subscribeLTP } as any);
+    // T87 Phase 1: the tick feed for ALL channels is the primary (getActiveBroker),
+    // not the per-channel order adapter (getAdapter).
+    vi.mocked(getActiveBroker).mockReturnValue({ brokerId: "dhan-primary-ac", subscribeLTP } as any);
     vi.mocked(portfolioAgent.listOpenTrades).mockImplementation(async (ch: any) =>
       ch === "my-live"
         ? ([
@@ -661,7 +663,7 @@ describe("resubscribeOpenTradeLtps (startup frozen-LTP fix)", () => {
 
   it("no-op when no channel has open trades", async () => {
     const subscribeLTP = vi.fn();
-    vi.mocked(getAdapter).mockReturnValue({ brokerId: "dhan-primary-ac", subscribeLTP } as any);
+    vi.mocked(getActiveBroker).mockReturnValue({ brokerId: "dhan-primary-ac", subscribeLTP } as any);
     vi.mocked(portfolioAgent.listOpenTrades).mockResolvedValue([] as any[]);
 
     await tradeExecutor.resubscribeOpenTradeLtps();
