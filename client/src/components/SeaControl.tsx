@@ -42,6 +42,14 @@ export function SeaControl() {
   });
   const cfg = cfgQuery.data;
 
+  // AI Trades mode (T87) — Paper = the AI engine writes into the ONE shared paper
+  // book (source=ai); Live = ai-live. The app-bar toggle is the My equivalent.
+  const settingsQuery = trpc.settings.get.useQuery(undefined, { enabled: open });
+  const aiMode: "paper" | "live" = settingsQuery.data?.tradingMode?.aiTradesMode ?? "paper";
+  const setAiMode = trpc.settings.updateTradingMode.useMutation({
+    onSuccess: () => utils.settings.get.invalidate(),
+  });
+
   // MA-Signal reversal size — local input synced to server state, committed on
   // blur / Enter so we don't fire a mutation on every keystroke.
   const [revInput, setRevInput] = useState("");
@@ -90,6 +98,34 @@ export function SeaControl() {
 
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 w-64 rounded-md border border-border bg-popover text-popover-foreground shadow-lg p-3">
+          {/* AI Trades mode — Paper | Live (T87, 1st menu item). Paper = the one
+              shared paper book (source=ai); Live = ai-live. */}
+          <div className="flex items-center justify-between mb-2.5">
+            <div className="flex flex-col">
+              <span className="font-semibold text-[0.6875rem] uppercase tracking-wide text-muted-foreground">AI Trades</span>
+              <span className="text-[0.5625rem] text-muted-foreground">where the engine trades</span>
+            </div>
+            <div className="flex items-center rounded border border-border overflow-hidden">
+              {(["paper", "live"] as const).map((m) => {
+                const active = aiMode === m;
+                const tone = m === "live" ? "bg-bullish/20 text-bullish" : "bg-warning-amber/20 text-warning-amber";
+                return (
+                  <button
+                    key={m}
+                    onClick={() => { if (m !== aiMode) setAiMode.mutate({ aiTradesMode: m }); }}
+                    disabled={setAiMode.isPending}
+                    className={`px-2.5 py-0.5 text-[0.5625rem] font-bold transition-colors disabled:opacity-50 ${
+                      active ? tone : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {m === "live" ? "LIVE" : "PAPER"}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="h-px bg-border -mx-3 mb-2.5" />
+
           <div className="flex items-center justify-between mb-2.5">
             <span className="font-semibold text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
               SEA signal cohorts
