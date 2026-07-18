@@ -35,6 +35,11 @@ const meta = {
     slPercent: { control: { type: "number", step: 0.5 }, description: "Distance to the real stop % → Stop = entry − SL%. Negative = stop in profit (TSL)" },
     tpPercent: { control: { type: "number", step: 0.5 }, description: "Take-profit % → TP = entry + TP% (default 10)" },
     compact: { control: { type: "boolean" }, description: "Hide labels for tight cells" },
+    exitPhase: {
+      control: { type: "select" },
+      options: [undefined, "cooling", "wide", "breakeven", "trailing", "target-bank"],
+      description: "Exit-strategy phase badge (T84 runway/anchor staged stop)",
+    },
     onStopLossHit: { action: "stop hit" },
     onTakeProfitHit: { action: "take profit hit" },
   },
@@ -96,4 +101,40 @@ export const SellInProfit: Story = {
 export const Compact: Story = {
   args: { ...base, compact: true },
   parameters: { docs: { description: { story: "Compact (no labels) — how it renders inside the tight table cell." } } },
+};
+
+// ── Exit-strategy phases (T84) ──────────────────────────────────────────
+// All three strategies BUY the same option at the same moment and share a
+// 5-min cooling window (a wide −25% stop). They differ only in what they do
+// with a WINNER: Sprint trails a target, Runway rides it to the peak, Anchor
+// banks a fixed amount. The badge (top-left) shows the current staged-stop phase.
+
+export const SharedCooling: Story = {
+  args: { ...base, slPercent: 25, ltp: 274, exitPhase: "cooling" },
+  parameters: { docs: { description: { story: "Shared start for all three — the first 5 minutes keep a wide −25% net so a normal wiggle can't kick a fresh trade out." } } },
+};
+
+export const Sprint: Story = {
+  args: { ...base, ltp: 292, slPercent: -3, tpPercent: 12, trailingEnabled: true },
+  parameters: { docs: { description: { story: "🔵 Sprint — disciplined day-trader. Trails the stop up behind price AND inches the target ahead, so a big winner isn't capped; sells on whichever comes first — target, stop, or the 30-min time limit (MA-Signal also on a trend-flip). Legacy TP/SL path — no staged-phase badge." } } },
+};
+
+export const RunwayBreakeven: Story = {
+  args: { ...base, slPercent: 0, ltp: 285, exitPhase: "breakeven" },
+  parameters: { docs: { description: { story: "🟢 Runway — once it's up halfway to target the stop is pulled to entry (breakeven): the trade can no longer lose." } } },
+};
+
+export const RunwayTrailing: Story = {
+  args: { ...base, ltp: 305, slPercent: -8, tpPercent: 15, trailingEnabled: true, exitPhase: "trailing" },
+  parameters: { docs: { description: { story: "🟢 Runway — near/past target it switches to pure trailing: the stop rides 15% below the running peak and never takes a fixed profit, so it rides the move as far as it goes. Its winners are the biggest." } } },
+};
+
+export const AnchorBreakeven: Story = {
+  args: { ...base, slPercent: 0, ltp: 288, exitPhase: "breakeven" },
+  parameters: { docs: { description: { story: "🟠 Anchor — same breakeven lock as Runway: a winner won't be allowed to turn into a loss." } } },
+};
+
+export const AnchorTargetBank: Story = {
+  args: { ...base, slPercent: 0, ltp: 298, tpPercent: 10, exitPhase: "target-bank" },
+  parameters: { docs: { description: { story: "🟠 Anchor — the moment price reaches the target it banks the fixed profit and leaves (LTP sitting on TP). No ride — steady small wins; the flip side is a trade that never reaches target and turns down takes the loss." } } },
 };

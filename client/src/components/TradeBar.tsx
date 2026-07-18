@@ -26,6 +26,11 @@ import { formatPrice, formatINR } from "@/lib/formatINR";
 /** Compact price for the scale (no ₹, no K/L shorthand): 135.4, 1,234.5. */
 const scalePrice = (v: number) => formatINR(v, { prefix: false, compact: false });
 
+/** Exit-strategy phase (T84 runway/anchor staged stop). `ExitOutput.phase` on the
+ *  server produces these; drawn here as a small badge so you can see which stage a
+ *  trade is in. Absent for the legacy sprint path (which trails a target instead). */
+export type ExitPhase = "cooling" | "wide" | "breakeven" | "trailing" | "target-bank";
+
 export interface TradeBarProps {
   /** BUY → price up is favourable; SELL → price down is favourable (mirrored). */
   isBuy: boolean;
@@ -56,6 +61,10 @@ export interface TradeBarProps {
   roundTripCharges?: number;
   /** Compact mode (tight table cells): bar + ticks only, no text labels. */
   compact?: boolean;
+  /** Exit-strategy phase — when set, a small colour-coded badge is drawn at the
+   *  top-left. Absent on today's live rows (not yet wired); used by Storybook +
+   *  future runway/anchor wiring. */
+  exitPhase?: ExitPhase;
   /** Frozen snapshot (closed trade): render markers statically + skip the hit
    *  callbacks so a static LTP can't fire them. */
   frozen?: boolean;
@@ -94,6 +103,15 @@ const TP_COLOR = "#22c55e"; // green
 
 const clamp = (n: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, n));
 
+// Exit-phase badge: label + colour + tooltip per staged-stop phase.
+const PHASE_META: Record<ExitPhase, { label: string; color: string; tip: string }> = {
+  cooling: { label: "cooling", color: "#94a3b8", tip: "First minutes — wide −25% stop so a normal wiggle won't kick it out." },
+  wide: { label: "wide", color: "#e0a63a", tip: "Cooling over — stop tightened to −12.5%." },
+  breakeven: { label: "breakeven", color: ENTRY_COLOR, tip: "Up halfway to target — stop pulled to entry; the trade can no longer lose." },
+  trailing: { label: "trailing", color: GREEN, tip: "Runway — riding the winner; stop trails 15% below the running peak." },
+  "target-bank": { label: "at target", color: GREEN, tip: "Anchor — target reached; banking the profit and leaving." },
+};
+
 export function TradeBar({
   isBuy,
   entryPrice,
@@ -108,6 +126,7 @@ export function TradeBar({
   roundTripCharges = 0,
   compact = false,
   frozen = false,
+  exitPhase,
   className,
   onStopLossHit,
   onTakeProfitHit,
@@ -381,6 +400,16 @@ export function TradeBar({
       aria-valuemax={Math.round(favToPrice(maxFav))}
       aria-valuenow={Math.round(ltp)}
     >
+      {/* Exit-strategy phase badge (top-left). Only when a phase is supplied. */}
+      {exitPhase && !compact && (
+        <span
+          className="absolute left-0 -top-3.5 z-20 px-1 py-px rounded text-[0.5rem] font-bold leading-none uppercase tracking-wide"
+          style={{ color: PHASE_META[exitPhase].color, background: "rgba(0,0,0,0.55)" }}
+          title={PHASE_META[exitPhase].tip}
+        >
+          {PHASE_META[exitPhase].label}
+        </span>
+      )}
       {/* Top tier: zone % chips — risk over stop→entry, then one chip per
           reward gap (E→TSL→LTP→TP). Skip a chip when its gap is too thin to read. */}
       <div className="relative w-full" style={{ height: "11px" }}>
