@@ -1,11 +1,11 @@
 /**
- * RightSidebar — In-flow push sidebar for Signals Feed + Alert History.
- * Visible by default, pushes center content. Fully disappears when hidden.
+ * RightDrawer — Signals + Alerts as card-style tabs (T87 point 20).
  *
- * Layout: flex column with SignalsFeed taking remaining space (flex-1)
- * and AlertHistory fixed at the bottom. SignalsFeed owns its own
- * scrollbar (scrollbar-thin scrollbar-cyan, matching TradingDesk).
+ * A tab bar (Signals | Alerts) in the same tab style as the left Watchlist
+ * drawer; the active tab fills the drawer. Pushes center content; fully
+ * disappears when hidden.
  */
+import { useState } from 'react';
 import SignalsFeed from '@/components/SignalsFeed';
 import type { SEASignal } from '@/components/SignalsFeed';
 import AlertHistory from '@/components/AlertHistory';
@@ -18,24 +18,49 @@ interface RightSidebarProps {
   hasMore?: boolean;
 }
 
+type RightTab = 'signals' | 'alerts';
+
 export default function RightSidebar({ visible, signals, onLoadOlder, loadingOlder, hasMore }: RightSidebarProps) {
+  const [tab, setTab] = useState<RightTab>('signals');
   if (!visible) return null;
+
+  const TABS: { key: RightTab; label: string }[] = [
+    { key: 'signals', label: 'Signals' },
+    { key: 'alerts', label: 'Alerts' },
+  ];
 
   return (
     <aside className="w-[320px] shrink-0 border-l border-border bg-background flex flex-col overflow-hidden">
-      {/* SignalsFeed takes all available space — has its own sticky header + scroll */}
-      <div className="flex-1 min-h-0 px-2 pt-2 pb-1">
-        <SignalsFeed
-          signals={signals}
-          onLoadOlder={onLoadOlder}
-          loadingOlder={loadingOlder}
-          hasMore={hasMore}
-        />
+      {/* Card-style tabs */}
+      <div className="flex items-stretch border-b border-border">
+        {TABS.map((t) => {
+          const active = tab === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`flex-1 px-4 py-2 text-[0.625rem] font-bold tracking-wider uppercase transition-colors border-r border-border last:border-r-0 ${
+                active ? 'bg-secondary/50 text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/30'
+              }`}
+            >
+              {t.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* AlertHistory at bottom — fixed height, collapsible */}
-      <div className="shrink-0 px-2 pb-2">
-        <AlertHistory />
+      {/* Active tab fills the drawer */}
+      <div className="flex-1 min-h-0 px-2 pt-2 pb-2 overflow-hidden">
+        {tab === 'signals' ? (
+          <SignalsFeed
+            signals={signals}
+            onLoadOlder={onLoadOlder}
+            loadingOlder={loadingOlder}
+            hasMore={hasMore}
+          />
+        ) : (
+          <AlertHistory />
+        )}
       </div>
     </aside>
   );

@@ -63,10 +63,10 @@ const POLL_INTERVAL = 3000;
 
 export default function MainScreen() {
   // ─── Sidebar State ─────────────────────────────────────────────
-  // Left (instrument cards) defaults OFF — the floating Instrument Bars window
-  // now covers that; toggle back on with `[` or the AppBar button.
-  const [leftSidebarVisible, setLeftSidebarVisible] = useState(false);
-  const [rightSidebarVisible, setRightSidebarVisible] = useState(false);
+  // Both drawers default OPEN (T87): left = Watchlist (indices + stocks),
+  // right = Signals / Alerts. Toggle with the AppBar buttons.
+  const [leftSidebarVisible, setLeftSidebarVisible] = useState(true);
+  const [rightSidebarVisible, setRightSidebarVisible] = useState(true);
   // Stable toggles so the memoized AppBar doesn't re-render on every MainScreen
   // poll (its callback props would otherwise be new functions each render).
   const toggleLeftDrawer = useCallback(() => setLeftSidebarVisible((p) => !p), []);
