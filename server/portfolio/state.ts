@@ -951,6 +951,85 @@ export async function upsertDayRecord(
   return day;
 }
 
+/**
+ * Atomically update ONE trade's fields inside a day record (positional `$set` on
+ * `trades.$`), plus optional day-level scalar fields (totalPnl etc.) — WITHOUT
+ * rewriting the whole trades array (T86 β race fix).
+ *
+ * Why: the day record has multiple concurrent writers (closeTrade, the exit
+ * stamp, the per-tick persist). A whole-day `$set` from any of them clobbers the
+ * others — the observed failure was a completed close being reverted to OPEN by a
+ * tick-persist that landed last. A positional per-trade `$set` only touches that
+ * one trade's named fields, so writers to different trades (or different fields
+ * of the same trade) can no longer overwrite each other's status.
+ *
+ * Returns the updated day (for the UI push) or null if the (channel, dayIndex,
+ * tradeId) no longer matches (day rolled / trade removed). `dayFields` are day
+ * aggregate scalars only — never the `trades` array.
+ */
+export async function patchTradeInDay(
+  channel: Channel,
+  dayIndex: number,
+  tradeId: string,
+  tradePatch: Partial<TradeRecord>,
+  dayFields?: Partial<DayRecord>,
+  opts?: { requireOpen?: boolean; silent?: boolean },
+): Promise<DayRecord | null> {
+  const set: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(tradePatch)) set[`trades.$.${k}`] = v;
+  if (dayFields) for (const [k, v] of Object.entries(dayFields)) set[k] = v;
+
+  // `requireOpen` ($elemMatch on id+status) means a tick-persist only updates a
+  // trade that is STILL OPEN — so it can never fight/overwrite a trade the close
+  // path already flipped to CLOSED.
+  const filter = opts?.requireOpen
+    ? { channel, dayIndex, trades: { $elemMatch: { id: tradeId, status: "OPEN" } } }
+    : { channel, dayIndex, "trades.id": tradeId };
+
+  const doc = await DayRecordModel.findOneAndUpdate(
+    filter,
+    { $set: set },
+    { returnDocument: "after", lean: true },
+  );
+  if (!doc) return null;
+  const day = docToDayRecord(doc);
+  if (!opts?.silent) tickBus.emitPortfolio({ channel, day });
+  return day;
+}
+
+/** Atomically update only day-level scalar fields (aggregates/status), never the
+ *  trades array, then push the day to the UI. Pairs with per-trade patches on the
+ *  tick path so one write refreshes the running totals without a full-doc write. */
+export async function patchDayAggregates(
+  channel: Channel,
+  dayIndex: number,
+  fields: Partial<DayRecord>,
+): Promise<DayRecord | null> {
+  const doc = await DayRecordModel.findOneAndUpdate(
+    { channel, dayIndex },
+    { $set: fields },
+    { returnDocument: "after", lean: true },
+  );
+  if (!doc) return null;
+  const day = docToDayRecord(doc);
+  tickBus.emitPortfolio({ channel, day });
+  return day;
+}
+
+/** Aggregate scalars recomputed after a trade changes — the subset of a
+ *  DayRecord that patchTradeInDay may write alongside a trade patch (never the
+ *  trades array). */
+export function dayAggregateFields(day: DayRecord): Partial<DayRecord> {
+  return {
+    totalPnl: day.totalPnl,
+    totalCharges: day.totalCharges,
+    totalQty: day.totalQty,
+    actualCapital: day.actualCapital,
+    deviation: day.deviation,
+    instruments: day.instruments,
+  };
+}
+
 export async function deleteDayRecordsFrom(
   channel: Channel,
   fromDayIndex: number

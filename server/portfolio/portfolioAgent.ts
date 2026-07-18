@@ -27,6 +27,8 @@ import {
   getDayRecord,
   getDayRecords,
   upsertDayRecord,
+  patchTradeInDay,
+  dayAggregateFields,
   updateCapitalState,
 } from "./state";
 import { tickHandler } from "./tickHandler";
@@ -597,9 +599,29 @@ class PortfolioAgentImpl {
     // Reconciliation may close a previously-desync'd trade — drop the marker.
     if (trade.desync) delete trade.desync;
 
-    // Persist day record (with recalculated aggregates)
+    // Persist the close ATOMICALLY (T86 β): a positional per-trade write for the
+    // close fields + the recomputed day aggregates, NOT a whole-day overwrite —
+    // so a concurrent per-tick persist can't revert this trade back to OPEN.
     const updated = recalculateDayAggregates(day);
-    await upsertDayRecord(channel, updated);
+    await patchTradeInDay(
+      channel,
+      updated.dayIndex,
+      trade.id,
+      {
+        status: "CLOSED",
+        exitPrice: trade.exitPrice,
+        pnl: trade.pnl,
+        charges: trade.charges,
+        chargesBreakdown: trade.chargesBreakdown,
+        unrealizedPnl: 0,
+        ltp: trade.ltp,
+        closedAt: trade.closedAt,
+        durationMs: trade.durationMs,
+        exitReason: trade.exitReason,
+        exitBrokerOrderId: trade.exitBrokerOrderId,
+      },
+      dayAggregateFields(updated),
+    );
 
     // Phase 2 dual-write: project the closed trade into position_state.
     await this.mirrorPosition(channel, updated.dayIndex, trade).catch((err) =>
@@ -1579,14 +1601,21 @@ class PortfolioAgentImpl {
       day = await this.ensureCurrentDay(req.channel);
     }
 
-    // Locate the trade in its day record + stamp exit metadata
+    // Locate the trade in its day record + stamp exit metadata ATOMICALLY
+    // (T86 β): a positional per-trade write of ONLY the exit-audit fields — never
+    // a whole-day overwrite, and it never touches `status`, so it can't revert a
+    // completed close back to OPEN (the old exitReason-stamped-but-still-OPEN bug).
     const trade = day.trades.find((t) => t.id === req.tradeId);
     if (trade) {
       trade.exitReason = req.exitReason;
       trade.exitTriggeredBy = req.exitTriggeredBy;
       trade.signalSource = req.signalSource;
+      await patchTradeInDay(req.channel, day.dayIndex, req.tradeId, {
+        exitReason: req.exitReason,
+        exitTriggeredBy: req.exitTriggeredBy,
+        signalSource: req.signalSource,
+      });
     }
-    await upsertDayRecord(req.channel, day);
 
     const positionsRemaining = day.trades.filter((t) => t.status === "OPEN").length;
     const openingCapital = state.tradingPool + state.reservePool - day.totalPnl;

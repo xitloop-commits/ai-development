@@ -64,6 +64,13 @@ const DEFAULT_MAX_AGE_MS = 30 * 60 * 1000;          // 30 min — Phase 1 trigge
 const DEFAULT_STALE_TICK_MS = 5 * 60 * 1000;         // 5 min — Phase 2 trigger
 const DEFAULT_VOL_THRESHOLD = 0.7;                   // max_drawdown_pred_30s above which RCA exits
 const TICK_INTERVAL_MS = 30_000;                     // 30 s monitor cadence
+// Exit-retry window (T86 β): once RCA fires an exit the trade is guarded so the
+// same exit isn't re-attempted every 30 s sweep while the executor closes it.
+// But if the close never lands (executor "ok" yet status never flips, lost
+// event) the trade would stay OPEN and guarded forever. So the guard is
+// TIME-BOXED — after this long still OPEN, RCA re-attempts the exit. Permanent
+// "not found / already closed" errors keep their guard (see attemptExit).
+const EXIT_RETRY_MS = 60_000;
 // Momentum-flip guardrails: only cut a position when the opposite signal is
 // CONFIDENT (≥ this 0..100 score), and never on scalps (their direction flips
 // too often to trust a single read). Keeps the flip-exit from firing on noise.
@@ -94,8 +101,12 @@ class RcaMonitor {
   private staleTickMs: number = DEFAULT_STALE_TICK_MS;
   private volThreshold: number = DEFAULT_VOL_THRESHOLD;
   private channels: Channel[] = ["paper"];
-  /** Trade ids we've already attempted an exit on; prevents retry storms. */
-  private exitAttempted = new Set<string>();
+  /** tradeId → epoch ms of the last exit attempt. Prevents retry storms while
+   *  the executor closes it; TIME-BOXED (EXIT_RETRY_MS) so a close that never
+   *  completes gets re-attempted instead of stuck forever (T86 β). A permanent
+   *  error (not found / already closed) is stamped far in the future so it
+   *  never retries. Pruned when the trade leaves the OPEN set. */
+  private exitAttempted = new Map<string, number>();
 
   /**
    * B4-followup — per-channel BROKER_DESYNC counter. Each entry is a
@@ -172,7 +183,12 @@ class RcaMonitor {
       }
       for (const trade of positions) {
         if (trade.status !== "OPEN") continue;
-        if (this.exitAttempted.has(trade.id)) continue;
+        // Skip a trade whose exit is already in flight — but only within the
+        // retry window, so an exit that silently failed gets re-attempted
+        // instead of stuck forever (T86 β). Permanent failures are stamped
+        // far in the future by attemptExit, so they never re-enter here.
+        const attemptedAt = this.exitAttempted.get(trade.id);
+        if (attemptedAt != null && now - attemptedAt < EXIT_RETRY_MS) continue;
         // T84: runway/anchor trades are managed entirely by the tick engine's
         // staged strategy — RcaMonitor's age/stale/vol/momentum never apply to
         // them (Runway rides, Anchor banks at target). Sprint keeps them.
@@ -657,7 +673,7 @@ class RcaMonitor {
   ): Promise<void> {
     const positionId = `POS-${trade.id.replace(/^T/, "")}`;
     log.info(`exit ${kind} trade=${trade.id} channel=${channel} — ${opts.detail}`);
-    this.exitAttempted.add(trade.id);
+    this.exitAttempted.set(trade.id, Date.now());
     const resp = await tradeExecutor.exitTrade({
       executionId: `RCA-${kind}-${trade.id}-${Date.now()}`,
       positionId,
@@ -676,11 +692,15 @@ class RcaMonitor {
       log.warn(`exit failed kind=${kind} trade=${trade.id}: ${resp.error}`);
       // "Trade not found" / "already closed" are PERMANENT — the trade is gone
       // from the current day record (cleared, or a cross-day orphan in
-      // position_state). Retrying every 30s just spams forever, so keep it in
-      // exitAttempted to stop. Only genuine transient errors (broker/network)
-      // get another attempt next tick.
+      // position_state). Retrying just spams forever, so stamp the guard far in
+      // the future — it never re-enters the retry window. Only genuine transient
+      // errors (broker/network) clear the guard for an immediate retry.
       const permanent = /not found|already closed/i.test(resp.error ?? "");
-      if (!permanent) this.exitAttempted.delete(trade.id);
+      if (permanent) {
+        this.exitAttempted.set(trade.id, Number.MAX_SAFE_INTEGER);
+      } else {
+        this.exitAttempted.delete(trade.id);
+      }
     }
   }
 }

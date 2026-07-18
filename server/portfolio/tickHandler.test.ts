@@ -12,6 +12,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const getCapitalStateMock = vi.fn();
 const getDayRecordMock = vi.fn();
 const upsertDayRecordMock = vi.fn();
+const patchTradeInDayMock = vi.fn();
+const patchDayAggregatesMock = vi.fn();
 const getActiveBrokerConfigMock = vi.fn();
 
 vi.mock("./state", async () => {
@@ -21,6 +23,11 @@ vi.mock("./state", async () => {
     getCapitalState: (...args: any[]) => getCapitalStateMock(...args),
     getDayRecord: (...args: any[]) => getDayRecordMock(...args),
     upsertDayRecord: (...args: any[]) => upsertDayRecordMock(...args),
+    // T86 β — persist now writes each open trade atomically (positional $set)
+    // + one aggregate write, instead of a whole-day upsert. Both return a
+    // truthy DayRecord so the handler's `anyPatched` path runs.
+    patchTradeInDay: (...args: any[]) => patchTradeInDayMock(...args),
+    patchDayAggregates: (...args: any[]) => patchDayAggregatesMock(...args),
   };
 });
 
@@ -83,6 +90,8 @@ describe("tickHandler — F1 per-channel state cache", () => {
       totalPnl: 0,
     });
     getActiveBrokerConfigMock.mockResolvedValue(null);
+    patchTradeInDayMock.mockResolvedValue({ dayIndex: 1, trades: [] });
+    patchDayAggregatesMock.mockResolvedValue({ dayIndex: 1, trades: [] });
   });
 
   it("100 ticks with no trade match → 0 Mongo calls after cache is warm", async () => {
@@ -167,9 +176,9 @@ describe("tickHandler — F1 per-channel state cache", () => {
     handler.pendingUpdates.set("NSE:NIFTY_50", makeTick({ securityId: "NIFTY_50" }));
     await handler.processPendingUpdates();
 
-    // upsertDayRecord must have been called for at least one channel
-    // (the match channels, e.g. paper) — proving anyUpdated path ran.
-    expect(upsertDayRecordMock).toHaveBeenCalled();
+    // The matched OPEN trade must have been persisted via the atomic per-trade
+    // write (T86 β) for at least one channel — proving the anyPatched path ran.
+    expect(patchTradeInDayMock).toHaveBeenCalled();
 
     vi.clearAllMocks();
 
@@ -237,9 +246,11 @@ describe("tickHandler — clear-workspace cache invalidation", () => {
       sessionTradeCount: 0,
     });
     getActiveBrokerConfigMock.mockResolvedValue(null);
+    patchTradeInDayMock.mockResolvedValue({ dayIndex: 1, trades: [] });
+    patchDayAggregatesMock.mockResolvedValue({ dayIndex: 1, trades: [] });
   });
 
-  it("WITHOUT clearStateCache: a stale cached day re-persists the cleared trade (the bug)", async () => {
+  it("even WITHOUT clearStateCache the cleared trade is never re-persisted (β atomic persist)", async () => {
     const handler = tickHandler as any;
 
     // Warm the cache while the day still holds an open trade. Use a
@@ -248,17 +259,21 @@ describe("tickHandler — clear-workspace cache invalidation", () => {
     getDayRecordMock.mockResolvedValue({ dayIndex: 1, date: "2024-11-14", trades: [openTrade], totalPnl: 0 });
     handler.pendingUpdates.set("NSE:WARM", makeTick({ securityId: "WARM" }));
     await handler.processPendingUpdates();
-    expect(upsertDayRecordMock).not.toHaveBeenCalled();
+    expect(patchTradeInDayMock).not.toHaveBeenCalled();
 
     // Simulate the clear: Mongo now returns an empty day, but the cache is
-    // NOT invalidated. A matching tick arrives.
+    // NOT invalidated. A matching tick arrives — the stale snapshot still
+    // holds the open trade, so a persist IS attempted.
     getDayRecordMock.mockResolvedValue({ dayIndex: 1, date: "2024-11-14", trades: [], totalPnl: 0 });
     vi.clearAllMocks();
     handler.pendingUpdates.set("NSE:NIFTY_50", makeTick({ securityId: "NIFTY_50" }));
     await handler.processPendingUpdates();
 
-    // Stale cache wins → the open-trade day is written back to Mongo.
-    expect(upsertDayRecordMock).toHaveBeenCalled();
+    // But the atomic persist iterates the FRESH (now empty) day record, not the
+    // stale snapshot — so no trade is ever written back. The old whole-day
+    // upsert would have resurrected the cleared trade; the β persist cannot.
+    expect(patchTradeInDayMock).not.toHaveBeenCalled();
+    expect(patchDayAggregatesMock).not.toHaveBeenCalled();
   });
 
   it("WITH clearStateCache: the cleared trade stays gone (the fix)", async () => {
@@ -279,7 +294,7 @@ describe("tickHandler — clear-workspace cache invalidation", () => {
     handler.pendingUpdates.set("NSE:NIFTY_50", makeTick({ securityId: "NIFTY_50" }));
     await handler.processPendingUpdates();
 
-    expect(upsertDayRecordMock).not.toHaveBeenCalled();
+    expect(patchTradeInDayMock).not.toHaveBeenCalled();
   });
 });
 
@@ -315,9 +330,11 @@ describe("tickHandler — persist must not clobber concurrently-placed trades", 
       cumulativeCharges: 0, sessionTradeCount: 0,
     });
     getActiveBrokerConfigMock.mockResolvedValue(null);
+    patchTradeInDayMock.mockResolvedValue({ dayIndex: 1, trades: [] });
+    patchDayAggregatesMock.mockResolvedValue({ dayIndex: 1, trades: [] });
   });
 
-  it("a tick for trade A persists a day that still contains the just-placed trade B", async () => {
+  it("a tick for trade A patches only A, never touching the just-placed trade B", async () => {
     const handler = tickHandler as any;
     const tradeA = makeOpen("TA", "NIFTY_50");
     const tradeB = makeOpen("TB", "BANK NIFTY");
@@ -335,22 +352,26 @@ describe("tickHandler — persist must not clobber concurrently-placed trades", 
     // Non-matching tick warms the cache (snapshot = [A]) without persisting.
     handler.pendingUpdates.set("NSE:WARM", makeTick({ securityId: "WARM" }));
     await handler.processPendingUpdates();
-    expect(upsertDayRecordMock).not.toHaveBeenCalled();
+    expect(patchTradeInDayMock).not.toHaveBeenCalled();
 
     // Trade B is placed → appended to the DB list as a NEW array, so the cached
     // snapshot still references the old [A].
     dayTrades = [tradeA, tradeB];
-    upsertDayRecordMock.mockClear();
+    patchTradeInDayMock.mockClear();
 
-    // A matching tick for A triggers a persist. The fix re-reads fresh [A, B].
+    // A matching tick for A triggers a persist. The atomic β persist re-reads
+    // fresh [A, B] and writes ONLY the live trade A (positional $set) — B is
+    // never in the write path, so it cannot be clobbered.
     handler.pendingUpdates.set("NSE:NIFTY_50", makeTick({ securityId: "NIFTY_50", ltp: 101 }));
     await handler.processPendingUpdates();
 
-    expect(upsertDayRecordMock).toHaveBeenCalled();
-    const persisted = upsertDayRecordMock.mock.calls.find((c) => c[0] === "paper")?.[1];
-    const ids = (persisted?.trades ?? []).map((t: any) => t.id);
-    expect(ids).toContain("TA"); // the live trade
-    expect(ids).toContain("TB"); // the just-placed trade — NOT clobbered
+    expect(patchTradeInDayMock).toHaveBeenCalled();
+    // patchTradeInDay(channel, dayIndex, tradeId, patch, ...) — 3rd arg is the id.
+    const paperPatchIds = patchTradeInDayMock.mock.calls
+      .filter((c) => c[0] === "paper")
+      .map((c) => c[2]);
+    expect(paperPatchIds).toContain("TA");    // the live trade was patched
+    expect(paperPatchIds).not.toContain("TB"); // the just-placed trade — untouched
   });
 });
 
@@ -373,6 +394,8 @@ describe("tickHandler — entry-pending first-tick fill", () => {
       profitHistory: [], cumulativePnl: 0, cumulativeCharges: 0, sessionTradeCount: 0,
     });
     getActiveBrokerConfigMock.mockResolvedValue(null);
+    patchTradeInDayMock.mockResolvedValue({ dayIndex: 1, trades: [] });
+    patchDayAggregatesMock.mockResolvedValue({ dayIndex: 1, trades: [] });
   });
 
   it("first matching tick overwrites the placeholder entry and shifts SL/TP", async () => {

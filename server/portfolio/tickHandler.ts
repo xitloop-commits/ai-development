@@ -17,7 +17,9 @@ import { createLogger } from "../broker/logger";
 import {
   getCapitalState,
   getDayRecord,
-  upsertDayRecord,
+  patchTradeInDay,
+  patchDayAggregates,
+  dayAggregateFields,
 } from "./state";
 import type { Channel, TradeRecord, CapitalState, DayRecord } from "./state";
 import { recalculateDayAggregates } from "./compounding";
@@ -160,6 +162,13 @@ const TP_EMIT_THROTTLE_MS = 30_000;
 // placeholder entry before giving up and keeping the snapshot price.
 const ENTRY_FILL_TIMEOUT_MS = 15_000;
 
+// Exit-retry window (T86 β): once an exit is emitted the trade is guarded so the
+// same exit doesn't fire every tick while TEA closes it. But if the close never
+// completes (executor error / lost event) the trade would stay OPEN and guarded
+// forever. So the guard is TIME-BOXED — after this long still OPEN, the exit is
+// re-detected and re-emitted (a normal close finishes in ms).
+const EXIT_RETRY_MS = 30_000;
+
 class TickHandler extends EventEmitter {
   private running = false;
   /** Latest tick per instrument key, drained each processing pass. */
@@ -167,9 +176,11 @@ class TickHandler extends EventEmitter {
   /** Serialize processing passes so async updateChannel calls never overlap. */
   private processing = false;
   private hasPending = false;
-  /** Trades with an exit already emitted, awaiting TEA's close. Stops the
-   *  per-tick detector from firing duplicate exits for the same trade. */
-  private exitingTrades = new Set<string>();
+  /** tradeId → epoch ms the exit was last emitted. Stops the per-tick detector
+   *  firing duplicate exits while TEA closes it; TIME-BOXED (EXIT_RETRY_MS) so a
+   *  close that never completes gets re-detected instead of stuck forever (T86 β).
+   *  Pruned when the trade leaves the OPEN set. */
+  private exitingTrades = new Map<string, number>();
   /** Last Mongo-persist time per channel — throttles the P&L write. */
   private lastPersistAt = new Map<Channel, number>();
   /** Track peak price per trade for trailing stop logic. Key = tradeId */
@@ -324,7 +335,7 @@ class TickHandler extends EventEmitter {
     // in the open set) so the guard can't leak or block a future re-open.
     if (this.exitingTrades.size > 0) {
       const openIds = new Set(openTrades.map((t) => t.id));
-      this.exitingTrades.forEach((id) => {
+      this.exitingTrades.forEach((_ts, id) => {
         if (!openIds.has(id)) this.exitingTrades.delete(id);
       });
     }
@@ -344,8 +355,10 @@ class TickHandler extends EventEmitter {
 
     for (const trade of openTrades) {
       // Exit already emitted for this trade; wait for TEA to close it rather
-      // than firing the same exit again on the next tick.
-      if (this.exitingTrades.has(trade.id)) continue;
+      // than firing the same exit again on the next tick — but only within the
+      // retry window, so a close that silently failed gets re-detected (T86 β).
+      const guardedAt = this.exitingTrades.get(trade.id);
+      if (guardedAt != null && Date.now() - guardedAt < EXIT_RETRY_MS) continue;
 
       // Entry-fill timeout: if the first live tick never arrives (illiquid
       // contract / feed gap), stop waiting after a grace window and keep the
@@ -481,8 +494,8 @@ class TickHandler extends EventEmitter {
           if (out) {
             trade.stopLossPrice = out.stop; // ratchet the visible stop
             anyUpdated = true;
-            if (out.exit && !this.exitingTrades.has(trade.id)) {
-              this.exitingTrades.add(trade.id);
+            if (out.exit) {
+              this.exitingTrades.set(trade.id, Date.now());
               tradesToExit.push({
                 trade,
                 reason: out.phase === "target-bank" ? "TP_HIT" : "SL_HIT",
@@ -562,7 +575,7 @@ class TickHandler extends EventEmitter {
             this.peakPrices.delete(peakKey); // cleanup
             this.tslArmedAt.delete(trade.id);
             this.tslActivated.delete(trade.id);
-            this.exitingTrades.add(trade.id);
+            this.exitingTrades.set(trade.id, Date.now());
             // TP fills at the breaching tick: a favorable gap gives you the
             // better price (the stop side caps the loss; the target lets a
             // jump-through run in your favor).
@@ -591,7 +604,7 @@ class TickHandler extends EventEmitter {
             this.peakPrices.delete(peakKey); // cleanup
             this.tslArmedAt.delete(trade.id);
             this.tslActivated.delete(trade.id);
-            this.exitingTrades.add(trade.id);
+            this.exitingTrades.set(trade.id, Date.now());
             // Fill at the stop LEVEL, not the (possibly gapped) breaching tick,
             // so a fast move past the stop still realizes only the configured
             // SL/TSL %, not the deeper price the tick happened to print.
@@ -643,38 +656,53 @@ class TickHandler extends EventEmitter {
       return;
     }
     const liveById = new Map(day.trades.map((t) => [t.id, t]));
+    // Persist each OPEN trade's live fields with an ATOMIC per-trade write
+    // (T86 β): `requireOpen` no-ops the write if the close path already flipped
+    // this trade to CLOSED, and the patch never touches `status` — so a persist
+    // can NEVER revert a completed close back to OPEN (the old stuck-open cause).
+    // `silent` batches the single UI push into the aggregate write below.
+    let anyPatched = false;
     for (const ft of fresh.trades) {
       if (ft.status !== "OPEN") continue;
       const live = liveById.get(ft.id);
       if (!live) continue;
-      ft.ltp = live.ltp;
-      ft.lastTickAt = live.lastTickAt;
-      if (live.peakLtp != null) ft.peakLtp = live.peakLtp;
-      if (live.stopLossPrice != null) ft.stopLossPrice = live.stopLossPrice;
+      const patch: Partial<TradeRecord> = {
+        ltp: live.ltp,
+        lastTickAt: live.lastTickAt,
+        // Entry-fill correction (paper first-tick / live avg-missing fallback):
+        // persist entryPending BOTH ways — else a reload resurrects entryPending
+        // and the entry re-fills every tick (2026-07-02 regression).
+        entryPending: live.entryPending,
+      };
+      if (live.peakLtp != null) patch.peakLtp = live.peakLtp;
+      if (live.stopLossPrice != null) patch.stopLossPrice = live.stopLossPrice;
       // Trailing take-profit: the live record may have ratcheted the target up.
-      if (live.targetPrice != null) ft.targetPrice = live.targetPrice;
-      // TSL activation timestamp (for the UI stopwatch) — stamp once, never clear.
-      if (live.tslActivatedAt != null) ft.tslActivatedAt = live.tslActivatedAt;
-      // Operator-owned risk flags: toggled via updateTrade, which pushes them into
-      // this live cache (applyTradeEdit). Copy them so the persist writes the
-      // toggle instead of reverting to the stale `fresh` read on the next tick.
-      if (live.stopLossDisabled !== undefined) ft.stopLossDisabled = live.stopLossDisabled;
-      if (live.targetDisabled !== undefined) ft.targetDisabled = live.targetDisabled;
-      if (live.tslMode !== undefined) ft.tslMode = live.tslMode;
-      if (live.manualExitOnly !== undefined) ft.manualExitOnly = live.manualExitOnly;
-      // Entry-fill correction (paper first-tick / live avg-missing fallback):
-      // the fill overwrites entryPrice + clears entryPending on the cached trade.
-      // Persist BOTH — otherwise the reload resurrects entryPending=true and the
-      // entry re-fills every tick, so the entry crawls with price and SL/TP drift
-      // (2026-07-02 regression). Once filled, entryPending stays false → fills once.
-      ft.entryPending = live.entryPending;
+      if (live.targetPrice != null) patch.targetPrice = live.targetPrice;
+      // TSL activation timestamp (UI stopwatch) — stamp once, never clear.
+      if (live.tslActivatedAt != null) patch.tslActivatedAt = live.tslActivatedAt;
+      // Operator-owned risk flags (toggled via updateTrade → applyTradeEdit).
+      if (live.stopLossDisabled !== undefined) patch.stopLossDisabled = live.stopLossDisabled;
+      if (live.targetDisabled !== undefined) patch.targetDisabled = live.targetDisabled;
+      if (live.tslMode !== undefined) patch.tslMode = live.tslMode;
+      if (live.manualExitOnly !== undefined) patch.manualExitOnly = live.manualExitOnly;
       if (!live.entryPending) {
-        ft.entryPrice = live.entryPrice;
-        if (live.breakevenPrice != null) ft.breakevenPrice = live.breakevenPrice;
+        patch.entryPrice = live.entryPrice;
+        if (live.breakevenPrice != null) patch.breakevenPrice = live.breakevenPrice;
       }
+      Object.assign(ft, patch); // keep `fresh` in sync for the aggregate recompute
+      const res = await patchTradeInDay(channel, day.dayIndex, ft.id, patch, undefined, {
+        requireOpen: true,
+        silent: true,
+      });
+      if (res) anyPatched = true;
     }
+    // Recompute running totals from the (in-sync) fresh record for the snapshot.
+    // Only write the aggregate scalars back — and push to the UI — if a trade
+    // actually changed this batch.
     const updated = recalculateDayAggregates(fresh);
-    await upsertDayRecord(channel, updated);
+    if (anyPatched) {
+      await patchDayAggregates(channel, day.dayIndex, dayAggregateFields(updated));
+    }
 
     // A tick matched an open trade and we just persisted. Drop the cached
     // snapshot so the next batch re-reads fresh state from Mongo (TEA may

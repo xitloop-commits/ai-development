@@ -208,6 +208,38 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
     expect(exitEvent.exitPrice).toBeCloseTo(108.35, 2);
   });
 
+  it("T86 β — a guarded SL_HIT re-fires only after the retry window while still OPEN", async () => {
+    vi.useFakeTimers();
+    let exitCount = 0;
+    const onExit = () => { exitCount++; };
+    tickHandler.on("autoExitDetected", onExit);
+    try {
+      const t0 = new Date("2026-07-19T04:00:00Z").getTime();
+      vi.setSystemTime(t0);
+      const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95 });
+
+      await processWith(trade, makeTick({ ltp: 110 })); // SL trails to 108.35
+      await processWith(trade, makeTick({ ltp: 108 })); // breach → emit #1 + guard
+      expect(exitCount).toBe(1);
+
+      // Same breach within the 30s window → guarded, no duplicate emit while TEA
+      // is (expected to be) closing it.
+      vi.setSystemTime(t0 + 15_000);
+      await processWith(trade, makeTick({ ltp: 108 }));
+      expect(exitCount).toBe(1);
+
+      // The close never landed (TEA absent here) and the trade is STILL OPEN
+      // past EXIT_RETRY_MS → the stale guard lets the exit be re-detected instead
+      // of leaving the trade frozen forever.
+      vi.setSystemTime(t0 + 31_000);
+      await processWith(trade, makeTick({ ltp: 108 }));
+      expect(exitCount).toBe(2);
+    } finally {
+      tickHandler.off("autoExitDetected", onExit);
+      vi.useRealTimers();
+    }
+  });
+
   it("global trailing OFF no longer blocks a per-trade auto TSL (independence)", async () => {
     // Decision A: the broker-wide switch only SEEDS a trade's mode at open; the
     // tickHandler then trails on the trade's own tslMode. A trade left on "auto"

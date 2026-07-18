@@ -91,7 +91,7 @@ describe("rcaMonitor — exit triggers", () => {
       maxAgeMs: 30 * 60_000,
       staleTickMs: 5 * 60_000,
       volThreshold: 0.7,
-      channels: ["ai-paper"],
+      channels: ["paper"],
     });
   });
 
@@ -241,6 +241,66 @@ describe("rcaMonitor — exit triggers", () => {
     // cache prevents double-exit on the next monitor sweep.
     await (rcaMonitor as any).tick();
     expect(exitTradeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("T86 β — re-attempts a still-open guarded trade after the retry window", async () => {
+    vi.useFakeTimers();
+    try {
+      const t0 = new Date("2026-07-19T04:00:00Z").getTime();
+      vi.setSystemTime(t0);
+      const trade = makeOpenTrade({
+        id: "T-REOPEN",
+        openedAt: t0 - 60 * 60_000, // AGE-eligible every sweep
+      });
+      getPositionsMock.mockResolvedValue([trade as any]);
+
+      // First sweep fires the AGE exit and guards the trade.
+      await (rcaMonitor as any).tick();
+      expect(exitTradeMock).toHaveBeenCalledTimes(1);
+
+      // Still inside the 60s retry window → guarded, no re-attempt (even though
+      // the executor "succeeded" but the trade is somehow still OPEN).
+      vi.setSystemTime(t0 + 30_000);
+      await (rcaMonitor as any).tick();
+      expect(exitTradeMock).toHaveBeenCalledTimes(1);
+
+      // Past EXIT_RETRY_MS and STILL open → the guard is stale, so RCA re-fires
+      // the exit instead of leaving it stuck forever.
+      vi.setSystemTime(t0 + 61_000);
+      await (rcaMonitor as any).tick();
+      expect(exitTradeMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("T86 β — a permanent 'already closed' failure is never re-attempted", async () => {
+    vi.useFakeTimers();
+    try {
+      const t0 = new Date("2026-07-19T04:00:00Z").getTime();
+      vi.setSystemTime(t0);
+      const trade = makeOpenTrade({
+        id: "T-PERM",
+        openedAt: t0 - 60 * 60_000,
+      });
+      getPositionsMock.mockResolvedValue([trade as any]);
+      // The first (and only) attempt fails permanently — the trade is gone.
+      exitTradeMock.mockResolvedValueOnce({
+        success: false,
+        error: "Trade already closed",
+      } as any);
+
+      await (rcaMonitor as any).tick();
+      expect(exitTradeMock).toHaveBeenCalledTimes(1);
+
+      // Even long past the retry window, a permanent failure stays guarded
+      // (stamped far in the future) so RCA never spams a dead trade.
+      vi.setSystemTime(t0 + 10 * 60_000);
+      await (rcaMonitor as any).tick();
+      expect(exitTradeMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("survives portfolioAgent.getPositions failure without throwing (best-effort)", async () => {
