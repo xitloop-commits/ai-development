@@ -20,6 +20,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useCapital } from '@/contexts/CapitalContext';
 import { formatINR } from '@/lib/formatINR';
+import { trpc } from '@/lib/trpc';
 
 // ─── Holiday Helpers ────────────────────────────────────────
 function _getDaysUntil(dateStr: string): number {
@@ -51,11 +52,11 @@ function _isHolidayThisMonth(dateStr: string): boolean {
 
 function NetWorthPopover({
   netWorth, tradingPool, reservePool, growthPercent,
-  tradingPoolGrowth, reservePoolGrowth, fmt,
+  tradingPoolGrowth, reservePoolGrowth, fmt, mode,
 }: {
   netWorth: number; tradingPool: number; reservePool: number;
   growthPercent: string; tradingPoolGrowth: string; reservePoolGrowth: string;
-  fmt: (n: number) => string;
+  fmt: (n: number) => string; mode: 'PAPER' | 'LIVE';
 }) {
   const [tab, setTab] = useState<'overview' | 'inject' | 'transfer'>('overview');
   const [amount, setAmount] = useState('');
@@ -84,7 +85,14 @@ function NetWorthPopover({
     <Popover>
       <PopoverTrigger asChild>
         <div className="flex flex-col items-end cursor-pointer shrink-0 hover:opacity-80 transition-opacity">
-          <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase">Net Worth</span>
+          <span className="text-[0.625rem] text-muted-foreground tracking-widest uppercase flex items-center gap-1">
+            Net Worth
+            <span className={`px-1 rounded text-[0.5rem] font-bold leading-tight ${
+              mode === 'LIVE' ? 'bg-bullish/20 text-bullish' : 'bg-warning-amber/20 text-warning-amber'
+            }`}>
+              {mode}
+            </span>
+          </span>
           <span className="text-sm font-bold tabular-nums text-foreground">
             {fmt(netWorth)}{' '}
             <span className={`text-xs ${Number(growthPercent) >= 0 ? 'text-bullish' : 'text-loss-red'}`}>
@@ -226,14 +234,26 @@ export default function MainFooter() {
   const [_injectOpen, setInjectOpen] = useState(false);
 
   // ─── Global Capital Context (single source of truth) ────────
-  const { capital, stateData, allDays, inject: ctxInject, injectPending: _injectPending } = useCapital() as any;
+  const { capital, channel, stateData, allDays, inject: ctxInject, injectPending: _injectPending } = useCapital() as any;
 
-  // ─── Capital Data (from global context) ─────────────────────
+  // Net worth follows the mode (T87 point 18): PAPER shows the one shared paper
+  // pool; LIVE shows ai-live + my-live combined (two separate real accounts, but
+  // one total figure). In live mode `capital` is my-live (the active channel), so
+  // we fetch ai-live and add it. Paper mode needs no extra fetch.
+  const isLive = channel !== 'paper';
+  const aiLiveQuery = trpc.portfolio.state.useQuery(
+    { channel: 'ai-live' },
+    { enabled: isLive, refetchInterval: 5000 },
+  );
+  const aiLive = aiLiveQuery.data as any;
+  const add = (a: number, b: number | undefined) => a + (b ?? 0);
+
+  // ─── Capital Data (mode-aware; combined across both live accounts) ──
   const _capitalData = stateData as any;
-  const tradingPool = capital.tradingPool;
-  const reservePool = capital.reservePool;
-  const netWorth = capital.netWorth;
-  const initialFunding = capital.initialFunding;
+  const tradingPool = isLive ? add(capital.tradingPool, aiLive?.tradingPool) : capital.tradingPool;
+  const reservePool = isLive ? add(capital.reservePool, aiLive?.reservePool) : capital.reservePool;
+  const netWorth = isLive ? add(capital.netWorth, aiLive?.netWorth) : capital.netWorth;
+  const initialFunding = isLive ? add(capital.initialFunding, aiLive?.initialFunding) : capital.initialFunding;
   const growthPercent = initialFunding > 0
     ? (((netWorth - initialFunding) / initialFunding) * 100).toFixed(1)
     : '0.0';
@@ -390,6 +410,7 @@ export default function MainFooter() {
           tradingPoolGrowth={tradingPoolGrowth}
           reservePoolGrowth={reservePoolGrowth}
           fmt={fmt}
+          mode={isLive ? 'LIVE' : 'PAPER'}
         />
       </div>
     </div>
