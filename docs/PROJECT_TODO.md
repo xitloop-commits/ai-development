@@ -187,7 +187,9 @@ Partha's revamp, to run **before** the T86 engine fixes (it reduces the T86 surf
 14. **Manual trade placement** is triggered today from the **signal tray** (+ instrument bar); after the revamp, **design placement from the trading-desk table itself**.
 15. **Watchlist** is preserved — **moved to instrument cards** (not deleted with the stocks workspace).
 16. **LIVE-book capital comes from the real Dhan account** (not a manual/injected number): `my-live` capital = **primary** account funds/margin; `ai-live` capital = **secondary** account funds — fetched live from Dhan (funds/margin API; `scripts/dhan-margin-check.mjs` shows the path). **Paper** books keep their configured play-money. So a balance shows set play-money in paper mode, and the real broker balance in live mode. (Note: a Dhan account is one shared pot; after the revamp `my-live` is BSA's only primary-account trader, so it's clean.)
-(All blocking decisions resolved. Remaining = design work: manual order-entry surface in the desk table, stock placement + watchlist on instrument cards, trade-# scheme.)
+17. **Paper/Live switch = TAB style, not a toggle button.** Replace the current paper/live toggle button with a **`Paper | Live` tab pair** in the **workspace-tab style** (reusing the tab bar freed up by removing the workspace tabs). Applies to the **My** switch on the app bar; AI's switch is the SEA-menu 1st item (point 6) — TBD whether that one is also tab-style.
+18. **Net worth in the app footer/status bar follows the Paper/Live mode** — shows paper net worth in paper mode, live net worth (real Dhan account value) in live mode; the footer number always matches the active mode.
+(All blocking decisions resolved. Remaining = design work: manual order-entry surface in the desk table, stock placement + watchlist on instrument cards, trade-# scheme, paper/live tab styling.)
 
 ### T86 [BUG · P0] — Trades stuck OPEN forever after their stop fires ("half-exited") (2026-07-18) 🆕🔴
 **Symptom:** Runway/Anchor (and old Sprint-MA) trades sit OPEN for days at −35% to −38%, far past their stops, never squared off. 8+ stuck across 07-14 → 07-17.
