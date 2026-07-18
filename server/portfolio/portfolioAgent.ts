@@ -22,6 +22,7 @@ import {
   type CapitalState,
   type DayRecord,
   type TradeRecord,
+  channelToSource,
   getCapitalState,
   getDayRecord,
   getDayRecords,
@@ -288,6 +289,9 @@ class PortfolioAgentImpl {
    */
   async appendTrade(channel: Channel, trade: TradeRecord): Promise<DayRecord> {
     const day = await this.ensureCurrentDay(channel);
+    // Stamp AI-vs-My attribution from the channel prefix (T87) — persisted so it
+    // survives the paper-channel merge; explicit callers may pre-set it.
+    if (trade.source == null) trade.source = channelToSource(channel);
     // Freeze the breakeven price once at placement — the trailing stop is
     // floored here, and the UI reads the same value, so they can't drift.
     if (trade.breakevenPrice == null && trade.entryPrice > 0 && trade.qty > 0) {
@@ -502,6 +506,7 @@ class PortfolioAgentImpl {
       brokerOrderId: trade.brokerOrderId,
       brokerId: trade.brokerId,
       cohort: trade.cohort ?? null,
+      source: trade.source ?? channelToSource(channel),
       openedAt: trade.openedAt,
       closedAt: trade.closedAt,
       exitReason: trade.exitReason,

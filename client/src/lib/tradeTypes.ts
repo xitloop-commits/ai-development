@@ -88,6 +88,9 @@ export interface TradeRecord {
   /** Global daily signal sequence (server-assigned) — shown on the row so it
    *  matches its originating SEA tray-signal card. Null for manual trades. */
   signalSeq?: number | null;
+  /** AI-vs-My attribution (T87) — display/filter only. Persisted server-side so
+   *  it survives the paper-channel merge; the desk filters trades by source. */
+  source?: 'ai' | 'my';
   /** Hold duration in ms (closedAt − openedAt), stamped on close. */
   durationMs?: number | null;
   pnl: number;

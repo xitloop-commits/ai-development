@@ -23,7 +23,7 @@
  */
 
 import mongoose, { Schema } from "mongoose";
-import type { Channel, ChargeBreakdown, ExitReason, ExitTriggeredBy, ProfitHistoryEntry, TradeStatus } from "./state";
+import type { Channel, ChargeBreakdown, ExitReason, ExitTriggeredBy, ProfitHistoryEntry, TradeSource, TradeStatus } from "./state";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -109,6 +109,8 @@ export interface PositionStateDoc {
   brokerId: string | null;
   /** Strategy cohort (scalp | trend | swing | multi_day_swing) for AI trades. */
   cohort?: string | null;
+  /** AI-vs-My attribution (T87) — mirrors TradeRecord.source. */
+  source?: TradeSource | null;
   openedAt: number;
   closedAt: number | null;
 
@@ -264,6 +266,7 @@ const positionStateSchema = new Schema(
     brokerOrderId: { type: String, default: null },
     brokerId: { type: String, default: null },
     cohort: { type: String, default: null },
+    source: { type: String, enum: ["ai", "my"], default: null },
     openedAt: { type: Number, default: () => Date.now() },
     closedAt: { type: Number, default: null },
 

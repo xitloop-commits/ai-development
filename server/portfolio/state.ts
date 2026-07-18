@@ -26,6 +26,16 @@ export type Channel =
 /** @deprecated Kept only to silence transitional callers; use Channel. */
 export type Workspace = Channel;
 
+/** AI-vs-My attribution of a trade — display/filter only, independent of the
+ *  capital channel. Stamped at placement from the channel prefix and persisted,
+ *  so it survives the T87 paper-channel merge (where `paper` no longer carries an
+ *  ai/my prefix). Read-side callers can fall back to `channelToSource(channel)`
+ *  for records that pre-date the field. */
+export type TradeSource = "ai" | "my";
+export function channelToSource(channel: Channel): TradeSource {
+  return channel.startsWith("ai-") ? "ai" : "my";
+}
+
 export type TradeStatus =
   | "OPEN"
   | "PENDING"
@@ -167,6 +177,11 @@ export interface TradeRecord {
    *  this trade to its originating SEA tray-signal card. Shown on the trade row
    *  in place of the old positional index. Null for manual / non-AI trades. */
   signalSeq?: number | null;
+  /** AI-vs-My attribution (T87). Stamped at placement from the channel prefix
+   *  and persisted, so it survives the paper-channel merge where the channel no
+   *  longer carries ai/my. Display/filter only — does NOT drive capital/routing.
+   *  Absent on pre-T87 records → callers fall back to `channelToSource(channel)`. */
+  source?: TradeSource;
   /** How long the trade was held, in ms (closedAt − openedAt). Stamped on close
    *  so reports/analytics can read hold duration without recomputing. */
   durationMs?: number | null;
@@ -335,6 +350,7 @@ const tradeRecordSchema = new Schema(
     brokerId: { type: String, default: null },
     cohort: { type: String, default: null },
     signalSeq: { type: Number, default: null },
+    source: { type: String, enum: ["ai", "my"], default: null },
     durationMs: { type: Number, default: null },
     superOrderId: { type: String, default: null },
     slLegOrderId: { type: String, default: null },
@@ -808,6 +824,7 @@ async function migrateDayRecordTradesToPositionState(): Promise<void> {
         exitBrokerOrderId: trade.exitBrokerOrderId ?? null,
         brokerId: trade.brokerId ?? null,
         cohort: trade.cohort ?? null,
+        source: trade.source ?? channelToSource(day.channel as Channel),
         openedAt: trade.openedAt ?? now,
         closedAt: trade.closedAt ?? null,
         exitReason: trade.exitReason,
@@ -1047,6 +1064,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       brokerId: t.brokerId ?? null,
       cohort: t.cohort ?? null,
       signalSeq: t.signalSeq ?? null,
+      source: t.source ?? channelToSource(doc.channel),
       durationMs: t.durationMs ?? null,
       superOrderId: t.superOrderId ?? null,
       slLegOrderId: t.slLegOrderId ?? null,
