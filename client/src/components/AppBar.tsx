@@ -312,16 +312,19 @@ function ChannelModeToggle() {
 
   return (
     <div className="relative flex items-center gap-2">
-      <div className="flex items-center rounded border border-border overflow-hidden">
+      {/* My Paper/Live — tab-style pair (T87 point 17). The AI equivalent lives
+          in the SEA menu; this drives the My book + the desk's mode view. */}
+      <span className="text-[0.5625rem] font-bold uppercase tracking-wider text-muted-foreground">My</span>
+      <div className="flex items-center rounded-md border border-border overflow-hidden bg-muted/30">
         {MODES_FOR[currentWs].map((m) => {
           const active = m === currentMode;
-          const activeTone = m === 'live' ? 'bg-bullish/20 text-bullish' : 'bg-warning-amber/20 text-warning-amber';
+          const activeTone = m === 'live' ? 'bg-bullish/25 text-bullish' : 'bg-warning-amber/25 text-warning-amber';
           return (
             <button
               key={m}
               onClick={() => requestModeSwitch(m)}
-              className={`px-2 py-0.5 text-[0.5625rem] font-bold transition-colors ${
-                active ? activeTone : 'text-muted-foreground hover:text-foreground'
+              className={`px-3 py-1 text-[0.625rem] font-bold tracking-wide transition-colors ${
+                active ? activeTone : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
               }`}
             >
               {MODE_LABELS[m]}

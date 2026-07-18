@@ -105,17 +105,17 @@ export function SeaControl() {
               <span className="font-semibold text-[0.6875rem] uppercase tracking-wide text-muted-foreground">AI Trades</span>
               <span className="text-[0.5625rem] text-muted-foreground">where the engine trades</span>
             </div>
-            <div className="flex items-center rounded border border-border overflow-hidden">
+            <div className="flex items-center rounded-md border border-border overflow-hidden bg-muted/30">
               {(["paper", "live"] as const).map((m) => {
                 const active = aiMode === m;
-                const tone = m === "live" ? "bg-bullish/20 text-bullish" : "bg-warning-amber/20 text-warning-amber";
+                const tone = m === "live" ? "bg-bullish/25 text-bullish" : "bg-warning-amber/25 text-warning-amber";
                 return (
                   <button
                     key={m}
                     onClick={() => { if (m !== aiMode) setAiMode.mutate({ aiTradesMode: m }); }}
                     disabled={setAiMode.isPending}
-                    className={`px-2.5 py-0.5 text-[0.5625rem] font-bold transition-colors disabled:opacity-50 ${
-                      active ? tone : "text-muted-foreground hover:text-foreground"
+                    className={`px-3 py-1 text-[0.625rem] font-bold tracking-wide transition-colors disabled:opacity-50 ${
+                      active ? tone : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                     }`}
                   >
                     {m === "live" ? "LIVE" : "PAPER"}

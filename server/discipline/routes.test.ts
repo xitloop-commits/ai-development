@@ -52,10 +52,17 @@ vi.mock("../risk-control", () => ({
   },
 }));
 
+// AI trades route by aiTradesMode (T87) — mock the setting so we can steer it.
+vi.mock("../userSettings", () => ({
+  getUserSettings: vi.fn(async () => ({ tradingMode: { aiTradesMode: "paper" } })),
+}));
+
 // ─── SUT ─────────────────────────────────────────────────────────
 
 import { registerDisciplineRoutes } from "./routes";
 import { disciplineAgent } from "./index";
+import { rcaMonitor } from "../risk-control";
+import { getUserSettings } from "../userSettings";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -137,6 +144,46 @@ beforeEach(() => {
 });
 
 // ─── Tests ──────────────────────────────────────────────────────
+
+describe("POST /api/discipline/validateTrade — AI channel routing (T87)", () => {
+  it("origin=AI routes to ai-live when aiTradesMode is live (overrides posted channel)", async () => {
+    (getUserSettings as any).mockResolvedValueOnce({ tradingMode: { aiTradesMode: "live" } });
+    const { app, pipelineFor } = captureRoute();
+    registerDisciplineRoutes(app);
+    const { res } = makeRes();
+    // validBody posts channel:"paper" — the server must override it to ai-live.
+    await runPipeline(pipelineFor("post", "/api/discipline/validateTrade"), makeReq(validBody), res);
+    expect(rcaMonitor.evaluateTrade).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "ai-live", origin: "AI" }),
+    );
+  });
+
+  it("origin=AI routes to the shared paper book when aiTradesMode is paper (default)", async () => {
+    (getUserSettings as any).mockResolvedValueOnce({ tradingMode: { aiTradesMode: "paper" } });
+    const { app, pipelineFor } = captureRoute();
+    registerDisciplineRoutes(app);
+    const { res } = makeRes();
+    await runPipeline(pipelineFor("post", "/api/discipline/validateTrade"), makeReq(validBody), res);
+    expect(rcaMonitor.evaluateTrade).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "paper", origin: "AI" }),
+    );
+  });
+
+  it("origin=USER keeps its posted channel (not overridden by aiTradesMode)", async () => {
+    (getUserSettings as any).mockResolvedValueOnce({ tradingMode: { aiTradesMode: "live" } });
+    const { app, pipelineFor } = captureRoute();
+    registerDisciplineRoutes(app);
+    const { res } = makeRes();
+    await runPipeline(
+      pipelineFor("post", "/api/discipline/validateTrade"),
+      makeReq({ ...validBody, origin: "USER", channel: "my-live" }),
+      res,
+    );
+    expect(rcaMonitor.evaluateTrade).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "my-live", origin: "USER" }),
+    );
+  });
+});
 
 describe("POST /api/discipline/validateTrade", () => {
   it("happy path — DA pass + RCA approve → 200 with tradeId", async () => {

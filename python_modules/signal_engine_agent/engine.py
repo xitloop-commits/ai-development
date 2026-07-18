@@ -114,12 +114,15 @@ def _build_structure_context(row: dict) -> StructureContext | None:
 _IST = timezone(timedelta(hours=5, minutes=30))
 
 # ─── AI auto-trade wire (optional, off by default) ───────────────
-# When the env var SEA_AUTO_TRADE is set to a channel (e.g. "ai-paper"), every
-# wave-2 signal that the engine emits is also POSTed to the Node trade pipeline
-# (/api/discipline/validateTrade → DA → RCA → TEA), which places the trade. The
-# server sizes it (lots × scrip-master lot size), sources capital/exposure, and
-# enforces one open position per instrument, so the 30s signal re-emits don't
-# stack duplicate entries. No POST happens unless the env var is set.
+# SEA_AUTO_TRADE is the master ENABLE gate — set it to any non-empty value to
+# turn auto-trade on; leave it unset and no POST happens. When enabled, every
+# wave-2 signal the engine emits is POSTed to the Node trade pipeline
+# (/api/discipline/validateTrade → DA → RCA → TEA), which places the trade.
+# The BOOK (paper vs ai-live) is chosen SERVER-SIDE from the SEA menu's
+# `aiTradesMode` setting (T87) — PAPER = the shared paper book, LIVE = the real
+# ai-live Dhan account — so the operator flips it live from the UI, not via env.
+# The server sizes it (lots × scrip-master lot size), sources capital/exposure,
+# and enforces one open position per instrument so the 30s re-emits don't stack.
 _EXCHANGE_BY_INSTRUMENT = {
     "NIFTY50": "NSE",
     "BANKNIFTY": "NSE",
@@ -193,8 +196,11 @@ def _send_signal_to_tray(signal: dict) -> None:
 
 
 def _maybe_submit_ai_trade(signal: dict) -> "str | None":
-    channel = os.environ.get("SEA_AUTO_TRADE", "").strip()
-    if not channel:
+    # Master enable gate — auto-trade is OFF unless SEA_AUTO_TRADE is set (any
+    # non-empty value). The actual book (paper vs ai-live) is decided SERVER-SIDE
+    # from the SEA menu's `aiTradesMode` setting (T87); we post a valid default
+    # channel and the validateTrade route overrides it for origin="AI".
+    if not os.environ.get("SEA_AUTO_TRADE", "").strip():
         return
     try:
         action = signal.get("action") or ""
@@ -212,7 +218,7 @@ def _maybe_submit_ai_trade(signal: dict) -> "str | None":
 
         payload = {
             "executionId": f"AI-{inst}-{int(time.time() * 1000)}",
-            "channel": channel,
+            "channel": "paper",  # server overrides for origin="AI" per aiTradesMode
             "origin": "AI",
             "instrument": inst,
             "exchange": _EXCHANGE_BY_INSTRUMENT.get(inst, "NSE"),

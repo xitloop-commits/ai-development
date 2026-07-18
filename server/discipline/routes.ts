@@ -29,6 +29,7 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { validateBody, validateQuery } from "../_core/zodMiddleware";
 import { disciplineAgent } from "./index";
+import { getUserSettings } from "../userSettings";
 import { createLogger } from "../broker/logger";
 
 const log = createLogger("DA", "REST");
@@ -137,6 +138,14 @@ export function registerDisciplineRoutes(app: Express): void {
     validateBody(validateTradeSchema),
     async (req: Request, res: Response) => {
       const body = req.body as z.infer<typeof validateTradeSchema>;
+      // T87 — AI trades route by the SEA menu's aiTradesMode setting (the server
+      // owns it), NOT the caller's posted channel: PAPER → the shared paper book,
+      // LIVE → the real ai-live Dhan account. Default paper (safe). My/manual
+      // trades (origin USER/RCA) keep their posted channel.
+      if (body.origin === "AI") {
+        const aiMode = (await getUserSettings(1)).tradingMode?.aiTradesMode ?? "paper";
+        body.channel = aiMode === "live" ? "ai-live" : "paper";
+      }
       const t0 = Date.now();
       try {
         // 0. Thin AI path — when the caller omits quantity, the server sizes the
