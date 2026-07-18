@@ -151,6 +151,14 @@ Partha's design, **locked 2026-07-16.** A staged exit that protects early then r
   - **MUST backtest before building** (partial-book changes the P&L math): re-run the 190-trade sim booking 50% at target + riding the rest vs current all-ride Runway; confirm it beats or matches all-ride before shipping.
   - New tunable knobs for T85: `scaleOutFrac` (0.5), `scaleOutTargetPct`, `ratchetStepPct` (2). Needs partial-fill support in the paper executor (close part of a position, keep the rest open) — check that exists first.
 **Do AFTER** Partha finishes the current #19 / stuck-open-trades review and says "go".
+
+### T86 [BUG · P0] — Trades stuck OPEN forever after their stop fires ("half-exited") (2026-07-18) 🆕🔴
+**Symptom:** Runway/Anchor (and old Sprint-MA) trades sit OPEN for days at −35% to −38%, far past their stops, never squared off. 8+ stuck across 07-14 → 07-17.
+**Smoking gun (trade #43, BANKNIFTY 58100 PE Runway, id T1784267824982-hiutg0):** `status=OPEN` **but** `exitReason=SL_HIT` already stamped; `exitPrice` null; `unrealizedPnl=-71,835` (never booked); `stopLossPrice=666`, `ltp=426.55` → exit test `426.55 ≤ 666` is TRUE; `lastTickAt=07-18 09:48` (still ticking today); `desync=null`. So the SL **was detected** — the close just never completed. The trade is **half-exited**.
+**Mechanism (hypothesis, needs code trace):** tickHandler detects the exit, stamps `exitReason`, adds the trade to the in-memory `exitingTrades` guard + pushes to `tradesToExit`; but the actual close (`executor.exitTrade` → status→CLOSED + fill + realised P&L) fails or is interrupted. The trade stays OPEN, and the `exitingTrades` guard (and/or the already-set `exitReason`) then **blocks any retry** — so it's stuck permanently even though ticks keep coming and the exit condition is still true.
+**Impact:** (1) real risk — a "closed" loser keeps bleeding; (2) corrupts the race scoreboard — stuck losers (−38%) and winners (+50%) are unrealised, so realised strategy totals are **incomplete/optimistic**; (3) no EOD square-off backstop caught them.
+**Investigate when green-lit:** exit-completion path `tickHandler` `tradesToExit` → `executor.exitTrade` → status flip (where does it drop?); the `exitingTrades` retry/clear logic (should a still-open flagged trade retry?); add an **EOD square-off** backstop for race twins; also fix the `position_state` mirror freezing `ltp` at entry for open trades (made earlier analysis blind).
+**DO NOT code yet — Partha's explicit hold; wait for final go.**
 **Backtest basis (190 real scalp trades, 4 days):** Runway +242k vs Sprint +116k (~2×); Anchor *worse* than Sprint. Promising-not-proven → the live race settles it. Sims: scratchpad `sim_exits/sim_trail/sim_runway/sim_compare.py`.
 **Risks:** touches the just-stabilised exit engine (keep Sprint intact + tests); 3× trades/charges/capital (paper); discipline pre-trade gate must allow 3 rapid same-signal trades.
 
