@@ -195,6 +195,7 @@ Partha's revamp, to run **before** the T86 engine fixes (it reduces the T86 surf
 
 **═══ T87 IMPLEMENTATION PLAN (2026-07-18) ═══**
 Principle: keep the `Channel` union internally but **collapse it to 4** (don't rip out 62 files); every phase leaves the app **building + running + tests green** before the next; work on `main`. 7 phases, ordered so the highest-value/most-isolated backend work (the α fix) lands first and the risky UI teardown last.
+**CROSS-CUTTING RULE (every phase, Partha 2026-07-18): full dependency cleanup on every change.** When a component/route/channel/util is removed or changed, trace BOTH directions of its dependency graph and **delete everything left orphaned** — unused components, dead imports, now-unreferenced hooks/utils/types, obsolete tests, stale config, and any npm packages / broker adapters left with no consumer. No dead code, no orphan files, no unused deps carried forward. (Use `tsc --noEmit` + `knip`/unused-export checks + grep for each removed symbol before deleting.)
 
 **Phase 1 — WS consolidation (backend; RETIRES bug α). Highest value, isolated.**
 - Decouple market-data from order-routing: make **all** channels (incl. ai-live) read ticks from the **primary** market feed. Change `ensureOptionLtpSubscription`/`resubscribeOpenTradeLtps` (`tradeExecutor.ts:1374/165`) to always use `getActiveBroker()` (primary) for ticks, live channels included.
