@@ -21,7 +21,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { PastRow } from './PastRow';
 import { FutureRow } from './FutureRow';
 import { TodaySection } from './TodaySection';
-import { InstrumentBarsPanel } from './InstrumentBarsPanel';
+import { Watchlist } from './Watchlist';
 import { useTradingDeskData } from '@/hooks/useTradingDeskData';
 import { useTradingDeskHandlers } from '@/hooks/useTradingDeskHandlers';
 
@@ -135,9 +135,9 @@ export default function TradingDesk({
             type="button"
             onClick={() => setBarsPanelOpen((v) => !v)}
             className="px-3 py-1.5 flex flex-col items-center justify-center hover:bg-muted/40 transition-colors"
-            title="Toggle the movable instrument-bars window"
+            title="Toggle the Watchlist window (indices + stocks)"
           >
-            <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Bars</span>
+            <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Watch</span>
             <span className="text-xs font-bold tabular-nums text-foreground">{barsPanelOpen ? 'On' : 'Off'}</span>
           </button>
         )}
@@ -305,9 +305,10 @@ export default function TradingDesk({
         onCancel={closeConfirmDialog}
       />
 
-      {/* Always-on instrument bars — draggable floating window (moved out of the table). */}
+      {/* Unified Watchlist — indices (option picker) + stocks (stage), draggable
+          floating window. Replaces the old instrument-bars panel (T87). */}
       {canManageTrades && barsPanelOpen && (
-        <InstrumentBarsPanel
+        <Watchlist
           resolvedInstruments={resolvedInstruments}
           trades={ctxCurrentDay?.trades ?? []}
           onPlaceTrade={handlePlaceTrade}

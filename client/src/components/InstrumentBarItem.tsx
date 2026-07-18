@@ -24,6 +24,9 @@ export interface InstrumentBarItemProps {
   resolvedInstruments?: ResolvedInstrument[];
   instrumentTrades?: TradeRecord[];
   onPlaceTrade: (trade: any) => Promise<void> | void;
+  /** Watchlist mode (T87): render a compact clickable row (name + live spot)
+   *  that expands to the strike picker on click, instead of an always-open bar. */
+  collapsible?: boolean;
 }
 
 export function InstrumentBarItem({
@@ -31,7 +34,9 @@ export function InstrumentBarItem({
   resolvedInstruments,
   instrumentTrades = [],
   onPlaceTrade,
+  collapsible = false,
 }: InstrumentBarItemProps) {
+  const [expanded, setExpanded] = useState(false);
   const bar = useInstrumentBar(instrument, resolvedInstruments, instrumentTrades, onPlaceTrade);
   const { spot, oi, preview, hasPreview, availableCapital, strikeStep, tradeMarkers, placeAt, capCE, capPE, lots, setLots, lotSize } = bar;
 
@@ -70,44 +75,63 @@ export function InstrumentBarItem({
     </div>
   );
 
-  return (
-    <div className="border-b border-border/40 py-2.5 last:border-b-0">
-      {spot > 0 ? (
-        <InstrumentBar
-          name={instrument}
-          stacked
-          expiryDaysLeft={daysToExpiry(preview.expiry)}
-          rightSlot={rightSlot}
-          side={bar.side}
-          onSideChange={bar.setSide}
-          direction={bar.direction}
-          onDirectionChange={bar.setDirection}
-          strike={{
-            spot,
-            ltp: spot,
-            strikeStep,
-            windowEachSide: 3,
-            showTrail: true,
-            tradeMarkers,
-            entryMarker,
-            onPlaceEntry: setEntryMarker,
-            onClearEntry: () => setEntryMarker(null),
-            // Armed marker fires on touch → place on the marker's strike.
-            onEnterTrade: (price) => placeAt({ markerPrice: price }),
-            oiLevels: oi.levels,
-            oiMax: oi.oiMax,
-            maxPainStrike: oi.maxPainStrike,
-          }}
-          // Ctrl+click: marker present → that strike; otherwise ATM.
-          onEnter={(dir) => placeAt({ direction: dir, markerPrice: entryMarker })}
-          enterDisabled={!hasPreview}
-        />
-      ) : (
-        <div className="flex items-center gap-2 text-xs">
-          <InstrumentTag name={instrument} muted />
-          <span className="text-[0.625rem] italic text-muted-foreground">waiting for live data…</span>
-        </div>
-      )}
+  const barEl = spot > 0 ? (
+    <InstrumentBar
+      name={instrument}
+      stacked
+      expiryDaysLeft={daysToExpiry(preview.expiry)}
+      rightSlot={rightSlot}
+      side={bar.side}
+      onSideChange={bar.setSide}
+      direction={bar.direction}
+      onDirectionChange={bar.setDirection}
+      strike={{
+        spot,
+        ltp: spot,
+        strikeStep,
+        windowEachSide: 3,
+        showTrail: true,
+        tradeMarkers,
+        entryMarker,
+        onPlaceEntry: setEntryMarker,
+        onClearEntry: () => setEntryMarker(null),
+        // Armed marker fires on touch → place on the marker's strike.
+        onEnterTrade: (price) => placeAt({ markerPrice: price }),
+        oiLevels: oi.levels,
+        oiMax: oi.oiMax,
+        maxPainStrike: oi.maxPainStrike,
+      }}
+      // Ctrl+click: marker present → that strike; otherwise ATM.
+      onEnter={(dir) => placeAt({ direction: dir, markerPrice: entryMarker })}
+      enterDisabled={!hasPreview}
+    />
+  ) : (
+    <div className="flex items-center gap-2 text-xs">
+      <InstrumentTag name={instrument} muted />
+      <span className="text-[0.625rem] italic text-muted-foreground">waiting for live data…</span>
     </div>
   );
+
+  // Watchlist mode — a compact row (name + live spot) that expands to the picker.
+  if (collapsible) {
+    return (
+      <div className="border-b border-border/40 last:border-b-0">
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          className="w-full flex items-center justify-between px-1.5 py-1.5 hover:bg-muted/30 transition-colors"
+        >
+          <span className="flex items-center gap-1.5">
+            <span className={`text-[0.5rem] text-muted-foreground transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
+            <InstrumentTag name={instrument} muted={spot <= 0} />
+          </span>
+          <span className="text-[0.6875rem] font-bold tabular-nums text-foreground">
+            {spot > 0 ? fmt(spot) : <span className="text-[0.625rem] italic text-muted-foreground">…</span>}
+          </span>
+        </button>
+        {expanded && <div className="px-1.5 pb-2.5">{barEl}</div>}
+      </div>
+    );
+  }
+
+  return <div className="border-b border-border/40 py-2.5 last:border-b-0">{barEl}</div>;
 }
