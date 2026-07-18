@@ -20,9 +20,6 @@ import {
   getKillSwitchState,
   isChannelKillSwitchActive,
   isKillSwitchActive,
-  setMockFeed,
-  isMockFeed,
-  isMockFeedAllowed,
   type Channel,
 } from "./brokerService";
 import {
@@ -230,17 +227,6 @@ export const brokerRouter = router({
       return getRegisteredAdaptersMeta();
     }),
   }),
-
-  // ── Dev mock-feed (offline testing; dev builds only) ───────
-  /** Current mock-feed state + whether it's allowed in this build. */
-  mockFeedStatus: publicProcedure.query(() => ({
-    enabled: isMockFeed(),
-    allowed: isMockFeedAllowed(),
-  })),
-  /** Toggle the dev mock feed. No-op (returns false) in production builds. */
-  setMockFeed: protectedProcedure
-    .input(z.object({ enabled: z.boolean() }))
-    .mutation(({ input }) => ({ enabled: setMockFeed(input.enabled) })),
 
   // ── Setup (create initial broker config) ───────────────────
   setup: protectedProcedure

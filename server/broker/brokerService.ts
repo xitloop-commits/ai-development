@@ -294,103 +294,11 @@ export function getKillSwitchState(): KillSwitchState {
 
 // ─── Legacy single-adapter helpers (used by brokerRouter + brokerRoutes) ───
 
-// ─── Dev mock-feed (offline testing) ────────────────────────────
-// When enabled (dev builds only), getActiveBroker() returns the mock adapter so
-// the whole desk — feed, option chain, expiry, lot size, and paper fills — runs
-// on synthetic data with the market closed. Hard-gated to non-production; never
-// affects live builds; default off.
-const MOCK_FEED_ALLOWED = process.env.NODE_ENV !== "production";
-let mockFeedEnabled = false;
-const MOCK_FEED_UNDERLYINGS = [
-  { exchange: "IDX_I", securityId: "13", mode: "ticker" }, // NIFTY 50
-  { exchange: "IDX_I", securityId: "25", mode: "ticker" }, // BANK NIFTY
-  // MCX commodity underlyings — the mock resolver (resolveMCXFutcom) returns
-  // these synthetic futures security IDs, so subscribing them here makes the
-  // Crude Oil + Natural Gas instrument bars move under the mock feed too.
-  { exchange: "MCX_COMM", securityId: "MOCK-CRUDEOIL-FUT", mode: "ticker" }, // CRUDE OIL
-  { exchange: "MCX_COMM", securityId: "MOCK-NATURALGAS-FUT", mode: "ticker" }, // NATURAL GAS
-];
-
-export function isMockFeedAllowed(): boolean {
-  return MOCK_FEED_ALLOWED;
-}
-export function isMockFeed(): boolean {
-  return mockFeedEnabled;
-}
-/** Toggle the dev mock feed. Returns the effective state. No-op in production. */
-export function setMockFeed(enabled: boolean): boolean {
-  if (!MOCK_FEED_ALLOWED) return false;
-  mockFeedEnabled = enabled;
-  const mock = adapters.mockMy;
-  if (mock) {
-    if (enabled) {
-      // Start synthetic underlying ticks → tickBus → browser.
-      mock.subscribeLTP(MOCK_FEED_UNDERLYINGS as any, (tick) => tickBus.emitTick(tick));
-    } else {
-      mock.unsubscribeLTP(MOCK_FEED_UNDERLYINGS as any);
-    }
-  }
-  // The mock only ticks instruments in its subscribed set; the line above adds
-  // just the two underlyings (→ instrument-bar StrikeBar moves). Open trades'
-  // OPTION contracts also need subscribing or their TradeBar LTP stays frozen.
-  // Fire-and-forget; strictly mock-side (never touches the live Dhan feed).
-  void syncMockOpenTradeContracts(enabled);
-  return mockFeedEnabled;
-}
-
 /**
- * (Un)subscribe every OPEN paper trade's option contract on the mock adapter so
- * its TradeBar LTP ticks while the mock feed is on. Mirrors getActiveBroker()'s
- * routing — placement-time option subs already land on mockMy during a mock
- * session, so existing open trades must use the same adapter to match. Only the
- * mock is touched here; live subscriptions are left exactly as they are.
- */
-async function syncMockOpenTradeContracts(subscribe: boolean): Promise<void> {
-  const mock = adapters.mockMy;
-  if (!mock) return;
-  try {
-    // Lazy import avoids a static import cycle (portfolio → … → brokerService).
-    const { portfolioAgent } = await import("../portfolio");
-    const PAPER_CHANNELS: Channel[] = ["ai-paper", "my-paper"];
-    const contracts: any[] = [];
-    const seen = new Set<string>();
-    for (const channel of PAPER_CHANNELS) {
-      let positions;
-      try {
-        positions = await portfolioAgent.listOpenTrades(channel);
-      } catch {
-        continue; // one channel failing never blocks the rest
-      }
-      for (const t of positions) {
-        if (t.status !== "OPEN" || !t.contractSecurityId) continue;
-        const upper = t.instrument.toUpperCase();
-        const exchange = upper.includes("CRUDE") || upper.includes("NATURAL") ? "MCX_COMM" : "NSE_FNO";
-        const key = `${exchange}:${t.contractSecurityId}`;
-        if (seen.has(key)) continue; // de-dupe shared contracts across channels
-        seen.add(key);
-        contracts.push({ exchange, securityId: t.contractSecurityId, mode: "full" });
-      }
-    }
-    if (contracts.length === 0) return;
-    if (subscribe) {
-      mock.subscribeLTP(contracts as any, (tick) => tickBus.emitTick(tick));
-    } else {
-      mock.unsubscribeLTP(contracts as any);
-    }
-    log.info(
-      `Mock feed ${subscribe ? "subscribed" : "unsubscribed"} ${contracts.length} open-trade option contract(s)`,
-    );
-  } catch (err: any) {
-    log.warn(`syncMockOpenTradeContracts failed: ${err?.message ?? err}`);
-  }
-}
-
-/**
- * Get the currently active adapter (dhanLive by default; the mock adapter when
- * the dev mock-feed is on). Prefer getAdapter(channel) in new code.
+ * Get the currently active adapter (the live Dhan primary account).
+ * Prefer getAdapter(channel) in new code.
  */
 export function getActiveBroker(): BrokerAdapter | null {
-  if (mockFeedEnabled && adapters.mockMy) return adapters.mockMy;
   return adapters.dhanLive;
 }
 

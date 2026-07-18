@@ -286,8 +286,8 @@ function ChannelModeToggle() {
   const currentWs = channelToWorkspace(channel);
   const currentMode = channelToMode(channel);
   const utils = trpc.useUtils();
-  // Refresh capital data after a workspace clear / mock-feed toggle, via the
-  // stable trpc utils (so this component needn't read the capital context).
+  // Refresh capital data after a workspace clear, via the stable trpc utils
+  // (so this component needn't read the capital context).
   const refetchData = () => {
     void utils.portfolio.state.invalidate();
     void utils.portfolio.allDays.invalidate();
@@ -311,19 +311,6 @@ function ChannelModeToggle() {
     onSuccess: () => refetchData(),
   });
   const canClear = currentMode === 'paper';
-
-  // Dev mock-feed toggle — only rendered in dev builds (mockFeedStatus.allowed).
-  // The mock feed is never flipped externally, so no polling: fetch once and let
-  // the toggle mutation's invalidate refresh it (refetch-on-focus as a safety net).
-  const mockStatus = trpc.broker.mockFeedStatus.useQuery(undefined, { refetchOnWindowFocus: true });
-  const mockOn = mockStatus.data?.enabled ?? false;
-  const mockAllowed = mockStatus.data?.allowed ?? false;
-  const setMockMutation = trpc.broker.setMockFeed.useMutation({
-    onSuccess: () => {
-      utils.broker.mockFeedStatus.invalidate();
-      refetchData();
-    },
-  });
 
   return (
     <div className="relative flex items-center gap-2">
@@ -354,20 +341,6 @@ function ChannelModeToggle() {
           title={`Clear ${channel} pool`}
         >
           {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
-        </button>
-      )}
-      {mockAllowed && (
-        <button
-          onClick={() => setMockMutation.mutate({ enabled: !mockOn })}
-          disabled={setMockMutation.isPending}
-          className={`px-2 py-0.5 rounded text-[0.5625rem] font-bold transition-colors disabled:opacity-50 ${
-            mockOn
-              ? 'bg-violet-pulse/30 text-violet-pulse'
-              : 'bg-muted/30 text-muted-foreground hover:text-foreground'
-          }`}
-          title="Dev: feed the desk synthetic ticks + option chain for offline testing (paper only)"
-        >
-          {setMockMutation.isPending ? '...' : mockOn ? 'MOCK ●' : 'MOCK'}
         </button>
       )}
       <ConfirmPopover

@@ -13,8 +13,6 @@ import type { Server, IncomingMessage } from "http";
 import type { Duplex } from "stream";
 import type { Socket } from "net";
 import { tickBus, type ChainUpdate } from "./tickBus";
-import type { TickData } from "./types";
-import { isMockFeed } from "./brokerService";
 import { getSeaStatus } from "../seaHeartbeat";
 import { getInstrumentLiveState } from "../instrumentLiveState";
 import { WATCHED_INSTRUMENTS } from "../instrumentStateWatcher";
@@ -112,14 +110,6 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
   };
 
   tickBus.on("chainUpdate", onChainUpdate);
-
-  // Forward parsed ticks as JSON ONLY for the dev mock feed — live ticks already
-  // reach the browser as raw binary, so gating this avoids doubling traffic.
-  const onTick = (tick: TickData) => {
-    if (wss.clients.size === 0 || !isMockFeed()) return;
-    sendToAllClients(wss, JSON.stringify({ type: "snapshot", ticks: [tick] }));
-  };
-  tickBus.on("tick", onTick);
 
   // Forward SEA signals as JSON text frames so the signal tray updates live
   // (history is loaded separately from Mongo). Skip when no client connected.
@@ -242,7 +232,6 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
         // push into a closed wss (would log noisy errors).
         tickBus.off("rawBinary", onRawBinary);
         tickBus.off("chainUpdate", onChainUpdate);
-        tickBus.off("tick", onTick);
         tickBus.off("seaSignal", onSeaSignal);
         tickBus.off("seaStatus", onSeaStatus);
         tickBus.off("seaControl", onSeaControl);
