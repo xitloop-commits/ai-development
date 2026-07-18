@@ -21,10 +21,7 @@ export type Channel =
   | "ai-live"
   | "ai-paper"
   | "my-live"
-  | "my-paper"
-  | "testing-live"
-  | "stocks-live"
-  | "stocks-paper";
+  | "my-paper";
 
 /** @deprecated Kept only to silence transitional callers; use Channel. */
 export type Workspace = Channel;
