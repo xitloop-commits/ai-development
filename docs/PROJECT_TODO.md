@@ -152,6 +152,20 @@ Partha's design, **locked 2026-07-16.** A staged exit that protects early then r
   - New tunable knobs for T85: `scaleOutFrac` (0.5), `scaleOutTargetPct`, `ratchetStepPct` (2). Needs partial-fill support in the paper executor (close part of a position, keep the rest open) — check that exists first.
 **Do AFTER** Partha finishes the current #19 / stuck-open-trades review and says "go".
 
+### T87 [UI/ARCH] — Single default workspace revamp (do BEFORE T86) — SPEC IN PROGRESS (2026-07-18) 🆕
+Partha's revamp, to run **before** the T86 engine fixes (it reduces the T86 surface). Capturing points as given — spec still being built, more may come:
+1. Consolidate the many workspaces into **ONE default workspace**; it uses **ONE connection**.
+2. Connection = the **secondary** account.
+3. The default workspace has **both Paper and Live**.
+4. The default workspace **shows AI trades + manual (my) trades**.
+5. **Remove mock trading and the testing workspace** from the project.
+6. **AI trades default to PAPER only**; the paper/live setting comes from the **SEA menu** — a toggle to switch AI trades paper ↔ live, placed as the **1st item in the SEA menu**.
+7. The **paper/live toggle on the app bar** controls **only the manual (my) trades** (separate from the SEA-menu AI toggle in #6).
+8. Removing the my-trades workspace **also removes the instrument bar** — so the default workspace needs a **new way for the user to place manual trades** (design required).
+9. **Remove the stocks workspace** too — but the user must **still be able to place stock orders** from the default workspace (stock trading capability moves into the default workspace).
+10. **Remove the workspace tabs entirely** (AI trades / My trades / Testing / Stocks) — always just the **one default workspace**, no tabs.
+(Not yet specified: paper-fill mechanism.)
+
 ### T86 [BUG · P0] — Trades stuck OPEN forever after their stop fires ("half-exited") (2026-07-18) 🆕🔴
 **Symptom:** Runway/Anchor (and old Sprint-MA) trades sit OPEN for days at −35% to −38%, far past their stops, never squared off. 8+ stuck across 07-14 → 07-17.
 **Smoking gun (trade #43, BANKNIFTY 58100 PE Runway, id T1784267824982-hiutg0):** `status=OPEN` **but** `exitReason=SL_HIT` already stamped; `exitPrice` null; `unrealizedPnl=-71,835` (never booked); `stopLossPrice=666`, `ltp=426.55` → exit test `426.55 ≤ 666` is TRUE; `lastTickAt=07-18 09:48` (still ticking today); `desync=null`. So the SL **was detected** — the close just never completed. The trade is **half-exited**.
