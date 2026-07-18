@@ -186,6 +186,7 @@ Partha's revamp, to run **before** the T86 engine fixes (it reduces the T86 surf
 13. **Trade # (#N):** today it's a per-day, per-channel **row index** (`trades.indexOf(trade)+1`, `TodaySection.tsx:230`) — NOT globally unique (real unique id = `trade.id`). After merging channels into one desk, decide: keep simple row-index `#N`, or introduce a **stable unique trade number** across all trades.
 14. **Manual trade placement** is triggered today from the **signal tray** (+ instrument bar); after the revamp, **design placement from the trading-desk table itself**.
 15. **Watchlist** is preserved — **moved to instrument cards** (not deleted with the stocks workspace).
+16. **LIVE-book capital comes from the real Dhan account** (not a manual/injected number): `my-live` capital = **primary** account funds/margin; `ai-live` capital = **secondary** account funds — fetched live from Dhan (funds/margin API; `scripts/dhan-margin-check.mjs` shows the path). **Paper** books keep their configured play-money. So a balance shows set play-money in paper mode, and the real broker balance in live mode. (Note: a Dhan account is one shared pot; after the revamp `my-live` is BSA's only primary-account trader, so it's clean.)
 (All blocking decisions resolved. Remaining = design work: manual order-entry surface in the desk table, stock placement + watchlist on instrument cards, trade-# scheme.)
 
 ### T86 [BUG · P0] — Trades stuck OPEN forever after their stop fires ("half-exited") (2026-07-18) 🆕🔴
