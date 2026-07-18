@@ -182,7 +182,11 @@ Partha's revamp, to run **before** the T86 engine fixes (it reduces the T86 surf
   - PRIMARY **#1** = the **single market-data feed for ALL 4 channels** (ai-paper, my-paper, my-live, AND ai-live) + browser — **fixed to forward ticks to ALL listeners** (kills the single-slot clobber → **retires T86 bug α**). **#2** = my-live fills only (options+stocks).
   - SECONDARY: **#4** = ai-live fills ONLY; **#5** = Python TFA (unchanged). **#3 RETIRED** (ai-live ticks now come from #1).
   - **Rule:** market data is account-independent → always the primary #1; the secondary is touched by BSA **only to place ai-live orders + read fills** (#4). BSA sockets drop 4→3; deaf-feed fixed at one point; TFA-sensitive secondary touched minimally.
-(All blocking decisions resolved. Remaining = design work: manual order-entry surface to replace the instrument bar, and stock placement folded into the one desk.)
+**MORE POINTS (2026-07-18):**
+13. **Trade # (#N):** today it's a per-day, per-channel **row index** (`trades.indexOf(trade)+1`, `TodaySection.tsx:230`) — NOT globally unique (real unique id = `trade.id`). After merging channels into one desk, decide: keep simple row-index `#N`, or introduce a **stable unique trade number** across all trades.
+14. **Manual trade placement** is triggered today from the **signal tray** (+ instrument bar); after the revamp, **design placement from the trading-desk table itself**.
+15. **Watchlist** is preserved — **moved to instrument cards** (not deleted with the stocks workspace).
+(All blocking decisions resolved. Remaining = design work: manual order-entry surface in the desk table, stock placement + watchlist on instrument cards, trade-# scheme.)
 
 ### T86 [BUG · P0] — Trades stuck OPEN forever after their stop fires ("half-exited") (2026-07-18) 🆕🔴
 **Symptom:** Runway/Anchor (and old Sprint-MA) trades sit OPEN for days at −35% to −38%, far past their stops, never squared off. 8+ stuck across 07-14 → 07-17.
