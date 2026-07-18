@@ -164,7 +164,7 @@ afterAll(async () => {
   await BrokerConfigModel.deleteMany({
     brokerId: {
       $in: ["test_dhan", "test_mock", "test_broker_a", "test_broker_b",
-            "dhan-primary-ac", "mock-ai", "mock-my", "mock-stocks"],
+            "dhan-primary-ac", "mock-ai", "mock-my"],
     },
   });
   await mongoose.disconnect();
@@ -357,7 +357,7 @@ describe("Broker Service", () => {
   beforeEach(async () => {
     _resetForTesting();
     await BrokerConfigModel.deleteMany({
-      brokerId: { $in: ["dhan-primary-ac", "mock-ai", "mock-my", "mock-stocks", "test_broker_a", "test_broker_b"] },
+      brokerId: { $in: ["dhan-primary-ac", "mock-ai", "mock-my", "test_broker_a", "test_broker_b"] },
     });
   });
 
@@ -436,11 +436,9 @@ describe("Broker Service", () => {
     const state = getKillSwitchState();
     expect(state.ai).toBe(true);
     expect(state.my).toBe(true);
-    expect(state.testing).toBe(false);
 
     expect(isChannelKillSwitchActive("ai-live")).toBe(true);
     expect(isChannelKillSwitchActive("my-live")).toBe(true);
-    expect(isChannelKillSwitchActive("testing-live")).toBe(false);
   }, 15000);
 
   it("toggleKillSwitch (legacy) activates all workspaces", async () => {
@@ -453,7 +451,6 @@ describe("Broker Service", () => {
     const state = getKillSwitchState();
     expect(state.ai).toBe(true);
     expect(state.my).toBe(true);
-    expect(state.testing).toBe(true);
 
     const deactivateResult = await toggleKillSwitch("DEACTIVATE");
     expect(deactivateResult.status).toBe("deactivated");

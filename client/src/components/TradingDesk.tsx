@@ -160,7 +160,6 @@ export default function TradingDesk({
       <div className="flex-1 relative overflow-hidden" style={{ contentVisibility: 'auto' }}>
         <div ref={tableContainerRef} className={`h-full overflow-y-auto overflow-x-hidden scrollbar-thin transition-opacity duration-150 ${
           workspace === 'my' ? 'scrollbar-bullish' :
-          workspace === 'testing' ? 'scrollbar-amber' :
           'scrollbar-violet'
         }`}>
           {allDays.length === 0 ? (
@@ -198,7 +197,7 @@ export default function TradingDesk({
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Instrument</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Entry</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">LTP</th>
-                  <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">{workspace === 'stocks' ? 'Qty' : 'Lot'}</th>
+                  <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Lot</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Invested</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Charges</th>
                   <th className="px-2 py-2 text-right font-bold text-muted-foreground border-r border-border">Points</th>

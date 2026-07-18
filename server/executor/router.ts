@@ -38,9 +38,6 @@ const channelSchema = z.enum([
   "ai-paper",
   "my-live",
   "my-paper",
-  "testing-live",
-  "stocks-live",
-  "stocks-paper",
 ]);
 
 const trailingStopSchema = z.object({

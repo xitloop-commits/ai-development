@@ -80,7 +80,7 @@ export interface BrokerTpRatchetEvent {
 }
 
 /** Channels whose open trades get tick-driven MTM + auto-SL/TP. */
-const TICK_CHANNELS: Channel[] = ["my-live", "my-paper", "ai-live", "ai-paper", "testing-live"];
+const TICK_CHANNELS: Channel[] = ["my-live", "my-paper", "ai-live", "ai-paper"];
 
 // ─── Instrument → Trade Mapping ─────────────────────────────────
 
@@ -394,7 +394,7 @@ class TickHandler extends EventEmitter {
         // ratchet the TP (both via throttled events → TEA → leg modify). Plain
         // live orders (no superOrderId) have no broker bracket to modify, so
         // they're skipped (pre-existing unprotected behavior — see Phase 1 gate).
-        if (channel === "my-live" || channel === "ai-live" || channel === "testing-live") {
+        if (channel === "my-live" || channel === "ai-live") {
           if (trailingStopEnabled && trade.superOrderId) {
             const lBuy = trade.type.includes("BUY");
             const breakeven = trade.breakevenPrice ?? trade.entryPrice;

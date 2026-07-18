@@ -63,10 +63,7 @@ export type ChannelCode =
   | "ai-live"
   | "ai-paper"
   | "my-live"
-  | "my-paper"
-  | "testing-live"
-  | "stocks-live"
-  | "stocks-paper";
+  | "my-paper";
 
 // ─── DA → RCA: DisciplineExitRequest ─────────────────────────────
 

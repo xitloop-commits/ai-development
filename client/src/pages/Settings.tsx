@@ -1189,7 +1189,7 @@ export function TradingModeSection() {
     updateModeMutation.mutate({ [field]: value } as any);
   };
 
-  const handleKillSwitch = (workspace: 'ai' | 'my' | 'testing', active: boolean) => {
+  const handleKillSwitch = (workspace: 'ai' | 'my', active: boolean) => {
     killSwitchMutation.mutate({ workspace, action: active ? 'ACTIVATE' : 'DEACTIVATE' });
   };
 
@@ -1288,38 +1288,6 @@ export function TradingModeSection() {
               <ToggleSwitch
                 checked={tm?.myKillSwitch ?? false}
                 onChange={(v) => handleKillSwitch('my', v)}
-                disabled={killSwitchMutation.isPending || isLoading}
-              />
-            </div>
-          </div>
-        </div>
-      </SettingsCard>
-
-      {/* Testing Workspace */}
-      <SettingsCard title="Testing">
-        <div className="space-y-4">
-          <p className="text-[0.5625rem] text-muted-foreground">
-            The Testing workspace is live-only (real money). It shares the primary Dhan account with My Live.
-          </p>
-
-          <div className="flex items-center justify-between pt-3 border-t border-border">
-            <div>
-              <FieldLabel hint="Blocks new orders on testing-live.">
-                Testing Kill Switch
-              </FieldLabel>
-              {tm?.testingKillSwitch && (
-                <span className="text-[0.5625rem] text-destructive font-bold tracking-wider">● ACTIVE — testing-live blocked</span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {tm?.testingKillSwitch && (
-                <span className="text-[0.5625rem] px-2 py-0.5 rounded bg-destructive/10 text-destructive border border-destructive/30 font-bold tracking-wider uppercase">
-                  HALTED
-                </span>
-              )}
-              <ToggleSwitch
-                checked={tm?.testingKillSwitch ?? false}
-                onChange={(v) => handleKillSwitch('testing', v)}
                 disabled={killSwitchMutation.isPending || isLoading}
               />
             </div>

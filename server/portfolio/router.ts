@@ -43,7 +43,7 @@ const log = createLogger("PA", "Router");
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-const channelSchema = z.enum(["ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "stocks-live", "stocks-paper"]);
+const channelSchema = z.enum(["ai-live", "ai-paper", "my-live", "my-paper"]);
 /** Channels that mirror My Trades LIVE capital ops for shadow tracking. */
 const mirroredChannels: Channel[] = ["my-paper", "ai-paper"];
 

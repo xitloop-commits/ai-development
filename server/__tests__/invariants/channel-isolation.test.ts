@@ -3,9 +3,8 @@
  * one adapter, and paper channels are fully isolated (a my-paper trade
  * MUST NOT reach the ai-paper adapter, and vice-versa).
  *
- * Live channels intentionally share an adapter when they share an account
- * (my-live and testing-live both use `dhan-primary-ac`); the test asserts the
- * documented mapping rather than universal isolation.
+ * Live channels intentionally share an adapter when they share an account;
+ * the test asserts the documented mapping rather than universal isolation.
  *
  * Reference: BrokerServiceAgent_Spec_v1.9 §1.2 (channel→brokerId table).
  *
@@ -40,7 +39,6 @@ describe("invariant: channel isolation", () => {
   let dhanAiData: MockAdapter;
   let mockAi: MockAdapter;
   let mockMy: MockAdapter;
-  let mockStocks: MockAdapter;
   let spies: Record<string, ReturnType<typeof vi.spyOn>>;
 
   beforeEach(() => {
@@ -51,10 +49,9 @@ describe("invariant: channel isolation", () => {
     dhanAiData = new MockAdapter("dhan-secondary-ac", "Dhan (AI Data)");
     mockAi     = new MockAdapter("mock-ai", "Paper (AI Trades)");
     mockMy     = new MockAdapter("mock-my", "Paper (My Trades)");
-    mockStocks = new MockAdapter("mock-stocks", "Paper (Stocks)");
 
     _setAdaptersForTesting({
-      dhanLive, dhanAiData, mockAi, mockMy, mockStocks,
+      dhanLive, dhanAiData, mockAi, mockMy,
     });
 
     spies = {
@@ -62,7 +59,6 @@ describe("invariant: channel isolation", () => {
       dhanAiData: vi.spyOn(dhanAiData, "placeOrder"),
       mockAi:     vi.spyOn(mockAi, "placeOrder"),
       mockMy:     vi.spyOn(mockMy, "placeOrder"),
-      mockStocks: vi.spyOn(mockStocks, "placeOrder"),
     };
   });
 
@@ -81,26 +77,12 @@ describe("invariant: channel isolation", () => {
     expect(getAdapter("my-live")).toBe(dhanLive);
   });
 
-  it("testing-live routes to dhan-primary-ac and shares the adapter with my-live (by design)", () => {
-    expect(getAdapter("testing-live")).toBe(dhanLive);
-    expect(getAdapter("testing-live")).toBe(getAdapter("my-live"));
-  });
-
   it("ai-paper routes to mock-ai", () => {
     expect(getAdapter("ai-paper")).toBe(mockAi);
   });
 
   it("my-paper routes to mock-my", () => {
     expect(getAdapter("my-paper")).toBe(mockMy);
-  });
-
-  it("stocks-paper routes to mock-stocks", () => {
-    expect(getAdapter("stocks-paper")).toBe(mockStocks);
-  });
-
-  it("stocks-live routes to dhan-primary-ac and shares the adapter with my-live (by design)", () => {
-    expect(getAdapter("stocks-live")).toBe(dhanLive);
-    expect(getAdapter("stocks-live")).toBe(getAdapter("my-live"));
   });
 
   // ── placeOrder isolation: paper channels ──────────────────────
@@ -110,7 +92,6 @@ describe("invariant: channel isolation", () => {
 
     expect(spies.mockMy).toHaveBeenCalledTimes(1);
     expect(spies.mockAi).not.toHaveBeenCalled();
-    expect(spies.mockStocks).not.toHaveBeenCalled();
     expect(spies.dhanLive).not.toHaveBeenCalled();
     expect(spies.dhanAiData).not.toHaveBeenCalled();
   });
@@ -120,17 +101,7 @@ describe("invariant: channel isolation", () => {
 
     expect(spies.mockAi).toHaveBeenCalledTimes(1);
     expect(spies.mockMy).not.toHaveBeenCalled();
-    expect(spies.mockStocks).not.toHaveBeenCalled();
     expect(spies.dhanLive).not.toHaveBeenCalled();
-    expect(spies.dhanAiData).not.toHaveBeenCalled();
-  });
-
-  it("a stocks-paper placeOrder touches mock-stocks only — every other adapter stays untouched", async () => {
-    await getAdapter("stocks-paper").placeOrder(sampleOrder);
-
-    expect(spies.mockStocks).toHaveBeenCalledTimes(1);
-    expect(spies.mockAi).not.toHaveBeenCalled();
-    expect(spies.mockMy).not.toHaveBeenCalled();
     expect(spies.dhanAiData).not.toHaveBeenCalled();
   });
 

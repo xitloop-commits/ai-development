@@ -169,18 +169,15 @@ export function strategyPillStyle(strategy: string | null | undefined) {
   return instrumentStyleFromHex(resolveStrategyHex(strategy)).pill;
 }
 
-/** Manual order controls allowed on My-* and Testing-* channels (not on AI channels). */
+/** Manual order controls allowed on My-* channels (not on AI channels). */
 export function supportsManualControls(channel: Channel): boolean {
-  const ws = channelToWorkspace(channel);
-  return ws === 'my' || ws === 'testing';
+  return channelToWorkspace(channel) === 'my';
 }
 
-/** Manual EXIT is allowed wherever full manual controls are (my/testing) AND in
- *  the AI workspace — the operator can square off an AI-managed position by hand
- *  without enabling manual entry. Stocks are handled separately (isEquityTrade). */
-export function canExitTrades(channel: Channel): boolean {
-  const ws = channelToWorkspace(channel);
-  return ws === 'my' || ws === 'testing' || ws === 'ai';
+/** Manual EXIT is allowed in both workspaces — the operator can square off an
+ *  AI-managed position by hand, and manages their own My trades. */
+export function canExitTrades(_channel: Channel): boolean {
+  return true;
 }
 
 /** Badge label + classes for a channel (workspace × mode). */
@@ -196,14 +193,6 @@ export function getChannelBadgeMeta(channel: Channel): { label: string; classNam
       return live
         ? { label: 'AI LIVE', className: 'bg-violet-pulse/20 text-violet-pulse' }
         : { label: 'AI PAPER', className: 'bg-violet-pulse/15 text-violet-pulse/80' };
-    case 'testing':
-      return live
-        ? { label: 'TEST LIVE', className: 'bg-warning-amber/20 text-warning-amber' }
-        : { label: 'TEST', className: 'bg-warning-amber/15 text-warning-amber/80' };
-    case 'stocks':
-      return live
-        ? { label: 'STOCKS LIVE', className: 'bg-info-cyan/20 text-info-cyan' }
-        : { label: 'STOCKS PAPER', className: 'bg-info-cyan/15 text-info-cyan/80' };
   }
 }
 
@@ -241,38 +230,6 @@ export function getWorkspaceThemeMeta(workspace: Workspace): WorkspaceThemeMeta 
         borderSoft: 'border-l-bullish/50',
         button: 'bg-bullish/15 text-bullish hover:bg-bullish/25',
         buttonActive: 'bg-bullish/20 text-bullish',
-      };
-    case 'testing':
-      return {
-        text: 'text-warning-amber',
-        textSoft: 'text-warning-amber/80',
-        textDim: 'text-warning-amber/60',
-        rowBg: 'bg-warning-amber/[0.04]',
-        rowBgHover: 'hover:bg-warning-amber/[0.08]',
-        todayBg: 'bg-warning-amber/[0.08]',
-        todayAltBg: 'bg-warning-amber/[0.04]',
-        summaryBg: 'bg-warning-amber/20',
-        summaryBorder: 'border-warning-amber/30',
-        borderStrong: 'border-l-warning-amber',
-        borderSoft: 'border-l-warning-amber/50',
-        button: 'bg-warning-amber/15 text-warning-amber hover:bg-warning-amber/25',
-        buttonActive: 'bg-warning-amber/20 text-warning-amber',
-      };
-    case 'stocks':
-      return {
-        text: 'text-info-cyan',
-        textSoft: 'text-info-cyan/80',
-        textDim: 'text-info-cyan/60',
-        rowBg: 'bg-info-cyan/[0.04]',
-        rowBgHover: 'hover:bg-info-cyan/[0.08]',
-        todayBg: 'bg-info-cyan/[0.08]',
-        todayAltBg: 'bg-info-cyan/[0.04]',
-        summaryBg: 'bg-info-cyan/20',
-        summaryBorder: 'border-info-cyan/30',
-        borderStrong: 'border-l-info-cyan',
-        borderSoft: 'border-l-info-cyan/50',
-        button: 'bg-info-cyan/15 text-info-cyan hover:bg-info-cyan/25',
-        buttonActive: 'bg-info-cyan/20 text-info-cyan',
       };
     case 'ai':
     default:

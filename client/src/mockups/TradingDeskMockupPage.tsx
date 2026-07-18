@@ -532,9 +532,6 @@ function buildWorkspaceData(): Record<Channel, WorkspaceData> {
     'my-paper':        { capital: paperManualCapital, allDays: paperManualDays },
     'ai-live':         { capital: paperCapital, allDays: paperDays },
     'ai-paper':        { capital: paperCapital, allDays: paperDays },
-    'testing-live':    { capital: paperManualCapital, allDays: paperManualDays },
-    'stocks-live':     { capital: paperManualCapital, allDays: paperManualDays },
-    'stocks-paper':    { capital: paperCapital, allDays: paperDays },
   };
 }
 

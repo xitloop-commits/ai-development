@@ -3,8 +3,8 @@
  *
  * Locked behaviours:
  *
- *   1. Four workspace tabs render (AI / My / Testing / Stocks) with the
- *      current workspace marked active.
+ *   1. Two workspace tabs render (AI / My) with the current workspace
+ *      marked active.
  *   2. A live-mode active tab shows the green pulse dot.
  *   3. Clicking the active tab is a no-op (no confirm popover).
  *   4. Clicking a non-active tab opens a confirm popover; cancelling
@@ -65,11 +65,9 @@ describe("ChannelTabs — render", () => {
     // Reset module memory so tests don't leak state into each other.
     lastModeForWs.ai = "paper";
     lastModeForWs.my = "paper";
-    lastModeForWs.testing = "live";
-    lastModeForWs.stocks = "paper";
   });
 
-  it("renders the three workspace tab labels in TAB_DEFS order", () => {
+  it("renders the workspace tab labels in TAB_DEFS order", () => {
     renderWith("ai-paper");
     const labels = screen.getAllByRole("button").map((b) => b.textContent?.trim());
     // The labels include the green dot suffix when live, but the
@@ -96,8 +94,6 @@ describe("ChannelTabs — switch confirmation", () => {
   beforeEach(() => {
     lastModeForWs.ai = "paper";
     lastModeForWs.my = "paper";
-    lastModeForWs.testing = "live";
-    lastModeForWs.stocks = "paper";
   });
 
   it("clicking the active tab is a no-op (no confirm shown)", () => {
@@ -153,29 +149,12 @@ describe("ChannelTabs — switch confirmation", () => {
     expect(setChannel).toHaveBeenCalledWith("my-live");
   });
 
-  it("targets testing-live for testing workspace (testing is live-only)", () => {
-    const setChannel = vi.fn();
-    renderWith("my-paper", setChannel);
-
-    act(() => { screen.getByText(/Testing/).click(); });
-    expect(screen.getByText(/Switch from my-paper to testing-live/)).toBeInTheDocument();
-  });
-
-  it("targets stocks-paper for stocks workspace (paper default)", () => {
-    const setChannel = vi.fn();
-    renderWith("my-paper", setChannel);
-
-    act(() => { screen.getByText(/Stocks/).click(); });
-    expect(screen.getByText(/Switch from my-paper to stocks-paper/)).toBeInTheDocument();
-  });
 });
 
 describe("ChannelTabs — last-mode memory mirror", () => {
   beforeEach(() => {
     lastModeForWs.ai = "paper";
     lastModeForWs.my = "paper";
-    lastModeForWs.testing = "live";
-    lastModeForWs.stocks = "paper";
   });
 
   it("updates lastModeForWs[ai] when the active channel is ai-live", () => {
@@ -184,10 +163,6 @@ describe("ChannelTabs — last-mode memory mirror", () => {
     expect(lastModeForWs.ai).toBe("live");
   });
 
-  it("updates lastModeForWs[testing] when the active channel is testing-live", () => {
-    renderWith("testing-live");
-    expect(lastModeForWs.testing).toBe("live");
-  });
 
   it("updates lastModeForWs[my] when the active channel is my-paper", () => {
     renderWith("my-paper");

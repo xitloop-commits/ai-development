@@ -532,9 +532,7 @@ class RcaMonitor {
     // (which halts ai-paper too — paper trades on a broken pipeline are
     // also untrustworthy).
     const workspace =
-      channel === "ai-live" || channel === "ai-paper" ? "ai"
-      : channel === "my-live" || channel === "my-paper" ? "my"
-      : "testing";
+      channel === "ai-live" || channel === "ai-paper" ? "ai" : "my";
 
     log.error(
       `BROKER_DESYNC threshold breached — tripping kill switch workspace=${workspace} channel=${channel} count=${count}`,

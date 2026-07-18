@@ -61,7 +61,7 @@ import type {
 const log = createLogger("TEA", "Executor");
 
 const PAPER_CHANNELS: Channel[] = ["my-paper", "ai-paper"];
-const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live", "testing-live", "stocks-live"];
+const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live"];
 
 // AI_LIVE_LOT_CAP is now sourced from executor_settings (default 1).
 // TEA Settings page surfaces it; checkAiLiveLotCap reads through the
@@ -159,7 +159,7 @@ class TradeExecutorAgent {
    */
   async resubscribeOpenTradeLtps(): Promise<void> {
     const ALL_CHANNELS: Channel[] = [
-      "ai-live", "ai-paper", "my-live", "my-paper", "testing-live", "stocks-live", "stocks-paper",
+      "ai-live", "ai-paper", "my-live", "my-paper",
     ];
     let count = 0;
     for (const channel of ALL_CHANNELS) {

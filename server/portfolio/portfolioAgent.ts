@@ -769,7 +769,8 @@ class PortfolioAgentImpl {
     // correctly (buildExternalTrade would otherwise create an equity-shaped
     // trade for a CE/PE) — deferred to step ③.
     if (update.assetKind !== "equity") return { matched: false };
-    const channel: Channel = "stocks-live";
+    // Stocks fold into the My book (T87): equity fills are adopted into my-live.
+    const channel: Channel = "my-live";
     const symbol = update.symbol ?? securityId;
 
     const state = await getCapitalState(channel).catch(() => null);
@@ -1000,7 +1001,7 @@ class PortfolioAgentImpl {
     // notify (single-writer invariant preserved).
     if (update.status === "FILLED" && (update.legNo === 2 || update.legNo === 3)) {
       const reason: AutoExitEvent["reason"] = update.legNo === 2 ? "SL_HIT" : "TP_HIT";
-      const legChannels: Channel[] = ["my-live", "ai-live", "testing-live", "stocks-live"];
+      const legChannels: Channel[] = ["my-live", "ai-live"];
       for (const channel of legChannels) {
         const state = await getCapitalState(channel).catch(() => null);
         if (!state) continue;
@@ -1039,7 +1040,7 @@ class PortfolioAgentImpl {
 
     // Brokers don't tell us which channel the order belongs to. Each live
     // channel could have placed it — scan and stop at the first match.
-    const liveChannels: Channel[] = ["my-live", "ai-live", "testing-live", "stocks-live"];
+    const liveChannels: Channel[] = ["my-live", "ai-live"];
     for (const channel of liveChannels) {
       const state = await getCapitalState(channel).catch(() => null);
       if (!state) continue;

@@ -32,8 +32,6 @@ export const TAB_DEFS: Array<{
 }> = [
   { ws: 'ai',      label: 'AI Trades',  tone: { active: 'bg-violet-pulse/15 text-violet-pulse',     idle: 'text-muted-foreground hover:text-foreground hover:bg-secondary/50' } },
   { ws: 'my',      label: 'My Trades',  tone: { active: 'bg-bullish/15 text-bullish',               idle: 'text-muted-foreground hover:text-foreground hover:bg-secondary/50' } },
-  { ws: 'testing', label: 'Testing',    tone: { active: 'bg-warning-amber/15 text-warning-amber',   idle: 'text-muted-foreground hover:text-foreground hover:bg-secondary/50' } },
-  { ws: 'stocks',  label: 'Stocks',     tone: { active: 'bg-info-cyan/15 text-info-cyan',           idle: 'text-muted-foreground hover:text-foreground hover:bg-secondary/50' } },
 ];
 
 /**
@@ -44,8 +42,6 @@ export const TAB_DEFS: Array<{
 export const lastModeForWs: Record<Workspace, Mode> = {
   ai: 'paper',
   my: 'paper',
-  testing: 'live',
-  stocks: 'paper',
 };
 
 export function ChannelTabs() {

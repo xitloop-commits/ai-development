@@ -1,46 +1,39 @@
 /**
  * Shared types and constants for the TradingDesk table and its row components.
  *
- * Canonical state vocabulary (BSA v1.8):
- *   workspace ∈ { ai, my, testing, stocks }
- *   mode      ∈ { live, paper }            (testing is live-only)
- *   channel   = `${workspace}-${mode}`     // 7 valid combinations
+ * Canonical state vocabulary (T87 single-workspace revamp, 2026-07-18):
+ *   workspace ∈ { ai, my }                 (testing + stocks workspaces removed;
+ *                                            stocks fold into `my` as equity trades)
+ *   mode      ∈ { live, paper }
+ *   channel   = `${workspace}-${mode}`     // 4 valid combinations
  *
  * `channel` is the single source of truth on the wire and in storage.
  */
 
-export type Workspace = 'ai' | 'my' | 'testing' | 'stocks';
+export type Workspace = 'ai' | 'my';
 export type Mode = 'live' | 'paper';
 
 export type Channel =
   | 'ai-live'
   | 'ai-paper'
   | 'my-live'
-  | 'my-paper'
-  | 'testing-live'
-  | 'stocks-live'
-  | 'stocks-paper';
+  | 'my-paper';
 
 export const ALL_CHANNELS: readonly Channel[] = [
   'ai-live',
   'ai-paper',
   'my-live',
   'my-paper',
-  'testing-live',
-  'stocks-live',
-  'stocks-paper',
 ] as const;
 
-/** Default mode for each workspace tab on first launch (paper = safer side; testing is live-only). */
+/** Default mode for each workspace group on first launch (paper = safer side). */
 export const DEFAULT_CHANNEL_FOR_WORKSPACE: Record<Workspace, Channel> = {
   ai: 'ai-paper',
   my: 'my-paper',
-  testing: 'testing-live',
-  stocks: 'stocks-paper',
 };
 
-/** First-launch landing channel — Testing workspace (live-only). */
-export const DEFAULT_LANDING_CHANNEL: Channel = 'testing-live';
+/** First-launch landing channel — My trades, paper (AI + My both show in one desk). */
+export const DEFAULT_LANDING_CHANNEL: Channel = 'my-paper';
 
 export function channelToWorkspace(channel: Channel): Workspace {
   return channel.split('-')[0] as Workspace;

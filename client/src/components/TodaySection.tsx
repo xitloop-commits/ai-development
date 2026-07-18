@@ -149,7 +149,9 @@ export function TodaySection({
   // execution is not enabled yet). Clicking a watchlist stock stages a draft
   // here; Buy places a market order for `qty` shares and clears the draft.
   const { orders: stagedOrders, unstage, setQty, setProductType } = useStagedOrders();
-  const showStaged = channelToWorkspace(channel) === 'stocks';
+  // T87: the stocks workspace is gone (stocks fold into My). Staged stock-order
+  // placement moves into the desk table in a later step — hidden for now.
+  const showStaged = false;
   const isPaper = isPaperChannel(channel);
   // Live buys route to the real Dhan account, so they go through a confirmation
   // dialog first. Paper buys place immediately.

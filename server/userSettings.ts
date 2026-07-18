@@ -75,7 +75,7 @@ export interface TradingModeSettings {
   myKillSwitch: boolean;              // Kill switch for my-live channel
   testingKillSwitch: boolean;         // Kill switch for testing-live channel
   stocksKillSwitch: boolean;          // Kill switch for stocks-live channel
-  defaultWorkspace: "ai" | "my" | "testing" | "stocks"; // Tab the app opens on at launch (default "my")
+  defaultWorkspace: "ai" | "my"; // Which group the app opens on at launch (default "my")
 }
 
 export interface UserSettingsDoc {
@@ -293,7 +293,7 @@ const tradingModeSchema = new Schema(
     myKillSwitch: { type: Boolean, default: false },
     testingKillSwitch: { type: Boolean, default: false },
     stocksKillSwitch: { type: Boolean, default: false },
-    defaultWorkspace: { type: String, enum: ["ai", "my", "testing", "stocks"], default: "my" },
+    defaultWorkspace: { type: String, enum: ["ai", "my"], default: "my" },
   },
   { _id: false }
 );
