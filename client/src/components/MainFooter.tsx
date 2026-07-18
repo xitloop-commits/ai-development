@@ -4,12 +4,10 @@
  * Layout (left → right):
  *   1. Quarterly Projections (Q boxes)
  *   2. Monthly Growth (Prev + Curr month, hover → pool breakup)
- *   3. Day 250 Journey progress bar
- *   4. Project Milestone bar (current day lifecycle shown, hover → full milestones)
- *   5. Holiday indicator (click → dialog)
- *   6. Discipline score (hover → 7-category breakup)
- *   7. Capital Pools horizontal (Trading + Reserve bars, hover → inject dialog)
- *   8. Net Worth + growth%
+ *   3. Holiday indicator (click → dialog)
+ *   4. Discipline score (hover → 7-category breakup)
+ *   5. Capital Pools horizontal (Trading + Reserve bars, hover → inject dialog)
+ *   6. Net Worth + growth%
  *
  * Data: Wired to global CapitalContext (single source of truth).
  */
@@ -236,14 +234,9 @@ export default function MainFooter() {
   const reservePool = capital.reservePool;
   const netWorth = capital.netWorth;
   const initialFunding = capital.initialFunding;
-  const currentDay = capital.currentDayIndex;
-  const targetPercent = capital.targetPercent;
   const growthPercent = initialFunding > 0
     ? (((netWorth - initialFunding) / initialFunding) * 100).toFixed(1)
     : '0.0';
-
-  // Day 250 progress
-  const _dayProgress = (currentDay / 250) * 100;
 
   // Monthly P&L (profit only, excludes injected funds) computed from day records
   const now = new Date();
@@ -292,24 +285,6 @@ export default function MainFooter() {
 
   // ─── Quarterly Projections (from global context) ────────────
   // (was `_allQuarters` — orphan dead var dropped in H6.)
-
-  // ─── Projected Milestones ──────────────────────────────────
-  const milestones = useMemo(() => {
-    const baseTradingPool = initialFunding * 0.75;
-    const baseReservePool = initialFunding * 0.25;
-    const rate = 1 + (targetPercent / 100) * 0.75;
-    const reserveRate = targetPercent / 100 * 0.25;
-    const points = [1, 25, 50, 75, 100, 125, 150, 175, 200, 225, 250];
-    return points.map((day) => {
-      const tp = baseTradingPool * Math.pow(rate, day - 1);
-      const rp = baseReservePool + baseTradingPool * reserveRate * ((Math.pow(rate, day - 1) - 1) / (rate - 1));
-      return { day, tradingPool: tp, total: tp + rp };
-    });
-  }, [targetPercent, initialFunding]);
-
-  // Find current milestone range
-  const _currentMilestone = milestones.find(m => m.day >= currentDay) ?? milestones[milestones.length - 1];
-  const _prevMilestone = milestones.filter(m => m.day < currentDay).pop();
 
   const _handleInject = () => {
     const amount = parseFloat(injectAmount);
@@ -400,58 +375,8 @@ export default function MainFooter() {
             </TooltipContent>
         </Tooltip>
 
-        {/* Separator */}
-        <div className="w-px self-stretch -my-2 bg-border shrink-0" />
-
-        {/* ─��─ Milestone — horizontal progress bar ─���─ */}
-            <div className="flex-1 flex items-center cursor-default min-w-[200px] pr-6">
-              <div className="flex-1 relative h-2.5 rounded-full bg-muted-foreground/20 my-6">
-                {/* Progress fill (clipped to bar shape) */}
-                <div className="absolute inset-0 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-bullish transition-all duration-700"
-                    style={{ width: `${Math.min((currentDay / 250) * 100, 100)}%` }}
-                  />
-                </div>
-                {/* Milestone markers with day above + capital below */}
-                {milestones.filter(m => m.day > 1).map((m) => (
-                  <div
-                    key={m.day}
-                    className="absolute flex flex-col items-center -translate-x-1/2"
-                    style={{ left: `${(m.day / 250) * 100}%`, top: '-16px', bottom: '-18px' }}
-                  >
-                    <span className={`text-[0.625rem] font-bold tabular-nums leading-none ${
-                      currentDay >= m.day ? 'text-foreground' : 'text-foreground/60'
-                    }`}>
-                      {m.day}
-                    </span>
-                    <div className={`flex-1 w-px my-0.5 ${
-                      currentDay >= m.day ? 'bg-foreground/40' : 'bg-muted-foreground/30'
-                    }`} />
-                    <span className={`text-[0.5625rem] tabular-nums leading-none ${
-                      currentDay >= m.day ? 'text-foreground' : 'text-foreground/50'
-                    }`}>
-                      {fmt(m.total)}
-                    </span>
-                  </div>
-                ))}
-                {/* Current position marker with day label */}
-                <div
-                  className="absolute flex flex-col items-center -translate-x-1/2 transition-all duration-700 z-10"
-                  style={{ left: `${Math.min((currentDay / 250) * 100, 100)}%`, top: '-16px', bottom: '-18px' }}
-                >
-                  <span className="text-[0.625rem] font-bold tabular-nums leading-none text-primary">
-                    {currentDay}
-                  </span>
-                  <div className="flex-1 flex items-center justify-center my-0.5">
-                    <div className="h-4 w-4 rounded-full bg-primary border-2 border-background shadow-md" />
-                  </div>
-                  <span className="text-[0.5625rem] font-bold tabular-nums leading-none text-primary">
-                    {fmt(netWorth)}
-                  </span>
-                </div>
-              </div>
-            </div>
+        {/* Spacer — pushes Net Worth to the right edge (was the milestone bar) */}
+        <div className="flex-1" />
 
         {/* Separator */}
         <div className="w-px self-stretch -my-2 bg-border shrink-0" />
