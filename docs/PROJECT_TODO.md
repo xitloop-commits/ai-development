@@ -193,6 +193,36 @@ Partha's revamp, to run **before** the T86 engine fixes (it reduces the T86 surf
 20. **Right-side drawer (Signal + Alert) → restyle as instrument-cards-style tabs.** Modify the right drawer so Signal/Alert use the same **card-style tab** look. (Instrument cards themselves are removed per #15, so this adopts that tab *style*, not the cards.)
 (All blocking decisions resolved. Remaining = design work: manual order-entry surface in the desk table, stock placement + watchlist on instrument cards, trade-# scheme, paper/live tab styling.)
 
+**═══ T87 IMPLEMENTATION PLAN (2026-07-18) ═══**
+Principle: keep the `Channel` union internally but **collapse it to 4** (don't rip out 62 files); every phase leaves the app **building + running + tests green** before the next; work on `main`. 7 phases, ordered so the highest-value/most-isolated backend work (the α fix) lands first and the risky UI teardown last.
+
+**Phase 1 — WS consolidation (backend; RETIRES bug α). Highest value, isolated.**
+- Decouple market-data from order-routing: make **all** channels (incl. ai-live) read ticks from the **primary** market feed. Change `ensureOptionLtpSubscription`/`resubscribeOpenTradeLtps` (`tradeExecutor.ts:1374/165`) to always use `getActiveBroker()` (primary) for ticks, live channels included.
+- Kill the single-slot clobber: Dhan market feed forwards ticks to **all** listeners — emit to `tickBus` unconditionally (independent of `subscribeLTP`'s callback), and make `subscribeLTP` **register** subscribers instead of overwriting `this.tickCallback` (`dhan/index.ts:1278`). Neutralise the no-op `feed/subscribe` route (`brokerRoutes.ts:769`) so it can't blank the feed.
+- Retire the secondary BSA market feed (#3): `dhanAiData` opens only its order-update WS.
+- **Verify:** ai-live ticks arrive from primary; an open trade keeps ticking through a Python `feed/subscribe`; α reproduction gone. (This alone closes T86-α.)
+
+**Phase 2 — Channel collapse 7 → 4 (backend model).**
+- Reduce `Channel` to `ai-paper|ai-live|my-paper|my-live` (canonical `tradeTypes.ts:15` + server dupes `brokerService.ts:43`/`state.ts:20` + ~4 zod copies + `channel-isolation` invariant test). Drop `testing-live`; **fold stocks-*** → route equity trades to `my-paper`/`my-live`. Update `getAdapter`, kill-switch, `PAPER/LIVE_CHANNELS`.
+- One-off migration: existing `stocks-*`/`testing-*` day_records + capital → adopt into `my-*` or archive.
+
+**Phase 3 — Capital: two books-pairs shown as two balances; live from Dhan.**
+- Two balances (AI, My), never blended. **My** pool = ONE pool covering options + stocks; stock/option = a filter. **Live** books read real Dhan funds (my-live→primary, ai-live→secondary funds/margin API); **paper** books keep configured play-money. Un-hardcode the `my-live`-pinned pool ops (`CapitalContext.tsx:399-466`).
+
+**Phase 4 — UI shell: one desk, no tabs, two toggles, footer.**
+- Remove `ChannelTabs` + app-bar `ChannelModeToggle`. One default desk always. **Paper/Live = tab pair** (My) on the app bar; **AI paper/live = 1st SEA-menu item**. Trade table **aggregates AI + My**; add a **source filter** (AI/My) beside the strategy filter. Footer: **remove the milestone bar**, show two balances, net worth follows mode. **Remove the app-bar Mock-feed toggle**.
+
+**Phase 5 — Watchlist replaces instrument cards + manual placement in the desk.**
+- Remove the **instrument bar** + **instrument cards**. **Watchlist** takes the cards' place (indices + stocks). Manual + stock placement **from the desk table** (reuse the channel-agnostic `handlePlaceTrade → executor.placeTrade`). Kill the Stocks layout branch.
+
+**Phase 6 — Right drawer (Signal + Alert) → card-style tabs.**
+
+**Phase 7 — Cleanup + decisions.**
+- Remove unused mock adapters (keep ONE consolidated paper-fill engine). Decide the **trade-# scheme** (row-index vs stable unique). Full typecheck + tests + `/verify` the whole flow.
+
+**THEN (post-revamp):** T86 remainder — β (atomic close + clear the stuck guard), γ (EOD square-off), stale mirror; then T85 (per-strategy live exit settings + Runway scale-out backtest).
+**Risks:** `Channel` touches 62 files (mitigate: collapse-not-remove + the invariant test); capital-pool migration (one-off script + backup); the WS forwarding change is the highest-leverage but also touches the shared feed — do it first, in isolation, with the α repro as the gate.
+
 ### T86 [BUG · P0] — Trades stuck OPEN forever after their stop fires ("half-exited") (2026-07-18) 🆕🔴
 **Symptom:** Runway/Anchor (and old Sprint-MA) trades sit OPEN for days at −35% to −38%, far past their stops, never squared off. 8+ stuck across 07-14 → 07-17.
 **Smoking gun (trade #43, BANKNIFTY 58100 PE Runway, id T1784267824982-hiutg0):** `status=OPEN` **but** `exitReason=SL_HIT` already stamped; `exitPrice` null; `unrealizedPnl=-71,835` (never booked); `stopLossPrice=666`, `ltp=426.55` → exit test `426.55 ≤ 666` is TRUE; `lastTickAt=07-18 09:48` (still ticking today); `desync=null`. So the SL **was detected** — the close just never completed. The trade is **half-exited**.
