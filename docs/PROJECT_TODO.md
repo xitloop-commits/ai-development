@@ -227,6 +227,19 @@ The single-workspace desk needs a deeper backend model than the 4-channel collap
 - **Impact:** ~66 files, ~247 server + 56 client refs; touches the capital-compounding engine (`compounding.ts`+`portfolioAgent`) — the highest-risk part. Hardest spots: shared-live-journey day counter (lift out of per-channel CapitalState), the new `source` tag (miss a read-site → mis-attribution), the `mirroredChannels` pool-mirror plumbing dissolving.
 - **BUILD ORDER (each ships green + tested):** (1) add persisted `source` tag [safe/additive], (2) merge paper→`paper` book [type/adapter/enum/UI + trivial migration], (3) shared LIVE journey [money-engine, behind tests; live not trading yet = lower urgency], (4) one-desk UI on top.
 
+**═══ T87 IMPLEMENTATION STATUS (2026-07-19) — branch `t87-single-workspace-revamp`, NOT on main ═══**
+DONE + green (tsc 0, tests green bar the 2 pre-existing env-dependent fails, client build clean):
+- **Backend model:** (1) `source` tag on trades (stamped from placement origin); (2) paper merge → 3-channel `paper|ai-live|my-live` + `mock-paper` adapter + data migration (ai-paper→paper, real journey preserved: day 3, ~4.34L); (3) shared LIVE journey — combined completion + clawback (option a "shared staircase, separate wallets"), pure `checkCombinedDayCompletion` + 6 tests.
+- **UI:** milestone bar gone; mock-feed toggle+backend gone; AI/My workspace tabs gone (one desk); source filter (AI/My) on the desk; app-bar **My** Paper/Live tab-pair + **AI** Paper/Live as 1st SEA-menu item — **both wired to routing** (AI channel resolved server-side from `aiTradesMode` in validateTrade); footer net worth follows mode (paper pool / ai+my live combined) with a PAPER/LIVE badge; **Watchlist** moved into the LEFT drawer (single tab: indices LTP w/ colour + stocks LTP, no section headers); **instrument bar fully deleted** (InstrumentBar/Item/StrikeBar/InstrumentCard/LotPicker/useInstrumentBar); right drawer **Signals/Alerts = card-tabs**; both drawers open by default.
+- Commits db53994→88cf185. Main stays at `6b6abee`.
+
+PARKED / PENDING (resume here):
+- **⏸ PARKED — desk-table manual placement** (Partha 2026-07-19): the option (strike/CE-PE) + stock entry that lived on the removed strike bar must be redesigned INTO the desk table. Until then the app has **no manual option-entry UI** (watch-only). Scope with Partha before building.
+- **Stock staging is a no-op** — WatchlistPane `stage()` hits the default context; the `StagedOrdersProvider` + staged rows in the desk + submit were removed with the old Stocks workspace. Re-wire when doing desk-table placement.
+- **Gift-day SKIPPING on the shared live staircase** deferred (combined overshoot advances 1 day; excess still accrues per pool — no money lost). Paper gift-days unchanged.
+- **AI-live routing is REAL MONEY** — `aiTradesMode=live` + `SEA_AUTO_TRADE` set sends AI trades to the never-traded ai-live account. MUST live-test before trusting; default stays paper.
+- **⚠️ WHOLE REVAMP built-but-NOT-verified-live — MUST be live-tested Monday 2026-07-20** (feed/exit/routing/capital). Then merge decision (branch → main).
+
 **Phase 4 — UI shell: one desk, no tabs, two toggles, footer.**
 - Remove `ChannelTabs` + app-bar `ChannelModeToggle`. One default desk always. **Paper/Live = tab pair** (My) on the app bar; **AI paper/live = 1st SEA-menu item**. Trade table **aggregates AI + My**; add a **source filter** (AI/My) beside the strategy filter. Footer: **remove the milestone bar**, show two balances, net worth follows mode. **Remove the app-bar Mock-feed toggle**.
 
