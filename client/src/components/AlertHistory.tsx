@@ -2,13 +2,10 @@
  * AlertHistory — Collapsible panel showing the last 20 alerts with timestamps.
  * Terminal Noir styling with color-coded alert types.
  */
-import { useState } from 'react';
 import { useAlerts } from '@/contexts/AlertContext';
 import { getAlertColor, getAlertGlow, getAlertLabel } from '@/lib/alertTypes';
 import {
   Bell,
-  ChevronDown,
-  ChevronUp,
   Trash2,
   CheckCheck,
   Zap,
@@ -57,118 +54,89 @@ function formatAlertTime(timestamp: number): string {
 
 export default function AlertHistory() {
   const { alerts, clearAlerts, unreadCount, markAllRead } = useAlerts();
-  const [isExpanded, setIsExpanded] = useState(false);
-
   const displayAlerts = alerts.slice(0, 20);
 
   return (
-    <div className="border border-border rounded-md bg-card overflow-hidden">
-      {/* Header — always visible */}
-      <button
-        onClick={() => {
-          setIsExpanded(!isExpanded);
-          if (!isExpanded) markAllRead();
-        }}
-        className="w-full px-3 py-2 border-b border-border bg-secondary/30 flex items-center justify-between hover:bg-secondary/50 transition-colors"
-      >
-        {/* Title dropped — the drawer tab already reads "Alerts". Keep only the
-            unread badge as the left affordance. */}
-        <div className="flex items-center gap-1.5">
+    <div className="bg-card overflow-hidden h-full flex flex-col">
+      {/* Actions bar — no title (the drawer tab already reads "Alerts") and no
+          collapse (the tab is the on/off, so the list shows directly). Just the
+          unread badge + Mark Read / Clear All. */}
+      {alerts.length > 0 && (
+        <div className="px-2 py-1 border-b border-border bg-secondary/30 shrink-0 flex items-center justify-end gap-2">
           {unreadCount > 0 && (
-            <span className="text-[0.5625rem] bg-destructive text-destructive-foreground rounded-full px-1.5 py-0.5 font-bold tabular-nums animate-pulse-glow">
+            <span className="mr-auto text-[0.5625rem] bg-destructive text-destructive-foreground rounded-full px-1.5 py-0.5 font-bold tabular-nums animate-pulse-glow">
               {unreadCount} unread
             </span>
           )}
-        </div>
-        <div className="flex items-center gap-1">
-          <span className="text-[0.5625rem] text-muted-foreground tabular-nums">
-            {alerts.length} alerts
-          </span>
-          {isExpanded ? (
-            <ChevronUp className="h-3 w-3 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="h-3 w-3 text-muted-foreground" />
-          )}
-        </div>
-      </button>
-
-      {/* Expanded content */}
-      {isExpanded && (
-        <div>
-          {/* Actions bar */}
-          {alerts.length > 0 && (
-            <div className="px-3 py-1.5 border-b border-border flex items-center justify-end gap-2">
-              <button
-                onClick={markAllRead}
-                className="text-[0.5625rem] text-muted-foreground hover:text-info-cyan flex items-center gap-1 transition-colors"
-              >
-                <CheckCheck className="h-3 w-3" />
-                Mark Read
-              </button>
-              <button
-                onClick={clearAlerts}
-                className="text-[0.5625rem] text-muted-foreground hover:text-destructive flex items-center gap-1 transition-colors"
-              >
-                <Trash2 className="h-3 w-3" />
-                Clear All
-              </button>
-            </div>
-          )}
-
-          {/* Alert list */}
-          <div className="max-h-[300px] overflow-y-auto">
-            {displayAlerts.length === 0 ? (
-              <div className="px-3 py-6 text-center">
-                <Bell className="h-5 w-5 text-muted-foreground mx-auto mb-2 opacity-30" />
-                <p className="text-[0.625rem] text-muted-foreground">
-                  No alerts yet
-                </p>
-                <p className="text-[0.5625rem] text-muted-foreground mt-0.5">
-                  Alerts will appear here when events are detected
-                </p>
-              </div>
-            ) : (
-              displayAlerts.map((alert) => (
-                <div
-                  key={alert.id}
-                  className={`px-3 py-2 border-b border-border/50 last:border-b-0 hover:bg-secondary/20 transition-colors ${
-                    alert.dismissed ? 'opacity-50' : ''
-                  }`}
-                >
-                  <div className="flex items-start gap-2">
-                    <div className="mt-0.5 shrink-0">
-                      {getAlertIcon(alert.type)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className={`text-[0.625rem] font-bold ${getAlertColor(alert.type)} truncate`}>
-                          {alert.title}
-                        </span>
-                        <span className="text-[0.5rem] text-muted-foreground tabular-nums shrink-0">
-                          {formatAlertTime(alert.timestamp)}
-                        </span>
-                      </div>
-                      <p className="text-[0.5625rem] text-muted-foreground mt-0.5 line-clamp-2">
-                        {alert.message}
-                      </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className={`text-[0.5rem] px-1 py-0.5 rounded border ${getAlertGlow(alert.type)} bg-secondary/30`}>
-                          {getAlertLabel(alert.type)}
-                        </span>
-                        {alert.instrument && (
-                          <span className="text-[0.5rem] text-muted-foreground px-1 py-0.5 bg-secondary rounded">
-                            {alert.instrument}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+          <button
+            onClick={markAllRead}
+            className="text-[0.5625rem] text-muted-foreground hover:text-info-cyan flex items-center gap-1 transition-colors"
+          >
+            <CheckCheck className="h-3 w-3" />
+            Mark Read
+          </button>
+          <button
+            onClick={clearAlerts}
+            className="text-[0.5625rem] text-muted-foreground hover:text-destructive flex items-center gap-1 transition-colors"
+          >
+            <Trash2 className="h-3 w-3" />
+            Clear All
+          </button>
         </div>
       )}
+
+      {/* Alert list — fills the drawer + scrolls */}
+      <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-cyan">
+        {displayAlerts.length === 0 ? (
+          <div className="px-3 py-12 text-center">
+            <Bell className="h-5 w-5 text-muted-foreground mx-auto mb-2 opacity-30" />
+            <p className="text-[0.625rem] text-muted-foreground">
+              No alerts yet
+            </p>
+            <p className="text-[0.5625rem] text-muted-foreground mt-0.5">
+              Alerts will appear here when events are detected
+            </p>
+          </div>
+        ) : (
+          displayAlerts.map((alert) => (
+            <div
+              key={alert.id}
+              className={`px-3 py-2 border-b border-border/50 last:border-b-0 hover:bg-secondary/20 transition-colors ${
+                alert.dismissed ? 'opacity-50' : ''
+              }`}
+            >
+              <div className="flex items-start gap-2">
+                <div className="mt-0.5 shrink-0">
+                  {getAlertIcon(alert.type)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-[0.625rem] font-bold ${getAlertColor(alert.type)} truncate`}>
+                      {alert.title}
+                    </span>
+                    <span className="text-[0.5rem] text-muted-foreground tabular-nums shrink-0">
+                      {formatAlertTime(alert.timestamp)}
+                    </span>
+                  </div>
+                  <p className="text-[0.5625rem] text-muted-foreground mt-0.5 line-clamp-2">
+                    {alert.message}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`text-[0.5rem] px-1 py-0.5 rounded border ${getAlertGlow(alert.type)} bg-secondary/30`}>
+                      {getAlertLabel(alert.type)}
+                    </span>
+                    {alert.instrument && (
+                      <span className="text-[0.5rem] text-muted-foreground px-1 py-0.5 bg-secondary rounded">
+                        {alert.instrument}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
