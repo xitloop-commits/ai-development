@@ -12,7 +12,7 @@
  * Sprint / Runway / Anchor exit configs · global exits · EOD square-off.
  */
 import { useState, useEffect, useMemo, useRef } from "react";
-import { SlidersHorizontal, Check, RotateCcw, ChevronDown, ChevronRight } from "lucide-react";
+import { SlidersHorizontal, Check, RotateCcw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useSeaStatus } from "@/stores/seaStatusStore";
 
@@ -101,15 +101,11 @@ function Seg<T extends string>({ label, value, options, onChange }: {
   );
 }
 
-function Collapsible({ title, children, defaultOpen = false }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="border-t border-border pt-2">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground">
-        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        {title}
-      </button>
-      {open && <div className="mt-1.5 flex flex-col gap-1.5 pl-4">{children}</div>}
+    <div className="border-t border-border pt-2 flex flex-col gap-1.5">
+      <SectionLabel>{title}</SectionLabel>
+      {children}
     </div>
   );
 }
@@ -302,7 +298,7 @@ export function AiControl() {
                 </div>
 
                 {/* Sprint */}
-                <Collapsible title="Sprint config">
+                <Group title="Sprint config">
                   <Num label="Stop-loss" value={d.sprint.defaultSL} step={0.5} min={0} max={50} unit="%" onChange={(v) => edit((x) => { x.sprint.defaultSL = v; })} />
                   <Num label="Take-profit" value={d.sprint.defaultTP} step={0.5} min={0} max={100} unit="%" onChange={(v) => edit((x) => { x.sprint.defaultTP = v; })} />
                   <Num label="Daily target" value={d.sprint.dailyTargetPercent} step={0.5} min={1} max={20} unit="%" onChange={(v) => edit((x) => { x.sprint.dailyTargetPercent = v; })} />
@@ -315,10 +311,10 @@ export function AiControl() {
                   <Seg label="Trail from" value={d.sprint.trailingDistanceSource} options={["signal", "config"] as const} onChange={(v) => edit((x) => { x.sprint.trailingDistanceSource = v; })} />
                   <Num label="Activation gate" value={d.sprint.trailingActivationGatePercent} step={0.5} min={0} max={50} unit="%" onChange={(v) => edit((x) => { x.sprint.trailingActivationGatePercent = v; })} />
                   <Num label="Activation hold" value={d.sprint.trailingActivationHoldSeconds} step={1} min={0} max={120} unit="s" onChange={(v) => edit((x) => { x.sprint.trailingActivationHoldSeconds = v; })} />
-                </Collapsible>
+                </Group>
 
                 {/* Runway */}
-                <Collapsible title="Runway config">
+                <Group title="Runway config">
                   <Num label="Cooling" value={Math.round(d.runway.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => edit((x) => { x.runway.coolingSec = v * 60; })} />
                   <Num label="Wide stop" value={d.runway.defaultSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => edit((x) => { x.runway.defaultSlPct = v; })} />
                   <Num label="Cooled stop" value={d.runway.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => edit((x) => { x.runway.cooledSlPct = v; })} />
@@ -326,16 +322,16 @@ export function AiControl() {
                   <Num label="Trail at" value={d.runway.nearTargetFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => edit((x) => { x.runway.nearTargetFrac = v; })} />
                   <Num label="Trail %" value={d.runway.trailPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => edit((x) => { x.runway.trailPct = v; })} />
                   <Num label="Target" value={d.runway.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => edit((x) => { x.runway.defaultTargetPct = v; })} />
-                </Collapsible>
+                </Group>
 
                 {/* Anchor */}
-                <Collapsible title="Anchor config">
+                <Group title="Anchor config">
                   <Num label="Cooling" value={Math.round(d.anchor.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => edit((x) => { x.anchor.coolingSec = v * 60; })} />
                   <Num label="Wide stop" value={d.anchor.defaultSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => edit((x) => { x.anchor.defaultSlPct = v; })} />
                   <Num label="Cooled stop" value={d.anchor.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => edit((x) => { x.anchor.cooledSlPct = v; })} />
                   <Num label="Breakeven at" value={d.anchor.breakevenAtFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => edit((x) => { x.anchor.breakevenAtFrac = v; })} />
                   <Num label="Target" value={d.anchor.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => edit((x) => { x.anchor.defaultTargetPct = v; })} />
-                </Collapsible>
+                </Group>
 
                 {/* Global exits */}
                 <div className="border-t border-border pt-2 flex flex-col gap-1.5">
