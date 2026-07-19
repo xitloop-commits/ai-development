@@ -656,12 +656,12 @@ class TickHandler extends EventEmitter {
       return;
     }
     const liveById = new Map(day.trades.map((t) => [t.id, t]));
-    // Persist each OPEN trade's live fields with an ATOMIC per-trade write
-    // (T86 β): `requireOpen` no-ops the write if the close path already flipped
-    // this trade to CLOSED, and the patch never touches `status` — so a persist
-    // can NEVER revert a completed close back to OPEN (the old stuck-open cause).
-    // `silent` batches the single UI push into the aggregate write below.
-    let anyPatched = false;
+    // Pass 1 — overlay each OPEN trade's live fields onto the fresh record
+    // (in-memory only, no DB write yet). The per-trade unrealizedPnl is
+    // recomputed from the fresh ltp by recalculateDayAggregates below, and we
+    // want that fresh value in the SAME atomic patch — so day_records stays the
+    // single fresh source of truth that position_state overlays from (T86 ③).
+    const patches = new Map<string, Partial<TradeRecord>>();
     for (const ft of fresh.trades) {
       if (ft.status !== "OPEN") continue;
       const live = liveById.get(ft.id);
@@ -690,16 +690,27 @@ class TickHandler extends EventEmitter {
         if (live.breakevenPrice != null) patch.breakevenPrice = live.breakevenPrice;
       }
       Object.assign(ft, patch); // keep `fresh` in sync for the aggregate recompute
+      patches.set(ft.id, patch);
+    }
+    // Recompute per-trade unrealizedPnl (from the fresh ltp) + day aggregates.
+    const updated = recalculateDayAggregates(fresh);
+    // Pass 2 — persist each changed trade ATOMICALLY, now carrying the fresh
+    // unrealizedPnl too. `requireOpen` no-ops the write if the close path already
+    // flipped this trade to CLOSED, and the patch never touches `status` — so a
+    // persist can NEVER revert a completed close back to OPEN (the T86 β
+    // stuck-open cause). `silent` batches the single UI push into the aggregate
+    // write below.
+    let anyPatched = false;
+    for (const ft of fresh.trades) {
+      const patch = patches.get(ft.id);
+      if (!patch) continue;
+      patch.unrealizedPnl = ft.unrealizedPnl; // recomputed just above
       const res = await patchTradeInDay(channel, day.dayIndex, ft.id, patch, undefined, {
         requireOpen: true,
         silent: true,
       });
       if (res) anyPatched = true;
     }
-    // Recompute running totals from the (in-sync) fresh record for the snapshot.
-    // Only write the aggregate scalars back — and push to the UI — if a trade
-    // actually changed this batch.
-    const updated = recalculateDayAggregates(fresh);
     if (anyPatched) {
       await patchDayAggregates(channel, day.dayIndex, dayAggregateFields(updated));
     }

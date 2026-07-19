@@ -190,6 +190,41 @@ describe("tickHandler — F1 per-channel state cache", () => {
 
     expect(getCapitalStateMock.mock.calls.length).toBeGreaterThan(0);
   });
+
+  it("carries the recomputed unrealizedPnl in the per-trade patch (T86 ③)", async () => {
+    const handler = tickHandler as any;
+    // F1's beforeEach doesn't reset the persist throttle / guards; a prior test
+    // in this block leaves lastPersistAt set, which would throttle our persist.
+    handler.lastPersistAt.clear();
+    handler.peakPrices.clear();
+    handler.exitingTrades.clear();
+    // Open trade with a non-zero unrealizedPnl on the fresh day record; the
+    // per-tick persist must include it (β dropped it, ③ restores it) so
+    // day_records stays the single fresh source of truth for the mirror.
+    getDayRecordMock.mockResolvedValue({
+      dayIndex: 1,
+      date: "2024-11-14",
+      trades: [{
+        id: "T1", instrument: "NIFTY_50", type: "BUY", strike: null, expiry: null,
+        contractSecurityId: null, entryPrice: 100, exitPrice: null, ltp: 100, qty: 1,
+        status: "OPEN", targetPrice: null, stopLossPrice: null, trailingStopEnabled: false,
+        lastTickAt: null, unrealizedPnl: 42,
+      }],
+      totalPnl: 0,
+    });
+
+    handler.pendingUpdates.set("NSE:NIFTY_50", makeTick({ securityId: "NIFTY_50" }));
+    await handler.processPendingUpdates();
+
+    expect(patchTradeInDayMock).toHaveBeenCalledWith(
+      expect.anything(),
+      1,
+      "T1",
+      expect.objectContaining({ unrealizedPnl: 42 }),
+      undefined,
+      expect.objectContaining({ requireOpen: true, silent: true }),
+    );
+  });
 });
 
 /**

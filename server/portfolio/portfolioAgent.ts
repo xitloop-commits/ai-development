@@ -1442,7 +1442,52 @@ class PortfolioAgentImpl {
    */
   async getPositions(channel: Channel): Promise<TradeRecord[]> {
     const positions = await getOpenPositions(channel);
-    return positions.map(positionDocToTradeRecord);
+    const records = positions.map(positionDocToTradeRecord);
+    if (records.length > 0) {
+      await this.overlayLiveFields(channel, positions, records);
+    }
+    return records;
+  }
+
+  /**
+   * T86 ③ — the position_state mirror freezes ltp / unrealizedPnl at entry (it's
+   * only rewritten on open / close, never per tick). day_records carries the
+   * live per-tick values, so overlay them here — every getPositions consumer
+   * (RCA, discipline carry-forward, the UI positions endpoint) then sees the
+   * CURRENT price, not the frozen entry price that made earlier analysis blind.
+   * Also surfaces `lastTickAt`, which positionDocToTradeRecord drops (so RCA's
+   * stale-price exit can finally see a real tick timestamp from this path).
+   */
+  private async overlayLiveFields(
+    channel: Channel,
+    positions: PositionStateDoc[],
+    records: TradeRecord[],
+  ): Promise<void> {
+    // Open positions are almost always in the current day, but a cross-day
+    // orphan can exist — fetch each distinct day once, then index by tradeId.
+    const dayIndexes = Array.from(new Set(positions.map((p) => p.dayIndex)));
+    const liveById = new Map<string, TradeRecord>();
+    for (const dayIndex of dayIndexes) {
+      let day: DayRecord | null = null;
+      try {
+        day = await getDayRecord(channel, dayIndex);
+      } catch {
+        day = null;
+      }
+      if (!day) continue;
+      for (const t of day.trades) liveById.set(t.id, t);
+    }
+    for (let i = 0; i < records.length; i++) {
+      const live = liveById.get(positions[i].tradeId);
+      if (!live) continue; // no day-record twin — keep the mirror's values
+      const r = records[i];
+      r.ltp = live.ltp;
+      r.unrealizedPnl = live.unrealizedPnl;
+      r.lastTickAt = live.lastTickAt;
+      if (live.peakLtp != null) r.peakLtp = live.peakLtp;
+      if (live.stopLossPrice != null) r.stopLossPrice = live.stopLossPrice;
+      if (live.targetPrice != null) r.targetPrice = live.targetPrice;
+    }
   }
 
   /**

@@ -18,6 +18,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const getCapitalStateMock = vi.fn();
 const updateCapitalStateMock = vi.fn(async () => undefined);
+const getDayRecordMock = vi.fn(async () => null as any);
+const getOpenPositionsMock = vi.fn(async () => [] as any[]);
 
 vi.mock("./state", async () => {
   const actual = await vi.importActual<typeof import("./state")>("./state");
@@ -25,13 +27,14 @@ vi.mock("./state", async () => {
     ...actual,
     getCapitalState: (...args: any[]) => getCapitalStateMock(...args),
     updateCapitalState: (...args: any[]) => updateCapitalStateMock(...args),
+    getDayRecord: (...args: any[]) => getDayRecordMock(...args),
   };
 });
 
 vi.mock("./storage", () => ({
   appendEvent: vi.fn(async () => undefined),
   upsertPosition: vi.fn(async () => undefined),
-  getOpenPositions: vi.fn(async () => []),
+  getOpenPositions: (...args: any[]) => getOpenPositionsMock(...args),
   PositionStateModel: { collection: { updateMany: vi.fn() } },
   PortfolioStateModel: { collection: { updateMany: vi.fn() } },
 }));
@@ -190,5 +193,102 @@ describe("portfolioAgent.refreshDrawdown — peak tracking", () => {
         peakUpdatedAt: expect.any(Number),
       }),
     );
+  });
+});
+
+/**
+ * T86 ③ — getPositions overlays live fields from day_records.
+ *
+ * position_state freezes ltp/unrealizedPnl at entry (only rewritten on
+ * open/close). getPositions must overlay the live per-tick values from
+ * day_records so RCA / carry-forward / the UI see the current price, not the
+ * stale entry price. Also surfaces lastTickAt (the mirror mapper drops it).
+ */
+describe("portfolioAgent.getPositions — live-field overlay (T86 ③)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // A frozen-at-entry position_state doc (ltp === entryPrice, unrealizedPnl 0).
+  function stalePosition(over: any = {}) {
+    return {
+      positionId: "POS-1",
+      tradeId: "T1",
+      channel: "paper",
+      dayIndex: 3,
+      instrument: "BANKNIFTY",
+      type: "CALL_BUY",
+      entryPrice: 100,
+      exitPrice: null,
+      ltp: 100,            // frozen at entry
+      qty: 15,
+      status: "OPEN",
+      unrealizedPnl: 0,    // frozen at entry
+      lastTickAt: null,    // never mapped by positionDocToTradeRecord
+      peakLtp: null,
+      stopLossPrice: 95,
+      targetPrice: 110,
+      openedAt: 1_000,
+      closedAt: null,
+      ...over,
+    };
+  }
+
+  it("replaces the frozen ltp/unrealizedPnl with the live day-record values", async () => {
+    getOpenPositionsMock.mockResolvedValue([stalePosition()]);
+    getDayRecordMock.mockResolvedValue({
+      dayIndex: 3,
+      trades: [
+        // The live twin: price moved to 130, unrealizedPnl (130-100)*15 = 450.
+        { id: "T1", ltp: 130, unrealizedPnl: 450, lastTickAt: 9_999, peakLtp: 132, stopLossPrice: 128, targetPrice: 140, status: "OPEN" },
+      ],
+    } as any);
+
+    const [pos] = await portfolioAgent.getPositions("paper" as any);
+
+    expect(pos.ltp).toBe(130);            // live, not the frozen 100
+    expect(pos.unrealizedPnl).toBe(450);  // live, not the frozen 0
+    expect(pos.lastTickAt).toBe(9_999);   // surfaced (mirror had dropped it)
+    expect(pos.peakLtp).toBe(132);
+    expect(pos.stopLossPrice).toBe(128);  // trailed
+    expect(pos.targetPrice).toBe(140);    // ratcheted
+    // day_records read exactly once for the single distinct dayIndex.
+    expect(getDayRecordMock).toHaveBeenCalledTimes(1);
+    expect(getDayRecordMock).toHaveBeenCalledWith("paper", 3);
+  });
+
+  it("keeps the mirror's own values when there is no day-record twin", async () => {
+    getOpenPositionsMock.mockResolvedValue([stalePosition()]);
+    getDayRecordMock.mockResolvedValue({ dayIndex: 3, trades: [] } as any); // twin missing
+
+    const [pos] = await portfolioAgent.getPositions("paper" as any);
+
+    expect(pos.ltp).toBe(100);           // untouched
+    expect(pos.unrealizedPnl).toBe(0);   // untouched
+  });
+
+  it("does not read day_records when there are no open positions", async () => {
+    getOpenPositionsMock.mockResolvedValue([]);
+
+    const out = await portfolioAgent.getPositions("paper" as any);
+
+    expect(out).toEqual([]);
+    expect(getDayRecordMock).not.toHaveBeenCalled();
+  });
+
+  it("fetches each distinct day once for cross-day orphans", async () => {
+    getOpenPositionsMock.mockResolvedValue([
+      stalePosition({ positionId: "POS-1", tradeId: "T1", dayIndex: 3 }),
+      stalePosition({ positionId: "POS-2", tradeId: "T2", dayIndex: 5 }),
+    ]);
+    getDayRecordMock.mockImplementation(async (_ch: string, di: number) => ({
+      dayIndex: di,
+      trades: [{ id: di === 3 ? "T1" : "T2", ltp: 200, unrealizedPnl: 1, status: "OPEN" }],
+    }));
+
+    const positions = await portfolioAgent.getPositions("paper" as any);
+
+    expect(positions.map((p) => p.ltp)).toEqual([200, 200]);
+    expect(getDayRecordMock).toHaveBeenCalledTimes(2); // one per distinct dayIndex
   });
 });
