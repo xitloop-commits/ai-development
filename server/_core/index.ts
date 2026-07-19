@@ -254,6 +254,19 @@ async function startServer() {
   const { initAiConfig } = await import("../portfolio/aiModeConfig");
   initAiConfig();
 
+  // ...then make the menu authoritative for cohorts: push the ACTIVE mode's
+  // cohort config into SEA. initSeaControl() above re-hydrates from
+  // sea_thresholds, so without this a restart leaves the engine firing cohorts
+  // the menu says are OFF.
+  try {
+    const { getUserSettings } = await import("../userSettings");
+    const { syncCohortsFromAiConfig } = await import("../seaControl");
+    const activeAiMode = (await getUserSettings(1)).tradingMode?.aiTradesMode ?? "paper";
+    syncCohortsFromAiConfig(activeAiMode);
+  } catch (err) {
+    bootLog.warn(`cohort sync at boot failed: ${(err as Error).message ?? err}`);
+  }
+
   // Watch TFA feature files → push instrument live-state over /ws/ticks
   // (replaces the 2s instrumentLiveState poll across 5 UI surfaces).
   const { startInstrumentStateWatcher } = await import("../instrumentStateWatcher");

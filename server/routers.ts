@@ -17,7 +17,7 @@ import {
 import { getMongoHealth, pingMongo } from "./mongo";
 import { querySeaSignals, getSeaSignalsForChartFromStore } from "./seaSignalStore";
 import { getSEASignalsForChart, logFolderFor } from "./seaSignals";
-import { getCohortState, setCohort, setRevPct } from "./seaControl";
+import { getCohortState, setCohort, setRevPct, syncCohortsFromAiConfig } from "./seaControl";
 import { getExitCfg, setCoolingSec } from "./portfolio/exitConfig";
 import { getAllAiConfig, updateAiConfig, updateExitConfig } from "./portfolio/aiModeConfig";
 import { tickBus } from "./broker/tickBus";
@@ -129,14 +129,16 @@ export const appRouter = router({
     aiConfig: publicProcedure.query(() => getAllAiConfig()),
     updateAiConfig: publicProcedure
       .input(z.object({ mode: z.enum(["paper", "live", "manual"]), patch: z.any() }))
-      .mutation(({ input }) => {
-        const updated = updateAiConfig(input.mode, input.patch);
+      .mutation(async ({ input }) => {
+        updateAiConfig(input.mode, input.patch);
         // Cohorts drive the RUNNING SEA: push them over /ws/sea-control (which
         // also persists to config/sea_thresholds/*.json) so the engine applies
-        // them in <100 ms. Manual trades aren't SEA-generated, so skip that mode.
+        // them in <100 ms. Only the ACTIVE mode may push — SEA is one process, so
+        // editing the mode you're NOT trading must not change what fires. Manual
+        // trades aren't SEA-generated, so that mode never pushes.
         if (input.mode !== "manual" && (input.patch as { cohorts?: unknown })?.cohorts) {
-          for (const c of ["scalp", "trend", "ma"] as const) setCohort(c, updated.cohorts[c]);
-          setRevPct(updated.cohorts.revPct);
+          const activeMode = (await getUserSettings(1)).tradingMode?.aiTradesMode ?? "paper";
+          if (activeMode === input.mode) syncCohortsFromAiConfig(input.mode);
         }
         const all = getAllAiConfig();
         tickBus.emitAiConfig(all);
@@ -550,6 +552,10 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         const updated = await updateUserSettings(1 /* single-user */, { tradingMode: input as any });
+        // Cohorts are per-mode but SEA is one process — re-push the now-active
+        // mode's cohorts so switching paper↔live can't leave SEA firing the
+        // other mode's set.
+        if (input.aiTradesMode) syncCohortsFromAiConfig(input.aiTradesMode);
         return { success: true, tradingMode: updated.tradingMode };
       }),
 

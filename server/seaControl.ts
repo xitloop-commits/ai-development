@@ -22,6 +22,7 @@ import type { Duplex } from "stream";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { tickBus } from "./broker/tickBus";
+import { getAiConfig } from "./portfolio/aiModeConfig";
 
 export type Cohort = "scalp" | "trend" | "ma";
 export interface CohortState {
@@ -145,6 +146,28 @@ export function setRevPct(value: number): CohortState {
   broadcastToSea();
   tickBus.emitSeaControl({ ...state });
   return { ...state };
+}
+
+/**
+ * Push a mode's cohort config FROM the AI menu INTO SEA (persisting it to
+ * config/sea_thresholds/*.json on the way).
+ *
+ * The AI menu is the source of truth for which cohorts fire. Without this,
+ * `initSeaControl()` re-hydrates from sea_thresholds on every restart and the
+ * engine silently reverts to the old file while the menu still shows the new
+ * value — i.e. you turn a cohort off and it keeps firing. Called at boot, when
+ * the active AI mode changes, and whenever cohorts are applied.
+ *
+ * SEA is a single process, so only the ACTIVE mode's cohorts apply. `manual`
+ * has no SEA signals, so it's ignored.
+ */
+export function syncCohortsFromAiConfig(mode: "paper" | "live" | "manual"): void {
+  if (mode === "manual") return;
+  const c = getAiConfig(mode).cohorts;
+  setCohort("scalp", c.scalp);
+  setCohort("trend", c.trend);
+  setCohort("ma", c.ma);
+  setRevPct(c.revPct);
 }
 
 /** Wire the dedicated SEA-control websocket onto the http server + hydrate
