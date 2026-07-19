@@ -114,7 +114,8 @@
   --secondary: oklch(0.18 0.012 270);
   --secondary-foreground: oklch(0.80 0.01 250);
   --muted: oklch(0.22 0.010 270);
-  --muted-foreground: oklch(0.50 0.015 260);
+  /* Brighter than the old 0.50 — muted secondary/header text read too faint. */
+  --muted-foreground: oklch(0.65 0.015 260);
   --accent: oklch(0.22 0.010 270);
   --accent-foreground: oklch(0.90 0.01 250);
   --destructive: oklch(0.68 0.20 20);
@@ -160,7 +161,7 @@
   --secondary: #0f172a;
   --secondary-foreground: #e5edf7;
   --muted: #1e293b;
-  --muted-foreground: #94a3b8;
+  --muted-foreground: #cbd5e1;
   --accent: #1e293b;
   --accent-foreground: #e5edf7;
   --destructive: #f87171;
