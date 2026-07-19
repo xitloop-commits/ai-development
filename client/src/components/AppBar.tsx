@@ -6,7 +6,7 @@
  * Data: Broker status from tRPC broker.getStatus, discipline score from
  * tRPC discipline.getDashboard, module heartbeats from props (polling).
  */
-import { useState, useMemo, memo } from 'react';
+import { useState, useMemo, useEffect, memo } from 'react';
 import { Calendar,
   Menu, Target,
 } from 'lucide-react';
@@ -14,6 +14,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogAction,
+} from '@/components/ui/alert-dialog';
+import { holidayCue } from '@/lib/holidayCue';
 import { trpc } from '@/lib/trpc';
 import { useCapital, useChannel } from '@/contexts/CapitalContext';
 import { useMarketOpen } from '@/hooks/useMarketOpen';
@@ -87,11 +92,11 @@ function formatDateShort(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00');
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 }
-function isHolidayThisMonth(dateStr: string): boolean {
-  const now = new Date();
-  const d = new Date(dateStr + 'T00:00:00');
-  return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-}
+
+// "Once per launch" guard for the 7–19-day holiday alert. Module-level so it
+// survives a component remount (incl. a StrictMode double-mount) within the same
+// app session; a fresh app launch re-evaluates the module and re-arms it.
+let holidayAlertShown = false;
 
 // ── Market status (NSE / MCX) ────────────────────────────────
 // Two open/closed lights: green = at least one of the exchange's instruments
@@ -155,7 +160,18 @@ function HolidayIndicator() {
 
   const allHolidays = holidaysQuery.data ?? [];
   const nextHoliday = allHolidays.find((h: MarketHoliday) => getDaysUntil(h.date) >= 0);
-  const hasHolidayThisMonth = allHolidays.some((h: MarketHoliday) => getDaysUntil(h.date) >= 0 && isHolidayThisMonth(h.date));
+  const daysUntil = nextHoliday ? getDaysUntil(nextHoliday.date) : null;
+  const cue = holidayCue(daysUntil);
+  const ctaVisible = cue === 'bright' || cue === 'light';
+
+  // Once-per-launch alert for the 7–19-day window (never fires when a CTA shows).
+  const [alertOpen, setAlertOpen] = useState(false);
+  useEffect(() => {
+    if (cue === 'alert' && nextHoliday && !holidayAlertShown) {
+      holidayAlertShown = true;
+      setAlertOpen(true);
+    }
+  }, [cue, nextHoliday]);
 
   const dialogHolidays = useMemo(() => {
     const holidays = holidaysDialogQuery.data ?? [];
@@ -168,25 +184,27 @@ function HolidayIndicator() {
     return Array.from(seen.values()).sort((a: MarketHoliday, b: MarketHoliday) => a.date.localeCompare(b.date));
   }, [holidaysDialogQuery.data, holidayTab]);
 
-  let holidayText = 'No holidays this month';
-  if (nextHoliday && hasHolidayThisMonth) {
-    const days = getDaysUntil(nextHoliday.date);
-    holidayText = `${getDaysLabel(days)}: ${nextHoliday.description}`;
-  } else if (nextHoliday) {
-    const days = getDaysUntil(nextHoliday.date);
-    holidayText = `${getDaysLabel(days)}: ${nextHoliday.description}`;
-  }
-
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <button className="flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity">
-          <Calendar className="h-3 w-3 text-muted-foreground" />
-          <span className="text-[0.5625rem] text-muted-foreground tracking-wider hover:text-foreground transition-colors">
-            {holidayText}
-          </span>
-        </button>
-      </DialogTrigger>
+    <>
+      {ctaVisible && nextHoliday && (
+        <>
+          {/* Own the leading divider so the whole cell vanishes cleanly when silent. */}
+          <div className="w-px self-stretch bg-border shrink-0" />
+          <div className="px-3 flex items-center shrink-0">
+            <Dialog>
+              <DialogTrigger asChild>
+                <button
+                  className={`flex items-center gap-1 rounded px-2 py-0.5 text-[0.5625rem] font-bold tracking-wider transition-colors cursor-pointer ${
+                    cue === 'bright'
+                      ? 'bg-destructive text-destructive-foreground hover:brightness-110'
+                      : 'bg-destructive/15 text-destructive hover:bg-destructive/25'
+                  }`}
+                  title="Upcoming market holiday — click for the full calendar"
+                >
+                  <Calendar className="h-3 w-3" />
+                  <span>{getDaysLabel(daysUntil!)}: {nextHoliday.description}</span>
+                </button>
+              </DialogTrigger>
       <DialogContent className="bg-card border-border text-foreground max-w-lg max-h-[70vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="text-sm font-bold tracking-wider uppercase flex items-center gap-2">
@@ -254,7 +272,26 @@ function HolidayIndicator() {
           )}
         </div>
       </DialogContent>
-    </Dialog>
+            </Dialog>
+          </div>
+        </>
+      )}
+
+      {/* Once-per-launch alert — only in the 7–19-day window (no CTA then). */}
+      <AlertDialog open={alertOpen} onOpenChange={setAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Next market holiday</AlertDialogTitle>
+            <AlertDialogDescription>
+              {nextHoliday ? `${nextHoliday.description}, ${formatDateShort(nextHoliday.date)}` : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -405,12 +442,9 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
         {/* Days Left (reads capital in its own component to avoid repainting AppBar) */}
         <AppBarDayBadge />
 
-        <div className="w-px self-stretch bg-border shrink-0" />
-
-        {/* Holiday */}
-        <div className="px-3 flex items-center shrink-0">
-          <HolidayIndicator />
-        </div>
+        {/* Holiday CTA — renders its own leading divider + cell only in the
+            bright/light window; silent (nothing) otherwise. */}
+        <HolidayIndicator />
 
         <div className="w-px self-stretch bg-border shrink-0" />
 

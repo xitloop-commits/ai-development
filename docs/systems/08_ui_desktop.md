@@ -151,6 +151,12 @@ Save / Reset buttons per section via `SettingsActionsContext`.
 
 Tracked as [T52 [UI]](../PROJECT_TODO.md). Email infrastructure dropped — Telegram + in-app cover every operator-facing need on a single phone.
 
+**Holiday indicator (AppBar)** — surfaces the next market holiday by proximity, from a single pure helper `holidayCue(daysUntil)` (`client/src/lib/holidayCue.ts`); the click-through Market Holidays dialog is unchanged:
+- **≤3 days** → bright-red CTA in the bar (`bg-destructive`), unmissable.
+- **4–6 days** → light-red CTA (`bg-destructive/15`).
+- **7–19 days** → no bar CTA; instead a **once-per-launch** alert dialog ("Next market holiday: name, date" + OK), guarded by a module-level flag so a remount can't re-fire it.
+- **20+ days / none** → completely silent (the AppBar cell + its divider don't render).
+
 ## 9. Keyboard hotkeys
 
 | Key | Action |
