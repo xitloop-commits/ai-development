@@ -69,9 +69,9 @@ export function WatchlistPane() {
   const quotes = quotesQ.data ?? {};
 
   return (
-    <div className="flex flex-col h-full border-r border-border bg-card/40">
+    <div className="flex flex-col h-full bg-card/40">
       {/* Search */}
-      <div ref={boxRef} className="relative p-2 border-b border-border shrink-0">
+      <div ref={boxRef} className="relative p-1.5 shrink-0">
         <input
           value={query}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
@@ -80,7 +80,7 @@ export function WatchlistPane() {
           className="w-full px-2 py-1.5 text-xs rounded bg-background border border-border focus:border-info-cyan outline-none placeholder:text-muted-foreground"
         />
         {open && debounced.length >= 1 && (
-          <div className="absolute left-2 right-2 top-full mt-1 z-30 max-h-80 overflow-auto rounded border border-border bg-popover shadow-lg">
+          <div className="absolute left-1.5 right-1.5 top-full mt-1 z-30 max-h-80 overflow-auto rounded border border-border bg-popover shadow-lg">
             {searchQ.isFetching && results.length === 0 && (
               <div className="px-2 py-2 text-[0.625rem] text-muted-foreground">Searching…</div>
             )}
