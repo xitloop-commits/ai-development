@@ -167,6 +167,33 @@ function normalizeDayRecord(day: any): DayRecord {
 }
 
 // ─── Provider ───────────────────────────────────────────────────
+/**
+ * Refetch the day list when the trading day rolls over.
+ *
+ * When a day completes server-side, PA advances currentDayIndex and pushes
+ * capital_changed. That refetches the capital state, so the index moves to N+1 —
+ * but the allDays query doesn't poll, so it still holds the snapshot where N is
+ * today and N+1 is an empty FUTURE day. `currentDay` resolves BY INDEX, so it
+ * lands on that empty day and every record vanishes until a manual refresh.
+ *
+ * Keyed on the index, NOT on the capital epoch: capital_changed also fires on
+ * every trade close / inject / reset, and re-pulling a 250-day payload that
+ * often is wasteful — those updates already arrive via the pushed liveDay.
+ *
+ * Exported for tests: the production provider is too tRPC-wired to mount, so
+ * this rule is verified directly.
+ */
+export function useRefetchOnDayRollover(dayIndex: number, refetch: () => unknown): void {
+  const prev = useRef<number | null>(null);
+  useEffect(() => {
+    const before = prev.current;
+    prev.current = dayIndex;
+    // Skip the first render — an initial index isn't a rollover.
+    if (before !== null && before !== dayIndex) void refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayIndex]);
+}
+
 export function CapitalProvider({ children }: { children: ReactNode }) {
   const [channel, setChannel] = useState<Channel>(DEFAULT_LANDING_CHANNEL);
   const utils = trpc.useUtils();
@@ -348,6 +375,8 @@ export function CapitalProvider({ children }: { children: ReactNode }) {
     }
     return FALLBACK_CAPITAL;
   }, [stateQuery.data]);
+
+  useRefetchOnDayRollover(capital.currentDayIndex, allDaysQuery.refetch);
 
   const allDays: DayRecord[] = useMemo(() => {
     if (!allDaysQuery.data) return [];

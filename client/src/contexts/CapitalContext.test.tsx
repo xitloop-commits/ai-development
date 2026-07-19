@@ -20,6 +20,7 @@ import { useState } from "react";
 import {
   StaticCapitalProvider,
   useCapital,
+  useRefetchOnDayRollover,
   type CapitalContextValue,
 } from "./CapitalContext";
 
@@ -184,5 +185,47 @@ describe("StaticCapitalProvider — provider/consumer wiring", () => {
     expect(screen.getByTestId("inject")).toHaveTextContent("true");
     expect(screen.getByTestId("place")).toHaveTextContent("true");
     expect(screen.getByTestId("exit")).toHaveTextContent("false");
+  });
+});
+
+/**
+ * Day-rollover refetch — the fix for "records vanish when the day cycle
+ * finishes". PA advances currentDayIndex on completion, but the allDays query
+ * doesn't poll, so without this the UI resolves `currentDay` by index into a
+ * stale, empty FUTURE day and every record disappears until a manual refresh.
+ */
+describe("useRefetchOnDayRollover", () => {
+  function Harness({ dayIndex, refetch }: { dayIndex: number; refetch: () => void }) {
+    useRefetchOnDayRollover(dayIndex, refetch);
+    return null;
+  }
+
+  it("does NOT refetch on first render (an initial index is not a rollover)", () => {
+    const refetch = vi.fn();
+    render(<Harness dayIndex={7} refetch={refetch} />);
+    expect(refetch).not.toHaveBeenCalled();
+  });
+
+  it("refetches once when the day index advances", () => {
+    const refetch = vi.fn();
+    const { rerender } = render(<Harness dayIndex={7} refetch={refetch} />);
+    rerender(<Harness dayIndex={8} refetch={refetch} />);
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT refetch when the index is unchanged across re-renders", () => {
+    const refetch = vi.fn();
+    const { rerender } = render(<Harness dayIndex={7} refetch={refetch} />);
+    rerender(<Harness dayIndex={7} refetch={refetch} />);
+    rerender(<Harness dayIndex={7} refetch={refetch} />);
+    expect(refetch).not.toHaveBeenCalled();
+  });
+
+  it("refetches again on a second rollover", () => {
+    const refetch = vi.fn();
+    const { rerender } = render(<Harness dayIndex={7} refetch={refetch} />);
+    rerender(<Harness dayIndex={8} refetch={refetch} />);
+    rerender(<Harness dayIndex={9} refetch={refetch} />);
+    expect(refetch).toHaveBeenCalledTimes(2);
   });
 });
