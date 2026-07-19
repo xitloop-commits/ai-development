@@ -29,7 +29,6 @@ def run(instrument_profile: str, date: str, speed: float, data_root: str,
     from tick_feature_agent.buffers.tick_buffer import CircularBuffer
     from tick_feature_agent.chain_cache import ChainCache
     from tick_feature_agent.output.emitter import Emitter
-    from tick_feature_agent.session import SessionManager
     from tick_feature_agent.state_machine import StateMachine
     from tick_feature_agent.tick_processor import TickProcessor
     from tick_feature_agent.replay.stream_merger import merge_streams
@@ -62,16 +61,15 @@ def run(instrument_profile: str, date: str, speed: float, data_root: str,
         recorder=None,
         logger=log,
     )
-    session_mgr = SessionManager(
-        profile=profile,
-        state_machine=sm,
-        tick_buffer=tick_buf,
-        option_buffer=opt_store,
-        on_session_start=lambda: None,
-        on_session_end=lambda: None,
-        on_rollover=lambda *a, **k: None,
-    )
-    processor._session_mgr = session_mgr
+    # is_market_open: the live processor reads this from a SessionManager whose
+    # is_market_open is a WALL-CLOCK check (session_start..session_end IST). During
+    # replay the wall clock is outside market hours, so it returns 0 for EVERY row —
+    # and the SEA/model preprocessor DROPS any row with is_market_open != 1
+    # (model_training_agent/preprocessor.py), silently killing the whole feed. We
+    # open the session manually below (on_session_open, anchored to the RECORDED
+    # date), so every replayed tick is genuinely in-session; leaving _session_mgr as
+    # None makes the processor default is_market_open to True (tick_processor.py:465).
+    processor._session_mgr = None
 
     # Open the session manually for the RECORDED date (bypass the wall-clock
     # SessionManager gate, which would say "closed" for a past date).
