@@ -2629,7 +2629,7 @@ export function InstrumentsSection() {
 
 // ─── Trade Executor Settings Section ────────────────────────────
 
-function _ExecutorSettingsSection() {
+export function ExecutorSettingsSection() {
   const utils = trpc.useUtils();
   const settingsQuery = trpc.executor.getSettings.useQuery();
   const updateMutation = trpc.executor.updateSettings.useMutation({
@@ -2720,12 +2720,11 @@ function _ExecutorSettingsSection() {
     );
   }
 
+  // Post-T87 channels: one merged paper book + the two separate live accounts.
   const allChannels: Array<{ id: string; label: string }> = [
-    { id: 'ai-paper', label: 'AI Paper' },
+    { id: 'paper', label: 'Paper' },
     { id: 'ai-live', label: 'AI Live' },
-    { id: 'my-paper', label: 'My Paper' },
     { id: 'my-live', label: 'My Live' },
-    { id: 'testing-live', label: 'Testing Live' },
   ];
   const toggleArr = (arr: string[], v: string): string[] =>
     arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];

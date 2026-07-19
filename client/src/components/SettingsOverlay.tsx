@@ -12,6 +12,7 @@ import {
   Receipt,
   Landmark,
   Layers,
+  Gauge,
   ChevronRight,
   Settings,
   X,
@@ -26,6 +27,7 @@ import {
   CapitalManagementSection,
   InstrumentsSection,
   TradingModeSection,
+  ExecutorSettingsSection,
   SettingsActionsContext,
   SaveButton,
   ResetButton,
@@ -40,7 +42,8 @@ type SettingsSection =
   | 'charges'
   | 'capital'
   | 'instruments'
-  | 'tradingMode';
+  | 'tradingMode'
+  | 'executor';
 
 interface SectionItem {
   id: SettingsSection;
@@ -58,6 +61,7 @@ const SECTIONS: SectionItem[] = [
   { id: 'expiry', label: 'Expiry Controls', icon: CalendarClock, description: 'Per-instrument expiry day rules' },
   { id: 'charges', label: 'Charges', icon: Receipt, description: 'Brokerage, STT, GST, and other charge rates' },
   { id: 'capital', label: 'Capital Management', icon: Landmark, description: 'Reset initial capital, pool allocation' },
+  { id: 'executor', label: 'Execution Engine', icon: Gauge, description: 'AI live lot cap, RCA exit triggers, EOD square-off' },
 ];
 
 interface SettingsOverlayProps {
@@ -139,6 +143,8 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
         return <InstrumentsSection />;
       case 'tradingMode':
         return <TradingModeSection />;
+      case 'executor':
+        return <ExecutorSettingsSection />;
       default:
         return null;
     }
