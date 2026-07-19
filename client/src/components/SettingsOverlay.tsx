@@ -5,7 +5,6 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Zap,
   ShieldCheck,
   Clock,
   CalendarClock,
@@ -19,7 +18,6 @@ import {
   Settings as SettingsIcon,
 } from 'lucide-react';
 import {
-  OrderExecutionSection,
   DisciplineSection,
   TimeWindowsSection,
   ExpiryControlsSection,
@@ -35,7 +33,6 @@ import {
 } from '@/pages/Settings';
 
 type SettingsSection =
-  | 'execution'
   | 'discipline'
   | 'timeWindows'
   | 'expiry'
@@ -55,13 +52,12 @@ interface SectionItem {
 const SECTIONS: SectionItem[] = [
   { id: 'instruments', label: 'Instruments', icon: SettingsIcon, description: 'Configure tradable instruments' },
   { id: 'tradingMode', label: 'Trading Mode', icon: Layers, description: 'Default tab and per-workspace kill switches' },
-  { id: 'execution', label: 'Order Execution', icon: Zap, description: 'Entry offset, SL/TP, targets, trailing stop' },
   { id: 'discipline', label: 'Discipline', icon: ShieldCheck, description: 'Circuit breaker, trade limits, pre-trade gate, streaks' },
   { id: 'timeWindows', label: 'Time Windows', icon: Clock, description: 'NSE & MCX trading time restrictions' },
   { id: 'expiry', label: 'Expiry Controls', icon: CalendarClock, description: 'Per-instrument expiry day rules' },
   { id: 'charges', label: 'Charges', icon: Receipt, description: 'Brokerage, STT, GST, and other charge rates' },
   { id: 'capital', label: 'Capital Management', icon: Landmark, description: 'Reset initial capital, pool allocation' },
-  { id: 'executor', label: 'Execution Engine', icon: Gauge, description: 'AI live lot cap, RCA exit triggers, EOD square-off' },
+  { id: 'executor', label: 'Execution Engine', icon: Gauge, description: 'My-Trades safety exits, EOD square-off, desync kill-switch' },
 ];
 
 interface SettingsOverlayProps {
@@ -127,8 +123,6 @@ export default function SettingsOverlay({ open, onOpenChange }: SettingsOverlayP
 
   const renderSection = () => {
     switch (activeSection) {
-      case 'execution':
-        return <OrderExecutionSection />;
       case 'discipline':
         return <DisciplineSection />;
       case 'timeWindows':
