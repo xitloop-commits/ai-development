@@ -28,6 +28,7 @@ import { portfolioRouter } from "./portfolio/router";
 import { executorRouter } from "./executor";
 import { disciplineRouter } from "./discipline/disciplineRouter";
 import { alertsRouter } from "./alerts/alertRouter";
+import { replayRouter } from "./replay/replayRouter";
 import { searchStocks, addStock, listStocks, removeStock } from "./stockMaster";
 import { getActiveBroker } from "./broker/brokerService";
 import { getUserSettings, updateUserSettings } from "./userSettings";
@@ -547,6 +548,10 @@ export const appRouter = router({
 
   // Alerts (T52 — server-side AlertHistory persistence; client wiring pending)
   alerts: alertsRouter,
+
+  // Tick replay — recorded-tick live-simulation (drives the exit engine now;
+  // SEA-firing Python driver + UI land in later milestones).
+  replay: replayRouter,
 
   // "CLAUD SAYS" — per-instrument option-chain verdict via Claude. The server
   // owns the rollover notebook (history); the client only names the instrument.
