@@ -35,6 +35,7 @@ import { getSEASignals, type SEASignal } from "../seaSignals";
 import type { Channel, TradeRecord } from "../portfolio/state";
 import type { ExitTradeReason } from "../executor/types";
 import { getExecutorSettings } from "../executor/settings";
+import { isReplayActive } from "../replay/tickReplay";
 import { notifyTelegram } from "../_core/telegram";
 import type {
   DisciplineExitRequest,
@@ -198,25 +199,31 @@ class RcaMonitor {
         // momentum). They are closed only by MA-Signal's own EXIT signal.
         if (trade.manualExitOnly) continue;
 
-        const ageMs = now - trade.openedAt;
-        if (ageMs >= this.maxAgeMs) {
-          await this.exit(channel, trade, "AGE", {
-            reason: "AGE_EXIT",
-            detail: `Age ${Math.round(ageMs / 60_000)} min ≥ ${this.maxAgeMs / 60_000} min`,
-          });
-          continue;
-        }
+        // The age + stale-price exits are WALL-CLOCK based; during a tick-replay
+        // they'd force-close a replayed trade on real elapsed time (or stale
+        // gaps between paced ticks), so stand down and let the tick-driven exit
+        // engine — the thing the replay is testing — manage it.
+        if (!isReplayActive()) {
+          const ageMs = now - trade.openedAt;
+          if (ageMs >= this.maxAgeMs) {
+            await this.exit(channel, trade, "AGE", {
+              reason: "AGE_EXIT",
+              detail: `Age ${Math.round(ageMs / 60_000)} min ≥ ${this.maxAgeMs / 60_000} min`,
+            });
+            continue;
+          }
 
-        // Stale-price: requires a tick to have arrived once. If
-        // lastTickAt is undefined the trade is fresh; only flag once
-        // we've seen at least one tick AND it's gone stale.
-        if (trade.lastTickAt && now - trade.lastTickAt >= this.staleTickMs) {
-          const stillness = now - trade.lastTickAt;
-          await this.exit(channel, trade, "STALE_PRICE", {
-            reason: "STALE_PRICE_EXIT",
-            detail: `No tick for ${Math.round(stillness / 60_000)} min ≥ ${this.staleTickMs / 60_000} min`,
-          });
-          continue;
+          // Stale-price: requires a tick to have arrived once. If
+          // lastTickAt is undefined the trade is fresh; only flag once
+          // we've seen at least one tick AND it's gone stale.
+          if (trade.lastTickAt && now - trade.lastTickAt >= this.staleTickMs) {
+            const stillness = now - trade.lastTickAt;
+            await this.exit(channel, trade, "STALE_PRICE", {
+              reason: "STALE_PRICE_EXIT",
+              detail: `No tick for ${Math.round(stillness / 60_000)} min ≥ ${this.staleTickMs / 60_000} min`,
+            });
+            continue;
+          }
         }
 
         const volSignal = this.lookupSignal(trade, latestSignal);

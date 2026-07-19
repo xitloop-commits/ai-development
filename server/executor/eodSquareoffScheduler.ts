@@ -23,6 +23,7 @@ import { tradeExecutor } from "./tradeExecutor";
 import { getExecutorSettings } from "./settings";
 import { getISTNow, parseTimeToMinutes, type Exchange } from "../discipline/types";
 import { isTodayHoliday } from "../holidays";
+import { isReplayActive } from "../replay/tickReplay";
 import type { Channel, TradeRecord } from "../portfolio/state";
 
 const log = createLogger("TEA", "EodSquareoff");
@@ -141,6 +142,9 @@ const doneFor = new Map<Exchange, string>();
 
 /** One checker pass — re-reads config, fires any exchange whose time has come. */
 export async function checkOnce(): Promise<void> {
+  // Don't flatten replayed trades: a replay usually runs after the real bell, so
+  // the wall-clock square-off would immediately close everything under test.
+  if (isReplayActive()) return;
   const settings = await getExecutorSettings();
   if (!settings.eodSquareoffEnabled) return;
 

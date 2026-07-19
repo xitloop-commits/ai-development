@@ -189,6 +189,13 @@ export function getReplayStatus(): ReplayStatus {
   return { running, date: currentDate, speed: currentSpeed, startedAt, ticksEmitted };
 }
 
+/** True while a replay is streaming. Wall-clock safety exits (RCA age/stale, EOD
+ *  square-off) consult this and stand down, so a replayed trade is managed only
+ *  by the tick-driven exit engine we're actually testing. */
+export function isReplayActive(): boolean {
+  return running;
+}
+
 /**
  * Start replaying a date at `speed` (1× = real-time). Streams both NSE
  * instruments' option + underlying ticks into tickBus, paced by recv_ts from a
