@@ -144,7 +144,7 @@ export default function TradingDesk({
       </div>
 
       <div className="flex-1 relative overflow-hidden" style={{ contentVisibility: 'auto' }}>
-        <div ref={tableContainerRef} className={`h-full overflow-y-auto overflow-x-hidden scrollbar-thin transition-opacity duration-150 ${
+        <div ref={tableContainerRef} className={`h-full overflow-y-auto overflow-x-hidden scrollbar-thin bg-card transition-opacity duration-150 ${
           workspace === 'my' ? 'scrollbar-bullish' :
           'scrollbar-violet'
         }`}>
@@ -153,7 +153,7 @@ export default function TradingDesk({
               window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
             }} />
           ) : (
-            <table className="w-full table-fixed border-collapse text-xs [&_td]:align-middle [&_td]:whitespace-nowrap [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-background/50 [&_tbody_tr]:hover:bg-muted/30 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
+            <table className="w-full table-fixed border-collapse text-xs [&_td]:align-middle [&_td]:whitespace-nowrap [&_th]:align-middle [&_th]:whitespace-nowrap [&_tbody_tr:nth-child(even)]:bg-muted/40 [&_tbody_tr]:hover:bg-muted/70 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
               <colgroup>
                 <col style={{ width: '2.25rem', maxWidth: '2.25rem' }} />
                 <col style={{ width: '5.625rem', maxWidth: '5.625rem' }} />
