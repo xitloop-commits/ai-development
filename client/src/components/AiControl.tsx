@@ -290,17 +290,20 @@ export function AiControl() {
                 <div className="max-h-[60vh] overflow-y-auto scrollbar-thin scrollbar-cyan p-3 space-y-3">
                 {/* ② Cohorts */}
                 <div className="border-t border-border pt-2 flex flex-col gap-2">
-                  <SectionLabel>Cohorts</SectionLabel>
-                  <div className="flex gap-1.5">
-                    {COHORTS.map((c) => (
-                      <Pill
-                        key={c.key}
-                        label={c.label}
-                        on={!!d.cohorts[c.key]}
-                        disabled={c.key === "swing"}
-                        onClick={() => edit((x) => { x.cohorts[c.key] = !x.cohorts[c.key]; })}
-                      />
-                    ))}
+                  {/* Label + toggles share one row to save vertical space. */}
+                  <div className="flex items-center justify-between gap-2">
+                    <SectionLabel>Cohorts</SectionLabel>
+                    <div className="flex gap-1">
+                      {COHORTS.map((c) => (
+                        <Pill
+                          key={c.key}
+                          label={c.label}
+                          on={!!d.cohorts[c.key]}
+                          disabled={c.key === "swing"}
+                          onClick={() => edit((x) => { x.cohorts[c.key] = !x.cohorts[c.key]; })}
+                        />
+                      ))}
+                    </div>
                   </div>
                   <Num label="MA reversal size" value={d.cohorts.revPct} step={0.02} min={0.02} max={0.6} unit="%"
                     onChange={(v) => edit((x) => { x.cohorts.revPct = v; })} />
