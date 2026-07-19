@@ -130,7 +130,14 @@ export const appRouter = router({
     updateAiConfig: publicProcedure
       .input(z.object({ mode: z.enum(["paper", "live", "manual"]), patch: z.any() }))
       .mutation(({ input }) => {
-        updateAiConfig(input.mode, input.patch);
+        const updated = updateAiConfig(input.mode, input.patch);
+        // Cohorts drive the RUNNING SEA: push them over /ws/sea-control (which
+        // also persists to config/sea_thresholds/*.json) so the engine applies
+        // them in <100 ms. Manual trades aren't SEA-generated, so skip that mode.
+        if (input.mode !== "manual" && (input.patch as { cohorts?: unknown })?.cohorts) {
+          for (const c of ["scalp", "trend", "ma"] as const) setCohort(c, updated.cohorts[c]);
+          setRevPct(updated.cohorts.revPct);
+        }
         const all = getAllAiConfig();
         tickBus.emitAiConfig(all);
         return all;
