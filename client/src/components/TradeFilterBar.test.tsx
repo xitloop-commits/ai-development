@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import type { TradeRecord } from '@/lib/tradeTypes';
 import {
+  TradeFilterBar,
   tradeMatchesFilter,
   isEmptyTradeFilter,
   EMPTY_TRADE_FILTER,
@@ -83,5 +85,40 @@ describe('tradeMatchesFilter', () => {
     const open_ce = trade({ status: 'OPEN', type: 'CALL_BUY' });
     expect(tradeMatchesFilter(open_ce, f({ status: 'OPEN', side: 'CE' }))).toBe(true);
     expect(tradeMatchesFilter(open_ce, f({ status: 'OPEN', side: 'PE' }))).toBe(false);
+  });
+});
+
+// ─── Icon-triggered panel (the axes live behind a funnel icon) ──
+
+describe('TradeFilterBar — icon opens the filter panel', () => {
+  const baseProps = {
+    onChange: () => {},
+    instruments: ['NIFTY 50'],
+    cohorts: [],
+    strategies: [],
+  };
+
+  it('keeps the axis controls hidden until the funnel icon is clicked', () => {
+    render(<TradeFilterBar value={EMPTY_TRADE_FILTER} {...baseProps} />);
+    // No axis pill is in the DOM while the panel is closed.
+    expect(screen.queryByText('Open')).toBeNull();
+    expect(screen.queryByText('CE')).toBeNull();
+
+    fireEvent.click(screen.getByLabelText('Filter trades'));
+
+    // The panel is open — every fixed axis is now visible.
+    expect(screen.getByText('Open')).toBeInTheDocument();
+    expect(screen.getByText('CE')).toBeInTheDocument();
+    expect(screen.getByText('Win')).toBeInTheDocument();
+    expect(screen.getByText('AI')).toBeInTheDocument();
+  });
+
+  it('shows the active-axis count on the icon when a filter is set', () => {
+    render(
+      <TradeFilterBar value={f({ status: 'OPEN', side: 'CE' })} {...baseProps} />,
+    );
+    // Two active axes → the trigger carries a "2" badge; panel still closed.
+    expect(screen.getByLabelText('Filter trades').textContent).toContain('2');
+    expect(screen.queryByText('Clear all')).toBeNull();
   });
 });

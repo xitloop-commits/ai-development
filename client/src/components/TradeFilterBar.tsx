@@ -1,13 +1,15 @@
 /**
- * TradeFilterBar — a compact, client-only view filter that sits on the right of
- * the today P&L bar and narrows the trade ROWS shown in the today cycle. It does
- * not touch the day's P&L / summary figures (those stay on the full day).
+ * TradeFilterBar — a client-only view filter on the right of the today P&L bar.
+ * It narrows the trade ROWS shown in the today cycle; it does NOT touch the day's
+ * P&L / summary figures (those stay on the full day).
  *
- * Instrument is a single-select dropdown (there can be several); Status, Side and
- * Outcome are single-select toggle pills — click to activate, click again to
- * clear. An empty axis means "no filter on that axis"; active axes are AND-ed.
+ * Collapsed to a single funnel icon: clicking it opens a panel holding every
+ * axis. Instrument is a dropdown; Status, Side, Outcome, Source, Cohort and Exit
+ * are single-select toggle pills — click to activate, click again to clear. An
+ * empty axis means "no filter on that axis"; active axes are AND-ed. The icon
+ * lights up with a count badge while any axis is active.
  */
-import { memo } from 'react';
+import { memo, useState, useRef, useEffect } from 'react';
 import { Filter, X } from 'lucide-react';
 import type { TradeRecord } from '@/lib/tradeTypes';
 import { cohortLabel, cohortPillStyle, strategyLabel, strategyPillStyle } from '@/lib/tradeThemes';
@@ -112,8 +114,16 @@ function Pill({ active, activeClass, activeStyle, onClick, title, children }: Pi
   );
 }
 
-function Divider() {
-  return <span className="w-px h-3 bg-border shrink-0" aria-hidden />;
+/** One labelled row in the filter panel: a fixed-width caption + its controls. */
+function Group({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="w-12 shrink-0 pt-1 text-[0.5rem] font-bold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      <div className="flex items-center gap-1 flex-wrap">{children}</div>
+    </div>
+  );
 }
 
 export interface TradeFilterBarProps {
@@ -130,123 +140,130 @@ export interface TradeFilterBarProps {
 }
 
 function _TradeFilterBar({ value, onChange, instruments, cohorts, strategies }: TradeFilterBarProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close the panel on an outside click or Esc.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
   // Single-select toggle: click an active value clears it, else it becomes active.
   const toggle = <K extends 'status' | 'side' | 'outcome' | 'cohort' | 'exitStrategy' | 'source'>(axis: K, v: TradeFilter[K]) =>
     onChange({ ...value, [axis]: value[axis] === v ? null : v });
 
   const dirty = !isEmptyTradeFilter(value);
+  const activeCount =
+    (value.instrument ? 1 : 0) + (value.status ? 1 : 0) + (value.side ? 1 : 0) +
+    (value.outcome ? 1 : 0) + (value.source ? 1 : 0) + (value.cohort ? 1 : 0) +
+    (value.exitStrategy ? 1 : 0);
 
   return (
-    <div className="px-2 py-1.5 flex items-center gap-1.5 shrink-0">
-      {/* Instrument — dropdown (options come from today's trades) */}
-      <select
-        value={value.instrument ?? ''}
-        onChange={(e) => onChange({ ...value, instrument: e.target.value || null })}
-        title="Filter by instrument"
-        className="bg-muted/40 text-foreground text-[0.5625rem] font-semibold rounded px-1 py-0.5 border border-border max-w-[7rem] focus:outline-none focus:ring-1 focus:ring-primary/40"
+    <div ref={ref} className="relative flex items-center px-2 shrink-0">
+      {/* Trigger — the funnel icon. When any axis is active it lights up and shows
+          a count badge; clicking opens the full filter panel below. */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title={dirty ? `${activeCount} filter${activeCount === 1 ? '' : 's'} active` : 'Filter trades'}
+        aria-label="Filter trades"
+        aria-expanded={open}
+        className={`relative p-1.5 rounded transition-colors ${
+          dirty ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+        }`}
       >
-        <option value="">All instr.</option>
-        {instruments.map((i) => (
-          <option key={i} value={i}>
-            {i}
-          </option>
-        ))}
-      </select>
+        <Filter className="w-3.5 h-3.5" />
+        {dirty && (
+          <span className="absolute -top-0.5 -right-0.5 flex h-3 min-w-[0.75rem] items-center justify-center rounded-full bg-primary px-0.5 text-[0.5rem] font-bold leading-none text-primary-foreground">
+            {activeCount}
+          </span>
+        )}
+      </button>
 
-      <Divider />
+      {/* Panel — every filter axis, one labelled row each. */}
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-1 min-w-[15rem] space-y-2 rounded-md border border-border bg-card p-3 shadow-xl">
+          <div className="flex items-center justify-between border-b border-border/50 pb-1.5">
+            <span className="text-[0.6875rem] font-bold uppercase tracking-wider text-foreground">Filters</span>
+            {dirty && (
+              <button
+                type="button"
+                onClick={() => onChange(EMPTY_TRADE_FILTER)}
+                title="Clear all filters"
+                className="flex items-center gap-1 text-[0.5625rem] font-semibold text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <X className="h-3 w-3" /> Clear all
+              </button>
+            )}
+          </div>
 
-      {/* Status */}
-      <Pill active={value.status === 'OPEN'} activeClass="bg-info-cyan/20 text-info-cyan" onClick={() => toggle('status', 'OPEN')} title="Show only open trades">
-        Open
-      </Pill>
-      <Pill active={value.status === 'CLOSED'} activeClass="bg-foreground/15 text-foreground" onClick={() => toggle('status', 'CLOSED')} title="Show only closed trades">
-        Closed
-      </Pill>
-
-      <Divider />
-
-      {/* Side */}
-      <Pill active={value.side === 'CE'} activeClass="bg-bullish/20 text-bullish" onClick={() => toggle('side', 'CE')} title="Show only CALL (CE) trades">
-        CE
-      </Pill>
-      <Pill active={value.side === 'PE'} activeClass="bg-destructive/20 text-destructive" onClick={() => toggle('side', 'PE')} title="Show only PUT (PE) trades">
-        PE
-      </Pill>
-
-      <Divider />
-
-      {/* Outcome */}
-      <Pill active={value.outcome === 'WIN'} activeClass="bg-bullish/20 text-bullish" onClick={() => toggle('outcome', 'WIN')} title="Show only winning trades">
-        Win
-      </Pill>
-      <Pill active={value.outcome === 'LOSS'} activeClass="bg-destructive/20 text-destructive" onClick={() => toggle('outcome', 'LOSS')} title="Show only losing trades">
-        Loss
-      </Pill>
-
-      <Divider />
-
-      {/* Source — AI engine vs My (manual). The paper book holds both (T87). */}
-      <Pill active={value.source === 'ai'} activeClass="bg-violet-pulse/20 text-violet-pulse" onClick={() => toggle('source', 'ai')} title="Show only AI trades">
-        AI
-      </Pill>
-      <Pill active={value.source === 'my'} activeClass="bg-info-cyan/20 text-info-cyan" onClick={() => toggle('source', 'my')} title="Show only My (manual) trades">
-        My
-      </Pill>
-
-      {/* Cohort — colour-coded toggle pills, only for cohorts present today. */}
-      {cohorts.length > 0 && (
-        <>
-          <Divider />
-          {cohorts.map((c) => (
-            <Pill
-              key={c}
-              active={value.cohort === c}
-              activeStyle={cohortPillStyle(c)}
-              onClick={() => toggle('cohort', c)}
-              title={`Show only ${cohortLabel(c)} trades`}
+          <Group label="Instr.">
+            <select
+              value={value.instrument ?? ''}
+              onChange={(e) => onChange({ ...value, instrument: e.target.value || null })}
+              title="Filter by instrument"
+              className="max-w-[8rem] rounded border border-border bg-muted/40 px-1 py-0.5 text-[0.5625rem] font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
             >
-              {cohortLabel(c)}
-            </Pill>
-          ))}
-        </>
-      )}
+              <option value="">All instruments</option>
+              {instruments.map((i) => (
+                <option key={i} value={i}>{i}</option>
+              ))}
+            </select>
+          </Group>
 
-      {/* Exit strategy (T84 race) — colour-coded pills, only when present today. */}
-      {strategies.length > 0 && (
-        <>
-          <Divider />
-          {strategies.map((s) => (
-            <Pill
-              key={s}
-              active={value.exitStrategy === s}
-              activeStyle={strategyPillStyle(s)}
-              onClick={() => toggle('exitStrategy', s)}
-              title={`Show only ${strategyLabel(s)}-strategy trades`}
-            >
-              {strategyLabel(s)}
-            </Pill>
-          ))}
-        </>
-      )}
+          <Group label="Status">
+            <Pill active={value.status === 'OPEN'} activeClass="bg-info-cyan/20 text-info-cyan" onClick={() => toggle('status', 'OPEN')} title="Show only open trades">Open</Pill>
+            <Pill active={value.status === 'CLOSED'} activeClass="bg-foreground/15 text-foreground" onClick={() => toggle('status', 'CLOSED')} title="Show only closed trades">Closed</Pill>
+          </Group>
 
-      <Divider />
+          <Group label="Side">
+            <Pill active={value.side === 'CE'} activeClass="bg-bullish/20 text-bullish" onClick={() => toggle('side', 'CE')} title="Show only CALL (CE) trades">CE</Pill>
+            <Pill active={value.side === 'PE'} activeClass="bg-destructive/20 text-destructive" onClick={() => toggle('side', 'PE')} title="Show only PUT (PE) trades">PE</Pill>
+          </Group>
 
-      {/* Trailing icon slot — fixed width so the pills never shift. Shows a clear
-          (×) button when a filter is active, else the (decorative) funnel icon. */}
-      {dirty ? (
-        <button
-          type="button"
-          onClick={() => onChange(EMPTY_TRADE_FILTER)}
-          title="Clear filter"
-          aria-label="Clear filter"
-          className="p-0.5 rounded text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors shrink-0"
-        >
-          <X className="w-3 h-3" />
-        </button>
-      ) : (
-        <span className="p-0.5 shrink-0" aria-hidden>
-          <Filter className="w-3 h-3 text-muted-foreground" />
-        </span>
+          <Group label="Outcome">
+            <Pill active={value.outcome === 'WIN'} activeClass="bg-bullish/20 text-bullish" onClick={() => toggle('outcome', 'WIN')} title="Show only winning trades">Win</Pill>
+            <Pill active={value.outcome === 'LOSS'} activeClass="bg-destructive/20 text-destructive" onClick={() => toggle('outcome', 'LOSS')} title="Show only losing trades">Loss</Pill>
+          </Group>
+
+          {/* Source — AI engine vs My (manual). The paper book holds both (T87). */}
+          <Group label="Source">
+            <Pill active={value.source === 'ai'} activeClass="bg-violet-pulse/20 text-violet-pulse" onClick={() => toggle('source', 'ai')} title="Show only AI trades">AI</Pill>
+            <Pill active={value.source === 'my'} activeClass="bg-info-cyan/20 text-info-cyan" onClick={() => toggle('source', 'my')} title="Show only My (manual) trades">My</Pill>
+          </Group>
+
+          {/* Cohort — colour-coded, only for cohorts present today. */}
+          {cohorts.length > 0 && (
+            <Group label="Cohort">
+              {cohorts.map((c) => (
+                <Pill key={c} active={value.cohort === c} activeStyle={cohortPillStyle(c)} onClick={() => toggle('cohort', c)} title={`Show only ${cohortLabel(c)} trades`}>
+                  {cohortLabel(c)}
+                </Pill>
+              ))}
+            </Group>
+          )}
+
+          {/* Exit strategy (T84 race) — only when present today. */}
+          {strategies.length > 0 && (
+            <Group label="Exit">
+              {strategies.map((s) => (
+                <Pill key={s} active={value.exitStrategy === s} activeStyle={strategyPillStyle(s)} onClick={() => toggle('exitStrategy', s)} title={`Show only ${strategyLabel(s)}-strategy trades`}>
+                  {strategyLabel(s)}
+                </Pill>
+              ))}
+            </Group>
+          )}
+        </div>
       )}
     </div>
   );
