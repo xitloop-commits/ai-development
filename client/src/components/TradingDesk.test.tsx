@@ -41,6 +41,10 @@ vi.mock("@/lib/trpc", () => ({
     portfolio: {
       updateLtp: { useMutation: () => noopMutation },
     },
+    // TodaySection reads the shared exit config for the cooling-window countdown.
+    trading: {
+      aiConfig: { useQuery: () => ({ data: undefined }) },
+    },
     broker: {
       config: { get: { useQuery: () => ({ data: undefined }) } },
       feed: {
