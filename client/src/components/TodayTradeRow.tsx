@@ -233,10 +233,9 @@ function _TodayTradeRow({
                   {cohortLabel(trade.cohort)}
                 </span>
               )}
-              {/* T84 race: only the experimental twins (Runway/Anchor) get a
-                  strategy pill — Sprint is the unlabelled baseline, so normal
-                  rows stay clean. */}
-              {trade.exitStrategy && trade.exitStrategy !== 'sprint' && (
+              {/* Every strategy gets a pill (Sprint included) so the row always
+                  says which exit engine is managing the trade. */}
+              {trade.exitStrategy && (
                 <span
                   className="text-[0.5rem] font-semibold uppercase tracking-wide rounded px-1 py-0.5 shrink-0"
                   style={strategyPillStyle(trade.exitStrategy)}
