@@ -16,6 +16,8 @@ import {
   getTradeDirectionLabel,
   getTradeContractLabel,
   contractCopyText,
+  formatIstClock,
+  formatIstDateTime,
 } from '@/lib/tradeFormatters';
 import { tradePoints } from '@/lib/tradeCalculations';
 import { getWorkspaceThemeMeta, withAlpha, cohortPillStyle, cohortLabel, strategyPillStyle, strategyLabel, canExitTrades } from '@/lib/tradeThemes';
@@ -183,6 +185,13 @@ function _TodayTradeRow({
         <div className="flex items-center gap-2 w-full">
           {/* Instrument identity (left) */}
           <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap min-w-0 shrink-0">
+            {/* Entry clock time (IST). Full date + time in the tooltip. */}
+            <span
+              className="text-[0.5625rem] font-semibold tabular-nums text-muted-foreground shrink-0"
+              title={`Entered ${formatIstDateTime(trade.openedAt)} IST`}
+            >
+              {formatIstClock(trade.openedAt)}
+            </span>
             {trade.signalSeq != null && (
               <span
                 className="text-[0.625rem] font-semibold tabular-nums text-info-cyan shrink-0"

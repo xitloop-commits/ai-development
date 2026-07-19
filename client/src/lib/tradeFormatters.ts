@@ -98,6 +98,24 @@ export function formatDateStr(dateStr: string): string {
   } catch { return dateStr; }
 }
 
+/** Clock time of an epoch-ms timestamp, in IST, 24h "HH:MM" (e.g. "09:18"). */
+export function formatIstClock(ts: number): string {
+  if (!ts || Number.isNaN(ts)) return '';
+  return new Date(ts).toLocaleTimeString('en-GB', {
+    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata',
+  });
+}
+
+/** Full IST date + time for tooltips, e.g. "17 Jul 2026, 09:18:23". */
+export function formatIstDateTime(ts: number): string {
+  if (!ts || Number.isNaN(ts)) return '';
+  return new Date(ts).toLocaleString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    timeZone: 'Asia/Kolkata',
+  });
+}
+
 export function formatDateAgeLabel(dateLabel: string, openedAt?: number): string {
   const formatted = formatDateStr(dateLabel);
   const age = formatAge(openedAt);
