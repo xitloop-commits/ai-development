@@ -1197,24 +1197,21 @@ function buildTradeRecord(
   );
 
   // T85: the ATTACHED STRATEGY is the single, highest-precedence source of the
-  // exit levels. For a SIGNAL-driven (AI) Sprint trade the stop + target come
-  // from the Sprint config — the signal's own sl/tp are ignored, and so is every
-  // other source (the old Risk-Management override is gone). Runway/Anchor
-  // derive their own levels from entry on each tick, so they're left alone.
-  // MANUAL trades keep whatever the operator typed; falling back to the config
-  // only when they left a field blank.
+  // exit levels — for EVERY trade, AI or manual. A Sprint trade takes its stop +
+  // target from the Sprint config; the caller's own sl/tp are ignored, as is
+  // every other source (the old Risk-Management override is gone). Runway/Anchor
+  // produce no config levels here because they derive their own from entry on
+  // each tick, so the caller's values pass through as the opening display and
+  // the engine overwrites them immediately.
   const strategy = req.exitStrategy ?? "sprint";
-  const fromSignal = req.origin === "AI";
   const isLong = req.direction === "BUY";
   const round2 = (n: number) => Math.round(n * 100) / 100;
   const fromCfg = (pct: number, favourable: boolean): number | null =>
     strategy === "sprint" && req.entryPrice > 0
       ? round2(req.entryPrice * (1 + (isLong === favourable ? pct : -pct) / 100))
       : null;
-  const cfgStop = fromCfg(sprintCfg.defaultSL, false);
-  const cfgTarget = fromCfg(sprintCfg.defaultTP, true);
-  const stopLossPrice = fromSignal ? (cfgStop ?? req.stopLoss ?? null) : (req.stopLoss ?? cfgStop);
-  const targetPrice = fromSignal ? (cfgTarget ?? req.takeProfit ?? null) : (req.takeProfit ?? cfgTarget);
+  const stopLossPrice = fromCfg(sprintCfg.defaultSL, false) ?? req.stopLoss ?? null;
+  const targetPrice = fromCfg(sprintCfg.defaultTP, true) ?? req.takeProfit ?? null;
 
   return {
     id: tradeId,
