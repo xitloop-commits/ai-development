@@ -24,6 +24,7 @@ import { getExecutorSettings } from "./settings";
 import { getISTNow, parseTimeToMinutes, type Exchange } from "../discipline/types";
 import { isTodayHoliday } from "../holidays";
 import { isReplayActive } from "../replay/tickReplay";
+import { aiModeForChannel, getAiConfig } from "../portfolio/aiModeConfig";
 import type { Channel, TradeRecord } from "../portfolio/state";
 
 const log = createLogger("TEA", "EodSquareoff");
@@ -81,46 +82,7 @@ export async function runEodSquareoff(
   }
 
   for (const channel of SQUAREOFF_CHANNELS) {
-    let open: TradeRecord[];
-    try {
-      // listOpenTrades reads day_records (never misses a displayed open trade,
-      // unlike position_state which can lag) — the right read for a backstop.
-      open = await portfolioAgent.listOpenTrades(channel);
-    } catch (err) {
-      log.warn(`listOpenTrades ${channel} failed: ${(err as Error).message ?? err}`);
-      continue;
-    }
-
-    for (const trade of open) {
-      if (trade.status !== "OPEN") continue;
-      if (exchangeForInstrument(trade.instrument) !== exchange) continue;
-      // Delivery (CNC) stock holdings are meant to be held, not squared off.
-      if (trade.productType === "CNC") {
-        res.heldCnc++;
-        continue;
-      }
-      try {
-        const resp = await tradeExecutor.exitTrade({
-          executionId: `EOD-${channel}-${trade.id}-${istDate}`,
-          positionId: positionIdFor(trade.id),
-          channel,
-          exitType: "MARKET",
-          reason: "EOD_SQUAREOFF",
-          triggeredBy: "PA",
-          detail: `EOD auto square-off at ${exchange} close`,
-          timestamp: Date.now(),
-        });
-        if (resp.success) {
-          res.exited++;
-        } else {
-          res.failed++;
-          log.warn(`square-off ${trade.id} (${channel}) failed: ${resp.error}`);
-        }
-      } catch (err) {
-        res.failed++;
-        log.warn(`square-off ${trade.id} (${channel}) threw: ${(err as Error).message ?? err}`);
-      }
-    }
+    await squareoffChannel(channel, exchange, istDate, res);
   }
 
   if (res.exited || res.failed || res.heldCnc) {
@@ -131,14 +93,89 @@ export async function runEodSquareoff(
   return res;
 }
 
+/**
+ * Flatten ONE channel's open intraday trades for one exchange. The scheduler
+ * uses this so each channel fires at ITS OWN square-off time (AI channels from
+ * the AI menu per mode; my-live from executor settings).
+ */
+export async function runEodSquareoffChannel(
+  channel: Channel,
+  exchange: Exchange,
+  istDate: string = istNowParts().date,
+): Promise<EodSquareoffResult> {
+  const res: EodSquareoffResult = { exited: 0, failed: 0, heldCnc: 0 };
+  if (isTodayHoliday(exchange).isHoliday) {
+    log.info(`${exchange} square-off (${channel}) skipped — market holiday`);
+    return res;
+  }
+  await squareoffChannel(channel, exchange, istDate, res);
+  if (res.exited || res.failed || res.heldCnc) {
+    log.important(
+      `${exchange} square-off (${channel}): exited=${res.exited} failed=${res.failed} heldCNC=${res.heldCnc}`,
+    );
+  }
+  return res;
+}
+
+/** Core: flatten one channel's OPEN, square-off-eligible trades for one exchange
+ *  (accumulates into `res`). CNC/delivery holdings are held, not squared off. */
+async function squareoffChannel(
+  channel: Channel,
+  exchange: Exchange,
+  istDate: string,
+  res: EodSquareoffResult,
+): Promise<void> {
+  let open: TradeRecord[];
+  try {
+    // listOpenTrades reads day_records (never misses a displayed open trade,
+    // unlike position_state which can lag) — the right read for a backstop.
+    open = await portfolioAgent.listOpenTrades(channel);
+  } catch (err) {
+    log.warn(`listOpenTrades ${channel} failed: ${(err as Error).message ?? err}`);
+    return;
+  }
+
+  for (const trade of open) {
+    if (trade.status !== "OPEN") continue;
+    if (exchangeForInstrument(trade.instrument) !== exchange) continue;
+    // Delivery (CNC) stock holdings are meant to be held, not squared off.
+    if (trade.productType === "CNC") {
+      res.heldCnc++;
+      continue;
+    }
+    try {
+      const resp = await tradeExecutor.exitTrade({
+        executionId: `EOD-${channel}-${trade.id}-${istDate}`,
+        positionId: positionIdFor(trade.id),
+        channel,
+        exitType: "MARKET",
+        reason: "EOD_SQUAREOFF",
+        triggeredBy: "PA",
+        detail: `EOD auto square-off at ${exchange} close`,
+        timestamp: Date.now(),
+      });
+      if (resp.success) {
+        res.exited++;
+      } else {
+        res.failed++;
+        log.warn(`square-off ${trade.id} (${channel}) failed: ${resp.error}`);
+      }
+    } catch (err) {
+      res.failed++;
+      log.warn(`square-off ${trade.id} (${channel}) threw: ${(err as Error).message ?? err}`);
+    }
+  }
+}
+
 // ─── Minute-tick scheduler ───────────────────────────────────────
 
 let timer: NodeJS.Timeout | null = null;
-/** exchange → IST date already squared off, so the every-minute checker fires
- *  the flatten exactly once per day even though the time-reached condition
- *  stays true for the rest of the session. In-memory: a restart re-arms it, so
- *  a crash-then-restart after the bell re-flattens anything still open. */
-const doneFor = new Map<Exchange, string>();
+/** `${channel}:${exchange}` → IST date already squared off, so the every-minute
+ *  checker fires the flatten exactly once per day per (channel, exchange) even
+ *  though the time-reached condition stays true for the rest of the session.
+ *  In-memory: a restart re-arms it, so a crash-then-restart after the bell
+ *  re-flattens anything still open. */
+const doneFor = new Map<string, string>();
 
 /** One checker pass — re-reads config, fires any exchange whose time has come. */
 export async function checkOnce(): Promise<void> {
@@ -146,24 +183,37 @@ export async function checkOnce(): Promise<void> {
   // the wall-clock square-off would immediately close everything under test.
   if (isReplayActive()) return;
   const settings = await getExecutorSettings();
-  if (!settings.eodSquareoffEnabled) return;
-
   const { minutes: nowMin, date } = istNowParts();
-  const targets: Array<{ exchange: Exchange; time: string }> = [
-    { exchange: "NSE", time: settings.eodSquareoffNseTime },
-    { exchange: "MCX", time: settings.eodSquareoffMcxTime },
-  ];
 
-  for (const { exchange, time } of targets) {
-    const targetMin = parseTimeToMinutes(time);
-    if (Number.isNaN(targetMin)) continue;      // malformed config → skip safely
-    if (nowMin < targetMin) continue;           // bell not reached yet today
-    if (doneFor.get(exchange) === date) continue; // already flattened today
-    doneFor.set(exchange, date);
-    try {
-      await runEodSquareoff(exchange, date);
-    } catch (err) {
-      log.error(`${exchange} square-off run failed: ${(err as Error).message ?? err}`);
+  for (const channel of SQUAREOFF_CHANNELS) {
+    // Per-mode square-off config: AI channels (paper/ai-live) read the AI menu's
+    // per-mode times; my-live keeps the executor-settings times.
+    const aiMode = aiModeForChannel(channel);
+    const so = aiMode
+      ? getAiConfig(aiMode).squareoff
+      : {
+          enabled: settings.eodSquareoffEnabled,
+          nseTime: settings.eodSquareoffNseTime,
+          mcxTime: settings.eodSquareoffMcxTime,
+        };
+    if (!so.enabled) continue;
+
+    const targets: Array<{ exchange: Exchange; time: string }> = [
+      { exchange: "NSE", time: so.nseTime },
+      { exchange: "MCX", time: so.mcxTime },
+    ];
+    for (const { exchange, time } of targets) {
+      const targetMin = parseTimeToMinutes(time);
+      if (Number.isNaN(targetMin)) continue;      // malformed config → skip safely
+      if (nowMin < targetMin) continue;           // bell not reached yet today
+      const key = `${channel}:${exchange}`;
+      if (doneFor.get(key) === date) continue;    // already flattened today
+      doneFor.set(key, date);
+      try {
+        await runEodSquareoffChannel(channel, exchange, date);
+      } catch (err) {
+        log.error(`${exchange} square-off (${channel}) run failed: ${(err as Error).message ?? err}`);
+      }
     }
   }
 }

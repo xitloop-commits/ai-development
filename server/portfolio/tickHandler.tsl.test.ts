@@ -40,6 +40,18 @@ vi.mock("./state", async () => {
 vi.mock("../broker/brokerConfig", () => ({
   getActiveBrokerConfig: () => getActiveBrokerConfigMock(),
 }));
+// Sprint trailing for AI channels now comes from the AI menu; these tests drive
+// it via brokerConfig, so route the channel through the fallback
+// (aiModeForChannel → null). getAiConfig defaults cover the runway/anchor branch.
+vi.mock("../portfolio/aiModeConfig", () => ({
+  aiModeForChannel: () => null,
+  modeForChannel: (ch: string) => (ch === "paper" ? "paper" : "live"),
+  getAiConfig: () => ({
+    runway: { coolingSec: 300, defaultSlPct: 25, cooledSlPct: 12.5, breakevenAtFrac: 0.5, nearTargetFrac: 0.9, trailPct: 15, defaultTargetPct: 2.3 },
+    anchor: { coolingSec: 300, defaultSlPct: 25, cooledSlPct: 12.5, breakevenAtFrac: 0.5, nearTargetFrac: 0.9, trailPct: 15, defaultTargetPct: 2.3 },
+    sprint: { trailingStopEnabled: false, trailingStopPercent: 2, trailingDistanceSource: "signal", trailingActivationGatePercent: 2, trailingActivationHoldSeconds: 10 },
+  }),
+}));
 
 vi.mock("../broker/tickBus", () => ({
   tickBus: { on: vi.fn(), off: vi.fn(), emit: vi.fn() },

@@ -35,7 +35,7 @@ import { getSEASignals, type SEASignal } from "../seaSignals";
 import type { Channel, TradeRecord } from "../portfolio/state";
 import type { ExitTradeReason } from "../executor/types";
 import { getExecutorSettings } from "../executor/settings";
-import { getActiveStrategies, getAiConfig, modeForChannel } from "../portfolio/aiModeConfig";
+import { getActiveStrategies, getAiConfig, modeForChannel, aiModeForChannel } from "../portfolio/aiModeConfig";
 import { isReplayActive } from "../replay/tickReplay";
 import { notifyTelegram } from "../_core/telegram";
 import type {
@@ -183,6 +183,14 @@ class RcaMonitor {
         log.warn(`getPositions ${channel} failed: ${err?.message ?? err}`);
         continue;
       }
+      // Per-mode safety-exit thresholds: AI channels (paper/ai-live) read the
+      // AI menu's per-mode global-exits; my-live keeps the executor-settings
+      // defaults loaded into this.* .
+      const geMode = aiModeForChannel(channel);
+      const ge = geMode ? getAiConfig(geMode).globalExits : null;
+      const maxAgeMs = ge ? ge.rcaMaxAgeMs : this.maxAgeMs;
+      const staleTickMs = ge ? ge.rcaStaleTickMs : this.staleTickMs;
+      const volThreshold = ge ? ge.rcaVolThreshold : this.volThreshold;
       for (const trade of positions) {
         if (trade.status !== "OPEN") continue;
         // Skip a trade whose exit is already in flight — but only within the
@@ -206,10 +214,10 @@ class RcaMonitor {
         // engine — the thing the replay is testing — manage it.
         if (!isReplayActive()) {
           const ageMs = now - trade.openedAt;
-          if (ageMs >= this.maxAgeMs) {
+          if (ageMs >= maxAgeMs) {
             await this.exit(channel, trade, "AGE", {
               reason: "AGE_EXIT",
-              detail: `Age ${Math.round(ageMs / 60_000)} min ≥ ${this.maxAgeMs / 60_000} min`,
+              detail: `Age ${Math.round(ageMs / 60_000)} min ≥ ${maxAgeMs / 60_000} min`,
             });
             continue;
           }
@@ -217,21 +225,21 @@ class RcaMonitor {
           // Stale-price: requires a tick to have arrived once. If
           // lastTickAt is undefined the trade is fresh; only flag once
           // we've seen at least one tick AND it's gone stale.
-          if (trade.lastTickAt && now - trade.lastTickAt >= this.staleTickMs) {
+          if (trade.lastTickAt && now - trade.lastTickAt >= staleTickMs) {
             const stillness = now - trade.lastTickAt;
             await this.exit(channel, trade, "STALE_PRICE", {
               reason: "STALE_PRICE_EXIT",
-              detail: `No tick for ${Math.round(stillness / 60_000)} min ≥ ${this.staleTickMs / 60_000} min`,
+              detail: `No tick for ${Math.round(stillness / 60_000)} min ≥ ${staleTickMs / 60_000} min`,
             });
             continue;
           }
         }
 
         const volSignal = this.lookupSignal(trade, latestSignal);
-        if (volSignal && (volSignal.max_drawdown_pred_30s ?? 0) >= this.volThreshold) {
+        if (volSignal && (volSignal.max_drawdown_pred_30s ?? 0) >= volThreshold) {
           await this.exit(channel, trade, "VOLATILITY", {
             reason: "VOLATILITY_EXIT",
-            detail: `Predicted max-drawdown ${volSignal.max_drawdown_pred_30s?.toFixed(2)} ≥ ${this.volThreshold}`,
+            detail: `Predicted max-drawdown ${volSignal.max_drawdown_pred_30s?.toFixed(2)} ≥ ${volThreshold}`,
           });
           continue;
         }

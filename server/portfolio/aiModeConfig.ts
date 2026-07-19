@@ -38,7 +38,7 @@ export interface CohortsConfig {
 
 export interface SizingConfig {
   /** Per-instrument size: lots, or % of capital. */
-  perInstrument: Record<string, { mode: "lots" | "capital"; value: number }>;
+  perInstrument: Record<string, { mode: "lots" | "percent"; value: number }>;
   /** Hard cap on lots for a LIVE trade (safety). */
   aiLiveLotCap: number;
 }
@@ -170,8 +170,8 @@ function sanitize(c: AiModeConfig): AiModeConfig {
   c.sizing.aiLiveLotCap = Math.round(clampNum(c.sizing.aiLiveLotCap, 0, 100, 1));
   for (const inst of Object.keys(c.sizing.perInstrument)) {
     const s = c.sizing.perInstrument[inst];
-    s.mode = s.mode === "capital" ? "capital" : "lots";
-    s.value = clampNum(s.value, 0, s.mode === "capital" ? 100 : 1000, 10);
+    s.mode = s.mode === "percent" ? "percent" : "lots";
+    s.value = clampNum(s.value, 0, s.mode === "percent" ? 100 : 1000, 10);
   }
   c.order.orderType = c.order.orderType === "LIMIT" ? "LIMIT" : "MARKET";
   c.order.productType = c.order.productType === "CNC" ? "CNC" : "INTRADAY";
@@ -214,6 +214,14 @@ function persist(): void {
 /** The channel a trade is on → its AI mode. Any non-paper channel is "live". */
 export function modeForChannel(channel: Channel): AiMode {
   return channel === "paper" ? "paper" : "live";
+}
+
+/** AI-only guard: the AI menu governs AI trades ONLY. paper → "paper",
+ *  ai-live → "live", my-live (manual) → null (keeps the system defaults). */
+export function aiModeForChannel(channel: Channel): AiMode | null {
+  if (channel === "paper") return "paper";
+  if (channel === "ai-live") return "live";
+  return null; // my-live and anything else — not governed by the AI menu
 }
 
 /** The effective config for one mode (defaults + persisted overrides). */

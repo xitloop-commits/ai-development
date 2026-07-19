@@ -24,7 +24,7 @@ interface ExitCfg {
 interface ModeCfg {
   cohorts: { scalp: boolean; trend: boolean; ma: boolean; swing: boolean; revPct: number };
   strategies: { sprint: boolean; runway: boolean; anchor: boolean };
-  sizing: { perInstrument: Record<string, { mode: "lots" | "capital"; value: number }>; aiLiveLotCap: number };
+  sizing: { perInstrument: Record<string, { mode: "lots" | "percent"; value: number }>; aiLiveLotCap: number };
   order: { orderType: "LIMIT" | "MARKET"; productType: "INTRADAY" | "CNC" };
   sprint: {
     defaultSL: number; defaultTP: number; dailyTargetPercent: number;
@@ -287,7 +287,7 @@ export function AiControl() {
                               x.sizing.perInstrument[inst] = { ...cur, value: e.target.value === "" ? 0 : Number(e.target.value) };
                             })}
                             className="w-14 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
-                          <span className="text-[0.5625rem] text-muted-foreground w-6">{s.mode === "capital" ? "%" : "lots"}</span>
+                          <span className="text-[0.5625rem] text-muted-foreground w-6">{s.mode === "percent" ? "%" : "lots"}</span>
                         </div>
                       </div>
                     );

@@ -48,6 +48,7 @@ import { recoveryEngine } from "./recoveryEngine";
 import { resolveLotSize } from "./tradeResolution";
 import { getScripBySecurityId } from "../broker/adapters/dhan/scripMaster";
 import { getExecutorSettings } from "./settings";
+import { getAiConfig, aiModeForChannel } from "../portfolio/aiModeConfig";
 import type {
   SubmitTradeRequest,
   SubmitTradeResponse,
@@ -471,8 +472,12 @@ class TradeExecutorAgent {
    * unbounded one through.
    */
   private async checkAiLiveLotCap(req: SubmitTradeRequest): Promise<string | null> {
-    const settings = await getExecutorSettings();
-    const cap = settings.aiLiveLotCap;
+    // ai-live's cap comes from the AI menu's per-mode sizing (LIVE); any other
+    // caller falls back to the executor-settings cap.
+    const mode = aiModeForChannel(req.channel);
+    const cap = mode
+      ? getAiConfig(mode).sizing.aiLiveLotCap
+      : (await getExecutorSettings()).aiLiveLotCap;
     const lotSize = (await resolveLotSize(req.instrument)) ?? 1;
     const lots = req.quantity / lotSize;
     if (lots > cap + 0.0001 /* float tolerance */) {

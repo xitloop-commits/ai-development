@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { listOpenTradesMock, exitTradeMock, getSettingsMock, isTodayHolidayMock } = vi.hoisted(() => ({
+const { listOpenTradesMock, exitTradeMock, getSettingsMock, isTodayHolidayMock, aiSquareoffMock } = vi.hoisted(() => ({
   listOpenTradesMock: vi.fn(async (_channel: string) => [] as any[]),
   exitTradeMock: vi.fn(async () => ({ success: true, error: undefined }) as any),
   getSettingsMock: vi.fn(async () => ({
@@ -18,6 +18,9 @@ const { listOpenTradesMock, exitTradeMock, getSettingsMock, isTodayHolidayMock }
     eodSquareoffMcxTime: "23:25",
   })),
   isTodayHolidayMock: vi.fn((_ex: string) => ({ isHoliday: false })),
+  // Per-mode square-off: AI channels (paper/ai-live) read this; my-live uses
+  // the executor settings above.
+  aiSquareoffMock: vi.fn(() => ({ enabled: true, nseTime: "15:25", mcxTime: "23:25" })),
 }));
 
 vi.mock("../portfolio", () => ({
@@ -28,6 +31,10 @@ vi.mock("./tradeExecutor", () => ({
 }));
 vi.mock("./settings", () => ({
   getExecutorSettings: getSettingsMock,
+}));
+vi.mock("../portfolio/aiModeConfig", () => ({
+  aiModeForChannel: (ch: string) => (ch === "paper" ? "paper" : ch === "ai-live" ? "live" : null),
+  getAiConfig: () => ({ squareoff: aiSquareoffMock() }),
 }));
 vi.mock("../holidays", () => ({
   isTodayHoliday: isTodayHolidayMock,
@@ -69,6 +76,7 @@ beforeEach(() => {
     eodSquareoffMcxTime: "23:25",
   } as any);
   isTodayHolidayMock.mockReturnValue({ isHoliday: false } as any);
+  aiSquareoffMock.mockReturnValue({ enabled: true, nseTime: "15:25", mcxTime: "23:25" });
 });
 
 describe("exchangeForInstrument", () => {
@@ -201,11 +209,7 @@ describe("checkOnce — config + IST-clock gate + once-per-day guard", () => {
   it("does not fire when the feature is disabled", async () => {
     vi.useFakeTimers();
     try {
-      getSettingsMock.mockResolvedValue({
-        eodSquareoffEnabled: false,
-        eodSquareoffNseTime: "15:25",
-        eodSquareoffMcxTime: "23:25",
-      } as any);
+      aiSquareoffMock.mockReturnValue({ enabled: false, nseTime: "15:25", mcxTime: "23:25" });
       vi.setSystemTime(new Date("2026-07-20T09:55:00Z")); // 15:25 IST
       openBy({ paper: [trade({ id: "T1", instrument: "BANKNIFTY" })] });
 
@@ -220,11 +224,7 @@ describe("checkOnce — config + IST-clock gate + once-per-day guard", () => {
   it("honours a configured NSE time change (config re-read each pass)", async () => {
     vi.useFakeTimers();
     try {
-      getSettingsMock.mockResolvedValue({
-        eodSquareoffEnabled: true,
-        eodSquareoffNseTime: "15:10", // earlier than default
-        eodSquareoffMcxTime: "23:25",
-      } as any);
+      aiSquareoffMock.mockReturnValue({ enabled: true, nseTime: "15:10", mcxTime: "23:25" }); // earlier than default
       vi.setSystemTime(new Date("2026-07-20T09:41:00Z")); // 15:11 IST — past 15:10
       openBy({ paper: [trade({ id: "T1", instrument: "BANKNIFTY" })] });
 

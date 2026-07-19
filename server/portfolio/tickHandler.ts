@@ -24,7 +24,7 @@ import {
 import type { Channel, TradeRecord, CapitalState, DayRecord } from "./state";
 import { recalculateDayAggregates } from "./compounding";
 import { decideExit } from "./exitStrategies";
-import { getAiConfig, modeForChannel } from "./aiModeConfig";
+import { getAiConfig, modeForChannel, aiModeForChannel } from "./aiModeConfig";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { TickData } from "../broker/types";
 
@@ -340,15 +340,19 @@ class TickHandler extends EventEmitter {
       });
     }
 
-    // Read trailing stop config from broker settings (centralized). Gate/hold/gap
-    // are the single source the UI TradeBar reads too, so both behave identically.
-    const trailingStopEnabled = brokerConfig?.settings?.trailingStopEnabled ?? false;
-    const trailingStopPercent = brokerConfig?.settings?.trailingStopPercent ?? 2.0;
-    // Paper trailing distance source: "config" = fixed gap% below the peak;
+    // Trailing-stop config. AI channels (paper / ai-live) read the per-mode
+    // Sprint config from the AI menu; my-live (manual) keeps the broker settings.
+    const aiSprint = (() => {
+      const m = aiModeForChannel(channel);
+      return m ? getAiConfig(m).sprint : null;
+    })();
+    const trailingStopEnabled = aiSprint ? aiSprint.trailingStopEnabled : (brokerConfig?.settings?.trailingStopEnabled ?? false);
+    const trailingStopPercent = aiSprint ? aiSprint.trailingStopPercent : (brokerConfig?.settings?.trailingStopPercent ?? 2.0);
+    // Trailing distance source: "config" = fixed gap% below the peak;
     // "signal" = the trade's own initial (model) SL distance. Default signal.
-    const trailingDistanceSource = brokerConfig?.settings?.trailingDistanceSource ?? "signal";
-    const tslGatePercent = brokerConfig?.settings?.trailingActivationGatePercent ?? 2.0;
-    const tslHoldMs = (brokerConfig?.settings?.trailingActivationHoldSeconds ?? 10) * 1000;
+    const trailingDistanceSource = aiSprint ? aiSprint.trailingDistanceSource : (brokerConfig?.settings?.trailingDistanceSource ?? "signal");
+    const tslGatePercent = aiSprint ? aiSprint.trailingActivationGatePercent : (brokerConfig?.settings?.trailingActivationGatePercent ?? 2.0);
+    const tslHoldMs = (aiSprint ? aiSprint.trailingActivationHoldSeconds : (brokerConfig?.settings?.trailingActivationHoldSeconds ?? 10)) * 1000;
 
     let anyUpdated = false;
     const tradesToExit: Array<{ trade: TradeRecord; reason: "TP_HIT" | "SL_HIT"; exitPrice: number }> = [];
