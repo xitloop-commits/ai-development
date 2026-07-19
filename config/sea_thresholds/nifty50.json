@@ -31,7 +31,7 @@
     "maxhold_candles": 20
   },
   "ma_signal": {
-    "enabled": false,
+    "enabled": true,
     "ema_period": 20,
     "slope_lookback": 10,
     "thr_hi": 0.015,

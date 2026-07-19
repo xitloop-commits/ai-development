@@ -655,9 +655,13 @@ def run(
     # gate mode (like the trend gate) — pure 20-EMA slope segmentation on the
     # underlying, fires each trend leg's start/end. SIGNAL-ONLY: never traded.
     ma_signal_thresholds = load_thresholds_ma_signal(instrument, config_dir)
-    ma_signal_detector = (
-        MASignalDetector(ma_signal_thresholds) if ma_signal_thresholds.enabled else None
-    )
+    # ALWAYS construct the detector, even when the cohort starts disabled. The
+    # cohort is live-toggleable from the AI menu over /ws/sea-control, and the
+    # tick loop already suppresses the EMIT while `_live_cohorts["ma"]` is off
+    # (it keeps feeding candles so they stay current). Gating construction on the
+    # startup flag meant a SEA that booted with MA off could never be switched
+    # back on — the toggle updated the flag but the detector was None forever.
+    ma_signal_detector = MASignalDetector(ma_signal_thresholds)
     if gate_mode == "wave2":
         sustain_filter = None  # model handles persistence via direction_persists_*
         print(
@@ -716,7 +720,9 @@ def run(
             f"SL {_ms.sl_pct}% — auto-trades entries alongside scalp)"
         )
     else:
-        print(f"  MA-Signal: disabled (no `ma_signal` block in config)")
+        # The detector is still built — the cohort can be switched on live from
+        # the AI menu without restarting SEA.
+        print(f"  MA-Signal: OFF at startup (live-toggleable from the AI menu)")
     print()
 
     raw_logger = SignalLogger(instrument)
