@@ -239,7 +239,7 @@ export function AiControl() {
               <div className="p-6 text-center text-[0.625rem] text-muted-foreground">Loading…</div>
             ) : (
               <>
-                <div className="max-h-[60vh] overflow-y-auto scrollbar-thin scrollbar-cyan p-3 flex flex-col gap-3">
+                <div className="max-h-[60vh] overflow-y-auto scrollbar-thin scrollbar-cyan p-3 space-y-3">
                 {/* ② Cohorts */}
                 <div className="border-t border-border pt-2 flex flex-col gap-2">
                   <SectionLabel>Cohorts</SectionLabel>
