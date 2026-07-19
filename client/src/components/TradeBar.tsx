@@ -116,8 +116,8 @@ export function TradeBar({
   isBuy,
   entryPrice,
   ltp,
-  slPercent = 5,
-  tpPercent = 10,
+  slPercent,
+  tpPercent,
   trailingEnabled = false,
   tslGatePrice,
   tslHoldSeconds,
@@ -138,10 +138,20 @@ export function TradeBar({
   const favToPrice = (f: number) => entryPrice * (1 + (isBuy ? f : -f) / 100);
 
   const ltpFav = entryPrice > 0 ? toFav(ltp) : 0;
+
+  // T86 ④ — a SL/TSL/TP marker is drawn ONLY when the trade actually has that
+  // level; no phantom 5%/10% stop or target when the operator hasn't set one.
+  // The percentages keep a SCALE-ONLY fallback so the bar still has sane bounds,
+  // but hasStop / hasTp gate every SL/TP tick, label, band, gap and hit event.
+  const hasStop = slPercent != null;
+  const hasTp = tpPercent != null;
+  const slPct = slPercent ?? 5; // scale-only fallback — never drawn as a marker
+  const tpPct = tpPercent ?? 10; // scale-only fallback — never drawn as a marker
+
   // Favourable-% of the stop. Negative when the stop is below entry (at risk);
   // positive once it has trailed into profit ("locked").
-  const stopFav = -slPercent;
-  const stopLocked = stopFav > 0;
+  const stopFav = -slPct;
+  const stopLocked = hasStop && stopFav > 0;
   // ₹ P&L realised if the trade exits at a given favourable-% (net of charges).
   const profitAtFav = (fav: number): number | null =>
     units && units > 0 ? (fav / 100) * entryPrice * units - (roundTripCharges ?? 0) : null;
@@ -149,7 +159,7 @@ export function TradeBar({
   // Scale anchored to the trade's own levels: stop on the left (+ a little pad,
   // but never above entry) and TP on the right (+ headroom). The upper bound
   // auto-extends if price runs past TP.
-  const baseMaxFav = tpPercent + RIGHT_HEADROOM;
+  const baseMaxFav = tpPct + RIGHT_HEADROOM;
 
   // ── State ───────────────────────────────────────────────────────────
   const [maxFav, setMaxFav] = useState(baseMaxFav);
@@ -193,15 +203,15 @@ export function TradeBar({
   useEffect(() => {
     if (frozen) return; // closed snapshot — don't fire hit events on static LTP
     if (entryPrice <= 0) return;
-    if (!firedRef.current.sl && ltpFav <= stopFav) {
+    if (hasStop && !firedRef.current.sl && ltpFav <= stopFav) {
       firedRef.current.sl = true;
       onStopLossHitRef.current?.();
     }
-    if (!firedRef.current.tp && ltpFav >= tpPercent) {
+    if (hasTp && !firedRef.current.tp && ltpFav >= tpPct) {
       firedRef.current.tp = true;
       onTakeProfitHitRef.current?.();
     }
-  }, [ltpFav, stopFav, tpPercent, entryPrice, frozen]);
+  }, [ltpFav, stopFav, tpPct, entryPrice, frozen, hasStop, hasTp]);
 
   if (!(entryPrice > 0)) return null;
 
@@ -215,7 +225,7 @@ export function TradeBar({
 
   const stopPos = pos(stopFav);
   const entryPos = pos(0);
-  const tpPos = pos(tpPercent);
+  const tpPos = pos(tpPct);
   const ltpPos = pos(ltpFav);
 
   // Click-to-set take-profit: map the clicked x back through the scale to a price
@@ -245,7 +255,7 @@ export function TradeBar({
   // into profit (null while the stop is still at/below entry). Used by the
   // colour bands and the reward-gap breakdown below.
   const tslFav = stopLocked ? stopFav : null;
-  const tslPos = tslFav != null && tslFav > 0 && tslFav < tpPercent ? pos(tslFav) : null;
+  const tslPos = tslFav != null && tslFav > 0 && tslFav < tpPct ? pos(tslFav) : null;
   // The green buffer is specifically the TSL → LTP gap (profit beyond the
   // protected stop). Anchor it at the TSL marker whenever price is above it;
   // otherwise fall back to entry so a plain in-profit trade still shows green.
@@ -253,19 +263,19 @@ export function TradeBar({
 
   // ── Colour bands ──────────────────────────────────────────────────────
   const bands: Array<{ from: number; to: number; color: string }> = [];
-  if (!stopLocked) bands.push({ from: stopPos, to: entryPos, color: `${RED}55` }); // at-risk loss
+  if (hasStop && !stopLocked) bands.push({ from: stopPos, to: entryPos, color: `${RED}55` }); // at-risk loss
   if (stopLocked) bands.push({ from: entryPos, to: stopPos, color: DARK_GREEN }); // locked profit (E→TSL)
   // Pre-lock with price already past the gate: entry→gate is profit not yet
   // protected (pale); gate→LTP is the clear-green buffer pushed below.
-  if (!stopLocked && tslPos != null && tslPos < ltpPos)
+  if (hasStop && !stopLocked && tslPos != null && tslPos < ltpPos)
     bands.push({ from: entryPos, to: tslPos, color: LIGHT_GREEN });
   if (ltpPos > bufferStart) bands.push({ from: bufferStart, to: ltpPos, color: BUFFER_GREEN }); // TSL→LTP buffer
-  bands.push({ from: Math.max(bufferStart, ltpPos), to: tpPos, color: GREY }); // room to TP
+  if (hasTp) bands.push({ from: Math.max(bufferStart, ltpPos), to: tpPos, color: GREY }); // room to TP
 
   // ── Tooltips ──────────────────────────────────────────────────────────
   const fmtSign = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
   const stopPrice = favToPrice(stopFav);
-  const tpPrice = favToPrice(tpPercent);
+  const tpPrice = favToPrice(tpPct);
   // Trailing on → the stop IS a trailing stop (label TSL) even before it trails
   // into profit; trailing off → a plain fixed SL. Colour still shows the phase:
   // red while at-risk (below entry), gold once it has locked profit.
@@ -274,7 +284,7 @@ export function TradeBar({
   const stopProfit = profitAtFav(stopFav);
   const stopTip = `${trailingEnabled ? "Trailing stop" : "Stop loss"} ${formatPrice(stopPrice)} (${fmtSign(stopFav)})${stopProfit != null ? ` · ${fmtMoney(stopProfit)}` : ""}`;
   const entryTip = `Entry ${formatPrice(entryPrice)}`;
-  const tpTip = `TP ${formatPrice(tpPrice)} (${fmtSign(tpPercent)})`;
+  const tpTip = `TP ${formatPrice(tpPrice)} (${fmtSign(tpPct)})`;
   const ltpTip = `LTP ${formatPrice(ltp)} (${fmtSign(ltpFav)})`;
 
   const Tick = ({ at, color, tip, z }: { at: number; color: string; tip: string; z?: number }) => (
@@ -314,7 +324,7 @@ export function TradeBar({
 
   // ── Zone % arrows (<—— x% ——>) ────────────────────────────────────────
   // Risk = stop→entry (the red loss zone, only when the stop is below entry).
-  const showRisk = !stopLocked && entryPos - stopPos > 4;
+  const showRisk = hasStop && !stopLocked && entryPos - stopPos > 4;
   const riskMid = (stopPos + entryPos) / 2;
 
   // Reward = entry→TP, broken into consecutive measured gaps at the TSL and the
@@ -324,12 +334,10 @@ export function TradeBar({
   // correct in all states: pre-arm you get …→TSL (distance to arm); once locked
   // you get E→TSL, TSL→LTP, LTP→TP.
   type RewardPoint = { fav: number; kind: 'E' | 'TSL' | 'LTP' | 'TP' };
-  const rewardPts: RewardPoint[] = [
-    { fav: 0, kind: 'E' },
-    { fav: tpPercent, kind: 'TP' },
-  ];
-  if (tslFav != null && tslFav > 0 && tslFav < tpPercent) rewardPts.push({ fav: tslFav, kind: 'TSL' });
-  if (ltpFav > 0 && ltpFav < tpPercent) rewardPts.push({ fav: ltpFav, kind: 'LTP' });
+  const rewardPts: RewardPoint[] = [{ fav: 0, kind: 'E' }];
+  if (hasTp) rewardPts.push({ fav: tpPct, kind: 'TP' });
+  if (hasStop && tslFav != null && tslFav > 0 && tslFav < tpPct) rewardPts.push({ fav: tslFav, kind: 'TSL' });
+  if (hasTp && ltpFav > 0 && ltpFav < tpPct) rewardPts.push({ fav: ltpFav, kind: 'LTP' });
   rewardPts.sort((a, b) => a.fav - b.fav);
   const rewardSegs = rewardPts.slice(0, -1).map((a, i) => {
     const b = rewardPts[i + 1];
@@ -458,9 +466,9 @@ export function TradeBar({
         {/* Marker ticks — each its own hover tooltip. The stop/TSL marker is
             lifted above the gap arrows + bands so it's never obscured. */}
         <div className="absolute inset-0 pointer-events-none">
-          <Tick at={stopPos} color={stopColor} tip={stopTip} z={10} />
+          {hasStop && <Tick at={stopPos} color={stopColor} tip={stopTip} z={10} />}
           <Tick at={entryPos} color={ENTRY_COLOR} tip={entryTip} />
-          <Tick at={tpPos} color={TP_COLOR} tip={tpTip} />
+          {hasTp && <Tick at={tpPos} color={TP_COLOR} tip={tpTip} />}
         </div>
 
         {/* TSL "running" stopwatch (mm:ss) — sits just right of the TP marker,
@@ -501,9 +509,9 @@ export function TradeBar({
         {/* Stop: SL centred; once trailed into profit (TSL) it crowds Entry, so
             its price sits to the RIGHT of the marker. Entry's price sits to the
             LEFT of its marker so the two never overlap. */}
-        <Label at={stopPos} color={stopColor} text={stopText} price={stopPrice} hideText={compact} align={stopLocked ? "right" : "center"} />
+        {hasStop && <Label at={stopPos} color={stopColor} text={stopText} price={stopPrice} hideText={compact} align={stopLocked ? "right" : "center"} />}
         <Label at={entryPos} color={ENTRY_COLOR} text="E" price={entryPrice} hideText={compact} align="left" />
-        <Label at={tpPos} color={TP_COLOR} text="TP" price={tpPrice} hideText={compact} />
+        {hasTp && <Label at={tpPos} color={TP_COLOR} text="TP" price={tpPrice} hideText={compact} />}
       </div>
     </div>
   );

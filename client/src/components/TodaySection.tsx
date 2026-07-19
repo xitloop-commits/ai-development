@@ -70,9 +70,6 @@ export function TodaySection({
   const globalTrailingEnabled = brokerConfigQuery.data?.settings?.trailingStopEnabled ?? false;
   // SL% comes from settings (default 5%) — fed to each row's price bar to derive
   // the hard-stop marker. The TSL marker uses the trade's actual stop price.
-  // Fallback hard-stop % — only used when a trade has no stored stop yet; the bar
-  // otherwise draws the real stop from trade.stopLossPrice (which the server trails).
-  const slPercent = brokerConfigQuery.data?.settings?.defaultSL ?? 2;
   // Trailing activation gate % — positions the pending TSL marker on each row's bar.
   const tslGatePercent = brokerConfigQuery.data?.settings?.trailingActivationGatePercent ?? 2;
   // Seconds price must hold past the gate before the server arms the TSL.
@@ -226,7 +223,6 @@ export function TodaySection({
           canManageTrades={canManageTrades}
           channel={channel}
           globalTrailingEnabled={globalTrailingEnabled}
-          slPercent={slPercent}
           tslGatePercent={tslGatePercent}
           tslHoldSeconds={tslHoldSeconds}
           tradeNo={trades.indexOf(trade) + 1}

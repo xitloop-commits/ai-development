@@ -48,9 +48,6 @@ export interface TodayTradeRowProps {
    *  workspace-wide switch, not per-trade — so the row reflects this flag
    *  rather than the trade's frozen value. */
   globalTrailingEnabled?: boolean;
-  /** Fallback hard-stop % (settings defaultSL) — used only when the trade has no
-   *  stored stop yet; otherwise the bar derives the stop from trade.stopLossPrice. */
-  slPercent?: number;
   /** Trailing activation gate % (settings) — positions the pending TSL marker. */
   tslGatePercent?: number;
   /** Seconds price must hold past the gate before the server arms the TSL. */
@@ -74,7 +71,6 @@ function _TodayTradeRow({
   canManageTrades,
   channel,
   globalTrailingEnabled = false,
-  slPercent,
   tslGatePercent,
   tslHoldSeconds,
   tradeNo,
@@ -282,7 +278,7 @@ function _TodayTradeRow({
                   trade.stopLossPrice && trade.stopLossPrice > 0
                     ? ((isBuy ? trade.entryPrice - trade.stopLossPrice : trade.stopLossPrice - trade.entryPrice) /
                         trade.entryPrice) * 100
-                    : slPercent
+                    : undefined // T86 ④ — no real stop → no phantom SL marker
                 }
                 tpPercent={
                   trade.targetPrice && trade.targetPrice > 0
@@ -563,7 +559,6 @@ function rowPropsEqual(a: TodayTradeRowProps, b: TodayTradeRowProps): boolean {
     a.canManageTrades === b.canManageTrades &&
     a.channel === b.channel &&
     a.globalTrailingEnabled === b.globalTrailingEnabled &&
-    a.slPercent === b.slPercent &&
     a.tslGatePercent === b.tslGatePercent &&
     a.tslHoldSeconds === b.tslHoldSeconds &&
     a.tradeNo === b.tradeNo &&
