@@ -24,6 +24,7 @@ import { useCapital, useChannel } from '@/contexts/CapitalContext';
 import { useMarketOpen } from '@/hooks/useMarketOpen';
 import { useSeaStatus } from '@/stores/seaStatusStore';
 import { SeaControl } from '@/components/SeaControl';
+import { ReplayControl } from '@/components/ReplayControl';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { formatINR } from '@/lib/formatINR';
 import type { MarketHoliday } from '@/lib/types';
@@ -455,6 +456,11 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
 
         {/* Spacer to push right items to the end */}
         <div className="flex-1" />
+
+        {/* Tick-replay live-simulation control (date + speed + Replay/Stop) */}
+        <ReplayControl />
+
+        <div className="w-px self-stretch bg-border shrink-0" />
 
         {/* Market status (NSE / MCX open-closed lights) — right side */}
         <div className="px-3 flex items-center shrink-0">
