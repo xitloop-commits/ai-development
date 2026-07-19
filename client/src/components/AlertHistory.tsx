@@ -71,14 +71,12 @@ export default function AlertHistory() {
         }}
         className="w-full px-3 py-2 border-b border-border bg-secondary/30 flex items-center justify-between hover:bg-secondary/50 transition-colors"
       >
+        {/* Title dropped — the drawer tab already reads "Alerts". Keep only the
+            unread badge as the left affordance. */}
         <div className="flex items-center gap-1.5">
-          <Bell className="h-3 w-3 text-info-cyan" />
-          <span className="text-[0.625rem] font-bold text-info-cyan tracking-wider uppercase">
-            Alert History
-          </span>
           {unreadCount > 0 && (
             <span className="text-[0.5625rem] bg-destructive text-destructive-foreground rounded-full px-1.5 py-0.5 font-bold tabular-nums animate-pulse-glow">
-              {unreadCount}
+              {unreadCount} unread
             </span>
           )}
         </div>
