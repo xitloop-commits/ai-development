@@ -391,6 +391,14 @@ const dayRecordSchema = new Schema(
   { _id: false, timestamps: false }
 );
 
+// One DayRecord per (channel, dayIndex) — the day number is unique *within* a
+// book (paper/ai-live/my-live each keep their own day sequence). This unique
+// compound index makes the racing findOneAndUpdate({channel,dayIndex},{upsert})
+// in ensureCurrentDay atomic, so two near-simultaneous calls can't insert
+// duplicate empty ACTIVE day twins (fixed 2026-07-19 — paper day 1/2 had shown
+// up 3× each).
+dayRecordSchema.index({ channel: 1, dayIndex: 1 }, { unique: true });
+
 // ─── Models ──────────────────────────────────────────────────────
 //
 // PA Phase 2 commit 2: the capital_state collection has been renamed to
