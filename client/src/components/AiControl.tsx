@@ -15,6 +15,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { SlidersHorizontal, Check, RotateCcw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useSeaStatus } from "@/stores/seaStatusStore";
+import { useSignalEpoch } from "@/stores/liveSignals";
 
 // ── Local mirror of the server AiModeConfig (client has no router-output type) ──
 interface ExitCfg {
@@ -154,20 +155,33 @@ export function AiControl() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Load the selected mode's server config into the draft.
+  // Hydrate the drafts when the menu opens, when data first arrives, and (for
+  // the per-mode block) when the mode changes — deliberately NOT on every `all`
+  // change, otherwise applying one section would wipe unsaved edits in the
+  // other two (each Apply refreshes `all`).
+  const hasCfg = !!all;
   useEffect(() => {
     if (all) setDraft(structuredClone(all[mode]));
-  }, [all, mode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, open, hasCfg]);
 
-  // Manual (my-live) config is not tied to the mode toggle — load it once.
   useEffect(() => {
     if (all) setManualDraft(structuredClone(all.manual));
-  }, [all]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, hasCfg]);
 
-  // Shared Sprint/Runway/Anchor exits — common to every mode.
   useEffect(() => {
     if (all) setExitsDraft(structuredClone(all.exits));
-  }, [all]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, hasCfg]);
+
+  // Another panel applied a change → refetch so `dirty` compares against the
+  // current server state. Drafts are left alone so your edits are never lost.
+  const aiCfgEpoch = useSignalEpoch("aiConfig");
+  useEffect(() => {
+    if (aiCfgEpoch > 0) void utils.trading.aiConfig.invalidate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiCfgEpoch]);
 
   const applyMut = trpc.trading.updateAiConfig.useMutation({
     onSuccess: (next) => utils.trading.aiConfig.setData(undefined, next as AllCfg),

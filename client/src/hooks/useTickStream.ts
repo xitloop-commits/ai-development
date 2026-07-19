@@ -373,6 +373,10 @@ function connectWs() {
         instrumentStateStore.setInstrumentState(data.instrument, data.state);
       } else if (data.type === "broker_changed") {
         liveSignals.bumpSignal("broker"); // → refetch broker.status + feed.state
+      } else if (data.type === "ai_config") {
+        // AI menu config changed (someone hit Apply) → refetch it so any other
+        // open panel compares against current server state.
+        liveSignals.bumpSignal("aiConfig");
       } else if (data.type === "discipline_changed") {
         liveSignals.bumpSignal("discipline"); // → refetch discipline.getDashboard
       }
