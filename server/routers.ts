@@ -19,6 +19,8 @@ import { querySeaSignals, getSeaSignalsForChartFromStore } from "./seaSignalStor
 import { getSEASignalsForChart, logFolderFor } from "./seaSignals";
 import { getCohortState, setCohort, setRevPct } from "./seaControl";
 import { getExitCfg, setCoolingSec } from "./portfolio/exitConfig";
+import { getAllAiConfig, updateAiConfig } from "./portfolio/aiModeConfig";
+import { tickBus } from "./broker/tickBus";
 import { getTradesForDate } from "./portfolio/state";
 import { getInstrumentLiveState } from "./instrumentLiveState";
 import { readUnderlyingTicks, listRecordedDates, readOptionContractTicks } from "./chartData";
@@ -118,6 +120,21 @@ export const appRouter = router({
     setExitCooling: publicProcedure
       .input(z.object({ coolingSec: z.number() }))
       .mutation(({ input }) => setCoolingSec(input.coolingSec)),
+
+    // Per-mode AI config (paper / live independent) — the AI menu's single store.
+    // `aiConfig` returns both modes; `updateAiConfig` deep-merges a patch into one
+    // mode, clamps + persists, and broadcasts the new config to every open panel
+    // (Apply → instant backend + frontend sync). Exit knobs apply in-process on
+    // the next tick; strategy / sizing / order apply at the next entry.
+    aiConfig: publicProcedure.query(() => getAllAiConfig()),
+    updateAiConfig: publicProcedure
+      .input(z.object({ mode: z.enum(["paper", "live"]), patch: z.any() }))
+      .mutation(({ input }) => {
+        updateAiConfig(input.mode, input.patch);
+        const all = getAllAiConfig();
+        tickBus.emitAiConfig(all);
+        return all;
+      }),
 
     // All trades on one option strike (instrument + strike + CE/PE) for one
     // channel + date, shaped for the option-strike chart overlay (entry/exit

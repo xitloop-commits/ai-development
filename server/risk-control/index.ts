@@ -35,6 +35,7 @@ import { getSEASignals, type SEASignal } from "../seaSignals";
 import type { Channel, TradeRecord } from "../portfolio/state";
 import type { ExitTradeReason } from "../executor/types";
 import { getExecutorSettings } from "../executor/settings";
+import { getActiveStrategies, modeForChannel } from "../portfolio/aiModeConfig";
 import { isReplayActive } from "../replay/tickReplay";
 import { notifyTelegram } from "../_core/telegram";
 import type {
@@ -390,13 +391,17 @@ class RcaMonitor {
     log.info(`evaluate channel=${input.channel} instrument=${input.instrument} qty=${input.quantity}`);
     // Phase 1 pass-through to TEA — APPROVE every well-formed input.
     // C3 will replace this body with real risk math.
-    // Multi-strategy race (T84): every AI paper signal spawns one FULL-SIZE twin
-    // per exit strategy (sprint/runway/anchor) so they compete live on the same
-    // entry. Live places a single (sprint) trade. Each twin needs a DISTINCT
-    // executionId — idempotency is keyed on it, else twins collapse to one.
-    // (Only AI signals reach evaluate(), so the `paper` book here is AI paper.)
-    const strategies: Array<"sprint" | "runway" | "anchor"> =
-      input.channel === "paper" ? ["sprint", "runway", "anchor"] : ["sprint"];
+    // Multi-strategy placement (T84/T85): a signal spawns one FULL-SIZE trade per
+    // ACTIVE exit strategy for this channel's mode (paper/live have independent
+    // strategy toggles in the AI menu). Each twin needs a DISTINCT executionId —
+    // idempotency is keyed on it, else twins collapse to one. Zero active = the
+    // mode is paused: the signal fired but no trade is placed.
+    const strategies = getActiveStrategies(modeForChannel(input.channel));
+    if (strategies.length === 0) {
+      const mode = modeForChannel(input.channel);
+      log.info(`no strategies enabled for ${mode} — signal not placed`);
+      return { decision: "REJECT", reason: `No strategies enabled for ${mode} mode` };
+    }
     const placedAt = Date.now();
     let submitResult: Awaited<ReturnType<typeof tradeExecutor.submitTrade>> | undefined;
     for (const strat of strategies) {

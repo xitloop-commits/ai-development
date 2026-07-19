@@ -167,6 +167,13 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
   };
   tickBus.on("seaControl", onSeaControl);
 
+  // Forward per-mode AI config updates so every open AI menu syncs after Apply.
+  const onAiConfig = (config: unknown) => {
+    if (wss.clients.size === 0) return;
+    sendToAllClients(wss, JSON.stringify({ type: "ai_config", config }));
+  };
+  tickBus.on("aiConfig", onAiConfig);
+
   // Forward portfolio day-record updates so the trade list stays live without
   // polling allDays. The client swaps the pushed day in by (channel, dayIndex).
   const onPortfolio = (payload: unknown) => {
@@ -262,6 +269,7 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
         tickBus.off("seaSignal", onSeaSignal);
         tickBus.off("seaStatus", onSeaStatus);
         tickBus.off("seaControl", onSeaControl);
+        tickBus.off("aiConfig", onAiConfig);
         tickBus.off("portfolio", onPortfolio);
         tickBus.off("capitalChanged", onCapitalChanged);
         tickBus.off("instrumentState", onInstrumentState);

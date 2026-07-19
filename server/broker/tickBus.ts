@@ -72,6 +72,12 @@ class TickBus extends EventEmitter {
     this.emit("seaControl", state);
   }
 
+  /** Emit the per-mode AI config (paper + live) after an Apply, so every open
+   *  AI menu / browser tab syncs to the new settings instantly. */
+  emitAiConfig(config: unknown): void {
+    this.emit("aiConfig", config);
+  }
+
   /** Emit a portfolio day-record update for live push to browser clients.
    *  Replaces the 2s allDays poll — the client swaps in the pushed day. */
   emitPortfolio(payload: { channel: string; day: unknown }): void {

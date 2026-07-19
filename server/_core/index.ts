@@ -250,6 +250,10 @@ async function startServer() {
   const { initExitConfig } = await import("../portfolio/exitConfig");
   initExitConfig();
 
+  // T85 AI menu: hydrate the per-mode (paper/live) AI config store.
+  const { initAiConfig } = await import("../portfolio/aiModeConfig");
+  initAiConfig();
+
   // Watch TFA feature files → push instrument live-state over /ws/ticks
   // (replaces the 2s instrumentLiveState poll across 5 UI surfaces).
   const { startInstrumentStateWatcher } = await import("../instrumentStateWatcher");
