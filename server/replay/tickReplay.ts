@@ -18,6 +18,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import readline from "readline";
+import { spawn, type ChildProcess } from "child_process";
 import { tickBus } from "../broker/tickBus";
 import type { TickData, ExchangeSegment, MarketDepthLevel } from "../broker/types";
 import { createLogger } from "../broker/logger";
@@ -35,6 +36,69 @@ function optionFile(date: string, inst: string): string {
 }
 function underlyingFile(date: string, inst: string): string {
   return path.join(RAW_DIR, date, `${inst}_underlying_ticks.ndjson.gz`);
+}
+
+// ─── SEA feature feed (Python live-replay children) ─────────────
+//
+// The Node driver above only re-plays ticks to the exit engine. SEA doesn't read
+// ticks — it tails the TFA feature stream. So alongside the tick driver we spawn
+// one `tick_feature_agent.replay.live_replay` per instrument, which pushes the
+// same recorded day through the LIVE feature pipeline and writes
+// data/features/<inst>_live.ndjson (the exact file live SEA tails). A SEA started
+// with `--max-row-age 0` then fires signals off it — the whole flow, live-equivalent.
+
+/** Interpreter that runs the live-replay. Bare `python` is a broken app-alias on
+ *  Windows, so set REPLAY_PYTHON in .env to a real interpreter (has polars/numpy). */
+const REPLAY_PYTHON = process.env.REPLAY_PYTHON || "python";
+
+/** One live-replay child per replayed instrument. */
+let featureProcs: ChildProcess[] = [];
+
+/** Spawn the Python live-replay for every replayed instrument. Best-effort: a
+ *  spawn failure is logged (with the REPLAY_PYTHON hint) but never blocks the
+ *  Node tick replay — the exit engine still runs, only SEA won't have a feed. */
+function startFeatureReplay(date: string, speed: number): void {
+  stopFeatureReplay(); // clear any stragglers from a prior run
+  const cwd = process.cwd();
+  const pythonPath = [path.join(cwd, "python_modules"), process.env.PYTHONPATH]
+    .filter(Boolean)
+    .join(path.delimiter);
+  featureProcs = REPLAY_INSTRUMENTS.map((inst) => {
+    // Fresh feature file per replay so SEA sees only this run's rows.
+    const outFile = path.join(cwd, "data", "features", `${inst}_live.ndjson`);
+    try {
+      fs.writeFileSync(outFile, "");
+    } catch (err) {
+      log.warn(`feature-replay ${inst}: could not truncate ${outFile}: ${(err as Error).message}`);
+    }
+    const child = spawn(
+      REPLAY_PYTHON,
+      [
+        "-m", "tick_feature_agent.replay.live_replay",
+        "--instrument-profile", `config/instrument_profiles/${inst}_profile.json`,
+        "--date", date,
+        "--speed", String(speed),
+        "--output-file", `data/features/${inst}_live.ndjson`,
+      ],
+      { cwd, env: { ...process.env, PYTHONPATH: pythonPath, PYTHONIOENCODING: "utf-8" } },
+    );
+    child.on("error", (err) =>
+      log.warn(`feature-replay ${inst} spawn failed: ${err.message} — set REPLAY_PYTHON to a real python`),
+    );
+    child.stdout?.on("data", (b) => { const s = String(b).trim(); if (s) log.info(`[${inst}] ${s}`); });
+    child.stderr?.on("data", (b) => { const s = String(b).trim(); if (s) log.warn(`[${inst}] ${s}`); });
+    child.on("exit", (code) => log.info(`feature-replay ${inst} exited (code ${code})`));
+    return child;
+  });
+  log.important(`Feature replay START — ${featureProcs.length} SEA feeders via ${REPLAY_PYTHON}`);
+}
+
+/** Kill any running live-replay feeders (SIGTERM; they unwind and close files). */
+function stopFeatureReplay(): void {
+  for (const child of featureProcs) {
+    if (!child.killed) child.kill();
+  }
+  featureProcs = [];
 }
 
 // ─── recorded record → TickData ─────────────────────────────────
@@ -232,6 +296,9 @@ export async function startReplay(date: string, speed = 1): Promise<void> {
 
   log.important(`Replay START ${date} @ ${speed}× (${files.length} streams)`);
 
+  // Drive SEA too: spawn the Python feature feeders (best-effort, non-blocking).
+  startFeatureReplay(date, speed);
+
   // Fire all streams concurrently; flip `running` off when the last one ends.
   void Promise.allSettled(files.map((f) => streamFile(f, t0RecvTs, t0Wall, speed))).then(() => {
     running = false;
@@ -239,8 +306,9 @@ export async function startReplay(date: string, speed = 1): Promise<void> {
   });
 }
 
-/** Stop an in-flight replay (streams observe the abort and unwind). */
+/** Stop an in-flight replay: abort the tick streams and kill the SEA feeders. */
 export function stopReplay(): void {
+  stopFeatureReplay();
   if (!running) return;
   aborted = true;
   log.important("Replay STOP requested");
