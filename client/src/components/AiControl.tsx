@@ -311,12 +311,15 @@ export function AiControl() {
 
                 {/* ③ Strategies */}
                 <div className="border-t border-border pt-2 flex flex-col gap-1.5">
-                  <SectionLabel>Per signal, place</SectionLabel>
-                  <div className="flex gap-1.5">
-                    {STRATEGIES.map((s) => (
-                      <Pill key={s.key} label={s.label} on={!!d.strategies[s.key]}
-                        onClick={() => edit((x) => { x.strategies[s.key] = !x.strategies[s.key]; })} />
-                    ))}
+                  {/* Label + toggles share one row to save vertical space. */}
+                  <div className="flex items-center justify-between gap-2">
+                    <SectionLabel>Trade with</SectionLabel>
+                    <div className="flex gap-1">
+                      {STRATEGIES.map((s) => (
+                        <Pill key={s.key} label={s.label} on={!!d.strategies[s.key]}
+                          onClick={() => edit((x) => { x.strategies[s.key] = !x.strategies[s.key]; })} />
+                      ))}
+                    </div>
                   </div>
                   <span className="text-[0.5625rem] text-muted-foreground">
                     {STRATEGIES.filter((s) => d.strategies[s.key]).length} on → {STRATEGIES.filter((s) => d.strategies[s.key]).length} trade(s) per signal
