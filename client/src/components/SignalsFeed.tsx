@@ -10,7 +10,7 @@
  */
 import { useRef, useEffect, useState, useMemo } from 'react';
 // Uses native CSS scrollbar (scrollbar-thin + scrollbar-cyan) matching TradingDesk style
-import { Activity, Zap } from 'lucide-react';
+import { Zap } from 'lucide-react';
 import { useCapital } from '@/contexts/CapitalContext';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { withAlpha, cohortPillStyle, cohortLabel } from '@/lib/tradeThemes';
@@ -113,9 +113,6 @@ function fmtNum(v: number | null, dec = 2): string {
 }
 
 export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMore, activeSignalSeqs }: SignalsFeedProps) {
-  const hasFiltered = signals.some(s => s.filtered);
-  const longs = signals.reduce((sum, s) => sum + ((s.action?.startsWith('LONG') || s.direction === 'GO_CALL') ? 1 : 0), 0);
-  const shorts = signals.reduce((sum, s) => sum + ((s.action?.startsWith('SHORT') || s.direction === 'GO_PUT') ? 1 : 0), 0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
   const { channel, placeTrade, currentDay } = useCapital() as any;
@@ -179,29 +176,7 @@ export default function SignalsFeed({ signals, onLoadOlder, loadingOlder, hasMor
   };
 
   return (
-    <div className="border border-border rounded-md bg-card overflow-hidden h-full flex flex-col">
-      {/* ── Sticky header ── */}
-      <div className="px-3 py-2 border-b border-border bg-secondary/30 shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <Activity className="h-3 w-3 text-info-cyan" />
-            <span className="text-[0.625rem] font-bold text-info-cyan tracking-wider uppercase">
-              {hasFiltered ? 'Trade Signals' : 'SEA Signals'}
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-[0.5625rem] text-bullish tabular-nums font-bold">
-              {longs} LONG
-            </span>
-            <span className="text-[0.5625rem] text-warning-amber tabular-nums font-bold">
-              {shorts} SHORT
-            </span>
-            <span className="text-[0.5rem] text-muted-foreground tabular-nums">
-              {signals.length}
-            </span>
-          </div>
-        </div>
-      </div>
+    <div className="bg-card overflow-hidden h-full flex flex-col">
 
       {/* ── Signal list (scrollable with TradingDesk-style scrollbar) ── */}
       <div

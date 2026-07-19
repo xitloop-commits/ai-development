@@ -475,7 +475,10 @@
 
   /* Gradient utilities */
   .bg-gradient-footer {
-    background: linear-gradient(180deg, oklch(0.14 0.015 270) 0%, oklch(0.10 0.015 270) 100%);
+    /* Theme-aware: card→background so the footer follows Light / Dark / Slate.
+       The Obsidian dark tokens are 0.14→0.10 — identical to the old hardcoded
+       gradient, so dark is unchanged while Light and Slate now adapt. */
+    background: linear-gradient(180deg, var(--card) 0%, var(--background) 100%);
   }
 
   .bg-gradient-green-cyan {

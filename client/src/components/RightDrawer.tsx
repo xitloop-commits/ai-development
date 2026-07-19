@@ -49,19 +49,22 @@ export default function RightSidebar({ visible, signals, onLoadOlder, loadingOld
         })}
       </div>
 
-      {/* Active tab fills the drawer */}
-      <div className="flex-1 min-h-0 px-2 pt-2 pb-2 overflow-hidden">
-        {tab === 'signals' ? (
+      {/* Active tab fills the drawer. Signals sit flush (their own surface);
+          Alerts keep the small inset. */}
+      {tab === 'signals' ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
           <SignalsFeed
             signals={signals}
             onLoadOlder={onLoadOlder}
             loadingOlder={loadingOlder}
             hasMore={hasMore}
           />
-        ) : (
+        </div>
+      ) : (
+        <div className="flex-1 min-h-0 px-2 pt-2 pb-2 overflow-hidden">
           <AlertHistory />
-        )}
-      </div>
+        </div>
+      )}
     </aside>
   );
 }
