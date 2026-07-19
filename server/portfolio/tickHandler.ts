@@ -24,7 +24,7 @@ import {
 import type { Channel, TradeRecord, CapitalState, DayRecord } from "./state";
 import { recalculateDayAggregates } from "./compounding";
 import { decideExit } from "./exitStrategies";
-import { getExitCfg } from "./exitConfig";
+import { getAiConfig, modeForChannel } from "./aiModeConfig";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { TickData } from "../broker/types";
 
@@ -483,6 +483,10 @@ class TickHandler extends EventEmitter {
         // TP/SL/TSL below. Sprint (or undefined) falls through unchanged. Uses the
         // live `newPeak` so it works even while persisted peakLtp lags.
         if (trade.exitStrategy === "runway" || trade.exitStrategy === "anchor") {
+          // Per-mode (paper/live) staged-stop config from the AI menu, picked by
+          // the trade's channel + strategy. Independent Runway vs Anchor knobs.
+          const modeCfg = getAiConfig(modeForChannel(channel));
+          const stratCfg = trade.exitStrategy === "runway" ? modeCfg.runway : modeCfg.anchor;
           const out = decideExit(trade.exitStrategy, {
             entry: trade.entryPrice,
             ltp: tick.ltp,
@@ -490,7 +494,7 @@ class TickHandler extends EventEmitter {
             target: trade.targetPrice,
             openedAt: trade.openedAt,
             now: Date.now(),
-          }, getExitCfg()); // live cooling from the SEA panel
+          }, stratCfg);
           if (out) {
             trade.stopLossPrice = out.stop; // ratchet the visible stop
             anyUpdated = true;

@@ -35,7 +35,7 @@ import { getSEASignals, type SEASignal } from "../seaSignals";
 import type { Channel, TradeRecord } from "../portfolio/state";
 import type { ExitTradeReason } from "../executor/types";
 import { getExecutorSettings } from "../executor/settings";
-import { getActiveStrategies, modeForChannel } from "../portfolio/aiModeConfig";
+import { getActiveStrategies, getAiConfig, modeForChannel } from "../portfolio/aiModeConfig";
 import { isReplayActive } from "../replay/tickReplay";
 import { notifyTelegram } from "../_core/telegram";
 import type {
@@ -396,12 +396,13 @@ class RcaMonitor {
     // strategy toggles in the AI menu). Each twin needs a DISTINCT executionId —
     // idempotency is keyed on it, else twins collapse to one. Zero active = the
     // mode is paused: the signal fired but no trade is placed.
-    const strategies = getActiveStrategies(modeForChannel(input.channel));
+    const mode = modeForChannel(input.channel);
+    const strategies = getActiveStrategies(mode);
     if (strategies.length === 0) {
-      const mode = modeForChannel(input.channel);
       log.info(`no strategies enabled for ${mode} — signal not placed`);
       return { decision: "REJECT", reason: `No strategies enabled for ${mode} mode` };
     }
+    const order = getAiConfig(mode).order; // per-mode order type / product
     const placedAt = Date.now();
     let submitResult: Awaited<ReturnType<typeof tradeExecutor.submitTrade>> | undefined;
     for (const strat of strategies) {
@@ -415,8 +416,8 @@ class RcaMonitor {
         entryPrice: input.entryPrice,
         stopLoss: input.stopLoss,
         takeProfit: input.takeProfit,
-        orderType: "MARKET",
-        productType: "INTRADAY",
+        orderType: order.orderType,
+        productType: order.productType,
         optionType: input.optionType,
         strike: input.strike,
         expiry: input.expiry,

@@ -22,7 +22,6 @@
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { DEFAULT_EXIT_CFG, type ExitStrategyConfig } from "./exitStrategies";
-import type { OrderType, ProductType } from "../broker/types";
 import type { Channel } from "./state";
 
 export type AiMode = "paper" | "live";
@@ -45,8 +44,8 @@ export interface SizingConfig {
 }
 
 export interface OrderConfig {
-  orderType: OrderType;      // LIMIT | MARKET | SL | SL-M
-  productType: ProductType;  // INTRADAY | CNC | MARGIN
+  orderType: "LIMIT" | "MARKET";
+  productType: "INTRADAY" | "CNC";
 }
 
 /** Sprint (fixed SL/TP + trailing) — mirrors the old brokerConfig exit knobs. */
@@ -174,6 +173,8 @@ function sanitize(c: AiModeConfig): AiModeConfig {
     s.mode = s.mode === "capital" ? "capital" : "lots";
     s.value = clampNum(s.value, 0, s.mode === "capital" ? 100 : 1000, 10);
   }
+  c.order.orderType = c.order.orderType === "LIMIT" ? "LIMIT" : "MARKET";
+  c.order.productType = c.order.productType === "CNC" ? "CNC" : "INTRADAY";
   c.sprint.defaultSL = clampNum(c.sprint.defaultSL, 0, 50, 2);
   c.sprint.defaultTP = clampNum(c.sprint.defaultTP, 0, 100, 5);
   c.sprint.dailyTargetPercent = clampNum(c.sprint.dailyTargetPercent, 1, 20, 5);
