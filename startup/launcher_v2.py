@@ -1244,6 +1244,60 @@ def act_sea() -> None:
         _pause_briefly()
 
 
+def act_live_sim() -> None:
+    """Live Simulation — SEA for the tick-replay flow.
+
+    Same as Run SEA but adds `--max-row-age 0`: the replayed feature rows carry
+    the RECORDED day's timestamp (correct — features need real time-of-day), so
+    SEA's default 5-second staleness guard would skip every one of them. Auto-
+    trade is already on (start-sea.bat sets SEA_AUTO_TRADE), so signals become
+    ai-paper trades the exit engine can manage. NSE only (nifty50 + banknifty),
+    matching the Replay button's scope.
+
+    Flow: start the API server → start SEA here → hit Replay in the app to stream
+    a recorded day through the whole system as a live-equivalent dry run."""
+    nse = [i for i in ("nifty50", "banknifty") if i in _INSTRUMENTS]
+    while True:
+        running = running_processes()
+        items: list[InstrumentRow] = []
+        for inst in nse:
+            proc = next((p for p in running if p.instrument == inst and p.kind == "sea"), None)
+            info = last_model_info(inst)
+            live_path = ROOT / "data" / "features" / f"{inst}_live.ndjson"
+            live_sz = _path_size(live_path) if live_path.exists() else 0
+            live_str = _human_bytes(live_sz) if live_sz else DIM("(no live.ndjson)")
+            if proc:
+                state = f"{GREEN('●RUNNING')}  pid {proc.pid}  {proc.rss_mb:.0f} MB"
+            else:
+                state = f"{DIM('●stopped')}"
+            items.append(InstrumentRow(
+                instrument=inst,
+                checked=False,
+                enabled=(proc is None) and bool(info.version),
+                status_line=f"  {state:<40}  "
+                            f"{DIM('model:')} {DIM(info.version or 'none'):<24}  "
+                            f"live: {live_str}",
+            ))
+
+        res = submenu(
+            title="Live Simulation  —  SEA for replay (auto-trade + no staleness guard)",
+            rows=items,
+            show_date_mode_toggle=False,
+            bottom_actions=["Start selected"],
+        )
+        if res.cancelled:
+            return
+        if not res.selected:
+            print()
+            print(f"  {YELLOW('!')} Nothing selected.")
+            _pause_briefly()
+            continue
+        print()
+        for inst in res.selected:
+            _launch_no_pause(f"SEA-SIM: {inst}", "start-sea.bat", inst, "--max-row-age", "0")
+        _pause_briefly()
+
+
 # ── Single-date picker (Scored BT, Compare) ───────────────────────────────
 
 
@@ -2827,6 +2881,7 @@ def main() -> None:
         RootItem("Backtest     (scored on D-1)",           "B", act_sbt),
         RootItem("Compare      (model vs prior on D-1)",   "P", act_compare),
         RootItem("Run SEA      (live features → signals/)", "I", act_sea),
+        RootItem("Live Sim     (SEA for replay: auto-trade + no stale guard)", "S", act_live_sim),
         RootItem("Watch        (live dashboards)",         "W", act_watch),
         RootItem("yow-partha   (Telegram control bot)",    "Y", act_yow_partha),
         RootItem("Tools        (token / creds / status)",  ".", act_tools),
