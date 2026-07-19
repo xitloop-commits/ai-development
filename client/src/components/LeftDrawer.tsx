@@ -64,7 +64,7 @@ export default function LeftSidebar({ visible, instruments }: LeftSidebarProps) 
   if (!visible) return null;
 
   return (
-    <aside className="w-[360px] shrink-0 border-r border-border bg-background flex flex-col overflow-hidden">
+    <aside className="w-[320px] shrink-0 border-r border-border bg-background flex flex-col overflow-hidden">
       {/* Single Watchlist tab */}
       <div className="flex items-stretch border-b border-border">
         <div className="flex-1 px-4 py-2 text-[0.625rem] font-bold tracking-wider uppercase text-foreground bg-secondary/50">
