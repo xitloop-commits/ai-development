@@ -13,6 +13,8 @@ import type { Server, IncomingMessage } from "http";
 import type { Duplex } from "stream";
 import type { Socket } from "net";
 import { tickBus, type ChainUpdate } from "./tickBus";
+import type { TickData } from "./types";
+import { isReplayActive } from "../replay/tickReplay";
 import { getSeaStatus } from "../seaHeartbeat";
 import { getInstrumentLiveState } from "../instrumentLiveState";
 import { WATCHED_INSTRUMENTS } from "../instrumentStateWatcher";
@@ -100,6 +102,29 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
   };
 
   tickBus.on("rawBinary", onRawBinary);
+
+  // ── Replay LTP bridge ──────────────────────────────────────────────────────
+  // A tick replay injects STRUCTURED ticks at the tickBus (the "tick" event) but
+  // never the raw Dhan binary frames the browser decodes for live LTP — so the
+  // UI's prices would sit frozen through a replay. Bridge them: coalesce the
+  // replayed ticks per security and flush ~5x/s as the JSON "snapshot" the client
+  // already applies (tickStore.set), so watchlist + trade-row LTP move like live.
+  // Coalescing caps volume at one row per security per flush regardless of replay
+  // speed, so a 60x replay can't flood the browser. Idle in live mode: the guard
+  // returns before touching the map, and rawBinary already carries live LTP.
+  const replayPending = new Map<string, TickData>();
+  const onTick = (tick: TickData) => {
+    if (!isReplayActive()) return;
+    replayPending.set(`${tick.exchange}:${tick.securityId}`, tick);
+  };
+  tickBus.on("tick", onTick);
+  const replayFlushTimer = setInterval(() => {
+    if (replayPending.size === 0 || wss.clients.size === 0) return;
+    const ticks = Array.from(replayPending.values());
+    replayPending.clear();
+    sendToAllClients(wss, JSON.stringify({ type: "snapshot", ticks }));
+  }, 200);
+  replayFlushTimer.unref?.();
 
   // Forward option-chain updates as JSON text frames. Skip the stringify +
   // strip work entirely when no client is connected.
@@ -231,6 +256,8 @@ export function setupTickWebSocket(server: Server): TickWsHandle {
         // Detach tickBus listeners so no late-arriving packets try to
         // push into a closed wss (would log noisy errors).
         tickBus.off("rawBinary", onRawBinary);
+        tickBus.off("tick", onTick);
+        clearInterval(replayFlushTimer);
         tickBus.off("chainUpdate", onChainUpdate);
         tickBus.off("seaSignal", onSeaSignal);
         tickBus.off("seaStatus", onSeaStatus);
