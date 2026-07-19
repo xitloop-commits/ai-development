@@ -163,7 +163,7 @@ function WatchlistRow({ stock, fallback, onPick, onRemove }: WatchlistRowProps) 
   return (
     <div
       onClick={onPick}
-      className="group flex items-center gap-2 px-2 py-1.5 border-b border-border/50 hover:bg-muted/30 cursor-pointer"
+      className="group relative flex items-center gap-2 px-2.5 py-1.5 border-b border-border/50 hover:bg-muted/30 cursor-pointer"
       title={`Add a buy order for ${stock.symbol}`}
     >
       <div className="flex flex-col min-w-0 flex-1">
@@ -171,7 +171,8 @@ function WatchlistRow({ stock, fallback, onPick, onRemove }: WatchlistRowProps) 
         <span className="text-[0.5625rem] text-muted-foreground truncate">{stock.name}</span>
       </div>
 
-      {/* Live LTP + today's change (real-time ticks). */}
+      {/* Live LTP + today's change (real-time ticks). Right-aligns to the same
+          edge as the index rows — the remove ✕ is absolute so it never insets it. */}
       <div className="flex flex-col items-end tabular-nums shrink-0 min-w-[64px]">
         <span className="text-xs font-bold text-foreground">
           {ltp > 0 ? ltp.toFixed(2) : prevClose > 0 ? prevClose.toFixed(2) : "—"}
@@ -185,7 +186,7 @@ function WatchlistRow({ stock, fallback, onPick, onRemove }: WatchlistRowProps) 
 
       <button
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
-        className="opacity-0 group-hover:opacity-100 text-[0.625rem] text-destructive px-1.5 py-0.5 rounded hover:bg-destructive/10 transition-opacity shrink-0"
+        className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-[0.625rem] text-destructive px-1.5 py-0.5 rounded bg-background/80 hover:bg-destructive/10 transition-opacity"
         title="Remove from watchlist"
       >
         ✕
