@@ -1,9 +1,8 @@
 /**
  * Indicators — the AppBar's right-side status cluster.
  *
- * Four cells, four user-questions answered at a glance:
+ * Three cells, three user-questions answered at a glance:
  *
- *   🌐 API   — "Can I place an order right now?"   (broker REST)
  *   📶 FEED  — "Are positions getting live prices?" (broker WebSocket)
  *   🧪 AI    — "Is the AI generating trade ideas?"  (TFA + SEA + Models)
  *   🛡 Score — "Am I following my own rules?"        (DA composite score)
@@ -14,7 +13,7 @@
  * level any more.
  */
 import { useState, useRef, useEffect } from 'react';
-import { Globe, Wifi, Shield, FlaskConical } from 'lucide-react';
+import { Wifi, Shield, FlaskConical } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
 import { useInstrumentLiveState } from '@/hooks/useInstrumentLiveState';
@@ -23,68 +22,6 @@ import { useInstrumentLiveState } from '@/hooks/useInstrumentLiveState';
 
 function Separator() {
   return <div className="w-px self-stretch bg-border shrink-0" />;
-}
-
-// ─── 🌐 API — broker REST liveness ──────────────────────────────
-// Reads `getBrokerServiceStatus()`'s real shape:
-//   { activeBrokerId, activeBrokerName, tokenStatus, apiStatus,
-//     wsStatus, killSwitchActive, registeredAdapters }
-//
-// The pre-consolidation version of this indicator read non-existent
-// fields (`connected`, `activeBroker`, `mode`) — so the icon stayed
-// green even when the broker was offline, the tooltip always said
-// "None Connected", and the "Mode: Paper Trading" line was hardcoded.
-// Fixed here against the actual `BrokerServiceStatus` shape.
-
-interface BrokerServiceStatusShape {
-  activeBrokerId: string | null;
-  activeBrokerName: string | null;
-  tokenStatus: 'valid' | 'expired' | 'unknown';
-  apiStatus: 'connected' | 'disconnected' | 'error' | string;
-  wsStatus: 'connected' | 'disconnected' | 'error' | string;
-  killSwitchActive: boolean;
-  registeredAdapters: string[];
-}
-
-function ApiIndicator() {
-  const brokerStatusQuery = trpc.broker.status.useQuery(undefined, {
-    retry: 1,
-  });
-  const status = brokerStatusQuery.data as BrokerServiceStatusShape | undefined;
-
-  // "Connected" = REST is up AND auth is valid. Either failure means
-  // orders won't go through, so we don't show green for half-up state.
-  const connected = status?.apiStatus === 'connected' && status?.tokenStatus === 'valid';
-  const brokerName = status?.activeBrokerName ?? 'No broker';
-  const apiState = status?.apiStatus ?? 'disconnected';
-  const tokenState = status?.tokenStatus ?? 'unknown';
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div className="px-3 flex items-center gap-1 shrink-0 cursor-default">
-          <Globe className={`h-3 w-3 ${connected ? 'text-bullish' : 'text-muted-foreground'}`} />
-          <span className="text-[0.5625rem] text-muted-foreground tracking-wider">API</span>
-        </div>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">
-        <div className="text-[0.625rem] space-y-0.5">
-          <div className={`font-bold ${connected ? 'text-bullish' : 'text-muted-foreground'}`}>
-            {brokerName}
-          </div>
-          <div className="text-muted-foreground">
-            API: <span className={apiState === 'connected' ? 'text-bullish' : 'text-destructive'}>{apiState}</span>
-            {' · '}
-            Token: <span className={
-              tokenState === 'valid' ? 'text-bullish'
-                : tokenState === 'expired' ? 'text-destructive'
-                : 'text-warning-amber'
-            }>{tokenState}</span>
-          </div>
-        </div>
-      </TooltipContent>
-    </Tooltip>
-  );
 }
 
 // ─── 📶 FEED — broker WebSocket liveness ────────────────────────
@@ -430,8 +367,6 @@ function DisciplineIndicator() {
 export function Indicators() {
   return (
     <>
-      <ApiIndicator />
-      <Separator />
       <FeedIndicator />
       <Separator />
       <AiIndicator />

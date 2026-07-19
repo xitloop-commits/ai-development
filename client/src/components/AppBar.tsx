@@ -23,17 +23,14 @@ import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { formatINR } from '@/lib/formatINR';
 import type { MarketHoliday } from '@/lib/types';
 import {
-  type Channel,
   type Workspace,
   type Mode,
   channelOf,
   channelToWorkspace,
   channelToMode,
 } from '@/lib/tradeTypes';
-// ConfirmPopover extracted for its own test surface (was UI-119). The AI/My
-// workspace tabs (ChannelTabs) were removed in T87 — one desk always; the
-// app bar keeps only the My Paper/Live toggle (ChannelModeToggle).
-import { ConfirmPopover } from './ConfirmPopover';
+// The AI/My workspace tabs (ChannelTabs) were removed in T87 — one desk always;
+// the app bar keeps only the My Paper/Live mode tabs (ChannelModeToggle).
 import { instrumentChartUrl, PHASE1_CHART_INSTRUMENTS } from '@/lib/instrumentChart';
 import { toast } from 'sonner';
 
@@ -292,69 +289,46 @@ function ChannelModeToggle() {
     void utils.portfolio.allDays.invalidate();
   };
 
-  const [confirmTarget, setConfirmTarget] = useState<Channel | null>(null);
-
-  const requestModeSwitch = (mode: Mode) => {
-    if (mode === currentMode) return;
-    setConfirmTarget(channelOf(currentWs, mode));
-  };
-
-  const onConfirmSwitch = () => {
-    if (!confirmTarget) return;
-    setChannel(confirmTarget);
-    setConfirmTarget(null);
-  };
-
   const clearWorkspaceMutation = trpc.portfolio.clearWorkspace.useMutation({
     onSuccess: () => refetchData(),
   });
   const canClear = currentMode === 'paper';
 
+  // Full-height PAPER / LIVE tabs (T87 point 17 — styled like the old workspace
+  // tabs). Switching is IMMEDIATE (no confirm): new orders route to the target
+  // broker; open positions on the source book stay put.
   return (
-    <div className="relative flex items-center gap-2">
-      {/* My Paper/Live — tab-style pair (T87 point 17). The AI equivalent lives
-          in the SEA menu; this drives the My book + the desk's mode view. */}
-      <span className="text-[0.5625rem] font-bold uppercase tracking-wider text-muted-foreground">My</span>
-      <div className="flex items-center rounded-md border border-border overflow-hidden bg-muted/30">
-        {MODES_FOR[currentWs].map((m) => {
-          const active = m === currentMode;
-          const activeTone = m === 'live' ? 'bg-bullish/25 text-bullish' : 'bg-warning-amber/25 text-warning-amber';
-          return (
-            <button
-              key={m}
-              onClick={() => requestModeSwitch(m)}
-              className={`px-3 py-1 text-[0.625rem] font-bold tracking-wide transition-colors ${
-                active ? activeTone : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-              }`}
-            >
-              {MODE_LABELS[m]}
-            </button>
-          );
-        })}
-      </div>
+    <div className="flex items-stretch shrink-0">
+      {MODES_FOR[currentWs].map((m) => {
+        const active = m === currentMode;
+        const activeTone = m === 'live'
+          ? 'text-bullish border-bullish bg-bullish/10'
+          : 'text-warning-amber border-warning-amber bg-warning-amber/10';
+        return (
+          <button
+            key={m}
+            onClick={() => { if (m !== currentMode) setChannel(channelOf(currentWs, m)); }}
+            className={`px-4 flex items-center justify-center text-[0.6875rem] font-bold tracking-wider border-b-2 transition-colors ${
+              active ? activeTone : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-accent'
+            }`}
+            title={`Switch the desk + My book to ${MODE_LABELS[m]}`}
+          >
+            {MODE_LABELS[m]}
+          </button>
+        );
+      })}
       {canClear && (
         <button
           onClick={() =>
             clearWorkspaceMutation.mutate({ channel: channel as any, initialFunding: 100000 })
           }
           disabled={clearWorkspaceMutation.isPending}
-          className="px-2 py-0.5 rounded text-[0.5625rem] font-bold bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
+          className="px-2 flex items-center text-[0.5625rem] font-bold text-destructive hover:bg-destructive/15 transition-colors disabled:opacity-50"
           title={`Clear ${channel} pool`}
         >
           {clearWorkspaceMutation.isPending ? '...' : 'CLEAR'}
         </button>
       )}
-      <ConfirmPopover
-        open={!!confirmTarget}
-        anchor="right"
-        message={
-          confirmTarget
-            ? `Switch from ${channel} to ${confirmTarget}? New orders route to the target broker; open positions on the source remain.`
-            : ''
-        }
-        onConfirm={onConfirmSwitch}
-        onCancel={() => setConfirmTarget(null)}
-      />
     </div>
   );
 }
@@ -440,41 +414,28 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
-        {/* Market status (NSE / MCX open-closed lights) */}
-        <div className="px-3 flex items-center shrink-0">
-          <MarketStatusIndicator />
-        </div>
+        {/* PAPER / LIVE mode tabs — full-height, on the left (T87) */}
+        <ChannelModeToggle />
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
         {/* Spacer to push right items to the end */}
         <div className="flex-1" />
 
-        {/* My Paper/Live toggle (T87 — workspace tabs removed; one desk always) */}
+        {/* Market status (NSE / MCX open-closed lights) — right side */}
         <div className="px-3 flex items-center shrink-0">
-          <ChannelModeToggle />
+          <MarketStatusIndicator />
         </div>
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
-        {/* Right-side status cluster: 🌐 API · 📶 FEED · 🧪 AI · 🛡 Score */}
+        {/* Right-side status cluster: 📶 FEED · 🧪 AI · 🛡 Score */}
         <Indicators />
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
         {/* SEA cohort control — scalp / trend / MA on-off, live over ws */}
         <SeaControl />
-
-        <div className="w-px self-stretch bg-border shrink-0" />
-
-        {/* Head-to-Head — opens AI vs My / paper vs live comparison */}
-        <button
-          onClick={() => { window.location.href = "/?view=h2h"; }}
-          className="px-2.5 flex items-center justify-center hover:bg-accent transition-colors shrink-0"
-          title="Open Head-to-Head — AI vs My, paper vs live"
-        >
-          <span className="font-display text-[0.625rem] font-bold tracking-wider text-info-cyan">H2H</span>
-        </button>
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
