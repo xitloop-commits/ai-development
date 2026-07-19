@@ -51,7 +51,6 @@ vi.mock("./tradeResolution", () => ({
 vi.mock("./settings", () => ({
   getExecutorSettings: vi.fn(async () => ({
     userId: "1",
-    aiLiveLotCap: 1,
     rcaMaxAgeMs: 30 * 60 * 1000,
     rcaStaleTickMs: 5 * 60 * 1000,
     rcaVolThreshold: 0.7,

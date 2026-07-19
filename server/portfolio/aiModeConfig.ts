@@ -40,8 +40,6 @@ export interface CohortsConfig {
 export interface SizingConfig {
   /** Per-instrument size: lots, or % of capital. */
   perInstrument: Record<string, { mode: "lots" | "percent"; value: number }>;
-  /** Hard cap on lots for a LIVE trade (safety). */
-  aiLiveLotCap: number;
 }
 
 export interface OrderConfig {
@@ -131,7 +129,6 @@ function baseMode(): AiModeConfig {
         crudeoil: { mode: "lots", value: 10 },
         naturalgas: { mode: "lots", value: 10 },
       },
-      aiLiveLotCap: 1,
     },
     order: { orderType: "MARKET", productType: "INTRADAY" },
     globalExits: {
@@ -206,7 +203,6 @@ function sanitizeMode(c: AiModeConfig): AiModeConfig {
   c.cohorts.revPct = clampNum(c.cohorts.revPct, 0.02, 0.6, 0.18);
   for (const k of ["scalp", "trend", "ma", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
   for (const s of ["sprint", "runway", "anchor"] as const) c.strategies[s] = !!c.strategies[s];
-  c.sizing.aiLiveLotCap = Math.round(clampNum(c.sizing.aiLiveLotCap, 0, 100, 1));
   for (const inst of Object.keys(c.sizing.perInstrument)) {
     const s = c.sizing.perInstrument[inst];
     s.mode = s.mode === "percent" ? "percent" : "lots";

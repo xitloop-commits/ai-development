@@ -60,7 +60,6 @@ vi.mock("../executor/settings", () => ({
     rcaStaleTickMs: 5 * 60_000,
     rcaVolThreshold: 0.7,
     rcaChannels: [],
-    aiLiveLotCap: 1,
   })),
 }));
 

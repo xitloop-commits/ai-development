@@ -2124,7 +2124,6 @@ export function ExecutorSettingsSection() {
 
   const settings = settingsQuery.data;
   type ExecutorDraft = {
-    aiLiveLotCap: number;
     rcaMaxAgeMs: number;
     rcaStaleTickMs: number;
     rcaVolThreshold: number;
@@ -2139,7 +2138,6 @@ export function ExecutorSettingsSection() {
   useEffect(() => {
     if (settings && !draft) {
       setDraft({
-        aiLiveLotCap: settings.aiLiveLotCap,
         rcaMaxAgeMs: settings.rcaMaxAgeMs,
         rcaStaleTickMs: settings.rcaStaleTickMs,
         rcaVolThreshold: settings.rcaVolThreshold,
@@ -2162,8 +2160,7 @@ export function ExecutorSettingsSection() {
   const dirty =
     !!draft &&
     !!settings &&
-    (draft.aiLiveLotCap !== settings.aiLiveLotCap ||
-      draft.rcaMaxAgeMs !== settings.rcaMaxAgeMs ||
+    (draft.rcaMaxAgeMs !== settings.rcaMaxAgeMs ||
       draft.rcaStaleTickMs !== settings.rcaStaleTickMs ||
       draft.rcaVolThreshold !== settings.rcaVolThreshold ||
       !arrayEq(draft.rcaChannels, settings.rcaChannels) ||
@@ -2177,7 +2174,6 @@ export function ExecutorSettingsSection() {
   const onReset = () => {
     if (settings) {
       setDraft({
-        aiLiveLotCap: settings.aiLiveLotCap,
         rcaMaxAgeMs: settings.rcaMaxAgeMs,
         rcaStaleTickMs: settings.rcaStaleTickMs,
         rcaVolThreshold: settings.rcaVolThreshold,

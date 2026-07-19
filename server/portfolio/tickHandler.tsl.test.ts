@@ -52,7 +52,7 @@ vi.mock("../portfolio/aiModeConfig", () => ({
     runway: { coolingSec: 300, defaultSlPct: 25, cooledSlPct: 12.5, breakevenAtFrac: 0.5, nearTargetFrac: 0.9, trailPct: 15, defaultTargetPct: 2.3 },
     anchor: { coolingSec: 300, defaultSlPct: 25, cooledSlPct: 12.5, breakevenAtFrac: 0.5, nearTargetFrac: 0.9, trailPct: 15, defaultTargetPct: 2.3 },
   }),
-  getAiConfig: () => ({ strategies: {}, sizing: { perInstrument: {}, aiLiveLotCap: 1 } }),
+  getAiConfig: () => ({ strategies: {}, sizing: { perInstrument: {} } }),
 }));
 
 vi.mock("../broker/tickBus", () => ({

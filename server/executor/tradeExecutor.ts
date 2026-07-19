@@ -48,7 +48,6 @@ import { recoveryEngine } from "./recoveryEngine";
 import { resolveLotSize } from "./tradeResolution";
 import { getScripBySecurityId } from "../broker/adapters/dhan/scripMaster";
 import { getExecutorSettings } from "./settings";
-import { getAiConfig, aiModeForChannel } from "../portfolio/aiModeConfig";
 import type {
   SubmitTradeRequest,
   SubmitTradeResponse,
@@ -63,10 +62,6 @@ const log = createLogger("TEA", "Executor");
 
 const PAPER_CHANNELS: Channel[] = ["paper"];
 const LIVE_CHANNELS: Channel[] = ["my-live", "ai-live"];
-
-// AI_LIVE_LOT_CAP is now sourced from executor_settings (default 1).
-// TEA Settings page surfaces it; checkAiLiveLotCap reads through the
-// 30 s-cached settings layer.
 
 function _isPaperChannel(channel: Channel): boolean {
   return PAPER_CHANNELS.includes(channel);
@@ -257,27 +252,6 @@ class TradeExecutorAgent {
           timestamp: Date.now(),
         });
         return resp;
-      }
-
-      // Pre-flight: AI Live lot cap — REAL-MONEY canary guardrail. Enforced on
-      // ai-live only: the canary protocol launches at 1 lot per trade, so bigger
-      // real-money AI orders are rejected here even if the caller tries to size up.
-      // ai-paper is exempt so it honours the configured instrumentSizing (paper
-      // is for realistic validation; no real money at risk). Raise aiLiveLotCap
-      // in settings to let ai-live size up when the canary graduates.
-      if (req.channel === "ai-live") {
-        const cap = await this.checkAiLiveLotCap(req);
-        if (cap) {
-          const resp = rejection(req.executionId, cap);
-          idempotencyStore.fail(req.executionId, resp.error!);
-          await portfolioAgent.recordTradeRejected({
-            channel: req.channel,
-            trade: { instrument: req.instrument },
-            reason: resp.error!,
-            timestamp: Date.now(),
-          });
-          return resp;
-        }
       }
 
       // Pre-flight: Discipline cap-check (PA Phase 3 §10.1). Blocks orders
@@ -471,21 +445,6 @@ class TradeExecutorAgent {
    * we'd rather reject a single ambiguous trade than let an
    * unbounded one through.
    */
-  private async checkAiLiveLotCap(req: SubmitTradeRequest): Promise<string | null> {
-    // ai-live's cap comes from the AI menu's per-mode sizing (LIVE); any other
-    // caller falls back to the executor-settings cap.
-    const mode = aiModeForChannel(req.channel);
-    const cap = mode
-      ? getAiConfig(mode).sizing.aiLiveLotCap
-      : (await getExecutorSettings()).aiLiveLotCap;
-    const lotSize = (await resolveLotSize(req.instrument)) ?? 1;
-    const lots = req.quantity / lotSize;
-    if (lots > cap + 0.0001 /* float tolerance */) {
-      return `AI Live lot cap violated: ${req.quantity} units / ${lotSize} lot-size = ${lots.toFixed(2)} lots > ${cap}`;
-    }
-    return null;
-  }
-
   /**
    * Discipline cap-check: query disciplineAgent.validateTrade() with
    * the snapshot's currentCapital + openExposure. Returns a human

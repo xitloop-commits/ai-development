@@ -33,7 +33,7 @@ interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg }
 interface ModeCfg {
   cohorts: { scalp: boolean; trend: boolean; ma: boolean; swing: boolean; revPct: number };
   strategies: { sprint: boolean; runway: boolean; anchor: boolean };
-  sizing: { perInstrument: Record<string, { mode: "lots" | "percent"; value: number }>; aiLiveLotCap: number };
+  sizing: { perInstrument: Record<string, { mode: "lots" | "percent"; value: number }> };
   order: { orderType: "LIMIT" | "MARKET"; productType: "INTRADAY" | "CNC" };
   globalExits: { rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number };
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
@@ -346,8 +346,6 @@ export function AiControl() {
                       </div>
                     );
                   })}
-                  <Num label="AI-live lot cap" value={d.sizing.aiLiveLotCap} step={1} min={0} max={100} unit="lots"
-                    onChange={(v) => edit((x) => { x.sizing.aiLiveLotCap = v; })} />
                 </div>
 
                 {/* Order */}

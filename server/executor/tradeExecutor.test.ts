@@ -45,7 +45,6 @@ vi.mock("../broker/adapters/dhan/scripMaster", () => ({
 vi.mock("./settings", () => ({
   getExecutorSettings: vi.fn(async () => ({
     userId: "1",
-    aiLiveLotCap: 1,
     rcaMaxAgeMs: 30 * 60 * 1000,
     rcaStaleTickMs: 5 * 60 * 1000,
     rcaVolThreshold: 0.7,
@@ -345,60 +344,6 @@ describe("submitTrade — paper path", () => {
     // Broker must not have been called at all.
     expect(fillingAdapter.placeOrder).not.toHaveBeenCalled();
     expect(portfolioAgent.recordTradeRejected).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("ai-live 1-lot cap", () => {
-  it("accepts a 1-lot order on ai-live", async () => {
-    // 75 / 75 = 1 lot. Within cap.
-    const resp = await tradeExecutor.submitTrade(
-      paperRequest({ channel: "ai-live", origin: "AI", quantity: 75 }),
-    );
-    // Will fail later (live path requires real adapter mock), but should
-    // pass the lot-cap check — error must NOT mention lot cap.
-    if (!resp.success) {
-      expect(resp.error).not.toMatch(/lot cap/i);
-    }
-  });
-
-  it("rejects a 2-lot order on ai-live with a clear error", async () => {
-    // 150 / 75 = 2 lots. Exceeds cap of 1.
-    const resp = await tradeExecutor.submitTrade(
-      paperRequest({ channel: "ai-live", origin: "AI", quantity: 150 }),
-    );
-    expect(resp.success).toBe(false);
-    expect(resp.error).toMatch(/AI Live lot cap violated/);
-    expect(fillingAdapter.placeOrder).not.toHaveBeenCalled();
-    expect(portfolioAgent.recordTradeRejected).toHaveBeenCalledTimes(1);
-  });
-
-  it("accepts a 1-lot order on ai-paper", async () => {
-    const resp = await tradeExecutor.submitTrade(
-      paperRequest({ channel: "ai-paper", origin: "AI", quantity: 75 }),
-    );
-    if (!resp.success) {
-      expect(resp.error).not.toMatch(/lot cap/i);
-    }
-  });
-
-  it("does NOT cap ai-paper — it honours the configured instrumentSizing (paper validation, no real money)", async () => {
-    // 150 / 75 = 2 lots. On ai-paper the AI lot cap is intentionally NOT enforced
-    // so trades size per the configured instrumentSizing; the 1-lot canary cap is
-    // real-money protection for ai-live only.
-    const resp = await tradeExecutor.submitTrade(
-      paperRequest({ channel: "ai-paper", origin: "AI", quantity: 150 }),
-    );
-    if (!resp.success) {
-      expect(resp.error).not.toMatch(/lot cap/i);
-    }
-  });
-
-  it("does NOT apply the cap to my-paper / my-live (manual orders are operator-supervised)", async () => {
-    const resp = await tradeExecutor.submitTrade(
-      paperRequest({ channel: "my-paper", origin: "USER", quantity: 1500 }),
-    );
-    // Goes through to broker (mock fills it).
-    expect(resp.success).toBe(true);
   });
 });
 

@@ -3,7 +3,6 @@
  *
  * Single Mongo doc per userId holding tunables that today live as
  * code constants:
- *   - AI Live lot cap
  *   - RCA monitor: max-age, stale-tick window, vol threshold,
  *     channels under supervision
  *   - Recovery engine: stuck threshold, channels polled
@@ -23,7 +22,6 @@ import type { Channel } from "../portfolio/state";
 // ─── Defaults ────────────────────────────────────────────────────
 
 export const EXECUTOR_DEFAULTS = {
-  aiLiveLotCap: 1,
   rcaMaxAgeMs: 30 * 60 * 1000,        // 30 min
   rcaStaleTickMs: 5 * 60 * 1000,       // 5 min
   rcaVolThreshold: 0.7,
@@ -53,7 +51,6 @@ export const EXECUTOR_DEFAULTS = {
 
 export interface ExecutorSettings {
   userId: string;
-  aiLiveLotCap: number;
   rcaMaxAgeMs: number;
   rcaStaleTickMs: number;
   rcaVolThreshold: number;
@@ -78,7 +75,6 @@ export interface ExecutorSettings {
 const executorSettingsSchema = new Schema(
   {
     userId: { type: String, required: true, unique: true },
-    aiLiveLotCap: { type: Number, default: EXECUTOR_DEFAULTS.aiLiveLotCap },
     rcaMaxAgeMs: { type: Number, default: EXECUTOR_DEFAULTS.rcaMaxAgeMs },
     rcaStaleTickMs: { type: Number, default: EXECUTOR_DEFAULTS.rcaStaleTickMs },
     rcaVolThreshold: { type: Number, default: EXECUTOR_DEFAULTS.rcaVolThreshold },
@@ -111,7 +107,6 @@ const DEFAULT_USER_ID = "1";
 function defaultsFor(userId: string): ExecutorSettings {
   return {
     userId,
-    aiLiveLotCap: EXECUTOR_DEFAULTS.aiLiveLotCap,
     rcaMaxAgeMs: EXECUTOR_DEFAULTS.rcaMaxAgeMs,
     rcaStaleTickMs: EXECUTOR_DEFAULTS.rcaStaleTickMs,
     rcaVolThreshold: EXECUTOR_DEFAULTS.rcaVolThreshold,
@@ -129,7 +124,6 @@ function defaultsFor(userId: string): ExecutorSettings {
 function docToSettings(doc: any, userId: string): ExecutorSettings {
   return {
     userId,
-    aiLiveLotCap: doc?.aiLiveLotCap ?? EXECUTOR_DEFAULTS.aiLiveLotCap,
     rcaMaxAgeMs: doc?.rcaMaxAgeMs ?? EXECUTOR_DEFAULTS.rcaMaxAgeMs,
     rcaStaleTickMs: doc?.rcaStaleTickMs ?? EXECUTOR_DEFAULTS.rcaStaleTickMs,
     rcaVolThreshold: doc?.rcaVolThreshold ?? EXECUTOR_DEFAULTS.rcaVolThreshold,

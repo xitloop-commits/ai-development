@@ -470,7 +470,6 @@ export const executorRouter = router({
   updateSettings: protectedProcedure
     .input(
       z.object({
-        aiLiveLotCap: z.number().int().min(1).max(100).optional(),
         rcaMaxAgeMs: z.number().int().min(60_000).max(24 * 60 * 60 * 1000).optional(),
         rcaStaleTickMs: z.number().int().min(30_000).max(60 * 60 * 1000).optional(),
         rcaVolThreshold: z.number().min(0).max(2).optional(),
