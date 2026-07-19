@@ -151,6 +151,11 @@ export interface TradeRecord {
   exitStrategy?: "sprint" | "runway" | "anchor";
   tslMode?: "auto" | "manual";
   originalStopLossPrice?: number | null;
+  /** The target the SIGNAL supplied at open (null when it sent none). Kept
+   *  separate from the live `targetPrice` so the staged strategies can
+   *  recompute the target from config each tick without feeding their own
+   *  output back in (which would lock the config out). */
+  originalTargetPrice?: number | null;
   /** Broker-assigned order ID returned by placeOrder. Used by orderSync /
    *  recoveryEngine to match broker events back to this trade.
    *  Pre-2026-05 docs stored this on the (now-renamed) `brokerId` field;
@@ -341,6 +346,7 @@ const tradeRecordSchema = new Schema(
     exitStrategy: { type: String, enum: ["sprint", "runway", "anchor"], default: "sprint" },
     tslMode: { type: String, enum: ["auto", "manual"], default: "auto" },
     originalStopLossPrice: { type: Number, default: null },
+    originalTargetPrice: { type: Number, default: null },
     tslActivatedAt: { type: Number, default: null },
     brokerOrderId: { type: String, default: null },
     exitBrokerOrderId: { type: String, default: null },
@@ -1142,6 +1148,7 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       manualExitOnly: t.manualExitOnly ?? undefined,
       exitStrategy: t.exitStrategy ?? undefined,
       originalStopLossPrice: t.originalStopLossPrice ?? undefined,
+      originalTargetPrice: t.originalTargetPrice ?? undefined,
       tslActivatedAt: t.tslActivatedAt ?? undefined,
       brokerOrderId: t.brokerOrderId ?? null,
       exitBrokerOrderId: t.exitBrokerOrderId ?? null,

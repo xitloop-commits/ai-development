@@ -1265,6 +1265,9 @@ function buildTradeRecord(
     targetDisabled: exitFlags.targetDisabled,
     tslMode: exitFlags.tslMode,
     originalStopLossPrice: stopLossPrice,
+    // The SIGNAL's target (null when it sent none) — the stable input the staged
+    // strategies read, so their own per-tick target output never feeds back in.
+    originalTargetPrice: req.takeProfit ?? null,
     // Callers resolve the trailing-stop default before submitting (the UI
     // adapter folds in the broker-wide trailingStopEnabled setting). When a
     // formal caller omits it entirely, default to off.

@@ -152,7 +152,7 @@ const PERSIST_THROTTLE_MS = 500;
 // target this many % ahead of the LTP's high-water mark, ratcheting in the
 // favorable direction only (never retreats). Lets a winner run — the trailing
 // stop books the exit on a reversal; the TP only fires on a single-tick gap past it.
-const TP_TRAIL_PERCENT = 1.5;
+// Trailing take-profit % now lives in the shared Sprint exit config (AI menu).
 
 // LIVE only — min gap between broker TP-ratchet emits per trade (TEA also caps
 // total modifies per order). Keeps us well under Dhan's 25-modify-per-order limit.
@@ -442,8 +442,8 @@ class TickHandler extends EventEmitter {
             // TEA enforces the step threshold + per-order modify budget).
             if (trade.targetPrice !== null) {
               const candidateTP = lBuy
-                ? tick.ltp * (1 + TP_TRAIL_PERCENT / 100)
-                : tick.ltp * (1 - TP_TRAIL_PERCENT / 100);
+                ? tick.ltp * (1 + getExitConfig().sprint.tpTrailPercent / 100)
+                : tick.ltp * (1 - getExitConfig().sprint.tpTrailPercent / 100);
               const rounded = Math.round(candidateTP * 100) / 100;
               const raise = lBuy ? rounded > trade.targetPrice : rounded < trade.targetPrice;
               const lastEmit = this.lastTpEmitAt.get(trade.id) ?? 0;
@@ -492,12 +492,18 @@ class TickHandler extends EventEmitter {
             entry: trade.entryPrice,
             ltp: tick.ltp,
             peak: newPeak,
-            target: trade.targetPrice,
+            // Feed the SIGNAL's original target (null when it sent none), NOT the
+            // live one — the live target is our own output, so reading it back
+            // would pin the trade to it and lock the config out.
+            target: trade.originalTargetPrice ?? null,
             openedAt: trade.openedAt,
             now: Date.now(),
           }, stratCfg);
           if (out) {
             trade.stopLossPrice = out.stop; // ratchet the visible stop
+            // Target follows the config too, so retuning Runway/Anchor moves the
+            // TradeBar's TP on open trades — not just the stop.
+            trade.targetPrice = Math.round(out.target * 100) / 100;
             anyUpdated = true;
             if (out.exit) {
               this.exitingTrades.set(trade.id, Date.now());
@@ -550,14 +556,14 @@ class TickHandler extends EventEmitter {
         }
 
         // ── Trailing Take-Profit (only when TSL is on) ───────
-        // Keep the target TP_TRAIL_PERCENT ahead of the LTP's high-water mark,
+        // Keep the target tpTrailPercent ahead of the LTP high-water mark,
         // ratcheting only in the favorable direction (never retreats when price
         // pulls back). The trailing stop books the actual exit on a reversal;
         // this TP only fires if price gaps past it in a single tick.
         if (trade.tslMode !== "manual" && !trade.targetDisabled && trade.targetPrice !== null) {
           const candidateTP = isBuy
-            ? tick.ltp * (1 + TP_TRAIL_PERCENT / 100)
-            : tick.ltp * (1 - TP_TRAIL_PERCENT / 100);
+            ? tick.ltp * (1 + getExitConfig().sprint.tpTrailPercent / 100)
+            : tick.ltp * (1 - getExitConfig().sprint.tpTrailPercent / 100);
           const rounded = Math.round(candidateTP * 100) / 100;
           const raise = isBuy ? rounded > trade.targetPrice : rounded < trade.targetPrice;
           if (raise) {

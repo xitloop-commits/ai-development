@@ -57,6 +57,9 @@ export interface SprintConfig {
   trailingDistanceSource: "config" | "signal";
   trailingActivationGatePercent: number;
   trailingActivationHoldSeconds: number;
+  /** Trailing take-profit: keeps the target this % ahead of the LTP high-water
+   *  mark, ratcheting only favourably. Was hardcoded at 1.5 in tickHandler. */
+  tpTrailPercent: number;
 }
 
 export interface GlobalExitsConfig {
@@ -112,6 +115,7 @@ function baseExits(): SharedExitConfig {
       trailingDistanceSource: "signal",
       trailingActivationGatePercent: 2.0,
       trailingActivationHoldSeconds: 10,
+      tpTrailPercent: 1.5,
     },
     runway: { ...DEFAULT_EXIT_CFG },
     anchor: { ...DEFAULT_EXIT_CFG },
@@ -186,6 +190,7 @@ function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
   e.sprint.trailingDistanceSource = e.sprint.trailingDistanceSource === "config" ? "config" : "signal";
   e.sprint.trailingActivationGatePercent = clampNum(e.sprint.trailingActivationGatePercent, 0, 50, 2);
   e.sprint.trailingActivationHoldSeconds = Math.round(clampNum(e.sprint.trailingActivationHoldSeconds, 0, 120, 10));
+  e.sprint.tpTrailPercent = clampNum(e.sprint.tpTrailPercent, 0.1, 50, 1.5);
   for (const st of [e.runway, e.anchor]) {
     st.coolingSec = Math.round(clampNum(st.coolingSec, 60, 1200, 300));
     st.defaultSlPct = clampNum(st.defaultSlPct, 1, 90, 25);

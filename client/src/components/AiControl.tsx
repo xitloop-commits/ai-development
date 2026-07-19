@@ -27,6 +27,7 @@ interface SprintCfg {
   trailingStopEnabled: boolean; trailingStopPercent: number;
   trailingDistanceSource: "config" | "signal";
   trailingActivationGatePercent: number; trailingActivationHoldSeconds: number;
+  tpTrailPercent: number;
 }
 /** SHARED across paper / live / manual. */
 interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg }
@@ -392,6 +393,7 @@ export function AiControl() {
                     <Seg label="Trail from" value={ed.sprint.trailingDistanceSource} options={["signal", "config"] as const} onChange={(v) => editExits((x) => { x.sprint.trailingDistanceSource = v; })} />
                     <Num label="Activation gate" value={ed.sprint.trailingActivationGatePercent} step={0.5} min={0} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.trailingActivationGatePercent = v; })} />
                     <Num label="Activation hold" value={ed.sprint.trailingActivationHoldSeconds} step={1} min={0} max={120} unit="s" onChange={(v) => editExits((x) => { x.sprint.trailingActivationHoldSeconds = v; })} />
+                    <Num label="TP trail %" value={ed.sprint.tpTrailPercent} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.tpTrailPercent = v; })} />
                   </Group>
 
                   <Group title="Runway">

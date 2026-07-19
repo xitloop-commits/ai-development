@@ -68,6 +68,9 @@ export interface ExitOutput {
   exit: boolean;
   /** Fill price when exiting (stop level, or the target for an Anchor bank). */
   exitPrice?: number;
+  /** Absolute target level implied by the config (entry + target gain). The
+   *  tick engine writes this to the trade so the TradeBar TP follows config. */
+  target: number;
   /** Phase label for the TradeBar. */
   phase: ExitPhase;
 }
@@ -96,16 +99,16 @@ export function runwayDecide(i: ExitInput, c: ExitStrategyConfig): ExitOutput {
     phase = "trailing";
   }
   const exit = i.ltp <= stop;
-  return { stop, exit, exitPrice: exit ? stop : undefined, phase };
+  return { stop, exit, exitPrice: exit ? stop : undefined, target: i.entry + gain, phase };
 }
 
 /** ANCHOR — staged stops, but bank the sure profit at the target (no ride). */
 export function anchorDecide(i: ExitInput, c: ExitStrategyConfig): ExitOutput {
   const gain = targetGain(i, c);
   const { stop, phase } = stagedStop(i, c, gain);
-  if (i.ltp >= i.entry + gain) return { stop, exit: true, exitPrice: i.entry + gain, phase: "target-bank" };
+  if (i.ltp >= i.entry + gain) return { stop, exit: true, exitPrice: i.entry + gain, target: i.entry + gain, phase: "target-bank" };
   const exit = i.ltp <= stop;
-  return { stop, exit, exitPrice: exit ? stop : undefined, phase };
+  return { stop, exit, exitPrice: exit ? stop : undefined, target: i.entry + gain, phase };
 }
 
 /** Registry dispatch. Returns null for "sprint" (legacy engine handles it). */
