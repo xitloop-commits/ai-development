@@ -121,7 +121,7 @@ export default function TradingDesk({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-stretch divide-x divide-border border-b border-border bg-secondary backdrop-blur-sm">
+      <div className="relative z-30 flex items-stretch divide-x divide-border border-b border-border bg-secondary backdrop-blur-sm">
         <div className="px-3 py-1.5 flex flex-col items-center justify-center">
           <span className="text-[0.5rem] text-muted-foreground tracking-widest uppercase">Cash</span>
           <span className="text-xs font-bold tabular-nums text-info-cyan">{fmt(capital.availableCapital, true)}</span>
