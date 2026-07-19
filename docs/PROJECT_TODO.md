@@ -695,6 +695,18 @@ The `testing-sandbox` channel was historically half-built — `connect()` short-
 
 ## P2 — parked features (small enough to wait)
 
+### T91 [ARCH] — SEA cohort control is global across BOTH SEA instances — PARKED 2026-07-20 🆕
+
+We run two SEA processes off the same `engine.py` (live + tick-replay simulation), but the cohort control plane can't tell them apart: one `state` object in `server/seaControl.ts`, `broadcastToSea()` sends to every connected client, the upgrade handler only checks the URL prefix, and both processes read the same `config/sea_thresholds/<inst>.json` at startup. So a cohort toggle hits live and simulation together — you can't run MA on in simulation while it's off in live.
+
+**Real risk = carry-over, not replay itself.** Replay only runs outside market hours, so live SEA isn't emitting then. But a cohort switched on to test a strategy at night is still on when the market opens, and nothing in the UI surfaces that.
+
+**Agreed fix (option B, not built):** replay SEA connects as `/ws/sea-control?mode=paper`, live as `?mode=live`; hold per-mode state in `seaControl.ts` and serve each instance its own cohorts from the per-mode AI config (T85) that already exists. Simulation reads Paper cohorts, live reads Live cohorts.
+
+**Related known gap (one line, also unfixed):** `engine.py:658` builds `ma_signal_detector` only if `ma_signal.enabled` was true at startup, and `engine.py:1214` guards on it being non-None — so MA off→on can't take effect over the websocket and needs a SEA restart. Fix = always construct the detector and let the existing `_live_cohorts["ma"]` check suppress emits (it's already kept fed while off). Scalp/trend don't have this bug.
+
+Prerequisite context: cohort sync from the AI menu landed in `94f5dfc` (T85).
+
 ### TradingDesk trade-entry bars — ✅ SHIPPED 2026-06-06 (gap-audit fixes 2026-06-14)
 
 Replaced `NewTradeForm` with always-on per-instrument `InstrumentBar` bars (`StrikeBar` ready / `TradeBar` open-closed) + click-to-place entry-marker → executor placement; `PastRow` expand-to-show-trades; TradingDesk freeze/leak/repaint hardening (past-day normalize cache, per-instrument `useInstrumentTick`, tickStore TTL); dev `MOCK` feed toggle for offline testing; `broker.feed.ohlc` endpoint. Full design + status in [08 UI Desktop §4](systems/08_ui_desktop.md).
