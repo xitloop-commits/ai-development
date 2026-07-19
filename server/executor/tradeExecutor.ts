@@ -1196,22 +1196,25 @@ function buildTradeRecord(
     source,
   );
 
-  // T85: Sprint needs a concrete stop + target to work at all — its trailing is
-  // skipped outright when stopLossPrice is null. Some cohorts (MA-Signal) emit a
-  // signal with sl/tp = null because their native behaviour is "ride until the
-  // reversal EXIT". When Sprint is the attached strategy and the signal supplied
-  // neither, seed both from the shared Sprint config so the STRATEGY's rules
-  // apply. Runway/Anchor derive their own stop from entry on the first tick, so
-  // they're deliberately left alone.
+  // T85: the ATTACHED STRATEGY is the single, highest-precedence source of the
+  // exit levels. For a SIGNAL-driven (AI) Sprint trade the stop + target come
+  // from the Sprint config — the signal's own sl/tp are ignored, and so is every
+  // other source (the old Risk-Management override is gone). Runway/Anchor
+  // derive their own levels from entry on each tick, so they're left alone.
+  // MANUAL trades keep whatever the operator typed; falling back to the config
+  // only when they left a field blank.
   const strategy = req.exitStrategy ?? "sprint";
+  const fromSignal = req.origin === "AI";
   const isLong = req.direction === "BUY";
   const round2 = (n: number) => Math.round(n * 100) / 100;
-  const seedFor = (pct: number, favourable: boolean): number | null =>
+  const fromCfg = (pct: number, favourable: boolean): number | null =>
     strategy === "sprint" && req.entryPrice > 0
       ? round2(req.entryPrice * (1 + (isLong === favourable ? pct : -pct) / 100))
       : null;
-  const stopLossPrice = req.stopLoss ?? seedFor(sprintCfg.defaultSL, false);
-  const targetPrice = req.takeProfit ?? seedFor(sprintCfg.defaultTP, true);
+  const cfgStop = fromCfg(sprintCfg.defaultSL, false);
+  const cfgTarget = fromCfg(sprintCfg.defaultTP, true);
+  const stopLossPrice = fromSignal ? (cfgStop ?? req.stopLoss ?? null) : (req.stopLoss ?? cfgStop);
+  const targetPrice = fromSignal ? (cfgTarget ?? req.takeProfit ?? null) : (req.takeProfit ?? cfgTarget);
 
   return {
     id: tradeId,

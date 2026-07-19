@@ -246,25 +246,10 @@ export function registerDisciplineRoutes(app: Express): void {
           const openForExposure = await portfolioAgent.listOpenTrades(body.channel);
           currentExposure = openForExposure.reduce((s: number, t) => s + t.entryPrice * t.qty, 0);
 
-          // AI-risk toggle (global): "manual" overrides the model's SL/TP with the
-          // configured Risk-Management values, off the re-priced entry + now-known
-          // quantity. A FIXED target is a NET-₹ profit (after charges), so it needs
-          // qty. "ai" (default) keeps the model's own SL/TP. AI trades are always
-          // LONG options. Only AI trades hit this path (manual UI trades send qty).
-          if (brokerCfg?.settings?.aiRiskMode === "manual" && entryPrice > 0 && body.cohort !== "ma_signal") {
-            const { resolveRiskLevels } = await import("./riskMode");
-            ({ stopLoss, takeProfit } = await resolveRiskLevels(entryPrice, {
-              isOption: true,
-              isLong: true,
-              qty: quantity,
-              exchange: body.exchange === "MCX" ? "MCX" : "NSE",
-              settings: brokerCfg.settings,
-            }));
-            log.info(
-              `AI risk=manual ${body.instrument} SL=${stopLoss} TP=${takeProfit} ` +
-                `(sl=${brokerCfg.settings.slMode}, tp=${brokerCfg.settings.targetMode})`,
-            );
-          }
+          // T85: the ATTACHED STRATEGY is the single, highest-precedence source of
+          // SL/TP/TSL — the executor derives them from the strategy's own config at
+          // open. The old aiRiskMode="manual" override (resolveRiskLevels: percent /
+          // fixed-₹ Risk-Management values) competed with that, so it's gone.
         }
 
         // 1. DA pre-trade gate. Pass channel through so per-channel

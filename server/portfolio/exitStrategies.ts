@@ -75,10 +75,14 @@ export interface ExitOutput {
   phase: ExitPhase;
 }
 
-/** Target gain in premium points; caps a bad/absent target to defaultTargetPct. */
+/**
+ * Target gain in premium points — ALWAYS the strategy's own `defaultTargetPct`.
+ *
+ * T85: the attached strategy is the single, highest-precedence source of the
+ * exit levels, so a signal-supplied target no longer wins here (it used to, when
+ * `i.target` looked sane). `i.target` is kept on ExitInput for reference only.
+ */
 function targetGain(i: ExitInput, c: ExitStrategyConfig): number {
-  const t = i.target;
-  if (t != null && t > i.entry && (t - i.entry) / i.entry <= 0.5) return t - i.entry;
   return i.entry * (c.defaultTargetPct / 100);
 }
 

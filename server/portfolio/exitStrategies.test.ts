@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { runwayDecide, anchorDecide, decideExit, DEFAULT_EXIT_CFG } from "./exitStrategies";
 
-// entry 100, target 110 (10-pt gain). cooling 5 min (300s). trail 15%.
-const cfg = DEFAULT_EXIT_CFG;
-const base = { entry: 100, target: 110, openedAt: 0 };
+// entry 100. T85: the gain now comes ONLY from the strategy's defaultTargetPct
+// (10% of 100 = 10 pts), so every number below is unchanged. `target` is set to a
+// deliberately different value (150) to prove the signal's target is ignored — if
+// the code ever reads it again, these expectations break.
+const cfg = { ...DEFAULT_EXIT_CFG, defaultTargetPct: 10 };
+const base = { entry: 100, target: 150, openedAt: 0 };
 const at = (mins: number) => mins * 60_000; // ms since open
 
 describe("exitStrategies — staged stops (shared)", () => {
@@ -30,6 +33,20 @@ describe("exitStrategies — staged stops (shared)", () => {
     const o = runwayDecide({ ...base, ltp: 103, peak: 105, now: at(6) }, cfg); // peak 105 = entry+50%*10
     expect(o.phase).toBe("breakeven");
     expect(o.stop).toBeCloseTo(100, 5);
+  });
+});
+
+describe("T85 — the strategy config is the only source of the target", () => {
+  it("ignores the signal's target entirely (config wins)", () => {
+    const withSignal = runwayDecide({ ...base, target: 150, ltp: 101, peak: 101, now: at(6) }, cfg);
+    const noSignal = runwayDecide({ ...base, target: null, ltp: 101, peak: 101, now: at(6) }, cfg);
+    expect(withSignal.target).toBe(noSignal.target);
+    expect(withSignal.target).toBeCloseTo(110, 5); // entry + 10% — NOT the 150 signal
+  });
+
+  it("follows defaultTargetPct when it changes", () => {
+    const o = runwayDecide({ ...base, ltp: 101, peak: 101, now: at(6) }, { ...cfg, defaultTargetPct: 5 });
+    expect(o.target).toBeCloseTo(105, 5);
   });
 });
 
