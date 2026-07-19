@@ -63,10 +63,11 @@ const POLL_INTERVAL = 3000;
 
 export default function MainScreen() {
   // ─── Sidebar State ─────────────────────────────────────────────
-  // Both drawers default OPEN (T87): left = Watchlist (indices + stocks),
-  // right = Signals / Alerts. Toggle with the AppBar buttons.
-  const [leftSidebarVisible, setLeftSidebarVisible] = useState(true);
-  const [rightSidebarVisible, setRightSidebarVisible] = useState(true);
+  // Both drawers default CLOSED: left = Watchlist (indices + stocks), right =
+  // Signals / Alerts. The chart + desk get the full width on load; open either
+  // from its AppBar button when you want it.
+  const [leftSidebarVisible, setLeftSidebarVisible] = useState(false);
+  const [rightSidebarVisible, setRightSidebarVisible] = useState(false);
   // Stable toggles so the memoized AppBar doesn't re-render on every MainScreen
   // poll (its callback props would otherwise be new functions each render).
   const toggleLeftDrawer = useCallback(() => setLeftSidebarVisible((p) => !p), []);
