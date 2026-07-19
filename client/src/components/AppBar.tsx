@@ -23,7 +23,7 @@ import { trpc } from '@/lib/trpc';
 import { useCapital, useChannel } from '@/contexts/CapitalContext';
 import { useMarketOpen } from '@/hooks/useMarketOpen';
 import { useSeaStatus } from '@/stores/seaStatusStore';
-import { SeaControl } from '@/components/SeaControl';
+import { AiControl } from '@/components/AiControl';
 import { ReplayControl } from '@/components/ReplayControl';
 import { useInstrumentColors } from '@/lib/useInstrumentColors';
 import { formatINR } from '@/lib/formatINR';
@@ -475,7 +475,7 @@ function AppBar({ onToggleLeftDrawer, onToggleRightDrawer }: AppBarProps) {
         <div className="w-px self-stretch bg-border shrink-0" />
 
         {/* SEA cohort control — scalp / trend / MA on-off, live over ws */}
-        <SeaControl />
+        <AiControl />
 
         <div className="w-px self-stretch bg-border shrink-0" />
 
