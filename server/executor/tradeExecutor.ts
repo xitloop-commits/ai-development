@@ -1196,22 +1196,28 @@ function buildTradeRecord(
     source,
   );
 
-  // T85: the ATTACHED STRATEGY is the single, highest-precedence source of the
-  // exit levels — for EVERY trade, AI or manual. A Sprint trade takes its stop +
-  // target from the Sprint config; the caller's own sl/tp are ignored, as is
-  // every other source (the old Risk-Management override is gone). Runway/Anchor
-  // produce no config levels here because they derive their own from entry on
-  // each tick, so the caller's values pass through as the opening display and
-  // the engine overwrites them immediately.
+  // T85 precedence for the OPENING levels:
+  //   - MANUAL placement wins. What the operator typed is that trade's stop and
+  //     target; the config only fills a field they left blank.
+  //   - SIGNAL-driven (AI) trades take them from the attached strategy's config.
+  //     The signal's own sl/tp are ignored, as is every other source (the old
+  //     Risk-Management override is gone).
+  // This is the OPENING level only — the ongoing SL/TSL/TP *behaviour* always
+  // comes from the strategy config (tickHandler reads it per tick, whatever the
+  // trade's origin). Runway/Anchor produce no config level here because their
+  // engine recomputes both from entry on the first tick regardless.
   const strategy = req.exitStrategy ?? "sprint";
+  const fromSignal = req.origin === "AI";
   const isLong = req.direction === "BUY";
   const round2 = (n: number) => Math.round(n * 100) / 100;
   const fromCfg = (pct: number, favourable: boolean): number | null =>
     strategy === "sprint" && req.entryPrice > 0
       ? round2(req.entryPrice * (1 + (isLong === favourable ? pct : -pct) / 100))
       : null;
-  const stopLossPrice = fromCfg(sprintCfg.defaultSL, false) ?? req.stopLoss ?? null;
-  const targetPrice = fromCfg(sprintCfg.defaultTP, true) ?? req.takeProfit ?? null;
+  const cfgStop = fromCfg(sprintCfg.defaultSL, false);
+  const cfgTarget = fromCfg(sprintCfg.defaultTP, true);
+  const stopLossPrice = fromSignal ? (cfgStop ?? req.stopLoss ?? null) : (req.stopLoss ?? cfgStop);
+  const targetPrice = fromSignal ? (cfgTarget ?? req.takeProfit ?? null) : (req.takeProfit ?? cfgTarget);
 
   return {
     id: tradeId,
