@@ -167,6 +167,16 @@ export function AiControl() {
 
   const ref = useRef<HTMLDivElement>(null);
 
+  // Click-outside closes the menu (no backdrop).
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
   const edit = (fn: (d: ModeCfg) => void) =>
     setDraft((prev) => {
       if (!prev) return prev;
@@ -201,12 +211,9 @@ export function AiControl() {
 
       {open && (
         <>
-          {/* Backdrop */}
-          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setOpen(false)} />
-
-          <div className="absolute right-0 top-full mt-1 z-50 w-80 max-h-[80vh] overflow-y-auto scrollbar-thin scrollbar-cyan rounded-md border border-border bg-popover text-popover-foreground shadow-xl p-3 flex flex-col gap-3">
-            {/* ① Mode toggle */}
-            <div className="flex items-center justify-between">
+          <div className="absolute right-0 top-full mt-1 z-50 w-80 max-h-[80vh] flex flex-col rounded-md border border-border bg-popover text-popover-foreground shadow-xl overflow-hidden">
+            {/* ① Mode toggle — fixed header */}
+            <div className="shrink-0 p-3 border-b border-border flex items-center justify-between">
               <div className="flex flex-col">
                 <SectionLabel>Mode</SectionLabel>
                 <span className="text-[0.5625rem] text-muted-foreground">config + where AI trades go</span>
@@ -229,9 +236,10 @@ export function AiControl() {
             </div>
 
             {!d ? (
-              <div className="py-6 text-center text-[0.625rem] text-muted-foreground">Loading…</div>
+              <div className="flex-1 p-6 text-center text-[0.625rem] text-muted-foreground">Loading…</div>
             ) : (
               <>
+                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-cyan p-3 flex flex-col gap-3">
                 {/* ② Cohorts */}
                 <div className="border-t border-border pt-2 flex flex-col gap-2">
                   <SectionLabel>Cohorts</SectionLabel>
@@ -359,9 +367,10 @@ export function AiControl() {
                       className="rounded border border-border bg-background px-1.5 py-0.5 text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
                   </div>
                 </div>
+                </div>
 
-                {/* Apply / Reset */}
-                <div className="sticky bottom-0 -mx-3 -mb-3 px-3 py-2 bg-popover border-t border-border flex items-center gap-2">
+                {/* Apply / Reset — fixed footer */}
+                <div className="shrink-0 px-3 py-2 bg-popover border-t border-border flex items-center gap-2">
                   <button
                     type="button"
                     onClick={apply}
