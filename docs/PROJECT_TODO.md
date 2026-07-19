@@ -259,6 +259,7 @@ New trading surface brainstormed + locked with Partha 2026-07-18. **Full spec: [
 
 ### UI polish (post-T87, 2026-07-19) — done, straight to main
 Batch of desk/AppBar tweaks after the T87 merge: symmetric drawers; watchlist rows aligned to the index rows; slimmer search box; instant PAPER↔LIVE switch as full-height tabs (confirm removed); market status moved right; API + H2H removed from AppBar; day-P&L trade filters collapsed behind a funnel-icon panel; **holiday indicator is now proximity-based** — bright CTA ≤3d, light CTA 4–6d, once-per-launch alert 7–19d, silent 20+d (`client/src/lib/holidayCue.ts`; see [08 §8](systems/08_ui_desktop.md)).
+**Light/dark theme switching** — the dark "Obsidian Glow" stays default; a second LIGHT theme was added by inverting `index.css` to the shadcn layout (`:root` = light, `.dark` = dark, applied by default via an anti-flash script in `index.html`). Custom colors (bullish/bearish/info-cyan/…) are now CSS-var-tokenized so they switch; `ThemeProvider` is `switchable` + persists to `localStorage`; toggle lives at the bottom of the Watchlist pane. lightweight-charts read a theme-aware `chartColors(theme)` helper (`client/src/lib/chartColors.ts`) and re-theme on toggle.
 
 ### T86 [BUG · P0] — Trades stuck OPEN forever after their stop fires ("half-exited") (2026-07-18) 🆕🔴
 **Symptom:** Runway/Anchor (and old Sprint-MA) trades sit OPEN for days at −35% to −38%, far past their stops, never squared off. 8+ stuck across 07-14 → 07-17.

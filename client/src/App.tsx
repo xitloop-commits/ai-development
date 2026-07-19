@@ -90,7 +90,7 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <ThemeProvider defaultTheme="dark">
+      <ThemeProvider defaultTheme="dark" switchable>
         <AlertProvider>
           <InstrumentFilterProvider>
             <TooltipProvider>

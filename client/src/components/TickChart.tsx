@@ -22,10 +22,6 @@ import {
   heikinAshi,
   type ChartStyle,
   type IndicatorKey,
-  CHART_UP,
-  CHART_DOWN,
-  CHART_BG,
-  CHART_GRID,
   SMA9_COLOR,
   SMA21_COLOR,
   EMA9_COLOR,
@@ -36,6 +32,8 @@ import {
   MA_PERIOD,
 } from "@/lib/instrumentChart";
 import { sma, ema, rsi, supertrend, type OHLC } from "@/lib/indicators";
+import { useTheme } from "@/contexts/ThemeContext";
+import { chartColors } from "@/lib/chartColors";
 
 /** Empty bars of margin kept to the right of the last candle. */
 const RIGHT_MARGIN_BARS = 10;
@@ -89,6 +87,7 @@ export function TickChart({
   const chartRef = useRef<IChartApi | null>(null);
   const onTimeClickRef = useRef(onTimeClick);
   onTimeClickRef.current = onTimeClick;
+  const { theme } = useTheme(); // re-theme the chart when the operator toggles
 
   const candles = useMemo(
     () => (style === "ha" ? heikinAshi(rawCandles) : rawCandles),
@@ -102,18 +101,19 @@ export function TickChart({
     const prevRange = chartRef.current?.timeScale().getVisibleRange() ?? null;
     chartRef.current?.remove();
 
+    const cc = chartColors(theme);
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: CHART_BG },
-        textColor: "#94a3b8",
+        background: { type: ColorType.Solid, color: cc.background },
+        textColor: cc.text,
         fontSize: 10,
         attributionLogo: false,
       },
-      grid: { vertLines: { color: CHART_GRID }, horzLines: { color: CHART_GRID } },
+      grid: { vertLines: { color: cc.grid }, horzLines: { color: cc.grid } },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "rgba(148,163,184,0.2)" },
+      rightPriceScale: { borderColor: cc.border },
       timeScale: {
-        borderColor: "rgba(148,163,184,0.2)",
+        borderColor: cc.border,
         timeVisible: true,
         secondsVisible: intervalSec < 60,
         rightOffset: RIGHT_MARGIN_BARS, // empty bars of breathing room on the right edge
@@ -131,14 +131,14 @@ export function TickChart({
     // Main price series (+ markers + optional dashed price lines).
     const mainLine = style === "line";
     const series = mainLine
-      ? chart.addSeries(LineSeries, { color: CHART_UP, lineWidth: 2 })
+      ? chart.addSeries(LineSeries, { color: cc.up, lineWidth: 2 })
       : chart.addSeries(CandlestickSeries, {
-          upColor: CHART_UP,
-          downColor: CHART_DOWN,
-          borderUpColor: CHART_UP,
-          borderDownColor: CHART_DOWN,
-          wickUpColor: CHART_UP,
-          wickDownColor: CHART_DOWN,
+          upColor: cc.up,
+          downColor: cc.down,
+          borderUpColor: cc.up,
+          borderDownColor: cc.down,
+          wickUpColor: cc.up,
+          wickDownColor: cc.down,
         });
     if (mainLine) {
       series.setData(candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close })));
@@ -239,9 +239,9 @@ export function TickChart({
         upData.push(p.value != null && p.dir === 1 ? { time, value: p.value } : { time });
         dnData.push(p.value != null && p.dir === -1 ? { time, value: p.value } : { time });
       }
-      const up = chart.addSeries(LineSeries, { color: CHART_UP, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+      const up = chart.addSeries(LineSeries, { color: cc.up, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
       up.setData(upData);
-      const dn = chart.addSeries(LineSeries, { color: CHART_DOWN, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+      const dn = chart.addSeries(LineSeries, { color: cc.down, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
       dn.setData(dnData);
     }
 
@@ -280,7 +280,7 @@ export function TickChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines]);
+  }, [candles, markers, maLegs, style, intervalSec, indicatorsKey, indicators, tradeLines, theme]);
 
   const noData = !loading && rawCandles.length === 0;
   return (

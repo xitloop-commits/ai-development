@@ -25,7 +25,6 @@ import {
   chartInstrumentFromUrl,
   defaultChartDate,
   INDICATOR_OPTIONS,
-  CHART_BG,
   CHART_UP,
   CHART_DOWN,
   CHART_ENTRY,
@@ -36,6 +35,8 @@ import { formatDateStr, formatCalendarDay } from "@/lib/tradeFormatters";
 import { resolveCohortHex } from "@/lib/tradeThemes";
 import { TickChart } from "./TickChart";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
+import { useTheme } from "@/contexts/ThemeContext";
+import { chartColors } from "@/lib/chartColors";
 
 const REPLAY_STEP_MS = 250;
 
@@ -118,6 +119,7 @@ function buildTradeMarkers(
 export default function InstrumentChartPage() {
   const inst = useMemo(chartInstrumentFromUrl, []);
   const meta = inst ? INSTRUMENT_CHART_META[inst] : undefined;
+  const { theme } = useTheme();
 
   const [date, setDate] = useState<string>("");
   const [intervalSec, setIntervalSec] = useState<number>(DEFAULT_INTERVAL_SECONDS);
@@ -374,7 +376,7 @@ export default function InstrumentChartPage() {
     `px-1.5 py-0.5 rounded text-[0.625rem] font-semibold border transition-colors ${active ? "bg-secondary border-border text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`;
 
   return (
-    <div className="flex h-screen w-screen flex-col p-2 text-foreground" style={{ background: CHART_BG }}>
+    <div className="flex h-screen w-screen flex-col p-2 text-foreground" style={{ background: chartColors(theme).background }}>
       {/* Control bar (drives every panel) */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pb-2 text-xs">
         <span className="font-bold tracking-wide">{meta.displayName}</span>

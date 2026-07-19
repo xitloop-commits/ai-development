@@ -41,21 +41,68 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Obsidian Glow custom colors */
+  /* Custom colors — theme-switchable via CSS vars (defined on :root / .dark). */
   --font-mono: 'JetBrains Mono', monospace;
   --font-display: 'Space Grotesk', sans-serif;
-  --color-bullish: oklch(0.78 0.20 150);
-  --color-bearish: oklch(0.68 0.20 20);
-  --color-info-cyan: oklch(0.80 0.16 80);
-  --color-warning-amber: oklch(0.78 0.18 55);
-  --color-neutral-steel: oklch(0.50 0.015 260);
-  --color-violet-pulse: oklch(0.70 0.18 300);
-  --color-hot-pink: oklch(0.72 0.20 350);
+  --color-bullish: var(--bullish);
+  --color-bearish: var(--bearish);
+  --color-info-cyan: var(--info-cyan);
+  --color-warning-amber: var(--warning-amber);
+  --color-neutral-steel: var(--neutral-steel);
+  --color-violet-pulse: var(--violet-pulse);
+  --color-hot-pink: var(--hot-pink);
 }
 
 :root {
   --radius: 0.375rem;
-  /* Obsidian Glow — 4-layer depth system (hue 270 indigo-space) */
+  /* Daylight — light theme. This is the default token layer; `.dark` (applied to
+     <html> by default, see the anti-flash script in index.html) overrides it with
+     the Obsidian Glow dark theme below. */
+  --background: #f6f7f9;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: #b45309;
+  --primary-foreground: #ffffff;
+  --secondary: #fbfcfd;
+  --secondary-foreground: #0f172a;
+  --muted: #eef2f6;
+  --muted-foreground: #64748b;
+  --accent: #eef2f6;
+  --accent-foreground: #0f172a;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #b45309;
+  --chart-1: #15803d;
+  --chart-2: #dc2626;
+  --chart-3: #b45309;
+  --chart-4: #d97706;
+  --chart-5: #64748b;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0f172a;
+  --sidebar-primary: #b45309;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eef2f6;
+  --sidebar-accent-foreground: #0f172a;
+  --sidebar-border: #e2e8f0;
+  --sidebar-ring: #b45309;
+  /* Custom colors — light */
+  --bullish: #15803d;
+  --bearish: #dc2626;
+  --info-cyan: #0891b2;
+  --warning-amber: #d97706;
+  --neutral-steel: #64748b;
+  --violet-pulse: #7c3aed;
+  --hot-pink: #db2777;
+}
+
+.dark {
+  /* Obsidian Glow — 4-layer depth system (hue 270 indigo-space). Applied to
+     <html> by default → dark stays the default theme, byte-identical to before. */
   --background: oklch(0.10 0.015 270);
   --foreground: oklch(0.90 0.01 250);
   --card: oklch(0.14 0.015 270);
@@ -88,6 +135,14 @@
   --sidebar-accent-foreground: oklch(0.90 0.01 250);
   --sidebar-border: oklch(0.25 0.015 270);
   --sidebar-ring: oklch(0.80 0.16 80);
+  /* Custom colors — dark (Obsidian Glow) */
+  --bullish: oklch(0.78 0.20 150);
+  --bearish: oklch(0.68 0.20 20);
+  --info-cyan: oklch(0.80 0.16 80);
+  --warning-amber: oklch(0.78 0.18 55);
+  --neutral-steel: oklch(0.50 0.015 260);
+  --violet-pulse: oklch(0.70 0.18 300);
+  --hot-pink: oklch(0.72 0.20 350);
 }
 
 @layer base {

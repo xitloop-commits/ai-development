@@ -22,6 +22,8 @@ import {
   type SeriesMarker,
 } from "lightweight-charts";
 import { trpc } from "@/lib/trpc";
+import { useTheme } from "@/contexts/ThemeContext";
+import { chartColors } from "@/lib/chartColors";
 import {
   toCandles,
   optionInstrumentType,
@@ -79,6 +81,7 @@ function OptionChart({
   const markersRef = useRef<any>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const didFitRef = useRef(false);
+  const { theme } = useTheme();
 
   const isToday = target.date === istDateString();
   const refetchInterval = isToday ? REFRESH_MS : (false as const);
@@ -156,29 +159,30 @@ function OptionChart({
   // Create the chart + series ONCE.
   useEffect(() => {
     if (!containerRef.current) return;
+    const cc = chartColors(theme);
     const chart = createChart(containerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#94a3b8",
+        textColor: cc.text,
         fontSize: 10,
         attributionLogo: false,
       },
       grid: {
-        vertLines: { color: "rgba(148,163,184,0.08)" },
-        horzLines: { color: "rgba(148,163,184,0.08)" },
+        vertLines: { color: cc.grid },
+        horzLines: { color: cc.grid },
       },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "rgba(148,163,184,0.2)" },
-      timeScale: { borderColor: "rgba(148,163,184,0.2)", timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: cc.border },
+      timeScale: { borderColor: cc.border, timeVisible: true, secondsVisible: false },
       autoSize: true,
     });
     const series = chart.addSeries(CandlestickSeries, {
-      upColor: UP,
-      downColor: DOWN,
-      borderUpColor: UP,
-      borderDownColor: DOWN,
-      wickUpColor: UP,
-      wickDownColor: DOWN,
+      upColor: cc.up,
+      downColor: cc.down,
+      borderUpColor: cc.up,
+      borderDownColor: cc.down,
+      wickUpColor: cc.up,
+      wickDownColor: cc.down,
     });
     chartRef.current = chart;
     seriesRef.current = series;
@@ -192,6 +196,23 @@ function OptionChart({
       priceLinesRef.current = [];
     };
   }, []);
+
+  // Re-theme in place when the operator toggles light/dark (no rebuild → keeps
+  // zoom + data). Chart axes/grid + candle colors both switch.
+  useEffect(() => {
+    const cc = chartColors(theme);
+    chartRef.current?.applyOptions({
+      layout: { textColor: cc.text },
+      grid: { vertLines: { color: cc.grid }, horzLines: { color: cc.grid } },
+      rightPriceScale: { borderColor: cc.border },
+      timeScale: { borderColor: cc.border },
+    });
+    seriesRef.current?.applyOptions({
+      upColor: cc.up, downColor: cc.down,
+      borderUpColor: cc.up, borderDownColor: cc.down,
+      wickUpColor: cc.up, wickDownColor: cc.down,
+    });
+  }, [theme]);
 
   // Push data on each change (incremental — no rebuild, preserves zoom).
   useEffect(() => {

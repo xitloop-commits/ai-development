@@ -31,6 +31,8 @@ import {
   type SeriesMarker,
 } from "lightweight-charts";
 import { trpc } from "@/lib/trpc";
+import { useTheme } from "@/contexts/ThemeContext";
+import { chartColors } from "@/lib/chartColors";
 import {
   toHeikinAshi,
   toCandles,
@@ -103,6 +105,7 @@ function snapToCandle(times: number[], tShifted: number): number {
 export default function SignalChartPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const { theme } = useTheme();
   const target = useMemo(targetFromUrl, []);
   const [date, setDate] = useState<string>(target?.initialDate ?? istDateString());
 
@@ -239,23 +242,24 @@ export default function SignalChartPage() {
   useEffect(() => {
     if (!containerRef.current || candles.length === 0) return;
 
+    const cc = chartColors(theme);
     const chart = createChart(containerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#94a3b8",
+        textColor: cc.text,
         fontSize: 11,
         // Hide the lightweight-charts TradingView attribution logo — it made our
         // own chart look like the TradingView site.
         attributionLogo: false,
       },
       grid: {
-        vertLines: { color: "rgba(148,163,184,0.08)" },
-        horzLines: { color: "rgba(148,163,184,0.08)" },
+        vertLines: { color: cc.grid },
+        horzLines: { color: cc.grid },
       },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "rgba(148,163,184,0.2)" },
+      rightPriceScale: { borderColor: cc.border },
       timeScale: {
-        borderColor: "rgba(148,163,184,0.2)",
+        borderColor: cc.border,
         timeVisible: true,
         secondsVisible: false,
       },
@@ -264,12 +268,12 @@ export default function SignalChartPage() {
     chartRef.current = chart;
 
     const series = chart.addSeries(CandlestickSeries, {
-      upColor: UP,
-      downColor: DOWN,
-      borderUpColor: UP,
-      borderDownColor: DOWN,
-      wickUpColor: UP,
-      wickDownColor: DOWN,
+      upColor: cc.up,
+      downColor: cc.down,
+      borderUpColor: cc.up,
+      borderDownColor: cc.down,
+      wickUpColor: cc.up,
+      wickDownColor: cc.down,
     });
     series.setData(
       candles.map((c) => ({
@@ -301,7 +305,7 @@ export default function SignalChartPage() {
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, markers, tradeLines]);
+  }, [candles, markers, tradeLines, theme]);
 
   const dataQuery = isOption ? tradeQuery : signalQuery;
   const loading =
