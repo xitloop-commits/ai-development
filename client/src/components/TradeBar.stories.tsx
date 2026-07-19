@@ -22,8 +22,11 @@ const meta = {
           "Self-contained price scale. Markers: Stop (entry − slPercent%), Entry, " +
           "TP (entry + TP%), and the live LTP triangle. slPercent is the live " +
           "distance to the REAL stop — negative once the stop trails into profit, " +
-          "where the marker turns gold/TSL. BUY draws favourable to the right; SELL " +
-          "mirrors it. Emits stop-loss-hit / take-profit-hit callbacks.",
+          "where the marker turns gold/TSL. A SL/TSL/TP marker is drawn ONLY when " +
+          "that level is actually set — an unset stop or target draws nothing (no " +
+          "phantom 5%/10% level, T86 ④); Entry + LTP always render. BUY draws " +
+          "favourable to the right; SELL mirrors it. Emits stop-loss-hit / " +
+          "take-profit-hit callbacks.",
       },
     },
   },
@@ -32,8 +35,8 @@ const meta = {
     isBuy: { control: { type: "boolean" }, description: "BUY (up is good) vs SELL (down is good)" },
     entryPrice: { control: { type: "number", step: 1 }, description: "Entry price" },
     ltp: { control: { type: "number", step: 1 }, description: "Live last-traded price (pointer)" },
-    slPercent: { control: { type: "number", step: 0.5 }, description: "Distance to the real stop % → Stop = entry − SL%. Negative = stop in profit (TSL)" },
-    tpPercent: { control: { type: "number", step: 0.5 }, description: "Take-profit % → TP = entry + TP% (default 10)" },
+    slPercent: { control: { type: "number", step: 0.5 }, description: "Distance to the real stop % → Stop = entry − SL%. Negative = stop in profit (TSL). Unset = no stop drawn (T86 ④)" },
+    tpPercent: { control: { type: "number", step: 0.5 }, description: "Take-profit % → TP = entry + TP%. Unset = no target drawn (T86 ④) — no default" },
     compact: { control: { type: "boolean" }, description: "Hide labels for tight cells" },
     exitPhase: {
       control: { type: "select" },
@@ -101,6 +104,27 @@ export const SellInProfit: Story = {
 export const Compact: Story = {
   args: { ...base, compact: true },
   parameters: { docs: { description: { story: "Compact (no labels) — how it renders inside the tight table cell." } } },
+};
+
+// ── No-level gating (T86 ④) ─────────────────────────────────────────────
+// The old 5%/10% prop defaults were removed: a SL/TSL/TP marker now renders
+// ONLY when the trade actually has that level. A trade with no stop / no target
+// draws a clean bar — no phantom red at-risk band, no phantom TP tick. Entry +
+// LTP always render. (Mirrors the gating cases locked in TradeBar.test.tsx.)
+
+export const NoStopLoss: Story = {
+  args: { isBuy: true, entryPrice: 271, ltp: 285, tpPercent: 10 }, // slPercent omitted
+  parameters: { docs: { description: { story: "No stop set — no SL marker and no red at-risk band. Only Entry, LTP and TP render." } } },
+};
+
+export const NoTakeProfit: Story = {
+  args: { isBuy: true, entryPrice: 271, ltp: 262, slPercent: 5 }, // tpPercent omitted
+  parameters: { docs: { description: { story: "No target set — no TP marker. Only Entry, LTP and the Stop render (LTP shown in loss between the stop and entry)." } } },
+};
+
+export const BareEntryOnly: Story = {
+  args: { isBuy: true, entryPrice: 271, ltp: 278 }, // neither level set
+  parameters: { docs: { description: { story: "Neither stop nor target — a clean bar with just Entry and the live LTP. The scale still uses sane internal bounds, but nothing is drawn as a marker." } } },
 };
 
 // ── Exit-strategy phases (T84) ──────────────────────────────────────────
