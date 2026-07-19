@@ -149,3 +149,7 @@ models_*.zip
 
 # local Claude worktrees/config
 .claude/worktrees/
+
+# Local runtime trading config (written by the AI menu / exit config at runtime)
+config/ai_mode_config.json
+config/exit_strategy.json

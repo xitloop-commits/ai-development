@@ -19,7 +19,7 @@ import { querySeaSignals, getSeaSignalsForChartFromStore } from "./seaSignalStor
 import { getSEASignalsForChart, logFolderFor } from "./seaSignals";
 import { getCohortState, setCohort, setRevPct } from "./seaControl";
 import { getExitCfg, setCoolingSec } from "./portfolio/exitConfig";
-import { getAllAiConfig, updateAiConfig } from "./portfolio/aiModeConfig";
+import { getAllAiConfig, updateAiConfig, updateExitConfig } from "./portfolio/aiModeConfig";
 import { tickBus } from "./broker/tickBus";
 import { getTradesForDate } from "./portfolio/state";
 import { getInstrumentLiveState } from "./instrumentLiveState";
@@ -128,9 +128,19 @@ export const appRouter = router({
     // the next tick; strategy / sizing / order apply at the next entry.
     aiConfig: publicProcedure.query(() => getAllAiConfig()),
     updateAiConfig: publicProcedure
-      .input(z.object({ mode: z.enum(["paper", "live"]), patch: z.any() }))
+      .input(z.object({ mode: z.enum(["paper", "live", "manual"]), patch: z.any() }))
       .mutation(({ input }) => {
         updateAiConfig(input.mode, input.patch);
+        const all = getAllAiConfig();
+        tickBus.emitAiConfig(all);
+        return all;
+      }),
+
+    // SHARED Sprint / Runway / Anchor exit config — common to every mode.
+    updateExitConfig: publicProcedure
+      .input(z.object({ patch: z.any() }))
+      .mutation(({ input }) => {
+        updateExitConfig(input.patch);
         const all = getAllAiConfig();
         tickBus.emitAiConfig(all);
         return all;

@@ -24,7 +24,7 @@ import {
 import type { Channel, TradeRecord, CapitalState, DayRecord } from "./state";
 import { recalculateDayAggregates } from "./compounding";
 import { decideExit } from "./exitStrategies";
-import { getAiConfig, modeForChannel, aiModeForChannel } from "./aiModeConfig";
+import { getExitConfig } from "./aiModeConfig";
 import { getActiveBrokerConfig } from "../broker/brokerConfig";
 import type { TickData } from "../broker/types";
 
@@ -340,19 +340,16 @@ class TickHandler extends EventEmitter {
       });
     }
 
-    // Trailing-stop config. AI channels (paper / ai-live) read the per-mode
-    // Sprint config from the AI menu; my-live (manual) keeps the broker settings.
-    const aiSprint = (() => {
-      const m = aiModeForChannel(channel);
-      return m ? getAiConfig(m).sprint : null;
-    })();
-    const trailingStopEnabled = aiSprint ? aiSprint.trailingStopEnabled : (brokerConfig?.settings?.trailingStopEnabled ?? false);
-    const trailingStopPercent = aiSprint ? aiSprint.trailingStopPercent : (brokerConfig?.settings?.trailingStopPercent ?? 2.0);
+    // Sprint trailing config — SHARED across paper / live / manual (a strategy's
+    // exit behaviour is intrinsic to the strategy, not the book).
+    const sprintCfg = getExitConfig().sprint;
+    const trailingStopEnabled = sprintCfg.trailingStopEnabled;
+    const trailingStopPercent = sprintCfg.trailingStopPercent;
     // Trailing distance source: "config" = fixed gap% below the peak;
-    // "signal" = the trade's own initial (model) SL distance. Default signal.
-    const trailingDistanceSource = aiSprint ? aiSprint.trailingDistanceSource : (brokerConfig?.settings?.trailingDistanceSource ?? "signal");
-    const tslGatePercent = aiSprint ? aiSprint.trailingActivationGatePercent : (brokerConfig?.settings?.trailingActivationGatePercent ?? 2.0);
-    const tslHoldMs = (aiSprint ? aiSprint.trailingActivationHoldSeconds : (brokerConfig?.settings?.trailingActivationHoldSeconds ?? 10)) * 1000;
+    // "signal" = the trade's own initial (model) SL distance.
+    const trailingDistanceSource = sprintCfg.trailingDistanceSource;
+    const tslGatePercent = sprintCfg.trailingActivationGatePercent;
+    const tslHoldMs = sprintCfg.trailingActivationHoldSeconds * 1000;
 
     let anyUpdated = false;
     const tradesToExit: Array<{ trade: TradeRecord; reason: "TP_HIT" | "SL_HIT"; exitPrice: number }> = [];
@@ -487,10 +484,10 @@ class TickHandler extends EventEmitter {
         // TP/SL/TSL below. Sprint (or undefined) falls through unchanged. Uses the
         // live `newPeak` so it works even while persisted peakLtp lags.
         if (trade.exitStrategy === "runway" || trade.exitStrategy === "anchor") {
-          // Per-mode (paper/live) staged-stop config from the AI menu, picked by
-          // the trade's channel + strategy. Independent Runway vs Anchor knobs.
-          const modeCfg = getAiConfig(modeForChannel(channel));
-          const stratCfg = trade.exitStrategy === "runway" ? modeCfg.runway : modeCfg.anchor;
+          // SHARED staged-stop config from the AI menu (same for every book);
+          // independent Runway vs Anchor knobs.
+          const exits = getExitConfig();
+          const stratCfg = trade.exitStrategy === "runway" ? exits.runway : exits.anchor;
           const out = decideExit(trade.exitStrategy, {
             entry: trade.entryPrice,
             ltp: tick.ltp,

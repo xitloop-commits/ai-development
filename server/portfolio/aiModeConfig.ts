@@ -1,37 +1,38 @@
 /**
- * aiModeConfig.ts — per-mode (paper / live) AI trading configuration.
+ * aiModeConfig.ts — trading configuration for the AI menu.
  *
- * Single source of truth for everything the AI menu controls, kept SEPARATELY
- * for paper and live — the two modes NEVER share a setting. The AI apply-paths
- * read the block for a trade's mode (paper channel → paper; ai-live → live):
- *   - risk-control:   which strategies fire (one trade per active strategy)
- *   - executor@entry: sizing, order type/product, Sprint SL/TP/trailing
- *   - tickHandler:    Runway / Anchor staged-stop knobs
- *   - RCA + square-off schedulers: age/stale/vol + EOD times
- *   - SEA (via seaControl): which cohorts fire + MA reversal size
+ * Two layers:
+ *   1. `exits` — the Sprint / Runway / Anchor strategy configs. **COMMON to
+ *      every mode** (paper, live, manual): a strategy's exit behaviour is
+ *      intrinsic to the strategy, not to which book it runs in.
+ *   2. per-mode blocks (`paper`, `live`, `manual`) — what DOES differ by book:
+ *      which strategies run, sizing, cohorts, order type, global exits,
+ *      square-off.
  *
- * Persisted to config/ai_mode_config.json; hydrated at boot. Stored values are
- * deep-merged over DEFAULT_MODE_CFG so knobs added later fall through to sane
- * defaults. Defaults preserve today's behaviour: paper races all three
- * strategies, live is Sprint-only.
+ * Reads by apply-path:
+ *   - tickHandler (exit engine)  → getExitConfig()          [shared]
+ *   - risk-control (placement)   → getActiveStrategies(mode), order [per-mode]
+ *   - validateTrade (sizing)     → getAiConfig(mode).sizing [per-mode]
+ *   - RcaMonitor / square-off    → per-mode for AI channels; my-live keeps the
+ *     executor-settings defaults (see aiModeForChannel).
  *
- * This replaces the UI home for these knobs (moved out of the Settings page).
- * The underlying broker/executor stores are untouched — `my`/manual trades and
- * the rest of the system keep using them.
+ * Persisted to config/ai_mode_config.json, hydrated at boot, deep-merged over
+ * defaults so knobs added later fall through. Defaults preserve today's
+ * behaviour: paper races all three strategies, live is Sprint-only.
  */
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { DEFAULT_EXIT_CFG, type ExitStrategyConfig } from "./exitStrategies";
 import type { Channel } from "./state";
 
-export type AiMode = "paper" | "live";
+export type AiMode = "paper" | "live" | "manual";
 export type StrategyName = "sprint" | "runway" | "anchor";
 
 export interface CohortsConfig {
   scalp: boolean;
   trend: boolean;
   ma: boolean;
-  swing: boolean;      // shown in the UI but has no gate — always false for now
+  swing: boolean; // shown in the UI but has no gate — always false for now
   /** MA-Signal reversal size (%). 0.02–0.6. */
   revPct: number;
 }
@@ -48,10 +49,10 @@ export interface OrderConfig {
   productType: "INTRADAY" | "CNC";
 }
 
-/** Sprint (fixed SL/TP + trailing) — mirrors the old brokerConfig exit knobs. */
+/** Sprint (fixed SL/TP + trailing). Part of the SHARED exit config. */
 export interface SprintConfig {
-  defaultSL: number;                     // % below entry
-  defaultTP: number;                     // % above entry
+  defaultSL: number; // % below entry
+  defaultTP: number; // % above entry
   dailyTargetPercent: number;
   trailingStopEnabled: boolean;
   trailingStopPercent: number;
@@ -61,37 +62,65 @@ export interface SprintConfig {
 }
 
 export interface GlobalExitsConfig {
-  rcaMaxAgeMs: number;      // age exit
-  rcaStaleTickMs: number;   // stale-tick exit
-  rcaVolThreshold: number;  // volatility exit
+  rcaMaxAgeMs: number; // age exit
+  rcaStaleTickMs: number; // stale-tick exit
+  rcaVolThreshold: number; // volatility exit
 }
 
 export interface SquareoffConfig {
   enabled: boolean;
-  nseTime: string;  // IST "HH:mm"
+  nseTime: string; // IST "HH:mm"
   mcxTime: string;
 }
 
+/** SHARED across paper / live / manual — one set of strategy exit knobs. */
+export interface SharedExitConfig {
+  sprint: SprintConfig;
+  runway: ExitStrategyConfig;
+  anchor: ExitStrategyConfig;
+}
+
+/** Per-mode (per-book) config. */
 export interface AiModeConfig {
   cohorts: CohortsConfig;
   strategies: Record<StrategyName, boolean>;
   sizing: SizingConfig;
   order: OrderConfig;
-  sprint: SprintConfig;
-  runway: ExitStrategyConfig;
-  anchor: ExitStrategyConfig;
   globalExits: GlobalExitsConfig;
   squareoff: SquareoffConfig;
 }
 
 export interface AllAiConfig {
+  /** Common Sprint / Runway / Anchor configs — same for every mode. */
+  exits: SharedExitConfig;
   paper: AiModeConfig;
   live: AiModeConfig;
+  /** Manual (my-live). Only `strategies` + `sizing` are used; order,
+   *  square-off and global exits come from the existing broker/executor
+   *  settings (my-live shares those). */
+  manual: AiModeConfig;
 }
 
 // ─── Defaults (preserve current behaviour) ──────────────────────────────────
 
-function baseCfg(): AiModeConfig {
+function baseExits(): SharedExitConfig {
+  return {
+    sprint: {
+      defaultSL: 2.0,
+      defaultTP: 5.0,
+      dailyTargetPercent: 5.0,
+      trailingStopEnabled: true,
+      trailingStopPercent: 2.0,
+      trailingDistanceSource: "signal",
+      trailingActivationGatePercent: 2.0,
+      trailingActivationHoldSeconds: 10,
+    },
+    runway: { ...DEFAULT_EXIT_CFG },
+    anchor: { ...DEFAULT_EXIT_CFG },
+  };
+}
+
+function baseMode(): AiModeConfig {
   return {
     cohorts: { scalp: true, trend: false, ma: true, swing: false, revPct: 0.18 },
     strategies: { sprint: true, runway: true, anchor: true },
@@ -105,18 +134,6 @@ function baseCfg(): AiModeConfig {
       aiLiveLotCap: 1,
     },
     order: { orderType: "MARKET", productType: "INTRADAY" },
-    sprint: {
-      defaultSL: 2.0,
-      defaultTP: 5.0,
-      dailyTargetPercent: 5.0,
-      trailingStopEnabled: true,
-      trailingStopPercent: 2.0,
-      trailingDistanceSource: "signal",
-      trailingActivationGatePercent: 2.0,
-      trailingActivationHoldSeconds: 10,
-    },
-    runway: { ...DEFAULT_EXIT_CFG },
-    anchor: { ...DEFAULT_EXIT_CFG },
     globalExits: {
       rcaMaxAgeMs: 30 * 60 * 1000,
       rcaStaleTickMs: 5 * 60 * 1000,
@@ -126,13 +143,14 @@ function baseCfg(): AiModeConfig {
   };
 }
 
-/** paper races all three strategies (today's paper behaviour); live is
- *  Sprint-only (today's live behaviour). Everything else identical. */
+/** paper races all three (today's paper behaviour); live is Sprint-only
+ *  (today's live behaviour); manual has all three available to pick from. */
 function defaultAll(): AllAiConfig {
-  const paper = baseCfg();
-  const live = baseCfg();
+  const paper = baseMode();
+  const live = baseMode();
   live.strategies = { sprint: true, runway: false, anchor: false };
-  return { paper, live };
+  const manual = baseMode();
+  return { exits: baseExits(), paper, live, manual };
 }
 
 // ─── State + persistence ────────────────────────────────────────────────────
@@ -141,8 +159,7 @@ const cfgPath = () => resolve(process.cwd(), "config", "ai_mode_config.json");
 
 let state: AllAiConfig = defaultAll();
 
-/** Recursively merge `src` onto `dst` (objects deep, everything else replaced).
- *  Arrays are replaced wholesale. Returns `dst`. */
+/** Recursively merge `src` onto `dst` (objects deep, everything else replaced). */
 function deepMerge<T>(dst: T, src: unknown): T {
   if (src == null || typeof src !== "object" || Array.isArray(src)) return dst;
   for (const [k, v] of Object.entries(src as Record<string, unknown>)) {
@@ -162,8 +179,30 @@ const clampNum = (v: unknown, lo: number, hi: number, fallback: number): number 
 };
 const isHHmm = (s: unknown): s is string => typeof s === "string" && /^\d{2}:\d{2}$/.test(s);
 
-/** Clamp one mode's config to safe ranges (mutates + returns it). */
-function sanitize(c: AiModeConfig): AiModeConfig {
+/** Clamp the shared exit config to safe ranges. */
+function sanitizeExits(e: SharedExitConfig): SharedExitConfig {
+  e.sprint.defaultSL = clampNum(e.sprint.defaultSL, 0, 50, 2);
+  e.sprint.defaultTP = clampNum(e.sprint.defaultTP, 0, 100, 5);
+  e.sprint.dailyTargetPercent = clampNum(e.sprint.dailyTargetPercent, 1, 20, 5);
+  e.sprint.trailingStopEnabled = !!e.sprint.trailingStopEnabled;
+  e.sprint.trailingStopPercent = clampNum(e.sprint.trailingStopPercent, 0.1, 50, 2);
+  e.sprint.trailingDistanceSource = e.sprint.trailingDistanceSource === "config" ? "config" : "signal";
+  e.sprint.trailingActivationGatePercent = clampNum(e.sprint.trailingActivationGatePercent, 0, 50, 2);
+  e.sprint.trailingActivationHoldSeconds = Math.round(clampNum(e.sprint.trailingActivationHoldSeconds, 0, 120, 10));
+  for (const st of [e.runway, e.anchor]) {
+    st.coolingSec = Math.round(clampNum(st.coolingSec, 60, 1200, 300));
+    st.defaultSlPct = clampNum(st.defaultSlPct, 1, 90, 25);
+    st.cooledSlPct = clampNum(st.cooledSlPct, 1, 90, 12.5);
+    st.breakevenAtFrac = clampNum(st.breakevenAtFrac, 0, 1, 0.5);
+    st.nearTargetFrac = clampNum(st.nearTargetFrac, 0, 1, 0.9);
+    st.trailPct = clampNum(st.trailPct, 1, 90, 15);
+    st.defaultTargetPct = clampNum(st.defaultTargetPct, 0.1, 50, 2.3);
+  }
+  return e;
+}
+
+/** Clamp one mode's config to safe ranges. */
+function sanitizeMode(c: AiModeConfig): AiModeConfig {
   c.cohorts.revPct = clampNum(c.cohorts.revPct, 0.02, 0.6, 0.18);
   for (const k of ["scalp", "trend", "ma", "swing"] as const) c.cohorts[k] = !!c.cohorts[k];
   for (const s of ["sprint", "runway", "anchor"] as const) c.strategies[s] = !!c.strategies[s];
@@ -175,23 +214,6 @@ function sanitize(c: AiModeConfig): AiModeConfig {
   }
   c.order.orderType = c.order.orderType === "LIMIT" ? "LIMIT" : "MARKET";
   c.order.productType = c.order.productType === "CNC" ? "CNC" : "INTRADAY";
-  c.sprint.defaultSL = clampNum(c.sprint.defaultSL, 0, 50, 2);
-  c.sprint.defaultTP = clampNum(c.sprint.defaultTP, 0, 100, 5);
-  c.sprint.dailyTargetPercent = clampNum(c.sprint.dailyTargetPercent, 1, 20, 5);
-  c.sprint.trailingStopEnabled = !!c.sprint.trailingStopEnabled;
-  c.sprint.trailingStopPercent = clampNum(c.sprint.trailingStopPercent, 0.1, 50, 2);
-  c.sprint.trailingDistanceSource = c.sprint.trailingDistanceSource === "config" ? "config" : "signal";
-  c.sprint.trailingActivationGatePercent = clampNum(c.sprint.trailingActivationGatePercent, 0, 50, 2);
-  c.sprint.trailingActivationHoldSeconds = Math.round(clampNum(c.sprint.trailingActivationHoldSeconds, 0, 120, 10));
-  for (const st of [c.runway, c.anchor]) {
-    st.coolingSec = Math.round(clampNum(st.coolingSec, 60, 1200, 300));
-    st.defaultSlPct = clampNum(st.defaultSlPct, 1, 90, 25);
-    st.cooledSlPct = clampNum(st.cooledSlPct, 1, 90, 12.5);
-    st.breakevenAtFrac = clampNum(st.breakevenAtFrac, 0, 1, 0.5);
-    st.nearTargetFrac = clampNum(st.nearTargetFrac, 0, 1, 0.9);
-    st.trailPct = clampNum(st.trailPct, 1, 90, 15);
-    st.defaultTargetPct = clampNum(st.defaultTargetPct, 0.1, 50, 2.3);
-  }
   c.globalExits.rcaMaxAgeMs = Math.round(clampNum(c.globalExits.rcaMaxAgeMs, 60_000, 6 * 3600_000, 30 * 60_000));
   c.globalExits.rcaStaleTickMs = Math.round(clampNum(c.globalExits.rcaStaleTickMs, 10_000, 3600_000, 5 * 60_000));
   c.globalExits.rcaVolThreshold = clampNum(c.globalExits.rcaVolThreshold, 0, 10, 0.7);
@@ -211,25 +233,33 @@ function persist(): void {
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-/** The channel a trade is on → its AI mode. Any non-paper channel is "live". */
+/** The channel a trade is on → the mode block governing strategies / sizing:
+ *  paper→paper, ai-live→live, my-live→manual. */
 export function modeForChannel(channel: Channel): AiMode {
-  return channel === "paper" ? "paper" : "live";
-}
-
-/** AI-only guard: the AI menu governs AI trades ONLY. paper → "paper",
- *  ai-live → "live", my-live (manual) → null (keeps the system defaults). */
-export function aiModeForChannel(channel: Channel): AiMode | null {
   if (channel === "paper") return "paper";
   if (channel === "ai-live") return "live";
-  return null; // my-live and anything else — not governed by the AI menu
+  return "manual"; // my-live
 }
 
-/** The effective config for one mode (defaults + persisted overrides). */
+/** AI-only guard: paper→paper, ai-live→live, my-live→null. Used where my-live
+ *  keeps the existing broker/executor defaults (order, square-off, RCA). */
+export function aiModeForChannel(channel: Channel): Exclude<AiMode, "manual"> | null {
+  if (channel === "paper") return "paper";
+  if (channel === "ai-live") return "live";
+  return null; // my-live — not governed by the AI menu for these
+}
+
+/** The SHARED Sprint / Runway / Anchor config (same for every mode). */
+export function getExitConfig(): SharedExitConfig {
+  return state.exits;
+}
+
+/** One mode's block (strategies, sizing, cohorts, order, globalExits, squareoff). */
 export function getAiConfig(mode: AiMode): AiModeConfig {
   return state[mode];
 }
 
-/** Both modes — for the UI. */
+/** Everything — for the UI. */
 export function getAllAiConfig(): AllAiConfig {
   return state;
 }
@@ -240,10 +270,18 @@ export function getActiveStrategies(mode: AiMode): StrategyName[] {
   return (["sprint", "runway", "anchor"] as StrategyName[]).filter((k) => s[k]);
 }
 
-/** Deep-merge a partial patch into one mode's config, clamp, persist, return it. */
+/** Deep-merge a patch into the SHARED exit config; clamp, persist, return it. */
+export function updateExitConfig(patch: unknown): SharedExitConfig {
+  deepMerge(state.exits, patch);
+  sanitizeExits(state.exits);
+  persist();
+  return state.exits;
+}
+
+/** Deep-merge a patch into one mode's block; clamp, persist, return it. */
 export function updateAiConfig(mode: AiMode, patch: unknown): AiModeConfig {
   deepMerge(state[mode], patch);
-  sanitize(state[mode]);
+  sanitizeMode(state[mode]);
   persist();
   return state[mode];
 }
@@ -255,10 +293,14 @@ export function initAiConfig(): void {
     const p = cfgPath();
     if (!existsSync(p)) return;
     const j = JSON.parse(readFileSync(p, "utf8"));
+    if (j?.exits) deepMerge(state.exits, j.exits);
     if (j?.paper) deepMerge(state.paper, j.paper);
     if (j?.live) deepMerge(state.live, j.live);
-    sanitize(state.paper);
-    sanitize(state.live);
+    if (j?.manual) deepMerge(state.manual, j.manual);
+    sanitizeExits(state.exits);
+    sanitizeMode(state.paper);
+    sanitizeMode(state.live);
+    sanitizeMode(state.manual);
   } catch {
     /* corrupt/absent file → run on defaults */
   }

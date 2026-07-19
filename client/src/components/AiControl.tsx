@@ -21,23 +21,24 @@ interface ExitCfg {
   coolingSec: number; defaultSlPct: number; cooledSlPct: number;
   breakevenAtFrac: number; nearTargetFrac: number; trailPct: number; defaultTargetPct: number;
 }
+interface SprintCfg {
+  defaultSL: number; defaultTP: number; dailyTargetPercent: number;
+  trailingStopEnabled: boolean; trailingStopPercent: number;
+  trailingDistanceSource: "config" | "signal";
+  trailingActivationGatePercent: number; trailingActivationHoldSeconds: number;
+}
+/** SHARED across paper / live / manual. */
+interface ExitsCfg { sprint: SprintCfg; runway: ExitCfg; anchor: ExitCfg }
+/** Per-mode (per-book) config. */
 interface ModeCfg {
   cohorts: { scalp: boolean; trend: boolean; ma: boolean; swing: boolean; revPct: number };
   strategies: { sprint: boolean; runway: boolean; anchor: boolean };
   sizing: { perInstrument: Record<string, { mode: "lots" | "percent"; value: number }>; aiLiveLotCap: number };
   order: { orderType: "LIMIT" | "MARKET"; productType: "INTRADAY" | "CNC" };
-  sprint: {
-    defaultSL: number; defaultTP: number; dailyTargetPercent: number;
-    trailingStopEnabled: boolean; trailingStopPercent: number;
-    trailingDistanceSource: "config" | "signal";
-    trailingActivationGatePercent: number; trailingActivationHoldSeconds: number;
-  };
-  runway: ExitCfg;
-  anchor: ExitCfg;
   globalExits: { rcaMaxAgeMs: number; rcaStaleTickMs: number; rcaVolThreshold: number };
   squareoff: { enabled: boolean; nseTime: string; mcxTime: string };
 }
-type AllCfg = { paper: ModeCfg; live: ModeCfg };
+type AllCfg = { exits: ExitsCfg; paper: ModeCfg; live: ModeCfg; manual: ModeCfg };
 type Mode = "paper" | "live";
 
 // ── Small building blocks ────────────────────────────────────────────────────
@@ -132,6 +133,8 @@ export function AiControl() {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>("paper");
   const [draft, setDraft] = useState<ModeCfg | null>(null);
+  const [manualDraft, setManualDraft] = useState<ModeCfg | null>(null);
+  const [exitsDraft, setExitsDraft] = useState<ExitsCfg | null>(null);
   const sea = useSeaStatus();
   const utils = trpc.useUtils();
 
@@ -155,6 +158,16 @@ export function AiControl() {
   useEffect(() => {
     if (all) setDraft(structuredClone(all[mode]));
   }, [all, mode]);
+
+  // Manual (my-live) config is not tied to the mode toggle — load it once.
+  useEffect(() => {
+    if (all) setManualDraft(structuredClone(all.manual));
+  }, [all]);
+
+  // Shared Sprint/Runway/Anchor exits — common to every mode.
+  useEffect(() => {
+    if (all) setExitsDraft(structuredClone(all.exits));
+  }, [all]);
 
   const applyMut = trpc.trading.updateAiConfig.useMutation({
     onSuccess: (next) => utils.trading.aiConfig.setData(undefined, next as AllCfg),
@@ -194,8 +207,43 @@ export function AiControl() {
   const apply = () => { if (draft) applyMut.mutate({ mode, patch: draft }); };
   const reset = () => { if (all) setDraft(structuredClone(all[mode])); };
 
+  // Manual (my-live) block — its own draft + Apply, independent of the mode toggle.
+  const manualDirty = useMemo(
+    () => !!(manualDraft && all && JSON.stringify(manualDraft) !== JSON.stringify(all.manual)),
+    [manualDraft, all],
+  );
+  const editManual = (fn: (d: ModeCfg) => void) =>
+    setManualDraft((prev) => {
+      if (!prev) return prev;
+      const n = structuredClone(prev);
+      fn(n);
+      return n;
+    });
+  const applyManual = () => { if (manualDraft) applyMut.mutate({ mode: "manual", patch: manualDraft }); };
+  const resetManual = () => { if (all) setManualDraft(structuredClone(all.manual)); };
+
+  // Shared exits block — one Sprint/Runway/Anchor config for every mode.
+  const applyExitsMut = trpc.trading.updateExitConfig.useMutation({
+    onSuccess: (next) => utils.trading.aiConfig.setData(undefined, next as AllCfg),
+  });
+  const exitsDirty = useMemo(
+    () => !!(exitsDraft && all && JSON.stringify(exitsDraft) !== JSON.stringify(all.exits)),
+    [exitsDraft, all],
+  );
+  const editExits = (fn: (e: ExitsCfg) => void) =>
+    setExitsDraft((prev) => {
+      if (!prev) return prev;
+      const n = structuredClone(prev);
+      fn(n);
+      return n;
+    });
+  const applyExits = () => { if (exitsDraft) applyExitsMut.mutate({ patch: exitsDraft }); };
+  const resetExits = () => { if (all) setExitsDraft(structuredClone(all.exits)); };
+
   const dotClass = sea.anyAlive ? "bg-bullish" : "bg-muted-foreground";
   const d = draft;
+  const md = manualDraft;
+  const ed = exitsDraft;
 
   return (
     <div className="relative shrink-0 self-stretch flex" ref={ref}>
@@ -305,41 +353,62 @@ export function AiControl() {
                     onChange={(v) => edit((x) => { x.order.productType = v; })} />
                 </div>
 
-                {/* Sprint */}
-                <Group title="Sprint config">
-                  <Num label="Stop-loss" value={d.sprint.defaultSL} step={0.5} min={0} max={50} unit="%" onChange={(v) => edit((x) => { x.sprint.defaultSL = v; })} />
-                  <Num label="Take-profit" value={d.sprint.defaultTP} step={0.5} min={0} max={100} unit="%" onChange={(v) => edit((x) => { x.sprint.defaultTP = v; })} />
-                  <Num label="Daily target" value={d.sprint.dailyTargetPercent} step={0.5} min={1} max={20} unit="%" onChange={(v) => edit((x) => { x.sprint.dailyTargetPercent = v; })} />
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[0.625rem] text-muted-foreground">Trailing</span>
-                    <Pill label={d.sprint.trailingStopEnabled ? "ON" : "OFF"} on={d.sprint.trailingStopEnabled}
-                      onClick={() => edit((x) => { x.sprint.trailingStopEnabled = !x.sprint.trailingStopEnabled; })} />
+                {/* ═══ SHARED strategy exits — common to Paper / Live / My Trades ═══ */}
+                {ed && (
+                <div className="border-t-2 border-warning-amber/30 pt-2 mt-1 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <SectionLabel><span className="text-warning-amber">Strategy exits</span> · shared</SectionLabel>
+                    {exitsDirty && <span className="text-[0.5rem] text-warning-amber font-bold">edited</span>}
                   </div>
-                  <Num label="Trail %" value={d.sprint.trailingStopPercent} step={0.5} min={0.1} max={50} unit="%" onChange={(v) => edit((x) => { x.sprint.trailingStopPercent = v; })} />
-                  <Seg label="Trail from" value={d.sprint.trailingDistanceSource} options={["signal", "config"] as const} onChange={(v) => edit((x) => { x.sprint.trailingDistanceSource = v; })} />
-                  <Num label="Activation gate" value={d.sprint.trailingActivationGatePercent} step={0.5} min={0} max={50} unit="%" onChange={(v) => edit((x) => { x.sprint.trailingActivationGatePercent = v; })} />
-                  <Num label="Activation hold" value={d.sprint.trailingActivationHoldSeconds} step={1} min={0} max={120} unit="s" onChange={(v) => edit((x) => { x.sprint.trailingActivationHoldSeconds = v; })} />
-                </Group>
+                  <p className="text-[0.5625rem] text-muted-foreground -mt-1.5 leading-snug">
+                    Common to Paper, Live and My Trades — a strategy exits the same way in every book.
+                  </p>
 
-                {/* Runway */}
-                <Group title="Runway config">
-                  <Num label="Cooling" value={Math.round(d.runway.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => edit((x) => { x.runway.coolingSec = v * 60; })} />
-                  <Num label="Wide stop" value={d.runway.defaultSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => edit((x) => { x.runway.defaultSlPct = v; })} />
-                  <Num label="Cooled stop" value={d.runway.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => edit((x) => { x.runway.cooledSlPct = v; })} />
-                  <Num label="Breakeven at" value={d.runway.breakevenAtFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => edit((x) => { x.runway.breakevenAtFrac = v; })} />
-                  <Num label="Trail at" value={d.runway.nearTargetFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => edit((x) => { x.runway.nearTargetFrac = v; })} />
-                  <Num label="Trail %" value={d.runway.trailPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => edit((x) => { x.runway.trailPct = v; })} />
-                  <Num label="Target" value={d.runway.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => edit((x) => { x.runway.defaultTargetPct = v; })} />
-                </Group>
+                  <Group title="Sprint">
+                    <Num label="Stop-loss" value={ed.sprint.defaultSL} step={0.5} min={0} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.defaultSL = v; })} />
+                    <Num label="Take-profit" value={ed.sprint.defaultTP} step={0.5} min={0} max={100} unit="%" onChange={(v) => editExits((x) => { x.sprint.defaultTP = v; })} />
+                    <Num label="Daily target" value={ed.sprint.dailyTargetPercent} step={0.5} min={1} max={20} unit="%" onChange={(v) => editExits((x) => { x.sprint.dailyTargetPercent = v; })} />
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[0.625rem] text-muted-foreground">Trailing</span>
+                      <Pill label={ed.sprint.trailingStopEnabled ? "ON" : "OFF"} on={ed.sprint.trailingStopEnabled}
+                        onClick={() => editExits((x) => { x.sprint.trailingStopEnabled = !x.sprint.trailingStopEnabled; })} />
+                    </div>
+                    <Num label="Trail %" value={ed.sprint.trailingStopPercent} step={0.5} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.trailingStopPercent = v; })} />
+                    <Seg label="Trail from" value={ed.sprint.trailingDistanceSource} options={["signal", "config"] as const} onChange={(v) => editExits((x) => { x.sprint.trailingDistanceSource = v; })} />
+                    <Num label="Activation gate" value={ed.sprint.trailingActivationGatePercent} step={0.5} min={0} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.trailingActivationGatePercent = v; })} />
+                    <Num label="Activation hold" value={ed.sprint.trailingActivationHoldSeconds} step={1} min={0} max={120} unit="s" onChange={(v) => editExits((x) => { x.sprint.trailingActivationHoldSeconds = v; })} />
+                  </Group>
 
-                {/* Anchor */}
-                <Group title="Anchor config">
-                  <Num label="Cooling" value={Math.round(d.anchor.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => edit((x) => { x.anchor.coolingSec = v * 60; })} />
-                  <Num label="Wide stop" value={d.anchor.defaultSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => edit((x) => { x.anchor.defaultSlPct = v; })} />
-                  <Num label="Cooled stop" value={d.anchor.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => edit((x) => { x.anchor.cooledSlPct = v; })} />
-                  <Num label="Breakeven at" value={d.anchor.breakevenAtFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => edit((x) => { x.anchor.breakevenAtFrac = v; })} />
-                  <Num label="Target" value={d.anchor.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => edit((x) => { x.anchor.defaultTargetPct = v; })} />
-                </Group>
+                  <Group title="Runway">
+                    <Num label="Cooling" value={Math.round(ed.runway.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => editExits((x) => { x.runway.coolingSec = v * 60; })} />
+                    <Num label="Wide stop" value={ed.runway.defaultSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.defaultSlPct = v; })} />
+                    <Num label="Cooled stop" value={ed.runway.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.cooledSlPct = v; })} />
+                    <Num label="Breakeven at" value={ed.runway.breakevenAtFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.runway.breakevenAtFrac = v; })} />
+                    <Num label="Trail at" value={ed.runway.nearTargetFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.runway.nearTargetFrac = v; })} />
+                    <Num label="Trail %" value={ed.runway.trailPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.trailPct = v; })} />
+                    <Num label="Target" value={ed.runway.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.runway.defaultTargetPct = v; })} />
+                  </Group>
+
+                  <Group title="Anchor">
+                    <Num label="Cooling" value={Math.round(ed.anchor.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => editExits((x) => { x.anchor.coolingSec = v * 60; })} />
+                    <Num label="Wide stop" value={ed.anchor.defaultSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.anchor.defaultSlPct = v; })} />
+                    <Num label="Cooled stop" value={ed.anchor.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.anchor.cooledSlPct = v; })} />
+                    <Num label="Breakeven at" value={ed.anchor.breakevenAtFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.anchor.breakevenAtFrac = v; })} />
+                    <Num label="Target" value={ed.anchor.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.anchor.defaultTargetPct = v; })} />
+                  </Group>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button type="button" onClick={applyExits} disabled={!exitsDirty || applyExitsMut.isPending}
+                      className="flex-1 flex items-center justify-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold bg-warning-amber/20 text-warning-amber hover:bg-warning-amber/30 disabled:opacity-40 transition-colors">
+                      <Check className="h-3 w-3" /> Apply Exits
+                    </button>
+                    <button type="button" onClick={resetExits} disabled={!exitsDirty}
+                      className="flex items-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors" title="Discard unsaved edits">
+                      <RotateCcw className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+                )}
 
                 {/* Global exits */}
                 <div className="border-t border-border pt-2 flex flex-col gap-1.5">
@@ -367,6 +436,62 @@ export function AiControl() {
                       className="rounded border border-border bg-background px-1.5 py-0.5 text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
                   </div>
                 </div>
+
+                {/* ═══ MY TRADES (manual / my-live) — its own strategies + sizing + exits ═══ */}
+                {md && (
+                  <div className="border-t-2 border-info-cyan/30 pt-2 mt-1 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <SectionLabel><span className="text-info-cyan">My Trades</span> · manual</SectionLabel>
+                      {manualDirty && <span className="text-[0.5rem] text-warning-amber font-bold">edited</span>}
+                    </div>
+                    <p className="text-[0.5625rem] text-muted-foreground -mt-1.5 leading-snug">
+                      Order type, EOD square-off &amp; safety exits use your Settings. These are manual-only.
+                    </p>
+
+                    <Group title="Strategies · pick one per trade">
+                      <div className="flex gap-1.5">
+                        {STRATEGIES.map((s) => (
+                          <Pill key={s.key} label={s.label} on={!!md.strategies[s.key]}
+                            onClick={() => editManual((x) => { x.strategies[s.key] = !x.strategies[s.key]; })} />
+                        ))}
+                      </div>
+                      <span className="text-[0.5625rem] text-muted-foreground">
+                        {STRATEGIES.filter((s) => md.strategies[s.key]).length} available to choose
+                      </span>
+                    </Group>
+
+                    <Group title="Sizing">
+                      {INSTRUMENTS.map((inst) => {
+                        const s = md.sizing.perInstrument[inst] ?? { mode: "lots" as const, value: 0 };
+                        return (
+                          <div key={inst} className="flex items-center justify-between gap-2">
+                            <span className="text-[0.625rem] text-muted-foreground capitalize">{inst}</span>
+                            <div className="flex items-center gap-1">
+                              <input type="number" step={1} min={0} value={s.value}
+                                onChange={(e) => editManual((x) => {
+                                  const cur = x.sizing.perInstrument[inst] ?? { mode: "lots" as const, value: 0 };
+                                  x.sizing.perInstrument[inst] = { ...cur, value: e.target.value === "" ? 0 : Number(e.target.value) };
+                                })}
+                                className="w-14 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[0.75rem] tabular-nums focus:outline-none focus:ring-1 focus:ring-info-cyan" />
+                              <span className="text-[0.5625rem] text-muted-foreground w-6">{s.mode === "percent" ? "%" : "lots"}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </Group>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <button type="button" onClick={applyManual} disabled={!manualDirty || applyMut.isPending}
+                        className="flex-1 flex items-center justify-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold bg-info-cyan/20 text-info-cyan hover:bg-info-cyan/30 disabled:opacity-40 transition-colors">
+                        <Check className="h-3 w-3" /> Apply My Trades
+                      </button>
+                      <button type="button" onClick={resetManual} disabled={!manualDirty}
+                        className="flex items-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors" title="Discard unsaved edits">
+                        <RotateCcw className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                )}
                 </div>
 
                 {/* Apply / Reset — footer */}

@@ -232,13 +232,10 @@ export function registerDisciplineRoutes(app: Express): void {
           // channel's trading pool spent on premium / (premium * lotSize). Falls
           // back to the SEA-sent lots only if no sizing is configured.
           const { sizedLots } = await import("../executor/positionSizing");
-          // AI channels (paper/ai-live) size from the AI menu's per-mode config;
-          // my-live keeps the broker instrumentSizing.
-          const { aiModeForChannel, getAiConfig } = await import("../portfolio/aiModeConfig");
-          const aiSizingMode = aiModeForChannel(body.channel);
-          const sizing = aiSizingMode
-            ? getAiConfig(aiSizingMode).sizing.perInstrument[body.instrument.toLowerCase()]
-            : (brokerCfg?.settings?.instrumentSizing as any)?.[body.instrument.toLowerCase()];
+          // Sizing per mode (paper/live from the AI menu; my-live from the
+          // manual block). Falls back to the SEA-sent lots only if unset.
+          const { modeForChannel, getAiConfig } = await import("../portfolio/aiModeConfig");
+          const sizing = getAiConfig(modeForChannel(body.channel)).sizing.perInstrument[body.instrument.toLowerCase()];
           const lots = sizing
             ? sizedLots(sizing, cap.tradingPool, entryPrice, lotSize)
             : (body.lots ?? 1);

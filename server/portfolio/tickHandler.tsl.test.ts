@@ -26,6 +26,7 @@ const getCapitalStateMock = vi.fn();
 const getDayRecordMock = vi.fn();
 const upsertDayRecordMock = vi.fn();
 const getActiveBrokerConfigMock = vi.fn();
+const aiSprint: Record<string, any> = {}; // Sprint trailing config — tests set this (read via the getAiConfig mock)
 
 vi.mock("./state", async () => {
   const actual = await vi.importActual<typeof import("./state")>("./state");
@@ -40,17 +41,18 @@ vi.mock("./state", async () => {
 vi.mock("../broker/brokerConfig", () => ({
   getActiveBrokerConfig: () => getActiveBrokerConfigMock(),
 }));
-// Sprint trailing for AI channels now comes from the AI menu; these tests drive
-// it via brokerConfig, so route the channel through the fallback
-// (aiModeForChannel → null). getAiConfig defaults cover the runway/anchor branch.
+// Trailing comes from the SHARED Sprint exit config (AI menu), so these tests
+// drive it through `aiSprint` below rather than broker settings.
 vi.mock("../portfolio/aiModeConfig", () => ({
   aiModeForChannel: () => null,
   modeForChannel: (ch: string) => (ch === "paper" ? "paper" : "live"),
-  getAiConfig: () => ({
+  // Sprint / Runway / Anchor are SHARED now — the engine reads getExitConfig().
+  getExitConfig: () => ({
+    sprint: aiSprint,
     runway: { coolingSec: 300, defaultSlPct: 25, cooledSlPct: 12.5, breakevenAtFrac: 0.5, nearTargetFrac: 0.9, trailPct: 15, defaultTargetPct: 2.3 },
     anchor: { coolingSec: 300, defaultSlPct: 25, cooledSlPct: 12.5, breakevenAtFrac: 0.5, nearTargetFrac: 0.9, trailPct: 15, defaultTargetPct: 2.3 },
-    sprint: { trailingStopEnabled: false, trailingStopPercent: 2, trailingDistanceSource: "signal", trailingActivationGatePercent: 2, trailingActivationHoldSeconds: 10 },
   }),
+  getAiConfig: () => ({ strategies: {}, sizing: { perInstrument: {}, aiLiveLotCap: 1 } }),
 }));
 
 vi.mock("../broker/tickBus", () => ({
@@ -170,16 +172,15 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
       cumulativeCharges: 0,
       sessionTradeCount: 0,
     });
-    // TSL on, config source, 1.5% gap. Gate/hold present but ignored (no gate).
-    getActiveBrokerConfigMock.mockResolvedValue({
-      brokerId: "test",
-      settings: {
-        trailingStopEnabled: true,
-        trailingStopPercent: 1.5,
-        trailingDistanceSource: "config",
-        trailingActivationGatePercent: 2,
-        trailingActivationHoldSeconds: 0,
-      },
+    // TSL on, config source, 1.5% gap. Trailing config comes from the AI menu.
+    getActiveBrokerConfigMock.mockResolvedValue({ brokerId: "test", settings: {} });
+    for (const k of Object.keys(aiSprint)) delete aiSprint[k];
+    Object.assign(aiSprint, {
+      trailingStopEnabled: true,
+      trailingStopPercent: 1.5,
+      trailingDistanceSource: "config",
+      trailingActivationGatePercent: 2,
+      trailingActivationHoldSeconds: 0,
     });
   });
 
@@ -256,16 +257,7 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
     // Decision A: the broker-wide switch only SEEDS a trade's mode at open; the
     // tickHandler then trails on the trade's own tslMode. A trade left on "auto"
     // trails even when the global trailingStopEnabled is off.
-    getActiveBrokerConfigMock.mockResolvedValue({
-      brokerId: "test",
-      settings: {
-        trailingStopEnabled: false,
-        trailingStopPercent: 1.5,
-        trailingDistanceSource: "config",
-        trailingActivationGatePercent: 2,
-        trailingActivationHoldSeconds: 0,
-      },
-    });
+    Object.assign(aiSprint, { trailingStopEnabled: false });
     const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95, tslMode: "auto" });
     await processWith(trade, makeTick({ ltp: 110 })); // peak 110 → 110 × 0.985 = 108.35
     expect(trade.stopLossPrice).toBeCloseTo(108.35, 2); // trails despite global off
@@ -279,16 +271,7 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
   });
 
   it("signal mode: trails at the trade's slDistance, not the config gap", async () => {
-    getActiveBrokerConfigMock.mockResolvedValue({
-      brokerId: "test",
-      settings: {
-        trailingStopEnabled: true,
-        trailingStopPercent: 1.5, // ignored in signal mode
-        trailingDistanceSource: "signal",
-        trailingActivationGatePercent: 2,
-        trailingActivationHoldSeconds: 0,
-      },
-    });
+    Object.assign(aiSprint, { trailingDistanceSource: "signal" }); // % ignored in signal mode
     // slDistance 5 (rupees). peak 110 → 110 − 5 = 105 (config gap would be 108.35).
     const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95, slDistance: 5 });
     await processWith(trade, makeTick({ ltp: 110 }));
@@ -298,16 +281,7 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
   it("no breakeven floor: the stop can trail below breakeven", async () => {
     // Wide 5% gap: peak 102 → 102 × 0.95 = 96.9, which is below breakeven 100.
     // With the floor removed, the stop trails there (96.9), not clamped to 100.
-    getActiveBrokerConfigMock.mockResolvedValue({
-      brokerId: "test",
-      settings: {
-        trailingStopEnabled: true,
-        trailingStopPercent: 5,
-        trailingDistanceSource: "config",
-        trailingActivationGatePercent: 1,
-        trailingActivationHoldSeconds: 0,
-      },
-    });
+    Object.assign(aiSprint, { trailingStopPercent: 5, trailingActivationGatePercent: 1 });
     const trade = makeBuyTrade({ entryPrice: 100, stopLossPrice: 95, breakevenPrice: 100 });
     await processWith(trade, makeTick({ ltp: 102 }));
     expect(trade.stopLossPrice).toBeCloseTo(96.9, 2);
@@ -336,7 +310,7 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
   });
 
   it("stopLossDisabled suppresses the hard-floor SL exit while the stop is unmoved", async () => {
-    getActiveBrokerConfigMock.mockResolvedValue({ brokerId: "test", settings: { trailingStopEnabled: false } });
+    Object.assign(aiSprint, { trailingStopEnabled: false });
     // tslMode=manual so auto-trailing doesn't move the stop off its hard floor —
     // that's the scenario the SL-disabled gate protects.
     const trade = makeBuyTrade({ stopLossDisabled: true, tslMode: "manual", stopLossPrice: 95, originalStopLossPrice: 95 });
@@ -357,7 +331,7 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
   });
 
   it("stopLossDisabled STILL exits once the stop has trailed up (TSL live)", async () => {
-    getActiveBrokerConfigMock.mockResolvedValue({ brokerId: "test", settings: { trailingStopEnabled: true, trailingDistanceSource: "signal" } });
+    Object.assign(aiSprint, { trailingStopEnabled: true, trailingDistanceSource: "signal" });
     const trade = makeBuyTrade({ stopLossDisabled: true, stopLossPrice: 95, originalStopLossPrice: 95, slDistance: 5 });
     let exitEvent: any = null;
     tickHandler.once("autoExitDetected", (e) => { exitEvent = e; });
