@@ -48,6 +48,7 @@ import { recoveryEngine } from "./recoveryEngine";
 import { resolveLotSize } from "./tradeResolution";
 import { getScripBySecurityId } from "../broker/adapters/dhan/scripMaster";
 import { getExecutorSettings } from "./settings";
+import { getExitConfig } from "../portfolio/aiModeConfig";
 import type {
   SubmitTradeRequest,
   SubmitTradeResponse,
@@ -1138,29 +1139,30 @@ function mapToOrderParams(req: SubmitTradeRequest): OrderParams {
  * manualExitOnly). Runway/Anchor run on their own price engine — these flags
  * don't gate them. So no cohort special-casing on the race book.
  *
- * Everywhere else (manual paper, live) prior behaviour is preserved: MA-Signal
- * rides until its own EXIT (SL/TP/age all suppressed), and TSL follows the
- * broker-wide trailing switch. Pure + exported for unit testing.
+ * T85: the ATTACHED EXIT STRATEGY governs the trade end-to-end, on EVERY channel.
+ * MA-Signal used to suppress SL/TP/age so it could "ride until its own reversal
+ * EXIT" — that was the right default back when no strategy owned the exit. A
+ * strategy always owns it now, so the suppression is gone: MA's reversal EXIT
+ * still fires, it just isn't the ONLY exit any more.
+ *
+ * TSL mode is SEEDED from the shared Sprint config's trailing switch (the caller
+ * passes it); the per-trade toggle rules after open. Pure + exported for testing.
  */
 export function resolveOpenExitFlags(
-  channel: string,
-  cohort: string | null | undefined,
+  _channel: string,
+  _cohort: string | null | undefined,
   trailingEnabled: boolean,
-  source?: "ai" | "my",
+  _source?: "ai" | "my",
 ): {
   manualExitOnly: boolean;
   stopLossDisabled: boolean;
   targetDisabled: boolean;
   tslMode: "auto" | "manual";
 } {
-  if (channel === "paper" && source === "ai") {
-    return { manualExitOnly: false, stopLossDisabled: false, targetDisabled: false, tslMode: "auto" };
-  }
-  const isMaSignal = cohort === "ma_signal";
   return {
-    manualExitOnly: isMaSignal,
-    stopLossDisabled: isMaSignal,
-    targetDisabled: isMaSignal,
+    manualExitOnly: false,
+    stopLossDisabled: false,
+    targetDisabled: false,
     tslMode: trailingEnabled ? "auto" : "manual",
   };
 }
@@ -1184,14 +1186,32 @@ function buildTradeRecord(
   // — on the shared `paper` book the channel can't tell AI from manual.
   const source: "ai" | "my" = req.origin === "AI" ? "ai" : "my";
 
-  // T84: open-time exit-control flags — on AI paper the exit strategy drives; on
-  // other books prior behaviour (MA-Signal rides, TSL follows the broker switch).
+  // T85: the attached exit strategy drives every book; trailing seeds from the
+  // shared Sprint config (the single source of trailing truth).
+  const sprintCfg = getExitConfig().sprint;
   const exitFlags = resolveOpenExitFlags(
     req.channel,
     req.cohort,
-    req.trailingStopLoss?.enabled ?? false,
+    sprintCfg.trailingStopEnabled,
     source,
   );
+
+  // T85: Sprint needs a concrete stop + target to work at all — its trailing is
+  // skipped outright when stopLossPrice is null. Some cohorts (MA-Signal) emit a
+  // signal with sl/tp = null because their native behaviour is "ride until the
+  // reversal EXIT". When Sprint is the attached strategy and the signal supplied
+  // neither, seed both from the shared Sprint config so the STRATEGY's rules
+  // apply. Runway/Anchor derive their own stop from entry on the first tick, so
+  // they're deliberately left alone.
+  const strategy = req.exitStrategy ?? "sprint";
+  const isLong = req.direction === "BUY";
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const seedFor = (pct: number, favourable: boolean): number | null =>
+    strategy === "sprint" && req.entryPrice > 0
+      ? round2(req.entryPrice * (1 + (isLong === favourable ? pct : -pct) / 100))
+      : null;
+  const stopLossPrice = req.stopLoss ?? seedFor(sprintCfg.defaultSL, false);
+  const targetPrice = req.takeProfit ?? seedFor(sprintCfg.defaultTP, true);
 
   return {
     id: tradeId,
@@ -1223,14 +1243,14 @@ function buildTradeRecord(
     charges: 0,
     chargesBreakdown: [],
     status,
-    targetPrice: req.takeProfit ?? null,
-    stopLossPrice: req.stopLoss ?? null,
+    targetPrice,
+    stopLossPrice,
     // Initial (model) SL distance in rupees — the fixed gap "signal"-mode
     // trailing keeps below the peak. Captured now; the first-tick-fill shift
     // moves entry + SL together so this distance stays valid.
     slDistance:
-      req.stopLoss != null && req.entryPrice > 0
-        ? Math.abs(req.entryPrice - req.stopLoss)
+      stopLossPrice != null && req.entryPrice > 0
+        ? Math.abs(req.entryPrice - stopLossPrice)
         : undefined,
     // Per-trade risk overrides start at their defaults (SL + TP active). TSL
     // mode is SEEDED from the broker-wide trailing switch — on → "auto" (trails),
@@ -1244,7 +1264,7 @@ function buildTradeRecord(
     stopLossDisabled: exitFlags.stopLossDisabled,
     targetDisabled: exitFlags.targetDisabled,
     tslMode: exitFlags.tslMode,
-    originalStopLossPrice: req.stopLoss ?? null,
+    originalStopLossPrice: stopLossPrice,
     // Callers resolve the trailing-stop default before submitting (the UI
     // adapter folds in the broker-wide trailingStopEnabled setting). When a
     // formal caller omits it entirely, default to off.
