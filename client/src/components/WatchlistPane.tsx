@@ -6,7 +6,6 @@
  * LTP + buy/sell land in a later iteration; this is the search + list.
  */
 import { useState, useEffect, useRef } from "react";
-import { Sun, Moon } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useInstrumentTick } from "@/hooks/useTickStream";
 import { useFeedSubscriptions } from "@/hooks/useFeedControl";
@@ -55,8 +54,8 @@ export function WatchlistPane() {
   // Clicking a watchlist stock stages a draft BUY order in the desk (right pane).
   const { stage } = useStagedOrders();
 
-  // Light/dark theme toggle (persisted; lives at the bottom of this pane).
-  const { theme, toggleTheme } = useTheme();
+  // Theme selector (persisted; lives at the bottom of this pane).
+  const { theme, setTheme } = useTheme();
 
   // Subscribe every watchlist stock on the live feed (full mode → LTP ticks + a
   // prev-close packet) for REAL-TIME updates. useFeedSubscriptions re-subscribes
@@ -137,19 +136,30 @@ export function WatchlistPane() {
         )}
       </div>
 
-      {/* Theme toggle — bottom of the watchlist pane. */}
+      {/* Theme selector — bottom of the watchlist pane (Light / Dark / Slate). */}
       <div className="shrink-0 border-t border-border px-2.5 py-1.5 flex items-center justify-between">
         <span className="text-[0.5rem] font-bold uppercase tracking-wider text-muted-foreground">Theme</span>
-        <button
-          type="button"
-          onClick={() => toggleTheme?.()}
-          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-          className="flex items-center gap-1 rounded px-2 py-0.5 text-[0.5625rem] font-bold text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
-        >
-          {theme === 'dark'
-            ? <><Moon className="h-3 w-3" /> Dark</>
-            : <><Sun className="h-3 w-3" /> Light</>}
-        </button>
+        <div className="flex items-center rounded-md border border-border overflow-hidden text-[0.5625rem] font-bold">
+          {([
+            { id: 'light', label: 'Light' },
+            { id: 'dark', label: 'Dark' },
+            { id: 'slate', label: 'Slate' },
+          ] as const).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTheme(t.id)}
+              title={`${t.label} theme`}
+              className={`px-1.5 py-0.5 transition-colors ${
+                theme === t.id
+                  ? 'bg-primary/15 text-primary'
+                  : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

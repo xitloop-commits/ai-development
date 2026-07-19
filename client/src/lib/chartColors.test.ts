@@ -18,4 +18,11 @@ describe('chartColors', () => {
     // text must differ from the dark theme (dark #94a3b8 is too faint on white)
     expect(c.text).not.toBe(chartColors('dark').text);
   });
+
+  it('slate uses the navy canvas + the artifact profit/loss greens/reds', () => {
+    const c = chartColors('slate');
+    expect(c.background).toBe('#0b1120');
+    expect(c.up).toBe('#4ade80');
+    expect(c.down).toBe('#f87171');
+  });
 });

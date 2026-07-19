@@ -8,15 +8,18 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1" />
     <title>Lucky Basker — lubas</title>
     <!-- Apply the persisted theme BEFORE first paint so the default (dark) never
-         flashes light. Dark is default; only an explicit 'light' opts out. -->
+         flashes. Dark is default; 'light' opts out of .dark; 'slate' is a
+         dark-family theme selected via data-theme. -->
     <script>
       (function () {
+        var el = document.documentElement;
         try {
-          if (localStorage.getItem('theme') !== 'light') {
-            document.documentElement.classList.add('dark');
-          }
+          var t = localStorage.getItem('theme');
+          if (t === 'light') return;
+          el.classList.add('dark');
+          if (t === 'slate') el.setAttribute('data-theme', 'slate');
         } catch (e) {
-          document.documentElement.classList.add('dark');
+          el.classList.add('dark');
         }
       })();
     </script>
