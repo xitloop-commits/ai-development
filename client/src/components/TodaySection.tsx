@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type {
   CapitalState,
@@ -74,6 +74,17 @@ export function TodaySection({
   const tslGatePercent = brokerConfigQuery.data?.settings?.trailingActivationGatePercent ?? 2;
   // Seconds price must hold past the gate before the server arms the TSL.
   const tslHoldSeconds = brokerConfigQuery.data?.settings?.trailingActivationHoldSeconds ?? 10;
+  // Cooling window per staged-exit strategy (Runway / Anchor). Fetched once here
+  // rather than per row; each row turns it into an absolute end time from its own
+  // openedAt. Sprint has no cooling window, so it isn't in this map.
+  const aiConfigQuery = trpc.trading.aiConfig.useQuery(undefined);
+  const coolingSecByStrategy = useMemo(
+    () => ({
+      runway: aiConfigQuery.data?.exits?.runway?.coolingSec ?? null,
+      anchor: aiConfigQuery.data?.exits?.anchor?.coolingSec ?? null,
+    }),
+    [aiConfigQuery.data],
+  );
   const updateTradeMutation = trpc.executor.updateTrade.useMutation();
   const utils = trpc.useUtils();
   const handleUpdateTpSl = useCallback((tradeId: string, patch: { targetPrice?: number; stopLossPrice?: number; trailingStopEnabled?: boolean }) => {
@@ -225,6 +236,7 @@ export function TodaySection({
           globalTrailingEnabled={globalTrailingEnabled}
           tslGatePercent={tslGatePercent}
           tslHoldSeconds={tslHoldSeconds}
+          coolingSecByStrategy={coolingSecByStrategy}
           tradeNo={trades.indexOf(trade) + 1}
         />
       ))}

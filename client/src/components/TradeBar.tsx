@@ -55,6 +55,12 @@ export interface TradeBarProps {
   /** Epoch ms the trailing stop ACTIVATED — when set, a running mm:ss stopwatch
    *  shows next to the TP marker (how long the TSL has been live). */
   tslActivatedAt?: number | null;
+  /** Epoch ms the staged-exit COOLING window ends (openedAt + coolingSec). While
+   *  it's in the future a mm:ss countdown shows just LEFT of the SL marker —
+   *  the mirror of the TSL stopwatch on the right. Cooling is the phase where the
+   *  stop sits deliberately wide; when it lapses the stop tightens. Only Runway /
+   *  Anchor have one — pass null for Sprint (no cooling window). */
+  coolingEndsAt?: number | null;
   /** Position size in units (lots × lot size) — used to show ₹ P&L at markers. */
   units?: number;
   /** Round-trip charges (₹) — subtracted from the ₹ P&L shown at markers. */
@@ -122,6 +128,7 @@ export function TradeBar({
   tslGatePrice,
   tslHoldSeconds,
   tslActivatedAt,
+  coolingEndsAt,
   units,
   roundTripCharges = 0,
   compact = false,
@@ -176,6 +183,20 @@ export function TradeBar({
   }, [tslRunning]);
   const tslElapsedSec = tslActivatedAt ? Math.max(0, Math.floor((Date.now() - tslActivatedAt) / 1000)) : 0;
   const tslClock = `${String(Math.floor(tslElapsedSec / 60)).padStart(2, "0")}:${String(tslElapsedSec % 60).padStart(2, "0")}`;
+
+  // Cooling-window countdown (mm:ss) — the mirror of the TSL stopwatch above,
+  // but counting DOWN to when the wide stop tightens. Same once-a-second tick,
+  // and it stops re-rendering the moment cooling lapses.
+  const [, tickCool] = useState(0);
+  const coolingLeftMs = coolingEndsAt ? coolingEndsAt - Date.now() : 0;
+  const coolingRunning = !!coolingEndsAt && coolingLeftMs > 0 && !frozen;
+  useEffect(() => {
+    if (!coolingRunning) return;
+    const id = setInterval(() => tickCool((n) => (n + 1) % 86_400), 1000);
+    return () => clearInterval(id);
+  }, [coolingRunning]);
+  const coolingLeftSec = Math.max(0, Math.ceil(coolingLeftMs / 1000));
+  const coolingClock = `${String(Math.floor(coolingLeftSec / 60)).padStart(2, "0")}:${String(coolingLeftSec % 60).padStart(2, "0")}`;
 
   const onStopLossHitRef = useRef(onStopLossHit);
   const onTakeProfitHitRef = useRef(onTakeProfitHit);
@@ -480,6 +501,19 @@ export function TradeBar({
             title={`Trailing stop running · ${tslClock}`}
           >
             {tslClock}
+          </span>
+        )}
+
+        {/* Cooling-window countdown (mm:ss) — sits just LEFT of the SL marker,
+            mirroring the TSL stopwatch on the right. Runway/Anchor only: while it
+            runs the stop is held deliberately wide; at 00:00 the stop tightens. */}
+        {coolingRunning && hasStop && (
+          <span
+            className="absolute z-[11] text-[0.5rem] font-bold tabular-nums leading-none px-0.5 rounded pointer-events-none whitespace-nowrap"
+            style={{ left: `${clamp(stopPos, 4, 94)}%`, top: "50%", transform: "translate(calc(-100% - 3px), -50%)", color: PHASE_META.cooling.color, background: "rgba(0,0,0,0.55)" }}
+            title={`Cooling window · ${coolingClock} left — the stop stays wide until this lapses, then tightens.`}
+          >
+            {coolingClock}
           </span>
         )}
 

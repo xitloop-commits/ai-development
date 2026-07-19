@@ -53,3 +53,41 @@ describe("TradeBar — markers draw only when the real level exists (T86 ④)", 
     expect(screen.queryByTitle(/^Trailing stop /)).not.toBeNull();
   });
 });
+
+/**
+ * Cooling-window countdown — the mirror of the TSL stopwatch, sitting left of
+ * the SL marker. Runway/Anchor hold a deliberately wide stop for coolingSec
+ * after entry; the countdown says how long until it tightens.
+ */
+describe("TradeBar — cooling-window countdown", () => {
+  function coolingClock() {
+    return screen.queryByTitle(/^Cooling window /);
+  }
+
+  it("shows the remaining time while the cooling window is open", () => {
+    render(<TradeBar {...base} slPercent={5} coolingEndsAt={Date.now() + 95_000} />);
+    const el = coolingClock();
+    expect(el).not.toBeNull();
+    expect(el).toHaveTextContent("01:35");
+  });
+
+  it("does NOT show once the window has lapsed", () => {
+    render(<TradeBar {...base} slPercent={5} coolingEndsAt={Date.now() - 1_000} />);
+    expect(coolingClock()).toBeNull();
+  });
+
+  it("does NOT show when no cooling window is given (Sprint)", () => {
+    render(<TradeBar {...base} slPercent={5} />);
+    expect(coolingClock()).toBeNull();
+  });
+
+  it("does NOT show without a real stop marker to sit beside", () => {
+    render(<TradeBar {...base} coolingEndsAt={Date.now() + 60_000} />);
+    expect(coolingClock()).toBeNull();
+  });
+
+  it("is suppressed on a frozen (closed) bar", () => {
+    render(<TradeBar {...base} slPercent={5} coolingEndsAt={Date.now() + 60_000} frozen />);
+    expect(coolingClock()).toBeNull();
+  });
+});

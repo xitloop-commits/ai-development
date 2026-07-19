@@ -54,6 +54,9 @@ export interface TodayTradeRowProps {
   tslGatePercent?: number;
   /** Seconds price must hold past the gate before the server arms the TSL. */
   tslHoldSeconds?: number;
+  /** Cooling-window seconds per staged-exit strategy (Runway / Anchor), from the
+   *  AI menu. Sprint has no cooling window and is absent. */
+  coolingSecByStrategy?: { runway: number | null; anchor: number | null };
   /** 1-based trade number within the day, shown on the left of the row. */
   tradeNo?: number;
 }
@@ -75,6 +78,7 @@ function _TodayTradeRow({
   globalTrailingEnabled = false,
   tslGatePercent,
   tslHoldSeconds,
+  coolingSecByStrategy,
   tradeNo,
   liveLtp,
 }: RenderProps) {
@@ -297,6 +301,16 @@ function _TodayTradeRow({
                 trailingEnabled={serverTrails}
                 tslHoldSeconds={tslHoldSeconds}
                 tslActivatedAt={trade.tslActivatedAt ?? null}
+                coolingEndsAt={(() => {
+                  // Runway/Anchor hold a deliberately wide stop for coolingSec
+                  // after entry, then tighten. Turn that into an absolute end
+                  // time so the bar can count down to it. Sprint has none.
+                  const strat = trade.exitStrategy;
+                  if (strat !== "runway" && strat !== "anchor") return null;
+                  const sec = coolingSecByStrategy?.[strat];
+                  if (!sec || !trade.openedAt) return null;
+                  return trade.openedAt + sec * 1000;
+                })()}
                 tslGatePrice={(() => {
                   const be = trade.breakevenPrice ?? trade.entryPrice;
                   const g = tslGatePercent ?? 2;
