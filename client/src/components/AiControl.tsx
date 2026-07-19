@@ -61,13 +61,59 @@ function Pill({ label, on, onClick, disabled }: { label: string; on: boolean; on
   );
 }
 
-function Num({ label, value, onChange, step = 1, min, max, unit }: {
+/**
+ * Click-to-open explanation for one setting.
+ *
+ * One entry per SETTING, never per strategy — Runway and Anchor share Cooling /
+ * Wide stop / Cooled stop / Breakeven at / Target, so each is written once in
+ * HELP below and referenced from both groups. (Sprint's "Trail %" is a separate
+ * entry on purpose: same label, different mechanic.)
+ */
+function HelpDot({ open, onClick }: { open: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-expanded={open}
+      aria-label="What does this setting do?"
+      className={`h-3 w-3 shrink-0 rounded-full border text-[0.5rem] leading-none font-bold transition-colors ${
+        open
+          ? "bg-info-cyan/20 text-info-cyan border-info-cyan/40"
+          : "border-border text-muted-foreground hover:text-info-cyan hover:border-info-cyan/40"
+      }`}
+    >
+      ?
+    </button>
+  );
+}
+
+/** A label + control row that can reveal a help paragraph underneath. */
+function Row({ label, help, children }: { label: string; help?: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1 text-[0.625rem] text-muted-foreground">
+          {label}
+          {help && <HelpDot open={open} onClick={() => setOpen((o) => !o)} />}
+        </span>
+        {children}
+      </div>
+      {help && open && (
+        <p className="rounded border border-info-cyan/25 bg-info-cyan/5 px-2 py-1 text-[0.5625rem] leading-relaxed text-muted-foreground">
+          {help}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Num({ label, value, onChange, step = 1, min, max, unit, help }: {
   label: string; value: number; onChange: (v: number) => void;
-  step?: number; min?: number; max?: number; unit?: string;
+  step?: number; min?: number; max?: number; unit?: string; help?: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-[0.625rem] text-muted-foreground">{label}</span>
+    <Row label={label} help={help}>
       <div className="flex items-center gap-1">
         <input
           type="number" step={step} min={min} max={max} value={value}
@@ -76,16 +122,15 @@ function Num({ label, value, onChange, step = 1, min, max, unit }: {
         />
         {unit && <span className="text-[0.5625rem] text-muted-foreground w-6">{unit}</span>}
       </div>
-    </div>
+    </Row>
   );
 }
 
-function Seg<T extends string>({ label, value, options, onChange }: {
-  label: string; value: T; options: readonly T[]; onChange: (v: T) => void;
+function Seg<T extends string>({ label, value, options, onChange, help }: {
+  label: string; value: T; options: readonly T[]; onChange: (v: T) => void; help?: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-[0.625rem] text-muted-foreground">{label}</span>
+    <Row label={label} help={help}>
       <div className="flex rounded border border-border overflow-hidden">
         {options.map((o) => (
           <button
@@ -100,14 +145,23 @@ function Seg<T extends string>({ label, value, options, onChange }: {
           </button>
         ))}
       </div>
-    </div>
+    </Row>
   );
 }
 
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
+function Group({ title, children, help }: { title: string; children: React.ReactNode; help?: string }) {
+  const [open, setOpen] = useState(false);
   return (
     <div className="border-t border-border pt-2 flex flex-col gap-1.5">
-      <SectionLabel>{title}</SectionLabel>
+      <span className="flex items-center gap-1.5">
+        <SectionLabel>{title}</SectionLabel>
+        {help && <HelpDot open={open} onClick={() => setOpen((o) => !o)} />}
+      </span>
+      {help && open && (
+        <p className="rounded border border-info-cyan/25 bg-info-cyan/5 px-2 py-1 text-[0.5625rem] leading-relaxed text-muted-foreground">
+          {help}
+        </p>
+      )}
       {children}
     </div>
   );
@@ -124,6 +178,58 @@ const COHORTS: { key: "scalp" | "trend" | "ma" | "swing"; label: string }[] = [
   { key: "ma", label: "MA" },
   { key: "swing", label: "Swing" },
 ];
+/**
+ * Setting explanations, keyed by SETTING (not by strategy). Runway and Anchor
+ * run the same staged-stop engine, so `cooling` / `wideStop` / `cooledStop` /
+ * `breakevenAt` / `target` are defined once here and referenced from both — the
+ * text is never duplicated per group.
+ */
+const HELP = {
+  // Strategy-level: what the whole strategy does.
+  sprint:
+    "Simplest strategy. Sets a fixed stop and target at entry from the percentages below, then trails the stop up behind the running peak. No staged phases — the stop starts where you set it and only ever ratchets in your favour.",
+  runway:
+    "Staged stops, then rides the winner. Holds a wide stop while the trade settles, tightens it, moves to breakeven once you're halfway to target, and past the target switches to a trailing stop so a big move can keep running instead of being capped.",
+  anchor:
+    "Same staged stops as Runway, but banks the profit AT the target instead of riding past it. Use when you'd rather take the sure gain than risk giving it back.",
+
+  // Sprint-only.
+  sprintSL: "Opening stop, as a % below entry. Applied once when the trade opens.",
+  sprintTP: "Opening target, as a % above entry. Applied once when the trade opens.",
+  dailyTarget:
+    "Day's profit goal as a % of capital. Once the book reaches it, no new trades are taken for the rest of the day.",
+  trailingOn:
+    "Master switch for the trailing stop. Off = the stop stays where it opened and only the hard stop can close the trade.",
+  sprintTrailPct:
+    "Gap kept below the running peak, as a % of the peak. The stop trails from the FIRST tick and only ratchets up — it never crawls back down. Note: if you set this tighter than the opening stop-loss above, the stop jumps up immediately at entry.",
+  trailFrom:
+    "Where the trailing gap comes from. 'signal' uses the trade's own model stop distance in rupees (fixed for the trade); 'config' uses the Trail % above, which widens as price runs.",
+  activationGate:
+    "How far past breakeven price must go before the trailing stop is armed. LIVE ONLY — this arms the broker's native trailing on a Dhan Super Order. It has no effect on paper trades, which trail from the first tick regardless.",
+  activationHold:
+    "How long price must stay past the activation gate before the trailing stop arms, so a single spike doesn't trigger it. LIVE ONLY, same as the gate above.",
+  tpTrail:
+    "Keeps the target this far ahead of the highest price seen, so a runner isn't capped by its original target. Only active while the trailing stop is on.",
+
+  // Shared by Runway AND Anchor — written once, used twice.
+  cooling:
+    "How long after entry the wide stop holds before tightening. Gives a new trade room to breathe through the initial noise instead of being stopped out by it.",
+  wideStop:
+    "The stop during the cooling window, as a % below entry. Deliberately loose — it's there so the trade is never naked, not to be hit.",
+  cooledStop:
+    "The tighter stop that replaces the wide one once cooling ends, as a % below entry.",
+  breakevenAt:
+    "Once the peak reaches this fraction of the target gain, the stop moves up to your entry price — from that point the trade can't lose. 0.5 = halfway to target.",
+  target:
+    "Target gain as a % of entry. This is the ONLY source of the target: the signal's own target is ignored, so changing this moves the target on open trades too.",
+
+  // Runway-only.
+  trailAt:
+    "Fraction of the target gain at which the stop switches to trailing so the trade can ride past target. 0.9 = trailing starts at 90% of the way there.",
+  runwayTrailPct:
+    "Once trailing is active, the stop sits this % below the running peak — with a floor at half the target gain, so a winner can't give everything back.",
+} as const;
+
 const STRATEGIES: { key: "sprint" | "runway" | "anchor"; label: string }[] = [
   { key: "sprint", label: "Sprint" },
   { key: "runway", label: "Runway" },
@@ -380,38 +486,37 @@ export function AiControl() {
                     Common to Paper, Live and My Trades — a strategy exits the same way in every book.
                   </p>
 
-                  <Group title="Sprint">
-                    <Num label="Stop-loss" value={ed.sprint.defaultSL} step={0.5} min={0} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.defaultSL = v; })} />
-                    <Num label="Take-profit" value={ed.sprint.defaultTP} step={0.5} min={0} max={100} unit="%" onChange={(v) => editExits((x) => { x.sprint.defaultTP = v; })} />
-                    <Num label="Daily target" value={ed.sprint.dailyTargetPercent} step={0.5} min={1} max={20} unit="%" onChange={(v) => editExits((x) => { x.sprint.dailyTargetPercent = v; })} />
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[0.625rem] text-muted-foreground">Trailing</span>
+                  <Group title="Sprint" help={HELP.sprint}>
+                    <Num help={HELP.sprintSL} label="Stop-loss" value={ed.sprint.defaultSL} step={0.5} min={0} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.defaultSL = v; })} />
+                    <Num help={HELP.sprintTP} label="Take-profit" value={ed.sprint.defaultTP} step={0.5} min={0} max={100} unit="%" onChange={(v) => editExits((x) => { x.sprint.defaultTP = v; })} />
+                    <Num help={HELP.dailyTarget} label="Daily target" value={ed.sprint.dailyTargetPercent} step={0.5} min={1} max={20} unit="%" onChange={(v) => editExits((x) => { x.sprint.dailyTargetPercent = v; })} />
+                    <Row label="Trailing" help={HELP.trailingOn}>
                       <Pill label={ed.sprint.trailingStopEnabled ? "ON" : "OFF"} on={ed.sprint.trailingStopEnabled}
                         onClick={() => editExits((x) => { x.sprint.trailingStopEnabled = !x.sprint.trailingStopEnabled; })} />
-                    </div>
-                    <Num label="Trail %" value={ed.sprint.trailingStopPercent} step={0.5} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.trailingStopPercent = v; })} />
-                    <Seg label="Trail from" value={ed.sprint.trailingDistanceSource} options={["signal", "config"] as const} onChange={(v) => editExits((x) => { x.sprint.trailingDistanceSource = v; })} />
-                    <Num label="Activation gate" value={ed.sprint.trailingActivationGatePercent} step={0.5} min={0} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.trailingActivationGatePercent = v; })} />
-                    <Num label="Activation hold" value={ed.sprint.trailingActivationHoldSeconds} step={1} min={0} max={120} unit="s" onChange={(v) => editExits((x) => { x.sprint.trailingActivationHoldSeconds = v; })} />
-                    <Num label="TP trail %" value={ed.sprint.tpTrailPercent} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.tpTrailPercent = v; })} />
+                    </Row>
+                    <Num help={HELP.sprintTrailPct} label="Trail %" value={ed.sprint.trailingStopPercent} step={0.5} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.trailingStopPercent = v; })} />
+                    <Seg help={HELP.trailFrom} label="Trail from" value={ed.sprint.trailingDistanceSource} options={["signal", "config"] as const} onChange={(v) => editExits((x) => { x.sprint.trailingDistanceSource = v; })} />
+                    <Num help={HELP.activationGate} label="Activation gate" value={ed.sprint.trailingActivationGatePercent} step={0.5} min={0} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.trailingActivationGatePercent = v; })} />
+                    <Num help={HELP.activationHold} label="Activation hold" value={ed.sprint.trailingActivationHoldSeconds} step={1} min={0} max={120} unit="s" onChange={(v) => editExits((x) => { x.sprint.trailingActivationHoldSeconds = v; })} />
+                    <Num help={HELP.tpTrail} label="TP trail %" value={ed.sprint.tpTrailPercent} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.sprint.tpTrailPercent = v; })} />
                   </Group>
 
-                  <Group title="Runway">
-                    <Num label="Cooling" value={Math.round(ed.runway.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => editExits((x) => { x.runway.coolingSec = v * 60; })} />
-                    <Num label="Wide stop" value={ed.runway.defaultSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.defaultSlPct = v; })} />
-                    <Num label="Cooled stop" value={ed.runway.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.cooledSlPct = v; })} />
-                    <Num label="Breakeven at" value={ed.runway.breakevenAtFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.runway.breakevenAtFrac = v; })} />
-                    <Num label="Trail at" value={ed.runway.nearTargetFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.runway.nearTargetFrac = v; })} />
-                    <Num label="Trail %" value={ed.runway.trailPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.trailPct = v; })} />
-                    <Num label="Target" value={ed.runway.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.runway.defaultTargetPct = v; })} />
+                  <Group title="Runway" help={HELP.runway}>
+                    <Num help={HELP.cooling} label="Cooling" value={Math.round(ed.runway.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => editExits((x) => { x.runway.coolingSec = v * 60; })} />
+                    <Num help={HELP.wideStop} label="Wide stop" value={ed.runway.defaultSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.defaultSlPct = v; })} />
+                    <Num help={HELP.cooledStop} label="Cooled stop" value={ed.runway.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.cooledSlPct = v; })} />
+                    <Num help={HELP.breakevenAt} label="Breakeven at" value={ed.runway.breakevenAtFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.runway.breakevenAtFrac = v; })} />
+                    <Num help={HELP.trailAt} label="Trail at" value={ed.runway.nearTargetFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.runway.nearTargetFrac = v; })} />
+                    <Num help={HELP.runwayTrailPct} label="Trail %" value={ed.runway.trailPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.runway.trailPct = v; })} />
+                    <Num help={HELP.target} label="Target" value={ed.runway.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.runway.defaultTargetPct = v; })} />
                   </Group>
 
-                  <Group title="Anchor">
-                    <Num label="Cooling" value={Math.round(ed.anchor.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => editExits((x) => { x.anchor.coolingSec = v * 60; })} />
-                    <Num label="Wide stop" value={ed.anchor.defaultSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.anchor.defaultSlPct = v; })} />
-                    <Num label="Cooled stop" value={ed.anchor.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.anchor.cooledSlPct = v; })} />
-                    <Num label="Breakeven at" value={ed.anchor.breakevenAtFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.anchor.breakevenAtFrac = v; })} />
-                    <Num label="Target" value={ed.anchor.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.anchor.defaultTargetPct = v; })} />
+                  <Group title="Anchor" help={HELP.anchor}>
+                    <Num help={HELP.cooling} label="Cooling" value={Math.round(ed.anchor.coolingSec / 60)} step={1} min={1} max={20} unit="min" onChange={(v) => editExits((x) => { x.anchor.coolingSec = v * 60; })} />
+                    <Num help={HELP.wideStop} label="Wide stop" value={ed.anchor.defaultSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.anchor.defaultSlPct = v; })} />
+                    <Num help={HELP.cooledStop} label="Cooled stop" value={ed.anchor.cooledSlPct} step={0.5} min={1} max={90} unit="%" onChange={(v) => editExits((x) => { x.anchor.cooledSlPct = v; })} />
+                    <Num help={HELP.breakevenAt} label="Breakeven at" value={ed.anchor.breakevenAtFrac} step={0.05} min={0} max={1} unit="×" onChange={(v) => editExits((x) => { x.anchor.breakevenAtFrac = v; })} />
+                    <Num help={HELP.target} label="Target" value={ed.anchor.defaultTargetPct} step={0.1} min={0.1} max={50} unit="%" onChange={(v) => editExits((x) => { x.anchor.defaultTargetPct = v; })} />
                   </Group>
 
                   <div className="flex items-center gap-2 pt-1">
