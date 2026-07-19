@@ -43,6 +43,34 @@ interface ModeCfg {
 type AllCfg = { exits: ExitsCfg; paper: ModeCfg; live: ModeCfg; manual: ModeCfg };
 type Mode = "paper" | "live";
 
+/** Risk source — how an AI trade's SL/TP are decided at entry. Lives in
+ *  brokerConfig (not the per-mode store), because `validateTrade` reads it there
+ *  to optionally override the model's own sl/tp. */
+interface RiskCfg {
+  aiRiskMode: "ai" | "manual";
+  slMode: "percent" | "fixed";
+  targetMode: "percent" | "fixed";
+  defaultSL: number;               // percent-mode SL (% of entry)
+  slFixedOptions: number;          // fixed-mode SL (₹ premium)
+  tradeTargetOptions: number;      // percent-mode target (% of entry)
+  tradeTargetOptionsFixed: number; // fixed-mode target (₹ NET profit)
+}
+const RISK_DEFAULTS: RiskCfg = {
+  aiRiskMode: "ai",
+  slMode: "percent",
+  targetMode: "percent",
+  defaultSL: 2,
+  slFixedOptions: 10,
+  tradeTargetOptions: 30,
+  tradeTargetOptionsFixed: 40,
+};
+
+/** Narrow broker settings to just the risk-source fields we edit. */
+function pickRisk(s: Partial<RiskCfg>): Partial<RiskCfg> {
+  const { aiRiskMode, slMode, targetMode, defaultSL, slFixedOptions, tradeTargetOptions, tradeTargetOptionsFixed } = s;
+  return { aiRiskMode, slMode, targetMode, defaultSL, slFixedOptions, tradeTargetOptions, tradeTargetOptionsFixed };
+}
+
 // ── Small building blocks ────────────────────────────────────────────────────
 function Pill({ label, on, onClick, disabled }: { label: string; on: boolean; onClick?: () => void; disabled?: boolean }) {
   return (
@@ -137,6 +165,7 @@ export function AiControl() {
   const [draft, setDraft] = useState<ModeCfg | null>(null);
   const [manualDraft, setManualDraft] = useState<ModeCfg | null>(null);
   const [exitsDraft, setExitsDraft] = useState<ExitsCfg | null>(null);
+  const [riskDraft, setRiskDraft] = useState<RiskCfg | null>(null);
   const sea = useSeaStatus();
   const utils = trpc.useUtils();
 
@@ -149,6 +178,16 @@ export function AiControl() {
   const setAiMode = trpc.settings.updateTradingMode.useMutation({
     onSuccess: () => utils.settings.get.invalidate(),
   });
+
+  // Risk source (brokerConfig) — decides whether an AI trade uses the MODEL's
+  // sl/tp or the manual percent/fixed values. Restored here after the Settings
+  // "Order Execution" section was retired.
+  const brokerCfgQuery = trpc.broker.config.get.useQuery(undefined, { enabled: open });
+  const brokerSettings = (brokerCfgQuery.data as any)?.settings as Partial<RiskCfg> | undefined;
+  const brokerId = (brokerCfgQuery.data as any)?.brokerId as string | undefined;
+  const serverRisk: RiskCfg | undefined = brokerSettings
+    ? { ...RISK_DEFAULTS, ...pickRisk(brokerSettings) }
+    : undefined;
 
   // Open on the currently-active mode.
   useEffect(() => {
@@ -175,6 +214,12 @@ export function AiControl() {
     if (all) setExitsDraft(structuredClone(all.exits));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, hasCfg]);
+
+  const hasRisk = !!brokerSettings;
+  useEffect(() => {
+    if (serverRisk) setRiskDraft({ ...serverRisk });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, hasRisk]);
 
   // Another panel applied a change → refetch so `dirty` compares against the
   // current server state. Drafts are left alone so your edits are never lost.
@@ -254,6 +299,25 @@ export function AiControl() {
     });
   const applyExits = () => { if (exitsDraft) applyExitsMut.mutate({ patch: exitsDraft }); };
   const resetExits = () => { if (all) setExitsDraft(structuredClone(all.exits)); };
+
+  const updateBrokerMut = trpc.broker.config.updateSettings.useMutation({
+    onSuccess: () => utils.broker.config.get.invalidate(),
+  });
+  const riskDirty = useMemo(
+    () => !!(riskDraft && serverRisk && JSON.stringify(riskDraft) !== JSON.stringify(serverRisk)),
+    [riskDraft, serverRisk],
+  );
+  const editRisk = (fn: (r: RiskCfg) => void) =>
+    setRiskDraft((prev) => {
+      if (!prev) return prev;
+      const n = { ...prev };
+      fn(n);
+      return n;
+    });
+  const applyRisk = () => {
+    if (riskDraft && brokerId) updateBrokerMut.mutate({ brokerId, settings: riskDraft });
+  };
+  const resetRisk = () => { if (serverRisk) setRiskDraft({ ...serverRisk }); };
 
   const dotClass = sea.anyAlive ? "bg-bullish" : "bg-muted-foreground";
   const d = draft;
@@ -368,6 +432,63 @@ export function AiControl() {
                   <Seg label="Product" value={d.order.productType} options={["INTRADAY", "CNC"] as const}
                     onChange={(v) => edit((x) => { x.order.productType = v; })} />
                 </div>
+
+                {/* ═══ RISK SOURCE — where an AI trade's SL/TP come from at entry ═══ */}
+                {riskDraft && (
+                <div className="border-t-2 border-info-cyan/30 pt-2 mt-1 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <SectionLabel><span className="text-info-cyan">Risk source</span> · entry SL/TP</SectionLabel>
+                    {riskDirty && <span className="text-[0.5rem] text-warning-amber font-bold">edited</span>}
+                  </div>
+                  <p className="text-[0.5625rem] text-muted-foreground -mt-1 leading-snug">
+                    AI model = use each signal's own SL/TP. Manual = override every
+                    signal with the values below. (MA-Signal is never overridden.)
+                  </p>
+                  <Seg label="Source" value={riskDraft.aiRiskMode} options={["ai", "manual"] as const}
+                    onChange={(v) => editRisk((x) => { x.aiRiskMode = v; })} />
+
+                  {riskDraft.aiRiskMode === "manual" && (
+                    <>
+                      <Seg label="Stop-loss" value={riskDraft.slMode} options={["percent", "fixed"] as const}
+                        onChange={(v) => editRisk((x) => { x.slMode = v; })} />
+                      {riskDraft.slMode === "percent" ? (
+                        <Num label="SL" value={riskDraft.defaultSL} step={0.5} min={0} max={100} unit="%"
+                          onChange={(v) => editRisk((x) => { x.defaultSL = v; })} />
+                      ) : (
+                        <Num label="SL" value={riskDraft.slFixedOptions} step={1} min={0} max={100000} unit="₹"
+                          onChange={(v) => editRisk((x) => { x.slFixedOptions = v; })} />
+                      )}
+
+                      <Seg label="Target" value={riskDraft.targetMode} options={["percent", "fixed"] as const}
+                        onChange={(v) => editRisk((x) => { x.targetMode = v; })} />
+                      {riskDraft.targetMode === "percent" ? (
+                        <Num label="Target" value={riskDraft.tradeTargetOptions} step={1} min={1} max={100} unit="%"
+                          onChange={(v) => editRisk((x) => { x.tradeTargetOptions = v; })} />
+                      ) : (
+                        <Num label="Target" value={riskDraft.tradeTargetOptionsFixed} step={50} min={0} max={100000} unit="₹"
+                          onChange={(v) => editRisk((x) => { x.tradeTargetOptionsFixed = v; })} />
+                      )}
+                      {riskDraft.targetMode === "fixed" && (
+                        <p className="text-[0.5625rem] text-muted-foreground leading-snug">
+                          Fixed target = ₹ NET profit after charges (so the price is
+                          solved from quantity + charges, not a flat premium move).
+                        </p>
+                      )}
+                    </>
+                  )}
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button type="button" onClick={applyRisk} disabled={!riskDirty || updateBrokerMut.isPending || !brokerId}
+                      className="flex-1 flex items-center justify-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold bg-info-cyan/20 text-info-cyan hover:bg-info-cyan/30 disabled:opacity-40 transition-colors">
+                      <Check className="h-3 w-3" /> Apply Risk
+                    </button>
+                    <button type="button" onClick={resetRisk} disabled={!riskDirty}
+                      className="flex items-center gap-1 rounded px-2 py-1.5 text-[0.6875rem] font-bold text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors" title="Discard unsaved edits">
+                      <RotateCcw className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+                )}
 
                 {/* ═══ SHARED strategy exits — common to Paper / Live / My Trades ═══ */}
                 {ed && (
