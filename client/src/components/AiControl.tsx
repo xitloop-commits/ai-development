@@ -321,9 +321,6 @@ export function AiControl() {
                       ))}
                     </div>
                   </div>
-                  <span className="text-[0.5625rem] text-muted-foreground">
-                    {STRATEGIES.filter((s) => d.strategies[s.key]).length} on → {STRATEGIES.filter((s) => d.strategies[s.key]).length} trade(s) per signal
-                  </span>
                 </div>
 
                 {/* Sizing */}
