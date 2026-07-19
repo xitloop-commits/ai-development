@@ -104,6 +104,7 @@ const exitTradeSchema = z.object({
     "MOMENTUM_EXIT",
     "VOLATILITY_EXIT",
     "SL_HIT",
+    "TSL_HIT",
     "TP_HIT",
     "AGE_EXIT",
     "STALE_PRICE_EXIT",
@@ -190,6 +191,7 @@ const reconcileDesyncSchema = z
     exitReason: z
       .enum([
         "SL_HIT",
+        "TSL_HIT",
         "TP_HIT",
         "MOMENTUM_EXIT",
         "VOLATILITY_EXIT",

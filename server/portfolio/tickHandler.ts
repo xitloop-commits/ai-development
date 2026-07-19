@@ -55,7 +55,7 @@ export interface PnlSnapshot {
 export interface AutoExitEvent {
   channel: Channel;
   tradeId: string;
-  reason: "TP_HIT" | "SL_HIT";
+  reason: "TP_HIT" | "SL_HIT" | "TSL_HIT";
   exitPrice: number;
   timestamp: number;
 }
@@ -352,7 +352,7 @@ class TickHandler extends EventEmitter {
     const tslHoldMs = sprintCfg.trailingActivationHoldSeconds * 1000;
 
     let anyUpdated = false;
-    const tradesToExit: Array<{ trade: TradeRecord; reason: "TP_HIT" | "SL_HIT"; exitPrice: number }> = [];
+    const tradesToExit: Array<{ trade: TradeRecord; reason: "TP_HIT" | "SL_HIT" | "TSL_HIT"; exitPrice: number }> = [];
 
     for (const trade of openTrades) {
       // Exit already emitted for this trade; wait for TEA to close it rather
@@ -509,7 +509,12 @@ class TickHandler extends EventEmitter {
               this.exitingTrades.set(trade.id, Date.now());
               tradesToExit.push({
                 trade,
-                reason: out.phase === "target-bank" ? "TP_HIT" : "SL_HIT",
+                // Runway's "trailing" phase rides the peak — an exit there is a
+                // trailing-stop exit, not the staged/original stop.
+                reason:
+                  out.phase === "target-bank" ? "TP_HIT"
+                  : out.phase === "trailing" ? "TSL_HIT"
+                  : "SL_HIT",
                 exitPrice: out.exitPrice ?? tick.ltp,
               });
             }
@@ -619,7 +624,15 @@ class TickHandler extends EventEmitter {
             // Fill at the stop LEVEL, not the (possibly gapped) breaching tick,
             // so a fast move past the stop still realizes only the configured
             // SL/TSL %, not the deeper price the tick happened to print.
-            tradesToExit.push({ trade, reason: "SL_HIT", exitPrice: trade.stopLossPrice });
+            // A stop that has moved off its original level was taken out by the
+            // TRAILING stop, not the original risk — report it as TSL_HIT so the
+            // desk can separate trailing giveback from real stop-outs. Unknown
+            // original (null) falls back to SL_HIT.
+            tradesToExit.push({
+              trade,
+              reason: stopUnmoved || trade.originalStopLossPrice == null ? "SL_HIT" : "TSL_HIT",
+              exitPrice: trade.stopLossPrice,
+            });
           }
         }
       }

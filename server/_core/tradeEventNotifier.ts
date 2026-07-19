@@ -227,7 +227,7 @@ export function notifyTradeExit(ev: TradeExitEvent): void {
   // the right icon (red shield for SL_HIT, green target for TP_HIT,
   // module-down red triangle for DISCIPLINE_EXIT, generic close otherwise).
   const inAppType: AlertEventType =
-    ev.reason === "SL_HIT" || ev.reason === "STOP_LOSS" ? "stop_loss_hit" :
+    ev.reason === "SL_HIT" || ev.reason === "STOP_LOSS" || ev.reason === "TSL_HIT" ? "stop_loss_hit" :
     ev.reason === "TP_HIT" || ev.reason === "TARGET_PROFIT" ? "target_profit_hit" :
     ev.reason === "DISCIPLINE_EXIT" ? "module_down" :
     "position_closed";

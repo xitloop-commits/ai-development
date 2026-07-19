@@ -142,6 +142,7 @@ export type ExitTradeReason =
   | "MOMENTUM_EXIT"
   | "VOLATILITY_EXIT"
   | "SL_HIT"
+  | "TSL_HIT"
   | "TP_HIT"
   | "AGE_EXIT"
   | "STALE_PRICE_EXIT"
@@ -194,7 +195,7 @@ export interface ExitTradeResponse {
 export interface RecordAutoExitRequest {
   channel: Channel;
   tradeId: string;
-  reason: "TP_HIT" | "SL_HIT";
+  reason: "TP_HIT" | "SL_HIT" | "TSL_HIT";
   exitPrice: number;
   /** Always "PA" for tickHandler-driven auto-exits. */
   triggeredBy: Extract<ExitTriggeredBy, "PA">;

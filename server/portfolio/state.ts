@@ -230,6 +230,8 @@ export interface TradeRecord {
  */
 export type ExitReason =
   | "SL_HIT"
+  /** Trailing-stop exit (the stop had moved off its original level). */
+  | "TSL_HIT"
   | "TP_HIT"
   | "MOMENTUM_EXIT"
   | "VOLATILITY_EXIT"

@@ -274,6 +274,7 @@ export const disciplineRouter = router({
             "MOMENTUM_EXIT",
             "VOLATILITY_EXIT",
             "SL_HIT",
+            "TSL_HIT",
             "TP_HIT",
             "AGE_EXIT",
             "STALE_PRICE_EXIT",

@@ -32,6 +32,10 @@ export type ExitReasonCode =
   | "MOMENTUM_EXIT"
   | "VOLATILITY_EXIT"
   | "SL_HIT"
+  /** Trailing stop took the trade out — the stop had ratcheted away from its
+   *  original level before it was hit. Distinct from SL_HIT (original risk) so
+   *  reporting can separate trailing giveback from real stop-outs. */
+  | "TSL_HIT"
   | "TP_HIT"
   | "AGE_EXIT"
   | "STALE_PRICE_EXIT"

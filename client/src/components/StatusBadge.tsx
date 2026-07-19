@@ -74,9 +74,43 @@ function renderClosedPill(exitReason?: string) {
       </span>
     );
   }
-  // Every other ExitReason (MOMENTUM_EXIT, AGE_EXIT, VOLATILITY_EXIT,
-  // STALE_PRICE_EXIT, DISCIPLINE_EXIT, AI_EXIT, MANUAL, EOD, EXPIRY) and
-  // unknown / missing reason all render as a neutral CLOSED pill.
+  // Trailing stop — the trade ran, then gave part of it back. Amber rather than
+  // red: it's a managed exit, not the original risk being hit.
+  if (exitReason === 'TSL_HIT') {
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold bg-warning-amber/20 text-warning-amber"
+        title="Trailing stop hit — the stop had moved off its original level"
+      >
+        ↘ TSL
+      </span>
+    );
+  }
+  // Held too long — RCA's max-age rule closed it.
+  if (exitReason === 'AGE_EXIT') {
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold bg-neutral-steel/20 text-neutral-steel"
+        title="Aged out — closed by the max-holding-time rule"
+      >
+        ⏱ AGE
+      </span>
+    );
+  }
+  // Squared off at the close — not a strategy decision.
+  if (exitReason === 'EOD' || exitReason === 'EOD_SQUAREOFF') {
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold bg-info-cyan/20 text-info-cyan"
+        title="End-of-day square-off — the market closed, not a strategy exit"
+      >
+        ⏹ EOD
+      </span>
+    );
+  }
+  // Every other ExitReason (MOMENTUM_EXIT, VOLATILITY_EXIT, STALE_PRICE_EXIT,
+  // DISCIPLINE_EXIT, AI_EXIT, MANUAL, EXPIRY) and unknown / missing reason all
+  // render as a neutral CLOSED pill.
   return (
     <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-bold bg-muted text-muted-foreground">
       CLOSED

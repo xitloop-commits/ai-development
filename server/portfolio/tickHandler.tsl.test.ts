@@ -339,6 +339,20 @@ describe("tickHandler TSL — trail from start, ratchet, no gate/floor", () => {
     expect(trade.stopLossPrice).toBeCloseTo(105, 2);
     await processWith(trade, makeTick({ ltp: 104 })); // hits the trailed stop
     expect(exitEvent).not.toBeNull();
+    // The stop MOVED off its original 95 before it was hit, so this is a
+    // trailing-stop exit, not the original risk being hit.
+    expect(exitEvent.reason).toBe("TSL_HIT");
+  });
+
+  it("a stop hit at its ORIGINAL level still reports SL_HIT (not TSL)", async () => {
+    // tslMode "manual" freezes auto-trailing, so the stop stays where it opened —
+    // the genuine hard-SL case. (Trailing is gated on tslMode, NOT on
+    // trailingStopEnabled, so leaving it auto would trail the stop off 95 first.)
+    const trade = makeBuyTrade({ stopLossPrice: 95, originalStopLossPrice: 95, tslMode: "manual" });
+    let exitEvent: any = null;
+    tickHandler.once("autoExitDetected", (e) => { exitEvent = e; });
+    await processWith(trade, makeTick({ ltp: 94 })); // straight through the untouched stop
+    expect(exitEvent).not.toBeNull();
     expect(exitEvent.reason).toBe("SL_HIT");
   });
 
