@@ -26,7 +26,7 @@ import { TodaySummaryRow } from './TodaySummaryRow';
 import { tradeMatchesFilter, type TradeFilter } from './TradeFilterBar';
 
 /** TradingDesk table column count (see TradingDesk.tsx colgroup). */
-const TABLE_COLSPAN = 17;
+const TABLE_COLSPAN = 16;
 
 export interface TodaySectionProps {
   day: DayRecord;

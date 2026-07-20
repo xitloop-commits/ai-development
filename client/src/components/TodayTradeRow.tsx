@@ -552,7 +552,8 @@ function _TodayTradeRow({
       <td className={`px-2 py-1.5 text-right tabular-nums border-r border-border ${pnlBright}`}>
         {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%
       </td>
-      <td className="px-2 py-1.5 border-r border-border" />
+      {/* Day-level Capital column — blank on a trade row. (The Dev. column it
+          used to sit beside was removed; its width went to Instrument.) */}
       <td className="px-2 py-1.5 border-r border-border" />
       <td className="px-2 py-1.5 text-center">
         <StatusBadge status={trade.status} exitReason={trade.exitReason} reason={trade.rejectReason} />

@@ -4,7 +4,6 @@ import {
   fmt,
   pnlColor,
   formatDateAgeLabel,
-  formatDeviation,
 } from '@/lib/tradeFormatters';
 import {
   aggregateChargesBreakdown,
@@ -116,9 +115,6 @@ function _PastRow({ day, showNet, highlighted = false, expanded = false, onToggl
       </td>
       <td className="px-2 py-2 text-right tabular-nums font-medium border-r border-border">
         {day.actualCapital > 0 ? fmt(day.actualCapital, true) : ''}
-      </td>
-      <td className={`px-2 py-2 text-right tabular-nums border-r border-border ${pnlColor(day.deviation)}`}>
-        {day.actualCapital > 0 ? formatDeviation(day.deviation) : ''}
       </td>
       <td className="px-1 py-2 text-center">
         <span className={isFreshGift ? 'animate-gift-bounce' : ''}>

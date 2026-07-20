@@ -229,4 +229,27 @@ describe("TradingDesk — render branches", () => {
       expect(screen.getAllByText(new RegExp(`^${label}$`, "i"))[0]).toBeInTheDocument();
     }
   });
+
+  /**
+   * The desk is a real <table>: the colgroup, the header and every body row must
+   * agree on the column count or the whole grid shifts — cells land under the
+   * wrong headers and nothing errors. The previous header test asserted only
+   * that a handful of labels existed, so dropping a column passed silently.
+   */
+  it("colgroup and header agree on the column count", () => {
+    const days: DayRecord[] = [makeDay({ dayIndex: 1, status: "ACTIVE" })];
+    const { container } = renderWith(makeCtx({ allDays: days, currentDay: days[0] }));
+
+    const cols = container.querySelectorAll("colgroup col");
+    const ths = container.querySelectorAll("thead th");
+    expect(cols.length).toBe(ths.length);
+    expect(ths.length).toBe(16);
+  });
+
+  it("no longer renders the Dev. column (its width went to Instrument)", () => {
+    const days: DayRecord[] = [makeDay({ dayIndex: 1, status: "ACTIVE" })];
+    renderWith(makeCtx({ allDays: days, currentDay: days[0] }));
+
+    expect(screen.queryByText(/^Dev\.?$/i)).toBeNull();
+  });
 });

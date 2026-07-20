@@ -1,7 +1,8 @@
 /**
  * TodaySummaryRow — the day-summary banner at the bottom of the today cycle.
  *
- * Laid out as real <td> cells whose colSpans match the TradingDesk colgroup, so
+ * Laid out as real <td> cells whose colSpans match the TradingDesk colgroup (16
+ * columns since the Dev. column was dropped), so
  * each summary figure lines up directly under its trade-table header:
  *   Day+Date(1-2) · Capital flow(3-5) · Cohort-wise W/L + controls(6-10) ·
  *   Charges(11) · P&L(12-14) · ∅(15-17)
@@ -71,7 +72,7 @@ export function TodaySummaryRow({
   onExitAll,
   onRepeatLastOrder,
   rowRef,
-  colSpan = 17,
+  colSpan = 16,
 }: TodaySummaryRowProps) {
   // Day-health aggregates.
   const hasTrades = trades.length > 0;
