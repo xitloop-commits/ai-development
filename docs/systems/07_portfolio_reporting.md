@@ -71,23 +71,50 @@ Stored in MongoDB `position_states` collection, one document per `(channel, inst
 
 Position state is **always read from PA**. SEA's gate calls `PortfolioAgent.has_open_position(instrument, side)` before suggesting a new entry; RCA's monitoring loop scopes itself to `PortfolioAgent.getOpenPositions(channel)`.
 
-## 4. The six channels + capital pools
+## 4. The three channels + capital pools
 
-The 6-channel model matches [05 Execution](05_execution.md). PA carries an **independent capital pool per channel**:
+Three channels (`paper` / `ai-live` / `my-live`), matching [05 Execution](05_execution.md). PA carries an **independent capital pool per channel** — an `ai-live` drawdown can't bleed `my-live`.
 
-- 75 % trading capital + 25 % reserve (`compounding.ts:injectCapital()`).
-- Trading capital compounds along a 250-day day-index curve; reserve is a clawback buffer.
-- A workspace can be re-funded; each `injectCapital` call records into the channel's capital ledger.
+Each pool is a pair: **Trading** (compounds, absorbs 100 % of losses) and **Reserve** (grows only from booked profit, never debited by the engine). The reserve split is operator-tunable 0–90 % (default 25 %) and applies to **PROFIT ONLY** — seed and injected capital go **entirely to Trading**. `compounding.ts:injectCapital()` never splits.
 
-Independent pools mean an `ai-live` drawdown can't bleed `my-live` capital. The 75 / 25 split is the same locked policy across all channels — single-source-of-truth, not per-channel tunable today.
+### Where the money comes from (agreed 2026-07-20)
+
+| Channel | Funding |
+|---|---|
+| `paper` | Manually funded. **One book shared by AI and manual trades.** |
+| `ai-live` | Seeded **once, ever** from Dhan `dhan-secondary-ac`. |
+| `my-live` | Seeded **once, ever** from Dhan `dhan-primary-ac`. |
+
+Live seeding rules:
+
+- **Nothing auto-seeds to a default amount.** A channel with no capital document starts at ₹0.
+- The seed fires **automatically** on the first read of an unseeded live book, taking `getMargin().total` (Dhan `sodLimit`, the start-of-day limit) via the adapter already mapped in `brokerService.ts`.
+- **After that Dhan is never read for capital again** — not daily, not on refresh, not ever. The engine owns the pool outright from the seed onward.
+- A **`seededAt`** field records the seed. It exists so "never seeded" is distinguishable from "seeded and legitimately drawn to ₹0" — without it, a drained book would be re-seeded from Dhan behind the operator's back.
+- If the seed **fails** (stale Dhan token — it's minted at API-server startup and expires at the IST day boundary), **no document is written**, so the next read retries. The book stays at ₹0 until a fetch succeeds.
+
+⚠️ **An unseeded live book is unguarded, not just unfunded.** `checkPositionSize` and `checkExposure` both `return { passed: true }` when `currentCapital <= 0` (`server/discipline/positionSizing.ts:27`, `:67`) — they read zero capital as "no limit configured" and wave every order through. An unseeded live book must therefore be blocked from placing orders outright; it cannot rely on the percentage guards, which switch themselves off. Order gating is [06 Risk & Discipline](06_risk_discipline.md)'s to own — PA's job is to expose the unseeded state via `seededAt` so discipline can check it.
+
+### Moving money afterwards
+
+Every real-world movement is mirrored manually, because Dhan is never re-read:
+
+- **Deposits** → `inject`, which **honours the `channel` input** (all three books are independently fundable).
+- **Withdrawals** → a dedicated `withdraw` procedure with its own audit event, draining **Trading first, then spilling into Reserve** only when the amount exceeds Trading. The reserve is still never touched *automatically* — only ever by an explicit operator withdrawal. Capping withdrawals at Trading would lock the operator out of their own money whenever the reserve holds most of it; and since the reserve is **notional** (one real Dhan balance split into two ledger buckets), a withdrawal exceeding Trading must reduce Reserve or the app would claim more money than the account holds.
+
+### Net worth vs P&L
+
+Net worth **combines the two live books**. **P&L stays separate per book** — the shared figure is the balance, not the performance.
 
 ## 5. Day index — 250-day compounding
 
 `compounding.ts` owns the day-index lifecycle:
 
-- `checkDayCompletion()` — at IST midnight, finalise yesterday's day index.
-- `completeDayIndex()` — write the closing capital, advance the curve index.
-- `processClawback()` — if today closed below the trading-capital floor, pull from reserve to top up.
+- `checkDayCompletion()` — a day completes when **no trade is open** and net P&L ≥ the day's target. Day index ≠ calendar day; it is one completed profit cycle, so a day can span several sessions or several can complete in one.
+- `completeDayIndex()` — splits the profit (Trading gets `tradingSplit()`, Reserve the rest), appends a `profitHistory` entry, advances the index. Excess profit above target cascades forward as **Gift Days** (`calculateGiftDays`).
+- `processClawback()` — a loss ≥ the target rewinds day indices, **consuming previous Trading-Pool profit shares, newest first**, floored at Day 1. **Reserve shares are permanently safe — the engine never debits Reserve.** (The old text here claimed clawback "pulls from reserve to top up"; that is the opposite of what the code does.)
+- `checkCombinedDayCompletion()` — the two live books share one **staircase** but keep **separate wallets**: completion is decided on combined P&L across `ai-live` + `my-live`, then each book applies the result to its own capital. No completion while *either* book holds an open trade.
+- `projectFutureDays()` — compounds only the trading share each day (`pool += targetAmount × tradingSplit()`), matching `completeDayIndex`. At 5 %/day over 250 days that is ≈9,900× rather than the ≈198,000× full compounding would give.
 - `calculateQuarterlyProjection()` — forward-looking estimate from the current trajectory; surfaced in the UI dashboard but not used for decisions.
 
 The 250-day curve is the long-horizon promotion metric, not a daily gate. Daily caps live in [06 Risk & Discipline](06_risk_discipline.md) Module 8.

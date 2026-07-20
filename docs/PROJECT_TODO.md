@@ -693,6 +693,29 @@ The `testing-sandbox` channel was historically half-built — `connect()` short-
   - Live in-UI verification Monday: open Settings (F2) → Sandbox Token → confirm status reads "CONNECTED", then place an option trade on `testing-sandbox` and confirm it fills at ₹100 (Dhan sandbox quirk) and shows up in positions.
   - Quirk to document operator-side: Dhan sandbox fills every order at ₹100 regardless of market; capital resets to ₹10,00,000 daily — useful for API-shape validation, not for P&L realism.
 
+### T92 [CAPITAL] — Capital management: Dhan one-time seed + fix the accumulated drift — DESIGN AGREED 2026-07-20, build pending 🆕
+
+Design is locked in [07 Portfolio & Reporting §4–5](systems/07_portfolio_reporting.md). The 250-day staircase model **stays**; this is a funding-source change plus a drift cleanup.
+
+**A. Funding model (new)**
+1. Nothing auto-seeds to ₹100,000 — an unseeded channel starts at ₹0. (`getCapitalState` currently lazily creates every channel at ₹100k, so **`ai-live` has been running on a phantom balance that was never deposited** — every percent-size and discipline check on that book measured against fiction.)
+2. Live books seed **once, ever**, automatically on first read, from `getMargin().total` (Dhan `sodLimit`) — `ai-live` ← `dhan-secondary-ac`, `my-live` ← `dhan-primary-ac`. **Dhan is never read for capital again.**
+3. Add **`seededAt`** to the capital state so "never seeded" ≠ "drawn to ₹0".
+4. Seed failure writes nothing → retries on next read.
+5. `paper` stays manually funded, one book shared by AI + manual.
+6. Net worth **combines** the live books; **P&L stays separate** per book.
+
+**B. Drift to fix (found in the 2026-07-20 audit)**
+7. `inject` / `transferFunds` / `resetCapital` accept a `channel` but **always write `'my-live'`** (`router.ts:220`, `:279`, `:529`). Worst case: `resetCapital` *guards* `input.channel` then wipes my-live — resetting with `channel:'paper'` checks paper and destroys live. Make all three honour the channel.
+8. Add a **`withdraw`** procedure (own audit event): drains **Trading first, then Reserve**. No withdrawal path exists today — `inject` requires `amount > 0` and `transferFunds` only moves between pools.
+9. `futureDays` **double-applies the reserve split** (`router.ts:418` passes `startCapital × tradingSplit()` into a `projectFutureDays` that already applies it at `compounding.ts:431`). Delete the multiplier — `allDays` is the correct one.
+10. Settings claims "after reset: Trading 75 % / Reserve 25 %" (`Settings.tsx:535`, `:562-563`) but reset sets Trading = full funding, Reserve = 0. Fix the copy; the **code is right** (split applies to profit only). Also fix the stale `75000/25000` fallbacks at `state.ts:1085-1086` and `storage.ts:477` — values no write path produces.
+11. Delete dead machinery: `mirroredChannels = []` makes three mirror loops unreachable (`router.ts:223`, `:280`, `:532`); `_generateTradeId` / `_getChargeRates` unused; `transferFundsCrossChannel` has no caller outside tests (decide: keep for the future or drop).
+12. Consolidate duplicated config: sizing lives in both `aiModeConfig.sizing.perInstrument` and `brokerConfig.instrumentSizing`; `dailyTargetPercent` lives in both broker config and the Sprint block. AI menu should win (T85 direction).
+13. Doc drift: `state.ts:6-18` still describes seven channels; `07_portfolio_reporting.md:221` points at a non-existent `calculateTradeCharges.ts` (actual `charges.ts`) and names `portfolio.injectCapital` (actual `inject`).
+
+**Cross-cutting risk (belongs to [06 Risk & Discipline](systems/06_risk_discipline.md), not this task):** `checkPositionSize` and `checkExposure` both `return { passed: true }` when `currentCapital <= 0` (`discipline/positionSizing.ts:27`, `:67`). Under the new model an unseeded live book sits at ₹0 and would run **completely unguarded**. Discipline must block orders on unseeded books rather than trust the percentage checks.
+
 ## P2 — parked features (small enough to wait)
 
 ### T91 [ARCH] — SEA cohort control is global across BOTH SEA instances — PARKED 2026-07-20 🆕
