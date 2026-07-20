@@ -500,10 +500,27 @@ class TickHandler extends EventEmitter {
             now: Date.now(),
           }, stratCfg);
           if (out) {
-            trade.stopLossPrice = out.stop; // ratchet the visible stop
+            // A manually-set level wins. The strategy may still ratchet it
+            // FURTHER in the operator's favour, but only from its genuine
+            // trailing phase — the staged stop is an absolute recompute from
+            // entry, so applying it would snap a deliberately-widened stop
+            // straight back and make manual widening impossible.
+            //
+            // (Sprint needs no equivalent guard: both its trailing writers are
+            // already ratchet-only, so a manual level survives as a floor.)
+            const stopIsTrail = out.phase === "trailing";
+            const stopImproves = isBuy ? out.stop > (trade.stopLossPrice ?? -Infinity)
+                                       : out.stop < (trade.stopLossPrice ?? Infinity);
+            if (!trade.slOverridden || (stopIsTrail && stopImproves)) {
+              trade.stopLossPrice = out.stop; // ratchet the visible stop
+            }
             // Target follows the config too, so retuning Runway/Anchor moves the
-            // TradeBar's TP on open trades — not just the stop.
-            trade.targetPrice = Math.round(out.target * 100) / 100;
+            // TradeBar's TP on open trades — not just the stop. A manual target
+            // is left alone entirely; there is no trailing-TP phase here to
+            // ratchet from.
+            if (!trade.tpOverridden) {
+              trade.targetPrice = Math.round(out.target * 100) / 100;
+            }
             anyUpdated = true;
             if (out.exit) {
               this.exitingTrades.set(trade.id, Date.now());

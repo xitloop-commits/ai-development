@@ -875,8 +875,22 @@ class PortfolioAgentImpl {
     const oldSL = trade.stopLossPrice;
     const oldTP = trade.targetPrice;
 
-    if (modifications.stopLossPrice !== undefined) trade.stopLossPrice = modifications.stopLossPrice;
-    if (modifications.targetPrice !== undefined) trade.targetPrice = modifications.targetPrice;
+    // Stamp the manual-override flags alongside the level. Every caller of this
+    // method is operator intent (the UI's SL/TP edit, and the desync reconcile
+    // where the operator types in the broker's true levels) — the tick engine
+    // mutates trades directly and never comes through here, so this can't be
+    // tripped by the strategy's own trailing.
+    //
+    // Without these the attached strategy overwrites a manual edit on the very
+    // next tick: Runway/Anchor recompute both levels from config unconditionally.
+    if (modifications.stopLossPrice !== undefined) {
+      trade.stopLossPrice = modifications.stopLossPrice;
+      trade.slOverridden = true;
+    }
+    if (modifications.targetPrice !== undefined) {
+      trade.targetPrice = modifications.targetPrice;
+      trade.tpOverridden = true;
+    }
     if (modifications.trailingStopEnabled !== undefined) trade.trailingStopEnabled = modifications.trailingStopEnabled;
     if (modifications.stopLossDisabled !== undefined) trade.stopLossDisabled = modifications.stopLossDisabled;
     if (modifications.targetDisabled !== undefined) trade.targetDisabled = modifications.targetDisabled;

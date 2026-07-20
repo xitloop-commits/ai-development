@@ -156,6 +156,14 @@ export interface TradeRecord {
    *  recompute the target from config each tick without feeding their own
    *  output back in (which would lock the config out). */
   originalTargetPrice?: number | null;
+  /** T92-followup — the operator manually set this level on the OPEN trade, so
+   *  the attached strategy must stop resetting it every tick. Trailing still
+   *  applies FROM the manual value (ratchet-only, never retreats), which is why
+   *  these are separate flags rather than a blanket "strategy off" switch.
+   *  Sprint already ratchets both levels, so these only gate Runway/Anchor's
+   *  staged recompute. */
+  slOverridden?: boolean;
+  tpOverridden?: boolean;
   /** Broker-assigned order ID returned by placeOrder. Used by orderSync /
    *  recoveryEngine to match broker events back to this trade.
    *  Pre-2026-05 docs stored this on the (now-renamed) `brokerId` field;
@@ -362,6 +370,8 @@ const tradeRecordSchema = new Schema(
     tslMode: { type: String, enum: ["auto", "manual"], default: "auto" },
     originalStopLossPrice: { type: Number, default: null },
     originalTargetPrice: { type: Number, default: null },
+    slOverridden: { type: Boolean, default: false },
+    tpOverridden: { type: Boolean, default: false },
     tslActivatedAt: { type: Number, default: null },
     brokerOrderId: { type: String, default: null },
     exitBrokerOrderId: { type: String, default: null },
@@ -1237,6 +1247,8 @@ function docToDayRecord(doc: Record<string, any>): DayRecord {
       exitStrategy: t.exitStrategy ?? undefined,
       originalStopLossPrice: t.originalStopLossPrice ?? undefined,
       originalTargetPrice: t.originalTargetPrice ?? undefined,
+      slOverridden: t.slOverridden ?? undefined,
+      tpOverridden: t.tpOverridden ?? undefined,
       tslActivatedAt: t.tslActivatedAt ?? undefined,
       brokerOrderId: t.brokerOrderId ?? null,
       exitBrokerOrderId: t.exitBrokerOrderId ?? null,
